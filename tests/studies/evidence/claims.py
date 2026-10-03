@@ -397,7 +397,7 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
                     "margin:efficiency_ratio_upper": high,
                 }
             )
-    if "targeting_necessity" in record.property_cells:
+    if {"targeting_necessity", "stratum_targeting_necessity"} & set(record.property_cells):
         declared["margin:targeting_displacement"] = record.properties().TARGETING_DISPLACEMENT
     if "fold_locality" in record.property_cells:
         declared["margin:fold_locality_displacement"] = (

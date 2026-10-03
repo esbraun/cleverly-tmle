@@ -114,7 +114,7 @@ targeting. A paired control replaces the declared density with a uniform density
 - The primary working outcome model is logistic and the natural treatment mechanism is supplied exactly.
 - The intervention density is known, covariate dependent, and supported on both arms.
 - The study covers ordinary, non-cross-fitted targeting and pointwise Wald intervals.
-- It excludes missing outcomes, weights, clusters, simultaneous bands, and flexible learners.
+- It excludes missing outcomes, weights, clusters, simultaneous bands, and flexible learners. The [default-band study](default-simultaneous-bands.md) measures the default band of this study's subject fit.
 - It does not validate continuous-dose, incremental, or longitudinal stochastic interventions.
 - The reference evaluates its shifted regression at one draw from the declared density. It does
   not integrate over that density, so it carries a Monte Carlo variance that `cleverly` does not.

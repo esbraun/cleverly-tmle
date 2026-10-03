@@ -182,7 +182,7 @@ bias interval is 0.000193 to 0.0097, which remains inside the declared 0.0159 ma
   `tmle` 2.1.1. The registered probe recreates the defect during standard regeneration. The study
   does not claim that the native result is valid with exact `Q.Z1` inputs.
 - Inference is pointwise. The study does not cover simultaneous bands, active probability bounds,
-  weights, clusters, multi-arm treatment, continuous intermediates, or MNAR outcomes.
+  weights, clusters, multi-arm treatment, continuous intermediates, or MNAR outcomes. The [default-band study](default-simultaneous-bands.md) measures the default band of this study's subject fit at each intermediate level. The cell at Z = 0 is red.
 - `ATT` and `ATC` retain exact-law Gateaux and remainder evidence but are absent here because R
   `tmle` does not report them on its controlled direct-effect path.
 - This is not evidence for natural direct or indirect effects, nor for a general longitudinal

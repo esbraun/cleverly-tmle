@@ -115,6 +115,12 @@ def property_cells(*, crossfit: bool) -> dict[str, tuple[str, ...]]:
             "cross_fitted_competing_ltmle",
             "in_sample_control",
         )
+    else:
+        cells["simultaneous_coverage"] = tuple(
+            f"{label}__{kind}"
+            for label in ("all_reported", "curve_always")
+            for kind in ("simultaneous_band", "pointwise_joint_control")
+        )
     return cells
 
 
@@ -131,6 +137,19 @@ def manifest_configuration(*, crossfit: bool) -> dict[str, Any]:
     # The ordinary row's configuration is unchanged by the pooled construction, so the
     # reference construction is recorded on the cross-fitted row only.
     reference = {"reference_construction": TRAINING_FOLD_FLUCTUATION} if crossfit else {}
+    # The joint cells are the ordinary row's only, so the cross-fitted row records nothing new.
+    bands = (
+        {}
+        if crossfit
+        else {
+            "band_cells": (
+                "all_reported reuses the interval_calibration fits, which declare "
+                "simultaneous=True; curve_always is a dedicated batch of one-regimen fits of "
+                "always at horizons (1, 2). Both use the engine's default 2000 rademacher "
+                "draws seeded by random_state=0"
+            )
+        }
+    )
     return {
         "construction": POOLED_LONGITUDINAL_CROSS_FIT if crossfit else "ordinary",
         **reference,
@@ -141,6 +160,7 @@ def manifest_configuration(*, crossfit: bool) -> dict[str, Any]:
         "outer_folds": 5 if crossfit else 1,
         "learner_folds": 2,
         "simultaneous_intervals": False,
+        **bands,
         "variance_method": "ic",
         "stratify": True,
         "g_bounds": list(G_BOUNDS),
@@ -176,6 +196,8 @@ STUDY = StudyRecord(
         "tests/studies/canonical_ltmle.py",
         "tests/studies/canonical_ltmle_crossfit.py",
         "tests/discrete_law_competing.py",
+        "tests/discrete_law_longitudinal.py",
+        "tests/studies/fractional_glm.py",
         "tests/studies/evidence/comparison.py",
         "tests/studies/evidence/inference.py",
         "tests/studies/evidence/performance.py",
@@ -239,7 +261,7 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
     return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
-def fit_cleverly(frame: pd.DataFrame, *, n_folds: int = 1) -> Any:
+def fit_cleverly(frame: pd.DataFrame, *, n_folds: int = 1, simultaneous: bool = False) -> Any:
     return LTMLE(
         REGIMENS,
         reference=REFERENCE,
@@ -250,7 +272,7 @@ def fit_cleverly(frame: pd.DataFrame, *, n_folds: int = 1) -> Any:
         n_folds=n_folds,
         learner_folds=2,
         g_bounds=G_BOUNDS,
-        simultaneous=False,
+        simultaneous=simultaneous,
         max_iter=100,
         tol=1e-10,
         random_state=0,

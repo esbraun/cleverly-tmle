@@ -49,6 +49,7 @@ STUDY = StudyRecord(
         "tests/studies/evidence/property_verdicts.py",
         "tests/studies/evidence/schema.py",
         "tests/studies/evidence/seeds.py",
+        "tests/studies/evidence/simultaneous.py",
     ),
     runner_module="tests.studies.canonical_multi_arm_tmle",
     properties_module="tests.studies.multi_arm_tmle_properties",
@@ -64,6 +65,7 @@ STUDY = StudyRecord(
         "interval_calibration": ("correctly_specified",),
         "type_i_error": ("sharp_null",),
         "power": ("alternative",),
+        "simultaneous_coverage": ("arms__simultaneous_band", "arms__pointwise_joint_control"),
     },
 )
 
@@ -78,6 +80,12 @@ CONFIGURATION = {
     "reference": multi_arm_common.REFERENCE,
     "cross_fit": False,
     "simultaneous_intervals": False,
+    "band_cells": (
+        "a dedicated batch of in-sample fits with the calibration learners, "
+        "estimands ('ey', 'ate', 'rr', 'or') and simultaneous=True with its default 1000 "
+        "rademacher draws seeded by random_state=0; the band covers all nine reported "
+        "parameters"
+    ),
     "g_bounds": list(multi_arm_common.G_BOUNDS),
     "outcome_model": "intercept-only (matched to sl3 Lrnr_mean)",
     "treatment_model": "multinomial logistic regression (matched to pinned nnet adapter)",

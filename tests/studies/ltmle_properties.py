@@ -1,4 +1,22 @@
-"""Independent properties for ordinary end-of-study longitudinal TMLE."""
+"""Independent properties for ordinary end-of-study longitudinal TMLE.
+
+The ``simultaneous_coverage`` family measures the default band over the regimen family.
+Declared before any run:
+
+* the cells reuse the ``interval_calibration/correctly_specified`` fits (n = 2,000,
+  R = 2,400, saturated cell-mean learners, one fold).  Those fits alone pass
+  ``simultaneous=True``, with the engine's defaults: 2000 rademacher draws seeded by
+  ``random_state=0``.  The band draws from its own generator, so every pointwise number of
+  those fits is unchanged;
+* the band covers the five reported parameters: ``ey_regimen`` under ``never``, ``always``
+  and ``treat_if_l2``, and the two contrasts against ``never``.  The truth is
+  ``law.TRUTH``;
+* the cells are ``regimens__simultaneous_band`` and ``regimens__pointwise_joint_control``.
+  The band passes when its 99% joint-coverage interval lies inside ``[0.92, 0.98]``, and the
+  control passes when the 99% upper endpoint of joint coverage is below 0.95;
+* a red cell is not repaired with a budget, a margin, a law, a learner, a size, a seed or a
+  multiplier setting.  It is diagnosed against the oracle band first.
+"""
 
 from __future__ import annotations
 
@@ -26,8 +44,10 @@ from tests.studies.evidence.property_verdicts import (
     calibration_verdicts,
     finish,
     necessity_verdicts,
+    simultaneous_coverage_verdicts,
 )
 from tests.studies.evidence.seeds import stream_seed
+from tests.studies.evidence.simultaneous import joint_coverage_rows
 
 DOUBLE_ROBUST_REPLICATES = 1_200
 DOUBLE_ROBUST_N = 2_000
@@ -63,6 +83,9 @@ TARGETING_N = DOUBLE_ROBUST_N
 #: module builds outside the estimator -- the deliberately shrunken and noised calibration
 #: controls, and the untargeted arm, which has no interval of its own to copy.
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
+
+#: The joint cells' label: the band over every regimen mean and contrast the fit reports.
+JOINT_LABEL = "regimens"
 
 REGIMENS = declared_regimens(
     {key: law.REGIMEN_SPEC[key] for key in ("never", "always", "treat_if_l2")}
@@ -154,7 +177,9 @@ def _learners(configuration: str) -> tuple[Any, Any, Any, Any]:
     )
 
 
-def fit(frame: pd.DataFrame, configuration: str = "both_correct") -> Any:
+def fit(
+    frame: pd.DataFrame, configuration: str = "both_correct", *, simultaneous: bool = False
+) -> Any:
     outcome, pseudo, treatment, censoring = _learners(configuration)
     return LTMLE(
         REGIMENS,
@@ -165,7 +190,7 @@ def fit(frame: pd.DataFrame, configuration: str = "both_correct") -> Any:
         censoring_learner=censoring,
         n_folds=1,
         g_bounds=G_BOUNDS,
-        simultaneous=False,
+        simultaneous=simultaneous,
         max_iter=100,
         tol=1e-10,
         random_state=0,
@@ -232,7 +257,8 @@ def _fit_replication(
     property_name, cell_suffix, replicate, n, requested, seed, configuration = payload
     probs = NULL_PROBS if property_name == "type_i_error" else law.PROBS
     frame = sample(probs, n, seed)
-    result = fit(frame, configuration)
+    joint = property_name == "interval_calibration"
+    result = fit(frame, configuration, simultaneous=joint)
     labels = ("static",) if property_name in {"type_i_error", "power"} else tuple(CONTRASTS)
     rows: list[dict[str, Any]] = []
     for label in labels:
@@ -277,6 +303,19 @@ def _fit_replication(
                     critical=CRITICAL,
                 )
             )
+    if joint:
+        rows.extend(
+            joint_coverage_rows(
+                result,
+                {name: float(law.TRUTH[name]) for name in result.estimates},
+                tuple(result.estimates),
+                label=JOINT_LABEL,
+                replicate=replicate,
+                n=n,
+                requested=requested,
+                pointwise_critical=CRITICAL,
+            )
+        )
     return rows
 
 
@@ -372,6 +411,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     )
 
     calibration_verdicts(summary, margins=margins, efficiency_band=EFFICIENCY_RATIO_BAND)
+    simultaneous_coverage_verdicts(summary, margins=margins)
 
     necessity_verdicts(
         summary,

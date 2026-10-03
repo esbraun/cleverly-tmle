@@ -108,5 +108,5 @@ confounded sharp null, targeting, the declared rule, and exact static reduction.
 - The laws use binary treatment, binary outcome, and one three-level baseline covariate.
 - The primary working outcome model is logistic and the treatment mechanism is supplied exactly.
 - The study covers ordinary, non-cross-fitted targeting and pointwise Wald intervals.
-- It excludes missing outcomes, observation weights, clusters, simultaneous bands, and flexible learners.
+- It excludes missing outcomes, observation weights, clusters, simultaneous bands, and flexible learners. The [default-band study](default-simultaneous-bands.md) measures the default band of this study's subject fit.
 - It does not validate stochastic, continuous-dose, incremental, or longitudinal interventions.

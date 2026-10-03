@@ -93,6 +93,7 @@ STUDY = StudyRecord(
         "tests/studies/canonical_ltmle.py",
         "tests/studies/ltmle_properties.py",
         "tests/discrete_law_longitudinal.py",
+        "tests/studies/fractional_glm.py",
         "tests/studies/evidence/comparison.py",
         "tests/studies/evidence/inference.py",
         "tests/studies/evidence/performance.py",
@@ -100,6 +101,7 @@ STUDY = StudyRecord(
         "tests/studies/evidence/property_verdicts.py",
         "tests/studies/evidence/schema.py",
         "tests/studies/evidence/seeds.py",
+        "tests/studies/evidence/simultaneous.py",
     ),
     runner_module="tests.studies.canonical_ltmle",
     properties_module="tests.studies.ltmle_properties",
@@ -136,6 +138,10 @@ STUDY = StudyRecord(
             for estimand in ("static", "dynamic")
             for arm in ("targeted", "untargeted")
         ),
+        "simultaneous_coverage": (
+            "regimens__simultaneous_band",
+            "regimens__pointwise_joint_control",
+        ),
     },
 )
 
@@ -153,6 +159,11 @@ CONFIGURATION = {
     "r_survival_outcome": False,
     "cross_fit": False,
     "simultaneous_intervals": False,
+    "band_cells": (
+        "the interval_calibration fits declare simultaneous=True with the engine's default "
+        "2000 rademacher draws seeded by random_state=0, which leaves every pointwise result "
+        "unchanged and attaches the band over all five reported parameters"
+    ),
     "variance_method": "ic",
     "stratify": True,
     "g_bounds": list(G_BOUNDS),

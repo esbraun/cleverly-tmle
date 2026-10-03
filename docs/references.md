@@ -324,6 +324,21 @@ previous reader had is not a citation; a page number is.
   `R/Lrnr_cv.R` builds `fold_fits` and, when requested, a `full_fit`; `predict_fold(...,
   "validation")` assembles held-out predictions while `predict_fold(..., "full")` uses the
   all-training fit. This is the design source for C-TMLE's nested selection predictions.
+- The same pinned `tmle3` supplies `tmle_stratified`, the comparator of the
+  [baseline-strata study](technical-reference/method-evidence/stratified-point-treatment-tmle.md).
+  [`R/tmle3_Spec_stratified.R`, lines 14–63](https://github.com/tlverse/tmle3/blob/ed72f8a20e64c914ab25ffe015d865f7a9963d27/R/tmle3_Spec_stratified.R#L14-L63)
+  adds the stratum variable to `W` and wraps each base parameter in `Param_stratified`.
+  `base_estimate = FALSE` drops the marginal parameter.
+  [`R/Param_stratified.R`, lines 49–100](https://github.com/tlverse/tmle3/blob/ed72f8a20e64c914ab25ffe015d865f7a9963d27/R/Param_stratified.R#L49-L100)
+  weights each base clever covariate by `n / n_s` inside stratum `s` and by zero outside it. It
+  evaluates the base parameter on the stratum's subset of the task and scales that curve by the
+  same weight. The study pairs the treatment-specific-mean and ATE bases only, and its page states
+  why it does not pair the ATT, ATC and PAR bases.
+  [`R/tmle3_Fit.R`, lines 35–41 and 71](https://github.com/tlverse/tmle3/blob/ed72f8a20e64c914ab25ffe015d865f7a9963d27/R/tmle3_Fit.R#L35-L71)
+  store the initial estimates and the parameter names of a two-parameter stratified spec as
+  matrices. [`R/utils.R`, lines 37–104](https://github.com/tlverse/tmle3/blob/ed72f8a20e64c914ab25ffe015d865f7a9963d27/R/utils.R#L37-L104)
+  then builds a 12-column summary and names it with 10 names, so `fit$summary` fails. The study's
+  runner computes the same summary from `fit$estimates`.
 - van der Laan & Gruber (2016), *One-step targeted minimum loss-based estimation*.
 
 ## Point treatment and stochastic interventions
@@ -413,7 +428,8 @@ previous reader had is not a citation; a page number is.
   default simultaneous band uses Rademacher multiplier draws on the centered curves of the same rows
   (`src/cleverly/methods.py:329`). Its validity follows from the joint expansion and a conditional
   multiplier central limit theorem for a fixed number of estimands. That step is also a standard
-  consequence that the papers do not state.
+  consequence that the papers do not state. The registered joint-coverage cells that measure the
+  band are listed under [simultaneous bands](technical-reference/inference.md#simultaneous-bands).
 
   Two package facts bound the joint fit. Each row of the arm-indexed clever covariate has one
   nonzero column (`src/cleverly/fluctuation/submodel.py:463-466`). In `_newton_logistic`

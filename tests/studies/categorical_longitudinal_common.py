@@ -228,6 +228,7 @@ def fit(
     cross_fit: bool,
     configuration: str = "both_correct",
     mutate_rule: bool = False,
+    simultaneous: bool = False,
 ) -> Any:
     """Fit either registered construction through one result-identical adapter."""
     outcome, pseudo, treatment = _learners(configuration)
@@ -242,7 +243,7 @@ def fit(
         n_folds=N_FOLDS if use_cross_fit else 1,
         learner_folds=2,
         g_bounds=G_BOUNDS,
-        simultaneous=False,
+        simultaneous=simultaneous,
         max_iter=100,
         tol=1e-10,
         random_state=0,

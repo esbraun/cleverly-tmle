@@ -84,6 +84,8 @@ beside the paired one. A regeneration fails if either is false.
 | `root_n_rate` | `dynamic__reported_se` | positive | dynamic plan: the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.4857 to -0.4776 | pass |
 | `root_n_rate` | `static__empirical_sd` | positive | static plan: log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5482 to -0.4841 | pass |
 | `root_n_rate` | `static__reported_se` | positive | static plan: the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.4786 to -0.4694 | pass |
+| `simultaneous_coverage` | `regimens__pointwise_joint_control` | control | the three regimen means and their two contrasts: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.7912 to 0.8326 | pass |
+| `simultaneous_coverage` | `regimens__simultaneous_band` | positive | the three regimen means and their two contrasts: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9319 to 0.9563 | pass |
 | `targeting_necessity` | `dynamic__targeted` | positive | dynamic plan: the estimator fluctuates a misspecified outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.0014 to 0.0023, margin 0.0063 | pass |
 | `targeting_necessity` | `dynamic__untargeted` | control | dynamic plan: the identical fit with every fluctuation step removed | bias interval must fall entirely outside the margin | bias 0.0239 to 0.0282, margin 0.0073 | pass |
 | `targeting_necessity` | `static__targeted` | positive | static plan: the estimator fluctuates a misspecified outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.0018 to 0.0068, margin 0.0143 | pass |
@@ -94,6 +96,11 @@ beside the paired one. A regeneration fails if either is false.
 The property study samples the exact binary support law rather than the continuous comparison law.
 Its longhand functional supplies exact static and dynamic truths, and its Gateaux derivative
 supplies the efficiency bound without reading either estimator.
+
+The `simultaneous_coverage` family reads the default band of the calibration fits, 2000
+Rademacher draws seeded by `random_state=0`. The band covers the three regimen means and the two
+contrasts. The band draws from its own generator, so every pointwise number of those fits is
+unchanged.
 
 ## Measured values
 
@@ -108,8 +115,10 @@ the committed results and checked at the precision printed.
 | `independent_tests_passed` | 10 | truth tests passing |
 | `paired_tests_total` | 5 | paired estimand comparisons |
 | `paired_tests_passed` | 5 | paired comparisons passing |
-| `property_cells_total` | 30 | independent property cells |
-| `property_cells_passed` | 30 | property cells passing |
+| `property_cells_total` | 32 | independent property cells |
+| `property_cells_passed` | 32 | property cells passing |
+| `properties[simultaneous_coverage/regimens__simultaneous_band]:coverage` | 0.9450 | joint coverage of the default band over the five regimen parameters |
+| `properties[simultaneous_coverage/regimens__pointwise_joint_control]:coverage` | 0.8125 | joint coverage of the pointwise intervals of the same fits |
 | `max_standardized_bias` | 0.0180 | largest primary standardized bias |
 | `min_coverage` | 0.9387 | lowest primary coverage |
 | `min_coverage_ci_lower` | 0.9216 | lowest primary coverage lower endpoint |
@@ -175,7 +184,7 @@ the committed results and checked at the precision printed.
 | The test over-rejects mildly under the harder null | The rate is 0.0700 at n=4,000 on 800 replications, about 2.6 Monte Carlo standard errors above nominal, and coverage in the same cell is 0.9300. The one-sided bound of 0.0965 clears the predeclared ceiling of 0.1000, so the cell passes, but with roughly three rejections to spare and a point estimate genuinely above 0.05. The influence-curve standard error is slightly optimistic here, and this is published rather than absorbed |
 | The n=500 cells are controls whose inference the row does not claim | Each must *resolve*, placing its exact 99% coverage interval clear of nominal on one side or the other. Below the floor is a published small-sample limitation; at or above it is the estimator turning out to be adequate. Only a straddling interval fails, because it is the one outcome that says nothing |
 | Positivity is comfortable throughout | The smallest cumulative mechanism product on the comparison law sits between 0.006 and 0.03, and the property law bounds every conditional into [0.25, 0.75]. No cell here speaks to near-positivity behaviour or to an active bound |
-| The row is bounded to ordinary end-of-study estimation | Survival has its own row below. This row excludes competing risks, longitudinal MSMs, observation weights, clustering, simultaneous bands, flexible learning, cross-fitting, active truncation, and R parity for learned mechanisms. Those are different estimators or compositions and require their own studies |
+| The row is bounded to ordinary end-of-study estimation | Survival has its own row below. This row excludes competing risks, longitudinal MSMs, observation weights, clustering, flexible learning, cross-fitting, active truncation, and R parity for learned mechanisms. Those are different estimators or compositions and require their own studies |
 
 The causal interpretation requires consistency, sequential exchangeability, longitudinal
 positivity, and conditionally independent censoring. Single-correct-nuisance cells establish

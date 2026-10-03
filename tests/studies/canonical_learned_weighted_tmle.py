@@ -146,6 +146,7 @@ def fit_cleverly(
     *,
     estimands: Sequence[EstimandName] = ESTIMANDS,
     learner_weights: bool = True,
+    simultaneous: bool = False,
 ) -> Any:
     """Fit the declared estimator, optionally omitting weights from nuisance learning alone."""
     return (
@@ -154,7 +155,7 @@ def fit_cleverly(
             outcome_learner=outcome_learner(weighted=learner_weights),
             treatment_learner=treatment_learner(weighted=learner_weights),
             cross_fit=False,
-            simultaneous=False,
+            simultaneous=simultaneous,
             fluctuation="linear",
             g_bounds=G_BOUNDS,
             max_iter=100,

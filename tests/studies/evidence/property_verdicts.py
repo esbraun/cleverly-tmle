@@ -745,6 +745,27 @@ def _rate_row(
     )
 
 
+def simultaneous_coverage_verdicts(summary: pd.DataFrame, *, margins: Margins) -> None:
+    """Read each joint-coverage cell against the rule its role answers to.
+
+    The band must hold its exact joint-coverage interval inside the two-sided calibration
+    coverage band, the rule every calibrated pointwise cell answers to.  The pointwise
+    control must establish joint coverage below the nominal rate, which is what shows the
+    band's wider critical value does work on these laws.
+    """
+    joint = summary["property"] == "simultaneous_coverage"
+    for index in summary.index[joint]:
+        coverage = Interval(
+            float(summary.loc[index, "coverage_ci_lower"]),
+            float(summary.loc[index, "coverage_ci_upper"]),
+        )
+        if summary.loc[index, "role"] == "control":
+            passed = coverage.high < 1.0 - margins.alpha
+        else:
+            passed = coverage.within(*margins.calibration_coverage)
+        summary.loc[index, "passed"] = bool(passed)
+
+
 def calibration_controls(
     rows: pd.DataFrame,
     record: StudyRecord,

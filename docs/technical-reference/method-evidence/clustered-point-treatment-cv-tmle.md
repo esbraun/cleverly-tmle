@@ -174,7 +174,7 @@ the committed artifacts. The documentation gate checks every printed value.
 | One fixed partition | Every replication uses the one grouped assignment described above. The coverage is conditional on it, and the row does not measure the variability a repartition adds |
 | One five-fold split | The row does not establish repeated, fold-evaluated, or fold-specific targeting |
 | Exact treatment mechanism | The comparison isolates targeting and inference. It does not compare learned propensity models |
-| Pointwise identity-scale intervals | The row does not cover simultaneous bands, bootstrap intervals, ratios, weights, or strata |
+| Pointwise identity-scale intervals | The row does not cover simultaneous bands, bootstrap intervals, ratios, weights, or strata. The [default-band study](default-simultaneous-bands.md) measures the default band of this study's subject fit. |
 | Main-effects outcome learners | The row does not establish flexible learner-library parity under clustering |
 
 ## Reproduction

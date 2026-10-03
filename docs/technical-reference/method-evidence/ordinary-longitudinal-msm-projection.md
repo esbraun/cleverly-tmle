@@ -134,7 +134,7 @@ a separately implemented backward recursion with every fluctuation removed.
 - Projection weights, plan durations, and the identity link are fixed before fitting.
 - The row covers ordinary `n_folds=1` longitudinal MSM targeting only.
 - Cross-fitted longitudinal coefficient inference remains refused.
-- Intervals are pointwise Wald intervals rather than simultaneous regions.
+- Intervals are pointwise Wald intervals rather than simultaneous regions. The [default-band study](default-simultaneous-bands.md) measures the default band of this study's subject fit.
 - The mechanisms are supplied exactly in the primary comparison.
 - Survival, competing risks, observation weights, and clustering are outside this row.
 

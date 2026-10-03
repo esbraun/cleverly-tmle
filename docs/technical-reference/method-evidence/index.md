@@ -10,10 +10,10 @@ Read the pages in this order.
 
 | page | what it gives you |
 | --- | --- |
-| [Implementation validation grid](validation-grid.md) | the forty validation studies in one table, with the counts and the declared limits |
+| [Implementation validation grid](validation-grid.md) | the forty-two validation studies in one table, with the counts and the declared limits |
 | [How to read these studies](how-to-read.md) | the three questions, the verdict rules, and the terms every study below applies |
 | [The red-cell ledger](red-cells.md) | every red verdict the studies publish, and the roadmap ask that owns each one |
-| the forty-two study pages | one row per committed test, with what it checked and the verdict its own endpoints produced |
+| the forty-four study pages | one row per committed test, with what it checked and the verdict its own endpoints produced |
 
 A validation study declares property cells. The
 [learned-rule boundary study](learned-rule-cvtmle-boundary.md) declares none, so it has a page and
@@ -32,6 +32,7 @@ canonical-point-treatment-tmle
 weighted-point-treatment-tmle
 learned-weighted-point-treatment-tmle
 ordinary-multi-arm-tmle
+stratified-point-treatment-tmle
 stacked-point-treatment-cv-tmle
 clustered-point-treatment-cv-tmle
 fold-evaluated-point-treatment-cv-tmle
@@ -69,5 +70,6 @@ ordinary-competing-risk-longitudinal-tmle
 cross-fitted-competing-risk-longitudinal-tmle
 omitted-variable-bound-standard-error
 calibration-slope-warning
+default-simultaneous-bands
 full-refit-bootstrap-and-derived-contrasts
 ```

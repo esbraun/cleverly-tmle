@@ -168,7 +168,7 @@ artifacts.
 | The primary comparison uses one quasibinomial GLM family | Flexible primary learner parity is not established |
 | The property fits use saturated discrete-cell learners | Their efficiency claim applies to this finite-support law |
 | The fitting scheme is ordinary | Cross-fitting has a separate registered row |
-| Inference is pointwise 95% Wald | Simultaneous bands and bootstrap intervals are excluded |
+| Inference is pointwise 95% Wald | Simultaneous bands and bootstrap intervals are excluded. The [default-band study](default-simultaneous-bands.md) measures the default band of this study's subject fit, and that cell is red. |
 | Plans are deterministic | Survival, competing risks, and stochastic policies are different parameters |
 | The design is independent and unweighted | Weights, clusters, fold repeats, and time-respecting splits are excluded |
 

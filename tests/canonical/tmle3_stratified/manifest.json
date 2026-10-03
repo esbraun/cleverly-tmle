@@ -1,0 +1,119 @@
+{
+  "schema_version": 2,
+  "study": "ordinary point-treatment TMLE with baseline strata",
+  "slug": "canonical-stratified-tmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-stratified-tmle",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "efdd54b25032397e7b65e7a2061bd8fa01e0364a",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": {
+      "implementation": "tmle3-stratified",
+      "tmle3_commit": "ed72f8a20e64c914ab25ffe015d865f7a9963d27",
+      "sl3_commit": "0e8f2365bcbe54010b8120c04a7a2dcfc8119227",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
+    }
+  },
+  "configuration": {
+    "replicates": 1000,
+    "n": 2000,
+    "seed": 20263611,
+    "resampling_seed": 20263612,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "stratified_binary": [
+        "ey[1][V=0]",
+        "ey[0][V=0]",
+        "ate[V=0]",
+        "ey[1][V=1]",
+        "ey[0][V=1]",
+        "ate[V=1]",
+        "ey[1][V=2]",
+        "ey[0][V=2]",
+        "ate[V=2]"
+      ]
+    },
+    "law": "V in {0, 1, 2} with P(V) = (0.5, 0.3, 0.2); W in {0, 1, 2} given V with rows (0.5, 0.3, 0.2), (0.3, 0.4, 0.3), (0.2, 0.3, 0.5); g = expit(-0.3 + 0.5 W - 0.4 V); Q = expit(-0.8 + 0.7 A + 0.6 W + 0.6 V); binary Y",
+    "cross_fit": false,
+    "estimands": [
+      "ey",
+      "ate"
+    ],
+    "strata": [
+      "V"
+    ],
+    "covariates": [
+      "W",
+      "V"
+    ],
+    "simultaneous_intervals": false,
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "outcome_model": "LogisticRegression(C=1e6) on (A, W, V), matched to sl3 Lrnr_glm",
+    "treatment_model": "LogisticRegression(C=1e6) on (W, V), matched to sl3 Lrnr_glm",
+    "reference_stages": "tmle_stratified(tmle_TSM_all(), base_estimate = FALSE) for the six arm means, then tmle_stratified(tmle_ATE(1, 0), base_estimate = FALSE) for the three contrasts",
+    "declared_difference": "the tmle3 ATE stage fluctuates one clever-covariate column per stratum; the cleverly fit with estimands ('ey', 'ate') fluctuates the two arm columns of each stratum",
+    "excluded_comparisons": "ATT and ATC: Param_ATT and Param_ATC read the counterfactual tasks of the training task rather than of the stratum subset, and they update the A node; PAR: Param_PAR is not verified as safe on a subset at ed72f8a. Each is measured against exact truth in the property cells",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_stratified_tmle.py": "4415492621576525c176516d477d9bc158690c5c2853db641f0a1abdfe8f2ccd",
+    "tests/studies/stratified_tmle_properties.py": "e782829f234a6c49f52324b1bcf6dc7eedb27440d926abde9a7d89909df0b8b6",
+    "tests/studies/stratified_law.py": "0a2d419c24c5011d1e42ebce01dd65da5e405faac088a8ad02bbd5c8c18db828",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/studies/evidence/comparison.py": "653c091f0c1cd240b41e4ed7026da8f67c0feda58404e7c27e80eabab38a2217",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "9c8e6a923bb16fd6637dbec77492c43aef29d9a5f825799a20ce5002ca5e9590",
+    "tests/studies/evidence/property_verdicts.py": "6bddb3468d8135bc663df0d92fc52aadea539efdee0cd1ed84ef0e3e12658076",
+    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
+    "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15"
+  },
+  "reference_sha256": {
+    "tests/canonical/tmle3/Dockerfile": "9b9847818b6551450c0259bbeb6eb806ca5b2fc415d9805266f912f05abd1335",
+    "tests/canonical/tmle3_stratified/run_tmle3_stratified.R": "820357d5202902b6b622161463081e6836f9b3fe20ca59b48fb82e61f40f650d",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "sha256": {
+    "replicates.csv.gz": "b7b6f86f191ea5156a8dfc301dcf48c195d6445e8cd59bcd3eb0c783d195ecdc",
+    "summary.csv": "12290ed57ff1ef7175b392e39d4c7eac1a164eafd6b4a7e79bf5520bf1c531eb",
+    "equivalence.csv": "3103c20a9f2d6c0f40e31eff4fd96f8dfc684153fe38f27ab1e75342635cfadb",
+    "performance-tests.csv": "a88de841823b5e267a1bfbaaf574e52eaa3fea4441a16d762e13102c1fdd46ea",
+    "property-replicates.csv.gz": "2aed90ba364a7e12c4f32ca08e9591a1cb05009b15f51ed952f8a6fd2b6d2d0f",
+    "properties.csv": "f8fafd0d1b0fdccb60aa6ec028a068ae79627ca09fa59f68f483acbce04f41a6"
+  }
+}

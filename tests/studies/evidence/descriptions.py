@@ -27,6 +27,9 @@ from tests.studies.evidence.property_verdicts import (
 #: ``estimand`` values carry a regimen in brackets for the longitudinal studies.
 _PARAMETERISED = re.compile(r"^(?P<name>[a-z_]+)\[(?P<argument>.+)\]$")
 
+#: A stratum-conditional parameter, ``stratum_alias``'s ``<alias>[V=<label>]``.
+_STRATUM = re.compile(r"^(?P<base>.+)\[(?P<stratum>[A-Za-z_]\w*=[^\[\]]+)\]$")
+
 #: What a horizoned estimand key puts between the plan and the time, and what a competing-risk
 #: key puts between the plan and the cause.  Mirrored from
 #: :data:`cleverly.longitudinal.estimator.HORIZON_INFIX` and :data:`~.CAUSE_INFIX` rather than
@@ -83,6 +86,59 @@ ARMS: dict[str, str] = {
     # The four laws of the stacked arm-indexed missing-outcome study, and each estimand's
     # calibration label.  L1 and L2 have two arms; L3 and L4 have three, with ``high`` as
     # the reference arm.  L1 and L3 have a binary outcome; L2 and L4 a bounded continuous one.
+    # The joint-coverage labels of the default simultaneous bands.  Each band covers every
+    # parameter its fit reports; ``all_reported`` and ``curve_always`` are shared by the
+    # survival and the competing-risk studies, so their text names no outcome.
+    "arms": "the multi-arm fit's three arm means, two differences, two risk ratios and two odds ratios",
+    "regimens": "the three regimen means and their two contrasts",
+    "all_reported": "every parameter the calibration fit reports",
+    "curve_always": "the always plan alone, at every declared horizon",
+    "strata": "the six marginal and eighteen stratum parameters of the in-sample fit",
+    "crossfit_strata": "the three marginal and nine stratum parameters of the cross-fitted fit",
+    "default_fit": "the shipped TMLE() defaults on the binary law",
+    "ordinary_binary": "ordinary in-sample TMLE over ten binary-outcome estimands",
+    "fold_evaluated": "fold-evaluated CV-TMLE over five estimands",
+    "weighted": "weighted point-treatment TMLE over five estimands",
+    "learned_weighted": "weighted point-treatment TMLE with learned nuisances",
+    "missing_outcome": "missing-outcome TMLE over the arm means and the ATE",
+    "missing_outcome_drtmle": "missing-outcome DR-TMLE over the arm means and the ATE",
+    "drtmle": "cross-fitted DR-TMLE over the arm means and the ATE",
+    "multi_arm_drtmle": "multi-arm DR-TMLE over nine parameters",
+    "cde_z0": "the controlled direct-effect fit at intermediate level zero",
+    "cde_z1": "the controlled direct-effect fit at intermediate level one",
+    "point_msm": "the three terms of the point-treatment MSM projection",
+    "clustered": "grouped cross-fitted TMLE with cluster multipliers",
+    "shift_grid": "three shift policies and their two contrasts",
+    "incremental_grid": "three incremental odds multipliers and their two contrasts",
+    "stochastic_regimes": "a static and a known stochastic regime and their contrast",
+    "deterministic_regimes": "a static regime and a dynamic rule and their contrast",
+    "ltmle_crossfit": "cross-fitted end-of-study regimen means and contrasts",
+    "survival_crossfit": "the cross-fitted survival curve of three plans at two horizons",
+    "competing_crossfit": "cross-fitted cumulative incidence of two causes, three plans, two horizons",
+    "weighted_ltmle": "weighted end-of-study regimen means and contrasts",
+    "weighted_ltmle_crossfit": "cross-fitted weighted end-of-study regimen means and contrasts",
+    "categorical_ltmle": "five categorical regimen means and four contrasts",
+    "categorical_ltmle_crossfit": "five cross-fitted categorical regimen means and four contrasts",
+    "longitudinal_msm": "the two terms of the longitudinal MSM projection",
+    # The stratum labels of the baseline-strata study: ``v<s>_<parameter>``.
+    **{
+        f"v{stratum}_{key}": f"{words} in stratum V = {stratum}"
+        for stratum in (0, 1, 2)
+        for key, words in (
+            ("ey1", "mean under treatment"),
+            ("ey0", "mean under no treatment"),
+            ("ate", "average treatment effect"),
+            ("att", "average effect on the treated"),
+            ("atc", "average effect on the untreated"),
+            ("par", "population attributable risk"),
+        )
+    },
+    **{
+        f"v{stratum}_ate_crossfit": (
+            f"average treatment effect in stratum V = {stratum}, from the cross-fitted fit"
+        )
+        for stratum in (0, 1, 2)
+    },
     "l1": "L1, two arms and a binary outcome",
     "l2": "L2, two arms and a bounded continuous outcome",
     "l3": "L3, three arms and a binary outcome",
@@ -181,6 +237,8 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-repeated-cvtmle": "`cleverly` repeated stacked CV-TMLE",
     "cleverly-omitted-variable-bound": "`cleverly` omitted-variable bound",
     "cleverly-calibration-slope-rule": "`cleverly` calibration-slope rule",
+    "cleverly-default-bands": "`cleverly` shipped TMLE() default fit",
+    "cleverly-stratified-tmle": "`cleverly` ordinary TMLE with baseline strata",
     "cleverly-mar-drtmle": "`cleverly` randomized missing-outcome DR-TMLE",
     "cleverly-mar-natural-course-tmle": "`cleverly` missing-outcome natural-course TMLE",
     "cleverly-stacked-mar-natural-course-cvtmle": (
@@ -217,6 +275,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "tmle3": "R `tmle3`",
     "tmle3-cvtmle": "R `tmle3` CV-TMLE",
     "tmle3-multi-arm": "R `tmle3` multi-arm TMLE",
+    "tmle3-stratified": "R `tmle3` stratified TMLE, `tmle_stratified`",
     "tmle-r": "R `tmle`",
     "tmle-r-population-mean": "R `tmle` population-mean path",
     "tmle-r-stitched-arm-indexed": (
@@ -295,6 +354,8 @@ SCENARIOS: dict[str, str] = {
         "continuous-outcome law selected by a covariate-dependent density"
     ),
     "multi_arm_binary": "three-arm binary-outcome law",
+    "stratified_binary": "binary-outcome law with three unequal baseline strata",
+    "default_fit": "binary-outcome law, fitted with the shipped TMLE() defaults",
     "multi_arm_binary_drtmle": "three-arm binary-outcome law with shared cross-fitted nuisances",
     "multi_arm_binary_oat": "three-arm binary-outcome law, outcome-adaptive selector",
     "multi_arm_selector_discrete": "three-arm binary-outcome law, discrete selector",
@@ -462,6 +523,10 @@ PROPERTIES: dict[str, str] = {
         "the nominal joint rate"
     ),
     "selector_necessity": "the collaborative selector is what produces the result, not the fit around it",
+    "stratum_targeting_necessity": (
+        "one score block per stratum, rather than one marginal fluctuation, removes the bias "
+        "inside each stratum"
+    ),
     "competing_risk_recursion_necessity": (
         "the cumulative-incidence recursion uses all-cause survival rather than survival from "
         "the target cause alone"
@@ -1010,6 +1075,16 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the same fit, with each fold's rule learned on the fold's own validation rows",
         "bias interval must fall entirely outside the margin",
     ),
+    ("stratum_targeting_necessity", "stratified"): (
+        "the stratified fit with an outcome regression that omits the stratum, so the "
+        "per-stratum score blocks do all the adjusting",
+        "bias interval inside the equivalence margin",
+    ),
+    ("stratum_targeting_necessity", "marginal_fluctuation"): (
+        "the same outcome regression with one marginal fluctuation per arm, averaged inside "
+        "each stratum",
+        "bias interval must fall entirely outside the margin",
+    ),
     ("targeting_necessity", "targeted"): (
         "the estimator fluctuates a misspecified outcome model, so targeting does all the "
         "adjusting",
@@ -1081,6 +1156,9 @@ def scenario(key: str) -> str:
 
 def estimand(key: str) -> str:
     """What an estimand key names, including a bracketed longitudinal regimen."""
+    stratum = _STRATUM.match(key)
+    if stratum is not None:
+        return f"{estimand(stratum.group('base'))}, in stratum {stratum.group('stratum')}"
     match = _PARAMETERISED.match(key)
     if match is None:
         try:

@@ -93,8 +93,8 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
     return common.draw_scenario(STUDY, scenario, n, replicate)
 
 
-def fit_cleverly(frame: pd.DataFrame) -> Any:
-    return common.fit_cleverly(frame, cross_fit=False)
+def fit_cleverly(frame: pd.DataFrame, *, simultaneous: bool = False) -> Any:
+    return common.fit_cleverly(frame, cross_fit=False, simultaneous=simultaneous)
 
 
 def cleverly_rows(

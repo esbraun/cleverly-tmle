@@ -229,4 +229,4 @@ propensity bound stays inactive throughout, and the subject fit is refused if it
 The row covers one binary-outcome law, one fold count, pooled reduced cross-fitting, univariate
 reduction, ordinary GLM nuisance fits, and pointwise intervals. It excludes flexible learners,
 practical-positivity stress, missing outcomes, weights, clusters, fold repeats, simultaneous
-bands, and longitudinal treatment.
+bands, and longitudinal treatment. The [default-band study](default-simultaneous-bands.md) measures the default band of this study's subject fit.
