@@ -1,0 +1,21 @@
+=== canonical-stratified-incremental-msm declared run
+command: 'C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x8\.venv\Scripts\python.exe' 'C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x8\tests\canonical\npcausal_stratified_incremental\regenerate.py' --output C:/Users/erics/Documents/Projects/cleverly-beta-plans/_x8_runs/s1 --jobs 16
+commit: 003448e79943623683703fff16fc053fb63d7ed1; upstream 003448e79943623683703fff16fc053fb63d7ed1
+clean tree: True
+cleverly 0.1.2 from C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x8\src\cleverly\__init__.py
+python 3.13.7; numpy 2.5.3; scipy 1.18.1; pandas 3.0.6; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 130, sha256 02442616648e069a8be69029a4cb1de94317308e3c852f6f46e6834df53d5f62
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 16
+started: 2026-10-03T16:47:34+00:00
+finished: 2026-10-03T17:49:56+00:00
+wall seconds: 3742.7
+exit code: 0
+sha256 equivalence.csv: 4264ff2aab78642a2ef4f5f2f10f84e25a07d12a356b2e120898970555a9a175
+sha256 manifest.json: dae9e18988019932ea7569876a3e68e003a07e148950e56a59ae2e2787430a8f
+sha256 performance-tests.csv: c68bcc3193b2cca7a929d2f556214d766a3cd6c815d44f56712c0f979e1f4d17
+sha256 properties.csv: b714b2001e295610bddcb491b17fd4b09ab4004e4d72e590b8fa842bd53a773e
+sha256 property-replicates.csv.gz: 19f10c661c4e46d8eef54eda002064840fad6682671beaefd243d3e9500fc8d9
+sha256 replicates.csv.gz: 14f59173e82f729fdf545d7e813065c3047604d7210688a545520d5cad58dd86
+sha256 summary.csv: 10dfbf3b4df0220b7db182f926147a28756bcc3c7e9c4aa927e697ab66f4b1f3
+
