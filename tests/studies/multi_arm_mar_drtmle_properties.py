@@ -51,6 +51,14 @@ EFFICIENCY_RATIO_BAND = (0.90, 1.10)
 #: lower end of the 99% interval of ``|bias|`` must clear it. Declared before the run, at half
 #: the both-wrong limit measured on the rounded L3 realization (+0.0166 and -0.0260; see
 #: :data:`WRONG`), so the control's power is stated rather than inferred.
+#:
+#: Which gate binds. The control passes only when the shared ``bias_discriminated`` rule (the
+#: bias interval lies outside 0.25 empirical SD, about 0.0088 at n = 2,000) and this floor
+#: both hold. For ``l3_ate_low`` the shared margin is the larger, so it is the binding gate
+#: and the floor adds nothing. For ``l3_ate_mid`` the floor (0.013) binds. Measured at
+#: n = 2,000 on 80 off-stream replications (the F4 implementation review, seeds from 7.7e6):
+#: bias +0.0193 and -0.0212, empirical SD 0.035, so at 800 replications the interval lower
+#: ends sit near 0.016 and 0.018, above both gates. The floors are kept as declared.
 BOTH_WRONG_BIAS_FLOOR: dict[str, float] = {"l3_ate_low": 0.008, "l3_ate_mid": 0.013}
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 

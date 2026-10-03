@@ -1819,12 +1819,13 @@ registered study asks those questions separately. The inspected source is pinned
 mechanism; `R/fluctuate.R` applies independent one-vs-rest mechanism fluctuations.
 
 With missing outcomes, R `drtmle` takes one joint treatment-response mechanism. `fluctuateG` uses
-the composite response `A == a & DeltaA == 1 & DeltaY == 1`
-([`R/fluctuate.R`, line 98](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/fluctuate.R#L98)).
-`estimateQrn` regresses `Y - Qn` on that joint mechanism among rows with `A == a`, `DeltaA == 1` and `DeltaY == 1`
-([`R/estimate.R`, lines 1117–1126](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/estimate.R#L1117-L1126)).
-This is the composite construction that Díaz and van der Laan reject on page 25. Both missing-outcome
-studies therefore pair with it at the both-correct limit only.
+the composite response `A == a & DeltaA == 1 & DeltaY == 1` ([`R/fluctuate.R`, line
+98](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/fluctuate.R#L98)).
+`estimateQrn` regresses `Y - Qn` on that joint mechanism among rows with `A == a`, `DeltaA == 1` and
+`DeltaY == 1` ([`R/estimate.R`, lines
+1117–1126](https://github.com/benkeser/drtmle/blob/538a3a264c1ca984b6d88978ca7f96165f43152c/R/estimate.R#L1117-L1126)).
+This is the composite construction that Díaz and van der Laan reject on page 25. Both
+missing-outcome studies therefore pair with it at the both-correct limit only.
 
 ## The TWINS example
 

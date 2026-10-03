@@ -129,11 +129,11 @@ score blocks settle. The `g_A` update takes one of two routes, and both solve th
 | two | one two-parameter logistic tilt of `g_1`, with `g_0 = 1 − g_1` | `(−e_0/g_0, +e_1/g_1)` |
 | three or more | one logistic tilt of each column `g_a`, with the response `1(A=a)`, on all rows | `+e_a/g_a` |
 
-At two arms the arm-0 column carries a minus sign, because its score
-`−(e_0/g_0)(A − g_1)` equals `(e_0/g_0){1(A=0) − g_0}`. Above two arms the tilted columns are
-not renormalized. They are nuisance denominators and not an intervention. `correction_check` reports `D_A`, `D_Delta`
-and `D_Y` separately; checking only `D_A + D_Delta` would be blind to equal and opposite score
-errors. Missing-outcome fits therefore require `guard=("Q", "g")`.
+At two arms the arm-0 column carries a minus sign, because its score `−(e_0/g_0)(A − g_1)` equals
+`(e_0/g_0){1(A=0) − g_0}`. Above two arms the tilted columns are not renormalized. They are nuisance
+denominators and not an intervention. `correction_check` reports `D_A`, `D_Delta` and `D_Y`
+separately; checking only `D_A + D_Delta` would be blind to equal and opposite score errors.
+Missing-outcome fits therefore require `guard=("Q", "g")`.
 
 Treatment probabilities and observation probabilities retain their own bounds: `g_bounds`
 applies to `g_A` and `gamma_A`, while `nuisance_bound` applies to `g_Delta` and
@@ -149,16 +149,16 @@ the equation forms. Counting against the product of the floors instead reports a
 since a small factor beside a large one leaves the product above it: measured at **1.1%** against
 a true **20.1%** on the pinched fixture in `tests/unit/test_drtmle_missing.py`.
 
-The shipped scope follows the paper rather than the broader canonical package: randomized
-treatment at any number of arms, MAR and positivity, no cross-fitting, and no weights, repeats,
-fold targeting, or evaluation companion. `randomized=True` estimates `g_A`; `treatment_probabilities=` supplies known
-row-aligned probabilities and bypasses the treatment learner. Prefer the mapping form
+The shipped scope follows the paper rather than the broader canonical package: randomized treatment
+at any number of arms, MAR and positivity, no cross-fitting, and no weights, repeats, fold
+targeting, or evaluation companion. `randomized=True` estimates `g_A`; `treatment_probabilities=`
+supplies known row-aligned probabilities and bypasses the treatment learner. Prefer the mapping form
 `{"placebo": p0, "active": p1}`: the positional forms bind to arm *codes*, which are indices into
-the sorted levels, so a `(n,)` vector is the probability of the second sorted level and not of
-"the treated arm". Observational treatment and missing treatment remain refused because this paper
-does not derive those compositions. Known probabilities are row-aligned fit data and are retained
-with the complete fitted result in the trusted joblib artifact, together with the estimator needed
-for supported later refits.
+the sorted levels, so a `(n,)` vector is the probability of the second sorted level and not of "the
+treated arm". Observational treatment and missing treatment remain refused because this paper does
+not derive those compositions. Known probabilities are row-aligned fit data and are retained with
+the complete fitted result in the trusted joblib artifact, together with the estimator needed for
+supported later refits.
 
 ### More than two arms
 

@@ -402,9 +402,9 @@ the [roadmap's eligibility rules](../roadmap.md#eligibility).
 | stochastic categorical policies at a longitudinal node | a different question | a policy that assigns a distribution changes the intervention *density* rather than which label is assigned. It is not the parameter that the sequential regression identifies. [X18](../roadmap.md#x18-natural-extension-reviews) part (c) reviews it |
 | a continuous dose at a longitudinal node | not written yet | Díaz, Williams, Hoffman and Schenck (2023), Theorem 3, journal page 853, covers a fixed modified treatment policy $d(a_t, h_t)$ on a continuous dose. `LTMLE` estimates no conditional density of the dose at a node, and it refuses `shifts=` by name. [X12](../roadmap.md#x12-modified-treatment-policies-beyond-the-additive-point-shift) part (b) holds the work |
 
-A source could close one entry as it stands: the multi-arm part of the simulated common-cause
-row. Neither `a different question` row would be closed by a source. Each would be answered by a different estimand, with its own
-derivation, oracle law, and evidence.
+A source could close one entry as it stands: the multi-arm part of the simulated common-cause row.
+Neither `a different question` row would be closed by a source. Each would be answered by a
+different estimand, with its own derivation, oracle law, and evidence.
 
 The continuous-dose row needs no new source. It needs the implementation that
 [X12](../roadmap.md#x12-modified-treatment-policies-beyond-the-additive-point-shift) part (b) holds.
