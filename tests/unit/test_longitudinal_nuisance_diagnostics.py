@@ -627,7 +627,7 @@ def test_every_recursion_constructor_retains_super_learner_details(n_folds, msm)
     ``censoring_learner``, and :func:`~cleverly.learners.resolve_learner` falls the second
     back to the first. Both mechanism families therefore fit a library here, so a report
     that dropped ``Mechanism.treatment_diagnostics``, ``censoring_diagnostics``, or the
-    third value ``cross_fit_companion`` returns would show up as empty weights rather than
+    diagnostics ``cross_fit_predictions`` returns would show up as empty weights rather than
     as nothing at all.
     """
     frame, _ = make_longitudinal(n=300, seed=41)

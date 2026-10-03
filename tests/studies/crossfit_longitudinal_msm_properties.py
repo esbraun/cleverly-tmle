@@ -24,8 +24,9 @@ family                     cells, replications and size
 ``crossfit_overfitting``   ``duration`` with fully grown trees on ``make_longitudinal``:
                            five folds (positive) and one fold (control), paired draws;
                            8,000 at n = 1,000
-``in_sample_agreement``    a diagnostic: ``beta_cf - beta_in`` on the n = 8,000 ladder draws,
-                           with the cross-fitted SE.  It states no verdict
+``in_sample_agreement``    a diagnostic: ``|beta_cf - beta_in| / SE_cf`` on the n = 8,000
+                           ladder draws, whose mean the summary publishes as
+                           ``mean_abs_difference_over_se``.  It states no verdict
 ``simultaneous_coverage``  the band over both coefficients of the primary subject and its
                            pointwise control; :data:`BAND_REPLICATES` at n = 2,500
 =========================  ==================================================================
@@ -39,8 +40,38 @@ configuration, the size or the cell, ``paired`` for the overfitting pair, and th
 controls and ``in_sample_agreement`` read their positive cell's fits.
 
 A replication that raises is not redrawn.  :func:`failure_probe` measures each fit set on its
-own first draws before the declared run, and a fit set with any failure is dropped before the
-run, with its gap stated as a page limit.
+streams 0 to 1,999 before the declared run, and a fit set with any failure is dropped before the
+run, with its gap stated as a page limit.  The shared harness refuses a cell that lost a
+replication, so a raise in the declared run stops it.  The failing cell then drops to its
+red-cell owner (the study module names the row), with its failure count published, and the run
+repeats without it with no other change.
+
+Measured budget, from one single-process draw of each fit set before the declaration.  The
+first row includes the process warm-up.
+
+=================================================  =====  ========  ==========  =========
+fit set                                            draws  fits per  seconds     CPU
+                                                          draw      per draw    seconds
+=================================================  =====  ========  ==========  =========
+``double_robustness/both_correct``                 1,000  1         0.89        890
+``double_robustness/outcome_correct``              1,000  1         0.20        200
+``double_robustness/mechanism_correct``            1,000  1         0.12        120
+``double_robustness/both_wrong``                   1,000  1         0.13        130
+``root_n_and_efficiency/n_500``                    700    1         0.08        56
+``root_n_and_efficiency/n_2000``                   700    1         0.12        84
+``root_n_and_efficiency/n_8000`` (and agreement)   700    2         0.50        350
+``interval_calibration/correctly_specified``       4,000  1         0.13        520
+``interval_calibration/duration_logit``            4,000  1         0.21        840
+``type_i_error/sharp_null``                        800    1         0.19        152
+``power/alternative``                              800    1         0.24        192
+``targeting_necessity/targeted``                   1,000  1         0.14        140
+``projection_necessity/declared_weights``          1,000  2         0.25        250
+``crossfit_overfitting/paired``                    8,000  2         0.36        2,880
+``simultaneous_coverage`` band                     4,000  1         0.21        840
+=================================================  =====  ========  ==========  =========
+
+That is 29,700 draws, 39,400 fits and about 7,600 CPU seconds.  The primary adds 800 fits at
+about 0.2 s and 3,200 R ``lmtp`` regimen fits.
 """
 
 from __future__ import annotations
@@ -143,6 +174,10 @@ PROJECTION_WEIGHT = in_sample.PROJECTION_WEIGHT
 COLUMNS = in_sample.COLUMNS
 NAMES = in_sample.NAMES
 LOGIT = "duration_logit"
+#: The estimand of an ``in_sample_agreement`` row: ``|beta_cf - beta_in| / SE_cf``.
+AGREEMENT = "abs_difference_over_se"
+#: The summary column that publishes the declared statistic, the mean of :data:`AGREEMENT`.
+AGREEMENT_COLUMN = "mean_abs_difference_over_se"
 CALIBRATION_LABELS = (*TERMS, LOGIT)
 
 NULL_PROBS = in_sample.NULL_PROBS
@@ -311,7 +346,7 @@ class DeclaredLaw:
         if self.name == "discrete":
             return dict(TRUTH)
         if self.name == "discrete_agreement":
-            return {"in_sample_difference": 0.0}
+            return {AGREEMENT: 0.0}
         if self.name == "discrete_null":
             return {NAMES["duration"]: NULL_TRUTH}
         if self.name == "discrete_logit":
@@ -554,7 +589,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             max(RATE_SIZES),
             RATE_REPLICATES,
             f"n_{max(RATE_SIZES)}",
-            "in_sample_difference",
+            AGREEMENT,
             stream_family="root_n_and_efficiency",
         )
     cells.extend(
@@ -667,8 +702,14 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
                     property_name="in_sample_agreement",
                     cell=f"{term}__in_sample_agreement",
                     truth=0.0,
-                    estimate=float(result[name].psi - inside[name].psi),
-                    standard_error=float(result[name].std_error),
+                    # The declared statistic, |beta_cf - beta_in| / SE_cf, per draw.  The
+                    # unit standard error makes the row's mean that statistic, and its
+                    # coverage the share of draws whose in-sample coefficient lies inside
+                    # the cross-fitted Wald interval.
+                    estimate=float(
+                        abs(result[name].psi - inside[name].psi) / result[name].std_error
+                    ),
+                    standard_error=1.0,
                     critical=CRITICAL,
                     role=DIAGNOSTIC_ROLE,
                     **common,
@@ -773,6 +814,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
             "projection_displacement",
             "coverage_gain_ci_lower",
             "coverage_gain_ci_upper",
+            AGREEMENT_COLUMN,
         ),
         rate_labels=TERMS,
         efficiency_bounds=EFFICIENCY_SD,
@@ -798,8 +840,26 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     )
     crossfit_overfitting_verdicts(summary, rows, STUDY, positive_cell="cross_fitted_msm")
     simultaneous_coverage_verdicts(summary, margins=STUDY.margins)
-    # A reported family: its rows publish the difference and state no verdict.
+    # A reported family: its rows publish the declared statistic and state no verdict.  The
+    # bias and SE-ratio columns describe an estimator against a truth, and these rows have
+    # neither, so they are blanked rather than published as though they had failed.
     agreement = summary["property"] == "in_sample_agreement"
+    summary.loc[agreement, AGREEMENT_COLUMN] = summary.loc[agreement, "mean_estimate"]
+    for column in (
+        "bias_margin",
+        "standardized_bias",
+        "root_n_bias",
+        "se_ratio",
+        "rejection_rate",
+        "rejection_ci_lower",
+        "rejection_ci_upper",
+    ):
+        if column in summary:
+            summary.loc[agreement, column] = np.nan
+    for column in ("bias_equivalent", "bias_discriminated"):
+        if column in summary:
+            summary[column] = summary[column].astype(object)
+            summary.loc[agreement, column] = None
     summary.loc[agreement, "passed"] = True
     summary.loc[agreement, "property_passed"] = True
     return finish(summary, rates)

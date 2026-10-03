@@ -18,8 +18,9 @@ Failure rule: a replication that raises is never redrawn.  ``failure_probe`` of 
 module counts failed fits per fit set and records no estimate.  On streams 0 to 199 of every fit
 set it found no failure (:data:`FAILURE_PROBE_200`).  The declared probe reads streams 0 to 1,999
 before the run, and a fit set with any failure is dropped before the run with its gap stated as a
-page limit.  A failure in the run itself stops the run, drops that fit set, and the run repeats
-without it, with no other change.
+page limit.  The shared harness refuses a cell that lost a replication, so a failure in the run
+itself stops the run.  That cell drops to its red-cell owner with its failure count published,
+and the run repeats without it, with no other change.
 
 Seeds: ``SEED`` and ``RESAMPLING_SEED`` are new, and no other registered study uses either.  The
 primary draws come from ``draw_replicate`` under ``SEED``, not from ``longitudinal-msm``'s.

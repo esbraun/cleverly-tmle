@@ -273,7 +273,7 @@ sums no risk curve.
 | `horizons=` | which time points a survival fit reports cumulative risk at. `None` reports the whole curve. Name the horizons you will report: the cost is $T(T+1)/2$ regressions per regimen rather than $T$ |
 | `msm=` | a working model over the regimen and horizon cells, in sample or cross-fitted. See [MSM projections](msm-projections.md) |
 | four learner slots | `outcome_learner`, `pseudo_learner`, `treatment_learner`, `censoring_learner`. The pseudo learner fits the intermediate regressions, whose outcome is a bounded prediction rather than the outcome itself |
-| `n_folds=`, `learner_folds=` | one outer split serves every node and regimen. The split is unstratified: `random_partition` draws it from the row count and the seed, and it balances no treatment node. Each fold fits the mechanism and an untargeted backward regression sequence on its training rows. One pooled fluctuation per node then targets the out-of-fold predictions, as [cross-fitting the recursion](#cross-fitting-the-recursion) states. The mechanism fit keeps one prediction slab per fold, so the mechanism costs $K$ times the memory of a single-fold fit and the saved result grows by the same factor |
+| `n_folds=`, `learner_folds=` | one outer split serves every node and regimen. The split is unstratified: `random_partition` draws it from the row count and the seed, and it balances no treatment node. Each fold fits the mechanism and an untargeted backward regression sequence on its training rows. One pooled fluctuation per node then targets the out-of-fold predictions, as [cross-fitting the recursion](#cross-fitting-the-recursion) states. The mechanism keeps the out-of-fold probabilities only, so its memory does not grow with $K$ |
 | `g_bounds=`, `q_bounds=`, `alpha=` | cumulative truncation, outcome scaling, and the logistic shrink. Above one fold, a continuous outcome must declare `q_bounds` |
 | `alpha_sig=`, `simultaneous=`, `n_multiplier=`, `multiplier_kind=` | interval level, and the simultaneous bands across the reported regimens |
 | `n_bootstrap=`, `bootstrap_resampling=` | the full-refit bootstrap. [The bootstrap contract](#the-full-refit-bootstrap) states what each replicate resamples and refits |
@@ -307,8 +307,8 @@ initial regression would not, so the package does not carry it back.
 
 `tests/unit/test_pooled_longitudinal_targeting.py` recomputes each row of the table by hand. It
 also carries four mutation controls. One fits the coefficient on one fold's training rows. The
-others drop the loss weight, read one fold's mechanism slab, or carry targeted values back into
-the folds.
+others drop the loss weight, read a refit of one fold's mechanism model, or carry targeted values
+back into the folds.
 
 `n_folds=1` keeps the canonical single-fold recursion. Each node regresses the targeted prediction
 from node $t + 1$, and each fluctuation solves over the rows its regression was fitted on.
@@ -418,8 +418,8 @@ unequal-size and few-cluster rules of [clusters](inference.md#clusters). Wang, P
 uses parametric nuisances.
 
 The cluster handling does not depend on the target. The split, the inner groups, the
-cluster-summed curve and the status are the same for every target. `shifts=`, `incremental=`, a
-and a stochastic categorical node stay refused for their own reasons. Each one
+cluster-summed curve and the status are the same for every target. `shifts=`, `incremental=` and a
+stochastic categorical node stay refused for their own reasons. Each one
 inherits this handling when it ships.
 
 Two side effects follow from the cross-fitted default. A fit with fewer than 10 clusters warns that

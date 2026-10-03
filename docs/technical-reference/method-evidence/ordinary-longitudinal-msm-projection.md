@@ -133,7 +133,7 @@ a separately implemented backward recursion with every fluctuation removed.
 - The evidence covers four plans and two time points on one censored binary law.
 - Projection weights, plan durations, and the identity link are fixed before fitting.
 - The row covers ordinary `n_folds=1` longitudinal MSM targeting only.
-- The registered study `cross-fitted-longitudinal-msm` covers the cross-fitted projection.
+- The cross-fitted projection is outside this row.
 - Intervals are pointwise Wald intervals rather than simultaneous regions. The [default-band study](default-simultaneous-bands.md) measures the default band of this study's subject fit.
 - The mechanisms are supplied exactly in the primary comparison.
 - Survival, competing risks, observation weights, and clustering are outside this row.

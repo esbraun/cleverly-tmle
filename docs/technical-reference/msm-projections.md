@@ -107,7 +107,9 @@ all carried forward together.
 estimate. One indicator per regimen makes the stacked design exactly block diagonal, and each block
 carries the loss weight the plain recursion uses. The pooled Newton convergence test and line search
 are taken over all the stacked rows, so the two can stop on different iterates. On a law the sample
-realises exactly, no step is taken at all and the agreement is exact. Elsewhere it is `1e-11`.
+realises exactly, no step is taken at all and the agreement is exact. Elsewhere the gap is of the
+order of the targeting tolerance `tol`. At the default `tol=1e-10` and five folds it measured
+`1.1e-10`, when one stacked solve stopped one Newton step away from the separate solves.
 
 **Cross-fitting pools the update.** Above one fold, each outer fold runs the untargeted backward
 recursion of every regimen and horizon cell on its training rows. The fit stitches the held-out
@@ -135,13 +137,11 @@ realized design. With `id=`, the [cluster rules](longitudinal-tmle.md#clusters) 
 | --- | --- |
 | `tests/unit/test_cross_fitted_longitudinal_msm.py` | a saturated model reproduces the cross-fitted per-regimen report on survival, competing-risk, dynamic and three-level grids. The coefficient curve is the stacked delta-method curve. Every node's stacked score is solved. Eight mutations fail, including a fold-local fluctuation |
 | `tests/e2e/test_ltmle_msm.py` | the saturated reduction at one and five folds, under the identity and the logit link |
-| the registered study `cross-fitted-longitudinal-msm` | repeated-sampling properties on the projection law of `longitudinal-msm`, paired with a projection of four cross-fitted R `lmtp` regimen fits |
 
 Survival, competing-risk, weighted and clustered projections have the fast-tier exact identities
-only. The paired `lmtp` fits differ from this construction twice. `lmtp` 1.5.4 fluctuates on each
-training fold, and it targets each regimen with its own scalar fluctuation. Upstream commit
-`9996b04` classifies that training-fold update as a bug, so the paired verdicts validate neither
-fold-local update.
+only. A cross-fitted `lmtp` 1.5.4 regimen fit differs from this construction twice. It fluctuates
+on each training fold, and it targets each regimen with its own scalar fluctuation. Upstream
+commit `9996b04` classifies that training-fold update as a bug.
 
 **Under a link, one in-sample round of the alternation is a whole backward pass.** The coefficient
 enters the covariate through the derivative of the inverse link, so each targeted regression moves

@@ -25,9 +25,11 @@ revision declared in ``tests/canonical/provenance-revisions.md``.  With none fou
 re-run: the run is published under ``publication_policy="reporting"`` with the owner row
 "finite-sample limits of the cross-fitted longitudinal MSM projection: the listed red cells of
 ``cross-fitted-longitudinal-msm``", whose roadmap ID the orchestrator assigns then.  A
-replication that raises is never redrawn: the run stops, the failing cell is recorded and
-dropped with its gap stated as a page limit, and the run repeats without it with no other
-change.  No margin, budget, law, learner, fold count or seed changes after a result is seen.
+replication that raises is never redrawn.  The shared harness refuses a cell that lost a
+replication, so a raise stops the run.  The failing cell then drops to its red-cell owner, the
+row named above, with its gap and failure count stated as a page limit, and the run repeats
+without it with no other change.  This is the rule ``clustered-cross-fitted-ltmle`` declares.
+No margin, budget, law, learner, fold count or seed changes after a result is seen.
 """
 
 from __future__ import annotations
@@ -142,6 +144,7 @@ STUDY = StudyRecord(
         "tests/studies/evidence/seeds.py",
         "tests/studies/evidence/simultaneous.py",
         "tests/canonical/lmtp_crossfit/Dockerfile",
+        "tests/canonical/lmtp_crossfit/audit.py",
         "tests/canonical/lmtp_crossfit_adapter.R",
         "tests/canonical/lmtp_ltmle_msm/run_study.R",
     ),

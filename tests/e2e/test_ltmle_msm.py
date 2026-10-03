@@ -211,12 +211,18 @@ class TestItReportsTheProjection:
 FOLD_COUNTS = [1, 5]
 
 #: The identity holds at the fixed point.  A solve that stops at its tolerance leaves a gap
-#: of that order, and one stacked solve can stop one Newton step away from separate ones:
-#: at ``tol=1e-10`` and five folds the gap measured 1.1e-10 relative.  So the reduction is
-#: checked at a solver tolerance two orders below its pins.
-REDUCTION_TOL = 1e-12
+#: of that order, because one stacked solve can stop one Newton step away from separate ones:
+#: at ``tol=1e-10`` and five folds the gap measured 1.1e-10 relative.  At ``1e-11`` every fit
+#: here converges, the largest gap measured 2.8e-12 on the coefficient and 2.3e-11 on the
+#: curve, and the pins below are bounds of the order of ``tol``.  ``1e-12`` sits below the
+#: attainable floor: the inner Newton stops on its step size and reports no convergence.
+REDUCTION_TOL = 1e-11
+#: The reduction pins, as multiples of the solver tolerance.
+COEFFICIENT_GAP = 10 * REDUCTION_TOL
+CURVE_GAP = 50 * REDUCTION_TOL
 
 
+@pytest.mark.filterwarnings("error::cleverly.exceptions.ConvergenceWarning")
 class TestASaturatedModelIsThePerRegimenReport:
     @pytest.mark.parametrize("n_folds", FOLD_COUNTS)
     def test_every_coefficient_is_its_regimen_s_mean(self, n_folds: int) -> None:
@@ -226,15 +232,16 @@ class TestASaturatedModelIsThePerRegimenReport:
         settings = {**FAST, "n_folds": n_folds, "tol": REDUCTION_TOL}
         plain = LTMLE(spec, reference="never", **settings).fit(frame, **COLUMNS)
         model = LTMLE(spec, msm=saturated(labels), **settings).fit(frame, **COLUMNS)
+        assert plain.converged and model.msm_fits[0].converged
         for label in labels:
             expected = plain[f"ey_regimen[{label}]"]
             got = model[f"msm_regimen[{label}]"]
-            assert got.psi == pytest.approx(expected.psi, rel=1e-11)
+            assert got.psi == pytest.approx(expected.psi, rel=COEFFICIENT_GAP)
             np.testing.assert_allclose(
                 model.influence_curves[f"msm_regimen[{label}]"],
                 plain.influence_curves[f"ey_regimen[{label}]"],
-                rtol=1e-10,
-                atol=1e-12,
+                rtol=0.0,
+                atol=CURVE_GAP,
             )
 
     @pytest.mark.parametrize("n_folds", FOLD_COUNTS)
@@ -258,10 +265,11 @@ class TestASaturatedModelIsThePerRegimenReport:
             msm=MSM(design=design.design, terms=labels, link="logit", design_kind="known"),
             **settings,
         ).fit(frame, **COLUMNS)
+        assert plain.converged and linked.msm_fits[0].converged
         for label in labels:
             beta = linked[f"msm_regimen[{label}]"].psi
             assert 1.0 / (1.0 + np.exp(-beta)) == pytest.approx(
-                plain[f"ey_regimen[{label}]"].psi, rel=1e-9
+                plain[f"ey_regimen[{label}]"].psi, rel=COEFFICIENT_GAP
             )
 
 

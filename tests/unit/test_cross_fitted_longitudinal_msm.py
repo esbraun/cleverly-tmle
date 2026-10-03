@@ -55,7 +55,7 @@ from cleverly.datasets import (
     make_longitudinal_survival,
     make_longitudinal_weighted,
 )
-from cleverly.exceptions import DataError, LongitudinalError
+from cleverly.exceptions import CapabilityError, DataError, LongitudinalError, PositivityWarning
 from cleverly.fluctuation.iterative import InitialFit
 from cleverly.learners.crossfit import Folds, random_partition
 from cleverly.longitudinal import LTMLE, DynamicRegimen, LongitudinalResult, sequential
@@ -92,9 +92,14 @@ PROJECTION: dict[str, float] = {"always": 3.0, "never": 1.0, "early": 0.5, "late
 TERMS = ("(intercept)", "duration")
 K = 5
 TOL = 1e-10
-#: A solver tolerance two orders below the reduction pins: one stacked solve can stop one
-#: Newton step away from separate ones, which leaves a gap of the order of ``tol``.
-REDUCTION_TOL = 1e-12
+#: The reduction's solver tolerance.  One stacked solve can stop one Newton step away from
+#: separate ones, which leaves a gap of the order of ``tol``: 1.1e-10 at ``tol=1e-10``.  At
+#: ``1e-11`` every reduction fit here converges, and the largest gaps measured 4.7e-12 on a
+#: coefficient and 4.7e-11 on a curve.  ``1e-12`` is below the attainable floor.
+REDUCTION_TOL = 1e-11
+#: The reduction pins, as multiples of the solver tolerance.
+COEFFICIENT_GAP = 10 * REDUCTION_TOL
+CURVE_GAP = 50 * REDUCTION_TOL
 
 
 def settings(**overrides: Any) -> dict[str, Any]:
@@ -195,15 +200,19 @@ def _assert_saturated_reduction(plain: LongitudinalResult, model: LongitudinalRe
     assert plain.folds.n_folds == model.folds.n_folds == K
     np.testing.assert_array_equal(plain.folds.assignment, model.folds.assignment)
     assert model.scaler.range == 1.0
+    assert plain.converged
     for msm_fit in model.msm_fits:
+        assert msm_fit.converged
         for column, cell in enumerate(msm_fit.model.cells):
             reference = _plain_fit(plain, cell.label, cell.horizon, msm_fit.cause)
-            assert msm_fit.beta[column] == pytest.approx(reference.psi_scaled, rel=1e-10, abs=1e-12)
+            assert msm_fit.beta[column] == pytest.approx(
+                reference.psi_scaled, rel=COEFFICIENT_GAP, abs=COEFFICIENT_GAP
+            )
             np.testing.assert_allclose(
                 msm_fit.influence_curves[:, column],
                 reference.influence_curve_scaled,
-                rtol=1e-9,
-                atol=1e-11,
+                rtol=0.0,
+                atol=CURVE_GAP,
             )
 
 
@@ -342,6 +351,7 @@ def pair(request: pytest.FixtureRequest) -> tuple[LongitudinalResult, Longitudin
     return PAIRS[request.param]()
 
 
+@pytest.mark.filterwarnings("error::cleverly.exceptions.ConvergenceWarning")
 def test_a_saturated_model_is_the_cross_fitted_per_regimen_report(
     pair: tuple[LongitudinalResult, LongitudinalResult],
 ) -> None:
@@ -357,10 +367,12 @@ def test_a_saturated_model_is_the_cross_fitted_per_regimen_report(
 def test_m1_a_fold_local_fluctuation_breaks_the_reduction_and_the_score(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """M1: each fold solves on its training followers and keeps its held-out rows.
+    """M1: a fold-local fluctuation over the stitched initial fit.
 
-    The deleted construction, rebuilt here as a patch of the stacked solve.  It fails the
-    saturated reduction (T1) and leaves the pooled score unsolved (T4).
+    Each fold solves on its training followers and keeps its held-out rows.  It is not the
+    deleted construction exactly, which also fitted each fold's own initial fit and its own
+    ``beta``, but it carries that construction's fold-local update.  It fails the saturated
+    reduction (T1) and leaves the pooled score unsolved (T4).
     """
     plain, _ = _survival_pair()
     folds = plain.folds
@@ -479,6 +491,29 @@ def test_m3_a_fold_targeted_carry_moves_the_stitched_initial_fit(
         for cell, fit in zip(mutated.msm.cells, mutated.msm_fits[0].fits, strict=True)
     )
     assert moved > 1e-6
+
+
+def test_an_active_bound_reaches_the_clever_covariate_of_every_cell() -> None:
+    """T2 where the lower bound replaces cells the stacked score reads.
+
+    ``clever`` divides by the bounded out-of-fold prefix.  A pooled pass that divided by the
+    raw product would fail the reciprocal check here, because some cells were clipped.
+    """
+    with pytest.warns(PositivityWarning, match="truncation"):
+        result = fit_dose(g_bounds=(0.2, 1.0))
+    clipped = 0
+    for fit in result.msm_fits[0].fits:
+        for step in fit.steps:
+            column = step.time - 1
+            clipped += int(
+                np.count_nonzero(
+                    fit.cumulative_unbounded[step.trained_on, column]
+                    != fit.cumulative[step.trained_on, column]
+                )
+            )
+    assert clipped > 0
+    _assert_clever_is_the_out_of_fold_reciprocal(result)
+    assert max(_node_scores(result)) < 1e-9
 
 
 def test_m7_a_fold_model_read_as_the_out_of_fold_mechanism_fails_the_reciprocal(
@@ -726,6 +761,7 @@ def _weighted_frame() -> Any:
     return frame
 
 
+@pytest.mark.filterwarnings("error::cleverly.exceptions.ConvergenceWarning")
 def test_weights_keep_the_saturated_reduction_and_the_weighted_score() -> None:
     frame = _weighted_frame()
     assert np.ptp(frame["w"].to_numpy()) > 0.5
@@ -884,6 +920,18 @@ def test_twenty_one_clusters_take_the_t_reference_and_skip_the_band() -> None:
     assert {result[f"msm_regimen[{term}]"].reference_df for term in TERMS} == {19}
     assert result.simultaneous is None
     assert NO_T_REFERENCE_BANDS in result.summary()
+
+
+def test_nineteen_clusters_withhold_the_interval_of_every_coefficient() -> None:
+    """Below the cross-fitted floor of 20 clusters, a working-model fit reports no interval."""
+    result = _clustered(19)
+    _assert_whole_clusters(result)
+    assert result.inference_status == "few_cluster_plugin"
+    for term in TERMS:
+        estimate = result[f"msm_regimen[{term}]"]
+        assert estimate.reference_df is None
+        with pytest.raises(CapabilityError):
+            _ = estimate.ci
 
 
 def test_m8_a_row_level_split_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:

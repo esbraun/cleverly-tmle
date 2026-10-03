@@ -650,8 +650,8 @@ PROPERTIES: dict[str, str] = {
         "cluster-level influence-curve aggregation calibrates inference under within-cluster dependence"
     ),
     "in_sample_agreement": (
-        "the cross-fitted coefficient minus the in-sample coefficient on the same draw, "
-        "reported rather than gated"
+        "how far the cross-fitted coefficient sits from the in-sample coefficient on the same "
+        "draw, in cross-fitted standard errors, reported rather than gated"
     ),
     "crossfit_overfitting": (
         "cross-fitting removes the optimism a flexible learner puts into an in-sample fit"
@@ -1041,8 +1041,9 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "SE ratio clears the overfitting floor and stays inside the sanity band",
     ),
     ("in_sample_agreement", "in_sample_agreement"): (
-        "the difference from the in-sample fit, on the cross-fitted standard error",
-        "none; the row reports the difference",
+        "the absolute difference from the in-sample coefficient on the same draw, over the "
+        "cross-fitted standard error; mean_abs_difference_over_se is its mean",
+        "none; the row reports the statistic",
     ),
     ("crossfit_overfitting", "cross_fitted_ltmle"): (
         "five-fold end-of-study LTMLE with a fully grown outcome tree",
