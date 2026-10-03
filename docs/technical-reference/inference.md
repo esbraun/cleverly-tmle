@@ -69,7 +69,8 @@ over two or more estimates. A direct call to `simultaneous_bands` can still rece
 | `simultaneous_bands` | any `"second_moment"` estimate | the multiplier draws center each influence curve. Centering matches the raw second moment only on a mean-zero curve, and `simultaneous_bands` does not check the mean |
 
 A fold-evaluated fit, with `cv_evaluation=True`, stores the cross-validated variance from
-uncentered fold second moments. Its estimates still declare `"centered"`. The covariance diagonal
+uncentered fold second moments, or from centered fold cluster variances with `id=`
+([CV-TMLE](cv-tmle.md#the-algorithm-as-implemented)). Its estimates still declare `"centered"`. The covariance diagonal
 therefore differs from the stored variance on that fit.
 `tests/unit/test_cv_targeting.py::TestTheFoldEvaluatedCovarianceRule` checks that difference.
 `tests/unit/test_inference.py::TestTheCovarianceRule` checks both rules, contrast inheritance, and

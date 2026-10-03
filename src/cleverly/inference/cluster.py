@@ -188,11 +188,37 @@ def cross_validated_variance(
     Folds are weighted equally, at ``1/V``.  The point estimate they go with is averaged
     the same way, so the two stay consistent without a weighting argument.
 
+    With ``cluster``, each fold contributes the cluster-robust variance of its own rows,
+    :math:`J_v\,\widehat{\mathrm{var}}(S_{vj};\,\mathrm{ddof}=1)/n_v^2`, where
+    :math:`S_{vj}` sums the curve over the rows of cluster :math:`j` in fold :math:`v`
+    and :math:`J_v` counts the clusters of the fold. That is
+    :func:`influence_variance` applied to the fold rows. The fold curve is centred at the
+    fold's own plug-in :math:`\hat\psi_v`, so its plug-in part sums to zero inside the
+    fold. An uncentred second moment of the :math:`J_v` cluster sums therefore keeps only
+    :math:`(J_v-1)/J_v` of the between-cluster variance of that part, and a fold of four
+    clusters loses a quarter of it. The centred ``ddof=1`` variance restores that share.
+    It also removes the fold mean of the residual part, whose expectation is zero under
+    the pooled fluctuation, so it is unbiased for both parts. Rows as units keep the
+    uncentred second moment above: there :math:`J_v=n_v`, the loss is :math:`1/n_v`, and
+    the construction is Zheng and van der Laan's. Each validation fold must hold at least
+    two clusters.
+
     Parameters
     ----------
-    folds:
+    influence_curve : ndarray
+        ``(n,)`` fold-specific influence curve. Entry ``i`` is the curve of the fold that
+        holds row ``i`` out.
+    folds : iterable of ndarray
         Validation index arrays, one per fold -- ``[test for _, test in folds]`` for a
         :class:`~cleverly.learners.crossfit.Folds`.  They must partition the sample.
+    cluster : ndarray or None, default=None
+        ``(n,)`` cluster codes. Each cluster must lie whole in one fold. ``None`` treats
+        the rows as independent.
+
+    Returns
+    -------
+    float
+        Variance of the equally weighted fold estimator.
     """
     ic = np.asarray(influence_curve, dtype=float).reshape(-1)
     n = ic.shape[0]
@@ -238,11 +264,14 @@ def cross_validated_variance(
                     f"cluster {key!r} appears in validation folds {previous} and "
                     f"{fold_number}; clusters must be assigned whole to one fold"
                 )
-        sums = cluster_sums(ic[index], codes[index])
-        contributions.append(float(np.sum(sums**2)) / index.size**2)
-    n_clusters = int(np.unique(codes).size)
-    if n_clusters < 2:
-        raise ValueError("need at least 2 clusters to estimate a cluster-robust variance")
+        fold_clusters = int(np.unique(codes[index]).size)
+        if fold_clusters < 2:
+            raise ValueError(
+                f"validation fold {fold_number} holds {fold_clusters} cluster; the "
+                "fold-evaluated variance compares cluster totals inside each fold, so every "
+                "validation fold needs at least 2 clusters"
+            )
+        contributions.append(influence_variance(ic[index], codes[index]))
     return float(sum(contributions) / n_folds**2)
 
 

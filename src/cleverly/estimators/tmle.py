@@ -2744,9 +2744,39 @@ class TMLE:
                 stratify=stratify,
                 source_fingerprint=data_fingerprint(data),
             )
+        self._preflight_cluster_validation_folds(data, folds)
         self._preflight_missing_outcome_folds(data, estimands, folds)
         self._preflight_training_support(data, estimands, folds)
         return tuple(zip(folds, seeds, strict=True))
+
+    def _preflight_cluster_validation_folds(self, data: CausalData, folds: Sequence[Folds]) -> None:
+        """Refuse a fold-evaluated clustered split with a validation fold of one cluster.
+
+        :func:`~cleverly.inference.cluster.cross_validated_variance` takes the centred
+        variance of the cluster totals inside each validation fold, so each fold needs at
+        least two clusters. The check reads every realized or supplied draw before the
+        first learner. :func:`~cleverly.learners.crossfit.random_partition` deals the
+        clusters into near-equal counts, so a generated split passes when the fold count
+        is at most half the cluster count.
+        """
+        if not self.cv_evaluation or data.cluster is None:
+            return
+        for draw in folds:
+            if draw.is_single:
+                continue
+            for fold, (_, test) in enumerate(draw):
+                held = int(np.unique(data.cluster[test]).size)
+                if held < 2:
+                    n_clusters = int(np.unique(data.cluster).size)
+                    raise CapabilityError(
+                        "cv_evaluation=True needs at least 2 clusters in every validation "
+                        "fold, because the fold-evaluated variance compares cluster totals "
+                        f"inside each fold. This split puts {n_clusters} clusters into "
+                        f"{draw.n_folds} folds, and fold {fold} holds {held}. Request at "
+                        f"most {n_clusters // 2} folds (CrossFitting(n_folds=...)), or use "
+                        "the stacked report (cv_evaluation=False, "
+                        "CrossFitting(fold_evaluation=False))."
+                    )
 
     def _resolve_learner(
         self,
@@ -4557,7 +4587,8 @@ def _average_over_folds(
     report is additionally scaled by ``n / (V n_v)`` inside fold ``v`` so its ordinary
     full-sample mean represents the equal ``1/V`` fold average even when fold sizes differ.
     A common validation update need not make any one fold's score zero, which is why
-    :func:`cross_validated_variance` uses the uncentred fold second moments.
+    :func:`cross_validated_variance` uses the uncentred fold second moments for rows; the
+    cluster branch centres within each fold.
     """
     out: dict[str, ParameterEstimate] = {}
     dropped: list[str] = []

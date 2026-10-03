@@ -64,6 +64,18 @@ $$
 and not a fold-averaged second moment divided by the total $n$. The two coincide only for exactly
 equal folds.
 
+With `id=`, the fit replaces each fold term by the centered variance of the fold's cluster totals,
+$J_v\,\widehat{\mathrm{var}}(S_{vj})/n_v^2$ with divisor $J_v-1$. Here $S_{vj}$ sums $D_{v,i}$
+over the rows of cluster $j$ in fold $v$, and $J_v$ counts the clusters of the fold. Each fold curve
+is centered at its own plug-in, so its plug-in part sums to zero inside the fold. An uncentered sum
+of squares over $J_v$ cluster totals keeps only $(J_v-1)/J_v$ of that part's variance. The centered
+rule restores the share. Rows keep the uncentered rule, because there the loss is $1/n_v$.
+
+A fold-evaluated fit with `id=` therefore needs at least 2 clusters in every validation fold.
+`TMLE` raises `CapabilityError` before any learner when a realized or supplied fold holds 1.
+`tests/unit/test_fold_evaluated_cluster_variance.py` checks the rule, the refusal, and the
+calibration at 40 clusters in 10 folds.
+
 Implementation:
 [`estimators/tmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/tmle.py),
 [`learners/crossfit.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/learners/crossfit.py),
@@ -302,6 +314,7 @@ Each row gives the shipped remedy in the message's own words.
 | a cross-fitted shift, incremental, regime, MSM, or controlled-direct-effect fit with `delta=` | `CapabilityError` before the first learner | "To estimate them, fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))". The message names the target family and F21, which holds the missing result. See [F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants). `TMLE` refuses a continuous-dose MSM with `delta=` before this refusal, at every `cross_fit` setting. That message cites [X10](../roadmap.md#x10-continuous-dose-msm-with-a-second-mechanism) and names no in-sample fit |
 | a cross-fitted longitudinal continuous outcome with `q_bounds=None` | `LongitudinalError` | "Declare the known outcome support (Targeting(q_bounds=(lower, upper))), or fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine)." |
 | `id=` on a collaborative fit | `CapabilityError` | "Drop id= from fit (PointTreatment(cluster=None)), or use the ordinary TMLE (TMLE, or TMLEMethod), which has a clustered result." |
+| `cv_evaluation=True` with `id=` and a validation fold that holds 1 cluster | `CapabilityError` before any learner | "Request at most {J // 2} folds (CrossFitting(n_folds=...)), or use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False))." The message names the cluster count, the fold count and the fold. The fold-evaluated variance compares cluster totals inside each fold |
 | `id=` on a cross-fitted longitudinal fit | `LongitudinalError` | "Fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine), which reports a cluster-robust variance, or drop id= from fit." |
 | a `split_plan=` with no generator record | `MethodConfigurationError` at construction, `DataError` at fit time | "Pass result.split_plan from a fit with unstratified folds (stratify_by='none'), or build the plan with SplitPlan.from_folds over random_partition draws" |
 | a `split_plan=` whose labels the record does not draw | `DataError` before the first learner | "A fit accepts only the labels the recorded fold count and seed draw, because other labels could have been chosen by reading the outcome". The message names the repeat and the number of differing rows |
