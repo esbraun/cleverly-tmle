@@ -401,3 +401,62 @@ def test_the_composite_complete_case_control_resolves_from_zero() -> None:
         design.COMPLETE_CASE_N * design.COMPLETE_CASE_REPLICATES
     )
     assert abs(design.COMPLETE_CASE_BIAS) / monte_carlo >= 20
+
+
+def test_the_composite_study_publishes_exactly_its_declared_cells() -> None:
+    """Before the run: every spec, two replications each at n = 300, through the summary.
+
+    The summary carries the derived calibration controls, the ``root_n_rate`` rows and each
+    band's pointwise control, so its cell set is the one ``properties.csv`` will publish.  It
+    must equal ``STUDY.property_cells``, which the evidence tests read.  Two replications make
+    degenerate rates and fits, so their warnings are silenced: only the cell names are read.
+    """
+    import warnings
+
+    import pandas as pd
+
+    from tests.studies.canonical_composite_drtmle import STUDY
+
+    design = composite_drtmle_properties
+    rows: list[dict[str, object]] = []
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        for property_name, cell, _, _, configuration in design._specs():
+            for replicate in range(2):
+                rows += design._fit_replication(
+                    (property_name, cell, replicate, 300, 2, 1_000 + replicate, configuration)
+                )
+        frame = pd.DataFrame(rows)
+        controls = design.calibration_controls(
+            frame,
+            STUDY,
+            labels=("ate",),
+            efficiency_bounds={"ate": design.EFFICIENCY_SD},
+            calibration_n=300,
+            shrunken_se_factor=design.SHRUNKEN_SE_FACTOR,
+            critical=design.CRITICAL,
+        )
+        summary = design.summarize_properties(pd.concat([frame, controls], ignore_index=True))
+    published = set(zip(summary["property"], summary["cell"], strict=True))
+    declared = {(family, cell) for family, cells in STUDY.property_cells.items() for cell in cells}
+    assert published == declared, sorted(published ^ declared)
+
+
+def test_the_composite_primary_rows_feed_the_fit_exit_artifact() -> None:
+    """``draw_and_fit`` keeps the exit columns that ``extra_artifacts`` reads.
+
+    The declared run failed once at this seam: the rows were projected onto the shared
+    schema before the hook ran.
+    """
+    import warnings
+
+    from tests.studies import canonical_composite_drtmle as study
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        _, _, rows = study.draw_and_fit(replicates=1, n=300, n_jobs=1)
+    (exits,) = study.extra_artifacts(rows).values()
+    assert list(exits.columns) == list(study.FIT_EXIT_COLUMNS)
+    assert len(exits) == len(rows)
+    assert set(exits["exit_reason"]) <= {"tolerance", "stall", "cap", "none"}
+    assert "none" in set(exits["exit_reason"])

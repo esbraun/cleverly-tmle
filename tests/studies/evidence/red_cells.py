@@ -263,6 +263,14 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "simultaneous_coverage/cde_z0__simultaneous_band",
         ),
     ),
+    # The calibration draws of the multi-arm missing-outcome DR-TMLE study, and the band read
+    # off the same fits.  ``tests/unit/test_band_shortfall_reading.py`` rebuilds the reading.
+    "F4-calibration-draws": _keys(
+        "multi-arm-mar-drtmle",
+        "property",
+        "interval_calibration/ate__correctly_specified",
+        "simultaneous_coverage/arms__simultaneous_band",
+    ),
     # The two longitudinal bootstrap kinds the X20 study measured red.  Rule 3 of the
     # study keeps each kind out of ``LICENSED_BOOTSTRAP_DESIGNS``.
     "X20-bootstrap": _keys(

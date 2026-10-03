@@ -10,10 +10,10 @@ Read the pages in this order.
 
 | page | what it gives you |
 | --- | --- |
-| [Implementation validation grid](validation-grid.md) | the forty-three validation studies in one table, with the counts and the declared limits |
+| [Implementation validation grid](validation-grid.md) | the forty-four validation studies in one table, with the counts and the declared limits |
 | [How to read these studies](how-to-read.md) | the three questions, the verdict rules, and the terms every study below applies |
 | [The red-cell ledger](red-cells.md) | every red verdict the studies publish, and the roadmap ask that owns each one |
-| the forty-four study pages | one row per committed test, with what it checked and the verdict its own endpoints produced |
+| the forty-five study pages | one row per committed test, with what it checked and the verdict its own endpoints produced |
 
 A validation study declares property cells. The
 [learned-rule boundary study](learned-rule-cvtmle-boundary.md) declares none, so it has a page and
@@ -52,6 +52,7 @@ missing-outcome-attributable-effects-tmle
 controlled-direct-effect-tmle
 randomized-missing-outcome-dr-tmle
 observational-missing-data-dr-tmle
+randomized-multi-arm-missing-outcome-dr-tmle
 point-treatment-msm-projection
 deterministic-point-treatment-regimes
 learned-rule-cvtmle

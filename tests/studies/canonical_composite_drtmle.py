@@ -392,4 +392,5 @@ def draw_and_fit(
     samples = pd.concat([sample for sample, _, _ in outcomes], ignore_index=True)
     truth_rows = pd.DataFrame([row for _, rows, _ in outcomes for row in rows])
     estimates = pd.DataFrame([row for _, _, rows in outcomes for row in rows])
-    return samples, truth_rows, estimates.loc[:, list(REPLICATE_COLUMNS)]
+    # The exit columns ride along for :func:`extra_artifacts`; the driver drops them after it.
+    return samples, truth_rows, estimates.loc[:, [*REPLICATE_COLUMNS, "exit_reason", "rounds"]]
