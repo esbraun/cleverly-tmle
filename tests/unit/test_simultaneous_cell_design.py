@@ -35,12 +35,14 @@ from sklearn.linear_model import LogisticRegression
 from tests import discrete_law_competing as competing
 from tests import discrete_law_longitudinal as longitudinal
 from tests import discrete_law_survival as survival
+from tests.studies import canonical_mar_attributable as mar_attributable
 from tests.studies import (
     composite_drtmle_properties,
     default_band_properties,
     ltmle_competing_properties,
     ltmle_properties,
     ltmle_survival_properties,
+    mar_attributable_properties,
     multi_arm_mar_drtmle_properties,
     multi_arm_tmle_properties,
     stratified_law,
@@ -166,6 +168,26 @@ EXACT: dict[str, tuple[np.ndarray, int, tuple[float, float]]] = {
             ("composite_three_arm", composite_drtmle_properties.THREE_ARM, (0.8220, 2.508)),
         )
     },
+    # The missing-outcome attributable stack: ey_obs, the arm means, PAR and PAF, from the
+    # exact efficient influence covariance of each law (PAF on its identity scale).  The L1
+    # matrix has rank two.  The stacked cell has the in-sample cell's limit, so it reads the
+    # same correlation; the stacked three-arm shape maps to the stacked binary cell, which
+    # has the same construction and covariance rule.
+    "mar-attributable-tmle/attributable_binary": (
+        _from_covariance(mar_attributable.stack_covariance(mar_attributable.L1)),
+        mar_attributable_properties.BAND_REPLICATES,
+        (0.8849, 2.321),
+    ),
+    "mar-attributable-tmle/attributable_binary_cvtmle": (
+        _from_covariance(mar_attributable.stack_covariance(mar_attributable.L1)),
+        mar_attributable_properties.BAND_REPLICATES,
+        (0.8849, 2.321),
+    ),
+    "mar-attributable-tmle/attributable_three_arm": (
+        _from_covariance(mar_attributable.stack_covariance(mar_attributable.L3)),
+        mar_attributable_properties.BAND_REPLICATES,
+        (0.8148, 2.515),
+    ),
 }
 
 
@@ -307,7 +329,7 @@ def test_the_composite_power_cell_has_its_planned_power() -> None:
     design = composite_drtmle_properties
     effect = design.TRUTHS[design.BINARY][design.TARGET]
     assert effect == pytest.approx(0.21, abs=1e-12)
-    assert design.EFFICIENCY_SD == pytest.approx(1.808, abs=5e-4)
+    assert pytest.approx(1.808, abs=5e-4) == design.EFFICIENCY_SD
 
     def power(n: int) -> float:
         shift = abs(effect) * np.sqrt(n) / design.EFFICIENCY_SD
@@ -322,7 +344,7 @@ def test_the_composite_power_cell_has_its_planned_power() -> None:
 def test_the_composite_complete_case_control_resolves_from_zero() -> None:
     """The complete-case bias is -0.0432, many Monte Carlo errors from zero at its budget."""
     design = composite_drtmle_properties
-    assert design.COMPLETE_CASE_BIAS == pytest.approx(-0.0432, abs=5e-5)
+    assert pytest.approx(-0.0432, abs=5e-5) == design.COMPLETE_CASE_BIAS
     monte_carlo = design.EFFICIENCY_SD / np.sqrt(
         design.COMPLETE_CASE_N * design.COMPLETE_CASE_REPLICATES
     )
