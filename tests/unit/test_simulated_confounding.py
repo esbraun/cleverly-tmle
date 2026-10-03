@@ -2248,6 +2248,7 @@ def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
         "learned_rule",
         "multi_arm",
         "missing_outcome",
+        "missing_treatment",
         "intermediate",
         "estimated_weights",
         "clustered",

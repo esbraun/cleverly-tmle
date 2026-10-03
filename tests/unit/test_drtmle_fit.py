@@ -1043,7 +1043,8 @@ class TestTheRefusals:
         sample["D"] = 1
         sample.loc[sample.index[:50], "D"] = 0
         sample.loc[sample.index[:50], "Y"] = np.nan
-        with pytest.raises(CapabilityError, match="delta="):
+        # Observational and cross-fitted: the composite route is in-sample only (F21).
+        with pytest.raises(CapabilityError, match="does not establish its cross-validated"):
             DRTMLE(**SETTINGS).fit(sample, outcome="Y", treatment="A", delta="D")
 
     def test_combining_it_with_ctmle(self) -> None:

@@ -865,3 +865,236 @@ class TestTheDiscretePathDidNotMove:
         frame["A"] = rng.integers(0, 3, len(frame)).astype(float)
         data = CausalData.from_frame(frame, outcome="Y", treatment="A")
         assert data.treatment_block(data.treatment).shape == (data.n, 2)
+
+
+def _recorded_frame(treatment: object, recorded: list[float], n: int = 12) -> pd.DataFrame:
+    rng = np.random.default_rng(3)
+    return pd.DataFrame(
+        {"Y": rng.normal(size=n), "A": treatment, "W": rng.normal(size=n), "DeltaA": recorded}
+    )
+
+
+#: Twelve rows, two unrecorded, so every arm keeps rows on the recorded ones.
+_RECORDED = [1.0] * 5 + [0.0] + [1.0] * 5 + [0.0]
+
+
+class TestMissingTreatment:
+    """``treatment_delta=``: the declaration, its rules, and what the container stores."""
+
+    def test_an_undeclared_missing_treatment_names_the_declaration(self) -> None:
+        a = np.array([0.0, 1.0] * 6)
+        a[3] = np.nan
+        with pytest.raises(DataError, match="no treatment observation indicator") as caught:
+            CausalData.from_arrays(np.zeros(12), a, np.arange(12.0))
+        message = str(caught.value)
+        assert "treatment_delta=<column>" in message
+        assert "treatment_missingness=<column> on PointTreatment" in message
+
+    def test_a_label_column_with_a_null_keeps_the_label_refusal(self) -> None:
+        labels = np.array(["c", "t"] * 6, dtype=object)
+        labels[3] = None
+        frame = _recorded_frame(labels, _RECORDED)
+        with pytest.raises(DataError, match="contains missing values and is not numeric"):
+            CausalData.from_frame(frame, outcome="Y", treatment="A", covariates=["W"])
+
+    @pytest.mark.parametrize(
+        ("indicator", "match"),
+        [
+            ([np.nan] + [1.0] * 11, "contains missing values"),
+            ([2.0] + [1.0] * 11, "must be coded 0/1"),
+            ([0.0] * 12, "no treatments are observed"),
+        ],
+    )
+    def test_a_malformed_indicator_takes_the_outcome_indicator_rules(
+        self, indicator: list[float], match: str
+    ) -> None:
+        a = np.array([0.0, 1.0] * 6)
+        with pytest.raises(DataError, match=match):
+            CausalData.from_arrays(np.zeros(12), a, np.arange(12.0), treatment_delta=indicator)
+        if "treatments" not in match:
+            with pytest.raises(DataError, match=match):
+                CausalData.from_arrays(np.zeros(12), a, np.arange(12.0), delta=indicator)
+
+    def test_a_missing_treatment_on_a_recorded_row_is_refused(self) -> None:
+        a = np.array([0.0, 1.0] * 6)
+        a[2] = np.nan
+        with pytest.raises(DataError, match=r"missing for 1 row\(s\) flagged as recorded"):
+            CausalData.from_arrays(np.zeros(12), a, np.arange(12.0), treatment_delta=_RECORDED)
+
+    def test_a_coded_treatment_on_an_unrecorded_row_is_ignored(self) -> None:
+        a = np.array([0.0, 1.0] * 6)
+        data = CausalData.from_arrays(np.zeros(12), a, np.arange(12.0), treatment_delta=_RECORDED)
+        unrecorded = np.asarray(_RECORDED) == 0.0
+        assert np.all(np.isnan(data.treatment[unrecorded]))
+        np.testing.assert_array_equal(data.treatment[~unrecorded], a[~unrecorded])
+        assert data.has_missing_treatment
+        np.testing.assert_array_equal(data.treatment_recorded, ~unrecorded)
+        assert data.treatment_delta_name == "DeltaA"
+
+    def test_levels_and_the_per_arm_minimum_read_the_recorded_rows(self) -> None:
+        labels = np.array(
+            ["c", "t", "c", "t", "c", "u", "c", "t", "c", "t", "c", "t"], dtype=object
+        )
+        data = CausalData.from_arrays(
+            np.zeros(12), labels, np.arange(12.0), treatment_delta=_RECORDED
+        )
+        assert data.treatment_levels == ("c", "t")
+        recorded = np.array(_RECORDED) == 1.0
+        recorded[3] = False
+        with pytest.raises(DataError, match="takes only one value"):
+            CausalData.from_arrays(
+                np.zeros(12),
+                np.array(["c"] * 11 + ["t"], dtype=object),
+                np.arange(12.0),
+                treatment_delta=_RECORDED,
+            )
+
+    def test_a_continuous_treatment_cannot_be_declared_missing(self) -> None:
+        with pytest.raises(DataError, match="arm-coded treatment only"):
+            CausalData.from_arrays(
+                np.zeros(12),
+                np.linspace(0.0, 1.0, 12),
+                np.arange(12.0),
+                treatment_delta=_RECORDED,
+                treatment_kind="continuous",
+            )
+
+    @pytest.mark.parametrize(
+        "column",
+        [
+            pytest.param(
+                lambda: np.where(np.array(_RECORDED) == 1.0, [0.0, 1.0] * 6, np.nan), id="numeric"
+            ),
+            pytest.param(
+                lambda: np.array(
+                    [
+                        None if r == 0.0 else v
+                        for r, v in zip(_RECORDED, ["c", "t"] * 6, strict=True)
+                    ],
+                    dtype=object,
+                ),
+                id="object",
+            ),
+            pytest.param(
+                lambda: pd.array(
+                    [pd.NA if r == 0.0 else v for r, v in zip(_RECORDED, [0, 1] * 6, strict=True)],
+                    dtype="Int64",
+                ),
+                id="nullable-int",
+            ),
+            pytest.param(
+                lambda: pd.array(
+                    [
+                        pd.NA if r == 0.0 else v
+                        for r, v in zip(_RECORDED, ["c", "t"] * 6, strict=True)
+                    ],
+                    dtype="string",
+                ),
+                id="nullable-string",
+            ),
+            pytest.param(
+                lambda: pd.array(
+                    [
+                        None if r == 0.0 else v
+                        for r, v in zip(_RECORDED, [False, True] * 6, strict=True)
+                    ],
+                    dtype="boolean[pyarrow]",
+                ),
+                id="pyarrow-boolean",
+            ),
+        ],
+    )
+    def test_every_column_spelling_reads_the_same_codes(self, column: object) -> None:
+        frame = _recorded_frame(column(), _RECORDED)  # type: ignore[operator]
+        data = CausalData.from_frame(
+            frame, outcome="Y", treatment="A", covariates=["W"], treatment_delta="DeltaA"
+        )
+        unrecorded = np.array(_RECORDED) == 0.0
+        assert np.all(np.isnan(data.treatment[unrecorded]))
+        np.testing.assert_array_equal(
+            data.treatment[~unrecorded], np.array([0.0, 1.0] * 6)[~unrecorded]
+        )
+        assert len(data.treatment_levels) == 2
+
+    def test_a_polars_frame_reads_the_same_codes(self) -> None:
+        frame = pl.DataFrame(
+            {
+                "Y": np.arange(12.0),
+                "A": [
+                    None if r == 0.0 else v for r, v in zip(_RECORDED, ["c", "t"] * 6, strict=True)
+                ],
+                "W": np.linspace(-1.0, 1.0, 12),
+                "DeltaA": _RECORDED,
+            }
+        )
+        data = CausalData.from_frame(
+            frame, outcome="Y", treatment="A", covariates=["W"], treatment_delta="DeltaA"
+        )
+        assert data.treatment_levels == ("c", "t")
+        assert int(np.isnan(data.treatment).sum()) == 2
+
+    def test_an_unrecorded_row_has_a_nan_indicator_row(self) -> None:
+        labels = np.array(["a", "b", "c"] * 4, dtype=object)
+        data = CausalData.from_arrays(
+            np.zeros(12), labels, np.arange(12.0), treatment_delta=_RECORDED
+        )
+        block = data.treatment_block(data.treatment)
+        unrecorded = np.array(_RECORDED) == 0.0
+        assert block.shape == (12, 2)
+        assert np.all(np.isnan(block[unrecorded]))
+        assert np.all(np.isfinite(block[~unrecorded]))
+        filled = data.treatment_design(missing_as=0.0)
+        assert np.all(np.isfinite(filled))
+        np.testing.assert_array_equal(filled[unrecorded, :2], 0.0)
+
+    def test_subset_and_frame_carry_the_indicator(self) -> None:
+        a = np.array([0.0, 1.0] * 6)
+        data = CausalData.from_arrays(np.zeros(12), a, np.arange(12.0), treatment_delta=_RECORDED)
+        index = np.array([5, 0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11])
+        subset = data.subset(index)
+        np.testing.assert_array_equal(subset.treatment_observed, data.treatment_observed[index])
+        assert "DeltaA" in data.to_frame().columns
+
+    def test_the_shares_read_the_recorded_rows(self) -> None:
+        a = np.array([0.0, 1.0, 1.0, 1.0] * 3)
+        data = CausalData.from_arrays(np.zeros(12), a, np.arange(12.0), treatment_delta=_RECORDED)
+        recorded = np.array(_RECORDED) == 1.0
+        assert data.treated_fraction == pytest.approx(float(np.mean(a[recorded])))
+        three = CausalData.from_arrays(
+            np.zeros(12), np.array([0.0, 1.0, 2.0] * 4), np.arange(12.0), treatment_delta=_RECORDED
+        )
+        assert three.arm_fractions.sum() == pytest.approx(1.0)
+
+    def test_a_replacement_treatment_keeps_the_unrecorded_rows(self) -> None:
+        """The placebo refuter's replacement: the recorded codes, permuted among themselves."""
+        from cleverly.validation.refute import _permuted_treatment
+
+        a = np.array([0.0, 1.0] * 6)
+        data = CausalData.from_arrays(np.zeros(12), a, np.arange(12.0), treatment_delta=_RECORDED)
+        permuted = _permuted_treatment(data, np.random.default_rng(0))
+        unrecorded = np.array(_RECORDED) == 0.0
+        assert np.all(np.isnan(permuted[unrecorded]))
+        assert sorted(permuted[~unrecorded]) == sorted(data.treatment[~unrecorded])
+        replaced = data.with_treatment(permuted)
+        assert np.all(np.isnan(replaced.treatment[unrecorded]))
+        broken = permuted.copy()
+        broken[0] = np.nan
+        with pytest.raises(DataError, match="missing on a row whose treatment is recorded"):
+            data.with_treatment(broken)
+
+    def test_the_longitudinal_container_keeps_its_message(self) -> None:
+        """A missing treatment node is not declarable there; its message is unchanged."""
+        from cleverly.longitudinal import LongitudinalData
+
+        rng = np.random.default_rng(1)
+        frame = pd.DataFrame(
+            {
+                "W": rng.normal(size=20),
+                "A1": rng.integers(0, 2, 20).astype(float),
+                "Y": rng.integers(0, 2, 20).astype(float),
+            }
+        )
+        frame.loc[2, "A1"] = np.nan
+        with pytest.raises(DataError, match="'A1' is missing for 1 unit") as caught:
+            LongitudinalData.from_frame(frame, baseline=["W"], treatment=["A1"], outcome="Y")
+        assert "treatment_delta" not in str(caught.value)

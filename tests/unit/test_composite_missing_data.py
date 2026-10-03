@@ -1135,3 +1135,221 @@ def test_e21_a_nuisance_fit_refuses_the_composite_view() -> None:
             folds=fitted.nuisance.folds,
             scaler=fitted.nuisance.scaler,
         )
+
+
+# ------------------------------------------------------- 3.2: the route stamps
+
+#: ``float.hex`` of each estimate and standard error, taken on the tree before X23 on
+#: ``make_missing_outcome(n=400, seed=4)`` with the learners of :func:`_pinned`.  The
+#: shipped missing-outcome TMLE, ``DRTMLE(guard=())`` with an observational ``delta=``,
+#: and ``DRTMLE(randomized=True)`` must not move.
+PINNED = {
+    "missing_outcome": {
+        "ate": ("0x1.1c1481f05746cp+0", "0x1.b500ad823e9e2p-4"),
+        "ey1": ("0x1.24249d3373fccp+1", "0x1.7ad47c4091282p-4"),
+        "ey0": ("0x1.2c34b87690b2cp+0", "0x1.81e703744dd2dp-4"),
+    },
+    "randomized_missing_outcome": {
+        "ate": ("0x1.1b733f0769a50p+0", "0x1.b45a0a99daa01p-4"),
+        "ey1": ("0x1.241ea3fe56ab4p+1", "0x1.79a67cc02f91cp-4"),
+        "ey0": ("0x1.2cca08f543b18p+0", "0x1.82d00b80554e7p-4"),
+    },
+}
+
+
+def _pinned(engine: type, **settings: Any) -> Any:
+    from cleverly.datasets import make_missing_outcome
+
+    frame, _ = make_missing_outcome(n=400, seed=4)
+    covariates = [name for name in frame.columns if name.startswith("W")]
+    return (
+        engine(
+            outcome_learner=LinearRegression(),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            missingness_learner=LogisticRegression(max_iter=1000),
+            cross_fit=False,
+            simultaneous=False,
+            random_state=0,
+            estimands=["ey0", "ey1", "ate"],
+            **settings,
+        )
+        .fit(frame, outcome="Y", treatment="A", covariates=covariates, delta="Delta")
+        .single()
+    )
+
+
+@pytest.mark.parametrize(
+    ("label", "build", "route"),
+    [
+        ("tmle", lambda: _pinned(TMLE), "missing_outcome"),
+        ("unguarded", lambda: _pinned(DRTMLE, guard=()), "missing_outcome"),
+        ("randomized", lambda: _pinned(DRTMLE, randomized=True), "randomized_missing_outcome"),
+    ],
+)
+def test_the_shipped_missing_outcome_routes_did_not_move(
+    label: str, build: Any, route: str
+) -> None:
+    result = build()
+    assert result.extra["missing_data"] == route, label
+    for name, (psi, std_error) in PINNED[route].items():
+        assert float(result.estimates[name].psi).hex() == psi, (label, name)
+        assert float(result.estimates[name].std_error).hex() == std_error, (label, name)
+
+
+def test_the_observational_guarded_fit_is_composite_and_moves() -> None:
+    """The control of the pins: the guarded observational fit is the new route."""
+    result = _pinned(DRTMLE)
+    assert result.extra["missing_data"] == "composite"
+    assert float(result.estimates["ate"].psi).hex() != PINNED["missing_outcome"]["ate"][0]
+
+
+def test_a_complete_fit_is_the_complete_route() -> None:
+    frame = multi.frame()
+    covariates = [name for name in frame.columns if name.startswith("W")]
+    result = (
+        DRTMLE(
+            **_reduced_learners(),
+            **_settings(
+                outcome_learner=LogisticRegression(max_iter=2000),
+                treatment_learner=LogisticRegression(max_iter=2000),
+                estimands=("ey",),
+            ),
+        )
+        .fit(frame, outcome="Y", treatment="A", covariates=covariates)
+        .single()
+    )
+    assert result.extra["missing_data"] == "complete"
+    assert result.extra["drtmle"].missing_data == "complete"
+
+
+def test_the_randomized_route_at_three_arms() -> None:
+    from tests import discrete_law_mar_multi as mar_multi
+
+    frame = mar_multi.frame()
+    result = (
+        DRTMLE(
+            randomized=True,
+            **_reduced_learners(),
+            **_settings(
+                outcome_learner=LawOutcome(mar_multi.LAW),
+                treatment_learner=LawTreatment(mar_multi.LAW),
+                missingness_learner=LawResponse(mar_multi.LAW),
+                estimands=("ey",),
+            ),
+        )
+        .fit(frame, outcome="Y", treatment="A", covariates=["W"], delta="Delta")
+        .single()
+    )
+    assert result.extra["missing_data"] == "randomized_missing_outcome"
+    assert result.extra["drtmle"].reduction == "missing_outcome"
+
+
+def test_no_construction_is_chosen_by_the_outcome_flag() -> None:
+    """Every DR-TMLE construction is chosen by the recorded route, not by
+    ``has_missing_outcome``: an observational ``delta=`` fit would otherwise take the
+    randomized construction.  The flag may still record a bound or gate a refusal."""
+    import inspect
+
+    for method in (DRTMLE._fit_reduced, DRTMLE._reduction):
+        assert "has_missing_outcome" not in inspect.getsource(method), method.__name__
+    lines = [
+        line.strip()
+        for line in inspect.getsource(DRTMLE._nuisances).splitlines()
+        if "has_missing_outcome" in line
+    ]
+    assert lines == ["if data.has_missing_outcome or data.has_missing_treatment"]
+
+
+# ----------------------------------------------------------- the study route
+
+
+def _study_frame() -> pd.DataFrame:
+    frame = _live_frame(dl.THREE, 900, 4)
+    return frame.rename(columns={"Delta": "R", "DeltaA": "RA"})
+
+
+def test_the_study_route_declares_a_missing_treatment() -> None:
+    from cleverly import ATE, CausalStudy, DRTMLEMethod, PointTreatment
+
+    design = PointTreatment(
+        outcome="Y",
+        treatment="A",
+        adjustment=("W",),
+        missingness="R",
+        treatment_missingness="RA",
+    )
+    effect = CausalStudy(_study_frame(), design=design).identify(ATE())
+    assert "RA=1" in effect.functional.expression
+    assumptions = " ".join(effect.identification.assumptions)
+    assert "treatment missing at random for RA" in assumptions
+    assert "composite positivity" in assumptions
+    fitted = effect.estimate(
+        method=DRTMLEMethod(
+            reduced_outcome_learner=LinearRegression(),
+            reduced_treatment_learner=LogisticRegression(max_iter=1000),
+        ),
+        **_fitted_learners(),
+        cross_fit=False,
+        simultaneous=False,
+        random_state=0,
+    )
+    assert fitted.extra["missing_data"] == "composite"
+    assert fitted.diagnostics.score_equations().passed
+
+
+def test_the_study_route_refuses_an_unidentified_target() -> None:
+    from cleverly import ATT, CausalStudy, PointTreatment
+    from cleverly.exceptions import CapabilityError
+
+    design = PointTreatment(
+        outcome="Y", treatment="A", adjustment=("W",), missingness="R", treatment_missingness="RA"
+    )
+    study = CausalStudy(_study_frame().assign(A=lambda f: f["A"]), design=design)
+    with pytest.raises(CapabilityError, match=r"P\(A = a \| W\) is not identified"):
+        study.identify(ATT())
+
+
+# ---------------------------------------------------- the inference status
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "drtmle+composite",
+        "missing_treatment",
+        "tmle+missing_treatment+weights",
+        "drtmle+missing_treatment+multi_arm",
+        "drtmle+missing_treatment+id",
+    ],
+)
+def test_each_composite_kind_supplies_an_influence_curve_interval(kind: str) -> None:
+    from tests.unit._capability_sweep_support import KINDS
+
+    result = KINDS[kind].build()
+    assert result.extra["missing_data"] == "composite"
+    assert result.inference_status == "influence_curve"
+    for estimate in result.estimates.values():
+        assert np.isfinite(estimate.std_error)
+
+
+@pytest.mark.parametrize(
+    ("guard", "status"), [(("Q", "g"), "estimated_weight_plugin"), ((), "influence_curve")]
+)
+def test_estimated_weights_on_a_guarded_composite_fit_withhold_the_interval(
+    guard: tuple[str, ...], status: str
+) -> None:
+    """As on the complete-data DR-TMLE: the reductions of an estimated weight are not derived."""
+    law = dl.TWO
+    frame = _live_frame(law, 600, 8)
+    data = CausalData.from_frame(
+        frame,
+        outcome="Y",
+        treatment="A",
+        covariates=["W"],
+        delta="Delta",
+        treatment_delta="DeltaA",
+        weights="weight",
+        weights_estimated=True,
+    )
+    result = _engine(guard, **_settings(**_fitted_learners(), estimands=("ate",))).fit(data)
+    assert result.single().inference_status == status
