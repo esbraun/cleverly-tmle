@@ -793,9 +793,9 @@ def test_e15_a_bootstrap_replicate_carries_the_treatment_indicator(
     replicates: list[CausalData] = []
     original = TMLE._bootstrap_point_estimates
 
-    def spy(self: Any, replicate: CausalData, intermediate_value: Any) -> Any:
+    def spy(self: Any, replicate: CausalData, *rest: Any) -> Any:
         replicates.append(replicate)
-        return original(self, replicate, intermediate_value)
+        return original(self, replicate, *rest)
 
     monkeypatch.setattr(TMLE, "_bootstrap_point_estimates", spy)
     estimator = TMLE(n_bootstrap=3, **_settings(**_fitted_learners(), estimands=_estimands(law)))

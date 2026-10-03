@@ -1565,7 +1565,9 @@ class TMLE:
         if self.n_bootstrap:
             bootstrap = run_bootstrap(
                 data,
-                lambda replicate: self._bootstrap_point_estimates(replicate, intermediate_value),
+                lambda replicate: self._bootstrap_point_estimates(
+                    replicate, intermediate_value, estimands
+                ),
                 n_replicates=self.n_bootstrap,
                 resampling=self.bootstrap_resampling,
                 random_state=self.random_state,
@@ -4193,7 +4195,10 @@ class TMLE:
         return out
 
     def _bootstrap_point_estimates(
-        self, data: CausalData, intermediate_value: float | None
+        self,
+        data: CausalData,
+        intermediate_value: float | None,
+        estimands: tuple[str, ...],
     ) -> Mapping[str, float]:
         """One bootstrap replicate: a full refit, point estimates only.
 
@@ -4209,8 +4214,13 @@ class TMLE:
         draw instead would attribute variability to the report that it does not
         have.  It costs ``B * R`` fits, which is the honest price of the two settings
         together.
+
+        ``estimands`` is the point fit's resolved tuple.  Resolving ``self.estimands``
+        again on a replicate would undo what the point fit's preflight dropped: an
+        ``estimands="all"`` fit with ``delta=`` or ``intermediate=`` drops ``ey_obs``,
+        ``par`` and ``paf``, and a replicate that asked for them again failed, or
+        published draws for names the fit never reported.
         """
-        estimands = resolve_estimands(self.estimands, data.family, data.n_arms, axis=self._axis)
         scaler = self._scaler(data)
         draws = self._repeat_draws(data, estimands)
         fold_draws = [folds for folds, _ in draws]
