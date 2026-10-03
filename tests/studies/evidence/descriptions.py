@@ -156,6 +156,59 @@ ARMS: dict[str, str] = {
         )
         for stratum in (0, 1, 2)
     },
+    # The stratified incremental and MSM study: incremental labels ``v<s>_<parameter>``,
+    # linked-MSM labels ``logit_<scope>_<term>``, dose labels ``continuous_<link>_<scope>_<term>``.
+    **{
+        f"v{stratum}_{key}": f"{words} in stratum V = {stratum}"
+        for stratum in (0, 1, 2)
+        for key, words in (
+            ("ey_natural", "incremental mean at odds multiplier 1"),
+            ("ey_x2", "incremental mean at odds multiplier 2"),
+            ("ey_x05", "incremental mean at odds multiplier 0.5"),
+            ("ate_x2", "incremental contrast of multiplier 2 against 1"),
+            ("ate_x05", "incremental contrast of multiplier 0.5 against 1"),
+            ("a", "treatment coefficient of the logit MSM (1, a, W)"),
+        )
+    },
+    **{
+        f"logit_{scope}_{key}": f"{words} of the logit MSM (1, a, W), {where}"
+        for scope, where in (
+            ("marginal", "marginal"),
+            *((f"v{stratum}", f"in stratum V = {stratum}") for stratum in (0, 1, 2)),
+        )
+        for key, words in (
+            ("intercept", "intercept coefficient"),
+            ("a", "treatment coefficient"),
+            ("w", "baseline-covariate coefficient"),
+        )
+    },
+    **{
+        f"continuous_{link}_{scope}_{key}": (
+            f"{words} of the {link}-link dose MSM (1, a) over the grid, {where}"
+        )
+        for link in ("identity", "logit")
+        for scope, where in (
+            ("marginal", "marginal"),
+            *((f"v{stratum}", f"in stratum V = {stratum}") for stratum in (0, 1, 2)),
+        )
+        for key, words in (("intercept", "intercept coefficient"), ("a", "dose coefficient"))
+    },
+    **{
+        f"identity_{scope}_{key}": f"{words} of the identity MSM (1, a, W), {where}"
+        for scope, where in (
+            ("marginal", "marginal"),
+            *((f"v{stratum}", f"in stratum V = {stratum}") for stratum in (0, 1, 2)),
+        )
+        for key, words in (
+            ("intercept", "intercept coefficient"),
+            ("a", "treatment coefficient"),
+            ("w", "baseline-covariate coefficient"),
+        )
+    },
+    "ipsi_strata": "the five marginal and fifteen stratum incremental parameters of one fit",
+    "continuous_strata": (
+        "the two marginal and six stratum coefficients of the identity-link dose MSM"
+    ),
     # The composite-indicator missing-data study: the corrected-inference contrasts,
     # the joint-coverage labels and the correction cycle.
     "composite_observational_ate": "the ATE of the two-arm law with an observational MAR outcome",
@@ -278,6 +331,12 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-omitted-variable-bound": "`cleverly` omitted-variable bound",
     "cleverly-calibration-slope-rule": "`cleverly` calibration-slope rule",
     "cleverly-default-bands": "`cleverly` shipped TMLE() default fit",
+    "cleverly-stratified-incremental": "`cleverly` incremental TMLE with baseline strata",
+    "npcausal-stratified": "R `npcausal` `ipsi`, once per stratum subset and on every row",
+    "cleverly-stratified-msm": "`cleverly` identity-link MSM TMLE with baseline strata",
+    "tmle3-msm-stratified": "R `tmle3` `Param_MSM`, once per stratum subset",
+    "cleverly-stratified-drtmle": "`cleverly` DR-TMLE with baseline strata",
+    "drtmle-r-stratified": "R `drtmle`, once per stratum subset",
     "cleverly-stratified-tmle": "`cleverly` ordinary TMLE with baseline strata",
     "cleverly-mar-drtmle": "`cleverly` randomized missing-outcome DR-TMLE",
     "cleverly-composite-drtmle": "`cleverly` composite-indicator missing-data DR-TMLE",
@@ -341,6 +400,15 @@ IMPLEMENTATIONS: dict[str, str] = {
 
 SCENARIOS: dict[str, str] = {
     "binary": "binary-outcome law",
+    "stratified_msm_identity": (
+        "baseline-strata law with a bounded outcome Y ~ Beta(24 Q, 24 (1 - Q))"
+    ),
+    "stratified_both_correct": (
+        "Benkeser et al. (2017) binary law with three baseline strata, correct GLM nuisances"
+    ),
+    "stratified_incremental": (
+        "binary law with three unequal baseline strata, three incremental odds multipliers"
+    ),
     "end_of_study_ratio": "two-node end-of-study law, saturated cell-mean learners",
     "linear": "linear Gaussian-outcome law with a constant effect, `make_linear_ate`",
     "calibrated_weak": "known propensity, logit g0 = 0.15 W1",
@@ -1050,6 +1118,16 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the identical working model is projected under uniform weights",
         "bias interval must fall entirely outside the margin",
     ),
+    ("projection_necessity", "stratified"): (
+        "the stratified logit-MSM fit with an outcome regression that omits the stratum, so "
+        "the per-stratum score blocks do all the adjusting",
+        "bias interval inside the equivalence margin",
+    ),
+    ("projection_necessity", "marginal_fluctuation"): (
+        "the same outcome regression with the marginal MSM fluctuation, its targeted "
+        "regression projected on the stratum's rows",
+        "bias interval must fall entirely outside the margin",
+    ),
     ("rule_necessity", "declared"): (
         "the declared covariate-dependent rule assigns both treatment arms",
         "bias interval inside the equivalence margin",
@@ -1277,6 +1355,16 @@ ARM_CELLS: dict[tuple[str, str, str], tuple[str, str]] = {
     for family in ("interval_calibration",)
     for arm in ("att_lower", "att_upper")
 }
+ARM_CELLS.update(
+    {
+        ("stratum_targeting_necessity", f"v{stratum}_ey_x2", "marginal_fluctuation"): (
+            "the same outcome regression in the unstratified incremental fit, its targeted "
+            "mixture averaged inside the stratum",
+            "bias interval must fall entirely outside the margin",
+        )
+        for stratum in (0, 2)
+    }
+)
 ARM_CELLS.update(
     {
         ("interval_calibration", arm, "inflated_se_control"): (
