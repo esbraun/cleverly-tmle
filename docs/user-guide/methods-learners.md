@@ -228,5 +228,5 @@ finite-sample estimating procedure and should be reported with support diagnosti
 submodel bound, `submodel_alpha`, is separate from the confidence interval's `alpha`.
 
 Unknown settings and settings an engine cannot use raise `MethodConfigurationError` before fitting
-rather than being ignored. A longitudinal fit refuses a point-only control such as `n_bootstrap=`
+rather than being ignored. A longitudinal fit refuses a point-only control such as `repeats=`
 instead of accepting it and discarding it.

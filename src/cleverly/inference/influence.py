@@ -70,7 +70,13 @@ from ..fluctuation.submodel import Submodel
 from ..msm import link_for, solve_projection
 from ..utils.bounds import OutcomeScaler, bound
 from .cluster import influence_variance, stacked_second_moment_variance
-from .delta import log_odds_ratio_influence, log_ratio_influence, normal_ci, two_sided_pvalue
+from .delta import (
+    Transform,
+    log_odds_ratio_influence,
+    log_ratio_influence,
+    normal_ci,
+    wald_statistic,
+)
 
 __all__ = [
     "CorrectionParts",
@@ -79,8 +85,11 @@ __all__ = [
     "InferenceStatus",
     "ParameterEstimate",
     "Scale",
+    "WaldTest",
     "atc_estimate",
     "att_estimate",
+    "bootstrap_column",
+    "bootstrap_line",
     "counterfactual_mean_parts",
     "counterfactual_means",
     "ipsi_means",
@@ -193,6 +202,110 @@ def spread_name(name: str, status: InferenceStatus) -> str:
     return _DIAGNOSTIC_NAMES[name]
 
 
+def bootstrap_column(name: str, status: InferenceStatus, inferential: bool) -> str:
+    """The name a bootstrap column is published under.
+
+    A bootstrap column keeps its inferential name only when the estimate's status supplies
+    inference *and* a registered study licenses the percentile interval for the fit that
+    produced it (:attr:`BootstrapSummary.inferential`). Otherwise it takes the diagnostic
+    name of :data:`_DIAGNOSTIC_NAMES`. :func:`spread_name` keeps its one key, the status.
+
+    Parameters
+    ----------
+    name : str
+        The inferential name, such as ``"bootstrap_ci_lower"`` or ``"bootstrap se"``.
+    status : str
+        The inference status of the estimate. One of :data:`InferenceStatus`.
+    inferential : bool
+        Whether the bootstrap summary licenses its interval as inference.
+
+    Returns
+    -------
+    str
+        ``name``, or its diagnostic name.
+    """
+    if supplies_inference(status) and inferential:
+        return name
+    return _DIAGNOSTIC_NAMES[name]
+
+
+#: Why a bootstrap percentile interval is printed as a range on a fit whose status
+#: supplies inference: no registered study licenses it for this kind of fit.
+UNLICENSED_BOOTSTRAP_NOTE = (
+    "a diagnostic: no registered study measures the coverage of this percentile interval "
+    "for this kind of fit"
+)
+
+
+def bootstrap_line(estimate: ParameterEstimate) -> str:
+    """The printed bootstrap spread and percentile interval of one estimate.
+
+    One body for both result summaries. The labels come from
+    :func:`~cleverly.inference.influence.bootstrap_column`, so a fit whose status supplies
+    no inference, or whose bootstrap is not licensed as inference, prints ``bootstrap sd``
+    and a percentile range.
+
+    Parameters
+    ----------
+    estimate : ParameterEstimate
+        An estimate that carries a bootstrap summary.
+
+    Returns
+    -------
+    str
+        The line, without the estimate's name.
+    """
+    summary = estimate.bootstrap
+    assert summary is not None
+    low, high = summary.ci
+    label = bootstrap_column("bootstrap se", estimate.inference, summary.inferential)
+    spread = f"{label} {summary.std_error:.4g}  "
+    if label == "bootstrap se":
+        return f"{spread}percentile CI [{low:.5g}, {high:.5g}]"
+    # A percentile interval is a confidence interval, and this estimate reports none. The
+    # same two numbers are printed as a range under the diagnostic framing, rather than
+    # the bootstrap being refused outright.
+    note = (
+        status_record(estimate.inference).bootstrap_note
+        if not estimate.supplies_inference
+        else UNLICENSED_BOOTSTRAP_NOTE
+    )
+    return f"{spread}percentile range [{low:.5g}, {high:.5g}] ({note})"
+
+
+@dataclass(frozen=True)
+class WaldTest:
+    """A two-sided Wald test of one estimate against a declared null value.
+
+    The statistic is ``(inference_value - null_inference_value) / std_error``, with both
+    values on the estimate's inference scale. That is the log scale for a ratio and the
+    scale of the transform for a transformed contrast. This is the statistic of
+    ``wald_test(null = )`` in R ``drtmle`` 1.1.2 (``R/test.R``, lines 85 to 183).
+
+    Parameters
+    ----------
+    name : str
+        The name of the tested estimate.
+    null : float
+        The null value on the reported scale, as the caller wrote it.
+    null_inference_value : float
+        The null value on the inference scale.
+    statistic : float
+        The Wald statistic.
+    pvalue : float
+        The two-sided normal p-value.
+    scale : {"level", "difference", "ratio", "fraction"}
+        The reported scale of the estimate.
+    """
+
+    name: str
+    null: float
+    null_inference_value: float
+    statistic: float
+    pvalue: float
+    scale: Scale
+
+
 def stamp_inference(
     estimates: Mapping[str, ParameterEstimate], status: InferenceStatus
 ) -> dict[str, ParameterEstimate]:
@@ -264,6 +377,9 @@ class ParameterEstimate:
         and :attr:`pvalue` answer. At any other status those three accessors raise
         with the status's reason, and :attr:`plugin_std_error` and
         :attr:`plugin_interval` report the retained diagnostic.
+    transform : Transform or None
+        A monotone map that the interval and the test are computed on, set by
+        ``contrast(..., transform=)``. ``None`` for every estimate a fit reports.
 
     Attributes
     ----------
@@ -280,6 +396,7 @@ class ParameterEstimate:
     cleverly.estimators.TMLEResult : The mapping these are read out of.
     cleverly.inference.influence_variance : The variance an estimate is given.
     cleverly.inference.simultaneous_bands : Joint bands over several of these.
+    cleverly.inference.WaldTest : What :meth:`wald_test` returns at a declared null.
 
     Examples
     --------
@@ -306,6 +423,12 @@ class ParameterEstimate:
     ('ate', 80)
     >>> estimate.ci[0] < estimate.ci[1]
     True
+
+    Test the estimate against a declared null value:
+
+    >>> test = estimate.wald_test(null=1.0)
+    >>> test.null, test.pvalue < 1.0
+    (1.0, True)
     """
 
     name: str
@@ -320,6 +443,7 @@ class ParameterEstimate:
     bootstrap: BootstrapSummary | None = None
     covariance_rule: CovarianceRule = "centered"
     inference: InferenceStatus = "influence_curve"
+    transform: Transform | None = None
 
     def _plugin_std_error(self) -> float:
         """The plug-in standard error, under any inference status.
@@ -339,19 +463,74 @@ class ParameterEstimate:
         :meth:`_plugin_std_error` has one.
         """
         center = self.inference_value
+        if self.transform is not None:
+            low, high = normal_ci(center, self._plugin_std_error(), self.alpha)
+            if not (np.isfinite(low) and np.isfinite(high)):
+                return (float("nan"), float("nan"))
+            # Sorted, so a decreasing transform still gives an ordered interval.
+            mapped = sorted(
+                (float(self.transform.inverse(low)), float(self.transform.inverse(high)))
+            )
+            return (mapped[0], mapped[1])
         if self.scale == "ratio":
             low, high = normal_ci(center, self._plugin_std_error(), self.alpha)
             return (float(np.exp(low)), float(np.exp(high)))
         return normal_ci(center, self._plugin_std_error(), self.alpha)
 
-    def _plugin_pvalue(self) -> float:
-        """The two-sided p-value of the plug-in curve, under any inference status.
+    def _null_inference_value(self, null: float | None) -> tuple[float, float]:
+        """The null on the reported scale and on the inference scale."""
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return self._map_null(null)
 
-        One body for :attr:`pvalue` and for the rejection rate
+    def _map_null(self, null: float | None) -> tuple[float, float]:
+        if null is None:
+            null = 1.0 if self.scale == "ratio" else 0.0
+            if self.transform is not None:
+                mapped = float(self.transform.forward(null))
+                if not np.isfinite(mapped):
+                    raise ValueError(
+                        f"the default null {null:g} has no value under the transform "
+                        f"{self.transform.name!r}. Call wald_test(null=...) with a null "
+                        "inside the transform's domain"
+                    )
+                return float(null), mapped
+            return float(null), 0.0
+        null = float(null)
+        if self.transform is not None:
+            mapped = float(self.transform.forward(null))
+            if not np.isfinite(mapped):
+                raise ValueError(
+                    f"the null {null:g} has no value under the transform "
+                    f"{self.transform.name!r}; pass a null inside the transform's domain"
+                )
+            return null, mapped
+        if self.scale == "ratio":
+            if not null > 0.0:
+                raise ValueError(f"a ratio-scale null must be positive; got {null:g}")
+            return null, float(np.log(null))
+        return null, null
+
+    def _plugin_wald_test(self, null: float | None) -> WaldTest:
+        """The Wald test of the plug-in curve, under any inference status.
+
+        One body for :meth:`wald_test`, :attr:`pvalue` and the rejection rate
         :class:`~cleverly.validation.CoverageStudy` measures, so a study that measures the
         diagnostic evaluates the refused property's arithmetic rather than a second rule.
         """
-        return two_sided_pvalue(self.inference_value, self._plugin_std_error())
+        reported, mapped = self._null_inference_value(null)
+        statistic, pvalue = wald_statistic(self.inference_value, mapped, self._plugin_std_error())
+        return WaldTest(
+            name=self.name,
+            null=reported,
+            null_inference_value=mapped,
+            statistic=statistic,
+            pvalue=pvalue,
+            scale=self.scale,
+        )
+
+    def _plugin_pvalue(self) -> float:
+        """The two-sided p-value at the scale's default null, under any inference status."""
+        return self._plugin_wald_test(None).pvalue
 
     @property
     def supplies_inference(self) -> bool:
@@ -389,7 +568,12 @@ class ParameterEstimate:
             spread_name("ci_upper", self.inference): high,
         }
         if pvalue and self.supplies_inference:
-            columns["p_value"] = self._plugin_pvalue()
+            try:
+                columns["p_value"] = self._plugin_pvalue()
+            except ValueError:
+                # A transformed estimate whose default null is outside the transform's
+                # domain has no default test. ``wald_test(null=...)`` names one.
+                columns["p_value"] = float("nan")
         return columns
 
     @property
@@ -418,6 +602,8 @@ class ParameterEstimate:
     @property
     def inference_value(self) -> float:
         """Return the estimate on the scale used by its influence curve."""
+        if self.transform is not None:
+            return float(self.transform.forward(self.psi))
         if self.scale == "ratio":
             if self.log_psi is None:
                 raise ValueError("a ratio-scale estimate requires log_psi for inference")
@@ -456,7 +642,8 @@ class ParameterEstimate:
         """Two-sided p-value against the null of no effect.
 
         The null is zero for a level, difference or fraction and one for a ratio
-        (i.e. zero on the log scale).
+        (i.e. zero on the log scale). A transformed estimate maps that null through its
+        transform. The value is ``wald_test().pvalue``, from the same body.
 
         Raises
         ------
@@ -466,6 +653,44 @@ class ParameterEstimate:
         """
         refuse_inference(self.inference, operation=".pvalue")
         return self._plugin_pvalue()
+
+    def wald_test(self, null: float | None = None) -> WaldTest:
+        """Test the estimate against a declared null value.
+
+        The statistic is computed on the inference scale. A ratio's null is mapped to the
+        log scale, and a transformed estimate's null is mapped through its transform.
+
+        Parameters
+        ----------
+        null : float or None, default=None
+            The null value on the reported scale. ``None`` takes the scale's default:
+            zero for a level, difference or fraction, and one for a ratio.
+
+        Returns
+        -------
+        WaldTest
+            The statistic and its two-sided p-value. At ``null=None`` its p-value is
+            :attr:`pvalue`.
+
+        Raises
+        ------
+        CapabilityError
+            When :attr:`supplies_inference` is ``False``. The fit reports no test.
+        ValueError
+            When a ratio-scale null is not positive, or a transformed estimate's null has
+            no value under its transform.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from cleverly.inference import make_estimate
+        >>> estimate = make_estimate("ey1", 0.4, np.array([0.1, -0.1, 0.2, -0.2]), n=4)
+        >>> test = estimate.wald_test(null=0.4)
+        >>> test.statistic, test.pvalue
+        (0.0, 1.0)
+        """
+        refuse_inference(self.inference, operation=".wald_test()")
+        return self._plugin_wald_test(null)
 
     @property
     def score(self) -> float:
@@ -500,7 +725,10 @@ class ParameterEstimate:
         ``plugin_std_err``, ``plugin_interval_lower`` and ``plugin_interval_upper`` in
         their place. Its bootstrap columns are ``bootstrap_sd``, ``bootstrap_range_lower``
         and ``bootstrap_range_upper`` rather than ``bootstrap_std_err``,
-        ``bootstrap_ci_lower`` and ``bootstrap_ci_upper``. Exactly one of ``std_err`` and
+        ``bootstrap_ci_lower`` and ``bootstrap_ci_upper``. The bootstrap columns take the
+        same diagnostic names when :attr:`BootstrapSummary.inferential` is ``False``. A
+        transformed estimate adds ``transform`` and ``transform_psi``, the estimate on the
+        transform's scale. Exactly one of ``std_err`` and
         ``inference`` is always present, so a programmatic consumer has a total test.
 
         Returns
@@ -515,10 +743,17 @@ class ParameterEstimate:
         row["scale"] = self.scale
         if self.log_psi is not None:
             row["log_psi"] = self.log_psi
+        if self.transform is not None:
+            row["transform"] = self.transform.name
+            row["transform_psi"] = self.inference_value
         if self.bootstrap is not None:
-            row[spread_name("bootstrap_std_err", self.inference)] = self.bootstrap.std_error
-            row[spread_name("bootstrap_ci_lower", self.inference)] = self.bootstrap.ci[0]
-            row[spread_name("bootstrap_ci_upper", self.inference)] = self.bootstrap.ci[1]
+            licensed = self.bootstrap.inferential
+            for key, value in (
+                ("bootstrap_std_err", self.bootstrap.std_error),
+                ("bootstrap_ci_lower", self.bootstrap.ci[0]),
+                ("bootstrap_ci_upper", self.bootstrap.ci[1]),
+            ):
+                row[bootstrap_column(key, self.inference, licensed)] = value
         return row
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
@@ -562,6 +797,10 @@ class BootstrapSummary:
         Replicates that raised and were dropped.
     draws : ndarray
         The finite replicate estimates.
+    inferential : bool, default=True
+        Whether a registered study licenses the percentile interval as inference for the
+        fit that produced it. ``False`` publishes the columns under their diagnostic
+        names, through :func:`bootstrap_column`, at every status.
     """
 
     std_error: float
@@ -571,6 +810,7 @@ class BootstrapSummary:
     n_replicates: int
     n_failed: int
     draws: FloatArray
+    inferential: bool = True
 
     @property
     def variance(self) -> float:

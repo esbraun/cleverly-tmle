@@ -84,7 +84,8 @@ The test fails on four states.
 | [`RM18-comparator-density`](../../roadmap.md#red-cell-owners) | 1 | ordinary continuous modified treatment policies |
 | [`strata-boundary-mean`](../../roadmap.md#red-cell-owners) | 5 | ordinary point-treatment TMLE with baseline strata |
 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) | 4 | ordinary survival-curve longitudinal TMLE, default simultaneous bands across shipped fit shapes |
-| total | 42 | 12 studies |
+| [`X20-bootstrap`](../../roadmap.md#red-cell-owners) | 3 | full-refit bootstrap and derived contrasts |
+| total | 45 | 13 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -137,6 +138,9 @@ same text as the "measured" column of its study page.
 | [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/categorical_ltmle__simultaneous_band` | positive | its own rule | joint coverage 0.9101 to 0.9382 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/categorical_ltmle_crossfit__simultaneous_band` | positive | its own rule | joint coverage 0.9173 to 0.9443 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/cde_z0__simultaneous_band` | positive | its own rule | joint coverage 0.9015 to 0.9309 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [full-refit bootstrap and derived contrasts](full-refit-bootstrap-and-derived-contrasts.md) | property | `interval_calibration/boot_ate_clustered__correctly_specified` | positive | its own rule | coverage 0.9123 to 0.9342, SE ratio 0.9496 to 1.0065 | [`X20-bootstrap`](../../roadmap.md#red-cell-owners) |
+| [full-refit bootstrap and derived contrasts](full-refit-bootstrap-and-derived-contrasts.md) | property | `interval_calibration/boot_ate_crossfit__correctly_specified` | positive | its own rule | coverage 0.9741 to 0.9857, SE ratio 1.2019 to 1.3336 | [`X20-bootstrap`](../../roadmap.md#red-cell-owners) |
+| [full-refit bootstrap and derived contrasts](full-refit-bootstrap-and-derived-contrasts.md) | property | `interval_calibration/boot_ey_crossfit__correctly_specified` | positive | its own rule | coverage 0.9730 to 0.9848, SE ratio 1.1663 to 1.3066 | [`X20-bootstrap`](../../roadmap.md#red-cell-owners) |
 <!-- /generated -->
 
 ## Reporting studies with no red row

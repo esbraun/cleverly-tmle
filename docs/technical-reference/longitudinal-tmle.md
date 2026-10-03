@@ -206,6 +206,64 @@ only happen at the last node reproduces the end-of-study fit **bit for bit**. A 
 single cause reproduces a single-event survival fit **bit for bit**. Stitelman, De Gruttola and van
 der Laan (2012) is the survival implementation reference.
 
+## Functionals of a fitted result
+
+Each method below reads the influence curves of the reported estimates. Each one is an exact
+delta-method or linear-functional computation, so it needs no new theory. Each derived estimate
+takes the inference status, the covariance rule and the cluster unit of its inputs.
+
+| method | value | influence curve |
+| --- | --- | --- |
+| `ratio(a, b)` | $\psi_a / \psi_b$, interval on the log scale | $IC_a/\psi_a - IC_b/\psi_b$ |
+| `ratio(a, b, kind="or")` | the ratio of the odds, interval on the log scale | $IC_a/(\psi_a(1-\psi_a)) - IC_b/(\psi_b(1-\psi_b))$ |
+| `ratio(a, b, view="survival")` | the ratio of $1 - \psi_a$ and $1 - \psi_b$ | the same curves after $\psi \mapsto 1 - \psi$ and $IC \mapsto -IC$ |
+| `rmst(d, tau)` | $\tau - \sum_{t=1}^{\tau-1} F_d(t)$ | $-\sum_{t=1}^{\tau-1} IC_{F_d(t)}$ |
+| `rmtl(d, tau, cause)` | $\sum_{t=1}^{\tau-1} F_{d,j}(t)$ | $\sum_{t=1}^{\tau-1} IC_{F_{d,j}(t)}$ |
+
+The ratio curves are those of `lmtp_contrast(type = "rr")` and `type = "or"` in `lmtp` 1.5.4
+(`R/contrasts.R`, lines 19 to 57). A ratio of two `ey_regimen`, `risk_regimen` or `cif_regimen`
+levels at one cause and horizon takes the name `rr_regimen[a vs b @ t=h]`. The survival view
+takes `survival_rr_regimen[...]`. The view is refused on an end-of-study fit, and on a fit that
+declares two or more causes, for the reason `curve()` gives. An odds ratio of end-of-study means
+needs a binary outcome. `concrete` reports a relative risk of cumulative incidence with a
+linear-scale interval and no arm covariance. This package uses the joint curve and the log scale,
+as `lmtp` does.
+
+Let $T$ be the node of the first event, with $T = K + 1$ for a unit that is event-free through
+node $K$. Then $\mathrm{RMST}_d(\tau) = E[\min(T^d, \tau)]$ for $2 \le \tau \le K + 1$. The
+restricted mean time lost to cause $j$ is $E[(\tau - \min(T^d, \tau))\,\mathbb 1\{J = j\}]$.
+Royston and Parmar (2013) define the RMST. Andersen, Hansen and Klein (2004) define the time lost
+to one cause.
+
+The unit is the node index. For nodes $\Delta$ apart, the RMST in calendar time is
+$\Delta \times \mathrm{RMST}$. On a competing-risk fit, $F_d$ is the sum of the cause-specific
+incidences, so `rmst` needs every declared cause. `rmst` refuses a fit that omits a horizon below
+$\tau$, an end-of-study fit, and a working-model fit.
+
+`tests/unit/test_contrast_conveniences.py` checks each row on the exact laws. A four-node law in
+`tests/studies/survival_grid_law.py` states the RMST truth by enumeration over the event times. It
+sums no risk curve.
+
+### The full-refit bootstrap
+
+`LTMLE(n_bootstrap=B)` refits the whole estimator on `B` resamples. The contract is the table.
+
+| question | contract |
+| --- | --- |
+| the unit | one row of the wide table: the whole trajectory of a unit, with its censoring and event nodes. A censored row and an event row resample as whole rows |
+| a cluster | `bootstrap_resampling="auto"` resamples whole clusters when `id=` is declared. Each drawn occurrence gets its own cluster code. `"cluster"` without `id=` is refused before any learner |
+| weights | the weights resample with their rows and are renormalized to mean one. They are not derived again |
+| what a replicate refits | everything: the outer split, the treatment and censoring mechanisms, every backward regression and fluctuation for every regimen, cause and horizon, and the working-model projection. The replicate uses the same regimens, reference, horizons, bounds and learner specifications, with `simultaneous=False` |
+| the outer split | a replicate draws its split from the fit's own `random_state`, as the point-treatment bootstrap does. Two copies of one unit can fall in different folds |
+| what a replicate returns | the point estimate of every reported parameter |
+| a failed replicate | it is dropped and counted in `n_failed`, and it is not drawn again. A resample that leaves a regimen with no followers fails |
+| status | a replicate carries no status. The fit's status names the bootstrap columns. Under `few_cluster_plugin` the summary prints `bootstrap sd` and `percentile range` |
+| replay | `truncation_curve()` does not rerun the bootstrap. Its check at the fitted bound compares the estimates without their bootstrap summaries |
+| random draws | `run_bootstrap` spawns the stream from `random_state`. The stream draws nothing the fit uses, so every analytic field of the fit is unchanged. `tests/unit/test_ltmle_bootstrap.py` pins a committed `canonical-ltmle` row at `n_bootstrap=0` and at `n_bootstrap=2` |
+| parallel layers | the replicates run in parallel over `n_jobs`, and each replicate fit runs with one worker |
+| licensing scope | `bootstrap_design_kind` names a fit's kind: an end-of-study or single-cause survival outcome, fitted in sample, cross-fitted or clustered, with static regimens, a binary outcome, no weights and no working model. Any other fit has no kind. A kind is licensed as inference only when it is in `LICENSED_BOOTSTRAP_DESIGNS`, and it enters after its cells in the [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md) are green. The registered run licensed `end_of_study/in_sample` and `survival/in_sample`. The cross-fitted and clustered end-of-study kinds stay diagnostic, with owner `X20-bootstrap`. An unlicensed kind prints `bootstrap sd` and a percentile range. The study measures correctly specified cell-mean nuisances on finite binary laws, at $n = 1000$, and at 1,500 rows in 60 clusters for the cluster bootstrap. No result covers a data-adaptive nuisance. Cai and van der Laan (2020) is the warning for that case |
+| derived estimates | `ratio`, `rmst`, `rmtl` and `contrast` apply the same function to each replicate's estimates, and attach the percentile interval of those values. The derived interval is licensed only when every input's interval is |
+
 ## Variations
 
 | option | what it does |
@@ -218,6 +276,7 @@ der Laan (2012) is the survival implementation reference.
 | `n_folds=`, `learner_folds=` | one outer split serves every node and regimen. The split is unstratified: `random_partition` draws it from the row count and the seed, and it balances no treatment node. Each fold fits the mechanism and an untargeted backward regression sequence on its training rows. One pooled fluctuation per node then targets the out-of-fold predictions, as [cross-fitting the recursion](#cross-fitting-the-recursion) states. The mechanism fit keeps one prediction slab per fold, so the mechanism costs $K$ times the memory of a single-fold fit and the saved result grows by the same factor |
 | `g_bounds=`, `q_bounds=`, `alpha=` | cumulative truncation, outcome scaling, and the logistic shrink. Above one fold, a continuous outcome must declare `q_bounds` |
 | `alpha_sig=`, `simultaneous=`, `n_multiplier=`, `multiplier_kind=` | interval level, and the simultaneous bands across the reported regimens |
+| `n_bootstrap=`, `bootstrap_resampling=` | the full-refit bootstrap. [The bootstrap contract](#the-full-refit-bootstrap) states what each replicate resamples and refits |
 
 ### Cross-fitting the recursion
 
@@ -266,6 +325,8 @@ step, and established argument.
 | known observation weights | Theorem 3 under iid sampling | the target is a weighted mean of the node-1 regression, and every fluctuation carries the weight in its loss | the chain rule for influence functions, applied to a ratio of two means under iid draws of the observation and its known, bounded weight | [weighted study](method-evidence/cross-fitted-weighted-end-of-study-longitudinal-tmle.md), which fails two property cells and three paired comparisons that conclude underpowered, and publishes them under a `reporting` policy |
 | categorical treatments and deterministic dynamic rules | Theorem 3 for a fixed modified treatment policy $d(a_t, h_t)$ that does not depend on $P$ | a fixed rowwise rule assigns one level from that unit's history | Section 2 lets a fixed policy depend on the unit's history, and Section 4, journal page 850, gives the intervention density for a discrete exposure. A sample-adaptive threshold or learned rule is outside this result | [categorical study](method-evidence/cross-fitted-categorical-longitudinal-tmle.md), and the fixed dynamic rule in the [end-of-study study](method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md) |
 | several horizons, causes, regimens, and their contrasts | Theorem 3 for each parameter | each parameter has its own recursion on one shared split, and the report stacks their influence curves | a fixed-dimension stack by Cramér–Wold, then linearity or the delta method for each contrast | the survival-curve and competing-risk studies |
+| ratios of regimen levels, RMST and RMTL | the stacked curves of the row above | a log ratio is a smooth function of two levels. RMST and RMTL are fixed linear combinations of the risks below the horizon | the delta method, and linearity | the ratio and RMST cells of the [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md) |
+| the full-refit bootstrap | the estimator of each row above | refit the whole estimator on each resample | none for this estimator. The percentile interval is licensed only for a measured design kind whose cells are green, with correctly specified cell-mean nuisances on finite binary laws | the bootstrap cells of the [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md) |
 
 Theorem 3 also requires every mechanism ratio and targeted sequential regression to be consistent,
 the sum over nodes of their error products to be $o_P(n^{-1/2})$, and the density ratios to stay
@@ -310,7 +371,7 @@ the question, the construction, or coverage.
 | a callable node that is not declared `"known"`, or that is declared `"estimated"` | wrong by construction | the fit treats each rule as fixed. A rule learned from the analysis sample needs a learned-policy estimand and its own inference. `LTMLE.fit` raises `CapabilityError` before any learner. Declare a rule fixed before the fit with `DynamicRegimen(label, plan, rule_kind="known")` |
 | a callable written inline in a `regimens=` mapping | wrong by construction | an inline callable carries no declaration, so the fit refuses it before any learner. Write the plan as a `DynamicRegimen` declared `rule_kind="known"`, with `(rule,) * T` for one rule at every node |
 | an outcome missing for a reason other than censoring | wrong by construction | left as it is, the probability of observing it is silently taken to be one. Encode it as a final censoring column, so it is estimated and enters the cumulative product |
-| the full-refit bootstrap and longitudinal sensitivity-bound estimation | not written yet | the bootstrap needs a resampling and replay contract. Sensitivity-bound estimation needs a sample estimator and sampling theory for its bound functionals |
+| longitudinal sensitivity-bound estimation | not written yet | a sample estimator and sampling theory for its bound functionals. [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) holds the stop |
 | a **continuous dose** at a node, and `shifts=` | not written yet | Díaz, Williams, Hoffman and Schenck (2023), Theorem 3, journal page 853, covers a fixed modified treatment policy $d(a_t, h_t)$ on a continuous dose. The fit needs a conditional density of the dose at every node, and each node's density ratio enters the cumulative product. `LTMLE` estimates no such density, so it refuses `shifts=` by name. It reads a numeric node as unordered arms. It warns at 10 or more distinct values, and it raises `DataError` above 20. [X12](../roadmap.md#x12-modified-treatment-policies-beyond-the-additive-point-shift) part (b) holds the work |
 | `incremental=` | not written yet | Kennedy (2019), *Journal of the American Statistical Association* 114(526), treats incremental interventions on a time-varying treatment. The tilt is built from the mechanism, so it needs the product of tilted mechanisms and a mechanism submodel at every node. [X19](../roadmap.md#x19-incremental-interventions-over-time) holds the work |
 | `id=` above one fold | not written yet | a grouped draw keeps each cluster whole, and the cluster-robust variance of the targeted sequential recursion under one is not established. The package permits the in-sample clustered fit. Below 40 clusters with positive weight mass it takes `"few_cluster_plugin"` and reports no interval ([clusters](inference.md#clusters)) |

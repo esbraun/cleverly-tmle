@@ -274,7 +274,7 @@ import copy
 import inspect
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 from sklearn.linear_model import LogisticRegression
@@ -285,7 +285,8 @@ from ..data.causal_data import CausalData
 from ..exceptions import CapabilityError
 from ..fluctuation.iterative import InitialFit, apply_logistic, check_matching_arms
 from ..fluctuation.submodel import Submodel, restrict, weighted_form
-from ..inference.delta import log_odds_ratio_influence, log_ratio_influence
+from ..inference.cluster import influence_variance
+from ..inference.delta import log_odds_ratio_influence, log_ratio_influence, normal_ci
 from ..inference.influence import counterfactual_means
 from ..interventions.learned import learned_rule_configuration_refusal
 from ..learners._fitting import Task, predict_mean, predict_probabilities
@@ -300,6 +301,9 @@ from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .targeting import build_submodel, solve_submodel
 from .tmle import TMLE
 
+if TYPE_CHECKING:
+    from .base import TMLEResult
+
 __all__ = [
     "CTMLE",
     "CTMLE_SELECTOR_STRATEGIES",
@@ -308,7 +312,9 @@ __all__ = [
     "CTMLEPreorder",
     "CTMLESelection",
     "CTMLEStrategy",
+    "LogisticPlugin",
     "is_selector_strategy",
+    "logistic_plugin",
 ]
 
 CTMLEStrategy = Literal["greedy", "ordered", "discrete", "oat"]
@@ -1907,3 +1913,177 @@ def _weighted_partial_correlation(
 def _restrict_fit(fit: InitialFit, index: IntArray) -> InitialFit:
     """Row-subset an initial fit, the counterpart of :func:`.submodel.restrict`."""
     return fit.map_arms(lambda values: values[index])
+
+
+#: The start of every ``logistic_plugin`` refusal: what R ``ctmle`` defines the term for.
+_LOGISTIC_PLUGIN_SCOPE = (
+    "the logistic-estimation term of R ctmle's calc_varIC is defined for a binary "
+    "treatment whose propensity is fitted once on all rows without weights, missing "
+    "outcomes or an intermediate variable. This fit "
+)
+
+
+@dataclass(frozen=True)
+class LogisticPlugin:
+    """The plug-in variance R ``ctmle`` reports for a selector C-TMLE fit.
+
+    A diagnostic.  The fit's status stays ``"working_mechanism_plugin"``, and no
+    registered study measures the coverage of this interval.  The ``plugin_logistic_``
+    prefix makes no coverage claim.
+
+    Parameters
+    ----------
+    name : str
+        The estimand: ``"ate"``, ``"ey1"`` or ``"ey0"``.
+    psi : float
+        The reported estimate.
+    influence_curve : ndarray
+        ``D* + term1 I^{-1} S`` on the outcome scale, with ``S = (A - g) W~`` the
+        logistic score of the selected candidate's covariates and an intercept.
+    plugin_logistic_std_error : float
+        The plug-in standard error of :attr:`influence_curve`, at the observation or
+        cluster unit.
+    plugin_logistic_interval : tuple of float
+        The Wald interval at the fit's level, from that standard error.
+    correction_applied : bool
+        ``False`` when the selected candidate has no covariates, or when the information
+        matrix is singular.  R ``ctmle`` then reports the ``D*`` variance, and so does this.
+    """
+
+    name: str
+    psi: float
+    influence_curve: FloatArray
+    plugin_logistic_std_error: float
+    plugin_logistic_interval: tuple[float, float]
+    correction_applied: bool
+
+
+def _logistic_plugin_refusal(result: TMLEResult) -> str | None:
+    """Why ``result`` is outside the term's definition, or ``None``."""
+    data = result.data
+    selection = result.extra.get("ctmle")
+    if not isinstance(selection, CTMLESelection):
+        if isinstance(selection, CTMLEOutcomeAdaptiveFit):
+            return "used strategy='oat', which fits no logistic propensity on covariates"
+        return "is not a selector C-TMLE fit (strategy 'greedy', 'ordered' or 'discrete')"
+    if not data.is_binary_treatment:
+        return f"has {data.n_arms} treatment arms"
+    if result.config.cross_fit:
+        return "cross-fits its propensity"
+    if data.is_weighted:
+        return "carries observation weights"
+    if data.has_missing_outcome:
+        return "has missing outcomes"
+    if result.intermediate_value is not None:
+        return "targets a level of an intermediate variable"
+    return None
+
+
+def logistic_plugin(result: TMLEResult) -> dict[str, LogisticPlugin]:
+    r"""The ``calc_varIC(ICg = TRUE)`` variance R ``ctmle`` reports, as a diagnostic.
+
+    R ``ctmle`` 0.1.2 at commit ``18de559`` reports ``var.psi`` and ``CI`` from
+    ``calc_varIC(..., ICg = TRUE)`` at the selected candidate
+    (``R/functions_discrete.R``, lines 200 and 201, and ``R/ctmle_discrete.R``, lines
+    181 to 196).  That variance adds to :math:`D^*` the term for the estimation of the
+    candidate's logistic propensity (``R/functions.R``, lines 39 to 60):
+
+    .. math::
+
+        IC_i = D^*_i + \text{term1}\, I^{-1} (A_i - g_i) \tilde W_i,
+
+    with :math:`\tilde W = [1, W_S]` the selected covariates and an intercept,
+    :math:`I = P_n[g(1-g)\tilde W \tilde W^\top]`, and :math:`\text{term1}` the
+    derivative of :math:`P_n D^*` in the logistic coefficients.  For ``ey1`` it is
+    :math:`P_n[-(Y - Q)\tilde W A(1-g)/g]`, for ``ey0``
+    :math:`P_n[(Y - Q)\tilde W (1-A)g/(1-g)]`, and ``ate`` is their difference.
+
+    :attr:`~cleverly.inference.ParameterEstimate.plugin_interval` is the ``D*`` interval,
+    the first value ``calc_varIC`` returns.  This function returns the second.  The term
+    is a parametric-estimation correction only when the treatment learner is an
+    unpenalised main-terms logistic regression.  For any other learner it is R's formula
+    evaluated at that learner's prediction.  Neither interval carries a coverage claim,
+    and the fit's status does not change.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        A selector C-TMLE fit of a binary treatment, fitted in sample.
+
+    Returns
+    -------
+    dict of str to LogisticPlugin
+        One entry for each of ``ate``, ``ey1`` and ``ey0`` that the fit reports.
+
+    Raises
+    ------
+    CapabilityError
+        When the fit is not a selector C-TMLE fit, or has more than two arms, a
+        cross-fitted propensity, observation weights, missing outcomes or an
+        intermediate variable.
+
+    Examples
+    --------
+    >>> from sklearn.linear_model import LogisticRegression
+    >>> from cleverly.datasets import make_binary_outcome
+    >>> from cleverly.estimators import CTMLE, logistic_plugin
+    >>> frame, _ = make_binary_outcome(n=200, seed=0)
+    >>> result = CTMLE(
+    ...     outcome_learner=LogisticRegression(max_iter=1000),
+    ...     treatment_learner=LogisticRegression(C=1e6, max_iter=1000),
+    ...     strategy="greedy",
+    ...     cross_fit=False,
+    ...     estimands=("ate",),
+    ... ).fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"]).single()
+    >>> diagnostic = logistic_plugin(result)["ate"]
+    >>> diagnostic.plugin_logistic_std_error > 0
+    True
+    """
+    reason = _logistic_plugin_refusal(result)
+    if reason is not None:
+        raise CapabilityError(_LOGISTIC_PLUGIN_SCOPE + reason)
+    data = result.data
+    selection = result.extra["ctmle"]
+    nuisance = result.nuisance
+    g1 = nuisance.propensity.bounded(result.config.g_bounds)[:, 1]
+    targeted = result.fluctuations["mean"].targeted
+    a = np.asarray(data.treatment, dtype=float)
+    scale = nuisance.scaler.range
+    # The residual on the outcome scale, where the reported curve lives.
+    residual = scale * (nuisance.scaler.scale(data.outcome) - targeted.observed)
+    chosen = [data.covariate_names.index(name) for name in selection.selected_covariates]
+    design = np.column_stack([np.ones(data.n), data.covariates[:, chosen]])
+    corrected = bool(chosen)
+    projection = None
+    if corrected:
+        information = (design * (g1 * (1.0 - g1))[:, None]).T @ design / data.n
+        score = design * (a - g1)[:, None]
+        try:
+            projection = np.linalg.solve(information, score.T).T
+        except np.linalg.LinAlgError:
+            corrected = False
+    pieces = {
+        "ey1": -(residual * a * (1.0 - g1) / g1),
+        "ey0": residual * (1.0 - a) * g1 / (1.0 - g1),
+    }
+    pieces["ate"] = pieces["ey1"] - pieces["ey0"]
+    out: dict[str, LogisticPlugin] = {}
+    for name in ("ate", "ey1", "ey0"):
+        if name not in result.estimates:
+            continue
+        estimate = result.estimates[name]
+        curve = np.asarray(estimate.influence_curve, dtype=float)
+        if corrected and projection is not None:
+            term1 = (design * pieces[name][:, None]).mean(axis=0)
+            curve = curve + projection @ term1
+        variance = influence_variance(curve, data.cluster)
+        std_error = float(np.sqrt(variance)) if np.isfinite(variance) else float("nan")
+        out[name] = LogisticPlugin(
+            name=name,
+            psi=estimate.psi,
+            influence_curve=curve,
+            plugin_logistic_std_error=std_error,
+            plugin_logistic_interval=normal_ci(estimate.psi, std_error, result.config.alpha_sig),
+            correction_applied=corrected and projection is not None,
+        )
+    return out
