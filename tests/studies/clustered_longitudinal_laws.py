@@ -6,7 +6,7 @@ them too.
 
 **Why a study-side law.** ``make_longitudinal(cluster_size=m)`` shares part of the ``L2`` noise
 within a cluster. On the contrast its IID SE over the empirical SD is 0.98 at :math:`m=10` and
-0.84 at :math:`m=25` (X25 planning probes), above the 0.80 ceiling that a ``clustered_inference``
+0.84 at :math:`m=25` (single-process probes of 400 draws), above the 0.80 ceiling that a ``clustered_inference``
 control must fall below. The shipped generator and the notebooks that use it are unchanged.
 
 **The end-of-study law.** Draw ``make_longitudinal(n, seed=seed, censoring=True)`` without

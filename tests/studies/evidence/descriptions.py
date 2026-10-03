@@ -125,6 +125,10 @@ ARMS: dict[str, str] = {
     "cde_z1": "the controlled direct-effect fit at intermediate level one",
     "point_msm": "the three terms of the point-treatment MSM projection",
     "clustered": "grouped cross-fitted TMLE with cluster multipliers",
+    "clustered_regimens": (
+        "the three regimen means and two contrasts of the cross-fitted clustered LTMLE, with "
+        "cluster multipliers"
+    ),
     "shift_grid": "three shift policies and their two contrasts",
     "incremental_grid": "three incremental odds multipliers and their two contrasts",
     "stochastic_regimes": "a static and a known stochastic regime and their contrast",
@@ -324,6 +328,10 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-cde-tmle": "`cleverly` controlled direct-effect TMLE",
     "cleverly-ltmle-derived": "`cleverly` LTMLE ratio contrast",
     "cleverly-clustered-cvtmle": "`cleverly` clustered point-treatment CV-TMLE",
+    "cleverly-clustered-cross-fitted-ltmle": "`cleverly` clustered cross-fitted LTMLE",
+    "cleverly-few-cluster-cross-fitted-ltmle": (
+        "`cleverly` clustered cross-fitted LTMLE on a t reference at few clusters"
+    ),
     "cleverly-clustered-unequal-cvtmle": (
         "`cleverly` clustered point-treatment CV-TMLE at unequal cluster sizes"
     ),
@@ -409,6 +417,13 @@ IMPLEMENTATIONS: dict[str, str] = {
 
 SCENARIOS: dict[str, str] = {
     "binary": "binary-outcome law",
+    "clustered_end_of_study": (
+        "100 clusters of 40 rows, a mean-zero cluster component on the final outcome, censored "
+        "two-node panel"
+    ),
+    "few_equal_j20": (
+        "20 clusters of 40 rows, a scaled mean-zero cluster component on the final outcome"
+    ),
     "unequal_noninformative": (
         "200 clusters of size uniform on 2 to 18, the size absent from the outcome"
     ),
@@ -799,6 +814,30 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("clustered_inference", "iid_control_drtmle"): (
         "the DR-TMLE curve treated as independent rows",
+        "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
+    ),
+    ("clustered_inference", "cluster_robust_dynamic"): (
+        "cross-fitted clustered LTMLE, the dynamic rule against never, on the primary fits",
+        "SE-ratio and coverage intervals both stay inside their calibration bands",
+    ),
+    ("clustered_inference", "iid_control_dynamic"): (
+        "the dynamic contrast's curve treated as independent rows",
+        "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
+    ),
+    ("clustered_inference", "cluster_robust_unequal"): (
+        "cross-fitted clustered LTMLE at cluster sizes uniform on 10 to 70",
+        "SE-ratio and coverage intervals both stay inside their calibration bands",
+    ),
+    ("clustered_inference", "iid_control_unequal"): (
+        "the unequal-size contrast's curve treated as independent rows",
+        "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
+    ),
+    ("clustered_inference", "cluster_robust_survival"): (
+        "cross-fitted clustered survival LTMLE, the risk contrast at t=2",
+        "SE-ratio and coverage intervals both stay inside their calibration bands",
+    ),
+    ("clustered_inference", "iid_control_survival"): (
+        "the survival contrast's curve treated as independent rows",
         "the SE-ratio upper endpoint must not exceed the declared IID-control ceiling",
     ),
     ("clustered_inference", "cluster_robust_fold_evaluated_cluster_covariate"): (
@@ -1800,5 +1839,27 @@ CELLS.update(
         for clusters in _FEW_CLUSTER_COUNTS
         for arm, (arm_text, required) in _FEW_CLUSTER_ARMS.items()
         if arm != "t_j_minus_2_reference" or fit == "tmle_cv_evaluation"
+    }
+)
+
+
+#: The ``few_cluster_reference`` cells of ``few-cluster-cross-fitted-ltmle``. Mirrored from
+#: ``tests.studies.few_cluster_crossfit_ltmle``; ``tests/unit/test_clustered_crossfit_ltmle_design.py``
+#: pins the two equal.
+_CROSSFIT_FEW_CLUSTER_COUNTS = (20, 30)
+_CROSSFIT_FEW_CLUSTER_SIZES = {
+    "equal40": "clusters of 40 rows",
+    "unequal40": "clusters of size uniform on 10 to 70",
+}
+CELLS.update(
+    {
+        ("few_cluster_reference", f"ltmle_crossfit__{sizes}__j{clusters}__{arm}"): (
+            f"cross-fitted clustered LTMLE, {clusters} {size_text}: {arm_text}",
+            required,
+        )
+        for sizes, size_text in _CROSSFIT_FEW_CLUSTER_SIZES.items()
+        for clusters in _CROSSFIT_FEW_CLUSTER_COUNTS
+        for arm, (arm_text, required) in _FEW_CLUSTER_ARMS.items()
+        if arm != "t_j_minus_2_reference"
     }
 )
