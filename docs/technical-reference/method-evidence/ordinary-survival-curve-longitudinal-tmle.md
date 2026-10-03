@@ -173,9 +173,15 @@ and contrasts are two exact duplicate pairs and the family has eight distinct pa
 The `all_reported` band is the one red verdict, and the study publishes under the `reporting`
 policy. Its joint coverage is 0.9214, with a 99% interval from 0.9140 to 0.9283 that crosses
 the 0.92 edge. The declared diagnostic read the same rows at the design critical value of
-2.622. That oracle band covers 0.9241, so the multiplier is not the cause. The family inherits
-the horizon-two shortfall of the pointwise intervals above. The default band stays on, and
-[X14](../../roadmap.md#x14-hazard-based-and-monotone-survival-curves) owns the cell.
+2.622. That oracle band covers 0.9241, so the multiplier is not the main cause. The package
+critical value averages 2.605, which accounts for the 0.0027 between the two coverages. The
+family inherits the horizon-two shortfall of the pointwise intervals above. [`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py)
+rebuilds this reading from the committed rows.
+
+The default band stays on, and
+[`band-finite-sample`](../../roadmap.md#red-cell-owners) owns the cell.
+[X14](../../roadmap.md#x14-hazard-based-and-monotone-survival-curves) part (b) is a different
+construction that supplies a band over the whole curve.
 
 ## Measured values
 
@@ -252,7 +258,7 @@ the committed results and checked at the precision printed.
 | limitation | what it means for use |
 | --- | --- |
 | This is the ordinary row | Nuisances are fitted on the analysis sample. The separate cross-fitted row below validates held-out nuisance fitting and fold-specific recursion |
-| The band over the curve is measured at two horizons | The law has two horizons. The one-plan band passes, and the band over all ten parameters covers 0.9214, a red cell that X14 owns. Each horizon is targeted in its own backward pass, so the reported curve is not constrained to increase |
+| The band over the curve is measured at two horizons | The law has two horizons. The one-plan band passes, and the band over all ten parameters covers 0.9214, a red cell that `band-finite-sample` owns. Each horizon is targeted in its own backward pass, so the reported curve is not constrained to increase |
 | Horizon-two inference is mildly anticonservative at n = 2,000 | The reported standard error sits a few percent below the sampling spread, and coverage sits below nominal. Both endpoints stay inside the declared calibration bands. The first horizon does not show this on the same draws |
 | The event process has two horizons | Both backward prefixes are exercised. Longer follow-up may compound the horizon-two shortfall above, and this study cannot say by how much |
 | The first-horizon null is not a longitudinal null | No time-varying node precedes the first event node, so a baseline-only standardisation recovers that null exactly. The first-horizon type-I cells test baseline and censoring adjustment only |

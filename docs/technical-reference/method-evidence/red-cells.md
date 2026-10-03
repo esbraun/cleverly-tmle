@@ -82,9 +82,8 @@ The test fails on four states.
 | [`RM18-one-sided-bias`](../../roadmap.md#red-cell-owners) | 3 | DR-TMLE for binary complete data, multi-arm point-treatment DR-TMLE |
 | [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) | 6 | ordinary weighted end-of-study longitudinal TMLE |
 | [`RM18-comparator-density`](../../roadmap.md#red-cell-owners) | 1 | ordinary continuous modified treatment policies |
-| [`X14`](../../roadmap.md#x14-hazard-based-and-monotone-survival-curves) | 1 | ordinary survival-curve longitudinal TMLE |
 | [`strata-boundary-mean`](../../roadmap.md#red-cell-owners) | 5 | ordinary point-treatment TMLE with baseline strata |
-| [`default-band-shortfall`](../../roadmap.md#red-cell-owners) | 3 | default simultaneous bands across shipped fit shapes |
+| [`band-finite-sample`](../../roadmap.md#red-cell-owners) | 4 | ordinary survival-curve longitudinal TMLE, default simultaneous bands across shipped fit shapes |
 | total | 42 | 12 studies |
 <!-- /generated -->
 
@@ -134,10 +133,10 @@ same text as the "measured" column of its study page.
 | [cross-fitted weighted end-of-study longitudinal TMLE](cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | paired | `selected_censored_end_of_study/ey_regimen[treat then continue if l2 positive]` | paired | underpowered: coverage leg, calibration resolution | difference -0.000118 to 0.000400 within 0.0032, RMSE ratio bound 1.0175 vs 1.1000, coverage difference bound -0.0425 vs -0.0250, calibration excess bound 0.0382 vs 0.0500, resolution 0.1119 | [`RM18-boundary`](../../roadmap.md#red-cell-owners) |
 | [cross-fitted weighted end-of-study longitudinal TMLE](cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | property | `double_robustness/static__both_wrong` | control | its own rule | bias -0.0251 to -0.0151, margin 0.0167, SE ratio 0.6640 | [`RM18-boundary`](../../roadmap.md#red-cell-owners) |
 | [cross-fitted weighted end-of-study longitudinal TMLE](cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | property | `interval_calibration/static__correctly_specified` | positive | its own rule | coverage 0.9232 to 0.9492, SE ratio 0.9430 to 1.0203, empirical efficiency ratio 1.0195 to 1.1006, reported efficiency ratio 1.0333 to 1.0442 | [`RM18-fixed-weights`](../../roadmap.md#red-cell-owners) |
-| [ordinary survival-curve longitudinal TMLE](ordinary-survival-curve-longitudinal-tmle.md) | property | `simultaneous_coverage/all_reported__simultaneous_band` | positive | its own rule | joint coverage 0.9140 to 0.9283 | [`X14`](../../roadmap.md#x14-hazard-based-and-monotone-survival-curves) |
-| [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/categorical_ltmle__simultaneous_band` | positive | its own rule | joint coverage 0.9101 to 0.9382 | [`default-band-shortfall`](../../roadmap.md#red-cell-owners) |
-| [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/categorical_ltmle_crossfit__simultaneous_band` | positive | its own rule | joint coverage 0.9173 to 0.9443 | [`default-band-shortfall`](../../roadmap.md#red-cell-owners) |
-| [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/cde_z0__simultaneous_band` | positive | its own rule | joint coverage 0.9015 to 0.9309 | [`default-band-shortfall`](../../roadmap.md#red-cell-owners) |
+| [ordinary survival-curve longitudinal TMLE](ordinary-survival-curve-longitudinal-tmle.md) | property | `simultaneous_coverage/all_reported__simultaneous_band` | positive | its own rule | joint coverage 0.9140 to 0.9283 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/categorical_ltmle__simultaneous_band` | positive | its own rule | joint coverage 0.9101 to 0.9382 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/categorical_ltmle_crossfit__simultaneous_band` | positive | its own rule | joint coverage 0.9173 to 0.9443 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/cde_z0__simultaneous_band` | positive | its own rule | joint coverage 0.9015 to 0.9309 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
 <!-- /generated -->
 
 ## Reporting studies with no red row

@@ -9,9 +9,10 @@ The study publishes under ``reporting``.  Its declared joint-coverage run refuse
 verdict, ``simultaneous_coverage/all_reported__simultaneous_band``: joint coverage 0.9214
 against the 0.92 lower edge of the band, 99% interval 0.9140 to 0.9283.  The declared diagnostic
 read the same rows at the design critical value, 2.622: that oracle band covers 0.9241, so it
-under-covers too and the multiplier is not the cause.  The family's pointwise calibration sits
+under-covers too and the multiplier is not the main cause.  The family's pointwise calibration sits
 at the lower edge (``static_t2`` 0.934, ``dynamic_t2`` 0.937), so the shortfall is finite-sample.
-The default band stays on, the one-plan curve band passes, and X14 owns the red cell.
+The default band stays on, the one-plan curve band passes, and the red cell's owner is
+``band-finite-sample``.
 """
 
 from __future__ import annotations

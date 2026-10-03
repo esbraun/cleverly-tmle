@@ -274,8 +274,7 @@ mean-zero curve, and `simultaneous_bands` does not check the mean.
 
 Each fit seeds its multiplier draws with its own `random_state`. Every fit that uses one seed
 therefore draws the same multiplier sign matrix. A registered study that fixes `random_state`
-measures the band as it ships, and the Monte Carlo error of the critical value is then correlated
-across its replications.
+measures the band as it ships.
 
 Implementation:
 [`inference/multiplier.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/multiplier.py)

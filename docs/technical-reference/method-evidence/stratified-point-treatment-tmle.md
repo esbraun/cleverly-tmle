@@ -27,7 +27,8 @@ parameters, and the marginal estimate is the empirical mixture of the stratum es
 
 The law module records why two coefficients of $Q$ moved before the declaration commit. At the
 first declared values the stratum ATEs were too close together, and the marginal-fluctuation
-control could not move in the outer strata.
+control could not move 1 SD in stratum 0. The change also raised the treated mean of stratum 2
+from 0.858 to 0.936.
 
 The comparator is R `tmle3` at commit `ed72f8a`, through `tmle_stratified(..., base_estimate = FALSE)`
 in two stages. The first stage is `tmle_TSM_all()` and gives the six stratum arm means. The second
@@ -212,14 +213,16 @@ test, paired comparison and property cell passed.
 | verdict | result | reading |
 | --- | --- | --- |
 | paired comparison with `tmle3` | 9 of 9 equivalent | the stratum arm means and ATEs agree with `tmle_stratified` |
-| primary truth test of `ey[1][V=2]`, both implementations | red. Coverage 0.9170 for each, with the lower 99% endpoint below the 0.90 floor | the bias is inside its margin and the SE ratio is 0.985. The Wald interval of a mean near 0.94 in the smallest stratum under-covers at this size, and `tmle3` shows the same coverage on the same draws |
+| primary truth test of `ey[1][V=2]`, both implementations | red. Coverage 0.9170 for each, with the lower 99% endpoint below the 0.90 floor | the bias is inside its margin and the SE ratio is 0.985. The treated mean of stratum 2 is 0.9358. At n = 2,000 the stratum holds about 157 treated rows and about 9 expected non-events, so its Wald interval under-covers, and `tmle3` shows the same coverage on the same draws |
 | `v2_ey1` calibration cell | red. Coverage 0.9208 | the same mean, in the property sample |
-| `strata` and `crossfit_strata` bands | red. Joint coverage 0.9046 and 0.9192 | the declared diagnostic read the same rows at the design critical values, 2.846 and 2.778. That oracle band covers 0.9121 and 0.9258, so it also under-covers, and the multiplier is not the cause. Each band inherits the shortfall of the pointwise interval above |
+| `strata` and `crossfit_strata` bands | red. Joint coverage 0.9046 and 0.9192 | the declared diagnostic read the same rows at the design critical values, 2.846 and 2.778. That oracle band covers 0.9121 and 0.9258, so it also under-covers, and the multiplier is not the main cause. The package critical values average 2.816 and 2.750, which account for the 0.0075 and 0.0066 between the two coverages. Each band inherits the shortfall of the pointwise interval above |
 | the other 17 calibration cells, three cross-fitted cells, and their controls | pass | every stratum parameter, ATT, ATC and PAR included, is calibrated at its efficiency bound |
 | double robustness and stratum targeting | pass | the marginal-fluctuation control moves at least 1.1515 empirical SDs in each outer stratum, and the stratified fit stays inside its margin |
 
 The route is the finite-sample one. The default band stays on, because nothing in the band's
-construction failed. The study module records the diagnostic.
+construction failed. The study module records the diagnostic, and
+[`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py) rebuilds
+every number of it from the committed rows. [`strata-boundary-mean`](../../roadmap.md#red-cell-owners) owns the five red verdicts.
 
 ## Refusals
 

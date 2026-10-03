@@ -24,7 +24,7 @@ The declared run refused.  Five verdicts were red: the primary truth test of ``e
 both implementations (coverage 0.917, lower endpoint 0.892 against the 0.90 floor; unbiased,
 SE ratio 0.985), its calibration cell (coverage 0.921), and the two joint-coverage cells (0.905
 and 0.919).  The declared diagnostic read the band rows again at the design critical value: that
-oracle band also under-covers (0.912 and 0.926), so the multiplier is not the cause.  The
+oracle band also under-covers (0.912 and 0.926), so the multiplier is not the main cause.  The
 shortfall is the pointwise Wald interval of an arm mean near 0.94 in the smallest stratum, and
 ``tmle3`` shows it identically.  The route is the finite-sample one, so the default stays on and
 the study now publishes under ``reporting``, with each red verdict owned in the roadmap.

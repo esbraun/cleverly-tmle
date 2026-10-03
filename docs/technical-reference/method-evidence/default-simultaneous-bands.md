@@ -133,25 +133,35 @@ one. The band covers it twice. The truth of a duplicate is the truth of its twin
 Every primary test passed, and every pointwise control fell below 0.95, so each band's critical
 value does work. The bands of 22 of the 25 shapes kept their joint-coverage interval inside
 $[0.92, 0.98]$. The study publishes under the `reporting` policy, and three bands are red.
-[`default-band-shortfall`](../../roadmap.md#red-cell-owners) owns them in the
+[`band-finite-sample`](../../roadmap.md#red-cell-owners) owns them in the
 [red-cell ledger](red-cells.md).
 
-| shape | band coverage | oracle band coverage | source pointwise calibration |
-| --- | --- | --- | --- |
-| `categorical_ltmle` | 0.9250 | 0.9267 at 2.689 | static contrast 0.939 |
-| `categorical_ltmle_crossfit` | 0.9317 | 0.9325 at 2.689 | static contrast 0.946 |
-| `cde_z0` | 0.9171 | 0.9200 at 2.331 | 0.942 at Z = 0 |
+| shape | band coverage | package critical value | oracle band coverage | source pointwise calibration |
+| --- | --- | --- | --- | --- |
+| `categorical_ltmle` | 0.9250 | 2.680 | 0.9267 at 2.689 | static contrast 0.939 |
+| `categorical_ltmle_crossfit` | 0.9317 | 2.680 | 0.9325 at 2.689 | static contrast 0.946 |
+| `cde_z0` | 0.9171 | 2.312 | 0.9200 at 2.331 | 0.942 at Z = 0 |
 
 The declared diagnostic read each red cell's rows again at the design critical value, which
 `tests/unit/test_simultaneous_cell_design.py` computes. The oracle band also covers below the band
-edge or at it, so the multiplier is not the cause. Each source study's pointwise calibration of
-the same parameters sits near the lower edge of its own band. The reading is finite-sample, so
-the default band stays on.
+edge or at it, so the multiplier is not the main cause. The package critical value averages a
+little below the design one, and that gap accounts for at most 0.0029 of each coverage. Each
+source study's pointwise calibration of the same parameters sits near the lower edge of its own
+band. The reading is finite-sample, so the default band stays on.
+[`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py) rebuilds
+every number in the table from the committed rows.
+
+The design critical value of a shape comes from the package's own influence curves, averaged
+over the design fits. It is independent of the multiplier draws but not of the curves, so it
+cannot detect a defect in a curve. The source studies' pointwise calibration cells are the
+evidence for the curves.
 
 The first declared run stopped before any joint verdict. One sample of the `multi_arm_drtmle`
 shape activated the propensity bound, and the source study's fit raises on that, because that
 study publishes `bound_active` as false for every replication. The band does not depend on that
-claim, so this study turns the check off and keeps the replication as drawn. A second run ran out
+claim, so this study turns the check off and keeps the replication as drawn. A one-off refit
+of all 2,400 replications found one with an active bound, replication 1862, where one
+propensity entry reached the bound. A second run ran out
 of memory at 16 workers, and the published run used 8.
 
 ## Measured values
