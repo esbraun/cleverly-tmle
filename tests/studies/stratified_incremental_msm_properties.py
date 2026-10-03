@@ -58,7 +58,14 @@ saturate the three ``W`` cells (at most 0.09 SD off).  A marginal MSM fluctuatio
 0.54 SD off in every stratum, so the MSM family pairs the stratified fit with the untargeted
 projection instead.  The robustness family fits ``(1, a)`` rather than ``(1, a, W)``: inside a
 stratum the logit model ``(1, a, W)`` contains ``Q``, so its both-wrong fit stays within 0.5 SD
-of the truth and that control could not fail either.  The exact-law tests carry
+of the truth and that control could not fail either.
+
+The ``outcome_correct`` fit with an intercept-only mechanism has a small-sample bias in the
+smallest stratum.  On independent seeds, ``v2_a_arm__outcome_correct`` measured +0.098 of its
+own SD at n = 2,000 (R = 1,500; 99% interval 0.031 to 0.164) and +0.064 at n = 8,000
+(R = 1,000).  The absolute bias fell from 0.041 to 0.012, an O(1/n) term, and the population
+limit is the truth (the design test).  At the declared R = 1,200 the expected upper limit of the
+bias interval is about 0.17, inside the 0.25 margin, so the cell is declared as it stands.  The exact-law tests carry
 the mechanism block and the stratum MSM blocks instead
 (``tests/unit/test_stratified_incremental_exact.py``,
 ``tests/unit/test_stratified_msm_exact.py``).
