@@ -35,8 +35,10 @@ from cleverly import (
 )
 from cleverly._inference_status import (
     FEW_CLUSTER_THRESHOLD,
+    MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS,
     MINIMUM_INTERVAL_CLUSTERS,
     NO_T_REFERENCE_BANDS,
+    NON_INFERENTIAL,
 )
 from cleverly.datasets import make_longitudinal_competing
 from cleverly.exceptions import CapabilityError, DataError
@@ -525,7 +527,7 @@ def positive_mass_clusters(result: Any) -> int:
 class TestEveryTargetKind:
     """Every name a cross-fitted clustered fit reports, and every derived one, is clustered."""
 
-    @pytest.mark.parametrize("clusters", [FEW_CLUSTER_THRESHOLD, 12])
+    @pytest.mark.parametrize("clusters", [FEW_CLUSTER_THRESHOLD, 21])
     @pytest.mark.parametrize("kind", list(KINDS))
     def test_every_reported_estimate(self, kind: str, clusters: int) -> None:
         with warnings.catch_warnings():
@@ -561,19 +563,54 @@ class TestEveryTargetKind:
         assert seen and all(np.array_equal(c, result.data.cluster) for c in seen)
 
     def test_the_band_below_forty_clusters_is_skipped_and_named(self) -> None:
-        result = fit_law(12, simultaneous=True)
+        result = fit_law(21, simultaneous=True)
         assert result.simultaneous is None
         assert NO_T_REFERENCE_BANDS in result.summary()
-        assert {e.reference_df for e in result.estimates.values()} == {10}
+        assert {e.reference_df for e in result.estimates.values()} == {19}
 
-    def test_below_the_floor_the_fit_withholds_its_interval(self) -> None:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            result = fit_law(MINIMUM_INTERVAL_CLUSTERS - 1)
-        assert result.inference_status == "few_cluster_plugin"
-        for estimate in result.estimates.values():
+    def test_the_cross_fitted_floor_is_the_smallest_measured_count(self) -> None:
+        """20 clusters keep t(18); 19 withhold the interval; in sample 19 keep t(17).
+
+        ``few-cluster-cross-fitted-ltmle`` measures 20 and 30 clusters only, so a cross-fitted
+        fit below 20 reports no interval. The in-sample fit keeps the floor of 10, which
+        ``clustered-few-cluster-tmle`` measures.
+        """
+        assert MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS == 20
+        kept = fit_law(20)
+        assert kept.inference_status == "influence_curve"
+        assert {e.reference_df for e in kept.estimates.values()} == {18}
+        withheld = fit_law(19)
+        assert withheld.inference_status == "few_cluster_plugin"
+        for estimate in withheld.estimates.values():
+            assert estimate.reference_df is None
             with pytest.raises(CapabilityError):
                 _ = estimate.ci
+        reason = NON_INFERENTIAL["few_cluster_plugin"].reason
+        assert "cross-fitted clustered LTMLE fit needs 20" in reason
+        assert "no cross-fitted study measures 4 to 19 clusters" in reason
+        assert "F28" in reason
+        in_sample = fit_law(19, n_folds=1)
+        assert in_sample.inference_status == "influence_curve"
+        assert {e.reference_df for e in in_sample.estimates.values()} == {17}
+        assert fit_law(MINIMUM_INTERVAL_CLUSTERS - 1, n_folds=1).inference_status == (
+            "few_cluster_plugin"
+        )
+
+    def test_the_in_sample_floor_fails_the_cross_fitted_witness(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutation: the cross-fitted fit reads the in-sample floor of 10."""
+        original = cluster_module.cluster_inference_status
+        monkeypatch.setattr(
+            longitudinal_estimator,
+            "cluster_inference_status",
+            lambda cluster, **kwargs: original(
+                cluster, **{**kwargs, "minimum": MINIMUM_INTERVAL_CLUSTERS}
+            ),
+        )
+        assert fit_law(19).inference_status == "influence_curve"
+        with pytest.raises(AssertionError):
+            self.test_the_cross_fitted_floor_is_the_smallest_measured_count()
 
     @pytest.mark.parametrize("mutation", ["J - 1", "label count"])
     def test_another_reference_fails(self, mutation: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -598,7 +635,7 @@ class TestEveryTargetKind:
                 lambda cluster, weights=None, rows=None: original_df(cluster, None, rows),
             )
         with pytest.raises(AssertionError):
-            self.test_every_reported_estimate("weighted", 12)
+            self.test_every_reported_estimate("weighted", 21)
 
 
 class TestTheWorkingModelStaysRefused:

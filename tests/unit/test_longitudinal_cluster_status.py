@@ -6,7 +6,9 @@ positive weight mass stamps ``"few_cluster_plugin"`` on every mean, contrast and
 coefficient, and F28 owns those fits. From 10 to 39 such clusters every estimate keeps
 its interval on a Student t reference with ``J - 2`` degrees of freedom. The witness and the
 control run in sample and at five whole-cluster folds, for every kind but the working model,
-which ``LTMLE`` refuses above one fold for every fit.
+which ``LTMLE`` refuses above one fold for every fit. A cross-fitted fit needs 20 clusters,
+the smallest count ``few-cluster-cross-fitted-ltmle`` measures, so at five folds the witness is
+19 clusters and the control 20, with ``t(18)``.
 
 Each kind of fit draws 400 rows from its law and passes the labels
 ``np.arange(400) * k // 400`` as ``id=``. Only the labels differ between the witness at 9
@@ -29,6 +31,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly import CausalStudy, LongitudinalTreatment, RegimeMean
 from cleverly._inference_status import (
     FEW_CLUSTER_THRESHOLD,
+    MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS,
     MINIMUM_INTERVAL_CLUSTERS,
     NO_SIMULTANEOUS_BANDS,
     NO_T_REFERENCE_BANDS,
@@ -137,6 +140,11 @@ ONE_ZERO_MASS_CLUSTER = {"weights": lambda cluster: (cluster >= 1).astype(float)
 DESIGNS = [(kind, 1) for kind in FITS] + [(kind, 5) for kind in FITS if kind != "msm"]
 
 
+def floor(n_folds: int) -> int:
+    """The interval floor of a fit: 10 in sample, 20 cross-fitted (the measured counts)."""
+    return MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS if n_folds > 1 else MINIMUM_INTERVAL_CLUSTERS
+
+
 @pytest.fixture(scope="module", params=DESIGNS, ids=[f"{k}-{f} fold(s)" for k, f in DESIGNS])
 def design(request: pytest.FixtureRequest) -> tuple[str, int]:
     return request.param  # type: ignore[no-any-return]
@@ -153,7 +161,7 @@ def few_result(design: tuple[str, int]) -> Any:
     with warnings.catch_warnings():
         # Nine clusters cap no fold count of five; the filter keeps a learner warning quiet.
         warnings.simplefilter("ignore")
-        return FITS[kind](MINIMUM_INTERVAL_CLUSTERS - 1, n_folds=n_folds)
+        return FITS[kind](floor(n_folds) - 1, n_folds=n_folds)
 
 
 @pytest.fixture(scope="module")
@@ -161,7 +169,7 @@ def control_result(design: tuple[str, int]) -> Any:
     kind, n_folds = design
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return FITS[kind](MINIMUM_INTERVAL_CLUSTERS, n_folds=n_folds)
+        return FITS[kind](floor(n_folds), n_folds=n_folds)
 
 
 def assert_reports_withhold(result: Any, kind: str) -> None:
@@ -291,7 +299,9 @@ class TestFewClustersWithholdTheLongitudinalInterval:
 class TestTenClustersKeepTheLongitudinalInterval:
     """The second witness: the same rows in 10 clusters keep every interval, with t(8)."""
 
-    def test_the_estimates_keep_their_interval(self, control_result: Any, kind: str) -> None:
+    def test_the_estimates_keep_their_interval(
+        self, control_result: Any, kind: str, design: tuple[str, int]
+    ) -> None:
         assert_keeps_inference(control_result)
         if kind in CURVES:
             assert set(control_result.curve().columns) >= INFERENTIAL_COLUMNS - {"p_value"}
@@ -299,7 +309,7 @@ class TestTenClustersKeepTheLongitudinalInterval:
         if kind == "competing risks":
             assert "std_err" in control_result.incidence_total().columns
         assert NON_INFERENTIAL[FEW].reason not in control_result.summary()
-        assert {e.reference_df for e in control_result.estimates.values()} == {8}
+        assert {e.reference_df for e in control_result.estimates.values()} == {floor(design[1]) - 2}
 
     def test_the_default_bands_are_built_at_forty_clusters(self) -> None:
         result = fit_end_of_study(FEW_CLUSTER_THRESHOLD, simultaneous=True)

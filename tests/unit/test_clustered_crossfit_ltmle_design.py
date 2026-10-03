@@ -23,6 +23,7 @@ import numpy as np
 import pytest
 from scipy.stats import beta, binom, norm
 
+from cleverly._inference_status import MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS
 from tests.studies import clustered_crossfit_ltmle as gated
 from tests.studies import clustered_crossfit_ltmle_properties as gated_properties
 from tests.studies import clustered_few_cluster_tmle as x24_few
@@ -198,6 +199,8 @@ class TestTheFewClusterStudy:
         assert few_properties.IID_CONTROL_CEILING == 0.80
         # The declared probe dropped both 10-cluster cells.
         assert few.CLUSTER_COUNTS == (20, 30)
+        # The package floor of a cross-fitted clustered LTMLE is the smallest measured count.
+        assert min(few.CLUSTER_COUNTS) == MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS
 
     def test_the_grid_is_every_cell_the_probe_found_without_failure(self) -> None:
         assert few.FAILURE_PROBE == FAILURE_PROBE

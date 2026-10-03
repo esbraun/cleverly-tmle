@@ -1,11 +1,12 @@
 """Registered evidence for the cross-fitted clustered ``LTMLE`` on a t reference at 20 and 30 clusters.
 
 Below 40 clusters with positive weight mass a clustered estimate reports its interval on a
-Student t reference with ``J - 2`` degrees of freedom, and below 10 it reports no interval
-(``"few_cluster_plugin"``). ``clustered-few-cluster-tmle`` measures that rule for in-sample
-``LTMLE``. This study measures it for the cross-fitted ``LTMLE`` with five whole-cluster
-folds, whose targeting pools every follower, so the fold count does not enter the degrees of
-freedom.
+Student t reference with ``J - 2`` degrees of freedom. ``clustered-few-cluster-tmle`` measures
+that rule for in-sample ``LTMLE`` from 10 clusters. This study measures it for the cross-fitted
+``LTMLE`` with five whole-cluster folds, whose targeting pools every follower, so the fold count
+does not enter the degrees of freedom. The grid starts at 20, so a cross-fitted fit below 20
+clusters takes ``"few_cluster_plugin"``
+(``cleverly._inference_status.MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS``).
 
 The subject is the ``clustered-cross-fitted-ltmle`` subject. The law is the end-of-study law
 of :mod:`tests.studies.clustered_longitudinal_laws` with the **scaled** latent
@@ -53,7 +54,8 @@ RESAMPLING_SEED = 20262522
 SCENARIO = "few_equal_j20"
 FAMILY = "few_cluster_reference"
 TARGET = CONTRAST_NAMES[0]
-#: The declared grid. 4 to 9 clusters take ``"few_cluster_plugin"``. A grid cell with any
+#: The declared grid. A cross-fitted fit below 20 clusters takes ``"few_cluster_plugin"``,
+#: because no cross-fitted cell measures 4 to 19 clusters. A grid cell with any
 #: failure in the declared failure-only probe is dropped before the run and becomes an F28 limit.
 #: The probe of 2,000 draws per cell found 3 failures at ``equal40``, 10 clusters, and 8 at
 #: ``unequal40``, 10 clusters, and none at 20 or 30, so both 10-cluster cells are dropped. No

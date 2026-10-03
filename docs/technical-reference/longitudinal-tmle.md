@@ -398,7 +398,7 @@ unit, in sample and under cross-fitting. The table gives each part of a clustere
 | inner Super Learner folds | grouped on the same labels, at every mechanism and node regression |
 | targeting | the pooled fluctuation over every follower of each node, as on an unclustered fit |
 | curve and variance | the row curve summed within each cluster. The variance is $J\,\widehat{\mathrm{var}}(S_c)/n^2$, with $S_c = \sum_{i \in c} D_i$ and $J$ clusters |
-| status, reference and bands | the rules of [clusters](inference.md#clusters). From 10 to 39 positive-mass clusters the reference is Student $t$ with $J - 2$ degrees of freedom. Below 10 the fit takes `"few_cluster_plugin"`. Simultaneous bands need 40 or more |
+| status, reference and bands | the rules of [clusters](inference.md#clusters), with a higher floor under cross-fitting. Below 40 positive-mass clusters the reference is Student $t$ with $J - 2$ degrees of freedom. A cross-fitted fit takes `"few_cluster_plugin"` below 20 clusters, the smallest count its registered study measures. An in-sample fit takes it below 10. Simultaneous bands need 40 or more |
 | bootstrap | the design kind `<outcome>/cluster_cross_fit`, which no study licenses, so the percentile output is a diagnostic. Each replicate redraws a grouped split over its resampled clusters, so two copies of one cluster can land in different folds |
 
 The base result is Díaz, Williams, Hoffman and Schenck (2023), Section 5.2, journal page 852, and
@@ -427,7 +427,7 @@ stochastic categorical node and cross-fitted `msm=` stay refused for their own r
 inherits this handling when it ships.
 
 Two side effects follow from the cross-fitted default. A fit with fewer than 10 clusters warns that
-it reduces `n_folds` to the cluster count. At few clusters a training fold can lack a first-node
+it reduces `n_folds` to the cluster count, and a fit with fewer than 20 reports no interval. At few clusters a training fold can lack a first-node
 level, or hold one outcome value among a regimen's followers. The fit then raises
 `LongitudinalError` after the draw, and the message names the in-sample fit.
 
@@ -441,7 +441,8 @@ mutation control that fails it.
 | a held-out cluster is unseen | a learner that memorizes a site cannot see its own cluster. Under row-level folds, the flip of a cluster mate moves the prediction |
 | the curve is cluster-summed | the variance of every reported and derived estimate equals the cluster-sum variance of its curve to `rel=1e-12`. At 60 clusters of 10 to 70 rows it exceeds the row variance by a factor above 3 |
 | the size term is carried | the variance reads $A_c - N_c\hat\psi$, which differs from $A_c$ by more than 10% at unequal sizes |
-| every target kind | end of study (static, dynamic, categorical), survival, competing risks with `incidence_total()`, weights with a zero-mass cluster, ratios, RMST and RMTL, at 40 and 12 clusters |
+| every target kind | end of study (static, dynamic, categorical), survival, competing risks with `incidence_total()`, weights with a zero-mass cluster, ratios, RMST and RMTL, at 40 and 21 clusters |
+| the cross-fitted floor | 20 clusters keep $t_{18}$ and 19 take `"few_cluster_plugin"`, while an in-sample fit at 19 keeps $t_{17}$. A cross-fitted fit that reads the in-sample floor fails it |
 
 Two registered studies measure the fit. `clustered-cross-fitted-ltmle` is gated and pairs the fit
 with R `lmtp` 1.5.4 at 100 clusters of 40 rows. `few-cluster-cross-fitted-ltmle` is reporting and
@@ -453,7 +454,7 @@ measures the $t$ reference at 20 and 30 clusters. Their pages publish after the 
 | no informative-size cell | the size enters no longitudinal study law. `clustered-unequal-cvtmle` measures the row-weighted target for point treatment |
 | no bootstrap licence | the `cluster_cross_fit` kind has no study cell |
 | the `lmtp` pair at equal sizes only | `ife` aggregates cluster means, which equal cluster sums at equal sizes only |
-| 4 to 19 clusters | below 10 the fit takes `"few_cluster_plugin"`. From 10 to 19 it reports $t$ intervals that no cross-fitted study measures: a probe of 2,000 draws at 10 clusters found 3 and 8 draws that admit no fit, and the harness refuses a cell that loses a replication. [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) owns it |
+| 4 to 19 clusters | a cross-fitted fit takes `"few_cluster_plugin"` and reports no interval. No cross-fitted study measures that range: a probe of 2,000 draws at 10 clusters found 3 and 8 draws that admit no fit, and the harness refuses a cell that loses a replication. [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) owns it |
 
 ## Validation issues special to this method
 

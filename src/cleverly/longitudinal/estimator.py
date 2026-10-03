@@ -71,6 +71,7 @@ import numpy as np
 from sklearn.base import clone
 
 from .._inference_status import (
+    MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS,
     NO_SIMULTANEOUS_BANDS,
     NO_T_REFERENCE_BANDS,
     T_REFERENCE_NOTE,
@@ -2114,9 +2115,12 @@ def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
     so the count is the number of clusters with positive weight mass in the whole fit, and
     :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS` is the threshold.
 
-    A cross-fitted fit takes the same status as an in-sample fit: the targeting pools every
-    follower, so the curve is centred at the pooled estimate and the folds do not enter the
-    count.  A fit can take ``"few_cluster_plugin"`` only. ``LTMLE.fit`` and the
+    The targeting pools every follower, so the curve is centred at the pooled estimate and
+    the folds do not enter the degrees of freedom.  A cross-fitted fit needs
+    :data:`~cleverly._inference_status.MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS` clusters,
+    the smallest count its registered study measures; an in-sample fit needs
+    :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS`.  A fit can take
+    ``"few_cluster_plugin"`` only. ``LTMLE.fit`` and the
     truncation-curve replay ``_refit_bound`` pass the status to :func:`_estimates` or
     :func:`_msm_estimates`, which also set the Student t reference of an inferential fit
     with fewer than :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters.
@@ -2134,10 +2138,10 @@ def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
         One of :data:`~cleverly.inference.influence.InferenceStatus`.
         ``"influence_curve"`` on an unclustered fit.
     """
-    del folds  # The status reads no fold: the cluster sizes do not enter.
     return cluster_inference_status(
         data.cluster,
         weights=data.weights if data.is_weighted else None,
+        minimum=MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS if folds.n_folds > 1 else None,
     )
 
 
@@ -2611,7 +2615,9 @@ class LTMLE:
         every estimate takes the ``"few_cluster_plugin"`` status, as a point-treatment fit
         does.  From that count up to
         :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` it reports Student t
-        intervals with ``J - 2`` degrees of freedom.
+        intervals with ``J - 2`` degrees of freedom.  A cross-fitted fit needs
+        :data:`~cleverly._inference_status.MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS`
+        clusters, the smallest count its registered study measures.
         The point estimate stands.  The inference reference, section *Clusters*, gives
         the reason.  Under cross-fitting the outer split is drawn whole-cluster and the
         Super Learner folds inside each regression are grouped on the same labels.

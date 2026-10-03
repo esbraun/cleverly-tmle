@@ -1511,16 +1511,18 @@ published result is missing.
 ### F28. Finite-sample limits of clustered intervals
 
 A clustered `TMLE`, `DRTMLE` or in-sample `LTMLE` fit reports a Student $t$ interval with $J-2$
-degrees of freedom when it reads 10 to 39 clusters with positive weight mass
+degrees of freedom when it reads 10 to 39 clusters with positive weight mass. A cross-fitted
+`LTMLE` fit reports it at 20 to 39 clusters, and below 20 it takes `"few_cluster_plugin"`
 ([clusters](technical-reference/inference.md#clusters)). Below 10 such clusters, in the fit or
 in one reported baseline stratum, the fit takes the `"few_cluster_plugin"` status. 10 is the
-smallest count the registered few-cluster study measures. F28 owns 4 to 9 clusters, and below 4
-the reference would have fewer than 2 degrees of freedom.
+smallest count the registered few-cluster study measures. F28 owns 4 to 9 clusters, and 4 to 19
+for a cross-fitted `LTMLE` fit. Below 4 the reference would have fewer than 2 degrees of freedom.
 
 | request | missing published result |
 | --- | --- |
 | an interval below 4 clusters | none. $t_1$ has no finite mean, so 4 stays a floor of any future interval |
 | a small-sample reference other than $t_{J-2}$ | a correction or reference derived for the cluster-summed TMLE curve. Nugent et al. (2024), Section 2.2, and Benitez et al. (2023), Sections 3.1.2 and 3.2.1, state $t_{J-2}$ for cluster-randomized trials. No source derives it for a row-level treatment |
+| a cross-fitted `LTMLE` interval at 4 to 19 clusters | a registered measurement. No cross-fitted study measures 4 to 19 clusters. `few-cluster-cross-fitted-ltmle` measures 20 and 30: its declared failure-only probe of 2,000 draws found 3 and 8 draws at 10 clusters that admit no fit, so the 10-cluster cells were dropped before any run |
 | an interval at 4 to 9 clusters | a registered measurement, which would reopen these fits. The registered few-cluster study starts at 10 clusters. At 4 clusters a pre-run probe found 0.25% to 9% of draws on which a fit cannot run, because the outcome does not vary among one plan's followers or a training fold lacks an outcome class |
 | the fold-evaluated variance at few clusters per fold | a calibration result for the centered fold cluster variance. The package requires 2 clusters per fold and gives the report $\min(J-2, J-V)$ degrees of freedom, the pooled within-fold count. The few-cluster study measures it at 2, 4 and 6 clusters per fold, beside a reported $J-2$ arm |
 | a validation fold with a zero-mass cluster | none. The fold check counts every cluster label, and the degrees of freedom count only clusters with positive weight mass. A fold of one positive-mass cluster and one zero-mass cluster passes the check, and its variance reads one real total |
