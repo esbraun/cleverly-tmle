@@ -540,7 +540,7 @@ def cluster_inference_status(
     """The inference status the fit's cluster labels, strata, and weights determine.
 
     Two clustered settings report no interval, as the status table of
-    ``docs/technical-reference/inference.md`` states, and F22 holds the route that reopens each
+    ``docs/technical-reference/inference.md`` states, and X24 holds the route that reopens each
     one.
 
     ``"unequal_cluster_plugin"``

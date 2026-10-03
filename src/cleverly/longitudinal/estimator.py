@@ -60,11 +60,12 @@ fluctuation is pooled across the regimens where the point-treatment one is not.
 
 from __future__ import annotations
 
+import copy
 import warnings
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field, fields, is_dataclass, replace
-from typing import TYPE_CHECKING, Any, ClassVar, NoReturn
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, NoReturn
 
 import numpy as np
 from sklearn.base import clone
@@ -77,25 +78,36 @@ from .._inference_status import (
 )
 from .._typing import BoolArray, CumulativeGBounds, FloatArray, Learner
 from ..exceptions import CapabilityError, LongitudinalError, PositivityWarning
+from ..inference.bootstrap import BootstrapResult, Resampling, run_bootstrap
 from ..inference.cluster import (
     cluster_inference_status,
     influence_covariance,
     positive_mass_clause,
 )
+from ..inference.delta import Transform
 from ..inference.influence import (
     ParameterEstimate,
     Scale,
+    bootstrap_line,
     make_estimate,
     spread_name,
 )
 from ..inference.multiplier import SimultaneousBands, simultaneous_bands
 from ..inference.results import (
+    RatioKind,
+    attach_bootstrap,
     estimate_covariance,
     estimate_curves,
+    linear_function,
+    linear_functional,
+    ratio_contrast,
+    ratio_function,
+    refuse_odds_ratio,
     reported_status,
     select_estimates,
     smooth_contrast,
     sole_estimate,
+    with_derived_bootstrap,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -126,6 +138,7 @@ from .msm import (
 from .regimen import (
     DynamicRegimen,
     Plan,
+    Regimen,
     RegimenSpec,
     describe_plan,
     refuse_regimen_rules,
@@ -244,10 +257,6 @@ _REFUSED: dict[str, str] = {
         "node: a further factor per node in the denominator, and its own no-unmeasured-"
         "confounding and positivity assumptions to state"
     ),
-    "n_bootstrap": (
-        "the full-refit bootstrap resamples rows and refits, which needs a subset() on the "
-        "longitudinal container and a re-run of the whole backward recursion per replicate"
-    ),
     "cross_fit": (
         "pass n_folds=1 for in-sample nuisance fits; the fold count is the only control "
         "here, and the config says which of the two a fit used"
@@ -276,6 +285,28 @@ def _index(label: str, cause: str | None, horizon: int, survival: bool) -> str:
     stem = label if cause is None else f"{label}{CAUSE_INFIX}{cause}"
     return f"{stem}{HORIZON_INFIX}{horizon}"
 
+
+#: The design kinds whose full-refit bootstrap percentile interval a registered study
+#: licenses as inference.  :func:`bootstrap_design_kind` names a fit's kind, and
+#: :meth:`LTMLE.fit` stamps ``inferential`` on every bootstrap summary from this set.  A
+#: kind enters only after its cells in ``full-refit-bootstrap-and-derived-contrasts`` are
+#: green, and a red cell removes only its own kind.  Until then every longitudinal bootstrap
+#: is a diagnostic: ``bootstrap sd`` and ``percentile range``.
+#:
+#: The registered run licensed the in-sample end-of-study and single-cause survival kinds.
+#: The cross-fitted end-of-study cells over-cover (SE ratio about 1.25) and one cluster
+#: cell under-covers, so those kinds stay diagnostic (roadmap owner ``X20-bootstrap``).
+LICENSED_BOOTSTRAP_DESIGNS: frozenset[str] = frozenset(
+    {"end_of_study/in_sample", "survival/in_sample"}
+)
+
+#: Why a fit with two or more causes has no survival view.  One text for
+#: :meth:`LongitudinalResult.curve` and :meth:`LongitudinalResult.ratio`.
+SURVIVAL_VIEW_COMPETING_REFUSAL = (
+    "a competing-risk fit reports one cumulative incidence per cause, and 1 - one cause's "
+    "incidence is not all-cause survival. Event-free survival is 1 - the sum of the "
+    "cause-specific incidences; use incidence_total() to inspect that sum"
+)
 
 #: The head name of a *contrast* between two regimens, whatever the outcome is.  A
 #: difference of risks and a difference of survivals are the same number up to a sign, so
@@ -728,6 +759,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         Structured identities for reported aliases.
     fitted_method : str
         Method identity stamped by the estimator.
+    bootstrap : BootstrapResult or None
+        The full-refit bootstrap draws, when ``n_bootstrap > 0`` was requested.
     replay_recipe : object
         Unfitted recursive learner templates and resolved plans for deterministic refits.
         Keyword-only.
@@ -745,6 +778,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     cleverly.estimators.TMLEResult : The same contract for a point-treatment fit.
     cleverly.RegimeContrast : The estimand a study declares to get this contrast.
     cleverly.LongitudinalTreatment : The design that names these nodes.
+    LongitudinalResult.ratio : The risk ratio or odds ratio of two regimens.
+    LongitudinalResult.rmst : The restricted mean survival time of a regimen.
 
     Examples
     --------
@@ -808,6 +843,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: the result, so a mapping handed to the constructor by ``dataclasses.replace``
     #: would answer for a fit that never produced it.
     assessment_cache: dict[str, Any] = field(default_factory=dict, init=False)
+    #: The full-refit bootstrap draws, ``None`` unless ``n_bootstrap > 0``.  A replayed
+    #: fit never reruns the bootstrap.
+    bootstrap: BootstrapResult | None = None
     #: Unfitted state for a complete bound-dependent recursion.
     replay_recipe: _LongitudinalReplayRecipe = field(kw_only=True)
 
@@ -901,6 +939,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         name: str | None = None,
         scale: Scale = "difference",
         gradient: Callable[[FloatArray], FloatArray] | None = None,
+        transform: Transform | None = None,
     ) -> ParameterEstimate:
         """Return a smooth contrast with joint delta-method inference.
 
@@ -913,9 +952,13 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         name : str or None
             Alias for the derived estimate.
         scale : str
-            Reported scale of the derived estimate.
+            Reported scale of the derived estimate. With ``transform=`` it must be
+            ``"level"`` or ``"difference"``.
         gradient : callable or None
             Analytic gradient. ``None`` uses central differences.
+        transform : Transform or None
+            The map the interval and the test are computed on, as for
+            :meth:`cleverly.estimators.TMLEResult.contrast`.
 
         Returns
         -------
@@ -924,7 +967,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             estimates, so on a fit that supplies no inference it reports the same
             diagnostic and no interval.
         """
-        return smooth_contrast(
+        derived = smooth_contrast(
             self.estimates,
             function,
             names,
@@ -934,6 +977,412 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             name=name,
             scale=scale,
             gradient=gradient,
+            transform=transform,
+        )
+        return with_derived_bootstrap(derived, self.estimates, self.bootstrap, names, function)
+
+    def _levels(self) -> dict[tuple[str, str | None, int], str]:
+        """``(regimen, cause, horizon) -> name`` of every reported level.
+
+        Read from the index composed when each name was built, never parsed.
+        """
+        index = self.parameter_index or {}
+        return {
+            key: name
+            for name, key in index.items()
+            if name in self.estimates and self.estimates[name].scale == "level"
+        }
+
+    def _refuse_curve_functional(self, what: str) -> None:
+        """Refuse a functional of the survival curve on a fit that reports no curve."""
+        if self.msm is not None:
+            reported = "the coefficients of a working model"
+        elif not self.data.is_survival:
+            reported = f"one end-of-study mean of {self.data.outcome_name!r}"
+        else:
+            return
+        raise ValueError(
+            f"{what} sums a survival curve, and this fit reports {reported}. Declare an "
+            "outcome sequence to estimate a curve"
+        )
+
+    def ratio(
+        self,
+        numerator: str,
+        denominator: str,
+        *,
+        kind: RatioKind = "rr",
+        view: Literal["risk", "survival"] = "risk",
+        name: str | None = None,
+    ) -> ParameterEstimate:
+        """The risk ratio or odds ratio of two regimen levels, with log-scale inference.
+
+        The ratio of two ``ey_regimen`` means, of two ``risk_regimen`` risks at one
+        horizon, or of two ``cif_regimen`` incidences at one cause and horizon. The
+        interval is computed on the log scale and exponentiated, as
+        ``lmtp_contrast(type = "rr")`` and ``type = "or"`` in R ``lmtp`` 1.5.4 compute
+        it. ``view="survival"`` takes the ratio of :math:`1 - F` instead of :math:`F`.
+        The ratio inherits the inference status of its inputs.
+
+        Parameters
+        ----------
+        numerator : str
+            The name of the level in the numerator.
+        denominator : str
+            The name of the level in the denominator.
+        kind : {"rr", "or"}, default="rr"
+            A ratio of the levels, or a ratio of their odds. On an end-of-study fit
+            ``"or"`` needs a binary outcome.
+        view : {"risk", "survival"}, default="risk"
+            Whether to take the ratio of the risks or of the survival probabilities.
+        name : str or None, default=None
+            The name of the derived estimate. ``None`` composes
+            ``rr_regimen[a vs b @ t=h]`` from the parameter index when both inputs are
+            levels at one cause and horizon, and ``rr[<numerator> vs <denominator>]``
+            otherwise.
+
+        Returns
+        -------
+        ParameterEstimate
+            The ratio, on the ``"ratio"`` scale.
+
+        Raises
+        ------
+        CapabilityError
+            When ``kind="or"`` and an end-of-study outcome is not binary.
+        ValueError
+            When an input is not a level, when ``view="survival"`` is requested of an
+            end-of-study fit or of a fit with two or more causes, or when this fit
+            reports the coefficients of a working model.
+
+        See Also
+        --------
+        cleverly.inference.ParameterEstimate.wald_test : Test the ratio at a null.
+
+        Examples
+        --------
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly.datasets import make_longitudinal
+        >>> from cleverly.longitudinal import LTMLE
+        >>> frame, _ = make_longitudinal(n=200, seed=0)
+        >>> result = LTMLE(
+        ...     {"always": 1, "never": 0},
+        ...     n_folds=1,
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     censoring_learner=LogisticRegression(max_iter=1000),
+        ... ).fit(
+        ...     frame,
+        ...     outcome="Y",
+        ...     treatment=["A1", "A2"],
+        ...     baseline=["W1", "W2"],
+        ...     time_varying=[[], ["L2"]],
+        ...     censoring=["C1", "C2"],
+        ... )
+        >>> rr = result.ratio("ey_regimen[always]", "ey_regimen[never]")
+        >>> rr.name, rr.scale
+        ('rr_regimen[always vs never]', 'ratio')
+        """
+        if view not in ("risk", "survival"):
+            raise ValueError(f"view must be 'risk' or 'survival'; got {view!r}")
+        if self.msm is not None:
+            raise ValueError(
+                "this fit reports the coefficients of a working model, and a ratio of two "
+                "coefficients is not a ratio of two regimen means. Use result.contrast() "
+                "for a function of the coefficients"
+            )
+        survival = self.data.is_survival
+        if view == "survival":
+            if not survival:
+                raise ValueError(
+                    "an end-of-study fit reports means, not a survival curve. Drop view="
+                )
+            if len(self.config.causes) > 1:
+                raise ValueError(SURVIVAL_VIEW_COMPETING_REFUSAL)
+        if kind == "or" and not survival:
+            refuse_odds_ratio(self.config.family)
+        derived = ratio_contrast(
+            self.estimates,
+            numerator,
+            denominator,
+            kind=kind,
+            complement=view == "survival",
+            n=self.n,
+            cluster=self.data.cluster,
+            alpha=self.config.alpha_sig,
+            name=name or self._ratio_name(numerator, denominator, kind, view),
+        )
+        return with_derived_bootstrap(
+            derived,
+            self.estimates,
+            self.bootstrap,
+            (numerator, denominator),
+            ratio_function(kind, complement=view == "survival"),
+        )
+
+    def _ratio_name(self, numerator: str, denominator: str, kind: str, view: str) -> str:
+        """The structured name of a regimen ratio, composed forward from the index."""
+        prefix = "survival_" if view == "survival" else ""
+        index = self.parameter_index or {}
+        top, bottom = index.get(numerator), index.get(denominator)
+        levels = set(self._levels().values())
+        if (
+            top is not None
+            and bottom is not None
+            and numerator in levels
+            and denominator in levels
+            and top[1:] == bottom[1:]
+        ):
+            label = f"{top[0]} vs {bottom[0]}"
+            arm = _index(label, top[1], top[2], self.data.is_survival)
+            return parameter_name(f"{prefix}{kind}_regimen", arm=arm)
+        return f"{prefix}{kind}[{numerator} vs {denominator}]"
+
+    def _risk_names(
+        self, regimen: str, horizon: int, causes: Sequence[str | None], what: str
+    ) -> list[str]:
+        """The names of the levels at horizons ``1`` to ``horizon - 1``, one per cause."""
+        n_times = self.data.n_times
+        if (
+            isinstance(horizon, bool)
+            or not isinstance(horizon, (int, np.integer))
+            or not 2 <= horizon <= n_times + 1
+        ):
+            raise ValueError(
+                f"horizon must be an integer from 2 to {n_times + 1}; {what} up to t=1 is "
+                "the constant 1"
+            )
+        levels = self._levels()
+        regimens = sorted({key[0] for key in levels})
+        if regimen not in regimens:
+            raise KeyError(f"unknown regimen {regimen!r}; this fit reports {regimens}")
+        reported = sorted({key[2] for key in levels if key[0] == regimen})
+        missing = [t for t in range(1, int(horizon)) if t not in reported]
+        if missing:
+            raise ValueError(
+                f"{what} up to t={horizon} needs the risk at every horizon 1 to "
+                f"{horizon - 1}, and this fit reports {reported}. Refit with horizons=None "
+                f"or include {missing}"
+            )
+        return [levels[(regimen, cause, t)] for t in range(1, int(horizon)) for cause in causes]
+
+    def rmst(
+        self,
+        regimen: str,
+        horizon: int,
+        *,
+        versus: str | None = None,
+        name: str | None = None,
+    ) -> ParameterEstimate:
+        r"""The restricted mean survival time of a regimen up to a horizon.
+
+        With :math:`T` the node of the first event and :math:`F(t)` the reported risk,
+
+        .. math::
+
+            \mathrm{RMST}(\tau) = E[\min(T, \tau)]
+            = \tau - \sum_{t=1}^{\tau - 1} F(t),
+
+        with the curve :math:`-\sum_{t=1}^{\tau-1} IC_{F(t)}`. The unit is the node
+        index. For nodes spaced :math:`\Delta` apart, the RMST in calendar time is
+        :math:`\Delta \times \mathrm{RMST}`. On a competing-risk fit, :math:`F` is the
+        sum of the cause-specific incidences. The estimate inherits the inference status
+        of the risks it sums.
+
+        Parameters
+        ----------
+        regimen : str
+            The regimen label.
+        horizon : int
+            The restriction time :math:`\tau`, an integer from 2 to ``n_times + 1``.
+        versus : str or None, default=None
+            A second regimen. The result is then the difference of the two RMSTs.
+        name : str or None, default=None
+            The name of the derived estimate. ``None`` gives
+            ``rmst_regimen[a @ t=tau]`` or ``rmst_regimen[a vs b @ t=tau]``.
+
+        Returns
+        -------
+        ParameterEstimate
+            A ``"level"`` estimate, or a ``"difference"`` estimate with ``versus=``.
+
+        Raises
+        ------
+        ValueError
+            When the fit reports no survival curve, when the horizon is outside the
+            range, or when the fit omits a horizon below it.
+
+        Examples
+        --------
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly.datasets import make_longitudinal_survival
+        >>> from cleverly.longitudinal import LTMLE
+        >>> frame, _ = make_longitudinal_survival(n=300, seed=0)
+        >>> result = LTMLE(
+        ...     {"always": 1, "never": 0},
+        ...     n_folds=1,
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     censoring_learner=LogisticRegression(max_iter=1000),
+        ... ).fit(
+        ...     frame,
+        ...     outcome=["Y1", "Y2"],
+        ...     treatment=["A1", "A2"],
+        ...     baseline=["W1", "W2"],
+        ...     time_varying=[[], ["L2"]],
+        ...     censoring=["C1", "C2"],
+        ... )
+        >>> rmst = result.rmst("always", 3, versus="never")
+        >>> rmst.name, rmst.scale
+        ('rmst_regimen[always vs never @ t=3]', 'difference')
+        """
+        self._refuse_curve_functional("RMST")
+        causes: tuple[str | None, ...] = self.data.cause_labels or (None,)
+        names = self._risk_names(regimen, horizon, causes, "RMST")
+        weights = dict.fromkeys(names, -1.0)
+        constant = float(horizon)
+        label = regimen
+        scale: Scale = "level"
+        if versus is not None:
+            for other in self._risk_names(versus, horizon, causes, "RMST"):
+                weights[other] = weights.get(other, 0.0) + 1.0
+            constant = 0.0
+            label = f"{regimen} vs {versus}"
+            scale = "difference"
+        derived = linear_functional(
+            self.estimates,
+            weights,
+            constant=constant,
+            n=self.n,
+            cluster=self.data.cluster,
+            alpha=self.config.alpha_sig,
+            name=name
+            or parameter_name("rmst_regimen", arm=_index(label, None, int(horizon), True)),
+            scale=scale,
+        )
+        return with_derived_bootstrap(
+            derived,
+            self.estimates,
+            self.bootstrap,
+            tuple(weights),
+            linear_function(tuple(weights.values()), constant),
+        )
+
+    def rmtl(
+        self,
+        regimen: str,
+        horizon: int,
+        cause: str | None = None,
+        *,
+        versus: str | None = None,
+        name: str | None = None,
+    ) -> ParameterEstimate:
+        r"""The restricted mean time lost to one cause, up to a horizon.
+
+        With :math:`J` the cause of the first event and :math:`F_j(t)` its reported
+        cumulative incidence,
+
+        .. math::
+
+            \mathrm{RMTL}_j(\tau) = E[(\tau - \min(T, \tau)) 1\{J = j\}]
+            = \sum_{t=1}^{\tau - 1} F_j(t),
+
+        with the curve :math:`\sum_{t=1}^{\tau-1} IC_{F_j(t)}`. On a one-event fit it
+        is :math:`\tau - \mathrm{RMST}(\tau)`. The unit is the node index.
+
+        Parameters
+        ----------
+        regimen : str
+            The regimen label.
+        horizon : int
+            The restriction time :math:`\tau`, an integer from 2 to ``n_times + 1``.
+        cause : str or None, default=None
+            The cause. Required on a fit with two or more causes.
+        versus : str or None, default=None
+            A second regimen. The result is then the difference of the two RMTLs.
+        name : str or None, default=None
+            The name of the derived estimate. ``None`` gives
+            ``rmtl_regimen[a, cause @ t=tau]``, or ``rmtl_regimen[a @ t=tau]`` on a
+            one-event fit.
+
+        Returns
+        -------
+        ParameterEstimate
+            A ``"level"`` estimate, or a ``"difference"`` estimate with ``versus=``.
+
+        Raises
+        ------
+        ValueError
+            When the fit reports no survival curve, when the horizon is outside the
+            range, when the fit omits a horizon below it, or when the cause is missing
+            or unknown.
+
+        Examples
+        --------
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly.datasets import make_longitudinal_survival
+        >>> from cleverly.longitudinal import LTMLE
+        >>> frame, _ = make_longitudinal_survival(n=300, seed=0)
+        >>> result = LTMLE(
+        ...     {"always": 1, "never": 0},
+        ...     n_folds=1,
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     censoring_learner=LogisticRegression(max_iter=1000),
+        ... ).fit(
+        ...     frame,
+        ...     outcome=["Y1", "Y2"],
+        ...     treatment=["A1", "A2"],
+        ...     baseline=["W1", "W2"],
+        ...     time_varying=[[], ["L2"]],
+        ...     censoring=["C1", "C2"],
+        ... )
+        >>> lost = result.rmtl("always", 3)
+        >>> rmst = result.rmst("always", 3)
+        >>> round(lost.psi + rmst.psi, 12)
+        3.0
+        """
+        self._refuse_curve_functional("RMTL")
+        declared = self.data.cause_labels
+        if cause is None:
+            if len(declared) > 1:
+                raise ValueError(
+                    f"this fit declares the causes {list(declared)}; name one with cause="
+                )
+            chosen: str | None = declared[0] if declared else None
+        else:
+            if cause not in declared:
+                raise ValueError(
+                    f"unknown cause {cause!r}; this fit declares {list(declared)}"
+                    if declared
+                    else "this fit declares no causes; leave cause=None for its one event"
+                )
+            chosen = cause
+        names = self._risk_names(regimen, horizon, (chosen,), "RMTL")
+        weights = dict.fromkeys(names, 1.0)
+        label = regimen
+        scale: Scale = "level"
+        if versus is not None:
+            for other in self._risk_names(versus, horizon, (chosen,), "RMTL"):
+                weights[other] = weights.get(other, 0.0) - 1.0
+            label = f"{regimen} vs {versus}"
+            scale = "difference"
+        derived = linear_functional(
+            self.estimates,
+            weights,
+            n=self.n,
+            cluster=self.data.cluster,
+            alpha=self.config.alpha_sig,
+            name=name
+            or parameter_name("rmtl_regimen", arm=_index(label, chosen, int(horizon), True)),
+            scale=scale,
+        )
+        return with_derived_bootstrap(
+            derived,
+            self.estimates,
+            self.bootstrap,
+            tuple(weights),
+            linear_function(tuple(weights.values())),
         )
 
     def _names(self, names: Sequence[str] | None) -> tuple[str, ...]:
@@ -1207,12 +1656,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         # refuse a supported composition, and would make two declarations of the same
         # data disagree about what can be reported from an identical fit.
         if scale == "survival" and len(self.config.causes) > 1:
-            raise ValueError(
-                "a competing-risk fit reports one cumulative incidence per cause, and "
-                "1 - one cause's incidence is not all-cause survival. Event-free survival "
-                "is 1 - the sum of the cause-specific incidences; use incidence_total() to "
-                "inspect that sum"
-            )
+            raise ValueError(SURVIVAL_VIEW_COMPETING_REFUSAL)
         competing = self.data.is_competing
         # The names ``to_frame`` publishes for the same numbers, through the same table.
         status = self.inference_status
@@ -1458,6 +1902,16 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             )
             for name, (low, high) in self.simultaneous.bands.items():
                 lines.append(f"    {name}  [{low:.4f}, {high:.4f}]")
+        if self.bootstrap is not None:
+            lines.append("")
+            lines.append(
+                f"  full-refit bootstrap ({self.bootstrap.resampling} resampling, "
+                f"{self.bootstrap.n_requested - self.bootstrap.n_failed} usable replicates, "
+                f"{self.bootstrap.n_failed} failed):"
+            )
+            for name, estimate in self.estimates.items():
+                if estimate.bootstrap is not None:
+                    lines.append(f"    {name}  {bootstrap_line(estimate)}")
         if not self.converged:
             lines.append("  warning: at least one node's targeting step did not converge")
         return "\n".join(lines)
@@ -1900,7 +2354,23 @@ class LTMLE:
     run_id : str or None
         An identifier of your own, recorded on :attr:`LongitudinalResult.provenance`.
     n_jobs : int
-        Worker count for the parallel fan-out of the recursion.
+        Worker count for the parallel fan-out of the recursion.  With ``n_bootstrap > 0``
+        the replicates run in parallel and each replicate fit runs with one worker, so
+        there is one parallel layer.
+    n_bootstrap : int
+        Full-refit bootstrap replicates, ``0`` for none.  Otherwise at least 2.  Each
+        replicate resamples whole rows of the wide table, or whole clusters, and refits
+        everything: the outer split, the treatment and censoring mechanisms, every
+        backward regression and fluctuation, and the working-model projection.  A failed
+        replicate is dropped and counted, never redrawn.  The bootstrap stream is spawned
+        from ``random_state`` and draws nothing the fit itself uses, so the fit's own
+        numbers do not move.  A truncation-curve replay does not rerun it.  The percentile
+        interval is published as inference only for a design kind in
+        :data:`LICENSED_BOOTSTRAP_DESIGNS`, and as ``bootstrap sd`` and a percentile range
+        otherwise.  The registered study measures it with correctly specified cell-mean
+        nuisances on finite binary laws, at ``n = 1000``.
+    bootstrap_resampling : {"auto", "iid", "cluster"}
+        ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
     **refused : Any
         A point-treatment keyword.  Each one raises :class:`TypeError` with the reason
         that a longitudinal fit does not support it.
@@ -1931,6 +2401,8 @@ class LTMLE:
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
+        n_bootstrap: int = 0,
+        bootstrap_resampling: Resampling = "auto",
         **refused: Any,
     ) -> None:
         _validate_learner(outcome_learner, "outcome_learner")
@@ -1959,6 +2431,8 @@ class LTMLE:
         self.random_state = random_state
         self.run_id = run_id
         self.n_jobs = n_jobs
+        self.n_bootstrap = n_bootstrap
+        self.bootstrap_resampling = bootstrap_resampling
         refuse_unsupported(refused)
         self._validate_settings()
 
@@ -1987,6 +2461,10 @@ class LTMLE:
             )
         if self.n_folds < 1:
             raise ValueError(f"n_folds must be at least 1; got {self.n_folds}")
+        if self.n_bootstrap and self.n_bootstrap < 2:
+            raise ValueError(f"n_bootstrap must be 0 or at least 2; got {self.n_bootstrap}")
+        if self.bootstrap_resampling not in ("auto", "iid", "cluster"):
+            raise ValueError("resampling must be 'auto', 'iid', or 'cluster'")
         if self.max_iter < 1:
             raise ValueError(f"max_iter must be at least 1; got {self.max_iter}")
         if self.msm is not None and not isinstance(self.msm, MSM):
@@ -2154,6 +2632,10 @@ class LTMLE:
         plans = resolve_plans(regimens, prepared)
 
         self._refuse_cross_fitted_design(prepared)
+        if self.n_bootstrap and self.bootstrap_resampling == "cluster" and prepared.cluster is None:
+            # The refusal ``run_bootstrap`` would raise after the fit, raised before any
+            # learner.
+            raise ValueError("resampling='cluster' requires the data to carry cluster ids")
         folds = self._folds(prepared)
         scaler = self._scaler(prepared)
         # A cumulative path probability is not a point-treatment propensity.  There is no
@@ -2279,7 +2761,7 @@ class LTMLE:
         estimates = reported.estimates
         with phase("inference"):
             bands = self._bands(estimates, prepared, status)
-        return LongitudinalResult(
+        result = LongitudinalResult(
             estimates=estimates,
             fits=fits,
             data=prepared,
@@ -2294,6 +2776,55 @@ class LTMLE:
             msm_fits=msm_fits,
             replay_recipe=replay_recipe,
         )
+        if self.n_bootstrap:
+            # Spawned from ``random_state`` inside ``run_bootstrap``, so the stream draws
+            # nothing the fit above used: its split and its multiplier band are unchanged.
+            bootstrap = run_bootstrap(
+                prepared,
+                self._bootstrap_estimates,
+                n_replicates=self.n_bootstrap,
+                resampling=self.bootstrap_resampling,
+                random_state=self.random_state,
+                n_jobs=self.n_jobs,
+            )
+            kind = bootstrap_design_kind(prepared, folds, regimens, model)
+            result = attach_bootstrap(
+                result, bootstrap, inferential=kind in LICENSED_BOOTSTRAP_DESIGNS
+            )
+        return result
+
+    def _replicate_estimator(self) -> LTMLE:
+        """This estimator's settings for one bootstrap replicate.
+
+        The same regimens, reference, horizons, working model, bounds and learner
+        specifications, with no bootstrap, no simultaneous band and one worker.  Every
+        learner is resolved and cloned again inside :meth:`fit`, so a replicate refits
+        everything.
+        """
+        replicate = copy.copy(self)
+        replicate.n_bootstrap = 0
+        replicate.simultaneous = False
+        replicate.n_jobs = 1
+        return replicate
+
+    def _bootstrap_estimates(self, data: LongitudinalData) -> dict[str, float]:
+        """One bootstrap replicate: a full refit on the resample, point estimates only.
+
+        Runs the same path as :meth:`fit`, not :func:`_refit_bound`, which holds the
+        mechanism and the folds fixed.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The resampled container.
+
+        Returns
+        -------
+        dict of str to float
+            The point estimate of every reported parameter.
+        """
+        refit = self._replicate_estimator().fit(data)
+        return {name: estimate.psi for name, estimate in refit.estimates.items()}
 
     # ------------------------------------------------------------- internals
 
@@ -2553,9 +3084,9 @@ class LTMLE:
         if data.cluster is not None:
             raise LongitudinalError(
                 "cross-fitted longitudinal TMLE has no clustered result. A grouped draw "
-                "keeps each cluster whole, and what has not been established for the "
-                "sequential recursion is the cluster-robust variance of its targeted "
-                "estimate under one; docs/roadmap.md F22 tracks this stop. "
+                "keeps each cluster whole, and the package has not written the "
+                "cluster-summed variance of the targeted recursion under one; "
+                "docs/roadmap.md X25 tracks this work. "
                 "Fit in sample (CrossFitting(enabled=False), or "
                 "n_folds=1 on the engine), which reports a cluster-robust variance, or "
                 "drop id= from fit."
@@ -2613,6 +3144,53 @@ class _BoundReplay:
     fits: dict[str, RegimenFit]
     msm_fits: tuple[MSMRegimenFit, ...]
     contributors: dict[str, tuple[RegimenFit, ...]]
+
+
+def bootstrap_design_kind(
+    data: LongitudinalData,
+    folds: Folds,
+    regimens: Sequence[RegimenSpec],
+    msm: Any,
+) -> str | None:
+    """The design kind a registered bootstrap study could license, or ``None``.
+
+    A kind is ``"<outcome>/<fit>"``: the outcome ``end_of_study`` or ``survival``, and the fit
+    ``in_sample``, ``cross_fit`` or ``cluster``.  Only a binary outcome, static regimens, one
+    event and no weights or working model have a kind; every other fit returns ``None``, which
+    no study licenses.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared data of the fit.
+    folds : Folds
+        The outer fold assignment of the fit.
+    regimens : sequence of RegimenSpec
+        The resolved regimens.
+    msm : object or None
+        The evaluated working model, or ``None``.
+
+    Returns
+    -------
+    str or None
+        The kind, or ``None`` for a design no study measures.
+    """
+    if (
+        msm is not None
+        or data.is_competing
+        or data.is_weighted
+        or data.family != "binomial"
+        or not all(isinstance(regimen, Regimen) for regimen in regimens)
+    ):
+        return None
+    outcome = "survival" if data.is_survival else "end_of_study"
+    if data.cluster is not None:
+        fit = "cluster"
+    elif folds.n_folds > 1:
+        fit = "cross_fit"
+    else:
+        fit = "in_sample"
+    return f"{outcome}/{fit}"
 
 
 def _refit_bound(
@@ -2741,8 +3319,13 @@ def _fitted_replay_matches(result: LongitudinalResult, replay: _BoundReplay) -> 
         Whether the estimates, the per-cell fits and the projections all match exactly.
     """
 
+    # A replay never reruns the bootstrap, so the summaries are stripped on both sides.
+    # ``_exact_replay_equal`` recurses into every dataclass field and would otherwise
+    # refuse every bootstrapped fit.
+    fitted = {name: replace(e, bootstrap=None) for name, e in result.estimates.items()}
+    replayed = {name: replace(e, bootstrap=None) for name, e in replay.estimates.items()}
     return (
-        _exact_replay_equal(result.estimates, replay.estimates)
+        _exact_replay_equal(fitted, replayed)
         and _exact_replay_equal(result.fits, replay.fits)
         and _exact_replay_equal(result.msm_fits, replay.msm_fits)
     )
@@ -2859,6 +3442,9 @@ def longitudinal_truncation_curve(
 
     Notes
     -----
+    A replay does not rerun the full-refit bootstrap.  The curve reports point estimates
+    only, and the replay comparison at the fitted bound ignores the bootstrap summaries.
+
     It runs :func:`~cleverly.longitudinal.regimen.refuse_regimen_rules` on
     ``result.config.regimens`` first.  A regimen changed with ``object.__setattr__`` can
     carry a declaration this version refuses, and the replay would report a

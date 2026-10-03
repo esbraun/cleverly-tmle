@@ -4,7 +4,8 @@
 inferential estimates therefore publishes a max-t multiplier band over all of them.  Four
 registered studies measure the band of the families the roadmap names (multi-arm arms,
 longitudinal regimens, survival curves and competing-risk incidences) and the strata study
-measures it across baseline strata.  This study measures the band of every other shipped
+measures it across baseline strata.  The multi-arm missing-outcome DR-TMLE study measures
+its own three-arm band in the same way.  This study measures the band of every other shipped
 shape that publishes one.
 
 Each shape is one registered source study's subject fit, at that study's own primary law

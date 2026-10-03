@@ -1,0 +1,17 @@
+{
+  "ctmle_commit": "18de559f47dc1286617350a0668391e80e1dbf7c",
+  "image": "cleverly-ctmle-reference:18de559",
+  "image_id": "sha256:0b4c56eefbc87163f6edd32da5d8abd26fa8db751c6a9fa1369582cf52d35a28",
+  "n": 2000,
+  "replicate": 0,
+  "scenario": "binary_discrete",
+  "selected_covariates": [
+    "W1",
+    "W2"
+  ],
+  "sha256": {
+    "calc_varic_witness.R": "2152a8ab12d663b3a54954673f926eea087b7fe688e91124c4be247beacda129",
+    "inputs.csv": "615f850e3be500d50cca3bd1a273533501cf11eff260486ac2788d43adffb2de",
+    "output.csv": "bded2e0c6943fdcf3de69d171eb885224673c9ebd43338e280bc0b21ec1b20dc"
+  }
+}

@@ -511,8 +511,6 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("targeting", "nuisance_bound", "nuisance_bound"),
     ("targeting", "target_weights", "target_weights"),
     ("targeting", "step_size", "step_size"),
-    ("inference", "n_bootstrap", "n_bootstrap"),
-    ("inference", "bootstrap_resampling", "bootstrap_resampling"),
 )
 
 
@@ -706,6 +704,8 @@ class TMLEMethod:
                     "pseudo_learner": models.pseudo_learner,
                     "treatment_learner": models.treatment_learner,
                     "censoring_learner": models.censoring_learner,
+                    "n_bootstrap": inference.n_bootstrap,
+                    "bootstrap_resampling": inference.bootstrap_resampling,
                 }
             )
             # Longitudinal cumulative bounds have a fixed-pair contract. ``auto`` is a
@@ -764,8 +764,9 @@ class CollaborativeTMLEMethod(TMLEMethod):
         Stable method name.
     strategy : {"greedy", "ordered", "discrete", "oat"}, default="greedy"
         Collaborative search strategy. No strategy reports a confidence interval, a
-        p-value or a standard error. ``"greedy"``, ``"ordered"`` and ``"discrete"`` give
-        the reason that F18 in the roadmap holds, and ``"oat"`` the reason that F19 holds.
+        p-value or a standard error, with one exception that the Notes state.
+        ``"greedy"``, ``"ordered"`` and ``"discrete"`` give the reason that F18 in the
+        roadmap holds, and ``"oat"`` the reason that F19 holds.
     preorder : {"logistic", "partial_correlation"} or None, default=None
         Preordering rule for candidate covariates.
     ordering : tuple of str or None, default=None
@@ -797,7 +798,9 @@ class CollaborativeTMLEMethod(TMLEMethod):
     :class:`~cleverly.exceptions.CapabilityError` from ``std_error``, ``ci`` and
     ``pvalue``. Each estimate keeps ``plugin_std_error`` and ``plugin_interval`` as a
     diagnostic, which is not a confidence statement. For an interval, use
-    :class:`TMLEMethod`.
+    :class:`TMLEMethod`. The exception is a ``"discrete"`` fit whose one declared
+    candidate is the full adjustment set. It selects nothing, equals the ordinary TMLE,
+    and reports the ordinary interval.
 
     Examples
     --------

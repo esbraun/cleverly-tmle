@@ -3,8 +3,8 @@
 The point-treatment few-cluster status applies to the longitudinal path too. A fit
 with fewer than :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters with
 positive weight mass stamps ``"few_cluster_plugin"`` on every mean, contrast and MSM
-coefficient, and F22 holds the route that reopens it. ``LTMLE`` refuses ``id=`` above one
-fold, so the in-sample fit is the whole surface.
+coefficient, and X24 holds the route that reopens it. ``LTMLE`` refuses ``id=`` above one
+fold until X25 ships, so the in-sample fit is the whole surface.
 
 Each kind of fit draws 400 rows from its law and passes the labels
 ``np.arange(400) * k // 400`` as ``id=``. Only the labels differ between the witness at 39

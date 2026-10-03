@@ -1,0 +1,57 @@
+# Natural-extension verdicts
+
+This page records the source audit of eleven compositions that the package refused or did not
+implement. The audit applies the [Eligibility](../roadmap.md#eligibility) rule of the roadmap. A
+part qualifies when each step is a standard step and no source records an objection. An objection
+is a source that records a step as open or as a defect. A step that needs a new kind of limit
+theorem is an objection too.
+
+A verdict is not a capability. "Qualifies for implementation" means that the owning roadmap row may
+implement the part. The part ships only when that row delivers its contract, its nonzero witnesses,
+and its registered study. Parts (d) and (j) ship now.
+
+The roadmap held this review as one row until the review was complete.
+[The roadmap at commit `6a55f038`](https://github.com/esbraun/cleverly-tmle/blob/6a55f0388b703765eab79c78efec82474e67ab8e/docs/roadmap.md#x18-natural-extension-reviews)
+records the questions as they were asked. Each owning row now holds the full contract of its part.
+A row that delivers a part updates the last column of the table below.
+
+## The terms
+
+| term | meaning |
+| --- | --- |
+| refusal | what the package does today for the composition |
+| base result | the published result that the extension starts from, with its exact locator. [References](../references.md) records each first-hand read |
+| step | an argument that carries the base result to the composition. Each step names its row in the standard-step table of [Eligibility](../roadmap.md#eligibility) |
+| objection search | the sources read for a recorded objection, and what they say |
+| owning row | the roadmap row that implements the part, or the page that states the shipped contract |
+
+## The verdicts
+
+| part | refusal | base result | steps | objection search | verdict | owning row |
+| --- | --- | --- | --- | --- | --- | --- |
+| (a) observational treatment with a missing outcome, `DRTMLE` | none; the refusal is removed | Benkeser, Carone, van der Laan and Gilbert (2017), Section 3.2, Theorem 1 | an indicator reduction to $C_a = \Delta_A \Delta_Y 1\{A=a\}$. The mechanism is the composite $P(C_a = 1 \mid W)$, one binary regression for each arm | Benkeser et al. (2017) and Díaz and van der Laan (2017) record no objection. `drtmle` 1.1.2 uses the same indicator | shipped | [the composite contract](dr-tmle/theorem.md#observational-missing-data-the-composite-indicator) |
+| (b) a missing treatment | none; `treatment_delta=` declares it | as part (a) | the indicator reduction of part (a). The missingness of $A$ may depend on $A$ and $W$, because the composite mechanism is regressed directly | none found | shipped, for targets that read the arm indicator | [the composite contract](dr-tmle/theorem.md#observational-missing-data-the-composite-indicator) |
+| (c) a known stochastic categorical policy at a longitudinal node | [F1](../roadmap.md#f1-stochastic-categorical-policies-at-a-longitudinal-node). The API cannot express it | Díaz, Williams, Hoffman and Schenck (2023), Section 2, journal page 849, and Theorem 3, page 853 | none for a recorded randomizer, which Section 2 places in $L_t$. For the integrated estimator, the chain rule with a known weight: the curve is the conditional expectation of the Theorem 3 curve given the data without the randomizer | page 850 says multiply robust estimation "is not generally possible" for a regime that depends on P. That objection does not apply to a known policy density | qualifies for implementation, for a known policy density that does not read the natural value $A_t$ | [F1](../roadmap.md#f1-stochastic-categorical-policies-at-a-longitudinal-node) |
+| (d) a missing outcome with three or more arms, `DRTMLE` | none; the refusal is removed | Díaz and van der Laan (2017), Theorem 2 | an indicator reduction to $1\{A=a\}$ for each arm, a fixed-dimension stack, linearity, and the delta method | none. Each arm's Theorem 2 reads only its own column, so the tilts of the arms need no shared mechanism | shipped. Two arms keep the shipped binary estimator | [DR-TMLE, more than two arms](dr-tmle/theorem.md#more-than-two-arms) |
+| (e) PAR and PAF with a missing outcome | [F20](../roadmap.md#f20-missing-outcome-attributable-effects) | Díaz, Carone and van der Laan (2016) for the natural-course mean, and the shipped missing-outcome arm mean | a fixed-dimension stack, linearity for PAR, and the delta method for PAF | the F20 sentence was a policy sentence and not a recorded objection | qualifies for implementation | [F20](../roadmap.md#f20-missing-outcome-attributable-effects) |
+| (f) cross-fitted clustered `LTMLE` | [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle) | Díaz et al. (2023), Section 5.2, page 852, and Theorem 3, page 853 | a cluster as the unit, with whole-cluster folds and a cluster-summed curve | F22 recorded an absence of a source, not a defect | qualifies for implementation, after part (g) | [X25](../roadmap.md#x25-cross-fitted-clustered-longitudinal-tmle) |
+| (g) clustered intervals at unequal cluster sizes, and at fewer than 40 clusters | the `unequal_cluster_plugin` and `few_cluster_plugin` statuses ([inference](inference.md)) | Wang, Park, Small and Li (2024), Assumption 1(b) and Theorem 4(b). Nugent et al. (2024), Section 2.2, for the $t$ reference with $J-2$ degrees of freedom | a cluster as the unit, with the cluster size a bounded random cluster attribute, and the delta method for the ratio of cluster sums. The $t$ reference adds no limit theorem | Wang et al. (2024), Remark 3, recommend machine learning at about 100 clusters. That is a finite-sample warning, which the registered study measures | qualifies for implementation | [X24](../roadmap.md#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters) |
+| (h) plug-in omitted-variable limits with a declared parametric mechanism | [F26](../roadmap.md#f26-confidence-limits-of-the-plug-in-omitted-variable-bound) | Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026), Theorem 4 | a stacked estimating equation of the mechanism score and the second-moment equation, then the chain rule and the delta method | F26 records no curve for an arbitrary learner. That case stays refused | qualifies for implementation, only when the fit's own treatment learner is an unpenalized logistic or multinomial model | [X26](../roadmap.md#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism) |
+| (i) stratified incremental targets, stratified nonlinear or continuous MSMs, and `DRTMLE` with strata | `CapabilityError` before any learner | Kennedy (2019), Section 3.1; the [MSM projection](msm-projections.md) contract; Benkeser et al. (2017), Theorem 1 | a finite partition into a fixed number of baseline strata | the X8 design note on dose strata is not a theory gap | qualifies for implementation | [X8](../roadmap.md#x8-stratified-incremental-and-msm-targeting) |
+| (j) a `discrete` C-TMLE fit whose one declared candidate is the full adjustment set | the `working_mechanism_plugin` status | the ordinary TMLE interval result | none. The fit selects nothing, so the estimator is TMLE | none | shipped | [collaborative TMLE](collaborative-tmle.md) |
+| (k) the cross-fitted outcome-adaptive C-TMLE design with one scalar design for each arm | the `generated_design_plugin` status | Benkeser, Cai and van der Laan (2020), Theorem 1, and Appendix D, "Cross-validated CTMLE", printed page 26 of the author preprint | cross-fitted nuisances with one pooled coefficient for each arm. Appendix D states this step and its pooled coefficient | none | qualifies for implementation | [X17](../roadmap.md#x17-outcome-adaptive-c-tmle-intervals-from-per-arm-scalar-designs) |
+
+## The conditions each part inherits
+
+| part | inherited conditions |
+| --- | --- |
+| (a), (b) | $Y(a) \perp A \mid W$; $Y(a) \perp \Delta_A \mid A, W$; $Y \perp \Delta_Y \mid A, \Delta_A = 1, W$; composite positivity $P(C_a = 1 \mid W) > \delta$; `W` complete on every row; the Theorem 1 rate conditions |
+| (c) | the Theorem 3 rate condition; bounded density ratios; positivity of $g_t$ wherever $q_t > 0$; a policy density that is known and fixed before the fit |
+| (d) | randomized treatment or known treatment probabilities; the Theorem 2 conditions for each arm |
+| (e) | the conditions of both parents; a PAF denominator bounded away from zero |
+| (f) | independent clusters; no interference between units; bounded cluster size; the Theorem 3 conditions in the cluster count; the rules of part (g) |
+| (g) | independent clusters; bounded random cluster size; cluster size as a covariate when it confounds |
+| (h) | a correctly specified mechanism model; smoothness; an invertible Jacobian; a rule for rows that `g_bounds` clips |
+| (i) | the conditions of each marginal result inside each stratum; a fixed number of strata |
+| (j) | the conditions of the ordinary TMLE |
+| (k) | the Theorem 1 conditions, with cross-fitting in place of the empirical-process condition |

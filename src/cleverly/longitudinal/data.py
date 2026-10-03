@@ -65,7 +65,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, TypeAlias
 
 import numpy as np
@@ -76,6 +76,7 @@ from ..data.validate import (
     MIN_OBSERVATIONS,
     arm_indicators,
     check_covariates,
+    check_weights,
     encode_clusters,
     encode_treatment,
     resolve_family,
@@ -98,6 +99,37 @@ from ..utils.frames import (
 )
 
 __all__ = ["Assignment", "LongitudinalData", "RegimenMasks", "assignment_matrix"]
+
+#: The fields :meth:`LongitudinalData.subset` indexes by row.  Every other field is
+#: shared by the subset unchanged and is listed in :data:`_SHARED_FIELDS`.  A test checks
+#: that the two tuples cover every field, so a new field without a subset rule fails.
+_ROW_FIELDS: tuple[str, ...] = (
+    "outcome",
+    "baseline",
+    "treatment",
+    "uncensored",
+    "time_varying",
+    "weights",
+    "event",
+    "cause_event",
+    "cluster",
+    "weight_spec",
+)
+_SHARED_FIELDS: tuple[str, ...] = (
+    "baseline_names",
+    "treatment_names",
+    "treatment_levels",
+    "time_varying_names",
+    "family",
+    "outcome_name",
+    "event_names",
+    "cause_labels",
+    "censoring_names",
+    "cluster_name",
+    "weights_name",
+    "dropped_covariates",
+    "backend",
+)
 
 #: What arm a regimen assigns at each node: one arm per node for a static plan, or an
 #: ``(n, T)`` matrix when a dynamic rule assigns a different arm to different units.
@@ -628,6 +660,58 @@ class LongitudinalData:
         fit is a survival fit, so :attr:`is_survival` is true of it too.
         """
         return bool(self.cause_labels)
+
+    def subset(self, index: Any) -> LongitudinalData:
+        """A copy holding only the selected units, each with its whole trajectory.
+
+        The full-refit bootstrap resamples with this. A unit's row carries every node,
+        so a censored row keeps its ``nan`` pattern and an event row keeps its absorbing
+        structure. Weights are renormalised to mean one, as
+        :meth:`cleverly.data.CausalData.subset` renormalises them, and the scale factor
+        is folded into :attr:`weight_spec`. Cluster codes are re-derived so they stay
+        contiguous. A cluster bootstrap overrides them afterwards with one code per drawn
+        occurrence.
+
+        Parameters
+        ----------
+        index : array-like of int or bool
+            The selected rows. Repeats are kept, as a bootstrap resample needs.
+
+        Returns
+        -------
+        LongitudinalData
+            The subset, with every node array indexed by row.
+
+        Raises
+        ------
+        DataError
+            When the subset holds fewer rows than a fit needs.
+        """
+        idx = np.asarray(index)
+        if idx.dtype == bool:
+            idx = np.flatnonzero(idx)
+        if idx.size < MIN_OBSERVATIONS:
+            raise DataError(f"subset has {idx.size} rows; need at least {MIN_OBSERVATIONS}")
+        cluster = (
+            None
+            if self.cluster is None
+            else np.asarray(np.unique(self.cluster[idx], return_inverse=True)[1], dtype=np.int64)
+        )
+        selected = self.weights[idx]
+        mean = float(selected.mean())
+        return replace(
+            self,
+            outcome=self.outcome[idx],
+            baseline=self.baseline[idx],
+            treatment=self.treatment[idx],
+            uncensored=self.uncensored[idx],
+            time_varying=tuple(block[idx] for block in self.time_varying),
+            weights=check_weights(selected, idx.size),
+            event=None if self.event is None else self.event[idx],
+            cause_event=None if self.cause_event is None else self.cause_event[idx],
+            cluster=cluster,
+            weight_spec=self.weight_spec.rescaled(self.weight_spec.scale * mean),
+        )
 
     # ------------------------------------------------------------------ masks
 
