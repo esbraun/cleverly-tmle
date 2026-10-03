@@ -131,6 +131,17 @@ its instruments and what each one cannot see.
 | `tests/unit/test_stratified_drtmle_exact.py` | on every route and guard, each stratum estimate and curve equal a subset fit, and the marginal is the mixture. Reductions pooled across strata fail it | the truth; more than one alternation round, whose global stop rule ends the strata together |
 | `tests/unit/test_simulated_confounding_strata.py` | the replay of a stratum alias for each new composition | interval validity of the replay |
 
+A cross-fitted clustered `LTMLE` fit estimates the registered longitudinal targets with the
+cluster as the unit, so it adds no registry stem.
+[Longitudinal clusters](longitudinal-tmle.md#clusters) states the step. The table gives its
+instruments and what each one cannot see.
+
+| instrument | what it checks | what it cannot see |
+| --- | --- | --- |
+| `tests/unit/test_clustered_cross_fitted_ltmle.py` | whole-cluster folds, grouped inner folds, a held-out cluster unseen by a site-memorizing learner, the cluster-summed variance of every reported and derived estimate, the size term, the $t$ reference, the band and the bootstrap kind. Each check has a mutation control that fails it | coverage, and clustering of a competing-risk fit beyond the exact variance identity |
+| `tests/unit/test_clustered_longitudinal_laws.py` | the study law keeps the unclustered truths exactly and carries a within-cluster correlation | an informative cluster size, which the law does not carry |
+| the `clustered-cross-fitted-ltmle` and `few-cluster-cross-fitted-ltmle` studies | coverage, SE calibration and an IID control at 100 clusters, paired with R `lmtp`, and the $t$ reference at 20 and 30 clusters | an informative cluster size, a competing-risk fit, and 4 to 19 clusters |
+
 Repeated stacked point-treatment CV-TMLE likewise has a separate registered
 [reporting-policy study](method-evidence/repeated-cross-fitting.md). It reuses the shared CV-TMLE
 laws and structural checks under the median report. The point estimate is the median over complete

@@ -348,7 +348,7 @@ The in-sample longitudinal MSM projection runs.
 | base result | Díaz, Williams, Hoffman and Schenck (2023), Section 5.2, journal page 852, and Theorem 3, page 853, for each regimen-horizon cell under one random partition; the shipped in-sample longitudinal MSM projection ([MSM projections](technical-reference/msm-projections.md)) |
 | steps | a fixed-dimension stack of the cross-fitted cell estimates over the regimen, horizon and cause cells, then the projection. The projection is a smooth map of the stacked cells, so the delta method gives the coefficient curve. The targeting pools every follower per node, as the shipped cross-fitted cells do. The point-treatment cross-fitted MSM already ships |
 | objection search | the refusal text names an evidence gap ("needs a dedicated unsaturated projection property and repeated-sampling study"), not a theory gap. No source read records a defect |
-| inherited conditions | the Theorem 3 rates and bounded density ratios in every cell; a fixed number of cells; full rank of the realized design; with `id=`, the cluster rules of the clustered cross-fitted longitudinal fit |
+| inherited conditions | the Theorem 3 rates and bounded density ratios in every cell; a fixed number of cells; full rank of the realized design; with `id=`, the cluster rules of [longitudinal clusters](technical-reference/longitudinal-tmle.md#clusters) |
 
 Acceptance:
 

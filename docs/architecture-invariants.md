@@ -207,9 +207,10 @@ and no fold count, because a split that happens to fit was chosen by reading the
 must not read. *Reconsider when* a split law that reads the treatment acquires a reviewed result.
 
 A composition the package cannot support is refused by name before it costs a learner. Collaborative
-TMLE refuses declared clusters at every setting, and cross-fitted longitudinal TMLE refuses them
-above one fold, because no reviewed result covers a grouped draw of those splits.
-*Reconsider when* a cluster-level result covers the selection path or the sequential recursion.
+TMLE refuses declared clusters at every setting, because no reviewed result covers a grouped draw
+of its selection splits. *Reconsider when* a cluster-level result covers the selection path. Every
+outer split of a clustered fit, point treatment or longitudinal, is whole-cluster. `make_folds`
+checks it for point treatment, and `LTMLE.fit` checks it with `check_integrity` after the draw.
 
 An MSM projection weight, an MSM design, and a `Stochastic` density are user-supplied functions
 that the reported influence curve treats as fixed. Each carries a declaration with `"known"`,
