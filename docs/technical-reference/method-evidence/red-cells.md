@@ -82,7 +82,10 @@ The test fails on four states.
 | [`RM18-one-sided-bias`](../../roadmap.md#red-cell-owners) | 3 | DR-TMLE for binary complete data, multi-arm point-treatment DR-TMLE |
 | [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) | 6 | ordinary weighted end-of-study longitudinal TMLE |
 | [`RM18-comparator-density`](../../roadmap.md#red-cell-owners) | 1 | ordinary continuous modified treatment policies |
-| total | 33 | 9 studies |
+| [`X14`](../../roadmap.md#x14-hazard-based-and-monotone-survival-curves) | 1 | ordinary survival-curve longitudinal TMLE |
+| [`strata-boundary-mean`](../../roadmap.md#red-cell-owners) | 5 | ordinary point-treatment TMLE with baseline strata |
+| [`default-band-shortfall`](../../roadmap.md#red-cell-owners) | 3 | default simultaneous bands across shipped fit shapes |
+| total | 42 | 12 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -93,6 +96,11 @@ same text as the "measured" column of its study page.
 <!-- generated: red-cells -->
 | study | kind | row | role | fails by | measured | owner |
 | --- | --- | --- | --- | --- | --- | --- |
+| [ordinary point-treatment TMLE with baseline strata](stratified-point-treatment-tmle.md) | truth | `cleverly-stratified-tmle/stratified_binary/ey[1][V=2]` | cleverly-stratified-tmle | its truth gate | bias -0.0027 to 0.000813, coverage 0.9170, SE ratio 0.9850 | [`strata-boundary-mean`](../../roadmap.md#red-cell-owners) |
+| [ordinary point-treatment TMLE with baseline strata](stratified-point-treatment-tmle.md) | truth | `tmle3-stratified/stratified_binary/ey[1][V=2]` | tmle3-stratified | its truth gate | bias -0.0027 to 0.000813, coverage 0.9170, SE ratio 0.9849 | [`strata-boundary-mean`](../../roadmap.md#red-cell-owners) |
+| [ordinary point-treatment TMLE with baseline strata](stratified-point-treatment-tmle.md) | property | `interval_calibration/v2_ey1__correctly_specified` | positive | its own rule | coverage 0.9056 to 0.9344, SE ratio 0.9315 to 1.0094, empirical efficiency ratio 0.9753 to 1.0552, reported efficiency ratio 0.9742 to 0.9931 | [`strata-boundary-mean`](../../roadmap.md#red-cell-owners) |
+| [ordinary point-treatment TMLE with baseline strata](stratified-point-treatment-tmle.md) | property | `simultaneous_coverage/crossfit_strata__simultaneous_band` | positive | its own rule | joint coverage 0.9038 to 0.9329 | [`strata-boundary-mean`](../../roadmap.md#red-cell-owners) |
+| [ordinary point-treatment TMLE with baseline strata](stratified-point-treatment-tmle.md) | property | `simultaneous_coverage/strata__simultaneous_band` | positive | its own rule | joint coverage 0.8881 to 0.9194 | [`strata-boundary-mean`](../../roadmap.md#red-cell-owners) |
 | [selector-based point-treatment C-TMLE](selector-based-point-treatment-c-tmle.md) | property | `selector_necessity/collaborative` | positive | its own rule | bias 0.0015 to 0.0037, margin 0.0030, RMSE ratio 0.2410 | [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) |
 | [selector-based point-treatment C-TMLE](selector-based-point-treatment-c-tmle.md) | property | `selector_necessity/empty_control` | control | the family's joint clause | bias 0.0495 to 0.0511, margin 0.0022, RMSE ratio 0.2410 | [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) |
 | [selector-based point-treatment C-TMLE](selector-based-point-treatment-c-tmle.md) | property | `type_i_error/sharp_null` | positive | its own rule | rejection 0.0700, 0.0412 to 0.1095 | [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) |
@@ -126,6 +134,10 @@ same text as the "measured" column of its study page.
 | [cross-fitted weighted end-of-study longitudinal TMLE](cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | paired | `selected_censored_end_of_study/ey_regimen[treat then continue if l2 positive]` | paired | underpowered: coverage leg, calibration resolution | difference -0.000118 to 0.000400 within 0.0032, RMSE ratio bound 1.0175 vs 1.1000, coverage difference bound -0.0425 vs -0.0250, calibration excess bound 0.0382 vs 0.0500, resolution 0.1119 | [`RM18-boundary`](../../roadmap.md#red-cell-owners) |
 | [cross-fitted weighted end-of-study longitudinal TMLE](cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | property | `double_robustness/static__both_wrong` | control | its own rule | bias -0.0251 to -0.0151, margin 0.0167, SE ratio 0.6640 | [`RM18-boundary`](../../roadmap.md#red-cell-owners) |
 | [cross-fitted weighted end-of-study longitudinal TMLE](cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | property | `interval_calibration/static__correctly_specified` | positive | its own rule | coverage 0.9232 to 0.9492, SE ratio 0.9430 to 1.0203, empirical efficiency ratio 1.0195 to 1.1006, reported efficiency ratio 1.0333 to 1.0442 | [`RM18-fixed-weights`](../../roadmap.md#red-cell-owners) |
+| [ordinary survival-curve longitudinal TMLE](ordinary-survival-curve-longitudinal-tmle.md) | property | `simultaneous_coverage/all_reported__simultaneous_band` | positive | its own rule | joint coverage 0.9140 to 0.9283 | [`X14`](../../roadmap.md#x14-hazard-based-and-monotone-survival-curves) |
+| [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/categorical_ltmle__simultaneous_band` | positive | its own rule | joint coverage 0.9101 to 0.9382 | [`default-band-shortfall`](../../roadmap.md#red-cell-owners) |
+| [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/categorical_ltmle_crossfit__simultaneous_band` | positive | its own rule | joint coverage 0.9173 to 0.9443 | [`default-band-shortfall`](../../roadmap.md#red-cell-owners) |
+| [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/cde_z0__simultaneous_band` | positive | its own rule | joint coverage 0.9015 to 0.9309 | [`default-band-shortfall`](../../roadmap.md#red-cell-owners) |
 <!-- /generated -->
 
 ## Reporting studies with no red row

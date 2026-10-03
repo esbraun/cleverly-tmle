@@ -148,7 +148,7 @@ regression unadjusted.
 - The primary law is bounded continuous, and the property law is binary finite support.
 - The design and projection weights are fixed rather than estimated.
 - The study covers the identity link and ordinary, non-cross-fitted targeting.
-- It reports pointwise Wald intervals, not simultaneous coefficient regions.
+- It reports pointwise Wald intervals, not simultaneous coefficient regions. The [default-band study](default-simultaneous-bands.md) measures the default band of this study's subject fit.
 - It validates three terms and two treatment arms.
 - It does not validate continuous-dose integration or data-adaptive projection measures.
 

@@ -244,7 +244,7 @@ from the committed artifacts and checked at the precision printed.
 | One selection law is studied | The selected sample uses one baseline-dependent probability with moderate weight variation, not severe practical positivity |
 | The row covers one terminal binary mean per plan | Survival curves, competing risks, and longitudinal MSM projections have different parameters |
 | The primary learner is a weighted GLM | The learner-weight property is a separate finite-support control, not parity for arbitrary learner libraries |
-| Inference is pointwise | The row does not validate simultaneous bands or clustered covariance |
+| Inference is pointwise | The row does not validate simultaneous bands or clustered covariance. The [default-band study](default-simultaneous-bands.md) measures the default band of this study's subject fit. |
 
 The causal interpretation requires consistency, sequential exchangeability, longitudinal
 positivity, conditionally independent censoring, and a selection model that identifies the

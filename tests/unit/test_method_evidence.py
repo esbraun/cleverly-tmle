@@ -2236,8 +2236,8 @@ def test_the_implementation_matrix_names_each_study_s_publication_policy() -> No
             id="reporting-page-called-gated-in-capitals",
         ),
         pytest.param(
-            "gated ordinary and cross-fitted [survival]",
-            "ordinary and cross-fitted [survival]",
+            "a reporting ordinary [survival]",
+            "an ordinary [survival]",
             "unlabelled",
             id="label-removed-before-an-adjective",
         ),

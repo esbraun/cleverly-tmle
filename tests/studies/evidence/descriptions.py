@@ -106,7 +106,7 @@ ARMS: dict[str, str] = {
     "multi_arm_drtmle": "multi-arm DR-TMLE over nine parameters",
     "cde_z0": "the controlled direct-effect fit at intermediate level zero",
     "cde_z1": "the controlled direct-effect fit at intermediate level one",
-    "point_msm": "the three point-treatment MSM coefficients",
+    "point_msm": "the three terms of the point-treatment MSM projection",
     "clustered": "grouped cross-fitted TMLE with cluster multipliers",
     "shift_grid": "three shift policies and their two contrasts",
     "incremental_grid": "three incremental odds multipliers and their two contrasts",
@@ -119,7 +119,7 @@ ARMS: dict[str, str] = {
     "weighted_ltmle_crossfit": "cross-fitted weighted end-of-study regimen means and contrasts",
     "categorical_ltmle": "five categorical regimen means and four contrasts",
     "categorical_ltmle_crossfit": "five cross-fitted categorical regimen means and four contrasts",
-    "longitudinal_msm": "the two longitudinal MSM coefficients",
+    "longitudinal_msm": "the two terms of the longitudinal MSM projection",
     # The stratum labels of the baseline-strata study: ``v<s>_<parameter>``.
     **{
         f"v{stratum}_{key}": f"{words} in stratum V = {stratum}"

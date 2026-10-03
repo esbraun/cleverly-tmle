@@ -272,12 +272,44 @@ multiplier draws center each influence curve. Centering matches the raw second m
 mean-zero curve, and `simultaneous_bands` does not check the mean.
 [Covariance rules](#covariance-rules) lists this refusal with the others. A repeated fit also refuses bands, as the [CV-TMLE reference](cv-tmle.md#variations) states.
 
+Each fit seeds its multiplier draws with its own `random_state`. Every fit that uses one seed
+therefore draws the same multiplier sign matrix. A registered study that fixes `random_state`
+measures the band as it ships, and the Monte Carlo error of the critical value is then correlated
+across its replications.
+
 Implementation:
 [`inference/multiplier.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/multiplier.py)
 and
 [`inference/bootstrap.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/inference/bootstrap.py).
 Benjamini and Hochberg (1995) is the reference for the FDR-adjusted reporting; see
 [multiple testing](../references.md#multiple-testing).
+
+### Evidence for the default band
+
+A joint-coverage cell reads the default band of a fit and the pointwise intervals of the same fit.
+The band cell passes when its 99% joint-coverage interval lies inside $[0.92, 0.98]$. The control
+cell reads the pointwise intervals jointly and passes when its 99% upper endpoint is below 0.95.
+The control shows that the band's wider critical value does work.
+`tests/unit/test_simultaneous_cell_design.py` checks before any run that each control can fail.
+Each study page gives the measured coverage.
+
+| registered study | shapes it measures |
+| --- | --- |
+| [stacked arm-indexed missing-outcome CV-TMLE](method-evidence/stacked-arm-indexed-missing-outcome-cvtmle.md) | the arm means and contrasts of four laws, through `CausalStudy` |
+| [ordinary multi-arm TMLE](method-evidence/ordinary-multi-arm-tmle.md) | three arm means, two differences, two risk ratios and two odds ratios |
+| [ordinary end-of-study longitudinal TMLE](method-evidence/ordinary-end-of-study-longitudinal-tmle.md) | three regimen means and two contrasts |
+| [ordinary survival-curve longitudinal TMLE](method-evidence/ordinary-survival-curve-longitudinal-tmle.md) | the risk curve of one plan over two horizons, and all ten parameters of three plans |
+| [ordinary competing-risk longitudinal TMLE](method-evidence/ordinary-competing-risk-longitudinal-tmle.md) | two causes at two horizons for one plan, and all ten parameters at horizon two |
+| [stratified point-treatment TMLE](method-evidence/stratified-point-treatment-tmle.md) | marginal and stratum parameters, in sample and cross-fitted |
+| [default simultaneous bands](method-evidence/default-simultaneous-bands.md) | 25 further shapes: the `TMLE()` default, weights, missing outcomes, DR-TMLE, the controlled direct effect, MSMs, clusters, shift and incremental grids, regimes, and the cross-fitted, weighted and categorical longitudinal fits |
+
+These fit shapes publish no default band.
+
+| shape | why it publishes no band |
+| --- | --- |
+| more than one repeat | refused with two or more estimands, as the [CV-TMLE reference](cv-tmle.md#variations) states |
+| fold-targeted CV-TMLE, the learned-rule value, and the missing-outcome natural-course mean | one estimate per fit |
+| the C-TMLE selector and outcome-adaptive paths | their status supplies no inference, so no band is built |
 
 ## Reporting a subset of a family
 

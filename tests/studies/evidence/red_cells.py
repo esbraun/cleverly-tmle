@@ -69,6 +69,7 @@ _OWNER_ANCHORS = {
     "F19": "f19-outcome-adaptive-c-tmle-generated-design-inference",
     # The owner of every red cell of the reporting study ``learned-rule-cvtmle-boundary``.
     "F27": "f27-learned-policy-value-outside-the-published-conditions",
+    "X14": "x14-hazard-based-and-monotone-survival-curves",
 }
 
 #: The three kinds of red row, in the order the ledger prints them.
@@ -230,6 +231,38 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "shift-policies",
         "paired",
         "continuous_modified_policy/ate_shift[+0.25 vs natural course]",
+    ),
+    # The band over every parameter of the ordinary survival fit.  X14's whole-curve targeting
+    # is the construction that would supply another band; the declared diagnostic read this one
+    # as a finite-sample shortfall of the pointwise intervals it inherits.
+    "X14": _keys(
+        "canonical-ltmle-survival",
+        "property",
+        "simultaneous_coverage/all_reported__simultaneous_band",
+    ),
+    # The arm mean near 0.94 in the smallest stratum, and the two bands that include it.
+    "strata-boundary-mean": (
+        *_keys(
+            "canonical-stratified-tmle",
+            "truth",
+            "cleverly-stratified-tmle/stratified_binary/ey[1][V=2]",
+            "tmle3-stratified/stratified_binary/ey[1][V=2]",
+        ),
+        *_keys(
+            "canonical-stratified-tmle",
+            "property",
+            "interval_calibration/v2_ey1__correctly_specified",
+            "simultaneous_coverage/strata__simultaneous_band",
+            "simultaneous_coverage/crossfit_strata__simultaneous_band",
+        ),
+    ),
+    # Three default-band shapes whose band, and its oracle twin, cover just under the band.
+    "default-band-shortfall": _keys(
+        "default-simultaneous-bands",
+        "property",
+        "simultaneous_coverage/categorical_ltmle__simultaneous_band",
+        "simultaneous_coverage/categorical_ltmle_crossfit__simultaneous_band",
+        "simultaneous_coverage/cde_z0__simultaneous_band",
     ),
     # The two laws of the RM30 reporting study.  F27 states, row by row, that the
     # ``exceptional`` cell has no published result and that the ``weak_blip`` cell has one.

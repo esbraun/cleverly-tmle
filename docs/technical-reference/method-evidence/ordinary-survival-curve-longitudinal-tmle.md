@@ -108,6 +108,10 @@ same horizon-specific parameters without treating a terminal outcome as a surviv
 | `root_n_rate` | `static_t1__reported_se` | positive | static plan at horizon one: the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5008 to -0.4986 | pass |
 | `root_n_rate` | `static_t2__empirical_sd` | positive | static plan at horizon two: log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5701 to -0.4752 | pass |
 | `root_n_rate` | `static_t2__reported_se` | positive | static plan at horizon two: the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.4811 to -0.4709 | pass |
+| `simultaneous_coverage` | `all_reported__pointwise_joint_control` | control | every parameter the calibration fit reports: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.7110 to 0.7346 | pass |
+| `simultaneous_coverage` | `all_reported__simultaneous_band` | positive | every parameter the calibration fit reports: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9140 to 0.9283 | **fail** |
+| `simultaneous_coverage` | `curve_always__pointwise_joint_control` | control | the always plan alone, at every declared horizon: the pointwise 95% intervals of the same fits, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8760 to 0.8929 | pass |
+| `simultaneous_coverage` | `curve_always__simultaneous_band` | positive | the always plan alone, at every declared horizon: the max-t multiplier band over every estimand the law reports, from the same-row centered influence curves | joint coverage interval inside the calibration coverage band | joint coverage 0.9288 to 0.9418 | pass |
 | `survival_recursion_necessity` | `always_t2__survival` | positive | always-treat risk at horizon two: the survival estimator keeps failures in their event node and removes them afterward | bias interval inside the equivalence margin | bias -0.0038 to 0.0022, margin 0.0100 | pass |
 | `survival_recursion_necessity` | `always_t2__survivor_only` | control | always-treat risk at horizon two: the same horizon-two outcome analyzed only among first-node survivors | bias interval must fall entirely outside the margin | bias -0.1523 to -0.1430, margin 0.0155 | pass |
 | `targeting_necessity` | `dynamic_t2__targeted` | positive | dynamic plan at horizon two: the estimator fluctuates a misspecified outcome model, so targeting does all the adjusting | bias interval inside the equivalence margin | bias -0.0035 to 0.0029, margin 0.0108 | pass |
@@ -159,6 +163,20 @@ The power alternative keeps the law's own first hazard and replaces the second. 
 horizon-two contrasts different values, so the two horizon-two power cells report two parameters
 rather than one number twice.
 
+The `simultaneous_coverage` family reads the default band, 2000 Rademacher draws seeded by
+`random_state=0`. The `curve_always` cells fit the `always` plan alone in a dedicated batch of
+9,600 samples, so the band covers that plan's risk at both declared horizons. The
+`all_reported` cells read the calibration fits, whose band covers all ten reported parameters.
+The `always` and `continue_if_l2` plans agree at the first node, so their first-horizon risks
+and contrasts are two exact duplicate pairs and the family has eight distinct parameters.
+
+The `all_reported` band is the one red verdict, and the study publishes under the `reporting`
+policy. Its joint coverage is 0.9214, with a 99% interval from 0.9140 to 0.9283 that crosses
+the 0.92 edge. The declared diagnostic read the same rows at the design critical value of
+2.622. That oracle band covers 0.9241, so the multiplier is not the cause. The family inherits
+the horizon-two shortfall of the pointwise intervals above. The default band stays on, and
+[X14](../../roadmap.md#x14-hazard-based-and-monotone-survival-curves) owns the cell.
+
 ## Measured values
 
 Names beginning `margin:` are thresholds declared before the run. Everything else is measured from
@@ -172,8 +190,14 @@ the committed results and checked at the precision printed.
 | `independent_tests_passed` | 16 | truth tests passing |
 | `paired_tests_total` | 8 | paired estimand comparisons |
 | `paired_tests_passed` | 8 | paired comparisons passing |
-| `property_cells_total` | 50 | independent property cells |
-| `property_cells_passed` | 50 | property cells passing |
+| `property_cells_total` | 54 | independent property cells |
+| `property_cells_passed` | 53 | property cells passing |
+| `properties[simultaneous_coverage/curve_always__simultaneous_band]:coverage` | 0.9355 | joint coverage of the band over the `always` risk curve |
+| `properties[simultaneous_coverage/curve_always__pointwise_joint_control]:coverage` | 0.8847 | joint coverage of the pointwise intervals of the same fits |
+| `properties[simultaneous_coverage/all_reported__simultaneous_band]:coverage` | 0.9214 | joint coverage of the band over all ten parameters |
+| `properties[simultaneous_coverage/all_reported__simultaneous_band]:coverage_ci_lower` | 0.9140 | its 99% lower endpoint |
+| `properties[simultaneous_coverage/all_reported__simultaneous_band]:coverage_ci_upper` | 0.9283 | its 99% upper endpoint |
+| `properties[simultaneous_coverage/all_reported__pointwise_joint_control]:coverage` | 0.7229 | joint coverage of the pointwise intervals of the same fits |
 | `max_standardized_bias` | 0.0638 | largest primary standardized bias |
 | `min_coverage` | 0.9387 | lowest primary coverage |
 | `min_coverage_ci_lower` | 0.9216 | lowest primary coverage lower endpoint |
@@ -228,7 +252,7 @@ the committed results and checked at the precision printed.
 | limitation | what it means for use |
 | --- | --- |
 | This is the ordinary row | Nuisances are fitted on the analysis sample. The separate cross-fitted row below validates held-out nuisance fitting and fold-specific recursion |
-| Inference is pointwise | The study reports each horizon separately. It does not validate a simultaneous confidence band for the whole curve. Each horizon is also targeted in its own backward pass, so the reported curve is not constrained to increase |
+| The band over the curve is measured at two horizons | The law has two horizons. The one-plan band passes, and the band over all ten parameters covers 0.9214, a red cell that X14 owns. Each horizon is targeted in its own backward pass, so the reported curve is not constrained to increase |
 | Horizon-two inference is mildly anticonservative at n = 2,000 | The reported standard error sits a few percent below the sampling spread, and coverage sits below nominal. Both endpoints stay inside the declared calibration bands. The first horizon does not show this on the same draws |
 | The event process has two horizons | Both backward prefixes are exercised. Longer follow-up may compound the horizon-two shortfall above, and this study cannot say by how much |
 | The first-horizon null is not a longitudinal null | No time-varying node precedes the first event node, so a baseline-only standardisation recovers that null exactly. The first-horizon type-I cells test baseline and censoring adjustment only |
