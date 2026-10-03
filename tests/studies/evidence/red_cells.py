@@ -271,6 +271,14 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "interval_calibration/ate__correctly_specified",
         "simultaneous_coverage/arms__simultaneous_band",
     ),
+    # The logit-MSM slope in the two smaller strata of the stratified incremental and MSM
+    # study.  ``tests/unit/test_band_shortfall_reading.py`` rebuilds the reading.
+    "X8-logit-small-stratum": _keys(
+        "canonical-stratified-incremental-msm",
+        "property",
+        "interval_calibration/logit_v1_a__correctly_specified",
+        "interval_calibration/logit_v2_a__correctly_specified",
+    ),
     # The two longitudinal bootstrap kinds the X20 study measured red.  Rule 3 of the
     # study keeps each kind out of ``LICENSED_BOOTSTRAP_DESIGNS``.
     "X20-bootstrap": _keys(
