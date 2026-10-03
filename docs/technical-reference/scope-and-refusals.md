@@ -392,6 +392,7 @@ the [roadmap's eligibility rules](../roadmap.md#eligibility).
 | --- | --- | --- |
 | `TMLE`: `ey` per arm, `ate` / `att` / `atc` per non-reference arm, regimes, MSMs over arms | supported | one counterfactual mean per arm and one contrast per non-reference arm. The [oracle-law gate](validation-methods.md#the-oracle-law-gate) states that a target meant for more than two arms needs a branch on the three-armed law |
 | `DRTMLE`: univariate and bivariate reductions | supported | [armwise one-vs-rest](dr-tmle/index.md#variations), with each reduction and correction indexed by a free level. The cited theorem is binary, so this is an implementation-backed armwise extension rather than a claim about that theorem's literal scope |
+| `DRTMLE` with `delta=` in a randomized trial | supported | Díaz and van der Laan's missing-outcome construction, applied to each arm indicator and stacked. Each arm's treatment, observation and outcome tilts are its own, so no fluctuation parameter is shared across arms. See [the multi-arm contract](dr-tmle/theorem.md#more-than-two-arms) |
 | `CTMLE`: selectors and `strategy="oat"` | supported | one shared `n x K` categorical mechanism, selected against one nonredundant vector. See the [standing decision](../architecture-invariants.md#targets-interventions-and-variants) |
 | `LTMLE`: categorical nodes, static and dynamic regimens | supported | [treatment over time](longitudinal-tmle.md#the-algorithm-as-implemented). Each node owns its level set, and the clever covariate selects the assigned label's probability |
 | positivity, omitted-variable, E-value and MNAR sensitivity | supported | each is one parameter per contrast, and each reads its arms from the parameter's structured index rather than assuming two |
@@ -400,11 +401,9 @@ the [roadmap's eligibility rules](../roadmap.md#eligibility).
 | `incremental=` itself, above two arms | a different question | an odds multiplier names two arms. One odds per contrast is well posed, and it is a *different intervention* with a different influence function rather than a generalisation of this one |
 | stochastic categorical policies at a longitudinal node | a different question | a policy that assigns a distribution changes the intervention *density* rather than which label is assigned. It is not the parameter that the sequential regression identifies. [X18](../roadmap.md#x18-natural-extension-reviews) part (c) reviews it |
 | a continuous dose at a longitudinal node | not written yet | Díaz, Williams, Hoffman and Schenck (2023), Theorem 3, journal page 853, covers a fixed modified treatment policy $d(a_t, h_t)$ on a continuous dose. `LTMLE` estimates no conditional density of the dose at a node, and it refuses `shifts=` by name. [X12](../roadmap.md#x12-modified-treatment-policies-beyond-the-additive-point-shift) part (b) holds the work |
-| `DRTMLE` with `delta=` at more than two arms | waiting on published theory | Diaz and van der Laan's missing-outcome theorem is stated for a binary randomized treatment, and the per-arm assembly of its observation, treatment and outcome correction blocks is not in it. See the [future investigation](../roadmap.md#f4-multi-arm-missing-outcome-dr-tmle) |
 
-A source could close two entries as they stand. The first is the multi-arm part of the simulated
-common-cause row. The second is the `DRTMLE` with `delta=` row. Neither `a different question` row
-would be closed by a source. Each would be answered by a different estimand, with its own
+A source could close one entry as it stands: the multi-arm part of the simulated common-cause
+row. Neither `a different question` row would be closed by a source. Each would be answered by a different estimand, with its own
 derivation, oracle law, and evidence.
 
 The continuous-dose row needs no new source. It needs the implementation that

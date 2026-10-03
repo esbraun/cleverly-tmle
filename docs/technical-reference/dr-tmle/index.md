@@ -152,7 +152,7 @@ The source-to-equation map is in [the contract](theorem.md#the-objects).
 | `update_order="benkeser"` | the published six-step recursion. The same prime step precedes its first round | no |
 | `reduced_crossfit="pooled"` | out-of-fold reduced fits sharing the primary split. The default | no. A diagnostic keyword |
 | `reduced_crossfit="nested"` | measures the generated-regressor dependence rather than assuming it away | no. Refused below three folds, under `cross_fit=False`, and with `targeting="one_step"` at a non-empty `guard` |
-| `randomized=`, `treatment_probabilities=` | the Diaz and van der Laan (2017) randomized missing-outcome surface: five reductions, and three separate corrections for treatment, observation, and outcome | **yes**. It requires `cross_fit=False` and both guards. See [the contract](theorem.md#randomized-trials-with-missing-outcomes) |
+| `randomized=`, `treatment_probabilities=` | the Diaz and van der Laan (2017) randomized missing-outcome surface: five reductions, and three separate corrections for treatment, observation, and outcome. Above two arms, each arm indicator gets its own construction and the arm estimators are stacked | **yes**. It requires `cross_fit=False` and both guards. See [the contract](theorem.md#randomized-trials-with-missing-outcomes) and [the multi-arm contract](theorem.md#more-than-two-arms) |
 | `evaluation=` | an independent-draw evaluation set carried through targeting | no. A remainder diagnostic |
 | multiple treatment levels | each reduction and correction is indexed by a free level, and equation (9) is solved by independent one-versus-rest fluctuations | this follows the published R workflow. The cited theorem is binary, so this is an implementation-backed armwise extension |
 
