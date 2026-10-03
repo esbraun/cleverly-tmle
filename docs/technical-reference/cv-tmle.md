@@ -16,7 +16,7 @@ nuisance prediction used for an observation comes from a model that never saw th
 | flexible learners for either nuisance | cross-fitting can avoid a Donsker restriction under its remaining conditions | one nuisance fit per outer fold; a Super Learner also fits its candidates on inner folds |
 | you want the package default | cross-fitting is on by default, at ten outer folds | a Super Learner uses five additional inner folds unless configured otherwise. Ten by five is fifty model fits per library candidate |
 | the fold draw itself worries you | `repeats=` runs a complete estimator per draw and aggregates | linear cost in the repeat count |
-| clustered data | clusters stay intact in every split | a cluster-robust interval, because clusters, not rows, are the independent units. With fewer clusters than folds, the fold count drops to the cluster count, and a warning names both. Below 40 clusters the interval uses a $t$ reference, and below 4 the fit withholds it, as [clusters](inference.md#clusters) states |
+| clustered data | clusters stay intact in every split | a cluster-robust interval, because clusters, not rows, are the independent units. With fewer clusters than folds, the fold count drops to the cluster count, and a warning names both. Below 40 clusters the interval uses a $t$ reference, and below 10 the fit withholds it, as [clusters](inference.md#clusters) states |
 
 **Cross-fitting does not buy the rest of efficiency.** Four conditions stand behind a valid
 interval, and folds address one of them.
@@ -409,12 +409,13 @@ what each source recommends. $J$ is the cluster count, which Nugent et al. write
 | Benitez et al. (2023) | Section 3.1.2, paragraph on inference, and Section 3.2.1, last paragraph | a $t$ reference with $J - 2$ degrees of freedom at every cluster count, as a finite-sample approximation |
 | Wang et al. (2024) | Remark 3, Section 4.2, after Theorem 4 | parsimonious parametric nuisance models at about 20 clusters, and machine learning at about 100 |
 
-The package follows Nugent et al. From 4 to 39 positive-mass clusters, in the fit or in the stratum
-an estimate reads, each estimate uses $t$ with $J-2$ degrees of freedom. Below 4 such clusters the
-fit takes the `"few_cluster_plugin"` status, in sample or cross-fitted. An in-sample `LTMLE` fit
+The package follows Nugent et al. From 10 to 39 positive-mass clusters, in the fit or in the
+stratum an estimate reads, each estimate uses $t$ with $J-2$ degrees of freedom. Below 10 such
+clusters the fit takes the `"few_cluster_plugin"` status, in sample or cross-fitted, because no
+registered study measures an interval there. An in-sample `LTMLE` fit
 with `id=` follows the same rules. The registered few-cluster evidence uses parametric nuisance
 learners only. [Clusters](inference.md#clusters) gives the rules, and
-[F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) records the floor.
+[F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) owns 4 to 9 clusters.
 
 ### The Super Learner inner split
 

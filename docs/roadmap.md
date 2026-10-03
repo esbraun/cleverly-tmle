@@ -126,7 +126,7 @@ the current boundary, and the refusal that keeps it.
 | Joint point-treatment parameter axes | a targeting and inference result for one fit that carries an MSM projection together with a regime, shift, or incremental intervention, including its joint score and covariance | single-axis point-treatment fits only | [F17](#f17-joint-point-treatment-parameter-axes) |
 | Time-respecting cross-fitting | dependence and split-specific TMLE inference for blocked-temporal or rolling-origin folds | iid and grouped cross-fitting only | [F7](#f7-time-respecting-cross-fitting) |
 | Learned-policy value outside the published conditions | an interval for the fold-average learned-rule value without a limiting rule, and results for the refused compositions | `LearnedRuleValue` fits the fold-evaluated CV-TMLE of [learned rules](technical-reference/point-treatment-tmle.md#learned-rules) under the limiting-rule condition. Its boundary study measures under-coverage at an exceptional law. The other F27 requests refuse before any learner | [F27](#f27-learned-policy-value-outside-the-published-conditions) |
-| Finite-sample limits of clustered intervals | a small-sample correction or reference for the cluster-summed TMLE curve, at few clusters, at unequal cluster sizes, and for the fold-evaluated variance at few clusters per fold. Fewer than 4 clusters is a declared floor (fewer than 2 degrees of freedom), not a missing theorem | `few_cluster_plugin` below 4 positive-mass clusters. $t_{J-2}$ from 4 to 39. Fold-evaluated fits need 2 clusters per fold. The registered evidence uses parametric nuisance learners | [F28](#f28-finite-sample-limits-of-clustered-intervals) |
+| Finite-sample limits of clustered intervals | a small-sample correction or reference for the cluster-summed TMLE curve, at few clusters, at unequal cluster sizes, and for the fold-evaluated variance at few clusters per fold. An interval at 4 to 9 clusters, which no registered study measures | `few_cluster_plugin` below 10 positive-mass clusters, the smallest count the registered study measures. $t_{J-2}$ from 10 to 39. Fold-evaluated fits need 2 clusters per fold. The registered evidence uses parametric nuisance learners | [F28](#f28-finite-sample-limits-of-clustered-intervals) |
 
 ## Eligibility
 
@@ -1488,16 +1488,17 @@ published result is missing.
 ### F28. Finite-sample limits of clustered intervals
 
 A clustered `TMLE`, `DRTMLE` or in-sample `LTMLE` fit reports a Student $t$ interval with $J-2$
-degrees of freedom when it reads 4 to 39 clusters with positive weight mass
-([clusters](technical-reference/inference.md#clusters)). Below 4 such clusters, in the fit or in
-one reported baseline stratum, the fit takes the `"few_cluster_plugin"` status. That count is a
-declared floor, because $t_1$ has no finite mean. It is not a missing theorem.
+degrees of freedom when it reads 10 to 39 clusters with positive weight mass
+([clusters](technical-reference/inference.md#clusters)). Below 10 such clusters, in the fit or
+in one reported baseline stratum, the fit takes the `"few_cluster_plugin"` status. 10 is the
+smallest count the registered few-cluster study measures. F28 owns 4 to 9 clusters, and below 4
+the reference would have fewer than 2 degrees of freedom.
 
 | request | missing published result |
 | --- | --- |
-| an interval below 4 clusters | none. The floor is declared, and it stays at 4 |
+| an interval below 4 clusters | none. $t_1$ has no finite mean, so 4 stays a floor of any future interval |
 | a small-sample reference other than $t_{J-2}$ | a correction or reference derived for the cluster-summed TMLE curve. Nugent et al. (2024), Section 2.2, and Benitez et al. (2023), Sections 3.1.2 and 3.2.1, state $t_{J-2}$ for cluster-randomized trials. No source derives it for a row-level treatment |
-| an interval at 4 to 9 clusters | a measurement. The registered few-cluster study starts at 10 clusters. At 4 clusters a pre-run probe found 0.25% to 9% of draws on which a fit cannot run, because the outcome does not vary among one plan's followers or a training fold lacks an outcome class |
+| an interval at 4 to 9 clusters | a registered measurement, which would reopen these fits. The registered few-cluster study starts at 10 clusters. At 4 clusters a pre-run probe found 0.25% to 9% of draws on which a fit cannot run, because the outcome does not vary among one plan's followers or a training fold lacks an outcome class |
 | the fold-evaluated variance at few clusters per fold | a calibration result for the centered fold cluster variance. The package measures it and requires 2 clusters per fold |
 | complex nuisance learners at about 20 clusters | none for parametric learners. Wang, Park, Small and Li (2024), Remark 3, caution against complex working models at $m = 20$. The registered few-cluster evidence uses parametric nuisance learners only |
 

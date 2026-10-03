@@ -552,7 +552,7 @@ These requests with `strata=` refuse before any learner:
 change the estimand. The estimand is the row-weighted mean $\mu_I$ of Wang, Park, Small and Li
 (2024), Section 2, at equal or unequal cluster sizes. Pass `weights` equal to one over the
 cluster size to estimate the cluster-average mean $\mu_C$. Below 40 clusters with positive weight
-mass the interval uses a Student $t$ reference, and below 4 the fit withholds it
+mass the interval uses a Student $t$ reference, and below 10 the fit withholds it
 ([clusters](inference.md#clusters)).
 
 A fit with a declared missing treatment admits fixed weights, clusters and baseline strata, as the

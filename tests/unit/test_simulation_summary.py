@@ -180,14 +180,14 @@ def test_the_undercoverage_verdict_names_the_spread_by_its_status(
 
 
 def _straddling_dgp(n: int, seed: int) -> tuple[object, dict[str, float]]:
-    """A clustered law whose cluster count is drawn from 2 to 5, around the floor of 4."""
-    j = int(np.random.default_rng(seed).integers(2, 6))
+    """A clustered law whose cluster count is drawn from 8 to 12, around the floor of 10."""
+    j = int(np.random.default_rng(seed).integers(8, 13))
     frame, truth = make_clustered(n=40 * j, cluster_size=40, seed=int(seed))
     return frame, truth
 
 
 def _straddling_study() -> StudyResult:
-    """Eight in-sample clustered fits, on both sides of the floor of 4 clusters."""
+    """Eight in-sample clustered fits, on both sides of the floor of 10 clusters."""
     return CoverageStudy(
         dgp=_straddling_dgp,
         estimator=lambda: TMLE(**linear_in_sample(estimands=("ate",))),

@@ -154,7 +154,7 @@ print(result.sensitivity.run_all().summary())
 Report the parameter definition, population, identification assumptions, learner and cross-fitting
 configuration, estimate and interval, support diagnostics, sensitivity analysis, and package
 version or commit. This page's fit is weighted and cross-fitted by household, and the
-households differ in size. Below 40 households the interval uses a Student t reference. Below 4
+households differ in size. Below 40 households the interval uses a Student t reference. Below 10
 households the fit reports no interval, and `result.inference_status` names the status. Then
 report the point estimate and the reason of the status in place of the interval
 ([clusters](technical-reference/inference.md#clusters)).

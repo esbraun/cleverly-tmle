@@ -1791,5 +1791,5 @@ class TestVariableImportanceRefusesBeforeItsFirstFit:
                 estimator=estimator, id="cluster",
             )  # fmt: skip
         assert str(raised.value).startswith("variable_importance() is not defined here.")
-        assert "fewer than 4 clusters" in str(raised.value)
+        assert "fewer than 10 clusters" in str(raised.value)
         assert NeverFit.calls == 0

@@ -4,7 +4,7 @@ Nugent, Marquez, Charlebois, Abbott and Balzer (2024), Section 2.2, last paragra
 rule. ``J`` counts the clusters with positive weight mass among the rows the estimate reads:
 the whole fit for a marginal estimate, and the stratum for a stratum estimate. A derived
 estimate takes the smallest degrees of freedom of its inputs. At 40 clusters or more the normal
-reference stays, bit for bit. Below 4 the fit takes ``"few_cluster_plugin"``, and every
+reference stays, bit for bit. Below 10, the smallest count a registered study measures, the fit takes ``"few_cluster_plugin"``, and every
 estimate keeps the normal reference of its diagnostic.
 
 Each class names its nonzero witness and its mutation control. The fits use explicit linear
@@ -194,13 +194,13 @@ class TestTheBoundaries:
             assert estimate.reference_df is None
             assert estimate.ci == wald_ci(estimate.psi, estimate.std_error, 0.05)
 
-    def test_four_clusters_give_two(self) -> None:
-        result = fit_k(4)
+    def test_ten_clusters_give_eight(self) -> None:
+        result = fit_k(10)
         assert result.inference_status == "influence_curve"
-        assert set(reference_dfs(result).values()) == {2}
+        assert set(reference_dfs(result).values()) == {8}
 
-    def test_three_clusters_take_the_status(self) -> None:
-        result = fit_k(3)
+    def test_nine_clusters_take_the_status(self) -> None:
+        result = fit_k(9)
         assert result.inference_status == "few_cluster_plugin"
         assert set(reference_dfs(result).values()) == {None}
 
@@ -261,8 +261,8 @@ def fit_strata(frame: Any) -> Any:
 
 class TestTheStratumCount:
     def test_a_small_stratum_inside_a_large_fit(self) -> None:
-        result = fit_strata(stratified(44, small=8))
-        assert reference_dfs(result) == {"ate": None, "ate[S='small']": 6, "ate[S='big']": 34}
+        result = fit_strata(stratified(44, small=12))
+        assert reference_dfs(result) == {"ate": None, "ate[S='small']": 10, "ate[S='big']": 30}
 
     def test_two_strata_below_forty(self) -> None:
         result = fit_strata(stratified(32, small=12))

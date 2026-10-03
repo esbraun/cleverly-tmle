@@ -59,9 +59,10 @@ InferenceStatus = Literal[
 FEW_CLUSTER_THRESHOLD: Final[int] = 40
 
 #: The fewest clusters with positive weight mass for which a clustered fit reports an
-#: interval: J - 2 = 2 degrees of freedom. A declared floor, because t with 1 degree of
-#: freedom has no finite mean. Below it the fit takes ``"few_cluster_plugin"``.
-MINIMUM_INTERVAL_CLUSTERS: Final[int] = 4
+#: interval. It is the smallest count a registered study measures: ``clustered-few-cluster-tmle``
+#: starts at 10 clusters, because at 4 a share of draws admits no fit at all. Below it the fit
+#: takes ``"few_cluster_plugin"``, and F28 in ``docs/roadmap.md`` owns 4 to 9 clusters.
+MINIMUM_INTERVAL_CLUSTERS: Final[int] = 10
 
 #: The paragraph a result summary prints under a table whose estimates use a t reference.
 #: ``{clusters}`` is the positive-mass cluster count of the fit.
@@ -239,14 +240,16 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             reason=(
                 "A clustered fit reports no confidence interval, no p-value and no standard "
                 f"error when it reads fewer than {MINIMUM_INTERVAL_CLUSTERS} clusters with "
-                "positive weight mass, in the fit or in one reported baseline stratum. Below "
-                f"{FEW_CLUSTER_THRESHOLD} such clusters the package uses a Student t "
-                "reference with J - 2 degrees of freedom, as Nugent et al. (2024), Section "
-                "2.2, last paragraph, recommend, and it declares 2 degrees of freedom as its "
-                "floor. The point estimate stands. The plug-in standard error "
-                "of the reported curve remains as a diagnostic under plugin_std_error and "
-                "plugin_interval, which use the normal reference. F28 in docs/roadmap.md "
-                "records this floor and the open small-sample work."
+                "positive weight mass, in the fit or in one reported baseline stratum. From "
+                f"{MINIMUM_INTERVAL_CLUSTERS} to {FEW_CLUSTER_THRESHOLD - 1} such clusters the "
+                "package uses a Student t reference with J - 2 degrees of freedom, as Nugent "
+                "et al. (2024), Section 2.2, last paragraph, recommend. The registered "
+                f"few-cluster study starts at {MINIMUM_INTERVAL_CLUSTERS} clusters, and no "
+                "registered study measures an interval below that count. The point estimate "
+                "stands. The plug-in standard error of the reported curve remains as a "
+                "diagnostic under plugin_std_error and plugin_interval, which use the normal "
+                "reference. F28 in docs/roadmap.md owns fits with fewer clusters and the open "
+                "small-sample work."
             ),
             assessment_note=(
                 "the reported curve is a few-cluster diagnostic: no confidence interval or "

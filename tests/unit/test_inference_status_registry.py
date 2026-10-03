@@ -182,8 +182,11 @@ class TestTheFewClusterThreshold:
         # Nugent et al. (2024), Section 2.2: "fewer than 40 clusters randomized (N < 40)".
         assert _inference_status.FEW_CLUSTER_THRESHOLD == 40
 
-    def test_the_floor_gives_two_degrees_of_freedom(self) -> None:
-        assert _inference_status.MINIMUM_INTERVAL_CLUSTERS - 2 == 2
+    def test_the_floor_is_the_smallest_measured_count(self) -> None:
+        # clustered-few-cluster-tmle measures 10, 20 and 30 clusters.
+        from tests.studies.clustered_few_cluster_tmle import CLUSTER_COUNTS
+
+        assert _inference_status.MINIMUM_INTERVAL_CLUSTERS == min(CLUSTER_COUNTS) == 10
 
     def test_the_reason_states_the_floor_and_the_threshold_it_applies(self) -> None:
         threshold = _inference_status.FEW_CLUSTER_THRESHOLD
@@ -193,7 +196,8 @@ class TestTheFewClusterThreshold:
             f"when it reads fewer than {floor} clusters with positive weight mass, "
             "in the fit or in one reported baseline stratum"
         ) in reason
-        assert f"Below {threshold} such clusters" in reason
+        assert f"From {floor} to {threshold - 1} such clusters" in reason
+        assert "no registered study measures an interval below that count" in reason
         assert f"fewer than {threshold}" in _inference_status.T_REFERENCE_NOTE
         assert f"fewer than {threshold}" in _inference_status.NO_T_REFERENCE_BANDS
 
@@ -201,7 +205,7 @@ class TestTheFewClusterThreshold:
         ("literal", "constant"),
         [
             ("40", "FEW_CLUSTER_THRESHOLD: Final[int] = 40"),
-            ("4", "MINIMUM_INTERVAL_CLUSTERS: Final[int] = 4"),
+            ("10", "MINIMUM_INTERVAL_CLUSTERS: Final[int] = 10"),
         ],
     )
     def test_no_count_is_written_by_hand_in_the_module(self, literal: str, constant: str) -> None:

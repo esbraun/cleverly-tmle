@@ -1,10 +1,12 @@
-"""Registered evidence for clustered intervals on a Student t reference, at 4 to 39 clusters.
+"""Registered evidence for clustered intervals on a Student t reference, at 10 to 39 clusters.
 
 Below 40 clusters with positive weight mass a clustered estimate reports its interval and
 p-value on a Student t reference with ``J - 2`` degrees of freedom (Nugent et al. (2024),
 Section 2.2). This study measures that rule. Its publication policy is ``reporting``: every
-cell may read red, and F28 in the roadmap owns any red cell. The policy, the floor of 4
-clusters and every budget were declared before any run.
+cell may read red, and F28 in the roadmap owns any red cell. The policy and every budget were
+declared before any run. Its smallest cluster count, 10, is the interval floor of the package:
+below it a fit takes ``"few_cluster_plugin"``, because no registered study measures an interval
+there.
 
 **Primary.** In-sample ``LTMLE`` on one treatment node with ``id=``, on the informative law of
 :mod:`tests.studies.clustered_unequal_laws` at 20 clusters, 1,000 replications. The reference is
@@ -78,11 +80,11 @@ FITS = (
     "drtmle_crossfit",
     "ltmle_in_sample",
 )
-#: 4 clusters is the declared floor, but it is not in the grid. A pre-run probe of 400 draws
+#: The grid starts at 10, which sets the package floor. A pre-run probe of 400 draws
 #: at J = 4 found 0.25% to 9% of fits impossible on the draw itself: the outcome does not vary
 #: among one plan's followers, or a training complement holds no outcome of one class. The
 #: framework refuses a cell that lost a replication, and no learner setting repairs a draw.
-#: At J = 10 the probe found none in 3,000 fits. F28 records the unmeasured floor.
+#: At J = 10 the probe found none in 3,000 fits. F28 owns 4 to 9 clusters.
 CLUSTER_COUNTS = (10, 20, 30)
 SIZE_LAWS = ("equal10", "unequal_informative")
 #: Each arm and its role. ``normal_reference`` is reported only.

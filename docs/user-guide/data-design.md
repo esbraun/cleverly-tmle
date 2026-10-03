@@ -43,7 +43,7 @@ study = CausalStudy(
 
   Clusters may differ in size. A TMLE, DR-TMLE, or longitudinal TMLE fit with fewer than 40
   clusters with positive weight mass reports a Student t interval with the cluster count minus 2
-  degrees of freedom. Below 4 such clusters it reports no interval. For TMLE and DR-TMLE, both
+  degrees of freedom. Below 10 such clusters it reports no interval. For TMLE and DR-TMLE, both
   rules also apply to one reported stratum
   ([clusters](../technical-reference/inference.md#clusters)).
 - `strata` requests subgroup parameters and preserves the stratum in structured parameter keys.

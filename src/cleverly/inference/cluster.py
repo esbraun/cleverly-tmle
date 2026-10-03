@@ -605,9 +605,9 @@ def cluster_inference_status(
     --------
     >>> import numpy as np
     >>> from cleverly.inference.cluster import cluster_inference_status
-    >>> cluster_inference_status(np.repeat(np.arange(4), 3))
+    >>> cluster_inference_status(np.repeat(np.arange(10), 3))
     'influence_curve'
-    >>> cluster_inference_status(np.repeat(np.arange(3), 3))
+    >>> cluster_inference_status(np.repeat(np.arange(9), 3))
     'few_cluster_plugin'
     >>> equal = np.repeat(np.arange(40), 10)
     >>> cluster_inference_status(equal, strata=(equal < 3).astype(int))
@@ -655,8 +655,8 @@ def cluster_reference_df(
     >>> cluster = np.repeat(np.arange(12), 3)
     >>> cluster_reference_df(cluster)
     10
-    >>> cluster_reference_df(cluster, rows=cluster < 6)
-    4
+    >>> cluster_reference_df(cluster, rows=cluster < 10)
+    8
     >>> cluster_reference_df(np.repeat(np.arange(40), 3)) is None
     True
     """

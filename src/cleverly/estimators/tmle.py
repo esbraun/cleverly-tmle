@@ -688,7 +688,7 @@ class TMLE:
             One of :data:`~cleverly.inference.influence.InferenceStatus`.
             :func:`~cleverly.inference.cluster.cluster_inference_status` reads the cluster
             labels. It gives ``"influence_curve"`` on an unclustered fit, and
-            ``"few_cluster_plugin"`` on a fit with fewer than four clusters with positive
+            ``"few_cluster_plugin"`` on a fit with fewer than ten clusters with positive
             weight mass in total or in one baseline stratum. The cluster sizes do not
             enter, in sample or cross-fitted.
         """

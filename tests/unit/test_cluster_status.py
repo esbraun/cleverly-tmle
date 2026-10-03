@@ -1,13 +1,14 @@
-"""Clustered fits withhold their interval below 4 clusters, and only there.
+"""Clustered fits withhold their interval below 10 clusters, and only there.
 
 The status table of ``docs/technical-reference/inference.md`` gives one clustered status for
 ``TMLE`` and ``DRTMLE``, and F28 in the roadmap records its floor.
 
 ``"few_cluster_plugin"``
     A fit with fewer than :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS`
-    contributing clusters, in sample or cross-fitted, overall or in a stratum. From 4 to 39
-    such clusters every estimate keeps its interval on a Student t reference with ``J - 2``
-    degrees of freedom, which ``tests/unit/test_few_cluster_reference.py`` checks.
+    contributing clusters, in sample or cross-fitted, overall or in a stratum. 10 is the
+    smallest count a registered study measures. From 10 to 39 such clusters every estimate
+    keeps its interval on a Student t reference with ``J - 2`` degrees of freedom, which
+    ``tests/unit/test_few_cluster_reference.py`` checks.
 
 The cluster sizes do not enter the status. The cluster total of the curve is
 ``A_j - N_j psi``, the delta-method curve of the row-weighted mean, so unequal sizes keep the
@@ -22,7 +23,6 @@ passes.
 
 from __future__ import annotations
 
-import contextlib
 import importlib
 from typing import Any
 
@@ -126,16 +126,16 @@ def unequal_frame(equal_frame: Any) -> Any:
 
 @pytest.fixture(scope="module")
 def few_frame() -> Any:
-    """3 clusters of 40 rows, one below the floor."""
-    frame = make_clustered(n=120, cluster_size=40, seed=7)[0]
+    """9 clusters of 40 rows, one below the floor."""
+    frame = make_clustered(n=360, cluster_size=40, seed=7)[0]
     assert sizes(frame) == (MINIMUM_INTERVAL_CLUSTERS - 1, 40, 40)
     return frame
 
 
 @pytest.fixture(scope="module")
 def floor_frame() -> Any:
-    """4 clusters of 40 rows, at the floor."""
-    frame = make_clustered(n=160, cluster_size=40, seed=7)[0]
+    """10 clusters of 40 rows, at the floor."""
+    frame = make_clustered(n=400, cluster_size=40, seed=7)[0]
     assert sizes(frame) == (MINIMUM_INTERVAL_CLUSTERS, 40, 40)
     return frame
 
@@ -205,15 +205,9 @@ class TestTheNeighbouringFitsKeepTheirInterval:
         self, floor_frame: Any, settings: dict[str, Any]
     ) -> None:
         """The boundary: a count equal to the floor is not below it."""
-        with contextlib.nullcontext() if settings is IN_SAMPLE else _capped():
-            result = fit(floor_frame, **settings)
+        result = fit(floor_frame, **settings)
         assert_keeps_inference(result)
-        assert {e.reference_df for e in result.estimates.values()} == {2}
-
-
-def _capped() -> Any:
-    """Five folds over four clusters warn that the fold count is capped at four."""
-    return pytest.warns(UserWarning, match="fold")
+        assert {e.reference_df for e in result.estimates.values()} == {8}
 
 
 class TestFewClustersReportNoInterval:
@@ -228,8 +222,7 @@ class TestFewClustersReportNoInterval:
     def test_the_estimates_withhold_their_inference(
         self, few_frame: Any, estimator: type, settings: dict[str, Any]
     ) -> None:
-        with contextlib.nullcontext() if settings is IN_SAMPLE else _capped():
-            result = fit(few_frame, estimator=estimator, **settings)
+        result = fit(few_frame, estimator=estimator, **settings)
         assert_withholds(result, FEW)
         # The diagnostic keeps the normal reference.
         assert {e.reference_df for e in result.estimates.values()} == {None}
@@ -301,11 +294,11 @@ class TestAStratumWithFewClustersReportsNoInterval:
         )
 
     def test_a_stratum_at_the_floor_keeps_the_interval(self) -> None:
-        """The control: 50 clusters split 4 and 46, the small stratum at the floor."""
+        """The control: 50 clusters split 10 and 40, the small stratum at the floor."""
         frame = stratified_frame(50, small=MINIMUM_INTERVAL_CLUSTERS)
         result = fit_stratified(frame)
         assert_keeps_inference(result)
-        assert result["ate[S='small']"].reference_df == 2
+        assert result["ate[S='small']"].reference_df == 8
 
     def test_a_count_that_ignores_the_strata_fails_the_check(
         self, few_stratum_frame: Any, monkeypatch: pytest.MonkeyPatch
@@ -518,5 +511,5 @@ class TestASavedResultLoadsAsSaved:
         result = fit(floor_frame, **IN_SAMPLE)
         restored = restore(result, route)
         for name, estimate in restored.estimates.items():
-            assert estimate.reference_df == result[name].reference_df == 2
+            assert estimate.reference_df == result[name].reference_df == 8
             assert estimate.ci == result[name].ci

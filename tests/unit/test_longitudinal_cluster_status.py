@@ -1,15 +1,15 @@
-"""An in-sample clustered ``LTMLE`` fit withholds its interval below 4 clusters.
+"""An in-sample clustered ``LTMLE`` fit withholds its interval below 10 clusters.
 
 The point-treatment few-cluster status applies to the longitudinal path too. A fit
 with fewer than :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS` clusters with
 positive weight mass stamps ``"few_cluster_plugin"`` on every mean, contrast and MSM
-coefficient, and F28 records that floor. From 4 to 39 such clusters every estimate keeps
+coefficient, and F28 owns those fits. From 10 to 39 such clusters every estimate keeps
 its interval on a Student t reference with ``J - 2`` degrees of freedom. ``LTMLE`` refuses
 ``id=`` above one fold until X25 ships, so the in-sample fit is the whole surface.
 
 Each kind of fit draws 400 rows from its law and passes the labels
-``np.arange(400) * k // 400`` as ``id=``. Only the labels differ between the witness at 3
-clusters and the control at 4, so the point estimates are the same numbers, and only the
+``np.arange(400) * k // 400`` as ``id=``. Only the labels differ between the witness at 9
+clusters and the control at 10, so the point estimates are the same numbers, and only the
 status moves. Each mutation in :class:`TestTheMutationsFailTheWitness` must fail the check
 its surface passes.
 """
@@ -204,7 +204,7 @@ def assert_reports_withhold(result: Any, kind: str) -> None:
 
 
 class TestFewClustersWithholdTheLongitudinalInterval:
-    """The first witness: 3 clusters withhold every interval, on every kind of fit."""
+    """The first witness: 9 clusters withhold every interval, on every kind of fit."""
 
     def test_the_estimates_withhold_their_inference(self, few_result: Any) -> None:
         assert_withholds(few_result, FEW)
@@ -271,7 +271,7 @@ class TestFewClustersWithholdTheLongitudinalInterval:
 
 
 class TestFourClustersKeepTheLongitudinalInterval:
-    """The second witness: the same rows in 4 clusters keep every interval, with t(2)."""
+    """The second witness: the same rows in 10 clusters keep every interval, with t(8)."""
 
     def test_the_estimates_keep_their_interval(self, control_result: Any, kind: str) -> None:
         assert_keeps_inference(control_result)
@@ -281,7 +281,7 @@ class TestFourClustersKeepTheLongitudinalInterval:
         if kind == "competing risks":
             assert "std_err" in control_result.incidence_total().columns
         assert NON_INFERENTIAL[FEW].reason not in control_result.summary()
-        assert {e.reference_df for e in control_result.estimates.values()} == {2}
+        assert {e.reference_df for e in control_result.estimates.values()} == {8}
 
     def test_the_default_bands_are_built_at_forty_clusters(self) -> None:
         result = fit_end_of_study(FEW_CLUSTER_THRESHOLD, simultaneous=True)
@@ -324,7 +324,7 @@ class TestTheMutationsFailTheWitness:
             "_inference_status",
             lambda data, folds: "influence_curve",
         )
-        # The forced status reaches the t reference, which refuses 3 clusters.
+        # The forced status reaches the t reference, which refuses 9 clusters.
         with pytest.raises((AssertionError, ValueError)):
             assert_withholds(FITS[kind](MINIMUM_INTERVAL_CLUSTERS - 1), FEW)
 

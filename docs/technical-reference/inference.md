@@ -89,7 +89,7 @@ Every other status is a non-inferential status.
 | `"working_mechanism_plugin"` | a `CTMLE` fit with `strategy="greedy"`, `"ordered"`, or `"discrete"`. A `discrete` fit with one declared candidate, equal to the full adjustment set, takes the TMLE status instead. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `working-mechanism se` | [F18](../roadmap.md#f18-selector-path-c-tmle-inference) |
 | `"generated_design_plugin"` | every `CTMLE` fit with `strategy="oat"`, including a fit with `delta=` and a fit that requests one arm mean. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `generated-design se` | [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | `"estimated_weight_plugin"` | a `DRTMLE` fit with a non-empty `guard` and varying weights declared estimated (`weights_estimated=True`). A fit with `guard=()` keeps `"influence_curve"`. Constant weights fit the unweighted estimator, so they keep it too. [DR-TMLE supported estimands](dr-tmle/supported-estimands.md#refused-by-name) gives the reason | raise `CapabilityError` with the reason of the status | `fixed-weight se` | [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
-| `"few_cluster_plugin"` | a `TMLE`, `DRTMLE`, or `LTMLE` fit with `id=` and fewer than 4 clusters with positive weight mass in the fit or one reported baseline stratum. `LTMLE` takes `id=` in sample only. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `normal-reference se` | [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) |
+| `"few_cluster_plugin"` | a `TMLE`, `DRTMLE`, or `LTMLE` fit with `id=` and fewer than 10 clusters with positive weight mass in the fit or one reported baseline stratum. `LTMLE` takes `id=` in sample only. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `normal-reference se` | [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) |
 
 At every status, `plugin_std_error` and `plugin_interval` return the plug-in spread of the
 reported curve. On `"influence_curve"` they return the numbers of `std_error` and `ci` under names
@@ -231,7 +231,7 @@ this package at unequal sizes.
 
 ### Few clusters
 
-A clustered fit that reads $J$ clusters with positive weight mass, with $4 \le J < 40$, reports
+A clustered fit that reads $J$ clusters with positive weight mass, with $10 \le J < 40$, reports
 its intervals and p-values on a Student $t$ reference with $J-2$ degrees of freedom. Nugent et
 al. (2024), Section 2.2, last paragraph, give the rule. At 40 clusters or more the normal
 reference stays. `ParameterEstimate.reference_df` holds the degrees of freedom, or `None` for the
@@ -264,9 +264,10 @@ $J-2$ is conservative by one degree of freedom here.
 Wang et al. (2024), Remark 3, caution against complex nuisance learners at about 20 clusters. The
 registered few-cluster evidence uses parametric nuisance learners only.
 
-Below 4 clusters with positive weight mass, in the fit or in one reported baseline stratum, the fit
-takes `"few_cluster_plugin"`. That floor gives 2 degrees of freedom, and
-[F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) records it. The status is
+Below 10 clusters with positive weight mass, in the fit or in one reported baseline stratum, the
+fit takes `"few_cluster_plugin"`. 10 is the smallest count that the registered few-cluster study
+measures, and [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) owns 4 to 9
+clusters. The status is
 determined from prepared cluster labels, strata, and weights, without reading a fitted quantity.
 A fit has one status, so one stratum below the floor withholds the interval of every estimate.
 The rule applies to the in-sample `LTMLE` fit too, whose data hold no baseline strata.
