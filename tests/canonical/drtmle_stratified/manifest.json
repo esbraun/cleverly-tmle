@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly-stratified-drtmle",
       "cleverly_version": "0.1.2",
-      "cleverly_commit": "70005d5b3f1b3a9c2acba1fd4fa6f3a3c0063f25",
+      "cleverly_commit": "1b907b94ab5c1886adf2510f8aeb455e07f564a2",
       "cleverly_worktree_clean": true,
       "python": "3.13.7",
       "numpy": "2.5.3",
@@ -98,7 +98,7 @@
   },
   "study_module_sha256": {
     "tests/studies/canonical_stratified_drtmle.py": "3ddaffe2c128a51c2bb5c15990a2560252f306d5c5a08bfcd3363691c5cd8b60",
-    "tests/studies/stratified_drtmle_properties.py": "7d44fed5c3d5a36eb3297ec6e3be268047ec86cbd8897cb9a582bfc378a5d0d1",
+    "tests/studies/stratified_drtmle_properties.py": "8ffb9f23cde879636b9339547afc71b25632def88c8ca4ea4c8888b4fa57c755",
     "tests/studies/stratified_alternating_law.py": "19d62e110b376ee2fa83832101d57f32414e49d3eff8381b3889b0accd7150fe",
     "tests/studies/stratified_law.py": "0a2d419c24c5011d1e42ebce01dd65da5e405faac088a8ad02bbd5c8c18db828",
     "tests/discrete_law.py": "781827e6225aec7451e8b1bd2232873abfccd0e8ae56b85e1cc90f658f55eaeb",
@@ -122,7 +122,7 @@
     "summary.csv": "fe5bac51da54ae2ef533ae3d1d2061ece25a66f2422baec5ee9f55dcfb153752",
     "equivalence.csv": "b228e3532061b50614d97eed6f6e01b971e671b027f8df1b7abdfeb2cd454d7c",
     "performance-tests.csv": "5877b48ea4ab2eafecd0837021af25d25e5f6534a51031e7de7583bc2624918c",
-    "property-replicates.csv.gz": "e7ef581ba3a08a7b8f5ed987770f4dc05ff9956b1b2171214fdc15edc6a434d4",
-    "properties.csv": "f4b95c649efdc93fc332ff578e30bb8c95cd6654135cb58ddb9163a18e031e49"
+    "property-replicates.csv.gz": "157bc79f44581c58990a5fc3cadc5e9bbceee181a46c8b43163f13771bda99de",
+    "properties.csv": "ec548b9e45bcc7ca4195d3035793b93639ce7566ca817ae64b9cbf42020e8c39"
   }
 }
