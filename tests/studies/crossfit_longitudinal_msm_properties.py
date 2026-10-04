@@ -51,8 +51,9 @@ The declared probe on streams 0 to 1,999 found 5 failures in ``root_n_and_effici
 and none elsewhere.  Each failure is the cross-fit refusal "every unit following regimen
 'always' through time 2 in outer training fold k has the same outcome", on streams 393, 602,
 945, 1,323 and 1,813: at n = 500 a training fold can hold only events among the followers of
-``always``.  The rule dropped that fit set before the run.  A rate needs three sizes, so the n = 1,000 rung of
-the sibling ``canonical-ltmle-crossfit`` ladder replaced it as the control rung.  Its own
+``always``.  The rule dropped that fit set before the run.  A rate needs three sizes, so the
+n = 1,000 rung of the sibling ``canonical-ltmle-crossfit`` ladder replaced it as the control
+rung.  Its own
 failure-only probe on streams 0 to 1,999 found no failure.  No estimate of either rung was read.
 The page states the n = 500 gap as a limit.
 
