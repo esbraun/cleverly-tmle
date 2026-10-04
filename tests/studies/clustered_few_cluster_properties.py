@@ -61,6 +61,7 @@ from cleverly.inference import influence_variance
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import clustered_unequal_laws as laws
+from tests.studies.canonical_drtmle import G_BOUNDS as DRTMLE_G_BOUNDS
 from tests.studies.canonical_drtmle import ColumnLogistic
 from tests.studies.clustered_few_cluster_tmle import (
     CLUSTER_COUNTS,
@@ -201,6 +202,9 @@ def fit_estimate(fit: str, frame: pd.DataFrame, clusters: int) -> Any:
             estimands=("ate",),
             reduced_outcome_learner=LinearRegression(),
             reduced_treatment_learner=ColumnLogistic(),
+            # The canonical DR-TMLE study's bounds: the reduced treatment regression is
+            # fitted, not exact, and 1e-9 let one curve entry reach 4.7e5.
+            g_bounds=DRTMLE_G_BOUNDS,
         )
         return DRTMLE(**settings).fit(frame, **roles).single()["ate"]
     raise KeyError(fit)
