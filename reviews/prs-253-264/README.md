@@ -75,7 +75,7 @@ The original checkout and its editable installation remain untouched.
 | full fast suite before PR 265 integration | 15,675 passed, 235 skipped |
 | focused integration suite | 235 passed, including longitudinal cluster-status propagation and all three new regression modules |
 | new regression instruments | 55 passed, including nine old-index mutation controls |
-| Ruff lint and whole-tree formatting after integration | pass; 900 files formatted |
+| Ruff lint and whole-tree formatting with cache disabled | pass; 900 files formatted |
 | Mypy after integration | pass; 106 source files |
 | whole prose ledger refresh | 3 judged findings, 0 undecided; no ledger changes |
 | documentation build after integration | pass with warnings treated as errors |

@@ -728,9 +728,9 @@ def correction_check(
                     )
                 missingness_bound = float(reduction.missingness_bound)
                 observation_bounds = (missingness_bound, 1.0)
-                initial_clipped = int(np.count_nonzero(
-                    nuisance.propensity.truncate(reduction.bounds).clipped
-                ))
+                initial_clipped = int(
+                    np.count_nonzero(nuisance.propensity.truncate(reduction.bounds).clipped)
+                )
                 # The second mechanism this fit divides by, at the second bound.  It is
                 # counted separately from `initial_clipped` and not folded into it because
                 # the two are truncated separately and neither implies the other: on a
@@ -797,9 +797,9 @@ def correction_check(
             # of what equation (8)'s covariate divides by and reading it here is exact. The
             # second mechanism, and the second bound, exist only on the branch that has
             # `observation_clipped` and `observation_margin` to report them.
-            initial_clipped = int(np.count_nonzero(
-                nuisance.propensity.truncate(reduction.bounds).clipped
-            ))
+            initial_clipped = int(
+                np.count_nonzero(nuisance.propensity.truncate(reduction.bounds).clipped)
+            )
             if result.extra.get("missing_data") == "composite":
                 initial_clipped = int(
                     np.count_nonzero(
