@@ -569,6 +569,7 @@ def cluster_inference_status(
     *,
     strata: IntArray | None = None,
     weights: FloatArray | None = None,
+    minimum: int | None = None,
 ) -> InferenceStatus:
     r"""The inference status the fit's cluster labels, strata, and weights determine.
 
@@ -595,6 +596,10 @@ def cluster_inference_status(
         The baseline stratum code of each row, or ``None`` for a fit without strata.
     weights : ndarray of float or None, default None
         The observation weight of each row, or ``None`` for an unweighted fit.
+    minimum : int or None, default None
+        The floor. ``None`` reads
+        :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS`. ``LTMLE`` passes
+        :data:`~cleverly._inference_status.MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS`.
 
     Returns
     -------
@@ -615,7 +620,8 @@ def cluster_inference_status(
     """
     if cluster is None:
         return "influence_curve"
-    if fewest_clusters(cluster, strata, weights) < MINIMUM_INTERVAL_CLUSTERS:
+    floor = MINIMUM_INTERVAL_CLUSTERS if minimum is None else minimum
+    if fewest_clusters(cluster, strata, weights) < floor:
         return "few_cluster_plugin"
     return "influence_curve"
 

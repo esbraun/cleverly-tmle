@@ -71,6 +71,7 @@ import numpy as np
 from sklearn.base import clone
 
 from .._inference_status import (
+    MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
     NO_SIMULTANEOUS_BANDS,
     NO_T_REFERENCE_BANDS,
     T_REFERENCE_NOTE,
@@ -2112,7 +2113,8 @@ def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
     The point-treatment cluster rule applies to the prepared cluster labels and, on a weighted fit,
     to the unit weights. It reads nothing fitted. ``LongitudinalData`` carries no baseline strata,
     so the count is the number of clusters with positive weight mass in the whole fit, and
-    :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS` is the threshold.
+    :data:`~cleverly._inference_status.MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS` is the
+    threshold: the registered few-cluster study measures in-sample ``LTMLE`` from 20 clusters.
 
     ``LTMLE._refuse_cross_fitted_design`` refuses ``id=`` above one fold before this runs,
     so a fit can take ``"few_cluster_plugin"`` only. ``LTMLE.fit`` and the
@@ -2137,6 +2139,7 @@ def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
     return cluster_inference_status(
         data.cluster,
         weights=data.weights if data.is_weighted else None,
+        minimum=MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
     )
 
 
@@ -2604,7 +2607,8 @@ class LTMLE:
         ``(w / E[w]) D*(P_w)``.  See :mod:`cleverly.data.weighting`.
 
         ``id=`` names a cluster column, and the variance is then cluster robust.  A fit
-        with fewer than :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS`
+        with fewer than
+        :data:`~cleverly._inference_status.MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS`
         clusters with positive weight mass reports no interval, p-value or standard error:
         every estimate takes the ``"few_cluster_plugin"`` status, as a point-treatment fit
         does.  From that count up to

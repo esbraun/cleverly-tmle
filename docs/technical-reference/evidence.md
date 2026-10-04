@@ -400,6 +400,14 @@ The study compares five-fold clustered TMLE against pinned R `lmtp` on one group
 `cleverly` draws and the R adapter retains. The partition balances nothing. Its IID control reuses
 the same rows, estimates, and influence curves. Only cluster aggregation changes.
 
+Two reporting-policy studies extend the clustered evidence. The
+[unequal-size study](method-evidence/clustered-unequal-cv-tmle.md) draws 200 clusters of size
+uniform on 2 to 18, with the size in the outcome. It measures the row-weighted and the
+cluster-average estimands, the fold-evaluated and DR-TMLE pairs, and the cluster-mean rule of R
+`tmle`. The [few-cluster study](method-evidence/clustered-few-cluster-tmle.md) measures the
+$t$ reference at 10, 20 and 30 clusters on five fits (in-sample `LTMLE` from 20), and pairs in-sample `LTMLE` with R `ltmle`
+1.3-0 at 20 clusters.
+
 ## What this table says is missing
 
 Read down the **not covered** column and one thing recurs: the **theorem** column is empty

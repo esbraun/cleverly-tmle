@@ -22,6 +22,7 @@ __all__ = [
     "FEW_CLUSTER_THRESHOLD",
     "HELD_OUT_SCALE",
     "MINIMUM_INTERVAL_CLUSTERS",
+    "MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS",
     "NON_INFERENTIAL",
     "NO_SIMULTANEOUS_BANDS",
     "NO_T_REFERENCE_BANDS",
@@ -63,6 +64,11 @@ FEW_CLUSTER_THRESHOLD: Final[int] = 40
 #: starts at 10 clusters, because at 4 a share of draws admits no fit at all. Below it the fit
 #: takes ``"few_cluster_plugin"``, and F28 in ``docs/roadmap.md`` owns 4 to 9 clusters.
 MINIMUM_INTERVAL_CLUSTERS: Final[int] = 10
+
+#: The same floor for a longitudinal fit. The registered few-cluster study measures in-sample
+#: ``LTMLE`` from 20 clusters: at 10, about 1 draw in 4,000 admits no LTMLE fit, so those cells
+#: are not in its grid. Below this count an ``LTMLE`` fit takes ``"few_cluster_plugin"``.
+MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS: Final[int] = 20
 
 #: The paragraph a result summary prints under a table whose estimates use a t reference.
 #: ``{clusters}`` is the positive-mass cluster count of the fit.
@@ -244,12 +250,14 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             reason=(
                 "A clustered fit reports no confidence interval, no p-value and no standard "
                 f"error when it reads fewer than {MINIMUM_INTERVAL_CLUSTERS} clusters with "
-                "positive weight mass, in the fit or in one reported baseline stratum. From "
-                f"{MINIMUM_INTERVAL_CLUSTERS} to {FEW_CLUSTER_THRESHOLD - 1} such clusters the "
-                "package uses a Student t reference with J - 2 degrees of freedom, as Nugent "
-                "et al. (2024), Section 2.2, last paragraph, recommend. The registered "
-                f"few-cluster study starts at {MINIMUM_INTERVAL_CLUSTERS} clusters, and no "
-                "registered study measures an interval below that count. The point estimate "
+                "positive weight mass, in the fit or in one reported baseline stratum, or "
+                f"fewer than {MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS} on a longitudinal fit. "
+                f"From that floor to {FEW_CLUSTER_THRESHOLD - 1} such clusters the package uses "
+                "a Student t reference with J - 2 degrees of freedom, as Nugent et al. (2024), "
+                "Section 2.2, last paragraph, recommend. The registered few-cluster study "
+                f"measures point-treatment fits from {MINIMUM_INTERVAL_CLUSTERS} clusters and "
+                f"longitudinal fits from {MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS}, and no "
+                "registered study measures an interval below those counts. The point estimate "
                 "stands. The plug-in standard error of the reported curve remains as a "
                 "diagnostic under plugin_std_error and plugin_interval, which use the normal "
                 "reference. F28 in docs/roadmap.md owns fits with fewer clusters and the open "
@@ -258,7 +266,8 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             assessment_note=(
                 "the reported curve is a few-cluster diagnostic: no confidence interval or "
                 f"p-value is available for a fit with fewer than {MINIMUM_INTERVAL_CLUSTERS} "
-                "clusters, and F28 in the roadmap is the condition that reopens it"
+                f"clusters ({MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS} for a longitudinal fit), "
+                "and F28 in the roadmap is the condition that reopens it"
             ),
             summary_label="normal-reference se",
             bootstrap_note=(

@@ -7,7 +7,8 @@ Each draw holds ``J`` clusters, with ``J`` in 10, 20 and 30, of one of two size 
   arm-by-latent coefficient 8, no size terms and fixed sizes;
 * ``unequal_informative``: the declared informative law of that module.
 
-Five fits share each draw, so every fit of one ``(sizes, J)`` cell reads the same samples. The
+Five fits share each draw, four at J = 10, where in-sample LTMLE is not in the grid (its
+interval floor is 20 clusters). Every fit of one ``(sizes, J)`` cell reads the same samples. The
 stream is ``stream_seed(record, "few_cluster", f"{sizes}/J{J}", replicate)``:
 
 ==========================  ==================================================================
@@ -66,7 +67,6 @@ from tests.studies.canonical_drtmle import ColumnLogistic
 from tests.studies.clustered_few_cluster_tmle import (
     CLUSTER_COUNTS,
     FAMILY,
-    FITS,
     N_FOLDS,
     PROPERTY_REPLICATES,
     SIZE_LAWS,
@@ -75,6 +75,7 @@ from tests.studies.clustered_few_cluster_tmle import (
     cell_name,
     expected_reference_df,
     fit_cleverly,
+    fits_at,
 )
 from tests.studies.clustered_unequal_cvtmle import tmle_settings
 from tests.studies.evidence.properties import (
@@ -163,9 +164,9 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             role=role,
             estimand=TARGET[fit],
         )
-        for fit in FITS
-        for sizes in SIZE_LAWS
         for clusters in CLUSTER_COUNTS
+        for fit in fits_at(clusters)
+        for sizes in SIZE_LAWS
         for arm, role in arms(fit)
     )
 
@@ -220,7 +221,7 @@ def _cell_rows(
     rows: list[dict[str, Any]] = []
     failures: list[tuple[str, str, int]] = []
     common = {"property_name": FAMILY, "replicate": replicate, "requested": requested}
-    for fit in FITS:
+    for fit in fits_at(clusters):
         try:
             estimate = fit_estimate(fit, frame, clusters)
             standard_error = estimate.plugin_std_error

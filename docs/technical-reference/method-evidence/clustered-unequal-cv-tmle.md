@@ -79,7 +79,9 @@ The `clustered_inference` family fits four pairs. Each pair reads one fit and ch
 variance aggregation. The stacked, fold-evaluated and DR-TMLE pairs read the informative law. The
 fourth pair reads a law with a covariate shared within each cluster, at 40 clusters of 30 rows in
 10 folds, for the treated mean. That pair is the configuration of the fold-evaluated variance
-defect this release fixes. The `estimand_weighting` family fits each draw twice, unweighted and
+defect this release fixes.
+
+The `estimand_weighting` family fits each draw twice, unweighted and
 with weights one over the size. Each interval must cover its own estimand and must miss the other.
 The `cluster_aggregation_rule` family reports the cluster-mean rule of R `tmle` 2.1.1 and `tmle3`
 beside the cluster sum.
