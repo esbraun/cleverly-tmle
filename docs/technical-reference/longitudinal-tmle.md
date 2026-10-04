@@ -301,7 +301,7 @@ its evidence.
 | observation weights | the weight enters every regression and the loss weight, never $R_t$ | the weighted exact law in the same file |
 | clusters | the split, the inner groups, the cluster-summed curve and the status are target-agnostic | `tests/e2e/test_ltmle_multivalue.py` |
 | `msm=` over policy cells, in sample and cross-fitted | the stacked fluctuation moves each policy cell's per-level predictions along that cell's block of the design | `tests/unit/test_longitudinal_policy_msm.py`, at one and at five folds, under the identity and logit links, and over survival cells |
-| contrasts, bands, `longitudinal_truncation_curve` | none; they read the stacked curves and the frozen plans | `tests/unit/test_longitudinal_policy_plumbing.py` replays a policy fit under truncation. The `simultaneous_coverage` cell of the registered study measures the band, and its run is pending |
+| contrasts, bands, `longitudinal_truncation_curve` | none; they read the stacked curves and the frozen plans | `tests/unit/test_longitudinal_policy_plumbing.py` replays a policy fit under truncation. The `simultaneous_coverage` cells of the [registered study](method-evidence/stochastic-categorical-longitudinal-tmle.md) measure the band and its pointwise control |
 
 A level that the policy can draw at an at-risk row must also appear among the rows the node is
 fitted on. Otherwise its design column is all zero, and the regression extrapolates where no
@@ -335,8 +335,10 @@ The registered study `stochastic-categorical-ltmle` pairs the in-sample fit with
 `lmtp` takes one shifted value per unit, so `tests/canonical/lmtp_policy_adapter.R` realises each
 policy by copying every unit four times. Copy $c$ takes its shifted arm from row $c$ of the node's
 allocation table, and every policy probability is a multiple of one quarter. The pre-declaration
-smoke run, which is not committed, must pair the policy mean to within the declared gate of
-$10^{-6}$. The study's committed primary rows will carry the measured pairs.
+smoke run required the policy mean to pair within $10^{-6}$. Over the 2,000 committed
+replications it pairs to $4.9 \times 10^{-11}$. The `low` mean and the two contrasts pair to about
+$9 \times 10^{-3}$ per sample only, because `lmtp` pools label nodes over every arm. The
+[study page](method-evidence/stochastic-categorical-longitudinal-tmle.md) gives every verdict.
 
 ## Functionals of a fitted result
 

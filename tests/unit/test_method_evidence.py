@@ -921,7 +921,9 @@ BIAS_GATED_PROPERTIES = frozenset(
         "treatment_complete_case",
         "fold_locality",
         "weight_necessity",
+        "policy_necessity",
         "projection_necessity",
+        "randomizer_projection",
         "ratio_necessity",
         "rule_necessity",
     }

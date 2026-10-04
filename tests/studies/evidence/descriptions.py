@@ -143,7 +143,10 @@ ARMS: dict[str, str] = {
     "longitudinal_msm": "the two terms of the longitudinal MSM projection",
     "cross_fitted_msm": "the two terms of the cross-fitted longitudinal MSM projection",
     "duration_logit": "the treatment-duration coefficient of a logit working model",
-    "mix": "the contrast of the known policy mix against the label low",
+    "mix": (
+        "the known policy mix, as its contrast against low, and as its mean in "
+        "randomizer_projection"
+    ),
     "policy_risk_h2": "the cumulative risk at t = 2 of a known policy on the survival law",
     "msm_policy": "the dose coefficient of a working model over low, mix and taper",
     "primary": "the five primary estimands of the known-policy study",
