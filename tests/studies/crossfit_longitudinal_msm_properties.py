@@ -10,8 +10,8 @@ band cell, which reuses the primary subject.
 family                     cells, replications and size
 =========================  ==================================================================
 ``double_robustness``      both terms in four nuisance configurations; 1,000 at n = 2,000
-``root_n_and_efficiency``  both terms at n = 500, 2,000 and 8,000; 700 each.  n = 500 is the
-                           ladder's control rung, as in ``longitudinal-msm``
+``root_n_and_efficiency``  both terms at n = 2,000 and 8,000; 700 each.  The n = 500 rung of
+                           ``longitudinal-msm`` was dropped before the run: see below
 ``root_n_rate``            the two rate rows of each term, from the ladder
 ``interval_calibration``   both terms and the ``duration`` coefficient of a logit working
                            model (``duration_logit``); 4,000 at n = 2,000, with the two
@@ -46,6 +46,13 @@ replication, so a raise in the declared run stops it.  The failing cell then dro
 red-cell owner (the study module names the row), with its failure count published, and the run
 repeats without it with no other change.
 
+The declared probe on streams 0 to 1,999 found 5 failures in ``root_n_and_efficiency/n_500``
+and none elsewhere.  Each failure is the cross-fit refusal "every unit following regimen
+'always' through time 2 in outer training fold k has the same outcome", on streams 393, 602,
+945, 1,323 and 1,813: at n = 500 a training fold can hold only events among the followers of
+``always``.  The rule dropped that fit set before the run.  The ladder therefore has no control
+rung, and each rate is fitted from two sizes.  The page states the gap as a limit.
+
 Measured budget, from one single-process draw of each fit set before the declaration.  The
 first row includes the process warm-up.
 
@@ -57,7 +64,6 @@ fit set                                            draws  fits per  seconds     
 ``double_robustness/outcome_correct``              1,000  1         0.20        200
 ``double_robustness/mechanism_correct``            1,000  1         0.12        120
 ``double_robustness/both_wrong``                   1,000  1         0.13        130
-``root_n_and_efficiency/n_500``                    700    1         0.08        56
 ``root_n_and_efficiency/n_2000``                   700    1         0.12        84
 ``root_n_and_efficiency/n_8000`` (and agreement)   700    2         0.50        350
 ``interval_calibration/correctly_specified``       4,000  1         0.13        520
@@ -70,7 +76,7 @@ fit set                                            draws  fits per  seconds     
 ``simultaneous_coverage`` band                     4,000  1         0.21        840
 =================================================  =====  ========  ==========  =========
 
-That is 29,700 draws, 39,400 fits and about 7,600 CPU seconds.  The primary adds 800 fits at
+That is 29,000 draws, 38,700 fits and about 7,600 CPU seconds.  The primary adds 800 fits at
 about 0.2 s and 3,200 R ``lmtp`` regimen fits.
 """
 
@@ -145,7 +151,7 @@ from tests.studies.ltmle_crossfit_properties import KnownDiscreteMechanism
 DOUBLE_ROBUST_REPLICATES = 1_000
 DOUBLE_ROBUST_N = 2_000
 RATE_REPLICATES = 700
-RATE_SIZES = (500, 2_000, 8_000)
+RATE_SIZES = (2_000, 8_000)
 CALIBRATION_REPLICATES = 4_000
 CALIBRATION_N = 2_000
 NULL_REPLICATES = 800
@@ -469,7 +475,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
                 NAMES[term],
             )
     for size in RATE_SIZES:
-        role = "control" if size == min(RATE_SIZES) else "positive"
+        role = "positive"
         for term in TERMS:
             add(
                 "root_n_and_efficiency",
@@ -604,7 +610,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
 
 
 def _role(family: str, label: str, n: int) -> str:
-    if label == "both_wrong" or (family == "root_n_and_efficiency" and n == min(RATE_SIZES)):
+    if label == "both_wrong":
         return "control"
     return "positive"
 

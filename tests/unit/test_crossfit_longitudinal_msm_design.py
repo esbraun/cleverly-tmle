@@ -16,8 +16,9 @@ of ``canonical-ltmle-crossfit`` measured 0.353 (99% interval 0.346 to 0.360) at 
 
 Failure rule: a replication that raises is never redrawn.  ``failure_probe`` of the properties
 module counts failed fits per fit set and records no estimate.  On streams 0 to 199 of every fit
-set it found no failure (:data:`FAILURE_PROBE_200`).  The declared probe reads streams 0 to 1,999
-before the run, and a fit set with any failure is dropped before the run with its gap stated as a
+set it found no failure.  The declared probe on streams 0 to 1,999 found 5 failures in the
+``n_500`` rung and none elsewhere (:data:`FAILURE_PROBE_2000`), so that rung was dropped.  Before
+the run, a fit set with any failure is dropped before the run with its gap stated as a
 page limit.  The shared harness refuses a cell that lost a replication, so a failure in the run
 itself stops the run.  That cell drops to its red-cell owner with its failure count published,
 and the run repeats without it, with no other change.
@@ -42,10 +43,12 @@ from tests.studies.evidence.registry import Margins, registered
 
 pytestmark = pytest.mark.xdist_group("crossfit_longitudinal_msm_design")
 
-#: The pre-declaration failure-only probe on streams 0 to 199: zero failures in every fit set.
-FAILURE_PROBE_200 = dict.fromkeys(
-    (f"{family}/{label}" for family, label, *_ in properties.FIT_SETS), 0
-)
+#: The declared failure-only probe on streams 0 to 1,999, recorded before the run.  The
+#: ``root_n_and_efficiency/n_500`` fit set failed 5 times and was dropped before the run.
+FAILURE_PROBE_2000 = {
+    **dict.fromkeys((f"{family}/{label}" for family, label, *_ in properties.FIT_SETS), 0),
+    "root_n_and_efficiency/n_500": 5,
+}
 #: The band cell's design, from ten fits of the primary subject: ``p0`` and the correlation.
 BAND_DESIGN = (0.9245, -0.838)
 #: The positive-arm pass probability of the coverage clause at 4,000 replications, at true
@@ -57,7 +60,6 @@ FIT_SET_SIZES = {
     ("double_robustness", "outcome_correct"): (2_000, 1_000),
     ("double_robustness", "mechanism_correct"): (2_000, 1_000),
     ("double_robustness", "both_wrong"): (2_000, 1_000),
-    ("root_n_and_efficiency", "n_500"): (500, 700),
     ("root_n_and_efficiency", "n_2000"): (2_000, 700),
     ("root_n_and_efficiency", "n_8000"): (8_000, 700),
     ("interval_calibration", "correctly_specified"): (2_000, 4_000),
