@@ -87,7 +87,9 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
         for term in TERMS
         for configuration in ("both_correct", "outcome_correct", "mechanism_correct", "both_wrong")
     ),
-    "root_n_and_efficiency": tuple(f"{term}__n_{size}" for term in TERMS for size in (2000, 8000)),
+    "root_n_and_efficiency": tuple(
+        f"{term}__n_{size}" for term in TERMS for size in (1000, 2000, 8000)
+    ),
     "root_n_rate": tuple(
         f"{term}__{statistic}" for term in TERMS for statistic in ("empirical_sd", "reported_se")
     ),
