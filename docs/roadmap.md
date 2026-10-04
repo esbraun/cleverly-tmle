@@ -68,7 +68,6 @@ Priorities 2 to 5 follow the beta.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1.7 | Known stochastic categorical policies at a longitudinal node | [published support; known-weight extension](technical-reference/natural-extension-verdicts.md) | shipped categorical longitudinal nodes | [F1](#f1-stochastic-categorical-policies-at-a-longitudinal-node) |
 | 1.8 | Modified treatment policies beyond the additive point shift | published support; pending source read | shipped additive shift and categorical longitudinal nodes | [X12](#x12-modified-treatment-policies-beyond-the-additive-point-shift) |
 | 1.9 | Point-treatment survival and time-to-event input | published support; pending source read | shipped survival and competing-risk recursion | [X13](#x13-point-treatment-survival-and-time-to-event-input) |
 | 1.10 | Known treatment mechanism | source audit | shipped `treatment_probabilities=` on `DRTMLE` | [X15](#x15-known-treatment-mechanism) |
@@ -269,34 +268,6 @@ owners do the same for the stratified DR-TMLE study.
 The sections below give one contract for each open item. Their physical order does not override
 the main grid.
 
-### F1. Stochastic categorical policies at a longitudinal node
-
-The implemented surface assigns one category per unit, because a `DynamicRegimen` node returns one
-label per row. This item adds a node that holds a known policy density $q_t(\cdot \mid h_t)$. The
-[natural-extension verdicts](technical-reference/natural-extension-verdicts.md) record the review
-as part (c).
-
-| item | contract |
-| --- | --- |
-| base result | Díaz, Williams, Hoffman and Schenck (2023), *Journal of the American Statistical Association* 118(542). Section 2, journal page 849, admits a random regime $d(a_t, h_t, \varepsilon_t)$ when the randomizer is "(i) drawn independently across units and independently of U, and (ii) its distribution does not depend on P". The section places $\varepsilon_t$ in $L_t$ "without loss of generality". Section 4, page 850, keeps the efficiency theory to a $d$ that does not depend on P. Theorem 1, page 849, Section 5.2, page 852, and Theorem 3, page 853 |
-| steps | with $\varepsilon_t$ in $L_t$, the estimator that records the randomizer is Theorem 3 as stated. The package ships the integrated estimator, which has no Monte Carlo noise. To marginalize $\varepsilon_{t+1}$ in the Theorem 1 recursion is to average under a known law, so $m_t$ reads $\sum_j q_{t+1}(j \mid h)\, m_{t+1}(j, h)$ and $r_t$ becomes $q_t/g_t$. The curve without $\varepsilon$ is $E[D_{\mathrm{aug}} \mid O]$, the projection of the augmented curve onto the tangent space without $\varepsilon$. The remainder is $E_\varepsilon[\mathrm{Rem}]$, second order by linearity of expectation. The Eligibility row is the chain rule with a known weight |
-| conditions met by construction | (i) no $m_t$ reads a randomizer; (ii) each $r_k$ reads $\varepsilon_k$ only; (iii) the randomizers are mutually independent. $q_t$ reads $h_t$ only |
-| objection search | page 850 says multiply robust estimation "is not generally possible for random regimes d that depend on P". That applies to a policy that depends on P only, which stays out: [X19](#x19-incremental-interventions-over-time) owns the incremental tilt. The earlier sentence of this item, that a point-treatment stochastic regime is not sufficient evidence, gives way to this direct longitudinal source |
-| inherited conditions | the Theorem 3 rate condition $\sum_t \lVert \hat r_t - r_t \rVert\, \lVert \tilde m_t - m_t \rVert = o_P(n^{-1/2})$; bounded ratios, $P\{r_t < c\} = 1$; positivity of $g_t$ wherever $q_t > 0$; a policy density that is known and fixed before the fit (`density_kind="known"`, as the point-treatment `Stochastic` regime requires). A policy that reads the natural value $A_t$ needs Assumption 3 and is a modified treatment policy ([X12](#x12-modified-treatment-policies-beyond-the-additive-point-shift)) |
-
-Acceptance:
-
-- a node with a known policy density inside `DynamicRegimen`, whose recursion evaluates
-  $\sum_j q\, m(j, \cdot)$ and whose cumulative ratio uses $q/g$;
-- an exact-law Gateaux witness with a nonzero, non-degenerate $q$;
-- mutation controls that use a selected column in place of the ratio, or drop a node, and fail;
-- an exact reduction to the deterministic regimen when $q$ is a point mass;
-- cross-fitted `msm=` over policy cells, through the pooled stacked update of the
-  [longitudinal projection](technical-reference/msm-projections.md#the-longitudinal-projection),
-  with the saturated reduction at `n_folds=5`;
-- the estimator that records the randomizer, as a cross-check on one law;
-- a registered study. `lmtp` has no direct comparator.
-
 ### X12. Modified treatment policies beyond the additive point shift
 
 `Shift` adds a constant to a continuous dose at a point treatment, with an optional cap
@@ -317,6 +288,16 @@ the categorical one.
 
 Each policy must be fixed before the fit and declared `"known"`, as `Rule` and `DynamicRegimen`
 declare it. A policy learned from the analysis sample stays refused.
+
+Part (b) can build on four private helpers that the
+[known stochastic policies](technical-reference/longitudinal-tmle.md#known-stochastic-policies)
+fit ships. They are `regimen._node_numerator(plan, data, time)`, the plan's density at the
+observed arm; `sequential.outcome_design(data, plan, time, arm)`, the node design with the arm
+blocks; `sequential._carried(policy, by_arm)`, the policy-weighted mean of the per-level
+predictions; and `Plan.masks(data)`, the support masks. A categorical policy $d(a_t, h_t)$ passes
+the one-hot matrix of $d$ as `policy` to `_carried`. Its numerator reads the fitted mechanism,
+so `_node_numerator` must gain an argument for `Mechanism.treatment_observed`, the `(n, K)`
+matrix of $g_t(\cdot \mid H_t)$.
 
 Acceptance:
 
@@ -495,6 +476,12 @@ tilt.
 
 Part (b) is a different parameter from part (a). Give it its own name and its own estimand, and
 do not alias it to `Incremental`.
+
+A tilt is a policy density that is a function of the mechanism. The
+[known stochastic policies](technical-reference/longitudinal-tmle.md#known-stochastic-policies)
+fit carries such a density through `sequential._carried(policy, by_arm)` and reads its numerator
+through `regimen._node_numerator(plan, data, time)`. A tilt also needs the numerator to read
+`Mechanism.treatment_observed`, and the curve needs a mechanism-derivative term at every node.
 
 Acceptance:
 
