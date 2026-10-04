@@ -32,30 +32,7 @@ main-roadmap priority 1.
 
 A new capability still needs its own contract and evidence, even in this queue.
 
-| priority | item | tier | acceptance |
-| ---: | --- | --- | --- |
-| 0.1 | RM38. Correct findings from merged PRs 253 to 264 | a | the plan below, a recorded review of every PR, and passing handoff checks |
-
-### RM38. Review merged PRs 253 to 264
-
-Review each PR against its described scope, implementation, scientific contract, tests, and committed evidence.
-Record unresolved questions and red-cell determinations in `reviews/prs-253-264/README.md`.
-Keep finite-sample failures published when the evidence establishes no implementation defect.
-Do not change a declared margin to make an observed failure pass.
-
-| finding | planned correction | verification |
-| --- | --- | --- |
-| smooth contrasts read transformed curves on the reported scale | convert each input curve to its reported scale before the chain rule | nonunit ratio, transformed, and mixed-scale witnesses |
-| boundary draws crash derived bootstrap ratios | reject invalid ratio draws and count every unusable derived draw once | boundary, missing-input, and failed-draw witnesses |
-| transformed estimates can raise during representation | share the safe default-test display rule | log and logit representation witnesses |
-| composite diagnostics hide initial factor clipping | preserve raw factor clipping in correction diagnostics | clipped initial factors with interior final states |
-| stratum diagnostics compare conditional and marginal scores | collapse scored stratum blocks with their population weights | nonzero stratified score identity witnesses |
-| zero-mass clusters pass a fold support check | require two positive-mass clusters in each validation fold | refusal before learners for both fold settings |
-
-Run the fast suite, lint, formatting, types, prose review, and documentation build after the corrections.
-Select registered studies by changed computation, and regenerate every affected study.
-Keep review and implementation inside the dedicated worktree.
-Limit local validation concurrency while another agent uses the machine.
+The queue has no open row.
 
 Each row takes a tier by the harm that its defect does to a user today. The table gives the tiers,
 from the most harmful. Inside a tier, a row with a wider reach comes first. A row that another row
@@ -1497,14 +1474,13 @@ freedom.
 
 | request | missing published result |
 | --- | --- |
-| an interval below 4 clusters | none. $t_1$ has no finite mean, so 4 stays a floor of any future interval |
+| an interval below 4 clusters | a supported construction and registered evidence. The current package supplies neither. A $t_1$ reference has finite quantiles despite its undefined mean, so that mean does not rule out a future interval |
 | a small-sample reference other than $t_{J-2}$ | a correction or reference derived for the cluster-summed TMLE curve. Nugent et al. (2024), Section 2.2, and Benitez et al. (2023), Sections 3.1.2 and 3.2.1, state $t_{J-2}$ for cluster-randomized trials. No source derives it for a row-level treatment |
 | an interval at 4 to 9 clusters, or at 4 to 19 for `LTMLE` | a registered measurement, which would reopen these fits. The registered few-cluster study starts at 10 clusters, and its in-sample `LTMLE` cells at 20. At 4 clusters a pre-run probe found 0.25% to 9% of draws on which a fit cannot run, because the outcome does not vary among one plan's followers or a training fold lacks an outcome class. At 10 clusters the first full run lost 1 `LTMLE` fit in 4,000 in each size law the same way |
 | a fold-evaluated interval at 40 clusters or more | a fold-evaluated degrees-of-freedom rule $t(\min(J-2, J-V))$ at 40 clusters or more, with its own registered study that passes. The unequal-size study's fold-evaluated pair at 40 clusters in 10 folds reads coverage 0.9325, with lower endpoint 0.918 against the 0.92 floor, on the normal reference that the rule keeps there |
 | the fold-evaluated variance at few clusters per fold | a calibration result for the centered fold cluster variance. The package requires 2 clusters per fold and gives the report $\min(J-2, J-V)$ degrees of freedom, the pooled within-fold count. The few-cluster study measures it at 2, 4 and 6 clusters per fold, beside a reported $J-2$ arm |
 | a fold-evaluated point at informative unequal sizes with few clusters per fold | a fold-evaluated point construction whose bias at 2 to 6 clusters per fold stays inside 0.25 empirical standard deviations, such as a cluster-size-weighted fold average whose fluctuation uses the same weights, with its own registered study. The stacked report is the remedy today. The few-cluster study reads a bias of 0.61, 0.43 and 0.32 at 2, 4 and 6 clusters per fold, where the stacked fit reads 0.14, 0.10 and 0.06. The equal $1/V$ fold average causes it (`tests/unit/test_fold_evaluated_ratio_bias.py`) |
 | a calibrated cross-fitted `DRTMLE` cluster variance at 10 to 30 clusters | a cluster variance for the cross-fitted `DRTMLE` curve whose SE ratio stays inside the calibration band, or a redesigned IID control, with a registered study. The few-cluster study reads cluster-robust SE ratios of 1.19, 1.14 and 1.12 at 10, 20 and 30 equal clusters. The IID SE is 23% to 28% below the cluster-robust SE, and the IID SE ratio upper endpoint reaches the 0.80 ceiling at four cells |
-| a validation fold with a zero-mass cluster | none. The fold check counts every cluster label, and the degrees of freedom count only clusters with positive weight mass. A fold of one positive-mass cluster and one zero-mass cluster passes the check, and its variance reads one real total |
 | complex nuisance learners at about 20 clusters | none for parametric learners. Wang, Park, Small and Li (2024), Remark 3, caution against complex working models at $m = 20$. The registered few-cluster evidence uses parametric nuisance learners only |
 
 ## Reading a gap correctly

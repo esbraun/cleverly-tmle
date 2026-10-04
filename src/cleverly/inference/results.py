@@ -182,7 +182,10 @@ def smooth_contrast(
 
     The derived estimate inherits the covariance rule of its inputs, and its variance
     applies that rule to the derived influence curve. Under either rule, that variance
-    equals the quadratic form of the gradient with :func:`estimate_covariance`.
+    equals the gradient's quadratic form with the joint covariance on compatible scales.
+    :func:`estimate_covariance` reads input inference scales. For untransformed inputs on
+    their reported scales, it can be used directly; otherwise the chain rule must first
+    map the covariance or gradient to the same scales.
 
     It inherits the inference status of its inputs too. A contrast of estimates the
     package supplies no inference for is itself refused, rather than becoming an
@@ -192,7 +195,8 @@ def smooth_contrast(
     With ``scale="ratio"`` the value must be positive. The estimate stores
     ``log_psi = log(value)`` and the curve divided by the value, which is the chain rule
     for the log. With ``transform=`` the curve is multiplied by the transform's slope at
-    the value, and the interval is mapped back through the inverse.
+    the value, and the interval is mapped back through the inverse. Input curves are first
+    mapped from their inference scales to the reported scales that ``function`` reads.
 
     Two mechanisms carry one idea here: ``scale="ratio"`` with ``log_psi`` and
     ``transform=Transform.log()``. Both stay, because every registered ``rr`` and ``or``
@@ -216,7 +220,7 @@ def smooth_contrast(
     value, curve = delta_method(
         function,
         [estimates[key].psi for key in chosen],
-        [estimates[key].influence_curve for key in chosen],
+        [_reported_curve(estimates[key]) for key in chosen],
         gradient=gradient,
     )
     log_psi: float | None = None
@@ -252,6 +256,32 @@ def smooth_contrast(
     return estimate if transform is None else replace(estimate, transform=transform)
 
 
+def _reported_curve(estimate: ParameterEstimate) -> FloatArray:
+    """The input curve on the reported scale that a contrast's function reads.
+
+    Ratios store the curve of their log, and transformed estimates store the curve of
+    their forward map. Undo that map before applying the contrast's derivative.
+    """
+    curve = estimate.influence_curve
+    if estimate.transform is not None:
+        mapped = float(estimate.transform.forward(estimate.psi))
+        slope = estimate.transform.slope(estimate.psi)
+        if not (np.isfinite(mapped) and np.isfinite(slope) and slope != 0.0):
+            raise ValueError(
+                f"the input estimate {estimate.name!r} needs a finite transformed value "
+                "and a finite nonzero slope to recover its reported-scale influence curve"
+            )
+        return np.asarray(curve / slope, dtype=float)
+    if estimate.scale == "ratio":
+        if not (np.isfinite(estimate.psi) and estimate.psi > 0.0):
+            raise ValueError(
+                f"the ratio input {estimate.name!r} needs a positive finite value to "
+                "recover its reported-scale influence curve"
+            )
+        return np.asarray(estimate.psi * curve, dtype=float)
+    return curve
+
+
 def ratio_contrast(
     estimates: Mapping[str, ParameterEstimate],
     numerator: str,
@@ -275,6 +305,7 @@ def ratio_contrast(
 
     The derived estimate inherits the covariance rule, the inference status and the
     smallest reference degrees of freedom of its inputs, as :func:`smooth_contrast` does.
+    A transformed level's curve is first mapped back to its reported probability scale.
 
     Parameters
     ----------
@@ -319,8 +350,8 @@ def ratio_contrast(
     rule = covariance_rule(estimates, chosen, cluster=cluster)
     status = inference_status(estimates, chosen)
     top, bottom = estimates[numerator], estimates[denominator]
-    psi_a, ic_a = top.psi, top.influence_curve
-    psi_b, ic_b = bottom.psi, bottom.influence_curve
+    psi_a, ic_a = top.psi, _reported_curve(top)
+    psi_b, ic_b = bottom.psi, _reported_curve(bottom)
     if complement:
         psi_a, ic_a = 1.0 - psi_a, -ic_a
         psi_b, ic_b = 1.0 - psi_b, -ic_b
@@ -366,8 +397,10 @@ def derived_bootstrap(
     Each bootstrap replicate already holds a point estimate of every reported parameter, in
     aligned rows of :attr:`BootstrapResult.draws`.  Applying ``function`` to each row gives
     the replicate value of the derived estimate, so its percentile interval is the one the
-    full refit implies.  A replicate with a missing input gives a missing value.  The summary
-    is licensed as inference only when every input's summary is.
+    full refit implies. A replicate with a missing input gives a missing value. Domain-invalid
+    ratios also give missing values. The failure count includes every requested replicate
+    without a finite derived value. User callable exceptions propagate. The summary is
+    licensed as inference only when every input's summary is.
 
     Parameters
     ----------
@@ -399,7 +432,7 @@ def derived_bootstrap(
     derived = BootstrapResult(
         draws={"derived": values},
         n_requested=bootstrap.n_requested,
-        n_failed=bootstrap.n_failed,
+        n_failed=bootstrap.n_requested - int(np.count_nonzero(np.isfinite(values))),
         resampling=bootstrap.resampling,
     ).summary("derived", alpha)
     licensed = all(summary.inferential for summary in summaries if summary is not None)
@@ -426,7 +459,11 @@ def ratio_function(kind: RatioKind, complement: bool) -> Callable[[FloatArray], 
         if complement:
             a, b = 1.0 - a, 1.0 - b
         if kind == "rr":
+            if not (np.isfinite(a) and np.isfinite(b) and a > 0.0 and b > 0.0):
+                return float("nan")
             return a / b
+        if not (0.0 < a < 1.0 and 0.0 < b < 1.0):
+            return float("nan")
         return (a / (1.0 - a)) / (b / (1.0 - b))
 
     return value
