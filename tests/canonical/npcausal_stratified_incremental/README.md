@@ -11,17 +11,15 @@ subset and multiplier, and once per multiplier on every row for the five margina
 inside a stratum and correct, but not saturated, on every row. The reference cross-fits over two
 splits, because its single-split path selects no training rows at this commit.
 
-Run a disposable smoke study before the declared run:
+Run a disposable smoke study into a scratch directory outside the repository:
 
-```powershell
-.venv/Scripts/python.exe -m tests.canonical.npcausal_stratified_incremental.regenerate --replicates 4 --n 200 --skip-properties --allow-failures --output build/x8-s1-smoke
+```console
+python -m tests.canonical.npcausal_stratified_incremental.regenerate --replicates 4 --n 200 --skip-properties --allow-failures --output <scratch>
 ```
 
-Regenerate from the repository root with Docker running:
-
-```powershell
-.venv/Scripts/python.exe -m tests.canonical.npcausal_stratified_incremental.regenerate --jobs 16 --reference-jobs 8
-```
+A declared run passes `--output <scratch>` and optionally `--jobs`, and nothing else.
+`tests/canonical/declared_run.py` describes the guard, the run log and the copy into this
+directory. Docker must be running.
 
 The reader-facing results are in
 [`stratified-incremental-msm.md`](../../../docs/technical-reference/method-evidence/stratified-incremental-msm.md).

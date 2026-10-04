@@ -76,7 +76,7 @@ print(point.psi, point.std_error, point.ci, point.pvalue)
 
 A collaborative fit refuses `std_error`, `ci`, and `pvalue` with `CapabilityError` at every
 `strategy`. A `DRTMLE` fit with a `guard` and varying weights declared estimated
-(`weights_estimated=True`) refuses them too. A clustered fit refuses them below 10 clusters
+(`weights_estimated=True`) refuses them too. A clustered fit refuses them below 10 clusters, or 20 for longitudinal TMLE,
 with positive weight mass. The property `result.inference_status` gives the status of the fit, and
 `point.supplies_inference` gives it for one estimate.
 
@@ -105,7 +105,8 @@ if len(names) >= 2:
 
 Use cluster roles in the study design for cluster-robust variance. Below 40 clusters with
 positive weight mass, a TMLE, DR-TMLE, or longitudinal TMLE fit reports Student t intervals, and
-the summary prints a `df` column. Below 10 such clusters it reports no interval. For TMLE and
+the summary prints a `df` column. Below 10 such clusters, or 20 for longitudinal TMLE, it
+reports no interval. For TMLE and
 DR-TMLE, both rules also apply to one reported stratum.
 [Clusters](../technical-reference/inference.md#clusters) gives the rules. Use
 `Inference(simultaneous=True)` when the reported family, rather than each interval separately,

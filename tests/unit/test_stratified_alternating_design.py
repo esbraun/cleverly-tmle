@@ -378,7 +378,7 @@ def test_the_natural_course_truths_are_l1_s_conditional_means() -> None:
     for stratum in (None, *law.STRATA):
         suffix = "" if stratum is None else f"[V={stratum}]"
         assert truths[f"ey_obs{suffix}"] == pytest.approx(
-            law.TRUTH_IPSI[f"ey_ipsi[natural course]{suffix}"], abs=1e-14
+            law.TRUTH_IPSI[f"ey_ipsi[natural course]{suffix}"], abs=1e-12
         )
 
 

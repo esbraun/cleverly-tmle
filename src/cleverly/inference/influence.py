@@ -52,7 +52,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Any, Literal, NamedTuple
 
@@ -385,7 +385,7 @@ class ClusterReference:
     cluster: IntArray
     weights: FloatArray | None = None
     strata: IntArray | None = None
-    stratum_of: Mapping[str, int] = MappingProxyType({})
+    stratum_of: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
     fold_evaluated: frozenset[str] = frozenset()
     validation_folds: int = 0
 
