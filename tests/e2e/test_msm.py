@@ -699,7 +699,7 @@ class TestTheAxisIsExclusive:
         ("kwargs", "message"),
         [
             ({"interventions": [Static("low")]}, "interventions="),
-            ({"shifts": [Shift(0.5, cap=None)]}, "shifts="),
+            ({"policies": [Shift(0.5, cap=None)]}, "policies="),
         ],
     )
     def test_msm_cannot_be_combined_with_another_axis(self, kwargs, message: str) -> None:

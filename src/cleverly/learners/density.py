@@ -414,6 +414,7 @@ def fit_conditional_density(
     edges: Sequence[float] | None = None,
     groups: IntArray | None = None,
     n_jobs: int = 1,
+    fit_mask: Any = None,
 ) -> tuple[ConditionalDensity, DensityDiagnostics]:
     """Cross-fit :math:`g(a \\mid W)` and return it evaluated at every row.
 
@@ -425,11 +426,17 @@ def fit_conditional_density(
     and its outcome regression come from the same split, and
     :func:`~cleverly.learners.fit_learner`, so weights, cluster codes and screening
     pipelines route exactly as they do for every other nuisance.
+
+    ``fit_mask`` restricts the rows a fold trains on, and the rows the bin edges are read
+    from, to the rows that hold a dose: a longitudinal node is fitted on the units still in
+    the study before it.  ``None`` reads every row, the point-treatment fit unchanged.
     """
     w = np.asarray(covariates, dtype=float)
     a = np.asarray(treatment, dtype=float).reshape(-1)
     sample_weight = np.asarray(weights, dtype=float).reshape(-1)
-    grid = bin_edges(a, n_bins) if edges is None else np.asarray(edges, dtype=float)
+    mask = None if fit_mask is None else np.asarray(fit_mask, dtype=bool).reshape(-1)
+    grid_values = a if mask is None else a[mask]
+    grid = bin_edges(grid_values, n_bins) if edges is None else np.asarray(edges, dtype=float)
     if grid.ndim != 1 or grid.size < 3 or np.any(np.diff(grid) <= 0.0):
         raise DataError("edges= must be a strictly increasing sequence of at least 3 values")
 
@@ -438,6 +445,8 @@ def fit_conditional_density(
     bins = np.clip(np.digitize(a, grid) - 1, 0, n_total - 1).astype(np.int64)
 
     def fit_on(rows: IntArray) -> Learner:
+        if mask is not None:
+            rows = rows[mask[rows]]
         design, target, source = _long_expansion(w[rows], bins[rows], n_hazards)
         return fit_learner(
             learner,
@@ -474,6 +483,8 @@ def fit_conditional_density(
     density = ConditionalDensity(probabilities, grid)
     integrated = density.integrated()
     observed = density.density_at(a)
+    if mask is not None:
+        observed = observed[mask]
     return density, DensityDiagnostics(
         n_bins=n_total,
         edges=grid,

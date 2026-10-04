@@ -3,7 +3,7 @@
 A ``reporting`` study publishes its red verdicts instead of refusing to publish, which is the
 whole point of the policy -- and also why a red cell can sit on a study page for months with no
 record of who is meant to close it.  RM18's prose named most of them and missed one outright:
-the paired ``ate_shift[+0.25 vs natural course]`` row of ``shift-policies`` was red and no
+the paired ``ate_policy[+0.25 vs natural course]`` row of ``shift-policies`` was red and no
 roadmap row mentioned it.  A hand-kept list drifts the same way every hand-typed number does.
 
 So the ledger is generated.  :func:`red_rows` reads each study's committed verdict tables,
@@ -229,7 +229,7 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     "RM18-comparator-density": _keys(
         "shift-policies",
         "paired",
-        "continuous_modified_policy/ate_shift[+0.25 vs natural course]",
+        "continuous_modified_policy/ate_policy[+0.25 vs natural course]",
     ),
     # The arm mean near 0.94 in the smallest stratum, and the two bands that include it.
     "strata-boundary-mean": (

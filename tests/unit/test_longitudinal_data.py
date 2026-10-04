@@ -543,7 +543,7 @@ def test_too_many_levels_does_not_name_a_keyword_ltmle_lacks() -> None:
         warnings.simplefilter("ignore", DataWarning)
         build(frame)
     assert "treatment_kind" not in str(raised.value)
-    assert "X12" in str(raised.value)
+    assert "continuous_treatment=" in str(raised.value)
     assert "modified treatment policy" in str(raised.value)
 
 

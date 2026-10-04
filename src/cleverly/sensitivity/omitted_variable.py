@@ -164,7 +164,8 @@ OMITTED_VARIABLE_OPERATIONS: tuple[str, ...] = tuple(
 #: :func:`_refuse_non_arm_axis` states it separately.
 _AXIS_NOUNS: dict[str, str] = {
     "regime": "A regime mean",
-    "shift": "A modified-policy mean",
+    "policy": "A modified-policy mean",
+    "rr_tilt": "A risk-ratio tilt mean",
     "msm": "A point-treatment MSM coefficient",
 }
 

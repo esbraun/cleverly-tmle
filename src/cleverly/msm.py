@@ -816,7 +816,7 @@ class MSMSet:
 
     Arrays only, no callables -- the same rule
     :class:`cleverly.interventions.RegimeSet` and
-    :class:`cleverly.interventions.ShiftSet` follow, and for the same two reasons.
+    :class:`cleverly.interventions.PolicySet` follow, and for the same two reasons.
     Everything reached through :meth:`cleverly.TMLE.retarget` -- a truncation curve, the
     score check, a sensitivity sweep -- must target the *declared* model without the
     user's design function having to be callable again, and a loaded result carries no

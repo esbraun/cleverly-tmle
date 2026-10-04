@@ -147,7 +147,7 @@ def test_stochastic_refuses_the_wrong_number_of_arms() -> None:
 @pytest.mark.parametrize(
     ("declared", "keyword"),
     [
-        (Shift(0.5, 5.0, name="up"), r"TMLE\(shifts="),
+        (Shift(0.5, 5.0, name="up"), r"TMLE\(policies="),
         (Incremental(2.0, name="d2"), r"TMLE\(incremental="),
     ],
 )

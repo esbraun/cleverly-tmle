@@ -157,11 +157,11 @@ def functional(probs: Any, estimand: str) -> Any:
     joint = p[:, :, 0] + p[:, :, 1]  # P(w, a)
     qbar = p[:, :, 1] / joint  # Qbar(a, w)
 
-    if estimand.startswith("ey_shift["):
-        label = estimand[len("ey_shift[") : -1]
+    if estimand.startswith("ey_policy["):
+        label = estimand[len("ey_policy[") : -1]
         return _mean_under(joint, qbar, label)
-    if estimand.startswith("ate_shift["):
-        left, right = estimand[len("ate_shift[") : -1].split(" vs ")
+    if estimand.startswith("ate_policy["):
+        left, right = estimand[len("ate_policy[") : -1].split(" vs ")
         return _mean_under(joint, qbar, left) - _mean_under(joint, qbar, right)
     raise ValueError(f"no oracle branch for {estimand!r}")
 
@@ -208,9 +208,9 @@ def eif(estimand: str) -> np.ndarray:
 #: tuple of laws without knowing which one owns which estimand.  ``natural course`` is
 #: the reference here, exactly as ``Shift(0.0, cap=None)`` declared first would be.
 PER_TARGET_NAMES: dict[str, tuple[str, ...]] = {
-    "ey_shift": tuple(f"ey_shift[{label}]" for label in POLICIES),
-    "ate_shift": tuple(
-        f"ate_shift[{label} vs natural course]" for label in POLICIES if label != "natural course"
+    "ey_policy": tuple(f"ey_policy[{label}]" for label in POLICIES),
+    "ate_policy": tuple(
+        f"ate_policy[{label} vs natural course]" for label in POLICIES if label != "natural course"
     ),
 }
 
@@ -220,7 +220,7 @@ def oracle_names(target: str) -> tuple[str, ...]:
     return PER_TARGET_NAMES.get(target, ())
 
 
-NAMES: tuple[str, ...] = (*PER_TARGET_NAMES["ey_shift"], *PER_TARGET_NAMES["ate_shift"])
+NAMES: tuple[str, ...] = (*PER_TARGET_NAMES["ey_policy"], *PER_TARGET_NAMES["ate_policy"])
 
 TRUTH: dict[str, float] = {name: float(functional(PROBS, name)) for name in NAMES}
 

@@ -33,7 +33,7 @@ import numpy as np
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
 from ..fluctuation.iterative import Fluctuation, InitialFit
-from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet
+from ..interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet
 from ..learners._fitting import (
     Task,
     as_target,
@@ -449,10 +449,10 @@ class NuisanceEstimates:
         treatment and at every counterfactual arm.
     missingness, intermediate:
         ``(n, K)`` arrays indexed by treatment arm, or ``None`` when not applicable.
-        On a ``shifts=`` fit a dose has no arms to index by, so they are ``(n, S + 1)``
+        On a ``policies=`` fit a dose has no arms to index by, so they are ``(n, S + 1)``
         instead: column ``0`` at the observed dose and column ``s + 1`` at
         :math:`d_s(A, W)`, which is
-        :attr:`~cleverly.interventions.ShiftSet.design`'s first axis exactly.  Both stay
+        :attr:`~cleverly.interventions.PolicySet.design`'s first axis exactly.  Both stay
         **untruncated** here and are bounded at targeting time by
         :meth:`bounded_missingness` and :meth:`intermediate_density`, which is what keeps
         ``nuisance_bound=`` a choice ``retarget`` can revisit without refitting.
@@ -512,10 +512,10 @@ class NuisanceEstimates:
     #: covariate is a ratio of densities, so it cannot be evaluated until the density
     #: exists, and evaluating it here is what makes "g(A | W) and g(A - delta | W) come
     #: from the same out-of-fold model" structural rather than an invariant to maintain.
-    shifts: ShiftSet | None = None
+    policies: PolicySet | None = None
     #: The incremental interventions this fit targets, evaluated against ``propensity``,
     #: or ``None`` for a fit that declared none.  Built *inside* :func:`fit_nuisances`
-    #: for the reason ``shifts`` is, and a sharper one: the tilt is a functional of the
+    #: for the reason ``policies`` is, and a sharper one: the tilt is a functional of the
     #: mechanism, so evaluating it where the mechanism is made is what keeps "the tilt
     #: and the g it tilts came from one out-of-fold model" structural rather than an
     #: invariant to maintain.  A regime, by contrast, is attached *outside* -- and could
@@ -533,7 +533,7 @@ class NuisanceEstimates:
     msm: MSMSet | None = None
     #: The reduced-dimension regressions of the doubly-robust-inference variant, or
     #: ``None`` for every fit that is not one.  Carried for the reason ``regimes`` is,
-    #: and built *outside* :func:`fit_nuisances` -- unlike ``shifts`` and ``incremental``,
+    #: and built *outside* :func:`fit_nuisances` -- unlike ``policies`` and ``incremental``,
     #: which are here because every fit that declares them needs them, this belongs to
     #: one variant and is fitted in its ``_nuisances`` override.  The invariant those two
     #: are built inside for survives anyway:
@@ -972,7 +972,7 @@ _OBSERVED_KEY = "observed"
 
 
 def _mechanism_designs(
-    data: CausalData, arms: tuple[float, ...], shift_set: ShiftSet | None, design: FloatArray
+    data: CausalData, arms: tuple[float, ...], shift_set: PolicySet | None, design: FloatArray
 ) -> dict[str, FloatArray]:
     r"""Where a per-treatment mechanism -- :math:`\pi` or :math:`q_z` -- must be evaluated.
 
@@ -992,24 +992,24 @@ def _mechanism_designs(
     if shift_set is None:
         return {_arm_key(arm): data.counterfactual_design(arm) for arm in arms}
     designs = {_OBSERVED_KEY: design}
-    for index, code in enumerate(shift_set.codes):
+    for index, code in enumerate(shift_set.component_keys):
         designs[_arm_key(code)] = data.counterfactual_design(shift_set.shifted[:, index])
     return designs
 
 
 def _mechanism_columns(
-    predictions: dict[str, FloatArray], arms: tuple[float, ...], shift_set: ShiftSet | None
+    predictions: dict[str, FloatArray], arms: tuple[float, ...], shift_set: PolicySet | None
 ) -> FloatArray:
     """Stack :func:`_mechanism_designs`' predictions into the array the submodel reads.
 
     ``(n, K)`` keyed by arm on the arm path, and ``(n, S + 1)`` observed-first on a shift
-    path -- the same layout as :attr:`~cleverly.interventions.ShiftSet.design`'s first
+    path -- the same layout as :attr:`~cleverly.interventions.PolicySet.design`'s first
     axis, so a builder that indexes one indexes the other with the same integer.
     """
     if shift_set is None:
         return np.column_stack([predictions[_arm_key(arm)] for arm in arms])
     columns = [predictions[_OBSERVED_KEY]]
-    columns.extend(predictions[_arm_key(code)] for code in shift_set.codes)
+    columns.extend(predictions[_arm_key(code)] for code in shift_set.component_keys)
     return np.column_stack(columns)
 
 
@@ -1042,11 +1042,12 @@ def fit_nuisances(
     screen_treatment: bool = False,
     screen_threshold: float = 0.1,
     min_retain: int | None = None,
-    shifts: Sequence[Shift] = (),
+    policies: Sequence[Policy] = (),
     incremental: Sequence[Incremental] = (),
     incremental_reference: str | None = None,
-    shift_reference: str | None = None,
+    policy_reference: str | None = None,
     density_bins: int = 20,
+    policy_ratio: str = "density",
     msm: MSMSet | None = None,
     companion: CausalData | None = None,
     n_jobs: int = 1,
@@ -1060,7 +1061,7 @@ def fit_nuisances(
     evaluated at further levels in the *same* pass over the folds, which is what lets
     both controlled direct effects be estimated from one set of nuisance fits.
 
-    ``shifts`` declares modified treatment policies, which a continuous treatment
+    ``policies`` declares modified treatment policies, which a continuous treatment
     requires and an arm-coded one refuses.  They are evaluated *here*, against the
     density fitted a few lines above, rather than by the caller: the clever covariate is
     the ratio :math:`g(a - \\delta \\mid W) / g(a \\mid W)`, so numerator and denominator
@@ -1123,9 +1124,22 @@ def fit_nuisances(
     )
     arms = data.arm_codes
     density: ConditionalDensity | None = None
-    shift_set: ShiftSet | None = None
+    shift_set: PolicySet | None = None
     ipsi_set: IPSISet | None = None
-    if data.is_continuous_treatment:
+    if data.is_continuous_treatment and policies and policy_ratio == "classifier":
+        # The classifier route of Diaz et al. (2023), Section 5.4: no density is fitted, and
+        # each policy's ratio is the odds of a stacked label.  The classifier is
+        # ``treatment_learner``, cross-fitted on the same folds every other nuisance uses.
+        propensity = Propensity(np.zeros((data.n, 0)), ())
+        shift_set = PolicySet.evaluate_by_classifier(
+            tuple(policies),
+            data,
+            treatment_model,
+            folds,
+            reference=policy_reference,
+            n_jobs=n_jobs,
+        )
+    elif data.is_continuous_treatment:
         # A dose has no arms, so there is no P(A = a | W) to classify: the mechanism is a
         # density. The learner is the same one either way -- fit_conditional_density
         # factorises the density into bin hazards, each a conditional probability of a
@@ -1143,8 +1157,10 @@ def fit_nuisances(
         )
         diagnostics["density"] = density_diagnostics
         propensity = Propensity(np.zeros((data.n, 0)), ())
-        if shifts:
-            shift_set = ShiftSet.evaluate(tuple(shifts), data, density, reference=shift_reference)
+        if policies:
+            shift_set = PolicySet.evaluate(
+                tuple(policies), data, density, reference=policy_reference
+            )
     elif fit_treatment:
         propensity_out, propensity_companion, propensity_diagnostics = cross_fit_companion(
             treatment_model,
@@ -1172,6 +1188,22 @@ def fit_nuisances(
             # the parameter -- see IPSISet.evaluate.
             ipsi_set = IPSISet.evaluate(
                 tuple(incremental), data, propensity.values, reference=incremental_reference
+            )
+        if policies and policy_ratio == "classifier":
+            shift_set = PolicySet.evaluate_by_classifier(
+                tuple(policies),
+                data,
+                treatment_model,
+                folds,
+                reference=policy_reference,
+                n_jobs=n_jobs,
+            )
+        elif policies:
+            # The discrete formula reads g, so the policy set is evaluated against the
+            # mechanism fitted above, as on a dose.  Targeting rebuilds its ratio from the
+            # bounded mechanism; see PolicySet.design_at.
+            shift_set = PolicySet.evaluate(
+                tuple(policies), data, propensity=propensity.values, reference=policy_reference
             )
     else:
         # An explicit absent value, not an estimated mechanism. Keeping the arm metadata and
@@ -1293,7 +1325,7 @@ def fit_nuisances(
         counterfactual = {arm: arm for arm in arms}
     else:
         counterfactual = {
-            code: shift_set.shifted[:, index] for index, code in enumerate(shift_set.codes)
+            code: shift_set.shifted[:, index] for index, code in enumerate(shift_set.component_keys)
         }
 
     designs: dict[str, FloatArray] = {"observed": outcome_design}
@@ -1369,7 +1401,7 @@ def fit_nuisances(
         diagnostics=diagnostics,
         outcome_task=outcome_task,
         density=density,
-        shifts=shift_set,
+        policies=shift_set,
         incremental=ipsi_set,
         msm=msm,
         companion=companion_estimates,

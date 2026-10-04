@@ -1301,15 +1301,15 @@ class CTMLE(TMLE):
         self._check_estimands(data)
         return super()._resolve_estimands_for_data(data)
 
-    def _check_shifts(self, data: CausalData) -> None:
+    def _check_policies(self, data: CausalData) -> None:
         """Refuse a continuous dose before the shift check can suggest a shift.
 
-        ``TMLE._check_shifts`` runs first in the preflight, and it answers a dose with no
-        ``shifts=`` by suggesting one, which CTMLE does not fit.
+        ``TMLE._check_policies`` runs first in the preflight, and it answers a dose with no
+        ``policies=`` by suggesting one, which CTMLE does not fit.
         """
         if data.is_continuous_treatment:
             raise CapabilityError(_DISCRETE_TREATMENT_REFUSAL)
-        super()._check_shifts(data)
+        super()._check_policies(data)
 
     def _check_estimands(self, data: CausalData) -> None:
         if data.is_continuous_treatment:

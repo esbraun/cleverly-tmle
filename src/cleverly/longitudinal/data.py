@@ -72,6 +72,7 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray
 from ..data.validate import (
+    MAX_TREATMENT_LEVELS,
     MIN_CONTINUOUS_LEVELS,
     MIN_OBSERVATIONS,
     arm_indicators,
@@ -119,6 +120,8 @@ _SHARED_FIELDS: tuple[str, ...] = (
     "baseline_names",
     "treatment_names",
     "treatment_levels",
+    "continuous_nodes",
+    "treatment_components",
     "time_varying_names",
     "family",
     "outcome_name",
@@ -224,6 +227,14 @@ class LongitudinalData:
     #: Name of the dataframe backend the data arrived in; see
     #: :attr:`cleverly.data.CausalData.backend`, which this mirrors exactly.
     backend: str | None = None
+    #: Which nodes hold a continuous dose, one flag per node.  A continuous node keeps the
+    #: raw dose in :attr:`treatment`, has no :attr:`treatment_levels`, and accepts only a
+    #: modified treatment policy.  Empty means that every node is categorical.
+    continuous_nodes: tuple[bool, ...] = ()
+    #: The columns of each node.  A node of one column holds its own name; a vector node,
+    #: declared as a list of columns, is one categorical node over the observed tuples of
+    #: its components (Díaz et al. 2023, Section 2: :math:`A_t` may be a vector).
+    treatment_components: tuple[tuple[str, ...], ...] = ()
 
     # ------------------------------------------------------------------ build
 
@@ -233,7 +244,7 @@ class LongitudinalData:
         data: Any,
         *,
         outcome: str | Sequence[str] | Mapping[str, Sequence[str]],
-        treatment: Sequence[str],
+        treatment: Sequence[str | Sequence[str]],
         baseline: Sequence[str],
         time_varying: Sequence[Sequence[str]] | None = None,
         censoring: Sequence[str] | None = None,
@@ -242,6 +253,7 @@ class LongitudinalData:
         weights_type: str = "probability",
         weights_estimated: bool = False,
         family: str = "auto",
+        continuous_treatment: Sequence[str] = (),
     ) -> LongitudinalData:
         """Build from one wide dataframe: a row per unit, a column per node.
 
@@ -258,7 +270,9 @@ class LongitudinalData:
             to disagree.  A mapping with one cause is still competing risks by
             declaration, and reports a cumulative incidence.
         treatment:
-            Treatment column per time point, in time order.  Its length declares ``T``.
+            Treatment column per time point, in time order.  Its length declares ``T``.  A
+            node may be a list of columns, ``[["A1a", "A1b"], ["A2a", "A2b"]]``: it is then
+            one categorical node whose levels are the observed tuples of its components.
         baseline:
             Covariates measured before any treatment.
         time_varying:
@@ -282,16 +296,48 @@ class LongitudinalData:
         weights_estimated:
             Declare that the weights came out of a fitted model.  Changes no number; it
             makes the reports state that the intervals condition on them.
+        continuous_treatment:
+            The treatment columns that hold a continuous dose.  Such a node keeps its raw
+            dose, has a conditional density rather than a multinomial mechanism, and takes a
+            modified treatment policy at every regimen (Díaz, Williams, Hoffman and Schenck
+            2023).  A vector node's components are categorical.
         """
         if not is_dataframe(data):
             raise DataError("LongitudinalData.from_frame expects a pandas or polars DataFrame")
         frame = as_frame(data)
         columns = list(frame.columns)
 
-        treatment_names = [str(name) for name in treatment]
+        components: list[tuple[str, ...]] = []
+        for node in treatment:
+            if isinstance(node, str):
+                components.append((node,))
+            else:
+                node_columns = tuple(str(name) for name in node)
+                if not node_columns:
+                    raise DataError("a vector treatment node needs at least one column")
+                components.append(node_columns)
+        treatment_names = ["+".join(node_block) for node_block in components]
         if not treatment_names:
             raise DataError("treatment= is empty; a longitudinal fit needs at least one node")
         n_times = len(treatment_names)
+        flat_treatment = [name for node_block in components for name in node_block]
+        continuous_names = [str(name) for name in continuous_treatment]
+        unknown_continuous = sorted(set(continuous_names) - set(flat_treatment))
+        if unknown_continuous:
+            raise DataError(
+                f"continuous_treatment= names {unknown_continuous}, which are not treatment "
+                f"columns; the treatment columns are {flat_treatment}"
+            )
+        for node_block in components:
+            if len(node_block) > 1 and set(node_block) & set(continuous_names):
+                raise DataError(
+                    f"node {'+'.join(node_block)!r} is a vector with continuous components "
+                    f"{sorted(set(node_block) & set(continuous_names))!r}. A vector node is one "
+                    "categorical node over the tuples of its components; the density ratio "
+                    "of a vector policy on a continuous component needs a joint density, "
+                    "which this version does not estimate. Declare the continuous component "
+                    "as its own node, or collapse it into categories"
+                )
 
         censor_names = [] if censoring is None else [str(name) for name in censoring]
         if censoring is not None and len(censor_names) != n_times:
@@ -349,7 +395,7 @@ class LongitudinalData:
                 )
 
         baseline_names = [str(name) for name in baseline]
-        wanted = [*outcome_names, *treatment_names, *censor_names, *baseline_names]
+        wanted = [*outcome_names, *flat_treatment, *censor_names, *baseline_names]
         for block in blocks:
             wanted.extend(block)
         if id is not None:
@@ -381,10 +427,10 @@ class LongitudinalData:
             cause_labels=cause_labels,
             baseline=matrix_from_columns(frame, baseline_names) if baseline_names else None,
             baseline_names=baseline_names,
-            treatment=np.column_stack(
-                [column_array(frame, name, dtype=object) for name in treatment_names]
-            ),
+            treatment=np.column_stack([_node_column(frame, block) for block in components]),
             treatment_names=treatment_names,
+            continuous_nodes=tuple(node_block[0] in continuous_names for node_block in components),
+            treatment_components=tuple(components),
             censoring=(
                 None
                 if censoring is None
@@ -429,6 +475,8 @@ class LongitudinalData:
         outcome_name: str,
         family: str,
         backend: str | None,
+        continuous_nodes: Sequence[bool] = (),
+        treatment_components: Sequence[Sequence[str]] = (),
     ) -> LongitudinalData:
         survival = event is not None
         if survival:
@@ -519,6 +567,10 @@ class LongitudinalData:
             arms = raw_treatment[:, time - 1]
             at_this_node = at_risk[:, time - 1]
             _check_presence(arms, at_this_node, str(name))
+            if continuous_nodes and continuous_nodes[time - 1]:
+                a[at_this_node, time - 1] = _continuous_dose(arms[at_this_node], str(name))
+                level_sets.append(())
+                continue
             codes_at_node, levels = _encode_node_treatment(arms[at_this_node], str(name))
             a[at_this_node, time - 1] = codes_at_node
             level_sets.append(levels)
@@ -596,6 +648,14 @@ class LongitudinalData:
             weight_spec=spec,
             dropped_covariates=tuple(dropped),
             backend=backend,
+            continuous_nodes=(
+                tuple(bool(flag) for flag in continuous_nodes) if any(continuous_nodes) else ()
+            ),
+            treatment_components=(
+                tuple(tuple(block) for block in treatment_components)
+                if any(len(block) > 1 for block in treatment_components)
+                else ()
+            ),
         )
 
     # ------------------------------------------------------------- properties
@@ -608,6 +668,26 @@ class LongitudinalData:
     def n_times(self) -> int:
         """Number of treatment nodes, ``T``."""
         return int(self.treatment.shape[1])
+
+    def is_continuous_node(self, time: int) -> bool:
+        """Whether node ``time``, counted from one, holds a continuous dose.
+
+        Parameters
+        ----------
+        time : int
+            The treatment node, counted from one.
+
+        Returns
+        -------
+        bool
+            ``True`` for a node declared in ``continuous_treatment=``.
+        """
+        return bool(self.continuous_nodes) and self.continuous_nodes[time - 1]
+
+    @property
+    def has_continuous_node(self) -> bool:
+        """Whether any node holds a continuous dose."""
+        return any(self.continuous_nodes)
 
     @property
     def n_clusters(self) -> int:
@@ -934,8 +1014,13 @@ class LongitudinalData:
             raise DataError(f"time {time} is outside 1..{self.n_times}")
         codes = self.treatment[:, time - 1]
         present = ~np.isnan(codes)
+        if self.is_continuous_node(time):
+            doses = np.asarray(codes, dtype=object)
+            doses[~present] = None
+            return doses
         levels = np.empty(len(self.treatment_levels[time - 1]), dtype=object)
-        levels[:] = list(self.treatment_levels[time - 1])
+        for index, level in enumerate(self.treatment_levels[time - 1]):
+            levels[index] = level
         labels = levels[np.nan_to_num(codes, nan=0.0).astype(np.int64)]
         labels[~present] = None
         return labels
@@ -966,9 +1051,15 @@ class LongitudinalData:
             name: history[:, index] for index, name in enumerate(self.history_names(time))
         }
         for node in range(1, time):
+            if self.is_continuous_node(node):
+                payload[self.treatment_names[node - 1]] = np.nan_to_num(
+                    self.treatment[:, node - 1], nan=0.0
+                )
+                continue
             codes = np.nan_to_num(self.treatment[:, node - 1], nan=0.0).astype(np.int64)
             levels = np.empty(len(self.treatment_levels[node - 1]), dtype=object)
-            levels[:] = list(self.treatment_levels[node - 1])
+            for index, level in enumerate(self.treatment_levels[node - 1]):
+                levels[index] = level
             payload[self.treatment_names[node - 1]] = levels[codes]
         return self.frame_like(payload)
 
@@ -1060,7 +1151,11 @@ class LongitudinalData:
             if plan is None:
                 codes = np.nan_to_num(self.treatment[:, t - 1], nan=0.0)
             else:
-                codes = plan[:, t - 1]
+                codes = np.nan_to_num(plan[:, t - 1], nan=0.0)
+            if self.is_continuous_node(t):
+                # A dose enters as itself, one column, as a point treatment's dose does.
+                columns.append(np.asarray(codes, dtype=float).reshape(-1, 1))
+                continue
             columns.append(arm_indicators(codes, len(self.treatment_levels[t - 1])))
         return np.hstack(columns)
 
@@ -1096,12 +1191,22 @@ class LongitudinalData:
         for time, levels in enumerate(self.treatment_levels, start=1):
             reachable = self.uncensored_through(time - 1) & self.event_free_through(time - 1)
             column = raw[:, time - 1]
+            if self.is_continuous_node(time):
+                # A continuous node is assigned by a policy, which reads the observed dose,
+                # so the plan's column is that dose.
+                encoded[reachable, time - 1] = np.asarray(column[reachable], dtype=float)
+                continue
             matched = np.zeros(self.n, dtype=bool)
             for code, level in enumerate(levels):
                 # Elementwise ``==`` on the object array: numpy runs the comparison loop
                 # in C and calls each object's own ``__eq__``, so the level-vs-row
                 # semantics are the dict's and only the loop overhead is gone.
-                here = np.asarray(column == level, dtype=bool)
+                if isinstance(level, tuple):
+                    # A vector node's level is a tuple, which numpy would broadcast as a
+                    # sequence; compare it to each row as one label instead.
+                    here = np.fromiter((value == level for value in column), bool, self.n)
+                else:
+                    here = np.asarray(column == level, dtype=bool)
                 if here.shape != (self.n,):
                     # Every level comes from ``np.unique`` of one column and so is a
                     # scalar.  One that was not would *broadcast* rather than compare
@@ -1156,9 +1261,9 @@ class LongitudinalData:
 #: is a :class:`~cleverly.data.CausalData` keyword and ``LTMLE`` does not take it, so the
 #: default suggestion would send the reader to an argument that does not exist here.
 _TOO_MANY_LEVELS_REMEDY = (
-    "Collapse the levels into the arms you actually want to report. A continuous "
-    "longitudinal dose needs a modified treatment policy, with a conditional density of "
-    "the dose at every node, and LTMLE does not estimate it yet (docs/roadmap.md X12)."
+    "Collapse the levels into the arms you actually want to report, or declare the node a "
+    "continuous dose with continuous_treatment=[...] and fit a modified treatment policy at "
+    "it, such as Shift(0.5, cap=...)."
 )
 
 
@@ -1181,6 +1286,9 @@ def _encode_node_treatment(values: Any, name: str) -> tuple[FloatArray, tuple[ob
     ``LTMLE`` will treat them as *unordered* labels, since that is the reading a reader who
     typed a dose column is least likely to expect.
     """
+    first = np.asarray(values, dtype=object).reshape(-1)
+    if first.size and isinstance(first[0], tuple):
+        return _encode_vector_node(first, name)
     raw = np.asarray(values).reshape(-1)
     unique = np.unique(raw)
     if unique.size == 1:
@@ -1203,13 +1311,62 @@ def _encode_node_treatment(values: Any, name: str) -> tuple[FloatArray, tuple[ob
             f"treatment node {name!r} is numeric and takes {unique.size} distinct values; "
             "it will be modelled as that many unordered arms, with one multinomial "
             "mechanism per node and one counterfactual mean per assigned sequence. If it "
-            "is a dose whose spacing matters, collapse it into the arms you want to "
-            "contrast -- LTMLE does not yet estimate a modified treatment policy on a "
-            "continuous longitudinal dose (docs/roadmap.md X12).",
+            "is a dose whose spacing matters, declare it with continuous_treatment=[...] "
+            "and fit a modified treatment policy at it.",
             DataWarning,
             stacklevel=4,
         )
     return encode_treatment(raw, name, remedy=_TOO_MANY_LEVELS_REMEDY)
+
+
+def _encode_vector_node(values: Any, name: str) -> tuple[FloatArray, tuple[object, ...]]:
+    """Encode a vector node: one level per observed tuple of its components, in sorted order.
+
+    A discrete vector is one categorical node over the product of its components' observed
+    values (a finite partition), so the level limit of a categorical node applies to the
+    tuples.
+    """
+    observed = list(values.tolist())
+    try:
+        levels = tuple(sorted(set(observed)))
+    except TypeError:
+        levels = tuple(sorted(set(observed), key=repr))
+    if len(levels) > MAX_TREATMENT_LEVELS:
+        raise DataError(
+            f"vector treatment node {name!r} takes {len(levels)} distinct tuples, more than the "
+            f"{MAX_TREATMENT_LEVELS} levels a categorical node accepts. {_TOO_MANY_LEVELS_REMEDY}"
+        )
+    if len(levels) < 2:
+        raise DataError(f"vector treatment node {name!r} takes a single tuple {levels!r}")
+    lookup = {level: float(code) for code, level in enumerate(levels)}
+    return np.asarray([lookup[value] for value in observed], dtype=float), levels
+
+
+def _node_column(frame: Any, block: Sequence[str]) -> Any:
+    """One node's raw values: the column itself, or the tuple of a vector node's columns."""
+    if len(block) == 1:
+        return column_array(frame, block[0], dtype=object)
+    parts = [column_array(frame, name, dtype=object) for name in block]
+    out = np.empty(len(parts[0]), dtype=object)
+    for row in range(out.size):
+        values = tuple(part[row] for part in parts)
+        out[row] = None if any(not _categorical_value_is_present(v) for v in values) else values
+    return out
+
+
+def _continuous_dose(values: Any, name: str) -> FloatArray:
+    """A continuous node's dose on the rows that hold one, refusing a non-number."""
+    try:
+        dose = np.asarray(values, dtype=float)
+    except (TypeError, ValueError) as error:
+        raise DataError(
+            f"treatment node {name!r} is declared continuous but holds a value that is not a number"
+        ) from error
+    if not np.all(np.isfinite(dose)):
+        raise DataError(
+            f"treatment node {name!r} is declared continuous but holds a non-finite dose"
+        )
+    return dose
 
 
 def _prefix_all(indicator: BoolArray) -> BoolArray:

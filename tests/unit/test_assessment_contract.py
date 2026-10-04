@@ -1743,7 +1743,9 @@ class TestSupportDiagnosticsSeeAPerInterventionReport:
             ),
         )
         with pytest.warns(PositivityWarning, match="above the largest one observed"):
-            return study.identify(ModifiedTreatmentPolicy(shifts=[Shift(3.0, cap=None)])).estimate(
+            return study.identify(
+                ModifiedTreatmentPolicy(policies=[Shift(3.0, cap=None)])
+            ).estimate(
                 outcome_learner=sklearn.linear_model.LinearRegression(),
                 treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 n_folds=3,
@@ -1766,9 +1768,9 @@ class TestSupportDiagnosticsSeeAPerInterventionReport:
         """Assigned doses with estimated zero density trigger the warning, not thin ESS."""
         nuisance = extrapolating_shift.nuisance
         report = extrapolating_shift.diagnostics.support()
-        for index, name in enumerate(nuisance.shifts.names):
+        for index, name in enumerate(nuisance.policies.names):
             expected = int(
-                (nuisance.density.density_at(nuisance.shifts.shifted[:, index]) == 0).sum()
+                (nuisance.density.density_at(nuisance.policies.shifted[:, index]) == 0).sum()
             )
             assert expected > 0
             assert report[name].unsupported == expected

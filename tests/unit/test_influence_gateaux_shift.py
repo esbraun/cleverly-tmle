@@ -24,14 +24,14 @@ import tests.discrete_law_shift as law
 from cleverly.data import CausalData
 from cleverly.fluctuation.iterative import InitialFit
 from cleverly.fluctuation.submodel import submodel_for
-from cleverly.inference.influence import regime_means, shift_means
-from cleverly.interventions import Shift, ShiftSet
+from cleverly.inference.influence import policy_means, regime_means
+from cleverly.interventions import PolicySet, Shift
 from cleverly.learners.density import ConditionalDensity
 
-MEANS = ("ey_shift[natural course]", "ey_shift[+1]", "ey_shift[+1 (cap 2)]")
+MEANS = ("ey_policy[natural course]", "ey_policy[+1]", "ey_policy[+1 (cap 2)]")
 CONTRASTS = (
-    "ate_shift[+1 vs natural course]",
-    "ate_shift[+1 (cap 2) vs natural course]",
+    "ate_policy[+1 vs natural course]",
+    "ate_policy[+1 (cap 2) vs natural course]",
 )
 
 #: The declared policies, in the order their codes run: 0 natural course, 1 the capped
@@ -43,8 +43,8 @@ SHIFTS = (
 )
 
 
-def _pieces() -> tuple[np.ndarray, InitialFit, object, ShiftSet]:
-    """The law's true nuisances, assembled into what ``shift_means`` consumes."""
+def _pieces() -> tuple[np.ndarray, InitialFit, object, PolicySet]:
+    """The law's true nuisances, assembled into what ``policy_means`` consumes."""
     frame = law.frame()
     covariate = frame["W"].to_numpy().astype(int)
     dose = frame["A"].to_numpy(dtype=float)
@@ -57,7 +57,7 @@ def _pieces() -> tuple[np.ndarray, InitialFit, object, ShiftSet]:
         data = CausalData.from_arrays(
             outcome, dose, covariate.reshape(-1, 1).astype(float), treatment_kind="continuous"
         )
-        shifts = ShiftSet.evaluate(SHIFTS, data, density)
+        shifts = PolicySet.evaluate(SHIFTS, data, density)
 
     initial = InitialFit(
         law.Q[covariate, index],
@@ -66,11 +66,11 @@ def _pieces() -> tuple[np.ndarray, InitialFit, object, ShiftSet]:
             for code, name in shifts.labels.items()
         },
     )
-    submodel = submodel_for("mtp", dose, np.zeros((dose.size, 0)), arms=(), shifts=shifts.design)
+    submodel = submodel_for("mtp", dose, np.zeros((dose.size, 0)), arms=(), policies=shifts.design)
     return outcome, initial, submodel, shifts
 
 
-def _weighted_pieces(weights: np.ndarray) -> tuple[np.ndarray, InitialFit, object, ShiftSet]:
+def _weighted_pieces(weights: np.ndarray) -> tuple[np.ndarray, InitialFit, object, PolicySet]:
     """The *tilted* law's nuisances, which is what a weighted fit's converge to.
 
     A weight tilts the population, so the density a weighted fit learns is
@@ -90,7 +90,7 @@ def _weighted_pieces(weights: np.ndarray) -> tuple[np.ndarray, InitialFit, objec
         data = CausalData.from_arrays(
             outcome, dose, covariate.reshape(-1, 1).astype(float), treatment_kind="continuous"
         )
-        shifts = ShiftSet.evaluate(SHIFTS, data, density)
+        shifts = PolicySet.evaluate(SHIFTS, data, density)
 
     initial = InitialFit(
         q_w[covariate, index],
@@ -99,7 +99,7 @@ def _weighted_pieces(weights: np.ndarray) -> tuple[np.ndarray, InitialFit, objec
             for code, name in shifts.labels.items()
         },
     )
-    submodel = submodel_for("mtp", dose, np.zeros((dose.size, 0)), arms=(), shifts=shifts.design)
+    submodel = submodel_for("mtp", dose, np.zeros((dose.size, 0)), arms=(), policies=shifts.design)
     return outcome, initial, submodel, shifts
 
 
@@ -121,18 +121,18 @@ class TestAWeightedShiftFit:
     def test_the_weighted_estimand_is_the_tilted_laws(self) -> None:
         weights = law.row_weights(self.WEIGHTS)
         outcome, initial, submodel, _ = _weighted_pieces(self.WEIGHTS)
-        means = shift_means(outcome, initial, submodel, weights / weights.mean())
-        expected = float(law.weighted_functional(law.PROBS, "ey_shift[+1]", self.WEIGHTS))
+        means = policy_means(outcome, initial, submodel, weights / weights.mean())
+        expected = float(law.weighted_functional(law.PROBS, "ey_policy[+1]", self.WEIGHTS))
         assert means[1.0].psi == pytest.approx(expected, abs=1e-12)
         # ... and it is a different number from the unweighted one, or the tilt is inert.
-        assert abs(expected - law.TRUTH["ey_shift[+1]"]) > 1e-2
+        assert abs(expected - law.TRUTH["ey_policy[+1]"]) > 1e-2
 
     @pytest.mark.parametrize("name", MEANS)
     def test_the_curve_is_the_gateaux_derivative_of_the_tilted_parameter(self, name: str) -> None:
         weights = law.row_weights(self.WEIGHTS)
         outcome, initial, submodel, shifts = _weighted_pieces(self.WEIGHTS)
-        code = float(list(shifts.labels.values()).index(name[len("ey_shift[") : -1]))
-        means = shift_means(outcome, initial, submodel, weights / weights.mean())
+        code = float(list(shifts.labels.values()).index(name[len("ey_policy[") : -1]))
+        means = policy_means(outcome, initial, submodel, weights / weights.mean())
         reported = np.asarray(means[code].influence_curve)[law.first_row_of()]
         expected = law.weighted_eif(name, self.WEIGHTS)
         np.testing.assert_allclose(reported, expected, atol=1e-12, rtol=0)
@@ -154,18 +154,18 @@ class TestAWeightedShiftFit:
             observed=submodel.observed / normalised[:, None],
             arms={code: values / normalised[:, None] for code, values in submodel.arms.items()},
         )
-        means = shift_means(outcome, initial, divided, normalised)
+        means = policy_means(outcome, initial, divided, normalised)
         reported = np.asarray(means[1.0].influence_curve)[law.first_row_of()]
-        gap = np.max(np.abs(reported - law.weighted_eif("ey_shift[+1]", self.WEIGHTS)))
+        gap = np.max(np.abs(reported - law.weighted_eif("ey_policy[+1]", self.WEIGHTS)))
         assert gap > 1e-2
 
     def test_a_constant_weight_is_the_unweighted_fit(self) -> None:
         flat = law.cell_weights(lambda w, a, y: 1.0)
         outcome, initial, submodel, _ = _weighted_pieces(flat)
-        means = shift_means(outcome, initial, submodel, np.ones(outcome.size))
-        assert means[1.0].psi == pytest.approx(law.TRUTH["ey_shift[+1]"], abs=1e-12)
+        means = policy_means(outcome, initial, submodel, np.ones(outcome.size))
+        assert means[1.0].psi == pytest.approx(law.TRUTH["ey_policy[+1]"], abs=1e-12)
         reported = np.asarray(means[1.0].influence_curve)[law.first_row_of()]
-        np.testing.assert_allclose(reported, law.eif("ey_shift[+1]"), atol=1e-12, rtol=0)
+        np.testing.assert_allclose(reported, law.eif("ey_policy[+1]"), atol=1e-12, rtol=0)
 
 
 class TestThePremisesHold:
@@ -187,30 +187,30 @@ class TestTheInfluenceCurveIsTheEfficientOne:
     @pytest.mark.parametrize("name", MEANS)
     def test_it_matches_the_numerical_gateaux_derivative(self, name: str) -> None:
         outcome, initial, submodel, shifts = _pieces()
-        code = float(list(shifts.labels.values()).index(name[len("ey_shift[") : -1]))
-        means = shift_means(outcome, initial, submodel, np.ones(outcome.size))
+        code = float(list(shifts.labels.values()).index(name[len("ey_policy[") : -1]))
+        means = policy_means(outcome, initial, submodel, np.ones(outcome.size))
         reported = np.asarray(means[code].influence_curve)[law.first_row_of()]
         np.testing.assert_allclose(reported, law.eif(name), atol=1e-12, rtol=0)
 
     @pytest.mark.parametrize("name", MEANS)
     def test_the_point_estimate_is_the_functional(self, name: str) -> None:
         outcome, initial, submodel, shifts = _pieces()
-        code = float(list(shifts.labels.values()).index(name[len("ey_shift[") : -1]))
-        means = shift_means(outcome, initial, submodel, np.ones(outcome.size))
+        code = float(list(shifts.labels.values()).index(name[len("ey_policy[") : -1]))
+        means = policy_means(outcome, initial, submodel, np.ones(outcome.size))
         assert means[code].psi == pytest.approx(law.TRUTH[name], abs=1e-12)
 
     def test_a_contrast_is_the_difference_of_the_two_curves(self) -> None:
         outcome, initial, submodel, _ = _pieces()
-        means = shift_means(outcome, initial, submodel, np.ones(outcome.size))
+        means = policy_means(outcome, initial, submodel, np.ones(outcome.size))
         curve = means[1.0].influence_curve - means[0.0].influence_curve
         reported = curve[law.first_row_of()]
-        expected = law.eif("ate_shift[+1 vs natural course]")
+        expected = law.eif("ate_policy[+1 vs natural course]")
         np.testing.assert_allclose(reported, expected, atol=1e-14, rtol=0)
 
     def test_the_natural_course_reports_the_mean_outcome(self) -> None:
         # h is identically one under d = identity, so the plug-in is E[Qbar(A, W)] = E[Y].
         outcome, initial, submodel, _ = _pieces()
-        means = shift_means(outcome, initial, submodel, np.ones(outcome.size))
+        means = policy_means(outcome, initial, submodel, np.ones(outcome.size))
         assert means[0.0].psi == pytest.approx(float(outcome.mean()), abs=1e-12)
 
 
@@ -220,7 +220,7 @@ class TestItIsNotTheRegimeThatInducesIt:
     A shift induces the density ``g^d(b | w) = sum over the preimage``, and the stochastic
     regime at that density has the *same mean* and the *same clever covariate*.  Its
     influence curve is different, because its plug-in term averages over the doses instead
-    of reading the one the unit received.  Delegating ``shift_means`` to ``regime_means``
+    of reading the one the unit received.  Delegating ``policy_means`` to ``regime_means``
     would therefore report a standard error for a different estimator, and these three
     assertions are what would catch it.
     """
@@ -235,7 +235,7 @@ class TestItIsNotTheRegimeThatInducesIt:
 
     def test_the_induced_regime_has_the_same_mean(self) -> None:
         assert float(law.induced_regime_functional(law.PROBS, "+1")) == pytest.approx(
-            law.TRUTH["ey_shift[+1]"], abs=1e-12
+            law.TRUTH["ey_policy[+1]"], abs=1e-12
         )
 
     def test_but_a_different_influence_curve(self) -> None:
@@ -260,7 +260,7 @@ class TestItIsNotTheRegimeThatInducesIt:
             law.INDUCED[covariate][:, :, None],
             np.ones(outcome.size),
         )[0.0]
-        shift = shift_means(outcome, initial, submodel, np.ones(outcome.size))[1.0]
+        shift = policy_means(outcome, initial, submodel, np.ones(outcome.size))[1.0]
 
         assert regime.psi == pytest.approx(shift.psi, abs=1e-12), "the means must agree"
         gap = np.max(np.abs(regime.influence_curve - shift.influence_curve))
@@ -275,7 +275,7 @@ class TestItIsNotTheRegimeThatInducesIt:
         dose = frame["A"].to_numpy(dtype=float)
         index = np.rint(dose).astype(int)
 
-        shift = shift_means(outcome, initial, submodel, np.ones(outcome.size))[1.0]
+        shift = policy_means(outcome, initial, submodel, np.ones(outcome.size))[1.0]
         shifted_prediction = law.Q[covariate, np.asarray(law.SHIFTED)[index]]
         conditional = (law.INDUCED * law.Q).sum(axis=1)[covariate]
         extra = float(np.var(shifted_prediction - conditional))
@@ -298,16 +298,16 @@ class TestTheNegativeControl:
             observed=submodel.observed * 1.05,
             arms={code: values * 1.05 for code, values in submodel.arms.items()},
         )
-        means = shift_means(outcome, initial, scaled, np.ones(outcome.size))
+        means = policy_means(outcome, initial, scaled, np.ones(outcome.size))
         reported = np.asarray(means[1.0].influence_curve)[law.first_row_of()]
-        gap = np.max(np.abs(reported - law.eif("ey_shift[+1]")))
+        gap = np.max(np.abs(reported - law.eif("ey_policy[+1]")))
         assert gap > 1e-2, "a 5% error in the clever covariate must be visible here"
 
     def test_the_wrong_shift_map_breaks_the_match(self) -> None:
         # The tightly capped policy is a *different* parameter; reading its curve against
         # the other one's oracle must fail, or the label is not doing any work.
         outcome, initial, submodel, _ = _pieces()
-        means = shift_means(outcome, initial, submodel, np.ones(outcome.size))
+        means = policy_means(outcome, initial, submodel, np.ones(outcome.size))
         reported = np.asarray(means[2.0].influence_curve)[law.first_row_of()]
-        gap = np.max(np.abs(reported - law.eif("ey_shift[+1]")))
+        gap = np.max(np.abs(reported - law.eif("ey_policy[+1]")))
         assert gap > 1e-2

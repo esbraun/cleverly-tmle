@@ -218,7 +218,7 @@ class PositivityReport:
         ``atc`` and ``msm``.  A regime, shift or incremental fit gets its own support
         report from that method instead and so gets no row here; ``regime`` and ``ipsi``
         appear only when :func:`positivity_report` is called directly.  ``mtp`` never
-        appears at all, because ``shifts=`` needs a continuous treatment and this report
+        appears at all, because ``policies=`` needs a continuous treatment and this report
         refuses one.
     group_score_load_omissions : dict of str to str
         Machine-readable reasons an exact group diagnostic or one of its components could
@@ -773,7 +773,7 @@ def positivity_report(result: TMLEResult) -> PositivityReport:
     back empty with a ``simplex_deviation`` of ``1.0`` computed from a zero-column
     mechanism: the largest value the field can take, reported as a finding.  The question
     a shift fit actually has to answer is about the *density ratio* at the shifted dose,
-    which :func:`~cleverly.interventions.check_shift_support` answers.
+    which :func:`~cleverly.interventions.check_policy_support` answers.
 
     Parameters
     ----------
@@ -802,8 +802,8 @@ def positivity_report(result: TMLEResult) -> PositivityReport:
             "propensity to tabulate and this report has no rows to fill. A shift's "
             "positivity question is whether the density ratio g(a - delta | W) / "
             "g(a | W) stays bounded, not whether an arm probability does, and "
-            "check_shift_support answers it -- which res.diagnostics.support() reaches "
-            "for a fit that declared shifts=. Reaching this report instead means none "
+            "check_policy_support answers it -- which res.diagnostics.support() reaches "
+            "for a fit that declared policies=. Reaching this report instead means none "
             "were declared. With delta= or intermediate= there is a mechanism in the "
             "denominator as well, and it is the one bound this axis actually has: "
             "res.diagnostics.truncation_curve(mechanism=True) sweeps it."

@@ -1151,7 +1151,7 @@ def test_a_continuous_dose_reuses_a_supplied_plan_exactly(backend: str) -> None:
         ),
     ).identify(
         ModifiedTreatmentPolicyEffect(
-            shifts=(
+            policies=(
                 Shift(0.0, cap=10.0, name="natural course"),
                 Shift(0.5, cap=10.0, name="up half"),
             )

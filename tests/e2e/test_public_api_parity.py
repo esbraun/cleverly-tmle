@@ -184,8 +184,8 @@ def test_incremental_targets_are_bit_for_bit_unchanged(target: str, estimand: An
 @pytest.mark.parametrize(
     ("target", "estimand"),
     [
-        ("ey_shift", ModifiedTreatmentPolicy),
-        ("ate_shift", ModifiedTreatmentPolicyEffect),
+        ("ey_policy", ModifiedTreatmentPolicy),
+        ("ate_policy", ModifiedTreatmentPolicyEffect),
     ],
 )
 def test_shift_targets_are_bit_for_bit_unchanged(target: str, estimand: Any) -> None:
@@ -196,7 +196,7 @@ def test_shift_targets_are_bit_for_bit_unchanged(target: str, estimand: Any) -> 
     columns = ("W1", "W2", "W3")
     shifts = (Shift(0.0, cap=None), Shift(0.5, cap=5.0))
     old = (
-        TMLE(estimands=(target,), shifts=shifts, **settings)
+        TMLE(estimands=(target,), policies=shifts, **settings)
         .fit(
             frame,
             outcome="Y",

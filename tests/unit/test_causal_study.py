@@ -839,7 +839,7 @@ def test_point_treatment_targets_state_no_interference_separately() -> None:
             "positivity *for the regime*" in item
             for item in by_name[name].identification.assumptions
         )
-    for name in ("ey_shift", "ate_shift"):
+    for name in ("ey_policy", "ate_policy"):
         assert any(
             "positivity *for the shifted dose*" in item
             for item in by_name[name].identification.assumptions
@@ -1534,7 +1534,7 @@ def test_a_conditional_caveat_survives_when_its_replacement_does_not_apply() -> 
         ),
     )
     shifts = (Shift(0.0, cap=None), Shift(0.5, cap=None))
-    effect = study.identify(ModifiedTreatmentPolicy(shifts=shifts))
+    effect = study.identify(ModifiedTreatmentPolicy(policies=shifts))
     assumptions = effect.identification.assumptions
     assert any(item.startswith(MISSINGNESS_CAVEAT_PREFIX) for item in assumptions)
     assert any(item.startswith(INTERMEDIATE_CAVEAT_PREFIX) for item in assumptions)

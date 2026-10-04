@@ -210,9 +210,9 @@ def _fit_shift_policies(
         ),
     )
     estimand: Any = (
-        ModifiedTreatmentPolicy(shifts=policies)
+        ModifiedTreatmentPolicy(policies=policies)
         if means
-        else ModifiedTreatmentPolicyEffect(shifts=policies)
+        else ModifiedTreatmentPolicyEffect(policies=policies)
     )
     return study.identify(estimand).estimate(
         method="tmle",

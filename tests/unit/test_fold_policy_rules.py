@@ -728,7 +728,7 @@ class TestContinuousDoseOutcomeSupport:
         frame = pd.DataFrame({"W": rng.normal(size=n), "A": rng.normal(size=n), "Y": outcome})
         estimator = TMLE(
             outcome_learner=CountingLogistic(max_iter=1000),
-            shifts=[Shift(0.0, cap=None), Shift(0.5, cap=4.0)],
+            policies=[Shift(0.0, cap=None), Shift(0.5, cap=4.0)],
             n_folds=3,
             random_state=0,
             simultaneous=False,

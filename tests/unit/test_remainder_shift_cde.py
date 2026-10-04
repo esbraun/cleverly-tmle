@@ -25,7 +25,7 @@ of the module -- it is *also* zero at pairs where neither is.  So the guarantee 
     consistent if :math:`\bar Q` is right, **or** if the product
     :math:`\hat h \cdot \hat\pi` is right,
 
-which is what ``_SHIFT_ID.dr_condition`` says and what the three classes below pin.  Two
+which is what ``_POLICY_ID.dr_condition`` says and what the three classes below pin.  Two
 consequences neither of which a reader would guess.  Getting the *density* exactly right
 buys nothing on its own: with a wrong missingness model the remainder stays first order,
 and the "IPW half" of double robustness is simply not available.  And errors in the two
@@ -51,8 +51,8 @@ import tests.discrete_law_shift_cde as law
 from cleverly.data import CausalData
 from cleverly.fluctuation.iterative import InitialFit
 from cleverly.fluctuation.submodel import submodel_for
-from cleverly.inference.influence import shift_means
-from cleverly.interventions import Shift, ShiftSet
+from cleverly.inference.influence import policy_means
+from cleverly.interventions import PolicySet, Shift
 from cleverly.learners.density import ConditionalDensity
 
 SHIFTS = (
@@ -157,7 +157,7 @@ def _fit(density: np.ndarray, pi_hat: np.ndarray, q_hat: np.ndarray) -> tuple[fl
             treatment_kind="continuous",
             delta=observed.astype(float),
         )
-        shifts = ShiftSet.evaluate(SHIFTS, data, ConditionalDensity(density[covariate], law.EDGES))
+        shifts = PolicySet.evaluate(SHIFTS, data, ConditionalDensity(density[covariate], law.EDGES))
 
     maps = [np.asarray(law.POLICIES[name]) for name in shifts.labels.values()]
     at = np.column_stack([index] + [mapping[index] for mapping in maps])
@@ -173,17 +173,17 @@ def _fit(density: np.ndarray, pi_hat: np.ndarray, q_hat: np.ndarray) -> tuple[fl
         dose,
         np.zeros((dose.size, 0)),
         arms=(),
-        shifts=shifts.design,
+        policies=shifts.design,
         missingness=pi_hat[covariate[:, None], at],
     )
-    mean = shift_means(outcome, initial, submodel, np.ones(dose.size), observed)[CODE]
+    mean = policy_means(outcome, initial, submodel, np.ones(dose.size), observed)[CODE]
     return float(mean.psi), np.asarray(mean.influence_curve)
 
 
 def _remainder(density: np.ndarray, pi_hat: np.ndarray, q_hat: np.ndarray) -> float:
     """``psi_hat - Psi_0 + P_0 D*``, from the library's own two pieces."""
     psi, curve = _fit(density, pi_hat, q_hat)
-    return psi - law.TRUTH[None][f"ey_shift[{POLICY}]"] + float(np.mean(curve))
+    return psi - law.TRUTH[None][f"ey_policy[{POLICY}]"] + float(np.mean(curve))
 
 
 def _exact_remainder(density: np.ndarray, pi_hat: np.ndarray, q_hat: np.ndarray) -> float:

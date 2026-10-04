@@ -109,7 +109,7 @@ def validate_incremental_replay(result: Any, estimand: str, key: Any) -> Any:
             or not np.allclose(mechanism.sum(axis=1), 1.0, atol=1e-12, rtol=0.0)
             or nuisance.propensity.arms != result.data.arm_codes
             or nuisance.regimes is not None
-            or nuisance.shifts is not None
+            or nuisance.policies is not None
             or nuisance.msm is not None
         ):
             raise CapabilityError(error)

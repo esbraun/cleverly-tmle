@@ -19,7 +19,7 @@ working model fits.
 | repeated treatment over time | the same projection over regimen and horizon cells | the node fluctuations are pooled. Under a link, one in-sample round of the alternation is a whole backward pass |
 
 The projection is a fourth parameter axis. `msm=` cannot be combined with `interventions=` or
-`shifts=`, because one fluctuation solves one set of score equations, and a fit reporting
+`policies=`, because one fluctuation solves one set of score equations, and a fit reporting
 parameters from two axes would put two of them under one heading.
 
 A worked applied analysis is in the

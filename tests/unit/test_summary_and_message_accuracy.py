@@ -362,14 +362,14 @@ class TestTheSuggestedShiftNamesTheFitThatRunsIt:
             )
         message = str(raised.value)
         assert message.startswith(refusal)
-        for advice in ("shifts=", "F21", "cross_fit=False"):
+        for advice in ("policies=", "F21", "cross_fit=False"):
             assert advice not in message
 
     def test_the_named_in_sample_fit_reports_the_natural_course(self) -> None:
         result = _dose_fit(
-            _dose_frame(), cross_fit=False, missing=True, shifts=[Shift(0.0, cap=None)]
+            _dose_frame(), cross_fit=False, missing=True, policies=[Shift(0.0, cap=None)]
         ).single()
-        assert "ey_shift[natural course]" in result.estimates
+        assert "ey_policy[natural course]" in result.estimates
 
     @pytest.mark.parametrize(
         ("cross_fit", "missing"), [(False, True), (True, False)], ids=["in_sample", "complete"]

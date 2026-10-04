@@ -138,7 +138,7 @@ class TestCleverCovariates:
                 g1,
                 arm_fractions=float(a.mean()),
                 regimes=regimes,
-                shifts=shifts,
+                policies=shifts,
                 msm=msm,
                 incremental=incremental,
             )

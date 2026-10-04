@@ -47,8 +47,8 @@ from ..inference.influence import (
     make_estimate,
     msm_coefficients,
     natural_course_mean,
+    policy_means,
     regime_means,
-    shift_means,
     unscale,
 )
 from ..utils.bounds import OutcomeScaler
@@ -263,7 +263,7 @@ class Target:
         What this target's parameters are indexed by: ``"arm"`` for a treatment level,
         ``"regime"`` for a regime declared with ``interventions=``, ``"learned_rule"``
         for a rule learned inside each training fold and declared with ``learned_rule=``,
-        ``"shift"`` for a modified treatment policy declared with ``shifts=``, ``"ipsi"``
+        ``"policy"`` for a modified treatment policy declared with ``policies=``, ``"ipsi"``
         for a tilt of the mechanism declared with ``incremental=``, ``"msm"`` for a
         coefficient of a working model declared with ``msm=``.
 
@@ -293,8 +293,8 @@ class Target:
 
         The axis is also not the same question as ``group``.  A group is a score
         equation and several targets share one; an axis is what the resulting
-        parameters are *named by*.  ``ey_shift`` and ``ate_shift`` share the ``mtp``
-        group and the ``"shift"`` axis, but ``ate`` and ``att`` share the ``"arm"``
+        parameters are *named by*.  ``ey_policy`` and ``ate_policy`` share the ``mtp``
+        group and the ``"policy"`` axis, but ``ate`` and ``att`` share the ``"arm"``
         axis across two different groups.
     build:
         Maps a :class:`TargetContext` to **one or more** estimates.  Returns a sequence
@@ -387,7 +387,9 @@ class TargetContext:
     #: otherwise.  Carried only to select the mean function: unlike ``regimes``, whose
     #: densities the plug-in term averages ``Qbar`` against, a shift's plug-in term is
     #: already in ``targeted.arms`` and the covariate is already in ``submodel``.
-    shifts: FloatArray | None = None
+    policies: FloatArray | None = None
+    #: ``(S, C)`` known component weights of a randomized policy set, or ``None``.
+    policy_mixing: FloatArray | None = None
     #: ``(n, K, p)`` working-model design and ``(n, K)`` weights, for the ``msm``
     #: fluctuation; ``None`` otherwise.  Two arrays rather than one product because the
     #: projection needs them apart: the Gram matrix is ``h * phi * phi'`` and the fitted
@@ -462,7 +464,7 @@ class TargetContext:
         the induced density makes the two clever covariates identical entry for entry.
         A regime's plug-in term averages ``Qbar`` over the arms; a shift's reads the dose
         the unit actually received, and the two agree only in conditional expectation
-        given ``W`` -- see :func:`~cleverly.inference.influence.shift_means`, whose
+        given ``W`` -- see :func:`~cleverly.inference.influence.policy_means`, whose
         docstring states the exact variance gap, and the negative control in
         ``tests/unit/test_influence_gateaux_shift.py`` that fails if someone merges them.
 
@@ -494,9 +496,14 @@ class TargetContext:
                 self.weights,
                 self.observed,
             )
-        if self.shifts is not None:
-            return shift_means(
-                self.scaled, self.targeted, self.submodel, self.weights, self.observed
+        if self.policies is not None:
+            return policy_means(
+                self.scaled,
+                self.targeted,
+                self.submodel,
+                self.weights,
+                self.observed,
+                self.policy_mixing,
             )
         if self.regimes is not None:
             return regime_means(

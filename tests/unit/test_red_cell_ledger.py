@@ -47,7 +47,7 @@ POLICIES = {study.slug: study.publication_policy for study in STUDIES}
 
 #: The one committed paired row that is red for its calibration leg alone.
 SHIFT = "shift-policies"
-SHIFT_RED = ("continuous_modified_policy", "ate_shift[+0.25 vs natural course]")
+SHIFT_RED = ("continuous_modified_policy", "ate_policy[+0.25 vs natural course]")
 
 
 @pytest.fixture(scope="module")

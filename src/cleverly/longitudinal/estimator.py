@@ -147,6 +147,7 @@ from .regimen import (
     Plan,
     Regimen,
     RegimenSpec,
+    attach_policy_numerators,
     describe_plan,
     refuse_regimen_rules,
     resolve_plans,
@@ -157,6 +158,7 @@ from .sequential import (
     RegimenFit,
     fit_mechanism,
     fit_regimen,
+    node_ratios,
     preflight_mechanism_support,
     preflight_terminal_outcomes,
 )
@@ -222,14 +224,11 @@ _REFUSED: dict[str, str] = {
         "A node that draws its arm from a known distribution is a Stochastic node in that "
         "plan: DynamicRegimen('mix', (Stochastic(q1, 'q1', density_kind='known'), 'low'))"
     ),
-    "shifts": (
-        "a modified treatment policy on a continuous dose is not written yet for a "
-        "longitudinal fit. LTMLE takes binary and categorical nodes, and a regimen "
-        "assigns a label, a rule or a known policy over the levels at each node. A shift "
-        "needs a conditional density of "
-        "the dose at every node, and each node's intervention density ratio enters the "
-        "cumulative product. Díaz, Williams, Hoffman and Schenck (2023), Theorem 3, "
-        "covers that target. docs/roadmap.md X12 tracks it"
+    "policies": (
+        "a modified treatment policy is a node of a regimen rather than a parameter axis: "
+        "regimens={'+0.5': DynamicRegimen('+0.5', (Shift(0.5, cap=4.0),) * 2)}, or a "
+        "mapping value Shift(0.5, cap=4.0) for every node. Declare continuous nodes with "
+        "LongitudinalData.from_frame(..., continuous_treatment=[...])"
     ),
     "incremental": (
         "a tilt of the mechanism is built out of g, so over time it needs the product "
@@ -430,7 +429,10 @@ def _frozen_plans(plans: Sequence[Plan]) -> tuple[Plan, ...]:
         values = np.array(plan.values, copy=True)
         values.setflags(write=False)
         policy = tuple(None if entry is None else _frozen(entry) for entry in plan.policy)
-        retained.append(replace(plan, values=values, policy=policy))
+        numerators = tuple(
+            None if entry is None else _frozen(entry) for entry in plan.mtp_numerators
+        )
+        retained.append(replace(plan, values=values, policy=policy, mtp_numerators=numerators))
     return tuple(retained)
 
 
@@ -453,7 +455,19 @@ def _plan_fingerprint(plan: Plan) -> str:
     """
     if not plan.has_policy:
         return fingerprint_array(plan.values)
-    return fingerprint_array(plan.values, *plan.policy)
+    if not plan.has_mtp:
+        return fingerprint_array(plan.values, *plan.policy)
+    # A modified treatment policy's carry weights do not tell two policies apart -- every
+    # deterministic policy at a continuous node carries a column of ones -- so its assigned
+    # doses and level maps are digested too.
+    targets = [dose for doses in plan.policy_targets if doses is not None for dose in doses]
+    maps = [
+        codes.astype(float)
+        for branches in plan.mtp_assignments
+        if branches is not None
+        for _, codes in branches
+    ]
+    return fingerprint_array(plan.values, *plan.policy, *targets, *maps)
 
 
 def _truncated_cells(unbounded: FloatArray, bounded: FloatArray) -> BoolArray:
@@ -2102,10 +2116,12 @@ def _run_recursion(
     # ``None`` on a single-event or end-of-study fit, so the comprehension below is one
     # loop deeper for every fit and a second code path for none.
     causes: tuple[str | None, ...] = data.cause_labels or (None,)
+    ratios = {plan.label: node_ratios(data, plan, mechanism) for plan in plans}
     if msm is None:
         return {
-            _fit_key(plan.label, cause, horizon, data.is_survival): fit_regimen(
-                data, plan, mechanism, horizon=horizon, cause=cause, **recursion
+            _fit_key(plan.label, cause, horizon, data.is_survival): _with_node_ratio(
+                fit_regimen(data, plan, mechanism, horizon=horizon, cause=cause, **recursion),
+                ratios[plan.label],
             )
             # Regimen-outer, then cause, then horizon, so the report reads down one curve
             # at a time rather than across the regimens at each time.
@@ -2120,10 +2136,17 @@ def _run_recursion(
         fit_regimens_msm(data, plans, mechanism, msm, cause=cause, **recursion) for cause in causes
     )
     return {
-        _fit_key(fit.regimen.label, fit.cause, fit.horizon, data.is_survival): fit
+        _fit_key(fit.regimen.label, fit.cause, fit.horizon, data.is_survival): _with_node_ratio(
+            fit, ratios[fit.regimen.label]
+        )
         for msm_fit in msm_fits
         for fit in msm_fit.fits
     }, msm_fits
+
+
+def _with_node_ratio(fit: RegimenFit, ratio: FloatArray | None) -> RegimenFit:
+    """The fit with its plan's raw per-node ratio, kept for a later trim of the policy ratio."""
+    return fit if ratio is None else replace(fit, node_ratio=ratio)
 
 
 @dataclass(frozen=True)
@@ -2517,6 +2540,8 @@ class LTMLE:
         n_jobs: int = 1,
         n_bootstrap: int = 0,
         bootstrap_resampling: Resampling = "auto",
+        density_bins: int = 20,
+        ratio: str = "density",
         **refused: Any,
     ) -> None:
         _validate_learner(outcome_learner, "outcome_learner")
@@ -2547,6 +2572,8 @@ class LTMLE:
         self.n_jobs = n_jobs
         self.n_bootstrap = n_bootstrap
         self.bootstrap_resampling = bootstrap_resampling
+        self.density_bins = density_bins
+        self.ratio = ratio
         refuse_unsupported(refused)
         self._validate_settings()
 
@@ -2581,6 +2608,14 @@ class LTMLE:
             raise ValueError("resampling must be 'auto', 'iid', or 'cluster'")
         if self.max_iter < 1:
             raise ValueError(f"max_iter must be at least 1; got {self.max_iter}")
+        if self.ratio not in ("density", "classifier"):
+            raise ValueError(
+                f"ratio must be 'density' or 'classifier'; got {self.ratio!r}. It is how a "
+                "continuous node's policy ratio is estimated: a binned conditional density, or "
+                "a stacked classification (Diaz et al. 2023, Section 5.4)"
+            )
+        if self.density_bins < 3:
+            raise ValueError(f"density_bins must be at least 3; got {self.density_bins}")
         if self.msm is not None and not isinstance(self.msm, MSM):
             raise TypeError(
                 f"msm= must be a cleverly.msm.MSM; got {type(self.msm).__name__}. A "
@@ -2635,6 +2670,7 @@ class LTMLE:
         weights_type: str = "probability",
         weights_estimated: bool = False,
         family: str = "auto",
+        continuous_treatment: Sequence[str] = (),
         **refused: Any,
     ) -> LongitudinalResult:
         """Fit on a wide dataframe, or on an already-built :class:`LongitudinalData`.
@@ -2688,6 +2724,10 @@ class LTMLE:
             Declare that the weights came out of a fitted model.  It changes no number.
         family : {"auto", "binomial", "gaussian"}
             The outcome family.  ``"auto"`` infers it from the outcome.
+        continuous_treatment : sequence of str
+            The treatment columns that hold a continuous dose, as for
+            :meth:`LongitudinalData.from_frame`.  Each such node takes a modified treatment
+            policy.
         **refused : Any
             A point-treatment keyword.  Each one raises :class:`TypeError` with the
             reason that a longitudinal fit does not support it.
@@ -2720,6 +2760,7 @@ class LTMLE:
             weights_type=weights_type,
             weights_estimated=weights_estimated,
             family=family,
+            continuous_treatment=continuous_treatment,
         )
         regimens = resolve_regimens(self.regimens, prepared.n_times)
         if prepared.is_survival:
@@ -2808,7 +2849,15 @@ class LTMLE:
             ),
             folds=folds,
             n_jobs=self.n_jobs,
+            density_bins=self.density_bins,
+            ratio=self.ratio,
         )
+        # A modified treatment policy's ratio numerator reads the fitted mechanism, so it is
+        # attached to its plan here, once, from the out-of-fold fit.  The replay recipe holds
+        # the attached plans, because a truncation replay reuses this mechanism.
+        plans = attach_policy_numerators(plans, mechanism.policy_numerators)
+        if any(plan.has_mtp for plan in plans):
+            replay_recipe = replace(replay_recipe, plans=_frozen_plans(plans))
 
         # One projection per cause -- a cause is a different estimand, not a further column
         # of the design -- over a grid whose cells cross the regimens with the horizons.
@@ -2963,6 +3012,7 @@ class LTMLE:
         weights_type: str,
         weights_estimated: bool,
         family: str,
+        continuous_treatment: Sequence[str] = (),
     ) -> LongitudinalData:
         if isinstance(data, LongitudinalData):
             declared = {
@@ -2984,6 +3034,8 @@ class LTMLE:
                 named.append("weights_type")
             if weights_estimated:
                 named.append("weights_estimated")
+            if continuous_treatment:
+                named.append("continuous_treatment")
             if named:
                 raise ValueError(
                     f"{named} cannot be combined with a LongitudinalData input; the node "
@@ -3009,6 +3061,7 @@ class LTMLE:
             weights_type=weights_type,
             weights_estimated=weights_estimated,
             family=family,
+            continuous_treatment=continuous_treatment,
         )
 
     def _horizons(self, data: LongitudinalData) -> tuple[int, ...]:

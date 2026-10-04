@@ -796,7 +796,7 @@ class TestTruncationCurve:
         with warnings.catch_warnings():
             warnings.simplefilter("error", RuntimeWarning)
             result = (
-                fast_tmle(cross_fit=False, shifts=(Shift(0.0, cap=None), Shift(0.5, cap=5.0)))
+                fast_tmle(cross_fit=False, policies=(Shift(0.0, cap=None), Shift(0.5, cap=5.0)))
                 .fit(frame, outcome="Y", treatment="A")
                 .single()
             )

@@ -687,7 +687,7 @@ that no setting repairs comes before a refusal whose remedy is a setting, as the
 | order | request | item |
 | ---: | --- | --- |
 | 1 | `CTMLE` or `DRTMLE` with `learned_rule=` | [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
-| 2 | `learned_rule=` beside `interventions=`, `shifts=`, `incremental=`, `msm=` or `reference=`, or beside an arm estimand | [X11](../roadmap.md#x11-learned-policy-follow-ups) (c) for `interventions=`, `reference=` and an arm estimand. [F17](../roadmap.md#f17-joint-point-treatment-parameter-axes) for `shifts=`, `incremental=` and `msm=` |
+| 2 | `learned_rule=` beside `interventions=`, `policies=`, `incremental=`, `msm=` or `reference=`, or beside an arm estimand | [X11](../roadmap.md#x11-learned-policy-follow-ups) (c) for `interventions=`, `reference=` and an arm estimand. [F17](../roadmap.md#f17-joint-point-treatment-parameter-axes) for `policies=`, `incremental=` and `msm=` |
 | 3 | a continuous treatment | F27 |
 | 4 | a treatment with more than two arms | X11 (d) |
 | 5 | missing outcomes, `delta=` | [F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants), with a learned-rule text that runs before the F21 refusal |
@@ -813,7 +813,7 @@ Evidence: the probe scripts and logs in `reviews/notebook-review/probes/iv-n3/` 
 
 Theory: Díaz Muñoz and van der Laan (2012), Haneuse and Rotnitzky (2013), and Díaz, Williams,
 Hoffman and Schenck (2023). Implementation:
-[`interventions/shift.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/shift.py),
+[`interventions/policy.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/policy.py),
 [`learners/density.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/learners/density.py),
 and
 [`fluctuation/submodel.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/fluctuation/submodel.py).

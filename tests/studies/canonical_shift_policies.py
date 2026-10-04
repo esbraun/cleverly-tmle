@@ -40,11 +40,11 @@ POLICIES: tuple[tuple[float, float | None, str], ...] = (
     (0.5, 3.0, "+0.5 capped"),
 )
 ESTIMANDS = (
-    "ey_shift[natural course]",
-    "ey_shift[+0.25]",
-    "ey_shift[+0.5 capped]",
-    "ate_shift[+0.25 vs natural course]",
-    "ate_shift[+0.5 capped vs natural course]",
+    "ey_policy[natural course]",
+    "ey_policy[+0.25]",
+    "ey_policy[+0.5 capped]",
+    "ate_policy[+0.25 vs natural course]",
+    "ate_policy[+0.5 capped vs natural course]",
 )
 DENSITY_BINS = 20
 ORACLE_DENSITY_BINS = 320
@@ -198,7 +198,7 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
     if scenario != SCENARIO:
         raise KeyError(scenario)
     frame, truth = shift_dgp(curvature=PRIMARY_CURVATURE).sample(
-        n, shifts=POLICIES, seed=seed, backend="pandas"
+        n, policies=POLICIES, seed=seed, backend="pandas"
     )
     return frame, truth
 
@@ -211,7 +211,7 @@ def fit_cleverly(frame: pd.DataFrame, *, simultaneous: bool = False) -> Any:
     dgp = shift_dgp(curvature=PRIMARY_CURVATURE)
     edges = tuple(float(value) for value in bin_edges(np.asarray(frame["A"]), PRIMARY_DENSITY_BINS))
     estimator = TMLE(
-        shifts=shifts(),
+        policies=shifts(),
         outcome_learner=QuadraticShiftOutcome(),
         treatment_learner=OracleShiftDensity(dgp, edges),
         cross_fit=False,
@@ -238,7 +238,7 @@ def fit_shift_estimator(estimator: TMLE, frame: pd.DataFrame, dgp: ShiftDGP) -> 
 
 def reversed_ratio_control(result: Any) -> Any:
     """Retarget one fit after replacing only the shift-density-ratio direction."""
-    evaluated = result.nuisance.shifts
+    evaluated = result.nuisance.policies
     if evaluated is None:  # pragma: no cover - a study contract guard
         raise AssertionError("a shift fit did not retain its evaluated policies")
 
@@ -251,11 +251,11 @@ def reversed_ratio_control(result: Any) -> Any:
         ratio=reciprocal(evaluated.ratio),
         ratio_at=reciprocal(evaluated.ratio_at),
     )
-    nuisance = replace(result.nuisance, shifts=reversed_shifts)
+    nuisance = replace(result.nuisance, policies=reversed_shifts)
     estimates, fluctuations = result.estimator.retarget(
         result.data,
         nuisance,
-        estimands=("ey_shift", "ate_shift"),
+        estimands=("ey_policy", "ate_policy"),
     )
     repeat = replace(
         result.repeats[0],
@@ -279,10 +279,10 @@ def initial_estimates(result: Any) -> dict[str, float]:
         for index, (_, _, name) in enumerate(POLICIES)
     }
     reference = POLICIES[0][2]
-    out = {f"ey_shift[{name}]": value for name, value in means.items()}
+    out = {f"ey_policy[{name}]": value for name, value in means.items()}
     for name, value in means.items():
         if name != reference:
-            out[f"ate_shift[{name} vs {reference}]"] = value - means[reference]
+            out[f"ate_policy[{name} vs {reference}]"] = value - means[reference]
     return out
 
 

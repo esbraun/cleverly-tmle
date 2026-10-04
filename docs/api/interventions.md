@@ -21,12 +21,12 @@ rule. It can also be a `Stochastic` node that draws its arm from a known policy.
    cleverly.interventions.Incremental
    cleverly.interventions.IPSISet
    cleverly.interventions.Shift
-   cleverly.interventions.ShiftSet
+   cleverly.interventions.PolicySet
    cleverly.interventions.SupportReport
    cleverly.interventions.RegimeSupport
    cleverly.interventions.IncrementalSupport
-   cleverly.interventions.ShiftSupport
+   cleverly.interventions.PolicySupport
    cleverly.interventions.check_support
    cleverly.interventions.check_incremental_support
-   cleverly.interventions.check_shift_support
+   cleverly.interventions.check_policy_support
 ```

@@ -1,7 +1,7 @@
 r"""Incremental propensity-score interventions: tilting the mechanism that was there.
 
 A :mod:`regime <cleverly.interventions.base>` assigns an arm from :math:`W`, and a
-:mod:`shift <cleverly.interventions.shift>` moves the dose a unit received.  An
+:mod:`shift <cleverly.interventions.policy>` moves the dose a unit received.  An
 **incremental propensity-score intervention** does neither.  It leaves the treatment
 decision where it was and multiplies its *odds* by :math:`\delta` (Kennedy 2019):
 
@@ -168,7 +168,7 @@ class IPSISet:
 
     Holds arrays and no callables, for the reason
     :class:`~cleverly.interventions.RegimeSet` and
-    :class:`~cleverly.interventions.ShiftSet` do: a fit reached through
+    :class:`~cleverly.interventions.PolicySet` do: a fit reached through
     :meth:`~cleverly.estimators.TMLE.retarget` -- the bootstrap, a result loaded from disk
     -- targets the same declared tilts without the mechanism being refit.
 
@@ -179,7 +179,7 @@ class IPSISet:
     deltas : tuple of float
         The odds multipliers, in declaration order.  Not the keys of the per-parameter
         arrays: those are the **codes** ``0.0 .. R-1.0``, exactly as
-        :class:`~cleverly.interventions.ShiftSet` keys by ordinal rather than by delta.
+        :class:`~cleverly.interventions.PolicySet` keys by ordinal rather than by delta.
     values : ndarray
         ``(n, K, R)``, :math:`q_{\\delta_r}(a \\mid W_i)` -- the tilted density, columns in
         arm-code order.  Rows sum to one by construction.
@@ -477,7 +477,7 @@ class IncrementalSupport:
 
     This row is hashable and its two siblings are not, and that difference is deliberate.
     :class:`~cleverly.interventions.RegimeSupport` and
-    :class:`~cleverly.interventions.ShiftSupport` carry quantile mappings that are part of
+    :class:`~cleverly.interventions.PolicySupport` carry quantile mappings that are part of
     what makes one of their rows different from another, so neither has ever had a hash.
     This row's identity is the declared tilt and what the data did with it, all of which
     was hashable until :attr:`score_load` was added.  That field holds a ``dict``, so

@@ -247,7 +247,7 @@ the fit records it under `result.extra["missing_data"]`.
 **What the data do not identify.** The conditions let `Delta_A` depend on `A`. Then
 `P(A = a | W)` is not identified, and only `P(A = a | Delta_A = 1, W)` is. A target or a clever
 covariate that reads the treatment law of every row is therefore not identified with a missing
-treatment. That covers `att`, `atc`, `ey_obs`, `par`, `paf`, `incremental=` and `shifts=`. The
+treatment. That covers `att`, `atc`, `ey_obs`, `par`, `paf`, `incremental=` and `policies=`. The
 shared preflight refuses each one by name, and each refusal repeats this statement. A regime mean
 and an arm-indexed `msm=` coefficient read only the outcome regression and the law of `W`, so the
 composite identifies them.

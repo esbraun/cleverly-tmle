@@ -88,7 +88,7 @@ import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from functools import partial
-from typing import Any, cast, get_args
+from typing import Any, Literal, cast, get_args
 
 import numpy as np
 
@@ -154,7 +154,15 @@ from ..inference.influence import (
 )
 from ..inference.multiplier import MultiplierKind, simultaneous_bands
 from ..inference.results import attach_bootstrap
-from ..interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet, as_interventions
+from ..interventions import (
+    Incremental,
+    IPSISet,
+    Policy,
+    PolicySet,
+    RegimeSet,
+    RiskRatioTilt,
+    as_interventions,
+)
 from ..interventions.base import refuse_mixed_interventions, refuse_regime_densities
 from ..interventions.incremental import refuse_multi_arm_tilt
 from ..interventions.learned import (
@@ -166,6 +174,7 @@ from ..interventions.learned import (
     learned_rule_scheme_refusal,
     refuse_learned_rule_composition,
 )
+from ..interventions.policy import refuse_policy_declarations
 from ..learners._fitting import Task, infer_task
 from ..learners.crossfit import (
     _POST_DRAW_REMEDY,
@@ -336,7 +345,7 @@ def _is_arm_indexed_missing_crossfit(
         The resolved estimand names.
     cross_fit : bool
         Whether the nuisances are cross-fitted.
-    axis : {"arm", "regime", "learned_rule", "shift", "ipsi", "msm"}
+    axis : {"arm", "regime", "learned_rule", "policy", "rr_tilt", "ipsi", "msm"}
         What the fit's parameters are indexed by.
 
     Returns
@@ -396,7 +405,8 @@ _CROSS_FITTED_MISSING_CONTRACTS = (
 
 #: What each parameter axis outside the two contracts is called in that refusal.
 _OFF_CONTRACT_AXIS_NAMES: dict[ParameterAxis, str] = {
-    "shift": "shift",
+    "policy": "policy",
+    "rr_tilt": "risk-ratio tilt",
     "ipsi": "incremental",
     "regime": "regime",
     "msm": "MSM",
@@ -451,6 +461,47 @@ _REPEATED_BANDS_REASON = (
 #: ``full-refit-bootstrap-and-derived-contrasts`` measured it.  A red ``boot_ate_point_tmle``
 #: cell sets this to ``False``, so the interval then publishes as a diagnostic.
 POINT_BOOTSTRAP_INFERENTIAL = True
+
+
+def _all_tilts(policies: Sequence[object]) -> bool:
+    """Whether every declared policy is a risk-ratio tilt, which has its own estimands."""
+    return bool(policies) and all(isinstance(item, RiskRatioTilt) for item in policies)
+
+
+def _refuse_mixed_tilts(policies: Sequence[object]) -> None:
+    """Refuse a fit that declares risk-ratio tilts beside other policies.
+
+    A tilt reports ``ey_rr_tilt`` and ``ate_rr_tilt``, its own estimand names, which is the
+    X19 requirement that it is not reported under another policy's name.  One fit reports
+    one parameter axis, so the two kinds are fitted separately.
+    """
+    tilts = [isinstance(item, RiskRatioTilt) for item in policies]
+    if any(tilts) and not all(tilts):
+        raise CapabilityError(
+            "policies= holds RiskRatioTilt beside other policies. A risk-ratio tilt reports "
+            "its own estimands, ey_rr_tilt and ate_rr_tilt, and one fit reports one parameter "
+            "axis. Fit the tilts and the other policies separately; RiskRatioTilt(1.0) is the "
+            "natural course a tilt fit contrasts against"
+        )
+
+
+def _default_treatment_kind(policies: Sequence[object]) -> Literal["discrete", "continuous"]:
+    """The treatment kind ``policies=`` declares when ``treatment_kind=`` is not passed.
+
+    A risk-ratio tilt and a label map read labels, so either one declares a categorical
+    treatment.  Every other policy moves a dose and so declares a continuous one.  No
+    declared policy is a discrete fit.
+    """
+    from ..interventions import ModifiedPolicy
+
+    if not policies:
+        return "discrete"
+    categorical = any(
+        isinstance(item, RiskRatioTilt)
+        or (isinstance(item, ModifiedPolicy) and item.apply is not None)
+        for item in policies
+    )
+    return "discrete" if categorical else "continuous"
 
 
 class TMLE:
@@ -552,10 +603,10 @@ class TMLE:
         rule learned inside each outer training fold (``ey_learned_rule``).  The learned-rule
         contract of ``docs/technical-reference/point-treatment-tmle.md`` states it.  The fit needs
         ``cross_fit=True``, ``cv_evaluation=True``, ``targeting_scheme="pooled"``, ``repeats=1`` and
-        ``n_bootstrap=0``, and refuses every other scheme before any learner, with that remedy.  It
-        also refuses ``interventions=``, ``shifts=``, ``incremental=``, ``msm=``, ``reference=`` and
-        an arm estimand beside it, and a continuous or multi-arm treatment, missing outcomes,
-        ``intermediate=``, ``weights=``, ``id=`` and ``strata=``.
+        ``n_bootstrap=0``, and refuses every other scheme before any learner, with that remedy.
+        It also refuses ``interventions=``, ``policies=``, ``incremental=``, ``msm=``,
+        ``reference=`` and an arm estimand beside it, and a continuous or multi-arm treatment,
+        missing outcomes, ``intermediate=``, ``weights=``, ``id=`` and ``strata=``.
         :func:`~cleverly.interventions.learned.refuse_learned_rule_composition` states the order.
         The result records the fold summaries under ``result.extra["learned_rule"]``.
     n_folds, learner_folds:
@@ -746,11 +797,12 @@ class TMLE:
         min_retain: int | None = None,
         estimands: Sequence[EstimandName] | str | None = None,
         interventions: Sequence[Any] | None = None,
-        shifts: Sequence[Shift] | None = None,
+        policies: Sequence[Policy] | None = None,
         incremental: Sequence[Incremental] | None = None,
         msm: MSM | None = None,
         learned_rule: LearnedRule | None = None,
         density_bins: int = 20,
+        ratio: Literal["density", "classifier"] = "density",
         reference: Any = None,
         alpha_sig: float = 0.05,
         n_bootstrap: int = 0,
@@ -795,13 +847,16 @@ class TMLE:
         self.min_retain = min_retain
         self.estimands = estimands
         self.interventions = as_interventions(interventions)
-        self.shifts = tuple(shifts or ())
+        self.policies = tuple(policies or ())
         self.incremental = tuple(incremental or ())
-        refuse_mixed_interventions(self.shifts, kind="shift", holder="shifts=")
+        refuse_mixed_interventions(self.policies, kind="policy", holder="policies=")
+        refuse_policy_declarations(self.policies)
+        _refuse_mixed_tilts(self.policies)
         refuse_mixed_interventions(self.incremental, kind="incremental", holder="incremental=")
         self.msm = msm
         self.learned_rule = learned_rule
         self.density_bins = density_bins
+        self.ratio = ratio
         self.reference = reference
         self.alpha_sig = alpha_sig
         self.n_bootstrap = n_bootstrap
@@ -878,7 +933,7 @@ class TMLE:
             name
             for name, value in (
                 ("interventions=", self.interventions),
-                ("shifts=", self.shifts),
+                ("policies=", self.policies),
                 ("incremental=", self.incremental),
             )
             if value
@@ -906,12 +961,12 @@ class TMLE:
                 "missingness mechanism divides the covariate and is not in the estimand, "
                 "so bounding it regularises rather than retargets.)"
             )
-        if self.msm is not None and (self.interventions or self.shifts or self.incremental):
+        if self.msm is not None and (self.interventions or self.policies or self.incremental):
             other = (
                 "interventions="
                 if self.interventions
-                else "shifts="
-                if self.shifts
+                else "policies="
+                if self.policies
                 else "incremental="
             )
             raise CapabilityError(
@@ -921,6 +976,12 @@ class TMLE:
                 "both. A working model over declared regimes is a coherent estimand and "
                 "is not implemented -- its design would have to be indexed by regime "
                 "rather than by arm. docs/roadmap.md F17 tracks this stop."
+                + (
+                    " A working model over modified treatment policies is fitted by LTMLE "
+                    "with one node: LTMLE(regimens={...}, msm=MSM(...))."
+                    if self.policies
+                    else ""
+                )
             )
         if self.msm is not None and self.reference is not None:
             raise ValueError(
@@ -934,6 +995,12 @@ class TMLE:
             allowed = ", ".join(repr(value) for value in get_args(FoldStrata))
             raise ValueError(
                 f"stratify_folds must be one of {allowed}; got {self.stratify_folds!r}"
+            )
+        if self.ratio not in ("density", "classifier"):
+            raise ValueError(
+                f"ratio must be 'density' or 'classifier'; got {self.ratio!r}. 'density' "
+                "estimates a policy's ratio from a binned conditional density of the dose, and "
+                "'classifier' from a stacked classification (Diaz et al. 2023, Section 5.4)"
             )
         if self.density_bins < 3:
             raise ValueError(
@@ -1018,14 +1085,14 @@ class TMLE:
         treatment_kind:
             ``"discrete"`` to code the treatment column into arms, ``"continuous"`` to
             keep its own values and model it with a conditional density.  ``None``
-            follows ``shifts=``: a modified treatment policy moves a dose and names no
+            follows ``policies=``: a modified treatment policy moves a dose and names no
             arm, so declaring one declares the treatment continuous.
 
             That is a default read off another *declaration*, not off the data -- a
             column at fifteen distinct values could reasonably be read either way, and
             :class:`~cleverly.data.CausalData` refuses to guess from the level count for
             exactly that reason.  Pass this explicitly to override, including to get the
-            arm-coded refusal for a ``shifts=`` fit on a treatment that really has arms.
+            arm-coded refusal for a ``policies=`` fit on a treatment that really has arms.
         weights_type, weights_estimated:
             How to read ``weights``.  Supplying weights changes the estimand to the
             causal parameter in the weight-tilted population -- see
@@ -1283,9 +1350,7 @@ class TMLE:
             strata=strata,
             family=self.family,
             treatment_kind=(
-                ("continuous" if self.shifts else "discrete")
-                if treatment_kind is None
-                else treatment_kind
+                _default_treatment_kind(self.policies) if treatment_kind is None else treatment_kind
             ),
             treatment_delta=treatment_delta,
         )
@@ -1300,8 +1365,8 @@ class TMLE:
 
         A learned-rule fit runs
         :func:`~cleverly.interventions.learned.refuse_learned_rule_composition` first, before
-        :meth:`_check_shifts`.  That check would answer a continuous treatment by suggesting
-        ``shifts=``, which a learned-rule fit refuses.
+        :meth:`_check_policies`.  That check would answer a continuous treatment by suggesting
+        ``policies=``, which a learned-rule fit refuses.
 
         A declared missing treatment meets
         :func:`~cleverly.estimators.composite.missing_treatment_refusal` before both, which
@@ -1322,7 +1387,7 @@ class TMLE:
                 raise refusal
         if self.learned_rule is not None:
             refuse_learned_rule_composition(data, self)
-        self._check_shifts(data)
+        self._check_policies(data)
         self._check_incremental(data)
         estimands = self._resolve_estimands_for_data(data)
         if data.has_missing_treatment:
@@ -2560,8 +2625,8 @@ class TMLE:
             return "learned_rule"
         if self.msm is not None:
             return "msm"
-        if self.shifts:
-            return "shift"
+        if self.policies:
+            return "rr_tilt" if _all_tilts(self.policies) else "policy"
         if self.incremental:
             return "ipsi"
         if self.interventions:
@@ -2595,27 +2660,31 @@ class TMLE:
                 "docs/roadmap.md F6 tracks it."
             )
 
-    def _check_shifts(self, data: CausalData) -> None:
-        """Refuse a shift the treatment cannot carry, and a dose with no policy declared.
+    def _check_policies(self, data: CausalData) -> None:
+        """Refuse a policy the treatment cannot carry, and a dose with no policy declared.
 
-        Both directions matter.  A shift reads the treatment that a unit received,
-        :math:`d(A, W)`, and this package fits it on a continuous treatment only --
-        ``d(a, w) = a + 1`` on arms ``{0, 1}`` assigns an arm that does not exist.  A
-        ``Rule`` is :math:`d(W)`, a different policy.  A continuous treatment with no
-        ``shifts=`` has no estimand at all, since every registered arm-indexed target names
-        a level it has none of.
+        Both directions matter.  A policy reads the treatment that a unit received,
+        :math:`d(A, W)`.  On a continuous treatment its density ratio is Equation (3) of
+        Díaz, Williams, Hoffman and Schenck (2023); on a categorical one it is their discrete
+        formula, and a policy must map levels to levels.  A risk-ratio tilt sets a binary
+        treatment coded 0 and 1.  A ``Rule`` is :math:`d(W)`, a different policy.  A
+        continuous treatment with no ``policies=`` has no estimand at all, since every
+        registered arm-indexed target names a level it has none of.
         """
-        if self.shifts and not data.is_continuous_treatment:
-            raise DataError(
-                f"shifts= declares a modified treatment policy, which needs a continuous "
-                f"treatment, but {data.treatment_name} has arms "
-                f"{list(data.treatment_levels)}. A shift is a function d(A, W) of the "
-                "treatment that a unit received, and this package fits it on a continuous "
-                "treatment only. A regime in interventions= is a different policy, which "
-                "depends on the covariates alone. To treat this column as a dose, build the "
-                "CausalData with treatment_kind='continuous'."
-            )
-        if data.is_continuous_treatment and not self.shifts and self.msm is None:
+        if self.policies and any(isinstance(item, RiskRatioTilt) for item in self.policies):
+            levels = [] if data.is_continuous_treatment else list(data.treatment_levels)
+            if data.is_continuous_treatment or sorted(float(level) for level in levels) != [
+                0.0,
+                1.0,
+            ]:
+                raise DataError(
+                    f"RiskRatioTilt sets a binary treatment coded 0 and 1, but "
+                    f"{data.treatment_name} "
+                    + ("is continuous" if data.is_continuous_treatment else f"has levels {levels}")
+                    + ". It is lmtp's ipsi(), which keeps a treated unit treated with "
+                    "probability delta and otherwise sets it to 0"
+                )
+        if data.is_continuous_treatment and not self.policies and self.msm is None:
             # The suggested shift meets the F21 refusal of a cross-fitted fit with missing
             # outcomes, so that fit is told which fit estimates the natural course.  The
             # condition is the one ``_refuse_cross_fitted_missing_off_contract`` refuses on.
@@ -2630,7 +2699,7 @@ class TMLE:
             raise DataError(
                 f"{data.treatment_name} was declared continuous, so it has no arms and "
                 "none of the arm-indexed estimands name a parameter it has. Say which "
-                "doses to compare with shifts=[Shift(delta, cap=...), ...]; "
+                "doses to compare with policies=[Shift(delta, cap=...), ...]; "
                 "Shift(0.0, cap=None) is the natural course, whose mean is E[Y]. Or, "
                 "with every outcome observed and no intermediate=, declare an MSM with a "
                 f"dose integration grid.{in_sample}"
@@ -2640,14 +2709,14 @@ class TMLE:
         self,
         data: CausalData,
         regimes: RegimeSet | None = None,
-        shifts: ShiftSet | None = None,
+        policies: PolicySet | None = None,
     ) -> float:
         """The arm -- or regime, or shift -- code every contrast is taken against.
 
         On a regime or shift fit the contrasts are between *regimes* (or *shifts*), so
         ``reference=`` names one of them and the code returned indexes
         :class:`~cleverly.interventions.RegimeSet` or
-        :class:`~cleverly.interventions.ShiftSet`.  :meth:`_regimes` and
+        :class:`~cleverly.interventions.PolicySet`.  :meth:`_regimes` and
         :func:`~cleverly.estimators._nuisance.fit_nuisances` have already validated the
         name against what was declared, which is why this simply reads the code back.
 
@@ -2663,11 +2732,11 @@ class TMLE:
             # Coefficients have no contrast reference; the config field is retained for
             # the shared result schema and is ignored on the MSM parameter axis.
             return 0.0
-        if shifts is not None:
-            return shifts.reference
+        if policies is not None:
+            return policies.reference
         if regimes is not None:
             return regimes.reference
-        if self.shifts:
+        if self.policies:
             # Resolved from the shift *names*, for the reason the regime branch gives.
             return self._reference_shift()
         if self.incremental:
@@ -2868,11 +2937,12 @@ class TMLE:
             screen_treatment=self.screen_treatment,
             screen_threshold=self.screen_threshold,
             min_retain=self.min_retain,
-            shifts=self.shifts,
-            shift_reference=None if self.reference is None else str(self.reference),
+            policies=self.policies,
+            policy_reference=None if self.reference is None else str(self.reference),
             incremental=self.incremental,
             incremental_reference=None if self.reference is None else str(self.reference),
             density_bins=self.density_bins,
+            policy_ratio=self.ratio,
             msm=msm,
             companion=companion,
             n_jobs=self.n_jobs,
@@ -2929,18 +2999,18 @@ class TMLE:
         return float(names.index(str(self.reference)))
 
     def _reference_shift(self) -> float:
-        """The shift code contrasts are taken against, from ``reference=`` and the names.
+        """The policy code contrasts are taken against, from ``reference=`` and the names.
 
-        Defaults to the first declared shift rather than to the natural course, which is
+        Defaults to the first declared policy rather than to the natural course, which is
         the same rule the arms and regimes follow -- ``reference=`` is how to say
         otherwise, and declaring ``Shift(0.0, cap=None)`` first is the usual way to make
-        ``ate_shift`` read as *the effect of shifting*.
+        ``ate_policy`` read as *the effect of shifting*.
         """
-        names = [shift.name for shift in self.shifts]
+        names = [policy.name for policy in self.policies]
         if self.reference is None:
             return 0.0
         if str(self.reference) not in names:
-            raise DataError(f"reference={self.reference!r} is not one of the shifts {names}")
+            raise DataError(f"reference={self.reference!r} is not one of the policies {names}")
         return float(names.index(str(self.reference)))
 
     def _nuisances(
@@ -3021,6 +3091,7 @@ class TMLE:
                 if present
             ),
             fits_treatment=not _is_natural_course(data, estimands),
+            continuous_treatment=data.is_continuous_treatment,
             q_bounds=None if scaler.is_identity else (scaler.lower, scaler.upper),
             screen_treatment=self.screen_treatment,
             estimands=estimands,
@@ -3221,7 +3292,7 @@ class TMLE:
             )
         level = self.alpha_sig if alpha_sig is None else alpha_sig
         regimes = nuisance.regimes
-        reference = self._reference_arm(data, regimes, nuisance.shifts)
+        reference = self._reference_arm(data, regimes, nuisance.policies)
         mean_bounds = g_bounds or resolve_g_bounds(
             self.g_bounds, self._bounds_n(data), for_att=False
         )
@@ -3504,7 +3575,7 @@ class TMLE:
             fluctuation,
             supported,
             alpha_sig,
-            self._reference_arm(data, nuisance.regimes, nuisance.shifts),
+            self._reference_arm(data, nuisance.regimes, nuisance.policies),
             index=index,
             drop_undefined=True,
         )
@@ -3845,7 +3916,7 @@ class TMLE:
             assert data.strata is not None
             strata = data.strata
             probabilities = stratum_probabilities(data)
-            reference = self._reference_arm(data, nuisance.regimes, nuisance.shifts)
+            reference = self._reference_arm(data, nuisance.regimes, nuisance.policies)
 
             def outcome_submodel(current: NuisanceEstimates) -> Submodel:
                 return self._stratified_submodel(
@@ -4004,7 +4075,7 @@ class TMLE:
         so this has no fold form.
         """
         lower = self.nuisance_bound if nuisance_bound is None else float(nuisance_bound)
-        reference = self._reference_arm(data, nuisance.regimes, nuisance.shifts)
+        reference = self._reference_arm(data, nuisance.regimes, nuisance.policies)
         return solve_with_stratified_projection(
             data,
             nuisance,
@@ -4170,23 +4241,23 @@ class TMLE:
     def _parameter_axis(
         data: CausalData,
         regimes: RegimeSet | None,
-        shifts: ShiftSet | None,
+        policies: PolicySet | None,
         incremental: IPSISet | None,
         msm: MSMSet | None,
     ) -> tuple[tuple[float, ...], dict[float, Any]]:
         """The codes this fit's parameters are keyed by, and what to report them as.
 
         Exactly one of the four sources is live, which :meth:`_validate_settings` and
-        :meth:`_check_shifts` have already established: a fit cannot declare two of the
-        keywords, and a continuous treatment must declare ``shifts=``.
+        :meth:`_check_policies` have already established: a fit cannot declare two of the
+        keywords, and a continuous treatment must declare ``policies=``.
 
         The working model's codes index its *terms*, not its arms -- which is the whole of
         what makes ``msm`` a fourth axis rather than a target on the arm axis.
         """
         if msm is not None:
             return msm.codes, dict(msm.labels)
-        if shifts is not None:
-            return shifts.codes, dict(shifts.labels)
+        if policies is not None:
+            return policies.codes, dict(policies.labels)
         if incremental is not None:
             return incremental.codes, dict(incremental.labels)
         if regimes is not None:
@@ -4238,7 +4309,7 @@ class TMLE:
         weights, observed = data.weights, data.observed
         treatment, cluster, n = data.treatment, data.cluster, data.n
         regimes = nuisance.regimes
-        shifts = nuisance.shifts
+        policies = nuisance.policies
         # Already the *targeted* tilt: `solve_with_mechanism` returns a NuisanceEstimates
         # carrying the fluctuated mechanism, and it is that one which reaches here.
         incremental = nuisance.incremental
@@ -4258,7 +4329,7 @@ class TMLE:
             treatment = treatment[index]
             cluster = None if cluster is None else cluster[index]
             regimes = None if regimes is None else regimes.subset(index)
-            shifts = None if shifts is None else shifts.subset(index)
+            policies = None if policies is None else policies.subset(index)
             incremental = None if incremental is None else incremental.subset(index)
             msm = None if msm is None else msm.subset(index)
             corrections = (
@@ -4273,7 +4344,7 @@ class TMLE:
         # The five cases are the same shape on purpose --
         # see TargetContext.arms. `data.arm_label` is not reached on a continuous fit,
         # where it would raise.
-        codes, labels = self._parameter_axis(data, regimes, shifts, incremental, msm)
+        codes, labels = self._parameter_axis(data, regimes, policies, incremental, msm)
         context = TargetContext(
             scaled=scaled,
             targeted=targeted,
@@ -4290,14 +4361,15 @@ class TMLE:
             reference=reference,
             regimes=None if regimes is None else regimes.values,
             corrections=corrections,
-            shifts=None if shifts is None else shifts.design,
+            policies=None if policies is None else policies.design,
+            policy_mixing=None if policies is None else policies.mixing,
             incremental=incremental,
             msm_design=None if msm is None else msm.design,
             msm_weights=None if msm is None else msm.weights,
             msm_link="identity" if msm is None else str(msm.link),
             always_label=(
                 regimes is not None
-                or shifts is not None
+                or policies is not None
                 or incremental is not None
                 or msm is not None
             ),

@@ -1023,7 +1023,7 @@ class TestTheRefusals:
         ("keyword", "value"),
         [
             ("incremental", [Incremental(1.5)]),
-            ("shifts", [Shift(0.5, cap=None)]),
+            ("policies", [Shift(0.5, cap=None)]),
         ],
     )
     def test_the_other_parameter_axes(self, keyword: str, value) -> None:

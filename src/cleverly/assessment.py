@@ -2397,7 +2397,7 @@ class DiagnosticsFacade(_CapabilityFacade):
             nuisance = self._result.nuisance
             from .interventions import (
                 check_incremental_support,
-                check_shift_support,
+                check_policy_support,
                 check_support,
             )
             from .sensitivity.positivity import positivity_report
@@ -2428,7 +2428,7 @@ class DiagnosticsFacade(_CapabilityFacade):
             # density is a broken shift fit, and the density-ratio report says so by name.
             # Adding the second condition sent it to the arm-level report instead, which
             # answers a different question or refuses for an unrelated reason.
-            if nuisance.shifts is not None:
+            if nuisance.policies is not None:
                 bound = self._result.config.missingness_bound
                 level = self._result.intermediate_value
                 mechanisms = [
@@ -2439,10 +2439,15 @@ class DiagnosticsFacade(_CapabilityFacade):
                     )
                     if values is not None
                 ]
-                return check_shift_support(
-                    nuisance.shifts,
+                return check_policy_support(
+                    nuisance.policies,
                     nuisance.density,
                     self._result.data.treatment,
+                    propensity=(
+                        None
+                        if self._result.data.is_continuous_treatment
+                        else nuisance.propensity.values
+                    ),
                     mechanisms=mechanisms,
                     folds=nuisance.folds,
                     **score_arguments("mtp"),

@@ -779,8 +779,8 @@ def simulated_confounding(
         Parameter alias to report. The free function needs an explicit ``ey1``, ``ey0``,
         or ``ey[...]`` alias for a binary counterfactual mean. Binary ratio fits use
         ``rr`` or ``or``. Population attributable contrasts use ``par`` or ``paf``.
-        A continuous fit requires an explicit ``ey_shift[...]`` alias
-        of a nonzero-delta policy, an ``ate_shift[...]`` alias, or an ``msm[...]`` coefficient.
+        A continuous fit requires an explicit ``ey_policy[...]`` alias
+        of a nonzero-delta policy, an ``ate_policy[...]`` alias, or an ``msm[...]`` coefficient.
         Fixed regimes use ``ey_regime[...]`` or ``ate_regime[...]``.
         An MSM uses ``msm[term]``. Incremental targets use ``ey_ipsi[...]`` or
         ``ate_ipsi[...]``; a multiplier-one mean is refused.
@@ -872,12 +872,12 @@ def simulated_confounding(
     The zero treatment-strength column carries no confounding path either, because the
     latent vector never reaches the treatment there. For a Gaussian outcome that column
     reports the level shift ``Y' = Y - k_Y U`` alone. The level shift largely cancels in
-    an ``ate_shift`` contrast. A policy mean keeps it, so read the zero treatment-strength
-    column of an ``ey_shift`` surface as an artifact of the outcome law.
+    an ``ate_policy`` contrast. A policy mean keeps it, so read the zero treatment-strength
+    column of an ``ey_policy`` surface as an artifact of the outcome law.
 
     A zero-delta shift is the natural course, its policy mean is ``E[Y]``, and it has no
     counterfactual treatment dependence. ``simulated_confounding`` refuses that mean before
-    it draws the latent vector. It still accepts an ``ate_shift`` contrast that uses the
+    it draws the latent vector. It still accepts an ``ate_policy`` contrast that uses the
     natural course as its reference. The same refusal applies to ``NaturalCourseMean``.
     PAR and PAF retain counterfactual treatment dependence through their reference intervention.
     """

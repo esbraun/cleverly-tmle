@@ -206,7 +206,7 @@ def _corrupt_policy(result: Any, alias: str, field: str) -> Any:
         name = field.removeprefix("key-")
         changes = {
             name: {
-                "axis": "shift",
+                "axis": "policy",
                 "value": "absent",
                 "term": "absent",
                 "reference": "absent",
@@ -578,7 +578,7 @@ def test_binary_fit_with_msm_doses_refuses_before_draws(monkeypatch: pytest.Monk
         simulated_confounding(result, estimand=_alias(result), grid=_GRID, random_state=31)
 
 
-@pytest.mark.parametrize("slot", ["shifts", "incremental"])
+@pytest.mark.parametrize("slot", ["policies", "incremental"])
 def test_arm_replay_refuses_other_declared_counterfactual_slots(
     slot: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

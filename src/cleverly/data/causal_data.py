@@ -875,9 +875,22 @@ class CausalData:
             if not np.all(np.isfinite(values)):
                 raise DataError("counterfactual treatment values must all be finite")
         else:
-            code = float(np.asarray(treatment_value, dtype=float).reshape(()))
-            self.arm_label(code)  # validates the code against the declared support
-            values = np.full(self.n, code)
+            requested = np.asarray(treatment_value, dtype=float).reshape(-1)
+            if requested.size == 1:
+                code = float(requested[0])
+                self.arm_label(code)  # validates the code against the declared support
+                values = np.full(self.n, code)
+            elif requested.size == self.n:
+                # One arm per row: a modified treatment policy on a categorical treatment
+                # assigns each unit the level its own policy maps it to.
+                for code in np.unique(requested):
+                    self.arm_label(float(code))
+                values = requested
+            else:
+                raise DataError(
+                    f"counterfactual_design was given {requested.size} arm codes for "
+                    f"{self.n} rows; pass one code for everybody or one per row"
+                )
         a = self.treatment_block(values)
         blocks = [a, self.covariates]
         if intermediate_value is not None:

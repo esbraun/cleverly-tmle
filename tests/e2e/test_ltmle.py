@@ -973,7 +973,7 @@ class TestItRefusesByName:
             ("weights", "column of the data"),
             ("intermediate", "different identification"),
             ("interventions", "Declare it in regimens="),
-            ("shifts", "continuous dose"),
+            ("policies", "node of a regimen"),
             ("incremental", "tilted mechanisms"),
             # Not a refusal any more but a redirect: a survival outcome is declared by
             # the outcome columns, and the keyword stays a key so that passing it says

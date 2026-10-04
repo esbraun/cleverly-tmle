@@ -136,7 +136,14 @@ from ..fluctuation.iterative import (
     solve_fluctuation,
 )
 from ..fluctuation.submodel import Submodel
+from ..interventions.policy import (
+    induced_probabilities,
+    lazy_frame,
+    policy_branches,
+)
 from ..learners.crossfit import Folds
+from ..learners.density import ConditionalDensity, fit_conditional_density
+from ..learners.density_ratio import classifier_ratio
 from ..learners.super_learner import SuperLearnerDiagnostics
 from ..utils.bounds import OutcomeScaler, bound
 from ..utils.parallel import map_parallel
@@ -263,6 +270,14 @@ class Mechanism:
     #: Super Learner diagnostics from the same censoring fits that produced
     #: ``censoring_observed``. Empty for complete data and for a non-Super-Learner fit.
     censoring_diagnostics: tuple[tuple[SuperLearnerDiagnostics, ...], ...] = ()
+    #: By plan label, by node counted from one, the ratio numerator of a modified treatment
+    #: policy node: :math:`g^d_t(A_t \mid H_t)` read from the out-of-fold multinomial at a
+    #: categorical node, and :math:`r_t = g^d_t / g_t` from the out-of-fold density or
+    #: classifier at a continuous one.  Empty without a policy node.
+    policy_numerators: dict[str, dict[int, FloatArray]] = field(default_factory=dict)
+    #: The out-of-fold conditional density of each continuous node, by node counted from
+    #: one, on the density route.  Empty without a continuous node.
+    densities: dict[int, ConditionalDensity] = field(default_factory=dict)
 
     def cumulative(
         self, data: LongitudinalData, plan: Plan, bounds: tuple[float, float]
@@ -547,6 +562,11 @@ class RegimenFit:
     #: ``(n, T)`` running product of the intervention density at the observed arms, the
     #: numerator of the cumulative ratio.  ``None`` on a plan without a policy node.
     cumulative_numerator: FloatArray | None = None
+    #: ``(n, T)`` raw per-node ratio of a plan with a modified treatment policy: the node's
+    #: numerator over its unbounded treatment probability at the observed arm, which at a
+    #: continuous node is the density ratio :math:`r_t` itself.  Not bounded by
+    #: ``g_bounds``.  ``None`` on a plan without such a node.
+    node_ratio: FloatArray | None = None
 
     @property
     def leverage(self) -> FloatArray:
@@ -691,6 +711,8 @@ def preflight_mechanism_support(
         The realized outer split.
     """
     for time in range(1, data.n_times + 1):
+        if data.is_continuous_node(time):
+            continue
         at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
         arm = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
         classes = tuple(float(code) for code in range(len(data.treatment_levels[time - 1])))
@@ -713,6 +735,8 @@ def fit_mechanism(
     censoring_learner: Learner,
     folds: Folds,
     n_jobs: int = 1,
+    density_bins: int = 20,
+    ratio: str = "density",
 ) -> Mechanism:
     """Fit the treatment and censoring mechanisms at every node, out of fold.
 
@@ -738,6 +762,10 @@ def fit_mechanism(
     censoring_observed: list[FloatArray] = []
     treatment_diagnostics: list[tuple[SuperLearnerDiagnostics, ...]] = []
     censoring_diagnostics: list[tuple[SuperLearnerDiagnostics, ...]] = []
+    numerators: dict[str, dict[int, FloatArray]] = {
+        plan.label: {} for plan in plans if plan.has_mtp
+    }
+    densities: dict[int, ConditionalDensity] = {}
     # Neither factor depends on a regimen, so one scan serves every node.  `followed` is
     # unused here and the all-true assignment makes that explicit rather than implicit.
     with phase("mask_construction"):
@@ -746,35 +774,43 @@ def fit_mechanism(
     for time in range(1, data.n_times + 1):
         at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
         arm = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
-        designs = {plan.label: data.history_design(time, treatment=plan.values) for plan in plans}
-        observed_key = _internal_prediction_key(tuple(designs), "observed_treatment")
-        prediction_designs = {**designs, observed_key: data.history_design(time)}
-        with phase("mechanism_fit"):
-            classes = tuple(float(code) for code in range(len(data.treatment_levels[time - 1])))
-            probabilities, diagnostics = cross_fit_predictions(
-                treatment_learner,
-                data.history_design(time),
+        if data.is_continuous_node(time):
+            with phase("mechanism_fit"):
+                density = _continuous_node_ratios(
+                    data,
+                    plans,
+                    time,
+                    at_risk,
+                    numerators,
+                    treatment_learner=treatment_learner,
+                    folds=folds,
+                    density_bins=density_bins,
+                    ratio=ratio,
+                    n_jobs=n_jobs,
+                )
+            if density is not None:
+                densities[time] = density
+            # The density ratio is the whole treatment factor at a continuous node, carried
+            # in the numerator; the denominator's treatment factor is one there, so the bound
+            # applies to the censoring product and the categorical factors only.
+            treatment.append({plan.label: np.ones(data.n) for plan in plans})
+            treatment_observed.append(np.zeros((data.n, 0)))
+            treatment_diagnostics.append(())
+        else:
+            _categorical_node(
+                data,
+                plans,
+                time,
+                at_risk,
                 arm,
-                data.weights,
-                folds,
-                task="classification",
-                predict_designs=prediction_designs,
-                fit_mask=at_risk,
-                groups=data.cluster,
-                clip=(0.0, 1.0),
-                classes=classes,
+                treatment,
+                treatment_observed,
+                treatment_diagnostics,
+                numerators,
+                treatment_learner=treatment_learner,
+                folds=folds,
                 n_jobs=n_jobs,
             )
-        treatment_observed.append(np.asarray(probabilities.pop(observed_key), dtype=float))
-        treatment_diagnostics.append(tuple(diagnostics))
-        rows = np.arange(data.n)
-        treatment.append(
-            {
-                plan.label: probabilities[plan.label][rows, plan.arm(time).astype(np.int64)]
-                for plan in plans
-            }
-        )
-
         if not data.censoring_names:
             censoring.append({plan.label: np.ones(data.n) for plan in plans})
             continue
@@ -812,7 +848,141 @@ def fit_mechanism(
         tuple(censoring_observed),
         tuple(treatment_diagnostics),
         tuple(censoring_diagnostics),
+        numerators,
+        densities,
     )
+
+
+def _categorical_node(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    time: int,
+    at_risk: BoolArray,
+    arm: FloatArray,
+    treatment: list[dict[str, FloatArray]],
+    treatment_observed: list[FloatArray],
+    treatment_diagnostics: list[tuple[SuperLearnerDiagnostics, ...]],
+    numerators: dict[str, dict[int, FloatArray]],
+    *,
+    treatment_learner: Learner,
+    folds: Folds,
+    n_jobs: int,
+) -> None:
+    r"""One categorical node's multinomial mechanism, and its policy nodes' numerators.
+
+    At a modified treatment policy node the numerator is the discrete formula of Díaz,
+    Williams, Hoffman and Schenck (2023, Section 4), :math:`g^d(A_t \mid H_t) =
+    \sum_e p(e) \sum_s 1\{d_e(s, H_t) = A_t\}\, g(s \mid H_t)`, read from the same
+    out-of-fold multinomial the denominator selects from.  It is not bounded; the bound
+    applies to the running denominator, as for a known policy's :math:`q`.
+    """
+    designs = {plan.label: data.history_design(time, treatment=plan.values) for plan in plans}
+    observed_key = _internal_prediction_key(tuple(designs), "observed_treatment")
+    prediction_designs = {**designs, observed_key: data.history_design(time)}
+    with phase("mechanism_fit"):
+        classes = tuple(float(code) for code in range(len(data.treatment_levels[time - 1])))
+        probabilities, diagnostics = cross_fit_predictions(
+            treatment_learner,
+            data.history_design(time),
+            arm,
+            data.weights,
+            folds,
+            task="classification",
+            predict_designs=prediction_designs,
+            fit_mask=at_risk,
+            groups=data.cluster,
+            clip=(0.0, 1.0),
+            classes=classes,
+            n_jobs=n_jobs,
+        )
+    treatment_observed.append(np.asarray(probabilities.pop(observed_key), dtype=float))
+    treatment_diagnostics.append(tuple(diagnostics))
+    rows = np.arange(data.n)
+    treatment.append(
+        {
+            plan.label: probabilities[plan.label][rows, plan.arm(time).astype(np.int64)]
+            for plan in plans
+        }
+    )
+    observed = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
+    for plan in plans:
+        if not plan.is_mtp_node(time):
+            continue
+        assigned = plan.mtp_assignments[time - 1]
+        assert assigned is not None
+        g = np.asarray(probabilities[plan.label], dtype=float)
+        codes = observed.astype(np.int64)
+        numerator = np.zeros(data.n)
+        for probability, level_map in assigned:
+            numerator = numerator + probability * induced_probabilities(level_map, g)[rows, codes]
+        numerators[plan.label][time] = np.where(at_risk, numerator, 0.0)
+
+
+def _continuous_node_ratios(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    time: int,
+    at_risk: BoolArray,
+    numerators: dict[str, dict[int, FloatArray]],
+    *,
+    treatment_learner: Learner,
+    folds: Folds,
+    density_bins: int,
+    ratio: str,
+    n_jobs: int,
+) -> ConditionalDensity | None:
+    """A continuous node's policy ratios, by the binned density or by classification.
+
+    The density route fits one pooled-hazard density of the dose given the observed
+    history on the rows at risk, with bin edges from those rows of the whole sample, and
+    evaluates each plan's policy by Equation (3) of Díaz, Williams, Hoffman and Schenck
+    (2023).  The classifier route fits one stacked classifier per plan (their Section 5.4).
+    Both are cross-fitted on ``folds``, so every row's ratio comes from a model that did not
+    train on it.  Every plan holds a modified treatment policy at a continuous node, since
+    :func:`~cleverly.longitudinal.regimen.refuse_continuous_assignments` refuses the rest.
+    """
+    dose = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
+    history = data.history_design(time)
+    frame = lazy_frame(lambda: data.policy_frame(time))
+    density: ConditionalDensity | None = None
+    if ratio == "density":
+        density, _ = fit_conditional_density(
+            treatment_learner,
+            history,
+            dose,
+            data.weights,
+            folds,
+            n_bins=density_bins,
+            groups=data.cluster,
+            n_jobs=n_jobs,
+            fit_mask=at_risk,
+        )
+    for plan in plans:
+        targets = plan.carry_targets(time)
+        assert targets is not None
+        branches = policy_branches(plan.regimen.plan[time - 1])  # type: ignore[union-attr]
+        if density is not None:
+            numerator = np.zeros(data.n)
+            for probability, branch in branches:
+                numerator = numerator + probability * branch.ratio(dose, frame, density.density_at)
+        else:
+            (numerator,) = classifier_ratio(
+                treatment_learner,
+                history,
+                dose,
+                tuple(
+                    (probability, target)
+                    for (probability, _), target in zip(branches, targets, strict=True)
+                ),
+                data.weights,
+                folds,
+                evaluate_at=[dose],
+                fit_mask=at_risk,
+                groups=data.cluster,
+                n_jobs=n_jobs,
+            )
+        numerators[plan.label][time] = np.where(at_risk, numerator, 0.0)
+    return density
 
 
 def seed_carried(data: LongitudinalData, scaler: OutcomeScaler) -> FloatArray:
@@ -962,7 +1132,7 @@ def _check_policy_arm_support(
     the bias of a prediction at a level no fitted row received.  This check is the only
     guard against it.
     """
-    if not plan.is_policy_node(time):
+    if not plan.is_policy_node(time) or data.is_continuous_node(time):
         return
     density = plan.policy_at(time)
     observed = plan.arm(time)
@@ -1047,8 +1217,9 @@ def outcome_design(
     time : int
         The node, counted from one.
     arm : int or None
-        The level code to set the current policy node's block to, for a prediction.
-        ``None`` uses the observed arm.
+        The level code to set the current policy node's block to, for a prediction, or at a
+        continuous policy node the branch whose assigned dose to set.  ``None`` uses the
+        observed arm.
 
     Returns
     -------
@@ -1062,11 +1233,19 @@ def outcome_design(
     for node in range(1, time + 1):
         if not plan.is_policy_node(node):
             continue
-        codes = (
-            np.full(data.n, float(arm))
-            if node == time and arm is not None
-            else plan.values[:, node - 1]
-        )
+        current = node == time and arm is not None
+        if data.is_continuous_node(node):
+            # A dose enters as itself.  At the current node a prediction sets it to the dose
+            # one branch of the policy assigns, d_e(A_t, H_t), per row.
+            targets = plan.carry_targets(node)
+            dose = (
+                targets[int(arm)]  # type: ignore[arg-type]
+                if current and targets is not None
+                else np.nan_to_num(plan.values[:, node - 1], nan=0.0)
+            )
+            blocks.append(np.asarray(dose, dtype=float).reshape(-1, 1))
+            continue
+        codes = np.full(data.n, float(arm)) if current else plan.values[:, node - 1]  # type: ignore[arg-type]
         blocks.append(arm_indicators(codes, len(data.treatment_levels[node - 1])))
     return np.hstack(blocks)
 
@@ -1115,12 +1294,17 @@ def _fit_node_regression(
         next_outcome = _pseudo_outcome(data, carried, time, cause)
     design = outcome_design(data, plan, time)
     policy_node = plan.is_policy_node(time)
-    levels = range(len(data.treatment_levels[time - 1]))
+    levels = range(plan.policy_at(time).shape[1] if policy_node else 0)
+    continuous_node = policy_node and data.is_continuous_node(time)
     predict_designs = (
         {f"arm_{code}": outcome_design(data, plan, time, arm=code) for code in levels}
         if policy_node
         else {"history": design}
     )
+    if continuous_node:
+        # A dose has no level to select the observed-arm prediction from, so it is
+        # predicted at the observed dose; the branches are predicted at their own doses.
+        predict_designs["history"] = design
     learner = outcome_learner if time == horizon else pseudo_learner
     task = "classification" if time == horizon and data.family == "binomial" else "regression"
     if task == "classification":
@@ -1157,7 +1341,11 @@ def _fit_node_regression(
     by_arm = np.column_stack(
         [np.where(at_risk, predictions[f"arm_{code}"], _FILLER) for code in levels]
     )
-    observed = by_arm[np.arange(data.n), plan.arm(time).astype(np.int64)]
+    observed = (
+        np.where(at_risk, predictions["history"], _FILLER)
+        if continuous_node
+        else by_arm[np.arange(data.n), plan.arm(time).astype(np.int64)]
+    )
     return _NodeRegression(
         time=time,
         at_risk=at_risk,
@@ -1517,6 +1705,35 @@ def _finish_regimen_fit(
     )
 
 
+def node_ratios(data: LongitudinalData, plan: Plan, mechanism: Mechanism) -> FloatArray | None:
+    """``(n, T)`` raw per-node ratio of a plan with a modified treatment policy, else ``None``.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    plan : Plan
+        The resolved plan, with its policy numerators attached.
+    mechanism : Mechanism
+        The fitted mechanism.
+
+    Returns
+    -------
+    FloatArray or None
+        The node's intervention density over its unbounded treatment probability at the
+        observed arm, zero where that probability is zero.
+    """
+    if not plan.has_mtp:
+        return None
+    density = plan.intervention_density(data)
+    columns = []
+    for time in range(1, data.n_times + 1):
+        denominator = np.asarray(mechanism.treatment[time - 1][plan.label], dtype=float)
+        safe = np.where(denominator > 0.0, denominator, 1.0)
+        columns.append(np.where(denominator > 0.0, density[:, time - 1] / safe, 0.0))
+    return np.column_stack(columns)
+
+
 def fit_regimen(
     data: LongitudinalData,
     plan: Plan,
@@ -1857,7 +2074,7 @@ def untargeted_fold_recursions(
         regression_target = {time: np.full(data.n, _FILLER, dtype=float) for time in nodes}
         diagnostics: dict[int, list[SuperLearnerDiagnostics]] = {time: [] for time in nodes}
         by_arm = {
-            time: np.full((data.n, len(data.treatment_levels[time - 1])), _FILLER, dtype=float)
+            time: np.full((data.n, cell.plan.policy_at(time).shape[1]), _FILLER, dtype=float)
             for time in nodes
             if cell.plan.is_policy_node(time)
         }
