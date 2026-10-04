@@ -310,6 +310,8 @@ def test_registered_point_targets_have_an_explicit_surface_disposition() -> None
     refused = {
         "ey_obs": "natural-course mean has no counterfactual treatment term",
         "ey_learned_rule": "learned-rule value: a replay relearns the rules, so its target moves",
+        "ey_rr_tilt": "risk-ratio tilt mean: the policy reads g, so a replay moves the policy",
+        "ate_rr_tilt": "risk-ratio tilt contrast: refused fit-wide for the same reason",
     }
     assert binary == set(_BINARY_PARAMETER_TARGETS)
     dispositions = (binary, continuous, policy.keys(), refused.keys())

@@ -471,9 +471,9 @@ def _all_tilts(policies: Sequence[object]) -> bool:
 def _refuse_mixed_tilts(policies: Sequence[object]) -> None:
     """Refuse a fit that declares risk-ratio tilts beside other policies.
 
-    A tilt reports ``ey_rr_tilt`` and ``ate_rr_tilt``, its own estimand names, which is the
-    X19 requirement that it is not reported under another policy's name.  One fit reports
-    one parameter axis, so the two kinds are fitted separately.
+    A tilt reports ``ey_rr_tilt`` and ``ate_rr_tilt``, its own estimand names, so it is not
+    reported under another policy's name.  One fit reports one parameter axis, so the two
+    kinds are fitted separately.
     """
     tilts = [isinstance(item, RiskRatioTilt) for item in policies]
     if any(tilts) and not all(tilts):

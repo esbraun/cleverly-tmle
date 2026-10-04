@@ -250,6 +250,19 @@ def _refuse_learned_rule(result: Any) -> str | None:
     )
 
 
+def _refuse_risk_ratio_tilt(result: Any) -> str | None:
+    """Refuse a risk-ratio tilt fit, whose policy reads the treatment mechanism."""
+    if result.config.parameter_axis != "rr_tilt":
+        return None
+    return (
+        "simulated_confounding does not cover a risk-ratio tilt fit (ey_rr_tilt, "
+        "ate_rr_tilt): the tilt's policy mean reads the treatment mechanism, so a simulated "
+        "common cause moves the policy as well as the confounding, and this package has not "
+        "derived that replay. Fit the static arms (ate) or an incremental odds tilt (ipsi) "
+        "for this surface"
+    )
+
+
 def _refuse_missing_estimator(result: Any) -> str | None:
     """Refuse a result that stores no replay estimator."""
     if result.estimator is None:
@@ -390,6 +403,7 @@ _FIT_WIDE_RULES: tuple[tuple[str, Callable[[Any], str | None]], ...] = (
     ("longitudinal", _refuse_longitudinal),
     ("result_type", _refuse_result_type),
     ("learned_rule", _refuse_learned_rule),
+    ("risk_ratio_tilt", _refuse_risk_ratio_tilt),
     ("multi_arm", _refuse_multi_arm),
     ("missing_outcome", _refuse_missing_outcome),
     ("missing_treatment", _refuse_missing_treatment),

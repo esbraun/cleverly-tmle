@@ -2855,7 +2855,11 @@ def _support_metrics(report: Any) -> tuple[float | None, float | None]:
         # Only the shift and incremental rows carry a cap. A regime row has no
         # `capped_fraction`, and defaulting one to zero for it would turn "this report
         # truncates nothing" into a reported maximum of 0.0%.
-        truncated.extend(float(getattr(row, "capped_fraction", 0.0)) for row in report.values())
+        truncated.extend(
+            float(capped)
+            for row in report.values()
+            if (capped := getattr(row, "capped_fraction", None)) is not None
+        )
     ess.extend(float(getattr(row, "ess_ratio", np.nan)) for _, row in _intervention_rows(report))
     clean_ess = [value for value in ess if np.isfinite(value)]
     return (max(truncated) if truncated else None, min(clean_ess) if clean_ess else None)
@@ -3507,7 +3511,8 @@ def _support_warning(report: Any) -> str | None:
         for name, item in report.items():
             if int(getattr(item, "unsupported", 0)) > 0:
                 return f"intervention {name!r} has units with estimated zero support"
-            if float(getattr(item, "capped_fraction", 0.0)) > 0.05:
+            capped = getattr(item, "capped_fraction", None)
+            if capped is not None and float(capped) > 0.05:
                 return f"intervention {name!r} had more than 5% of its weights capped"
         return None
     regimes = getattr(report, "regimes", None)

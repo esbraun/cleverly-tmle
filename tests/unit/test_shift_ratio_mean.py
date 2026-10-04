@@ -129,6 +129,7 @@ def test_the_summary_states_the_reference_mean_for_each_shift_kind() -> None:
         effective_sample_size=900.0,
         ess_ratio=0.9,
         moved_fraction=1.0,
+        capped_fraction=0.0,
         unsupported=0,
         mean_ratio=0.9,
         fold_mean_ratio=(0.9,),

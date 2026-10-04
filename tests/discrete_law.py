@@ -175,6 +175,16 @@ IPSI_DELTAS: dict[str, float] = {"natural course": 1.0, "odds x2": 2.0, "odds x0
 IPSI_REFERENCE = "natural course"
 
 
+#: The risk-ratio tilts the ``rr_tilt`` estimands are checked against (lmtp's ``ipsi``).
+#: Below one, a treated unit keeps treatment with probability ``delta``; above one, an
+#: untreated unit stays untreated with probability ``1 / delta``.  One on each side and
+#: the natural course, because the two sides are different branches of the policy.
+RR_TILT_DELTAS: dict[str, float] = {"natural course": 1.0, "rr 0.5": 0.5, "rr 2": 2.0}
+
+#: The tilt the ``ate_rr_tilt`` contrasts are taken against.
+RR_TILT_REFERENCE = "natural course"
+
+
 #: The working model the ``msm`` estimand is checked against: ``m(a, W) = b0 + b1 a + b2 W``,
 #: with ``W`` read as a number.  Its term names are part of what is checked, because they
 #: are what the reported parameter names carry.
@@ -339,6 +349,23 @@ def functional(probs: Any, estimand: str) -> Any:
         left, right = estimand[len("ate_ipsi[") : -1].split(" vs ")
         return functional(p, f"ey_ipsi[{left}]") - functional(p, f"ey_ipsi[{right}]")
 
+    if estimand.startswith("ey_rr_tilt["):
+        # The tilt moves treated mass to control (delta < 1) or control mass to treated
+        # (delta > 1) by a known randomizer, so the mean reads g, and the complex step
+        # differentiates through it.  The branch on delta is on a constant of the policy,
+        # not on the law.
+        delta = RR_TILT_DELTAS[estimand[len("ey_rr_tilt[") : -1]]
+        g = p_wa[:, 1] / p_w
+        if delta <= 1.0:
+            mean = g * (delta * q[:, 1] + (1.0 - delta) * q[:, 0]) + (1.0 - g) * q[:, 0]
+        else:
+            keep = 1.0 / delta
+            mean = (1.0 - g) * (keep * q[:, 0] + (1.0 - keep) * q[:, 1]) + g * q[:, 1]
+        return (p_w * mean).sum()
+    if estimand.startswith("ate_rr_tilt["):
+        left, right = estimand[len("ate_rr_tilt[") : -1].split(" vs ")
+        return functional(p, f"ey_rr_tilt[{left}]") - functional(p, f"ey_rr_tilt[{right}]")
+
     if estimand.startswith("msm["):
         beta = msm_beta(p, MSM_WEIGHTS)
         return beta[MSM_TERMS.index(estimand[len("msm[") : -1])]
@@ -384,6 +411,12 @@ PER_ARM_NAMES: dict[str, tuple[str, ...]] = {
     "ey_ipsi": tuple(f"ey_ipsi[{label}]" for label in IPSI_DELTAS),
     "ate_ipsi": tuple(
         f"ate_ipsi[{label} vs {IPSI_REFERENCE}]" for label in IPSI_DELTAS if label != IPSI_REFERENCE
+    ),
+    "ey_rr_tilt": tuple(f"ey_rr_tilt[{label}]" for label in RR_TILT_DELTAS),
+    "ate_rr_tilt": tuple(
+        f"ate_rr_tilt[{label} vs {RR_TILT_REFERENCE}]"
+        for label in RR_TILT_DELTAS
+        if label != RR_TILT_REFERENCE
     ),
     "ate_regime": tuple(
         f"ate_regime[{label} vs {REGIME_REFERENCE}]"
@@ -450,6 +483,8 @@ TRUTH = {
         *PER_ARM_NAMES["ey_learned_rule"],
         *PER_ARM_NAMES["ey_ipsi"],
         *PER_ARM_NAMES["ate_ipsi"],
+        *PER_ARM_NAMES["ey_rr_tilt"],
+        *PER_ARM_NAMES["ate_rr_tilt"],
         *PER_ARM_NAMES["msm"],
     )
 }

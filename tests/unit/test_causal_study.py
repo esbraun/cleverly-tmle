@@ -841,7 +841,12 @@ def test_point_treatment_targets_state_no_interference_separately() -> None:
         )
     for name in ("ey_policy", "ate_policy"):
         assert any(
-            "positivity *for the shifted dose*" in item
+            "positivity *for the assigned dose*" in item
+            for item in by_name[name].identification.assumptions
+        )
+    for name in ("ey_rr_tilt", "ate_rr_tilt"):
+        assert any(
+            "wherever the tilt keeps it" in item
             for item in by_name[name].identification.assumptions
         )
 

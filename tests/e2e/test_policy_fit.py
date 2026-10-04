@@ -145,6 +145,30 @@ def test_the_support_report_describes_each_policy(dose_fit: Any) -> None:
     assert 0.0 < report["sometimes up"].moved_fraction < 1.0
 
 
+def test_the_support_report_counts_the_rows_a_cap_holds(dose_fit: Any) -> None:
+    """A nonzero witness: the cap of ``x1.1`` holds rows, and the report counts them.
+
+    The assessment grades this share against 5%.  A record that omitted it would read as
+    zero there, so the expected share is computed here from the declaration.
+    """
+    frame, _ = make_shift_dose(n=800, seed=3)
+    dose = frame["A"].to_numpy(dtype=float)
+    expected = float(np.mean(dose * 1.1 > 5.0))
+    assert expected > 0.0
+    report = dose_fit.diagnostics.support()
+    assert report["x1.1"].capped_fraction == pytest.approx(expected, abs=1e-12)
+    assert report["trim high"].capped_fraction == 0.0
+    assert "capped=" in report["x1.1"].summary()
+    by_classifier = _dose_fit(ratio="classifier").diagnostics.support()
+    assert by_classifier["x1.1"].capped_fraction == pytest.approx(expected, abs=1e-12)
+
+
+def test_a_categorical_support_report_evaluates_no_cap() -> None:
+    fit = _fit_frame(_binary_frame(), policies=[RiskRatioTilt(1.0), RiskRatioTilt(0.5)])
+    for row in fit.diagnostics.support().values():
+        assert row.capped_fraction is None
+
+
 def test_the_classifier_route_runs_and_agrees_with_the_density_route(dose_fit: Any) -> None:
     by_classifier = _dose_fit(ratio="classifier")
     for policy in CONTINUOUS:

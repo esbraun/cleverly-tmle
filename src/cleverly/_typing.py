@@ -94,6 +94,8 @@ EstimandName = Literal[
     "ey_learned_rule",
     "ey_ipsi",
     "ate_ipsi",
+    "ey_rr_tilt",
+    "ate_rr_tilt",
     "ey_policy",
     "ate_policy",
     "msm",

@@ -166,12 +166,15 @@ class TestWhichBoundAGroupGets:
         it takes neither bound, and the truncation it does not need is the point of the
         estimand.  ``regime`` is binary-only only through ``ey_learned_rule``, whose rule
         thresholds a two-arm blip; its covariate is the regime's inverse probability.
+        ``mtp`` is binary-only only through ``ey_rr_tilt`` and ``ate_rr_tilt``, the risk-ratio
+        tilt that keeps or removes treatment on a 0/1 treatment; its other targets accept
+        any dose or level set.
         """
         from cleverly.targets import TARGETS
 
         binary_only = {t.group for t in TARGETS.values() if t.requires_binary_treatment}
         assert binary_only.isdisjoint(CONDITIONAL_GROUPS)
-        assert binary_only == {"mean", "ipsi", "regime"}
+        assert binary_only == {"mean", "ipsi", "regime", "mtp"}
 
 
 class TestOutcomeScaler:

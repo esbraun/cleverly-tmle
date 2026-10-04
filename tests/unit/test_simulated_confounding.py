@@ -2246,6 +2246,7 @@ def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
         "longitudinal",
         "result_type",
         "learned_rule",
+        "risk_ratio_tilt",
         "multi_arm",
         "missing_outcome",
         "missing_treatment",
@@ -4988,3 +4989,34 @@ def test_the_frame_and_the_summary_carry_the_induced_association(
     assert all(f"{cell.induced_treatment_association:+.4f}" in text for cell in surface.cells)
     assert "misclassification and not by confounding" in text
     assert "qualitative" in text
+
+
+def test_a_risk_ratio_tilt_fit_is_refused_before_any_draw() -> None:
+    """The tilt's mean reads g, so the replay would move the policy; the surface refuses."""
+    import sklearn.linear_model
+
+    from cleverly.estimators import TMLE
+    from cleverly.interventions import RiskRatioTilt
+
+    rng = np.random.default_rng(4)
+    w = rng.normal(size=400)
+    a = rng.binomial(1, 1 / (1 + np.exp(-0.6 * w)))
+    y = rng.binomial(1, 1 / (1 + np.exp(-(0.3 * w + 0.8 * a))))
+    frame = pd.DataFrame({"W": w, "A": a, "Y": y})
+    result = (
+        TMLE(
+            outcome_learner=sklearn.linear_model.LogisticRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(),
+            cross_fit=False,
+            policies=[RiskRatioTilt(1.0), RiskRatioTilt(0.5)],
+            simultaneous=False,
+        )
+        .fit(frame, outcome="Y", treatment="A", covariates=["W"])
+        .single()
+    )
+    with pytest.raises(CapabilityError, match="risk-ratio tilt fit"):
+        simulated_confounding(
+            result,
+            estimand="ate_rr_tilt[rr 0.5 vs natural course]",
+            grid=ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.1)),
+        )

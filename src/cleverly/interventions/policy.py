@@ -777,6 +777,10 @@ class _Branch:
     ) -> FloatArray:  # pragma: no cover - abstract
         raise NotImplementedError
 
+    def held(self, values: FloatArray) -> BoolArray:
+        """Rows a declared ``cap`` holds at their own dose; none for a branch with no cap."""
+        return np.zeros(np.asarray(values).reshape(-1).size, dtype=bool)
+
 
 class _ShiftBranch(_Branch):
     """:class:`Shift`, by its shipped closed form."""
@@ -795,6 +799,9 @@ class _ShiftBranch(_Branch):
 
     def ratio(self, values: FloatArray, frame: FrameSource, density: DensityAt) -> FloatArray:
         return _shift_ratio(density, values, self.shift)
+
+    def held(self, values: FloatArray) -> BoolArray:
+        return np.asarray(self.shift.apply(np.asarray(values, dtype=float))[1], dtype=bool)
 
 
 def _shift_ratio(density: DensityAt, values: FloatArray, shift: Shift) -> FloatArray:
@@ -829,6 +836,9 @@ class _ScaleBranch(_Branch):
 
     def assign(self, values: Any, frame: FrameSource) -> Any:
         return self.scale.apply(values)[0]
+
+    def held(self, values: FloatArray) -> BoolArray:
+        return np.asarray(self.scale.apply(np.asarray(values, dtype=float))[1], dtype=bool)
 
     def ratio(self, values: FloatArray, frame: FrameSource, density: DensityAt) -> FloatArray:
         a = np.asarray(values, dtype=float).reshape(-1)
@@ -1444,6 +1454,9 @@ class PolicySet:
         :func:`discrete_assignments`, or ``None`` on a continuous one.
     observed_codes : ndarray or None
         ``(n,)`` observed level codes on a categorical treatment, or ``None``.
+    capped : ndarray or None
+        ``(n, C)`` boolean, whether a declared ``cap`` held the component at that row's own
+        dose.  ``None`` on a categorical treatment, where no cap is evaluated.
 
     Attributes
     ----------
@@ -1469,6 +1482,7 @@ class PolicySet:
     mixing: FloatArray | None = None
     component_codes: IntArray | None = None
     observed_codes: IntArray | None = None
+    capped: BoolArray | None = None
 
     def __post_init__(self) -> None:
         s = len(self.names)
@@ -1480,6 +1494,7 @@ class PolicySet:
         for name, array, shape in (
             ("ratio", self.ratio, (n, c)),
             ("moved", self.moved, (n, c)),
+            *(() if self.capped is None else (("capped", self.capped, (n, c)),)),
             ("ratio_at", self.ratio_at, (n, c, c)),
         ):
             if np.asarray(array).shape != shape:
@@ -1555,7 +1570,7 @@ class PolicySet:
             if propensity is None:
                 raise ValueError("a categorical treatment's policies need its mechanism")
             built = _discrete_components(declared, data, propensity, frame, everyone)
-        shifted, ratio, ratio_at, moved, mixing, component_codes, observed = built
+        shifted, ratio, ratio_at, moved, mixing, component_codes, observed, capped = built
         code = 0.0
         if reference is not None:
             if reference not in names:
@@ -1572,6 +1587,7 @@ class PolicySet:
             mixing,
             component_codes,
             observed,
+            capped,
         )
 
     @classmethod
@@ -1631,12 +1647,15 @@ class PolicySet:
         a = np.asarray(data.treatment, dtype=float).reshape(-1)
         owners: list[tuple[int, float]] = []
         columns: list[FloatArray] = []
+        held: list[BoolArray] | None = None
         if data.is_continuous_treatment:
+            held = []
             for index, policy in enumerate(declared):
                 check_continuous_policy(policy, a, frame, everyone)
                 for probability, branch in policy_branches(policy):
                     owners.append((index, probability))
                     columns.append(np.asarray(branch.assign(a, frame), dtype=float))
+                    held.append(branch.held(a))
         else:
             levels = tuple(data.arm_label(code) for code in data.arm_codes)
             observed_codes = a.astype(np.int64)
@@ -1682,6 +1701,7 @@ class PolicySet:
             moved,
             code,
             mixing,
+            capped=None if held is None else np.column_stack(held),
         )
 
     # ----------------------------------------------------------------- access
@@ -1820,6 +1840,7 @@ class PolicySet:
             ratio=self.ratio[idx],
             ratio_at=self.ratio_at[idx],
             moved=self.moved[idx],
+            capped=None if self.capped is None else self.capped[idx],
             component_codes=None if self.component_codes is None else self.component_codes[idx],
             observed_codes=None if self.observed_codes is None else self.observed_codes[idx],
         )
@@ -1833,6 +1854,7 @@ _Components: TypeAlias = tuple[
     FloatArray | None,
     IntArray | None,
     IntArray | None,
+    BoolArray | None,
 ]
 
 
@@ -1885,8 +1907,9 @@ def _continuous_components(
         warn_if_unresolved(density, shifted[:, column], a)
         _warn_outside_support(label, branch.cap, shifted[:, column], a)
     moved = np.asarray(shifted != a[:, None], dtype=bool)
+    capped = np.column_stack([branch.held(a) for branch in branches])
     mixing = None if len(branches) == len(policies) else _mixing(len(policies), owners)
-    return shifted, ratio, ratio_at, moved, mixing, None, None
+    return shifted, ratio, ratio_at, moved, mixing, None, None, capped
 
 
 def _discrete_components(
@@ -1922,7 +1945,7 @@ def _discrete_components(
     )
     moved = np.asarray(shifted != observed[:, None], dtype=bool)
     mixing = None if len(columns) == len(policies) else _mixing(len(policies), owners)
-    return shifted, ratio, ratio_at, moved, mixing, component_codes, observed
+    return shifted, ratio, ratio_at, moved, mixing, component_codes, observed, None
 
 
 def _discrete_ratios(
@@ -2013,6 +2036,9 @@ class PolicySupport:
     moved_fraction : float
         Share of rows the policy moves away from their own dose, averaged over a
         randomized policy's components with their known weights.
+    capped_fraction : float or None
+        Share of rows a declared ``cap`` holds at their own dose, weighted the same way.
+        ``None`` on a categorical treatment, where no cap is evaluated.
     unsupported : int
         Rows whose assigned dose falls where the estimated density is exactly zero.
         Estimated zeros flag model support failures, not proof of nonidentification.
@@ -2051,6 +2077,7 @@ class PolicySupport:
     effective_sample_size: float
     ess_ratio: float
     moved_fraction: float
+    capped_fraction: float | None
     unsupported: int
     mean_ratio: float
     fold_mean_ratio: tuple[float, ...]
@@ -2076,11 +2103,13 @@ class PolicySupport:
         label = "ratio" if self.min_mechanism is None else "weight"
         score = format_score_load(self.score_load, style="inline")
         folds = ", ".join(f"{value:.3g}" for value in self.fold_mean_ratio)
+        capped = "" if self.capped_fraction is None else f"capped={self.capped_fraction:.1%}, "
         return (
             f"{self.name}: min g(A|W)={self.min_density:.3g}, max {label}={self.max_ratio:.3g}"
             f"{mechanism}, "
             f"ESS={self.effective_sample_size:.0f} ({self.ess_ratio:.1%} of n), "
-            f"moved={self.moved_fraction:.1%}, unsupported={self.unsupported}, {score}\n"
+            f"moved={self.moved_fraction:.1%}, {capped}unsupported={self.unsupported}, "
+            f"{score}\n"
             f"    {label} quantiles -- {quantiles}\n"
             f"    mean ratio -- {self.mean_ratio:.3g} overall, per fold {folds} "
             "(under the true density: P(d(A, W) in the conditional support), "
@@ -2184,6 +2213,11 @@ def check_policy_support(
         ess = effective_sample_size(finite, on_degenerate=0.0)
         mine = [int(c) for c in np.flatnonzero(weights[index] > 0.0)]
         moved = float(sum(weights[index, c] * np.mean(policies.moved[:, c]) for c in mine))
+        capped = (
+            None
+            if policies.capped is None
+            else float(sum(weights[index, c] * np.mean(policies.capped[:, c]) for c in mine))
+        )
         if density is not None:
             assigned = [density.density_at(policies.shifted[:, c]) for c in mine]
         elif g is not None:
@@ -2199,6 +2233,7 @@ def check_policy_support(
             effective_sample_size=ess,
             ess_ratio=ess / a.size if a.size else 0.0,
             moved_fraction=moved,
+            capped_fraction=capped,
             unsupported=int(sum(np.sum(values <= 0.0) for values in assigned)),
             mean_ratio=float(np.mean(ratio)),
             fold_mean_ratio=tuple(float(np.mean(ratio[test])) for test in held_out),
