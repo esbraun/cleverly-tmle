@@ -370,6 +370,9 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j30__t_reference",
         ),
     ),
+    "F1-power-design": (
+        *_keys("stochastic-categorical-ltmle", "property", "power/mix__alternative"),
+    ),
 }
 
 

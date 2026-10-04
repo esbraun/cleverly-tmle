@@ -420,6 +420,8 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         "rule_necessity",
     }:
         declared["margin:necessity_displacement"] = record.properties().NECESSITY_DISPLACEMENT
+    if "policy_necessity" in record.property_cells:
+        declared["margin:policy_displacement"] = record.properties().POLICY_DISPLACEMENT
     if "weight_necessity" in record.property_cells:
         declared["margin:weight_displacement"] = record.properties().WEIGHT_DISPLACEMENT
     if "learner_weight_necessity" in record.property_cells:
