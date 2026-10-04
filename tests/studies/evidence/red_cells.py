@@ -344,7 +344,7 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     ),
     # The finite-sample limits of clustered intervals: the fold-evaluated covariate pair of the
     # unequal-size study, and the few-cluster study's unequal-size fold-evaluated bias cells and
-    # DR-TMLE IID controls.
+    # DR-TMLE IID controls, and the cluster multiplier band of the cross-fitted clustered LTMLE.
     "F28": (
         *_keys(
             "clustered-unequal-cvtmle",
@@ -362,6 +362,11 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j10__t_reference",
             "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j20__t_reference",
             "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j30__t_reference",
+        ),
+        *_keys(
+            "clustered-cross-fitted-ltmle",
+            "property",
+            "simultaneous_coverage/clustered_regimens__simultaneous_band",
         ),
     ),
 }

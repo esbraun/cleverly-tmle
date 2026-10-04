@@ -119,7 +119,8 @@ def test_the_studies_draw_from_their_own_seeds() -> None:
 
 class TestTheGatedStudy:
     def test_the_declared_numbers(self) -> None:
-        assert gated.STUDY.publication_policy == "gated"
+        # Declared gated; the declared red-cell route moved it to reporting (study module).
+        assert gated.STUDY.publication_policy == "reporting"
         assert gated.STUDY.margins == Margins()
         assert (gated.PRIMARY_REPLICATES, gated.CLUSTERS, gated.CLUSTER_SIZE) == (1_600, 100, 40)
         assert gated.PRIMARY_N == 4_000
