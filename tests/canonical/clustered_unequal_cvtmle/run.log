@@ -1,0 +1,21 @@
+=== clustered-unequal-cvtmle declared run
+command: 'C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x24\.venv\Scripts\python.exe' 'C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x24\tests\canonical\clustered_unequal_cvtmle\regenerate.py' --output C:/Users/erics/Documents/Projects/x24_scratch_A --jobs 16
+commit: 1cd6f2c9b56e7b3cce0fbc537c9333d6537e7135; upstream 1cd6f2c9b56e7b3cce0fbc537c9333d6537e7135
+clean tree: True
+cleverly 0.1.2 from C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x24\src\cleverly\__init__.py
+python 3.13.7; numpy 2.5.3; scipy 1.18.1; pandas 3.0.6; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 130, sha256 fd687973535bd45f7d8448e8ae884d398ea2107dd3b605d76705d96226a2f8ff
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 16
+started: 2026-10-04T03:12:14+00:00
+finished: 2026-10-04T03:18:08+00:00
+wall seconds: 353.4
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: d445bca0a1ac790f929b238e057882fcb4d8c6d00ab2875df885f310f63b3708
+sha256 performance-tests.csv: 1ac14be2d5d300ba98d97f32716fbe73738debeceb877a1b0c1e4e2f7a65c7b1
+sha256 properties.csv: 92542c3d724a250af657b83a728d6518564d24d8be0bc3579f8cd0f805e746b3
+sha256 property-replicates.csv.gz: 3afd9d5a1ed9d740e1b4fc6c8e4f85c448aeb731fc876ad01b511333d1d0d2f3
+sha256 replicates.csv.gz: f94830cb4b4f51a38b4337bb23733b8aa793379c359e2b82c3e5ae554f85ba17
+sha256 summary.csv: 33bcf7f5e79668bd6268d80ea98e8c30d1812c72575e143db9fe1a6a7b7293e7
+

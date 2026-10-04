@@ -6,8 +6,8 @@
     "subject": {
       "implementation": "cleverly-clustered-unequal-cvtmle",
       "cleverly_version": "0.1.2",
-      "cleverly_commit": "3e348a96cf7403fff06c8b005a405b9438d34459",
-      "cleverly_worktree_clean": false,
+      "cleverly_commit": "1cd6f2c9b56e7b3cce0fbc537c9333d6537e7135",
+      "cleverly_worktree_clean": true,
       "python": "3.13.7",
       "numpy": "2.5.3",
       "scipy": "1.18.1",
