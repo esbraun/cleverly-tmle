@@ -869,7 +869,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     for column in ("bias_equivalent", "bias_discriminated"):
         if column in summary:
             summary[column] = summary[column].astype(object)
-            summary.loc[agreement, column] = None
+            summary.loc[agreement, column] = np.nan
     summary.loc[agreement, "passed"] = True
     summary.loc[agreement, "property_passed"] = True
     return finish(summary, rates)
