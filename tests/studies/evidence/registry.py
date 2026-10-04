@@ -352,6 +352,7 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_multi_arm_tmle import STUDY as CANONICAL_MULTI_ARM_TMLE
     from tests.studies.canonical_point_msm import STUDY as CANONICAL_POINT_MSM
+    from tests.studies.canonical_policy_point_mtp import STUDY as POLICY_POINT_MTP
     from tests.studies.canonical_shift_policies import STUDY as CANONICAL_SHIFT_POLICIES
     from tests.studies.canonical_stochastic_categorical_ltmle import (
         STUDY as STOCHASTIC_CATEGORICAL_LTMLE,
@@ -422,6 +423,7 @@ def registered() -> tuple[StudyRecord, ...]:
         LEARNED_RULE_CVTMLE_BOUNDARY,
         CANONICAL_STOCHASTIC_REGIMES,
         CANONICAL_SHIFT_POLICIES,
+        POLICY_POINT_MTP,
         CANONICAL_INCREMENTAL_INTERVENTIONS,
         CANONICAL_LTMLE,
         CANONICAL_WEIGHTED_LTMLE,

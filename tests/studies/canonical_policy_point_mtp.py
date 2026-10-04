@@ -11,7 +11,8 @@ The subject is ordinary TMLE with ``policies=`` beyond the additive shift, on a 
 Four policies: the natural course, ``Scale(1.25, cap=5.5)``, a ``Piecewise`` policy that
 leaves doses at or below 3 and lowers the rest by 0.5 (the shape of ``lmtp``'s piecewise
 example and of Hoffman et al. 2024, Example 5), and a declared ``ModifiedPolicy`` that halves
-the excess above 4, whose inverse and its derivative are declared.  Every policy keeps the dose
+the distance below 3 (``a -> (a + 3) / 2`` for ``a <= 3``), whose inverse and its derivative are
+declared.  Every policy keeps the dose
 inside the support, so every density ratio is bounded.  The truth is the g-formula
 :math:`E\\{\\bar Q(d(A, W), W)\\}` by Gauss-Hermite quadrature over ``W1`` and composite
 Gauss-Legendre quadrature over the dose, split at every point where a policy jumps, and checked
@@ -26,8 +27,10 @@ specified logistic model in ``[A, A^2, W1, W2]``.
 ``tests/canonical/lmtp_mtp_adapter.R`` with one node; no lmtp density ratio is fitted.  The
 estimators still differ with identical inputs: this package targets with the covariate
 submodel over the observed and policy doses, and ``lmtp`` with the intercept fluctuation
-weighted by the ratio, and ``lmtp``'s ``SL.glm`` reads the dose linearly.  So the paired rows
-are read under the default margins and are not an exactness check.
+weighted by the ratio.  The runner gives ``lmtp`` the same outcome design, a logistic
+regression on the columns and the squared dose (``SL.glm.quadratic``), so the untargeted
+estimates agree to rounding.  The paired rows are read under the default margins and are not
+an exactness check.
 
 Publication policy is ``gated``.  The red-cell route is declared before any run: a red primary
 or paired row blocks the merge and gets a diagnosis.  A red property cell that reads as a

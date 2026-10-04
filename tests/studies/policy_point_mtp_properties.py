@@ -134,7 +134,7 @@ def contrast_sd(label: str) -> float:
 EFFICIENCY_SD: dict[str, float] = {
     "x1_25": 0.4427816926812578,
     "piecewise": 0.25011202370817515,
-    "halve": 0.2639222366513468,
+    "halve": 0.23671532524961356,
     "classifier_route": 0.4427816926812578,
 }
 

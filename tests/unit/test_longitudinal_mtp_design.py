@@ -47,9 +47,7 @@ pytestmark = pytest.mark.xdist_group("longitudinal_mtp_design")
 RUNNER = ROOT / "tests" / "canonical" / "longitudinal_mtp_runner.R"
 #: A record, not a check: the pre-declaration failure-only probe on streams 0 to 19 under the
 #: declared seeds found zero failures in every fit set (``_x12_s2_limits.log`` beside the plan).
-FAILURE_PROBE = dict.fromkeys(
-    (f"{family}/{label}" for family, label, *_ in properties.FIT_SETS), 0
-)
+FAILURE_PROBE = dict.fromkeys((f"{family}/{label}" for family, label, *_ in properties.FIT_SETS), 0)
 #: ``p0`` of the band cell, from ten fits of the continuous primary subject.
 BAND_P0 = 0.8235
 #: A record, not a check: each control's distance from the truth on one draw of 100,000 rows,
@@ -164,13 +162,12 @@ def test_the_continuous_truths_are_stable_under_a_finer_quadrature() -> None:
 
 def test_the_finite_truths_are_the_oracle() -> None:
     law = common.CATEGORICAL_LAW
-    for label, plan in common.CATEGORICAL_PLANS.items():
+    for plan in common.CATEGORICAL_PLANS.values():
         assert common.finite_functional(law, law.probs, plan) == pytest.approx(
             law.mean(plan), abs=1e-14
         )
-    assert properties.VECTOR_TRUTH == pytest.approx(
-        exact_law.truth("ey_regimen[vector]") - exact_law.truth("ey_regimen[natural]"), abs=0
-    )
+    vector = exact_law.truth("ey_regimen[vector]") - exact_law.truth("ey_regimen[natural]")
+    assert vector == properties.VECTOR_TRUTH
     assert abs(study.TRUTH[study.TILT]["ate_regimen[rr 0.5 vs natural]"]) > 0.05
     assert abs(study.TRUTH[study.CATEGORICAL]["ate_regimen[minus one vs natural]"]) > 0.05
     msm = properties.PROJECTION @ np.array(
@@ -195,11 +192,18 @@ def test_the_finite_efficiency_bounds_are_the_complex_step() -> None:
 
 
 def test_the_continuous_efficiency_bound_has_mean_zero_influence() -> None:
-    """The closed-form influence function is centred, to Monte Carlo accuracy on 20,000 draws."""
+    """The closed-form influence function is centred, and the pinned bound is its own draw.
+
+    The ratio is heavy tailed, so the standard deviation of 20,000 draws moves by several
+    percent between seeds.  The pinned value is therefore checked against the declared
+    400,000-draw computation, which is deterministic, and the centring on a separate sample.
+    """
     frame = common.sample_continuous(20_000, 11)
     curve = common.continuous_eif("up", frame) - common.continuous_eif("natural", frame)
     assert abs(float(np.mean(curve))) < 4.0 * float(np.std(curve)) / np.sqrt(len(curve))
-    assert float(np.std(curve)) == pytest.approx(properties.EFFICIENCY_SD["up"], rel=0.03)
+    assert common.continuous_contrast_sd("up") == pytest.approx(
+        properties.EFFICIENCY_SD["up"], rel=1e-12
+    )
 
 
 # ------------------------------------------------------------------ controls
@@ -250,9 +254,14 @@ def test_the_inverse_dropped_control_moves_the_exact_law() -> None:
                 time_varying=[[], ["L2"]],
                 continuous_treatment=["A1", "A2"],
             )
-        return float(np.max(np.abs(result.influence_curves["ey_regimen[up then history]"][
-            exact_law.first_row_of()
-        ] - exact_law.eif("ey_regimen[up then history]"))))
+        return float(
+            np.max(
+                np.abs(
+                    result.influence_curves["ey_regimen[up then history]"][exact_law.first_row_of()]
+                    - exact_law.eif("ey_regimen[up then history]")
+                )
+            )
+        )
 
     assert fit(drop=False) < 1e-10
     assert fit(drop=True) > 1e-4
