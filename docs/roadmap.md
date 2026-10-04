@@ -32,7 +32,30 @@ main-roadmap priority 1.
 
 A new capability still needs its own contract and evidence, even in this queue.
 
-The queue has no open row.
+| priority | item | tier | acceptance |
+| ---: | --- | --- | --- |
+| 0.1 | RM38. Correct findings from merged PRs 253 to 264 | a | the plan below, a recorded review of every PR, and passing handoff checks |
+
+### RM38. Review merged PRs 253 to 264
+
+Review each PR against its described scope, implementation, scientific contract, tests, and committed evidence.
+Record unresolved questions and red-cell determinations in `reviews/prs-253-264/README.md`.
+Keep finite-sample failures published when the evidence establishes no implementation defect.
+Do not change a declared margin to make an observed failure pass.
+
+| finding | planned correction | verification |
+| --- | --- | --- |
+| smooth contrasts read transformed curves on the reported scale | convert each input curve to its reported scale before the chain rule | nonunit ratio, transformed, and mixed-scale witnesses |
+| boundary draws crash derived bootstrap ratios | reject invalid ratio draws and count every unusable derived draw once | boundary, missing-input, and failed-draw witnesses |
+| transformed estimates can raise during representation | share the safe default-test display rule | log and logit representation witnesses |
+| composite diagnostics hide initial factor clipping | preserve raw factor clipping in correction diagnostics | clipped initial factors with interior final states |
+| stratum diagnostics compare conditional and marginal scores | collapse scored stratum blocks with their population weights | nonzero stratified score identity witnesses |
+| zero-mass clusters pass a fold support check | require two positive-mass clusters in each validation fold | refusal before learners for both fold settings |
+
+Run the fast suite, lint, formatting, types, prose review, and documentation build after the corrections.
+Select registered studies by changed computation, and regenerate every affected study.
+Keep review and implementation inside the dedicated worktree.
+Limit local validation concurrency while another agent uses the machine.
 
 Each row takes a tier by the harm that its defect does to a user today. The table gives the tiers,
 from the most harmful. Inside a tier, a row with a wider reach comes first. A row that another row
