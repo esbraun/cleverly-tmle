@@ -214,7 +214,7 @@ see that term, so `tests/unit/test_cluster_ratio_variance.py` checks it at sizes
 | path | variance at unequal sizes |
 | --- | --- |
 | in sample, and the stacked cross-fitted report | the cluster-sum variance above |
-| `cv_evaluation=True` | the centered cluster variance inside each validation fold ([CV-TMLE](cv-tmle.md#the-algorithm-as-implemented)). Each validation fold needs 2 clusters |
+| `cv_evaluation=True` | the centered cluster variance inside each validation fold ([CV-TMLE](cv-tmle.md#the-algorithm-as-implemented)). Each validation fold needs 2 clusters with positive weight mass |
 | `targeting_scheme="fold"`, `DRTMLE` cross-fitted, and `repeats` above 1 | the variance of the shipped construction. Each sums the curve within clusters |
 | baseline strata | the stratum curve, embedded at $n/n_s$ and summed over the full cluster vector |
 
@@ -241,7 +241,7 @@ normal reference.
 | --- | --- |
 | a marginal estimate of the fit | $J-2$, with $J$ the positive-mass cluster count of the fit |
 | a baseline-stratum estimate | $J_s-2$, with $J_s$ the positive-mass cluster count of the stratum |
-| a fold-evaluated estimate over $V$ validation folds: the `cv_evaluation=True` report and the `fold_evaluated` report of `cv_targeting` | $\min(J-2, J-V)$. Its variance centers the cluster totals in each fold, so it estimates one mean per fold and keeps $J-V$ degrees of freedom, the pooled within-group count |
+| a fold-evaluated estimate over $V$ validation folds: the `cv_evaluation=True` report and the `fold_evaluated` report of `cv_targeting` | $\min(J-2, J-V)$. The package uses the pooled within-fold count as a reference rule |
 | a derived estimate: `contrast()`, `ratio()`, and the median over `repeats` | the smallest `reference_df` of its inputs. `None` counts as infinite |
 | an in-fit `rr` or `or` | the value of the arm means it reads |
 | every estimate of a `"few_cluster_plugin"` fit | `None`. The diagnostic keeps the normal reference |
@@ -258,13 +258,16 @@ missingness tilt and the omitted-variable limits read it through `wald_ci` and
 | the cluster bootstrap | printed as a percentile range with a diagnostic note. No result validates the cluster bootstrap below 40 clusters |
 
 $J-2$ is the rule that Nugent et al. (2024) and Benitez et al. (2023), Sections 3.1.2 and 3.2.1,
-state for cluster-randomized trials. An arm mean of this package is a one-sample mean of $J$
-cluster totals, whose classical reference has $J-1$ degrees of freedom. R `ltmle` uses $J-1$. So
-$J-2$ is conservative by one degree of freedom on the in-sample and stacked reports.
+state for cluster-randomized trials. A classical one-sample mean of independent normal cluster
+totals with a common variance uses $J-1$. R `ltmle` uses $J-1$.
+The $J-2$ quantile is larger, but this comparison does not establish coverage for estimated
+TMLE curves.
 
-A fold-evaluated report has fewer degrees of freedom, $J-V$, and takes $\min(J-2, J-V)$. An
-implementation review measured the difference at 2 clusters per fold: at $J=10$ and $V=5$,
-$t_{J-2}$ covered 0.935 and $t_{J-V}$ covered 0.955 over 1,500 draws.
+A fold-evaluated report takes $\min(J-2, J-V)$, using the pooled within-fold count.
+Unequal fold sizes and heterogeneous cluster variances do not give this sum of variances an
+exact $t_{J-V}$ reference. The registered few-cluster study measures the declared rule on its two
+size laws. An implementation review measured the difference at $J=10$ and $V=5$, with 2 clusters per fold.
+Over 1,500 draws, $t_{J-2}$ covered 0.935 and $t_{J-V}$ covered 0.955.
 
 Prefer the stacked report when cluster sizes depend on the outcome. There a fold-evaluated point
 has a bias of about $V$ times the stacked bias at few clusters per fold. The reference corrects

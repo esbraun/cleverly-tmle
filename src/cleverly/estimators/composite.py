@@ -42,7 +42,7 @@ from typing import Any, Literal
 
 import numpy as np
 
-from .._typing import FloatArray
+from .._typing import BoolArray, FloatArray
 from ..data.causal_data import CausalData
 from ..exceptions import CapabilityError
 from ..utils.bounds import bound
@@ -54,6 +54,7 @@ __all__ = [
     "MissingDataRoute",
     "complement_form",
     "composite_bounds",
+    "composite_clipping_mask",
     "composite_mechanism",
     "composite_state",
     "composite_view",
@@ -252,6 +253,40 @@ def composite_mechanism(
         recorded = bound(np.asarray(nuisance.treatment_observation, dtype=float), lower, 1.0)
         values = values * recorded.reshape(-1, 1)
     return Propensity(values, nuisance.arms, simplex=False)
+
+
+def composite_clipping_mask(
+    nuisance: NuisanceEstimates, bounds: tuple[float, float], nuisance_bound: float
+) -> BoolArray:
+    """Which initial composite cells change when any fitted factor is bounded.
+
+    Read the raw factors before :func:`composite_state` removes them. Comparing its
+    already-bounded product with the product bounds cannot detect factor clipping.
+    The mask counts a cell once when several of its factors are clipped.
+
+    Parameters
+    ----------
+    nuisance : NuisanceEstimates
+        The fitted factors before the composite transformation.
+    bounds : tuple of float
+        The treatment factor's bounds.
+    nuisance_bound : float
+        The floor of each observation factor.
+
+    Returns
+    -------
+    BoolArray
+        One clipping flag per row and arm.
+    """
+    clipped = np.asarray(nuisance.propensity.truncate(bounds).clipped, dtype=bool).copy()
+    for factor in (nuisance.missingness, nuisance.treatment_observation):
+        if factor is None:
+            continue
+        values = np.asarray(factor, dtype=float)
+        if values.ndim == 1:
+            values = values[:, None]
+        clipped |= (values < nuisance_bound) | (values > 1.0)
+    return clipped
 
 
 def _factors(nuisance: NuisanceEstimates, missingness: FloatArray | None) -> int:
