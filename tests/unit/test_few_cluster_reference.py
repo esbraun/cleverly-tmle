@@ -451,10 +451,12 @@ class TestEveryEstimateCarriesItsReference:
     def test_every_estimate_reads_ten(self, kind: str) -> None:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            result = SWEEP[kind](12)
+            # An LTMLE fit needs 20 clusters for an interval, so its kinds read 22 clusters.
+        clusters = 22 if kind.startswith("LTMLE") else 12
+        result = SWEEP[kind](clusters)
         assert result.inference_status == "influence_curve"
         assert result.estimates
-        assert set(reference_dfs(result).values()) == {10}, reference_dfs(result)
+        assert set(reference_dfs(result).values()) == {clusters - 2}, reference_dfs(result)
         report = getattr(result, "cv_targeting", None)
         if report is not None:
             for estimates in (report.pooled, report.fold_evaluated):
@@ -471,7 +473,7 @@ class TestEveryEstimateCarriesItsReference:
             assert (row.ci_lower, row.ci_upper) == pytest.approx(twelve[row.estimand].ci)
 
     def test_a_longitudinal_replay_keeps_the_reference(self) -> None:
-        result = _ltmle_end_of_study(12)
+        result = _ltmle_end_of_study(22)
         curve = result.diagnostics.truncation_curve(bounds=[0.05])
         assert len(curve) == len(result.estimates)
 
@@ -534,21 +536,30 @@ class TestTheSummaryNamesEachCount:
 
 
 class TestTheLongitudinalDerivedEstimates:
-    def test_rmst_contrast_and_ratio_take_ten(self) -> None:
+    def test_rmst_contrast_and_ratio_take_twenty(self) -> None:
         from cleverly.datasets import make_longitudinal_survival
 
         frame, _ = make_longitudinal_survival(n=LONGITUDINAL_N, seed=2)
-        frame = frame.assign(cluster=labels(LONGITUDINAL_N, 12))
+        frame = frame.assign(cluster=labels(LONGITUDINAL_N, 22))
         result = LTMLE({"always": 1, "never": 0}, reference="never", **longitudinal_learners()).fit(
             frame, outcome=["Y1", "Y2"], **LONGITUDINAL_NODES, id="cluster"
         )
-        assert set(reference_dfs(result).values()) == {10}
-        assert result.rmst("always", 2).reference_df == 10
-        assert result.rmst("always", 2, versus="never").reference_df == 10
+        assert set(reference_dfs(result).values()) == {20}
+        assert result.rmst("always", 2).reference_df == 20
+        assert result.rmst("always", 2, versus="never").reference_df == 20
         names = [name for name in result.estimates if name.startswith("risk_regimen[")][:2]
-        assert result.contrast(lambda p: p[0] - p[1], names).reference_df == 10
+        assert result.contrast(lambda p: p[0] - p[1], names).reference_df == 20
         risks = sorted(n for n in result.estimates if n.startswith("risk_regimen[") and "t=2" in n)
-        assert result.ratio(risks[0], risks[1]).reference_df == 10
+        assert result.ratio(risks[0], risks[1]).reference_df == 20
+
+    @pytest.mark.parametrize(
+        ("clusters", "status"), [(19, "few_cluster_plugin"), (20, "influence_curve")]
+    )
+    def test_the_longitudinal_floor_is_twenty(self, clusters: int, status: str) -> None:
+        result = _ltmle_end_of_study(clusters)
+        assert result.inference_status == status
+        expected = {None} if status == "few_cluster_plugin" else {clusters - 2}
+        assert set(reference_dfs(result).values()) == expected
 
 
 class TestBandsRefuseTheTReference:

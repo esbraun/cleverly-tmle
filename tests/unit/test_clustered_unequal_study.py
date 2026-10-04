@@ -128,7 +128,8 @@ class TestTheDraws:
 
     def test_every_few_cluster_fit_reads_its_t_reference(self) -> None:
         frame = few_properties.draw("unequal_informative", 10, 11)
-        for fit in few_study.FITS:
+        assert "ltmle_in_sample" not in few_study.fits_at(10)
+        for fit in few_study.fits_at(10):
             estimate = few_properties.fit_estimate(fit, frame, 10)
             expected = 5 if fit == "tmle_cv_evaluation" else 8
             assert estimate.reference_df == expected == few_study.expected_reference_df(fit, 10)

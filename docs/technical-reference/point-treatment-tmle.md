@@ -534,7 +534,10 @@ targets against an exact law and pairs them with R `tmle3` `tmle_stratified`. Ex
 each new construction: `tests/unit/test_stratified_incremental_exact.py`,
 `tests/unit/test_stratified_msm_exact.py`, `tests/unit/test_stratified_continuous_msm_exact.py`,
 `tests/unit/test_stratified_natural_course_exact.py` and
-`tests/unit/test_stratified_drtmle_exact.py`.
+`tests/unit/test_stratified_drtmle_exact.py`. Three registered studies measure them: the
+[stratified incremental MSM study](method-evidence/stratified-incremental-msm.md), the
+[stratified identity-link MSM study](method-evidence/stratified-msm-identity.md), and the
+[stratified DR-TMLE study](method-evidence/stratified-dr-tmle.md).
 
 These requests with `strata=` refuse before any learner:
 

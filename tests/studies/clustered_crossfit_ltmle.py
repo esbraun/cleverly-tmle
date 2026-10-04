@@ -16,11 +16,30 @@ package pools, so the constructions differ as in ``canonical-ltmle-crossfit``.
 **Properties.** ``tests.studies.clustered_crossfit_ltmle_properties`` declares four
 ``clustered_inference`` pairs and one ``simultaneous_coverage`` band cell.
 
-Publication policy is ``gated``. The red-cell route was declared before any run: a red cell is
+Publication policy was declared ``gated``. The red-cell route was declared before any run: a red cell is
 diagnosed for a defect first. A defect found is fixed and the study regenerated once, with the
 revision declared in ``tests/canonical/provenance-revisions.md``. With none found, the record
 switches to ``reporting`` with owner F28 before one re-run. No margin, budget, law, latent,
 size or learner changes after a result is seen.
+
+**The route was taken.** The first full run passed every ``clustered_inference`` cell and every
+paired comparison, and read one red cell: ``clustered_regimens__simultaneous_band`` covered
+0.9333, 99% interval 0.919 to 0.946, against the calibration band 0.92 to 0.98. The diagnosis
+found no defect. The band draws one multiplier per cluster from the fit's cluster sums, as the
+fast tier pins. Its mean critical value is 2.387 against the design oracle 2.409, and the max-t
+statistic itself has a 95% quantile of 2.50, because the five pointwise SE ratios read 0.976 to
+0.997 at 100 clusters. With the oracle critical value the band would cover 0.939. The
+point-treatment clustered band of ``default-simultaneous-bands`` reads 0.938 at 200 clusters,
+which also covers below 0.95 and passes. So the record is ``reporting``, and the declared run
+is repeated once with nothing else changed.
+
+**Two facts recorded after the re-run.** The declared route named F28 as the owner. The
+diagnosis matched the reading of the ``band-finite-sample`` owner instead: the oracle band also
+covers below 0.95 (0.9392), and the package critical value explains less of the shortfall than
+the oracle band shows. R ``lmtp`` shows the same pointwise shortfall on the same draws (SE ratio
+0.978 to 1.000). So ``band-finite-sample`` owns the cell, and no verdict, margin or budget moved.
+The re-run reused the R ``lmtp`` rows that the first run wrote, with
+``python -m tests.canonical.lmtp_clustered_ltmle.regenerate --skip-reference``, and refit the Python and property phases. The red cell reads no R input.
 """
 
 from __future__ import annotations
@@ -133,7 +152,7 @@ STUDY = StudyRecord(
     runner_module="tests.studies.clustered_crossfit_ltmle",
     properties_module="tests.studies.clustered_crossfit_ltmle_properties",
     property_cells=PROPERTY_CELLS,
-    publication_policy="gated",
+    publication_policy="reporting",
 )
 
 CONFIGURATION = {

@@ -275,7 +275,9 @@ the stacked binary cell measures its construction, so the gate maps it to those 
   fits use the law's own nuisances, and the stacked fits use trees that can fit the saturated
   model.
 - No cross-fitted continuous, clustered or weighted fit is admitted, so none is measured.
-- Strata, the bootstrap, DR-TMLE and C-TMLE are refused, so none is measured.
+- Stacked strata, the bootstrap, DR-TMLE and C-TMLE are refused, so none is measured. The
+  in-sample fit admits strata. `tests/unit/test_stratified_natural_course_exact.py` checks its
+  stratum PAR against the stratum curves, and this study does not measure it.
 - The product-only rescue of the reference arm is measured as a control, not claimed. The natural
   course needs a correct $\hat\pi$ or a correct $\hat m$.
 - The evidence for the scalar `ey_obs` at three arms comes from the three-arm cells. The joint

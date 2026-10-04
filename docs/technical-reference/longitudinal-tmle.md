@@ -525,7 +525,7 @@ unit, in sample and under cross-fitting. The table gives each part of a clustere
 | inner Super Learner folds | grouped on the same labels, at every mechanism and node regression |
 | targeting | the pooled fluctuation over every follower of each node, as on an unclustered fit |
 | curve and variance | the row curve summed within each cluster. The variance is $J\,\widehat{\mathrm{var}}(S_c)/n^2$, with $S_c = \sum_{i \in c} D_i$ and $J$ clusters |
-| status, reference and bands | the rules of [clusters](inference.md#clusters), with a higher floor under cross-fitting. Below 40 positive-mass clusters the reference is Student $t$ with $J - 2$ degrees of freedom. A cross-fitted fit takes `"few_cluster_plugin"` below 20 clusters, the smallest count its registered study measures. An in-sample fit takes it below 10. Simultaneous bands need 40 or more |
+| status, reference and bands | the rules of [clusters](inference.md#clusters) for a longitudinal fit. Below 40 positive-mass clusters the reference is Student $t$ with $J - 2$ degrees of freedom. Below 20 the fit takes `"few_cluster_plugin"`, in sample and cross-fitted, because 20 is the smallest count the registered studies measure. Simultaneous bands need 40 or more |
 | bootstrap | the design kind `<outcome>/cluster_cross_fit`, which no study licenses, so the percentile output is a diagnostic. Each replicate redraws a grouped split over its resampled clusters, so two copies of one cluster can land in different folds |
 
 The base result is Díaz, Williams, Hoffman and Schenck (2023), Section 5.2, journal page 852, and
@@ -569,11 +569,15 @@ mutation control that fails it.
 | the curve is cluster-summed | the variance of every reported and derived estimate equals the cluster-sum variance of its curve to `rel=1e-12`. At 60 clusters of 10 to 70 rows it exceeds the row variance by a factor above 3 |
 | the size term is carried | the variance reads $A_c - N_c\hat\psi$, which differs from $A_c$ by more than 10% at unequal sizes |
 | every target kind | end of study (static, dynamic, categorical), survival, competing risks with `incidence_total()`, weights with a zero-mass cluster, ratios, RMST and RMTL, at 40 and 21 clusters |
-| the cross-fitted floor | 20 clusters keep $t_{18}$ and 19 take `"few_cluster_plugin"`, while an in-sample fit at 19 keeps $t_{17}$. A cross-fitted fit that reads the in-sample floor fails it |
+| the floor | 20 clusters keep $t_{18}$ and 19 take `"few_cluster_plugin"`, cross-fitted and in sample. A fit that reads the point-treatment floor of 10 fails it |
 
-Two registered studies measure the fit. `clustered-cross-fitted-ltmle` is gated and pairs the fit
-with R `lmtp` 1.5.4 at 100 clusters of 40 rows. `few-cluster-cross-fitted-ltmle` is reporting and
-measures the $t$ reference at 20 and 30 clusters. Their pages publish after the declared runs.
+Two registered studies measure the fit, and both publish under `reporting`. The
+[clustered cross-fitted study](method-evidence/clustered-cross-fitted-longitudinal-tmle.md) pairs
+the fit with R `lmtp` 1.5.4 at 100 clusters of 40 rows. Its four cluster-robust pairs and five
+paired comparisons pass. Its band covers 0.933, below the 0.92 lower bound of its interval band,
+and the `band-finite-sample` owner holds that cell. The
+[few-cluster study](method-evidence/few-cluster-cross-fitted-longitudinal-tmle.md) measures the
+$t$ reference at 20 and 30 clusters, and all 8 scored cells pass.
 
 | limit | reason |
 | --- | --- |
@@ -581,7 +585,7 @@ measures the $t$ reference at 20 and 30 clusters. Their pages publish after the 
 | no informative-size cell | the size enters no longitudinal study law. `clustered-unequal-cvtmle` measures the row-weighted target for point treatment |
 | no bootstrap licence | the `cluster_cross_fit` kind has no study cell |
 | the `lmtp` pair at equal sizes only | `ife` aggregates cluster means, which equal cluster sums at equal sizes only |
-| 4 to 19 clusters | a cross-fitted fit takes `"few_cluster_plugin"` and reports no interval. No cross-fitted study measures that range: a probe of 2,000 draws at 10 clusters found 3 and 8 draws that admit no fit, and the harness refuses a cell that loses a replication. [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) owns it |
+| 4 to 19 clusters | the fit takes `"few_cluster_plugin"` and reports no interval. No cross-fitted study measures that range: a probe of 2,000 draws at 10 clusters found 3 and 8 draws that admit no fit, and the harness refuses a cell that loses a replication. [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) owns it |
 
 ## Validation issues special to this method
 
@@ -646,7 +650,9 @@ under refinement.
 | [ordinary competing-risk longitudinal TMLE](method-evidence/ordinary-competing-risk-longitudinal-tmle.md) | against R `lmtp` 1.5.4 with the other cause in `compete=` and exact mechanisms supplied to both |
 | [cross-fitted competing-risk longitudinal TMLE](method-evidence/cross-fitted-competing-risk-longitudinal-tmle.md) | against R `lmtp` 1.5.4 on the identical five-fold assignment, with a flexible-tree cross-fit pair |
 | [longitudinal estimands outside the target registry](evidence.md#longitudinal-estimands-outside-the-target-registry) | the parameter and influence-curve oracle, the mutation witness, and the declared gaps, for each of the five longitudinal variants |
-| [the implementation validation grid](method-evidence/validation-grid.md) | the ten registered longitudinal TMLE rows and each row's declared limits |
+| [clustered cross-fitted end-of-study longitudinal TMLE](method-evidence/clustered-cross-fitted-longitudinal-tmle.md) | against R `lmtp` 1.5.4 with `ife` 0.2.3 at 100 clusters of 40 rows, on the realized whole-cluster folds, with four cluster-robust pairs and a cluster multiplier band |
+| [cross-fitted clustered longitudinal TMLE at few clusters](method-evidence/few-cluster-cross-fitted-longitudinal-tmle.md) | the $t_{J-2}$ reference at 20 and 30 clusters of equal and unequal sizes, with an IID control |
+| [the implementation validation grid](method-evidence/validation-grid.md) | the twelve registered longitudinal TMLE rows and each row's declared limits |
 
 Competing-risk correctness also rests on the independent finite law, the Gateaux comparison, the
 all-cause-versus-cause-specific mutation, and the one-cause reduction. The two competing-risk rows

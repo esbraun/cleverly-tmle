@@ -82,6 +82,20 @@ holds 1.
 `tests/unit/test_fold_evaluated_cluster_variance.py` checks the rule, the refusal, and the
 calibration at 40 clusters in 10 folds.
 
+Use the stacked report, the default, when cluster sizes depend on the outcome. There the
+`cv_evaluation=True` point has a bias of about $V$ times the stacked bias at few clusters per
+fold. Each fold estimate is a ratio of two cluster sums over the clusters of its fold. The report
+takes the equal $1/V$ average of those ratios, so each ratio bias is of order $V/J$.
+
+| clusters, folds | `cv_evaluation=True` bias | stacked bias | source |
+| --- | --- | --- | --- |
+| 10, 20 and 30 in 5 folds | 0.61, 0.43 and 0.32 empirical SDs | 0.14, 0.10 and 0.06 | [few-cluster study](method-evidence/clustered-few-cluster-tmle.md#readings-of-the-red-cells) |
+| 200 in 5 folds | 0.13 | 0.02 | [unequal-size study](method-evidence/clustered-unequal-cv-tmle.md) |
+
+The fit keeps the interval. At 10 clusters its coverage lower endpoint is 0.894.
+`tests/unit/test_fold_evaluated_ratio_bias.py` rebuilds the measured bias from the law, with no
+fit. At equal sizes the bias vanishes.
+
 Implementation:
 [`estimators/tmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/tmle.py),
 [`learners/crossfit.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/learners/crossfit.py),

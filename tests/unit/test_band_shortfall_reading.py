@@ -24,6 +24,7 @@ from scipy import stats
 from tests.studies import default_band_properties, stratified_law
 from tests.studies.default_band_properties import design, design_correlation
 from tests.studies.evidence.registry import ROOT
+from tests.unit.test_clustered_crossfit_ltmle_design import BAND_DESIGN
 from tests.unit.test_simultaneous_cell_design import EXACT
 
 
@@ -78,6 +79,16 @@ READINGS = {
         0.9325,
     ),
     "cde_z0": ("default_bands", lambda: _shape("cde_z0"), 2.331, 2.312, 0.9171, 0.9200),
+    # The cross-fitted clustered LTMLE band. ``c*`` is the design critical value pinned before the
+    # run from ten fits of the study's own subject.
+    "clustered_regimens": (
+        "lmtp_clustered_ltmle",
+        lambda: BAND_DESIGN[1],
+        2.409,
+        2.387,
+        0.9333,
+        0.9392,
+    ),
     "arms": (
         "drtmle_mar_multi_arm",
         lambda: _exact("multi-arm-mar-drtmle/arms", 2400),
@@ -159,3 +170,129 @@ def test_the_multi_arm_missing_outcome_calibration_draws() -> None:
     # Bartlett on the standardized errors, so the three cells are compared on one scale.
     groups = [z.loc[pooled["cell"] == cell].to_numpy() for cell in ratios]
     assert round(float(stats.bartlett(*groups).pvalue), 2) == 0.20
+
+
+def test_the_logit_slope_shortfall_in_the_smallest_stratum() -> None:
+    """The ``X8-logit-small-stratum`` reading: the shipped unstratified fit shares the shortfall.
+
+    The registered cells read 0.967 and 0.862.  On fresh draws the stratified fit reads 0.867 in
+    stratum 2, and the unstratified fit on a sample of that stratum's size reads 0.896.  At four
+    times the size both read within 0.01 of one.
+    """
+    registered = pd.read_csv(
+        ROOT / "tests" / "canonical" / "npcausal_stratified_incremental" / "properties.csv",
+        float_precision="round_trip",
+    ).set_index("cell")
+    assert round(float(registered.loc["logit_v1_a__correctly_specified", "se_ratio"]), 3) == 0.967
+    assert round(float(registered.loc["logit_v2_a__correctly_specified", "se_ratio"]), 3) == 0.862
+    rows = pd.read_csv(
+        ROOT / "tests" / "diagnostics" / "x8_logit_small_stratum" / "rows.csv.gz",
+        float_precision="round_trip",
+    )
+    ratios = {
+        (str(arm), int(n)): round(
+            float(group["std_error"].mean() / group["estimate"].std(ddof=1)), 3
+        )
+        for (arm, n), group in rows.groupby(["arm", "n"])
+    }
+    assert ratios == {
+        ("pooled", 2000): 0.867,
+        ("subset", 2000): 0.896,
+        ("pooled", 8000): 1.006,
+        ("subset", 8000): 0.997,
+    }
+
+
+def test_the_identity_msm_smallest_stratum() -> None:
+    """The ``X8-identity-small-stratum`` reading, rebuilt from the committed rows.
+
+    The calibration cell reads 0.964, while the primary draws give 0.983 and 0.985 for the same
+    coefficient in the two implementations.  The paired ``msm[W][V=2]`` estimates agree to 6e-6
+    with the same spread, and R reports 2.2% above its own spread.
+    """
+    here = ROOT / "tests" / "canonical" / "tmle3_stratified_msm"
+    cells = pd.read_csv(here / "properties.csv", float_precision="round_trip").set_index("cell")
+    assert round(float(cells.loc["identity_v2_a__correctly_specified", "se_ratio"]), 3) == 0.964
+    summary = pd.read_csv(here / "summary.csv", float_precision="round_trip").set_index(
+        ["estimand", "implementation"]
+    )
+    ratio = summary["se_ratio"].round(3)
+    assert ratio[("msm[a][V=2]", "cleverly-stratified-msm")] == 0.983
+    assert ratio[("msm[a][V=2]", "tmle3-msm-stratified")] == 0.985
+    assert ratio[("msm[W][V=2]", "tmle3-msm-stratified")] == 1.022
+    spread = summary["empirical_se"]
+    assert (
+        abs(
+            spread[("msm[W][V=2]", "cleverly-stratified-msm")]
+            - spread[("msm[W][V=2]", "tmle3-msm-stratified")]
+        )
+        < 2e-5
+    )
+    paired = pd.read_csv(here / "equivalence.csv", float_precision="round_trip").set_index(
+        "estimand"
+    )
+    row = paired.loc["msm[W][V=2]"]
+    assert abs(float(row["mean_difference"])) < 1e-5
+    assert round(float(row["calibration_excess_upper"]), 4) == 0.0523
+    assert row["comparison_conclusion"] == "inconclusive"
+
+
+def _bias(rows: pd.DataFrame) -> dict[tuple[str, str], float]:
+    return {
+        (str(estimand), str(arm)): round(float((group["estimate"] - group["truth"]).mean()), 4)
+        for (estimand, arm), group in rows.groupby(["estimand", "arm"])
+    }
+
+
+def test_the_stratified_drtmle_treatment_correct_bias() -> None:
+    """The ``X8-drtmle-one-sided-bias`` reading, rebuilt from the committed diagnostic rows.
+
+    Arm ``C`` reproduces the committed cells exactly.  Inside each stratum the shipped
+    unstratified fit (``S``) and R ``drtmle`` with the same arrays (``R``) carry the same
+    positive bias.  The stratified marginal inherits it and contracts faster than its spread.
+    """
+    here = ROOT / "tests" / "diagnostics" / "x8_drtmle_treatment_correct"
+    validation = pd.read_csv(here / "validation.csv")
+    assert (validation["replicates"] == 400).all()
+    assert (validation["max_abs_estimate_difference"] == 0.0).all()
+    bias = _bias(pd.read_csv(here / "rows.csv.gz", float_precision="round_trip"))
+    for s in (0, 1, 2):
+        name = f"ate[V={s}]"
+        assert min(bias[(name, arm)] for arm in "CRS") > 0.009, name
+    assert bias[("ate", "C")] == 0.0151
+    assert bias[("ate", "M")] == 0.0029
+    # Stratum 2 is mixed: on the same arrays the package's bias exceeds R's.  The subset fit
+    # matches the package there, so the excess is DRTMLE at stratum size, not the strata.
+    rows = pd.read_csv(here / "rows.csv.gz", float_precision="round_trip")
+    wide = rows.pivot_table(index=["replicate", "estimand"], columns="arm", values="estimate")
+    v2 = wide.xs("ate[V=2]", level="estimand")
+    gap = v2["C"] - v2["R"]
+    assert round(float(gap.mean()), 4) == 0.0080
+    assert round(float(gap.std(ddof=1) / np.sqrt(len(gap))), 4) == 0.0018
+    assert abs(float((v2["C"] - v2["S"]).mean())) < 1e-4
+    contraction = pd.read_csv(here / "contraction-rows.csv.gz", float_precision="round_trip")
+    assert _bias(contraction)[("ate", "C")] == 0.0058
+    spread = contraction.loc[
+        (contraction["arm"] == "C") & (contraction["estimand"] == "ate"), "estimate"
+    ].std(ddof=1)
+    assert round(float(spread), 4) == 0.0135
+
+
+def test_the_stratified_drtmle_smallest_stratum() -> None:
+    """The ``X8-drtmle-small-stratum`` reading: R drtmle shares each shortfall on the same draws."""
+    here = ROOT / "tests" / "canonical" / "drtmle_stratified"
+    summary = pd.read_csv(here / "summary.csv", float_precision="round_trip").set_index(
+        ["estimand", "implementation"]
+    )
+    coverage = summary["coverage"].round(4)
+    assert coverage[("ey[1][V=2]", "cleverly-stratified-drtmle")] == 0.9
+    assert coverage[("ey[1][V=2]", "drtmle-r-stratified")] == 0.8925
+    ratio = summary["se_ratio"].round(3)
+    assert ratio[("ate[V=2]", "cleverly-stratified-drtmle")] == 0.985
+    assert ratio[("ate[V=2]", "drtmle-r-stratified")] == 0.973
+    paired = pd.read_csv(here / "equivalence.csv", float_precision="round_trip").set_index(
+        "estimand"
+    )
+    assert abs(float(paired.loc["ey[1][V=2]", "mean_difference"])) < 1e-4
+    cells = pd.read_csv(here / "properties.csv", float_precision="round_trip").set_index("cell")
+    assert round(float(cells.loc["v2_ate__correctly_specified", "se_ratio_ci_lower"]), 4) == 0.9294

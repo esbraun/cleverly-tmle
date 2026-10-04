@@ -353,6 +353,19 @@ def measured(row: Any) -> str:
             "paired coverage gain "
             f"{_interval(row.coverage_gain_ci_lower, row.coverage_gain_ci_upper)}"
         )
+    if family == "estimand_weighting":
+        return f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+    if family == "cluster_aggregation_rule":
+        return (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}"
+        )
+    if family == "few_cluster_reference":
+        return (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
+        )
     if family in {"corrected_mar_inference", "ordinary_targeting"}:
         return (
             f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
@@ -366,6 +379,14 @@ def measured(row: Any) -> str:
             f"spread ratio {render(float(row.spread_ratio))}, "
             f"{_interval(row.spread_ratio_ci_lower, row.spread_ratio_ci_upper)}, "
             f"boundary {render(float(row.spread_ratio_boundary))}"
+        )
+    if family == "in_sample_agreement":
+        # A reported distance with no truth and no standard error of its own, so it has no
+        # bias or SE-ratio interval to print.
+        return (
+            "mean absolute difference / SE "
+            f"{render(float(row.mean_abs_difference_over_se))}, "
+            f"in-sample estimate inside the cross-fitted interval {render(float(row.coverage))}"
         )
     if family == "static_reduction":
         return f"maximum paired difference {render(float(row.maximum_static_difference))}"
