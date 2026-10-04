@@ -59,7 +59,11 @@ positive weights. These facts make study regeneration unnecessary for the confir
 All committed canonical artifacts remain unchanged.
 
 Validation runs use the dedicated worktree. The local launcher binds the process and inherited
-workers to two logical CPUs, pins native libraries to one thread, and limits xdist to two workers.
+workers to two logical CPUs, sets BLAS and OpenMP thread limits to one, and limits xdist to two workers.
 The original checkout and its editable installation remain untouched.
 
-The final validation record is added after the handoff gates finish.
+The full fast suite before integrating PR 265 passes: 15,675 passed and 235 skipped.
+The 55 new regressions include nine old-index mutation controls. Ruff lint and whole-tree
+formatting pass. Mypy passes for 106 source files. The prose ledger has no undecided findings.
+The documentation build passes with warnings treated as errors, including the final bootstrap
+field description. The independent reviewer closes every implementation finding.
