@@ -20,6 +20,17 @@ utilization at most 0.13.
 Declared before any run: the law, n = 2,000, R = 1,000 primary replications, the shared
 ``Margins()``, the learners, the seeds below, the property cells of
 :mod:`tests.studies.stratified_msm_identity_properties`, and ``publication_policy="gated"``.
+
+The declared run at ``ecb9654`` failed two gates, both in stratum 2, which holds about 400 of the
+2,000 rows.  ``interval_calibration/identity_v2_a__correctly_specified`` has an SE-ratio interval
+of 0.926 to 1.004 against a floor of 0.93.  On the primary draws the same coefficient reads 0.983
+in ``cleverly`` and 0.985 in R ``tmle3``.  The paired ``msm[W][V=2]`` row is inconclusive on its
+calibration leg alone (upper limit 0.0523 against 0.05, resolution 0.0476).  The two estimates
+differ by 6e-6 on average and have the same spread, and R reports a standard error 2.2% above its
+own spread on that coefficient.  R fits a Gaussian ``Lrnr_glm`` inside each subset, which is the
+declared nuisance difference.  No defect was found.  The study therefore moves to ``reporting`` and
+is re-run at the same seeds, with the owner ``X8-identity-small-stratum``.  No budget, margin,
+law, learner, size or seed moved.
 """
 
 from __future__ import annotations
@@ -86,7 +97,7 @@ STUDY = StudyRecord(
     slug="canonical-stratified-msm-identity",
     artifacts=ROOT / "tests" / "canonical" / "tmle3_stratified_msm",
     document="docs/technical-reference/method-evidence/stratified-msm-identity.md",
-    anchor="stratified-msm-identity",
+    anchor="stratified-identity-link-msm",
     scenarios={SCENARIO: ESTIMANDS},
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,
@@ -115,7 +126,7 @@ STUDY = StudyRecord(
     properties_module="tests.studies.stratified_msm_identity_properties",
     property_cells=PROPERTY_CELLS,
     efficiency_bounds=EFFICIENCY_SD,
-    publication_policy="gated",
+    publication_policy="reporting",
 )
 
 REFERENCE_METADATA = {

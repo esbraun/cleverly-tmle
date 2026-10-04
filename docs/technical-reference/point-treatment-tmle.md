@@ -323,9 +323,8 @@ PAR and PAF are consistent if $m$ is consistent, or if both $\hat\pi$ and the pr
 $\hat g\hat\pi$ at $a_0$ are consistent. A correct product with a wrong $\hat\pi$ rescues the
 reference arm and not the natural course. `tests/unit/test_remainder_attributable_mar.py` checks
 this case on an exact law. The PAF uses the shipped denominator rule. It raises when
-$\hat\psi_{\mathrm{obs}}\le0$, and no other guard is added. For a log-scale interval of
-$1-\operatorname{PAF}=\psi_{a_0}/\psi_{\mathrm{obs}}$, take the ratio of the two reported means
-with the same-row curves.
+$\hat\psi_{\mathrm{obs}}\le0$, and no other guard is added. `res.ratio("ey0", "ey_obs")` gives the log-scale interval of
+$1-\operatorname{PAF}=\psi_{a_0}/\psi_{\mathrm{obs}}$ from the same-row curves.
 
 The table gives the admitted fits. Each fit is `TMLE` or `TMLEMethod`. A request that reads the
 natural course beside arm targets takes this route: `par`, `paf`, or `ey_obs` beside any arm mean,
@@ -535,7 +534,10 @@ targets against an exact law and pairs them with R `tmle3` `tmle_stratified`. Ex
 each new construction: `tests/unit/test_stratified_incremental_exact.py`,
 `tests/unit/test_stratified_msm_exact.py`, `tests/unit/test_stratified_continuous_msm_exact.py`,
 `tests/unit/test_stratified_natural_course_exact.py` and
-`tests/unit/test_stratified_drtmle_exact.py`.
+`tests/unit/test_stratified_drtmle_exact.py`. Three registered studies measure them: the
+[stratified incremental MSM study](method-evidence/stratified-incremental-msm.md), the
+[stratified identity-link MSM study](method-evidence/stratified-msm-identity.md), and the
+[stratified DR-TMLE study](method-evidence/stratified-dr-tmle.md).
 
 These requests with `strata=` refuse before any learner:
 

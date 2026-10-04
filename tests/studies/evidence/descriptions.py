@@ -1221,6 +1221,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the same test applied to the randomized law's own nonzero contrast",
         "rejection lower bound clears the minimum power",
     ),
+    ("power", "ate"): (
+        "the same test applied to the binary missing-treatment law's ATE of 0.21, at n = 1,000",
+        "rejection lower bound clears the minimum power",
+    ),
     ("power", "alternative"): (
         "the same test applied to a law with a real effect",
         "rejection lower bound clears the minimum power",
@@ -1847,6 +1851,7 @@ CELLS.update(
         for clusters in _FEW_CLUSTER_COUNTS
         for arm, (arm_text, required) in _FEW_CLUSTER_ARMS.items()
         if arm != "t_j_minus_2_reference" or fit == "tmle_cv_evaluation"
+        if fit != "ltmle_in_sample" or clusters >= 20
     }
 )
 

@@ -1,0 +1,118 @@
+{
+  "schema_version": 2,
+  "study": "identity-link MSM with baseline strata",
+  "slug": "canonical-stratified-msm-identity",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-stratified-msm",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "d92f7a212417072da30ffc876b4cf2f9de8100c9",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.7",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": {
+      "implementation": "tmle3-msm-stratified",
+      "tmle3_commit": "ed72f8a20e64c914ab25ffe015d865f7a9963d27",
+      "sl3_commit": "0e8f2365bcbe54010b8120c04a7a2dcfc8119227",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_parameter": "tmle3 Param_MSM with Gaussian identity-link projection, once per stratum subset"
+    }
+  },
+  "configuration": {
+    "replicates": 1000,
+    "n": 2000,
+    "seed": 20268811,
+    "resampling_seed": 20268812,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "stratified_msm_identity": [
+        "msm[(intercept)][V=0]",
+        "msm[a][V=0]",
+        "msm[W][V=0]",
+        "msm[(intercept)][V=1]",
+        "msm[a][V=1]",
+        "msm[W][V=1]",
+        "msm[(intercept)][V=2]",
+        "msm[a][V=2]",
+        "msm[W][V=2]"
+      ]
+    },
+    "law": "L1 with a bounded outcome: V in {0, 1, 2}; W in {0, 1, 2} given V; g = expit(-0.3 + 0.5 W - 0.4 V); Y ~ Beta(24 Q, 24 (1 - Q)) with Q = expit(-0.8 + 1.0 A + 0.6 W + 0.9 V)",
+    "working_model": "MSM.linear(modifiers=('W',), interaction=False): (1, a, W), h = 1",
+    "cross_fit": false,
+    "strata": [
+      "V"
+    ],
+    "covariates": [
+      "W",
+      "V"
+    ],
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "simultaneous_intervals": false,
+    "outcome_model": "quasibinomial GLM on (A, W, V)",
+    "treatment_model": "LogisticRegression(C=1e6) on (W, V)",
+    "reference_learners": "sl3 Lrnr_glm for A and Y on (W, W^2) inside each stratum",
+    "declared_difference": "tmle3 fits its nuisances inside each stratum subset with Lrnr_glm; the cleverly fit pools the nuisances over the strata and solves one block per stratum",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_stratified_msm_identity.py": "a88d5abb820cde952594383c43f13fe691ece3e642bca907a91b9ca029768422",
+    "tests/studies/stratified_msm_identity_properties.py": "6d4588d281138c2856d8a98cad4bbc2603d92ce91083997576e4ccbe848009d8",
+    "tests/studies/stratified_alternating_law.py": "19d62e110b376ee2fa83832101d57f32414e49d3eff8381b3889b0accd7150fe",
+    "tests/studies/stratified_law.py": "0a2d419c24c5011d1e42ebce01dd65da5e405faac088a8ad02bbd5c8c18db828",
+    "tests/discrete_law.py": "781827e6225aec7451e8b1bd2232873abfccd0e8ae56b85e1cc90f658f55eaeb",
+    "tests/studies/fractional_glm.py": "5570ff1756acad859e627be9d155e1b43f789ffb8626ac3c53a049bb0662488e",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/studies/evidence/comparison.py": "653c091f0c1cd240b41e4ed7026da8f67c0feda58404e7c27e80eabab38a2217",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "9c8e6a923bb16fd6637dbec77492c43aef29d9a5f825799a20ce5002ca5e9590",
+    "tests/studies/evidence/property_verdicts.py": "6bddb3468d8135bc663df0d92fc52aadea539efdee0cd1ed84ef0e3e12658076",
+    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9"
+  },
+  "reference_sha256": {
+    "tests/canonical/tmle3/Dockerfile": "9b9847818b6551450c0259bbeb6eb806ca5b2fc415d9805266f912f05abd1335",
+    "tests/canonical/tmle3_stratified_msm/run_study.R": "6ccf7dee53bf2b87261ec4c5fe344a9b8aff14ee09bbb55ef6d81927942a2ad3",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "sha256": {
+    "replicates.csv.gz": "8c2dd224504822b0244ce8c95b53f96c7cdc8ce1fd1c49a574d9be82fa667bac",
+    "summary.csv": "738ee3f24d671179420cc90dfe3496b95bb511b56ee236e33958e050bc20ede9",
+    "equivalence.csv": "d7fc0b88b71db067e338947e257c3cbec5e7c2f6ac6fd0216f52a9ff540236aa",
+    "performance-tests.csv": "37438d0fafbfaaac610194d218f1d88af8dc27c4eea87a93149d9d3999f6ba32",
+    "property-replicates.csv.gz": "9b9c5159fdefd5314acc15c21398144420d61f45cb0de9b98fd8ec149eb7e988",
+    "properties.csv": "efe9b03dcc13d5ca759a56062687df59d007f0ea1f18f199f518230ac24ace60"
+  }
+}

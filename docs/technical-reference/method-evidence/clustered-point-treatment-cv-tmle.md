@@ -59,10 +59,11 @@ Their estimator is an AIPW-type estimator with cluster-level treatment, not this
 with row-level treatment. The source supports the split law. It does not prove the estimator here.
 
 The rest is the package's own estimating-equation argument. It treats clusters as the independent
-units, and it needs four conditions: clusters independent of one another, equal cluster sizes, no
-interference between clusters, and the usual remainder rates on the nuisances. At equal cluster
-sizes the argument reduces to Zheng and van der Laan (2011), Theorem 2, with clusters in place of
-rows. The design in this row satisfies all four conditions by construction.
+units, and it needs four conditions: clusters independent of one another, a bounded random
+cluster size, no interference between clusters, and the usual remainder rates on the nuisances.
+With clusters in place of rows, the argument is Zheng and van der Laan (2011), Theorem 2. The design
+in this row satisfies all four conditions by construction, with every cluster of ten rows. The
+[unequal-size study](clustered-unequal-cv-tmle.md) covers sizes from 2 to 18.
 
 This study is the empirical witness for that argument, and it is the only one. No source read here
 proves the estimator is valid under clustering.
@@ -167,9 +168,9 @@ the committed artifacts. The documentation gate checks every printed value.
 
 | limitation | what it means for use |
 | --- | --- |
-| One cluster size and one dependence law | The row validates clusters of ten under shared effect modification. It does not cover informative cluster size |
-| Equal cluster sizes | `cleverly` aggregates cluster sums and pinned `ife` aggregates cluster means, as the clustered inference audit records. The two formulas agree only at equal sizes, so the row does not establish parity for unbalanced clusters |
-| 200 clusters and a normal reference | The intervals use a normal reference with no small-sample cluster correction. The row does not establish coverage at a small cluster count |
+| One cluster size and one dependence law | The row validates clusters of ten under shared effect modification. The [unequal-size study](clustered-unequal-cv-tmle.md) covers informative cluster size |
+| Equal cluster sizes | `cleverly` aggregates cluster sums and pinned `ife` aggregates cluster means, as the clustered inference audit records. The two formulas agree only at equal sizes, so the row does not establish parity for unbalanced clusters. No pinned comparator cross-fits with cluster sums at unequal sizes |
+| 200 clusters and a normal reference | At 200 clusters the intervals use the normal reference. The [few-cluster study](clustered-few-cluster-tmle.md) measures the $t$ reference below 40 clusters |
 | Binary outcome and binary treatment | The row does not establish continuous outcomes, multi-valued treatments, missing outcomes, or longitudinal treatment |
 | One fixed partition | Every replication uses the one grouped assignment described above. The coverage is conditional on it, and the row does not measure the variability a repartition adds |
 | One five-fold split | The row does not establish repeated, fold-evaluated, or fold-specific targeting |

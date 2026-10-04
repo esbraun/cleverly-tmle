@@ -21,9 +21,16 @@ Each draw holds 200 clusters of random size, about 2,000 rows. The rows publish 
 implementations only R ``ltmle`` aggregates by cluster sums, and it does not cross-fit
 (``docs/development/method-benchmarking.md``, the cluster survey).
 
-Publication policy is ``gated``. The red-cell route is declared in the plan before any run: a
-red cell is diagnosed for a defect first; with none found the record switches to
-``reporting`` with owner F28 before one re-run. No margin, budget, law or learner changes.
+Publication policy is ``reporting``, by the red-cell route the plan declared before any run. The
+first full run (2026-10-03) read two red cells. The DR-TMLE pair carried a study defect: its
+fits used the exact-propensity bounds ``(1e-9, 1 - 1e-9)`` with a fitted reduced treatment
+regression, and two of 2,400 curves reached entries of 4.7e5. The DR-TMLE fits now use the
+canonical DR-TMLE study's bounds ``(0.01, 0.99)``, as the plan's "reduced learners as in the
+canonical DR-TMLE study" asked. The fold-evaluated pair on the cluster-level covariate law read
+coverage 0.9325 with lower endpoint 0.918 against the 0.92 calibration floor, with its SE ratio
+inside its band. No package defect was found: at 40 clusters the declared rule keeps the normal
+reference, and that variance has J - V = 30 degrees of freedom. The record switched to
+``reporting`` with owner F28 before the one re-run. No margin, budget, law or learner changed.
 """
 
 from __future__ import annotations
@@ -115,6 +122,7 @@ STUDY = StudyRecord(
     runner_module="tests.studies.clustered_unequal_cvtmle",
     properties_module="tests.studies.clustered_unequal_properties",
     property_cells=PROPERTY_CELLS,
+    publication_policy="reporting",
 )
 
 CONFIGURATION = {

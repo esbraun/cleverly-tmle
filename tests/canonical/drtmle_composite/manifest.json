@@ -1,0 +1,136 @@
+{
+  "schema_version": 2,
+  "study": "observational missing-data DR-TMLE with a composite indicator",
+  "slug": "composite-missing-drtmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-composite-drtmle",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "c6dc7a936801c703c85a5a56dd80407b209c2bac",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.7",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": {
+      "implementation": "drtmle-r-composite",
+      "drtmle_commit": "538a3a264c1ca984b6d88978ca7f96165f43152c",
+      "drtmle_version": "1.1.2",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "comparator_boundary": "the same composite construction: NA treatment read as DeltaA = 0, oracle Qn and the oracle composite gn supplied, so estimateG is skipped; out$tmle pairs with the composite TMLE on a binary outcome"
+    }
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 2000,
+    "seed": 20262301,
+    "resampling_seed": 20262302,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "binary_observational_mar": [
+        "ey0",
+        "ey1",
+        "ate",
+        "rr",
+        "or"
+      ],
+      "binary_mar_outcome_and_treatment": [
+        "ey0",
+        "ey1",
+        "ate",
+        "rr",
+        "or",
+        "tmle_ate"
+      ],
+      "three_arm_mar_outcome_and_treatment": [
+        "ey[high]",
+        "ey[low]",
+        "ey[mid]",
+        "ate[low vs high]",
+        "ate[mid vs high]",
+        "rr[low vs high]",
+        "rr[mid vs high]",
+        "or[low vs high]",
+        "or[mid vs high]",
+        "tmle_ate_mid"
+      ]
+    },
+    "construction": "composite indicator Delta_A * Delta * 1{A = a}, armwise at every arm count",
+    "cross_fit": false,
+    "simultaneous_intervals": true,
+    "n_multiplier": 1000,
+    "treatment_mechanism": "estimated (oracle table on the recorded rows); never known",
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "missingness_bound": 0.01,
+    "composite_bounds_floor": 1.0000000000000002e-06,
+    "guard": [
+      "Q",
+      "g"
+    ],
+    "reduction": "univariate",
+    "reduced_learners": "LinearRegression, LogisticRegression(C=1e6)",
+    "max_outer": 100,
+    "tmle_pairing": "guard=() composite TMLE against out$tmle",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_composite_drtmle.py": "7566d327088389c76aca8233b41a59793d3db6fb81097e50fa6ebe4a6aa66595",
+    "tests/studies/composite_drtmle_properties.py": "3db9d3313405bf25ab7eb66468bdca66c3269dbd84e667466cca365d8e3202a3",
+    "tests/studies/mar_arm_indexed_laws.py": "4e9d846330f321d36b19469fc01f629501a2a3c328af9111c4129a1634a9ce38",
+    "tests/discrete_law_mar.py": "039979331ea4ae60916ec451710a6372590ba7e8db22d01d92df881742afb715",
+    "tests/discrete_law_multi.py": "af84143ddb6547e43f3dedfc5bbddae579ef20572f6d22ef5d13119c53cd463f",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/studies/evidence/comparison.py": "653c091f0c1cd240b41e4ed7026da8f67c0feda58404e7c27e80eabab38a2217",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "9c8e6a923bb16fd6637dbec77492c43aef29d9a5f825799a20ce5002ca5e9590",
+    "tests/studies/evidence/property_verdicts.py": "6bddb3468d8135bc663df0d92fc52aadea539efdee0cd1ed84ef0e3e12658076",
+    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
+    "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15"
+  },
+  "reference_sha256": {
+    "tests/canonical/drtmle/Dockerfile": "470471189bf2b407411d6a89a533e073fd4f2dffb971a9480702658d5da88fe2",
+    "tests/canonical/drtmle_composite/run_study.R": "a801c62d3428281df19f34ddcc31f5ee8ba3f99e6773cefd230f650ee951cb7e",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878",
+    "tests/canonical/multi_arm_helpers.R": "1dcda209b2cf34d969c1582d65a42f825915a276ba1b4557a09f17930422d1a3"
+  },
+  "sha256": {
+    "replicates.csv.gz": "ec566b9aa8fafaa1283a9d8cf54e376b408898078a17aabeb330e2ce85ea83a8",
+    "summary.csv": "363cc53e2490837d7c37f849947d6deec2a0c40a159a49913c85d8115b5b78e1",
+    "equivalence.csv": "8dd3ba2d94d6af54f9988c76481387d399f0d8251e29887b3b6bf40b47a7321f",
+    "performance-tests.csv": "6c683138a759d2d98305e02ce80de737d2f38a3011bacaf76dd48b0fcd2f29dd",
+    "property-replicates.csv.gz": "3871ebd32c66496cc19bd4a796043bb6749f43d0807af6c22c809c4c20233188",
+    "properties.csv": "246767a404794284fc391ff40f91cf4b840d223b7ac1c6f0b97c54f71dce7d22",
+    "fit-exits.csv": "1d5a2529b965a610dad0fca58e5a1589df2da8549e9f1f23d6d5d3ffd8102ae5"
+  }
+}

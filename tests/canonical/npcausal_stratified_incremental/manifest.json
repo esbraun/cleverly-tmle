@@ -1,0 +1,129 @@
+{
+  "schema_version": 2,
+  "study": "stratified incremental and MSM targeting",
+  "slug": "canonical-stratified-incremental-msm",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-stratified-incremental",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "51c9a6ea3a345dc55c0f61753480ca165fdd354a",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.7",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": {
+      "implementation": "npcausal-stratified",
+      "npcausal_commit": "56a5ac117a29258b67b94874be662a171b5131f7",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_parameter": "point-treatment incremental odds curve, per stratum subset",
+      "reference_scope": "point estimates and efficient-influence-curve inference",
+      "reference_nuisances": "two-fold cross-fitted SL.glm.interaction (Y ~ .^2) over the W indicators inside a stratum, which is saturated there, and over the W and V indicators on every row for the marginal means, which has no A:W:V terms and is correct but not saturated"
+    }
+  },
+  "configuration": {
+    "replicates": 1600,
+    "n": 2000,
+    "seed": 20268801,
+    "resampling_seed": 20268802,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "stratified_incremental": [
+        "ey_ipsi[natural course]",
+        "ey_ipsi[odds x2]",
+        "ey_ipsi[odds x0.5]",
+        "ate_ipsi[odds x2 vs natural course]",
+        "ate_ipsi[odds x0.5 vs natural course]",
+        "ey_ipsi[natural course][V=0]",
+        "ey_ipsi[odds x2][V=0]",
+        "ey_ipsi[odds x0.5][V=0]",
+        "ate_ipsi[odds x2 vs natural course][V=0]",
+        "ate_ipsi[odds x0.5 vs natural course][V=0]",
+        "ey_ipsi[natural course][V=1]",
+        "ey_ipsi[odds x2][V=1]",
+        "ey_ipsi[odds x0.5][V=1]",
+        "ate_ipsi[odds x2 vs natural course][V=1]",
+        "ate_ipsi[odds x0.5 vs natural course][V=1]",
+        "ey_ipsi[natural course][V=2]",
+        "ey_ipsi[odds x2][V=2]",
+        "ey_ipsi[odds x0.5][V=2]",
+        "ate_ipsi[odds x2 vs natural course][V=2]",
+        "ate_ipsi[odds x0.5 vs natural course][V=2]"
+      ]
+    },
+    "law": "L1: V in {0, 1, 2} with P(V) = (0.5, 0.3, 0.2); W in {0, 1, 2} given V; g = expit(-0.3 + 0.5 W - 0.4 V); Q = expit(-0.8 + 1.0 A + 0.6 W + 0.9 V); binary Y",
+    "cross_fit": false,
+    "strata": [
+      "V"
+    ],
+    "covariates": [
+      "W",
+      "V"
+    ],
+    "deltas": {
+      "natural course": 1.0,
+      "odds x2": 2.0,
+      "odds x0.5": 0.5
+    },
+    "simultaneous_intervals": false,
+    "outcome_model": "saturated: one probability per (A, W, V) cell",
+    "treatment_model": "saturated: one probability per (W, V) cell",
+    "declared_difference": "npcausal ipsi cross-fits its nuisances with nsplits = 2; the cleverly fit is in sample.  ipsi is called once per stratum subset for the stratum names, and once on every row for the five marginal names of the stratified fit",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_stratified_incremental_msm.py": "2cb0889983ad3090695c71ff870b2c47dead73366a6c02f506388ee032fb75e3",
+    "tests/studies/stratified_incremental_msm_properties.py": "542825a5d1b3d0e52894ee1a2aec43d30490e0c4d973b89cd906f82e3fc4db59",
+    "tests/studies/stratified_alternating_law.py": "19d62e110b376ee2fa83832101d57f32414e49d3eff8381b3889b0accd7150fe",
+    "tests/studies/stratified_law.py": "0a2d419c24c5011d1e42ebce01dd65da5e405faac088a8ad02bbd5c8c18db828",
+    "tests/discrete_law.py": "781827e6225aec7451e8b1bd2232873abfccd0e8ae56b85e1cc90f658f55eaeb",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/studies/evidence/comparison.py": "653c091f0c1cd240b41e4ed7026da8f67c0feda58404e7c27e80eabab38a2217",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "9c8e6a923bb16fd6637dbec77492c43aef29d9a5f825799a20ce5002ca5e9590",
+    "tests/studies/evidence/property_verdicts.py": "6bddb3468d8135bc663df0d92fc52aadea539efdee0cd1ed84ef0e3e12658076",
+    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
+    "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15"
+  },
+  "reference_sha256": {
+    "tests/canonical/npcausal_incremental/Dockerfile": "f790996d3833b584d564202862591e9e66ad340b3639380fe964a6c8195cdc43",
+    "tests/canonical/npcausal_stratified_incremental/run_study.R": "4ecafb1488b2958ec3844a11f2e4aa78da7fedd41add44778ac0c10ef3f5bce8",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "sha256": {
+    "replicates.csv.gz": "14f59173e82f729fdf545d7e813065c3047604d7210688a545520d5cad58dd86",
+    "summary.csv": "10dfbf3b4df0220b7db182f926147a28756bcc3c7e9c4aa927e697ab66f4b1f3",
+    "equivalence.csv": "4264ff2aab78642a2ef4f5f2f10f84e25a07d12a356b2e120898970555a9a175",
+    "performance-tests.csv": "c68bcc3193b2cca7a929d2f556214d766a3cd6c815d44f56712c0f979e1f4d17",
+    "property-replicates.csv.gz": "19f10c661c4e46d8eef54eda002064840fad6682671beaefd243d3e9500fc8d9",
+    "properties.csv": "2b89b9ec18b445b70172defa32f3d9a421c4996abebd5009dc7b419a31cf79f3"
+  }
+}

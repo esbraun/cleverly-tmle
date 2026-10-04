@@ -35,8 +35,8 @@ from cleverly import (
 )
 from cleverly._inference_status import (
     FEW_CLUSTER_THRESHOLD,
-    MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS,
     MINIMUM_INTERVAL_CLUSTERS,
+    MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
     NO_T_REFERENCE_BANDS,
     NON_INFERENTIAL,
 )
@@ -581,13 +581,13 @@ class TestEveryTargetKind:
         assert {e.reference_df for e in result.estimates.values()} == {19}
 
     def test_the_cross_fitted_floor_is_the_smallest_measured_count(self) -> None:
-        """20 clusters keep t(18); 19 withhold the interval; in sample 19 keep t(17).
+        """20 clusters keep t(18) and 19 withhold the interval, cross-fitted and in sample.
 
-        ``few-cluster-cross-fitted-ltmle`` measures 20 and 30 clusters only, so a cross-fitted
-        fit below 20 reports no interval. The in-sample fit keeps the floor of 10, which
-        ``clustered-few-cluster-tmle`` measures.
+        ``few-cluster-cross-fitted-ltmle`` measures 20 and 30 clusters, and
+        ``clustered-few-cluster-tmle`` measures in-sample ``LTMLE`` from 20, so every ``LTMLE``
+        fit below 20 reports no interval. A point-treatment fit keeps the floor of 10.
         """
-        assert MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS == 20
+        assert MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS == 20
         kept = fit_law(20)
         assert kept.inference_status == "influence_curve"
         assert {e.reference_df for e in kept.estimates.values()} == {18}
@@ -598,19 +598,16 @@ class TestEveryTargetKind:
             with pytest.raises(CapabilityError):
                 _ = estimate.ci
         reason = NON_INFERENTIAL["few_cluster_plugin"].reason
-        assert "10 for TMLE, DR-TMLE and in-sample LTMLE, and 20 for cross-fitted LTMLE" in reason
+        assert "fewer than 20 on a longitudinal fit" in reason
         assert "F28" in reason
-        in_sample = fit_law(19, n_folds=1)
-        assert in_sample.inference_status == "influence_curve"
-        assert {e.reference_df for e in in_sample.estimates.values()} == {17}
-        assert fit_law(MINIMUM_INTERVAL_CLUSTERS - 1, n_folds=1).inference_status == (
-            "few_cluster_plugin"
-        )
+        assert fit_law(19, n_folds=1).inference_status == "few_cluster_plugin"
+        in_sample = fit_law(20, n_folds=1)
+        assert {e.reference_df for e in in_sample.estimates.values()} == {18}
 
-    def test_the_in_sample_floor_fails_the_cross_fitted_witness(
+    def test_the_point_treatment_floor_fails_the_longitudinal_witness(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Mutation: the cross-fitted fit reads the in-sample floor of 10."""
+        """Mutation: the cross-fitted fit reads the point-treatment floor of 10."""
         original = cluster_module.cluster_inference_status
         monkeypatch.setattr(
             longitudinal_estimator,
@@ -627,9 +624,9 @@ class TestEveryTargetKind:
         """20 labels, one with zero weight mass: 19 count, so the fit withholds its interval."""
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            result = _weighted(MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS)
-        assert result.data.n_clusters == MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS
-        assert positive_mass_clusters(result) == MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS - 1
+            result = _weighted(MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS)
+        assert result.data.n_clusters == MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
+        assert positive_mass_clusters(result) == MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1
         assert result.inference_status == "few_cluster_plugin"
 
     def test_a_status_that_counts_labels_fails_the_zero_mass_witness(

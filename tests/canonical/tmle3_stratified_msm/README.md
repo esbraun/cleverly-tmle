@@ -9,17 +9,15 @@ The primary scenario pairs the nine stratum coefficients with pinned R `tmle3` 0
 subset, as the marginal `tmle3_msm` runner builds it, and transforms the arm-indicator
 coefficients to the `(1, a, W)` basis.
 
-Run a disposable smoke study before the declared run:
+Run a disposable smoke study into a scratch directory outside the repository:
 
-```powershell
-.venv/Scripts/python.exe -m tests.canonical.tmle3_stratified_msm.regenerate --replicates 4 --n 2000 --skip-properties --allow-failures --output build/x8-s1b-smoke
+```console
+python -m tests.canonical.tmle3_stratified_msm.regenerate --replicates 4 --n 2000 --skip-properties --allow-failures --output <scratch>
 ```
 
-Regenerate from the repository root with Docker running:
-
-```powershell
-.venv/Scripts/python.exe -m tests.canonical.tmle3_stratified_msm.regenerate --jobs 16 --reference-jobs 8
-```
+A declared run passes `--output <scratch>` and optionally `--jobs`, and nothing else.
+`tests/canonical/declared_run.py` describes the guard, the run log and the copy into this
+directory. Docker must be running.
 
 The reader-facing results are in
 [`stratified-msm-identity.md`](../../../docs/technical-reference/method-evidence/stratified-msm-identity.md).

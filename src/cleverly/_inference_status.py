@@ -21,8 +21,8 @@ from typing import Final, Literal, cast
 __all__ = [
     "FEW_CLUSTER_THRESHOLD",
     "HELD_OUT_SCALE",
-    "MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS",
     "MINIMUM_INTERVAL_CLUSTERS",
+    "MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS",
     "NON_INFERENTIAL",
     "NO_SIMULTANEOUS_BANDS",
     "NO_T_REFERENCE_BANDS",
@@ -65,13 +65,10 @@ FEW_CLUSTER_THRESHOLD: Final[int] = 40
 #: takes ``"few_cluster_plugin"``, and F28 in ``docs/roadmap.md`` owns 4 to 9 clusters.
 MINIMUM_INTERVAL_CLUSTERS: Final[int] = 10
 
-#: The fewest clusters with positive weight mass for which a cross-fitted clustered ``LTMLE``
-#: fit reports an interval. It is the smallest count ``few-cluster-cross-fitted-ltmle``
-#: measures: a failure-only probe found draws at 10 clusters that admit no cross-fitted fit, so
-#: the declared grid starts at 20. Below it a cross-fitted clustered ``LTMLE`` fit takes
-#: ``"few_cluster_plugin"``, and F28 in ``docs/roadmap.md`` owns 4 to 19 clusters for that
-#: fit. The in-sample ``LTMLE`` fit keeps :data:`MINIMUM_INTERVAL_CLUSTERS`.
-MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS: Final[int] = 20
+#: The same floor for a longitudinal fit. The registered few-cluster study measures in-sample
+#: ``LTMLE`` from 20 clusters: at 10, about 1 draw in 4,000 admits no LTMLE fit, so those cells
+#: are not in its grid. Below this count an ``LTMLE`` fit takes ``"few_cluster_plugin"``.
+MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS: Final[int] = 20
 
 #: The paragraph a result summary prints under a table whose estimates use a t reference.
 #: ``{clusters}`` is the positive-mass cluster count of the fit.
@@ -252,14 +249,15 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
         "few_cluster_plugin": StatusRecord(
             reason=(
                 "A clustered fit reports no confidence interval, no p-value and no standard "
-                "error when it reads fewer clusters with positive weight mass, in the fit or in "
-                "one reported baseline stratum, than the smallest count its registered study "
-                f"measures: {MINIMUM_INTERVAL_CLUSTERS} for TMLE, DR-TMLE and in-sample LTMLE, "
-                f"and {MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS} for cross-fitted LTMLE. "
-                f"From the floor to {FEW_CLUSTER_THRESHOLD - 1} such clusters the "
-                "package uses a Student t reference with J - 2 degrees of freedom, as Nugent "
-                "et al. (2024), Section 2.2, last paragraph, recommend. No registered study "
-                "measures an interval below the floor of its fit. The point estimate "
+                f"error when it reads fewer than {MINIMUM_INTERVAL_CLUSTERS} clusters with "
+                "positive weight mass, in the fit or in one reported baseline stratum, or "
+                f"fewer than {MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS} on a longitudinal fit. "
+                f"From that floor to {FEW_CLUSTER_THRESHOLD - 1} such clusters the package uses "
+                "a Student t reference with J - 2 degrees of freedom, as Nugent et al. (2024), "
+                "Section 2.2, last paragraph, recommend. The registered few-cluster study "
+                f"measures point-treatment fits from {MINIMUM_INTERVAL_CLUSTERS} clusters and "
+                f"longitudinal fits from {MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS}, and no "
+                "registered study measures an interval below those counts. The point estimate "
                 "stands. The plug-in standard error of the reported curve remains as a "
                 "diagnostic under plugin_std_error and plugin_interval, which use the normal "
                 "reference. F28 in docs/roadmap.md owns fits below their floor and the open "
@@ -267,8 +265,9 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             assessment_note=(
                 "the reported curve is a few-cluster diagnostic: no confidence interval or "
-                "p-value is available for a fit with fewer clusters than its registered study "
-                "measures, and F28 in the roadmap is the condition that reopens it"
+                f"p-value is available for a fit with fewer than {MINIMUM_INTERVAL_CLUSTERS} "
+                f"clusters ({MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS} for a longitudinal fit), "
+                "and F28 in the roadmap is the condition that reopens it"
             ),
             summary_label="normal-reference se",
             bootstrap_note=(

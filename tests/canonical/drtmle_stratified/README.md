@@ -13,17 +13,15 @@ the construction the subject uses. The property cells also measure the marginal 
 stratified fit against its exact truth, because that estimate reduces on `(g_n, V)` and has no
 paired reference.
 
-Run a disposable smoke study before the declared run:
+Run a disposable smoke study into a scratch directory outside the repository:
 
-```powershell
-.venv/Scripts/python.exe -m tests.canonical.drtmle_stratified.regenerate --replicates 4 --n 2000 --skip-properties --allow-failures --output build/x8-s2-smoke
+```console
+python -m tests.canonical.drtmle_stratified.regenerate --replicates 4 --n 2000 --skip-properties --allow-failures --output <scratch>
 ```
 
-Regenerate from the repository root with Docker running:
-
-```powershell
-.venv/Scripts/python.exe -m tests.canonical.drtmle_stratified.regenerate --jobs 16 --reference-jobs 8
-```
+A declared run passes `--output <scratch>` and optionally `--jobs`, and nothing else.
+`tests/canonical/declared_run.py` describes the guard, the run log and the copy into this
+directory. Docker must be running.
 
 The reader-facing results are in
 [`stratified-dr-tmle.md`](../../../docs/technical-reference/method-evidence/stratified-dr-tmle.md).
