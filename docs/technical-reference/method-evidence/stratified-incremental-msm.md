@@ -269,13 +269,17 @@ so no result predicts a calibrated standard error.
 
 Two positive cells are red, and both measure the logit-MSM slope:
 `interval_calibration/logit_v1_a__correctly_specified` and `logit_v2_a__correctly_specified`.
-Their SE-ratio intervals end at 0.927 and 0.939 against a floor of 0.93, and both cover
-nominally. Stratum 2 holds about 400 of the 2,000 rows.
+Their SE ratios are 0.967 and 0.862, and the lower ends of their intervals are 0.927 and
+0.782 against a floor of 0.93. Both cover nominally. Stratum 1 holds about 600 of the 2,000 rows,
+and stratum 2 about 400.
 
 The owner `X8-logit-small-stratum` in the [roadmap](../../roadmap.md#red-cell-owners) records the
-diagnosis. A declared diagnostic fitted the shipped unstratified logit MSM on samples of
-stratum 2's size from the law given $V = 2$. It under-reports alike, 0.896 against the stratified
-fit's 0.867 on fresh draws. At four times the size both read 0.997 and 1.006. The study declared
+diagnosis. A declared diagnostic read stratum 2 only. It fitted the shipped unstratified logit MSM
+on samples of stratum 2's size from the law given $V = 2$. That fit under-reports as well: 0.896,
+against the stratified fit's 0.867 on fresh draws. At four times the size the two read 0.997 and
+1.006.
+
+No diagnostic reads stratum 1, whose interval misses the floor by 0.003. The study declared
 `gated` and moved to `reporting` before a re-run at the same seeds, which its declaration allows
 for a finite-sample red with no defect.
 

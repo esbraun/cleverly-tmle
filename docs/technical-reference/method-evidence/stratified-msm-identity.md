@@ -117,7 +117,8 @@ Two results are red, both in stratum 2, which holds about 400 of the 2,000 rows.
 to 1.004 against a floor of 0.93. On the primary draws the same coefficient reads 0.983 in
 `cleverly` and 0.985 in R. The paired `msm[W][V=2]` row is inconclusive on its calibration leg
 alone. The estimates differ by 6e-6 on average with the same spread, and R reports a standard
-error 2.2% above its own spread, because it fits a Gaussian `Lrnr_glm` inside each subset.
+error 2.2% above its own spread. That is consistent with the declared nuisance difference: R
+fits a Gaussian `Lrnr_glm` inside each subset.
 
 The owner `X8-identity-small-stratum` in the [roadmap](../../roadmap.md#red-cell-owners) records
 the reading. The study declared `gated` and moved to `reporting` before a re-run at the same

@@ -108,14 +108,20 @@ four nuisance configurations. The marginal cells read the same fits as the strat
 
 Seven results are red. The four `treatment_correct` robustness cells carry a positive bias of
 0.34 to 0.60 of their spread. The owner `X8-drtmle-one-sided-bias` in the
-[roadmap](../../roadmap.md#red-cell-owners) records a declared diagnostic. Inside each stratum, the
-shipped unstratified `DRTMLE` and R `drtmle`, handed the same initial arrays, carry the same bias.
-This is the one-sided bias that `RM18-one-sided-bias` records for the unstratified study on the
-same law, at stratum size.
+[roadmap](../../roadmap.md#red-cell-owners) records a declared diagnostic.
 
-The marginal estimate is the mixture of the stratum estimates, so it
-inherits their bias. Its bias falls from 0.0151 at n = 2,000 to 0.0058 at n = 8,000, faster than
-its spread.
+Inside each stratum, the shipped unstratified `DRTMLE` and R `drtmle`, handed the same initial
+arrays, carry a positive bias too. The direction is shared in every stratum, and the size mostly is. In stratum 2 the
+package's bias, 0.0237, exceeds R's, 0.0157, on the same arrays: the paired difference is 0.0080
+with a standard error of 0.0018. The shipped unstratified fit on the stratum's rows has the
+package's bias there to 2e-5, so the excess belongs to `DRTMLE` at about 400 rows and not to the
+strata. This is the one-sided bias that `RM18-one-sided-bias` records for the unstratified study
+on the same law.
+
+The marginal estimate is the mixture of the stratum estimates, so it inherits their bias. Its
+bias is 0.56 of its spread at n = 2,000 (99% interval 0.43 to 0.69), and 0.43 at n = 8,000 (0.25
+to 0.61). The two intervals overlap, so the diagnostic does not establish that the bias contracts
+faster than the spread.
 
 The other three reds sit in stratum 2, which holds about 400 of the 2,000 rows. The two truth rows
 of `ey[1][V=2]` cover 0.900 and 0.8925 in the two implementations on the same draws. The

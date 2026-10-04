@@ -250,6 +250,15 @@ def test_the_stratified_drtmle_treatment_correct_bias() -> None:
         assert min(bias[(name, arm)] for arm in "CRS") > 0.009, name
     assert bias[("ate", "C")] == 0.0151
     assert bias[("ate", "M")] == 0.0029
+    # Stratum 2 is mixed: on the same arrays the package's bias exceeds R's.  The subset fit
+    # matches the package there, so the excess is DRTMLE at stratum size, not the strata.
+    rows = pd.read_csv(here / "rows.csv.gz", float_precision="round_trip")
+    wide = rows.pivot_table(index=["replicate", "estimand"], columns="arm", values="estimate")
+    v2 = wide.xs("ate[V=2]", level="estimand")
+    gap = v2["C"] - v2["R"]
+    assert round(float(gap.mean()), 4) == 0.0080
+    assert round(float(gap.std(ddof=1) / np.sqrt(len(gap))), 4) == 0.0018
+    assert abs(float((v2["C"] - v2["S"]).mean())) < 1e-4
     contraction = pd.read_csv(here / "contraction-rows.csv.gz", float_precision="round_trip")
     assert _bias(contraction)[("ate", "C")] == 0.0058
     spread = contraction.loc[
