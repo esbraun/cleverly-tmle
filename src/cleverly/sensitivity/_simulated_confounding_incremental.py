@@ -25,22 +25,18 @@ from ._simulated_confounding_common import (
 
 _TARGET_TYPES = {"ey_ipsi": IncrementalMean, "ate_ipsi": IncrementalEffect}
 INCREMENTAL_TARGETS = frozenset(_TARGET_TYPES)
-_STRATA_REFUSAL = (
-    "simulated_confounding cannot replay baseline strata for incremental targets; "
-    "stratified alternating targeting is unsupported"
-)
 
 
-def incremental_replay_refusal(
-    estimator: Any, target: str, stratum: tuple[Any, ...] | None = None
-) -> str | None:
-    """Describe the estimator boundary without evaluating a treatment mechanism."""
+def incremental_replay_refusal(estimator: Any, target: str) -> str | None:
+    """Describe the estimator boundary without evaluating a treatment mechanism.
+
+    A baseline stratum is no boundary: the replay is a complete refit, which targets the
+    stratum blocks as the fit did.
+    """
     from ..estimators.tmle import TMLE
 
     if target in INCREMENTAL_TARGETS and type(estimator) is not TMLE:
         return "simulated_confounding supports incremental targets under exact ordinary TMLE only"
-    if target in INCREMENTAL_TARGETS and stratum is not None:
-        return _STRATA_REFUSAL
     return None
 
 
@@ -72,8 +68,6 @@ def validate_incremental_replay(result: Any, estimand: str, key: Any) -> Any:
     refusal = incremental_replay_refusal(estimator, key.estimand)
     if refusal is not None:
         raise CapabilityError(refusal)
-    if result.data.has_strata:
-        raise CapabilityError(_STRATA_REFUSAL)
     registered = check_registered_target(result, key, "ipsi", error)
     check_replay_declaration(result, key, error)
     check_only_declared_axis(result, key, "ipsi", error)

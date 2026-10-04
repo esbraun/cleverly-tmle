@@ -281,20 +281,33 @@ def armwise_mechanism_score(
     a = np.asarray(treatment, dtype=float).reshape(-1)
     g = np.asarray(propensity, dtype=float)
     h = np.asarray(covariate, dtype=float)
-    if g.shape != (a.size, len(arms)) or h.shape != g.shape:
-        raise ValueError(
-            f"armwise mechanism and covariate must both be ({a.size}, {len(arms)}); "
-            f"got {g.shape} and {h.shape}"
-        )
+    width = _armwise_width(a, g, h, arms)
+    k = len(arms)
     scores: list[float] = []
     scales: list[float] = []
     for column, arm in enumerate(arms):
         score, scale = mechanism_score(
-            (a == arm).astype(float), g[:, column], h[:, column : column + 1], weights
+            (a == arm).astype(float), g[:, column], h[:, column : k * width : k], weights
         )
-        scores.append(float(score[0]))
-        scales.append(float(scale[0]))
+        scores.extend(float(value) for value in score)
+        scales.extend(float(value) for value in scale)
     return np.asarray(scores, dtype=float), np.asarray(scales, dtype=float)
+
+
+def _armwise_width(a: FloatArray, g: FloatArray, h: FloatArray, arms: tuple[float, ...]) -> int:
+    """How many covariate columns each arm has: one, or one per baseline stratum.
+
+    The covariate is ``(n, K)``, or ``(n, K S)`` in the stratum-major layout of
+    :func:`~cleverly.fluctuation.submodel.stratify_columns`, where arm ``j``'s columns are
+    ``j, j + K, ...``.
+    """
+    k = len(arms)
+    if g.shape != (a.size, k) or h.ndim != 2 or h.shape[0] != a.size or h.shape[1] % k:
+        raise ValueError(
+            f"armwise mechanism must be ({a.size}, {k}) and its covariate ({a.size}, {k}) "
+            f"or ({a.size}, {k} S); got {g.shape} and {h.shape}"
+        )
+    return int(h.shape[1] // k)
 
 
 def apply_mechanism_tilt(
@@ -582,18 +595,15 @@ def solve_armwise_bounded_mechanism(
     a = np.asarray(treatment, dtype=float).reshape(-1)
     g = np.asarray(propensity, dtype=float)
     h = np.asarray(covariate, dtype=float)
-    if g.shape != (a.size, len(arms)) or h.shape != g.shape:
-        raise ValueError(
-            f"armwise mechanism and covariate must both be ({a.size}, {len(arms)}); "
-            f"got {g.shape} and {h.shape}"
-        )
+    width = _armwise_width(a, g, h, arms)
+    k = len(arms)
 
     bases, covariates = split_mechanism_carry(carry, h)
     for base, own in zip(bases, covariates, strict=True):
         if np.asarray(base).shape != g.shape or np.asarray(own).shape != h.shape:
             raise ValueError(
                 "an armwise carried mechanism and its covariate must have the same "
-                f"shape as the fitted mechanism {g.shape}; got "
+                f"shape as the fitted mechanism {g.shape} and covariate {h.shape}; got "
                 f"{np.asarray(base).shape} and {np.asarray(own).shape}"
             )
 
@@ -603,13 +613,13 @@ def solve_armwise_bounded_mechanism(
             solve_bounded_mechanism(
                 (a == arm).astype(float),
                 g[:, column],
-                h[:, column : column + 1],
+                h[:, column : k * width : k],
                 weights,
                 bounds=bounds,
                 max_iter=max_iter,
                 tol=tol,
                 carry=tuple(
-                    (np.asarray(base)[:, column], np.asarray(own)[:, column : column + 1])
+                    (np.asarray(base)[:, column], np.asarray(own)[:, column : k * width : k])
                     for base, own in zip(bases, covariates, strict=True)
                 ),
             )

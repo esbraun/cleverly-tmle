@@ -9,7 +9,7 @@ critical value and the control power of every cell from the family's correlation
 source of the correlation                   cells
 ==========================================  =================================================
 exact, from a finite-support law's EIF      ``regimens``, the survival and competing-risk
-                                            cells, and both strata cells
+                                            cells, both strata cells, and ``ipsi_strata``
 the reported curves of ten fits at the      ``arms`` and every cell of
 cell's own size (a design estimate)         ``default-simultaneous-bands``
 ==========================================  =================================================
@@ -45,6 +45,8 @@ from tests.studies import (
     mar_attributable_properties,
     multi_arm_mar_drtmle_properties,
     multi_arm_tmle_properties,
+    stratified_alternating_law,
+    stratified_incremental_msm_properties,
     stratified_law,
     stratified_tmle_properties,
 )
@@ -142,6 +144,16 @@ EXACT: dict[str, tuple[np.ndarray, int, tuple[float, float]]] = {
         ),
         stratified_tmle_properties.CROSSFIT_REPLICATES,
         (0.6609, 2.778),
+    ),
+    # The stratified incremental fit's twenty names, from the exact L1 influence functions of
+    # tests/studies/stratified_alternating_law.py.  The matrix has rank deficiencies: each
+    # natural-course mean and each marginal name is a combination of others.
+    "canonical-stratified-incremental-msm/ipsi_strata": (
+        _from_covariance(
+            stratified_alternating_law.covariance(stratified_alternating_law.all_ipsi_names())
+        ),
+        stratified_incremental_msm_properties.CALIBRATION_REPLICATES,
+        (0.6416, 2.809),
     ),
     # The nine names of L3 on the inference scale (log for rr and or), from the exact
     # efficient influence covariance of the law.

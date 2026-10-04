@@ -102,7 +102,7 @@ that both of its parents take. Each row has evidence in `tests/unit/test_composi
 | `reduction=` | not applicable | `"univariate"`, `"bivariate"` |
 | `weights=` (fixed) | yes | yes; `weights_estimated=True` reports `"estimated_weight_plugin"`, as on complete data |
 | `id=` | yes | yes |
-| `strata=` | yes, in one pooled outcome step | refused by the X8 row below |
+| `strata=` | yes, in one pooled outcome step | yes; see [baseline strata](#baseline-strata) |
 | `n_bootstrap=` | yes; a replicate resamples rows with their `Delta_A` | yes |
 | `screen_treatment=True` | yes, screened on the recorded rows | yes |
 | `evaluation=`, `reduced_crossfit="nested"` | not applicable | refused: both constructions carry one fold-free treatment mechanism, and the composite has up to three factors |
@@ -151,6 +151,36 @@ DR-TMLE, so that test replays neither. The test also removes the weight from the
 regressions alone, and requires the cell estimate to move. Neither file establishes interval
 validity or weighted parity with the canonical implementation.
 
+### Baseline strata
+
+A fit with `strata=` reports each stratum's DR-TMLE beside the marginal one, at every `guard` and
+on every route: complete data, the randomized missing-outcome construction, and the composite
+indicator. The table gives what changes inside the alternation.
+
+| piece | stratified form |
+| --- | --- |
+| equations (8), (9) and (10), and the missing-outcome tilts | one block $I(S=s) H / P_n(S=s)$ per stratum for each covariate |
+| reduced regressions | fitted inside each stratum, on the stratum's rows of each fold's training complement |
+| evaluation companion (`evaluation=`) | each companion row moves by its own stratum's coefficients |
+
+Each stratum's equations then share no row with another stratum's, so a stratum's estimate is
+the DR-TMLE of the law given $S=s$. `tests/unit/test_stratified_drtmle_exact.py` checks this
+against separate fits on the stratum subsets, on every route. The
+[stratified DR-TMLE study](../method-evidence/stratified-dr-tmle.md) measures the marginal and
+stratum ATEs against exact truths and pairs the stratum targets with R `drtmle`.
+
+The marginal estimate is the $P_n(S=s)$-weighted mixture of the stratum estimates. Its reductions
+condition on $(g_n(W), S)$, which is finer than the $g_n(W)$ of Theorem 1 of Benkeser et al.
+(2017).
+
+The theorem's iterated-expectation step needs only that the weights in (9) and (10) are
+measurable in the conditioning sigma-field. Its rate conditions hold inside each stratum for a
+fixed number of strata. The marginal estimate is therefore valid, and it differs from the
+estimate of an unstratified fit. The arm targets of ordinary TMLE follow the same convention.
+
+A stratum with no trainable row of some arm in some fold's training complement refuses after the
+fold draw and before any learner.
+
 ## Refused by name
 
 Each row below is refused because the derivation read here does not cover it, or because no code
@@ -187,7 +217,6 @@ retained diagnostic.
 | composition with `CTMLE` | a reduced regression conditions on `ĝ` *as a covariate*, and C-TMLE's `ĝ` is deliberately not an estimate of `g_0`. C-TMLE also scores its path by the loss of the targeted `Q̄`, so the criterion choosing `ĝ` presupposes that `Q̄` is informative. That is precisely the case this variant insures against. |
 | estimated weights (`weights_estimated=`) with a non-empty `guard` | **fits, and reports the `"estimated_weight_plugin"` status.** The ordinary answer is that the interval conditions on the weights. That answer is an argument about `D*`, and not about `Q_r`, `g_{r,1}` and `g_{r,2}`. `guard=()` fits the ordinary TMLE and keeps its interval. [F5](../../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) holds the result that would reopen it. `simulated_confounding` refuses the composition before it draws. Constant weights declared estimated fit the unweighted estimator, keep the interval, and `simulated_confounding` answers on them. `CausalData.declares_estimated_weights` is the one reading of the declaration |
 | `evaluation=` with `repeats>1`, `targeting="one_step"`, or `target_weights=True` | each by name; the middle one on cost, up to 20,000 adaptive steps |
-| baseline strata (`strata=`) at a non-empty `guard` | the reduced regressions add a second targeting equation for the `mean` group, and the package fluctuates baseline strata in one pooled outcome step only. `guard=()` is the ordinary TMLE and fits strata. [X8](../../roadmap.md#x8-stratified-incremental-and-msm-targeting) holds the construction |
 | `targeting="one_step"` with `reduced_crossfit="nested"` at a non-empty `guard` | on cost, as the `evaluation=` row. The nested designs move by each of up to 20,000 adaptive steps. The fit refuses before any learner, also on an estimator whose settings change after construction |
 | `reduced_crossfit="nested"` with `cross_fit=False` or `n_folds < 3` | there is no complement to leave a fold out of; nested leaves two folds out at a time. `cross_fit=True` with fewer than two folds is refused earlier, when the declaration is constructed, so this row's fold clause reaches only `n_folds=2` |
 | a continuous outcome with `cross_fit=True` and `q_bounds=None` | the scale would come from every observed outcome, held-out rows included, and no shipped result covers it. See the [fold and outcome-scale rules](../cv-tmle.md#fold-and-outcome-scale-rules) |

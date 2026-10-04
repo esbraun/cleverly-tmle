@@ -128,8 +128,15 @@ from ..fluctuation.iterative import (
     InitialFit,
     dominant_failure,
 )
-from ..fluctuation.mechanism import needs_mechanism
-from ..fluctuation.submodel import Submodel, TargetGroup, restrict, stitch
+from ..fluctuation.mechanism import mechanism_covariate, needs_mechanism
+from ..fluctuation.submodel import (
+    Submodel,
+    TargetGroup,
+    restrict,
+    stitch,
+    stratify,
+    stratify_columns,
+)
 from ..inference.bootstrap import Resampling, run_bootstrap
 from ..inference.cluster import cluster_inference_status, cross_validated_variance
 from ..inference.influence import (
@@ -189,6 +196,14 @@ from ..targets.population_intervention import (
 from ..utils.bounds import OutcomeScaler, g_bounds_for, resolve_g_bounds
 from ..utils.frames import is_dataframe
 from ._nuisance import NuisanceEstimates, RepeatFit, fit_nuisances
+from ._strata import (
+    absent_arm_error,
+    check_stratified_targets,
+    embed_stratum_curve,
+    stratum_probabilities,
+    stratum_source,
+    unscale_block,
+)
 from .base import (
     CVTargeting,
     TMLEConfig,
@@ -215,6 +230,8 @@ from .targeting import (
     solve_with_mechanism,
     solve_with_projection,
     solve_with_reduction,
+    solve_with_stratified_projection,
+    stratum_blocks,
 )
 
 __all__ = ["TMLE", "tmle"]
@@ -382,94 +399,6 @@ _OFF_CONTRACT_AXIS_NAMES: dict[ParameterAxis, str] = {
     "regime": "regime",
     "msm": "MSM",
 }
-
-#: What a stratified refusal of the ``ipsi`` or ``msm`` group tells the caller to do instead.
-_FIXED_FLUCTUATION_REMEDY = (
-    "Fit the marginal parameter, or use an arm/regime/shift target whose outcome "
-    "fluctuation is fixed."
-)
-#: The same for the ``mean`` group of ``DRTMLE``, which refuses regimes and shifts.
-_EMPTY_GUARD_REMEDY = (
-    "Fit the marginal parameter, or pass guard=(), which is the ordinary TMLE and accepts strata=."
-)
-
-
-def _stratified_alternation_refusal(group: str) -> CapabilityError:
-    """The refusal of baseline strata beside a group whose targeting alternates.
-
-    Parameters
-    ----------
-    group : str
-        The target group whose targeting has a second equation, such as ``"ipsi"``.
-
-    Returns
-    -------
-    CapabilityError
-        The refusal, which cites X8 in ``docs/roadmap.md``.  The remedy of the ``"mean"``
-        group names ``guard=()``, because only ``DRTMLE`` gives that group a second equation.
-    """
-    remedy = _EMPTY_GUARD_REMEDY if group == "mean" else _FIXED_FLUCTUATION_REMEDY
-    return CapabilityError(
-        f"baseline strata are not yet combined with the {group!r} group's alternating "
-        f"targeting equations. {remedy} "
-        "docs/roadmap.md X8 tracks it."
-    )
-
-
-def refuse_stratified_targeting(
-    data: CausalData, *, incremental: bool = False, msm: MSM | None = None, reduced: bool = False
-) -> None:
-    """Refuse baseline strata beside a target that the package fluctuates marginally only.
-
-    The package fluctuates baseline strata in one pooled outcome step
-    (``TMLE._retarget_detailed``).  A group whose targeting alternates with a second
-    equation, or a continuous-dose MSM, has no stratified construction (X8 in
-    ``docs/roadmap.md``).  This check reads the configuration and the data declaration
-    only, so it refuses before any learner.  Each flag is the configuration form of the
-    predicate of the targeting-loop guard, which stays as a backstop because
-    :meth:`TMLE.retarget` runs no preflight:
-
-    * ``incremental`` is ``needs_mechanism``.  The ``ipsi`` group is the only registered
-      mechanism group (``cleverly.fluctuation.mechanism``);
-    * ``msm`` with a link other than the identity is ``needs_projection``;
-    * ``reduced`` is ``needs_reduction``.  A ``DRTMLE`` fit carries reduced regressions
-      exactly when its ``guard`` is not empty.
-
-    ``TMLE._resolve_estimands_for_data``, ``DRTMLE._check_drtmle`` and
-    ``CausalStudy.identify`` run it.
-
-    Parameters
-    ----------
-    data : CausalData
-        The data of the fit.  The check returns at once without baseline strata.
-    incremental : bool
-        Whether the fit targets an incremental intervention.
-    msm : MSM or None
-        The working model of the fit, or ``None``.
-    reduced : bool
-        Whether the fit targets reduced regressions beside the outcome.
-
-    Raises
-    ------
-    CapabilityError
-        If ``data`` has baseline strata and the fit has a continuous-dose MSM, an
-        incremental target, a working model with a link other than the identity, or
-        reduced regressions.
-    """
-    if not data.has_strata:
-        return
-    if msm is not None and data.is_continuous_treatment:
-        raise CapabilityError(
-            "continuous MSMs do not yet support baseline strata; conditional dose "
-            "projections need a stratum-specific density-ratio targeting construction. "
-            "Fit the marginal MSM projection. docs/roadmap.md X8 tracks it."
-        )
-    if incremental:
-        raise _stratified_alternation_refusal("ipsi")
-    if msm is not None and msm.link != "identity":
-        raise _stratified_alternation_refusal("msm")
-    if reduced:
-        raise _stratified_alternation_refusal("mean")
 
 
 def _independent_units(data: CausalData) -> tuple[IntArray, str]:
@@ -1396,12 +1325,18 @@ class TMLE:
         estimands = self._resolve_estimands_for_data(data)
         if data.has_missing_treatment:
             estimands = tuple(name for name in estimands if name not in unidentified_targets())
-        if data.has_strata and (self.cv_evaluation or self.targeting_scheme == "fold"):
+        if data.has_strata and self.targeting_scheme == "fold":
             raise CapabilityError(
-                "baseline strata currently use one joint pooled fluctuation. "
-                "cv_evaluation=True or targeting_scheme='fold' would require the "
-                "stratum probabilities and conditional treatment shares to be rebuilt "
-                "inside every validation fold; use the default pooled targeting scheme"
+                "baseline strata are not combined with targeting_scheme='fold': each stratum "
+                "would need a fold-local update in place of the pooled one, and no published "
+                "result covers a fold-local update. Use the default pooled targeting scheme"
+            )
+        if data.has_strata and self.cv_evaluation:
+            raise CapabilityError(
+                "baseline strata are not implemented with cv_evaluation=True: the "
+                "fold-evaluated estimate needs stratum shares and a stratum-indexed fold "
+                "average inside every validation fold. Use cv_evaluation=False. "
+                "docs/roadmap.md X28 tracks it"
             )
         if self.simultaneous and len(estimands) > 1:
             # Guarded by the band's own construction condition, not by ``simultaneous``
@@ -1686,9 +1621,10 @@ class TMLE:
         holds at every ``cross_fit`` setting, so it runs before the cross-fitted refusal,
         whose remedy is the in-sample fit.
 
-        The refusal of baseline strata beside a target that the package fluctuates
-        marginally only, :func:`refuse_stratified_targeting`, runs next, for the same
-        reason.
+        The data checks of baseline strata,
+        :func:`~cleverly.estimators._strata.check_stratified_targets`, run next: a stratum
+        that lacks a treatment arm beside an incremental target, and a working model that
+        is singular inside a stratum.
 
         The natural-course contract runs next, because it resolves the target list the
         arm-indexed missing-outcome contract then reads.  The refusal of every other
@@ -1707,7 +1643,7 @@ class TMLE:
         self._refuse_undeclared_functions()
         if self.msm is not None:
             refuse_continuous_msm_mechanisms(data, subject="An MSM (msm=)", missingness="delta=")
-        refuse_stratified_targeting(data, incremental=bool(self.incremental), msm=self.msm)
+        check_stratified_targets(data, incremental=bool(self.incremental), msm=self.msm)
         estimands = self._resolve_natural_course_contract(data)
         self._resolve_arm_indexed_missing_contract(data, estimands)
         self._refuse_cross_fitted_missing_off_contract(data, estimands)
@@ -2052,11 +1988,6 @@ class TMLE:
             refuse(
                 "the stacked contract covers unweighted iid rows. Drop id= from fit, "
                 "or fit in sample"
-            )
-        if data.has_strata:
-            refuse(
-                "baseline strata need a stratum-indexed natural-course fluctuation "
-                "(X8 in docs/roadmap.md)"
             )
         if data.has_intermediate:
             refuse("intermediate= is not implemented")
@@ -3291,6 +3222,7 @@ class TMLE:
         # The joint route solves the natural-course fluctuation first and holds its mean
         # for the ``mean`` context, which reports every estimate of the fit.
         natural_course: ArmMean | None = None
+        natural_course_strata: dict[int, ArmMean] = {}
         for group in groups:
             bounds = g_bounds_for(group, mean_bounds, conditional_bounds)
             # A group whose parameter is defined *through* the mechanism has a second
@@ -3299,27 +3231,9 @@ class TMLE:
             # from; `nuisance` stays the initial fit and is what the result reports.
             targeted = nuisance
             targeting_submodel: Submodel | None = None
-            # The backstop of ``refuse_stratified_targeting``, which refuses these fits
-            # before any learner: ``retarget`` runs no preflight.
-            if data.has_strata and (
-                needs_mechanism(group)
-                or needs_reduction(nuisance, group)
-                or needs_projection(nuisance, group)
-            ):
-                raise _stratified_alternation_refusal(group)
             if needs_mechanism(group):
-                submodel, fluctuation, targeted = solve_with_mechanism(
-                    data,
-                    nuisance,
-                    group,
-                    self.targeting_spec(),
-                    bounds=bounds,
-                    nuisance_bound=self.nuisance_bound
-                    if nuisance_bound is None
-                    else nuisance_bound,
-                    scaled=nuisance.scaler.scale(data.outcome),
-                    weights=self._validation_weights(data, nuisance),
-                    observed=data.observed,
+                submodel, fluctuation, targeted, targeting_submodel = self._solve_mechanism(
+                    data, nuisance, group, bounds, nuisance_bound
                 )
             elif needs_reduction(nuisance, group):
                 # A fit carrying reduced-dimension regressions solves two further score
@@ -3327,7 +3241,7 @@ class TMLE:
                 # nuisances moves -- the estimand is still the plug-in mean of the targeted
                 # regression -- so this returns two values, as the projection does and
                 # unlike the mechanism alternation.
-                submodel, fluctuation = self._solve_reduction(
+                submodel, fluctuation, targeting_submodel = self._solve_reduction(
                     data, nuisance, group, bounds, nuisance_bound
                 )
             elif needs_projection(nuisance, group):
@@ -3338,6 +3252,14 @@ class TMLE:
                 submodel, fluctuation = self._solve_projection(
                     data, nuisance, group, bounds, nuisance_bound
                 )
+                if data.has_strata:
+                    # The marginal coefficients above are the unstratified solve.  The
+                    # stratum coefficients need their own fluctuation, because each
+                    # stratum block reads its own coefficients.
+                    targeting_submodel, nested = self._solve_stratified_projection(
+                        data, nuisance, group, bounds, nuisance_bound
+                    )
+                    fluctuation = replace(fluctuation, stratified=nested)
             else:
                 submodel = self._submodel(
                     data,
@@ -3381,6 +3303,11 @@ class TMLE:
                     data.weights,
                     data.observed,
                 )
+                if data.has_strata:
+                    assert targeting_submodel is not None
+                    natural_course_strata = self._stratum_natural_course(
+                        data, nuisance, submodel, targeting_submodel, fluctuation
+                    )
                 continue
             pooled = self._estimates_for(
                 data,
@@ -3406,6 +3333,7 @@ class TMLE:
                     requested,
                     level,
                     reference,
+                    natural_course=natural_course_strata if group == "mean" else None,
                 )
                 pooled.update(stratified)
                 pooled_report.update(stratified)
@@ -3682,6 +3610,7 @@ class TMLE:
         missingness_override: FloatArray | None,
         nuisance_bound: float | None,
         reference: float,
+        msm_beta: Sequence[FloatArray] | None = None,
     ) -> Submodel:
         r"""One disjoint score block per baseline stratum.
 
@@ -3690,55 +3619,46 @@ class TMLE:
         normalised conditional-effect covariate, as a generic wrapper would do, targets
         the wrong denominator.  The blocks have disjoint support, so no redundant
         marginal column is added: the marginal score is their empirical weighted sum.
+
+        Arm shares are read only on an arm-coded treatment.  A continuous dose has no arm
+        shares, and the natural-course group fits no treatment model.  ``msm_beta`` holds
+        one coefficient vector per stratum, for a working model whose covariate reads its
+        coefficients.
         """
         assert data.strata is not None
         lower = self.nuisance_bound if nuisance_bound is None else float(nuisance_bound)
+        probabilities = stratum_probabilities(data)
+        reads_shares = not data.is_continuous_treatment and group != "natural_course"
         pieces: list[Submodel] = []
         for code in range(data.n_strata):
             mask = data.strata == code
-            probability = float(np.average(mask, weights=data.weights))
-            fractions = np.array(
-                [arm_share(data.treatment, data.weights, arm, mask=mask) for arm in nuisance.arms],
-                dtype=float,
-            )
-            if fractions.size and np.any(fractions <= 0.0):
-                absent = [
-                    data.arm_label(arm)
-                    for arm, fraction in zip(nuisance.arms, fractions, strict=True)
-                    if fraction <= 0.0
-                ]
-                raise DataError(
-                    f"baseline stratum {data.stratum_label(code)} contains no positive-"
-                    f"weight observations from treatment arm(s) {absent}; its empirical "
-                    "targeting score is unidentified"
+            fractions = None
+            if reads_shares:
+                fractions = np.array(
+                    [
+                        arm_share(data.treatment, data.weights, arm, mask=mask)
+                        for arm in nuisance.arms
+                    ],
+                    dtype=float,
                 )
-            base = build_submodel(
-                data,
-                nuisance,
-                group,
-                bounds=bounds,
-                nuisance_bound=lower,
-                intermediate_value=intermediate_value,
-                missingness_override=missingness_override,
-                reference=reference,
-                arm_fractions=fractions,
-            )
-            multiplier = mask.astype(float) / probability
-            label = data.stratum_label(code)
+                if fractions.size and np.any(fractions <= 0.0):
+                    raise absent_arm_error(data, nuisance.arms, fractions, code, group)
             pieces.append(
-                Submodel(
-                    base.observed * multiplier[:, None],
-                    {arm: values * multiplier[:, None] for arm, values in base.arms.items()},
-                    tuple(f"{name} | {label}" for name in base.names),
-                    base.group,
+                build_submodel(
+                    data,
+                    nuisance,
+                    group,
+                    bounds=bounds,
+                    nuisance_bound=lower,
+                    intermediate_value=intermediate_value,
+                    missingness_override=missingness_override,
+                    reference=reference,
+                    arm_fractions=fractions,
+                    msm_beta=None if msm_beta is None else msm_beta[code],
                 )
             )
-        return Submodel(
-            np.hstack([piece.observed for piece in pieces]),
-            {arm: np.hstack([piece.arms[arm] for piece in pieces]) for arm in pieces[0].arms},
-            tuple(name for piece in pieces for name in piece.names),
-            group,
-        )
+        labels = [data.stratum_label(code) for code in range(data.n_strata)]
+        return stratify(pieces, data.strata, probabilities, labels)
 
     def _solve(
         self, data: CausalData, nuisance: NuisanceEstimates, submodel: Submodel
@@ -3828,6 +3748,60 @@ class TMLE:
         del data, nuisance
         return None
 
+    def _solve_mechanism(
+        self,
+        data: CausalData,
+        nuisance: NuisanceEstimates,
+        group: TargetGroup,
+        bounds: tuple[float, float],
+        nuisance_bound: float | None,
+    ) -> tuple[Submodel, Fluctuation, NuisanceEstimates, Submodel]:
+        """Alternate the outcome and the treatment mechanism, with one block per stratum.
+
+        Returns the marginal submodel, the fluctuation, the re-tilted nuisances, and the
+        submodel the fluctuation solved.  The last two submodels are one object without
+        baseline strata.  With strata, both equations take one block per stratum
+        (:func:`~cleverly.fluctuation.submodel.stratify_columns`), and the marginal submodel
+        is rebuilt at the targeted tilt for the marginal estimates.  Its score is the
+        ``P_n(S = s)``-weighted sum of the solved blocks.
+        """
+        lower = self.nuisance_bound if nuisance_bound is None else float(nuisance_bound)
+        outcome_submodel = None
+        mechanism_columns = None
+        if data.has_strata:
+            assert data.strata is not None
+            strata = data.strata
+            probabilities = stratum_probabilities(data)
+            reference = self._reference_arm(data, nuisance.regimes, nuisance.shifts)
+
+            def outcome_submodel(current: NuisanceEstimates) -> Submodel:
+                return self._stratified_submodel(
+                    data, current, group, bounds, None, None, lower, reference
+                )
+
+            def mechanism_columns(targeted: InitialFit, tilt: IPSISet) -> FloatArray:
+                return stratify_columns(
+                    mechanism_covariate(group, targeted, tilt), strata, probabilities
+                )
+
+        solved, fluctuation, targeted = solve_with_mechanism(
+            data,
+            nuisance,
+            group,
+            self.targeting_spec(),
+            bounds=bounds,
+            nuisance_bound=lower,
+            scaled=nuisance.scaler.scale(data.outcome),
+            weights=self._validation_weights(data, nuisance),
+            observed=data.observed,
+            outcome_submodel=outcome_submodel,
+            mechanism_columns=mechanism_columns,
+        )
+        if not data.has_strata:
+            return solved, fluctuation, targeted, solved
+        marginal = build_submodel(data, targeted, group, bounds=bounds, nuisance_bound=lower)
+        return marginal, fluctuation, targeted, solved
+
     def _solve_reduction(
         self,
         data: CausalData,
@@ -3835,8 +3809,13 @@ class TMLE:
         group: TargetGroup,
         bounds: tuple[float, float],
         nuisance_bound: float | None,
-    ) -> tuple[Submodel, Fluctuation]:
+    ) -> tuple[Submodel, Fluctuation, Submodel]:
         """Alternate the outcome, the mechanism and the reduced regressions.
+
+        Returns the marginal submodel, the fluctuation, and the submodel the outcome
+        equation was solved along.  With baseline strata every equation takes one block per
+        stratum (:class:`~cleverly.estimators.targeting.StratumBlocks`), and the last is the
+        marginal submodel's blocks.  Without strata the two submodels are one object.
 
         Pooled only.  Fold-wise targeting would need each fold's reduced regressions fitted
         out of that fold and its own alternation run inside it, which is a derivation rather
@@ -3852,7 +3831,8 @@ class TMLE:
                 "no learners for. Retarget with the DRTMLE that fitted them, or drop "
                 "`reduced` to report a plain TMLE under a plain TMLE's name."
             )
-        return solve_with_reduction(
+        blocks = stratum_blocks(data, nuisance)
+        submodel, fluctuation = solve_with_reduction(
             data,
             nuisance,
             group,
@@ -3868,7 +3848,9 @@ class TMLE:
             # reduced regressions -- but the method is defined on `TMLE`, so the attribute is
             # fetched defensively rather than assumed onto a class that does not declare it.
             max_outer=getattr(self, "max_outer", DEFAULT_MAX_OUTER),
+            blocks=blocks,
         )
+        return submodel, fluctuation, submodel if blocks is None else blocks.submodel(submodel)
 
     def _solve_projection(
         self,
@@ -3934,6 +3916,36 @@ class TMLE:
                 ),
             )
         return alternate()
+
+    def _solve_stratified_projection(
+        self,
+        data: CausalData,
+        nuisance: NuisanceEstimates,
+        group: TargetGroup,
+        bounds: tuple[float, float],
+        nuisance_bound: float | None,
+    ) -> tuple[Submodel, Fluctuation]:
+        """The stratum coefficients of a linked working model, pooled over the sample.
+
+        Fold-wise targeting and fold evaluation refuse baseline strata before any learner,
+        so this has no fold form.
+        """
+        lower = self.nuisance_bound if nuisance_bound is None else float(nuisance_bound)
+        reference = self._reference_arm(data, nuisance.regimes, nuisance.shifts)
+        return solve_with_stratified_projection(
+            data,
+            nuisance,
+            group,
+            self.targeting_spec(),
+            bounds=bounds,
+            nuisance_bound=lower,
+            scaled=nuisance.scaler.scale(data.outcome),
+            weights=self._validation_weights(data, nuisance),
+            observed=data.observed,
+            blocks_at=lambda betas: self._stratified_submodel(
+                data, nuisance, group, bounds, None, None, lower, reference, msm_beta=betas
+            ),
+        )
 
     def _solve_rows(
         self,
@@ -4143,12 +4155,10 @@ class TMLE:
         convention is mean-one weights, and a fold's slice of a globally normalised
         vector does not satisfy it.
 
-        ``natural_course`` is the joint route's natural-course mean, solved by its own
-        fluctuation. The joint route admits no strata and no fold evaluation, so it is
-        never sliced.
+        ``natural_course`` is the joint route's natural-course mean on the rows ``index``
+        selects, solved by its own fluctuation.  The joint route admits no fold evaluation,
+        so ``index`` selects a baseline stratum there, and the mean is that stratum's.
         """
-        if natural_course is not None and index is not None:
-            raise RuntimeError("a joint natural-course fit is never evaluated on a fold slice")
         scaler = nuisance.scaler
         scaled = scaler.scale(data.outcome)
         targeted = fluctuation.targeted
@@ -4256,26 +4266,35 @@ class TMLE:
         requested: Sequence[str],
         alpha_sig: float,
         reference: float,
+        natural_course: Mapping[int, ArmMean] | None = None,
     ) -> dict[str, ParameterEstimate]:
-        """Conditional plug-ins and full-sample influence curves for every stratum."""
+        """Conditional plug-ins and full-sample influence curves for every stratum.
+
+        ``natural_course`` holds the joint route's natural-course mean of each stratum,
+        keyed by stratum code (:meth:`_stratum_natural_course`).
+
+        A linked working model reads the stratum fluctuation nested on the marginal one
+        (:attr:`~cleverly.fluctuation.Fluctuation.stratified`).  Every other group solved
+        its blocks in the one fluctuation.
+        """
         assert data.strata is not None
+        stratum_fluctuation = stratum_source(fluctuation)
         width = marginal_submodel.dim
         if targeting_submodel.dim != width * data.n_strata:
             raise RuntimeError(
                 "the stratified targeting submodel does not contain one base block per stratum"
             )
         out: dict[str, ParameterEstimate] = {}
-        for code in range(data.n_strata):
+        for code, probability in enumerate(stratum_probabilities(data)):
             index = np.flatnonzero(data.strata == code).astype(np.int64)
-            probability = float(np.average(data.strata == code, weights=data.weights))
             block = slice(code * width, (code + 1) * width)
             # Undo I_s / p_s before the ordinary target builder renormalises weights in
             # the subset.  Its resulting curve is on the n_s-row empirical scale; the
             # n/n_s embedding below restores I_s D_s / P_n(S=s), the full-law gradient.
             conditional_submodel = Submodel(
-                targeting_submodel.observed[:, block] * probability,
+                unscale_block(targeting_submodel.observed[:, block], probability),
                 {
-                    arm: values[:, block] * probability
+                    arm: unscale_block(values[:, block], probability)
                     for arm, values in targeting_submodel.arms.items()
                 },
                 marginal_submodel.names,
@@ -4288,17 +4307,17 @@ class TMLE:
                 nuisance,
                 group,
                 conditional_submodel,
-                fluctuation,
+                stratum_fluctuation,
                 requested,
                 alpha_sig,
                 reference,
                 index=index,
+                natural_course=None if not natural_course else natural_course[code],
             )
             label = data.stratum_label(code)
             for estimate in estimates.values():
                 name = stratum_alias(estimate.name, label)
-                curve = np.zeros(data.n, dtype=float)
-                curve[index] = estimate.influence_curve * (data.n / index.size)
+                curve = embed_stratum_curve(estimate.influence_curve, index, data.n)
                 out[name] = make_estimate(
                     name,
                     estimate.psi,
@@ -4310,6 +4329,47 @@ class TMLE:
                     log_psi=estimate.log_psi,
                     covariance_rule=estimate.covariance_rule,
                 )
+        return out
+
+    def _stratum_natural_course(
+        self,
+        data: CausalData,
+        nuisance: NuisanceEstimates,
+        marginal_submodel: Submodel,
+        targeting_submodel: Submodel,
+        fluctuation: Fluctuation,
+    ) -> dict[int, ArmMean]:
+        """The joint route's natural-course mean inside each stratum, on the stratum's rows.
+
+        The natural-course fluctuation solved one block per stratum, so each stratum's
+        block, un-scaled, is that stratum's natural-course covariate.  The mean and its curve
+        are on the stratum's own rows and weights, as :meth:`_estimates_for` reads every
+        stratum target.
+        """
+        assert data.strata is not None
+        width = marginal_submodel.dim
+        scaled = nuisance.scaler.scale(data.outcome)
+        out: dict[int, ArmMean] = {}
+        for code, probability in enumerate(stratum_probabilities(data)):
+            index = np.flatnonzero(data.strata == code).astype(np.int64)
+            block = slice(code * width, (code + 1) * width)
+            covariate = Submodel(
+                unscale_block(targeting_submodel.observed[:, block], probability),
+                {
+                    arm: unscale_block(values[:, block], probability)
+                    for arm, values in targeting_submodel.arms.items()
+                },
+                marginal_submodel.names,
+                "natural_course",
+            )
+            weights = data.weights[index]
+            out[code] = natural_course_mean(
+                scaled[index],
+                _slice_fit(fluctuation.targeted, index),
+                restrict(covariate, index),
+                weights / weights.mean(),
+                data.observed[index],
+            )
         return out
 
     def _bootstrap_point_estimates(

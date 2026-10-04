@@ -56,11 +56,20 @@ from ..fluctuation.reduced import (
     reduced_mechanism_covariate,
     reduced_outcome_submodel,
 )
-from ..fluctuation.submodel import Submodel, TargetGroup, restrict, submodel_for
+from ..fluctuation.submodel import (
+    Submodel,
+    TargetGroup,
+    restrict,
+    stratify,
+    stratify_columns,
+    submodel_for,
+)
+from ..interventions import IPSISet
 from ..learners.crossfit import Folds
 from ..msm import solve_projection
 from ..utils.bounds import OutcomeScaler
 from ._nuisance import CompanionEstimates, NuisanceEstimates, Propensity
+from ._strata import companion_stratum_codes, stratum_probabilities
 from .composite import complement_form
 from .direct_effect import clever_covariate_inputs
 from .reduced import MissingOutcomeReducedSet, ReducedFamily, ReducedSet
@@ -75,6 +84,7 @@ __all__ = [
     "ReductionFluctuation",
     "ReductionOrder",
     "ReductionSpec",
+    "StratumBlocks",
     "TargetingSpec",
     "build_submodel",
     "needs_projection",
@@ -84,6 +94,8 @@ __all__ = [
     "solve_with_mechanism",
     "solve_with_projection",
     "solve_with_reduction",
+    "solve_with_stratified_projection",
+    "stratum_blocks",
 ]
 
 #: Why ``targeting="one_step"`` refuses to carry further arrays through its steps.  The
@@ -544,6 +556,8 @@ def solve_with_projection(
     rows: IntArray | None = None,
     max_outer: int = DEFAULT_MAX_OUTER,
     warn: bool = True,
+    project: Callable[[InitialFit], FloatArray] | None = None,
+    submodel_at: Callable[[FloatArray], Submodel] | None = None,
 ) -> tuple[Submodel, Fluctuation]:
     r"""Target ``Qbar`` and solve the working model's projection, alternating until both settle.
 
@@ -588,12 +602,22 @@ def solve_with_projection(
     sliced nuisances, because the covariate is row-wise and the two agree -- and because
     the sliced version would have to re-derive arm fractions and bounds from a subsample
     that is not the population they describe.
+
+    ``project`` and ``submodel_at`` replace the projection of a targeted fit and the
+    covariate at a coefficient vector.  A fit with baseline strata passes the stacked
+    stratum coefficients ``(beta_1, ..., beta_S)``: ``project`` solves each stratum's
+    projection on its own rows, and ``submodel_at`` builds one block
+    ``I(S = s) H(beta_s) / P_n(S = s)`` per stratum.  That is the working model with the
+    expanded design ``(I(S = s) phi)_s``, whose projection loss separates by stratum.
+    Both must be given together, and without ``rows``.
     """
     if nuisance.msm is None:  # pragma: no cover - guarded by needs_projection
         raise ValueError(
             f"group {group!r} targets a working model's coefficients, so the fit must "
             "carry the model that defines them; this NuisanceEstimates has none"
         )
+    if (project is None) != (submodel_at is None) or (project is not None and rows is not None):
+        raise ValueError("project= and submodel_at= go together, and without rows=")
     index = None if rows is None else np.asarray(rows)
     msm = nuisance.msm if index is None else nuisance.msm.subset(index)
     initial = nuisance.outcome if index is None else _slice(nuisance.outcome, index)
@@ -601,24 +625,27 @@ def solve_with_projection(
     w = weights if index is None else weights[index]
     seen = observed if index is None else observed[index]
     scaler = nuisance.scaler
+    if project is None or submodel_at is None:
 
-    beta = solve_projection(
-        msm.design, msm.weights, _raw_arms(initial, msm.arms, scaler), w, msm.link
-    ).beta
+        def project(fit: InitialFit) -> FloatArray:
+            return solve_projection(
+                msm.design, msm.weights, _raw_arms(fit, msm.arms, scaler), w, msm.link
+            ).beta
+
+        def submodel_at(coefficients: FloatArray) -> Submodel:
+            return _projection_submodel(
+                data, nuisance, group, bounds, nuisance_bound, coefficients, index
+            )
+
+    beta = project(initial)
     trace: list[tuple[int, float, float]] = []
     previous: float | None = None
-    submodel = _projection_submodel(data, nuisance, group, bounds, nuisance_bound, beta, index)
+    submodel = submodel_at(beta)
     fluctuation = solve_submodel(y, initial, submodel, w, seen, spec, warn=warn)
 
     for outer in range(1, max_outer + 1):
-        solved = solve_projection(
-            msm.design,
-            msm.weights,
-            _raw_arms(fluctuation.targeted, msm.arms, scaler),
-            w,
-            msm.link,
-        )
-        shift = float(np.max(np.abs(solved.beta - beta))) / (1.0 + float(np.max(np.abs(beta))))
+        solved = project(fluctuation.targeted)
+        shift = float(np.max(np.abs(solved - beta))) / (1.0 + float(np.max(np.abs(beta))))
         trace.append((outer, fluctuation.relative_score_norm, shift))
         if shift <= spec.tol:
             break
@@ -629,8 +656,8 @@ def solve_with_projection(
         if previous is not None and shift > _STALL_FACTOR * previous:
             break
         previous = shift
-        beta = solved.beta
-        submodel = _projection_submodel(data, nuisance, group, bounds, nuisance_bound, beta, index)
+        beta = solved
+        submodel = submodel_at(beta)
         # From Qbar^0 again, not from the current Qbar*: see above.
         fluctuation = solve_submodel(y, initial, submodel, w, seen, spec, warn=False)
 
@@ -640,6 +667,78 @@ def solve_with_projection(
         beta=beta, trace=tuple(trace), converged=bool(last <= spec.tol), failure=failure
     )
     return submodel, replace(fluctuation, projection=projection)
+
+
+def solve_with_stratified_projection(
+    data: CausalData,
+    nuisance: NuisanceEstimates,
+    group: TargetGroup,
+    spec: TargetingSpec,
+    *,
+    bounds: tuple[float, float],
+    nuisance_bound: float,
+    scaled: FloatArray,
+    weights: FloatArray,
+    observed: BoolArray,
+    blocks_at: Callable[[Sequence[FloatArray]], Submodel],
+    max_outer: int = DEFAULT_MAX_OUTER,
+    warn: bool = True,
+) -> tuple[Submodel, Fluctuation]:
+    r"""The stratum coefficients of a linked working model, by one blocks-only alternation.
+
+    Stratum ``s``'s coefficients ``beta_s`` are the projection of the targeted fit on the
+    stratum's rows.  Its clever covariate ``H(beta_s)`` reads them, so the stacked vector
+    ``(beta_1, ..., beta_S)`` alternates with one fluctuation whose covariate is
+    ``blocks_at(betas)``, one block ``I(S = s) H(beta_s) / P_n(S = s)`` per stratum.  This
+    is :func:`solve_with_projection` for the working model with the expanded design
+    ``(I(S = s) phi)_s``: its projection loss separates by stratum, and so does the
+    fluctuation loss.  Each round restarts from ``Qbar^0``, and the stop and stall rules
+    are the marginal ones.  The returned fluctuation's ``projection.beta`` is the stacked
+    vector.
+    """
+    msm = nuisance.msm
+    if msm is None or data.strata is None:  # pragma: no cover - guarded by the caller
+        raise ValueError("a stratified projection needs a working model and baseline strata")
+    strata = data.strata
+    rows = [np.flatnonzero(strata == code) for code in range(data.n_strata)]
+    width = msm.n_terms
+    scaler = nuisance.scaler
+
+    def project(fit: InitialFit) -> FloatArray:
+        predictions = _raw_arms(fit, msm.arms, scaler)
+        return np.concatenate(
+            [
+                solve_projection(
+                    msm.design[index],
+                    msm.weights[index],
+                    predictions[index],
+                    weights[index],
+                    msm.link,
+                ).beta
+                for index in rows
+            ]
+        )
+
+    def submodel_at(coefficients: FloatArray) -> Submodel:
+        return blocks_at(
+            [coefficients[code * width : (code + 1) * width] for code in range(len(rows))]
+        )
+
+    return solve_with_projection(
+        data,
+        nuisance,
+        group,
+        spec,
+        bounds=bounds,
+        nuisance_bound=nuisance_bound,
+        scaled=scaled,
+        weights=weights,
+        observed=observed,
+        max_outer=max_outer,
+        warn=warn,
+        project=project,
+        submodel_at=submodel_at,
+    )
 
 
 def _projection_submodel(
@@ -689,6 +788,8 @@ def solve_with_mechanism(
     observed: BoolArray,
     max_outer: int = DEFAULT_MAX_OUTER,
     warn: bool = True,
+    outcome_submodel: Callable[[NuisanceEstimates], Submodel] | None = None,
+    mechanism_columns: Callable[[InitialFit, IPSISet], FloatArray] | None = None,
 ) -> tuple[Submodel, Fluctuation, NuisanceEstimates]:
     r"""Target ``Qbar`` and the treatment mechanism together, alternating until both settle.
 
@@ -711,7 +812,25 @@ def solve_with_mechanism(
     at the targeted mechanism.  The caller uses that third value for the estimates and
     keeps the original for ``result.nuisance``, so the reported nuisances stay the ones
     that were actually fitted.
+
+    ``outcome_submodel`` and ``mechanism_columns`` build the two covariates.  The defaults
+    are the marginal ones.  A fit with baseline strata passes builders that return one
+    block per stratum, ``I(S = s) H / P_n(S = s)``, for both equations.  Both losses then
+    separate by stratum, so the coupled fixed point is the product of the stratum fixed
+    points.
     """
+    if outcome_submodel is None:
+
+        def outcome_submodel(current: NuisanceEstimates) -> Submodel:
+            return build_submodel(
+                data, current, group, bounds=bounds, nuisance_bound=nuisance_bound
+            )
+
+    if mechanism_columns is None:
+
+        def mechanism_columns(targeted: InitialFit, tilt: IPSISet) -> FloatArray:
+            return mechanism_covariate(group, targeted, tilt)
+
     if nuisance.incremental is None:
         raise ValueError(
             f"group {group!r} targets the treatment mechanism, so the fit must carry the "
@@ -720,14 +839,14 @@ def solve_with_mechanism(
     current = nuisance
     tilt = nuisance.incremental
     fit = nuisance.outcome
-    submodel = build_submodel(data, current, group, bounds=bounds, nuisance_bound=nuisance_bound)
+    submodel = outcome_submodel(current)
     fluctuation = solve_submodel(scaled, fit, submodel, weights, observed, spec, warn=warn)
     trace: list[tuple[int, float, float, float]] = []
     mechanism: MechanismFluctuation | None = None
     previous: float | None = None
 
     for outer in range(1, max_outer + 1):
-        covariate = mechanism_covariate(group, fluctuation.targeted, tilt)
+        covariate = mechanism_columns(fluctuation.targeted, tilt)
         mechanism = solve_mechanism(
             data.treatment, tilt.propensity, covariate, weights, tol=spec.tol
         )
@@ -735,9 +854,7 @@ def solve_with_mechanism(
         assert current.incremental is not None
         tilt = current.incremental
 
-        submodel = build_submodel(
-            data, current, group, bounds=bounds, nuisance_bound=nuisance_bound
-        )
+        submodel = outcome_submodel(current)
         fluctuation = solve_submodel(
             scaled, fluctuation.targeted, submodel, weights, observed, spec, warn=False
         )
@@ -748,7 +865,7 @@ def solve_with_mechanism(
         settled, scale = mechanism_score(
             data.treatment,
             tilt.propensity,
-            mechanism_covariate(group, fluctuation.targeted, tilt),
+            mechanism_columns(fluctuation.targeted, tilt),
             weights,
         )
         mechanism = replace(mechanism, score=settled, score_scale=scale)
@@ -988,6 +1105,97 @@ def needs_reduction(nuisance: NuisanceEstimates, group: TargetGroup) -> bool:
     return group == "mean" and nuisance.reduced is not None
 
 
+@dataclass(frozen=True)
+class StratumBlocks:
+    r"""The stratum form of every score equation of a fit with baseline strata.
+
+    A covariate column ``H`` becomes one block ``I(S = s) H / P_n(S = s)`` per stratum,
+    stratum-major (:func:`~cleverly.fluctuation.submodel.stratify_columns`).  The doubly
+    robust alternation applies it to every covariate it solves or scores along, and to the
+    covariates of the evaluation companion's rows with those rows' own strata.  The
+    probabilities are the fitting sample's, so a companion row in stratum ``s`` moves by
+    stratum ``s``'s coefficient.
+
+    Parameters
+    ----------
+    strata : IntArray
+        The stratum code of each fitting row.
+    probabilities : tuple of float
+        ``P_n(S = s)`` for each code, under the fit's weights.
+    labels : tuple of str
+        The stratum labels, for the column names.
+    companion_strata : IntArray or None
+        The fit's stratum code of each companion row, or ``None`` without a companion.
+    """
+
+    strata: IntArray
+    probabilities: tuple[float, ...]
+    labels: tuple[str, ...]
+    companion_strata: IntArray | None = None
+
+    def _codes(self, companion: bool) -> IntArray:
+        if not companion:
+            return self.strata
+        if self.companion_strata is None:
+            raise ValueError("these blocks have no companion strata")
+        return self.companion_strata
+
+    def columns(self, matrix: FloatArray, *, companion: bool = False) -> FloatArray:
+        """``(n, k S)``: each column of ``matrix`` as one block per stratum."""
+        return stratify_columns(matrix, self._codes(companion), self.probabilities)
+
+    def submodel(self, submodel: Submodel, *, companion: bool = False) -> Submodel:
+        """``submodel`` with each column as one block per stratum."""
+        return stratify(
+            [submodel] * len(self.probabilities),
+            self._codes(companion),
+            self.probabilities,
+            self.labels,
+        )
+
+
+def stratum_blocks(data: CausalData, nuisance: NuisanceEstimates) -> StratumBlocks | None:
+    """The stratum blocks of a fit, or ``None`` without baseline strata.
+
+    Parameters
+    ----------
+    data : CausalData
+        The data of the fit.
+    nuisance : NuisanceEstimates
+        Its nuisances.  An evaluation companion contributes its rows' strata.
+
+    Returns
+    -------
+    StratumBlocks or None
+        The blocks, or ``None`` when ``data`` has no baseline strata.
+    """
+    if data.strata is None:
+        return None
+    companion = nuisance.companion
+    return StratumBlocks(
+        strata=data.strata,
+        probabilities=tuple(stratum_probabilities(data)),
+        labels=tuple(data.stratum_label(code) for code in range(data.n_strata)),
+        companion_strata=(
+            None if companion is None else companion_stratum_codes(data, companion.data)
+        ),
+    )
+
+
+def _blocked(
+    blocks: StratumBlocks | None, submodel: Submodel, *, companion: bool = False
+) -> Submodel:
+    """``submodel`` in stratum form, or unchanged without strata."""
+    return submodel if blocks is None else blocks.submodel(submodel, companion=companion)
+
+
+def _blocked_columns(
+    blocks: StratumBlocks | None, matrix: FloatArray, *, companion: bool = False
+) -> FloatArray:
+    """``matrix`` in stratum form, or unchanged without strata."""
+    return matrix if blocks is None else blocks.columns(matrix, companion=companion)
+
+
 @dataclass
 class _Companion:
     r"""The fit's nuisances at the evaluation rows, moved in lockstep with the fitted ones.
@@ -1022,9 +1230,16 @@ class _Companion:
     scaler: OutcomeScaler
     arms: tuple[float, ...]
     fold_sizes: tuple[int, ...]
+    #: The fit's stratum blocks, applied at the companion rows with their own strata.
+    blocks: StratumBlocks | None = None
 
     @classmethod
-    def of(cls, nuisance: NuisanceEstimates, companion: CompanionEstimates) -> _Companion:
+    def of(
+        cls,
+        nuisance: NuisanceEstimates,
+        companion: CompanionEstimates,
+        blocks: StratumBlocks | None = None,
+    ) -> _Companion:
         """The state at the initial fits, before any equation has been solved."""
         return cls(
             data=companion.data,
@@ -1037,6 +1252,7 @@ class _Companion:
             scaler=nuisance.scaler,
             arms=nuisance.arms,
             fold_sizes=tuple(companion.fold_sizes),
+            blocks=blocks,
         )
 
     @property
@@ -1065,12 +1281,16 @@ class _Companion:
         return tuple(
             (
                 self.outcome[fold],
-                build_submodel(
-                    self.data,
-                    self.nuisance(fold),
-                    group,
-                    bounds=bounds,
-                    nuisance_bound=nuisance_bound,
+                _blocked(
+                    self.blocks,
+                    build_submodel(
+                        self.data,
+                        self.nuisance(fold),
+                        group,
+                        bounds=bounds,
+                        nuisance_bound=nuisance_bound,
+                    ),
+                    companion=True,
                 ),
             )
             for fold in range(self.n_folds)
@@ -1081,11 +1301,15 @@ class _Companion:
         return tuple(
             (
                 self.outcome[fold],
-                reduced_outcome_submodel(
-                    self.data.treatment,
-                    self.reduced[fold],
-                    bounds=bounds,
-                    propensity=self.mechanism[fold],
+                _blocked(
+                    self.blocks,
+                    reduced_outcome_submodel(
+                        self.data.treatment,
+                        self.reduced[fold],
+                        bounds=bounds,
+                        propensity=self.mechanism[fold],
+                    ),
+                    companion=True,
                 ),
             )
             for fold in range(self.n_folds)
@@ -1112,8 +1336,12 @@ class _Companion:
         return tuple(
             (
                 self.mechanism[fold],
-                reduced_mechanism_covariate(
-                    self.reduced[fold], self.mechanism[fold], bounds=bounds
+                _blocked_columns(
+                    self.blocks,
+                    reduced_mechanism_covariate(
+                        self.reduced[fold], self.mechanism[fold], bounds=bounds
+                    ),
+                    companion=True,
                 ),
             )
             for fold in range(self.n_folds)
@@ -1172,6 +1400,7 @@ def _solve_reduced_mechanism(
     bounds: tuple[float, float],
     tol: float,
     carry: Sequence[MechanismCarry] = (),
+    blocks: StratumBlocks | None = None,
 ) -> MechanismFluctuation:
     """Solve equation (9), retaining the exact binary route and looping at K arms.
 
@@ -1179,8 +1408,11 @@ def _solve_reduced_mechanism(
     themselves otherwise -- the two solvers take different things, and
     ``solve_with_reduction`` builds it on the same test this branches on.  The test is the
     carrier rule: the mechanism is one column exactly when the complement form applies.
+    With baseline strata each arm's covariate is one block per stratum.
     """
-    covariate = reduced_mechanism_covariate(reduced, propensity, bounds=bounds)
+    covariate = _blocked_columns(
+        blocks, reduced_mechanism_covariate(reduced, propensity, bounds=bounds)
+    )
     if np.asarray(propensity).ndim == 1:
         return solve_bounded_mechanism(
             response, propensity, covariate, weights, bounds=bounds, tol=tol, carry=carry
@@ -1205,9 +1437,12 @@ def _reduced_mechanism_score(
     arms: tuple[float, ...],
     *,
     bounds: tuple[float, float],
+    blocks: StratumBlocks | None = None,
 ) -> tuple[FloatArray, FloatArray]:
     """Re-evaluate equation (9) at the current mechanism, ``response`` as above."""
-    covariate = reduced_mechanism_covariate(reduced, propensity, bounds=bounds)
+    covariate = _blocked_columns(
+        blocks, reduced_mechanism_covariate(reduced, propensity, bounds=bounds)
+    )
     if np.asarray(propensity).ndim == 1:
         return mechanism_score(response, propensity, covariate, weights)
     return armwise_mechanism_score(response, propensity, covariate, weights, arms)
@@ -1227,6 +1462,7 @@ def solve_with_reduction(
     observed: BoolArray,
     max_outer: int = DEFAULT_MAX_OUTER,
     warn: bool = True,
+    blocks: StratumBlocks | None = None,
 ) -> tuple[Submodel, Fluctuation]:
     r"""Solve the outcome equation and the two extra ones together, alternating until all settle.
 
@@ -1377,6 +1613,12 @@ def solve_with_reduction(
     that one re-derives its nuisances because ``ipsi``'s estimand is a functional of
     :math:`g`, and this estimand is :math:`E[\bar Q^*(a, W)]`, which reads no mechanism at
     all.  Nothing the alternation moves belongs on ``result.nuisance``.
+
+    ``blocks`` puts every equation in its stratum form, one block per baseline stratum, on
+    every route (:class:`StratumBlocks`).  The reductions are then fitted inside each stratum
+    (:func:`~cleverly.estimators.reduced.fit_reduced`), so each stratum's equations are the
+    marginal ones on the law given the stratum.  The returned submodel is still the marginal
+    one, which the marginal estimates read; its blocks are ``blocks.submodel`` of it.
     """
     if nuisance.reduced is None:
         raise ValueError(
@@ -1398,6 +1640,7 @@ def solve_with_reduction(
             observed=observed,
             max_outer=max_outer,
             warn=warn,
+            blocks=blocks,
         )
     guard = tuple(reduction.guard)
     order = reduction.order
@@ -1453,12 +1696,14 @@ def solve_with_reduction(
     # which is every fit except the diagnostic that evaluates the remainder against truth.
     # It travels beside `inner_q`/`inner_g` in the same `carry`, contributes to no solve and
     # is split back out by `_split_carried`.
-    companion = None if nuisance.companion is None else _Companion.of(nuisance, nuisance.companion)
+    companion = (
+        None if nuisance.companion is None else _Companion.of(nuisance, nuisance.companion, blocks)
+    )
     submodel = build_submodel(data, current, group, bounds=bounds, nuisance_bound=nuisance_bound)
     fluctuation = solve_submodel(
         scaled,
         nuisance.outcome,
-        submodel,
+        _blocked(blocks, submodel),
         weights,
         observed,
         spec,
@@ -1508,7 +1753,7 @@ def solve_with_reduction(
             fluctuation = solve_submodel(  # step 2: equation (8), along H_1(g^k)
                 scaled,
                 targeted_q,
-                submodel,
+                _blocked(blocks, submodel),
                 weights,
                 observed,
                 spec,
@@ -1541,7 +1786,7 @@ def solve_with_reduction(
                 extra = solve_submodel(  # step 4: equation (10), along H_2
                     scaled,
                     targeted_q,
-                    extra_submodel,
+                    _blocked(blocks, extra_submodel),
                     weights,
                     observed,
                     spec,
@@ -1574,6 +1819,7 @@ def solve_with_reduction(
                     arms,
                     bounds=bounds,
                     tol=spec.tol,
+                    blocks=blocks,
                     carry=_combine(
                         inner_g, () if companion is None else companion.mechanism_carry(bounds)
                     ),
@@ -1593,6 +1839,7 @@ def solve_with_reduction(
                     arms,
                     bounds=bounds,
                     tol=spec.tol,
+                    blocks=blocks,
                     carry=_combine(
                         inner_g, () if companion is None else companion.mechanism_carry(bounds)
                     ),
@@ -1625,7 +1872,7 @@ def solve_with_reduction(
                 extra = solve_submodel(
                     scaled,
                     targeted_q,
-                    extra_submodel,
+                    _blocked(blocks, extra_submodel),
                     weights,
                     observed,
                     spec,
@@ -1651,7 +1898,7 @@ def solve_with_reduction(
             fluctuation = solve_submodel(
                 scaled,
                 targeted_q if extra is None else extra.targeted,
-                submodel,
+                _blocked(blocks, submodel),
                 weights,
                 observed,
                 spec,
@@ -1697,7 +1944,7 @@ def solve_with_reduction(
             fluctuation,
             scaled=scaled,
             targeted=targeted_q,
-            submodel=submodel,
+            submodel=_blocked(blocks, submodel),
             weights=weights,
             mask=mask,
         )
@@ -1713,10 +1960,11 @@ def solve_with_reduction(
             extra_submodel = reduced_outcome_submodel(
                 data.treatment, reduced, bounds=bounds, propensity=targeted_g
             )
+            extra_blocks = _blocked(blocks, extra_submodel)
             settled = score_columns(
-                scaled, targeted_q.observed, extra_submodel.observed, weights, mask
+                scaled, targeted_q.observed, extra_blocks.observed, weights, mask
             )
-            scale = score_scale(extra_submodel.observed, weights, mask)
+            scale = score_scale(extra_blocks.observed, weights, mask)
             assert extra is not None
             extra = replace(extra, score=settled, score_scale=scale)
             reduced_score = relative_score(settled, scale)
@@ -1732,6 +1980,7 @@ def solve_with_reduction(
                 weights,
                 arms,
                 bounds=bounds,
+                blocks=blocks,
             )
             mechanism = replace(mechanism, score=settled_g, score_scale=scale_g)
             mechanism_relative = mechanism.relative_score
@@ -1804,6 +2053,7 @@ def solve_with_reduction(
         mechanism=mechanism,
         extra=extra,
         companion=companion,
+        blocks=blocks,
     )
     submodel = closing.submodel
     fluctuation = closing.fluctuation
@@ -1858,7 +2108,7 @@ def solve_with_reduction(
         score=np.zeros(0) if extra is None else extra.score,
         score_scale=np.zeros(0) if extra is None else np.asarray(extra.score_scale),
         score_initial=np.zeros(0) if first_initial is None else first_initial,
-        names=() if extra_submodel is None else extra_submodel.names,
+        names=() if extra_submodel is None else _blocked(blocks, extra_submodel).names,
         trace=tuple(trace),
         rounds=rounds,
         max_outer=max_outer,
@@ -1898,13 +2148,15 @@ def _solve_missing_outcome_reduction(
     observed: BoolArray,
     max_outer: int,
     warn: bool,
+    blocks: StratumBlocks | None = None,
 ) -> tuple[Submodel, Fluctuation]:
     r"""Target the three Díaz--van der Laan drift blocks separately.
 
     Any number of arms. At two arms the treatment block is one shared tilt of ``g_1``, which
     solves both arms' equations. Above two arms each arm's column is tilted alone, as are
     the observation and outcome blocks at every arm, so no fluctuation parameter is shared
-    across arms.
+    across arms.  With baseline strata every covariate of every block is in stratum form
+    (:class:`StratumBlocks`), so each stratum's drift equations are solved apart.
     """
     del warn  # failures are recorded on the returned targeting objects
     if tuple(reduction.guard) != ("Q", "g") and set(reduction.guard) != {"Q", "g"}:
@@ -1944,7 +2196,7 @@ def _solve_missing_outcome_reduction(
             g_bounds=bounds,
             missingness_bound=nuisance_bound,
         )
-        joint_outcome = _stacked(standard, extra)
+        joint_outcome = _stacked(_blocked(blocks, standard), _blocked(blocks, extra))
         outcome_fit = solve_submodel(
             scaled,
             targeted_q,
@@ -1957,7 +2209,7 @@ def _solve_missing_outcome_reduction(
         targeted_q = outcome_fit.targeted
         if first_extra is None:
             initial = np.asarray(outcome_fit.score_initial, dtype=float)
-            first_extra = np.asarray(initial[len(arms) :], dtype=float)
+            first_extra = np.asarray(initial[_blocked(blocks, standard).dim :], dtype=float)
 
         current = _missing_outcome_state(nuisance, targeted_q, targeted_g, targeted_m)
         observation_fit = _solve_missing_observation_mechanism(
@@ -1968,11 +2220,12 @@ def _solve_missing_outcome_reduction(
             bounds=bounds,
             missingness_bound=nuisance_bound,
             tol=spec.tol,
+            blocks=blocks,
         )
         targeted_m = np.asarray(observation_fit.propensity, dtype=float)
 
         current = _missing_outcome_state(nuisance, targeted_q, targeted_g, targeted_m)
-        z_a = _missing_treatment_covariate(reduced, current, bounds)
+        z_a = _blocked_columns(blocks, _missing_treatment_covariate(reduced, current, bounds))
         treatment_fit = _solve_missing_treatment_mechanism(
             treatment,
             targeted_g,
@@ -2003,18 +2256,22 @@ def _solve_missing_outcome_reduction(
             g_bounds=bounds,
             missingness_bound=nuisance_bound,
         )
+        standard_blocks = _blocked(blocks, standard)
+        extra_blocks = _blocked(blocks, extra)
         standard_score = score_columns(
-            scaled, targeted_q.observed, standard.observed, weights, mask
+            scaled, targeted_q.observed, standard_blocks.observed, weights, mask
         )
-        standard_scale = score_scale(standard.observed, weights, mask)
-        extra_score = score_columns(scaled, targeted_q.observed, extra.observed, weights, mask)
-        extra_scale = score_scale(extra.observed, weights, mask)
-        z_a = _missing_treatment_covariate(reduced, current, bounds)
+        standard_scale = score_scale(standard_blocks.observed, weights, mask)
+        extra_score = score_columns(
+            scaled, targeted_q.observed, extra_blocks.observed, weights, mask
+        )
+        extra_scale = score_scale(extra_blocks.observed, weights, mask)
+        z_a = _blocked_columns(blocks, _missing_treatment_covariate(reduced, current, bounds))
         treatment_score, treatment_scale = _missing_treatment_score(
             treatment, targeted_g, z_a, weights, arms
         )
         observation_score, observation_scale = _missing_observation_score(
-            data, current, reduced, weights, bounds, nuisance_bound
+            data, current, reduced, weights, bounds, nuisance_bound, blocks
         )
 
         scores = (
@@ -2074,10 +2331,14 @@ def _solve_missing_outcome_reduction(
         g_bounds=bounds,
         missingness_bound=nuisance_bound,
     )
-    standard_score = score_columns(scaled, targeted_q.observed, standard.observed, weights, mask)
-    standard_scale = score_scale(standard.observed, weights, mask)
-    extra_score = score_columns(scaled, targeted_q.observed, extra.observed, weights, mask)
-    extra_scale = score_scale(extra.observed, weights, mask)
+    standard_blocks = _blocked(blocks, standard)
+    extra_blocks = _blocked(blocks, extra)
+    standard_score = score_columns(
+        scaled, targeted_q.observed, standard_blocks.observed, weights, mask
+    )
+    standard_scale = score_scale(standard_blocks.observed, weights, mask)
+    extra_score = score_columns(scaled, targeted_q.observed, extra_blocks.observed, weights, mask)
+    extra_scale = score_scale(extra_blocks.observed, weights, mask)
     # Both rulers here too, and for the same reason as the complete-data branch: the three
     # drift blocks carry covariates that vanish where their own nuisance is right, so a
     # relative-only verdict reports an absolutely negligible score as an unsolved equation.
@@ -2095,7 +2356,7 @@ def _solve_missing_outcome_reduction(
         )
         else "max_iter_reached"
     )
-    width = len(arms)
+    width = standard_blocks.dim
     record = ReductionFluctuation(
         reduced=reduced,
         guard=tuple(reduction.guard),
@@ -2104,7 +2365,7 @@ def _solve_missing_outcome_reduction(
         score=extra_score,
         score_scale=extra_scale,
         score_initial=np.zeros(width) if first_extra is None else first_extra,
-        names=extra.names,
+        names=extra_blocks.names,
         trace=tuple(trace),
         rounds=len(trace),
         max_outer=max_outer,
@@ -2125,7 +2386,7 @@ def _solve_missing_outcome_reduction(
         epsilon=np.asarray(outcome_fit.epsilon[:width], dtype=float),
         score=standard_score,
         score_scale=standard_scale,
-        names=standard.names,
+        names=standard_blocks.names,
         score_initial=np.asarray(outcome_fit.score_initial, dtype=float)[:width],
         targeted=targeted_q,
         mechanism=treatment_fit,
@@ -2224,6 +2485,7 @@ def _missing_observation_score(
     weights: FloatArray,
     bounds: tuple[float, float],
     missingness_bound: float,
+    blocks: StratumBlocks | None = None,
 ) -> tuple[FloatArray, FloatArray]:
     assert nuisance.missingness is not None
     a = np.asarray(data.treatment, dtype=float)
@@ -2231,6 +2493,16 @@ def _missing_observation_score(
     g_a = nuisance.bounded_propensity(bounds)
     g_m = np.asarray(nuisance.bounded_missingness(missingness_bound), dtype=float)
     z = np.asarray(reduced.e, dtype=float) / (g_a * g_m)
+    if blocks is not None:
+        # One column per arm and stratum, arm-major, as the solver below concatenates them.
+        scores: list[FloatArray] = []
+        magnitudes: list[FloatArray] = []
+        for j, arm in enumerate(reduced.arms):
+            columns = blocks.columns(z[:, [j]])
+            at_arm = (weights * (a == arm))[:, None]
+            scores.append(np.mean(at_arm * columns * (delta - g_m[:, j])[:, None], axis=0))
+            magnitudes.append(np.mean(at_arm * np.abs(columns), axis=0))
+        return np.concatenate(scores), np.concatenate(magnitudes)
     contributions = np.column_stack(
         [weights * (a == arm) * z[:, j] * (delta - g_m[:, j]) for j, arm in enumerate(reduced.arms)]
     )
@@ -2249,6 +2521,7 @@ def _solve_missing_observation_mechanism(
     bounds: tuple[float, float],
     missingness_bound: float,
     tol: float,
+    blocks: StratumBlocks | None = None,
 ) -> ObservationMechanismFluctuation:
     assert nuisance.missingness is not None
     a = np.asarray(data.treatment, dtype=float)
@@ -2263,7 +2536,7 @@ def _solve_missing_observation_mechanism(
             solve_bounded_mechanism(
                 delta,
                 g_m[:, j],
-                z[:, [j]],
+                _blocked_columns(blocks, z[:, [j]]),
                 weights * (a == arm),
                 bounds=(float(missingness_bound), upper),
                 tol=tol,
@@ -2275,7 +2548,13 @@ def _solve_missing_observation_mechanism(
         score=np.concatenate([fit.score for fit in fits]),
         score_scale=np.concatenate([np.asarray(fit.score_scale) for fit in fits]),
         score_initial=np.concatenate([np.asarray(fit.score_initial) for fit in fits]),
-        names=tuple(f"epsilon_M[{arm:g}]" for arm in reduced.arms),
+        names=(
+            tuple(f"epsilon_M[{arm:g}]" for arm in reduced.arms)
+            if blocks is None
+            else tuple(
+                f"epsilon_M[{arm:g}] | {label}" for arm in reduced.arms for label in blocks.labels
+            )
+        ),
         converged=all(fit.converged for fit in fits),
         failure=next((fit.failure for fit in fits if fit.failure is not None), None),
         loglik=float(sum(float(fit.loglik or 0.0) for fit in fits)),
@@ -2379,6 +2658,7 @@ def _close_at_frozen_reductions(
     extra: Fluctuation | None,
     companion: _Companion | None = None,
     max_steps: int = 20,
+    blocks: StratumBlocks | None = None,
 ) -> _Closing:
     r"""Re-solve the three equations at the reductions the influence curve will read.
 
@@ -2470,6 +2750,7 @@ def _close_at_frozen_reductions(
                 bounds=bounds,
                 tol=spec.tol,
                 carry=() if companion is None else companion.mechanism_carry(bounds),
+                blocks=blocks,
             )
             targeted_g = solved.propensity
             if companion is not None:
@@ -2481,6 +2762,7 @@ def _close_at_frozen_reductions(
                 weights,
                 arms,
                 bounds=bounds,
+                blocks=blocks,
             )
             mechanism = replace(solved, score=settled, score_scale=scale)
             mechanism_absolute = _largest(settled)
@@ -2520,7 +2802,7 @@ def _close_at_frozen_reductions(
         fluctuation = solve_submodel(
             scaled,
             fluctuation.targeted,
-            submodel,
+            _blocked(blocks, submodel),
             weights,
             observed,
             spec,
@@ -2558,10 +2840,12 @@ def _close_at_frozen_reductions(
     # submodel stays the two-column `mean` one either way: `column_for` is what
     # `sensitivity/omitted_variable.py` reads, and a four-column submodel must not escape.
     steps += 1
+    outcome_blocks = _blocked(blocks, submodel)
+    extra_blocks = _blocked(blocks, extra_submodel)
     joint = solve_submodel(
         scaled,
         fluctuation.targeted,
-        _stacked(submodel, extra_submodel),
+        _stacked(outcome_blocks, extra_blocks),
         weights,
         observed,
         spec,
@@ -2573,23 +2857,21 @@ def _close_at_frozen_reductions(
     )
     if companion is not None:
         companion.take_outcome(joint.carried)
-    width = submodel.dim
-    settled = score_columns(scaled, joint.targeted.observed, submodel.observed, weights, mask)
-    settled_q = score_columns(
-        scaled, joint.targeted.observed, extra_submodel.observed, weights, mask
-    )
-    scale_q = score_scale(extra_submodel.observed, weights, mask)
+    width = outcome_blocks.dim
+    settled = score_columns(scaled, joint.targeted.observed, outcome_blocks.observed, weights, mask)
+    settled_q = score_columns(scaled, joint.targeted.observed, extra_blocks.observed, weights, mask)
+    scale_q = score_scale(extra_blocks.observed, weights, mask)
     fluctuation = replace(
         joint,
         epsilon=joint.epsilon[:width],
-        names=submodel.names,
+        names=outcome_blocks.names,
         score=settled,
-        score_scale=score_scale(submodel.observed, weights, mask),
+        score_scale=score_scale(outcome_blocks.observed, weights, mask),
     )
     extra = replace(
         joint,
         epsilon=joint.epsilon[width:],
-        names=extra_submodel.names,
+        names=extra_blocks.names,
         score=settled_q,
         score_scale=scale_q,
     )

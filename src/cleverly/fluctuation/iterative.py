@@ -367,6 +367,11 @@ class Fluctuation:
     absolute_score_weights : ndarray or None
         ``abs(w_i * h_ij)`` on the rows this outcome-score solve used. ``None`` only on a
         fluctuation built by hand.
+    stratified : Fluctuation or None
+        The stratum fluctuation of an ``msm`` group with baseline strata whose link makes
+        the clever covariate depend on the coefficients.  It solves one score block per
+        stratum at that stratum's coefficients, and the stratum estimates read it.  This
+        fluctuation then holds the marginal solve.  ``None`` for every other fit.
 
     Attributes
     ----------
@@ -426,6 +431,12 @@ class Fluctuation:
     #: cannot be reconstructed from ``result.nuisance``.  ``None`` only on a fluctuation
     #: built by hand.
     absolute_score_weights: FloatArray | None = None
+    #: The stratum half of a linked working model with baseline strata.  The marginal
+    #: coefficients come from this fluctuation, which is the shipped unstratified solve, and
+    #: the stratum coefficients from this nested one, whose covariate holds one block
+    #: ``I(S = s) H(beta_s) / P_n(S = s)`` per stratum.  Each stratum block reads its own
+    #: coefficients, so one fluctuation cannot solve both.  ``None`` for every other fit.
+    stratified: Fluctuation | None = None
 
     @property
     def score_norm(self) -> float:
