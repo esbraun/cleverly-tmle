@@ -48,6 +48,7 @@ from cleverly.longitudinal.sequential import Mechanism
 from cleverly.msm import MSM
 from cleverly.utils.frames import available_backends
 from cleverly.validation.longitudinal import _longitudinal_scores
+from tests.unit.test_pooled_longitudinal_targeting import refit_fold_mechanism
 from tests.unit.test_sequential_design import multivalue_panel
 
 COLUMNS = {
@@ -114,11 +115,11 @@ def _assert_active_curve(result: Any, bound: float = 0.3, cells: Any = None) -> 
     assert all(row.relative_score <= recipe.tol for row in score_rows)
 
     # A cross-fitted replay solves one pooled fluctuation per node over every follower, as
-    # a single-fold one does, so each solver row is the node's own equation and no replay
-    # emits a stitching row.  The solver rows are recomputed from the replayed arrays here,
-    # so a replay that reported a score its arrays do not pose fails as well.  A working
-    # model pools each node's score across its cells, so no single cell's arrays pose it.
-    assert [row for row in rows if row.kind == "stitching"] == []
+    # a single-fold one does, so each solver row is the node's own equation.  The solver
+    # rows are recomputed from the replayed arrays here, so a replay that reported a score
+    # its arrays do not pose fails as well.  A working model pools each node's score across
+    # its cells, so no single cell's arrays pose it.
+    assert {row.kind for row in rows} == {"solver"}
     for fit in fits.values() if result.msm is None else ():
         weights = np.asarray(fit.obs_weights, dtype=float)
         for step in fit.steps:
@@ -135,7 +136,7 @@ def _independent_cell_census(
 
     Rebuilt here from the stored out-of-fold mechanism factors, by ``np.cumprod`` and
     ``np.clip`` rather than through the production product, and from each step's own
-    ``trained_on`` mask.  A count read off the wrong mechanism, or off ``K`` fold slabs as
+    ``trained_on`` mask.  A count read off the wrong mechanism, or off ``K`` fold models as
     the fold-fluctuated construction did, fails this.
 
     ``cells`` is a sequence of ``(regimen, cause, horizon)`` triples, which is the index a
@@ -443,24 +444,19 @@ def test_fitted_bound_gate_refuses_a_nonpoint_artifact_mismatch(result, monkeypa
         longitudinal_estimator.longitudinal_truncation_curve(result, [0.25])
 
 
-def test_crossfit_active_replay_rejects_a_fold_slab_mutation(result, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """A replay that divided by fold 0's slab instead of the out-of-fold pair is caught."""
+def test_crossfit_active_replay_rejects_a_fold_model_mutation(result, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """A replay that divided by fold 0's own model instead of the out-of-fold pair is caught."""
     recipe = result.replay_recipe
     assert recipe is not None
     active = (0.25, 1.0)
     correct = longitudinal_estimator._refit_bound(result, recipe, active).fits
+    fold_zero = refit_fold_mechanism(result, 0)
     real = Mechanism.cumulative_with_unbounded
 
-    def slab(self: Mechanism, data: Any, plan: Any, bounds: Any, *, fold: int | None = None):  # type: ignore[no-untyped-def]
-        return real(
-            self,
-            data,
-            plan,
-            bounds,
-            fold=0 if tuple(bounds) == active and fold is None else fold,
-        )
+    def fold_model(self: Mechanism, data: Any, plan: Any, bounds: Any):  # type: ignore[no-untyped-def]
+        return real(fold_zero if tuple(bounds) == active else self, data, plan, bounds)
 
-    monkeypatch.setattr(Mechanism, "cumulative_with_unbounded", slab)
+    monkeypatch.setattr(Mechanism, "cumulative_with_unbounded", fold_model)
     mutated = longitudinal_estimator._refit_bound(result, recipe, active).fits
     with pytest.raises(AssertionError):
         assert _exact_replay_equal(mutated, correct)
@@ -612,7 +608,7 @@ MSM_CONTRIBUTING_CELLS = {
 #: single-fold fit's in-sample mechanism, so they differ from the single-fold numerators.
 #: Every value was recounted by :func:`_independent_cell_census`, which rebuilds the pair
 #: with ``np.cumprod`` over the stored factors, and agrees with the production count.
-#: The fold-fluctuated construction's census counted ``K`` fold slabs and reported twice
+#: The fold-fluctuated construction's census counted ``K`` fold models and reported twice
 #: these denominators.
 #:
 #: Every pair here keeps the upper endpoint at ``1.0``, so every truncated cell was *raised*.
@@ -687,8 +683,9 @@ def test_crossfit_score_cell_counts_census_the_out_of_fold_mechanism(result) -> 
 
     The fold recursions read no mechanism, and the pooled fluctuation reads the out-of-fold
     pair once per node.  So the denominators equal the single-fold fixture's, and a census
-    of the ``K`` fold slabs would report twice them.  The witness that the slabs would also
-    count differently is that they differ from the out-of-fold pair where a fold trained.
+    of the ``K`` fold models would report twice them.  The witness that the fold models
+    would also count differently is that they differ from the out-of-fold pair where a fold
+    trained.  The fit keeps no per-fold mechanism, so the test refits each fold's model.
     """
 
     assert result.folds.n_folds == 2
@@ -700,8 +697,8 @@ def test_crossfit_score_cell_counts_census_the_out_of_fold_mechanism(result) -> 
     for plan in result.replay_recipe.plans:
         _, pair = result.mechanism.cumulative_with_unbounded(result.data, plan, (0.12, 1.0))
         for fold, (train, _) in enumerate(result.folds):
-            _, slab = result.mechanism.cumulative_with_unbounded(
-                result.data, plan, (0.12, 1.0), fold=fold
+            _, slab = refit_fold_mechanism(result, fold).cumulative_with_unbounded(
+                result.data, plan, (0.12, 1.0)
             )
             moved = max(moved, float(np.max(np.abs(slab[train] - pair[train]))))
     assert moved > 1e-6

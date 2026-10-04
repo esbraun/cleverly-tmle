@@ -277,15 +277,18 @@ def test_longitudinal_msm_is_bit_for_bit_unchanged(tmp_path: Any) -> None:
     assert_identical(new, load(new.save(tmp_path / "longitudinal-msm.joblib")))
 
 
-def test_study_api_refuses_cross_fitted_longitudinal_msm_pending_evidence() -> None:
+def test_cross_fitted_longitudinal_msm_is_bit_for_bit_the_engine_fit() -> None:
+    """The study facade's default cross-fitting reaches the pooled cross-fitted projection."""
     frame, _ = make_longitudinal(n=220, seed=28)
     regimens = {"always": 1, "never": 0, "early": (1, 0)}
     model = MSM(
         design=longitudinal_msm_design, terms=("(intercept)", "duration"), design_kind="known"
     )
+    old = LTMLE(regimens, msm=model, **LONG_SETTINGS).fit(frame, **LONG_COLUMNS)
+    assert old.folds.n_folds == LONG_SETTINGS["n_folds"]
     study = CausalStudy(frame, design=LongitudinalTreatment(**LONG_COLUMNS))
-    with pytest.raises(ValueError, match="unsaturated projection property"):
-        study.estimate(MSMProjection(model, regimens=regimens), **LONG_SETTINGS)
+    new = study.estimate(MSMProjection(model, regimens=regimens), **LONG_SETTINGS)
+    assert_identical(old, new)
 
 
 BAND_POINT_SETTINGS = {**FAST_KWARGS, "simultaneous": True}

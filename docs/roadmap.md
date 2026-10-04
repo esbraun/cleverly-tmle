@@ -68,7 +68,6 @@ Priorities 2 to 5 follow the beta.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1.6 | Cross-fitted longitudinal MSM targeting | [published support; fixed-dimension stack](technical-reference/natural-extension-verdicts.md) | none | [X27](#x27-cross-fitted-longitudinal-msm-targeting) |
 | 1.7 | Known stochastic categorical policies at a longitudinal node | [published support; known-weight extension](technical-reference/natural-extension-verdicts.md) | shipped categorical longitudinal nodes | [F1](#f1-stochastic-categorical-policies-at-a-longitudinal-node) |
 | 1.8 | Modified treatment policies beyond the additive point shift | published support; pending source read | shipped additive shift and categorical longitudinal nodes | [X12](#x12-modified-treatment-policies-beyond-the-additive-point-shift) |
 | 1.9 | Point-treatment survival and time-to-event input | published support; pending source read | shipped survival and competing-risk recursion | [X13](#x13-point-treatment-survival-and-time-to-event-input) |
@@ -270,29 +269,6 @@ owners do the same for the stratified DR-TMLE study.
 The sections below give one contract for each open item. Their physical order does not override
 the main grid.
 
-
-### X27. Cross-fitted longitudinal MSM targeting
-
-`LTMLE(msm=..., n_folds>1)` raises `ValueError` at construction, for every fit, clustered or not.
-The in-sample longitudinal MSM projection runs.
-
-| item | contract |
-| --- | --- |
-| refusal today | `LTMLE(msm=..., n_folds>1)` raises `ValueError` at construction for every fit |
-| base result | Díaz, Williams, Hoffman and Schenck (2023), Section 5.2, journal page 852, and Theorem 3, page 853, for each regimen-horizon cell under one random partition; the shipped in-sample longitudinal MSM projection ([MSM projections](technical-reference/msm-projections.md)) |
-| steps | a fixed-dimension stack of the cross-fitted cell estimates over the regimen, horizon and cause cells, then the projection. The projection is a smooth map of the stacked cells, so the delta method gives the coefficient curve. The targeting pools every follower per node, as the shipped cross-fitted cells do. The point-treatment cross-fitted MSM already ships |
-| objection search | the refusal text names an evidence gap ("needs a dedicated unsaturated projection property and repeated-sampling study"), not a theory gap. No source read records a defect |
-| inherited conditions | the Theorem 3 rates and bounded density ratios in every cell; a fixed number of cells; full rank of the realized design; with `id=`, the cluster rules of [longitudinal clusters](technical-reference/longitudinal-tmle.md#clusters) |
-
-Acceptance:
-
-- the pooled cross-fitted projection for `msm=` above one fold, with an exact-law witness that it
-  equals the stacked delta-method curve;
-- a mutation control that fluctuates per fold and fails the pooled identity;
-- a registered study of an unsaturated working model under cross-fitting, with the law of the
-  in-sample longitudinal MSM study. No pinned comparator cross-fits a longitudinal MSM, so the
-  study is unpaired.
-
 ### F1. Stochastic categorical policies at a longitudinal node
 
 The implemented surface assigns one category per unit, because a `DynamicRegimen` node returns one
@@ -315,6 +291,9 @@ Acceptance:
 - an exact-law Gateaux witness with a nonzero, non-degenerate $q$;
 - mutation controls that use a selected column in place of the ratio, or drop a node, and fail;
 - an exact reduction to the deterministic regimen when $q$ is a point mass;
+- cross-fitted `msm=` over policy cells, through the pooled stacked update of the
+  [longitudinal projection](technical-reference/msm-projections.md#the-longitudinal-projection),
+  with the saturated reduction at `n_folds=5`;
 - the estimator that records the randomizer, as a cross-check on one law;
 - a registered study. `lmtp` has no direct comparator.
 

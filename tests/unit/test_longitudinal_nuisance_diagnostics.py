@@ -627,7 +627,7 @@ def test_every_recursion_constructor_retains_super_learner_details(n_folds, msm)
     ``censoring_learner``, and :func:`~cleverly.learners.resolve_learner` falls the second
     back to the first. Both mechanism families therefore fit a library here, so a report
     that dropped ``Mechanism.treatment_diagnostics``, ``censoring_diagnostics``, or the
-    third value ``cross_fit_companion`` returns would show up as empty weights rather than
+    diagnostics ``cross_fit_predictions`` returns would show up as empty weights rather than
     as nothing at all.
     """
     frame, _ = make_longitudinal(n=300, seed=41)
@@ -672,7 +672,7 @@ def test_every_recursion_constructor_retains_super_learner_details(n_folds, msm)
 
 
 def test_observed_law_predictions_are_additive_to_fitted_outputs(monkeypatch) -> None:
-    """The extra prediction design cannot move regimen predictions or fold companions.
+    """The extra prediction design cannot move the regimen predictions.
 
     ``stripped`` is the control, and the check is vacuous without it. The comparison
     below reads one fit against a second fit whose mechanism calls lost their internal
@@ -687,7 +687,7 @@ def test_observed_law_predictions_are_additive_to_fitted_outputs(monkeypatch) ->
     """
     from cleverly.longitudinal import sequential
 
-    original = sequential.cross_fit_companion
+    original = sequential.cross_fit_predictions
     labels = ("always", "never")
     internal_keys = {
         sequential._internal_prediction_key(labels, role)
@@ -696,6 +696,9 @@ def test_observed_law_predictions_are_additive_to_fitted_outputs(monkeypatch) ->
     stripped: list[list[str]] = []
 
     def old_path(*args, **kwargs):  # type: ignore[no-untyped-def]
+        if set(kwargs["predict_designs"]) == {"history"}:
+            # An outcome regression, which never carried an internal design.
+            return original(*args, **kwargs)
         internal = [key for key in kwargs["predict_designs"] if key in internal_keys]
         stripped.append(internal)
         reduced_kwargs = {
@@ -706,19 +709,19 @@ def test_observed_law_predictions_are_additive_to_fitted_outputs(monkeypatch) ->
                 if key not in internal
             },
         }
-        predictions, companion, diagnostics = original(*args, **reduced_kwargs)
+        predictions, diagnostics = original(*args, **reduced_kwargs)
         # Production discards these injected values. They only satisfy the new return
         # schema while the fitted path exercises the former prediction-design set.
         exemplar = next(iter(predictions.values()))
         predictions.update({key: np.zeros_like(exemplar) for key in internal})
-        return predictions, companion, diagnostics
+        return predictions, diagnostics
 
     frame, _ = make_longitudinal(n=120, seed=41)
-    monkeypatch.setattr(sequential, "cross_fit_companion", old_path)
+    monkeypatch.setattr(sequential, "cross_fit_predictions", old_path)
     baseline = LTMLE({"always": 1, "never": 0}, **PARAMETRIC).fit(frame, **COLUMNS)
     assert len(stripped) == 2 * baseline.data.n_times
     assert all(stripped)
-    monkeypatch.setattr(sequential, "cross_fit_companion", original)
+    monkeypatch.setattr(sequential, "cross_fit_predictions", original)
     enhanced = LTMLE({"always": 1, "never": 0}, **PARAMETRIC).fit(frame, **COLUMNS)
 
     for time in range(enhanced.data.n_times):
@@ -730,14 +733,6 @@ def test_observed_law_predictions_are_additive_to_fitted_outputs(monkeypatch) ->
             np.testing.assert_array_equal(
                 baseline.mechanism.censoring[time][label],
                 enhanced.mechanism.censoring[time][label],
-            )
-            np.testing.assert_array_equal(
-                baseline.mechanism.treatment_by_fold[time][label],
-                enhanced.mechanism.treatment_by_fold[time][label],
-            )
-            np.testing.assert_array_equal(
-                baseline.mechanism.censoring_by_fold[time][label],
-                enhanced.mechanism.censoring_by_fold[time][label],
             )
     for key, estimate in enhanced.estimates.items():
         assert estimate.psi == baseline.estimates[key].psi

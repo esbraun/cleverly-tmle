@@ -354,9 +354,8 @@ def test_longitudinal_score_and_nuisance_adapters_cover_every_node(longitudinal_
         "outcome",
         "pseudo_outcome",
     }
-    # One row per node.  A per-regimen node solves one fluctuation over every follower at
-    # any fold count, so its one question is whether that solve reached its root.  Only a
-    # fluctuation that carries per-fold solves adds a stitching row.
+    # One row per node.  A node solves one fluctuation over every follower at any fold
+    # count, so its one question is whether that solve reached its root.
     kinds = [row.kind for row in scores.rows]
     assert kinds == ["solver"] * expected
     assert all(row.score >= 0 and row.relative_score >= 0 for row in scores.rows)

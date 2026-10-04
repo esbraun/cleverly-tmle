@@ -58,13 +58,20 @@ The diagnostic readers are outside the registered computation. The cluster studi
 positive weights. These facts make study regeneration unnecessary for the confirmed fixes.
 All canonical artifacts match the PR base.
 
-PR 265 merged while the full review suite ran. The integration preserves its shipped
-clustered cross-fitted LTMLE and its X27 refusal. The corrected verdict table retains the
+PR 265 merged while the full review suite ran. That integration preserved its shipped
+clustered cross-fitted LTMLE and the then-current X27 refusal. The corrected verdict table retains the
 10-cluster point-treatment floor and 20-cluster longitudinal floor. Its two-positive-mass-fold
 requirement explicitly describes point-treatment fold reports; longitudinal targeting is pooled.
 The new `clustered-cross-fitted-ltmle` and `few-cluster-cross-fitted-ltmle` drivers do not
 exercise the changed input-scale composition or correction readers. The independent integration
 review finds no required numerical source correction or study regeneration.
+
+The later integration of PR 266 preserves its shipped cross-fitted longitudinal MSM.
+Part (f) now points to part (l), and the roadmap removes the delivered X27 row.
+Part (g) retains this review's positive-mass cluster floors and point-treatment fold scope.
+The `cross-fitted-longitudinal-msm` study reports its own coefficient curves and does not
+consume the changed result-composition or correction readers. Its committed artifacts remain
+unchanged, so the conflict resolution requires no study regeneration.
 
 Validation runs use the dedicated worktree. The local launcher binds the process and inherited
 workers to two logical CPUs, sets BLAS and OpenMP thread limits to one, and limits xdist to two workers.
@@ -73,9 +80,10 @@ The original checkout and its editable installation remain untouched.
 | gate | result |
 | --- | --- |
 | full fast suite before PR 265 integration | 15,675 passed, 235 skipped |
-| focused integration suite | 235 passed, including longitudinal cluster-status propagation and all three new regression modules |
+| focused PR 265 integration suite | 235 passed, including longitudinal cluster-status propagation and all three new regression modules |
+| focused PR 266 integration suite | 1,953 passed, including cross-fitted longitudinal MSM, clustered longitudinal paths, review regressions, documentation links, and prose-ledger checks |
 | new regression instruments | 55 passed, including nine old-index mutation controls |
-| Ruff lint and whole-tree formatting with cache disabled | pass; 900 files formatted |
+| Ruff lint and whole-tree formatting with cache disabled | pass after PR 266 integration; 908 files formatted |
 | Mypy after integration | pass; 106 source files |
 | whole prose ledger refresh | 3 judged findings, 0 undecided; no ledger changes |
 | documentation build after integration | pass with warnings treated as errors |

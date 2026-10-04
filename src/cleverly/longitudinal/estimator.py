@@ -2351,7 +2351,9 @@ class LTMLE:
         end-of-study outcome, where the only horizon is the end of the study.
     msm : MSM or None
         A working model over the regimen and horizon cells, which reports coefficients
-        and no contrasts.  It requires ``n_folds=1``.
+        and no contrasts.  Above one fold, each fold runs the untargeted recursion of
+        every cell, and one stacked fluctuation per node pools the update over every
+        follower of every cell.
     outcome_learner : object or None
         Learner specification for the regression at the reported horizon, as for
         :class:`~cleverly.TMLE`.
@@ -2374,15 +2376,9 @@ class LTMLE:
         predictions are stitched into one out-of-fold initial estimate per node.  One pooled
         fluctuation per node then targets those predictions over every follower, with the
         out-of-fold mechanism in its loss weight, so every node's score equation is solved
-        as on a single-fold fit.  The mechanism fit still builds one prediction slab per
-        fold, so it costs ``n_folds`` times the memory of a single-fold fit and a saved
-        result grows by the same factor.  A per-regimen fit divides by the out-of-fold
-        mechanism alone.  Only the engine-level cross-fitted working-model path reads the
-        slabs.
-
-        A longitudinal ``msm=`` fit requires ``n_folds=1``.  Cross-fitted coefficient
-        inference remains refused until a dedicated unsaturated projection property and
-        repeated-sampling study establish it.
+        as on a single-fold fit.  The fit divides by the out-of-fold mechanism alone.
+        With ``msm=``, the fold recursions run for every regimen and horizon cell, and the
+        pooled fluctuation at each node is one stacked solve over every live cell.
     learner_folds : int
         The inner folds of the default :class:`~cleverly.learners.SuperLearner` that a
         learner slot left at ``None`` builds.
@@ -2552,14 +2548,6 @@ class LTMLE:
                 "decided by the design you gave msm=, and an intercept is whatever that "
                 "design makes it. A difference of two coefficients comes from "
                 "result.contrast()."
-            )
-        if self.msm is not None and self.n_folds > 1:
-            raise ValueError(
-                "msm= with n_folds > 1 is not supported. Cross-fitted longitudinal MSM "
-                "coefficient inference needs a dedicated unsaturated projection property "
-                "and repeated-sampling study before it can be reported; docs/roadmap.md "
-                "X27 tracks this work. Pass n_folds=1 for the evidenced in-sample "
-                "longitudinal MSM construction."
             )
 
     @staticmethod
@@ -3416,14 +3404,12 @@ def _consumed_prefixes(
 ) -> dict[str, BoolArray]:
     """Per regimen, which cumulative cells a bound replaced in the mechanism the fit read.
 
-    A per-regimen recursion divides by one mechanism at any fold count: the out-of-fold
-    pair from
-    :meth:`~cleverly.longitudinal.sequential.Mechanism.cumulative_with_unbounded` with
-    ``fold=None``.  A single-fold fit reads it in its one pass.  A cross-fitted fit runs
-    untargeted fold recursions, which read no mechanism, and then one pooled fluctuation
-    per node, which reads this pair.  The fold slabs the mechanism also carries serve only
-    the engine-level cross-fitted working model, and the public estimator refuses a
-    cross-fitted ``msm=`` fit before any replay can reach this function.
+    A recursion divides by one mechanism at any fold count, per regimen or over a working
+    model's cells: the out-of-fold pair from
+    :meth:`~cleverly.longitudinal.sequential.Mechanism.cumulative_with_unbounded`.  A
+    single-fold fit reads it in its one pass.  A cross-fitted fit runs untargeted fold
+    recursions, which read no mechanism, and then one pooled fluctuation per node, which
+    reads this pair.
 
     Parameters
     ----------

@@ -981,7 +981,7 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
 #: policy cannot be gated: every policy it compares but the unstratified reference is
 #: refused, so no cell establishes that any of them is valid.
 DIAGNOSTIC_PROPERTIES = frozenset(
-    {property_verdicts.FOLD_POLICY_FAMILY, "cluster_aggregation_rule"}
+    {property_verdicts.FOLD_POLICY_FAMILY, "cluster_aggregation_rule", "in_sample_agreement"}
 )
 
 

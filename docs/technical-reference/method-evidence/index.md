@@ -71,6 +71,7 @@ ordinary-end-of-study-longitudinal-tmle
 ordinary-weighted-end-of-study-longitudinal-tmle
 ordinary-categorical-longitudinal-tmle
 ordinary-longitudinal-msm-projection
+cross-fitted-longitudinal-msm-projection
 cross-fitted-end-of-study-longitudinal-tmle
 cross-fitted-weighted-end-of-study-longitudinal-tmle
 cross-fitted-categorical-longitudinal-tmle
