@@ -48,12 +48,23 @@ per-regimen recursion, which is why the report reduces to that one.
 cells for the regressions, then one pooled fluctuation, then every cell carried forward
 together.  The regressions themselves are unchanged; only where the update happens moved.
 
-*Under a link, one alternation round is a whole backward pass.*  :math:`\beta` enters the
-covariate through :math:`dm/d\eta`, so :math:`\bar Q^*_t` moves with it -- and
-:math:`\bar Q^*_t` is node :math:`t-1`'s *regression target*, so every earlier node's
-learner has to be refit.  There is no fixed :math:`\bar Q^0` here to restart from; the
-fixed point is stated over the whole pass instead.  The mechanism is :math:`\beta`-free
-and is not refit.
+*Under a link, one in-sample alternation round is a whole backward pass.*
+:math:`\beta` enters the covariate through :math:`dm/d\eta`, so :math:`\bar Q^*_t` moves
+with it -- and on a single-fold fit :math:`\bar Q^*_t` is node :math:`t-1`'s *regression
+target*, so every earlier node's learner has to be refit.  There is no fixed
+:math:`\bar Q^0` here to restart from; the fixed point is stated over the whole pass
+instead.  The mechanism is :math:`\beta`-free and is not refit.
+
+**Cross-fitting pools the update.**  Above one fold, each outer fold runs the
+*untargeted* backward recursion of every cell on its training rows, as the per-regimen
+cross-fit does (Díaz, Williams, Hoffman and Schenck 2023, Section 5.2, Steps 1-4).  The
+held-out predictions are stitched into one out-of-fold initial estimate per node and
+cell.  Then the lockstep pass above runs over those stitched predictions, with one
+stacked fluctuation per node over every follower of every live cell.  No fold solves a
+fluctuation, and no pooled :math:`\epsilon_t` or :math:`\beta` returns to a fold
+regression.  The stitched initial estimate is free of :math:`\beta`, so under a link a
+round re-solves the pooled update only and refits no learner.  That is the one intended
+difference from the in-sample alternation.
 
 **The projection is solved on the raw outcome scale**, as it is at one time point and for
 the same reason: a coefficient vector has no single scale to map back with.  So the curve
@@ -69,25 +80,23 @@ the estimand even though multiplication puts them in the same numerical array.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
 from .._declarations import FunctionDeclaration, FunctionKind
-from .._typing import BoolArray, FloatArray, IntArray, Learner
+from .._typing import FloatArray, Learner
 from ..estimators.targeting import ProjectionFluctuation
 from ..exceptions import DataError
 from ..fluctuation.iterative import (
     Fluctuation,
-    FoldFluctuation,
     InitialFit,
     solve_fluctuation,
 )
 from ..fluctuation.submodel import Submodel
 from ..learners.crossfit import Folds
-from ..learners.super_learner import SuperLearnerDiagnostics
 from ..msm import (
     MSM,
     Link,
@@ -98,21 +107,23 @@ from ..msm import (
     solve_projection,
 )
 from ..utils.bounds import OutcomeScaler
-from ..utils.parallel import map_parallel
-from ..utils.phases import PhaseProfile, collect_phases, merge_worker_phases, phase, profiling
+from ..utils.phases import phase
 from .data import LongitudinalData, RegimenMasks
 from .regimen import Plan
 from .sequential import (
     _FILLER,
     _REGIMEN_ARM,
+    FoldRecursionCell,
     Mechanism,
+    NodeInputs,
     RegimenFit,
     SequentialStep,
-    _FoldSolve,
-    aggregate_fold_fluctuations,
+    StitchedInitial,
+    _clever_covariate,
+    _pseudo_outcome,
     prepare_node,
     seed_carried,
-    warn_on_fold_convergence,
+    untargeted_fold_recursions,
 )
 
 __all__ = [
@@ -524,8 +535,10 @@ class MSMRegimenFit:
     fits: tuple[RegimenFit, ...]
     #: One per node, deepest first, each shared by every cell live at that node.
     nodes: tuple[Fluctuation, ...]
-    #: The ``(n, C, p)`` covariate used to fluctuate the reported rows. Under a linked
-    #: cross-fitted model this is stitched from the folds and cannot be rebuilt from beta.
+    #: The ``(n, C, p)`` design the last pass fluctuated along, in sample and cross-fitted
+    #: alike.  Under a link it was built at the last round's *input* ``beta``, which differs
+    #: from the reported ``beta`` by at most ``tol`` (relative).  The pooled score has to be
+    #: taken against this covariate, so it is kept rather than rebuilt from ``beta``.
     fluctuation_design: FloatArray
 
     @property
@@ -535,54 +548,25 @@ class MSMRegimenFit:
 
 @dataclass(frozen=True)
 class _Pass:
-    """One complete alternation, against one set of nuisances.
-
-    The unit of outer cross-fitting.  With one fold there is exactly one of these and it is
-    the fit; with ``K`` folds there are ``K``, each run on its own training complement, and
-    what the report is assembled from is their held-out rows.
-    """
+    """One complete alternation: the last pass, its projection, and the round record."""
 
     steps: list[list[SequentialStep]]
     #: One per node, deepest first, shared by every cell live at that node.
     nodes: list[Fluctuation]
     projection: ProjectionFit
     beta: FloatArray
-    #: The ``(n, C, p)`` design the *final* pass fluctuated along.  Under a link this is
-    #: fold-specific, and it is the covariate the pooled score has to be taken against, so
-    #: it travels rather than being rebuilt from ``beta`` -- which differs from the one the
-    #: pass used by up to ``tol``.
+    #: The ``(n, C, p)`` design the *final* pass fluctuated along.  It is the covariate the
+    #: pooled score has to be taken against, so it travels rather than being rebuilt from
+    #: ``beta`` -- which differs from the one the pass used by up to ``tol``.
     design: FloatArray
     record: ProjectionFluctuation
 
 
-@dataclass(frozen=True)
-class _FoldPass:
-    """What one outer fold hands back: its held-out rows, and what it solved for them.
-
-    Everything here is ``len(index)`` rows or a handful of scalars.  Returning the fold's
-    :class:`_Pass` instead would ship ``T`` whole :class:`~cleverly.fluctuation.Fluctuation`
-    objects, each carrying a full-length :class:`~cleverly.fluctuation.InitialFit` over
-    ``C * n`` stacked rows -- the cost :class:`~cleverly.longitudinal.sequential._FoldSolve`
-    exists to avoid, multiplied by the cell count.
-    """
-
-    index: IntArray
-    #: ``held[k][t][name]``: the four arrays a node contributes to the report, per cell and
-    #: per node.  Bare arrays rather than :class:`~cleverly.longitudinal.SequentialStep`\ s
-    #: because a step carries its ``fluctuation``, and the parent replaces that with the
-    #: aggregate anyway -- returning steps would ship the very objects this class exists to
-    #: leave behind.
-    held: list[dict[int, dict[str, FloatArray]]]
-    #: Super Learner diagnostics for each held cell and node. These are small fit
-    #: summaries, so they travel separately from the held-out prediction slices.
-    diagnostics: list[dict[int, tuple[SuperLearnerDiagnostics, ...]]]
-    #: Deepest node first, one per node.  Every cell live at a node shares one solve, so a
-    #: fold contributes one record per node however many cells were live.
-    solves: list[_FoldSolve]
-    #: ``(len(index), C, p)``: the covariate these rows were fluctuated by.  Under a link it
-    #: is a function of this fold's own ``beta``.
-    design: FloatArray
-    record: ProjectionFluctuation
+#: One backward pass at a ``beta``: the steps of every cell, the node fluctuations, and the
+#: design the pass fluctuated along.
+_OnePass = Callable[
+    [FloatArray | None], tuple[list[list[SequentialStep]], list[Fluctuation], FloatArray]
+]
 
 
 def fit_regimens_msm(
@@ -616,25 +600,24 @@ def fit_regimens_msm(
     the loss while :math:`(dm/d\eta)\varphi` defines the submodel direction.
 
     Under the identity link this runs once.  Under a link the covariate reads
-    :math:`\beta`, so the pass is repeated at each new one until the coefficients settle
-    -- and because the recursion carries :math:`\bar Q^*` forward into the *next*
-    regression's target, a round is the whole pass rather than a re-solved fluctuation.
-    The mechanism is free of :math:`\beta` and is fitted once, outside.
+    :math:`\beta`, so the pass is repeated at each new one until the coefficients settle.
+    On a single-fold fit the recursion carries :math:`\bar Q^*` forward into the *next*
+    regression's target, so a round is the whole pass, learners included.  The mechanism
+    is free of :math:`\beta` and is fitted once, outside.
 
-    **With outer cross-fitting the whole alternation is the unit of splitting.**  This
-    fold path is engine-only: :class:`~cleverly.longitudinal.LTMLE` refuses ``msm=`` above
-    one fold, so only a direct call reaches it.  Fold :math:`k` runs a complete pass --
-    every regression, every pooled fluctuation, and under a link its own :math:`\beta` --
-    on its training complement, and only its held-out rows are stitched into the report.
-    The reported :math:`\beta` is then the projection of the *stitched* fit rather than any
-    fold's, which is the statement :func:`~cleverly.estimators.targeting.reported_beta`
-    makes for the point-treatment fold-targeting path.
-
-    The per-regimen path no longer shares this construction.  A cross-fitted
-    :func:`~cleverly.longitudinal.sequential.fit_regimen` runs untargeted fold recursions
-    and then one pooled fluctuation per node over every follower, so above one fold a
-    saturated working model fitted here does not reproduce the per-regimen report.  At one
-    fold the two still agree, which ``tests/e2e/test_ltmle_msm.py`` pins.
+    **Above one fold the update is pooled.**  Each outer fold runs the untargeted
+    recursion of every cell on its training rows
+    (:func:`~cleverly.longitudinal.sequential.untargeted_fold_recursions`), the construction
+    the per-regimen cross-fit uses (Díaz, Williams, Hoffman and Schenck 2023, Section 5.2,
+    Steps 1-4).  The held-out predictions are stitched into one out-of-fold initial
+    estimate per node and cell.  The lockstep pass then runs over those stitched
+    predictions: one stacked fluctuation per node over every follower of every live cell,
+    with the out-of-fold cumulative mechanism in the loss weight.  No fold solves a
+    fluctuation and no fold computes a :math:`\beta`.  The stitched initial estimate is free
+    of :math:`\beta`, so under a link a round re-solves the pooled update only.  A saturated
+    working model therefore reproduces the cross-fitted per-regimen report, as it
+    reproduces the single-fold one, which ``tests/e2e/test_ltmle_msm.py`` pins at both fold
+    counts.
     """
     plan_of = {plan.label: plan for plan in plans}
     missing = sorted({cell.label for cell in model.cells} - set(plan_of))
@@ -644,208 +627,153 @@ def fit_regimens_msm(
         plan.label: mechanism.cumulative_with_unbounded(data, plan, g_bounds) for plan in plans
     }
     cumulative_unbounded = {label: pair[0] for label, pair in cumulative_pairs.items()}
-    # The pooled prefixes, which is what a cell fit *reports*.  Above one fold they are not
-    # what any clever covariate was built from: this engine-only fold path reads fold `k`'s
-    # slab for every row of fold `k`'s pass, through `cumulative_with_unbounded(fold=k)`.
+    # Above one fold these are the out-of-fold prefixes, and they are the only mechanism
+    # any clever covariate divides by, as on a per-regimen cross-fitted fit.
     cumulative = {label: pair[1] for label, pair in cumulative_pairs.items()}
     # Once per regimen for the whole alternation, not once per node per round: a link
-    # costs a further backward pass per round, so rebuilding the masks inside `one_pass`
-    # would multiply the quadratic term by the round count as well.  They are fold-free,
-    # so one build serves every fold too.
+    # costs a further backward pass per round, so rebuilding the masks inside a pass would
+    # multiply the quadratic term by the round count as well.
     masks = {plan.label: data.regimen_masks(plan.values) for plan in plans}
     weights = np.asarray(data.weights, dtype=float)
 
-    def alternate(
-        cumulative_at: Mapping[str, FloatArray],
-        *,
-        inner: Folds,
-        fit_rows: BoolArray | None,
-        outer_fold: int | None,
-        node_warn: bool,
-        jobs: int,
-    ) -> _Pass:
-        """One complete alternation against the nuisances ``cumulative_at`` describes."""
+    def backward_pass(
+        beta: FloatArray | None,
+        node_inputs: Callable[[int, int, FloatArray], NodeInputs],
+        regression_target: Callable[[int, int], FloatArray | None],
+    ) -> tuple[list[list[SequentialStep]], list[Fluctuation], FloatArray]:
+        """One lockstep pass at ``beta``, over the nodes ``node_inputs`` supplies."""
+        fluctuation_design = model.fluctuation_design_at(beta)
+        carried = [seed_carried(data, scaler) for _ in model.cells]
+        steps: list[list[SequentialStep]] = [[] for _ in model.cells]
+        nodes: list[Fluctuation] = []
+        for time in range(max(cell.horizon for cell in model.cells), 0, -1):
+            live = [k for k, cell in enumerate(model.cells) if cell.horizon >= time]
+            prepared = {k: node_inputs(k, time, carried[k]) for k in live}
+            initial = np.concatenate([prepared[k].initial for k in live])
+            with phase("fluctuation"):
+                fluctuation = solve_fluctuation(
+                    np.concatenate([prepared[k].pseudo_outcome for k in live]),
+                    InitialFit(initial, {_REGIMEN_ARM: initial}),
+                    Submodel(
+                        np.concatenate([fluctuation_design[:, k, :] for k in live]),
+                        {_REGIMEN_ARM: np.concatenate([fluctuation_design[:, k, :] for k in live])},
+                        tuple(f"epsilon[{term}, t={time}]" for term in model.terms),
+                        "sequential",
+                    ),
+                    np.concatenate(
+                        [weights * model.weights[:, k] * prepared[k].counterfactual for k in live]
+                    ),
+                    # ``fitted_on``: the set the score is taken over, and the same mask
+                    # ``fit_regimen`` passes.  Note what this is *not* -- a guard on
+                    # which rows reach the estimating equation.  The loss weight above
+                    # is nonzero on every at-risk row, so the same mask is material:
+                    # only followers enter the score, exactly as in the per-regimen
+                    # update and ltmle::UpdateQ.  Cross-fitted or not, it is every
+                    # follower of every live cell.
+                    np.concatenate([prepared[k].fitted_on for k in live]),
+                    alpha=alpha,
+                    max_iter=max_iter,
+                    tol=tol,
+                    warn=warn,
+                )
+            targeted = np.split(fluctuation.targeted.arms[_REGIMEN_ARM], len(live))
+            for position, k in enumerate(live):
+                node = prepared[k]
+                steps[k].append(
+                    SequentialStep(
+                        time=time,
+                        trained_on=node.trained_on,
+                        at_risk=node.at_risk,
+                        pseudo_outcome=node.pseudo_outcome,
+                        initial=node.initial,
+                        targeted=targeted[position],
+                        clever=node.clever,
+                        fluctuation=fluctuation,
+                        learner_diagnostics=node.learner_diagnostics,
+                        regression_target=regression_target(k, time),
+                    )
+                )
+                carried[k] = np.where(node.at_risk, targeted[position], _FILLER)
+            nodes.append(fluctuation)
+        for cell_steps in steps:
+            cell_steps.reverse()
+        return steps, nodes, fluctuation_design
+
+    if folds.is_single:
+
+        def in_sample(k: int, time: int, carried: FloatArray) -> NodeInputs:
+            label = model.cells[k].label
+            return prepare_node(
+                data,
+                plan_of[label],
+                cumulative[label],
+                carried,
+                time,
+                model.cells[k].horizon,
+                outcome_learner=outcome_learner,
+                pseudo_learner=pseudo_learner,
+                folds=folds,
+                cause=cause,
+                masks=masks[label],
+                n_jobs=n_jobs,
+            )
 
         def one_pass(
             beta: FloatArray | None,
         ) -> tuple[list[list[SequentialStep]], list[Fluctuation], FloatArray]:
-            fluctuation_design = model.fluctuation_design_at(beta)
-            carried = [seed_carried(data, scaler) for _ in model.cells]
-            steps: list[list[SequentialStep]] = [[] for _ in model.cells]
-            nodes: list[Fluctuation] = []
-            for time in range(max(cell.horizon for cell in model.cells), 0, -1):
-                live = [k for k, cell in enumerate(model.cells) if cell.horizon >= time]
-                prepared = {
-                    k: prepare_node(
-                        data,
-                        plan_of[model.cells[k].label],
-                        cumulative_at[model.cells[k].label],
-                        carried[k],
-                        time,
-                        model.cells[k].horizon,
-                        outcome_learner=outcome_learner,
-                        pseudo_learner=pseudo_learner,
-                        folds=inner,
-                        cause=cause,
-                        masks=masks[model.cells[k].label],
-                        fit_rows=fit_rows,
-                        outer_fold=outer_fold,
-                        n_jobs=jobs,
-                    )
-                    for k in live
-                }
-                initial = np.concatenate([prepared[k].initial for k in live])
-                with phase("fluctuation"):
-                    fluctuation = solve_fluctuation(
-                        np.concatenate([prepared[k].pseudo_outcome for k in live]),
-                        InitialFit(initial, {_REGIMEN_ARM: initial}),
-                        Submodel(
-                            np.concatenate([fluctuation_design[:, k, :] for k in live]),
-                            {
-                                _REGIMEN_ARM: np.concatenate(
-                                    [fluctuation_design[:, k, :] for k in live]
-                                )
-                            },
-                            tuple(f"epsilon[{term}, t={time}]" for term in model.terms),
-                            "sequential",
-                        ),
-                        np.concatenate(
-                            [
-                                weights * model.weights[:, k] * prepared[k].counterfactual
-                                for k in live
-                            ]
-                        ),
-                        # ``fitted_on``: the set the score is taken over, and the same mask
-                        # ``fit_regimen`` passes.  Note what this is *not* -- a guard on
-                        # which rows reach the estimating equation.  The loss weight above
-                        # is nonzero on every at-risk row, so the same mask is material:
-                        # only followers enter the score, exactly as in the per-regimen
-                        # update and ltmle::UpdateQ.  Under cross-fitting it narrows again,
-                        # to the followers in this fold's training complement.
-                        np.concatenate([prepared[k].fitted_on for k in live]),
-                        alpha=alpha,
-                        max_iter=max_iter,
-                        tol=tol,
-                        warn=node_warn,
-                    )
-                targeted = np.split(fluctuation.targeted.arms[_REGIMEN_ARM], len(live))
-                for position, k in enumerate(live):
-                    node = prepared[k]
-                    steps[k].append(
-                        SequentialStep(
-                            time=time,
-                            trained_on=node.trained_on,
-                            at_risk=node.at_risk,
-                            pseudo_outcome=node.pseudo_outcome,
-                            initial=node.initial,
-                            targeted=targeted[position],
-                            clever=node.clever,
-                            fluctuation=fluctuation,
-                            learner_diagnostics=node.learner_diagnostics,
-                        )
-                    )
-                    carried[k] = np.where(node.at_risk, targeted[position], _FILLER)
-                nodes.append(fluctuation)
-            for cell_steps in steps:
-                cell_steps.reverse()
-            return steps, nodes, fluctuation_design
+            return backward_pass(beta, in_sample, lambda k, time: None)
 
-        spec = link_for(str(model.link))
-        trace: list[tuple[int, float, float]] = []
-        failure: str | None = None
-        if spec.is_identity:
-            # ``dm/deta`` is one, so the covariate never read a beta and there is nothing to
-            # alternate with. Bit for bit the single pass it would have been before links.
-            steps, node_fits, design = one_pass(None)
-            projection = _project(data, model, steps, scaler)
-            beta = projection.beta
-        else:
-            # The starting point is arbitrary because the fixed point is not: at exit every
-            # node's Qbar* is the fluctuation along the covariate at beta-hat of the
-            # regression of the *next* node's Qbar*, and beta-hat is the projection of the
-            # first node's. Zero is as good a start as the untargeted pass would be, and
-            # costs one pass less.
-            beta = np.zeros(model.n_terms)
-            steps, node_fits, design = one_pass(beta)
-            projection = _project(data, model, steps, scaler)
-            previous: float | None = None
-            for outer in range(1, max_outer + 1):
-                shift = float(np.max(np.abs(projection.beta - beta))) / (
-                    1.0 + float(np.max(np.abs(beta)))
-                )
-                worst = max((node.trace[-1] for node in node_fits if node.trace), default=0.0)
-                trace.append((outer, float(worst), shift))
-                beta = projection.beta
-                if shift <= tol:
-                    break
-                if previous is not None and shift > _STALL_FACTOR * previous:
-                    failure = "stalled"
-                    break
-                previous = shift
-                steps, node_fits, design = one_pass(beta)
-                projection = _project(data, model, steps, scaler)
-            else:
-                failure = "max_iter_reached"
-            beta = projection.beta
-
-        last = trace[-1][2] if trace else 0.0
-        if failure is None and last > _UNSOLVED:
-            failure = "max_iter_reached"
-        return _Pass(
-            steps=steps,
-            nodes=node_fits,
-            projection=projection,
-            beta=beta,
-            design=design,
-            record=ProjectionFluctuation(
-                beta=beta,
-                trace=tuple(trace),
-                converged=bool(last <= tol),
-                failure=failure,
-            ),
-        )
-
-    if folds.is_single:
-        run = alternate(
-            cumulative,
-            inner=folds,
-            fit_rows=None,
-            outer_fold=None,
-            node_warn=warn,
-            jobs=n_jobs,
-        )
-        steps, node_fits = run.steps, run.nodes
-        projection, beta, alternation = run.projection, run.beta, run.record
-        fluctuation_design = run.design
     else:
-        steps, node_fits, projection, beta, alternation, fluctuation_design = _crossfit_msm(
+        stitched = untargeted_fold_recursions(
             data,
-            plans,
-            mechanism,
-            model,
-            plan_of=plan_of,
-            masks=masks,
-            weights=weights,
-            alternate=alternate,
+            [
+                FoldRecursionCell(plan_of[cell.label], masks[cell.label], cell.horizon)
+                for cell in model.cells
+            ],
             folds=folds,
-            g_bounds=g_bounds,
             scaler=scaler,
+            cause=cause,
+            outcome_learner=outcome_learner,
+            pseudo_learner=pseudo_learner,
             n_jobs=n_jobs,
         )
 
-    influence = _influence(data, model, steps, scaler, projection, beta)
+        def pooled(k: int, time: int, carried: FloatArray) -> NodeInputs:
+            return _pooled_node(
+                data,
+                stitched[k],
+                masks[model.cells[k].label],
+                cumulative[model.cells[k].label],
+                carried,
+                time,
+                cause,
+            )
+
+        def one_pass(
+            beta: FloatArray | None,
+        ) -> tuple[list[list[SequentialStep]], list[Fluctuation], FloatArray]:
+            return backward_pass(beta, pooled, lambda k, time: stitched[k].regression_target[time])
+
+    run = _alternate(
+        one_pass,
+        lambda steps: _project(data, model, steps, scaler),
+        model,
+        tol=tol,
+        max_outer=max_outer,
+    )
+    influence = _influence(data, model, run.steps, scaler, run.projection, run.beta)
     return MSMRegimenFit(
         model=model,
         cause=cause,
-        beta=beta,
+        beta=run.beta,
         influence_curves=influence,
-        projection=projection,
-        alternation=alternation,
+        projection=run.projection,
+        alternation=run.record,
         fits=tuple(
             _cell_fit(
                 data,
                 model,
-                steps,
+                run.steps,
                 cause,
                 cumulative_unbounded,
                 cumulative,
@@ -854,209 +782,113 @@ def fit_regimens_msm(
             )
             for k in range(model.n_cells)
         ),
-        nodes=tuple(node_fits),
-        fluctuation_design=fluctuation_design,
+        nodes=tuple(run.nodes),
+        fluctuation_design=run.design,
     )
 
 
-def _crossfit_msm(
+def _pooled_node(
     data: LongitudinalData,
-    plans: Sequence[Plan],
-    mechanism: Mechanism,
+    stitched: StitchedInitial,
+    masks: RegimenMasks,
+    cumulative: FloatArray,
+    carried: FloatArray,
+    time: int,
+    cause: str | None,
+) -> NodeInputs:
+    """One cell's node inputs for the pooled update, over the stitched initial estimate.
+
+    The pseudo-outcome composes the pooled targeted prediction of the later node, and the
+    clever covariate divides by the out-of-fold cumulative mechanism.  Both come from the
+    helpers the per-regimen pooled update uses, so the two paths cannot divide by different
+    things.  The score set is every follower.
+    """
+    at_risk = masks.at_risk(time)
+    following = masks.following(time)
+    with phase("pseudo_outcome"):
+        pseudo_outcome = _pseudo_outcome(data, carried, time, cause)
+    with phase("clever_covariate"):
+        counterfactual, clever = _clever_covariate(at_risk, following, cumulative, time)
+    return NodeInputs(
+        time=time,
+        at_risk=at_risk,
+        trained_on=following,
+        fitted_on=following,
+        pseudo_outcome=pseudo_outcome,
+        initial=stitched.initial[time],
+        counterfactual=counterfactual,
+        clever=clever,
+        learner_diagnostics=stitched.diagnostics[time],
+    )
+
+
+def _alternate(
+    one_pass: _OnePass,
+    project: Callable[[list[list[SequentialStep]]], ProjectionFit],
     model: RegimenMSM,
     *,
-    plan_of: Mapping[str, Plan],
-    masks: Mapping[str, RegimenMasks],
-    weights: FloatArray,
-    alternate: Callable[..., _Pass],
-    folds: Folds,
-    g_bounds: tuple[float, float],
-    scaler: OutcomeScaler,
-    n_jobs: int,
-) -> tuple[
-    list[list[SequentialStep]],
-    list[Fluctuation],
-    ProjectionFit,
-    FloatArray,
-    ProjectionFluctuation,
-    FloatArray,
-]:
-    """Run one complete alternation per outer fold and stitch held-out rows.
+    tol: float,
+    max_outer: int,
+) -> _Pass:
+    """Repeat ``one_pass`` at each new ``beta`` until the coefficients settle.
 
-    What comes back is what :func:`fit_regimens_msm` would have had from a single pooled
-    pass -- stitched ``steps``, one aggregated fluctuation per node, the projection of the
-    stitched fit, and the alternation record -- so ``_project``, ``_influence`` and
-    ``_cell_fit`` read it without knowing there were folds at all.
+    One loop for the in-sample and the cross-fitted fit.  Only ``one_pass`` differs: in
+    sample it refits every learner, and cross-fitted it re-solves the pooled update over
+    the fixed stitched initial estimate.
     """
-    inner = Folds.single(data.n)
-    # Read once, in the parent: a worker process has no collector of its own and so cannot
-    # tell whether anybody asked for a profile.
-    wanted = profiling()
-    horizon = max(cell.horizon for cell in model.cells)
-    live_at = {
-        time: [k for k, cell in enumerate(model.cells) if cell.horizon >= time]
-        for time in range(1, horizon + 1)
-    }
-
-    def run_fold(
-        fold: int, train: IntArray, test: IntArray
-    ) -> tuple[_FoldPass, PhaseProfile | None]:
-        outer_train = np.zeros(data.n, dtype=bool)
-        outer_train[train] = True
-        with collect_phases(wanted) as profile:
-            fold_cumulative = {
-                plan.label: mechanism.cumulative_with_unbounded(data, plan, g_bounds, fold=fold)[1]
-                for plan in plans
-            }
-            run = alternate(
-                fold_cumulative,
-                inner=inner,
-                fit_rows=outer_train,
-                outer_fold=fold,
-                # Silenced per fold and counted once by `warn_on_fold_convergence`: K folds
-                # at T nodes would otherwise emit K * T warnings for one problem.
-                node_warn=False,
-                jobs=1,
+    spec = link_for(str(model.link))
+    trace: list[tuple[int, float, float]] = []
+    failure: str | None = None
+    if spec.is_identity:
+        # ``dm/deta`` is one, so the covariate never read a beta and there is nothing to
+        # alternate with. Bit for bit the single pass it would have been before links.
+        steps, node_fits, design = one_pass(None)
+        projection = project(steps)
+        beta = projection.beta
+    else:
+        # The starting point is arbitrary because the fixed point is not: at exit every
+        # node's Qbar* is the fluctuation along the covariate at beta-hat, and beta-hat is
+        # the projection of the first node's Qbar*. Zero is as good a start as the
+        # untargeted pass would be, and costs one pass less.
+        beta = np.zeros(model.n_terms)
+        steps, node_fits, design = one_pass(beta)
+        projection = project(steps)
+        previous: float | None = None
+        for outer in range(1, max_outer + 1):
+            shift = float(np.max(np.abs(projection.beta - beta))) / (
+                1.0 + float(np.max(np.abs(beta)))
             )
-        # Only the held-out slices travel back, so a worker returns `n / K` rows per array
-        # rather than `n`, and the whole-length `Fluctuation` objects stay in the worker.
-        mass = float(weights[test].sum())
-        held = _FoldPass(
-            index=test,
-            held=[
-                {
-                    step.time: {
-                        "pseudo": step.pseudo_outcome[test],
-                        "initial": step.initial[test],
-                        "targeted": step.targeted[test],
-                        "clever": step.clever[test],
-                    }
-                    for step in cell
-                }
-                for cell in run.steps
-            ],
-            diagnostics=[
-                {step.time: step.learner_diagnostics for step in cell} for cell in run.steps
-            ],
-            solves=[
-                _FoldSolve(
-                    record=FoldFluctuation(
-                        index=test,
-                        epsilon=fluctuation.epsilon,
-                        score=fluctuation.score,
-                        converged=fluctuation.converged,
-                        n_iter=fluctuation.n_iter,
-                        trace=fluctuation.trace,
-                        score_scale=fluctuation.score_scale,
-                    ),
-                    mass=mass,
-                    failure=fluctuation.failure,
-                    hessian_condition=fluctuation.hessian_condition,
-                    loglik=fluctuation.loglik,
-                    method=fluctuation.method,
-                    names=fluctuation.names,
-                )
-                for fluctuation in run.nodes
-            ],
-            design=run.design[test],
-            record=run.record,
-        )
-        return held, profile
+            worst = max((node.trace[-1] for node in node_fits if node.trace), default=0.0)
+            trace.append((outer, float(worst), shift))
+            beta = projection.beta
+            if shift <= tol:
+                break
+            if previous is not None and shift > _STALL_FACTOR * previous:
+                failure = "stalled"
+                break
+            previous = shift
+            steps, node_fits, design = one_pass(beta)
+            projection = project(steps)
+        else:
+            failure = "max_iter_reached"
+        beta = projection.beta
 
-    jobs = [(fold, train, test) for fold, (train, test) in enumerate(folds)]
-    # One parent phase over the whole fan-out, with the workers' phases merged underneath
-    # it rather than into it: K folds running at once accumulate more processor time than
-    # the parent spent waiting for them.
-    with phase("outer_fold_recursion"):
-        outcomes = map_parallel(run_fold, jobs, n_jobs=n_jobs)
-    for _, profile in outcomes:
-        merge_worker_phases(profile)
-
-    stitched: dict[int, dict[int, dict[str, FloatArray]]] = {
-        k: {
-            time: {
-                name: np.full(data.n, _FILLER, dtype=float)
-                for name in ("pseudo", "initial", "targeted", "clever")
-            }
-            for time in range(1, model.cells[k].horizon + 1)
-        }
-        for k in range(model.n_cells)
-    }
-    design = np.empty_like(model.design)
-    solves: dict[int, list[_FoldSolve]] = {time: [] for time in range(1, horizon + 1)}
-    diagnostics: dict[int, dict[int, list[SuperLearnerDiagnostics]]] = {
-        k: {time: [] for time in range(1, model.cells[k].horizon + 1)} for k in range(model.n_cells)
-    }
-    records: list[ProjectionFluctuation] = []
-    for fold_pass, _ in outcomes:
-        test = fold_pass.index
-        design[test] = fold_pass.design
-        records.append(fold_pass.record)
-        for k, cell in enumerate(fold_pass.held):
-            for time, values in cell.items():
-                for name, slice_ in values.items():
-                    stitched[k][time][name][test] = slice_
-        for k, diagnostic_cell in enumerate(fold_pass.diagnostics):
-            for time, nuisance_records in diagnostic_cell.items():
-                diagnostics[k][time].extend(nuisance_records)
-        for position, solve in enumerate(fold_pass.solves):
-            solves[horizon - position].append(solve)
-
-    nodes: list[Fluctuation] = []
-    node_at: dict[int, Fluctuation] = {}
-    for time in range(horizon, 0, -1):
-        live = live_at[time]
-        followers = np.concatenate([masks[model.cells[k].label].following(time) for k in live])
-        aggregated = aggregate_fold_fluctuations(
-            solves[time],
-            outcome=np.concatenate([stitched[k][time]["pseudo"] for k in live]),
-            initial=np.concatenate([stitched[k][time]["initial"] for k in live]),
-            targeted=np.concatenate([stitched[k][time]["targeted"] for k in live]),
-            # The covariate each row was actually fluctuated by, stitched from the folds --
-            # under a link it is a function of that fold's beta.  The loss weight carries
-            # `h` and the cumulative inverse probability, as `ltmle::UpdateQ` puts them, and
-            # `clever` is already zero off the followers.
-            covariate=np.concatenate([design[:, k, :] for k in live]),
-            loss_weights=np.concatenate(
-                [weights * model.weights[:, k] * stitched[k][time]["clever"] for k in live]
-            ),
-            mask=followers,
-        )
-        nodes.append(aggregated)
-        node_at[time] = aggregated
-
-    steps: list[list[SequentialStep]] = [
-        [
-            SequentialStep(
-                time=time,
-                trained_on=masks[model.cells[k].label].following(time),
-                at_risk=masks[model.cells[k].label].at_risk(time),
-                pseudo_outcome=stitched[k][time]["pseudo"],
-                initial=stitched[k][time]["initial"],
-                targeted=stitched[k][time]["targeted"],
-                clever=stitched[k][time]["clever"],
-                fluctuation=node_at[time],
-                learner_diagnostics=tuple(diagnostics[k][time]),
-            )
-            for time in range(1, model.cells[k].horizon + 1)
-        ]
-        for k in range(model.n_cells)
-    ]
-    warn_on_fold_convergence([(time, node_at[time]) for time in range(horizon, 0, -1)], "msm")
-
-    projection = _project(data, model, steps, scaler)
-    beta = projection.beta
-    alternation = ProjectionFluctuation(
+    last = trace[-1][2] if trace else 0.0
+    if failure is None and last > _UNSOLVED:
+        failure = "max_iter_reached"
+    return _Pass(
+        steps=steps,
+        nodes=node_fits,
+        projection=projection,
         beta=beta,
-        trace=tuple(
-            (index, *record.trace[-1][1:]) if record.trace else (index, 0.0, 0.0)
-            for index, record in enumerate(records)
+        design=design,
+        record=ProjectionFluctuation(
+            beta=beta,
+            trace=tuple(trace),
+            converged=bool(last <= tol),
+            failure=failure,
         ),
-        converged=all(record.converged for record in records),
-        failure=next((record.failure for record in records if record.failure is not None), None),
-        folds=tuple(records),
     )
-    return steps, nodes, projection, beta, alternation, design
 
 
 def _raw_first(steps: Sequence[Sequence[SequentialStep]], scaler: OutcomeScaler) -> FloatArray:

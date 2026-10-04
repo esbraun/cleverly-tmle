@@ -170,10 +170,10 @@ keeping all prior competing events out of later risk sets.
 `MSMProjection` can project regimen-specific longitudinal means onto a declared working model. The
 regimen grid must identify the coefficient vector; a rank-deficient working design is refused.
 
-Use `n_folds=1` for a longitudinal MSM projection. Cross-fitted coefficient inference is refused
-until an unsaturated projection property and a repeated-sampling study validate that construction.
-A saturated reduction alone does not validate an unsaturated projection or its coefficient
-influence curve.
+A longitudinal MSM projection cross-fits by default, as every longitudinal fit does. Each fold
+runs an untargeted recursion for every regimen, and one stacked fluctuation per node pools the
+update. [MSM projections](../technical-reference/msm-projections.md#the-longitudinal-projection)
+states the construction and its evidence.
 
 ## Diagnostics
 

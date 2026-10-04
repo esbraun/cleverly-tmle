@@ -504,7 +504,9 @@ update for this plug-in estimator, or when the sequential doubly robust estimato
 
 Longitudinal MSMs are projections over regimen/horizon cells. Their fluctuation is pooled and the
 backward recursion proceeds in lockstep over nodes; the horizon belongs in the design and each
-cause receives its own projection while sharing nuisance fits.
+cause receives its own projection while sharing nuisance fits. Under cross-fitting the fold
+recursions run per cell and stay untargeted, and only the pooled update is lockstep. No pooled
+coefficient and no working-model coefficient returns to a fold regression.
 
 For survival, a unit experiencing the event at node `t` belongs in node `t`'s event regression.
 The event-free state is part of history, not an intervened mechanism factor. Reports store risk;

@@ -271,9 +271,9 @@ sums no risk curve.
 | `regimens=` | static plans, fixed rowwise dynamic rules, or categorical arms. A plan is a sequence of arms, or one arm meaning that arm at every node. A plan with a callable node must be a `DynamicRegimen` declared `rule_kind="known"`. `LTMLE.fit` refuses an undeclared or `"estimated"` rule, and a callable written inline in a mapping, before any learner. Sample-adaptive thresholds and learned rules need additional inference and are outside this contract. The [scope page](scope-and-refusals.md#wrong-by-construction) gives the threshold witness |
 | `reference=` | which regimen the contrasts are taken against. It is part of the estimand rather than a display setting |
 | `horizons=` | which time points a survival fit reports cumulative risk at. `None` reports the whole curve. Name the horizons you will report: the cost is $T(T+1)/2$ regressions per regimen rather than $T$ |
-| `msm=` | a working model over the regimen and horizon cells. It requires `n_folds=1`. See [MSM projections](msm-projections.md) |
+| `msm=` | a working model over the regimen and horizon cells, in sample or cross-fitted. See [MSM projections](msm-projections.md) |
 | four learner slots | `outcome_learner`, `pseudo_learner`, `treatment_learner`, `censoring_learner`. The pseudo learner fits the intermediate regressions, whose outcome is a bounded prediction rather than the outcome itself |
-| `n_folds=`, `learner_folds=` | one outer split serves every node and regimen. The split is unstratified: `random_partition` draws it from the row count and the seed, and it balances no treatment node. Each fold fits the mechanism and an untargeted backward regression sequence on its training rows. One pooled fluctuation per node then targets the out-of-fold predictions, as [cross-fitting the recursion](#cross-fitting-the-recursion) states. The mechanism fit keeps one prediction slab per fold, so the mechanism costs $K$ times the memory of a single-fold fit and the saved result grows by the same factor |
+| `n_folds=`, `learner_folds=` | one outer split serves every node and regimen. The split is unstratified: `random_partition` draws it from the row count and the seed, and it balances no treatment node. Each fold fits the mechanism and an untargeted backward regression sequence on its training rows. One pooled fluctuation per node then targets the out-of-fold predictions, as [cross-fitting the recursion](#cross-fitting-the-recursion) states. The mechanism keeps the out-of-fold probabilities only, so its memory does not grow with $K$ |
 | `g_bounds=`, `q_bounds=`, `alpha=` | cumulative truncation, outcome scaling, and the logistic shrink. Above one fold, a continuous outcome must declare `q_bounds` |
 | `alpha_sig=`, `simultaneous=`, `n_multiplier=`, `multiplier_kind=` | interval level, and the simultaneous bands across the reported regimens |
 | `n_bootstrap=`, `bootstrap_resampling=` | the full-refit bootstrap. [The bootstrap contract](#the-full-refit-bootstrap) states what each replicate resamples and refits |
@@ -307,8 +307,8 @@ initial regression would not, so the package does not carry it back.
 
 `tests/unit/test_pooled_longitudinal_targeting.py` recomputes each row of the table by hand. It
 also carries four mutation controls. One fits the coefficient on one fold's training rows. The
-others drop the loss weight, read one fold's mechanism slab, or carry targeted values back into
-the folds.
+others drop the loss weight, read a refit of one fold's mechanism model, or carry targeted values
+back into the folds.
 
 `n_folds=1` keeps the canonical single-fold recursion. Each node regresses the targeted prediction
 from node $t + 1$, and each fluctuation solves over the rows its regression was fitted on.
@@ -347,14 +347,10 @@ because the sample outcome range would take the scale from held-out rows. The me
 in-sample fit, which is `CrossFitting(enabled=False)`, or `n_folds=1` on the engine. A fit with
 `id=` cross-fits with whole-cluster folds, as [clusters](#clusters) states.
 
-Longitudinal `msm=` requires `n_folds=1`. A saturated identity shows that two constructions reduce
-to the same regimen means. It does not validate an unsaturated coefficient projection under
-cross-fitting. That composition needs a separate property and repeated-sampling study.
-[X27](../roadmap.md#x27-cross-fitted-longitudinal-msm-targeting) holds the work.
-
-The engine keeps a fold-fluctuated working-model path for that identity. Its folds each solve their
-own fluctuation, so its score report adds a `stitching` row per node. The public estimator refuses
-the path above one fold.
+Longitudinal `msm=` cross-fits the same way. Each fold runs the untargeted recursion of every
+regimen and horizon cell. One stacked fluctuation per node then pools the update over every
+follower of every cell. [MSM projections](msm-projections.md#the-longitudinal-projection) states the
+construction and its evidence. The score report has one `solver` row per node and term.
 
 `LTMLE` refuses each point-treatment keyword in `_REFUSED` in
 [`longitudinal/estimator.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/longitudinal/estimator.py)
@@ -422,8 +418,8 @@ unequal-size and few-cluster rules of [clusters](inference.md#clusters). Wang, P
 uses parametric nuisances.
 
 The cluster handling does not depend on the target. The split, the inner groups, the
-cluster-summed curve and the status are the same for every target. `shifts=`, `incremental=`, a
-stochastic categorical node and cross-fitted `msm=` stay refused for their own reasons. Each one
+cluster-summed curve and the status are the same for every target. `shifts=`, `incremental=` and a
+stochastic categorical node stay refused for their own reasons. Each one
 inherits this handling when it ships.
 
 Two side effects follow from the cross-fitted default. A fit with fewer than 10 clusters warns that

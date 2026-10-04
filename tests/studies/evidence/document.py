@@ -380,6 +380,15 @@ def measured(row: Any) -> str:
             f"{_interval(row.spread_ratio_ci_lower, row.spread_ratio_ci_upper)}, "
             f"boundary {render(float(row.spread_ratio_boundary))}"
         )
+    if family == "in_sample_agreement":
+        # A reported distance with no truth and no standard error of its own, so it has no
+        # bias or SE-ratio interval to print.
+        return (
+            "mean absolute difference / SE "
+            f"{render(float(row.mean_abs_difference_over_se))}, "
+            "share of draws with the in-sample estimate inside the cross-fitted interval "
+            f"{float(row.coverage):.4f}"
+        )
     if family == "static_reduction":
         return f"maximum paired difference {render(float(row.maximum_static_difference))}"
     if family == "natural_course_identity":

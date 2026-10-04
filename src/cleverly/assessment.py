@@ -46,7 +46,6 @@ from .utils.text import format_draw, format_table
 from .validation.drtmle import IDENTITY_TOLERANCE
 from .validation.longitudinal import (
     LONGITUDINAL_CENSORING_NOT_FITTED,
-    STITCHED_SCORE_Z_TOLERANCE,
     LongitudinalDiagnostics,
     LongitudinalNuisanceDiagnostics,
     LongitudinalNuisanceOmission,
@@ -64,7 +63,6 @@ __all__ = [
     "ASSESSMENT_CAPABILITIES",
     "LONGITUDINAL_CENSORING_NOT_FITTED",
     "SENSITIVITY_ROUTES",
-    "STITCHED_SCORE_Z_TOLERANCE",
     "VALIDATION_OPERATIONS",
     "AssessmentCapability",
     "AssessmentItem",
@@ -2504,20 +2502,10 @@ class DiagnosticsFacade(_CapabilityFacade):
         targeting loop gates on, and it can only tighten a node's verdict beyond the fit's
         own convergence flag.
 
-        **A cross-fitted per-regimen longitudinal fit gets one row per node**, as a
-        single-fold fit does.  Its one pooled fluctuation per node solves the node's score
-        over every follower, so the ``"solver"`` row gates that score with ``tolerance``.
-
-        **A fold-fluctuated node gets two rows**, because it poses two questions with
-        different right answers.  The engine-level cross-fitted working model, which the
-        public estimator refuses, is the one source.  Its ``"solver"`` row asks whether
-        every outer fold reached the root of its own equation, which ``tolerance`` gates as
-        above.  Its ``"stitching"``
-        row asks whether the score of the *stitched* fit sits where sampling would leave it
-        -- which is not zero, because each fold fits its coefficient on rows it does not
-        report -- and is gated in standard errors by :data:`STITCHED_SCORE_Z_TOLERANCE`
-        instead.  Holding that row to ``tolerance`` would fail every such fit for doing
-        what the construction does.
+        **A cross-fitted longitudinal fit gets one row per node**, as a single-fold fit
+        does, or one per node and term on a working model.  Its one pooled fluctuation per
+        node solves the node's score over every follower, so the ``"solver"`` row gates
+        that score with ``tolerance``.
         """
         self._require("score_equations")
 
@@ -2798,8 +2786,6 @@ def _score_item(
     for row in getattr(report, "rows", ()):
         if hasattr(row, "ratio"):
             ratios.append(float(row.ratio))
-        elif getattr(row, "kind", None) == "stitching":
-            ratios.append(abs(float(row.z)) / float(report.z_tolerance))
         else:
             ratios.append(float(row.relative_score) / float(report.tolerance))
     passed = bool(getattr(report, "passed", False))

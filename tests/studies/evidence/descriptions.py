@@ -141,6 +141,8 @@ ARMS: dict[str, str] = {
     "categorical_ltmle": "five categorical regimen means and four contrasts",
     "categorical_ltmle_crossfit": "five cross-fitted categorical regimen means and four contrasts",
     "longitudinal_msm": "the two terms of the longitudinal MSM projection",
+    "cross_fitted_msm": "the two terms of the cross-fitted longitudinal MSM projection",
+    "duration_logit": "the treatment-duration coefficient of a logit working model",
     # The stratum labels of the baseline-strata study: ``v<s>_<parameter>``.
     **{
         f"v{stratum}_{key}": f"{words} in stratum V = {stratum}"
@@ -336,6 +338,7 @@ IMPLEMENTATIONS: dict[str, str] = {
         "`cleverly` clustered point-treatment CV-TMLE at unequal cluster sizes"
     ),
     "cleverly-cross-fitted-categorical-ltmle": "`cleverly` cross-fitted categorical LTMLE",
+    "cleverly-cross-fitted-ltmle-msm": "`cleverly` cross-fitted longitudinal MSM projection",
     "cleverly-cross-fitted-ltmle": "`cleverly` cross-fitted LTMLE",
     "cleverly-cross-fitted-ltmle-survival": "`cleverly` cross-fitted survival LTMLE",
     "cleverly-cross-fitted-competing-ltmle": "`cleverly` cross-fitted competing-risk LTMLE",
@@ -389,6 +392,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "ltmle": "R `ltmle`",
     "ltmle-weighted": "R `ltmle` with observation weights",
     "ltmle projected regimen fits": "projected R `ltmle` regimen fits",
+    "lmtp projected regimen fits": "projected R `lmtp` cross-fitted regimen fits",
     "lmtp": "R `lmtp`",
     "lmtp-weighted": "R `lmtp` with observation weights",
     "npcausal": "R `npcausal`",
@@ -469,6 +473,10 @@ SCENARIOS: dict[str, str] = {
     "censored_survival_curve": "two-time-point absorbing-event law with monotone censoring",
     "censored_competing_risk_curve": (
         "two-time-point, two-cause competing-risk law with monotone censoring"
+    ),
+    "cross_fitted_regimen_projection": (
+        "two-time-point law with monotone censoring and four projected treatment plans, "
+        "fitted with five outer folds"
     ),
     "censored_regimen_projection": (
         "two-time-point law with monotone censoring and four projected treatment plans"
@@ -640,6 +648,10 @@ PROPERTIES: dict[str, str] = {
     ),
     "clustered_inference": (
         "cluster-level influence-curve aggregation calibrates inference under within-cluster dependence"
+    ),
+    "in_sample_agreement": (
+        "how far the cross-fitted coefficient sits from the in-sample coefficient on the same "
+        "draw, in cross-fitted standard errors, reported rather than gated"
     ),
     "crossfit_overfitting": (
         "cross-fitting removes the optimism a flexible learner puts into an in-sample fit"
@@ -1023,6 +1035,15 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("crossfit_overfitting", "in_sample_control"): (
         "the same flexible learner fitted in sample, with no cross-fitting",
         "SE ratio must fall below the overfitting ceiling",
+    ),
+    ("crossfit_overfitting", "cross_fitted_msm"): (
+        "five-fold longitudinal MSM projection with fully grown outcome trees",
+        "SE ratio clears the overfitting floor and stays inside the sanity band",
+    ),
+    ("in_sample_agreement", "in_sample_agreement"): (
+        "the absolute difference from the in-sample coefficient on the same draw, over the "
+        "cross-fitted standard error; the summary publishes its mean",
+        "none; the row reports the statistic",
     ),
     ("crossfit_overfitting", "cross_fitted_ltmle"): (
         "five-fold end-of-study LTMLE with a fully grown outcome tree",

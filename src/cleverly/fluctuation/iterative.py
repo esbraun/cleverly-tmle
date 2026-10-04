@@ -202,10 +202,9 @@ def dominant_failure(reasons: Sequence[str], failed: Sequence[int]) -> Targeting
     A single label cannot describe ten folds, so the per-fold detail stays on
     :attr:`Fluctuation.folds`; this is only what to print when there is room for one word.
 
-    Shared by both fold-targeting paths -- :meth:`cleverly.TMLE._solve_by_fold` and the
-    longitudinal outer recursion -- because a fit that reports the *first* fold's reason
-    rather than the prevailing one is reporting whichever fold the scheduler returned
-    first, which is not a property of the fit.
+    Read by :meth:`cleverly.TMLE._solve_by_fold`, the one fold-targeting path, because a
+    fit that reports the *first* fold's reason rather than the prevailing one is reporting
+    whichever fold the scheduler returned first, which is not a property of the fit.
     """
     if not failed:
         return None
