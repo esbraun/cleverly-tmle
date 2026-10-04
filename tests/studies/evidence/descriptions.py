@@ -1864,10 +1864,12 @@ _CROSSFIT_FEW_CLUSTER_SIZES = {
     "equal40": "clusters of 40 rows",
     "unequal40": "clusters of size uniform on 10 to 70",
 }
-CELLS.update(
+# ``ltmle_crossfit`` is an arm prefix of :data:`ARMS`, so ``cell`` strips it and reads these by
+# ``(family, arm, rest)``; the arm text is printed before each description.
+ARM_CELLS.update(
     {
-        ("few_cluster_reference", f"ltmle_crossfit__{sizes}__j{clusters}__{arm}"): (
-            f"cross-fitted clustered LTMLE, {clusters} {size_text}: {arm_text}",
+        ("few_cluster_reference", "ltmle_crossfit", f"{sizes}__j{clusters}__{arm}"): (
+            f"with id= and five whole-cluster folds, {clusters} {size_text}: {arm_text}",
             required,
         )
         for sizes, size_text in _CROSSFIT_FEW_CLUSTER_SIZES.items()

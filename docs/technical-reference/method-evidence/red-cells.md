@@ -91,9 +91,9 @@ The test fails on four states.
 | [`X8-identity-small-stratum`](../../roadmap.md#red-cell-owners) | 2 | identity-link MSM with baseline strata |
 | [`X8-drtmle-one-sided-bias`](../../roadmap.md#red-cell-owners) | 4 | DR-TMLE with baseline strata |
 | [`X8-drtmle-small-stratum`](../../roadmap.md#red-cell-owners) | 3 | DR-TMLE with baseline strata |
-| [`F28`](../../roadmap.md#red-cell-owners) | 9 | clustered point-treatment CV-TMLE at unequal cluster sizes, clustered TMLE intervals on a t reference at few clusters |
+| [`F28`](../../roadmap.md#red-cell-owners) | 10 | clustered point-treatment CV-TMLE at unequal cluster sizes, clustered TMLE intervals on a t reference at few clusters, clustered cross-fitted end-of-study longitudinal TMLE |
 | [`X20-bootstrap`](../../roadmap.md#red-cell-owners) | 3 | full-refit bootstrap and derived contrasts |
-| total | 69 | 20 studies |
+| total | 70 | 21 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -129,6 +129,7 @@ same text as the "measured" column of its study page.
 | [clustered TMLE intervals on a t reference at few clusters](clustered-few-cluster-tmle.md) | property | `few_cluster_reference/tmle_cv_evaluation__unequal_informative__j10__t_reference` | positive | its own rule | bias 0.1146 to 0.1310, coverage 0.8940 to 0.9180, SE ratio 0.8297 to 0.8849 | [`F28`](../../roadmap.md#red-cell-owners) |
 | [clustered TMLE intervals on a t reference at few clusters](clustered-few-cluster-tmle.md) | property | `few_cluster_reference/tmle_cv_evaluation__unequal_informative__j20__t_reference` | positive | its own rule | bias 0.0528 to 0.0638, coverage 0.9078 to 0.9302, SE ratio 0.8994 to 0.9575 | [`F28`](../../roadmap.md#red-cell-owners) |
 | [clustered TMLE intervals on a t reference at few clusters](clustered-few-cluster-tmle.md) | property | `few_cluster_reference/tmle_cv_evaluation__unequal_informative__j30__t_reference` | positive | its own rule | bias 0.0300 to 0.0386, coverage 0.9224 to 0.9430, SE ratio 0.9391 to 0.9971 | [`F28`](../../roadmap.md#red-cell-owners) |
+| [clustered cross-fitted end-of-study longitudinal TMLE](clustered-cross-fitted-longitudinal-tmle.md) | property | `simultaneous_coverage/clustered_regimens__simultaneous_band` | positive | its own rule | joint coverage 0.9191 to 0.9458 | [`F28`](../../roadmap.md#red-cell-owners) |
 | [selector-based point-treatment C-TMLE](selector-based-point-treatment-c-tmle.md) | property | `selector_necessity/collaborative` | positive | its own rule | bias 0.0015 to 0.0037, margin 0.0030, RMSE ratio 0.2410 | [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) |
 | [selector-based point-treatment C-TMLE](selector-based-point-treatment-c-tmle.md) | property | `selector_necessity/empty_control` | control | the family's joint clause | bias 0.0495 to 0.0511, margin 0.0022, RMSE ratio 0.2410 | [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) |
 | [selector-based point-treatment C-TMLE](selector-based-point-treatment-c-tmle.md) | property | `type_i_error/sharp_null` | positive | its own rule | rejection 0.0700, 0.0412 to 0.1095 | [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) |
@@ -184,6 +185,7 @@ row. A move to `gated` is a separate registry decision.
 <!-- generated: reporting-without-red -->
 | study | verdicts it publishes | red rows |
 | --- | --- | --- |
+| [cross-fitted clustered longitudinal TMLE on a t reference at few clusters](few-cluster-cross-fitted-longitudinal-tmle.md) | 13 | 0 |
 | [repeated point-treatment cross-fitted TMLE](repeated-cross-fitting.md) | 31 | 0 |
 | [outcome-adaptive point-treatment C-TMLE](outcome-adaptive-point-treatment-c-tmle.md) | 29 | 0 |
 | [cross-fitted end-of-study longitudinal TMLE](cross-fitted-end-of-study-longitudinal-tmle.md) | 47 | 0 |
