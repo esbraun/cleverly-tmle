@@ -811,7 +811,7 @@ class TestPublishedVerdicts:
         if not clustered.empty:
             margins = study.margins
             for row in clustered.itertuples():
-                if row.cell == "cluster_robust":
+                if row.role == "positive":
                     expected = (
                         margins.calibration_se_ratio[0]
                         <= row.se_ratio_ci_lower
@@ -829,12 +829,18 @@ class TestPublishedVerdicts:
                 assert bool(row.passed) is bool(expected), (
                     f"{row.cell} publishes passed={row.passed} against its clustered-inference endpoints"
                 )
-            assert clustered["property_passed"].nunique() == 1
-            assert bool(clustered["property_passed"].iloc[0]) is bool(
-                clustered["passed"].all()
-                and clustered["coverage_gain_ci_lower"].iloc[0]
-                >= property_verdicts.CLUSTERED_COVERAGE_GAIN
-            )
+            # One joint verdict per pair. A study may publish several pairs, each a
+            # cluster-robust arm and its IID control named by the same suffix.
+            for positive in clustered.loc[clustered["role"] == "positive", "cell"]:
+                control = str(positive).replace("cluster_robust", "iid_control", 1)
+                pair = clustered.loc[clustered["cell"].isin([positive, control])]
+                assert len(pair) == 2, positive
+                assert pair["property_passed"].nunique() == 1
+                assert bool(pair["property_passed"].iloc[0]) is bool(
+                    pair["passed"].all()
+                    and pair["coverage_gain_ci_lower"].iloc[0]
+                    >= property_verdicts.CLUSTERED_COVERAGE_GAIN
+                )
 
         stability = published.loc[published["property"] == "repeat_stability"]
         if not stability.empty:
@@ -929,6 +935,11 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         "clustered_inference",
         "crossfit_overfitting",
         "corrected_mar_inference",
+        # Positive cells answer to the coverage floor, controls to a coverage ceiling.
+        "estimand_weighting",
+        # A t-reference positive arm answers to coverage and bias, its IID control to an SE
+        # ratio; the normal-reference arm carries the diagnostic role and states no verdict.
+        "few_cluster_reference",
         "correction_necessity",
         # Deliberately *not* bias-gated, though its cells carry a bias.  Its ladder rungs
         # answer to coverage and its rate rows to a fitted slope, because the level claim
@@ -969,7 +980,9 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
 #: :data:`~tests.studies.evidence.property_verdicts.FOLD_POLICY_FAMILY` for why a fold
 #: policy cannot be gated: every policy it compares but the unstratified reference is
 #: refused, so no cell establishes that any of them is valid.
-DIAGNOSTIC_PROPERTIES = frozenset({property_verdicts.FOLD_POLICY_FAMILY})
+DIAGNOSTIC_PROPERTIES = frozenset(
+    {property_verdicts.FOLD_POLICY_FAMILY, "cluster_aggregation_rule"}
+)
 
 
 class TestNegativeControls:

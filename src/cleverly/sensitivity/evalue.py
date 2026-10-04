@@ -143,7 +143,7 @@ def _evalue_for_limit(limit: float, *, above_null: bool) -> float:
 
     A point ratio below the null reads the *upper* limit instead, and the fixed-baseline
     conversion never sends that bound out of the parameter space:
-    :func:`~cleverly.inference.delta.normal_ci` gives ``high >= psi``, and
+    :func:`~cleverly.inference.delta.wald_ci` gives ``high >= psi``, and
     :func:`_reject_unusable_baseline` has already refused a fit whose ``baseline.psi`` is
     nonpositive or whose ``baseline.psi + psi`` is nonpositive.
     """
@@ -616,7 +616,7 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
             float((baseline.psi + low) / baseline.psi),
             float((baseline.psi + high) / baseline.psi),
         )
-        # Only the lower bound can leave the parameter space. ``normal_ci`` gives
+        # Only the lower bound can leave the parameter space. ``wald_ci`` gives
         # ``high >= psi`` on a difference scale, and ``_reject_unusable_baseline`` has
         # already refused this fit unless ``baseline.psi > 0`` and
         # ``baseline.psi + estimate.psi > 0``, so ``raw[1] >= rr > 0``.

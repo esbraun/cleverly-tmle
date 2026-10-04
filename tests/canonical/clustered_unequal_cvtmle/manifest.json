@@ -1,0 +1,113 @@
+{
+  "schema_version": 2,
+  "study": "clustered point-treatment CV-TMLE at unequal cluster sizes",
+  "slug": "clustered-unequal-cvtmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-clustered-unequal-cvtmle",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "1cd6f2c9b56e7b3cce0fbc537c9333d6537e7135",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.7",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 2000,
+    "seed": 20262401,
+    "resampling_seed": 20262402,
+    "scenario_seed_owners": {
+      "unequal_informative_cluster_average": "unequal_informative"
+    },
+    "publication_policy": "reporting",
+    "scenarios": {
+      "unequal_noninformative": [
+        "ey0",
+        "ey1",
+        "ate"
+      ],
+      "unequal_informative": [
+        "ey0",
+        "ey1",
+        "ate"
+      ],
+      "unequal_informative_cluster_average": [
+        "ey0",
+        "ey1",
+        "ate"
+      ]
+    },
+    "clusters_per_draw": 200,
+    "cluster_size": "uniform on 2 to 18, mean 10, drawn per cluster",
+    "realized_rows": "random, mean 2,000; every row publishes the nominal n = 2,000, which the schema requires",
+    "law": "informative law, delta = 1.0, gamma = -3.0, effect modifier 0.0; the non-informative scenario sets delta = gamma = 0",
+    "cross_fit": true,
+    "n_folds": 5,
+    "folds": "grouped random_partition folds from the cluster labels and random_state=0; the labels differ by draw, so the partition does too",
+    "targeting_scheme": "pooled",
+    "outcome_learner": "unpenalized logistic regression (C=1e6) in W1 and W2",
+    "treatment_mechanism": "exact",
+    "simultaneous_intervals": false,
+    "g_bounds": [
+      1e-09,
+      0.999999999
+    ],
+    "stratify_folds": "none",
+    "cluster_average_weights": "one over the cluster size, on the cluster-average scenario",
+    "q_bounds": "none: the outcome is binary",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/clustered_unequal_cvtmle.py": "a6d29b51c1f27b8ad704a9a2688e797e95a8178d77fb21f8e5222ce50d459ed0",
+    "tests/studies/clustered_unequal_properties.py": "04eba5f92aa63ffbad6e00a0a36d200386d4439c46ebc10d52c97ce69590d9a4",
+    "tests/studies/clustered_unequal_laws.py": "d9546f88f3c58b8ba1ae38b46c9afab473e9a6f227e54cab4bef5edd1df50fc1",
+    "tests/studies/canonical_cvtmle.py": "129d7117649cb48df0babf5e8a1e1a3d676a4317e770c4f3eb2f2f8be2e1e8dc",
+    "tests/studies/canonical_drtmle.py": "94be60bd719b23c86ab81b9ff71ed8889ad72f6a9816379c2e7e9be824f2869d",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/conftest.py": "139b7eb55e16cd474d4b45cbe645ed7a01c80832b07b78b4bc45e03ed1c73a50",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "9c8e6a923bb16fd6637dbec77492c43aef29d9a5f825799a20ce5002ca5e9590",
+    "tests/studies/evidence/property_verdicts.py": "6bddb3468d8135bc663df0d92fc52aadea539efdee0cd1ed84ef0e3e12658076",
+    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "f94830cb4b4f51a38b4337bb23733b8aa793379c359e2b82c3e5ae554f85ba17",
+    "summary.csv": "33bcf7f5e79668bd6268d80ea98e8c30d1812c72575e143db9fe1a6a7b7293e7",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "1ac14be2d5d300ba98d97f32716fbe73738debeceb877a1b0c1e4e2f7a65c7b1",
+    "property-replicates.csv.gz": "3afd9d5a1ed9d740e1b4fc6c8e4f85c448aeb731fc876ad01b511333d1d0d2f3",
+    "properties.csv": "92542c3d724a250af657b83a728d6518564d24d8be0bc3579f8cd0f805e746b3"
+  }
+}

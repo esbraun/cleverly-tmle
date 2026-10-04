@@ -215,7 +215,8 @@ class TestFixedWeightsDefineATiltedLaw:
 
 class TestClustersAreTheUnit:
     @pytest.mark.parametrize(
-        ("clusters", "status"), [(50, "influence_curve"), (20, "few_cluster_plugin")]
+        ("clusters", "status"),
+        [(50, "influence_curve"), (20, "influence_curve"), (3, "few_cluster_plugin")],
     )
     def test_the_variance_sums_the_curve_within_clusters(self, clusters: int, status: str) -> None:
         frame = law.frame()

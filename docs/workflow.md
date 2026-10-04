@@ -153,12 +153,11 @@ print(result.sensitivity.run_all().summary())
 
 Report the parameter definition, population, identification assumptions, learner and cross-fitting
 configuration, estimate and interval, support diagnostics, sensitivity analysis, and package
-version or commit. A clustered fit can withhold its interval. This page's fit is weighted and
-cross-fitted by household. It reports no interval when the households differ in rows or in weight
-mass, or when there are fewer than 40 households. `result.inference_status` names the status.
-Then report the point estimate and the reason of the status in place of the interval. An
-in-sample fit keeps the interval when it has 40 or more clusters, in the fit and in each reported
-stratum ([clusters](technical-reference/inference.md#clusters)).
+version or commit. This page's fit is weighted and cross-fitted by household, and the
+households differ in size. Below 40 households the interval uses a Student t reference. Below 10
+households the fit reports no interval, and `result.inference_status` names the status. Then
+report the point estimate and the reason of the status in place of the interval
+([clusters](technical-reference/inference.md#clusters)).
 
 Save structured results when an audit trail matters:
 

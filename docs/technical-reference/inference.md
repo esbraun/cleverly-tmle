@@ -69,7 +69,8 @@ over two or more estimates. A direct call to `simultaneous_bands` can still rece
 | `simultaneous_bands` | any `"second_moment"` estimate | the multiplier draws center each influence curve. Centering matches the raw second moment only on a mean-zero curve, and `simultaneous_bands` does not check the mean |
 
 A fold-evaluated fit, with `cv_evaluation=True`, stores the cross-validated variance from
-uncentered fold second moments. Its estimates still declare `"centered"`. The covariance diagonal
+uncentered fold second moments, or from centered fold cluster variances with `id=`
+([CV-TMLE](cv-tmle.md#the-algorithm-as-implemented)). Its estimates still declare `"centered"`. The covariance diagonal
 therefore differs from the stored variance on that fit.
 `tests/unit/test_cv_targeting.py::TestTheFoldEvaluatedCovarianceRule` checks that difference.
 `tests/unit/test_inference.py::TestTheCovarianceRule` checks both rules, contrast inheritance, and
@@ -88,8 +89,7 @@ Every other status is a non-inferential status.
 | `"working_mechanism_plugin"` | a `CTMLE` fit with `strategy="greedy"`, `"ordered"`, or `"discrete"`. A `discrete` fit with one declared candidate, equal to the full adjustment set, takes the TMLE status instead. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `working-mechanism se` | [F18](../roadmap.md#f18-selector-path-c-tmle-inference) |
 | `"generated_design_plugin"` | every `CTMLE` fit with `strategy="oat"`, including a fit with `delta=` and a fit that requests one arm mean. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `generated-design se` | [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | `"estimated_weight_plugin"` | a `DRTMLE` fit with a non-empty `guard` and varying weights declared estimated (`weights_estimated=True`). A fit with `guard=()` keeps `"influence_curve"`. Constant weights fit the unweighted estimator, so they keep it too. [DR-TMLE supported estimands](dr-tmle/supported-estimands.md#refused-by-name) gives the reason | raise `CapabilityError` with the reason of the status | `fixed-weight se` | [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
-| `"unequal_cluster_plugin"` | a cross-fitted `TMLE` or `DRTMLE` fit with `id=` whose clusters differ in row count or weight mass, overall or in one reported baseline stratum. This includes `cv_evaluation=True`. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `cluster-robust plug-in se` | [X24](../roadmap.md#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters) |
-| `"few_cluster_plugin"` | a `TMLE`, `DRTMLE`, or `LTMLE` fit with `id=` and fewer than 40 clusters with positive weight mass in the fit or one reported baseline stratum. `LTMLE` takes `id=` in sample only. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `normal-reference se` | [X24](../roadmap.md#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters) |
+| `"few_cluster_plugin"` | a `TMLE` or `DRTMLE` fit with `id=` and fewer than 10 clusters with positive weight mass in the fit or one reported baseline stratum, or an `LTMLE` fit with fewer than 20. `LTMLE` takes `id=` in sample only. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `normal-reference se` | [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) |
 
 At every status, `plugin_std_error` and `plugin_interval` return the plug-in spread of the
 reported curve. On `"influence_curve"` they return the numbers of `std_error` and `ci` under names
@@ -193,44 +193,111 @@ every setting, and longitudinal TMLE refuses it above one fold. The
 [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) give the audit and both
 messages.
 
-Two clustered settings of `TMLE` and `DRTMLE` report no interval. Each takes a status from the
-[status table](#inference-status). The status is determined from prepared cluster labels, strata,
-and weights, without reading a fitted quantity.
+The estimand is the row-weighted mean $\mu_I$ of Wang, Park, Small and Li (2024), Section 2,
+with every row of a cluster in the analysed population. A row-level treatment keeps row-level
+exchangeability given `W`. The cluster size enters only when it confounds, and then it must be a
+covariate. To estimate the cluster-average mean $\mu_C$, pass `weights` equal to one over the
+cluster size.
 
-| setting | status | reason |
-| --- | --- | --- |
-| cross-fitted, and the clusters hold different numbers of rows or weight mass, overall or within a reported baseline stratum | `"unequal_cluster_plugin"` | the [grouped folds](cv-tmle.md#grouped-folds) argument and registered study cover equal sizes and masses. The point estimator remains row weighted at unequal sizes, but its cross-fitted interval lacks a validation result there |
-| fewer than 40 clusters with positive weight mass in the fit, or in one reported baseline stratum, in sample or cross-fitted | `"few_cluster_plugin"` | the package uses a normal reference. Nugent et al. (2024), Section 2.2, recommend a $t$ reference with $J - 2$ degrees of freedom below 40 clusters, where $J$ is the contributing cluster count. Benitez et al. (2023), Section 3.1.2, paragraph on inference, and Section 3.2.1, last paragraph, recommend it at every cluster count. No registered study covers few clusters |
+### Unequal cluster sizes
 
-The few-cluster setting applies to the in-sample `LTMLE` fit too. The data of a longitudinal fit
-hold no baseline strata, so the count is that of the whole fit. The file
-`tests/unit/test_longitudinal_cluster_status.py` holds a witness at 39 clusters, a control at 40,
-and mutations of the rule.
+Every target builder writes the curve as $D_i=\phi_i-\hat\psi$. The cluster total is then
+$S_j=A_j-N_j\hat\psi$, with $A_j=\sum_{i\in j}\phi_i$ and $N_j$ the row count of cluster $j$. The
+point estimate is $\sum_j A_j/\sum_j N_j$, a ratio of two cluster means. The variance above is
+the delta-method variance of that ratio at $\mu_I$, so it holds at unequal sizes. A weighted fit
+replaces $N_j$ by the weight mass of the cluster.
+
+At equal sizes the term $-N_j\hat\psi$ shifts
+every total by one constant, and the centered variance removes it. A study at equal sizes cannot
+see that term, so `tests/unit/test_cluster_ratio_variance.py` checks it at sizes 1 to 6.
+
+| path | variance at unequal sizes |
+| --- | --- |
+| in sample, and the stacked cross-fitted report | the cluster-sum variance above |
+| `cv_evaluation=True` | the centered cluster variance inside each validation fold ([CV-TMLE](cv-tmle.md#the-algorithm-as-implemented)). Each validation fold needs 2 clusters |
+| `targeting_scheme="fold"`, `DRTMLE` cross-fitted, and `repeats` above 1 | the variance of the shipped construction. Each sums the curve within clusters |
+| baseline strata | the stratum curve, embedded at $n/n_s$ and summed over the full cluster vector |
+
+The pinned comparators aggregate a clustered curve in two ways. Only the cluster sum agrees with
+this package at unequal sizes.
+
+| implementation | cluster aggregation | agrees at unequal sizes | reference distribution |
+| --- | --- | --- | --- |
+| R `ltmle` 1.3-0 | the cluster sum times $J/n$ (`HouseholdIC`, `R/ltmle.R` lines 1025 to 1032) | yes. The variance is the same | Student $t$ with $J-1$ degrees of freedom below 100 clusters |
+| R `tmle` 2.1.1 | the cluster mean (`R/tmle.R` lines 1566 to 1568) | no | normal |
+| R `tmle3` at `ed72f8a` | the cluster mean (`R/utils.R` lines 44 to 48) | no | normal |
+| R `lmtp` 1.5.4 with `ife` 0.2.3 | the cluster mean | no | normal |
+| R `drtmle` 1.1.2 | no cluster argument | not applicable | not applicable |
+
+### Few clusters
+
+A clustered fit that reads $J$ clusters with positive weight mass, with $10 \le J < 40$ ($20 \le J < 40$ for `LTMLE`), reports
+its intervals and p-values on a Student $t$ reference with $J-2$ degrees of freedom. Nugent et
+al. (2024), Section 2.2, last paragraph, give the rule. At 40 clusters or more the normal
+reference stays. `ParameterEstimate.reference_df` holds the degrees of freedom, or `None` for the
+normal reference.
+
+| estimate | `reference_df` |
+| --- | --- |
+| a marginal estimate of the fit | $J-2$, with $J$ the positive-mass cluster count of the fit |
+| a baseline-stratum estimate | $J_s-2$, with $J_s$ the positive-mass cluster count of the stratum |
+| a fold-evaluated estimate over $V$ validation folds: the `cv_evaluation=True` report and the `fold_evaluated` report of `cv_targeting` | $\min(J-2, J-V)$. Its variance centers the cluster totals in each fold, so it estimates one mean per fold and keeps $J-V$ degrees of freedom, the pooled within-group count |
+| a derived estimate: `contrast()`, `ratio()`, and the median over `repeats` | the smallest `reference_df` of its inputs. `None` counts as infinite |
+| an in-fit `rr` or `or` | the value of the arm means it reads |
+| every estimate of a `"few_cluster_plugin"` fit | `None`. The diagnostic keeps the normal reference |
+
+The stamp in `TMLE._retarget_detailed` computes the value from the rows each estimate reads, and
+only when the fit supplies inference. `ci`, `pvalue`, `wald_test()`, `plugin_interval`, the
+missingness tilt and the omitted-variable limits read it through `wald_ci` and
+`reference_quantile` in `cleverly.inference.delta`. The summary prints a `df` column and a note.
+
+| request on a fit with a $t$ reference | result |
+| --- | --- |
+| the default simultaneous band | skipped. The summary states the reason. No source gives a $t$-calibrated band |
+| `simultaneous_bands()` | `CapabilityError` |
+| the cluster bootstrap | printed as a percentile range with a diagnostic note. No result validates the cluster bootstrap below 40 clusters |
+
+$J-2$ is the rule that Nugent et al. (2024) and Benitez et al. (2023), Sections 3.1.2 and 3.2.1,
+state for cluster-randomized trials. An arm mean of this package is a one-sample mean of $J$
+cluster totals, whose classical reference has $J-1$ degrees of freedom. R `ltmle` uses $J-1$. So
+$J-2$ is conservative by one degree of freedom on the in-sample and stacked reports.
+
+A fold-evaluated report has fewer degrees of freedom, $J-V$, and takes $\min(J-2, J-V)$. An
+implementation review measured the difference at 2 clusters per fold: at $J=10$ and $V=5$,
+$t_{J-2}$ covered 0.935 and $t_{J-V}$ covered 0.955 over 1,500 draws.
+
+Prefer the stacked report when cluster sizes depend on the outcome. There a fold-evaluated point
+has a bias of about $V$ times the stacked bias at few clusters per fold. The reference corrects
+the variance and not this bias. At 2, 4 and 6 clusters per fold the few-cluster study reads 0.61,
+0.43 and 0.32 empirical standard deviations ([CV-TMLE](cv-tmle.md#the-algorithm-as-implemented)).
+
+Wang et al. (2024), Remark 3, caution against complex nuisance learners at about 20 clusters. The
+registered few-cluster evidence uses parametric nuisance learners only.
+
+Below 10 clusters with positive weight mass, in the fit or in one reported baseline stratum, the
+fit takes `"few_cluster_plugin"`. An `LTMLE` fit takes it below 20. Each floor is the smallest
+count that the registered few-cluster study measures for that fit
+(`MINIMUM_INTERVAL_CLUSTERS` and `MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS`), and
+[F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) owns the counts below. The
+status is
+determined from prepared cluster labels, strata, and weights, without reading a fitted quantity.
+A fit has one status, so one stratum below the floor withholds the interval of every estimate.
+The rule applies to the in-sample `LTMLE` fit too, whose data hold no baseline strata.
+
+The rule counts contributing clusters, and it reads no row count. So 30 rows with `id=` and one
+row in each cluster report $t_{28}$ intervals, and the same rows without `id=` use the normal
+reference. This is a known conservative reference.
 
 The threshold is a reporting policy, not a coverage guarantee at 40 clusters. It counts clusters
 with positive weight mass but does not measure weight concentration. A fit with 40 such clusters
 can still put almost all weight on one. Inspect the weight report and overlap before using an
 interval.
 
-The table gives the functions in `cleverly.inference.cluster` that apply each rule.
-
-| function | what it reads |
+| function in `cleverly.inference.cluster` | what it reads |
 | --- | --- |
-| `unequal_cluster_sizes` | the row count and, on a weighted fit, the weight mass of each cluster. `cluster_inference_status` checks both measures again within each reported stratum. Two masses count as equal within `WEIGHT_MASS_RTOL`, 1e-9, of the largest |
 | `fewest_clusters` | the distinct cluster count with positive weight mass. On a fit with baseline strata, it also counts those clusters within each stratum and returns the smallest count |
-
-A fit has one status. So one stratum with fewer than 40 contributing clusters withholds the interval
-of every estimate, the marginal estimates included. An in-sample fit at unequal sizes keeps its
-interval when it has 40 or more contributing clusters in the fit and in each reported stratum.
-Benitez et al. (2023),
-Section 3.2.1, give the cluster-sum aggregation for that row-weighted estimand. When both settings
-apply, the fit takes `"unequal_cluster_plugin"`, which comes first in the status table.
-`tests/unit/test_cluster_status.py` holds a witness, a control, and a mutation for each rule.
-
-The few-cluster rule counts contributing clusters, and it reads no row count. So a fit of 30 rows
-with `id=` and one row in
-each cluster takes `"few_cluster_plugin"`. The same rows without `id=` keep their interval. This
-refusal is conservative, and the roadmap records it as a known over-refusal.
+| `cluster_reference_df` | the positive-mass cluster count of the rows one estimate reads, as $J-2$, or `None` at 40 or more |
+| `cluster_sizes`, `cluster_weight_mass`, `unequal_cluster_sizes` | the row count and the weight mass of each cluster, for the summary facts only |
 
 The facts block of `TMLEResult.summary()` prints the cluster count. It adds unequal row or
 weight-mass ranges, including within-stratum ranges. It names clusters with positive weight mass
@@ -238,10 +305,11 @@ when some have zero mass, and the fewest contributing clusters in one stratum.
 `LongitudinalResult.summary()` prints the cluster count too. It adds the count of clusters with
 positive weight mass when some clusters have zero mass.
 
-`FEW_CLUSTER_THRESHOLD` in `cleverly._inference_status` holds the threshold of 40.
-[References](../references.md#grouped-folds-and-clustered-cross-fitting) gives both
-sources. [X24](../roadmap.md#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters) holds the route that reopens each
-setting.
+`FEW_CLUSTER_THRESHOLD` and `MINIMUM_INTERVAL_CLUSTERS` in `cleverly._inference_status` hold
+the counts 40 and 10. `tests/unit/test_cluster_status.py`,
+`tests/unit/test_longitudinal_cluster_status.py` and `tests/unit/test_few_cluster_reference.py`
+hold a witness, a control, and a mutation for each rule.
+[References](../references.md#grouped-folds-and-clustered-cross-fitting) gives the sources.
 
 ## Transformed parameters
 

@@ -68,8 +68,7 @@ Priorities 2 to 5 follow the beta.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1.5 | Clustered intervals at unequal cluster sizes and at few clusters | [published support; cluster-as-unit extension](technical-reference/natural-extension-verdicts.md) | the shipped grouped point-treatment split | [X24](#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters) |
-| 1.6 | Cross-fitted clustered longitudinal TMLE | [published support; cluster-as-unit extension](technical-reference/natural-extension-verdicts.md) | X24 | [X25](#x25-cross-fitted-clustered-longitudinal-tmle) |
+| 1.6 | Cross-fitted clustered longitudinal TMLE | [published support; cluster-as-unit extension](technical-reference/natural-extension-verdicts.md) | shipped [clustered intervals](technical-reference/inference.md#clusters) | [X25](#x25-cross-fitted-clustered-longitudinal-tmle) |
 | 1.7 | Known stochastic categorical policies at a longitudinal node | [published support; known-weight extension](technical-reference/natural-extension-verdicts.md) | shipped categorical longitudinal nodes | [F1](#f1-stochastic-categorical-policies-at-a-longitudinal-node) |
 | 1.8 | Modified treatment policies beyond the additive point shift | published support; pending source read | shipped additive shift and categorical longitudinal nodes | [X12](#x12-modified-treatment-policies-beyond-the-additive-point-shift) |
 | 1.9 | Point-treatment survival and time-to-event input | published support; pending source read | shipped survival and competing-risk recursion | [X13](#x13-point-treatment-survival-and-time-to-event-input) |
@@ -120,11 +119,12 @@ the current boundary, and the refusal that keeps it.
 | Selector-path C-TMLE inference | an influence function and covariance after the shipped data-adaptive stopping-index selection | point estimates and path diagnostics only. The greedy, ordered, and discrete paths refuse `ci`, `pvalue`, and `std_error`, except a `discrete` fit whose one declared candidate is the full adjustment set, and report a named working-mechanism plug-in diagnostic | [F18](#f18-selector-path-c-tmle-inference) |
 | Outcome-adaptive C-TMLE generated-design inference | exact scalar expansions for the shipped joint binary fit and a multi-arm vector extension of the paper-backed fold-local construction | point estimates only. Every `strategy="oat"` fit refuses `ci`, `pvalue`, and `std_error` under the `generated_design_plugin` status, and reports a named generated-design plug-in diagnostic. X17 builds the per-arm scalar construction that Theorem 1 proves and its stack | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | Other missing-outcome CV-TMLE variants | a direct interval result for fold-specific targeting and for the fixed-repeat median and split-dispersion report after CV-TMLE targeting | the package supports the ordinary natural-course estimator, the stacked natural-course estimator for a binary outcome, the stacked arm-indexed means and contrasts, and their stacked PAR and PAF for a binary outcome. Each stacked estimator uses one repeat and pooled targeting. Shift, incremental, regime, MSM, and controlled-direct-effect targets refuse a cross-fitted fit with missing outcomes before any learner | [F21](#f21-other-missing-outcome-cv-tmle-variants) |
-| Grouped cross-fitting beyond point-treatment TMLE | a split law and a cluster-robust variance for the C-TMLE selection folds and the candidate the search stops at | whole-cluster outer folds for cross-fitted point-treatment TMLE and DR-TMLE only. A cross-fitted fit at unequal cluster sizes, in rows or in weight mass, overall or within a reported stratum, takes the `unequal_cluster_plugin` status. A fit with fewer than 40 positive-mass clusters, in total or in one reported stratum, takes `few_cluster_plugin`. Neither reports an interval. The point-treatment boundaries moved to [X24](#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters), and the longitudinal row to [X25](#x25-cross-fitted-clustered-longitudinal-tmle) | [F22](#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
+| Grouped cross-fitting beyond point-treatment TMLE | a split law and a cluster-robust variance for the C-TMLE selection folds and the candidate the search stops at | whole-cluster outer folds for cross-fitted point-treatment TMLE and DR-TMLE, at equal or unequal cluster sizes, with the [clustered interval rules](technical-reference/inference.md#clusters). C-TMLE refuses `id=`. The longitudinal row moved to [X25](#x25-cross-fitted-clustered-longitudinal-tmle) | [F22](#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
 | MNAR and incremental-intermediate compositions | identification and influence-function results for the exact compositions | point-treatment sensitivity and implemented interventions remain separate | [F6](#f6-mnar-and-incremental-intermediate-compositions) |
 | Joint point-treatment parameter axes | a targeting and inference result for one fit that carries an MSM projection together with a regime, shift, or incremental intervention, including its joint score and covariance | single-axis point-treatment fits only | [F17](#f17-joint-point-treatment-parameter-axes) |
 | Time-respecting cross-fitting | dependence and split-specific TMLE inference for blocked-temporal or rolling-origin folds | iid and grouped cross-fitting only | [F7](#f7-time-respecting-cross-fitting) |
 | Learned-policy value outside the published conditions | an interval for the fold-average learned-rule value without a limiting rule, and results for the refused compositions | `LearnedRuleValue` fits the fold-evaluated CV-TMLE of [learned rules](technical-reference/point-treatment-tmle.md#learned-rules) under the limiting-rule condition. Its boundary study measures under-coverage at an exceptional law. The other F27 requests refuse before any learner | [F27](#f27-learned-policy-value-outside-the-published-conditions) |
+| Finite-sample limits of clustered intervals | a small-sample correction or reference for the cluster-summed TMLE curve, at few clusters, at unequal cluster sizes, and for the fold-evaluated variance at few clusters per fold. An interval at 4 to 9 clusters (4 to 19 for `LTMLE`), which no registered study measures, and a fold-evaluated degrees-of-freedom rule at 40 clusters or more | `few_cluster_plugin` below 10 positive-mass clusters, and below 20 for `LTMLE`, the smallest counts the registered study measures. $t_{J-2}$ from 10 (20 for `LTMLE`) to 39. Fold-evaluated fits need 2 clusters per fold. The registered evidence uses parametric nuisance learners | [F28](#f28-finite-sample-limits-of-clustered-intervals) |
 
 ## Eligibility
 
@@ -236,6 +236,9 @@ The `composite-high-arm` owner holds the `ey[high]` truth row of both implementa
 composite missing-data study. It is a standing record of a reading, and it does not gate the beta
 release.
 
+The `F28` owner holds the clustered cells of the unequal-size and few-cluster studies that read
+red under their `reporting` policy. It owns a finite-sample limit, not a missing theorem.
+
 The `X8-logit-small-stratum` and `X8-identity-small-stratum` owners hold cells of the two
 stratified MSM studies in their smallest stratum. Each is a standing record of a reading, and
 neither gates the beta release. The `X8-drtmle-one-sided-bias` and `X8-drtmle-small-stratum`
@@ -259,6 +262,7 @@ owners do the same for the stratified DR-TMLE study.
 | `X8-identity-small-stratum` | the `interval_calibration/identity_v2_a__correctly_specified` cell and the paired `msm[W][V=2]` row of `canonical-stratified-msm-identity` | reading `finite-sample, smallest stratum`. Stratum 2 holds about 400 of the 2,000 rows. The calibration cell's SE-ratio interval is 0.926 to 1.004 against a floor of 0.93, and on the primary draws the same coefficient reads 0.983 in `cleverly` and 0.985 in R `tmle3`. The paired row is inconclusive on its calibration leg alone: the upper limit is 0.0523 against a margin of 0.05, at a resolution of 0.0476. The two estimates differ by 6e-6 on average with the same spread, and R reports a standard error 2.2% above its own spread, consistent with the declared nuisance difference: R fits a Gaussian `Lrnr_glm` inside each subset ([`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py)). No defect was found. The owner closes when a re-declared cell, with its law or size declared before its run, passes. Until then both stay published red under `reporting` |
 | `X8-drtmle-one-sided-bias` | the four `double_robustness/*__treatment_correct` cells of `canonical-stratified-drtmle`: the marginal ATE and each stratum ATE | reading `shared` in strata 0 and 1 and `mixed` in stratum 2, in the vocabulary of `RM18-one-sided-bias` ([`tests/diagnostics/x8_drtmle_treatment_correct/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x8_drtmle_treatment_correct)). The refit reproduces the committed estimates exactly. On each stratum's rows, the shipped unstratified `DRTMLE` and R `drtmle` 1.1.2, handed the same initial arrays, carry a positive bias too. In stratum 2 the package's bias, 0.0237, exceeds R's, 0.0157: the paired difference is 0.0080 with a standard error of 0.0018. The unstratified fit on the stratum's rows matches the package there to 2e-5, so the excess belongs to `DRTMLE` at about 400 rows and not to the strata. In stratum 1 the stratified and subset fits differ by 0.0057 (standard error 0.0013). The stratified marginal is the mixture of the stratum estimates, so it inherits their bias: 0.56 of its spread at n = 2,000 (99% interval 0.43 to 0.69) and 0.43 at n = 8,000 (0.25 to 0.61). The intervals overlap, so contraction faster than the spread is not established. No defect of the stratified construction was found. The owner closes when a re-declared cell, with its law or size declared before its run, passes, or when `RM18-one-sided-bias` closes with a correction that also covers the stratified fit. Until then the four cells stay published red under `reporting` |
 | `X8-drtmle-small-stratum` | the two primary truth rows of `ey[1][V=2]` and the `interval_calibration/v2_ate__correctly_specified` cell of `canonical-stratified-drtmle` | reading `finite-sample, shared with the comparator`. Stratum 2 holds about 400 of the 2,000 rows. Coverage of `ey[1][V=2]` is 0.900 in the package and 0.8925 in R `drtmle` on the same draws, with estimates 4e-5 apart on average. The calibration cell's SE-ratio interval ends at 0.9294 against a floor of 0.93, and on the primary draws the same ATE reads 0.985 in the package and 0.973 in R ([`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py)). The owner closes when a re-declared cell, with its law or size declared before its run, passes. Until then the three stay published red under `reporting` |
+| `F28` | finite-sample limits of clustered intervals: the fold-evaluated covariate pair of `clustered-unequal-cvtmle`, and the fold-evaluated bias cells and cross-fitted `DRTMLE` IID controls of `clustered-few-cluster-tmle` | each group closes on its own registered study that passes. The fold-evaluated pair of `clustered-unequal-cvtmle` at 40 clusters in 10 folds: a fold-evaluated degrees-of-freedom rule $t(\min(J-2, J-V))$ at 40 clusters or more. The three `tmle_cv_evaluation__unequal_informative` cells: a cluster-size-weighted fold average or another fold-evaluated point whose bias stays inside the margin. The stacked report is the remedy today. The four `drtmle_crossfit` `iid_t_control` cells: a calibrated cross-fitted `DRTMLE` cluster variance, or an IID control that compares the two SEs and not the IID SE with the empirical SD ([F28](#f28-finite-sample-limits-of-clustered-intervals)) |
 | `X20-bootstrap` | the `interval_calibration` cells `boot_ey_crossfit__correctly_specified`, `boot_ate_crossfit__correctly_specified` and `boot_ate_clustered__correctly_specified` of `full-refit-bootstrap-and-derived-contrasts` | the declared rule 3 keeps the `end_of_study/cross_fit` and `end_of_study/cluster` kinds out of `LICENSED_BOOTSTRAP_DESIGNS`, so their bootstrap prints as a diagnostic. A diagnostic reading, not a registered result: on this cell the cross-fitted estimator is heavy-tailed. Its 4,000 committed estimates have excess kurtosis 6.7, and about 5% of them lie at the probability boundary, because `g_bounds=(1e-8, 1)` with saturated cell means leaves sparse training cells unbounded. A bootstrap resample holds about 63% unique units, so more replicates reach the boundary and the replicate spread exceeds the sampling spread (SE ratios 1.23 and 1.27). A probe that kept each unit's copies in one fold raised the SE ratio to about 1.65, so the split of copies across folds is not the cause. The cluster contrast covers 0.924 with a calibrated SE ratio (0.977), a finite-sample shortfall of the percentile interval at 60 clusters. The owner closes when a re-declared cell for the kind, with its law, size, nuisance bounds or resampling scheme declared before its run, passes a registered cell |
 
 ## Detailed implementation contracts
@@ -266,42 +270,6 @@ owners do the same for the stratified DR-TMLE study.
 The sections below give one contract for each open item. Their physical order does not override
 the main grid.
 
-
-### X24. Clustered intervals at unequal cluster sizes and at few clusters
-
-A cross-fitted `TMLE` or `DRTMLE` fit at unequal cluster sizes takes `unequal_cluster_plugin`. A
-clustered fit with fewer than 40 positive-mass clusters, in the fit or in one reported stratum,
-takes `few_cluster_plugin` (`src/cleverly/inference/cluster.py`, `src/cleverly/_inference_status.py`).
-Neither reports an interval. The
-[natural-extension verdicts](technical-reference/natural-extension-verdicts.md) record the review
-as part (g).
-
-| item | contract |
-| --- | --- |
-| base results | Wang, Park, Small and Li (2024), *Journal of the American Statistical Association* 119(548), Assumption 1(b), the $\mu_I$ definition of Section 2, Section 4.2 and Theorem 4(b). Nugent, Marquez, Charlebois, Abbott and Balzer (2024), *Biostatistics* 25(3), Section 2.2, last paragraph, for a $t$ reference with $J - 2$ degrees of freedom below 40 clusters. Benitez et al. (2023), Sections 3.1.2 and 3.2.1, give the same recommendation |
-| step at unequal sizes | a cluster as the unit, with the cluster size $N_j$ a bounded random cluster attribute (Assumption 1(b)). The row-weighted estimand is $\mu_I(a) = E\{\sum_j Y_{ij}(a)\}/E(N_i)$, a ratio of two cluster-level means, so the delta method gives its curve. Wang et al. treat a cluster-level treatment with an AIPW estimator. The package's row-level treatment uses the cluster-sum estimating-equation argument of the shipped equal-size case |
-| step at few clusters | the $t_{J-2}$ reference adds no limit theorem. Its quantiles converge to the normal ones, so the asymptotic claim does not change. The sources recommend it as a finite-sample approximation |
-| objection search | Park and Kang (arXiv:2110.07740) note that cluster averages equal row weighting only at equal sizes. That concerns the estimand, and the package's estimand is $\mu_I$. Wang et al., Section 5, use a variance factor $m/(m-5)$ and a $t$ reference with $m - 5$ degrees of freedom, and Remark 3 recommends machine learning at about 100 clusters. These are finite-sample warnings, and the registered study measures them |
-| inherited conditions | independent clusters; a bounded random cluster size; no interference between units; the remainder rates in the cluster count. A row-level treatment keeps row-level exchangeability given `W`. The cluster size enters only if it confounds, and then it must be a covariate |
-
-The contract fixes these rules before it declares the study.
-
-| decision | rule |
-| --- | --- |
-| degrees of freedom | $J - 2$ for the fit, and $J_s - 2$ for each reported stratum. A contrast uses the degrees of freedom of its own cluster count |
-| minimum cluster count | below $J = 4$ the fit keeps `few_cluster_plugin` |
-| simultaneous band | none below 40 clusters. The fit reports pointwise intervals only, and the summary says so |
-| `plugin_interval` | keeps the normal reference, as a labelled diagnostic |
-
-Acceptance:
-
-- the ratio-of-cluster-sums curve for cross-fitted `TMLE` and `DRTMLE` in place of
-  `unequal_cluster_plugin`, with a nonzero witness that it differs from the row curve at unequal
-  sizes;
-- the $t$ reference for clustered `TMLE`, `DRTMLE` and in-sample `LTMLE`;
-- each status retired or narrowed, with its tests;
-- a registered study at unequal sizes, informative and non-informative, and at
-  $J \in \{10, 20, 30\}$. Declare the `reporting` policy and the red-cell owner before the run.
 
 ### X25. Cross-fitted clustered longitudinal TMLE
 
@@ -314,9 +282,10 @@ review as part (f).
 | base result | Díaz, Williams, Hoffman and Schenck (2023), Section 5.2, journal page 852, for the cross-fitted TMLE over a random partition, and Theorem 3, page 853 |
 | step | a cluster as the unit. Whole-cluster folds make each validation fold independent of its training fold. The estimating equation summed over rows is a cluster-level estimating equation, so the curve is the cluster-summed row curve divided by $E(N)$. The in-sample clustered `LTMLE` ships this curve |
 | objection search | the earlier text of F22 said that no read source gives this variance, which is an absence. Balkus, Laith and Hejazi (2026), and Nugent et al. (2024), Section 2.3, support grouped folds with aggregated cluster curves. Schnitzer, van der Laan, Moodie and Platt (2014), Section 3.4.1, give the in-sample clustered longitudinal TMLE with a sandwich variance. None records a defect |
-| inherited conditions | independent clusters; no interference between units; a bounded cluster size; the Theorem 3 rates and bounded density ratios in the cluster count; the unequal-size and few-cluster rules of [X24](#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters) |
+| inherited conditions | independent clusters; no interference between units; a bounded cluster size; the Theorem 3 rates and bounded density ratios in the cluster count; the unequal-size, few-cluster and fold-variance rules of [clusters](technical-reference/inference.md#clusters) |
 
-This item inherits the rules of X24, so it cannot ship before X24.
+This item inherits the unequal-size, few-cluster and fold-variance rules of
+[clusters](technical-reference/inference.md#clusters).
 
 Acceptance:
 
@@ -1367,8 +1336,9 @@ DR-TMLE. C-TMLE refuses `id=` at every `cross_fit` setting, and this item holds 
 
 The other grouped compositions take the cluster as the sampling unit, and the
 [natural-extension verdicts](technical-reference/natural-extension-verdicts.md) qualify them as
-natural extensions. [X24](#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters)
-holds the cross-fitted interval at unequal cluster sizes and the $t$ reference at few clusters.
+natural extensions. The cross-fitted interval at unequal cluster sizes and the $t$ reference at
+few clusters ship ([clusters](technical-reference/inference.md#clusters)), and
+[F28](#f28-finite-sample-limits-of-clustered-intervals) holds their finite-sample limits.
 [X25](#x25-cross-fitted-clustered-longitudinal-tmle) holds cross-fitted longitudinal TMLE with
 `id=`.
 
@@ -1491,6 +1461,28 @@ published result is missing.
 | `strata=` | no reviewed source gives a stratified learned-rule fluctuation |
 | `CTMLE` or `DRTMLE` with `learned_rule=` | no collaborative or doubly robust learned-rule result was reviewed |
 | the E-value, the omitted-variable bound, simulated confounding and the missingness tilt | no derivation for this target was reviewed |
+
+### F28. Finite-sample limits of clustered intervals
+
+A clustered `TMLE` or `DRTMLE` fit reports a Student $t$ interval with $J-2$ degrees of freedom
+when it reads 10 to 39 clusters with positive weight mass, and an in-sample `LTMLE` fit when it
+reads 20 to 39 ([clusters](technical-reference/inference.md#clusters)). Below that floor, in the
+fit or in one reported baseline stratum, the fit takes the `"few_cluster_plugin"` status. Each
+floor is the smallest count the registered few-cluster study measures for that fit. F28 owns 4
+to 9 clusters, and 4 to 19 for `LTMLE`. Below 4 the reference would have fewer than 2 degrees of
+freedom.
+
+| request | missing published result |
+| --- | --- |
+| an interval below 4 clusters | none. $t_1$ has no finite mean, so 4 stays a floor of any future interval |
+| a small-sample reference other than $t_{J-2}$ | a correction or reference derived for the cluster-summed TMLE curve. Nugent et al. (2024), Section 2.2, and Benitez et al. (2023), Sections 3.1.2 and 3.2.1, state $t_{J-2}$ for cluster-randomized trials. No source derives it for a row-level treatment |
+| an interval at 4 to 9 clusters, or at 4 to 19 for `LTMLE` | a registered measurement, which would reopen these fits. The registered few-cluster study starts at 10 clusters, and its in-sample `LTMLE` cells at 20. At 4 clusters a pre-run probe found 0.25% to 9% of draws on which a fit cannot run, because the outcome does not vary among one plan's followers or a training fold lacks an outcome class. At 10 clusters the first full run lost 1 `LTMLE` fit in 4,000 in each size law the same way |
+| a fold-evaluated interval at 40 clusters or more | a fold-evaluated degrees-of-freedom rule $t(\min(J-2, J-V))$ at 40 clusters or more, with its own registered study that passes. The unequal-size study's fold-evaluated pair at 40 clusters in 10 folds reads coverage 0.9325, with lower endpoint 0.918 against the 0.92 floor, on the normal reference that the rule keeps there |
+| the fold-evaluated variance at few clusters per fold | a calibration result for the centered fold cluster variance. The package requires 2 clusters per fold and gives the report $\min(J-2, J-V)$ degrees of freedom, the pooled within-fold count. The few-cluster study measures it at 2, 4 and 6 clusters per fold, beside a reported $J-2$ arm |
+| a fold-evaluated point at informative unequal sizes with few clusters per fold | a fold-evaluated point construction whose bias at 2 to 6 clusters per fold stays inside 0.25 empirical standard deviations, such as a cluster-size-weighted fold average whose fluctuation uses the same weights, with its own registered study. The stacked report is the remedy today. The few-cluster study reads a bias of 0.61, 0.43 and 0.32 at 2, 4 and 6 clusters per fold, where the stacked fit reads 0.14, 0.10 and 0.06. The equal $1/V$ fold average causes it (`tests/unit/test_fold_evaluated_ratio_bias.py`) |
+| a calibrated cross-fitted `DRTMLE` cluster variance at 10 to 30 clusters | a cluster variance for the cross-fitted `DRTMLE` curve whose SE ratio stays inside the calibration band, or a redesigned IID control, with a registered study. The few-cluster study reads cluster-robust SE ratios of 1.19, 1.14 and 1.12 at 10, 20 and 30 equal clusters. The IID SE is 23% to 28% below the cluster-robust SE, and the IID SE ratio upper endpoint reaches the 0.80 ceiling at four cells |
+| a validation fold with a zero-mass cluster | none. The fold check counts every cluster label, and the degrees of freedom count only clusters with positive weight mass. A fold of one positive-mass cluster and one zero-mass cluster passes the check, and its variance reads one real total |
+| complex nuisance learners at about 20 clusters | none for parametric learners. Wang, Park, Small and Li (2024), Remark 3, caution against complex working models at $m = 20$. The registered few-cluster evidence uses parametric nuisance learners only |
 
 ## Reading a gap correctly
 

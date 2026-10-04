@@ -16,7 +16,7 @@ nuisance prediction used for an observation comes from a model that never saw th
 | flexible learners for either nuisance | cross-fitting can avoid a Donsker restriction under its remaining conditions | one nuisance fit per outer fold; a Super Learner also fits its candidates on inner folds |
 | you want the package default | cross-fitting is on by default, at ten outer folds | a Super Learner uses five additional inner folds unless configured otherwise. Ten by five is fifty model fits per library candidate |
 | the fold draw itself worries you | `repeats=` runs a complete estimator per draw and aggregates | linear cost in the repeat count |
-| clustered data | clusters stay intact in every split | a cluster-robust interval, because clusters, not rows, are the independent units. With fewer clusters than folds, the fold count drops to the cluster count, and a warning names both. Unequal cluster sizes and fewer than 40 clusters withhold the interval, as [clusters](inference.md#clusters) states |
+| clustered data | clusters stay intact in every split | a cluster-robust interval, because clusters, not rows, are the independent units. With fewer clusters than folds, the fold count drops to the cluster count, and a warning names both. Below 40 clusters the interval uses a $t$ reference, and below 10 the fit withholds it, as [clusters](inference.md#clusters) states |
 
 **Cross-fitting does not buy the rest of efficiency.** Four conditions stand behind a valid
 interval, and folds address one of them.
@@ -63,6 +63,38 @@ $$
 
 and not a fold-averaged second moment divided by the total $n$. The two coincide only for exactly
 equal folds.
+
+With `id=`, the fit replaces each fold term by the centered variance of the fold's cluster totals,
+$J_v\,\widehat{\mathrm{var}}(S_{vj})/n_v^2$ with divisor $J_v-1$. Here $S_{vj}$ sums $D_{v,i}$
+over the rows of cluster $j$ in fold $v$, and $J_v$ counts the clusters of the fold. Each fold curve
+is centered at its own plug-in, so its plug-in part sums to zero inside the fold. An uncentered sum
+of squares over $J_v$ cluster totals keeps only $(J_v-1)/J_v$ of that part's variance. The centered
+rule restores the share. Rows keep the uncentered rule, because there the loss is $1/n_v$.
+
+The centered rule estimates one mean per fold, so its variance has $J-V$ degrees of freedom. Below
+40 clusters a fold-evaluated estimate therefore takes a $t$ reference with $\min(J-2, J-V)$
+degrees of freedom ([few clusters](inference.md#few-clusters)).
+
+A fold-evaluated fit with `id=` therefore needs at least 2 clusters in every validation fold, and
+so does a fit with `targeting_scheme="fold"`, which builds each fold's estimate with a clustered
+variance. `TMLE` raises `CapabilityError` before any learner when a realized or supplied fold
+holds 1.
+`tests/unit/test_fold_evaluated_cluster_variance.py` checks the rule, the refusal, and the
+calibration at 40 clusters in 10 folds.
+
+Use the stacked report, the default, when cluster sizes depend on the outcome. There the
+`cv_evaluation=True` point has a bias of about $V$ times the stacked bias at few clusters per
+fold. Each fold estimate is a ratio of two cluster sums over the clusters of its fold. The report
+takes the equal $1/V$ average of those ratios, so each ratio bias is of order $V/J$.
+
+| clusters, folds | `cv_evaluation=True` bias | stacked bias | source |
+| --- | --- | --- | --- |
+| 10, 20 and 30 in 5 folds | 0.61, 0.43 and 0.32 empirical SDs | 0.14, 0.10 and 0.06 | [few-cluster study](method-evidence/clustered-few-cluster-tmle.md#readings-of-the-red-cells) |
+| 200 in 5 folds | 0.13 | 0.02 | [unequal-size study](method-evidence/clustered-unequal-cv-tmle.md) |
+
+The fit keeps the interval. At 10 clusters its coverage lower endpoint is 0.894.
+`tests/unit/test_fold_evaluated_ratio_bias.py` rebuilds the measured bias from the law, with no
+fit. At equal sizes the bias vanishes.
 
 Implementation:
 [`estimators/tmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/tmle.py),
@@ -302,6 +334,7 @@ Each row gives the shipped remedy in the message's own words.
 | a cross-fitted shift, incremental, regime, MSM, or controlled-direct-effect fit with `delta=` | `CapabilityError` before the first learner | "To estimate them, fit in sample with cross_fit=False on the engine (CrossFitting(enabled=False))". The message names the target family and F21, which holds the missing result. See [F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants). `TMLE` refuses a continuous-dose MSM with `delta=` before this refusal, at every `cross_fit` setting. That message cites [X10](../roadmap.md#x10-continuous-dose-msm-with-a-second-mechanism) and names no in-sample fit |
 | a cross-fitted longitudinal continuous outcome with `q_bounds=None` | `LongitudinalError` | "Declare the known outcome support (Targeting(q_bounds=(lower, upper))), or fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine)." |
 | `id=` on a collaborative fit | `CapabilityError` | "Drop id= from fit (PointTreatment(cluster=None)), or use the ordinary TMLE (TMLE, or TMLEMethod), which has a clustered result." |
+| `cv_evaluation=True` or `targeting_scheme="fold"` with `id=`, and a validation fold that holds 1 cluster | `CapabilityError` before any learner | "Request at most {J // 2} folds (CrossFitting(n_folds=...)), or use the stacked report (cv_evaluation=False, CrossFitting(fold_evaluation=False))." Under fold targeting the second remedy reads "one pooled fluctuation (targeting_scheme="pooled")". The message names the setting, the cluster count, the fold count and the fold. Each fold's variance compares cluster totals inside the fold |
 | `id=` on a cross-fitted longitudinal fit | `LongitudinalError` | "Fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine), which reports a cluster-robust variance, or drop id= from fit." |
 | a `split_plan=` with no generator record | `MethodConfigurationError` at construction, `DataError` at fit time | "Pass result.split_plan from a fit with unstratified folds (stratify_by='none'), or build the plan with SplitPlan.from_folds over random_partition draws" |
 | a `split_plan=` whose labels the record does not draw | `DataError` before the first learner | "A fit accepts only the labels the recorded fold count and seed draw, because other labels could have been chosen by reading the outcome". The message names the repeat and the number of differing rows |
@@ -369,40 +402,40 @@ units, and it needs four conditions.
 | condition | what it asks |
 | --- | --- |
 | independent clusters | one cluster's rows carry no information about another cluster's rows |
-| equal cluster sizes and mass | every cluster holds the same number of rows and, on a weighted fit, the same weight mass. The rule applies within each reported baseline stratum too |
+| a bounded random cluster size | the cluster size is a random attribute of the cluster with bounded support, as Assumption 1(b) of Wang, Park, Small and Li (2024) states. Sizes and weight masses may differ |
 | no interference | one cluster's treatment does not change another cluster's outcome |
 | remainder rates | the product rate on the two nuisances holds at the cluster level, as it does at the row level for iid data |
 
-At equal cluster sizes the argument reduces to Zheng and van der Laan (2011), Theorem 2, with
-clusters in place of rows. The registered
-[clustered point-treatment CV-TMLE study](method-evidence/clustered-point-treatment-cv-tmle.md) is
-the empirical witness, and it is the only one. Its design satisfies all four conditions by
-construction. No source read here proves that the estimator is valid under clustering.
+With clusters in place of rows, the argument is Zheng and van der Laan (2011), Theorem 2. The
+point estimate is a row mean, a ratio of the mean cluster total to the mean cluster size. Its
+curve, summed within each cluster, is the delta-method curve of that ratio
+([unequal cluster sizes](inference.md#unequal-cluster-sizes)).
 
-The point estimator remains row weighted when cluster sizes differ. Benitez et al. (2023),
-Section 3.2.1, give a row-weighted TMLE and cluster-sum curve with varying cluster sizes.
-They do not establish this package's cross-fitted construction. Its current argument and
-registered study cover equal sizes and weight masses, overall and within each reported
-baseline stratum. A cross-fitted fit outside that scope takes `"unequal_cluster_plugin"`.
-`ci`, `pvalue`, and `std_error` then raise `CapabilityError`. `plugin_std_error` and
-`plugin_interval` keep the diagnostic.
+Wang et al. (2024), Section 4.2 and Theorem 4(b), prove a cross-fitted result under a random partition of the clusters, for an
+AIPW-type estimator. The registered
+[clustered point-treatment CV-TMLE study](method-evidence/clustered-point-treatment-cv-tmle.md)
+covers equal sizes. No source read here proves this package's TMLE under clustering.
 
-[X24](../roadmap.md#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters) holds the ratio-of-cluster-sums curve that relaxes the
-equal-size condition.
+A fold-evaluated fit, `cv_evaluation=True`, needs 2 clusters in every validation fold. Its
+variance takes the centered variance of the cluster totals inside each fold
+([the algorithm as implemented](#the-algorithm-as-implemented)).
 
-No source read here supports a normal reference interval with few clusters. The table gives what
-each source recommends. $J$ is the cluster count, which Nugent et al. write as $N$.
+Below 40 clusters with positive weight mass, intervals use a Student $t$ reference. The table gives
+what each source recommends. $J$ is the cluster count, which Nugent et al. write as $N$.
 
 | source | locator | recommendation |
 | --- | --- | --- |
 | Nugent et al. (2024) | Section 2.2, last paragraph, citing Hayes and Moulton (2009) | a $t$ reference with $J - 2$ degrees of freedom below 40 clusters |
 | Benitez et al. (2023) | Section 3.1.2, paragraph on inference, and Section 3.2.1, last paragraph | a $t$ reference with $J - 2$ degrees of freedom at every cluster count, as a finite-sample approximation |
+| Wang et al. (2024) | Remark 3, Section 4.2, after Theorem 4 | parsimonious parametric nuisance models at about 20 clusters, and machine learning at about 100 |
 
-The package keeps its normal reference. A fit with fewer than 40 positive-mass clusters takes the
-`"few_cluster_plugin"` status, in sample or cross-fitted. So does a fit with fewer than 40 such
-clusters in one baseline stratum that it reports. An in-sample `LTMLE` fit with `id=` takes the
-same status below 40 positive-mass clusters. [Clusters](inference.md#clusters) gives
-both statuses, and [X24](../roadmap.md#x24-clustered-intervals-at-unequal-cluster-sizes-and-at-few-clusters) holds the routes that reopen them.
+The package follows Nugent et al. From 10 to 39 positive-mass clusters, in the fit or in the
+stratum an estimate reads, each estimate uses $t$ with $J-2$ degrees of freedom. Below 10 such
+clusters the fit takes the `"few_cluster_plugin"` status, in sample or cross-fitted, because no
+registered study measures an interval there. An in-sample `LTMLE` fit
+with `id=` follows the same rules. The registered few-cluster evidence uses parametric nuisance
+learners only. [Clusters](inference.md#clusters) gives the rules, and
+[F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) owns 4 to 9 clusters.
 
 ### The Super Learner inner split
 

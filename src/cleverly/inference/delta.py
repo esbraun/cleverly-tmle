@@ -44,8 +44,10 @@ __all__ = [
     "delta_method",
     "log_odds_ratio_influence",
     "log_ratio_influence",
-    "normal_ci",
+    "one_sided_quantile",
+    "reference_quantile",
     "two_sided_pvalue",
+    "wald_ci",
     "wald_statistic",
 ]
 
@@ -159,18 +161,97 @@ class Transform:
         return (float(self.forward(value + h)) - float(self.forward(value - h))) / (2.0 * h)
 
 
-def normal_ci(estimate: float, std_error: float, alpha: float = 0.05) -> tuple[float, float]:
-    """Wald confidence interval at level ``1 - alpha``."""
+def reference_quantile(alpha: float, df: int | None = None) -> float:
+    """The two-sided critical value of a Wald interval at level ``1 - alpha``.
+
+    The one place an interval or a sensitivity limit reads a reference quantile.
+
+    Parameters
+    ----------
+    alpha : float
+        The two-sided significance level, in ``(0, 1)``.
+    df : int or None, default=None
+        Degrees of freedom of a Student t reference. ``None`` takes the normal reference.
+
+    Returns
+    -------
+    float
+        The ``1 - alpha / 2`` quantile of the normal, or of t with ``df`` degrees of
+        freedom.
+
+    Examples
+    --------
+    >>> from cleverly.inference import reference_quantile
+    >>> round(reference_quantile(0.05), 4), round(reference_quantile(0.05, df=10), 4)
+    (1.96, 2.2281)
+    """
     if not 0.0 < alpha < 1.0:
         raise ValueError(f"alpha must lie in (0, 1); got {alpha}")
+    if df is None:
+        return float(stats.norm.ppf(1.0 - alpha / 2.0))
+    if df < 1:
+        raise ValueError(f"a Student t reference needs at least 1 degree of freedom; got {df}")
+    return float(stats.t.ppf(1.0 - alpha / 2.0, df))
+
+
+def one_sided_quantile(level: float, df: int | None = None) -> float:
+    """The quantile at ``level`` of the reference of a one-sided limit.
+
+    Parameters
+    ----------
+    level : float
+        The one-sided coverage level, in ``(0, 1)``.
+    df : int or None, default=None
+        Degrees of freedom of a Student t reference. ``None`` takes the normal reference.
+
+    Returns
+    -------
+    float
+        The normal quantile, or the t quantile with ``df`` degrees of freedom.
+    """
+    if df is None:
+        return float(stats.norm.ppf(level))
+    return float(stats.t.ppf(level, df))
+
+
+def wald_ci(
+    estimate: float, std_error: float, alpha: float = 0.05, *, df: int | None = None
+) -> tuple[float, float]:
+    """Wald confidence interval at level ``1 - alpha``.
+
+    Parameters
+    ----------
+    estimate : float
+        The estimate on its inference scale.
+    std_error : float
+        The standard error on that scale.
+    alpha : float, default=0.05
+        The two-sided significance level.
+    df : int or None, default=None
+        Degrees of freedom of a Student t reference. ``None`` takes the normal reference.
+
+    Returns
+    -------
+    tuple of float
+        The lower and upper limits, ``nan`` when the standard error is not finite or is
+        negative.
+
+    Examples
+    --------
+    >>> from cleverly.inference import wald_ci
+    >>> [round(limit, 4) for limit in wald_ci(1.0, 0.5, df=10)]
+    [-0.1141, 2.1141]
+    """
+    critical = reference_quantile(alpha, df)
     if not np.isfinite(std_error) or std_error < 0:
         return (float("nan"), float("nan"))
-    z = float(stats.norm.ppf(1.0 - alpha / 2.0))
-    return (estimate - z * std_error, estimate + z * std_error)
+    return (estimate - critical * std_error, estimate + critical * std_error)
 
 
-def wald_statistic(value: float, null: float, std_error: float) -> tuple[float, float]:
-    """The Wald statistic and its two-sided normal p-value.
+def wald_statistic(
+    value: float, null: float, std_error: float, *, df: int | None = None
+) -> tuple[float, float]:
+    """The Wald statistic and its two-sided p-value.
 
     Parameters
     ----------
@@ -180,23 +261,41 @@ def wald_statistic(value: float, null: float, std_error: float) -> tuple[float, 
         The null value on the same scale.
     std_error : float
         The standard error on that scale.
+    df : int or None, default=None
+        Degrees of freedom of a Student t reference. ``None`` takes the normal reference.
 
     Returns
     -------
     statistic : float
         ``(value - null) / std_error``, ``nan`` when the standard error is not positive.
     pvalue : float
-        ``2 * Phi(-|statistic|)``.
+        ``2 * Phi(-|statistic|)``, or ``2 * F_t(-|statistic|; df)``.
     """
     if not np.isfinite(std_error) or std_error <= 0:
         return float("nan"), float("nan")
     z = (value - null) / std_error
-    return float(z), float(2.0 * stats.norm.sf(abs(z)))
+    tail = stats.norm.sf(abs(z)) if df is None else stats.t.sf(abs(z), df)
+    return float(z), float(2.0 * tail)
 
 
-def two_sided_pvalue(estimate: float, std_error: float) -> float:
-    """Two-sided p-value for ``H0: estimate = 0``."""
-    return wald_statistic(estimate, 0.0, std_error)[1]
+def two_sided_pvalue(estimate: float, std_error: float, *, df: int | None = None) -> float:
+    """Two-sided p-value for ``H0: estimate = 0``.
+
+    Parameters
+    ----------
+    estimate : float
+        The estimate on its inference scale.
+    std_error : float
+        The standard error on that scale.
+    df : int or None, default=None
+        Degrees of freedom of a Student t reference. ``None`` takes the normal reference.
+
+    Returns
+    -------
+    float
+        The p-value of :func:`wald_statistic` at a null of zero.
+    """
+    return wald_statistic(estimate, 0.0, std_error, df=df)[1]
 
 
 def log_ratio_influence(

@@ -51,14 +51,15 @@ statement of :math:`\Psi(P_w)`.
 from __future__ import annotations
 
 import warnings
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Any, Literal, NamedTuple
 
 import numpy as np
 
 from .._inference_status import (
+    T_REFERENCE_BOOTSTRAP_NOTE,
     InferenceStatus,
     status_record,
     supplies_inference,
@@ -69,16 +70,21 @@ from ..fluctuation.iterative import InitialFit
 from ..fluctuation.submodel import Submodel
 from ..msm import link_for, solve_projection
 from ..utils.bounds import OutcomeScaler, bound
-from .cluster import influence_variance, stacked_second_moment_variance
+from .cluster import (
+    cluster_reference_df,
+    influence_variance,
+    stacked_second_moment_variance,
+)
 from .delta import (
     Transform,
     log_odds_ratio_influence,
     log_ratio_influence,
-    normal_ci,
+    wald_ci,
     wald_statistic,
 )
 
 __all__ = [
+    "ClusterReference",
     "CorrectionParts",
     "CovarianceRule",
     "ICParts",
@@ -89,18 +95,22 @@ __all__ = [
     "atc_estimate",
     "att_estimate",
     "bootstrap_column",
+    "bootstrap_is_diagnostic",
     "bootstrap_line",
     "counterfactual_mean_parts",
     "counterfactual_means",
+    "has_t_reference",
     "ipsi_means",
     "make_estimate",
     "median_estimates",
+    "minimum_reference_df",
     "missing_outcome_correction_parts",
     "msm_coefficients",
     "natural_course_mean",
     "ratio_estimates",
     "reduced_correction_parts",
     "reduced_corrections",
+    "reference_label",
     "regime_means",
     "shift_means",
     "spread_name",
@@ -237,13 +247,39 @@ UNLICENSED_BOOTSTRAP_NOTE = (
 )
 
 
+def bootstrap_is_diagnostic(estimate: ParameterEstimate) -> bool:
+    """Whether the bootstrap of an estimate is published as a diagnostic.
+
+    The one rule. A bootstrap is a diagnostic when the estimate's status supplies no
+    inference, when the estimate carries a Student t reference
+    (:attr:`ParameterEstimate.reference_df`), or when no registered study licenses its
+    percentile interval (:attr:`BootstrapSummary.inferential`). No result validates the
+    cluster bootstrap below 40 clusters, which is where a t reference applies.
+
+    Parameters
+    ----------
+    estimate : ParameterEstimate
+        An estimate that carries a bootstrap summary.
+
+    Returns
+    -------
+    bool
+        ``True`` when the summary prints a percentile range and ``to_dict`` publishes the
+        diagnostic names.
+    """
+    summary = estimate.bootstrap
+    licensed = summary is not None and summary.inferential
+    return not (estimate.supplies_inference and estimate.reference_df is None and licensed)
+
+
 def bootstrap_line(estimate: ParameterEstimate) -> str:
     """The printed bootstrap spread and percentile interval of one estimate.
 
     One body for both result summaries. The labels come from
-    :func:`~cleverly.inference.influence.bootstrap_column`, so a fit whose status supplies
-    no inference, or whose bootstrap is not licensed as inference, prints ``bootstrap sd``
-    and a percentile range.
+    :func:`~cleverly.inference.influence.bootstrap_column` under
+    :func:`bootstrap_is_diagnostic`, so a fit whose status supplies no inference, an
+    estimate with a t reference, or a bootstrap not licensed as inference prints
+    ``bootstrap sd`` and a percentile range.
 
     Parameters
     ----------
@@ -258,18 +294,21 @@ def bootstrap_line(estimate: ParameterEstimate) -> str:
     summary = estimate.bootstrap
     assert summary is not None
     low, high = summary.ci
-    label = bootstrap_column("bootstrap se", estimate.inference, summary.inferential)
+    label = bootstrap_column(
+        "bootstrap se", estimate.inference, not bootstrap_is_diagnostic(estimate)
+    )
     spread = f"{label} {summary.std_error:.4g}  "
     if label == "bootstrap se":
         return f"{spread}percentile CI [{low:.5g}, {high:.5g}]"
     # A percentile interval is a confidence interval, and this estimate reports none. The
     # same two numbers are printed as a range under the diagnostic framing, rather than
     # the bootstrap being refused outright.
-    note = (
-        status_record(estimate.inference).bootstrap_note
-        if not estimate.supplies_inference
-        else UNLICENSED_BOOTSTRAP_NOTE
-    )
+    if not estimate.supplies_inference:
+        note = status_record(estimate.inference).bootstrap_note
+    elif estimate.reference_df is not None:
+        note = T_REFERENCE_BOOTSTRAP_NOTE
+    else:
+        note = UNLICENSED_BOOTSTRAP_NOTE
     return f"{spread}percentile range [{low:.5g}, {high:.5g}] ({note})"
 
 
@@ -293,9 +332,14 @@ class WaldTest:
     statistic : float
         The Wald statistic.
     pvalue : float
-        The two-sided normal p-value.
+        The two-sided p-value, on the normal reference or on the Student t reference of
+        the estimate.
     scale : {"level", "difference", "ratio", "fraction"}
         The reported scale of the estimate.
+    reference_df : int or None, default=None
+        The degrees of freedom of the t reference, as
+        :attr:`ParameterEstimate.reference_df` gives them. ``None`` for the normal
+        reference.
     """
 
     name: str
@@ -304,17 +348,106 @@ class WaldTest:
     statistic: float
     pvalue: float
     scale: Scale
+    reference_df: int | None = None
+
+
+@dataclass(frozen=True)
+class ClusterReference:
+    r"""The rows each estimate of a clustered report reads, for its Student t reference.
+
+    A builder records which rows an estimate reads, and the stamp turns that record into
+    degrees of freedom. An estimate named in :attr:`stratum_of` reads the rows of its
+    baseline stratum. Every other estimate reads every row.
+
+    An estimate named in :attr:`fold_evaluated` carries the fold-evaluated variance of
+    :func:`~cleverly.inference.cross_validated_variance`. That variance centres the cluster
+    totals inside each of the :attr:`validation_folds` folds, so it estimates one mean per
+    fold and has :math:`J - V` degrees of freedom, the pooled within-group count. Below
+    :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters such an estimate takes
+    :math:`\min(J - 2, J - V)`.
+
+    Parameters
+    ----------
+    cluster : ndarray of int
+        The cluster label of each row.
+    weights : ndarray of float or None, default=None
+        The observation weight of each row, or ``None`` for an unweighted fit.
+    strata : ndarray of int or None, default=None
+        The baseline stratum code of each row, or ``None`` for a fit without strata.
+    stratum_of : mapping of str to int, default={}
+        The stratum code of each stratum estimate, keyed by estimate name.
+    fold_evaluated : frozenset of str, default=frozenset()
+        The names whose variance is the fold-evaluated one.
+    validation_folds : int, default=0
+        The number of validation folds that variance averages over.
+    """
+
+    cluster: IntArray
+    weights: FloatArray | None = None
+    strata: IntArray | None = None
+    stratum_of: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
+    fold_evaluated: frozenset[str] = frozenset()
+    validation_folds: int = 0
+
+    def with_fold_evaluated(self, names: Iterable[str], validation_folds: int) -> ClusterReference:
+        r"""This record with ``names`` read as fold-evaluated estimates over that many folds.
+
+        Parameters
+        ----------
+        names : iterable of str
+            The names whose variance is the fold-evaluated one.
+        validation_folds : int
+            The number of validation folds.
+
+        Returns
+        -------
+        ClusterReference
+            A copy that applies :math:`\min(J - 2, J - V)` to ``names``.
+        """
+        return replace(
+            self, fold_evaluated=frozenset(names), validation_folds=int(validation_folds)
+        )
+
+    def reference_df(self, name: str) -> int | None:
+        """The degrees of freedom of the estimate called ``name``.
+
+        Parameters
+        ----------
+        name : str
+            The estimate name.
+
+        Returns
+        -------
+        int or None
+            :func:`~cleverly.inference.cluster.cluster_reference_df` over the rows the
+            estimate reads.
+        """
+        code = self.stratum_of.get(name)
+        if code is None:
+            df = cluster_reference_df(self.cluster, self.weights)
+        else:
+            assert self.strata is not None
+            df = cluster_reference_df(self.cluster, self.weights, rows=self.strata == code)
+        if df is None or name not in self.fold_evaluated:
+            return df
+        # ``df`` is J - 2, so J - V is ``df + 2 - V``. The one-cluster-fold refusal keeps
+        # V at most J / 2, so the value stays positive.
+        return min(df, df + 2 - self.validation_folds)
 
 
 def stamp_inference(
-    estimates: Mapping[str, ParameterEstimate], status: InferenceStatus
+    estimates: Mapping[str, ParameterEstimate],
+    status: InferenceStatus,
+    reference: ClusterReference | None = None,
 ) -> dict[str, ParameterEstimate]:
-    """Give each estimate of a report the status its configuration gives.
+    """Give each estimate of a report the status and the reference its configuration gives.
 
-    The one stamp. Under a non-inferential ``status`` every estimate declares ``status``.
-    Under ``"influence_curve"`` every estimate keeps the status it was built with.
-    ``TMLE._retarget_detailed`` applies it to the fit's estimates, and
-    :meth:`~cleverly.estimators.CVTargeting.stamped` to both fold-level reports.
+    The one stamp. Under a non-inferential ``status`` every estimate declares ``status``
+    and keeps the normal reference of its diagnostic. Under ``"influence_curve"`` every
+    estimate keeps the status it was built with, and, when ``reference`` is given, takes
+    the degrees of freedom of the rows it reads. ``TMLE._retarget_detailed`` applies it to
+    the fit's estimates, and :meth:`~cleverly.estimators.CVTargeting.stamped` to both
+    fold-level reports.
 
     Parameters
     ----------
@@ -322,17 +455,83 @@ def stamp_inference(
         The report, keyed by estimand.
     status : str
         One of :data:`InferenceStatus`.
+    reference : ClusterReference or None, default=None
+        The rows each estimate reads, on a clustered fit. ``None`` keeps every
+        :attr:`ParameterEstimate.reference_df` as built.
 
     Returns
     -------
     dict of str to ParameterEstimate
-        ``estimates`` in the same order. Under ``"influence_curve"`` each estimate is
-        returned as it was given. Under any other status each estimate is a copy that
-        declares ``status``. Every array and number is unchanged.
+        ``estimates`` in the same order. Under any other status each estimate is a copy
+        that declares ``status``. Every array and number is unchanged.
     """
-    if supplies_inference(status):
+    if not supplies_inference(status):
+        return {
+            name: replace(estimate, inference=status, reference_df=None)
+            for name, estimate in estimates.items()
+        }
+    if reference is None:
         return dict(estimates)
-    return {name: replace(estimate, inference=status) for name, estimate in estimates.items()}
+    return {
+        name: replace(estimate, reference_df=reference.reference_df(name))
+        for name, estimate in estimates.items()
+    }
+
+
+def has_t_reference(estimates: Mapping[str, ParameterEstimate]) -> bool:
+    """Whether any estimate of a report carries a Student t reference.
+
+    Parameters
+    ----------
+    estimates : mapping of str to ParameterEstimate
+        The report, keyed by estimand.
+
+    Returns
+    -------
+    bool
+        ``True`` when one :attr:`ParameterEstimate.reference_df` is set. A summary then
+        prints a ``df`` column, and a fit skips its default simultaneous band.
+    """
+    return any(estimate.reference_df is not None for estimate in estimates.values())
+
+
+def reference_label(estimate: ParameterEstimate) -> str:
+    """The ``df`` cell a summary prints for one estimate.
+
+    Parameters
+    ----------
+    estimate : ParameterEstimate
+        A reported estimate.
+
+    Returns
+    -------
+    str
+        The degrees of freedom, or ``"normal"`` for the normal reference.
+    """
+    return "normal" if estimate.reference_df is None else str(estimate.reference_df)
+
+
+def minimum_reference_df(estimates: Sequence[ParameterEstimate]) -> int | None:
+    """The degrees of freedom of an estimate derived from ``estimates``.
+
+    The smallest of the inputs' degrees of freedom, with the normal reference counting as
+    infinite. The Welch-Satterthwaite degrees of freedom of a combination is never below
+    the smallest input's, so the minimum is conservative. A contrast within one fit reads
+    the same cluster totals as its inputs, and the minimum equals their common value.
+
+    Parameters
+    ----------
+    estimates : sequence of ParameterEstimate
+        The inputs of the derived estimate.
+
+    Returns
+    -------
+    int or None
+        The smallest :attr:`ParameterEstimate.reference_df`, or ``None`` when every input
+        uses the normal reference.
+    """
+    values = [estimate.reference_df for estimate in estimates if estimate.reference_df is not None]
+    return min(values) if values else None
 
 
 @dataclass(frozen=True)
@@ -380,6 +579,11 @@ class ParameterEstimate:
     transform : Transform or None
         A monotone map that the interval and the test are computed on, set by
         ``contrast(..., transform=)``. ``None`` for every estimate a fit reports.
+    reference_df : int or None
+        Degrees of freedom of the Student t reference of :attr:`ci`, :attr:`pvalue` and
+        :attr:`plugin_interval`, or ``None`` for the normal reference. A clustered fit
+        with fewer than 40 clusters with positive weight mass sets it to the cluster
+        count minus 2, per estimate.
 
     Attributes
     ----------
@@ -444,6 +648,7 @@ class ParameterEstimate:
     covariance_rule: CovarianceRule = "centered"
     inference: InferenceStatus = "influence_curve"
     transform: Transform | None = None
+    reference_df: int | None = None
 
     def _plugin_std_error(self) -> float:
         """The plug-in standard error, under any inference status.
@@ -463,8 +668,9 @@ class ParameterEstimate:
         :meth:`_plugin_std_error` has one.
         """
         center = self.inference_value
+        df = self.reference_df
         if self.transform is not None:
-            low, high = normal_ci(center, self._plugin_std_error(), self.alpha)
+            low, high = wald_ci(center, self._plugin_std_error(), self.alpha, df=df)
             if not (np.isfinite(low) and np.isfinite(high)):
                 return (float("nan"), float("nan"))
             # Sorted, so a decreasing transform still gives an ordered interval.
@@ -473,9 +679,9 @@ class ParameterEstimate:
             )
             return (mapped[0], mapped[1])
         if self.scale == "ratio":
-            low, high = normal_ci(center, self._plugin_std_error(), self.alpha)
+            low, high = wald_ci(center, self._plugin_std_error(), self.alpha, df=df)
             return (float(np.exp(low)), float(np.exp(high)))
-        return normal_ci(center, self._plugin_std_error(), self.alpha)
+        return wald_ci(center, self._plugin_std_error(), self.alpha, df=df)
 
     def _null_inference_value(self, null: float | None) -> tuple[float, float]:
         """The null on the reported scale and on the inference scale."""
@@ -518,7 +724,9 @@ class ParameterEstimate:
         diagnostic evaluates the refused property's arithmetic rather than a second rule.
         """
         reported, mapped = self._null_inference_value(null)
-        statistic, pvalue = wald_statistic(self.inference_value, mapped, self._plugin_std_error())
+        statistic, pvalue = wald_statistic(
+            self.inference_value, mapped, self._plugin_std_error(), df=self.reference_df
+        )
         return WaldTest(
             name=self.name,
             null=reported,
@@ -526,6 +734,7 @@ class ParameterEstimate:
             statistic=statistic,
             pvalue=pvalue,
             scale=self.scale,
+            reference_df=self.reference_df,
         )
 
     def _plugin_pvalue(self) -> float:
@@ -728,7 +937,8 @@ class ParameterEstimate:
         ``bootstrap_ci_lower`` and ``bootstrap_ci_upper``. The bootstrap columns take the
         same diagnostic names when :attr:`BootstrapSummary.inferential` is ``False``. A
         transformed estimate adds ``transform`` and ``transform_psi``, the estimate on the
-        transform's scale. Exactly one of ``std_err`` and
+        transform's scale. An estimate with a Student t reference adds ``reference_df``,
+        and its bootstrap columns take the diagnostic names. Exactly one of ``std_err`` and
         ``inference`` is always present, so a programmatic consumer has a total test.
 
         Returns
@@ -740,6 +950,8 @@ class ParameterEstimate:
         if not self.supplies_inference:
             row["inference"] = self.inference
         row.update(self.spread_columns())
+        if self.reference_df is not None:
+            row["reference_df"] = self.reference_df
         row["scale"] = self.scale
         if self.log_psi is not None:
             row["log_psi"] = self.log_psi
@@ -747,7 +959,7 @@ class ParameterEstimate:
             row["transform"] = self.transform.name
             row["transform_psi"] = self.inference_value
         if self.bootstrap is not None:
-            licensed = self.bootstrap.inferential
+            licensed = not bootstrap_is_diagnostic(self)
             for key, value in (
                 ("bootstrap_std_err", self.bootstrap.std_error),
                 ("bootstrap_ci_lower", self.bootstrap.ci[0]),
@@ -765,9 +977,11 @@ class ParameterEstimate:
                 "a diagnostic, and no confidence interval or p-value is reported)"
             )
         low, high = self.ci
+        reference = "" if self.reference_df is None else f"t({self.reference_df}) "
         return (
             f"{self.name}: {self.psi:.5g} (se {self.std_error:.4g}, "
-            f"{(1 - self.alpha) * 100:g}% CI [{low:.5g}, {high:.5g}], p={self.pvalue:.3g})"
+            f"{reference}{(1 - self.alpha) * 100:g}% CI [{low:.5g}, {high:.5g}], "
+            f"p={self.pvalue:.3g})"
         )
 
 
@@ -837,6 +1051,7 @@ def make_estimate(
     log_psi: float | None = None,
     covariance_rule: CovarianceRule = "centered",
     inference: InferenceStatus = "influence_curve",
+    reference_df: int | None = None,
 ) -> ParameterEstimate:
     """Assemble a :class:`ParameterEstimate`, computing its variance under its rule.
 
@@ -873,11 +1088,15 @@ def make_estimate(
         :doc:`inference reference </technical-reference/inference>` lists. The default
         is the ordinary case, so a caller that does not pass it builds an inferential
         estimate.
+    reference_df : int or None, default=None
+        Degrees of freedom of a Student t reference, which a derived estimate computes
+        with :func:`minimum_reference_df`. ``None`` takes the normal reference. A fitted
+        report's own estimates take theirs from :func:`stamp_inference`.
 
     Returns
     -------
     ParameterEstimate
-        The estimate, declaring ``covariance_rule`` and ``inference``.
+        The estimate, declaring ``covariance_rule``, ``inference`` and ``reference_df``.
     """
     ic = np.asarray(influence_curve, dtype=float).reshape(-1)
     if covariance_rule == "second_moment":
@@ -903,6 +1122,7 @@ def make_estimate(
         log_psi=log_psi,
         covariance_rule=covariance_rule,
         inference=inference,
+        reference_df=reference_df if supplies_inference(inference) else None,
     )
 
 
@@ -1016,6 +1236,7 @@ def median_estimates(
             # declaration. The declared rule still decides how covariance reads the curve.
             covariance_rule=parts[0].covariance_rule,
             inference=parts[0].inference,
+            reference_df=minimum_reference_df(parts),
         )
     return out
 

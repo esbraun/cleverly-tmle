@@ -21,8 +21,13 @@ from typing import Final, Literal, cast
 __all__ = [
     "FEW_CLUSTER_THRESHOLD",
     "HELD_OUT_SCALE",
+    "MINIMUM_INTERVAL_CLUSTERS",
+    "MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS",
     "NON_INFERENTIAL",
     "NO_SIMULTANEOUS_BANDS",
+    "NO_T_REFERENCE_BANDS",
+    "T_REFERENCE_BOOTSTRAP_NOTE",
+    "T_REFERENCE_NOTE",
     "InferenceStatus",
     "StatusRecord",
     "precedent_status",
@@ -39,23 +44,52 @@ InferenceStatus = Literal[
     "working_mechanism_plugin",
     "generated_design_plugin",
     "estimated_weight_plugin",
-    "unequal_cluster_plugin",
     "few_cluster_plugin",
 ]
 
-# A clustered fit with fewer clusters than this, in total or in one reported baseline
-# stratum, takes the ``"few_cluster_plugin"`` status.
+# Below this many clusters with positive weight mass, in the fit or in the stratum an
+# estimate reads, the estimate takes a Student t reference with J - 2 degrees of freedom.
 # Nugent, Marquez, Charlebois, Abbott and Balzer (2024), Biostatistics 25(3):599-616,
 # Section 2.2, last paragraph: "In CRTs with fewer than 40 clusters randomized (N < 40),
 # we recommend using the Student's t distribution with N - 2 degrees of freedom", citing
 # Hayes and Moulton (2009). That is the only explicit threshold in a source read here.
 # Benitez et al. (2023), Stat Med 42(19):3443-3466, Section 3.1.2, paragraph on inference,
 # and Section 3.2.1, last paragraph, recommend t with J - 2 degrees of freedom at every
-# cluster count. Neither paper compares
-# the normal reference with t. The package keeps its normal reference and withholds the
-# interval below this count; X24 in docs/roadmap.md holds the reopen route.
-#: The cluster count below which a clustered fit reports no interval.
+# cluster count. At this count and above, the normal reference stays.
+#: The cluster count below which a clustered estimate takes a Student t reference.
 FEW_CLUSTER_THRESHOLD: Final[int] = 40
+
+#: The fewest clusters with positive weight mass for which a clustered fit reports an
+#: interval. It is the smallest count a registered study measures: ``clustered-few-cluster-tmle``
+#: starts at 10 clusters, because at 4 a share of draws admits no fit at all. Below it the fit
+#: takes ``"few_cluster_plugin"``, and F28 in ``docs/roadmap.md`` owns 4 to 9 clusters.
+MINIMUM_INTERVAL_CLUSTERS: Final[int] = 10
+
+#: The same floor for a longitudinal fit. The registered few-cluster study measures in-sample
+#: ``LTMLE`` from 20 clusters: at 10, about 1 draw in 4,000 admits no LTMLE fit, so those cells
+#: are not in its grid. Below this count an ``LTMLE`` fit takes ``"few_cluster_plugin"``.
+MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS: Final[int] = 20
+
+#: The paragraph a result summary prints under a table whose estimates use a t reference.
+#: ``{clusters}`` is the positive-mass cluster count of the fit.
+T_REFERENCE_NOTE: Final[str] = (
+    "An estimate that reads fewer than "
+    f"{FEW_CLUSTER_THRESHOLD} clusters with positive weight mass reports its interval and "
+    "p-value on a Student t reference with J - 2 degrees of freedom, where J is the count it "
+    "reads (Nugent et al. (2024), Section 2.2); a fold-evaluated estimate over V folds takes "
+    "min(J - 2, J - V). The fit reads {clusters} such clusters, and the fewest in one "
+    "reported stratum is {fewest}. The df column gives each estimate's degrees of freedom, "
+    "and 'normal' marks the normal reference. The registered few-cluster evidence uses "
+    "parametric nuisance learners; Wang et al. (2024), Remark 3, caution against complex "
+    "learners at about 20 clusters."
+)
+
+#: The parenthesis a summary prints beside the bootstrap percentile range of an estimate
+#: with a t reference.
+T_REFERENCE_BOOTSTRAP_NOTE: Final[str] = (
+    f"a diagnostic; no result validates the cluster bootstrap below {FEW_CLUSTER_THRESHOLD} "
+    "clusters"
+)
 
 #: Where ``q_bounds=None`` takes the scale of a continuous outcome from. Both outcome-scale
 #: refusals of :class:`~cleverly.TMLE` say it, so the two name one fact in one wording.
@@ -66,6 +100,14 @@ HELD_OUT_SCALE: Final[str] = "from every observed outcome, held-out rows include
 #: print it, and both estimators skip the default band on such a fit.
 NO_SIMULTANEOUS_BANDS: Final[str] = (
     "no simultaneous bands: a band is a joint confidence statement, and this fit reports none."
+)
+
+#: The line a result summary prints when a fit skips its default band because an estimate
+#: carries a Student t reference.
+NO_T_REFERENCE_BANDS: Final[str] = (
+    "no simultaneous bands: an estimate of this fit reads fewer than "
+    f"{FEW_CLUSTER_THRESHOLD} clusters with positive weight mass and carries a t reference, "
+    "and no source gives a t-calibrated band, so the fit reports pointwise intervals only."
 )
 
 
@@ -204,57 +246,28 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             diagnostic_noun="fixed-weight plug-in diagnostic",
             reopened_by="F5",
         ),
-        "unequal_cluster_plugin": StatusRecord(
-            reason=(
-                "A cross-fitted clustered fit reports no confidence interval, no p-value and "
-                "no standard error when its clusters hold different numbers of rows, or "
-                "different weight mass on a weighted fit, overall or within a reported "
-                "baseline stratum. The point estimator remains row weighted. The package's "
-                "grouped cross-fitting argument and registered study cover equal cluster "
-                "sizes and weight masses only (docs/technical-reference/cv-tmle.md, grouped "
-                "folds). No result here validates its cross-fitted interval at unequal "
-                "sizes. The point estimate stands. The plug-in standard error "
-                "of the reported curve remains as a diagnostic under plugin_std_error and "
-                "plugin_interval. The same clusters fitted in sample keep the interval when "
-                f"there are at least {FEW_CLUSTER_THRESHOLD} of them in the fit and in each "
-                "reported stratum with positive weight mass. Benitez et al. (2023), "
-                "Section 3.2.1, give cluster-sum aggregation for a row-weighted estimand "
-                "but no result for this cross-fitted construction. X24 in "
-                "docs/roadmap.md holds the work that reopens this."
-            ),
-            assessment_note=(
-                "the reported curve is an unequal-cluster diagnostic: no confidence interval "
-                "or p-value is available for this fit, and X24 in the roadmap is the "
-                "condition that reopens it"
-            ),
-            summary_label="cluster-robust plug-in se",
-            bootstrap_note=(
-                "a diagnostic; no result validates the bootstrap coverage of a cross-fitted "
-                "fit at unequal cluster sizes"
-            ),
-            diagnostic_noun="unequal-cluster plug-in diagnostic",
-            reopened_by="X24",
-        ),
         "few_cluster_plugin": StatusRecord(
             reason=(
                 "A clustered fit reports no confidence interval, no p-value and no standard "
-                f"error when it has fewer than {FEW_CLUSTER_THRESHOLD} clusters with "
-                "positive weight mass, or when one baseline stratum it reports has fewer. "
-                "The package uses a "
-                "normal reference distribution. Nugent, Marquez, Charlebois, Abbott and "
-                "Balzer (2024), Section 2.2, recommend a Student t reference with J - 2 "
-                f"degrees of freedom below {FEW_CLUSTER_THRESHOLD} clusters. Benitez et al. "
-                "(2023) recommend it at every cluster count, in Section 3.1.2, paragraph on "
-                "inference, and Section 3.2.1, last paragraph. No registered study covers a "
-                "clustered fit with few clusters. The point estimate stands. The plug-in "
-                "standard error of the reported curve remains as a diagnostic under "
-                "plugin_std_error and plugin_interval. X24 in docs/roadmap.md reopens this "
-                "with a t reference and a registered study at few clusters."
+                f"error when it reads fewer than {MINIMUM_INTERVAL_CLUSTERS} clusters with "
+                "positive weight mass, in the fit or in one reported baseline stratum, or "
+                f"fewer than {MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS} on a longitudinal fit. "
+                f"From that floor to {FEW_CLUSTER_THRESHOLD - 1} such clusters the package uses "
+                "a Student t reference with J - 2 degrees of freedom, as Nugent et al. (2024), "
+                "Section 2.2, last paragraph, recommend. The registered few-cluster study "
+                f"measures point-treatment fits from {MINIMUM_INTERVAL_CLUSTERS} clusters and "
+                f"longitudinal fits from {MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS}, and no "
+                "registered study measures an interval below those counts. The point estimate "
+                "stands. The plug-in standard error of the reported curve remains as a "
+                "diagnostic under plugin_std_error and plugin_interval, which use the normal "
+                "reference. F28 in docs/roadmap.md owns fits with fewer clusters and the open "
+                "small-sample work."
             ),
             assessment_note=(
                 "the reported curve is a few-cluster diagnostic: no confidence interval or "
-                "p-value is available for this fit, and X24 in the roadmap is the condition "
-                "that reopens it"
+                f"p-value is available for a fit with fewer than {MINIMUM_INTERVAL_CLUSTERS} "
+                f"clusters ({MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS} for a longitudinal fit), "
+                "and F28 in the roadmap is the condition that reopens it"
             ),
             summary_label="normal-reference se",
             bootstrap_note=(
@@ -262,7 +275,7 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "with few clusters"
             ),
             diagnostic_noun="few-cluster plug-in diagnostic",
-            reopened_by="X24",
+            reopened_by="F28",
         ),
     }
 )

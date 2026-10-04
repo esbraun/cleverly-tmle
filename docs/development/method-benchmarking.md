@@ -64,6 +64,19 @@ This survey covers the intervention family. Each verdict names the evidence behi
 | R `txshift` 0.3.8 | continuous shift interventions | Not used. It estimates the exposure density through a second density path, which requires a separate study rather than serving as a second opinion on this one. |
 | R `tmle3` at `ed72f8a` | static and dynamic point-treatment regimes | Rejected for stochastic regimes. `Param_TSM` evaluates a counterfactual at one treatment value and does not integrate over a declared density. |
 
+The cluster survey records how each pinned comparator aggregates a clustered curve. At unequal
+cluster sizes the cluster sum is the delta-method variance of the row mean, and the cluster mean
+is a different variance ([references](../references.md#grouped-folds-and-clustered-cross-fitting)
+gives the source locators).
+
+| candidate | aggregation | verdict |
+| --- | --- | --- |
+| R `ltmle` 1.3-0 | the cluster sum, $t$ with $J-1$ degrees of freedom below 100 clusters | Used by `clustered-few-cluster-tmle` in sample. Its point and standard error pair with this package. Its interval uses $J-1$ degrees of freedom and this package uses $J-2$, a declared difference |
+| R `tmle` 2.1.1 | the cluster mean, normal reference | Not used at unequal sizes. Its variance is a different quantity there |
+| R `tmle3` at `ed72f8a` | the cluster mean, normal reference | Not used at unequal sizes, for the same reason |
+| R `lmtp` 1.5.4 with R `ife` 0.2.3 | the cluster mean, normal reference | Used by `clustered-tmle` at equal sizes only, where the two aggregations agree |
+| R `drtmle` 1.1.2 at `538a3a2` | no cluster argument | Not applicable |
+
 The missing-outcome survey is separate because the response mechanism changes the observed-data
 likelihood and the comparator boundary.
 
