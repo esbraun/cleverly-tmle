@@ -119,7 +119,7 @@ from ..inference.results import (
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..assessment import AssessmentReport
-from ..learners.crossfit import Folds, _fresh_seed, random_partition
+from ..learners.crossfit import Folds, _fresh_seed, check_integrity, random_partition
 from ..learners.library import _validate_learner
 from ..learners.super_learner import resolve_learner
 from ..msm import MSM, refuse_msm_functions
@@ -2114,10 +2114,13 @@ def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
     to the unit weights. It reads nothing fitted. ``LongitudinalData`` carries no baseline strata,
     so the count is the number of clusters with positive weight mass in the whole fit, and
     :data:`~cleverly._inference_status.MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS` is the
-    threshold: the registered few-cluster study measures in-sample ``LTMLE`` from 20 clusters.
+    threshold, in sample and cross-fitted: the registered few-cluster studies measure
+    ``LTMLE`` from 20 clusters, in sample (``clustered-few-cluster-tmle``) and cross-fitted
+    (``few-cluster-cross-fitted-ltmle``).
 
-    ``LTMLE._refuse_cross_fitted_design`` refuses ``id=`` above one fold before this runs,
-    so a fit can take ``"few_cluster_plugin"`` only. ``LTMLE.fit`` and the
+    The targeting pools every follower, so the curve is centred at the pooled estimate and
+    the folds do not enter the status or the degrees of freedom.  A fit can take
+    ``"few_cluster_plugin"`` only. ``LTMLE.fit`` and the
     truncation-curve replay ``_refit_bound`` pass the status to :func:`_estimates` or
     :func:`_msm_estimates`, which also set the Student t reference of an inferential fit
     with fewer than :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters.
@@ -2135,7 +2138,6 @@ def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
         One of :data:`~cleverly.inference.influence.InferenceStatus`.
         ``"influence_curve"`` on an unclustered fit.
     """
-    del folds  # The status reads no fold: the cluster sizes do not enter.
     return cluster_inference_status(
         data.cluster,
         weights=data.weights if data.is_weighted else None,
@@ -2555,8 +2557,9 @@ class LTMLE:
             raise ValueError(
                 "msm= with n_folds > 1 is not supported. Cross-fitted longitudinal MSM "
                 "coefficient inference needs a dedicated unsaturated projection property "
-                "and repeated-sampling study before it can be reported. Pass n_folds=1 "
-                "for the evidenced in-sample longitudinal MSM construction."
+                "and repeated-sampling study before it can be reported; docs/roadmap.md "
+                "X27 tracks this work. Pass n_folds=1 for the evidenced in-sample "
+                "longitudinal MSM construction."
             )
 
     @staticmethod
@@ -2613,9 +2616,10 @@ class LTMLE:
         every estimate takes the ``"few_cluster_plugin"`` status, as a point-treatment fit
         does.  From that count up to
         :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` it reports Student t
-        intervals with ``J - 2`` degrees of freedom.
+        intervals with ``J - 2`` degrees of freedom, in sample and cross-fitted.
         The point estimate stands.  The inference reference, section *Clusters*, gives
-        the reason.  ``id=`` is taken in sample only.
+        the reason.  Under cross-fitting the outer split is drawn whole-cluster and the
+        Super Learner folds inside each regression are grouped on the same labels.
 
         Parameters
         ----------
@@ -2703,12 +2707,17 @@ class LTMLE:
         # mechanism was evaluated at cannot disagree about what the regimen assigned.
         plans = resolve_plans(regimens, prepared)
 
-        self._refuse_cross_fitted_design(prepared)
+        self._refuse_unbounded_cross_fitted_scale(prepared)
         if self.n_bootstrap and self.bootstrap_resampling == "cluster" and prepared.cluster is None:
             # The refusal ``run_bootstrap`` would raise after the fit, raised before any
             # learner.
             raise ValueError("resampling='cluster' requires the data to carry cluster ids")
         folds = self._folds(prepared)
+        # Checked at the call site rather than inside ``_folds``, so that a subclass that
+        # draws its own split is held to the same rule: a cluster split across folds puts a
+        # unit's own cluster in the training fold of the rows it predicts.  A no-op without
+        # clusters.
+        check_integrity(folds, cluster=prepared.cluster)
         scaler = self._scaler(prepared)
         # A cumulative path probability is not a point-treatment propensity.  There is no
         # automatic rule here: the constructor default is the visible fixed R ``ltmle``
@@ -3143,30 +3152,19 @@ class LTMLE:
             f"{[regimen.label for regimen in regimens]}"
         )
 
-    def _refuse_cross_fitted_design(self, data: LongitudinalData) -> None:
-        """Refuse the cross-fitted designs this package has no result for.
+    def _refuse_unbounded_cross_fitted_scale(self, data: LongitudinalData) -> None:
+        """Refuse a cross-fitted continuous outcome without a declared ``q_bounds``.
 
-        Both facts are about the data rather than the declaration, so neither can be
-        asked at construction: ``family`` may be inferred from the outcome, and ``id=``
-        is named when ``fit`` is called. Both are asked before the split is drawn, so a
-        refused design pays for no fold generation and no learner.
+        The family is a fact about the data rather than the declaration, so it cannot be
+        asked at construction: ``family`` may be inferred from the outcome. It is asked
+        before the split is drawn, so a refused design pays for no fold generation and no
+        learner.
 
-        A single-fold fit is left alone in each case. It trains on every row, so there is
-        no held-out row whose outcome sets the scale it is scored on, and no fold boundary
-        for a cluster to be split across.
+        A single-fold fit is left alone. It trains on every row, so there is no held-out
+        row whose outcome sets the scale it is scored on.
         """
         if self.n_folds <= 1:
             return
-        if data.cluster is not None:
-            raise LongitudinalError(
-                "cross-fitted longitudinal TMLE has no clustered result. A grouped draw "
-                "keeps each cluster whole, and the package has not written the "
-                "cluster-summed variance of the targeted recursion under one; "
-                "docs/roadmap.md X25 tracks this work. "
-                "Fit in sample (CrossFitting(enabled=False), or "
-                "n_folds=1 on the engine), which reports a cluster-robust variance, or "
-                "drop id= from fit."
-            )
         if data.family != "binomial" and self.q_bounds is None:
             raise LongitudinalError(
                 f"a cross-fitted longitudinal fit of a continuous outcome "
@@ -3183,7 +3181,9 @@ class LTMLE:
     def _folds(self, data: LongitudinalData) -> Folds:
         """One unstratified draw of the outer split, or the in-sample single fold.
 
-        The split reads ``n`` and the seed and nothing else.  It used to be stratified on
+        The split reads ``n``, the seed and, with ``id=``, the cluster labels, and nothing
+        else.  With ``id=`` the draw is grouped: every cluster lands whole in one fold, so a
+        validation fold shares no cluster with its training complement.  It used to be stratified on
         the first treatment node, which made the assignment a function of the treatment
         the fit then conditions on; what that stratification bought -- every training
         complement carrying every first-node arm -- is now *checked* on the realized draw
@@ -3231,9 +3231,10 @@ def bootstrap_design_kind(
     """The design kind a registered bootstrap study could license, or ``None``.
 
     A kind is ``"<outcome>/<fit>"``: the outcome ``end_of_study`` or ``survival``, and the fit
-    ``in_sample``, ``cross_fit`` or ``cluster``.  Only a binary outcome, static regimens, one
-    event and no weights or working model have a kind; every other fit returns ``None``, which
-    no study licenses.
+    ``in_sample``, ``cross_fit``, ``cluster`` (clustered, in sample) or ``cluster_cross_fit``
+    (clustered, cross-fitted, whose replicates redraw a grouped split).  Only a binary outcome,
+    static regimens, one event and no weights or working model have a kind; every other fit
+    returns ``None``, which no study licenses.
 
     Parameters
     ----------
@@ -3261,7 +3262,7 @@ def bootstrap_design_kind(
         return None
     outcome = "survival" if data.is_survival else "end_of_study"
     if data.cluster is not None:
-        fit = "cluster"
+        fit = "cluster_cross_fit" if folds.n_folds > 1 else "cluster"
     elif folds.n_folds > 1:
         fit = "cross_fit"
     else:

@@ -260,7 +260,7 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "registered study measures an interval below those counts. The point estimate "
                 "stands. The plug-in standard error of the reported curve remains as a "
                 "diagnostic under plugin_std_error and plugin_interval, which use the normal "
-                "reference. F28 in docs/roadmap.md owns fits with fewer clusters and the open "
+                "reference. F28 in docs/roadmap.md owns fits below their floor and the open "
                 "small-sample work."
             ),
             assessment_note=(

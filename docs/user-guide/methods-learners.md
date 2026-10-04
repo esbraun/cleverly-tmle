@@ -157,10 +157,10 @@ candidate, before an estimator variant multiplies it again. The examples in this
 `n_folds=5, learner_folds=3` to stay quick to run, which is not a recommendation for an analysis.
 
 Keep all rows from one declared cluster in the same fold. A grouped draw does that by permuting the
-distinct cluster labels and cutting them into near-equal parts. Ordinary TMLE and DR-TMLE accept
-`id=` under cross-fitting. C-TMLE refuses `id=` at every setting, and longitudinal TMLE refuses it
-above one fold. Cross-fitting reduces empirical-process bias. It does not establish positivity,
-correct identification, or nuisance consistency.
+distinct cluster labels and cutting them into near-equal parts. Ordinary TMLE, DR-TMLE and
+longitudinal TMLE accept `id=` under cross-fitting. C-TMLE refuses `id=` at every setting.
+Cross-fitting reduces empirical-process bias. It does not establish positivity, correct
+identification, or nuisance consistency.
 
 Four fold declarations are refused by name. A blocked temporal split needs a row-level time
 ordering that no design role carries. A rolling-origin split nests its training sets, so no single

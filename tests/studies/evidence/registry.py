@@ -364,9 +364,11 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as CANONICAL_WEIGHTED_LTMLE_CROSSFIT,
     )
     from tests.studies.canonical_weighted_tmle import STUDY as CANONICAL_WEIGHTED_TMLE
+    from tests.studies.clustered_crossfit_ltmle import STUDY as CLUSTERED_CROSSFIT_LTMLE
     from tests.studies.clustered_few_cluster_tmle import STUDY as CLUSTERED_FEW_CLUSTER_TMLE
     from tests.studies.clustered_unequal_cvtmle import STUDY as CLUSTERED_UNEQUAL_CVTMLE
     from tests.studies.default_bands import STUDY as DEFAULT_SIMULTANEOUS_BANDS
+    from tests.studies.few_cluster_crossfit_ltmle import STUDY as FEW_CLUSTER_CROSSFIT_LTMLE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
     from tests.studies.fold_targeted_cvtmle import STUDY as FOLD_TARGETED_CVTMLE
     from tests.studies.learned_rule_cvtmle import STUDY as LEARNED_RULE_CVTMLE
@@ -387,6 +389,8 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_CLUSTERED_TMLE,
         CLUSTERED_UNEQUAL_CVTMLE,
         CLUSTERED_FEW_CLUSTER_TMLE,
+        CLUSTERED_CROSSFIT_LTMLE,
+        FEW_CLUSTER_CROSSFIT_LTMLE,
         FOLD_EVALUATED_CVTMLE,
         FOLD_TARGETED_CVTMLE,
         REPEATED_CROSSFIT_TMLE,

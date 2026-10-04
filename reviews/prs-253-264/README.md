@@ -56,14 +56,28 @@ The detailed reports name the relevant drivers and the inspected hooks. Current 
 contrast cells use untransformed level inputs; their bootstrap ratio cells are not exercised.
 The diagnostic readers are outside the registered computation. The cluster studies use only
 positive weights. These facts make study regeneration unnecessary for the confirmed fixes.
-All committed canonical artifacts remain unchanged.
+All canonical artifacts match the PR base.
+
+PR 265 merged while the full review suite ran. The integration preserves its shipped
+clustered cross-fitted LTMLE and its X27 refusal. The corrected verdict table retains the
+10-cluster point-treatment floor and 20-cluster longitudinal floor. Its two-positive-mass-fold
+requirement explicitly describes point-treatment fold reports; longitudinal targeting is pooled.
+The new `clustered-cross-fitted-ltmle` and `few-cluster-cross-fitted-ltmle` drivers do not
+exercise the changed input-scale composition or correction readers. The independent integration
+review finds no required numerical source correction or study regeneration.
 
 Validation runs use the dedicated worktree. The local launcher binds the process and inherited
 workers to two logical CPUs, sets BLAS and OpenMP thread limits to one, and limits xdist to two workers.
 The original checkout and its editable installation remain untouched.
 
-The full fast suite before integrating PR 265 passes: 15,675 passed and 235 skipped.
-The 55 new regressions include nine old-index mutation controls. Ruff lint and whole-tree
-formatting pass. Mypy passes for 106 source files. The prose ledger has no undecided findings.
-The documentation build passes with warnings treated as errors, including the final bootstrap
-field description. The independent reviewer closes every implementation finding.
+| gate | result |
+| --- | --- |
+| full fast suite before PR 265 integration | 15,675 passed, 235 skipped |
+| focused integration suite | 235 passed, including longitudinal cluster-status propagation and all three new regression modules |
+| new regression instruments | 55 passed, including nine old-index mutation controls |
+| Ruff lint and whole-tree formatting after integration | pass; 900 files formatted |
+| Mypy after integration | pass; 106 source files |
+| whole prose ledger refresh | 3 judged findings, 0 undecided; no ledger changes |
+| documentation build after integration | pass with warnings treated as errors |
+
+The independent reviewer closes every implementation finding and approves the integration.

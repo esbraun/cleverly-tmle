@@ -363,8 +363,8 @@ def test_a_crossfit_refuses_a_training_fold_without_every_level() -> None:
         ).fit(frame, **COLUMNS)
     message = str(caught.value)
     assert (
-        "The split reads none of the data, so trying fold counts or seeds until one "
-        "fits would choose the partition by the values it must not read." in message
+        "The split reads no treatment, outcome or covariate, so trying fold counts or "
+        "seeds until one fits would choose the partition by the values it must not read." in message
     )
     assert (
         "Fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine), or collect "
@@ -431,8 +431,8 @@ def test_a_binary_node_keeps_the_degenerate_fold_fallback() -> None:
         ).fit(frame, **COLUMNS)
     message = str(caught.value)
     assert (
-        "The split reads none of the data, so trying fold counts or seeds until one "
-        "fits would choose the partition by the values it must not read." in message
+        "The split reads no treatment, outcome or covariate, so trying fold counts or "
+        "seeds until one fits would choose the partition by the values it must not read." in message
     )
     assert (
         "Fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine), or choose a "

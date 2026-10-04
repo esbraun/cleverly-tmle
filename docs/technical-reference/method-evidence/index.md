@@ -40,6 +40,8 @@ stacked-point-treatment-cv-tmle
 clustered-point-treatment-cv-tmle
 clustered-unequal-cv-tmle
 clustered-few-cluster-tmle
+clustered-cross-fitted-longitudinal-tmle
+few-cluster-cross-fitted-longitudinal-tmle
 fold-evaluated-point-treatment-cv-tmle
 fold-targeted-point-treatment-cv-tmle
 repeated-cross-fitting

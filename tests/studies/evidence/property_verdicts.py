@@ -1500,3 +1500,48 @@ def finish(summary: pd.DataFrame, rates: list[dict[str, Any]]) -> pd.DataFrame:
     joint = summary["property_passed"]
     summary["property_passed"] = joint.where(joint.notna(), summary["passed"]).astype(bool)
     return summary.sort_values(["property", "cell"], ignore_index=True)
+
+
+#: The ``few_cluster_reference`` family, and what its ``iid_t_control`` SE-ratio upper bound
+#: must fall below.
+FEW_CLUSTER_FAMILY = "few_cluster_reference"
+FEW_CLUSTER_IID_CONTROL_CEILING = 0.80
+
+
+def few_cluster_reference_verdicts(
+    summary: pd.DataFrame, rows: pd.DataFrame, record: StudyRecord
+) -> None:
+    """The positive, control and reported rules of every ``few_cluster_reference`` cell.
+
+    A ``t_reference`` arm (positive) needs the 99% exact coverage lower bound at the coverage
+    floor and the bias inside the equivalence margin. An ``iid_t_control`` arm (control) needs
+    its SE-ratio upper bound below :data:`FEW_CLUSTER_IID_CONTROL_CEILING`. A diagnostic arm
+    states no verdict. Every cell publishes its SE-ratio interval, because at few clusters
+    excess width is as likely as under-coverage. ``clustered-few-cluster-tmle`` and
+    ``few-cluster-cross-fitted-ltmle`` both read this one rule.
+    """
+    margins = record.margins
+    family = summary["property"] == FEW_CLUSTER_FAMILY
+    for index in summary.index[family.to_numpy()]:
+        cell = str(summary.loc[index, "cell"])
+        role = str(summary.loc[index, "role"])
+        group = rows.loc[(rows["property"] == FEW_CLUSTER_FAMILY) & (rows["cell"] == cell)]
+        ratio = se_ratio_interval(
+            group,
+            replicates=margins.bootstrap_replicates,
+            confidence_level=margins.confidence_level,
+            seed=stream_seed(record, FEW_CLUSTER_FAMILY, cell),
+            truth_varies=False,
+        )
+        summary.loc[index, "se_ratio_ci_lower"] = ratio.low
+        summary.loc[index, "se_ratio_ci_upper"] = ratio.high
+        if role == "positive":
+            summary.loc[index, "passed"] = bool(
+                summary.loc[index, "coverage_ci_lower"] >= margins.coverage_floor
+                and summary.loc[index, "bias_equivalent"]
+            )
+        elif role == "control":
+            summary.loc[index, "passed"] = bool(ratio.high < FEW_CLUSTER_IID_CONTROL_CEILING)
+        else:
+            summary.loc[index, "passed"] = True
+        summary.loc[index, "property_passed"] = summary.loc[index, "passed"]

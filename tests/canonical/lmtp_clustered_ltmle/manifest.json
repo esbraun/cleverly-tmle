@@ -1,0 +1,141 @@
+{
+  "schema_version": 2,
+  "study": "clustered cross-fitted end-of-study longitudinal TMLE",
+  "slug": "clustered-cross-fitted-ltmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-clustered-cross-fitted-ltmle",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "7cf13c124c77891d0f465a37d5748142281192cc",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": {
+      "implementation": "lmtp",
+      "lmtp_version": "1.5.4",
+      "lmtp_source_commit": "f04a2b47f46debc515ce4ae778e05ebfde922c44",
+      "lmtp_tarball_sha256": "fd49d9f291d4ddabb78c36d152b25aaa234a7204b645b9921f998c152e3d2ba5",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "ife_version": "0.2.3",
+      "ife_sha256": "b6be1e9ba514db95118e425d2f78deabb2c9f745f44f35a301ff9b5f266d5ed2"
+    }
+  },
+  "configuration": {
+    "replicates": 1600,
+    "n": 4000,
+    "seed": 20262511,
+    "resampling_seed": 20262512,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "clustered_end_of_study": [
+        "ey_regimen[never]",
+        "ey_regimen[always]",
+        "ey_regimen[treat then continue if l2 positive]",
+        "ate_regimen[always vs never]",
+        "ate_regimen[treat then continue if l2 positive vs never]"
+      ]
+    },
+    "construction": "pooled_cross_fit",
+    "reference_construction": "training_fold_fluctuation",
+    "outcome_kind": "end_of_study",
+    "horizon_mode": "terminal_only",
+    "r_survival_outcome": false,
+    "cross_fit": true,
+    "outer_folds": 5,
+    "folds": "grouped random_partition folds from the cluster labels and random_state=0; R lmtp receives the realized assignment",
+    "learner_folds": 2,
+    "clusters_per_draw": 100,
+    "cluster_size": 40,
+    "law": "make_longitudinal with a mean-zero cluster component on the final outcome, delta = 0.95, a Rademacher latent per cluster and first-node arm",
+    "simultaneous_intervals": false,
+    "variance_method": "ic, summed within clusters",
+    "reference_variance": "ife cluster means, equal to cluster sums at equal sizes",
+    "g_bounds": [
+      1e-08,
+      1.0
+    ],
+    "regimens": [
+      "never",
+      "always",
+      "treat then continue if l2 positive"
+    ],
+    "outcome_designs": [
+      [
+        "W1",
+        "W2"
+      ],
+      [
+        "W1",
+        "W2",
+        "L2"
+      ]
+    ],
+    "mechanism": "supplied_from_the_law_to_both",
+    "reference_density_ratios": "exact_per_node",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/clustered_crossfit_ltmle.py": "cf491f0a8011b1ddb98c7f446f8fc5e21865bcb6534801b6da87127a8105758e",
+    "tests/studies/clustered_crossfit_ltmle_properties.py": "8fdcaa0a9d6ce447b88e0c7b662345ed266876dc78a15301804838db0e95bedc",
+    "tests/studies/clustered_longitudinal_laws.py": "f9ffea2dcb0b7f38bf1dd1c3fe9401fe1b120d4904878ad23cab18259c90bb53",
+    "tests/studies/canonical_ltmle_crossfit.py": "d2ba645600b5aa9d77e12ab16737b9145e99d7d5d90960ba79a25fca0d4fc7b9",
+    "tests/studies/canonical_ltmle_survival_crossfit.py": "7a22299721d552d007b424fc27ab16ae9b463b2d90d9552ba738b38f533738bc",
+    "tests/studies/canonical_ltmle.py": "db44a0fabb57fc19f37e94b9229f1f425de28745d6b109d4d1600eb60d0678f1",
+    "tests/studies/canonical_clustered_tmle.py": "752594589f74bbdf3667a80d6eb88ea3eb6f22f1af0e3e2ccfd1e5305771c9a0",
+    "tests/studies/fractional_glm.py": "5570ff1756acad859e627be9d155e1b43f789ffb8626ac3c53a049bb0662488e",
+    "tests/studies/evidence/comparison.py": "653c091f0c1cd240b41e4ed7026da8f67c0feda58404e7c27e80eabab38a2217",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "9c8e6a923bb16fd6637dbec77492c43aef29d9a5f825799a20ce5002ca5e9590",
+    "tests/studies/evidence/property_verdicts.py": "7ae8f5de8bdf68b62fb0ab9e1aca3dc17a0766f3009c08117f563a390ba49273",
+    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
+    "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15",
+    "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+    "tests/canonical/lmtp_crossfit_adapter.R": "6ea0d48d3143222f0342ea49fde84affa0740ba668fbdb874f5f0919d31e97b6",
+    "tests/canonical/lmtp_clustered_ltmle/run_study.R": "ceb4ef62888eea11393ca43164fc174a173ab78416bdab822a371d5c39acc0e8"
+  },
+  "reference_sha256": {
+    "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+    "tests/canonical/lmtp_clustered_ltmle/run_study.R": "ceb4ef62888eea11393ca43164fc174a173ab78416bdab822a371d5c39acc0e8",
+    "tests/canonical/lmtp_crossfit_adapter.R": "6ea0d48d3143222f0342ea49fde84affa0740ba668fbdb874f5f0919d31e97b6",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878",
+    "tests/canonical/ltmle_regimen_adapter.R": "d0edd452d315cb6b3c19e4c1ef4794a618031d6f2a9a3f13ec5a7b08b45362c6"
+  },
+  "sha256": {
+    "replicates.csv.gz": "0f4187d689ea65bc2c4a4aa3f9fde76cadb0438ba394b1efd88e1d30daf08fa5",
+    "summary.csv": "78a4971bf642b8c3ac3488f5131b043843a5a19d72665b398bd776649261f203",
+    "equivalence.csv": "751564f7060ca194fa344ec49bcae1d3d505c5d30af8a4ee25140091cc411a97",
+    "performance-tests.csv": "1787638d781e825ab80c7aaec0e83ab9e2beeb3242add003fb426ffb4e11eaa1",
+    "property-replicates.csv.gz": "9c6f19e9510808b74e978994d8388aebe9ee69517ce61b2e68598f836e4f18f3",
+    "properties.csv": "6fc538ce685fc9190a9e2e2238b055cefdfbdee8ce88c4a72ca0ded442622d20"
+  }
+}

@@ -1,16 +1,18 @@
-"""An in-sample clustered ``LTMLE`` fit withholds its interval below 20 clusters.
+"""A clustered ``LTMLE`` fit withholds its interval below 20 clusters.
 
-The point-treatment few-cluster status applies to the longitudinal path too. A fit
-with fewer than :data:`~cleverly._inference_status.MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS` clusters with
-positive weight mass stamps ``"few_cluster_plugin"`` on every mean, contrast and MSM
-coefficient, and F28 owns those fits. From 20 to 39 such clusters every estimate keeps
-its interval on a Student t reference with ``J - 2`` degrees of freedom. ``LTMLE`` refuses
-``id=`` above one fold until X25 ships, so the in-sample fit is the whole surface.
+The point-treatment few-cluster status applies to the longitudinal path too, with the floor of
+:data:`~cleverly._inference_status.MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS`. A fit with fewer
+positive-mass clusters stamps ``"few_cluster_plugin"`` on every mean, contrast and MSM
+coefficient, and F28 owns those fits. From 20 to 39 such clusters every estimate keeps its
+interval on a Student t reference with ``J - 2`` degrees of freedom. The witness and the control
+run in sample and at five whole-cluster folds, for every kind but the working model, which
+``LTMLE`` refuses above one fold for every fit.
 
 Each kind of fit draws 400 rows from its law and passes the labels
 ``np.arange(400) * k // 400`` as ``id=``. Only the labels differ between the witness at 19
-clusters and the control at 20, so the point estimates are the same numbers, and only the
-status moves. Each mutation in :class:`TestTheMutationsFailTheWitness` must fail the check
+clusters and the control at 20. In sample the point estimates are the same numbers, and only
+the status moves. A grouped split reads the labels, so at five folds the estimates move too.
+Each mutation in :class:`TestTheMutationsFailTheWitness` must fail the check
 its surface passes.
 """
 
@@ -93,34 +95,34 @@ def fit_end_of_study(k: int | None, *, weights: Any = None, **settings: Any) -> 
     )
 
 
-def fit_survival(k: int) -> Any:
+def fit_survival(k: int, **settings: Any) -> Any:
     """One event at two horizons: four risks and two contrasts."""
     frame, _ = make_longitudinal_survival(n=N, seed=2)
     frame = frame.assign(cluster=labels(N, k))
-    return LTMLE({"always": 1, "never": 0}, reference="never", **learners()).fit(
+    return LTMLE({"always": 1, "never": 0}, reference="never", **learners(**settings)).fit(
         frame, **SURVIVAL, id="cluster"
     )
 
 
-def fit_competing(k: int) -> Any:
+def fit_competing(k: int, **settings: Any) -> Any:
     """Two causes at two horizons: eight incidences and four contrasts."""
     frame, _ = make_longitudinal_competing(n=N, seed=3)
     frame = frame.assign(cluster=labels(N, k))
-    return LTMLE({"always": 1, "never": 0}, reference="never", **learners()).fit(
+    return LTMLE({"always": 1, "never": 0}, reference="never", **learners(**settings)).fit(
         frame, **COMPETING, id="cluster"
     )
 
 
-def fit_msm(k: int) -> Any:
+def fit_msm(k: int, **settings: Any) -> Any:
     """A working model over the regimens: an intercept and a duration coefficient."""
     frame, _ = make_longitudinal(n=N, seed=0)
     frame = frame.assign(cluster=labels(N, k))
-    return LTMLE({"always": 1, "never": 0}, msm=DOSE, **learners()).fit(
+    return LTMLE({"always": 1, "never": 0}, msm=DOSE, **learners(**settings)).fit(
         frame, outcome="Y", **NODES, id="cluster"
     )
 
 
-FITS: dict[str, Callable[[int], Any]] = {
+FITS: dict[str, Callable[..., Any]] = {
     "end of study": fit_end_of_study,
     "survival": fit_survival,
     "competing risks": fit_competing,
@@ -130,19 +132,42 @@ FITS: dict[str, Callable[[int], Any]] = {
 ONE_ZERO_MASS_CLUSTER = {"weights": lambda cluster: (cluster >= 1).astype(float)}
 
 
-@pytest.fixture(scope="module", params=list(FITS))
-def kind(request: pytest.FixtureRequest) -> str:
-    return str(request.param)
+#: The outer fold counts of the witness and the control: in sample, and five whole-cluster
+#: folds. The working model is refused above one fold, so it runs in sample only.
+DESIGNS = [(kind, 1) for kind in FITS] + [(kind, 5) for kind in FITS if kind != "msm"]
+
+
+def floor(n_folds: int) -> int:
+    """The interval floor of a fit: 20, in sample and cross-fitted (the measured counts)."""
+    del n_folds
+    return MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
+
+
+@pytest.fixture(scope="module", params=DESIGNS, ids=[f"{k}-{f} fold(s)" for k, f in DESIGNS])
+def design(request: pytest.FixtureRequest) -> tuple[str, int]:
+    return request.param  # type: ignore[no-any-return]
 
 
 @pytest.fixture(scope="module")
-def few_result(kind: str) -> Any:
-    return FITS[kind](MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1)
+def kind(design: tuple[str, int]) -> str:
+    return design[0]
 
 
 @pytest.fixture(scope="module")
-def control_result(kind: str) -> Any:
-    return FITS[kind](MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS)
+def few_result(design: tuple[str, int]) -> Any:
+    kind, n_folds = design
+    with warnings.catch_warnings():
+        # Nine clusters cap no fold count of five; the filter keeps a learner warning quiet.
+        warnings.simplefilter("ignore")
+        return FITS[kind](floor(n_folds) - 1, n_folds=n_folds)
+
+
+@pytest.fixture(scope="module")
+def control_result(design: tuple[str, int]) -> Any:
+    kind, n_folds = design
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return FITS[kind](floor(n_folds), n_folds=n_folds)
 
 
 def assert_reports_withhold(result: Any, kind: str) -> None:
@@ -275,7 +300,9 @@ class TestFewClustersWithholdTheLongitudinalInterval:
 class TestTwentyClustersKeepTheLongitudinalInterval:
     """The second witness: the same rows in 20 clusters keep every interval, with t(18)."""
 
-    def test_the_estimates_keep_their_interval(self, control_result: Any, kind: str) -> None:
+    def test_the_estimates_keep_their_interval(
+        self, control_result: Any, kind: str, design: tuple[str, int]
+    ) -> None:
         assert_keeps_inference(control_result)
         if kind in CURVES:
             assert set(control_result.curve().columns) >= INFERENTIAL_COLUMNS - {"p_value"}
@@ -283,7 +310,7 @@ class TestTwentyClustersKeepTheLongitudinalInterval:
         if kind == "competing risks":
             assert "std_err" in control_result.incidence_total().columns
         assert NON_INFERENTIAL[FEW].reason not in control_result.summary()
-        assert {e.reference_df for e in control_result.estimates.values()} == {18}
+        assert {e.reference_df for e in control_result.estimates.values()} == {floor(design[1]) - 2}
 
     def test_the_default_bands_are_built_at_forty_clusters(self) -> None:
         result = fit_end_of_study(FEW_CLUSTER_THRESHOLD, simultaneous=True)
@@ -300,9 +327,15 @@ class TestTwentyClustersKeepTheLongitudinalInterval:
         assert {e.reference_df for e in result.estimates.values()} == {37}
 
     def test_the_cluster_count_moves_no_point_estimate(
-        self, few_result: Any, control_result: Any
+        self, few_result: Any, control_result: Any, design: tuple[str, int]
     ) -> None:
         assert list(few_result.estimates) == list(control_result.estimates)
+        if design[1] > 1:
+            # A grouped split reads the labels, so other labels draw other folds and move
+            # the point estimates. Only the in-sample fit isolates the status.
+            assert few_result.folds.origin.scheme == control_result.folds.origin.scheme
+            assert few_result.folds.origin.scheme == "grouped"
+            return
         for name, estimate in few_result.estimates.items():
             assert estimate.psi == control_result[name].psi
 

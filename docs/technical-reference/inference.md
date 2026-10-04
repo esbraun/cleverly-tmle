@@ -89,7 +89,7 @@ Every other status is a non-inferential status.
 | `"working_mechanism_plugin"` | a `CTMLE` fit with `strategy="greedy"`, `"ordered"`, or `"discrete"`. A `discrete` fit with one declared candidate, equal to the full adjustment set, takes the TMLE status instead. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `working-mechanism se` | [F18](../roadmap.md#f18-selector-path-c-tmle-inference) |
 | `"generated_design_plugin"` | every `CTMLE` fit with `strategy="oat"`, including a fit with `delta=` and a fit that requests one arm mean. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `generated-design se` | [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | `"estimated_weight_plugin"` | a `DRTMLE` fit with a non-empty `guard` and varying weights declared estimated (`weights_estimated=True`). A fit with `guard=()` keeps `"influence_curve"`. Constant weights fit the unweighted estimator, so they keep it too. [DR-TMLE supported estimands](dr-tmle/supported-estimands.md#refused-by-name) gives the reason | raise `CapabilityError` with the reason of the status | `fixed-weight se` | [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
-| `"few_cluster_plugin"` | a `TMLE` or `DRTMLE` fit with `id=` and fewer than 10 clusters with positive weight mass in the fit or one reported baseline stratum, or an `LTMLE` fit with fewer than 20. `LTMLE` takes `id=` in sample only. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `normal-reference se` | [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) |
+| `"few_cluster_plugin"` | a `TMLE` or `DRTMLE` fit with `id=` and fewer than 10 clusters with positive weight mass in the fit or one reported baseline stratum, or an `LTMLE` fit with fewer than 20. The `LTMLE` floor applies in sample and under cross-fitting. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `normal-reference se` | [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) |
 
 At every status, `plugin_std_error` and `plugin_interval` return the plug-in spread of the
 reported curve. On `"influence_curve"` they return the numbers of `std_error` and `ci` under names
@@ -188,10 +188,10 @@ evaluation rows. No derivation here covers its interval. Balkus, Laith and Hejaz
 split correlated units can still remove an empirical-process term under their conditions. Their
 result does not establish the variance of this package's estimators.
 
-Two estimators refuse `cluster=` rather than draw that split. Collaborative TMLE refuses it at
-every setting, and longitudinal TMLE refuses it above one fold. The
-[fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) give the audit and both
-messages.
+Collaborative TMLE refuses `cluster=` at every setting rather than draw that split. The
+[fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) give the audit and the
+message. Longitudinal TMLE draws whole-cluster folds, and
+[longitudinal clusters](longitudinal-tmle.md#clusters) states its step.
 
 The estimand is the row-weighted mean $\mu_I$ of Wang, Park, Small and Li (2024), Section 2,
 with every row of a cluster in the analysed population. A row-level treatment keeps row-level
@@ -285,7 +285,8 @@ count that the registered few-cluster study measures for that fit
 status is
 determined from prepared cluster labels, strata, and weights, without reading a fitted quantity.
 A fit has one status, so one stratum below the floor withholds the interval of every estimate.
-The rule applies to the in-sample `LTMLE` fit too, whose data hold no baseline strata.
+The rule applies to the in-sample and the cross-fitted `LTMLE` fit too, whose data hold no
+baseline strata.
 
 The rule counts contributing clusters, and it reads no row count. So 30 rows with `id=` and one
 row in each cluster report $t_{28}$ intervals, and the same rows without `id=` use the normal
