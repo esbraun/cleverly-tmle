@@ -144,6 +144,14 @@ ARMS: dict[str, str] = {
     "cross_fitted_msm": "the two terms of the cross-fitted longitudinal MSM projection",
     "duration_logit": "the treatment-duration coefficient of a logit working model",
     "mix": "the contrast of the known policy mix against the label low",
+    "up": "the contrast of the shift up at both nodes against the natural course",
+    "classifier_route": "the up contrast with its ratio estimated by classification",
+    "categorical_mtp": "the minus-one policy contrast on the six-level law",
+    "vector_node": "the vector-node policy contrast on two binary components",
+    "randomized_mtp": "the contrast of a randomized node-2 shift against the natural course",
+    "survival_mtp_h2": "the cumulative risk at t = 2 of a policy plan on the survival law",
+    "msm_mtp": "the dose coefficient of a working model over three continuous plans",
+    "history": "the contrast of the history-reading plan against the natural course",
     "policy_risk_h2": "the cumulative risk at t = 2 of a known policy on the survival law",
     "msm_policy": "the dose coefficient of a working model over low, mix and taper",
     "primary": "the five primary estimands of the known-policy study",
@@ -343,6 +351,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     ),
     "cleverly-cross-fitted-categorical-ltmle": "`cleverly` cross-fitted categorical LTMLE",
     "cleverly-cross-fitted-ltmle-msm": "`cleverly` cross-fitted longitudinal MSM projection",
+    "cleverly-mtp-ltmle": "`cleverly` LTMLE under modified treatment policies",
     "cleverly-stochastic-categorical-ltmle": (
         "`cleverly` ordinary LTMLE under known stochastic categorical policies"
     ),
@@ -477,6 +486,10 @@ SCENARIOS: dict[str, str] = {
         "selected two-time-point law with monotone censoring and fixed observation weights"
     ),
     "categorical_end_of_study": "two-time-point law with three treatment levels at both nodes",
+    "mtp_continuous": "two-node law with a truncated-normal dose at both nodes",
+    "mtp_continuous_crossfit": ("the two-node continuous-dose law, cross-fitted over five folds"),
+    "mtp_categorical": "two-node law with six integer treatment levels at both nodes",
+    "rr_tilt": "two-node law with a binary treatment at both nodes",
     "categorical_policy_end_of_study": (
         "the three-level law with known stochastic policies at both nodes"
     ),
@@ -602,6 +615,18 @@ ESTIMANDS: dict[str, str] = {
 REGIMENS: dict[str, str] = {
     "always": "treat at both times",
     "mix": "draw each arm from a known policy at both times",
+    "natural": "leave the observed dose unchanged at both times",
+    "up": "add 0.5 to the dose at both times, capped at 5.5",
+    "scale at 2": "multiply the second dose by 1.25, capped at 5.5",
+    "up then history": (
+        "add 0.5 to the first dose, then add 0.5 to the second where the first exceeds 3"
+    ),
+    "minus one": "lower the level by one at both times wherever it stays at least one",
+    "gated": "lower the second level by one where L2 equals one",
+    "rr 0.5": "keep each treated unit treated with probability 0.5 at both times",
+    "random at 2": "add 0.5 to the second dose with probability 0.5",
+    "vector": "set the second component to zero where both components are one",
+    "mtp": "risk-ratio tilt 0.5 first, then treat where L2 equals one",
     "taper": "assign the high arm first, then draw from a known policy",
     "continue_if_l2": "treat first, then continue if L2 equals one",
     "high": "assign the high arm at both times",
@@ -641,11 +666,11 @@ PARAMETERISED: dict[str, str] = {
     "or_regimen": "odds ratio, with inference on the log scale, between the plans",
     "ate_ipsi": "difference in means under the incremental interventions",
     "ate_regime": "difference in means under the regimes",
-    "ate_shift": "difference in means under the modified treatment policies",
+    "ate_policy": "difference in means under the modified treatment policies",
     "ey_ipsi": "mean under the incremental intervention",
     "ey_learned_rule": "fold average of the value of the rule",
     "ey_regime": "mean under the regime",
-    "ey_shift": "mean under the modified treatment policy",
+    "ey_policy": "mean under the modified treatment policy",
 }
 
 
@@ -722,6 +747,9 @@ PROPERTIES: dict[str, str] = {
     ),
     "density_necessity": "the declared stochastic intervention density determines the target",
     "policy_necessity": "the declared longitudinal policy densities determine the target",
+    "inverse_necessity": (
+        "the declared inverse of a policy piece enters the density ratio of Equation (3)"
+    ),
     "randomizer_projection": (
         "the integrated policy estimator is the projection of the estimator that records the "
         "randomizer, so its spread is no larger"
@@ -1325,6 +1353,18 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("categorical_probability_necessity", "binary_complement"): (
         "the same fit replaces the third arm's probability with a binary complement",
         "bias interval must fall entirely outside the margin",
+    ),
+    ("inverse_necessity", "declared_inverse"): (
+        "the density ratio reads each piece at its declared inverse",
+        "bias interval inside the equivalence margin",
+    ),
+    ("inverse_necessity", "inverse_dropped_control"): (
+        "the same fit reads each moving piece at the dose itself",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("crossfit_overfitting", "cross_fitted_mtp_ltmle"): (
+        "five-fold policy LTMLE with fully grown outcome trees",
+        "SE ratio clears the overfitting floor and stays inside the sanity band",
     ),
     ("policy_necessity", "declared_policy"): (
         "the recursion integrates over the declared policy at each node",
