@@ -95,11 +95,7 @@ def test_no_provenance_revision_outlives_the_manifest_it_explains() -> None:
     recorded: dict[str, set[str]] = {}
     for study in STUDIES:
         manifest = json.loads(study.artifact("manifest.json").read_text(encoding="utf-8"))
-        # A study module is declared here too, when a post-run edit is result-neutral.
-        for name, digest in {
-            **manifest["reference_sha256"],
-            **manifest.get("study_module_sha256", {}),
-        }.items():
+        for name, digest in manifest["reference_sha256"].items():
             recorded.setdefault(name, set()).add(digest)
     for (name, digest), current in _revisions().items():
         assert digest in recorded.get(name, set()), (
