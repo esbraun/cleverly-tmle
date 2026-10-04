@@ -20,8 +20,8 @@ replaced the plan's first pilot rule.
 | `unequal_informative` | uniform on 2 to 18, in the outcome | $\mu_I$ |
 | `unequal_informative_cluster_average` | the samples of `unequal_informative`, with weights one over the size | $\mu_C$ |
 
-The study has no comparator. Of the pinned implementations only R `ltmle` aggregates a clustered
-curve by cluster sums, and it does not cross-fit. The
+No canonical implementation is compared. Of the pinned implementations only R `ltmle`
+aggregates a clustered curve by cluster sums, and it does not cross-fit. The
 [cluster survey](../../development/method-benchmarking.md) records each comparator.
 
 ## What was fitted
@@ -113,6 +113,16 @@ beside the cluster sum.
 | `margin:calibration_coverage_upper` | 0.9800 | cluster-robust coverage upper limit |
 | `margin:iid_control_se_ceiling` | 0.8000 | IID-control SE-ratio ceiling |
 | `margin:clustered_coverage_gain` | 0.0300 | paired coverage-gain floor |
+| `margin:paired_difference` | 0.1500 | paired similarity margin, in pooled empirical standard deviations. No cell of this study reads it |
+| `margin:coverage_noninferiority` | -0.0250 | smallest external-comparison coverage difference bound. No cell of this study reads it |
+| `margin:rmse_noninferiority` | 1.1000 | largest external-comparison RMSE ratio bound. No cell of this study reads it |
+| `margin:calibration_noninferiority` | 0.0500 | largest external-comparison calibration excess bound. No cell of this study reads it |
+| `margin:root_n_slope` | -0.5000 | contraction rate root-n asymptotics predict. No cell of this study reads it |
+| `margin:root_n_slope_lower` | -0.6250 | accepted root-n slope band, lower limit. No cell of this study reads it |
+| `margin:root_n_slope_upper` | -0.3750 | accepted root-n slope band, upper limit. No cell of this study reads it |
+| `margin:excluded_slope` | -0.2500 | slower rate a root-n interval must exclude. No cell of this study reads it |
+| `margin:type_i_ceiling` | 0.1000 | largest supported type-I rate. No cell of this study reads it |
+| `margin:minimum_power` | 0.8000 | rejection lower bound a power cell must clear. No cell of this study reads it |
 
 ## Limits
 

@@ -201,6 +201,16 @@ The run publishes seven red cells under the `reporting` policy, and
 | `margin:coverage_noninferiority` | -0.0250 | smallest external-comparison coverage difference bound |
 | `margin:rmse_noninferiority` | 1.1000 | largest external-comparison RMSE ratio bound |
 | `margin:calibration_noninferiority` | 0.0500 | largest external-comparison calibration excess bound |
+| `margin:calibration_se_ratio_lower` | 0.9300 | calibration-cell SE-ratio band, lower limit. No cell of this study reads it |
+| `margin:calibration_se_ratio_upper` | 1.0700 | calibration-cell SE-ratio band, upper limit. No cell of this study reads it |
+| `margin:calibration_coverage_lower` | 0.9200 | calibration-cell coverage band, lower limit. No cell of this study reads it |
+| `margin:calibration_coverage_upper` | 0.9800 | calibration-cell coverage band, upper limit. No cell of this study reads it |
+| `margin:root_n_slope` | -0.5000 | contraction rate root-n asymptotics predict. No cell of this study reads it |
+| `margin:root_n_slope_lower` | -0.6250 | accepted root-n slope band, lower limit. No cell of this study reads it |
+| `margin:root_n_slope_upper` | -0.3750 | accepted root-n slope band, upper limit. No cell of this study reads it |
+| `margin:excluded_slope` | -0.2500 | slower rate a root-n interval must exclude. No cell of this study reads it |
+| `margin:type_i_ceiling` | 0.1000 | largest supported type-I rate. No cell of this study reads it |
+| `margin:minimum_power` | 0.8000 | rejection lower bound a power cell must clear. No cell of this study reads it |
 
 ## Limits
 

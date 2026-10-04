@@ -342,6 +342,28 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "cleverly-learned-rule-cvtmle/exceptional/ey_learned_rule[learned rule]",
         "cleverly-learned-rule-cvtmle/weak_blip/ey_learned_rule[learned rule]",
     ),
+    # The finite-sample limits of clustered intervals: the fold-evaluated covariate pair of the
+    # unequal-size study, and the few-cluster study's unequal-size fold-evaluated bias cells and
+    # DR-TMLE IID controls.
+    "F28": (
+        *_keys(
+            "clustered-unequal-cvtmle",
+            "property",
+            "clustered_inference/cluster_robust_fold_evaluated_cluster_covariate",
+            "clustered_inference/iid_control_fold_evaluated_cluster_covariate",
+        ),
+        *_keys(
+            "clustered-few-cluster-tmle",
+            "property",
+            "few_cluster_reference/drtmle_crossfit__equal10__j10__iid_t_control",
+            "few_cluster_reference/drtmle_crossfit__equal10__j20__iid_t_control",
+            "few_cluster_reference/drtmle_crossfit__equal10__j30__iid_t_control",
+            "few_cluster_reference/drtmle_crossfit__unequal_informative__j10__iid_t_control",
+            "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j10__t_reference",
+            "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j20__t_reference",
+            "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j30__t_reference",
+        ),
+    ),
 }
 
 
