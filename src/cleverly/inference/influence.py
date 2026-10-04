@@ -1014,7 +1014,8 @@ class BootstrapSummary:
     n_replicates : int
         Replicates with a finite estimate.
     n_failed : int
-        Replicates that raised and were dropped.
+        Failed full refits. A derived parameter also counts requested draws with missing,
+        nonfinite, or out-of-domain derived values.
     draws : ndarray
         The finite replicate estimates.
     inferential : bool, default=True
