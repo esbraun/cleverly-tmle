@@ -84,14 +84,14 @@ The test fails on four states.
 | [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) | 6 | ordinary weighted end-of-study longitudinal TMLE |
 | [`RM18-comparator-density`](../../roadmap.md#red-cell-owners) | 1 | ordinary continuous modified treatment policies |
 | [`strata-boundary-mean`](../../roadmap.md#red-cell-owners) | 5 | ordinary point-treatment TMLE with baseline strata |
-| [`band-finite-sample`](../../roadmap.md#red-cell-owners) | 4 | ordinary survival-curve longitudinal TMLE, default simultaneous bands across shipped fit shapes |
+| [`band-finite-sample`](../../roadmap.md#red-cell-owners) | 5 | clustered cross-fitted end-of-study longitudinal TMLE, ordinary survival-curve longitudinal TMLE, default simultaneous bands across shipped fit shapes |
 | [`F4-calibration-draws`](../../roadmap.md#red-cell-owners) | 2 | randomized multi-arm missing-outcome DR-TMLE |
 | [`composite-high-arm`](../../roadmap.md#red-cell-owners) | 2 | observational missing-data DR-TMLE with a composite indicator |
 | [`X8-logit-small-stratum`](../../roadmap.md#red-cell-owners) | 2 | stratified incremental and MSM targeting |
 | [`X8-identity-small-stratum`](../../roadmap.md#red-cell-owners) | 2 | identity-link MSM with baseline strata |
 | [`X8-drtmle-one-sided-bias`](../../roadmap.md#red-cell-owners) | 4 | DR-TMLE with baseline strata |
 | [`X8-drtmle-small-stratum`](../../roadmap.md#red-cell-owners) | 3 | DR-TMLE with baseline strata |
-| [`F28`](../../roadmap.md#red-cell-owners) | 10 | clustered point-treatment CV-TMLE at unequal cluster sizes, clustered TMLE intervals on a t reference at few clusters, clustered cross-fitted end-of-study longitudinal TMLE |
+| [`F28`](../../roadmap.md#red-cell-owners) | 9 | clustered point-treatment CV-TMLE at unequal cluster sizes, clustered TMLE intervals on a t reference at few clusters |
 | [`X20-bootstrap`](../../roadmap.md#red-cell-owners) | 3 | full-refit bootstrap and derived contrasts |
 | total | 70 | 21 studies |
 <!-- /generated -->
@@ -129,7 +129,7 @@ same text as the "measured" column of its study page.
 | [clustered TMLE intervals on a t reference at few clusters](clustered-few-cluster-tmle.md) | property | `few_cluster_reference/tmle_cv_evaluation__unequal_informative__j10__t_reference` | positive | its own rule | bias 0.1146 to 0.1310, coverage 0.8940 to 0.9180, SE ratio 0.8297 to 0.8849 | [`F28`](../../roadmap.md#red-cell-owners) |
 | [clustered TMLE intervals on a t reference at few clusters](clustered-few-cluster-tmle.md) | property | `few_cluster_reference/tmle_cv_evaluation__unequal_informative__j20__t_reference` | positive | its own rule | bias 0.0528 to 0.0638, coverage 0.9078 to 0.9302, SE ratio 0.8994 to 0.9575 | [`F28`](../../roadmap.md#red-cell-owners) |
 | [clustered TMLE intervals on a t reference at few clusters](clustered-few-cluster-tmle.md) | property | `few_cluster_reference/tmle_cv_evaluation__unequal_informative__j30__t_reference` | positive | its own rule | bias 0.0300 to 0.0386, coverage 0.9224 to 0.9430, SE ratio 0.9391 to 0.9971 | [`F28`](../../roadmap.md#red-cell-owners) |
-| [clustered cross-fitted end-of-study longitudinal TMLE](clustered-cross-fitted-longitudinal-tmle.md) | property | `simultaneous_coverage/clustered_regimens__simultaneous_band` | positive | its own rule | joint coverage 0.9191 to 0.9458 | [`F28`](../../roadmap.md#red-cell-owners) |
+| [clustered cross-fitted end-of-study longitudinal TMLE](clustered-cross-fitted-longitudinal-tmle.md) | property | `simultaneous_coverage/clustered_regimens__simultaneous_band` | positive | its own rule | joint coverage 0.9191 to 0.9458 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [selector-based point-treatment C-TMLE](selector-based-point-treatment-c-tmle.md) | property | `selector_necessity/collaborative` | positive | its own rule | bias 0.0015 to 0.0037, margin 0.0030, RMSE ratio 0.2410 | [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) |
 | [selector-based point-treatment C-TMLE](selector-based-point-treatment-c-tmle.md) | property | `selector_necessity/empty_control` | control | the family's joint clause | bias 0.0495 to 0.0511, margin 0.0022, RMSE ratio 0.2410 | [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) |
 | [selector-based point-treatment C-TMLE](selector-based-point-treatment-c-tmle.md) | property | `type_i_error/sharp_null` | positive | its own rule | rejection 0.0700, 0.0412 to 0.1095 | [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) |

@@ -30,8 +30,16 @@ fast tier pins. Its mean critical value is 2.387 against the design oracle 2.409
 statistic itself has a 95% quantile of 2.50, because the five pointwise SE ratios read 0.976 to
 0.997 at 100 clusters. With the oracle critical value the band would cover 0.939. The
 point-treatment clustered band of ``default-simultaneous-bands`` reads 0.938 at 200 clusters,
-the same finite-sample shortfall of a cluster multiplier band. So the record is ``reporting``,
-F28 owns the cell, and the declared run is repeated once with nothing else changed.
+which also covers below 0.95 and passes. So the record is ``reporting``, and the declared run
+is repeated once with nothing else changed.
+
+**Two facts recorded after the re-run.** The declared route named F28 as the owner. The
+diagnosis matched the reading of the ``band-finite-sample`` owner instead: the oracle band also
+covers below 0.95 (0.9392), and the package critical value explains less of the shortfall than
+the oracle band shows. R ``lmtp`` shows the same pointwise shortfall on the same draws (SE ratio
+0.978 to 1.000). So ``band-finite-sample`` owns the cell, and no verdict, margin or budget moved.
+The re-run reused the R ``lmtp`` rows that the first run wrote, with
+``python -m tests.canonical.lmtp_clustered_ltmle.regenerate --skip-reference``, and refit the Python and property phases. The red cell reads no R input.
 """
 
 from __future__ import annotations

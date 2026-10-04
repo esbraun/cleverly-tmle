@@ -247,9 +247,15 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "simultaneous_coverage/crossfit_strata__simultaneous_band",
         ),
     ),
-    # Four default bands that cover just under the band, read as finite-sample by
+    # Four default bands and the cluster multiplier band of the cross-fitted clustered LTMLE,
+    # which cover just under the band, read as finite-sample by
     # ``tests/unit/test_band_shortfall_reading.py``.
     "band-finite-sample": (
+        *_keys(
+            "clustered-cross-fitted-ltmle",
+            "property",
+            "simultaneous_coverage/clustered_regimens__simultaneous_band",
+        ),
         *_keys(
             "canonical-ltmle-survival",
             "property",
@@ -344,7 +350,7 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     ),
     # The finite-sample limits of clustered intervals: the fold-evaluated covariate pair of the
     # unequal-size study, and the few-cluster study's unequal-size fold-evaluated bias cells and
-    # DR-TMLE IID controls, and the cluster multiplier band of the cross-fitted clustered LTMLE.
+    # DR-TMLE IID controls.
     "F28": (
         *_keys(
             "clustered-unequal-cvtmle",
@@ -362,11 +368,6 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j10__t_reference",
             "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j20__t_reference",
             "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j30__t_reference",
-        ),
-        *_keys(
-            "clustered-cross-fitted-ltmle",
-            "property",
-            "simultaneous_coverage/clustered_regimens__simultaneous_band",
         ),
     ),
 }

@@ -448,7 +448,7 @@ Two registered studies measure the fit, and both publish under `reporting`. The
 [clustered cross-fitted study](method-evidence/clustered-cross-fitted-longitudinal-tmle.md) pairs
 the fit with R `lmtp` 1.5.4 at 100 clusters of 40 rows. Its four cluster-robust pairs and five
 paired comparisons pass. Its band covers 0.933, below the 0.92 lower bound of its interval band,
-and F28 owns that cell. The
+and the `band-finite-sample` owner holds that cell. The
 [few-cluster study](method-evidence/few-cluster-cross-fitted-longitudinal-tmle.md) measures the
 $t$ reference at 20 and 30 clusters, and all 8 scored cells pass.
 

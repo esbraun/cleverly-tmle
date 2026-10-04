@@ -9,7 +9,11 @@ step from Díaz, Williams, Hoffman and Schenck (2023), Theorem 3.
 The publication policy was declared `gated`, with a red-cell route declared before any run. The
 first full run read one red cell, the simultaneous band. The diagnosis found no defect, so the
 record moved to `reporting` before one re-run, as the route declared.
-[F28](../../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) owns the red cell.
+
+The re-run reused the R
+`lmtp` rows of the first run (`python -m tests.canonical.lmtp_clustered_ltmle.regenerate --skip-reference`) and refit the Python and property phases. The red cell
+reads no R input. The route named F28 as the owner. The diagnosis matched the reading of the
+[`band-finite-sample`](../../roadmap.md#red-cell-owners) owner, which now holds the cell.
 
 ## What was compared
 
@@ -87,7 +91,7 @@ over the five reported names with cluster multipliers, at 2,400 replications.
 
 | cell | reading |
 | --- | --- |
-| `clustered_regimens__simultaneous_band` | the band covered 0.9333, with a 99% interval from 0.919 to 0.946, against the band 0.92 to 0.98. Its mean critical value is 2.387 against the design oracle 2.409. The max-t statistic has a 95% quantile of 2.50, because the five pointwise SE ratios read 0.976 to 0.997 at 100 clusters. With the oracle critical value the band covers 0.939. The point-treatment clustered band of the [default-band study](default-simultaneous-bands.md) reads 0.938 at 200 clusters. The diagnosis found no defect in the band construction |
+| `clustered_regimens__simultaneous_band` | the band covered 0.9333, with a 99% interval from 0.919 to 0.946, against the band 0.92 to 0.98. Its mean critical value is 2.387 against the design oracle 2.409. The max-t statistic has a 95% quantile of 2.50, because the five pointwise SE ratios read 0.976 to 0.997 at 100 clusters. R `lmtp` reads the same pointwise shortfall on the same draws, with SE ratios 0.978 to 1.000. With the oracle critical value the band covers 0.939, so the multiplier explains a small part of the shortfall. The point-treatment clustered band of the [default-band study](default-simultaneous-bands.md) also covers below 0.95 at 200 clusters, 0.938, and passes. The diagnosis found no defect in the band construction. `tests/unit/test_band_shortfall_reading.py` rebuilds the reading |
 
 ## Measured values and declared margins
 
