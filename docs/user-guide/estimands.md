@@ -265,6 +265,42 @@ A shifted dose above the cap holds the row at its own dose. The example cap of 4
 the observed doses. The fit issues a `PositivityWarning` when a declared cap lies above the largest
 observed dose and the policy assigns a dose above that maximum.
 
+Other maps of the dose use the same `policies=` axis. The table names each class.
+
+| class | use it for |
+| --- | --- |
+| `Scale(factor, cap=...)` | a dose multiplied by a factor, held at its own value above the cap |
+| `Piecewise(pieces)` | a `Shift` or a `Scale` on each interval of the dose |
+| `ModifiedPolicy(name, pieces=..., policy_kind="known")` | your own map, with its inverse and its derivative on each piece |
+| `ModifiedPolicy(name, apply=..., policy_kind="known")` | a map of the levels of a categorical treatment |
+| `RiskRatioTilt(delta)` | the `ipsi` tilt of `lmtp` on a 0/1 treatment, reported as `ey_rr_tilt` |
+
+```python
+from cleverly.interventions import ModifiedPolicy, Piece, Scale
+
+halve_below_3 = ModifiedPolicy(
+    "halve below 3",
+    pieces=(
+        Piece(
+            -float("inf"),
+            3.0,
+            lambda a, h: (a + 3.0) / 2.0,
+            lambda b, h: 2.0 * b - 3.0,
+            lambda b, h: 2.0,
+        ),
+        Piece(3.0, float("inf")),
+    ),
+    policy_kind="known",
+)
+policies = (Shift(0.0, cap=None), Scale(1.25, cap=5.5, name="x1.25"), halve_below_3)
+```
+
+A `Piece` without a map leaves its doses unchanged. The fit checks that the pieces cover the real
+line and that each declared inverse inverts its map. In a longitudinal fit, a policy is a node of
+a `DynamicRegimen` plan. The
+[longitudinal reference](../technical-reference/longitudinal-tmle.md#modified-treatment-policies-at-a-node)
+gives the details.
+
 ## Incremental propensity-score interventions
 
 `Incremental(delta)` multiplies the observed treatment odds by `delta`. It avoids a conventional

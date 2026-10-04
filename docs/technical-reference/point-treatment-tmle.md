@@ -747,6 +747,42 @@ with the inverse-map and Jacobian terms the declared policy needs. Identificatio
 shifted dose to stay inside the observed conditional support. A fixed `cap=` is part of the policy.
 Estimating the cap from the same data would define a different, pathwise-dependent intervention.
 
+`TMLE(policies=...)` accepts the policy classes in the table. On a continuous dose, each class
+gives the ratio by Equation (3) of Díaz, Williams, Hoffman and Schenck (2023):
+$g^d(b \mid w) = \sum_j 1\{b \in I_j\}\, g(b_j(b) \mid w)\, |b_j'(b)|$. Here piece $j$ maps the
+interval $I_j$, and $b_j$ is the inverse of that piece.
+
+| class | map $d(a, w)$ | ratio source |
+| --- | --- | --- |
+| `Shift(delta, cap)` | $a + \delta$, held at $a$ where $a + \delta$ exceeds `cap` | closed form |
+| `Scale(factor, cap)` | $a \cdot$ `factor`, held at $a$ where the product exceeds `cap` | closed form, Jacobian `1 / factor` |
+| `Piecewise(pieces, closed)` | a `Shift` or a `Scale` on each interval | closed form per piece |
+| `ModifiedPolicy(name, pieces=...)` | a declared `map`, `inverse` and `derivative` per `Piece` | Equation (3) |
+| `ModifiedPolicy(name, apply=...)` | any function that returns a level | categorical treatment only |
+| `ModifiedPolicy(..., randomizer=Randomizer(...))` | one branch per randomizer value, with known probabilities | the weighted mean of the branch ratios |
+| `RiskRatioTilt(delta)` | the `ipsi` rule of `lmtp` on a 0/1 treatment | discrete formula |
+
+The pieces must partition the real line. Each moving piece must be strictly monotone, and its
+declared inverse must invert its map. `policy_kind="known"` declares that the map does not
+depend on the observed-data law, and a fit accepts no other value. A policy that fails these
+checks is refused before any nuisance fit.
+
+On a categorical treatment the ratio is the discrete formula
+$g^d(b \mid w) = \sum_a 1\{d(a, w) = b\}\, g(a \mid w)$, and a map must return a level of the
+treatment. `RiskRatioTilt` reports on its own axis, `ey_rr_tilt` and `ate_rr_tilt`, and needs the
+levels 0 and 1. A randomized policy reports one mean. That mean and its influence curve are the
+mixtures of the branch means and curves, with the known probabilities as weights.
+
+`ratio="classifier"` replaces the density with the stacked classification of Section 5.4 of
+Díaz et al. (2023). The treatment learner classifies an observed row against its policy copy,
+and the ratio is the odds $u / (1 - u)$. This route fits no density, so the support report gives
+`min_density` as NaN.
+
+Evidence: `tests/unit/test_policy_point_exact.py` checks the ratio and the influence curve of each
+class on the exact laws of `tests/discrete_law_policy_point.py`. Its mutation controls drop the
+inverse and the Jacobian, and each control fails. `tests/unit/test_influence_gateaux_rr_tilt.py`
+checks the tilt on `tests/discrete_law.py`. The registered study is `policy-point-mtp`.
+
 The implementation fits a conditional density, targets the outcome regression as a function of
 dose, and evaluates it at $d(A,W)$. Missingness and intermediate mechanisms multiply the density
 ratio when those roles are declared. The estimator is doubly robust in the outcome regression and

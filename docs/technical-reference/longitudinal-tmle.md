@@ -312,11 +312,11 @@ A deterministic rule receives the history frame, which holds no earlier treatmen
 must read an arm drawn at an earlier policy node, such as "continue the arm drawn at the first
 node", is a one-hot `Stochastic` node that reads the policy frame. It resolves as that rule.
 
-Two neighbouring targets are outside this section. The table names the owner of each.
+Two neighbouring targets are outside this section. The table names where each one is covered.
 
 | target | why it is not a known policy | owner |
 | --- | --- | --- |
-| a policy that reads the natural value $A_t$, such as a categorical modified treatment policy | its ratio reads the fitted mechanism, and identification needs Assumption 3 | [X12](../roadmap.md#x12-modified-treatment-policies-beyond-the-additive-point-shift) part (b) |
+| a policy that reads the natural value $A_t$, such as a modified treatment policy | its ratio reads the fitted mechanism, and identification needs Assumption 3 | [modified treatment policies at a node](#modified-treatment-policies-at-a-node) |
 | a policy density that depends on $P$, such as an incremental odds tilt | page 850 records that multiply robust estimation "is not generally possible" for such a regime; the curve needs a mechanism-derivative term | [X19](../roadmap.md#x19-incremental-interventions-over-time) |
 
 `tests/unit/test_influence_gateaux_longitudinal_policy.py` holds the exact-law evidence. The point
@@ -337,6 +337,35 @@ policy by copying every unit four times. Copy $c$ takes its shifted arm from row
 allocation table, and every policy probability is a multiple of one quarter. The pre-declaration
 smoke run, which is not committed, must pair the policy mean to within the declared gate of
 $10^{-6}$. The study's committed primary rows will carry the measured pairs.
+
+### Modified treatment policies at a node
+
+A node of a `DynamicRegimen` plan can be a modified treatment policy. That policy reads the
+natural value $A_t$ and the history. The classes are those of the
+[point-treatment section](point-treatment-tmle.md#modified-treatment-policies). Díaz, Williams,
+Hoffman and Schenck (2023), Theorem 1, identifies the mean under Assumption 3. Equation (3)
+gives the ratio at a continuous node, and the discrete formula gives it at a categorical node.
+
+| node kind | how to declare it | ratio |
+| --- | --- | --- |
+| continuous dose | `LTMLE.fit(..., continuous_treatment=["A1", "A2"])` | a pooled-hazard density with `density_bins` bins, or `ratio="classifier"` |
+| categorical | the default | the discrete formula over the fitted mechanism |
+| vector of categorical columns | a list of columns as one entry of `treatment=` | the discrete formula over the joint levels |
+
+`LTMLE.fit` refuses a vector node with a continuous component, before any learner. At a
+continuous node the treatment factor of the cumulative product is the ratio itself. So
+`g_bounds` bounds the censoring and categorical factors only, and the fit stores each node's
+ratio as `node_ratio`. A cross-fitted fit (`n_folds` above one) uses the pooled
+construction of the other plan kinds. `msm=` accepts modified treatment policy cells.
+
+`regimens=` takes the policy as a plan node, and the `policies=` keyword stays refused by name:
+`regimens={"+0.5": DynamicRegimen("+0.5", (Shift(0.5, cap=4.0),) * 2)}`.
+
+Evidence: `tests/unit/test_influence_gateaux_longitudinal_mtp.py` checks the estimate and the
+curve against the g-formula of `tests/discrete_law_longitudinal_mtp.py` and its Gateaux
+derivative. `tests/unit/test_longitudinal_mtp_targeting.py` holds the mutation controls, and
+`tests/unit/test_longitudinal_mtp_compositions.py` covers survival, `msm=`, cross-fitting and the
+refusals. The registered study is `longitudinal-mtp`, and its run is pending.
 
 ## Functionals of a fitted result
 
@@ -499,7 +528,6 @@ the question, the construction, or coverage.
 | a callable written inline in a `regimens=` mapping | wrong by construction | an inline callable carries no declaration, so the fit refuses it before any learner. Write the plan as a `DynamicRegimen` declared `rule_kind="known"`, with `(rule,) * T` for one rule at every node |
 | an outcome missing for a reason other than censoring | wrong by construction | left as it is, the probability of observing it is silently taken to be one. Encode it as a final censoring column, so it is estimated and enters the cumulative product |
 | longitudinal sensitivity-bound estimation | not written yet | a sample estimator and sampling theory for its bound functionals. [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) holds the stop |
-| a **continuous dose** at a node, and `policies=` | not written yet | Díaz, Williams, Hoffman and Schenck (2023), Theorem 3, journal page 853, covers a fixed modified treatment policy $d(a_t, h_t)$ on a continuous dose. The fit needs a conditional density of the dose at every node, and each node's density ratio enters the cumulative product. `LTMLE` estimates no such density, so it refuses `policies=` by name. It reads a numeric node as unordered arms. It warns at 10 or more distinct values, and it raises `DataError` above 20. [X12](../roadmap.md#x12-modified-treatment-policies-beyond-the-additive-point-shift) part (b) holds the work |
 | `incremental=` | not written yet | Kennedy (2019), *Journal of the American Statistical Association* 114(526), treats incremental interventions on a time-varying treatment. The tilt is built from the mechanism, so it needs the product of tilted mechanisms and a mechanism submodel at every node. [X19](../roadmap.md#x19-incremental-interventions-over-time) holds the work |
 | a continuous outcome with `q_bounds=None` above one fold | not written yet | with `q_bounds=None` the scale comes from every observed outcome, held-out rows included, and no shipped result covers that scale |
 
@@ -550,8 +578,9 @@ uses parametric nuisances.
 
 The cluster handling does not depend on the target. The split, the inner groups, the
 cluster-summed curve and the status are the same for every target, a
-[known policy](#known-stochastic-policies) included. `policies=` and `incremental=` stay refused for
-their own reasons. Each one inherits this handling when it ships.
+[known policy](#known-stochastic-policies) included. A [modified treatment policy](#modified-treatment-policies-at-a-node)
+node is included too. `incremental=` stays refused for its own reason, and it inherits this
+handling when it ships.
 
 Two side effects follow from the cross-fitted default. A fit with fewer than 10 clusters warns that
 it reduces `n_folds` to the cluster count, and a fit with fewer than 20 reports no interval. At few clusters a training fold can lack a first-node

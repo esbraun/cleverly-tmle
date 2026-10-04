@@ -655,9 +655,10 @@ previous reader had is not a citation; a page number is.
 - Díaz, Williams, Hoffman & Schenck (2023), [*Nonparametric Causal Effects Based on Longitudinal
   Modified Treatment Policies*](https://doi.org/10.1080/01621459.2021.1955691), *Journal of the
   American Statistical Association* 118(542):846–857, DOI 10.1080/01621459.2021.1955691. The
-  package implements the point-treatment shift case; the citation supplies the general modified-
-  policy identification and efficient influence-function theory, not a claim of longitudinal-shift
-  support. Read first-hand in the [published PDF](https://epiresearch.org/wp-content/uploads/2024/04/Nonparametric-Causal-Effects-Based-on-Longitudinal-Modified-Treatment-Policies.pdf).
+  package implements the modified treatment policies of Definition 1 at a point treatment and at
+  each node of a longitudinal plan. Theorem 1 gives the identification. Equation (3) gives the
+  policy density of a piecewise map from each piece's inverse and its derivative. Section 5.4
+  gives the density ratio by stacked classification, which `ratio="classifier"` implements. Read first-hand in the [published PDF](https://epiresearch.org/wp-content/uploads/2024/04/Nonparametric-Causal-Effects-Based-on-Longitudinal-Modified-Treatment-Policies.pdf).
   Section 5.2, journal page 852, defines random, approximately equal row folds and a continuous
   outcome transform with known bounds. Section 5.2, Steps 1 to 4, journal pages 852 and 853, give
   the cross-fitted TMLE. Step 3 fits each node's fluctuation "using all the data points in the
@@ -1486,6 +1487,13 @@ sizes only the cluster sum is the delta-method variance of the row mean
   supplies the weighted plug-in and influence-function aggregation. These locators support a
   weight-routing audit for modified treatment policies. The registered comparison is unweighted,
   and this source does not implement a simulated common-cause surface.
+- Risk-ratio tilt audit of the same `lmtp` snapshot:
+  [`R/shift.R`, lines 129-148](https://github.com/nt-williams/lmtp/blob/f04a2b47f46debc515ce4ae778e05ebfde922c44/R/shift.R#L129-L148)
+  defines `ipsi(delta)` on a 0/1 treatment. Below one, a unit keeps its treatment when a uniform
+  draw is below `delta`, and otherwise it takes 0. Above one, a unit keeps its treatment when the
+  draw is below `1 / delta`, and otherwise it takes 1. `RiskRatioTilt` implements this rule with
+  the draw as a known two-point randomizer. It is not the odds tilt of Kennedy (2019), which
+  `incremental=` implements.
 - Clustered inference audit (2026-08-29): the same `lmtp` snapshot passes its task identifier to
   `ife::ife`. Pinned [`ife` 0.2.3](https://cran.r-project.org/src/contrib/Archive/ife/ife_0.2.3.tar.gz)
   requires equal identifiers before it subtracts arm objects. That subtraction uses the joint

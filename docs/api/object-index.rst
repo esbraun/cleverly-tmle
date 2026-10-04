@@ -98,6 +98,12 @@ categorized API tables.
    cleverly.interventions.Incremental
    cleverly.interventions.IPSISet
    cleverly.interventions.Shift
+   cleverly.interventions.Scale
+   cleverly.interventions.Piecewise
+   cleverly.interventions.Piece
+   cleverly.interventions.ModifiedPolicy
+   cleverly.interventions.Randomizer
+   cleverly.interventions.RiskRatioTilt
    cleverly.interventions.PolicySet
    cleverly.interventions.SupportReport
    cleverly.interventions.RegimeSupport
