@@ -874,7 +874,7 @@ class TestTheCommittedFirstNodeStratifiedSeam:
 
 
 class TestTheLongitudinalRefusals:
-    """The two cross-fitted longitudinal designs with no shipped result."""
+    """The cross-fitted longitudinal design with no shipped result, and the clustered one."""
 
     def test_a_continuous_outcome_needs_a_declared_support(self) -> None:
         frame = longitudinal_frame()
@@ -891,14 +891,15 @@ class TestTheLongitudinalRefusals:
         )
         assert result.folds.is_single
 
-    def test_clusters_are_refused_under_cross_fitting(self) -> None:
+    def test_clusters_cross_fit_with_whole_cluster_folds(self) -> None:
         frame = longitudinal_frame(n=400, cluster_size=5)
-        with pytest.raises(LongitudinalError, match="has no clustered result") as raised:
-            sequential().fit(frame, id="id", **LONGITUDINAL_COLUMNS)
-        # No registered study fits a clustered longitudinal model, so the message names
-        # what the in-sample fit reports rather than calling it evidenced.
-        assert "which reports a cluster-robust variance" in str(raised.value)
-        assert "evidenced" not in str(raised.value)
+        result = sequential().fit(frame, id="id", **LONGITUDINAL_COLUMNS)
+        assert result.folds.origin is not None
+        assert result.folds.origin.scheme == "grouped"
+        assignment = np.asarray(result.folds.assignment)
+        clusters = frame["id"].to_numpy()
+        for code in np.unique(clusters):
+            assert np.unique(assignment[clusters == code]).size == 1
 
     def test_the_same_clusters_fit_in_sample(self) -> None:
         frame = longitudinal_frame(n=400, cluster_size=5)

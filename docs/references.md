@@ -806,7 +806,10 @@ article as the copy this project read.
   splits by independent cluster and aggregates cluster influence curves for a participant-weighted
   TMLE. It names R `ltmle` with `id=` as one variance implementation. The trial has partial
   clustering and point treatment. It does not derive this package's cross-fitted longitudinal
-  recursion or its variance.
+  recursion or its variance. The
+  [natural-extension verdicts](technical-reference/natural-extension-verdicts.md) and
+  [longitudinal clusters](technical-reference/longitudinal-tmle.md#clusters) state the step the
+  package takes.
 - Balkus, Laith & Hejazi (2026), [*On the use of cross-fitting in causal machine learning with
   correlated units*](https://arxiv.org/abs/2601.10899v3), arXiv:2601.10899v3. The paper shows
   that splitting correlated units across folds can still remove a key empirical-process term
@@ -874,8 +877,11 @@ article as the copy this project read.
   which reproduces the journal text. Section 3.4.1 gives a clustered longitudinal TMLE with a
   sandwich variance and no sample splitting. There is no cross-fitting theorem.
 
-No source above covers treatment-stratified grouped folds for an observational estimator. None
-covers cross-fitted longitudinal TMLE with whole-cluster folds. The package refuses both.
+No source above covers treatment-stratified grouped folds for an observational estimator, and the
+package refuses them. None covers cross-fitted longitudinal TMLE with whole-cluster folds
+directly. The package ships it as a natural extension of Díaz, Williams, Hoffman and Schenck
+(2023), Theorem 3, with the cluster as the unit
+([longitudinal clusters](technical-reference/longitudinal-tmle.md#clusters)).
 
 The grouped point-treatment split rests on Wang et al. (2024) for the partition, and on the
 package's own estimating-equation argument for the rest. The

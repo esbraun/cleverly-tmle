@@ -414,14 +414,16 @@ def refused_fit(
     return estimator.fit(frame(), **{**PANEL_COLUMNS, **columns})
 
 
-def clustered_panel() -> pd.DataFrame:
-    return panel().assign(cluster=np.repeat(np.arange(30), 2))
+def continuous_panel() -> pd.DataFrame:
+    frame = panel()
+    return frame.assign(Y=frame["Y"] + np.linspace(0.0, 3.0, len(frame)))
 
 
 #: Three fits refused after the declaration check, as the fit, the class of that refusal, a
 #: fragment of its message, and the rule calls the declared control makes first.  A missing
 #: column is refused in ``_prepare``, before the regimens resolve.  An unknown reference and a
-#: clustered cross-fit are refused after them, and the second after the rules run.
+#: cross-fitted continuous outcome without ``q_bounds`` are refused after them, and the second
+#: after the rules run.
 LATER_REFUSALS: dict[str, tuple[Callable[[Any], Any], type[Exception], str, int]] = {
     "missing column": (
         lambda regimens: refused_fit(regimens, baseline=["W9"]),
@@ -435,10 +437,10 @@ LATER_REFUSALS: dict[str, tuple[Callable[[Any], Any], type[Exception], str, int]
         "is not one of the declared regimens",
         0,
     ),
-    "clustered cross-fit": (
-        lambda regimens: refused_fit(regimens, frame=clustered_panel, n_folds=2, id="cluster"),
+    "unbounded cross-fitted scale": (
+        lambda regimens: refused_fit(regimens, frame=continuous_panel, n_folds=2),
         LongitudinalError,
-        "cross-fitted longitudinal TMLE has no clustered result",
+        "needs a declared q_bounds",
         1,
     ),
 }
@@ -813,7 +815,7 @@ class TestTheWitnessesHaveTeeth:
     ) -> None:
         """Mutation R4: ``_prepare`` refuses the missing column before the regimens resolve.
 
-        The unknown reference and the clustered cross-fit are refused after
+        The unknown reference and the unbounded cross-fitted scale are refused after
         ``resolve_regimens``, which rebuilds the modified regimen and refuses it, so R4
         alone leaves those two witnesses passing.
         """
@@ -827,7 +829,9 @@ class TestTheWitnessesHaveTeeth:
             ]
         )
         suite.test_an_undeclared_regimen_meets_the_declaration_refusal("unknown reference")
-        suite.test_an_undeclared_regimen_meets_the_declaration_refusal("clustered cross-fit")
+        suite.test_an_undeclared_regimen_meets_the_declaration_refusal(
+            "unbounded cross-fitted scale"
+        )
 
     def test_removing_the_fit_check_fails_the_undeclared_truncation_witness(
         self, regimen_result: Any, monkeypatch: pytest.MonkeyPatch

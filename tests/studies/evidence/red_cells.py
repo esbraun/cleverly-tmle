@@ -247,9 +247,15 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "simultaneous_coverage/crossfit_strata__simultaneous_band",
         ),
     ),
-    # Four default bands that cover just under the band, read as finite-sample by
+    # Four default bands and the cluster multiplier band of the cross-fitted clustered LTMLE,
+    # which cover just under the band, read as finite-sample by
     # ``tests/unit/test_band_shortfall_reading.py``.
     "band-finite-sample": (
+        *_keys(
+            "clustered-cross-fitted-ltmle",
+            "property",
+            "simultaneous_coverage/clustered_regimens__simultaneous_band",
+        ),
         *_keys(
             "canonical-ltmle-survival",
             "property",

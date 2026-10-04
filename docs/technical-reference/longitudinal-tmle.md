@@ -125,8 +125,8 @@ preferred bound, selection correction, or positivity verdict. The
 algorithm provenance and the boundary of that claim.
 
 This replay keeps the realized data, resolved plans, folds, weights, clusters, and parameter
-structure fixed. A clustered fit runs at one fold alone, so a clustered replay is an in-sample
-replay.
+structure fixed. A clustered replay keeps the whole-cluster folds of its fit, and its variance
+stays cluster-summed.
 
 A cross-fitted replay rebuilds the out-of-fold mechanism pair at each bound. The pooled
 fluctuation divides by that pair alone, and the untargeted fold regressions read no mechanism. The
@@ -261,7 +261,7 @@ sums no risk curve.
 | replay | `truncation_curve()` does not rerun the bootstrap. Its check at the fitted bound compares the estimates without their bootstrap summaries |
 | random draws | `run_bootstrap` spawns the stream from `random_state`. The stream draws nothing the fit uses, so every analytic field of the fit is unchanged. `tests/unit/test_ltmle_bootstrap.py` pins a committed `canonical-ltmle` row at `n_bootstrap=0` and at `n_bootstrap=2` |
 | parallel layers | the replicates run in parallel over `n_jobs`, and each replicate fit runs with one worker |
-| licensing scope | `bootstrap_design_kind` names a fit's kind: an end-of-study or single-cause survival outcome, fitted in sample, cross-fitted or clustered, with static regimens, a binary outcome, no weights and no working model. Any other fit has no kind. A kind is licensed as inference only when it is in `LICENSED_BOOTSTRAP_DESIGNS`, and it enters after its cells in the [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md) are green. The registered run licensed `end_of_study/in_sample` and `survival/in_sample`. The cross-fitted and clustered end-of-study kinds stay diagnostic, with owner `X20-bootstrap`. An unlicensed kind prints `bootstrap sd` and a percentile range. The study measures correctly specified cell-mean nuisances on finite binary laws, at $n = 1000$, and at 1,500 rows in 60 clusters for the cluster bootstrap. No result covers a data-adaptive nuisance. Cai and van der Laan (2020) is the warning for that case |
+| licensing scope | `bootstrap_design_kind` names a fit's kind: an end-of-study or single-cause survival outcome, fitted in sample, cross-fitted, clustered in sample (`cluster`) or clustered and cross-fitted (`cluster_cross_fit`), with static regimens, a binary outcome, no weights and no working model. Any other fit has no kind. A kind is licensed as inference only when it is in `LICENSED_BOOTSTRAP_DESIGNS`, and it enters after its cells in the [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md) are green. The registered run licensed `end_of_study/in_sample` and `survival/in_sample`. The cross-fitted and in-sample clustered end-of-study kinds stay diagnostic, with owner `X20-bootstrap`. No study cell measures `cluster_cross_fit`, so it stays diagnostic too. An unlicensed kind prints `bootstrap sd` and a percentile range. The study measures correctly specified cell-mean nuisances on finite binary laws, at $n = 1000$, and at 1,500 rows in 60 clusters for the cluster bootstrap. No result covers a data-adaptive nuisance. Cai and van der Laan (2020) is the warning for that case |
 | derived estimates | `ratio`, `rmst`, `rmtl` and `contrast` apply the same function to each replicate's estimates, and attach the percentile interval of those values. The derived interval is licensed only when every input's interval is |
 
 ## Variations
@@ -342,15 +342,15 @@ first-node strata, so the package now draws the partition from the seed alone. E
 carry enough events for each declared cause, which
 [scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) states with its remedy.
 
-Two designs are refused above one fold. A fit with `id=` is refused, because the cluster-robust
-variance of this targeted recursion under a grouped draw is not established. A continuous outcome
-with `q_bounds=None` is refused, because the sample outcome range would take the scale from
-held-out rows. Each message names the in-sample fit, which is `CrossFitting(enabled=False)`, or
-`n_folds=1` on the engine.
+One design is refused above one fold. A continuous outcome with `q_bounds=None` is refused,
+because the sample outcome range would take the scale from held-out rows. The message names the
+in-sample fit, which is `CrossFitting(enabled=False)`, or `n_folds=1` on the engine. A fit with
+`id=` cross-fits with whole-cluster folds, as [clusters](#clusters) states.
 
 Longitudinal `msm=` requires `n_folds=1`. A saturated identity shows that two constructions reduce
 to the same regimen means. It does not validate an unsaturated coefficient projection under
 cross-fitting. That composition needs a separate property and repeated-sampling study.
+[X27](../roadmap.md#x27-cross-fitted-longitudinal-msm-targeting) holds the work.
 
 The engine keeps a fold-fluctuated working-model path for that identity. Its folds each solve their
 own fluctuation, so its score report adds a `stitching` row per node. The public estimator refuses
@@ -374,7 +374,6 @@ the question, the construction, or coverage.
 | longitudinal sensitivity-bound estimation | not written yet | a sample estimator and sampling theory for its bound functionals. [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) holds the stop |
 | a **continuous dose** at a node, and `shifts=` | not written yet | Díaz, Williams, Hoffman and Schenck (2023), Theorem 3, journal page 853, covers a fixed modified treatment policy $d(a_t, h_t)$ on a continuous dose. The fit needs a conditional density of the dose at every node, and each node's density ratio enters the cumulative product. `LTMLE` estimates no such density, so it refuses `shifts=` by name. It reads a numeric node as unordered arms. It warns at 10 or more distinct values, and it raises `DataError` above 20. [X12](../roadmap.md#x12-modified-treatment-policies-beyond-the-additive-point-shift) part (b) holds the work |
 | `incremental=` | not written yet | Kennedy (2019), *Journal of the American Statistical Association* 114(526), treats incremental interventions on a time-varying treatment. The tilt is built from the mechanism, so it needs the product of tilted mechanisms and a mechanism submodel at every node. [X19](../roadmap.md#x19-incremental-interventions-over-time) holds the work |
-| `id=` above one fold | not written yet | a grouped draw keeps each cluster whole, and the cluster-robust variance of the targeted sequential recursion under one is not established. The package permits the in-sample clustered fit. Below 40 clusters with positive weight mass it reports Student $t$ intervals, and below 20 it takes `"few_cluster_plugin"` and reports no interval ([clusters](inference.md#clusters)) |
 | a continuous outcome with `q_bounds=None` above one fold | not written yet | with `q_bounds=None` the scale comes from every observed outcome, held-out rows included, and no shipped result covers that scale |
 
 Two plan shapes raise `DataError` before any learner. Each one is a statement about the input, so
@@ -386,6 +385,80 @@ the table of kinds above does not list it.
 | a `DynamicRegimen` plan that is one label or one callable | one entry per node. Write one rule for every node as `(rule,) * T` |
 
 See [scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) for what each `kind` means.
+
+### Clusters
+
+`LTMLE.fit(id=...)` treats the cluster as the unit. The cluster is the fold unit and the variance
+unit, in sample and under cross-fitting. The table gives each part of a clustered fit.
+
+| part | rule |
+| --- | --- |
+| outer split | `random_partition` draws whole clusters from the labels and `random_state`. `LTMLE.fit` checks the drawn split with `check_integrity` before any learner. A split cluster raises `DataError` |
+| fold count | the requested `n_folds`, capped at the cluster count with a `UserWarning` |
+| inner Super Learner folds | grouped on the same labels, at every mechanism and node regression |
+| targeting | the pooled fluctuation over every follower of each node, as on an unclustered fit |
+| curve and variance | the row curve summed within each cluster. The variance is $J\,\widehat{\mathrm{var}}(S_c)/n^2$, with $S_c = \sum_{i \in c} D_i$ and $J$ clusters |
+| status, reference and bands | the rules of [clusters](inference.md#clusters) for a longitudinal fit. Below 40 positive-mass clusters the reference is Student $t$ with $J - 2$ degrees of freedom. Below 20 the fit takes `"few_cluster_plugin"`, in sample and cross-fitted, because 20 is the smallest count the registered studies measure. Simultaneous bands need 40 or more |
+| bootstrap | the design kind `<outcome>/cluster_cross_fit`, which no study licenses, so the percentile output is a diagnostic. Each replicate redraws a grouped split over its resampled clusters, so two copies of one cluster can land in different folds |
+
+The base result is Díaz, Williams, Hoffman and Schenck (2023), Section 5.2, journal page 852, and
+Theorem 3, page 853. Theorem 3 takes $n$ iid units and a random partition of them.
+
+Take the unit to be the cluster $O_c = (O_{c1}, \dots, O_{cN_c})$, with $\varphi_c = \sum_i \varphi(O_{ci})$. The
+row estimating equation is then $\sum_c \{\varphi_c - N_c \hat\theta\} = 0$. That is a
+cluster-level equation for $E\varphi_c / E N_c$. A partition of clusters is a random partition of
+the iid units, so each training fold is independent of its validation fold. The remainder rates
+then read $o_P(J^{-1/2})$, and the curve is $(\varphi_c - N_c\theta)/E(N)$.
+
+The targeting pools every follower, so the curve is centred at the pooled estimate. The variance
+therefore takes `ddof=1` over all $J$ cluster sums, and the fold count does not enter the degrees
+of freedom. A fold-targeted or fold-evaluated `LTMLE` would need the centred rule of the
+fold-evaluated point-treatment fit. The package ships neither.
+
+The result inherits five conditions: independent clusters, no interference between units, a
+bounded cluster size, the Theorem 3 rates and bounded density ratios in the cluster count, and the
+unequal-size and few-cluster rules of [clusters](inference.md#clusters). Wang, Park, Small and Li
+(2024), Remark 3, caution against complex learners at about 20 clusters. The registered evidence
+uses parametric nuisances.
+
+The cluster handling does not depend on the target. The split, the inner groups, the
+cluster-summed curve and the status are the same for every target. `shifts=`, `incremental=`, a
+stochastic categorical node and cross-fitted `msm=` stay refused for their own reasons. Each one
+inherits this handling when it ships.
+
+Two side effects follow from the cross-fitted default. A fit with fewer than 10 clusters warns that
+it reduces `n_folds` to the cluster count, and a fit with fewer than 20 reports no interval. At few clusters a training fold can lack a first-node
+level, or hold one outcome value among a regimen's followers. The fit then raises
+`LongitudinalError` after the draw, and the message names the in-sample fit.
+
+`tests/unit/test_clustered_cross_fitted_ltmle.py` holds the fast evidence. Each witness has a
+mutation control that fails it.
+
+| claim | witness |
+| --- | --- |
+| every cluster lands in one fold | the fit's split equals the grouped draw. A draw without `cluster=`, or an overriding `_folds`, raises `DataError` before any learner |
+| the inner folds are grouped | a recording learner receives the codes of exactly its training rows at every nuisance fit |
+| a held-out cluster is unseen | a learner that memorizes a site cannot see its own cluster. Under row-level folds, the flip of a cluster mate moves the prediction |
+| the curve is cluster-summed | the variance of every reported and derived estimate equals the cluster-sum variance of its curve to `rel=1e-12`. At 60 clusters of 10 to 70 rows it exceeds the row variance by a factor above 3 |
+| the size term is carried | the variance reads $A_c - N_c\hat\psi$, which differs from $A_c$ by more than 10% at unequal sizes |
+| every target kind | end of study (static, dynamic, categorical), survival, competing risks with `incidence_total()`, weights with a zero-mass cluster, ratios, RMST and RMTL, at 40 and 21 clusters |
+| the floor | 20 clusters keep $t_{18}$ and 19 take `"few_cluster_plugin"`, cross-fitted and in sample. A fit that reads the point-treatment floor of 10 fails it |
+
+Two registered studies measure the fit, and both publish under `reporting`. The
+[clustered cross-fitted study](method-evidence/clustered-cross-fitted-longitudinal-tmle.md) pairs
+the fit with R `lmtp` 1.5.4 at 100 clusters of 40 rows. Its four cluster-robust pairs and five
+paired comparisons pass. Its band covers 0.933, below the 0.92 lower bound of its interval band,
+and the `band-finite-sample` owner holds that cell. The
+[few-cluster study](method-evidence/few-cluster-cross-fitted-longitudinal-tmle.md) measures the
+$t$ reference at 20 and 30 clusters, and all 8 scored cells pass.
+
+| limit | reason |
+| --- | --- |
+| no competing-risk study | `make_longitudinal_competing` has no cluster option. The fast tier pins the exact clustered identity for every incidence and for `incidence_total()` |
+| no informative-size cell | the size enters no longitudinal study law. `clustered-unequal-cvtmle` measures the row-weighted target for point treatment |
+| no bootstrap licence | the `cluster_cross_fit` kind has no study cell |
+| the `lmtp` pair at equal sizes only | `ife` aggregates cluster means, which equal cluster sums at equal sizes only |
+| 4 to 19 clusters | the fit takes `"few_cluster_plugin"` and reports no interval. No cross-fitted study measures that range: a probe of 2,000 draws at 10 clusters found 3 and 8 draws that admit no fit, and the harness refuses a cell that loses a replication. [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) owns it |
 
 ## Validation issues special to this method
 
@@ -450,7 +523,9 @@ under refinement.
 | [ordinary competing-risk longitudinal TMLE](method-evidence/ordinary-competing-risk-longitudinal-tmle.md) | against R `lmtp` 1.5.4 with the other cause in `compete=` and exact mechanisms supplied to both |
 | [cross-fitted competing-risk longitudinal TMLE](method-evidence/cross-fitted-competing-risk-longitudinal-tmle.md) | against R `lmtp` 1.5.4 on the identical five-fold assignment, with a flexible-tree cross-fit pair |
 | [longitudinal estimands outside the target registry](evidence.md#longitudinal-estimands-outside-the-target-registry) | the parameter and influence-curve oracle, the mutation witness, and the declared gaps, for each of the five longitudinal variants |
-| [the implementation validation grid](method-evidence/validation-grid.md) | the ten registered longitudinal TMLE rows and each row's declared limits |
+| [clustered cross-fitted end-of-study longitudinal TMLE](method-evidence/clustered-cross-fitted-longitudinal-tmle.md) | against R `lmtp` 1.5.4 with `ife` 0.2.3 at 100 clusters of 40 rows, on the realized whole-cluster folds, with four cluster-robust pairs and a cluster multiplier band |
+| [cross-fitted clustered longitudinal TMLE at few clusters](method-evidence/few-cluster-cross-fitted-longitudinal-tmle.md) | the $t_{J-2}$ reference at 20 and 30 clusters of equal and unequal sizes, with an IID control |
+| [the implementation validation grid](method-evidence/validation-grid.md) | the twelve registered longitudinal TMLE rows and each row's declared limits |
 
 Competing-risk correctness also rests on the independent finite law, the Gateaux comparison, the
 all-cause-versus-cause-specific mutation, and the one-cause reduction. The two competing-risk rows

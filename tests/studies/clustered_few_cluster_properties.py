@@ -82,18 +82,19 @@ from tests.studies.evidence.properties import (
     PropertyCell,
     control_row,
     replicate_row,
-    se_ratio_interval,
 )
 from tests.studies.evidence.property_verdicts import (
     DIAGNOSTIC_ROLE,
+    FEW_CLUSTER_IID_CONTROL_CEILING,
     apply_shared_verdicts,
+    few_cluster_reference_verdicts,
     finish,
 )
 from tests.studies.evidence.seeds import stream_seed
 
 NORMAL_CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 #: What the ``iid_t_control`` SE-ratio upper bound must fall below.
-IID_CONTROL_CEILING = 0.80
+IID_CONTROL_CEILING = FEW_CLUSTER_IID_CONTROL_CEILING
 #: The estimand each fit reports the ATE under.
 TARGET = {
     "tmle_crossfit": "ate",
@@ -311,37 +312,8 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
     return rows
 
 
-def few_cluster_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
-    """The positive, control and reported rules of every cell, with SE-ratio intervals."""
-    margins = STUDY.margins
-    family = summary["property"] == FAMILY
-    for index in summary.index[family.to_numpy()]:
-        cell = str(summary.loc[index, "cell"])
-        role = str(summary.loc[index, "role"])
-        group = rows.loc[(rows["property"] == FAMILY) & (rows["cell"] == cell)]
-        ratio = se_ratio_interval(
-            group,
-            replicates=margins.bootstrap_replicates,
-            confidence_level=margins.confidence_level,
-            seed=stream_seed(STUDY, FAMILY, cell),
-            truth_varies=False,
-        )
-        summary.loc[index, "se_ratio_ci_lower"] = ratio.low
-        summary.loc[index, "se_ratio_ci_upper"] = ratio.high
-        if role == "positive":
-            summary.loc[index, "passed"] = bool(
-                summary.loc[index, "coverage_ci_lower"] >= margins.coverage_floor
-                and summary.loc[index, "bias_equivalent"]
-            )
-        elif role == "control":
-            summary.loc[index, "passed"] = bool(ratio.high < IID_CONTROL_CEILING)
-        else:
-            summary.loc[index, "passed"] = True
-        summary.loc[index, "property_passed"] = summary.loc[index, "passed"]
-
-
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """Apply the declared rules; the policy is ``reporting``, so red cells are published."""
     summary, rates = apply_shared_verdicts(rows, STUDY, rate_labels=())
-    few_cluster_verdicts(summary, rows)
+    few_cluster_reference_verdicts(summary, rows, STUDY)
     return finish(summary, rates)
