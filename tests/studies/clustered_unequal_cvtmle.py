@@ -25,8 +25,9 @@ Publication policy is ``reporting``, by the red-cell route the plan declared bef
 first full run (2026-10-03) read two red cells. The DR-TMLE pair carried a study defect: its
 fits used the exact-propensity bounds ``(1e-9, 1 - 1e-9)`` with a fitted reduced treatment
 regression, and two of 2,400 curves reached entries of 4.7e5. The DR-TMLE fits now use the
-canonical DR-TMLE study's bounds ``(0.01, 0.99)``, as the plan's "reduced learners as in the
-canonical DR-TMLE study" asked. The fold-evaluated pair on the cluster-level covariate law read
+canonical DR-TMLE study's bound convention for a fitted treatment regression, ``(0.01, 0.99)``.
+The true propensity reaches 0.01 or 0.99 only at about 6.8 SD of its logit, so the bounds do not
+change the estimand. The fold-evaluated pair on the cluster-level covariate law read
 coverage 0.9325 with lower endpoint 0.918 against the 0.92 calibration floor, with its SE ratio
 inside its band. No package defect was found: at 40 clusters the declared rule keeps the normal
 reference, and that variance has J - V = 30 degrees of freedom. The record switched to

@@ -266,6 +266,11 @@ A fold-evaluated report has fewer degrees of freedom, $J-V$, and takes $\min(J-2
 implementation review measured the difference at 2 clusters per fold: at $J=10$ and $V=5$,
 $t_{J-2}$ covered 0.935 and $t_{J-V}$ covered 0.955 over 1,500 draws.
 
+Prefer the stacked report when cluster sizes depend on the outcome. There a fold-evaluated point
+has a bias of about $V$ times the stacked bias at few clusters per fold. The reference corrects
+the variance and not this bias. At 2, 4 and 6 clusters per fold the few-cluster study reads 0.61,
+0.43 and 0.32 empirical standard deviations ([CV-TMLE](cv-tmle.md#the-algorithm-as-implemented)).
+
 Wang et al. (2024), Remark 3, caution against complex nuisance learners at about 20 clusters. The
 registered few-cluster evidence uses parametric nuisance learners only.
 
