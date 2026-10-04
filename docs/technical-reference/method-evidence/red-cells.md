@@ -19,7 +19,7 @@ The ledger reads each verdict column as a boolean. It refuses a table whose verd
 a blank or any other value, because a blank would otherwise read as a pass. The paired
 `reference_valid` column repeats the comparator's truth row, so the truth kind covers it.
 
-The ledger reads verdict rows only. Four study modules also define a `scientific_failures` hook.
+The ledger reads verdict rows only. Five study modules also define a `scientific_failures` hook.
 The regeneration adds each hook's rows to the failures it gates or reports. These hooks audit
 fits and publish no verdict cell, so the ledger does not read them.
 
