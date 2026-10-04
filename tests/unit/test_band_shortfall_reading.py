@@ -24,6 +24,7 @@ from scipy import stats
 from tests.studies import default_band_properties, stratified_law
 from tests.studies.default_band_properties import design, design_correlation
 from tests.studies.evidence.registry import ROOT
+from tests.unit.test_clustered_crossfit_ltmle_design import BAND_DESIGN
 from tests.unit.test_simultaneous_cell_design import EXACT
 
 
@@ -78,6 +79,16 @@ READINGS = {
         0.9325,
     ),
     "cde_z0": ("default_bands", lambda: _shape("cde_z0"), 2.331, 2.312, 0.9171, 0.9200),
+    # The cross-fitted clustered LTMLE band. ``c*`` is the design critical value pinned before the
+    # run from ten fits of the study's own subject.
+    "clustered_regimens": (
+        "lmtp_clustered_ltmle",
+        lambda: BAND_DESIGN[1],
+        2.409,
+        2.387,
+        0.9333,
+        0.9392,
+    ),
     "arms": (
         "drtmle_mar_multi_arm",
         lambda: _exact("multi-arm-mar-drtmle/arms", 2400),
