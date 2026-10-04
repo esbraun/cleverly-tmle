@@ -135,8 +135,6 @@ DOUBLE_ROBUST_N = 2_000
 DOUBLE_ROBUST_REPLICATES = 1_200
 SHRUNKEN_SE_FACTOR = 0.70
 TARGETING_DISPLACEMENT = 0.25
-#: The study publishes no efficiency ratio; see the module docstring.
-EFFICIENCY_RATIO_BAND = None
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 DENSITY_BINS = 6
 
@@ -689,9 +687,10 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         STUDY,
         extra_columns=("targeting_displacement",),
         rate_labels=(),
-        efficiency_bounds=EFFICIENCY_SD,
     )
-    calibration_verdicts(summary, margins=margins, efficiency_band=EFFICIENCY_RATIO_BAND)
+    # No efficiency band: the bounds size the noise controls only, so the summary carries no
+    # efficiency columns (``calibration_efficiency_ratio=False`` on the record).
+    calibration_verdicts(summary, margins=margins, efficiency_band=None)
     simultaneous_coverage_verdicts(summary, margins=margins)
     for family, labels, arms in (
         ("stratum_targeting_necessity", NECESSITY_LABELS, NECESSITY_ARMS),

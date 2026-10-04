@@ -28,6 +28,15 @@ A red cell is not repaired with a budget, a margin, a law, a learner, a size or 
 stratum, block, coefficient, embedding or reduction bug is a defect: it is fixed, given a
 witness, and the study is regenerated once.  A finite-sample red with no defect publishes under
 ``reporting`` after a re-run at the same seeds.
+
+The declared run at ``a1b01d5`` published two red cells under ``gated``:
+``interval_calibration/logit_v1_a__correctly_specified`` (SE-ratio interval 0.927 to 1.010
+against a floor of 0.93) and ``logit_v2_a__correctly_specified`` (0.782 to 0.939).
+``tests/diagnostics/x8_logit_small_stratum`` read them as a finite-sample shortfall of the
+logit-MSM slope at a stratum of about 400 rows.  The shipped unstratified fit on samples of that
+size from the law given ``V = 2`` under-reports alike (0.896 against 0.867), and both arms are
+calibrated at four times the size (0.997 and 1.006).  No defect was found, so the study moved to
+``reporting`` and was re-run at the same seeds.  The owner is ``X8-logit-small-stratum``.
 """
 
 from __future__ import annotations
@@ -214,7 +223,7 @@ STUDY = StudyRecord(
     property_cells=PROPERTY_CELLS,
     efficiency_bounds=EFFICIENCY_SD,
     calibration_efficiency_ratio=False,
-    publication_policy="gated",
+    publication_policy="reporting",
 )
 
 REFERENCE_METADATA = {

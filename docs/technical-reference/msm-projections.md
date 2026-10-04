@@ -167,7 +167,10 @@ because $dm/d\eta>0$.
 `tests/unit/test_stratified_msm_exact.py` checks the linked coefficients and curves against the
 expanded-design fit, and the curve against a complex-step Gateaux derivative of $\beta_s$.
 `tests/unit/test_stratified_continuous_msm_exact.py` checks the dose case against the expanded
-design under the identity and logit links.
+design under the identity and logit links. The
+[stratified identity-link MSM study](method-evidence/stratified-msm-identity.md) and the
+[stratified incremental MSM study](method-evidence/stratified-incremental-msm.md) measure the
+stratum coefficients against exact laws.
 
 The package cannot inspect a callable, so it reads the declarations of the design and of the
 projection weight. The table gives each place that checks both declarations.
