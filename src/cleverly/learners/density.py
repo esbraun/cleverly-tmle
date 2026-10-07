@@ -547,7 +547,7 @@ def fit_conditional_density(
 def warn_if_unresolved(
     density: ConditionalDensity, shifted: FloatArray, observed: FloatArray
 ) -> float:
-    """Warn when a shift moves too few rows across a bin edge, and return the share.
+    """Warn when a policy moves too few rows across a bin edge, and return the share.
 
     Separated from the fit so the check happens where the *policy* is known: the density
     knows its own resolution, but only an intervention knows how far it means to move.
@@ -555,12 +555,12 @@ def warn_if_unresolved(
     crossing = density.crossing_fraction(shifted, observed)
     if crossing < _CROSSING_WARNING:
         warnings.warn(
-            f"the shift moves only {crossing:.1%} of rows across a bin edge of the "
+            f"the policy moves only {crossing:.1%} of rows across a bin edge of the "
             f"estimated density ({density.n_bins} bins over "
             f"[{density.support[0]:.3g}, {density.support[1]:.3g}]). A binned density is "
             "constant within a bin, so for the rest the clever covariate is exactly one "
             "and the intervention is invisible rather than merely noisy. Use more bins, "
-            "or a larger shift, or read the estimate as the effect of a policy the bin "
+            "or a larger change of dose, or read the estimate as the effect of a policy the bin "
             "width can resolve.",
             UserWarning,
             stacklevel=3,
