@@ -749,7 +749,7 @@ def _validate_continuous_policy_state(
         for policy in (*declared_policies, *replay_policies)
     ):
         raise CapabilityError(
-            "continuous simulated_confounding found inconsistent structured shift metadata"
+            "continuous simulated_confounding found inconsistent structured policy metadata"
         )
     declared_names = tuple(policy.name for policy in declared_policies)
     declared_descriptions = tuple(describe_policy(policy) for policy in declared_policies)
@@ -795,7 +795,7 @@ def _validate_continuous_policy_state(
         or key.reference != expected_reference
     ):
         raise CapabilityError(
-            "continuous simulated_confounding found inconsistent structured shift metadata"
+            "continuous simulated_confounding found inconsistent structured policy metadata"
         )
 
     error = (
@@ -806,14 +806,16 @@ def _validate_continuous_policy_state(
         raise CapabilityError(error)
     check_registered_target(result, key, "policy", error)
     check_replay_declaration(
-        result, key, "continuous simulated_confounding found inconsistent structured shift metadata"
+        result,
+        key,
+        "continuous simulated_confounding found inconsistent structured policy metadata",
     )
     check_alias(
         result,
         estimand,
         key,
         expected_alias,
-        "continuous simulated_confounding found inconsistent structured shift metadata",
+        "continuous simulated_confounding found inconsistent structured policy metadata",
     )
 
     # A zero-delta shift maps every dose to itself, so its policy mean is E[Y] and its

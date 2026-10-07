@@ -4335,7 +4335,7 @@ def test_policy_mean_checks_every_policy_state_layer_before_the_latent_draw(
         result = replace(result, repeats=(repeat,))
 
     forbid_draw_and_refit(monkeypatch, result.estimator)
-    with pytest.raises(CapabilityError, match="structured shift metadata"):
+    with pytest.raises(CapabilityError, match="structured policy metadata"):
         simulated_confounding(
             result,
             estimand=alias,
@@ -4433,7 +4433,7 @@ def test_three_policy_fit_accepts_the_reference_contrast_and_refuses_any_other_b
         estimates={contrast: result[aliases[1]]},
         parameter_keys={contrast: key},
     )
-    with pytest.raises(CapabilityError, match="structured shift metadata"):
+    with pytest.raises(CapabilityError, match="structured policy metadata"):
         simulated_confounding(
             fabricated,
             estimand=contrast,
@@ -4549,23 +4549,23 @@ def test_continuous_retains_refit_failure_and_replays_seed(
         ("key-estimand", "only an ey_policy policy mean or ate_policy contrast"),
         ("key-axis", "only an ey_policy policy mean or ate_policy contrast"),
         ("conditional", "inconsistent baseline-stratum metadata"),
-        ("key-alias", "structured shift metadata"),
-        ("key-value", "structured shift metadata"),
-        ("fitted-names", "structured shift metadata"),
-        ("fitted-descriptions", "structured shift metadata"),
-        ("fitted-reference", "structured shift metadata"),
-        ("fitted-shifted", "structured shift metadata"),
-        ("fitted-moved", "structured shift metadata"),
-        ("functional-name", "structured shift metadata"),
-        ("functional-delta", "structured shift metadata"),
-        ("functional-cap", "structured shift metadata"),
-        ("functional-reference", "structured shift metadata"),
-        ("typed-delta", "structured shift metadata"),
-        ("typed-cap", "structured shift metadata"),
-        ("typed-reference", "structured shift metadata"),
-        ("estimator-delta", "structured shift metadata"),
-        ("estimator-cap", "structured shift metadata"),
-        ("estimator-reference", "structured shift metadata"),
+        ("key-alias", "structured policy metadata"),
+        ("key-value", "structured policy metadata"),
+        ("fitted-names", "structured policy metadata"),
+        ("fitted-descriptions", "structured policy metadata"),
+        ("fitted-reference", "structured policy metadata"),
+        ("fitted-shifted", "structured policy metadata"),
+        ("fitted-moved", "structured policy metadata"),
+        ("functional-name", "structured policy metadata"),
+        ("functional-delta", "structured policy metadata"),
+        ("functional-cap", "structured policy metadata"),
+        ("functional-reference", "structured policy metadata"),
+        ("typed-delta", "structured policy metadata"),
+        ("typed-cap", "structured policy metadata"),
+        ("typed-reference", "structured policy metadata"),
+        ("estimator-delta", "structured policy metadata"),
+        ("estimator-cap", "structured policy metadata"),
+        ("estimator-reference", "structured policy metadata"),
         ("provenance", "registered modified-policy identification provenance"),
         ("declared-provenance", "registered modified-policy identification provenance"),
         ("target-provenance", "registered modified-policy identification provenance"),

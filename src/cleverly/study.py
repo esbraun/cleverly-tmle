@@ -860,7 +860,7 @@ class CounterfactualMean:
     --------
     ATE : The contrast between these means.
     RegimeMean : Means under declared regimens rather than fixed levels.
-    ModifiedTreatmentPolicy : Means under shifts of a continuous dose.
+    ModifiedTreatmentPolicy : Means under modified treatment policies.
 
     Examples
     --------
@@ -1117,19 +1117,21 @@ class LearnedRuleValue:
 
 @dataclass(frozen=True)
 class ModifiedTreatmentPolicy:
-    """Request mean outcomes under continuous-dose shift policies.
+    """Request mean outcomes under modified treatment policies.
 
     Parameters
     ----------
-    policies : sequence of Shift
-        Named dose shifts to evaluate.
+    policies : sequence of Policy
+        Named policies to evaluate: ``Shift``, ``Scale``, ``Piecewise`` or
+        ``ModifiedPolicy``.  A ``RiskRatioTilt`` reports its own estimand, ``ey_rr_tilt``, which
+        has no typed request; this class refuses it.
     reference : str or None
-        Shift label retained as the comparison reference.
+        Policy label retained as the comparison reference.
 
     See Also
     --------
     ModifiedTreatmentPolicyEffect : The contrast between these means.
-    cleverly.interventions.Shift : The dose shift a policy is built from.
+    cleverly.interventions.Shift : The additive dose shift, the simplest policy.
     cleverly.interventions.check_policy_support : Whether the shifted dose is supported.
 
     Examples
@@ -1148,23 +1150,44 @@ class ModifiedTreatmentPolicy:
     name: str = field(default="ey_policy", init=False)
     definition: str = field(default="mean outcome under each modified treatment policy", init=False)
 
+    def __post_init__(self) -> None:
+        _refuse_typed_tilts(self.policies, type(self).__name__)
+
 
 @dataclass(frozen=True)
 class ModifiedTreatmentPolicyEffect:
-    """Compare continuous-dose shift policies.
+    """Compare modified treatment policies.
 
     Parameters
     ----------
-    policies : sequence of Shift
-        Named dose shifts to compare.
+    policies : sequence of Policy
+        Named policies to compare.  A ``RiskRatioTilt`` is refused, as in
+        :class:`ModifiedTreatmentPolicy`.
     reference : str or None
-        Reference shift label. ``None`` uses the first shift.
+        Reference policy label. ``None`` uses the first policy.
     """
 
     policies: Sequence[Policy]
     reference: str | None = None
     name: str = field(default="ate_policy", init=False)
     definition: str = field(default="contrast of modified treatment policies", init=False)
+
+    def __post_init__(self) -> None:
+        _refuse_typed_tilts(self.policies, type(self).__name__)
+
+
+def _refuse_typed_tilts(policies: Sequence[Any], holder: str) -> None:
+    """Refuse a risk-ratio tilt in a typed policy request, which reports ``ey_policy``."""
+    from .interventions import RiskRatioTilt
+
+    tilts = [getattr(item, "name", "") for item in policies if isinstance(item, RiskRatioTilt)]
+    if tilts:
+        raise CapabilityError(
+            f"{holder} holds the risk-ratio tilt(s) {tilts}. A tilt reports its own estimands, "
+            "ey_rr_tilt and ate_rr_tilt, and no typed study request reports them. Fit "
+            "TMLE(policies=[RiskRatioTilt(1.0), RiskRatioTilt(delta)]) directly and read "
+            "estimates['ey_rr_tilt[...]']"
+        )
 
 
 @dataclass(frozen=True)

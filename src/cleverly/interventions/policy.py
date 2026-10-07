@@ -2058,10 +2058,11 @@ class PolicySupport:
     policy : str
         The policy this row describes, from
         :func:`~cleverly.interventions.policy.describe_policy`.
-    min_density : float
+    min_density : float or None
         Smallest estimated density at an observed dose, the denominator of the
         density ratio evaluated at the observed dose.  On a categorical treatment it is
-        the smallest fitted probability of the observed level.
+        the smallest fitted probability of the observed level.  ``None`` on the classifier
+        route, which fits no density.
     ratio_quantiles : dict of float to float
         Quantiles of the density ratio at the observed dose.
     max_ratio : float
@@ -2076,9 +2077,10 @@ class PolicySupport:
     capped_fraction : float or None
         Share of rows a declared ``cap`` holds at their own dose, weighted the same way.
         ``None`` on a categorical treatment, where no cap is evaluated.
-    unsupported : int
+    unsupported : int or None
         Rows whose assigned dose falls where the estimated density is exactly zero.
         Estimated zeros flag model support failures, not proof of nonidentification.
+        ``None`` on the classifier route, which fits no density to read a zero from.
     mean_ratio : float
         Mean density ratio at the observed dose over every row.  The ratio is the
         density of the supported part of the shifted law relative to the observed law.
@@ -2108,14 +2110,14 @@ class PolicySupport:
 
     name: str
     policy: str
-    min_density: float
+    min_density: float | None
     ratio_quantiles: dict[float, float]
     max_ratio: float
     effective_sample_size: float
     ess_ratio: float
     moved_fraction: float
     capped_fraction: float | None
-    unsupported: int
+    unsupported: int | None
     mean_ratio: float
     fold_mean_ratio: tuple[float, ...]
     #: Smallest :math:`\pi(A, W)\,q_z(A, W)` among the mechanisms that divide the
@@ -2141,11 +2143,21 @@ class PolicySupport:
         score = format_score_load(self.score_load, style="inline")
         folds = ", ".join(f"{value:.3g}" for value in self.fold_mean_ratio)
         capped = "" if self.capped_fraction is None else f"capped={self.capped_fraction:.1%}, "
+        density = (
+            "min g(A|W) not measured on the classifier route"
+            if self.min_density is None
+            else f"min g(A|W)={self.min_density:.3g}"
+        )
+        unsupported = (
+            "unsupported not measured on the classifier route"
+            if self.unsupported is None
+            else f"unsupported={self.unsupported}"
+        )
         return (
-            f"{self.name}: min g(A|W)={self.min_density:.3g}, max {label}={self.max_ratio:.3g}"
+            f"{self.name}: {density}, max {label}={self.max_ratio:.3g}"
             f"{mechanism}, "
             f"ESS={self.effective_sample_size:.0f} ({self.ess_ratio:.1%} of n), "
-            f"moved={self.moved_fraction:.1%}, {capped}unsupported={self.unsupported}, "
+            f"moved={self.moved_fraction:.1%}, {capped}{unsupported}, "
             f"{score}\n"
             f"    {label} quantiles -- {quantiles}\n"
             f"    mean ratio -- {self.mean_ratio:.3g} overall, per fold {folds} "
@@ -2255,23 +2267,27 @@ def check_policy_support(
             if policies.capped is None
             else float(sum(weights[index, c] * np.mean(policies.capped[:, c]) for c in mine))
         )
+        measured = density is not None or g is not None
         if density is not None:
             assigned = [density.density_at(policies.shifted[:, c]) for c in mine]
         elif g is not None:
             assigned = [g[rows, policies.shifted[:, c].astype(np.int64)] for c in mine]
         else:
-            assigned = [policies.ratio_at[:, c, c] * 0.0 + 1.0 for c in mine]
+            # The classifier route fits no density, so no zero can be read at all.
+            assigned = []
         out[name] = PolicySupport(
             name=name,
             policy=policies.descriptions[index],
-            min_density=float(observed_density.min()),
+            min_density=float(observed_density.min()) if measured else None,
             ratio_quantiles={q: float(np.quantile(finite, q)) for q in _QUANTILES},
             max_ratio=float(finite.max()) if finite.size else 0.0,
             effective_sample_size=ess,
             ess_ratio=ess / a.size if a.size else 0.0,
             moved_fraction=moved,
             capped_fraction=capped,
-            unsupported=int(sum(np.sum(values <= 0.0) for values in assigned)),
+            unsupported=(
+                int(sum(np.sum(values <= 0.0) for values in assigned)) if measured else None
+            ),
             mean_ratio=float(np.mean(ratio)),
             fold_mean_ratio=tuple(float(np.mean(ratio[test])) for test in held_out),
             min_mechanism=float(denominator.min()) if at_observed else None,

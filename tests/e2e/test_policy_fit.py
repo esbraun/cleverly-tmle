@@ -177,6 +177,10 @@ def test_the_classifier_route_runs_and_agrees_with_the_density_route(dose_fit: A
             dose_fit.estimates[name].psi, abs=0.1
         )
     assert by_classifier.nuisance.density is None
+    # No density, so no zero can be read: the report says so rather than printing 0.
+    row = by_classifier.diagnostics.support()["x1.1"]
+    assert row.min_density is None and row.unsupported is None
+    assert "unsupported not measured on the classifier route" in row.summary()
 
 
 def test_a_cross_fitted_clustered_policy_fit_runs() -> None:

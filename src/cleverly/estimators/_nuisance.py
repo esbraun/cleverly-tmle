@@ -972,7 +972,7 @@ _OBSERVED_KEY = "observed"
 
 
 def _mechanism_designs(
-    data: CausalData, arms: tuple[float, ...], shift_set: PolicySet | None, design: FloatArray
+    data: CausalData, arms: tuple[float, ...], policy_set: PolicySet | None, design: FloatArray
 ) -> dict[str, FloatArray]:
     r"""Where a per-treatment mechanism -- :math:`\pi` or :math:`q_z` -- must be evaluated.
 
@@ -989,16 +989,16 @@ def _mechanism_designs(
     that column ``0`` is an *out-of-fold* :math:`\pi(A_i, W_i)` rather than an in-sample
     one -- the same trick the outcome regression already uses for its ``"observed"`` key.
     """
-    if shift_set is None:
+    if policy_set is None:
         return {_arm_key(arm): data.counterfactual_design(arm) for arm in arms}
     designs = {_OBSERVED_KEY: design}
-    for index, code in enumerate(shift_set.component_keys):
-        designs[_arm_key(code)] = data.counterfactual_design(shift_set.shifted[:, index])
+    for index, code in enumerate(policy_set.component_keys):
+        designs[_arm_key(code)] = data.counterfactual_design(policy_set.shifted[:, index])
     return designs
 
 
 def _mechanism_columns(
-    predictions: dict[str, FloatArray], arms: tuple[float, ...], shift_set: PolicySet | None
+    predictions: dict[str, FloatArray], arms: tuple[float, ...], policy_set: PolicySet | None
 ) -> FloatArray:
     """Stack :func:`_mechanism_designs`' predictions into the array the submodel reads.
 
@@ -1006,10 +1006,10 @@ def _mechanism_columns(
     path -- the same layout as :attr:`~cleverly.interventions.PolicySet.design`'s first
     axis, so a builder that indexes one indexes the other with the same integer.
     """
-    if shift_set is None:
+    if policy_set is None:
         return np.column_stack([predictions[_arm_key(arm)] for arm in arms])
     columns = [predictions[_OBSERVED_KEY]]
-    columns.extend(predictions[_arm_key(code)] for code in shift_set.component_keys)
+    columns.extend(predictions[_arm_key(code)] for code in policy_set.component_keys)
     return np.column_stack(columns)
 
 
@@ -1124,14 +1124,14 @@ def fit_nuisances(
     )
     arms = data.arm_codes
     density: ConditionalDensity | None = None
-    shift_set: PolicySet | None = None
+    policy_set: PolicySet | None = None
     ipsi_set: IPSISet | None = None
     if data.is_continuous_treatment and policies and policy_ratio == "classifier":
         # The classifier route of Diaz et al. (2023), Section 5.4: no density is fitted, and
         # each policy's ratio is the odds of a stacked label.  The classifier is
         # ``treatment_learner``, cross-fitted on the same folds every other nuisance uses.
         propensity = Propensity(np.zeros((data.n, 0)), ())
-        shift_set = PolicySet.evaluate_by_classifier(
+        policy_set = PolicySet.evaluate_by_classifier(
             tuple(policies),
             data,
             treatment_model,
@@ -1158,7 +1158,7 @@ def fit_nuisances(
         diagnostics["density"] = density_diagnostics
         propensity = Propensity(np.zeros((data.n, 0)), ())
         if policies:
-            shift_set = PolicySet.evaluate(
+            policy_set = PolicySet.evaluate(
                 tuple(policies), data, density, reference=policy_reference
             )
     elif fit_treatment:
@@ -1190,7 +1190,7 @@ def fit_nuisances(
                 tuple(incremental), data, propensity.values, reference=incremental_reference
             )
         if policies and policy_ratio == "classifier":
-            shift_set = PolicySet.evaluate_by_classifier(
+            policy_set = PolicySet.evaluate_by_classifier(
                 tuple(policies),
                 data,
                 treatment_model,
@@ -1202,7 +1202,7 @@ def fit_nuisances(
             # The discrete formula reads g, so the policy set is evaluated against the
             # mechanism fitted above, as on a dose.  Targeting rebuilds its ratio from the
             # bounded mechanism; see PolicySet.design_at.
-            shift_set = PolicySet.evaluate(
+            policy_set = PolicySet.evaluate(
                 tuple(policies), data, propensity=propensity.values, reference=policy_reference
             )
     else:
@@ -1257,13 +1257,13 @@ def fit_nuisances(
             data.weights,
             folds,
             task="classification",
-            predict_designs=_mechanism_designs(data, arms, shift_set, missingness_design),
+            predict_designs=_mechanism_designs(data, arms, policy_set, missingness_design),
             fit_mask=recorded,
             groups=groups,
             clip=(0.0, 1.0),
             n_jobs=n_jobs,
         )
-        missingness = _mechanism_columns(missing_out, arms, shift_set)
+        missingness = _mechanism_columns(missing_out, arms, policy_set)
         if missing_diagnostics:
             diagnostics["missingness"] = missing_diagnostics
 
@@ -1288,12 +1288,12 @@ def fit_nuisances(
             data.weights,
             folds,
             task="classification",
-            predict_designs=_mechanism_designs(data, arms, shift_set, intermediate_design),
+            predict_designs=_mechanism_designs(data, arms, policy_set, intermediate_design),
             groups=groups,
             clip=(0.0, 1.0),
             n_jobs=n_jobs,
         )
-        intermediate = _mechanism_columns(intermediate_out, arms, shift_set)
+        intermediate = _mechanism_columns(intermediate_out, arms, policy_set)
         if intermediate_diagnostics:
             diagnostics["intermediate"] = intermediate_diagnostics
 
@@ -1321,11 +1321,12 @@ def fit_nuisances(
         counterfactual = {
             code: float(dose) for code, dose in zip(msm.arms, msm.dose_values, strict=True)
         }
-    elif shift_set is None:
+    elif policy_set is None:
         counterfactual = {arm: arm for arm in arms}
     else:
         counterfactual = {
-            code: shift_set.shifted[:, index] for index, code in enumerate(shift_set.component_keys)
+            code: policy_set.shifted[:, index]
+            for index, code in enumerate(policy_set.component_keys)
         }
 
     designs: dict[str, FloatArray] = {"observed": outcome_design}
@@ -1401,7 +1402,7 @@ def fit_nuisances(
         diagnostics=diagnostics,
         outcome_task=outcome_task,
         density=density,
-        policies=shift_set,
+        policies=policy_set,
         incremental=ipsi_set,
         msm=msm,
         companion=companion_estimates,

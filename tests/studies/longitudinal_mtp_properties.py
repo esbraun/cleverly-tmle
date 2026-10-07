@@ -10,7 +10,8 @@ family                          cells, replications and size
 ``root_n_and_efficiency``       ``up`` at n = 500, 2,000 and 8,000; 600 each.  n = 500 is
                                 the ladder's control rung
 ``root_n_rate``                 the two rate rows of ``up``, from the ladder
-``interval_calibration``        ``up``; ``up`` on the classifier ratio route
+``interval_calibration``        ``up``; ``up`` on the classifier ratio route with the
+                                correctly specified ``common.OracleLogOdds``
                                 (``classifier_route``); the categorical law's ``minus one``
                                 contrast (``categorical_mtp``); a vector node of two binary
                                 components (``vector_node``); a randomized node-2 policy
@@ -62,7 +63,6 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 from sklearn.base import clone
-from sklearn.linear_model import LogisticRegression
 
 from cleverly.interventions import ModifiedPolicy, Piece, Randomizer
 from cleverly.interventions import policy as policy_module
@@ -225,7 +225,7 @@ def classifier_fit(frame: pd.DataFrame) -> Any:
         configuration="both_correct",
         plans=_up_plans(),
         ratio="classifier",
-        treatment_learner=LogisticRegression(max_iter=1000),
+        treatment_learner=common.OracleLogOdds("up"),
     )
 
 

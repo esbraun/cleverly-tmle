@@ -148,7 +148,9 @@ ARMS: dict[str, str] = {
         "randomizer_projection"
     ),
     "up": "the contrast of the shift up at both nodes against the natural course",
-    "classifier_route": "the primary policy contrast with its ratio estimated by classification",
+    "classifier_route": (
+        "the primary policy contrast, its ratio estimated by a classifier on the true log ratio"
+    ),
     "x1_25": "the contrast of the dose times 1.25, capped at 5.5, against the natural course",
     "piecewise": "the contrast of the dose lowered by 0.5 above 3 against the natural course",
     "halve": "the contrast of the declared policy halve below 3 against the natural course",
