@@ -65,6 +65,40 @@ CONTRACTION_SCENARIOS = ("outcome_correct", "treatment_correct", "both_wrong")
 #: A power control must reject often enough that an inert test cannot pass the type-I cell.
 MINIMUM_POWER = 0.80
 
+
+def design_power(contrast: float, efficiency_sd: float, n: int, alpha: float = 0.05) -> float:
+    """The two-sided Wald power at ``n`` of an efficient estimator of ``contrast``.
+
+    This is the exact-law power a power cell is sized from before any run: the declared
+    contrast against the efficiency bound's standard error at the cell's size.
+    """
+    from scipy.stats import norm
+
+    critical = float(norm.ppf(1.0 - alpha / 2.0))
+    ratio = abs(contrast) / (efficiency_sd / np.sqrt(n))
+    return float(norm.cdf(ratio - critical) + norm.cdf(-ratio - critical))
+
+
+def power_cell_pass_probability(
+    power: float, replicates: int, *, confidence_level: float = 0.99
+) -> float:
+    """The probability that the exact lower endpoint of the rejection rate clears the floor.
+
+    The power rule passes a cell when the Clopper-Pearson lower endpoint of its rejection rate
+    is at least :data:`MINIMUM_POWER`.  At a true rejection probability ``power`` over
+    ``replicates`` replications this is a binomial tail.
+    """
+    from scipy.stats import beta, binom
+
+    successes = np.arange(1, replicates + 1)
+    tail = (1.0 - confidence_level) / 2.0
+    lower = beta.ppf(tail, successes, replicates - successes + 1)
+    passing = successes[lower >= MINIMUM_POWER]
+    if passing.size == 0:
+        return 0.0
+    return float(binom.sf(int(passing.min()) - 1, replicates, power))
+
+
 #: The family of a warning rule's false-warning rate.  A positive cell holds a law on which
 #: the warning is false, and it must establish that the rate stays at or below the type-I
 #: ceiling.  A control applies another rule to the same fits, and it must establish that its

@@ -16,6 +16,9 @@ Every number here was fixed before any registered run.
 * The positive arms that read the binned oracle density stay inside the margin.  The mean over
   40 draws of 8,000 rows is recorded in :data:`POSITIVE_LIMITS`, with its Monte Carlo
   standard error.
+* The power cell is sized on the exact law (:data:`DESIGN_POWER`): the declared contrast,
+  the efficiency bound and ``NULL_N`` give a probability of at least 0.99 that its exact lower
+  rejection endpoint clears ``MINIMUM_POWER`` over ``NULL_REPLICATES`` replications.
 * The comparator's policy labels and column slugs, transcribed by hand into
   ``tests/canonical/policy_point_mtp_runner.R``, are the Python ones.
 
@@ -38,6 +41,7 @@ import pytest
 
 from tests.studies import canonical_policy_point_mtp as study
 from tests.studies import policy_point_mtp_properties as properties
+from tests.studies.evidence.property_verdicts import design_power, power_cell_pass_probability
 from tests.studies.evidence.registry import ROOT, Margins, registered
 
 pytestmark = pytest.mark.xdist_group("policy_point_mtp_design")
@@ -46,6 +50,9 @@ RUNNER = ROOT / "tests" / "canonical" / "policy_point_mtp_runner.R"
 #: A record, not a check: the pre-declaration failure-only probe on streams 0 to 19 under the
 #: declared seeds found zero failures in every fit set (``_x12_s1_probe.log`` beside the plan).
 FAILURE_PROBE = dict.fromkeys((f"{family}/{label}" for family, label, *_ in properties.FIT_SETS), 0)
+#: The exact-law power of the power cell: the declared contrast against its efficiency-bound
+#: standard error at ``NULL_N`` (:func:`design_power`).
+DESIGN_POWER = 0.942235
 #: A record, not a check: each control's distance from the truth, in efficiency-bound standard
 #: errors of a cell replicate at n = 2,000 (``_x12_s1_limits.log``).
 CONTROL_LIMITS = {"both_wrong": 2.959, "inverse_dropped": 2.808}
@@ -232,3 +239,12 @@ def test_the_runner_names_the_python_policies_and_slugs() -> None:
     transcribed = {(quoted or bare).strip(): slug for quoted, bare, slug in pairs}
     assert transcribed == {label: study.slug(label) for label in study.LABELS}
     assert f'reference <- "{study.REFERENCE}"' in text
+
+
+def test_the_power_cell_reaches_its_floor_on_the_exact_law() -> None:
+    """The declared contrast, efficiency bound and size give the power cell its pass rate."""
+    power = design_power(
+        study.TRUTH[properties.X125], properties.EFFICIENCY_SD["x1_25"], properties.NULL_N
+    )
+    assert power == pytest.approx(DESIGN_POWER, abs=1e-6)
+    assert power_cell_pass_probability(power, properties.NULL_REPLICATES) >= 0.99

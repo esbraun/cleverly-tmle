@@ -14,6 +14,9 @@ Every number here was fixed before any registered run.
   one draw of 100,000 rows (:data:`CONTROL_LIMITS`), against the margin 0.25 plus five Monte
   Carlo standard errors of the cell's mean.  The inverse-dropped control is also checked on the
   exact law of ``tests/discrete_law_longitudinal_mtp.py``.
+* The power cell is sized on the exact law (:data:`DESIGN_POWER`): the declared contrast,
+  the efficiency bound and ``NULL_N`` give a probability of at least 0.99 that its exact lower
+  rejection endpoint clears ``MINIMUM_POWER`` over ``NULL_REPLICATES`` replications.
 * The comparator's plan labels, column slugs and copy counts, transcribed by hand into
   ``tests/canonical/longitudinal_mtp_runner.R``, are the Python ones.
 
@@ -40,6 +43,7 @@ from tests.studies import canonical_longitudinal_mtp as study
 from tests.studies import longitudinal_mtp_common as common
 from tests.studies import longitudinal_mtp_properties as properties
 from tests.studies.default_band_properties import MINIMUM_CONTROL_POWER, control_power
+from tests.studies.evidence.property_verdicts import design_power, power_cell_pass_probability
 from tests.studies.evidence.registry import ROOT, Margins, registered
 
 pytestmark = pytest.mark.xdist_group("longitudinal_mtp_design")
@@ -50,6 +54,9 @@ RUNNER = ROOT / "tests" / "canonical" / "longitudinal_mtp_runner.R"
 FAILURE_PROBE = dict.fromkeys((f"{family}/{label}" for family, label, *_ in properties.FIT_SETS), 0)
 #: ``p0`` of the band cell, from ten fits of the continuous primary subject.
 BAND_P0 = 0.8235
+#: The exact-law power of the power cell: the declared contrast against its efficiency-bound
+#: standard error at ``NULL_N`` (:func:`design_power`).
+DESIGN_POWER = 1.0
 #: A record, not a check: each control's distance from the truth on one draw of 100,000 rows,
 #: in efficiency-bound standard errors of a cell replicate (``_x12_s2_limits.log``).
 CONTROL_LIMITS = {"both_wrong": 0.0, "inverse_dropped": 0.0}
@@ -280,3 +287,14 @@ def test_the_runner_names_the_python_plans_slugs_and_copies() -> None:
         assert transcribed == {label: study._slug(label) for label in labels}, scenario
     assert f"rr_tilt = {study.TILT_COPIES}L" in text
     assert "mtp_categorical = TRUE" in text
+
+
+def test_the_power_cell_reaches_its_floor_on_the_exact_law() -> None:
+    """The declared contrast, efficiency bound and size give the power cell its pass rate."""
+    power = design_power(
+        study.TRUTH[study.CONTINUOUS][properties.UP],
+        properties.EFFICIENCY_SD["up"],
+        properties.NULL_N,
+    )
+    assert power == pytest.approx(DESIGN_POWER, abs=1e-6)
+    assert power_cell_pass_probability(power, properties.NULL_REPLICATES) >= 0.99
