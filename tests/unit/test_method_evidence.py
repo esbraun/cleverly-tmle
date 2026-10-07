@@ -2155,6 +2155,7 @@ MARGIN_SOURCES: dict[str, Any] = {
         lambda s: s.properties().CATEGORICAL_PROBABILITY_DISPLACEMENT
     ),
     "margin:projection_displacement": lambda s: s.properties().PROJECTION_DISPLACEMENT,
+    "margin:policy_displacement": lambda s: s.properties().POLICY_DISPLACEMENT,
     "margin:recursion_displacement": lambda s: s.properties().RECURSION_DISPLACEMENT,
 }
 
