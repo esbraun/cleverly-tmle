@@ -10,10 +10,15 @@ Every number here was fixed before any registered run.
   replications give power 1.0.
 * The controls whose verdict is a bias outside the margin clear it, so a green control is
   evidence rather than luck.  The untargeted plug-in of the intercept-only regressions is the
-  same number under every plan, so its contrast is exactly zero.  The other two are measured on
-  one draw of 100,000 rows (:data:`CONTROL_LIMITS`), against the margin 0.25 plus five Monte
+  same number under every plan, so its contrast is exactly zero.  The other two are means over
+  200 draws of 4,000 rows (:data:`CONTROL_LIMITS`), against the margin 0.25 plus five Monte
   Carlo standard errors of the cell's mean.  The inverse-dropped control is also checked on the
   exact law of ``tests/discrete_law_longitudinal_mtp.py``.
+* The positive arms that rely on the mechanism alone stay inside the margin
+  (:data:`POSITIVE_LIMITS`).  Their bins were chosen before any run by the rule "the smallest
+  count whose mean standardized bias plus its Monte Carlo standard error is below 0.25".  At 80
+  bins the arms read 0.54 and 0.60, and at 160 bins 0.21 and 0.24, each over 100 draws of
+  8,000 rows.  ``MECHANISM_ONLY_BINS = 320`` meets the rule.
 * The power cell is sized on the exact law (:data:`DESIGN_POWER`): the declared contrast,
   the efficiency bound and ``NULL_N`` give a probability of at least 0.99 that its exact lower
   rejection endpoint clears ``MINIMUM_POWER`` over ``NULL_REPLICATES`` replications.
@@ -50,16 +55,26 @@ pytestmark = pytest.mark.xdist_group("longitudinal_mtp_design")
 
 RUNNER = ROOT / "tests" / "canonical" / "longitudinal_mtp_runner.R"
 #: A record, not a check: the pre-declaration failure-only probe on streams 0 to 19 under the
-#: declared seeds found zero failures in every fit set (``_x12_s2_limits.log`` beside the plan).
+#: declared seeds found zero failures in every fit set, with the mechanism-only fit sets at 320
+#: bins (``_x12_s2_probe.log`` beside the plan).
 FAILURE_PROBE = dict.fromkeys((f"{family}/{label}" for family, label, *_ in properties.FIT_SETS), 0)
 #: ``p0`` of the band cell, from ten fits of the continuous primary subject.
 BAND_P0 = 0.8235
 #: The exact-law power of the power cell: the declared contrast against its efficiency-bound
 #: standard error at ``NULL_N`` (:func:`design_power`).
 DESIGN_POWER = 1.0
-#: A record, not a check: each control's distance from the truth on one draw of 100,000 rows,
-#: in efficiency-bound standard errors of a cell replicate (``_x12_s2_limits.log``).
-CONTROL_LIMITS = {"both_wrong": 0.0, "inverse_dropped": 0.0}
+#: A record, not a check: each control's mean distance from the truth over 200 draws of 4,000
+#: rows, in efficiency-bound standard errors of a cell replicate at n = 2,000
+#: (``_x12_s2_bp320.log``).  Monte Carlo standard errors 0.082 and 0.037.
+CONTROL_LIMITS = {"both_wrong": 4.899, "inverse_dropped": 2.103}
+#: A record, not a check: each mechanism-only positive arm's mean standardized bias at 320 bins
+#: and its Monte Carlo standard error, from the same draws.  ``both_correct`` at 80 bins is the
+#: reference: it reads the same finite-sample bias.
+POSITIVE_LIMITS = {
+    "up, mechanism correct": (0.110, 0.053),
+    "up then history, declared inverse": (0.127, 0.053),
+    "up, both correct": (0.112, 0.055),
+}
 #: The declared size of every fit set: ``(family, label) -> (n, replications)``.
 FIT_SET_SIZES = {
     ("double_robustness", "both_correct"): (2_000, 1_000),
@@ -92,6 +107,9 @@ def test_the_declared_numbers() -> None:
     assert (study.SEED, study.RESAMPLING_SEED) == (20261041, 2026104101)
     assert (study.SMOKE_GATE, study.LEARNER_FOLDS, study.N_FOLDS) == (1e-6, 2, 5)
     assert (study.DENSITY_BINS, study.TILT_COPIES, study.G_BOUNDS) == (80, 2, (0.001, 1.0))
+    assert study.MECHANISM_ONLY_BINS == 320
+    assert study.density_bins("mechanism_correct") == 320
+    assert {study.density_bins(c) for c in ("primary", "both_correct", "both_wrong")} == {80}
     assert record.reference == "lmtp"
     assert properties.BAND_REPLICATES == 2_000
     assert {
@@ -233,6 +251,8 @@ def test_the_untargeted_control_is_zero_under_intercept_regressions() -> None:
 def test_the_recorded_control_limits_clear_their_margins() -> None:
     assert CONTROL_LIMITS["both_wrong"] > _floor(properties.DOUBLE_ROBUST_REPLICATES)
     assert CONTROL_LIMITS["inverse_dropped"] > _floor(properties.INVERSE_REPLICATES)
+    for bias, monte_carlo in POSITIVE_LIMITS.values():
+        assert abs(bias) + monte_carlo < Margins().standardized_bias
 
 
 def test_the_inverse_dropped_control_moves_the_exact_law() -> None:
