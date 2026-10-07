@@ -103,12 +103,16 @@ class PointLaw:
         One or two causes, on a survival law.
     with_l2 : bool
         Whether ``L2`` sits before node 2.
+    censor_first : bool
+        Whether units can be censored at node 1.  A time-to-event input cannot hold such a
+        unit, since its censoring time would be ``g_0 = 0``.
     """
 
     kind: str
     n_times: int = 3
     causes: int = 1
     with_l2: bool = False
+    censor_first: bool = True
     support: tuple[tuple[Any, ...], ...] = field(init=False)
     masses: np.ndarray = field(init=False)
     counts: np.ndarray = field(init=False)
@@ -170,8 +174,9 @@ class PointLaw:
     ) -> None:
         w, a = prefix[0], prefix[1]
         width = len(self.columns)
-        c = _retained(node, w, a, l)
-        out.append(((*prefix, 0) + (None,) * (width - len(prefix) - 1), mass * (1.0 - c)))
+        c = 1.0 if node == 1 and not self.censor_first else _retained(node, w, a, l)
+        if c < 1.0:
+            out.append(((*prefix, 0) + (None,) * (width - len(prefix) - 1), mass * (1.0 - c)))
         stayed = (*prefix, 1)
         if self.kind == "end_of_study":
             self._walk(stayed, mass * c, node + 1, l, out)
@@ -239,6 +244,38 @@ class PointLaw:
         if self.kind == "end_of_study":
             frame["Y"] = raw["Y"]
         return pd.DataFrame(frame)
+
+    def long_frame(self, grid: Sequence[float], *, offset: float = 0.0) -> pd.DataFrame:
+        """The same sample as one row per unit: ``W``, ``A``, ``time`` and ``event``.
+
+        An event at node ``k`` is at ``g_k - offset``, inside the interval
+        ``(g_{k-1}, g_k]`` for an offset below the spacing.  A unit censored at node
+        ``k`` was last seen at ``g_{k-1}``, and a unit event-free at the end is censored at
+        ``g_K``.  Needs ``censor_first=False`` and no ``L2``.
+        """
+        if self.censor_first or self.with_l2 or self.kind != "survival":
+            raise ValueError("a long layout needs a survival law with censor_first=False, no L2")
+        g = np.asarray(grid, dtype=float)
+        index = {name: i for i, name in enumerate(self.columns)}
+        time = np.empty(len(self.support))
+        code = np.zeros(len(self.support), dtype=np.int64)
+        for row, point in enumerate(self.support):
+            time[row] = g[-1]
+            for node in range(1, self.n_times + 1):
+                if point[index[f"C{node}"]] == 0:
+                    time[row] = g[node - 2]
+                    break
+                event = point[index[f"E{node}"]]
+                if event:
+                    time[row] = g[node - 1] - offset
+                    code[row] = event
+                    break
+        cells = np.repeat(np.arange(len(self.support)), self.counts)
+        w = np.array([point[0] for point in self.support], dtype=float)
+        a = np.array([point[1] for point in self.support], dtype=float)
+        return pd.DataFrame(
+            {"W": w[cells], "A": a[cells], "time": time[cells], "event": code[cells]}
+        )
 
     def fit_columns(self, *, held: bool = True) -> dict[str, Any]:
         """The column keywords of ``LTMLE.fit`` for this law."""
@@ -387,9 +424,9 @@ def shifted(law: PointLaw, mapping: Sequence[int]) -> Callable[[Any, int], Seque
     return assign
 
 
-def survival_law(*, causes: int = 1, with_l2: bool = False) -> PointLaw:
+def survival_law(*, causes: int = 1, with_l2: bool = False, censor_first: bool = True) -> PointLaw:
     """The three-node survival law."""
-    return PointLaw("survival", 3, causes, with_l2)
+    return PointLaw("survival", 3, causes, with_l2, censor_first)
 
 
 def end_of_study_law(*, with_l2: bool = False) -> PointLaw:
