@@ -2541,7 +2541,7 @@ class LTMLE:
         n_jobs: int = 1,
         n_bootstrap: int = 0,
         bootstrap_resampling: Resampling = "auto",
-        density_bins: int = 20,
+        density_bins: int | None = None,
         ratio: str = "density",
         **refused: Any,
     ) -> None:
@@ -2615,7 +2615,7 @@ class LTMLE:
                 "continuous node's policy ratio is estimated: a binned conditional density, or "
                 "a stacked classification (Diaz et al. 2023, Section 5.4)"
             )
-        if self.density_bins < 3:
+        if self.density_bins is not None and self.density_bins < 3:
             raise ValueError(f"density_bins must be at least 3; got {self.density_bins}")
         if self.msm is not None and not isinstance(self.msm, MSM):
             raise TypeError(

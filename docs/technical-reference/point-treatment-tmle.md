@@ -790,15 +790,14 @@ inverse and the Jacobian, and each control fails. `tests/unit/test_influence_gat
 checks the tilt on `tests/discrete_law.py`. The registered study is `policy-point-mtp`. It is
 declared, and its run is pending.
 
-The bin count limits the density route at a point treatment as it does at a longitudinal node.
-With the outcome regression wrong, the binned density's error enters the bias at first order, so
-double robustness through the density needs `density_bins` to grow with $n$. A fixed bin count
-also inflates the influence curve where the tail bins are wide, so the intervals are
-conservative. When efficiency matters, use `ratio="classifier"` with a flexible classifier, or
-raise `density_bins` with $n$. The
+The bin count limits the density route at a point treatment as it does at a longitudinal node. The
+default `density_bins=None` grows the count with the sample, `max(20, ceil(2 n^(1/3)))`, so the
+binned density is consistent. An explicit `density_bins=` is used as given. A coarse count
+inflates the influence curve where the tail bins are wide, so the intervals are conservative.
+When efficiency matters, use `ratio="classifier"` with a flexible classifier, or set
+`density_bins=` higher. The
 [longitudinal section](longitudinal-tmle.md#modified-treatment-policies-at-a-node) gives the
-measurements. `policy-point-mtp` reads 160 oracle bins. There, the density-only arms measured a
-mean standardized bias below 0.08, over 40 draws of 8,000 rows.
+measurements.
 
 The implementation fits a conditional density, targets the outcome regression as a function of
 dose, and evaluates it at $d(A,W)$. Missingness and intermediate mechanisms multiply the density

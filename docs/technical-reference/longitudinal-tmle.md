@@ -365,29 +365,29 @@ continuous node the treatment factor of the cumulative product is the ratio itse
 ratio as `node_ratio`. A cross-fitted fit (`n_folds` above one) uses the pooled
 construction of the other plan kinds. `msm=` accepts modified treatment policy cells.
 
-**The bin count of the density route.** A binned density is not consistent at a fixed bin count.
-When the outcome regression is also wrong, the bin error enters the bias at first order. So the
-double robustness of the density route through the mechanism needs `density_bins` to grow with
-$n$. The default of 20 bins relies on the outcome regression. The `ratio="classifier"` route has
-no bins.
+**The bin count of the density route.** A binned density at a fixed bin count is not
+consistent. The bin edges are sample quantiles, so the tail bins are wide, and the binned ratio
+errs most there. The table gives the error that one draw of the `longitudinal-mtp` law measured
+with the exact bin probabilities, so the binning is the only error left.
 
-A fixed bin count also costs efficiency when the outcome regression is right. The bin edges are
-sample quantiles, so the tail bins are wide, and the binned ratio errs most there. The influence
-curve's spread then grows, and the intervals are conservative. In the registered study the
-continuous calibration cells at 80 bins report standard errors 12% to 17% above the efficiency
-bound, with
-coverage of 0.9565 or more. When efficiency matters, use `ratio="classifier"` with a flexible
-classifier, or raise `density_bins` with $n$.
-
-The `longitudinal-mtp` probes measured the bias with an oracle hazard and an intercept-only
-outcome. The table gives the mean standardized bias of the mechanism-only arms, at the scale of
-$n = 2{,}000$.
-
-| bins | mean standardized bias | draws |
+| bins | spread of the influence curve over the efficient one, n = 2,000 | the same, n = 8,000 |
 | ---: | --- | --- |
-| 80 | 0.54 to 0.60 | 100 draws of 8,000 rows |
-| 160 | 0.21 to 0.24 | 100 draws of 8,000 rows |
-| 320 | 0.11 to 0.13 | 200 draws of 4,000 rows |
+| 20 | 1.62 | 1.72 |
+| 80 | 1.14 | 1.20 |
+| 160 | 1.04 | 1.13 |
+| 320 | 0.99 | 1.00 |
+
+At a fixed count the error stays as $n$ grows, and it halves each time the count doubles. So the
+default `density_bins=None` grows the count with the sample: `max(20, ceil(2 n^(1/3)))`, the rate
+of Scott (1979). An explicit `density_bins=` is used as given. `tests/unit/test_density_bins_consistency.py`
+shows the tail error shrinking with $n$ under the default, and a mutation that holds the count at
+20 fails it.
+
+Two consequences follow. When the outcome regression is wrong, the bin error enters the bias at
+first order, so double robustness through the density alone needs a ratio error of
+$o(n^{-1/2})$, which a histogram does not give. When the outcome regression is right, a coarse
+count inflates the influence curve, and the intervals are conservative. When efficiency matters,
+use `ratio="classifier"` with a flexible classifier, or set `density_bins=` higher.
 
 `regimens=` takes the policy as a plan node, and the `policies=` keyword stays refused by name:
 `regimens={"+0.5": DynamicRegimen("+0.5", (Shift(0.5, cap=4.0),) * 2)}`.

@@ -79,8 +79,9 @@ class ModelSpec:
         Sequential pseudo-outcome learner.
     censoring_learner : estimator or None
         Longitudinal observation-mechanism learner.
-    density_bins : int
-        Number of bins for a continuous-treatment conditional density.
+    density_bins : int or None
+        Number of bins for a continuous-treatment conditional density.  ``None`` grows the
+        count with the sample, ``max(20, ceil(2 n^(1/3)))``, so the density is consistent.
     screen_treatment : bool
         Whether to screen treatment-mechanism covariates by correlation.
     screen_threshold : float
@@ -109,7 +110,7 @@ class ModelSpec:
     intermediate_learner: Any = None
     pseudo_learner: Any = None
     censoring_learner: Any = None
-    density_bins: int = 20
+    density_bins: int | None = None
     screen_treatment: bool = False
     screen_threshold: float = 0.1
     min_retain: int | None = None

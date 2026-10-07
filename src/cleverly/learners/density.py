@@ -52,6 +52,7 @@ question entirely.
 
 from __future__ import annotations
 
+import math
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
@@ -83,6 +84,34 @@ _HAZARD_EPS = 1e-12
 #: binned density and the fit says so.  Not a threshold with a derivation behind it -- it
 #: is the point at which most rows contribute a clever covariate of exactly one.
 _CROSSING_WARNING = 0.5
+
+
+#: The smallest default bin count, the count every fit used before the default grew with n.
+MIN_DEFAULT_BINS = 20
+
+
+def default_density_bins(n: int) -> int:
+    """The default bin count of a binned density fitted on ``n`` rows: ``max(20, ceil(2 n^(1/3)))``.
+
+    A histogram density is consistent only if its bin count grows with ``n`` while each bin
+    still holds a growing number of rows.  A fixed count is not: on the continuous laws of the
+    ``longitudinal-mtp`` study, the error of a binned density ratio in the tail bins did not
+    shrink from ``n = 2,000`` to ``n = 8,000`` at a fixed count, and halved each time the count
+    doubled.  Scott (1979, *Biometrika* 66(3):605-610) gives the rate: the bin width that
+    minimises the integrated squared error shrinks as ``n^(-1/3)``.  The constant 2 is the Rice
+    rule.  Below ``n = 1,000`` the floor of 20 bins applies.
+
+    Parameters
+    ----------
+    n : int
+        The number of rows the density is fitted on.
+
+    Returns
+    -------
+    int
+        The bin count.
+    """
+    return max(MIN_DEFAULT_BINS, math.ceil(2.0 * max(int(n), 1) ** (1.0 / 3.0)))
 
 
 def bin_edges(values: FloatArray, n_bins: int) -> FloatArray:
@@ -410,7 +439,7 @@ def fit_conditional_density(
     weights: FloatArray,
     folds: Folds,
     *,
-    n_bins: int = 20,
+    n_bins: int | None = None,
     edges: Sequence[float] | None = None,
     groups: IntArray | None = None,
     n_jobs: int = 1,
@@ -436,6 +465,8 @@ def fit_conditional_density(
     sample_weight = np.asarray(weights, dtype=float).reshape(-1)
     mask = None if fit_mask is None else np.asarray(fit_mask, dtype=bool).reshape(-1)
     grid_values = a if mask is None else a[mask]
+    if n_bins is None:
+        n_bins = default_density_bins(grid_values.size)
     grid = bin_edges(grid_values, n_bins) if edges is None else np.asarray(edges, dtype=float)
     if grid.ndim != 1 or grid.size < 3 or np.any(np.diff(grid) <= 0.0):
         raise DataError("edges= must be a strictly increasing sequence of at least 3 values")

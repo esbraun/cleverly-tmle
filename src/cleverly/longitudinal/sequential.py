@@ -735,7 +735,7 @@ def fit_mechanism(
     censoring_learner: Learner,
     folds: Folds,
     n_jobs: int = 1,
-    density_bins: int = 20,
+    density_bins: int | None = None,
     ratio: str = "density",
 ) -> Mechanism:
     """Fit the treatment and censoring mechanisms at every node, out of fold.
@@ -927,7 +927,7 @@ def _continuous_node_ratios(
     *,
     treatment_learner: Learner,
     folds: Folds,
-    density_bins: int,
+    density_bins: int | None,
     ratio: str,
     n_jobs: int,
 ) -> ConditionalDensity | None:
