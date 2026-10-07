@@ -1042,3 +1042,34 @@ def test_simulated_confounding_carries_the_flipped_mechanism_in_every_cell(
         if cell.treatment_strength == 0.01 and cell.outcome_strength == 0.0
     )
     assert abs(small.displacement) < 0.02
+
+
+@pytest.mark.parametrize("arms", [2, 3])
+def test_a_discrete_modified_policy_on_a_known_mechanism_recovers_the_truth(arms: int) -> None:
+    """E1 for a discrete MTP: the exact law and a wrong outcome regression give the truth.
+
+    The truth is ``E[Qbar0(d(A, W), W)]`` by enumeration over the cells and the arms.
+    """
+    from cleverly.interventions import ModifiedPolicy
+
+    apply = _treat_w2 if arms == 2 else _drop_top
+    policy = ModifiedPolicy("mtp", apply=apply, policy_kind="known")
+    frame = law.point_frame(arms)
+    result = (
+        _tmle(policies=[policy])
+        .fit(frame, **ROLES, treatment_probabilities=_columns(arms))
+        .single()
+    )
+    outcome = np.array(law.OUTCOME, dtype=float)
+    truth = 0.0
+    for cell, (_, w2) in enumerate(law.CELLS):
+        if arms == 2:
+            g1 = law.BINARY_MECHANISM[cell]
+            mechanism = (1.0 - g1, g1)
+        else:
+            mechanism = law.THREE_ARM_MECHANISM[cell]
+        for arm, probability in enumerate(mechanism):
+            frame_row = pd.DataFrame({"W2": [w2]})
+            target = int(apply(np.array([float(arm)]), frame_row)[0])
+            truth += probability * outcome[cell, target] / len(law.CELLS)
+    assert abs(result.estimates["ey_policy[mtp]"].psi - truth) <= EXACT

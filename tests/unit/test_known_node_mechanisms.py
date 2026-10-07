@@ -602,7 +602,7 @@ def test_a_rare_level_at_a_declared_node_needs_no_training_fold() -> None:
     frame["g2_2"] = np.where(at_risk, 0.05, np.nan)
     frame["g2_0"] = frame["g2_0"] * 0.95
     frame["g2_1"] = frame["g2_1"] * 0.95
-    rare = np.flatnonzero(at_risk)[:2]
+    rare = np.flatnonzero(at_risk)[:1]
     frame.loc[rare, "A2"] = 2.0
     treatment = {
         "A1": law.SMART_TREATMENT["A1"],
