@@ -371,6 +371,14 @@ double robustness of the density route through the mechanism needs `density_bins
 $n$. The default of 20 bins relies on the outcome regression. The `ratio="classifier"` route has
 no bins.
 
+A fixed bin count also costs efficiency when the outcome regression is right. The bin edges are
+sample quantiles, so the tail bins are wide, and the binned ratio errs most there. The influence
+curve's spread then grows, and the intervals are conservative. In the registered study the
+continuous calibration cells at 80 bins report standard errors 12% to 17% above the efficiency
+bound, with
+coverage of 0.9565 or more. When efficiency matters, use `ratio="classifier"` with a flexible
+classifier, or raise `density_bins` with $n$.
+
 The `longitudinal-mtp` probes measured the bias with an oracle hazard and an intercept-only
 outcome. The table gives the mean standardized bias of the mechanism-only arms, at the scale of
 $n = 2{,}000$.

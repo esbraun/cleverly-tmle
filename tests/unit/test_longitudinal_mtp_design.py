@@ -112,7 +112,7 @@ FIT_SET_SIZES = {
 
 def test_the_declared_numbers() -> None:
     record = study.STUDY
-    assert record.publication_policy == "gated"
+    assert record.publication_policy == "reporting"
     assert record.margins == Margins()
     assert (study.PRIMARY_REPLICATES, study.PRIMARY_N) == (1_000, 2_000)
     assert (study.SEED, study.RESAMPLING_SEED) == (20261041, 2026104101)

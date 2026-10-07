@@ -51,7 +51,8 @@ the merge and gets a diagnosis.
 
 **Properties.** :mod:`tests.studies.longitudinal_mtp_properties` declares every family.
 
-Publication policy is ``gated``.  The red-cell route is declared before any run: a red
+Publication policy was ``gated`` and is ``reporting`` after the re-registration below.  The
+red-cell route is declared before any run: a red
 property cell that reads as a finite-sample limit is re-registered under
 ``publication_policy="reporting"`` with an owner row in "Red-cell owners" before any re-run.  A
 replication that raises is never redrawn.  The shared harness refuses a cell that lost a
@@ -60,6 +61,24 @@ its failure count stated as a page limit, and the run repeats without it with no
 This is the rule ``clustered-cross-fitted-ltmle``, ``cross-fitted-longitudinal-msm`` and
 ``stochastic-categorical-ltmle`` declare.  No budget, margin, law, learner, fold count or seed
 changes after a verdict is seen.
+
+**Re-registration.**  The declared run (HEAD ``c094fffd``, run 2026-10-07) passed
+44 of 44 truth tests and 22 of 22 paired tests, and 33 of 40 property cells.  The seven red
+cells and their readings:
+
+- ``interval_calibration`` of ``up``, ``msm_mtp`` and ``randomized_mtp``, and both
+  ``crossfit_overfitting`` cells, read the structural limit of a fixed-bin density ratio.  The
+  quantile edges leave wide tail bins, where the binned ratio errs by up to 10 on a probe of
+  4,000 rows, so the influence curve's spread is inflated (0.523 against 0.413 for the
+  efficient curve there).  The intervals are conservative (coverage 0.9565 to 0.981), and the
+  point estimates pass their bias rule.  Owner ``binned-density-tail``.
+- ``interval_calibration`` of ``categorical_mtp`` and the n = 500 control rung read as finite
+  sample: the categorical efficiency ratio falls from 1.07 at n = 2,000 to 1.02 at n = 8,000
+  with saturated learners, and the rung's coverage interval ends at 0.8988 against 0.90.
+  Owner ``mtp-longitudinal-finite-sample``.
+
+The design does not change after the verdict.  The study is re-registered under ``reporting``,
+and the run repeats with the same seeds and no other change.
 """
 
 from __future__ import annotations
@@ -240,7 +259,7 @@ STUDY = StudyRecord(
     runner_module="tests.studies.canonical_longitudinal_mtp",
     properties_module="tests.studies.longitudinal_mtp_properties",
     property_cells=PROPERTY_CELLS,
-    publication_policy="gated",
+    publication_policy="reporting",
 )
 
 REFERENCE_METADATA = {

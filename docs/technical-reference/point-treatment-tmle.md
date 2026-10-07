@@ -792,7 +792,10 @@ declared, and its run is pending.
 
 The bin count limits the density route at a point treatment as it does at a longitudinal node.
 With the outcome regression wrong, the binned density's error enters the bias at first order, so
-double robustness through the density needs `density_bins` to grow with $n$. The
+double robustness through the density needs `density_bins` to grow with $n$. A fixed bin count
+also inflates the influence curve where the tail bins are wide, so the intervals are
+conservative. When efficiency matters, use `ratio="classifier"` with a flexible classifier, or
+raise `density_bins` with $n$. The
 [longitudinal section](longitudinal-tmle.md#modified-treatment-policies-at-a-node) gives the
 measurements. `policy-point-mtp` reads 160 oracle bins. There, the density-only arms measured a
 mean standardized bias below 0.08, over 40 draws of 8,000 rows.
