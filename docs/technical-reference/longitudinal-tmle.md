@@ -508,6 +508,56 @@ regimen, the cause and the horizon. `tests/unit/test_event_free_node.py` checks 
 omission rows and the absent learner fits. Its mutation removes the rule and sees the bounded
 fluctuation move the risk off zero.
 
+### Known node mechanisms
+
+A sequentially randomized trial, such as a SMART, fixes its treatment probabilities by design. A
+study can also know its retention probabilities. Declare either with `treatment_probabilities=`
+and `censoring_probabilities=` in `LTMLE.fit` or in `LongitudinalData.from_frame`. In the study
+API, declare them with `LongitudinalTreatment(treatment_probabilities=...,
+censoring_probabilities=...)`. A declared node fits no learner.
+
+| keyword | form | reading |
+| --- | --- | --- |
+| `treatment_probabilities` | `{"A1": {0: "p1_0", 1: "p1_1"}, ...}` | each node's levels mapped to frame columns of $P(A_t=a\mid\text{observed past})$. Nodes left out are estimated. This form is required when the nodes have different level sets |
+| `treatment_probabilities` | `(n, T)` array | $P(A_t=\text{levels}_t[1]\mid\text{observed past})$, at binary nodes only |
+| `treatment_probabilities` | `(n, T, K)` array | the full matrix, when every node shares $K$ levels |
+| `censoring_probabilities` | `{"C1": "r1", ...}` or `(n, T)` array | $P(C_t=1\mid\text{observed past})$ |
+
+A value on a row that is not at risk at its node is never read, and it may be missing. A missing
+value on an at-risk row is refused with the row count. A node may give an arm probability one, as a
+SMART does for the units it does not re-randomize. A declared zero for the arm an at-risk unit took
+is refused, because the data contradict it.
+
+A node's factor is the declared probability of the arm each row is *assigned*. The clever covariate
+is nonzero only where the plan's history equals the observed one. The declaration describes the
+observed history, so the fit reads it only where the two agree. That is the meaning of `ltmle`'s
+numeric `gform`. On a held design the one decision is the one declared node.
+
+With every treatment and censoring factor known, the remainder is zero and the curve is
+$D^*(\bar Q_\infty,g_0)$ for any outcome regression. Theorem 2 of van der Laan and Gruber (2012)
+states the double robustness. Their Section 4, page 19, states the curve at $g_n=g_0$. Petersen et
+al. (2014), Appendix B, Corollary 1, give the identity $-P_0D^*(Q,g_0)=\Psi(Q)-\psi_0$.
+
+With the treatment declared and the censoring estimated, the usual double-robust conditions apply
+to the censoring factor alone. That is the common SMART analysis.
+
+**Bounds.** The cumulative bound applies to the running product of the declared factors on every
+row that follows a plan. A product outside `g_bounds` moves the estimate with no variance reason,
+so the fit refuses before any learner. The message names `g_bounds` and the node where the product
+first leaves the bounds. Products fall fast: 0.5 at each node reaches 0.01 near the seventh node.
+Pass a lower bound below the smallest declared product, such as `g_bounds=(1e-8, 1.0)`.
+
+| composition | result |
+| --- | --- |
+| static, dynamic and known stochastic plans, `msm=`, cross-fitting, clusters, survival and competing risks, `n_bootstrap=` | supported. A bootstrap replicate carries the declared values of its own rows |
+| a continuous node | refused. A known density is not supported |
+| a modified treatment policy at a declared node | refused. The policy's ratio numerator reads the mechanism at the levels the policy sends a unit to |
+
+The nuisance report shows `LONGITUDINAL_KNOWN_MECHANISM` in place of each declared node's row.
+`tests/unit/test_known_node_mechanisms.py` checks a two-node SMART exact law: a wrong outcome
+regression with every factor declared returns the truth, with and without declared censoring. The
+registered `known-node-mechanisms` study pairs the fit with R `ltmle` at a numeric `gform`.
+
 ## Functionals of a fitted result
 
 Each method below reads the influence curves of the reported estimates. Each one is an exact

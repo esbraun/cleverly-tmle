@@ -21,6 +21,14 @@ The curve is centered rather than assumed to be centered. Targeting drives $\bar
 approximately zero. Reading the mean off the sample, instead of substituting zero, is what makes
 the reported variance a statement about the curve that was actually computed.
 
+A fit on data that declares its treatment mechanism reads the same rule. Its curve is evaluated at
+the declared $g_0$, where it is the estimator's exact influence curve for any outcome regression.
+The interval is therefore not conservative. An estimated mechanism gives the ordinary curve at
+$\hat g$ instead. That curve is conservative when a correct parametric mechanism model meets a
+wrong outcome regression. The
+[known-treatment-mechanism contract](point-treatment-tmle.md#known-treatment-mechanism) gives the
+sources and the choice between the two.
+
 ## Covariance rules
 
 Each `ParameterEstimate` declares a `covariance_rule`. `result.covariance()` and

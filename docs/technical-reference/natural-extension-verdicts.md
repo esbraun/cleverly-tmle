@@ -1,6 +1,6 @@
 # Natural-extension verdicts
 
-This page records the source audit of eleven compositions that the package refused or did not
+This page records the source audit of thirteen compositions that the package refused or did not
 implement. The audit applies the [Eligibility](../roadmap.md#eligibility) rule of the roadmap. A
 part qualifies when each step is a standard step and no source records an objection. An objection
 is a source that records a step as open or as a defect. A step that needs a new kind of limit
@@ -41,6 +41,7 @@ A row that delivers a part updates the last column of the table below.
 | (j) a `discrete` C-TMLE fit whose one declared candidate is the full adjustment set | the `working_mechanism_plugin` status | the ordinary TMLE interval result | none. The fit selects nothing, so the estimator is TMLE | none | shipped | [collaborative TMLE](collaborative-tmle.md) |
 | (k) the cross-fitted outcome-adaptive C-TMLE design with one scalar design for each arm | the `generated_design_plugin` status | Benkeser, Cai and van der Laan (2020), Theorem 1, and Appendix D, "Cross-validated CTMLE", printed page 26 of the author preprint | cross-fitted nuisances with one pooled coefficient for each arm. Appendix D states this step and its pooled coefficient | none | qualifies for implementation | [X17](../roadmap.md#x17-outcome-adaptive-c-tmle-intervals-from-per-arm-scalar-designs) |
 | (l) cross-fitted longitudinal `msm=` | none; the refusal is removed | Díaz et al. (2023), Section 5.2, page 852, and Theorem 3, page 853, for each regimen and horizon cell; the shipped in-sample [longitudinal projection](msm-projections.md#the-longitudinal-projection) | a fixed-dimension stack of the cross-fitted cells, the delta method for the projection, and the chain rule for the stacked update over every follower | the earlier refusal named an evidence gap, not a theory gap. No read source records a defect | shipped | [the longitudinal projection](msm-projections.md#the-longitudinal-projection) |
+| (m) `incremental=` on data that declares its treatment mechanism | none; the refusal is removed | Kennedy (2019), arXiv v3, Theorem 2 and Corollary 2, Section 3.3, and Lemma 2 of Section 8.2 for a known stochastic intervention | the chain rule with a known weight: with $g_0$ known, $q_\delta(g_0)$ is a known stochastic regime, and the efficient curve is the full-model curve projected off the mechanism tangent space, which removes the term in $(A-g)$ | Kennedy (2019) states after Corollary 2 that with known propensity scores the efficient influence function is the first weighted average term. That is this step, not an objection | shipped | [known treatment mechanism](point-treatment-tmle.md#known-treatment-mechanism) |
 
 ## The conditions each part inherits
 
@@ -57,3 +58,4 @@ A row that delivers a part updates the last column of the table below.
 | (j) | the conditions of the ordinary TMLE |
 | (k) | the Theorem 1 conditions, with cross-fitting in place of the empirical-process condition |
 | (l) | the Theorem 3 rates and bounded density ratios in every cell; a fixed number of cells; a full-rank realized design; with `id=`, the rules of parts (f) and (g) |
+| (m) | a declared mechanism equal to the design mechanism; positivity of $g_0$ on the arms $q_\delta$ charges; the conditions of the known-regime TMLE |

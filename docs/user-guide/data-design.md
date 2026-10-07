@@ -65,6 +65,34 @@ randomized = CausalStudy(
 )
 ```
 
+A trial that records the probability with which each unit was assigned each arm declares that
+known mechanism. Name the frame column of each arm's probability:
+
+```python
+trial = CausalStudy(
+    frame,
+    design=PointTreatment(
+        outcome="Y",
+        treatment="A",
+        adjustment=("W1", "W2"),
+        treatment_probabilities={0: "p_control", 1: "p_treated"},
+    ),
+)
+```
+
+- Every method divides by the declared probabilities and fits no treatment learner. The estimate
+  is then consistent for any outcome learner, and the interval is not conservative.
+- The probability columns are not adjustment variables, and they can depend on the adjustment
+  set, as a stratified allocation does.
+- `CollaborativeTMLEMethod` is unavailable on such a design, because there is no mechanism to
+  select.
+- A fit refuses a bound pair that would move a declared value, before any learner. Pass
+  `g_bounds=` wide enough to hold every declared probability.
+
+[Known treatment mechanism](../technical-reference/point-treatment-tmle.md#known-treatment-mechanism)
+gives the forms, the curves and the refusals. `LongitudinalTreatment` takes the same declaration
+per node ([known node mechanisms](../technical-reference/longitudinal-tmle.md#known-node-mechanisms)).
+
 ## Missing outcomes and missing treatments
 
 Declare each missingness role with a 0/1 indicator column. The column is 1 where the value is

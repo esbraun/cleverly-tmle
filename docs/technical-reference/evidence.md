@@ -136,6 +136,17 @@ its instruments and what each one cannot see.
 | `tests/unit/test_stratified_drtmle_exact.py` | on every route and guard, each stratum estimate and curve equal a subset fit, and the marginal is the mixture. Reductions pooled across strata fail it | the truth; more than one alternation round, whose global stop rule ends the strata together |
 | `tests/unit/test_simulated_confounding_strata.py` | the replay of a stratum alias for each new composition | interval validity of the replay |
 
+A fit on data with a declared treatment mechanism estimates the registered targets. The
+declaration replaces the fitted mechanism, so the fit adds no registry stem. The table gives its
+instruments and what each one cannot see.
+
+| instrument | what it checks | what it cannot see |
+| --- | --- | --- |
+| `tests/unit/test_known_treatment_mechanism.py`, exact laws | on a finite law whose empirical law is the law, a wrong outcome regression with the declared mechanism returns the truth for the arm means, ATE, RR, OR, ATT and ATC at two and three arms, in every declaration form, under each CV-TMLE shape on replica folds, with population weights, and for complete-data `DRTMLE` at each guard and reduction | the `"Q"` guards of `DRTMLE`, whose correction is zero at the exact law before any fluctuation |
+| `tests/unit/test_known_treatment_mechanism.py`, witnesses | the declaration and a learner that returns it give the same fit, also nested and bootstrapped; the curve is $D^*(ar Q^*, g_0)$ written out; the incremental fit is the known stochastic regime; the declared values move the curve; the `"Q"` guard moves `g*` off $g_0$ on a finite sample; the bound rule fires; `subset` carries and `with_treatment` drops the declaration | coverage |
+| `tests/unit/test_known_node_mechanisms.py` | a two-node SMART exact law returns the truth with every factor declared, with and without declared censoring, in both forms; a perturbed node moves the clever covariate from that node on; a dropped censoring declaration moves the estimate; the refusals fire before any learner | coverage |
+| the registered `known-treatment-mechanism`, `known-treatment-mechanism-drtmle` and `known-node-mechanisms` studies | accuracy, coverage and calibration at a wrong outcome regression, an estimated-mechanism control, the bootstrap, the variance direction and the rate, paired with R `tmle`, R `drtmle` and R `ltmle` on the same samples | flexible learners; the ATT and ATC against R `tmle` at a wrong outcome regression, where R `tmle` runs a different construction |
+
 A cross-fitted clustered `LTMLE` fit estimates the registered longitudinal targets with the
 cluster as the unit, so it adds no registry stem.
 [Longitudinal clusters](longitudinal-tmle.md#clusters) states the step. The table gives its
@@ -260,12 +271,11 @@ No instrument can detect a violation of the treatment condition, `Y(a)` independ
 given `(A, W)`. No observed-data check can, because the data hold no outcome of a row whose
 treatment is unrecorded under the other arm.
 
-Cross-validated DR-TMLE missing-data compositions are not
-covered, and neither is `treatment_probabilities=` under `n_bootstrap=`, which is refused because
-the array cannot be reindexed to a replicate's resampled rows at any `guard=` because the array
-is row-aligned however few equations are being solved. An unguarded `delta=` fit with known
-probabilities and `cross_fit=False` is a plain TMLE and is accepted as one; `_FailIfFit` is the
-witness that the supplied array reaches the fit rather than the refusal merely being gone. With
+Cross-validated DR-TMLE missing-data compositions are not covered. The data carry a declared
+known mechanism, so the bootstrap reads the declared values of each replicate's own rows.
+`tests/unit/test_drtmle_missing.py` checks that no replicate fits the treatment learner. An
+unguarded `delta=` fit with known probabilities and `cross_fit=False` is a plain TMLE and is
+accepted as one. `_FailIfFit` is the witness that the declaration reaches the fit. With
 `cross_fit=True`, the same fit is refused at every `guard=`, including `guard=()`.
 
 **Bounding the two mechanisms separately is what the scope label had to learn.** `contract`

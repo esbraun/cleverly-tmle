@@ -743,6 +743,27 @@ the public `Intervention`, `Rule`, `DynamicRegimen`, or `MSM` callables.
 | [Martin, Santacatterina and Díaz (2024)](https://arxiv.org/html/2409.18782v1), Definition 1 | a longitudinal MSM projection with a user-given design transformation and projection distribution | no derivative for a design centred at the analysis sample's mean |
 | [Kennedy (2019)](https://arxiv.org/html/1704.00211v3), Section 3.3, and [de Aguas (2026)](https://arxiv.org/html/2511.11353) | influence functions for specified propensity-dependent intervention families | each family has its own derivative. Neither supplies one for an arbitrary user-written density |
 
+## Known treatment mechanisms
+
+The contract of a declared known mechanism, in
+[known treatment mechanism](technical-reference/point-treatment-tmle.md#known-treatment-mechanism),
+reads these sources. Each was read first-hand in the copy named.
+
+| source | copy read | locator and content |
+| --- | --- | --- |
+| Moore & van der Laan (2009), *Covariate adjustment in randomized trials with binary outcomes: targeted maximum likelihood estimation*, *Statistics in Medicine* 28(1):39–64, DOI 10.1002/sim.3445 | the PubMed Central author manuscript, [PMC2857590](https://pmc.ncbi.nlm.nih.gov/articles/PMC2857590/). The publisher's version was not accessible, so its section numbers are not checked | Section 2: with a known mechanism the TMLE "is always consistent whatever the estimator for Q". Section 5: with the true mechanism, inference "is not conservative", and with an estimated one it is conservative. Section 4.2 states that estimating the mechanism increases efficiency when the outcome model is wrong. Section 7.3, Table IV, measures it with a parametric logistic mechanism: relative efficiency about 1.45 and coverage 0.98. The manuscript's own cross-references disagree with its numbering in two places |
+| Hahn (1998), *On the role of the propensity score in efficient semiparametric estimation of average treatment effects*, *Econometrica* 66(2):315–331 | the published abstract only. The full text was not accessible | the abstract states that the propensity score is ancillary for the ATE and not for the ATT. The numbering "Theorem 1, unknown score; Theorem 2, known score" comes from Liu & Qin (arXiv 2205.13200), Section 2.2, and is not checked first-hand |
+| van der Laan & Gruber (2012), *Targeted minimum loss based estimation of causal effects of multiple time point interventions*, *The International Journal of Biostatistics* 8(1) | the publisher's PDF | Section 2.3, page 12: the canonical gradient is the same in the model with $g_0$ known. Theorem 2, page 13: $P_0D^*(\bar Q, g, \Psi(\bar Q_0)) = 0$ if $\bar Q = \bar Q_0$ or $g = g_0$. Section 4, page 19: with $g_n = g_0$ the TMLE is asymptotically linear with curve $D^*(\bar Q^*, g_0, \psi_0)$ at the possibly misspecified limit. The paper does not write the remainder as a sum of terms in $(g - g_0)$; that form is a derivation |
+| Petersen, Schwab, Gruber, Blaser, Schomaker & van der Laan (2014), *J. Causal Inference* 2(2):147–185 | the publisher's PDF | Section 2.1, page 152: the model may assume a known intervention mechanism. Appendix B, Corollary 1, page 180: $-P_0D^*(Q, g_0) = \Psi(Q) - \psi_0$. Section 3.7, page 162: a maximum-likelihood mechanism in a correctly specified model gives the projected curve and a conservative interval |
+| Kennedy (2019), *JASA* 114(526):645–656 | [arXiv v3](https://arxiv.org/abs/1704.00211). The journal numbering is not checked | Theorem 2 and Corollary 2, Section 3.3: the incremental curve and its mechanism term. After Corollary 2: "If the propensity scores were known, the efficient influence function would just be the first weighted average term." Lemma 2, Section 8.2, gives the curve of a known stochastic intervention |
+| Benkeser, Carone, van der Laan & Gilbert (2017), *Biometrika* 104(4):863–880 | the publisher's version in PubMed Central, PMC5793673 | Theorem 1, Section 3.2, under "either $\bar Q = \bar Q_0$ or $g = g_0$". Step 6 of the algorithm of Section 3.2 fluctuates $g$ along $\bar Q_r / g$. Section 4 notes that $g_0$ "may be known to the experimenter" in a randomized trial |
+
+Tsiatis, Davidian, Zhang & Lu (2008), *Statistics in Medicine* 27(23):4658–4677, DOI
+10.1002/sim.3113, was read in its author manuscript. This page does not cite it for the
+efficiency claim. Its
+estimators use the sample proportion of the treated, and Section 3 states only that they are
+consistent for any working model.
+
 ## Grouped folds and clustered cross-fitting
 
 A declared `id=` makes the cluster the independent unit, and it makes the outer split a draw of

@@ -93,6 +93,37 @@ The interval built from the package's own corrections is the one Theorem 1's ter
 uncentred `P_n{D}²` differs from the reported variance by exactly `(P_n D)²`, and the contrast
 reads the covariance rather than the sum of the arms.
 
+## A known treatment mechanism
+
+Data can declare its treatment mechanism with `treatment_probabilities=` (the
+[point-treatment contract](../point-treatment-tmle.md#known-treatment-mechanism) gives the forms).
+A complete-data fit is then Theorem 1 at the degenerate estimator `g_n ≡ g_0`. The branch
+`g = g_0` of the theorem's hypothesis holds by declaration, and `R_{g,n}` is trivial at `g_0`.
+
+| guard | what the fit does with the declared `g_0` |
+| --- | --- |
+| `()` | the ordinary TMLE at `g_0`, which is exact for any `Q̄` |
+| `("g",)` | equation (10) fluctuates `Q̄` only, so the mechanism stays `g_0` |
+| `("Q",)` and `("Q", "g")` | equation (9) fluctuates `g*` along `Q_r/g` (step 6 of the algorithm in Benkeser et al. 2017, Section 3.2), so `g*` moves off `g_0` on purpose |
+
+Under the `"Q"` guard the reported curve `D* − D_A − D_Y` is the curve of the estimator that
+fluctuates a known mechanism. It is not the curve of the known-mechanism TMLE. R `drtmle` 1.1.2
+does the same with a supplied `gn`: its `gnStar` starts at `gn`, and `fluctuateG` moves it. The
+fluctuated `g*` is no longer the declaration, so it keeps the shipped truncation. The declaration
+itself answers to the bound rule of the point-treatment contract before any learner.
+
+At an exact law the `"Q"` guards are blind. There `P_n D_A = 0` at `g_0` before any
+fluctuation, so equation (9) solves at `ε_g = 0` whether the fluctuation exists or not.
+`tests/unit/test_known_treatment_mechanism.py` therefore checks the fluctuation on a finite sample:
+the initial `P_n D_A` exceeds `1e-3`, the final score is solved, and `max |g* − g_0|` exceeds
+`1e-4`.
+
+Every reduction and both `reduced_crossfit` settings admit a declared mechanism. The nested
+construction reuses `g_0` in every inner fold, because a declared mechanism does not depend on the
+rows a model saw. An `evaluation=` companion must declare the same columns. The registered
+`known-treatment-mechanism-drtmle` study pairs each guard with R `drtmle` (`gn=`) at a wrong
+outcome regression.
+
 ## Randomized trials with missing outcomes
 
 For observed data `O=(W,A,Delta,Delta Y)`, write `g_A(a|W)=P(A=a|W)`,
@@ -151,14 +182,10 @@ a true **20.1%** on the pinched fixture in `tests/unit/test_drtmle_missing.py`.
 
 The shipped scope follows the paper rather than the broader canonical package: randomized treatment
 at any number of arms, MAR and positivity, no cross-fitting, and no weights, repeats, fold
-targeting, or evaluation companion. `randomized=True` estimates `g_A`; `treatment_probabilities=`
-supplies known row-aligned probabilities and bypasses the treatment learner. Prefer the mapping form
-`{"placebo": p0, "active": p1}`: the positional forms bind to arm *codes*, which are indices into
-the sorted levels, so a `(n,)` vector is the probability of the second sorted level and not of "the
-treated arm". Known probabilities are row-aligned fit data and are retained with the complete fitted
-result in the trusted joblib artifact, together with the estimator needed for supported later
-refits. An observational missing outcome and a missing treatment take the construction of
-[the composite indicator](#observational-missing-data-the-composite-indicator) instead.
+targeting, or evaluation companion. `randomized=True` estimates `g_A`. Data that declares its
+mechanism ([a known treatment mechanism](#a-known-treatment-mechanism)) supplies `g_A` and fits no
+treatment learner. An observational missing outcome and a missing treatment take the construction
+of [the composite indicator](#observational-missing-data-the-composite-indicator) instead.
 
 ### More than two arms
 
@@ -172,7 +199,7 @@ argument in five parts. Page numbers are those of the arXiv v1 author manuscript
 | base result | Theorem 2 (p. 20) under Condition 2 (Donsker, p. 13) and Condition 3 (p. 15). It gives `n^(1/2)(psi_dtmle − psi_0) → N(0, Var D_dr)` with `D_dr` of Theorem 1 (p. 16), for one indicator `A` and the target `E(Y_1)`. Section 2.1 (p. 6) applies it to "four such indicators" in its application |
 | steps | indicator reduction: arm `a` uses `(W, 1(A=a), Delta, Delta Y)` and its own `g_A(a|W)` and `g_Delta(a,W)`. Fixed-dimension stack: the `K` arm estimators are asymptotically linear on the same rows, so their joint covariance is `P_0[D_a D_b]`. Linearity gives each `ate`, and the delta method gives `rr` and `or` on the log scale. The simultaneous band is the multiplier band over the stacked curves |
 | objection search | p. 25 rejects a composite `T = AM` reduction. The armwise construction keeps `g_A` and `g_Delta` apart, so the objection does not apply. p. 26 discusses cross-fitting, not arms. No source records the indicator reduction or the stack as open |
-| conditions | Assumptions 1 to 4 (pp. 6-7) at every arm, with positivity `g_A(a|W) g_Delta(a,W) > 0`. Randomization by design: `randomized=True` or known `treatment_probabilities=`, which can depend on `W`. Conditions 2 and 3 for every arm, hence `cross_fit=False`. Every arm's four score equations solved to `o_P(n^(−1/2))` |
+| conditions | Assumptions 1 to 4 (pp. 6-7) at every arm, with positivity `g_A(a|W) g_Delta(a,W) > 0`. Randomization by design: `randomized=True`, or a declared known mechanism, which can depend on `W`. Conditions 2 and 3 for every arm, hence `cross_fit=False`. Every arm's four score equations solved to `o_P(n^(−1/2))` |
 | evidence | the exact-law checks, nonzero witnesses, mutation controls and independent reference of `tests/unit/test_drtmle_missing_multi_arm.py`, and the registered [multi-arm missing-outcome study](../method-evidence/randomized-multi-arm-missing-outcome-dr-tmle.md) |
 
 **No fluctuation parameter is shared across arms above two arms.** This condition is what lets
@@ -216,14 +243,14 @@ on the rows where `C_a` can be 1.
 **The route.** `cleverly.estimators.composite.missing_data_route` chooses the construction, and
 the fit records it under `result.extra["missing_data"]`.
 
-| `delta=` | missing treatment | `randomized=True` or `treatment_probabilities=` | guard | route |
+| `delta=` | missing treatment | `randomized=True`, or a declared mechanism on `DRTMLE` | guard | route |
 | --- | --- | --- | --- | --- |
 | no | no | any | any | `complete` |
 | yes | no | yes | non-empty | `randomized_missing_outcome` (Díaz and van der Laan above) |
 | yes | no | no | non-empty | `composite` |
 | yes | no | any | `()`, or `TMLE` | `missing_outcome` (the shipped missing-outcome TMLE) |
 | any | yes | no | any, or `TMLE` | `composite` |
-| any | yes | yes | any | refused: the declaration selects a construction that observes the treatment on every row |
+| any | yes | yes | any | refused: `randomized=True` selects a construction that observes the treatment on every row, and a declared mechanism is not the mechanism of the recorded rows |
 
 **The contract** has five parts.
 
