@@ -84,8 +84,10 @@ fixed bin count passes.  Two cells read red, and the diagnosis finds no defect i
   control shows the overfitting it exists to show, far from the cross-fitted arm (1.167), but its
   interval reaches past the declared ceiling at this law and budget.
 
-By the rule the study moves to ``reporting`` with the owner row ``mtp-longitudinal-limits``, and
-the run repeats with no other change.
+The cross-fitted tree arm passes its own rule, but its family's joint clause fails with the
+control, so the owner also holds it.  By the rule the study moves to ``reporting`` with the owner
+row ``mtp-longitudinal-limits``, and the run repeats with no other change; the repeat reproduced
+every artifact.
 """
 
 from __future__ import annotations
@@ -243,6 +245,9 @@ STUDY = StudyRecord(
         "tests/discrete_law_longitudinal.py",
         "tests/discrete_law_survival.py",
         "tests/discrete_law_longitudinal_mtp.py",
+        "tests/discrete_law_competing.py",
+        "tests/longitudinal_mtp.py",
+        "tests/studies/categorical_longitudinal_common.py",
         "tests/studies/evidence/comparison.py",
         "tests/studies/evidence/inference.py",
         "tests/studies/evidence/performance.py",

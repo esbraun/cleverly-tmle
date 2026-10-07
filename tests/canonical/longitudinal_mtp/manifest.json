@@ -1,0 +1,181 @@
+{
+  "schema_version": 2,
+  "study": "longitudinal modified treatment policies",
+  "slug": "longitudinal-mtp",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-mtp-ltmle",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "dc269d3e2859fa5bbe128e694e2bbd692456e155",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": {
+      "implementation": "lmtp",
+      "lmtp_version": "1.5.4",
+      "lmtp_source_commit": "f04a2b47f46debc515ce4ae778e05ebfde922c44",
+      "lmtp_tarball_sha256": "fd49d9f291d4ddabb78c36d152b25aaa234a7204b645b9921f998c152e3d2ba5",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_construction": "lmtp cf_tmle and theta_dr on an LmtpTask with the shifted values and the per-node density ratios this package computed (node_ratio), written beside the replicate data; no lmtp density ratio is fitted. The risk-ratio tilt is realised by copying each unit 4 times (one copy keeps, three set to zero), with the unit's ratio on every copy and the unit-mean eif",
+      "reference_adapter": "tests/canonical/lmtp_mtp_adapter.R",
+      "crossfit_pairing": "reporting: per-fold training fluctuation against the pooled one"
+    }
+  },
+  "configuration": {
+    "replicates": 1000,
+    "n": 2000,
+    "seed": 20261041,
+    "resampling_seed": 2026104101,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "mtp_continuous": [
+        "ey_regimen[natural]",
+        "ey_regimen[up]",
+        "ey_regimen[scale at 2]",
+        "ey_regimen[up then history]",
+        "ate_regimen[up vs natural]",
+        "ate_regimen[scale at 2 vs natural]",
+        "ate_regimen[up then history vs natural]"
+      ],
+      "mtp_continuous_crossfit": [
+        "ey_regimen[natural]",
+        "ey_regimen[up]",
+        "ey_regimen[scale at 2]",
+        "ey_regimen[up then history]",
+        "ate_regimen[up vs natural]",
+        "ate_regimen[scale at 2 vs natural]",
+        "ate_regimen[up then history vs natural]"
+      ],
+      "mtp_categorical": [
+        "ey_regimen[natural]",
+        "ey_regimen[minus one]",
+        "ey_regimen[gated]",
+        "ate_regimen[minus one vs natural]",
+        "ate_regimen[gated vs natural]"
+      ],
+      "rr_tilt": [
+        "ey_regimen[natural]",
+        "ey_regimen[rr 0.25]",
+        "ate_regimen[rr 0.25 vs natural]"
+      ]
+    },
+    "construction": "ordinary and cross-fitted",
+    "outcome_kind": "end_of_study",
+    "n_folds": {
+      "mtp_continuous": 1,
+      "mtp_continuous_crossfit": 5,
+      "mtp_categorical": 1,
+      "rr_tilt": 1
+    },
+    "learner_folds": 2,
+    "density_bins": "ceil(320 (n / 2000)^(2/3)): 320 at n = 2,000, index-only oracle design",
+    "g_bounds": [
+      0.001,
+      1.0
+    ],
+    "outcome_learner": "QuasiBinomialGLM",
+    "pseudo_learner": "LinearRegression",
+    "continuous_mechanism": "oracle binned density of the truncated normal dose",
+    "categorical_mechanism": "saturated multinomial",
+    "plans": {
+      "mtp_continuous": [
+        "natural",
+        "up",
+        "scale at 2",
+        "up then history"
+      ],
+      "mtp_continuous_crossfit": [
+        "natural",
+        "up",
+        "scale at 2",
+        "up then history"
+      ],
+      "mtp_categorical": [
+        "natural",
+        "minus one",
+        "gated"
+      ],
+      "rr_tilt": [
+        "natural",
+        "rr 0.25"
+      ]
+    },
+    "reference": "natural",
+    "reference_density_ratios": "this package's node_ratio, supplied to both",
+    "tilt_copies": 4,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_longitudinal_mtp.py": "1ab26d89dd0b9b9ba0de9ae2d404e54849169de7c6c00e4ff46932bad85acd9c",
+    "tests/studies/longitudinal_mtp_properties.py": "2f820a02662fa789bc8b67933f3230bc2a3d0334b92c15485add82bfc80e59a8",
+    "tests/studies/oracle_density_bins.py": "b9a31fd237704d9cac446755171cdeb4cfa090b3dfbf2ae059cd5eaf25164c85",
+    "tests/studies/longitudinal_mtp_common.py": "464339af744492eb8600850f524eef0824e260cc1fe665ff043e15c4312bf9dd",
+    "tests/studies/canonical_categorical_ltmle.py": "d1ca52f08002e45c6cf1cef0f1774536fdd884c6678eeea223bd4f8dcc189c19",
+    "tests/studies/canonical_ltmle.py": "db44a0fabb57fc19f37e94b9229f1f425de28745d6b109d4d1600eb60d0678f1",
+    "tests/studies/fractional_glm.py": "5570ff1756acad859e627be9d155e1b43f789ffb8626ac3c53a049bb0662488e",
+    "tests/discrete_law_longitudinal_multivalue.py": "cfa103e239b345376cab2f2cd5d1dc43fee365893d6885c1a2a9ea0f5f4cac79",
+    "tests/discrete_law_longitudinal.py": "acc9eaaf056050dae69e7bdbe203797e0dc6fe2502423c15369f69dbcc41d59c",
+    "tests/discrete_law_survival.py": "58b8175fb1a2757cb38fdfa3a73e333adf63b4fb08365284e223da38a4e948c8",
+    "tests/discrete_law_longitudinal_mtp.py": "0c159b6fc5bf2897037f112bcdb6ff598fb2da8f9e59b739440205ce2578931c",
+    "tests/discrete_law_competing.py": "cd24ff5b1177f25206f3b29115e645e63749823f7440117deb267fbd733a7092",
+    "tests/longitudinal_mtp.py": "4a6db7f22d883ef80f37f5d18c63dbd569af501ef553ed23d760ffaa0c66fca6",
+    "tests/studies/categorical_longitudinal_common.py": "b0af1c6a12476e7c73d1a8c0776b635d7a2799c7e8d4ed5796ef75e869f1ec23",
+    "tests/studies/evidence/comparison.py": "653c091f0c1cd240b41e4ed7026da8f67c0feda58404e7c27e80eabab38a2217",
+    "tests/studies/evidence/inference.py": "d0ddc6ca24fd9cd8347eb5bfa4f91e4a87037262c8e0e14dfba168685924a0a6",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
+    "tests/studies/evidence/property_verdicts.py": "bfe7a46273aad4ed36b96bbf0435988f6ea721e81173c4ea1f6e53c76177a47a",
+    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
+    "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15",
+    "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+    "tests/canonical/lmtp_crossfit_adapter.R": "6ea0d48d3143222f0342ea49fde84affa0740ba668fbdb874f5f0919d31e97b6",
+    "tests/canonical/lmtp_policy_adapter.R": "3af33ae0bb1c1731779d84714651f8b4679889d1bf3cfcfbe8e94a5f20f358e0",
+    "tests/canonical/lmtp_mtp_adapter.R": "ce52f70ba0cbe69cd151b4453d14fe274e3a68fcc8d8f86f54d0fc7b74976788",
+    "tests/canonical/longitudinal_mtp_runner.R": "8df2968fa525b9e21af4b325fb591c4c5e01800a503aa5a5c868ba88b2848150"
+  },
+  "reference_sha256": {
+    "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+    "tests/canonical/longitudinal_mtp_runner.R": "8df2968fa525b9e21af4b325fb591c4c5e01800a503aa5a5c868ba88b2848150",
+    "tests/canonical/lmtp_mtp_adapter.R": "ce52f70ba0cbe69cd151b4453d14fe274e3a68fcc8d8f86f54d0fc7b74976788",
+    "tests/canonical/lmtp_policy_adapter.R": "3af33ae0bb1c1731779d84714651f8b4679889d1bf3cfcfbe8e94a5f20f358e0",
+    "tests/canonical/lmtp_crossfit_adapter.R": "6ea0d48d3143222f0342ea49fde84affa0740ba668fbdb874f5f0919d31e97b6",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "sha256": {
+    "replicates.csv.gz": "3773e247f1edee5e66dbc809a94d6bbf36fd20e71099e4ed51c514f649e69226",
+    "summary.csv": "12ab0e16a1a26e752c7b59e33a8468b0ed81e14411a661f0e08eb5c527807fcf",
+    "equivalence.csv": "9f5fd2ac145ee9bdadc47e8b67db2acfee82e2e9379d606b761b4c14b2e98c59",
+    "performance-tests.csv": "20859a31a490306e5cda0fc381d959569cd079f84ebac1711fb39165a54f82d0",
+    "property-replicates.csv.gz": "87bd65f386b2501c5ca8807e12cfb0fb2de415e975658d27cee0c10459bd723b",
+    "properties.csv": "4ce6bcfdf74c539b7d13694b6adf54bdcee1e8415ed6311f0f13cdff1ba689b3"
+  }
+}

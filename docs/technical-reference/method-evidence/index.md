@@ -72,6 +72,7 @@ ordinary-end-of-study-longitudinal-tmle
 ordinary-weighted-end-of-study-longitudinal-tmle
 ordinary-categorical-longitudinal-tmle
 stochastic-categorical-longitudinal-tmle
+longitudinal-modified-treatment-policies
 ordinary-longitudinal-msm-projection
 cross-fitted-longitudinal-msm-projection
 cross-fitted-end-of-study-longitudinal-tmle

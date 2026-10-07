@@ -17,6 +17,7 @@ pytestmark = pytest.mark.xdist_group("longitudinal_mtp_design")
 #: The cells the owner holds.
 OWNED = {
     ("interval_calibration", "categorical_mtp__correctly_specified"),
+    ("crossfit_overfitting", "cross_fitted_mtp_ltmle"),
     ("crossfit_overfitting", "in_sample_control"),
 }
 #: A record, not a check: the categorical efficiency ratio with saturated learners, at
@@ -30,8 +31,10 @@ def _summary() -> pd.DataFrame:
 
 def test_the_owned_cells_are_the_red_ones() -> None:
     summary = _summary()
-    red = {key for key, passed in summary["passed"].items() if not passed}
+    red = {key for key, passed in summary["property_passed"].items() if not passed}
     assert red == OWNED
+    # The cross-fitted arm passes its own rule; only the family's joint clause fails with it.
+    assert bool(summary.loc[("crossfit_overfitting", "cross_fitted_mtp_ltmle"), "passed"])
 
 
 def test_the_categorical_cell_reads_as_finite_sample() -> None:
