@@ -17,6 +17,17 @@ the scenario's ``Qform``.
 on ``L0`` and ``L1`` on an intercept.  Each reports the means of ``always`` and ``never``
 and their contrast.  The two scenarios read the same samples.
 
+**The targeting witness.**  At ``smart_q_wrong`` each implementation's mean
+``|estimate - initial|`` of the contrast must clear :data:`TARGETING_WITNESS_FLOOR`.  The
+wrong regressions omit ``L1``, and a 20-replicate smoke run moved the contrast by about
+0.003 on average, so the floor is 0.001.
+
+**Rejected candidates.**  The plan named an ``ltmleMSM`` pairing with a three-dimensional
+``gform``.  It was dropped: the ``msm`` case of
+``test_declared_factors_equal_learners_that_return_them`` makes a known working-model fit
+equal to a fit whose learners return the declared factors, which reduces it to the shipped
+MSM evidence.
+
 Publication policy is ``reporting``, with the red-cell route of
 :mod:`tests.studies.canonical_known_mechanism` (owner ``X15-known-mechanism``).
 """
@@ -58,6 +69,9 @@ PLANS: dict[str, tuple[int, int]] = {"always": (1, 1), "never": (0, 0)}
 REGIMEN_REFERENCE = "never"
 MEAN_NAMES = tuple(f"ey_regimen[{label}]" for label in PLANS)
 CONTRAST_NAMES = ("ate_regimen[always vs never]",)
+#: The floor of each implementation's mean ``|estimate - initial|`` of the contrast at
+#: ``smart_q_wrong``.  A 20-replicate smoke run gave about 0.003.
+TARGETING_WITNESS_FLOOR = 0.001
 ESTIMANDS = (*MEAN_NAMES, *CONTRAST_NAMES)
 Q_CORRECT = "smart_q_correct"
 Q_WRONG = "smart_q_wrong"
@@ -127,6 +141,11 @@ REFERENCE_METADATA = {
         "ltmle(gform = <n x 4 declared factors>, Qform = <the scenario's>, stratify = TRUE, "
         "variance.method = 'ic', gbounds = c(1e-8, 1), SL.library = 'glm')"
     ),
+    "rejected_candidates": (
+        "ltmleMSM pairing with a 3-D gform: the msm case of the unit test makes the known fit "
+        "equal to learners that return the declared factors"
+    ),
+    "targeting_witness_floor": TARGETING_WITNESS_FLOOR,
 }
 
 CONFIGURATION = {
@@ -270,3 +289,16 @@ def draw_and_fit(
 def plan_names() -> Sequence[str]:
     """The plan labels, in report order."""
     return tuple(PLANS)
+
+
+def targeting_displacement(rows: pd.DataFrame) -> dict[str, float]:
+    """Mean ``|estimate - initial_estimate|`` of the contrast at ``smart_q_wrong``.
+
+    The nonzero-targeting witness of ``docs/development/method-benchmarking.md``: each value
+    must clear :data:`TARGETING_WITNESS_FLOOR`.
+    """
+    selected = rows.loc[(rows["scenario"] == Q_WRONG) & (rows["estimand"] == CONTRAST_NAMES[0])]
+    return {
+        str(name): float(np.mean(np.abs(group["estimate"] - group["initial_estimate"])))
+        for name, group in selected.groupby("implementation")
+    }

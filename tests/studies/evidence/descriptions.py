@@ -479,6 +479,9 @@ SCENARIOS: dict[str, str] = {
     "guard_q": "known mechanism, outcome regression without W2, guard Q",
     "guard_g": "known mechanism, outcome regression without W2, guard g",
     "guard_qg": "known mechanism, outcome regression without W2, guards Q and g",
+    "three_arm_guard_none": (
+        "three-arm law with a known mechanism, outcome regression without W2, no DR-TMLE guard"
+    ),
     "smart_q_correct": "two-node SMART with known factors, correct outcome regressions",
     "smart_q_wrong": "two-node SMART with known factors, outcome regressions without L1",
     "binary": "binary-outcome law",

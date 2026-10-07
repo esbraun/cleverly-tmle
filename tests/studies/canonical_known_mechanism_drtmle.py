@@ -16,7 +16,20 @@ would bind.
 
 **The scenarios** are the four guards, ``guard_none``, ``guard_q``, ``guard_g`` and
 ``guard_qg``, each reporting ``ey0``, ``ey1`` and ``ate`` with the wrong outcome regression of
-:mod:`tests.studies.known_mechanism_law`.  All four read the same samples.
+:mod:`tests.studies.known_mechanism_law`.  All four read the same samples.  A fifth,
+``three_arm_guard_none``, fits the three-arm law at ``guard=()`` and reports each arm mean
+and each contrast against arm 0.  At ``guard=()`` the fit is the plain TMLE at the declared
+mechanism, so this scenario is the external comparator of the multi-arm known path.  R
+``drtmle`` takes the three levels in ``a_0`` with one ``gn`` per level, as
+``canonical_multi_arm_mar_drtmle`` does.
+
+**The targeting witness.**  Each implementation's mean ``|estimate - initial|`` of the
+contrast must clear :data:`TARGETING_WITNESS_FLOOR` in every scenario, so the pairing
+compares two targeting steps that moved, not two plug-ins.
+
+**Rejected candidates.**  The plan named a ``tmle3`` ``LF_known`` multi-arm pairing.  It was
+replaced by the three-arm ``drtmle`` scenario above, which needs no new image and reaches the
+same estimator.
 
 Publication policy is ``reporting``, with the red-cell route of
 :mod:`tests.studies.canonical_known_mechanism` (owner ``X15-known-mechanism``).
@@ -66,7 +79,19 @@ GUARDS: dict[str, tuple[str, ...]] = {
     "guard_qg": ("Q", "g"),
 }
 OWNER = "guard_qg"
+#: The three-arm scenario and its guard: the plain TMLE at the declared mechanism.
+THREE_ARM = "three_arm_guard_none"
+THREE_ARM_ESTIMANDS = ("ey[0.0]", "ey[1.0]", "ey[2.0]", "ate[1.0 vs 0.0]", "ate[2.0 vs 0.0]")
+#: Scenario -> (guard, arm count).
+SCENARIOS: dict[str, tuple[tuple[str, ...], int]] = {
+    **{scenario: (guard, 2) for scenario, guard in GUARDS.items()},
+    THREE_ARM: ((), 3),
+}
 MAX_OUTER = 100
+#: The floor of each implementation's mean ``|estimate - initial|`` of the contrast, in
+#: every scenario.  A 20-replicate smoke run moved ``ate`` by about 0.075 at each guard and
+#: ``ate[2.0 vs 0.0]`` by about 0.018 at three arms, on both sides.
+TARGETING_WITNESS_FLOOR = 0.005
 
 PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     "known_mechanism_accuracy": tuple(
@@ -80,7 +105,7 @@ STUDY = StudyRecord(
     artifacts=ROOT / "tests" / "canonical" / "known_mechanism_drtmle",
     document="docs/technical-reference/method-evidence/known-treatment-mechanism.md",
     anchor="dr-tmle-on-a-declared-known-treatment-mechanism",
-    scenarios=dict.fromkeys(GUARDS, ESTIMANDS),
+    scenarios={**dict.fromkeys(GUARDS, ESTIMANDS), THREE_ARM: THREE_ARM_ESTIMANDS},
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,
     seed=SEED,
@@ -120,8 +145,14 @@ REFERENCE_METADATA = {
     "reference_construction": (
         "drtmle(Qn = list(qn0, qn1), gn = list(1 - g0, g0), glm_Qr = 'gn', glm_gr = 'Qn', "
         "reduction = 'univariate', maxIter = 100, tolIC = 1e-8, tolg = 0.1, cvFolds = 1); Qn is "
-        "this package's initial outcome regression"
+        "this package's initial outcome regression; the three-arm scenario passes a_0 = 0:2 "
+        "and one Qn and gn per level"
     ),
+    "rejected_candidates": (
+        "tmle3 LF_known multi-arm pairing: replaced by the three-arm drtmle scenario at "
+        "guard=(), which is the plain TMLE at the declared mechanism and needs no new image"
+    ),
+    "targeting_witness_floor": TARGETING_WITNESS_FLOOR,
 }
 
 CONFIGURATION = {
@@ -138,18 +169,20 @@ CONFIGURATION = {
 }
 
 
-def fit_cleverly(frame: pd.DataFrame, guard: tuple[str, ...], *, outcome: str = "wrong") -> Any:
+def fit_cleverly(
+    frame: pd.DataFrame, guard: tuple[str, ...], *, outcome: str = "wrong", arms: int = 2
+) -> Any:
     """Fit this study's DR-TMLE at one guard on one sample."""
     return (
         DRTMLE(
             guard=guard,
             reduction="univariate",
-            outcome_learner=OutcomeGLM(outcome, 2),
+            outcome_learner=OutcomeGLM(outcome, arms),
             treatment_learner=DeclaredOnly(),
             reduced_outcome_learner=LinearRegression(),
             reduced_treatment_learner=LogisticRegression(C=1e6, max_iter=2_000),
             cross_fit=False,
-            estimands=ESTIMANDS,
+            estimands=ESTIMANDS if arms == 2 else ("ey", "ate"),
             simultaneous=False,
             g_bounds=G_BOUNDS,
             max_outer=MAX_OUTER,
@@ -162,17 +195,18 @@ def fit_cleverly(frame: pd.DataFrame, guard: tuple[str, ...], *, outcome: str = 
             outcome="Y",
             treatment="A",
             covariates=COVARIATES,
-            treatment_probabilities=PROBABILITIES[2],
+            treatment_probabilities=PROBABILITIES[arms],
         )
         .single()
     )
 
 
 def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:
-    if scenario not in GUARDS:
+    if scenario not in SCENARIOS:
         raise KeyError(scenario)
-    truth = law.truth(2)
-    return law.sample(n, seed), {name: truth[name] for name in ESTIMANDS}
+    arms = SCENARIOS[scenario][1]
+    truth = law.truth(arms)
+    return law.sample(n, seed, arms=arms), {name: truth[name] for name in STUDY.scenarios[scenario]}
 
 
 def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
@@ -188,9 +222,22 @@ def cleverly_rows(
         implementation=IMPLEMENTATION,
         scenario=scenario,
         replicate=replicate,
-        estimands=ESTIMANDS,
-        initials=initial_estimates(result, ESTIMANDS),
+        estimands=STUDY.scenarios[scenario],
+        initials=(
+            _three_arm_initials(result)
+            if scenario == THREE_ARM
+            else initial_estimates(result, STUDY.scenarios[scenario])
+        ),
     )
+
+
+def _three_arm_initials(result: Any) -> dict[str, float]:
+    """The untargeted arm means and contrasts, as the R runner forms them from ``Qn``."""
+    means = {code: float(np.mean(result.nuisance.outcome.arms[float(code)])) for code in range(3)}
+    out = {f"ey[{float(code)}]": value for code, value in means.items()}
+    for code in (1, 2):
+        out[f"ate[{float(code)} vs 0.0]"] = means[code] - means[0]
+    return out
 
 
 def _replicate(
@@ -198,11 +245,17 @@ def _replicate(
 ) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
     scenario, replicate, n = payload
     frame, truth = draw_scenario(scenario, n, replicate)
-    result = fit_cleverly(frame, GUARDS[scenario])
+    guard, arms = SCENARIOS[scenario]
+    result = fit_cleverly(frame, guard, arms=arms)
     sample = frame.loc[:, ["W1", "W2", "W3", "A", "Y"]].copy()
-    sample["qn0"] = np.asarray(result.nuisance.outcome.arms[0.0], dtype=float)
-    sample["qn1"] = np.asarray(result.nuisance.outcome.arms[1.0], dtype=float)
-    sample["gn1"] = frame["p1"].to_numpy(dtype=float)
+    for code in range(3):
+        sample[f"qn{code}"] = (
+            np.asarray(result.nuisance.outcome.arms[float(code)], dtype=float)
+            if code < arms
+            else np.nan
+        )
+    for code in range(3):
+        sample[f"gn{code}"] = frame[f"p{code}"].to_numpy(dtype=float) if code < arms else np.nan
     sample.insert(0, "replicate", replicate)
     sample.insert(0, "scenario", scenario)
     truth_rows = [
@@ -217,10 +270,27 @@ def draw_and_fit(
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     outcomes = map_parallel(
         _replicate,
-        [((scenario, replicate, n),) for scenario in GUARDS for replicate in range(replicates)],
+        [((scenario, replicate, n),) for scenario in SCENARIOS for replicate in range(replicates)],
         n_jobs=n_jobs,
     )
     samples = pd.concat([sample for sample, _, _ in outcomes], ignore_index=True)
     truths = pd.DataFrame([row for _, rows, _ in outcomes for row in rows])
     estimates = pd.DataFrame([row for _, _, rows in outcomes for row in rows])
     return samples, truths, estimates.loc[:, list(REPLICATE_COLUMNS)]
+
+
+def targeting_displacement(rows: pd.DataFrame) -> dict[str, float]:
+    """Mean ``|estimate - initial_estimate|`` of the contrast, by implementation and scenario.
+
+    The nonzero-targeting witness of ``docs/development/method-benchmarking.md``: each value
+    must clear :data:`TARGETING_WITNESS_FLOOR`.  The contrast is ``ate`` at two arms and
+    ``ate[2.0 vs 0.0]`` at three.
+    """
+    contrast = dict.fromkeys(GUARDS, "ate") | {THREE_ARM: "ate[2.0 vs 0.0]"}
+    out: dict[str, float] = {}
+    for (implementation, scenario), group in rows.groupby(["implementation", "scenario"]):
+        selected = group.loc[group["estimand"] == contrast[str(scenario)]]
+        out[f"{implementation} {scenario}"] = float(
+            np.mean(np.abs(selected["estimate"] - selected["initial_estimate"]))
+        )
+    return out

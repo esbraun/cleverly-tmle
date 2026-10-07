@@ -171,6 +171,10 @@ def test_the_primary_phase_runs_and_pairs_the_scenarios(name: str) -> None:
             mine[shared].to_numpy(dtype=float), theirs[shared].to_numpy(dtype=float)
         )
     assert not truths.empty
+    # The witness reads this study's own rows, and finds the subject's targeting step.
+    displacement = study.targeting_displacement(rows)
+    assert any(key.startswith(study.IMPLEMENTATION) for key in displacement)
+    assert all(np.isfinite(value) for value in displacement.values())
 
 
 def test_the_runners_and_their_regenerators_exist() -> None:
@@ -180,15 +184,18 @@ def test_the_runners_and_their_regenerators_exist() -> None:
         assert (here / "regenerate.py").exists()
 
 
-def test_the_targeting_witness_floor_is_declared() -> None:
-    """The nonzero-targeting witness reads the committed rows once the study has run."""
-    assert point.TARGETING_WITNESS_FLOOR > 0
-    path = point.STUDY.artifact("replicates.csv.gz")
+@pytest.mark.parametrize("name", sorted(STUDIES))
+def test_the_targeting_witness_floor_is_declared(name: str) -> None:
+    """The nonzero-targeting witness reads the committed rows once each study has run."""
+    study, _ = STUDIES[name]
+    assert study.TARGETING_WITNESS_FLOOR > 0
+    path = study.STUDY.artifact("replicates.csv.gz")
     if not path.exists():
         pytest.skip("the registered run has not been committed yet")
     import pandas as pd
 
     rows = pd.read_csv(path, float_precision="round_trip")
-    displacement = point.targeting_displacement(rows)
-    assert set(displacement) == {point.IMPLEMENTATION, point.REFERENCE}
-    assert min(displacement.values()) > point.TARGETING_WITNESS_FLOOR
+    displacement = study.targeting_displacement(rows)
+    subjects = {key.split(" ")[0] for key in displacement}
+    assert subjects == {study.IMPLEMENTATION, study.REFERENCE}
+    assert min(displacement.values()) > study.TARGETING_WITNESS_FLOOR

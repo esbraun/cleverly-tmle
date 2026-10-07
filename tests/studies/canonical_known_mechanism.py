@@ -20,6 +20,14 @@ it beside ``Q`` and reports the g-weighted plug-in.  The two constructions are a
 equivalent only at the correct outcome regression, so the ATT and ATC are paired there alone,
 as a declared construction difference.
 
+**Rejected candidates.**  The plan named a ``tmle3`` ``LF_known`` multi-arm pairing and a
+``known_g__learned_rule`` property cell.  The multi-arm pairing moved to the three-arm
+scenario of :mod:`tests.studies.canonical_known_mechanism_drtmle`, whose ``guard=()`` fit is
+the plain TMLE at the declared mechanism.  The learned-rule cell was dropped:
+``test_a_learned_rule_fit_divides_by_the_known_mechanism`` makes the known fit equal to a fit
+whose learner returns ``g0``, and the shipped learned-rule studies cover a correct parametric
+mechanism.
+
 Publication policy is ``reporting``.  The red-cell route was declared before any run: a red
 gated cell first gets a defect search (the exact-law tests, a replay of the cell's draws, and
 an R comparison on the same draws).  A defect found there is fixed and the study re-run once.
@@ -153,6 +161,11 @@ REFERENCE_METADATA = {
         "att and atc are paired at the correct outcome regression only: R tmle trims, "
         "recalibrates g1W and fluctuates it for the ATT and the ATC, a construction "
         "asymptotically equivalent to the known-mechanism ATT only when Qbar is correct"
+    ),
+    "rejected_candidates": (
+        "tmle3 LF_known multi-arm pairing: moved to the three-arm drtmle scenario at guard=(); "
+        "known_g__learned_rule cell: the unit test makes the known fit equal to a learner that "
+        "returns g0, and the shipped learned-rule studies cover a correct parametric g"
     ),
 }
 

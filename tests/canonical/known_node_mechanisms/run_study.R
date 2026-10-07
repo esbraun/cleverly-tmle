@@ -57,7 +57,9 @@ fit_plan <- function(frame, scenario, label) {
   initial <- if (inherits(first_q, "no.Y.variation")) {
     unname(first_q$Y.value)
   } else {
-    coefficients <- first_q[, "Estimate"]
+    # drop = FALSE keeps the coefficient names of an intercept-only formula.
+    coefficients <- first_q[, "Estimate", drop = FALSE][, 1]
+    names(coefficients) <- rownames(first_q)
     design <- model.matrix(~L0, data = frame)
     unname(mean(plogis(design[, names(coefficients), drop = FALSE] %*% coefficients)))
   }
