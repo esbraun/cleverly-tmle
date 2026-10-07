@@ -15,8 +15,9 @@ scenario                        subject and pairing
 ``mtp_categorical``             integer levels ``0..5``, the policy of ``lmtp``'s
                                 ``man/lmtp_tmle.Rd`` Example 2.1 at both nodes and its
                                 ``L_t``-gated variant (Example 2.3 shape).  Paired exactly
-``rr_tilt``                     binary nodes, ``RiskRatioTilt(0.5)`` at both nodes against
-                                ``lmtp::ipsi(0.5)`` by proportional replication.  Paired
+``rr_tilt``                     binary nodes, ``RiskRatioTilt(0.25)`` at both nodes against
+                                ``lmtp::ipsi(0.25)`` by proportional replication over four
+                                copies.  Asymmetric, so the pair sees the branch order.  Paired
                                 exactly
 ==============================  ===========================================================
 
@@ -113,8 +114,10 @@ MECHANISM_ONLY_BINS = 320
 G_BOUNDS = (0.001, 1.0)
 #: The pre-declaration smoke gate on the one-fold pairs.
 SMOKE_GATE = 1e-6
-#: The replication factor of the risk-ratio tilt's pairing: keep, or set to zero.
-TILT_COPIES = 2
+#: The replication factor of the risk-ratio tilt's pairing.  ``RiskRatioTilt(0.25)`` keeps the
+#: treatment on one copy in four and sets it to zero on the other three.  At 0.5 the two
+#: branches weigh the same, so a pairing there cannot see a swap of the branch weights.
+TILT_COPIES = 4
 REFERENCE = "natural"
 
 LABELS: dict[str, tuple[str, ...]] = {
@@ -249,8 +252,8 @@ REFERENCE_METADATA = {
         "lmtp cf_tmle and theta_dr on an LmtpTask with the shifted values and the per-node "
         "density ratios this package computed (node_ratio), written beside the replicate "
         "data; no lmtp density ratio is fitted. The risk-ratio tilt is realised by copying "
-        f"each unit {TILT_COPIES} times (keep, set to zero), with the unit's ratio on every "
-        "copy and the unit-mean eif"
+        f"each unit {TILT_COPIES} times (one copy keeps, three set to zero), with the unit's "
+        "ratio on every copy and the unit-mean eif"
     ),
     "reference_adapter": "tests/canonical/lmtp_mtp_adapter.R",
     "crossfit_pairing": "reporting: per-fold training fluctuation against the pooled one",
@@ -431,15 +434,27 @@ def pairing_columns(result: Any, frame: pd.DataFrame, scenario: str) -> dict[str
             frame_at = lazy_frame(lambda time=time: data.policy_frame(time))
             branches = policy_branches(policy)
             copies = TILT_COPIES if scenario == TILT else 1
-            if len(branches) not in {1, copies}:
-                raise AssertionError(f"plan {label!r} has {len(branches)} branches at node {time}")
+            allocation = _allocate(branches, copies, f"plan {label!r} at node {time}")
             for copy in range(copies):
-                _, branch = branches[copy if len(branches) == copies else 0]
+                branch = allocation[copy]
                 values = branch.assign(
                     source.astype(float),
                     frame_at,
                 )
                 out[f"shift__{_slug(label)}__{time}__{copy + 1}"] = np.asarray(values, dtype=float)
+    return out
+
+
+def _allocate(branches: Any, copies: int, where: str) -> list[Any]:
+    """The branch each copy of a unit takes: ``p * copies`` copies per branch, in order."""
+    out: list[Any] = []
+    for probability, branch in branches:
+        count = probability * copies
+        if abs(count - round(count)) > 1e-12:
+            raise AssertionError(f"{where} has a branch weight {probability} off 1/{copies}")
+        out.extend([branch] * round(count))
+    if len(out) != copies:
+        raise AssertionError(f"{where} allocates {len(out)} copies, not {copies}")
     return out
 
 

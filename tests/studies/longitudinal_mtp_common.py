@@ -418,14 +418,16 @@ CATEGORICAL_PLANS: dict[str, tuple[Any, Any]] = {
 }
 CATEGORICAL_LABELS = tuple(CATEGORICAL_PLANS)
 
-#: ``RiskRatioTilt(0.5)``: keep the treatment with probability one half, else set it to 0.
+#: ``RiskRatioTilt(0.25)``: keep the treatment with probability one quarter, else set it to 0.
+#: Asymmetric so that a swap of the keep and drop weights moves the answer, which it does not
+#: at 0.5.
 _KEEP1 = _node1(BINARY_LAW, lambda w, a: a)
 _ZERO1 = _node1(BINARY_LAW, lambda w, a: 0)
 _KEEP2 = _node2(BINARY_LAW, lambda w, a1, l, a: a)
 _ZERO2 = _node2(BINARY_LAW, lambda w, a1, l, a: 0)
 TILT_PLANS: dict[str, tuple[Any, Any]] = {
     "natural": (((1.0, _KEEP1),), ((1.0, _KEEP2),)),
-    "rr 0.5": (((0.5, _KEEP1), (0.5, _ZERO1)), ((0.5, _KEEP2), (0.5, _ZERO2))),
+    "rr 0.25": (((0.25, _KEEP1), (0.75, _ZERO1)), ((0.25, _KEEP2), (0.75, _ZERO2))),
 }
 TILT_LABELS = tuple(TILT_PLANS)
 
@@ -454,7 +456,7 @@ def categorical_regimens() -> dict[str, Any]:
 
 
 def tilt_regimens() -> dict[str, Any]:
-    return {"natural": RiskRatioTilt(1.0), "rr 0.5": RiskRatioTilt(0.5)}
+    return {"natural": RiskRatioTilt(1.0), "rr 0.25": RiskRatioTilt(0.25)}
 
 
 # ---------------------------------------------------------------------------- learners

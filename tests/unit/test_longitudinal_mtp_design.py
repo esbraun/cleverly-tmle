@@ -106,7 +106,7 @@ def test_the_declared_numbers() -> None:
     assert (study.PRIMARY_REPLICATES, study.PRIMARY_N) == (1_000, 2_000)
     assert (study.SEED, study.RESAMPLING_SEED) == (20261041, 2026104101)
     assert (study.SMOKE_GATE, study.LEARNER_FOLDS, study.N_FOLDS) == (1e-6, 2, 5)
-    assert (study.DENSITY_BINS, study.TILT_COPIES, study.G_BOUNDS) == (80, 2, (0.001, 1.0))
+    assert (study.DENSITY_BINS, study.TILT_COPIES, study.G_BOUNDS) == (80, 4, (0.001, 1.0))
     assert study.MECHANISM_ONLY_BINS == 320
     assert study.density_bins("mechanism_correct") == 320
     assert {study.density_bins(c) for c in ("primary", "both_correct", "both_wrong")} == {80}
@@ -193,7 +193,7 @@ def test_the_finite_truths_are_the_oracle() -> None:
         )
     vector = exact_law.truth("ey_regimen[vector]") - exact_law.truth("ey_regimen[natural]")
     assert vector == properties.VECTOR_TRUTH
-    assert abs(study.TRUTH[study.TILT]["ate_regimen[rr 0.5 vs natural]"]) > 0.05
+    assert abs(study.TRUTH[study.TILT]["ate_regimen[rr 0.25 vs natural]"]) > 0.05
     assert abs(study.TRUTH[study.CATEGORICAL]["ate_regimen[minus one vs natural]"]) > 0.05
     msm = properties.PROJECTION @ np.array(
         [common.continuous_truth(label) for label in properties.MSM_CELLS]
@@ -214,6 +214,15 @@ def test_the_finite_efficiency_bounds_are_the_complex_step() -> None:
         )
     )
     assert vector == pytest.approx(properties.EFFICIENCY_SD["vector_node"], rel=1e-12)
+    from functools import partial
+
+    from tests import discrete_law_longitudinal_policy as policy_law
+    from tests import discrete_law_survival as survival_law
+
+    function = partial(exact_law.functional_mtp_survival, horizon=2)
+    curve = policy_law.eif(function, survival_law.PROBS)
+    survival = float(np.sqrt(np.sum(survival_law.PROBS * curve**2)))
+    assert survival == pytest.approx(properties.EFFICIENCY_SD["survival_mtp_h2"], rel=1e-12)
 
 
 def test_the_continuous_efficiency_bound_has_mean_zero_influence() -> None:

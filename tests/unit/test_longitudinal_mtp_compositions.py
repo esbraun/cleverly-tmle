@@ -73,10 +73,37 @@ def _survival_deviation() -> float:
     return worst
 
 
+def test_t7b_swapping_the_tilt_branch_weights_at_a_node_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The node-1 tilt of 0.25 keeps one unit in four; the swap keeps three in four.
+
+    At 0.5 the two weights are equal, so this mutation would leave every number unchanged.
+    """
+    from cleverly.interventions import RiskRatioTilt
+    from cleverly.interventions import policy as policy_module
+
+    original = policy_module.policy_branches
+
+    def swapped(item: Any) -> Any:
+        if isinstance(item, RiskRatioTilt) and item.delta < 1.0:
+            delta = float(item.delta)
+            return (
+                (1.0 - delta, policy_module._IdentityBranch()),
+                (delta, policy_module._ConstantBranch(0)),
+            )
+        return original(item)
+
+    monkeypatch.setattr(policy_module, "policy_branches", swapped)
+    assert _survival_deviation() > 1e-3
+
+
 def test_t7_a_survival_plan_of_policies_is_the_cumulative_risk() -> None:
     assert _survival_deviation() < 1e-10
     never = survival.TRUTH["risk_regimen[never @ t=2]"]
-    assert abs(law.functional_mtp_survival(survival.PROBS, 2) - never) > 0.01
+    # The tilt keeps one treated unit in four, so the plan sits near "never" by design; the
+    # gap is 0.0098 on this law, far above the 1e-10 the check above resolves.
+    assert abs(law.functional_mtp_survival(survival.PROBS, 2) - never) > 0.005
 
 
 def test_t7_dropping_the_censoring_factor_fails(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -631,7 +631,7 @@ REGIMENS: dict[str, str] = {
     ),
     "minus one": "lower the level by one at both times wherever it stays at least one",
     "gated": "lower the second level by one where L2 equals one",
-    "rr 0.5": "keep each treated unit treated with probability 0.5 at both times",
+    "rr 0.25": "keep each treated unit treated with probability 0.25 at both times",
     "random at 2": "add 0.5 to the second dose with probability 0.5",
     "vector": "set the second component to zero where both components are one",
     "mtp": "risk-ratio tilt 0.5 first, then treat where L2 equals one",

@@ -23,9 +23,9 @@ plans <- list(
     "up then history" = "up_then_history"
   ),
   mtp_categorical = c(natural = "natural", "minus one" = "minus_one", gated = "gated"),
-  rr_tilt = c(natural = "natural", "rr 0.5" = "rr_0_5")
+  rr_tilt = c(natural = "natural", "rr 0.25" = "rr_0_25")
 )
-copies <- c(mtp_continuous = 1L, mtp_continuous_crossfit = 1L, mtp_categorical = 1L, rr_tilt = 2L)
+copies <- c(mtp_continuous = 1L, mtp_continuous_crossfit = 1L, mtp_categorical = 1L, rr_tilt = 4L)
 as_label <- c(
   mtp_continuous = FALSE, mtp_continuous_crossfit = FALSE, mtp_categorical = TRUE, rr_tilt = FALSE
 )

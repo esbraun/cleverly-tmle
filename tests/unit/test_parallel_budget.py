@@ -108,3 +108,23 @@ class TestTheBudget:
         three paired runs -- on the box the new number is claimed for.
         """
         assert STUDY_JOBS == 2
+
+
+def test_a_memory_capped_pool_fits_the_free_memory(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sixteen requested workers of 3 GiB each fit three at 12 GiB free (0.75 share)."""
+    from tests import parallel
+
+    monkeypatch.setattr(parallel, "available_memory", lambda: 12 * 1024**3)
+    assert parallel.memory_capped_workers(16, 3 * 1024**3) == 3
+    assert parallel.memory_capped_workers(2, 3 * 1024**3) == 2
+    monkeypatch.setattr(parallel, "available_memory", lambda: 1024**3)
+    assert parallel.memory_capped_workers(16, 3 * 1024**3) == 1
+    monkeypatch.setattr(parallel, "available_memory", lambda: None)
+    assert parallel.memory_capped_workers(16, 3 * 1024**3) == 16
+
+
+def test_the_free_memory_is_read_on_this_platform() -> None:
+    from tests import parallel
+
+    free = parallel.available_memory()
+    assert free is None or free > 0

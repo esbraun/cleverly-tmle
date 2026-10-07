@@ -74,7 +74,7 @@ from tests import discrete_law_longitudinal_mtp as vector_law
 from tests import discrete_law_longitudinal_multivalue as multivalue
 from tests import discrete_law_survival as survival
 from tests import longitudinal_mtp as vector_plans
-from tests.parallel import STUDY_JOBS
+from tests.parallel import STUDY_JOBS, memory_capped_workers
 from tests.studies import longitudinal_mtp_common as common
 from tests.studies.canonical_longitudinal_mtp import (
     BAND_LABEL,
@@ -155,7 +155,7 @@ EFFICIENCY_SD: dict[str, float] = {
     "categorical_mtp": 0.41811204797453305,
     "vector_node": 0.6244173513005088,
     "randomized_mtp": 0.1317617396210603,
-    "survival_mtp_h2": 0.6676995170858935,
+    "survival_mtp_h2": 0.6773556088479237,
     "msm_mtp": 0.396481773437949,
 }
 
@@ -851,9 +851,30 @@ def _run(job: tuple[Any, tuple[Any, ...]]) -> list[dict[str, Any]]:
     return list(function(payload))
 
 
+#: The measured peak of one ``mechanism_correct`` fit at n = 2,000 and 320 bins, with its
+#: margin: 1.57 GiB of traced numpy peak and about 2.5 GB resident.  These fit sets run in a
+#: pool capped by :func:`tests.parallel.memory_capped_workers`; at 16 workers they would need
+#: 25 to 40 GB.
+MECHANISM_ONLY_FIT_BYTES = 3 * 1024**3
+
+
+def _heavy(job: tuple[Any, tuple[Any, ...]]) -> bool:
+    """Whether a payload fits at :data:`MECHANISM_ONLY_BINS`."""
+    function, payload = job
+    return function is _fit_set_rows and density_bins(payload[2]) > DENSITY_BINS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
-    """Fit every property replication; ``budget`` caps each fit set for a pre-run check."""
-    outcomes = map_parallel(_run, _payloads(budget), n_jobs=n_jobs)
+    """Fit every property replication; ``budget`` caps each fit set for a pre-run check.
+
+    The fit sets at :data:`MECHANISM_ONLY_BINS` run in their own pool, capped by the free
+    memory; the worker count does not change any row.
+    """
+    jobs = _payloads(budget)
+    heavy = [job for job in jobs if _heavy(job[0])]
+    light = [job for job in jobs if not _heavy(job[0])]
+    capped = memory_capped_workers(n_jobs, MECHANISM_ONLY_FIT_BYTES)
+    outcomes = map_parallel(_run, light, n_jobs=n_jobs) + map_parallel(_run, heavy, n_jobs=capped)
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [
