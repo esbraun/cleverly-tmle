@@ -486,12 +486,11 @@ MOVED: dict[str, tuple[Callable[[], Any], str]] = {
         lambda: _cde_fit(DRTMLE(estimands=("ate",), **drtmle_spies()))(),
         "DRTMLE and intermediate= are not combined",
     ),
-    "DRTMLE treatment_probabilities= without delta=": (
-        lambda: _plain_fit(
-            DRTMLE(estimands=("ate",), **drtmle_spies()),
-            treatment_probabilities=np.full(200, 0.5),
+    "DRTMLE treatment_probabilities= with treatment_delta=": (
+        lambda: _fit_missing_treatment(
+            _never_drtmle(estimands=("ate",)), treatment_probabilities=np.full(200, 0.5)
         ),
-        "treatment_probabilities= is currently only used with delta=",
+        "treatment_probabilities= and treatment_delta= are not combined",
     ),
     "DRTMLE missing outcomes, three arms, observational, evaluation=": (
         lambda: DRTMLE(estimands=("ate",), evaluation=_trial(40), **drtmle_spies()).fit(
@@ -682,12 +681,6 @@ MISSING_TREATMENT_ROWS: dict[str, tuple[Callable[[], Any], tuple[str, ...]]] = {
     ),
     "randomized": (
         lambda: _fit_missing_treatment(_never_drtmle(randomized=True, estimands=("ate",))),
-        ("observes the treatment on every row",),
-    ),
-    "treatment_probabilities": (
-        lambda: _fit_missing_treatment(
-            _never_drtmle(estimands=("ate",)), treatment_probabilities=np.full(200, 0.5)
-        ),
         ("observes the treatment on every row",),
     ),
     "ctmle": (

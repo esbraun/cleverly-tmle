@@ -44,6 +44,7 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray
 from ..data.causal_data import CausalData
+from ..data.known_mechanism import KNOWN_TREATMENT_DELTA_REFUSAL
 from ..exceptions import CapabilityError
 from ..utils.bounds import bound
 from ._nuisance import NuisanceEstimates, Propensity
@@ -85,8 +86,9 @@ def missing_data_route(estimator: Any, data: CausalData) -> MissingDataRoute:
 
     One function decides the route.  The shared preflight reads it, the fit records it
     under ``result.extra["missing_data"]``, and every reader of a fitted result branches on
-    the recorded value.  The rule, with ``declared`` meaning ``randomized=True`` or
-    ``treatment_probabilities=`` on a :class:`~cleverly.DRTMLE`:
+    the recorded value.  The rule, with ``declared`` meaning ``randomized=True`` on a
+    :class:`~cleverly.DRTMLE`, or a :class:`~cleverly.DRTMLE` fit on data that declares a
+    known mechanism (:attr:`~cleverly.data.CausalData.known_treatment`):
 
     ======  =========  ========  ==============  ================================
     delta   missing A  declared  guard           route
@@ -100,15 +102,17 @@ def missing_data_route(estimator: Any, data: CausalData) -> MissingDataRoute:
     ======  =========  ========  ==============  ================================
 
     The last row is refused by :func:`missing_treatment_refusal`: the declaration selects
-    the randomized construction, which observes the treatment on every row.
+    the randomized construction, which observes the treatment on every row.  A
+    :class:`~cleverly.TMLE` with ``delta=`` on data that declares a known mechanism takes
+    ``"missing_outcome"``, the ordinary missing-outcome TMLE, which divides by the
+    declaration.
 
     Parameters
     ----------
     estimator : TMLE
-        The estimator.  Its ``guard``, ``randomized`` and known treatment probabilities are
-        read where it has them.
+        The estimator.  Its ``guard`` and ``randomized`` are read where it has them.
     data : CausalData
-        The prepared data.
+        The prepared data.  Its known treatment mechanism is read.
 
     Returns
     -------
@@ -117,7 +121,8 @@ def missing_data_route(estimator: Any, data: CausalData) -> MissingDataRoute:
     """
     guard = tuple(getattr(estimator, "guard", ()) or ())
     declared = bool(getattr(estimator, "randomized", False)) or (
-        getattr(estimator, "_treatment_probabilities", None) is not None
+        data.known_treatment is not None
+        and getattr(estimator, "_assessment_method", None) == "drtmle"
     )
     if data.has_missing_treatment:
         return "randomized_missing_outcome" if declared else "composite"
@@ -464,14 +469,14 @@ def missing_treatment_refusal(
         )
     if method not in ("tmle", "drtmle"):
         return _message(data, "This fit is not one of those compositions.", _MEANS_REMEDY)
-    if bool(getattr(estimator, "randomized", False)) or (
-        getattr(estimator, "_treatment_probabilities", None) is not None
-    ):
+    if data.known_treatment is not None:
+        return CapabilityError(KNOWN_TREATMENT_DELTA_REFUSAL)
+    if bool(getattr(estimator, "randomized", False)):
         return _message(
             data,
-            "randomized=True and treatment_probabilities= select the Díaz and van der Laan "
-            "(2017) construction, which observes the treatment on every row.",
-            "Drop them. The composite construction estimates "
+            "randomized=True selects the Díaz and van der Laan (2017) construction, which "
+            "observes the treatment on every row.",
+            "Drop it. The composite construction estimates "
             "P(A = a, Delta_A = 1, Delta = 1 | W) from the data.",
         )
     if getattr(estimator, "cross_fit", False):
@@ -545,6 +550,8 @@ def missing_treatment_design_refusal(
     """
     if not data.has_missing_treatment:
         return None
+    if data.known_treatment is not None:
+        return CapabilityError(KNOWN_TREATMENT_DELTA_REFUSAL)
     identification = _IDENTIFICATION.format(A=data.treatment_name)
     if intermediate:
         return _message(

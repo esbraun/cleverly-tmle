@@ -106,18 +106,19 @@ def _pinched_trial(n: int = 400, seed: int = 5) -> pd.DataFrame:
 
 
 def _estimator(**settings: object) -> DRTMLE:
-    return DRTMLE(
-        randomized=True,
-        cross_fit=False,
-        outcome_learner=sklearn.linear_model.LinearRegression(),
-        treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
-        missingness_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
-        reduced_outcome_learner=sklearn.linear_model.LinearRegression(),
-        reduced_treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
-        simultaneous=False,
-        random_state=0,
-        **{"estimands": ("ate", "ey1", "ey0"), **settings},
-    )
+    defaults: dict[str, object] = {
+        "randomized": True,
+        "cross_fit": False,
+        "outcome_learner": sklearn.linear_model.LinearRegression(),
+        "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
+        "missingness_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
+        "reduced_outcome_learner": sklearn.linear_model.LinearRegression(),
+        "reduced_treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
+        "simultaneous": False,
+        "random_state": 0,
+        "estimands": ("ate", "ey1", "ey0"),
+    }
+    return DRTMLE(**{**defaults, **settings})  # type: ignore[arg-type]
 
 
 @pytest.fixture(scope="module")
@@ -637,43 +638,35 @@ def test_invalid_three_arm_known_probabilities_are_refused(probabilities, messag
         )
 
 
+@pytest.mark.parametrize("guard", [("Q", "g"), ()], ids=["guarded", "unguarded"])
 @ARMS
-def test_bootstrapping_known_probabilities_is_refused(arms: int) -> None:
-    """A replicate refits on resampled rows the supplied array cannot follow.
+def test_bootstrapping_known_probabilities_reads_each_replicates_rows(
+    arms: int, guard: tuple[str, ...]
+) -> None:
+    """The mechanism is carried on the data, so a replicate reads the rows it drew.
 
-    An n-out-of-n resample even passes the length check, so nothing downstream would
-    notice -- and ``run_bootstrap`` swallows replicate failures, so raising inside one
-    would come back as "the fit is too unstable to bootstrap".
+    The bootstrap refusal once kept a row-aligned array from meeting a resample it could
+    not follow.  The declaration now lives on :class:`~cleverly.data.CausalData`, and
+    ``subset`` indexes it with the rows.  ``_FailIfFit`` is the witness that no replicate
+    fell back to the treatment learner: ``run_bootstrap`` keeps a failed replicate as a
+    failure, so ``n_failed == 0`` says every replicate divided by the declaration.
     """
-    with pytest.raises(CapabilityError, match="n_bootstrap"):
-        _estimator(n_bootstrap=5, estimands=("ate",)).fit(
-            _with_arms(_trial(100), arms),
+    frame = _with_arms(_trial(100), arms)
+    result = (
+        _estimator(guard=guard, n_bootstrap=5, estimands=("ate",), treatment_learner=_FailIfFit())
+        .fit(
+            frame,
             outcome="Y",
             treatment="A",
             covariates=["W1", "W2"],
             delta="Delta",
             treatment_probabilities=_uniform(100, arms),
         )
-
-
-@ARMS
-def test_bootstrapping_known_probabilities_is_refused_without_a_guard(arms: int) -> None:
-    """The control for lifting the unguarded refusal, and the reason it is a pair.
-
-    This refusal used to live *inside* the ``guard``-gated block, so accepting
-    ``guard=()`` with ``delta=`` and known probabilities -- which the plumbing already
-    supported -- would have walked straight past it. The misalignment it prevents is
-    silent, so a fit that merely runs is not evidence that it is right.
-    """
-    with pytest.raises(CapabilityError, match="n_bootstrap"):
-        _estimator(guard=(), n_bootstrap=5, estimands=("ate",)).fit(
-            _with_arms(_trial(100), arms),
-            outcome="Y",
-            treatment="A",
-            covariates=["W1", "W2"],
-            delta="Delta",
-            treatment_probabilities=_uniform(100, arms),
-        )
+        .single()
+    )
+    assert result.bootstrap is not None
+    assert result.bootstrap.n_failed == 0
+    assert result.config.treatment_mechanism == "known"
 
 
 def test_known_probabilities_configure_an_unguarded_plain_tmle() -> None:
@@ -716,18 +709,28 @@ def test_known_probabilities_configure_an_unguarded_plain_tmle() -> None:
 
 
 @ARMS
-def test_known_probabilities_without_delta_are_still_refused(arms: int) -> None:
-    """The half of the old refusal that was true, which had no test of its own."""
+def test_known_probabilities_without_delta_fit_the_complete_data_dr_tmle(arms: int) -> None:
+    """Complete data with a known mechanism is Theorem 1 at ``g_n = g0``, and it fits.
+
+    The refusal that stood here claimed that no complete-data construction reads a known
+    mechanism.  Benkeser et al. (2017), Theorem 1, holds at the degenerate estimator
+    ``g_n = g0``, so the refusal is lifted.  The treatment learner never runs.
+    """
     frame = _trial(n=120, seed=3).assign(Y=lambda f: f["Y"].fillna(0.0)).drop(columns=["Delta"])
     frame = _with_arms(frame, arms)
-    with pytest.raises(ValueError, match="only used with delta="):
-        _estimator(guard=(), estimands=("ate",)).fit(
+    result = (
+        _estimator(estimands=("ate",), treatment_learner=_FailIfFit())
+        .fit(
             frame,
             outcome="Y",
             treatment="A",
             covariates=["W1", "W2"],
             treatment_probabilities=_uniform(len(frame), arms),
         )
+        .single()
+    )
+    assert result.extra["missing_data"] == "complete"
+    assert result.nuisance.treatment_mechanism == "known"
 
 
 def _labelled_trial(n: int = 300, seed: int = 21) -> tuple[pd.DataFrame, np.ndarray]:

@@ -112,6 +112,12 @@ from .._typing import (
     TargetingScheme,
 )
 from ..data.causal_data import CausalData, TreatmentKind, arm_share
+from ..data.known_mechanism import (
+    KNOWN_CTMLE_REFUSAL,
+    KNOWN_POLICIES_REFUSAL,
+    KNOWN_SCREEN_REFUSAL,
+    moved_known_values_refusal,
+)
 from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..exceptions import (
     CapabilityError,
@@ -206,7 +212,7 @@ from ..targets.population_intervention import (
 )
 from ..utils.bounds import OutcomeScaler, g_bounds_for, resolve_g_bounds
 from ..utils.frames import is_dataframe
-from ._nuisance import NuisanceEstimates, RepeatFit, fit_nuisances
+from ._nuisance import KnownPropensity, NuisanceEstimates, RepeatFit, fit_nuisances
 from ._strata import (
     absent_arm_error,
     check_stratified_targets,
@@ -512,7 +518,8 @@ class TMLE:
     outcome_learner, treatment_learner:
         Scikit-learn-compatible nuisance estimators for ``Qbar(A, W)`` and ``g(W)``.
         When omitted, each task receives the concrete default
-        :class:`~cleverly.learners.SuperLearner`.
+        :class:`~cleverly.learners.SuperLearner`.  Data that declares a known treatment
+        mechanism (``treatment_probabilities=`` in :meth:`fit`) fits no treatment learner.
     missingness_learner, intermediate_learner:
         Estimators for ``P(Delta = 1 | A, W)`` and ``P(Z = 1 | A, W)``.  Default to the
         same specification as ``treatment_learner``; only used when the data supplies
@@ -673,7 +680,11 @@ class TMLE:
         selection folds, so its in-sample fit accepts an unused policy.
     g_bounds:
         Propensity truncation.  ``"auto"`` uses ``5 / (sqrt(n) log n)`` for the
-        ATE family and ``0.025`` for the ATT/ATC, matching R's ``tmle``.
+        ATE family, as R's ``tmle`` 2.1.1 does, and ``0.025`` for the ATT/ATC.  The
+        pinned ``tmle`` 2.1.1 uses the sample-size rule for the ATT/ATC as well, so the
+        ATT/ATC value is this package's choice.  A fit on data that declares a known
+        treatment mechanism refuses a bound pair that would move a known value, before any
+        learner.
     q_bounds:
         Assumed support of a continuous outcome (R's ``Qbounds``).  ``None`` widens the
         observed range by 10%, which reads the held-out rows, so a cross-fitted fit of a
@@ -684,7 +695,8 @@ class TMLE:
     target_weights:
         Use the weighted form of the fluctuation (R's ``target.gwt``).
     screen_treatment, screen_threshold, min_retain:
-        Pre-screen covariates for the treatment model (R's ``prescreenW.g``).
+        Pre-screen covariates for the treatment model (R's ``prescreenW.g``).  Refused
+        beside a declared known mechanism, which replaces the treatment model.
     estimands:
         Which estimands to report; ``"all"`` requests everything the outcome type
         supports.
@@ -1071,6 +1083,7 @@ class TMLE:
         strata: Sequence[str] | None = None,
         treatment_kind: TreatmentKind | None = None,
         treatment_delta: str | None = None,
+        treatment_probabilities: Any = None,
     ) -> TMLEResultSet:
         """Fit the estimator.
 
@@ -1103,6 +1116,18 @@ class TMLE:
             treatment missing at random.  The fit then runs the composite-indicator
             construction of :mod:`cleverly.estimators.composite` for the arm means and
             their contrasts, in sample.  See :meth:`~cleverly.data.CausalData.from_frame`.
+        treatment_probabilities:
+            The known treatment mechanism ``P(A = a | W)`` of a randomized design.  The fit
+            then divides by it in place of an estimate and fits no treatment learner.  The
+            preferred form maps each level to the frame column that holds its probability,
+            ``{"active": "p_active", "placebo": "p_placebo"}``; the array forms of
+            :meth:`~cleverly.data.CausalData.from_frame` are read too.  With a known
+            mechanism the estimator is consistent for any outcome learner and its interval is
+            not conservative (Moore and van der Laan 2009, Sections 2 and 5).  The declaration is
+            carried on the data, so a bootstrap replicate reads the known values of its own
+            rows.  Beside a prepared :class:`~cleverly.data.CausalData` the array forms are
+            attached with :meth:`~cleverly.data.CausalData.with_known_mechanism`, and a
+            container that already declares one refuses a second.
 
         Returns
         -------
@@ -1127,6 +1152,7 @@ class TMLE:
             strata=strata,
             treatment_kind=treatment_kind,
             treatment_delta=treatment_delta,
+            treatment_probabilities=treatment_probabilities,
         )
         if not prepared.has_intermediate:
             return TMLEResultSet({None: self._fit_single(prepared, intermediate_value=None)})
@@ -1300,6 +1326,7 @@ class TMLE:
         weights_estimated: bool = False,
         treatment_kind: TreatmentKind | None = None,
         treatment_delta: str | None = None,
+        treatment_probabilities: Any = None,
     ) -> CausalData:
         """Coerce whatever the caller passed into a validated :class:`CausalData`."""
         if isinstance(data, CausalData):
@@ -1328,6 +1355,8 @@ class TMLE:
                     "column names cannot be combined with a CausalData input; the roles are "
                     "already assigned"
                 )
+            if treatment_probabilities is not None:
+                return data.with_known_mechanism(treatment_probabilities)
             return data
         if not is_dataframe(data):
             raise TypeError(
@@ -1353,6 +1382,7 @@ class TMLE:
                 _default_treatment_kind(self.policies) if treatment_kind is None else treatment_kind
             ),
             treatment_delta=treatment_delta,
+            treatment_probabilities=treatment_probabilities,
         )
 
     def _preflight_fit_configuration(self, data: CausalData) -> tuple[str, ...]:
@@ -1373,7 +1403,12 @@ class TMLE:
         is the one gate for it.  The default and ``"all"`` target lists then drop the
         targets that the composite construction cannot identify, as they drop
         ``par`` and ``paf`` beside ``delta=``.
+
+        Data that declares a known treatment mechanism meets
+        :meth:`_refuse_known_compositions` first, and the bound check of
+        :meth:`_refuse_moved_known_values` once the targets are resolved.
         """
+        self._refuse_known_compositions(data)
         if data.has_missing_treatment:
             named = None if self.estimands is None or self.estimands == "all" else self.estimands
             refusal = missing_treatment_refusal(
@@ -1459,8 +1494,81 @@ class TMLE:
         self._scaler(data)
         resolve_g_bounds(self.g_bounds, self._bounds_n(data), for_att=False)
         resolve_g_bounds(self.g_bounds, self._bounds_n(data), for_att=True)
+        self._refuse_moved_known_values(data, estimands)
         self._reference_arm(data)
         return estimands
+
+    def _refuse_known_compositions(self, data: CausalData) -> None:
+        """Refuse a composition that a declared known mechanism does not support.
+
+        Each refusal reads the configuration and the data, before any learner.  A declared
+        missing treatment is refused by
+        :func:`~cleverly.estimators.composite.missing_treatment_refusal`, which the
+        preflight asks next, so that one gate keeps every missing-treatment sentence.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+
+        Raises
+        ------
+        CapabilityError
+            For ``CTMLE`` and for ``policies=``.
+        ValueError
+            For ``screen_treatment=True``, which conflicts with the declaration.
+        """
+        if data.known_treatment is None:
+            return
+        if self._assessment_method == "collaborative_tmle":
+            raise CapabilityError(KNOWN_CTMLE_REFUSAL)
+        if self.policies:
+            raise CapabilityError(KNOWN_POLICIES_REFUSAL)
+        if self.screen_treatment:
+            raise ValueError(KNOWN_SCREEN_REFUSAL)
+
+    def _refuse_moved_known_values(self, data: CausalData, estimands: Sequence[str]) -> None:
+        """Refuse a bound pair that would move a declared known treatment probability.
+
+        Truncating a known design mechanism moves the estimate with no variance reason, so
+        the fit checks every bound pair it uses: the ATE-family pair, and the ATT/ATC pair
+        when ``att`` or ``atc`` is requested.  An incremental target reads the mechanism
+        untruncated, and the natural-course mean reads none, so neither adds a pair.  The
+        rule that decides which values move is :meth:`Propensity.truncate
+        <cleverly.estimators._nuisance.Propensity.truncate>`, the one the targeting step
+        applies.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+        estimands : sequence of str
+            The resolved targets.
+
+        Raises
+        ------
+        CapabilityError
+            If a bound pair would move a known value.
+        """
+        known = data.known_treatment
+        if known is None:
+            return
+        mean = resolve_g_bounds(self.g_bounds, self._bounds_n(data), for_att=False)
+        conditional = resolve_g_bounds(self.g_bounds, self._bounds_n(data), for_att=True)
+        pairs: list[tuple[float, float]] = []
+        for group in self._groups(estimands):
+            if group in ("ipsi", "natural_course"):
+                continue
+            pair = g_bounds_for(group, mean, conditional)
+            if pair not in pairs:
+                pairs.append(pair)
+        mechanism = KnownPropensity(np.asarray(known.values, dtype=float), data.arm_codes)
+        for pair in pairs:
+            moved = mechanism.truncate(pair).units
+            if np.any(moved):
+                raise CapabilityError(
+                    moved_known_values_refusal(int(np.count_nonzero(moved)), pair, known.values)
+                )
 
     def _fit_single(
         self,
@@ -3097,6 +3205,11 @@ class TMLE:
                 if present
             ),
             fits_treatment=not _is_natural_course(data, estimands),
+            treatment_mechanism=(
+                "known"
+                if data.known_treatment is not None and not _is_natural_course(data, estimands)
+                else "estimated"
+            ),
             continuous_treatment=data.is_continuous_treatment,
             q_bounds=None if scaler.is_identity else (scaler.lower, scaler.upper),
             screen_treatment=self.screen_treatment,
@@ -3147,9 +3260,10 @@ class TMLE:
         # truncates even when the bound pair is asymmetric.
         if nuisance.fits_treatment:
             outside = nuisance.propensity.truncate(config.g_bounds).fraction
+            kind = "a known" if nuisance.treatment_mechanism == "known" else "an estimated"
             if outside > _TRUNCATION_WARN_FRACTION:
                 warnings.warn(
-                    f"{outside:.1%} of units have an estimated treatment probability outside the "
+                    f"{outside:.1%} of units have {kind} treatment probability outside the "
                     f"truncation bounds [{lower:.4g}, {upper:.4g}] for at least one arm. Those "
                     "units still contribute, but their contributions use bounded rather "
                     "than fitted "
@@ -3359,7 +3473,10 @@ class TMLE:
             # from; `nuisance` stays the initial fit and is what the result reports.
             targeted = nuisance
             targeting_submodel: Submodel | None = None
-            if needs_mechanism(group):
+            # A tilt of a declared known mechanism is a known stochastic regime: there is no
+            # mechanism equation to solve, so it takes the ordinary branch below.
+            known_tilt = nuisance.incremental is not None and nuisance.incremental.mechanism_known
+            if needs_mechanism(group) and not known_tilt:
                 submodel, fluctuation, targeted, targeting_submodel = self._solve_mechanism(
                     data, nuisance, group, bounds, nuisance_bound
                 )
@@ -4786,6 +4903,7 @@ def tmle(
     weights_estimated: bool = False,
     id: Any = None,
     covariate_names: Sequence[str] | None = None,
+    g1W: Any = None,
     **kwargs: Any,
 ) -> TMLEResultSet:
     """Array-oriented entry point, mirroring ``tmle(Y, A, W, ...)`` in R.
@@ -4793,7 +4911,9 @@ def tmle(
     A thin wrapper over :class:`TMLE`; the argument names follow R's ``tmle`` package
     so existing analysis scripts translate directly.  Every keyword accepted by
     :class:`TMLE` may be passed through.  ``DeltaA`` is the treatment observation
-    indicator in R ``drtmle``'s spelling, beside ``Delta`` for the outcome.
+    indicator in R ``drtmle``'s spelling, beside ``Delta`` for the outcome.  ``g1W`` is
+    R's known ``P(A = 1 | W)``, read as the ``(n,)`` form of ``treatment_probabilities=``
+    at two arms; it replaces the treatment learner.
 
     >>> import numpy as np
     >>> from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -4826,6 +4946,7 @@ def tmle(
         intermediate=Z,
         family=kwargs.get("family", "auto"),
         treatment_delta=DeltaA,
+        treatment_probabilities=g1W,
     )
     estimator = TMLE(**kwargs)
     return estimator.fit(data)

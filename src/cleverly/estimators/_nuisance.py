@@ -56,6 +56,7 @@ if TYPE_CHECKING:  # `reduced` imports this module, so the dependency only goes 
 __all__ = [
     "CompanionEstimates",
     "InnerDesigns",
+    "KnownPropensity",
     "NuisanceEstimates",
     "Propensity",
     "RepeatFit",
@@ -265,6 +266,24 @@ class Propensity:
         the rule in full and also reports which cells it moved.
         """
         return self.truncate(bounds).values
+
+
+@dataclass(frozen=True)
+class KnownPropensity(Propensity):
+    """A treatment mechanism the design declared known, read from the data and not fitted.
+
+    A marker subclass.  The values are the declaration on
+    :attr:`~cleverly.data.CausalData.known_treatment`, and every arithmetic accessor is the
+    inherited one, so a fit that divides by this mechanism runs the same targeting step, the
+    same curve and the same truncation rule as a fit that divides by an estimate.  What the
+    type records is where the values came from.  Two readers branch on it: the nested
+    DR-TMLE designs, which reuse a known mechanism in every fold rather than refit it, and
+    :attr:`NuisanceEstimates.treatment_mechanism`, which the summary and the reports read.
+
+    A DR-TMLE fit with the ``"Q"`` guard fluctuates the mechanism along equation (9).  The
+    fluctuated mechanism is a plain :class:`Propensity`, because it is no longer the
+    declared one.
+    """
 
 
 @dataclass(frozen=True)
@@ -596,6 +615,16 @@ class NuisanceEstimates:
         config and need not still have nuisances.
         """
         return not isinstance(self.propensity, UnfittedPropensity)
+
+    @property
+    def treatment_mechanism(self) -> str:
+        """``"known"`` when the propensity is the declared mechanism, else ``"estimated"``.
+
+        Read off the type of :attr:`propensity`, so the record and the arrays the fit divided
+        by cannot disagree.  A mechanism that was never fitted, on the natural-course target,
+        reports ``"estimated"``: that target reads no mechanism at all.
+        """
+        return "known" if isinstance(self.propensity, KnownPropensity) else "estimated"
 
     def missingness_at_realised_arm(self, treatment: FloatArray) -> FloatArray | None:
         """``P(Delta = 1 | A, W)`` read at each row's *own* treatment, ``(n,)``.
@@ -1149,6 +1178,12 @@ def fit_nuisances(
     A composite-indicator view (:func:`~cleverly.estimators.composite.composite_view`) is
     refused.  Its treatment and observation arrays describe the composite indicator, and a
     nuisance model fitted on them would estimate a different mechanism.
+
+    A **declared known mechanism** (:attr:`~cleverly.data.CausalData.known_treatment`)
+    replaces the treatment learner.  The propensity is a :class:`KnownPropensity` that holds
+    the declaration, no treatment model is fitted, and an incremental tilt is evaluated at the
+    declaration and marked known, so that its targeting solves no mechanism equation.  A
+    companion's propensity is the companion's own declaration in every fold.
     """
     if data.composite_view:
         raise ValueError(
@@ -1211,6 +1246,30 @@ def fit_nuisances(
         if policies:
             policy_set = PolicySet.evaluate(
                 tuple(policies), data, density, reference=policy_reference
+            )
+    elif fit_treatment and data.known_treatment is not None:
+        # The design's mechanism, read from the data.  No learner runs, so there are no
+        # diagnostics; a fold has nothing of its own to predict, so the companion's slabs are
+        # the companion's declaration repeated.
+        propensity = KnownPropensity(np.array(data.known_treatment.values, copy=True), arms)
+        if companion is not None:
+            if companion.known_treatment is None:
+                raise ValueError(
+                    "the fit declares a known treatment mechanism and the companion declares "
+                    "none; DRTMLE refuses this composition before any learner"
+                )
+            declared = np.asarray(companion.known_treatment.values, dtype=float)
+            propensity_companion = {"g": np.stack([declared] * folds.n_folds)}
+        if incremental:
+            # The tilt of a known mechanism is a known stochastic regime: q_delta(g0) is a
+            # declared function, and the model with g known has no mechanism scores.  The
+            # flag removes the mechanism term from the curve and the mechanism fluctuation
+            # from the targeting step.
+            ipsi_set = replace(
+                IPSISet.evaluate(
+                    tuple(incremental), data, propensity.values, reference=incremental_reference
+                ),
+                mechanism_known=True,
             )
     elif fit_treatment:
         propensity_out, propensity_companion, propensity_diagnostics = cross_fit_companion(
@@ -1518,7 +1577,9 @@ def fit_inner_designs(
     :class:`InnerDesigns` says is never read.
 
     Only the treatment mechanism and the outcome regression are refitted, because those are
-    the two arrays a reduced regression conditions on and takes residuals of.  There is no
+    the two arrays a reduced regression conditions on and takes residuals of.  A declared
+    known mechanism is not refitted: it does not depend on the rows a model saw, so every
+    fold's inner mechanism is the declaration itself.  There is no
     missingness or intermediate model here and no shift or incremental set: a
     :class:`~cleverly.DRTMLE` refuses ``intermediate=`` and the other parameter axes by
     name, while its supported ``delta=`` surface requires ``cross_fit=False`` and therefore
@@ -1550,22 +1611,24 @@ def fit_inner_designs(
 
     outcomes: list[InitialFit] = []
     propensities: list[Propensity] = []
+    known = isinstance(nuisance.propensity, KnownPropensity)
     for fold in range(folds.n_folds):
         without = assignment != fold
-        mechanism, _ = cross_fit_predictions(
-            treatment_learner,
-            data.covariates,
-            data.treatment,
-            data.weights,
-            folds,
-            task="classification",
-            predict_designs={"g": data.covariates},
-            fit_mask=without,
-            groups=data.cluster,
-            clip=(0.0, 1.0),
-            classes=arms,
-            n_jobs=n_jobs,
-        )
+        if not known:
+            mechanism, _ = cross_fit_predictions(
+                treatment_learner,
+                data.covariates,
+                data.treatment,
+                data.weights,
+                folds,
+                task="classification",
+                predict_designs={"g": data.covariates},
+                fit_mask=without,
+                groups=data.cluster,
+                clip=(0.0, 1.0),
+                classes=arms,
+                n_jobs=n_jobs,
+            )
         regression, _ = cross_fit_predictions(
             outcome_learner,
             outcome_design,
@@ -1579,7 +1642,7 @@ def fit_inner_designs(
             clip=(0.0, 1.0),
             n_jobs=n_jobs,
         )
-        propensities.append(Propensity(mechanism["g"], arms))
+        propensities.append(nuisance.propensity if known else Propensity(mechanism["g"], arms))
         outcomes.append(
             InitialFit(regression["observed"], {arm: regression[f"arm{arm}"] for arm in arms})
         )

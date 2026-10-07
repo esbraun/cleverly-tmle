@@ -137,22 +137,21 @@ clusters.  Continuous treatment and other target groups remain refused by name.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from copy import copy
 from dataclasses import dataclass, field, replace
 from typing import Any, cast
 
-import numpy as np
-
 from .._inference_status import InferenceStatus, precedent_status
 from ..data.causal_data import CausalData
+from ..data.known_mechanism import KNOWN_EVALUATION_REFUSAL
 from ..exceptions import CapabilityError
 from ..learners.crossfit import Folds
 from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearnerDiagnostics
 from ..utils.bounds import OutcomeScaler
 from ..utils.frames import as_frame
-from ._nuisance import NuisanceEstimates, Propensity, fit_inner_designs
+from ._nuisance import NuisanceEstimates, fit_inner_designs
 from ._strata import refuse_untrainable_stratum_folds
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .composite import (
@@ -403,11 +402,13 @@ class DRTMLE(TMLE):
         arms, which selects Díaz & van der Laan (2017)'s construction.  The treatment learner
         is still fitted, following their finite-sample recommendation; above two arms it fits
         the categorical mechanism and each arm's column is tilted alone.
-        To use known probabilities instead, pass row-aligned ``treatment_probabilities=``
-        to :meth:`fit`; doing so bypasses the treatment learner.  Without either, a guarded
-        fit with ``delta=`` is observational and takes the composite-indicator construction.
-        A declared missing treatment refuses both, because that construction observes the
-        treatment on every row.
+        To use known probabilities instead, declare them on the data with
+        ``treatment_probabilities=`` in :meth:`~cleverly.TMLE.fit` or
+        :meth:`~cleverly.data.CausalData.from_frame`; the fit then reads the declaration in
+        place of the treatment learner, at every ``delta=`` setting.  Without either, a
+        guarded fit with ``delta=`` is observational and takes the composite-indicator
+        construction.  A declared missing treatment refuses both, because the randomized
+        construction observes the treatment on every row.
     max_outer:
         How many rounds the three-equation alternation may run.  **Not** ``max_iter``, which
         is the cap on the Newton steps *inside* one fluctuation and which every estimator
@@ -540,38 +541,7 @@ class DRTMLE(TMLE):
         self.update_order = update_order
         self.evaluation = evaluation
         self.randomized = bool(randomized)
-        self._treatment_probabilities: Any = None
         self._validate_drtmle_settings()
-
-    def fit(
-        self,
-        data: Any,
-        *,
-        treatment_probabilities: Any = None,
-        **roles: Any,
-    ) -> Any:
-        """Fit, optionally using known randomized-treatment probabilities.
-
-        ``treatment_probabilities`` is accepted at fit time because it is row-aligned data.
-        Three forms:
-
-        - a **mapping keyed by treatment level**, ``{"placebo": p0, "active": p1}``, with
-          one ``(n,)`` column per arm and every arm named.  Prefer this: it says which arm
-          each column belongs to instead of relying on the caller and the encoder agreeing
-          about which level sorts first.
-        - ``(n, K)`` in encoded arm order, which is the levels sorted ascending.
-        - ``(n,)``, at two arms only, read as the probability of the arm whose code is
-          ``1`` -- the *second* sorted level, so ``"placebo"`` in a trial labelled
-          ``active``/``placebo``.  Above two arms a vector is refused, because it cannot
-          name the other columns.
-
-        Supplying any of them implies ``randomized=True`` for the missing-outcome theorem
-        and bypasses the treatment learner.  A shallow per-fit copy keeps an unfitted
-        estimator reusable.
-        """
-        fitted = copy(self)
-        fitted._treatment_probabilities = treatment_probabilities
-        return TMLE.fit(fitted, data, **roles)
 
     def _uses_corrections(self) -> bool:
         return bool(self.guard)
@@ -801,7 +771,8 @@ class DRTMLE(TMLE):
             # regressions train inside the stratum, on every training complement.
             refuse_untrainable_stratum_folds(data, folds)
         route = missing_data_route(self, data)
-        known = self._known_treatment_probabilities(data)
+        # A declared known mechanism is read off the data by the nuisance fit, which then
+        # fits no treatment learner.  The nested designs reuse it in every fold.
         base = self._fit_nuisances(
             data,
             folds,
@@ -809,10 +780,7 @@ class DRTMLE(TMLE):
             intermediate_value,
             seed=seed,
             companion=self._companion(data),
-            fit_treatment=known is None,
         )
-        if known is not None:
-            base = replace(base, propensity=known)
         if self.guard and self.reduced_crossfit == "nested":
             # Before the reductions, because they read it. Once per fit rather than once
             # per round: every refit inside the alternation moves these arrays by the
@@ -902,96 +870,6 @@ class DRTMLE(TMLE):
             },
         )
 
-    def _known_treatment_probabilities(self, data: CausalData) -> Propensity | None:
-        """The design probabilities as a mechanism, or ``None`` when none were supplied.
-
-        Three accepted forms, and the mapping is the one to reach for.  The array form is
-        ``(n, K)``, and the ``(n,)`` form describes two arms only.  A trial's arms are
-        named, and the positional forms bind to the arm *codes* -- which are indices into
-        the sorted levels, so ``1`` is ``"placebo"`` in a trial labelled
-        ``active``/``placebo``.  A caller who reads ``(n,)`` as "the probability of
-        treatment" and passes ``P(A = 'active' | W)`` inverts the design, and with unequal
-        allocation nothing downstream contradicts them: the array is in range, its rows sum
-        to one, and the treatment learner it replaces never runs.  So the mapping form
-        exists to let the caller name the arm, exactly as ``arm_gamma`` does in
-        :func:`~cleverly.sensitivity.missingness_tilt`, and the two positional forms name
-        the level they resolved to in every message they raise.
-        """
-        supplied = self._treatment_probabilities
-        if supplied is None:
-            return None
-        levels = list(data.treatment_levels)
-        if isinstance(supplied, Mapping):
-            values = self._probabilities_from_levels(data, supplied, levels)
-        else:
-            values = np.array(supplied, dtype=float, copy=True)
-            if values.ndim == 1:
-                if len(levels) != 2:
-                    raise ValueError(
-                        f"treatment_probabilities as an (n,) vector is "
-                        f"P({data.treatment_name} = {levels[1]!r} | W) and describes two arms "
-                        f"only; {data.treatment_name} has {len(levels)} levels {levels}. Pass "
-                        f"an (n, {len(levels)}) array in that level order, or a mapping keyed "
-                        "by every level."
-                    )
-                if values.shape[0] != data.n:
-                    raise ValueError(
-                        f"treatment_probabilities has {values.shape[0]} rows; expected {data.n}"
-                    )
-                values = np.column_stack([1.0 - values, values])
-        if values.shape != (data.n, len(levels)):
-            if len(levels) == 2:
-                raise ValueError(
-                    f"treatment_probabilities must be (n,) for P({data.treatment_name} = "
-                    f"{levels[1]!r} | W), (n, 2) in the level order {levels}, or a mapping "
-                    f"keyed by those levels; got {values.shape}"
-                )
-            raise ValueError(
-                f"treatment_probabilities must be (n, {len(levels)}) in the level order "
-                f"{levels}, or a mapping keyed by those levels; got {values.shape}"
-            )
-        if not np.all(np.isfinite(values)) or np.any(values <= 0.0) or np.any(values >= 1.0):
-            raise ValueError("treatment_probabilities must be finite and strictly between 0 and 1")
-        if not np.allclose(values.sum(axis=1), 1.0, rtol=0.0, atol=1e-12):
-            raise ValueError("each row of treatment_probabilities must sum to one")
-        return Propensity(values, data.arm_codes)
-
-    @staticmethod
-    def _probabilities_from_levels(
-        data: CausalData, supplied: Mapping[Any, Any], levels: list[Any]
-    ) -> np.ndarray:
-        """One ``(n,)`` column per arm, keyed on the way in by the caller's own level.
-
-        Keyed by level in and by arm code out, which is the convention every reported name
-        follows -- and every arm must be named, because an arm left out would be filled in
-        by a complement the caller never wrote, which is the assumption this form exists to
-        state rather than inherit.
-        """
-        columns: dict[float, np.ndarray] = {}
-        for label, probabilities in supplied.items():
-            matches = [index for index, level in enumerate(levels) if level == label]
-            if not matches:
-                raise ValueError(
-                    f"treatment_probabilities names {label!r}, which is not a level of "
-                    f"{data.treatment_name}; its levels are {levels}"
-                )
-            column = np.asarray(probabilities, dtype=float).reshape(-1)
-            if column.shape[0] != data.n:
-                raise ValueError(
-                    f"treatment_probabilities[{label!r}] has {column.shape[0]} rows; "
-                    f"expected {data.n}"
-                )
-            columns[float(matches[0])] = column
-        missing = [levels[int(code)] for code in data.arm_codes if code not in columns]
-        if missing:
-            raise ValueError(
-                f"treatment_probabilities must name every arm, and {missing} are missing. "
-                "The arms left out would take whatever is left over from the ones named, "
-                "which is the design this form exists to state explicitly; give every arm "
-                "its own column."
-            )
-        return np.column_stack([columns[code] for code in data.arm_codes])
-
     def _reduction(self, data: CausalData, nuisance: NuisanceEstimates) -> ReductionSpec | None:
         """The closure the alternation refits with, and the guards it solves.
 
@@ -1049,6 +927,8 @@ class DRTMLE(TMLE):
         was given, so the companion's design is the design the models were fitted on rather
         than one that merely resembles it -- and a mismatch is refused by
         :func:`~cleverly.estimators._nuisance.fit_nuisances` rather than predicted through.
+        A fit on data that declares a known mechanism by column name prepares the companion
+        with the same columns, so the companion's mechanism is its own declaration.
         """
         if self.evaluation is None:
             return None
@@ -1071,7 +951,38 @@ class DRTMLE(TMLE):
             # companion rows carry the strata that say which stratum's models predict there.
             strata=list(data.strata_names) if data.has_strata else None,
             treatment_kind="discrete",
+            treatment_probabilities=(
+                dict(data.known_treatment.columns)
+                if data.known_treatment is not None and data.known_treatment.columns
+                else None
+            ),
         )
+
+    def _companion_declares_mechanism(self, data: CausalData) -> bool:
+        """Whether the evaluation companion carries a known mechanism for this fit.
+
+        A prepared companion must declare one itself.  A frame companion follows a
+        column-name declaration when it holds every declared column, because it is prepared
+        with the same columns.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data, which declares a known mechanism.
+
+        Returns
+        -------
+        bool
+            Whether the companion's mechanism is declared.
+        """
+        companion = self.evaluation
+        if isinstance(companion, CausalData):
+            return companion.known_treatment is not None
+        known = data.known_treatment
+        if known is None or not known.columns:
+            return False
+        columns = set(as_frame(companion).columns)
+        return all(name in columns for name in known.column_names)
 
     def _configured_for_refit(self, data: CausalData) -> DRTMLE:
         """The estimator a refit on ``data`` runs, without a companion that cannot follow.
@@ -1221,30 +1132,14 @@ class DRTMLE(TMLE):
                 "randomized missing-outcome theorem uses its own five reductions; use "
                 "reduction='univariate' (the setting is replaced by that construction)."
             )
-        # Both of these are about the *array*, not about the extra score equations, so
-        # they are asked outside the guarded block: with `guard=()` the fit is bit for bit
-        # a plain TMLE, and a trial's known design mechanism is exactly what such a fit
-        # should divide by. The bootstrap refusal in particular has to fire at every guard
-        # -- it used to sit inside the block below, so lifting the outer refusal without
-        # moving it would let an unguarded replicate refit on resampled rows the
-        # row-aligned array cannot be reindexed to, silently.
-        if self._treatment_probabilities is not None:
-            if not data.has_missing_outcome:
-                raise CapabilityError(
-                    "treatment_probabilities= is currently only used with delta=. It "
-                    "replaces the treatment learner outright, and nothing read here "
-                    "states a complete-data construction that reads a known design "
-                    "mechanism differently from a fitted one."
-                )
-            if self.n_bootstrap:
-                raise CapabilityError(
-                    "treatment_probabilities= and n_bootstrap= are not combined. The array "
-                    "is row-aligned to the data as passed, and a replicate refits on "
-                    "resampled rows it cannot be reindexed to from here -- an n-out-of-n "
-                    "resample even passes the length check, so the misalignment would be "
-                    "silent. Pass randomized=True instead, so each replicate estimates the "
-                    "mechanism from its own rows."
-                )
+        # The companion's mechanism must be its own declaration: no model is fitted to
+        # predict it there.
+        if (
+            data.known_treatment is not None
+            and self.evaluation is not None
+            and not self._companion_declares_mechanism(data)
+        ):
+            raise CapabilityError(KNOWN_EVALUATION_REFUSAL)
         if route == "randomized_missing_outcome" and self.guard and set(self.guard) != {"Q", "g"}:
             raise CapabilityError(
                 "missing-outcome DRTMLE requires guard=('Q', 'g'): Díaz & van der "

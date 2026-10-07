@@ -71,6 +71,11 @@ from typing import Any, TypeAlias
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray
+from ..data.known_mechanism import (
+    KnownNodeMechanisms,
+    known_node_mechanisms,
+    probability_columns,
+)
 from ..data.validate import (
     MAX_TREATMENT_LEVELS,
     MIN_CONTINUOUS_LEVELS,
@@ -115,6 +120,7 @@ _ROW_FIELDS: tuple[str, ...] = (
     "cause_event",
     "cluster",
     "weight_spec",
+    "known_mechanisms",
 )
 _SHARED_FIELDS: tuple[str, ...] = (
     "baseline_names",
@@ -259,6 +265,10 @@ class LongitudinalData:
     #: The event code of each absorbing cause, in :attr:`cause_labels` order (``(1,)`` for a
     #: single event), on a container built by :meth:`from_time_to_event`.  Empty otherwise.
     event_codes: tuple[int, ...] = ()
+    #: The treatment and censoring factors the design declares known, or ``None`` when every
+    #: factor is estimated.  A data field, so a bootstrap replicate carries the rows it drew.
+    #: See :class:`~cleverly.data.known_mechanism.KnownNodeMechanisms`.
+    known_mechanisms: KnownNodeMechanisms | None = None
 
     # ------------------------------------------------------------------ build
 
@@ -278,6 +288,8 @@ class LongitudinalData:
         weights_estimated: bool = False,
         family: str = "auto",
         continuous_treatment: Sequence[str] = (),
+        treatment_probabilities: Any = None,
+        censoring_probabilities: Any = None,
     ) -> LongitudinalData:
         """Build from one wide dataframe: a row per unit, a column per node.
 
@@ -328,6 +340,19 @@ class LongitudinalData:
             dose, has a conditional density rather than a multinomial mechanism, and takes a
             modified treatment policy at every regimen (Díaz, Williams, Hoffman and Schenck
             2023).  A vector node's components are categorical.
+        treatment_probabilities:
+            The known treatment mechanism of a sequentially randomized design, which the fit
+            then reads in place of a treatment learner.  The preferred form maps each node
+            column to a mapping of that node's levels to the column of
+            ``P(A_t = level | observed past)``, ``{"A1": {0: "p1_0", 1: "p1_1"}}``; nodes
+            left out are estimated.  An ``(n, T)`` array of ``P(A_t = levels_t[1] | observed
+            past)`` at binary nodes and an ``(n, T, K)`` array at nodes that share ``K``
+            levels are read too.  A value on a row that is not at risk at the node is never
+            read and may be missing.  On a held design the one decision is the one node.
+        censoring_probabilities:
+            The known retention probabilities ``P(C_t = 1 | observed past)``: a mapping of
+            censoring column to the column that holds them, or an ``(n, T)`` array.  It may
+            be given alone or beside ``treatment_probabilities``.
         """
         if not is_dataframe(data):
             raise DataError("LongitudinalData.from_frame expects a pandas or polars DataFrame")
@@ -438,12 +463,21 @@ class LongitudinalData:
             wanted.append(id)
         if weights is not None:
             wanted.append(str(weights))
-        missing = [name for name in wanted if name not in columns]
+        treatment_columns, censoring_columns = _probability_column_names(
+            treatment_probabilities, censoring_probabilities
+        )
+        probability_names = [
+            name for pairs in treatment_columns.values() for _, name in pairs
+        ] + list(censoring_columns.values())
+        missing = [name for name in [*wanted, *probability_names] if name not in columns]
         if missing:
             raise DataError(f"columns not found in the frame: {missing}; available: {columns}")
         _refuse_duplicates(wanted)
+        overlap = sorted(set(probability_names) & set(wanted))
+        if overlap:
+            raise DataError(f"columns {overlap} are used both as a role and as a known probability")
 
-        return cls._build(
+        built = cls._build(
             outcome=None if survival else column_array(frame, outcome_names[0]),
             # ``(n, T, J)``: a node axis and a cause axis, with ``J = 1`` for a single
             # absorbing event.  One shape rather than two keeps the validating sweep and
@@ -485,6 +519,112 @@ class LongitudinalData:
             family=family,
             backend=backend_of(frame),
             treatment_held=held,
+        )
+        if treatment_probabilities is None and censoring_probabilities is None:
+            return built
+        return built._declare_known(
+            treatment_probabilities=(
+                treatment_probabilities
+                if not treatment_columns
+                else {
+                    node: (
+                        {
+                            level: column_array(frame, name)
+                            for level, name in treatment_columns[node]
+                        }
+                        if node in treatment_columns
+                        else per_node
+                    )
+                    for node, per_node in treatment_probabilities.items()
+                }
+            ),
+            censoring_probabilities=(
+                censoring_probabilities
+                if not censoring_columns
+                else {
+                    node: (
+                        column_array(frame, censoring_columns[node])
+                        if node in censoring_columns
+                        else column
+                    )
+                    for node, column in censoring_probabilities.items()
+                }
+            ),
+            treatment_columns=treatment_columns,
+            censoring_columns=censoring_columns,
+        )
+
+    def with_known_mechanisms(
+        self, *, treatment_probabilities: Any = None, censoring_probabilities: Any = None
+    ) -> LongitudinalData:
+        """Return a copy that declares treatment or censoring factors known.
+
+        :meth:`LTMLE.fit <cleverly.longitudinal.LTMLE.fit>` calls this when it receives the
+        declarations beside a prepared container.  The column-name forms need the frame,
+        which a container no longer holds, so only the array forms are read here.
+
+        Parameters
+        ----------
+        treatment_probabilities : array-like or mapping or None
+            The treatment declaration, in an array form :meth:`from_frame` reads.
+        censoring_probabilities : array-like or mapping or None
+            The censoring declaration, in an array form :meth:`from_frame` reads.
+
+        Returns
+        -------
+        LongitudinalData
+            A copy whose :attr:`known_mechanisms` holds the validated declarations.
+
+        Raises
+        ------
+        ValueError
+            If this data already declares a mechanism.
+        DataError
+            If a declaration is malformed or names columns.
+        """
+        if self.known_mechanisms is not None:
+            raise ValueError(
+                "treatment_probabilities or censoring_probabilities is declared twice: on "
+                "the data and at fit. Declare them once."
+            )
+        treatment_columns, censoring_columns = _probability_column_names(
+            treatment_probabilities, censoring_probabilities
+        )
+        if treatment_columns or censoring_columns:
+            raise DataError(
+                "the declaration names columns, and this call has no frame to read them "
+                "from. Pass the arrays, or declare the columns in "
+                "LongitudinalData.from_frame or in the fit on the frame."
+            )
+        return self._declare_known(
+            treatment_probabilities=treatment_probabilities,
+            censoring_probabilities=censoring_probabilities,
+        )
+
+    def _declare_known(
+        self,
+        *,
+        treatment_probabilities: Any,
+        censoring_probabilities: Any,
+        treatment_columns: Mapping[str, tuple[tuple[Any, str], ...]] | None = None,
+        censoring_columns: Mapping[str, str] | None = None,
+    ) -> LongitudinalData:
+        decisions = self.n_decisions
+        return replace(
+            self,
+            known_mechanisms=known_node_mechanisms(
+                treatment_probabilities=treatment_probabilities,
+                censoring_probabilities=censoring_probabilities,
+                n=self.n,
+                treatment_names=self.treatment_names,
+                treatment_levels=self.treatment_levels[:decisions],
+                continuous_nodes=tuple(
+                    self.is_continuous_node(time) for time in range(1, decisions + 1)
+                ),
+                censoring_names=self.censoring_names,
+                treatment_columns=treatment_columns,
+                censoring_columns=censoring_columns,
+            ),
         )
 
     @classmethod
@@ -1162,6 +1302,9 @@ class LongitudinalData:
             cause_event=None if self.cause_event is None else self.cause_event[idx],
             cluster=cluster,
             weight_spec=self.weight_spec.rescaled(self.weight_spec.scale * mean),
+            known_mechanisms=(
+                None if self.known_mechanisms is None else self.known_mechanisms.subset(idx)
+            ),
         )
 
     # ------------------------------------------------------------------ masks
@@ -2167,3 +2310,25 @@ def _refuse_duplicates(names: Sequence[str]) -> None:
             "in the time ordering, and a column that is both (say) a baseline covariate "
             "and a time-varying one would be adjusted for twice."
         )
+
+
+def _probability_column_names(
+    treatment_probabilities: Any, censoring_probabilities: Any
+) -> tuple[dict[str, tuple[tuple[Any, str], ...]], dict[str, str]]:
+    """The column names of a column-form longitudinal declaration, by node.
+
+    A treatment node whose per-node mapping holds strings names columns, and a censoring
+    entry that is a string names a column.  Array entries are left to the parser.
+    """
+    treatment_columns: dict[str, tuple[tuple[Any, str], ...]] = {}
+    if isinstance(treatment_probabilities, Mapping):
+        for node, per_node in treatment_probabilities.items():
+            pairs = probability_columns(per_node)
+            if pairs is not None:
+                treatment_columns[str(node)] = pairs
+    censoring_columns: dict[str, str] = {}
+    if isinstance(censoring_probabilities, Mapping):
+        for node, column in censoring_probabilities.items():
+            if isinstance(column, str):
+                censoring_columns[str(node)] = column
+    return treatment_columns, censoring_columns

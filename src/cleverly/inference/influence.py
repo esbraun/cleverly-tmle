@@ -1957,6 +1957,12 @@ def ipsi_means(
     not the initial one, or the middle term would be evaluated at a :math:`g` the plug-in
     did not use.  Carrying the mechanism on the same object as the density is what makes
     that impossible to get wrong rather than merely documented.
+
+    A tilt of a **known** mechanism (:attr:`~cleverly.interventions.IPSISet.mechanism_known`)
+    omits the middle term.  With :math:`g_0` known the model has no mechanism scores, so the
+    efficient curve is the full-model curve projected off that tangent space, which removes
+    exactly the term in :math:`(A - g)`.  The result is the curve of the known stochastic
+    regime :math:`q_\delta(g_0)`.
     """
     _expect(submodel, "ipsi")
     density = np.asarray(incremental.values, dtype=float)
@@ -1986,12 +1992,10 @@ def ipsi_means(
     for index in range(density.shape[2]):
         mixture = np.einsum("ij,ij->i", density[:, :, index], predictions)
         psi = float(np.average(mixture, weights=w))
-        curve = (
-            submodel.observed[:, index] * residual
-            + derivative[:, index] * blip * treated_residual
-            + mixture
-            - psi
+        mechanism_term = (
+            0.0 if incremental.mechanism_known else derivative[:, index] * blip * treated_residual
         )
+        curve = submodel.observed[:, index] * residual + mechanism_term + mixture - psi
         out[float(index)] = ArmMean(psi, w * curve)
     return out
 

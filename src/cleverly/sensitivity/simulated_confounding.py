@@ -193,6 +193,10 @@ class SimulatedConfoundingResult:
         treatment group. ATT and ATC use the latter.
     conditioning_arm : Any or None
         Original treatment label defining the ATT or ATC population.
+    known_mechanism_dropped : bool
+        Whether the fitted data declared a known treatment mechanism.  A perturbed
+        treatment has a mechanism of its own, so every cell that moves the treatment drops
+        the declaration and its refit estimates the mechanism.
 
     Attributes
     ----------
@@ -227,6 +231,7 @@ class SimulatedConfoundingResult:
     strata_names: tuple[str, ...] = ()
     population: Literal["baseline", "perturbed_treatment_group"] = "baseline"
     conditioning_arm: Any = None
+    known_mechanism_dropped: bool = False
 
     @property
     def target_measure(self) -> Literal["unweighted", "fixed_empirical_tilt"]:
@@ -270,6 +275,13 @@ class SimulatedConfoundingResult:
             f"association population: {self.association_population}",
             f"calibration population: {self.calibration_population}",
             f"refit population: {self.refit_population}",
+        ) + (
+            (
+                "treatment mechanism: known on the data; dropped and re-estimated in every "
+                "cell that perturbs the treatment",
+            )
+            if self.known_mechanism_dropped
+            else ()
         )
 
     @property
@@ -1009,6 +1021,7 @@ def simulated_confounding(
             else "Binomial outcome is flipped in the declared upper latent-normal tail."
         ),
         weight_report=result.data.weight_report(),
+        known_mechanism_dropped=result.data.known_treatment is not None,
         backend=result.data.backend,
         stratum=request.stratum,
         strata_names=() if request.stratum is None else result.data.strata_names,

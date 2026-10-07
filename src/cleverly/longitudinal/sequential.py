@@ -129,7 +129,7 @@ from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.validate import arm_indicators
 from ..data.weighting import effective_sample_size
 from ..estimators._nuisance import cross_fit_predictions
-from ..exceptions import LongitudinalError
+from ..exceptions import CapabilityError, DataError, LongitudinalError
 from ..fluctuation.iterative import (
     Fluctuation,
     InitialFit,
@@ -167,6 +167,7 @@ __all__ = [
     "fit_mechanism",
     "fit_regimen",
     "outcome_design",
+    "preflight_known_mechanisms",
     "preflight_mechanism_support",
     "preflight_terminal_outcomes",
     "prepare_node",
@@ -262,6 +263,10 @@ class Mechanism:
         Censoring nodes with no censored unit in the eligible sample.
     no_censoring_folds : dict of int to tuple of int
         By censoring node, the training folds with no censored unit.
+    known_treatment_nodes : tuple of int
+        Treatment nodes whose factor is the declared known mechanism.
+    known_censoring_nodes : tuple of int
+        Censoring nodes whose factor is the declared known retention probability.
     """
 
     treatment: tuple[dict[str, FloatArray], ...]
@@ -296,6 +301,12 @@ class Mechanism:
     #: fit that held no censored unit while the eligible sample did.  Each such fold predicts
     #: retention exactly one, which is its empirical rate, and fits no learner.
     no_censoring_folds: dict[int, tuple[int, ...]] = field(default_factory=dict)
+    #: The treatment nodes, counted from one, whose factor is the mechanism the data declares
+    #: known (:attr:`~cleverly.longitudinal.data.LongitudinalData.known_mechanisms`).  No
+    #: learner is fitted there, and the nuisance report shows an omission.
+    known_treatment_nodes: tuple[int, ...] = ()
+    #: The censoring nodes, counted from one, whose factor is a declared retention probability.
+    known_censoring_nodes: tuple[int, ...] = ()
 
     def cumulative(
         self, data: LongitudinalData, plan: Plan, bounds: tuple[float, float]
@@ -773,6 +784,17 @@ def fit_mechanism(
     Both factors are fitted by weighted loss when the data carries observation weights, so
     what they estimate is the *tilted* law's mechanism -- which is what that law's
     influence function is built from, and what a weighted learner converges to.
+
+    A factor the data declares known
+    (:attr:`~cleverly.longitudinal.data.LongitudinalData.known_mechanisms`) fits no learner.
+    The node's ``treatment[t][label]`` is the declared probability of the arm each row is
+    *assigned*, ``plan.arm(time)``, and ``treatment_observed[t]`` is the declared matrix.  A
+    declared value describes the observed history, and the clever covariate is nonzero only
+    where the plan's history equals the observed one, so the assigned arm is read where the
+    two agree.  That is the meaning of ``ltmle``'s numeric ``gform``.  A declared retention
+    probability fills ``censoring[t]`` for every plan and ``censoring_observed[t]``.  Values
+    on rows that are not at risk are never read; :func:`preflight_known_mechanisms` checks
+    the rows that are.
     """
     treatment: list[dict[str, FloatArray]] = []
     censoring: list[dict[str, FloatArray]] = []
@@ -786,6 +808,9 @@ def fit_mechanism(
     densities: dict[int, ConditionalDensity] = {}
     no_censoring_nodes: list[int] = []
     no_censoring_folds: dict[int, tuple[int, ...]] = {}
+    known = data.known_mechanisms
+    known_treatment_nodes: list[int] = []
+    known_censoring_nodes: list[int] = []
     # Neither factor depends on a regimen, so one scan serves every node.  `followed` is
     # unused here and the all-true assignment makes that explicit rather than implicit.
     with phase("mask_construction"):
@@ -800,6 +825,15 @@ def fit_mechanism(
             treatment.append({plan.label: np.ones(data.n) for plan in plans})
             treatment_observed.append(np.zeros((data.n, 0)))
             treatment_diagnostics.append(())
+        elif known is not None and known.treatment_at(time) is not None:
+            declared = _filled_matrix(known.treatment_at(time))
+            rows = np.arange(data.n)
+            treatment.append(
+                {plan.label: declared[rows, plan.arm(time).astype(np.int64)] for plan in plans}
+            )
+            treatment_observed.append(declared)
+            treatment_diagnostics.append(())
+            known_treatment_nodes.append(time)
         elif data.is_continuous_node(time):
             with phase("mechanism_fit"):
                 density = _continuous_node_ratios(
@@ -839,6 +873,13 @@ def fit_mechanism(
             )
         if not data.censoring_names:
             censoring.append({plan.label: np.ones(data.n) for plan in plans})
+            continue
+        if known is not None and known.censoring_at(time) is not None:
+            retention = np.nan_to_num(np.asarray(known.censoring_at(time), dtype=float), nan=1.0)
+            censoring.append({plan.label: retention for plan in plans})
+            censoring_observed.append(retention)
+            censoring_diagnostics.append(())
+            known_censoring_nodes.append(time)
             continue
         stayed = np.where(at_risk, data.uncensored[:, time - 1].astype(float), 0.0)
         # No eligible unit was censored at this node, so the retention factor is exactly
@@ -891,7 +932,127 @@ def fit_mechanism(
         densities,
         tuple(no_censoring_nodes),
         no_censoring_folds,
+        tuple(known_treatment_nodes),
+        tuple(known_censoring_nodes),
     )
+
+
+def _filled_matrix(values: FloatArray | None) -> FloatArray:
+    """A declared node matrix with each row that is not at risk filled uniformly.
+
+    Such a row is never read: every reader masks it out first.  The fill keeps the
+    arithmetic finite, as :data:`_FILLER` does for an unread prediction.
+    """
+    matrix = np.asarray(values, dtype=float)
+    rows = ~np.all(np.isfinite(matrix), axis=1)
+    if not np.any(rows):
+        return matrix
+    filled = np.array(matrix, copy=True)
+    filled[rows] = 1.0 / matrix.shape[1]
+    return filled
+
+
+#: The refusal of a modified treatment policy at a node whose mechanism is declared.
+KNOWN_NODE_POLICY_REFUSAL = (
+    "treatment_probabilities= and a modified treatment policy at node {node!r} are not "
+    "combined. The policy's ratio numerator reads the mechanism at the levels the policy "
+    "sends a unit to, and the known-mechanism translation is not written for it. Leave the "
+    "node estimated, or declare a known stochastic policy there instead."
+)
+
+
+def preflight_known_mechanisms(
+    data: LongitudinalData, plans: Sequence[Plan], bounds: tuple[float, float]
+) -> None:
+    """Check every declared factor before the first learner is fitted.
+
+    Four checks, in order.  A modified treatment policy at a declared node is refused.  A
+    declared value must be finite on every row at risk at its node.  A declared treatment
+    probability of zero for the arm an at-risk unit took is refused, because the unit's
+    data contradicts it.  And the running product of the declared factors on every row that
+    follows a plan must lie inside ``bounds``: truncating a known product moves the estimate
+    with no variance reason.  With estimated factors beside declared ones, the product is
+    over the declared factors alone, and the estimated factors keep the shipped truncation.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel, which declares some factors known.
+    plans : sequence of Plan
+        The resolved plans.
+    bounds : tuple of float
+        The cumulative bound pair ``g_bounds`` resolves to.
+
+    Raises
+    ------
+    CapabilityError
+        For a policy at a declared node, and for a product outside ``bounds``.
+    DataError
+        For a missing declared value on an at-risk row, and for a contradicted zero.
+    """
+    known = data.known_mechanisms
+    if known is None:
+        return
+    fit_masks = data.regimen_masks(data.treatment)
+    for time in range(1, data.n_times + 1):
+        at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
+        declared = None if data.is_held_node(time) else known.treatment_at(time)
+        if declared is not None:
+            node = data.decision_name(time)
+            for plan in plans:
+                if plan.is_mtp_node(time):
+                    raise CapabilityError(KNOWN_NODE_POLICY_REFUSAL.format(node=node))
+            matrix = np.asarray(declared, dtype=float)
+            missing = at_risk & ~np.all(np.isfinite(matrix), axis=1)
+            if np.any(missing):
+                raise DataError(
+                    f"treatment_probabilities at node {node!r} is missing on "
+                    f"{int(np.count_nonzero(missing))} row(s) at risk there; a declared "
+                    "mechanism must give every at-risk unit its probabilities"
+                )
+            taken = np.nan_to_num(data.treatment[:, time - 1], nan=0.0).astype(np.int64)
+            filled = _filled_matrix(matrix)
+            contradicted = at_risk & (filled[np.arange(data.n), taken] <= 0.0)
+            if np.any(contradicted):
+                raise DataError(
+                    f"treatment_probabilities at node {node!r} gives probability 0 to the arm "
+                    f"that {int(np.count_nonzero(contradicted))} at-risk unit(s) took; the "
+                    "data contradicts the declared mechanism"
+                )
+        retention = known.censoring_at(time) if data.censoring_names else None
+        if retention is not None:
+            observed = at_risk & np.isfinite(data.treatment[:, time - 1])
+            missing = observed & ~np.isfinite(np.asarray(retention, dtype=float))
+            if np.any(missing):
+                raise DataError(
+                    f"censoring_probabilities at {data.censoring_names[time - 1]!r} is missing "
+                    f"on {int(np.count_nonzero(missing))} row(s) at risk there"
+                )
+    lower, upper = bounds
+    for plan in plans:
+        masks = plan.masks(data)
+        running = np.ones(data.n)
+        for time in range(1, data.n_times + 1):
+            declared = None if data.is_held_node(time) else known.treatment_at(time)
+            if declared is not None:
+                filled = _filled_matrix(declared)
+                running = running * filled[np.arange(data.n), plan.arm(time).astype(np.int64)]
+            retention = known.censoring_at(time) if data.censoring_names else None
+            if retention is not None:
+                running = running * np.nan_to_num(np.asarray(retention, dtype=float), nan=1.0)
+            rows = masks.following(time)
+            moved = rows & ((running < lower) | (running > upper))
+            if np.any(moved):
+                values = running[rows]
+                raise CapabilityError(
+                    f"the declared mechanism's cumulative probability under regimen "
+                    f"{plan.label!r} leaves the truncation bounds g_bounds=[{lower:.4g}, "
+                    f"{upper:.4g}] first at node {time} on {int(np.count_nonzero(moved))} "
+                    f"following row(s) (smallest {float(np.min(values)):.4g}). Truncating a "
+                    "known design mechanism moves the estimate with no variance reason. Pass "
+                    "g_bounds=(lower, upper) that contains every declared cumulative "
+                    "probability, such as a lower bound below the smallest one."
+                )
 
 
 def _retains_every_eligible_unit(data: LongitudinalData, at_risk: BoolArray, time: int) -> bool:
