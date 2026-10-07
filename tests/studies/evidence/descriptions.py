@@ -158,7 +158,9 @@ ARMS: dict[str, str] = {
         "randomizer_projection"
     ),
     "up": "the contrast of the shift up at both nodes against the natural course",
-    "classifier_route": "the primary policy contrast with its ratio estimated by classification",
+    "classifier_route": (
+        "the primary policy contrast, its ratio estimated by a classifier on the true log ratio"
+    ),
     "x1_25": "the contrast of the dose times 1.25, capped at 5.5, against the natural course",
     "piecewise": "the contrast of the dose lowered by 0.5 above 3 against the natural course",
     "halve": "the contrast of the declared policy halve below 3 against the natural course",
@@ -656,7 +658,7 @@ REGIMENS: dict[str, str] = {
     ),
     "minus one": "lower the level by one at both times wherever it stays at least one",
     "gated": "lower the second level by one where L2 equals one",
-    "rr 0.5": "keep each treated unit treated with probability 0.5 at both times",
+    "rr 0.25": "keep each treated unit treated with probability 0.25 at both times",
     "random at 2": "add 0.5 to the second dose with probability 0.5",
     "vector": "set the second component to zero where both components are one",
     "mtp": "risk-ratio tilt 0.5 first, then treat where L2 equals one",
@@ -2011,4 +2013,32 @@ ARM_CELLS.update(
         for arm, (arm_text, required) in _FEW_CLUSTER_ARMS.items()
         if arm != "t_j_minus_2_reference"
     }
+)
+
+#: ``longitudinal-mtp`` reads its mechanism-only arms at 320 oracle bins.  With the outcome
+#: regressions wrong, the binned density's error enters the bias at first order: 0.54 to 0.60
+#: standardized at 80 bins, 0.21 to 0.24 at 160 (100 draws of 8,000 rows).  These cells
+#: therefore witness the targeting with a nearly exact ratio, not the shipped default density.
+ARM_CELLS[("double_robustness", "up", "mechanism_correct")] = (
+    "only the mechanisms are correctly specified, read from 320 oracle bins so the binned "
+    "density's own first-order error stays below the margin",
+    "bias interval inside the equivalence margin, with the reported standard error "
+    "on the scale of the empirical spread",
+)
+ARM_CELLS[("targeting_necessity", "up", "targeted")] = (
+    "the targeted fit with only the mechanisms correct, at 320 oracle bins",
+    "bias interval inside the equivalence margin",
+)
+ARM_CELLS[("inverse_necessity", "history", "declared_inverse")] = (
+    "the density ratio reads each piece at its declared inverse, at 320 oracle bins",
+    "bias interval inside the equivalence margin",
+)
+ARM_CELLS[("inverse_necessity", "history", "inverse_dropped_control")] = (
+    "the same fit reads each moving piece at the dose itself, at 320 oracle bins",
+    "bias interval must fall entirely outside the margin",
+)
+ARM_CELLS[("interval_calibration", "classifier_route", "correctly_specified")] = (
+    "the ratio by stacked classification, with a logistic model on the true log ratio, so the "
+    "classifier is correctly specified",
+    "SE ratio and coverage intervals both inside their calibration bands",
 )

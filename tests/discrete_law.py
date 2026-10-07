@@ -179,7 +179,8 @@ IPSI_REFERENCE = "natural course"
 #: Below one, a treated unit keeps treatment with probability ``delta``; above one, an
 #: untreated unit stays untreated with probability ``1 / delta``.  One on each side and
 #: the natural course, because the two sides are different branches of the policy.
-RR_TILT_DELTAS: dict[str, float] = {"natural course": 1.0, "rr 0.5": 0.5, "rr 2": 2.0}
+#: Neither is 0.5: there the keep and drop branches weigh the same, and a swap is invisible.
+RR_TILT_DELTAS: dict[str, float] = {"natural course": 1.0, "rr 0.25": 0.25, "rr 3": 3.0}
 
 #: The tilt the ``ate_rr_tilt`` contrasts are taken against.
 RR_TILT_REFERENCE = "natural course"

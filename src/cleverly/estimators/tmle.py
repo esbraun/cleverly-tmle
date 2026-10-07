@@ -2685,12 +2685,12 @@ class TMLE:
                     "probability delta and otherwise sets it to 0"
                 )
         if data.is_continuous_treatment and not self.policies and self.msm is None:
-            # The suggested shift meets the F21 refusal of a cross-fitted fit with missing
+            # The suggested policy meets the F21 refusal of a cross-fitted fit with missing
             # outcomes, so that fit is told which fit estimates the natural course.  The
             # condition is the one ``_refuse_cross_fitted_missing_off_contract`` refuses on.
             in_sample = (
                 " A cross-fitted fit with missing outcomes, declared with "
-                f"{MISSING_OUTCOME_DECLARATION}, refuses a shift target (F21 in "
+                f"{MISSING_OUTCOME_DECLARATION}, refuses a policy target (F21 in "
                 "docs/roadmap.md). To estimate the natural course, "
                 f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}."
                 if self._assessment_method == "tmle" and self.cross_fit and data.has_missing_outcome
@@ -2738,7 +2738,7 @@ class TMLE:
             return regimes.reference
         if self.policies:
             # Resolved from the shift *names*, for the reason the regime branch gives.
-            return self._reference_shift()
+            return self._reference_policy()
         if self.incremental:
             # Resolved from the tilt *names*, for the reason the regime branch gives.
             return self._reference_incremental()
@@ -3004,7 +3004,7 @@ class TMLE:
             )
         return float(names.index(str(self.reference)))
 
-    def _reference_shift(self) -> float:
+    def _reference_policy(self) -> float:
         """The policy code contrasts are taken against, from ``reference=`` and the names.
 
         Defaults to the first declared policy rather than to the natural course, which is

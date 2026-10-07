@@ -472,9 +472,8 @@ A modified treatment policy is a map of the natural dose, and `policies=` is its
 policy class resolves to deterministic branches with known probabilities, through
 `policy_branches` for a continuous dose and `discrete_assignments` for a categorical one. The
 ratio, the support report and the longitudinal node read those branches and nothing else. A new
-class adds a branch type there, not a new axis. `RiskRatioTilt` is the exception for reporting
-only: it reads `g`, so it reports on the `rr_tilt` axis and one fit does not mix it with other
-policies.
+class adds a branch type there, not a new axis. `RiskRatioTilt` differs in its report only. It
+reads `g`, so it reports on the `rr_tilt` axis. `TMLE` refuses a tilt beside other policies.
 
 An estimator variant that only changes which nuisance estimate is targeted should override the
 nuisance hook, return a replaced `NuisanceEstimates` with diagnostics, and inherit targeting and
@@ -507,8 +506,8 @@ pins a one-hot policy to its rule bit for bit.
 A modified treatment policy node reuses the per-arm carry of a policy node. At a categorical node
 its columns are the levels. At a continuous node its columns are the randomizer branches, and the
 node's treatment factor in the cumulative product is the density ratio. `g_bounds` therefore
-bounds only the censoring and categorical factors. The ratio is attached to the plan after the
-mechanism fit, and a frozen plan carries it, so a replay reads the same ratio.
+bounds only the censoring and categorical factors. The fit attaches the ratio to the plan after
+the mechanism fit. A frozen plan carries it, so a replay reads the same ratio.
 
 A cross-fitted per-regimen fit targets after its folds, not inside them. Each fold runs an
 untargeted backward regression sequence on its training rows. One pooled fluctuation per node then

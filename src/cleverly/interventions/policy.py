@@ -143,6 +143,12 @@ _QUANTILES = (0.01, 0.05, 0.5, 0.95, 0.99)
 #: Relative tolerance of the declared-inverse check.
 _INVERSE_TOLERANCE = 1e-8
 
+#: Relative step of the central difference that checks a declared derivative, and the
+#: relative gap it allows.  A central difference of a smooth map errs by O(step^2), far
+#: below the tolerance, and a wrong slope (a factor, a sign of the reciprocal) is far above.
+_DERIVATIVE_STEP = 1e-5
+_DERIVATIVE_TOLERANCE = 1e-4
+
 #: Grid points per piece and row on which a declared map is checked to be monotone.
 _MONOTONE_GRID = 9
 
@@ -383,7 +389,8 @@ class Piecewise:
     ----------
     pieces : tuple of tuple
         ``(lower, upper, map)`` per piece, where ``map`` is ``Shift(delta, None)`` or
-        ``Scale(factor, None)``.  The intervals do not overlap.
+        ``Scale(factor, None)``.  The intervals do not overlap.  A dose in no interval keeps
+        its value, and the density ratio counts it as an identity piece.
     closed : {"left", "right"}
         Which end of every interval belongs to it.
     name : str
@@ -894,7 +901,18 @@ class _PiecewiseBranch(_Branch):
         for lower, upper, mapping in self.policy.pieces:
             if _is_identity_map(mapping):
                 covariate = covariate + _member(b, lower, upper, self.policy.closed).astype(float)
+        # ``assign`` leaves a dose in no declared interval where it is, so the uncovered set is
+        # an identity piece of Equation (3): a value there can only have come from itself.
+        covariate = covariate + self.uncovered(b).astype(float)
         return np.asarray(covariate, dtype=float)
+
+    def uncovered(self, values: FloatArray) -> BoolArray:
+        """Doses in no declared interval, which the policy leaves unchanged."""
+        b = np.asarray(values, dtype=float).reshape(-1)
+        covered = np.zeros(b.size, dtype=bool)
+        for lower, upper, _ in self.policy.pieces:
+            covered |= _member(b, lower, upper, self.policy.closed)
+        return np.asarray(~covered & np.isfinite(b), dtype=bool)
 
 
 class _PieceBranch(_Branch):
@@ -1215,6 +1233,25 @@ def _check_monotone(
                     f"policy {name!r} at {where}: the derivative of the inverse is "
                     f"{float(slope[row])!r} at b = {float(image[row]):g} on piece {index}. "
                     "It must be finite and nonzero, since the density ratio multiplies by it"
+                )
+            # The declared derivative of the inverse is 1 / d'(a) at b = d(a).  A central
+            # difference of the declared map at the same point checks its value, which the
+            # density ratio multiplies by, and not only its sign and finiteness.
+            step = _DERIVATIVE_STEP * np.maximum(1.0, np.abs(point))
+            with np.errstate(all="ignore"):
+                upper_value = _per_row(_call(piece.map, point + step, frame()), a.size)
+                lower_value = _per_row(_call(piece.map, point - step, frame()), a.size)
+                expected = (2.0 * step) / (upper_value - lower_value)
+                gap = np.abs(slope - expected) / np.maximum(np.abs(expected), 1e-12)
+            wrong = usable & ~(gap <= _DERIVATIVE_TOLERANCE)
+            if wrong.any():
+                row = int(np.flatnonzero(wrong)[0])
+                raise DataError(
+                    f"policy {name!r} at {where}: the declared derivative of the inverse is "
+                    f"{float(slope[row]):.6g} at b = {float(image[row]):g} on piece {index}, "
+                    f"but 1 / d'(a) from the declared map is {float(expected[row]):.6g} at "
+                    f"a = {float(point[row]):g}. The density ratio multiplies by this value, "
+                    "so declare the derivative of the inverse map"
                 )
 
 
@@ -2021,10 +2058,11 @@ class PolicySupport:
     policy : str
         The policy this row describes, from
         :func:`~cleverly.interventions.policy.describe_policy`.
-    min_density : float
+    min_density : float or None
         Smallest estimated density at an observed dose, the denominator of the
         density ratio evaluated at the observed dose.  On a categorical treatment it is
-        the smallest fitted probability of the observed level.
+        the smallest fitted probability of the observed level.  ``None`` on the classifier
+        route, which fits no density.
     ratio_quantiles : dict of float to float
         Quantiles of the density ratio at the observed dose.
     max_ratio : float
@@ -2039,9 +2077,10 @@ class PolicySupport:
     capped_fraction : float or None
         Share of rows a declared ``cap`` holds at their own dose, weighted the same way.
         ``None`` on a categorical treatment, where no cap is evaluated.
-    unsupported : int
+    unsupported : int or None
         Rows whose assigned dose falls where the estimated density is exactly zero.
         Estimated zeros flag model support failures, not proof of nonidentification.
+        ``None`` on the classifier route, which fits no density to read a zero from.
     mean_ratio : float
         Mean density ratio at the observed dose over every row.  The ratio is the
         density of the supported part of the shifted law relative to the observed law.
@@ -2071,14 +2110,14 @@ class PolicySupport:
 
     name: str
     policy: str
-    min_density: float
+    min_density: float | None
     ratio_quantiles: dict[float, float]
     max_ratio: float
     effective_sample_size: float
     ess_ratio: float
     moved_fraction: float
     capped_fraction: float | None
-    unsupported: int
+    unsupported: int | None
     mean_ratio: float
     fold_mean_ratio: tuple[float, ...]
     #: Smallest :math:`\pi(A, W)\,q_z(A, W)` among the mechanisms that divide the
@@ -2104,11 +2143,21 @@ class PolicySupport:
         score = format_score_load(self.score_load, style="inline")
         folds = ", ".join(f"{value:.3g}" for value in self.fold_mean_ratio)
         capped = "" if self.capped_fraction is None else f"capped={self.capped_fraction:.1%}, "
+        density = (
+            "min g(A|W) not measured on the classifier route"
+            if self.min_density is None
+            else f"min g(A|W)={self.min_density:.3g}"
+        )
+        unsupported = (
+            "unsupported not measured on the classifier route"
+            if self.unsupported is None
+            else f"unsupported={self.unsupported}"
+        )
         return (
-            f"{self.name}: min g(A|W)={self.min_density:.3g}, max {label}={self.max_ratio:.3g}"
+            f"{self.name}: {density}, max {label}={self.max_ratio:.3g}"
             f"{mechanism}, "
             f"ESS={self.effective_sample_size:.0f} ({self.ess_ratio:.1%} of n), "
-            f"moved={self.moved_fraction:.1%}, {capped}unsupported={self.unsupported}, "
+            f"moved={self.moved_fraction:.1%}, {capped}{unsupported}, "
             f"{score}\n"
             f"    {label} quantiles -- {quantiles}\n"
             f"    mean ratio -- {self.mean_ratio:.3g} overall, per fold {folds} "
@@ -2218,23 +2267,27 @@ def check_policy_support(
             if policies.capped is None
             else float(sum(weights[index, c] * np.mean(policies.capped[:, c]) for c in mine))
         )
+        measured = density is not None or g is not None
         if density is not None:
             assigned = [density.density_at(policies.shifted[:, c]) for c in mine]
         elif g is not None:
             assigned = [g[rows, policies.shifted[:, c].astype(np.int64)] for c in mine]
         else:
-            assigned = [policies.ratio_at[:, c, c] * 0.0 + 1.0 for c in mine]
+            # The classifier route fits no density, so no zero can be read at all.
+            assigned = []
         out[name] = PolicySupport(
             name=name,
             policy=policies.descriptions[index],
-            min_density=float(observed_density.min()),
+            min_density=float(observed_density.min()) if measured else None,
             ratio_quantiles={q: float(np.quantile(finite, q)) for q in _QUANTILES},
             max_ratio=float(finite.max()) if finite.size else 0.0,
             effective_sample_size=ess,
             ess_ratio=ess / a.size if a.size else 0.0,
             moved_fraction=moved,
             capped_fraction=capped,
-            unsupported=int(sum(np.sum(values <= 0.0) for values in assigned)),
+            unsupported=(
+                int(sum(np.sum(values <= 0.0) for values in assigned)) if measured else None
+            ),
             mean_ratio=float(np.mean(ratio)),
             fold_mean_ratio=tuple(float(np.mean(ratio[test])) for test in held_out),
             min_mechanism=float(denominator.min()) if at_observed else None,

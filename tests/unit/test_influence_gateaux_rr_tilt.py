@@ -75,7 +75,7 @@ def test_dropping_the_mechanism_term_is_detected() -> None:
     fixed regime with the same mean.  The witness checks that the oracle's curve carries a
     mechanism component: it is not a function of ``(W, A, Y)`` through ``Y`` alone.
     """
-    for label in ("rr 0.5", "rr 2"):
+    for label in ("rr 0.25", "rr 3"):
         name = f"ey_rr_tilt[{label}]"
         assert abs(law.TRUTH[name] - law.TRUTH["ey_rr_tilt[natural course]"]) > 1e-3
         eif = law.eif(name)

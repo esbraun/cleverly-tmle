@@ -290,12 +290,13 @@ def static_means() -> dict[str, float]:
 # ------------------------------------------------------------------ survival and competing risks
 
 #: Binary-node policies on :mod:`tests.discrete_law_survival` and
-#: :mod:`tests.discrete_law_competing`: node 1 keeps the treatment with probability one half
-#: and is otherwise untreated (a risk-ratio tilt of one half), and node 2 treats every unit
+#: :mod:`tests.discrete_law_competing`: node 1 keeps the treatment with probability one
+#: quarter and is otherwise untreated (a risk-ratio tilt of 0.25, asymmetric so that a swap of
+#: the two branch weights moves the answer), and node 2 treats every unit
 #: with ``L2 = 1`` and leaves the rest.  Node maps are ``[w][a1]`` and ``[w][a1][l2][a2]``.
 SURVIVAL_NODE1: Branches = (
-    (0.5, tuple(tuple(a for a in range(2)) for _ in range(2))),
-    (0.5, tuple(tuple(0 for _ in range(2)) for _ in range(2))),
+    (0.25, tuple(tuple(a for a in range(2)) for _ in range(2))),
+    (0.75, tuple(tuple(0 for _ in range(2)) for _ in range(2))),
 )
 SURVIVAL_NODE2: Branches = (
     (

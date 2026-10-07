@@ -307,7 +307,7 @@ def _dose_fit(frame: pd.DataFrame, *, cross_fit: bool, missing: bool, **settings
 
 _F21_SENTENCE = (
     " A cross-fitted fit with missing outcomes, declared with missingness=<column> on "
-    "PointTreatment, or delta=<column> on fit() or CausalData, refuses a shift target (F21 "
+    "PointTreatment, or delta=<column> on fit() or CausalData, refuses a policy target (F21 "
     "in docs/roadmap.md). To estimate the natural course, fit in sample with cross_fit=False "
     "on the engine (CrossFitting(enabled=False))."
 )

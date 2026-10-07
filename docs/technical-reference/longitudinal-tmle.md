@@ -358,11 +358,28 @@ gives the ratio at a continuous node, and the discrete formula gives it at a cat
 | categorical | the default | the discrete formula over the fitted mechanism |
 | vector of categorical columns | a list of columns as one entry of `treatment=` | the discrete formula over the joint levels |
 
-`LTMLE.fit` refuses a vector node with a continuous component, before any learner. At a
+`LTMLE.fit` refuses a vector node with a continuous component with `CapabilityError`, before any
+learner. [X29](../roadmap.md#x29-vector-treatments-with-a-continuous-component) owns it. At a
 continuous node the treatment factor of the cumulative product is the ratio itself. So
 `g_bounds` bounds the censoring and categorical factors only, and the fit stores each node's
 ratio as `node_ratio`. A cross-fitted fit (`n_folds` above one) uses the pooled
 construction of the other plan kinds. `msm=` accepts modified treatment policy cells.
+
+**The bin count of the density route.** A binned density is not consistent at a fixed bin count.
+When the outcome regression is also wrong, the bin error enters the bias at first order. So the
+double robustness of the density route through the mechanism needs `density_bins` to grow with
+$n$. The default of 20 bins relies on the outcome regression. The `ratio="classifier"` route has
+no bins.
+
+The `longitudinal-mtp` probes measured the bias with an oracle hazard and an intercept-only
+outcome. The table gives the mean standardized bias of the mechanism-only arms, at the scale of
+$n = 2{,}000$.
+
+| bins | mean standardized bias | draws |
+| ---: | --- | --- |
+| 80 | 0.54 to 0.60 | 100 draws of 8,000 rows |
+| 160 | 0.21 to 0.24 | 100 draws of 8,000 rows |
+| 320 | 0.11 to 0.13 | 200 draws of 4,000 rows |
 
 `regimens=` takes the policy as a plan node, and the `policies=` keyword stays refused by name:
 `regimens={"+0.5": DynamicRegimen("+0.5", (Shift(0.5, cap=4.0),) * 2)}`.
@@ -371,7 +388,9 @@ Evidence: `tests/unit/test_influence_gateaux_longitudinal_mtp.py` checks the est
 curve against the g-formula of `tests/discrete_law_longitudinal_mtp.py` and its Gateaux
 derivative. `tests/unit/test_longitudinal_mtp_targeting.py` holds the mutation controls, and
 `tests/unit/test_longitudinal_mtp_compositions.py` covers survival, `msm=`, cross-fitting and the
-refusals. The registered study is `longitudinal-mtp`, and its run is pending.
+refusals. The registered study is `longitudinal-mtp`. It is declared, and its run is pending.
+Its mechanism-only cells read 320 oracle bins for the reason above, so they test the targeting
+with a nearly exact ratio and not the default density.
 
 ### One baseline treatment held over the nodes
 
@@ -605,7 +624,8 @@ step, and established argument.
 
 Theorem 3 also requires every mechanism ratio and targeted sequential regression to be consistent,
 the sum over nodes of their error products to be $o_P(n^{-1/2})$, and the density ratios to stay
-bounded. Those are conditions on the targeted regressions. Appendix E of the competing-risk paper
+bounded. On a continuous node a binned density meets the mechanism-ratio rate only if its bin
+count grows with $n$ (see the bin count paragraph under modified treatment policies). Those are conditions on the targeted regressions. Appendix E of the competing-risk paper
 shows that a sufficient condition stated in terms of the initial recursive learners can contain
 cross-time products between a mechanism error at node $t$ and regression errors at later nodes.
 The weighted row additionally needs weights that are known and bounded.

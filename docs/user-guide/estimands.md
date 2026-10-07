@@ -273,7 +273,7 @@ Other maps of the dose use the same `policies=` axis. The table names each class
 | `Piecewise(pieces)` | a `Shift` or a `Scale` on each interval of the dose |
 | `ModifiedPolicy(name, pieces=..., policy_kind="known")` | your own map, with its inverse and its derivative on each piece |
 | `ModifiedPolicy(name, apply=..., policy_kind="known")` | a map of the levels of a categorical treatment |
-| `RiskRatioTilt(delta)` | the `ipsi` tilt of `lmtp` on a 0/1 treatment, reported as `ey_rr_tilt` |
+| `RiskRatioTilt(delta)` | the `ipsi` tilt of `lmtp` on a 0/1 treatment, reported as `ey_rr_tilt`. Fit it with `TMLE(policies=...)`. The typed study requests refuse it |
 
 ```python
 from cleverly.interventions import ModifiedPolicy, Piece, Scale
@@ -295,8 +295,9 @@ halve_below_3 = ModifiedPolicy(
 policies = (Shift(0.0, cap=None), Scale(1.25, cap=5.5, name="x1.25"), halve_below_3)
 ```
 
-A `Piece` without a map leaves its doses unchanged. The fit checks that the pieces cover the real
-line and that each declared inverse inverts its map. In a longitudinal fit, a policy is a node of
+A `Piece` without a map leaves its doses unchanged. The fit checks that every observed dose lies in
+exactly one piece. It also checks that each declared inverse inverts its map, and that each declared
+derivative matches the map. In a longitudinal fit, a policy is a node of
 a `DynamicRegimen` plan. The
 [longitudinal reference](../technical-reference/longitudinal-tmle.md#modified-treatment-policies-at-a-node)
 gives the details.

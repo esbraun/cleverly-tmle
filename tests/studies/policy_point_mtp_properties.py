@@ -12,7 +12,8 @@ family                          cells, replications and size
                                 the ladder's control rung
 ``root_n_rate``                 the two rate rows of ``x1_25``, from the ladder
 ``interval_calibration``        ``x1_25``, ``piecewise``, the declared policy ``halve`` and
-                                ``x1_25`` on the classifier ratio route
+                                ``x1_25`` on the classifier ratio route with the
+                                correctly specified :class:`OracleLogOdds`
                                 (``classifier_route``); 2,000 at n = 2,000 each, with the two
                                 derived controls of each
 ``type_i_error``                ``x1_25`` under a law where the dose does not move the
@@ -42,6 +43,7 @@ import numpy as np
 import pandas as pd
 from scipy.special import expit
 from scipy.stats import norm
+from sklearn.base import BaseEstimator
 from sklearn.linear_model import LogisticRegression
 
 from cleverly.interventions import policy as policy_module
@@ -115,6 +117,41 @@ def _true_ratio(label: str, a: np.ndarray, mean: np.ndarray) -> np.ndarray:
         moved = 2.0 * study.truncated_pdf(source, mean) * (source <= study.HALVE_BELOW)
         return np.where(g > 0, moved / safe, 0.0) + (a > study.HALVE_BELOW)
     return np.ones_like(a)
+
+
+class OracleLogOdds(BaseEstimator):
+    r"""The correctly specified classifier of the stacked ratio route, on one oracle feature.
+
+    The stacked classification of Section 5.4 of Díaz et al. (2023) has the odds
+    :math:`g^d(a \mid w) / g(a \mid w)`.  This learner fits a logistic regression on the one
+    feature :math:`\log r(a, w)`, the true log ratio of ``label``, so the true odds are the
+    model at ``(0, 1)``.  The natural course has labels independent of the feature, and the
+    model holds it at ``(0, 0)``.  The design is ``[A, W1, W2]``.
+
+    Parameters
+    ----------
+    label : str
+        The policy whose ratio is the feature.
+    """
+
+    def __init__(self, label: str = "x1.25") -> None:
+        self.label = label
+
+    def _feature(self, X: Any) -> np.ndarray:
+        design = np.asarray(X, dtype=float)
+        mean = study.dose_mean(design[:, 1], design[:, 2])
+        ratio = _true_ratio(self.label, design[:, 0], mean)
+        return np.log(np.clip(ratio, 1e-13, None)).reshape(-1, 1)
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> OracleLogOdds:
+        self.model_ = LogisticRegression(penalty=None, max_iter=1000).fit(
+            self._feature(X), np.asarray(y), sample_weight=sample_weight
+        )
+        self.classes_ = self.model_.classes_
+        return self
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        return np.asarray(self.model_.predict_proba(self._feature(X)), dtype=float)
 
 
 def contrast_sd(label: str) -> float:
@@ -428,7 +465,7 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
             study.sample(n, seed),
             chosen=_pair("x1.25"),
             ratio="classifier",
-            treatment_learner=LogisticRegression(max_iter=1000),
+            treatment_learner=OracleLogOdds("x1.25"),
         )
         return [
             row(

@@ -138,13 +138,13 @@ def _treat_if_l2(a: Any, h: Any) -> Any:
     return np.where(np.asarray(h["L2"], dtype=float) == 1.0, 1, np.asarray(a))
 
 
-#: The binary-node plan of the survival and competing-risk laws: a risk-ratio tilt of one half
+#: The binary-node plan of the survival and competing-risk laws: a risk-ratio tilt of 0.25
 #: at node 1, and "treat every unit with ``L2 = 1``" at node 2.  The law side is
 #: :data:`tests.discrete_law_longitudinal_mtp.SURVIVAL_NODE1` and ``SURVIVAL_NODE2``.
 SURVIVAL_PLAN = DynamicRegimen(
     "mtp",
     (
-        RiskRatioTilt(0.5),
+        RiskRatioTilt(0.25),
         ModifiedPolicy("treat if L2", apply=_treat_if_l2, policy_kind="known"),
     ),
 )

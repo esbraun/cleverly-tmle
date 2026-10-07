@@ -94,6 +94,26 @@ DECLARED: dict[str, dict[str, Any]] = {
             randomizer=Randomizer(("down", "stay"), (0.25, 0.75)),
             policy_kind="known",
         ),
+        "right closed": Piecewise(
+            ((-INF, 1.0, Shift(1.0, None)), (1.0, INF, Shift(0.0, None))),
+            closed="right",
+            name="right closed",
+        ),
+        "right closed piece": ModifiedPolicy(
+            "right closed piece",
+            pieces=(
+                Piece(
+                    -INF,
+                    1.0,
+                    lambda a, h: a + 1.0,
+                    lambda b, h: b - 1.0,
+                    lambda b, h: 1.0,
+                    closed="right",
+                ),
+                Piece(1.0, INF, closed="right"),
+            ),
+            policy_kind="known",
+        ),
     },
     "multiplicative": {
         "natural course": Scale(1.0, cap=None),
@@ -109,10 +129,14 @@ DECLARED: dict[str, dict[str, Any]] = {
             ),
             name="piecewise",
         ),
+        "piecewise gap": Piecewise(
+            ((0.0, 1.5, Scale(2.0, None)), (1.5, 7.0, Shift(2.0, None))),
+            name="piecewise gap",
+        ),
     },
     "binary": {
         "natural course": RiskRatioTilt(1.0),
-        "rr 0.5": RiskRatioTilt(0.5),
+        "rr 0.25": RiskRatioTilt(0.25),
         "rr 4": RiskRatioTilt(4.0, name="rr 4"),
         "treat W=1": ModifiedPolicy(
             "treat W=1",
@@ -126,6 +150,11 @@ DECLARED: dict[str, dict[str, Any]] = {
             "drop above 2",
             apply=lambda a, h: np.where(np.asarray(a, dtype=float) > 2.0, a - 1.0, a),
             policy_kind="known",
+        ),
+        "right closed": Piecewise(
+            ((-INF, 2.0, Shift(1.0, None)), (2.0, INF, Shift(0.0, None))),
+            closed="right",
+            name="right closed",
         ),
     },
 }
@@ -423,6 +452,63 @@ class TestMutations:
         expected = law.eif("unit", "ey_policy[randomized]")
         assert float(np.max(np.abs(reported - expected))) > 1e-4
 
+    def test_m14_dropping_the_identity_of_an_uncovered_dose_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A dose in no piece keeps its value, so Equation (3) counts it as an identity piece."""
+        assert _gateaux_gap("piecewise", "piecewise gap") < 1e-10
+        monkeypatch.setattr(
+            policy_module._PiecewiseBranch,
+            "uncovered",
+            lambda self, values: np.zeros(np.asarray(values).size, dtype=bool),
+        )
+        assert _gateaux_gap("piecewise", "piecewise gap") > 1e-3
+
+    @pytest.mark.parametrize(
+        ("grid_name", "label"),
+        [("unit", "right closed"), ("unit", "right closed piece"), ("three level", "right closed")],
+    )
+    def test_m15_reading_a_right_closed_piece_as_left_closed_fails(
+        self, monkeypatch: pytest.MonkeyPatch, grid_name: str, label: str
+    ) -> None:
+        """The piece boundary is a support point, so the closed end decides the answer."""
+        name = f"{_name(grid_name)}[{label}]"
+        assert _means(grid_name, ("natural course", label))[1.0].psi == pytest.approx(
+            law.truth(grid_name, name), abs=1e-12
+        )
+        member = policy_module._member
+
+        def left(values: Any, lower: Any, upper: Any, closed: str) -> Any:
+            return member(values, lower, upper, "left")
+
+        monkeypatch.setattr(policy_module, "_member", left)
+        moved = _means(grid_name, ("natural course", label))[1.0].psi
+        assert abs(moved - law.truth(grid_name, name)) > 1e-3
+
+    def test_m16_swapping_the_down_tilt_branch_probabilities_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """At delta = 0.25 the keep branch has weight 0.25 and the drop branch 0.75.
+
+        At delta = 0.5 the two weights are equal, so this swap would leave every number
+        unchanged.  The cell is asymmetric so that it does not.
+        """
+        assert _gateaux_gap("binary", "rr 0.25") < 1e-10
+        original = policy_module.policy_branches
+
+        def swapped(policy: Any) -> Any:
+            if isinstance(policy, RiskRatioTilt) and policy.delta < 1.0:
+                delta = float(policy.delta)
+                return (
+                    (1.0 - delta, policy_module._IdentityBranch()),
+                    (delta, policy_module._ConstantBranch(0)),
+                )
+            return original(policy)
+
+        monkeypatch.setattr(policy_module, "policy_branches", swapped)
+        means = _means("binary", ("natural course", "rr 0.25"))
+        assert abs(means[1.0].psi - law.truth("binary", "ey_rr_tilt[rr 0.25]")) > 1e-3
+
 
 # ------------------------------------------------------------------ shipped Shift arithmetic
 
@@ -638,6 +724,31 @@ class TestRefusalsBeforeAnyLearner:
         density = ConditionalDensity(law.UNIT.bins(law.UNIT.g[covariate]), law.UNIT.edges)
         with pytest.raises(DataError, match=r"inverse\(apply\(a\)\) differs from a"):
             PolicySet.evaluate((wrong,), data, density)
+
+    def test_r4_a_declared_derivative_of_the_wrong_size(self) -> None:
+        """The map 2a has inverse b / 2, whose derivative is 0.5; declaring 2.0 is refused."""
+        data, covariate, _, _ = _data("multiplicative")
+        wrong = ModifiedPolicy(
+            "double",
+            pieces=(
+                Piece(-INF, 4.0, lambda a, h: 2.0 * a, lambda b, h: b / 2.0, lambda b, h: 2.0),
+                Piece(4.0, INF),
+            ),
+            policy_kind="known",
+        )
+        grid = law.MULTIPLICATIVE
+        density = ConditionalDensity(grid.bins(grid.g[covariate]), grid.edges)
+        with pytest.raises(DataError, match="declared derivative of the inverse is 2"):
+            PolicySet.evaluate((wrong,), data, density)
+        right = ModifiedPolicy(
+            "double",
+            pieces=(
+                Piece(-INF, 4.0, lambda a, h: 2.0 * a, lambda b, h: b / 2.0, lambda b, h: 0.5),
+                Piece(4.0, INF),
+            ),
+            policy_kind="known",
+        )
+        PolicySet.evaluate((right,), data, density)
 
     @pytest.mark.parametrize(
         ("kind", "match"),

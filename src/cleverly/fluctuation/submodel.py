@@ -964,7 +964,7 @@ def mtp_submodel(
     return Submodel(
         observed,
         counterfactual,
-        tuple(f"h_shift{r}" for r in range(stacked.shape[2])),
+        tuple(f"h_policy{r}" for r in range(stacked.shape[2])),
         "mtp",
         {float(index): index for index in range(stacked.shape[2])},
     )

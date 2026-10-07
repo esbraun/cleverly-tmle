@@ -418,14 +418,16 @@ CATEGORICAL_PLANS: dict[str, tuple[Any, Any]] = {
 }
 CATEGORICAL_LABELS = tuple(CATEGORICAL_PLANS)
 
-#: ``RiskRatioTilt(0.5)``: keep the treatment with probability one half, else set it to 0.
+#: ``RiskRatioTilt(0.25)``: keep the treatment with probability one quarter, else set it to 0.
+#: Asymmetric so that a swap of the keep and drop weights moves the answer, which it does not
+#: at 0.5.
 _KEEP1 = _node1(BINARY_LAW, lambda w, a: a)
 _ZERO1 = _node1(BINARY_LAW, lambda w, a: 0)
 _KEEP2 = _node2(BINARY_LAW, lambda w, a1, l, a: a)
 _ZERO2 = _node2(BINARY_LAW, lambda w, a1, l, a: 0)
 TILT_PLANS: dict[str, tuple[Any, Any]] = {
     "natural": (((1.0, _KEEP1),), ((1.0, _KEEP2),)),
-    "rr 0.5": (((0.5, _KEEP1), (0.5, _ZERO1)), ((0.5, _KEEP2), (0.5, _ZERO2))),
+    "rr 0.25": (((0.25, _KEEP1), (0.75, _ZERO1)), ((0.25, _KEEP2), (0.75, _ZERO2))),
 }
 TILT_LABELS = tuple(TILT_PLANS)
 
@@ -454,7 +456,7 @@ def categorical_regimens() -> dict[str, Any]:
 
 
 def tilt_regimens() -> dict[str, Any]:
-    return {"natural": RiskRatioTilt(1.0), "rr 0.5": RiskRatioTilt(0.5)}
+    return {"natural": RiskRatioTilt(1.0), "rr 0.25": RiskRatioTilt(0.25)}
 
 
 # ---------------------------------------------------------------------------- learners
@@ -643,6 +645,51 @@ def _node_ratio(
         a + STEP > CAP
     )
     return np.where(earlier > HISTORY_THRESHOLD, shifted, 1.0)
+
+
+class OracleLogOdds(BaseEstimator):
+    r"""The correctly specified classifier of the stacked ratio route, on one oracle feature.
+
+    The stacked classification of Section 5.4 of Díaz et al. (2023) has the odds
+    :math:`g^d(a \mid h) / g(a \mid h)`.  This learner fits a logistic regression on the
+    one feature :math:`\log r(a, h)`, the true log ratio of ``label`` at the node, so the true
+    odds are the model at ``(0, 1)``.  A component that leaves the dose unchanged has labels
+    independent of the feature, and the model holds it at ``(0, 0)``.  The design is the dose
+    followed by the history, ``[A1, W]`` at node 1 and ``[A2, W, L2, A1]`` at node 2.
+
+    Parameters
+    ----------
+    label : str
+        The plan whose node ratio is the feature.
+    """
+
+    def __init__(self, label: str = "up") -> None:
+        self.label = label
+
+    def _feature(self, X: Any) -> np.ndarray:
+        design = np.asarray(X, dtype=float)
+        a = design[:, 0]
+        if design.shape[1] == 2:
+            node, mean, earlier = 1, mean1(design[:, 1]), np.zeros(len(a))
+        elif design.shape[1] == 4:
+            w, l2, a1 = design[:, 1], design[:, 2], design[:, 3]
+            node, mean, earlier = 2, mean2(w, a1, l2), a1
+        else:
+            raise ValueError(f"unexpected classifier design width {design.shape[1]}")
+        ratio = _node_ratio(self.label, node, a, mean, earlier)
+        return np.log(np.clip(ratio, 1e-13, None)).reshape(-1, 1)
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> OracleLogOdds:
+        from sklearn.linear_model import LogisticRegression
+
+        self.model_ = LogisticRegression(penalty=None, max_iter=1000).fit(
+            self._feature(X), np.asarray(y), sample_weight=sample_weight
+        )
+        self.classes_ = self.model_.classes_
+        return self
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        return np.asarray(self.model_.predict_proba(self._feature(X)), dtype=float)
 
 
 def first_regression(label: str, w: np.ndarray, a1: np.ndarray, order: int = 96) -> np.ndarray:

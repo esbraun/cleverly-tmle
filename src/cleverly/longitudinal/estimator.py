@@ -228,6 +228,7 @@ _REFUSED: dict[str, str] = {
         "a modified treatment policy is a node of a regimen rather than a parameter axis: "
         "regimens={'+0.5': DynamicRegimen('+0.5', (Shift(0.5, cap=4.0),) * 2)}, or a "
         "mapping value Shift(0.5, cap=4.0) for every node. Declare continuous nodes with "
+        "LTMLE.fit(..., continuous_treatment=[...]) or "
         "LongitudinalData.from_frame(..., continuous_treatment=[...])"
     ),
     "incremental": (

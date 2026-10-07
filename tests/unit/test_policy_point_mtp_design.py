@@ -64,6 +64,17 @@ POSITIVE_LIMITS = {
     "piecewise": (-0.077, 0.077),
     "halve below 3": (0.024, 0.075),
 }
+#: A record, not a check: the positive cells at their declared n = 2,000, over 300 draws
+#: (``_x12_pp_s1.log``).  Each value is the mean error in empirical standard deviations; the Monte
+#: Carlo standard error is 0.058.  The bias rule passes a cell of 1,000 replications when the 99%
+#: interval of its mean lies inside 0.25, so each passes with probability above 0.98 even one
+#: Monte Carlo standard error worse.
+POSITIVE_AT_DECLARED_N = {
+    "x1_25__both_correct": 0.015,
+    "x1_25__outcome_correct": 0.026,
+    "x1_25__density_correct": 0.001,
+    "halve__declared_inverse": 0.043,
+}
 #: The declared size of every fit set: ``(family, label) -> (n, replications)``.
 FIT_SET_SIZES = {
     ("double_robustness", "both_correct"): (2_000, 1_000),
@@ -248,3 +259,18 @@ def test_the_power_cell_reaches_its_floor_on_the_exact_law() -> None:
     )
     assert power == pytest.approx(DESIGN_POWER, abs=1e-6)
     assert power_cell_pass_probability(power, properties.NULL_REPLICATES) >= 0.99
+
+
+def test_the_positive_cells_pass_with_high_probability_at_their_declared_size() -> None:
+    """The bias rule's pass probability, from the recorded means one Monte Carlo SE worse."""
+    from scipy.stats import norm
+    from scipy.stats import t as student
+
+    replicates = 1_000
+    half = float(student.ppf(0.995, replicates - 1)) / np.sqrt(replicates)
+    limit = Margins().standardized_bias - half
+    spread = 1.0 / np.sqrt(replicates)
+    for cell, mean in POSITIVE_AT_DECLARED_N.items():
+        worse = abs(mean) + 0.058
+        probability = norm.cdf((limit - worse) / spread) - norm.cdf((-limit - worse) / spread)
+        assert probability > 0.98, cell

@@ -3515,7 +3515,8 @@ def _support_warning(report: Any) -> str | None:
         # an ``ess_ratio`` but no ``unsupported`` or ``capped_fraction``, and a missing
         # field must not read as a breach.  The ``ess_ratio`` is reported, never graded.
         for name, item in report.items():
-            if int(getattr(item, "unsupported", 0)) > 0:
+            unsupported = getattr(item, "unsupported", None)
+            if unsupported is not None and int(unsupported) > 0:
                 return f"intervention {name!r} has units with estimated zero support"
             capped = getattr(item, "capped_fraction", None)
             if capped is not None and float(capped) > 0.05:

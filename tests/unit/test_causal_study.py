@@ -1633,3 +1633,15 @@ def test_the_study_declares_no_nuisance_name_the_registry_does_not_own() -> None
     assert {INTERMEDIATE_MECHANISM, MISSINGNESS_MECHANISM} <= set(
         effect.identification.required_nuisances
     )
+
+
+@pytest.mark.parametrize(
+    "request_type", ["ModifiedTreatmentPolicy", "ModifiedTreatmentPolicyEffect"]
+)
+def test_a_typed_policy_request_refuses_a_risk_ratio_tilt(request_type: str) -> None:
+    """A tilt reports ey_rr_tilt, so a typed ey_policy request would fail only at estimate."""
+    import cleverly
+    from cleverly.interventions import RiskRatioTilt
+
+    with pytest.raises(CapabilityError, match="ey_rr_tilt and ate_rr_tilt"):
+        getattr(cleverly, request_type)(policies=(RiskRatioTilt(1.0), RiskRatioTilt(0.25)))
