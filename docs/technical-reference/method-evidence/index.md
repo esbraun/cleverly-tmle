@@ -66,6 +66,7 @@ learned-rule-cvtmle
 learned-rule-cvtmle-boundary
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
+point-modified-treatment-policies
 incremental-propensity-interventions
 ordinary-end-of-study-longitudinal-tmle
 ordinary-weighted-end-of-study-longitudinal-tmle

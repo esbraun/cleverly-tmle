@@ -162,7 +162,7 @@ ARMS: dict[str, str] = {
     "history": "the contrast of the history-reading plan against the natural course",
     "policy_risk_h2": "the cumulative risk at t = 2 of a known policy on the survival law",
     "msm_policy": "the dose coefficient of a working model over low, mix and taper",
-    "primary": "the five primary estimands of the known-policy study",
+    "primary": "every primary estimand of the study",
     # The stratum labels of the baseline-strata study: ``v<s>_<parameter>``.
     **{
         f"v{stratum}_{key}": f"{words} in stratum V = {stratum}"

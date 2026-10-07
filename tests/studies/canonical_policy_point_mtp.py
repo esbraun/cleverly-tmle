@@ -304,7 +304,7 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
 }
 
 STUDY = StudyRecord(
-    name="point-treatment modified treatment policies beyond the additive shift",
+    name="ordinary point modified treatment policies",
     slug="policy-point-mtp",
     artifacts=ROOT / "tests" / "canonical" / "policy_point_mtp",
     document="docs/technical-reference/method-evidence/point-modified-treatment-policies.md",
@@ -321,6 +321,10 @@ STUDY = StudyRecord(
         "tests/studies/canonical_policy_point_mtp.py",
         "tests/studies/policy_point_mtp_properties.py",
         "tests/studies/canonical_categorical_ltmle.py",
+        "tests/studies/canonical_ltmle.py",
+        "tests/studies/categorical_longitudinal_common.py",
+        "tests/discrete_law_longitudinal.py",
+        "tests/discrete_law_longitudinal_multivalue.py",
         "tests/studies/fractional_glm.py",
         "tests/studies/point_study_helpers.py",
         "tests/studies/evidence/comparison.py",
