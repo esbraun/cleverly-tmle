@@ -9,13 +9,22 @@ whose estimand names a change renamed.
 
 ``relabel`` compares every file of a regenerated study directory with the same file at a git
 ref, after the label map.  Every numeric column must be equal, and every text column equal after
-the map.  It is the declared assertion that a regeneration only relabels.
+the map, with two missing values equal.  It is the declared assertion that a regeneration only
+relabels.
 
 Committed rows may come from another platform, where the last bit of a float can differ.  On
 2026-10-06 the first five replications of every longitudinal study and of ``shift-policies``
 replayed here within 1.7e-15 of the committed rows, while ``origin/main`` and this branch
-agreed bit for bit on the same machine.  So ``--rtol`` admits a relative difference of that
-order; ``0`` asks for exact equality.
+agreed bit for bit on the same machine.  So ``--rtol`` admits a difference of that order,
+relative to the largest magnitude in the column: a last-bit change in the inputs moves a
+derived difference near zero, such as a bias, by the inputs' scale and not its own.  ``0``
+asks for exact equality.
+
+A rename moves one thing that is not a relabel.  The bootstrap bounds of
+``performance-tests.csv`` and ``equivalence.csv`` draw from a stream whose seed hashes the
+estimand label (``evidence.seeds.stream_seed``), so a renamed estimand draws a new resample.
+``RESAMPLED`` names those columns.  The check reports them and does not fail on them; every
+verdict column that reads them must still be equal.
 
 Usage::
 
@@ -46,6 +55,21 @@ POLICY_LABELS: dict[str, str] = {"ey_shift[": "ey_policy[", "ate_shift[": "ate_p
 
 #: The columns a replay compares.
 REPLAYED = ("estimate", "std_error")
+
+#: Per artifact, the bootstrap bounds whose stream seed hashes the estimand label.
+RESAMPLED: dict[str, frozenset[str]] = {
+    "performance-tests.csv": frozenset(
+        {"se_ratio_ci_lower", "se_ratio_ci_upper", "se_ratio_resolution"}
+    ),
+    "equivalence.csv": frozenset(
+        {
+            "rmse_ratio_upper",
+            "coverage_difference_lower",
+            "calibration_excess_upper",
+            "calibration_excess_resolution",
+        }
+    ),
+}
 
 
 def relabel(frame: pd.DataFrame, labels: Mapping[str, str]) -> pd.DataFrame:
@@ -102,10 +126,13 @@ def replay(slugs: Sequence[str], replicates: int, n_jobs: int, labels: Mapping[s
     return worst
 
 
-def relabel_check(slug: str, ref: str, labels: Mapping[str, str], rtol: float = 0.0) -> list[str]:
-    """Every difference between a regenerated study directory and the same files at ``ref``."""
+def relabel_check(
+    slug: str, ref: str, labels: Mapping[str, str], rtol: float = 0.0
+) -> tuple[list[str], list[str]]:
+    """The differences between a regenerated study and ``ref``, and the resampled moves."""
     record = _study(slug)
     problems: list[str] = []
+    resampled: list[str] = []
     for path in sorted(record.artifacts.glob("*.csv*")):
         relative = path.relative_to(ROOT).as_posix()
         shown = subprocess.run(
@@ -123,15 +150,20 @@ def relabel_check(slug: str, ref: str, labels: Mapping[str, str], rtol: float = 
             left, right = before[column], after[column]
             if pd.api.types.is_numeric_dtype(left) and pd.api.types.is_numeric_dtype(right):
                 a, b = left.to_numpy(dtype=float), right.to_numpy(dtype=float)
-                close = np.abs(a - b) <= rtol * np.maximum(np.abs(a), np.abs(b))
+                both = np.concatenate([np.abs(a), np.abs(b)])
+                scale = float(np.nanmax(both)) if np.isfinite(both).any() else 0.0
+                close = np.abs(a - b) <= rtol * scale
                 equal = (a == b) | close | (np.isnan(a) & np.isnan(b))
             else:
-                equal = (left.astype(str) == right.astype(str)).to_numpy()
+                missing = (left.isna() & right.isna()).to_numpy()
+                equal = missing | (left.astype(str) == right.astype(str)).to_numpy()
             if not np.all(equal):
-                problems.append(
-                    f"{relative}: column {column!r} differs on {int((~equal).sum())} rows"
-                )
-    return problems
+                message = f"{relative}: column {column!r} differs on {int((~equal).sum())} rows"
+                if column in RESAMPLED.get(path.name, frozenset()):
+                    resampled.append(message)
+                else:
+                    problems.append(message)
+    return problems, resampled
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -150,7 +182,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         worst = replay(arguments.studies, arguments.replicates, arguments.jobs, POLICY_LABELS)
         print(f"max abs diff over every study: {worst!r}", flush=True)
         return 0 if worst == 0.0 else 1
-    problems = relabel_check(arguments.study, arguments.ref, POLICY_LABELS, arguments.rtol)
+    problems, resampled = relabel_check(
+        arguments.study, arguments.ref, POLICY_LABELS, arguments.rtol
+    )
+    for move in resampled:
+        print(f"resampled under the new label: {move}", flush=True)
     for problem in problems:
         print(problem, flush=True)
     print("relabel check:", "passed" if not problems else f"{len(problems)} differences")
