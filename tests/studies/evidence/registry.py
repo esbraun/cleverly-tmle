@@ -352,6 +352,9 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_multi_arm_tmle import STUDY as CANONICAL_MULTI_ARM_TMLE
     from tests.studies.canonical_point_msm import STUDY as CANONICAL_POINT_MSM
     from tests.studies.canonical_shift_policies import STUDY as CANONICAL_SHIFT_POLICIES
+    from tests.studies.canonical_stochastic_categorical_ltmle import (
+        STUDY as STOCHASTIC_CATEGORICAL_LTMLE,
+    )
     from tests.studies.canonical_stochastic_regimes import STUDY as CANONICAL_STOCHASTIC_REGIMES
     from tests.studies.canonical_stratified_drtmle import STUDY as CANONICAL_STRATIFIED_DRTMLE
     from tests.studies.canonical_stratified_incremental_msm import (
@@ -422,6 +425,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_LTMLE,
         CANONICAL_WEIGHTED_LTMLE,
         CANONICAL_CATEGORICAL_LTMLE,
+        STOCHASTIC_CATEGORICAL_LTMLE,
         CANONICAL_LONGITUDINAL_MSM,
         CROSSFIT_LONGITUDINAL_MSM,
         CANONICAL_LTMLE_CROSSFIT,

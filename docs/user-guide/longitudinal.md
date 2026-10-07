@@ -84,6 +84,73 @@ refuses a callable written inline in `regimens=`, such as `{"adaptive": (1, rule
 callable carries no declaration. A plan of labels alone, such as `{"never": 0}`, needs no
 declaration. Code cannot inspect a closure, so the fit accepts a false `"known"` declaration.
 
+## Declare a stochastic policy
+
+A node can draw its arm from a known distribution. Write the node as a `Stochastic` node with
+`density_kind="known"`, inside a `DynamicRegimen`. The density function receives the history and
+the earlier treatments, and it returns one column per treatment level, in sorted level order.
+
+```python
+import numpy as np
+from cleverly.interventions import Stochastic
+
+
+def half(history):
+    return np.full((len(history), 2), 0.5)
+
+
+def by_marker(history):
+    treat = np.where(history["L2"] > 0, 0.75, 0.25)
+    return np.column_stack([1.0 - treat, treat])
+
+
+mostly = DynamicRegimen(
+    "mostly",
+    (
+        Stochastic(half, "half", density_kind="known"),
+        Stochastic(by_marker, "marker", density_kind="known"),
+    ),
+)
+policy_result = study.estimate(
+    RegimeContrast({"never": 0, "mostly": mostly}, reference="never"),
+    outcome_learner=LinearRegression(),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    n_folds=3,
+    learner_folds=3,
+    random_state=0,
+)
+```
+
+This plan treats half of the units at the first node. At the second node it treats three quarters
+of the units whose `L2` is positive and a quarter of the others. The parameter is the mean outcome
+if every unit drew its arms this way.
+
+A rule node cannot read an earlier treatment, because the history it receives holds none. To
+continue the arm that an earlier policy node drew, write a one-hot `Stochastic` node that reads
+it. The fit resolves a one-hot density as the rule it equals.
+
+```python
+def continue_drawn(history):
+    drawn = (history["A1"] == 1).to_numpy(dtype=float)
+    return np.column_stack([1.0 - drawn, drawn])
+
+
+continued = DynamicRegimen(
+    "continued",
+    (
+        Stochastic(half, "half", density_kind="known"),
+        Stochastic(continue_drawn, "continue", density_kind="known"),
+    ),
+)
+```
+
+Positivity is required wherever the policy puts mass. A policy that can draw a level that no unit
+on the plan received at that node raises `LongitudinalError` before any learner.
+[Known stochastic policies](../technical-reference/longitudinal-tmle.md#known-stochastic-policies)
+gives the estimator, its conditions, and its evidence. Code cannot inspect a closure, so the fit
+accepts a false `"known"` declaration.
+
 ## Survival outcomes
 
 An outcome sequence declares one absorbing event process and makes horizon part of the estimand.

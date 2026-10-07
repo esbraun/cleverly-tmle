@@ -676,7 +676,12 @@ previous reader had is not a citation; a page number is.
   the EIF was not mean zero. It moves the fluctuation to validation rows and adds a mean-EIF test.
   The forthcoming 1.5.5 [NEWS](https://nt-williams.r-universe.dev/lmtp/NEWS) records the same fix.
   Neither upstream version runs the pooled update, so agreement with 1.5.4 compares two
-  constructions under the registered paired margins.
+  constructions under the registered paired margins. Section 2, journal page 849, admits a random
+  regime whose randomizer is drawn independently of the units and whose law does not depend on
+  $P$, and it places the randomizer in $L_t$. Section 4, page 850, keeps the efficiency theory to
+  a regime that does not depend on $P$. The
+  [known stochastic policies](technical-reference/longitudinal-tmle.md#known-stochastic-policies)
+  section integrates the randomizer out of the Theorem 3 estimator.
 
   Section 2, journal page 849, allows a random regime $d(a_t, h_t, \varepsilon_t)$ with a
   randomizer that is "(i) drawn independently across units and independently of U, and (ii) its

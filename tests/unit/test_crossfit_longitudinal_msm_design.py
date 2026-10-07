@@ -40,6 +40,7 @@ from tests.studies import canonical_crossfit_longitudinal_msm as study
 from tests.studies import crossfit_longitudinal_msm_properties as properties
 from tests.studies.default_band_properties import MINIMUM_CONTROL_POWER, control_power
 from tests.studies.evidence import property_verdicts
+from tests.studies.evidence.properties import TRUTH_ABSOLUTE_FLOOR
 from tests.studies.evidence.registry import Margins, registered
 
 pytestmark = pytest.mark.xdist_group("crossfit_longitudinal_msm_design")
@@ -125,7 +126,10 @@ def test_the_declared_cells_are_the_cells_a_run_publishes() -> None:
     for (family, name), cell in declared.items():
         selected = rows.loc[(rows["property"] == family) & (rows["cell"] == name)]
         np.testing.assert_allclose(
-            selected["truth"], cell.dgp.truth()[cell.estimand], rtol=1e-12, atol=0
+            selected["truth"],
+            cell.dgp.truth()[cell.estimand],
+            rtol=1e-12,
+            atol=TRUTH_ABSOLUTE_FLOOR,
         )
         assert set(selected["n"]) == {cell.n}
     # The summary adds the fitted rate rows, and then equals the registered cell set.  Two

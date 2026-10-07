@@ -780,7 +780,9 @@ class LongitudinalData:
             & _event_free(self.event, time - 1)
         )
 
-    def regimen_masks(self, assignment: Assignment) -> RegimenMasks:
+    def regimen_masks(
+        self, assignment: Assignment, *, support: BoolArray | None = None
+    ) -> RegimenMasks:
         """Every node's masks for one regimen, scanned once.
 
         :meth:`at_risk` and :meth:`following` each rebuild a prefix from scratch --
@@ -791,8 +793,16 @@ class LongitudinalData:
 
         The two methods stay, answer the same thing, and are what a caller wanting one node
         should use; this is what the recursion uses.
+
+        ``support`` is the ``(n, T)`` indicator that the plan's intervention density is
+        positive at the observed arm, which a plan with a policy node passes
+        (:meth:`~cleverly.longitudinal.regimen.Plan.masks`).  A row then follows the plan
+        through ``t`` when its observed arm has positive density at every node up to ``t``.
+        ``None`` reads the comparison alone, and every deterministic plan passes ``None``.
         """
         matches = self.treatment == assignment_matrix(assignment, self.n, self.n_times)
+        if support is not None:
+            matches = matches & np.asarray(support, dtype=bool)
         return RegimenMasks(
             uncensored=_prefix_all(self.uncensored),
             followed=_prefix_all(matches),
@@ -909,6 +919,58 @@ class LongitudinalData:
         matrix = self.covariate_history(time)
         names = self.history_names(time)
         return self.frame_like({name: matrix[:, index] for index, name in enumerate(names)})
+
+    def policy_names(self, time: int) -> tuple[str, ...]:
+        """Column names of :meth:`policy_frame`: the history, then the earlier treatments."""
+        return (*self.history_names(time), *self.treatment_names[: time - 1])
+
+    def observed_labels(self, time: int) -> Any:
+        """``(n,)`` object array of the label each unit received at ``time``, ``None`` if absent.
+
+        A row with no treatment at the node, censored before it or past an absorbing
+        event, holds ``None``.
+        """
+        if not 1 <= time <= self.n_times:
+            raise DataError(f"time {time} is outside 1..{self.n_times}")
+        codes = self.treatment[:, time - 1]
+        present = ~np.isnan(codes)
+        levels = np.empty(len(self.treatment_levels[time - 1]), dtype=object)
+        levels[:] = list(self.treatment_levels[time - 1])
+        labels = levels[np.nan_to_num(codes, nan=0.0).astype(np.int64)]
+        labels[~present] = None
+        return labels
+
+    def policy_frame(self, time: int) -> Any:
+        """:meth:`history_frame` plus the earlier treatments, for a policy node to read.
+
+        This is what a known policy density :math:`q_t(\\cdot \\mid H_t)` is handed:
+        ``[W, L_1, ..., L_t]`` followed by one column per earlier treatment
+        :math:`A_1, \\ldots, A_{t-1}`, under its treatment column name and holding the
+        analyst's labels.  It never holds :math:`A_t`, a censoring indicator, the outcome or
+        a later column.
+
+        It differs from a rule's frame on purpose.  Under a deterministic plan the earlier
+        arms of a follower are what the plan assigned, so a rule has nothing to learn from
+        them.  Under a policy the earlier arms vary among the units that remain on the plan,
+        and they are the arms the policy drew, reweighted by the cumulative ratio.  So
+        :math:`H_t` holds them, and a policy may read them.
+
+        A row with no earlier treatment, censored or past an absorbing event, has its
+        missing label filled with the node's first sorted level, as :meth:`covariate_history`
+        fills a missing covariate with zero.  So code such as ``h["A1"].str.startswith(...)``
+        cannot raise on a row nobody reads, and the density at such a row is overwritten
+        with zero.
+        """
+        history = self.covariate_history(time)
+        payload: dict[str, Any] = {
+            name: history[:, index] for index, name in enumerate(self.history_names(time))
+        }
+        for node in range(1, time):
+            codes = np.nan_to_num(self.treatment[:, node - 1], nan=0.0).astype(np.int64)
+            levels = np.empty(len(self.treatment_levels[node - 1]), dtype=object)
+            levels[:] = list(self.treatment_levels[node - 1])
+            payload[self.treatment_names[node - 1]] = levels[codes]
+        return self.frame_like(payload)
 
     def baseline_frame(self) -> Any:
         """``[W]`` and nothing else, in the backend the data came from.

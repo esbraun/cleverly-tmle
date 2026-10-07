@@ -66,6 +66,16 @@ regression.  The stitched initial estimate is free of :math:`\beta`, so under a 
 round re-solves the pooled update only and refits no learner.  That is the one intended
 difference from the in-sample alternation.
 
+**A cell may be a policy.**  A regimen with a known policy node
+(:class:`~cleverly.interventions.Stochastic` inside a
+:class:`~cleverly.longitudinal.DynamicRegimen`) is one more cell.  Its node inputs carry the
+policy numerator in the loss weight and the per-arm predictions of its policy nodes.  The
+stacked fluctuation moves those per-arm predictions by the same steps, along the cell's own
+block of the design, and the cell carries their policy-weighted mean.  The plug-in and the
+first curve term read that mean, and the residual reads the observed-arm prediction.  So
+the projection stays a fixed-dimension stacked estimating equation over the cells, in sample
+and cross-fitted alike.
+
 **The projection is solved on the raw outcome scale**, as it is at one time point and for
 the same reason: a coefficient vector has no single scale to map back with.  So the curve
 carries ``scaler.range`` on its residual half and ``lower + range * Q̄*`` on its plug-in
@@ -108,7 +118,7 @@ from ..msm import (
 )
 from ..utils.bounds import OutcomeScaler
 from ..utils.phases import phase
-from .data import LongitudinalData, RegimenMasks
+from .data import LongitudinalData
 from .regimen import Plan
 from .sequential import (
     _FILLER,
@@ -118,9 +128,9 @@ from .sequential import (
     NodeInputs,
     RegimenFit,
     SequentialStep,
-    StitchedInitial,
-    _clever_covariate,
-    _pseudo_outcome,
+    _carried,
+    _policy_arm,
+    pooled_node_inputs,
     prepare_node,
     seed_carried,
     untargeted_fold_recursions,
@@ -633,7 +643,9 @@ def fit_regimens_msm(
     # Once per regimen for the whole alternation, not once per node per round: a link
     # costs a further backward pass per round, so rebuilding the masks inside a pass would
     # multiply the quadratic term by the round count as well.
-    masks = {plan.label: data.regimen_masks(plan.values) for plan in plans}
+    masks = {plan.label: plan.masks(data) for plan in plans}
+    # ``None`` for a plan without a policy node, whose loss weight is the deterministic one.
+    numerators = {plan.label: plan.cumulative_numerator(data) for plan in plans}
     weights = np.asarray(data.weights, dtype=float)
 
     def backward_pass(
@@ -650,13 +662,17 @@ def fit_regimens_msm(
             live = [k for k, cell in enumerate(model.cells) if cell.horizon >= time]
             prepared = {k: node_inputs(k, time, carried[k]) for k in live}
             initial = np.concatenate([prepared[k].initial for k in live])
+            stacked_design = np.concatenate([fluctuation_design[:, k, :] for k in live])
+            initial_arms, design_arms = _stacked_arms(
+                [prepared[k] for k in live], initial, stacked_design
+            )
             with phase("fluctuation"):
                 fluctuation = solve_fluctuation(
                     np.concatenate([prepared[k].pseudo_outcome for k in live]),
-                    InitialFit(initial, {_REGIMEN_ARM: initial}),
+                    InitialFit(initial, initial_arms),
                     Submodel(
-                        np.concatenate([fluctuation_design[:, k, :] for k in live]),
-                        {_REGIMEN_ARM: np.concatenate([fluctuation_design[:, k, :] for k in live])},
+                        stacked_design,
+                        design_arms,
                         tuple(f"epsilon[{term}, t={time}]" for term in model.terms),
                         "sequential",
                     ),
@@ -679,21 +695,24 @@ def fit_regimens_msm(
             targeted = np.split(fluctuation.targeted.arms[_REGIMEN_ARM], len(live))
             for position, k in enumerate(live):
                 node = prepared[k]
-                steps[k].append(
-                    SequentialStep(
-                        time=time,
-                        trained_on=node.trained_on,
-                        at_risk=node.at_risk,
-                        pseudo_outcome=node.pseudo_outcome,
-                        initial=node.initial,
-                        targeted=targeted[position],
-                        clever=node.clever,
-                        fluctuation=fluctuation,
-                        learner_diagnostics=node.learner_diagnostics,
-                        regression_target=regression_target(k, time),
-                    )
+                by_arm, marginal = _cell_policy(fluctuation, node, position, len(live))
+                step = SequentialStep(
+                    time=time,
+                    trained_on=node.trained_on,
+                    at_risk=node.at_risk,
+                    pseudo_outcome=node.pseudo_outcome,
+                    initial=node.initial,
+                    targeted=targeted[position],
+                    clever=node.clever,
+                    fluctuation=fluctuation,
+                    learner_diagnostics=node.learner_diagnostics,
+                    regression_target=regression_target(k, time),
+                    marginal=marginal,
+                    targeted_by_arm=by_arm,
+                    initial_by_arm=node.initial_by_arm,
                 )
-                carried[k] = np.where(node.at_risk, targeted[position], _FILLER)
+                steps[k].append(step)
+                carried[k] = np.where(node.at_risk, step.value, _FILLER)
             nodes.append(fluctuation)
         for cell_steps in steps:
             cell_steps.reverse()
@@ -715,6 +734,7 @@ def fit_regimens_msm(
                 folds=folds,
                 cause=cause,
                 masks=masks[label],
+                numerator=numerators[label],
                 n_jobs=n_jobs,
             )
 
@@ -739,11 +759,14 @@ def fit_regimens_msm(
         )
 
         def pooled(k: int, time: int, carried: FloatArray) -> NodeInputs:
-            return _pooled_node(
+            label = model.cells[k].label
+            return pooled_node_inputs(
                 data,
+                plan_of[label],
                 stitched[k],
-                masks[model.cells[k].label],
-                cumulative[model.cells[k].label],
+                masks[label],
+                cumulative[label],
+                numerators[label],
                 carried,
                 time,
                 cause,
@@ -777,6 +800,7 @@ def fit_regimens_msm(
                 cause,
                 cumulative_unbounded,
                 cumulative,
+                numerators,
                 plan_of,
                 k,
             )
@@ -787,39 +811,80 @@ def fit_regimens_msm(
     )
 
 
-def _pooled_node(
-    data: LongitudinalData,
-    stitched: StitchedInitial,
-    masks: RegimenMasks,
-    cumulative: FloatArray,
-    carried: FloatArray,
-    time: int,
-    cause: str | None,
-) -> NodeInputs:
-    """One cell's node inputs for the pooled update, over the stitched initial estimate.
+def _stacked_arms(
+    nodes: Sequence[NodeInputs], initial: FloatArray, design: FloatArray
+) -> tuple[dict[float, FloatArray], dict[float, FloatArray]]:
+    """The stacked fluctuation's arms: the observed key, and one key per policy level.
 
-    The pseudo-outcome composes the pooled targeted prediction of the later node, and the
-    clever covariate divides by the out-of-fold cumulative mechanism.  Both come from the
-    helpers the per-regimen pooled update uses, so the two paths cannot divide by different
-    things.  The score set is every follower.
+    Without a live policy cell this is ``{_REGIMEN_ARM: ...}`` alone, the solve every
+    deterministic working model has always run.  With one, key :func:`_policy_arm` of level
+    ``j`` stacks each policy cell's per-arm prediction at ``j``.  A cell without a policy node
+    at this node stacks its observed-arm prediction under that key, which no reader takes.
+    Every key travels along the stacked design, so each block moves along its own cell's
+    rows of it, by the steps the observed key takes.  The score reads the observed key only,
+    so the extra keys change no coefficient.
+
+    Parameters
+    ----------
+    nodes : sequence of NodeInputs
+        The live cells' node inputs, in stacking order.
+    initial : FloatArray
+        The stacked observed-arm initial predictions.
+    design : FloatArray
+        The stacked fluctuation design.
+
+    Returns
+    -------
+    tuple of dict
+        The initial fit's arms and the submodel's arms, keyed alike.
     """
-    at_risk = masks.at_risk(time)
-    following = masks.following(time)
-    with phase("pseudo_outcome"):
-        pseudo_outcome = _pseudo_outcome(data, carried, time, cause)
-    with phase("clever_covariate"):
-        counterfactual, clever = _clever_covariate(at_risk, following, cumulative, time)
-    return NodeInputs(
-        time=time,
-        at_risk=at_risk,
-        trained_on=following,
-        fitted_on=following,
-        pseudo_outcome=pseudo_outcome,
-        initial=stitched.initial[time],
-        counterfactual=counterfactual,
-        clever=clever,
-        learner_diagnostics=stitched.diagnostics[time],
+    initial_arms = {_REGIMEN_ARM: initial}
+    design_arms = {_REGIMEN_ARM: design}
+    widths = {node.initial_by_arm.shape[1] for node in nodes if node.initial_by_arm is not None}
+    for code in range(max(widths, default=0)):
+        initial_arms[_policy_arm(code)] = np.concatenate(
+            [
+                node.initial if node.initial_by_arm is None else node.initial_by_arm[:, code]
+                for node in nodes
+            ]
+        )
+        design_arms[_policy_arm(code)] = design
+    return initial_arms, design_arms
+
+
+def _cell_policy(
+    fluctuation: Fluctuation, node: NodeInputs, position: int, live: int
+) -> tuple[FloatArray | None, FloatArray | None]:
+    """One live cell's targeted per-arm predictions and their policy-weighted mean.
+
+    ``(None, None)`` for a cell without a policy node at this node.
+
+    Parameters
+    ----------
+    fluctuation : Fluctuation
+        The stacked solve of the node.
+    node : NodeInputs
+        The cell's node inputs.
+    position : int
+        The cell's block in the stacking order.
+    live : int
+        How many cells are stacked.
+
+    Returns
+    -------
+    tuple
+        ``(n, K_t)`` targeted per-arm predictions and the marginal, filled with ``0.5`` off
+        the cell's at-risk rows, or ``(None, None)``.
+    """
+    if node.policy is None:
+        return None, None
+    by_arm = np.column_stack(
+        [
+            np.split(fluctuation.targeted.arms[_policy_arm(code)], live)[position]
+            for code in range(node.policy.shape[1])
+        ]
     )
+    return by_arm, np.where(node.at_risk, _carried(node.policy, by_arm), _FILLER)
 
 
 def _alternate(
@@ -899,7 +964,7 @@ def _raw_first(steps: Sequence[Sequence[SequentialStep]], scaler: OutcomeScaler)
     no single :class:`~cleverly.inference.Scale` to map back with, and under a link
     :math:`m` is a probability rather than a scaled outcome besides.
     """
-    return scaler.unscale_levels(np.column_stack([cell[0].targeted for cell in steps]))
+    return scaler.unscale_levels(np.column_stack([cell[0].value for cell in steps]))
 
 
 def _project(
@@ -975,6 +1040,7 @@ def _cell_fit(
     cause: str | None,
     cumulative_unbounded: dict[str, FloatArray],
     cumulative: dict[str, FloatArray],
+    numerators: dict[str, FloatArray | None],
     plan_of: dict[str, Plan],
     index: int,
 ) -> RegimenFit:
@@ -987,8 +1053,8 @@ def _cell_fit(
     """
     cell = model.cells[index]
     cell_steps = steps[index]
-    psi = float(np.average(cell_steps[0].targeted, weights=data.weights))
-    influence = cell_steps[0].targeted - psi
+    psi = float(np.average(cell_steps[0].value, weights=data.weights))
+    influence = cell_steps[0].value - psi
     for step in cell_steps:
         influence = influence + step.clever * (step.pseudo_outcome - step.targeted)
     return RegimenFit(
@@ -1002,4 +1068,6 @@ def _cell_fit(
         cumulative=cumulative[cell.label],
         assignment=np.asarray(plan_of[cell.label].values),
         obs_weights=np.asarray(data.weights, dtype=float),
+        policy=plan_of[cell.label].policy,
+        cumulative_numerator=numerators[cell.label],
     )

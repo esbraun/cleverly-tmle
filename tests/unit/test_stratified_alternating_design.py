@@ -31,6 +31,7 @@ from sklearn.linear_model import LogisticRegression
 from tests.studies import canonical_stratified_incremental_msm as study
 from tests.studies import stratified_alternating_law as law
 from tests.studies import stratified_incremental_msm_properties as properties
+from tests.studies.evidence.properties import TRUTH_ABSOLUTE_FLOOR
 
 N = 2_000
 SUPPORT = np.asarray(law.SUPPORT, dtype=float)
@@ -341,7 +342,9 @@ def test_the_declared_cells_are_the_cells_a_run_publishes() -> None:
         if family == "simultaneous_coverage":
             continue
         truth = rows.loc[(rows["property"] == family) & (rows["cell"] == name), "truth"]
-        np.testing.assert_allclose(truth, cell.dgp.truth()[cell.estimand], rtol=1e-12, atol=0)
+        np.testing.assert_allclose(
+            truth, cell.dgp.truth()[cell.estimand], rtol=1e-12, atol=TRUTH_ABSOLUTE_FLOOR
+        )
 
 
 def test_no_two_families_share_a_declared_stream() -> None:
@@ -369,7 +372,9 @@ def test_the_identity_msm_declared_cells_are_the_published_cells() -> None:
     }
     for (family, name), cell in declared.items():
         truth = rows.loc[(rows["property"] == family) & (rows["cell"] == name), "truth"]
-        np.testing.assert_allclose(truth, cell.dgp.truth()[cell.estimand], rtol=1e-12, atol=0)
+        np.testing.assert_allclose(
+            truth, cell.dgp.truth()[cell.estimand], rtol=1e-12, atol=TRUTH_ABSOLUTE_FLOOR
+        )
 
 
 def test_the_natural_course_truths_are_l1_s_conditional_means() -> None:
@@ -429,7 +434,9 @@ def test_the_drtmle_declared_cells_are_the_published_cells(
     }
     for (family, name), cell in declared.items():
         truth = rows.loc[(rows["property"] == family) & (rows["cell"] == name), "truth"]
-        np.testing.assert_allclose(truth, cell.dgp.truth()[cell.estimand], rtol=1e-12, atol=0)
+        np.testing.assert_allclose(
+            truth, cell.dgp.truth()[cell.estimand], rtol=1e-12, atol=TRUTH_ABSOLUTE_FLOOR
+        )
 
 
 def test_the_drtmle_stratum_effects_are_resolvably_apart() -> None:

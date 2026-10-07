@@ -236,6 +236,7 @@ before any learner and before the function runs.
 | --- | --- | --- | --- |
 | `Rule.rule` | `rule_kind` | construction, and the `TMLE` fit | each retarget, `Rule.density`, and `RegimeSet.evaluate` |
 | the callable nodes of a `DynamicRegimen` | one `rule_kind` for the plan | construction, and `LTMLE.fit` on the raw `regimens=` | `DynamicRegimen.assignment` and `longitudinal_truncation_curve` |
+| the `Stochastic` nodes of a `DynamicRegimen` | each node's `density_kind` | construction, and `LTMLE.fit` on the raw `regimens=` | `resolve_plans` and `longitudinal_truncation_curve` |
 | `density` of a user-written `Intervention` | a `density_kind` attribute, `None` when absent | the `TMLE` fit | each retarget and `RegimeSet.evaluate` |
 
 A plan of labels alone needs no declaration. A callable written inline in `regimens=` carries none,
@@ -485,10 +486,15 @@ the cost and persistence behavior instead.
 
 ## Longitudinal, survival, and competing risks
 
-Resolve dynamic rules once into an assignment matrix before fitting. A rule receives only the
-history available at its node, and downstream mechanism, follower, and outcome-regression logic
-must read the same resolved plan. Outcome designs contain covariate history, not redundant past
-treatment columns that are deterministic under the resolved plan.
+Resolve dynamic rules and policy densities once, before fitting, into the plan's assignment matrix
+and policy arrays. A rule receives only the history available at its node, and a policy density
+receives that history and the earlier treatments. Downstream mechanism, support-mask,
+outcome-regression and clever-covariate logic must read the same resolved plan. Outcome designs
+contain covariate history and the arms of earlier policy nodes, not past treatment columns that are
+deterministic under the resolved plan. At a policy node the design also holds the current arm, and
+the node carries the policy-weighted mean of its per-arm predictions. A plan without a policy node
+runs the arrays of a deterministic plan, and `tests/unit/test_influence_gateaux_longitudinal_policy.py`
+pins a one-hot policy to its rule bit for bit.
 
 A cross-fitted per-regimen fit targets after its folds, not inside them. Each fold runs an
 untargeted backward regression sequence on its training rows. One pooled fluctuation per node then
@@ -506,7 +512,9 @@ Longitudinal MSMs are projections over regimen/horizon cells. Their fluctuation 
 backward recursion proceeds in lockstep over nodes; the horizon belongs in the design and each
 cause receives its own projection while sharing nuisance fits. Under cross-fitting the fold
 recursions run per cell and stay untargeted, and only the pooled update is lockstep. No pooled
-coefficient and no working-model coefficient returns to a fold regression.
+coefficient and no working-model coefficient returns to a fold regression. A policy cell moves its
+per-arm predictions in the same stacked fluctuation, along its own block of the design, and carries
+their policy-weighted mean.
 
 For survival, a unit experiencing the event at node `t` belongs in node `t`'s event regression.
 The event-free state is part of history, not an intervened mechanism factor. Reports store risk;

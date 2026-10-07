@@ -16,6 +16,7 @@ treatment plan followed at every node, by iterating a regression backward throug
 | repeated treatment with time-varying confounders | the mean outcome under a plan, identified by the g-formula and estimated as a plug-in | one regression per node per regimen, and positivity is now a statement about a *cumulative* product |
 | units drop out over time | censoring enters the same cumulative product as treatment, and each node's regression uses only its uncensored followers | a censoring model per node |
 | the plan depends on the history | fixed, rowwise dynamic rules receive the history available at their node, and no static plan can express them | the fixed rule is part of the estimand. A rule learned from the same sample needs additional inference that this estimator does not provide |
+| the plan draws the arm at random | a known policy $q_t(a \mid H_t)$ at a node, with the integrated influence curve | the policy is part of the estimand and must be fixed before the fit |
 | you want a survival curve | the same recursion, seeded at the horizon, reports cumulative risk at each horizon you name | each horizon is its own backward pass. The cost is quadratic in the node count |
 | several causes of failure compete | cause-specific cumulative incidence, with the competing causes left alone | that is a *total* effect. Eliminating the competing event is a different question, and is refused by name |
 | you want the effects summarised across regimens | a working model over regimen and horizon cells | see [MSM projections](msm-projections.md) |
@@ -206,6 +207,143 @@ only happen at the last node reproduces the end-of-study fit **bit for bit**. A 
 single cause reproduces a single-event survival fit **bit for bit**. Stitelman, De Gruttola and van
 der Laan (2012) is the survival implementation reference.
 
+### Known stochastic policies
+
+A plan node can hold a known policy density instead of a label or a rule. The unit then draws its
+arm at that node with probability $q_t(a \mid H_t)$. Write the node as a
+`Stochastic(q, name, density_kind="known")` inside a `DynamicRegimen`:
+
+```python
+import numpy as np
+import pandas as pd
+
+from cleverly.interventions import Stochastic
+from cleverly.longitudinal import DynamicRegimen
+
+
+LEVELS = ["high", "low", "standard"]  # each node's levels, sorted
+
+
+def first(history):
+    return np.tile([0.5, 0.25, 0.25], (len(history), 1))
+
+
+def second(history):
+    # Draw the first node's arm again with probability one half.
+    drawn = pd.get_dummies(history["A1"]).reindex(columns=LEVELS, fill_value=0)
+    drawn = drawn.to_numpy(dtype=float)
+    return 0.5 * drawn + 0.25 * (1.0 - drawn)
+
+
+mix = DynamicRegimen(
+    "mix",
+    (
+        Stochastic(first, "first", density_kind="known"),
+        Stochastic(second, "second", density_kind="known"),
+    ),
+)
+```
+
+The density function receives the policy frame: the history $[W, L_1, \ldots, L_t]$ and the
+earlier treatments as labels. It never receives $A_t$, a censoring indicator, or a later column.
+It returns one column per level in `treatment_levels[t - 1]` order, or a dataframe whose columns
+are the levels. `resolve_plans` evaluates it once, before any learner. A density that is one-hot
+on every reachable row resolves as the rule it equals, and `config.policy_point_mass_nodes` names
+that node.
+
+Write $\pi_t(a \mid h)$ for the node's intervention density. The table gives each part of the
+estimator at the two kinds of node.
+
+| part | label or rule node | policy node |
+| --- | --- | --- |
+| $\pi_t(a \mid h)$ | $1\{a = d_t(h)\}$ | $q_t(a \mid h)$ |
+| rows that stay on the plan | the rows whose observed arm is the assigned arm | the rows whose observed arm has $q_t > 0$ |
+| node regression | covariate history, plus the arms of earlier policy nodes, on the rows that stay on the plan | one fit with the current arm and the arms of earlier policy nodes as columns, predicted at every level |
+| value carried to node $t - 1$ | $Q^*_t(H_t)$ | $\sum_j q_t(j \mid H_t)\, Q^*_t(j, H_t)$ |
+| clever covariate | $1 / \operatorname{bound}(\prod_{s \le t} g_s c_s)$ | $\prod_{s \le t} \pi_s(A_s \mid H_s) / \operatorname{bound}(\prod_{s \le t} g_s c_s)$ |
+| fluctuation | intercept, offset $Q_t$ at the observed arm, loss weight $w R_t$ | the same, and every level's prediction moves by the same $\epsilon_t$ |
+
+The influence curve is the integrated one:
+
+$$
+D^*(O) = \bar Q^*_1(H_1) - \Psi + \sum_{t=1}^{T} R_t\,\{Z_t - Q^*_t(A_t, H_t)\},
+$$
+
+with $\bar Q^*_1$ the carried value at node 1 and $R_t$ the clever covariate. The fluctuation is
+the `ltmle::UpdateQ` placement. It is also the `lmtp` placement in `R/tmle.R`, where the natural
+prediction is the offset and the shifted prediction takes the same coefficient.
+
+The mechanism is evaluated at the observed history at a policy node. `g_bounds` bounds the
+cumulative denominator only, with its `CalcCumG` meaning. The numerator is at most one, so
+$R_t \le 1/\text{lower}$. A side effect follows: when $\prod q$ and $\prod g c$ are both below the
+lower bound, the bound shrinks a moderate ratio. Take $\prod q = \prod g c = 0.001$ and a lower
+bound of 0.01. The ratio is then 1 unbounded and 0.1 bounded. `share_truncated` counts denominator truncation,
+so a truncated cell need not carry a large ratio.
+
+The base result is Díaz, Williams, Hoffman and Schenck (2023). The table gives each step of the
+extension and the condition it reads.
+
+| item | statement |
+| --- | --- |
+| base result | Section 2, journal page 849, admits a random regime $d(a_t, h_t, \varepsilon_t)$ whose randomizer is drawn independently across units and of $U$, with a law that does not depend on $P$. The section places $\varepsilon_t$ in $L_t$. Theorem 3, page 853, then covers the estimator that records the randomizer |
+| step | the integrated estimator above. Its curve is $E[D_{aug} \mid O]$, the conditional expectation of the Theorem 3 curve given the data without the randomizer. Its remainder is the conditional expectation of the Theorem 3 remainder. The Eligibility rule lists this step as the chain rule with a known weight |
+| conditions met by construction | no $Q_t$ reads a randomizer; each ratio reads its own node only; the randomizers are independent across nodes; $q_t$ reads $H_t$ only |
+| identification | sequential exchangeability, consistency, and positivity $g_t c_t > 0$ wherever $q_t > 0$. The policy history excludes $A_t$, so Assumption 2 suffices and Assumption 3 is not needed |
+| inherited conditions | the Theorem 3 rate condition, bounded ratios, and a policy density known and fixed before the fit (`density_kind="known"`) |
+
+The same construction runs on every composition the fit supports. The table gives each one and
+its evidence.
+
+| composition | what changes | evidence |
+| --- | --- | --- |
+| cross-fitting | each fold's untargeted recursion carries the fold's policy mean. The parent stitches the held-out per-level predictions, and the pooled fluctuation moves them | `tests/unit/test_pooled_longitudinal_policy_targeting.py` recomputes the stitch by hand. Three mutations fail it or the pooled score: a per-fold fluctuation, an observed-arm carry in the fold recursion, and per-level blocks moved to other rows |
+| censoring, survival, competing risks | the pseudo-outcome is unchanged and composes the carried policy mean | exact-law curves on the survival and competing-risk laws in `tests/unit/test_influence_gateaux_longitudinal_policy.py` |
+| observation weights | the weight enters every regression and the loss weight, never $R_t$ | the weighted exact law in the same file |
+| clusters | the split, the inner groups, the cluster-summed curve and the status are target-agnostic | `tests/e2e/test_ltmle_multivalue.py` |
+| `msm=` over policy cells, in sample and cross-fitted | the stacked fluctuation moves each policy cell's per-level predictions along that cell's block of the design | `tests/unit/test_longitudinal_policy_msm.py`, at one and at five folds, under the identity and logit links, and over survival cells |
+| contrasts, bands, `longitudinal_truncation_curve` | none; they read the stacked curves and the frozen plans | `tests/unit/test_longitudinal_policy_plumbing.py` replays a policy fit under truncation. The `simultaneous_coverage` cells of the [registered study](method-evidence/stochastic-categorical-longitudinal-tmle.md) measure the band and its pointwise control |
+
+A level that the policy can draw at an at-risk row must also appear among the rows the node is
+fitted on. Otherwise its design column is all zero, and the regression extrapolates where no
+residual of the curve can see it. `LTMLE.fit` refuses that sample before any learner, per outer
+training fold.
+
+A deterministic rule receives the history frame, which holds no earlier treatment. A rule that
+must read an arm drawn at an earlier policy node, such as "continue the arm drawn at the first
+node", is a one-hot `Stochastic` node that reads the policy frame. It resolves as that rule.
+
+Two neighbouring targets are outside this section. The table names the owner of each.
+
+| target | why it is not a known policy | owner |
+| --- | --- | --- |
+| a policy that reads the natural value $A_t$, such as a categorical modified treatment policy | its ratio reads the fitted mechanism, and identification needs Assumption 3 | [X12](../roadmap.md#x12-modified-treatment-policies-beyond-the-additive-point-shift) part (b) |
+| a policy density that depends on $P$, such as an incremental odds tilt | page 850 records that multiply robust estimation "is not generally possible" for such a regime; the curve needs a mechanism-derivative term | [X19](../roadmap.md#x19-incremental-interventions-over-time) |
+
+`tests/unit/test_influence_gateaux_longitudinal_policy.py` holds the exact-law evidence. The point
+estimate and the curve equal the g-formula of
+`tests/discrete_law_longitudinal_policy.py` and its Gateaux derivative to $10^{-10}$, on mixed
+plans in both orders and on a partial-support policy.
+
+Mutations M1 to M7 each move the estimate or the curve away from the oracle by more than
+$10^{-4}$. M8 and M9 each fail the targeting witness by more than $10^{-4}$: the carried mean
+against its longhand, and the solved score. A misspecified initial fit gives every node a
+coefficient above 0.05 and pins the per-level update. A one-hot policy is its rule bit for bit.
+On an augmented law that records a uniform randomizer, the integrated curve is the mean of the
+recorded curve over the randomizer, and its variance is smaller.
+
+The registered study `stochastic-categorical-ltmle` pairs the in-sample fit with R `lmtp` 1.5.4.
+`lmtp` takes one shifted value per unit, so `tests/canonical/lmtp_policy_adapter.R` realises each
+policy by copying every unit four times. Copy $c$ takes its shifted arm from row $c$ of the node's
+allocation table, and every policy probability is a multiple of one quarter. The pre-declaration
+smoke run required the policy mean to pair within $10^{-6}$.
+
+Over the 2,000 committed
+replications its mean paired difference is $4.9 \times 10^{-11}$, and the largest is
+$6.3 \times 10^{-10}$. The `low` mean and the two contrasts are not exactness pairs, because
+`lmtp` pools label nodes over every arm. Their mean absolute paired difference is about
+$9 \times 10^{-3}$, and the largest is 0.042. The
+[study page](method-evidence/stochastic-categorical-longitudinal-tmle.md) gives every verdict.
+
 ## Functionals of a fitted result
 
 Each method below reads the influence curves of the reported estimates. Each one is an exact
@@ -268,7 +406,7 @@ sums no risk curve.
 
 | option | what it does |
 | --- | --- |
-| `regimens=` | static plans, fixed rowwise dynamic rules, or categorical arms. A plan is a sequence of arms, or one arm meaning that arm at every node. A plan with a callable node must be a `DynamicRegimen` declared `rule_kind="known"`. `LTMLE.fit` refuses an undeclared or `"estimated"` rule, and a callable written inline in a mapping, before any learner. Sample-adaptive thresholds and learned rules need additional inference and are outside this contract. The [scope page](scope-and-refusals.md#wrong-by-construction) gives the threshold witness |
+| `regimens=` | static plans, fixed rowwise dynamic rules, categorical arms, or [known stochastic policies](#known-stochastic-policies). A plan is a sequence of arms, or one arm meaning that arm at every node. A plan with a callable node must be a `DynamicRegimen` declared `rule_kind="known"`. `LTMLE.fit` refuses an undeclared or `"estimated"` rule, and a callable written inline in a mapping, before any learner. Sample-adaptive thresholds and learned rules need additional inference and are outside this contract. The [scope page](scope-and-refusals.md#wrong-by-construction) gives the threshold witness |
 | `reference=` | which regimen the contrasts are taken against. It is part of the estimand rather than a display setting |
 | `horizons=` | which time points a survival fit reports cumulative risk at. `None` reports the whole curve. Name the horizons you will report: the cost is $T(T+1)/2$ regressions per regimen rather than $T$ |
 | `msm=` | a working model over the regimen and horizon cells, in sample or cross-fitted. See [MSM projections](msm-projections.md) |
@@ -366,7 +504,6 @@ the question, the construction, or coverage.
 | a callable node that is not declared `"known"`, or that is declared `"estimated"` | wrong by construction | the fit treats each rule as fixed. A rule learned from the analysis sample needs a learned-policy estimand and its own inference. `LTMLE.fit` raises `CapabilityError` before any learner. Declare a rule fixed before the fit with `DynamicRegimen(label, plan, rule_kind="known")` |
 | a callable written inline in a `regimens=` mapping | wrong by construction | an inline callable carries no declaration, so the fit refuses it before any learner. Write the plan as a `DynamicRegimen` declared `rule_kind="known"`, with `(rule,) * T` for one rule at every node |
 | an outcome missing for a reason other than censoring | wrong by construction | left as it is, the probability of observing it is silently taken to be one. Encode it as a final censoring column, so it is estimated and enters the cumulative product |
-| a **stochastic** categorical policy at a node | not written yet | a deterministic rule assigns one label per unit, and the clever covariate selects that label's probability. A policy that assigns a *distribution* replaces the intervention density itself, so the cumulative product carries a ratio rather than a selected column. Díaz, Williams, Hoffman and Schenck (2023), Section 2 and Theorem 3, cover a policy density that is known before the fit. [F1](../roadmap.md#f1-stochastic-categorical-policies-at-a-longitudinal-node) holds the work |
 | longitudinal sensitivity-bound estimation | not written yet | a sample estimator and sampling theory for its bound functionals. [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) holds the stop |
 | a **continuous dose** at a node, and `shifts=` | not written yet | Díaz, Williams, Hoffman and Schenck (2023), Theorem 3, journal page 853, covers a fixed modified treatment policy $d(a_t, h_t)$ on a continuous dose. The fit needs a conditional density of the dose at every node, and each node's density ratio enters the cumulative product. `LTMLE` estimates no such density, so it refuses `shifts=` by name. It reads a numeric node as unordered arms. It warns at 10 or more distinct values, and it raises `DataError` above 20. [X12](../roadmap.md#x12-modified-treatment-policies-beyond-the-additive-point-shift) part (b) holds the work |
 | `incremental=` | not written yet | Kennedy (2019), *Journal of the American Statistical Association* 114(526), treats incremental interventions on a time-varying treatment. The tilt is built from the mechanism, so it needs the product of tilted mechanisms and a mechanism submodel at every node. [X19](../roadmap.md#x19-incremental-interventions-over-time) holds the work |
@@ -418,9 +555,9 @@ unequal-size and few-cluster rules of [clusters](inference.md#clusters). Wang, P
 uses parametric nuisances.
 
 The cluster handling does not depend on the target. The split, the inner groups, the
-cluster-summed curve and the status are the same for every target. `shifts=`, `incremental=` and a
-stochastic categorical node stay refused for their own reasons. Each one
-inherits this handling when it ships.
+cluster-summed curve and the status are the same for every target, a
+[known policy](#known-stochastic-policies) included. `shifts=` and `incremental=` stay refused for
+their own reasons. Each one inherits this handling when it ships.
 
 Two side effects follow from the cross-fitted default. A fit with fewer than 10 clusters warns that
 it reduces `n_folds` to the cluster count, and a fit with fewer than 20 reports no interval. At few clusters a training fold can lack a first-node

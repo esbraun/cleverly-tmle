@@ -355,6 +355,10 @@ class Stochastic:
     columns are in :attr:`~cleverly.data.CausalData.arm_codes` order and whose rows sum
     to one.
 
+    The same class is a node of a longitudinal plan, inside a
+    :class:`~cleverly.longitudinal.DynamicRegimen`.  There the unit draws its arm at that
+    node with probability :math:`q_t(a \\mid H_t)`.
+
     *Known* is the load-bearing word, and ``density_kind="known"`` declares it.
     :math:`g^\\star` must be a fixed function of :math:`W`, chosen independently of the
     analysis sample.  For a population-mechanism-indexed odds tilt, the regime influence
@@ -369,12 +373,19 @@ class Stochastic:
     Parameters
     ----------
     density_fn : callable
-        Maps the covariate frame to an ``(n, K)`` array of arm probabilities.
+        Maps the covariate frame to an ``(n, K)`` array of arm probabilities.  At a
+        longitudinal node it is handed the policy frame
+        (:meth:`~cleverly.longitudinal.LongitudinalData.policy_frame`): the history
+        :math:`[W, L_1, \\ldots, L_t]` and the earlier treatments, as labels.  It returns
+        an ``(n, K_t)`` array whose columns follow ``treatment_levels[t - 1]``, or a
+        dataframe whose columns are exactly those levels.
     name : str
-        Label used in reported parameter names.
+        Label used in reported parameter names.  At a longitudinal node the settings
+        report prints it as ``q:name``.
     density_kind : {"known", "estimated"} or None
-        The declaration that ``density_fn`` is a known function.  ``"known"`` is the one
-        value a fit accepts.  ``None``, the default, and ``"estimated"`` raise
+        The declaration that ``density_fn`` is a known function of the covariates, or at a
+        longitudinal node of the node history.  ``"known"`` is the one value a fit
+        accepts.  ``None``, the default, and ``"estimated"`` raise
         :class:`~cleverly.exceptions.CapabilityError`, and any other value raises
         :class:`~cleverly.exceptions.DataError`.  It is the last field, so
         ``Stochastic(density_fn, name)`` keeps its positional order.
@@ -581,12 +592,14 @@ _ESTIMATED_DENSITY = (
     f"{_KIND_TEXT['incremental'].estimands} hold it in a CausalStudy, and "
     f"{_KIND_TEXT['incremental'].keyword} takes it on the estimator. Its curve carries that "
     "term. Otherwise pass density_fn= as a fixed function of the covariates with "
-    "density_kind='known'."
+    "density_kind='known'. A tilt of the mechanism at each node of a longitudinal fit is not "
+    "fitted yet; docs/roadmap.md X19 tracks it."
 )
 
 _UNDECLARED_DENSITY = (
     "Stochastic needs a declaration of what density_fn is. Pass density_kind='known' "
-    "when g*(a | W) is a fixed function of the covariates, chosen independently of the "
+    "when g*(a | W), or q_t(a | H_t) at a longitudinal node, is a fixed function of the "
+    "covariates or of the node history, chosen independently of the "
     "analysis sample. A sample-derived density is refused: the regime curve omits a term "
     "for a population-law-dependent policy, while inference for a realized learned policy "
     "needs conditions this API does not check (docs/technical-reference/scope-and-refusals.md, "

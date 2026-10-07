@@ -143,6 +143,13 @@ ARMS: dict[str, str] = {
     "longitudinal_msm": "the two terms of the longitudinal MSM projection",
     "cross_fitted_msm": "the two terms of the cross-fitted longitudinal MSM projection",
     "duration_logit": "the treatment-duration coefficient of a logit working model",
+    "mix": (
+        "the known policy mix, as its contrast against low, and as its mean in "
+        "randomizer_projection"
+    ),
+    "policy_risk_h2": "the cumulative risk at t = 2 of a known policy on the survival law",
+    "msm_policy": "the dose coefficient of a working model over low, mix and taper",
+    "primary": "the five primary estimands of the known-policy study",
     # The stratum labels of the baseline-strata study: ``v<s>_<parameter>``.
     **{
         f"v{stratum}_{key}": f"{words} in stratum V = {stratum}"
@@ -339,6 +346,9 @@ IMPLEMENTATIONS: dict[str, str] = {
     ),
     "cleverly-cross-fitted-categorical-ltmle": "`cleverly` cross-fitted categorical LTMLE",
     "cleverly-cross-fitted-ltmle-msm": "`cleverly` cross-fitted longitudinal MSM projection",
+    "cleverly-stochastic-categorical-ltmle": (
+        "`cleverly` ordinary LTMLE under known stochastic categorical policies"
+    ),
     "cleverly-cross-fitted-ltmle": "`cleverly` cross-fitted LTMLE",
     "cleverly-cross-fitted-ltmle-survival": "`cleverly` cross-fitted survival LTMLE",
     "cleverly-cross-fitted-competing-ltmle": "`cleverly` cross-fitted competing-risk LTMLE",
@@ -470,6 +480,9 @@ SCENARIOS: dict[str, str] = {
         "selected two-time-point law with monotone censoring and fixed observation weights"
     ),
     "categorical_end_of_study": "two-time-point law with three treatment levels at both nodes",
+    "categorical_policy_end_of_study": (
+        "the three-level law with known stochastic policies at both nodes"
+    ),
     "censored_survival_curve": "two-time-point absorbing-event law with monotone censoring",
     "censored_competing_risk_curve": (
         "two-time-point, two-cause competing-risk law with monotone censoring"
@@ -591,6 +604,8 @@ ESTIMANDS: dict[str, str] = {
 #: The bracketed half of a longitudinal estimand key.
 REGIMENS: dict[str, str] = {
     "always": "treat at both times",
+    "mix": "draw each arm from a known policy at both times",
+    "taper": "assign the high arm first, then draw from a known policy",
     "continue_if_l2": "treat first, then continue if L2 equals one",
     "high": "assign the high arm at both times",
     "low": "assign the low arm at both times",
@@ -709,6 +724,11 @@ PROPERTIES: dict[str, str] = {
         "is estimated and when the design is known"
     ),
     "density_necessity": "the declared stochastic intervention density determines the target",
+    "policy_necessity": "the declared longitudinal policy densities determine the target",
+    "randomizer_projection": (
+        "the integrated policy estimator is the projection of the estimator that records the "
+        "randomizer, so its spread is no larger"
+    ),
     "interval_calibration": (
         "the reported standard error and the exact coverage both sit inside their declared "
         "two-sided calibration bands"
@@ -1308,6 +1328,26 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("categorical_probability_necessity", "binary_complement"): (
         "the same fit replaces the third arm's probability with a binary complement",
         "bias interval must fall entirely outside the margin",
+    ),
+    ("policy_necessity", "declared_policy"): (
+        "the recursion integrates over the declared policy at each node",
+        "bias interval inside the equivalence margin",
+    ),
+    ("policy_necessity", "uniform_control"): (
+        "the same fit replaces each declared policy with a uniform distribution",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("randomizer_projection", "integrated"): (
+        "the integrated estimator, with the policy-weighted recursion and the ratio q / g",
+        "bias interval inside the equivalence margin; the sd ratio bound below one",
+    ),
+    ("randomizer_projection", "recorded_randomizer"): (
+        "the same sample with a recorded uniform randomizer per node and the rule that reads it",
+        "bias interval inside the equivalence margin",
+    ),
+    ("crossfit_overfitting", "cross_fitted_policy_ltmle"): (
+        "five-fold policy LTMLE with fully grown outcome trees",
+        "SE ratio clears the overfitting floor and stays inside the sanity band",
     ),
     ("density_necessity", "declared"): (
         "the estimator integrates over the declared covariate-dependent treatment density",

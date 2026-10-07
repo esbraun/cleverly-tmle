@@ -63,6 +63,7 @@ class LongitudinalStageRow:
     cause: str | None
     horizon: int | None
     time: int
+    node_kind: str
     n_followed: int
     assignment: float | str
     max_weight: float
@@ -105,6 +106,20 @@ class LongitudinalDiagnostics:
     ``share_truncated`` compares the raw and bounded cumulative probabilities on the same
     ``trained_on`` rows as the node's score.  Unlike ``max_weight``, it reveals when the
     configured cap replaced every contributing row.
+
+    ``node_kind`` says what decided the node's arm: ``"label"``, ``"rule"`` or
+    ``"policy"``.  The column is present when some node is a policy node, as ``cause`` is
+    present on a competing-risk fit only.  So a policy that is one-hot on one sample, and so
+    resolves as a rule, and not on another changes which columns the report has.  At a
+    ``"policy"`` node the assignment columns
+    report the mean policy probability of each level over the units at risk, which is what
+    the policy would draw, and not the shares of the observed arms the fit is evaluated at.
+    At such a node
+    ``n_followed`` counts the units whose observed arm has positive policy probability, and
+    ``max_weight`` and ``effective_n`` describe the cumulative ratio.  ``share_truncated``
+    counts the rows whose *denominator* the bounds replaced, because ``g_bounds`` bounds the
+    cumulative mechanism and not the ratio.  A truncated row therefore need not carry a large
+    ratio.
     """
 
     rows: tuple[LongitudinalStageRow, ...]
@@ -121,6 +136,11 @@ class LongitudinalDiagnostics:
             **({"cause": [row.cause for row in self.rows]} if self.competing else {}),
             **({"horizon": [row.horizon for row in self.rows]} if self.survival else {}),
             "time": [row.time for row in self.rows],
+            **(
+                {"node_kind": [row.node_kind for row in self.rows]}
+                if any(row.node_kind == "policy" for row in self.rows)
+                else {}
+            ),
             "n_followed": [row.n_followed for row in self.rows],
             assignment: [row.assignment for row in self.rows],
             "max_weight": [row.max_weight for row in self.rows],
@@ -363,12 +383,40 @@ def _assigned_shares(assigned: FloatArray, levels: Sequence[object]) -> str:
     )
 
 
+def _node_kind(fit: Any, time: int) -> str:
+    """``"policy"``, ``"rule"`` or ``"label"``: what decided the arm at ``time``.
+
+    A policy node whose density was one-hot on every reachable row was resolved as a rule,
+    and is reported as one, because the fit ran that rule's code.
+    """
+    if fit.policy and fit.policy[time - 1] is not None:
+        return "policy"
+    regimen = fit.regimen
+    if hasattr(regimen, "is_rule") and (regimen.is_rule(time) or regimen.is_policy(time)):
+        return "rule"
+    return "label"
+
+
+def _policy_shares(density: FloatArray, levels: Sequence[object], categorical: bool) -> float | str:
+    """The mean policy probability of each level over the at-risk rows of a policy node."""
+    if not density.shape[0]:
+        return "" if categorical else float("nan")
+    means = np.mean(density, axis=0)
+    if not categorical:
+        return float(means[1])
+    return ", ".join(
+        f"{level}={float(mean):.3g}" for level, mean in zip(levels, means, strict=True)
+    )
+
+
 def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
     """One row per node: how heavy the weights got and how much the bounds moved.
 
     ``max_weight`` and ``effective_n`` read ``step.clever``, and ``share_truncated`` reads
     ``fit.cumulative``.  These agree: ``1 / cumulative`` is ``step.clever`` on the
     followers, because a cross-fitted fit targets with the out-of-fold prefixes it reports.
+    On a plan with a policy node ``step.clever`` is ``numerator / cumulative`` on the rows
+    whose observed arm the plan supports.
     They are still read separately, because ``step.clever`` carries no unbounded
     counterpart, and a truncation share needs the bounded prefix against
     :attr:`~cleverly.longitudinal.RegimenFit.cumulative_unbounded` to say how far the
@@ -388,11 +436,16 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
         for step in fit.steps:
             weights = (fit.obs_weights * step.clever)[step.trained_on]
             assigned = fit.assignment[step.at_risk, step.time - 1]
-            assignment: float | str = (
-                _assigned_shares(assigned, result.data.treatment_levels[step.time - 1])
-                if categorical
-                else (float(np.mean(assigned == 1.0)) if assigned.size else float("nan"))
-            )
+            kind = _node_kind(fit, step.time)
+            levels = result.data.treatment_levels[step.time - 1]
+            assignment: float | str
+            if kind == "policy":
+                density = fit.policy[step.time - 1][step.at_risk]
+                assignment = _policy_shares(density, levels, categorical)
+            elif categorical:
+                assignment = _assigned_shares(assigned, levels)
+            else:
+                assignment = float(np.mean(assigned == 1.0)) if assigned.size else float("nan")
             raw = fit.cumulative_unbounded[:, step.time - 1][step.trained_on]
             bounded = fit.cumulative[:, step.time - 1][step.trained_on]
             rows.append(
@@ -401,6 +454,7 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
                     cause=fit.cause,
                     horizon=fit.horizon if result.data.is_survival else None,
                     time=step.time,
+                    node_kind=kind,
                     n_followed=step.n_trained,
                     assignment=assignment,
                     max_weight=float(np.max(weights)) if weights.size else float("nan"),

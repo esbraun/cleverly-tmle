@@ -231,6 +231,7 @@ PRELUDES: dict[str, str] = {
     "docs/getting-started/installation.md": "",
     "docs/getting-started/quickstart.md": "",
     "docs/technical-reference/dr-tmle/supported-estimands.md": "",
+    "docs/technical-reference/longitudinal-tmle.md": "",
     "docs/technical-reference/validation-methods.md": "",
     "docs/user-guide/longitudinal.md": "",
     "docs/user-guide/data-design.md": _FRAME,

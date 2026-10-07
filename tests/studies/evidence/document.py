@@ -276,6 +276,14 @@ def measured(row: Any) -> str:
         # cell, so the number that separates the two belongs in the column a reader reads.
         if family == "selector_necessity" and pd.notna(getattr(row, "rmse_ratio", None)):
             measured += f", RMSE ratio {render(float(row.rmse_ratio))}"
+        # The randomizer projection's joint clause reads the spread ratio of its two arms.
+        if family == "randomizer_projection" and pd.notna(
+            getattr(row, "projection_sd_ratio", None)
+        ):
+            measured += (
+                f", sd ratio {render(float(row.projection_sd_ratio))}, 99% upper "
+                f"{render(float(row.projection_sd_ratio_ci_upper))}"
+            )
         # The union-model family carries a second endpoint for the same reason.  A collapsed
         # nuisance reports an error two orders of magnitude off its own spread and leaves the
         # bias interval looking like any other cell's, so the ratio the screen is read from
@@ -425,7 +433,9 @@ _BIAS_GATED = frozenset(
         "mar_robustness",
         "missingness_necessity",
         "robustness_contract",
+        "policy_necessity",
         "projection_necessity",
+        "randomizer_projection",
         "ratio_necessity",
         "rule_necessity",
         "selector_necessity",

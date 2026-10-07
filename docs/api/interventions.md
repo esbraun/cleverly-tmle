@@ -3,7 +3,7 @@
 Use interventions to define static, dynamic, stochastic, incremental, or shifted treatment
 assignments. Run the matching support check before you interpret an estimate. `DynamicRegimen`
 defines a plan across the treatment nodes of a longitudinal fit. A node of that plan can be a
-rule. `LearnedRule` declares a rule that the fit learns inside each training fold, and
+rule. It can also be a `Stochastic` node that draws its arm from a known policy. `LearnedRule` declares a rule that the fit learns inside each training fold, and
 `LearnedRuleRecord` records that fit.
 
 ```{eval-rst}

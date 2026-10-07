@@ -68,7 +68,6 @@ Priorities 2 to 5 follow the beta.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1.7 | Known stochastic categorical policies at a longitudinal node | [published support; known-weight extension](technical-reference/natural-extension-verdicts.md) | shipped categorical longitudinal nodes | [F1](#f1-stochastic-categorical-policies-at-a-longitudinal-node) |
 | 1.8 | Modified treatment policies beyond the additive point shift | published support; pending source read | shipped additive shift and categorical longitudinal nodes | [X12](#x12-modified-treatment-policies-beyond-the-additive-point-shift) |
 | 1.9 | Point-treatment survival and time-to-event input | published support; pending source read | shipped survival and competing-risk recursion | [X13](#x13-point-treatment-survival-and-time-to-event-input) |
 | 1.10 | Known treatment mechanism | source audit | shipped `treatment_probabilities=` on `DRTMLE` | [X15](#x15-known-treatment-mechanism) |
@@ -235,6 +234,10 @@ The `composite-high-arm` owner holds the `ey[high]` truth row of both implementa
 composite missing-data study. It is a standing record of a reading, and it does not gate the beta
 release.
 
+The `F1-power-design` owner holds the power cell of the known-policy study, whose declared size
+gives it an exact power of 0.5365. It is a standing record of a reading, and it does not gate the beta
+release.
+
 The `F28` owner holds the clustered cells of the unequal-size and few-cluster studies that read
 red under their `reporting` policy. It owns a finite-sample limit, not a missing theorem.
 
@@ -261,6 +264,7 @@ owners do the same for the stratified DR-TMLE study.
 | `X8-identity-small-stratum` | the `interval_calibration/identity_v2_a__correctly_specified` cell and the paired `msm[W][V=2]` row of `canonical-stratified-msm-identity` | reading `finite-sample, smallest stratum`. Stratum 2 holds about 400 of the 2,000 rows. The calibration cell's SE-ratio interval is 0.926 to 1.004 against a floor of 0.93, and on the primary draws the same coefficient reads 0.983 in `cleverly` and 0.985 in R `tmle3`. The paired row is inconclusive on its calibration leg alone: the upper limit is 0.0523 against a margin of 0.05, at a resolution of 0.0476. The two estimates differ by 6e-6 on average with the same spread, and R reports a standard error 2.2% above its own spread, consistent with the declared nuisance difference: R fits a Gaussian `Lrnr_glm` inside each subset ([`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py)). No defect was found. The owner closes when a re-declared cell, with its law or size declared before its run, passes. Until then both stay published red under `reporting` |
 | `X8-drtmle-one-sided-bias` | the four `double_robustness/*__treatment_correct` cells of `canonical-stratified-drtmle`: the marginal ATE and each stratum ATE | reading `shared` in strata 0 and 1 and `mixed` in stratum 2, in the vocabulary of `RM18-one-sided-bias` ([`tests/diagnostics/x8_drtmle_treatment_correct/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x8_drtmle_treatment_correct)). The refit reproduces the committed estimates exactly. On each stratum's rows, the shipped unstratified `DRTMLE` and R `drtmle` 1.1.2, handed the same initial arrays, carry a positive bias too. In stratum 2 the package's bias, 0.0237, exceeds R's, 0.0157: the paired difference is 0.0080 with a standard error of 0.0018. The unstratified fit on the stratum's rows matches the package there to 2e-5, so the excess belongs to `DRTMLE` at about 400 rows and not to the strata. In stratum 1 the stratified and subset fits differ by 0.0057 (standard error 0.0013). The stratified marginal is the mixture of the stratum estimates, so it inherits their bias: 0.56 of its spread at n = 2,000 (99% interval 0.43 to 0.69) and 0.43 at n = 8,000 (0.25 to 0.61). The intervals overlap, so contraction faster than the spread is not established. No defect of the stratified construction was found. The owner closes when a re-declared cell, with its law or size declared before its run, passes, or when `RM18-one-sided-bias` closes with a correction that also covers the stratified fit. Until then the four cells stay published red under `reporting` |
 | `X8-drtmle-small-stratum` | the two primary truth rows of `ey[1][V=2]` and the `interval_calibration/v2_ate__correctly_specified` cell of `canonical-stratified-drtmle` | reading `finite-sample, shared with the comparator`. Stratum 2 holds about 400 of the 2,000 rows. Coverage of `ey[1][V=2]` is 0.900 in the package and 0.8925 in R `drtmle` on the same draws, with estimates 4e-5 apart on average. The calibration cell's SE-ratio interval ends at 0.9294 against a floor of 0.93, and on the primary draws the same ATE reads 0.985 in the package and 0.973 in R ([`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py)). The owner closes when a re-declared cell, with its law or size declared before its run, passes. Until then the three stay published red under `reporting` |
+| `F1-power-design` | the `power/mix__alternative` cell of `stochastic-categorical-ltmle` | reading `underpowered at its declared size`. Its n = 4,000 was copied from `canonical-categorical-ltmle`, where the contrast is 0.125. Here the contrast is -0.0488, so the exact power of a two-sided 5% test is 0.5365, and exact power 0.80 needs n = 7,460. The cell rejects at 0.5575 (99% interval 0.511 to 0.603) against a floor of 0.80, and that interval contains the exact power ([`tests/unit/test_stochastic_categorical_ltmle_design.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_stochastic_categorical_ltmle_design.py)). Its bias is inside the margin and its coverage is 0.9475. The `type_i_error` cell, on the null variant of the law, passes. The owner closes when a re-declared power cell, with its law or size declared before its run, passes. Until then the cell stays published red under `reporting` |
 | `F28` | finite-sample limits of clustered intervals: the fold-evaluated covariate pair of `clustered-unequal-cvtmle`, and the fold-evaluated bias cells and cross-fitted `DRTMLE` IID controls of `clustered-few-cluster-tmle` | each group closes on its own registered study that passes. The fold-evaluated pair of `clustered-unequal-cvtmle` at 40 clusters in 10 folds: a fold-evaluated degrees-of-freedom rule $t(\min(J-2, J-V))$ at 40 clusters or more. The three `tmle_cv_evaluation__unequal_informative` cells: a cluster-size-weighted fold average or another fold-evaluated point whose bias stays inside the margin. The stacked report is the remedy today. The four `drtmle_crossfit` `iid_t_control` cells: a calibrated cross-fitted `DRTMLE` cluster variance, or an IID control that compares the two SEs and not the IID SE with the empirical SD ([F28](#f28-finite-sample-limits-of-clustered-intervals)) |
 | `X20-bootstrap` | the `interval_calibration` cells `boot_ey_crossfit__correctly_specified`, `boot_ate_crossfit__correctly_specified` and `boot_ate_clustered__correctly_specified` of `full-refit-bootstrap-and-derived-contrasts` | the declared rule 3 keeps the `end_of_study/cross_fit` and `end_of_study/cluster` kinds out of `LICENSED_BOOTSTRAP_DESIGNS`, so their bootstrap prints as a diagnostic. A diagnostic reading, not a registered result: on this cell the cross-fitted estimator is heavy-tailed. Its 4,000 committed estimates have excess kurtosis 6.7, and about 5% of them lie at the probability boundary, because `g_bounds=(1e-8, 1)` with saturated cell means leaves sparse training cells unbounded. A bootstrap resample holds about 63% unique units, so more replicates reach the boundary and the replicate spread exceeds the sampling spread (SE ratios 1.23 and 1.27). A probe that kept each unit's copies in one fold raised the SE ratio to about 1.65, so the split of copies across folds is not the cause. The cluster contrast covers 0.924 with a calibrated SE ratio (0.977), a finite-sample shortfall of the percentile interval at 60 clusters. The owner closes when a re-declared cell for the kind, with its law, size, nuisance bounds or resampling scheme declared before its run, passes a registered cell |
 
@@ -268,34 +272,6 @@ owners do the same for the stratified DR-TMLE study.
 
 The sections below give one contract for each open item. Their physical order does not override
 the main grid.
-
-### F1. Stochastic categorical policies at a longitudinal node
-
-The implemented surface assigns one category per unit, because a `DynamicRegimen` node returns one
-label per row. This item adds a node that holds a known policy density $q_t(\cdot \mid h_t)$. The
-[natural-extension verdicts](technical-reference/natural-extension-verdicts.md) record the review
-as part (c).
-
-| item | contract |
-| --- | --- |
-| base result | Díaz, Williams, Hoffman and Schenck (2023), *Journal of the American Statistical Association* 118(542). Section 2, journal page 849, admits a random regime $d(a_t, h_t, \varepsilon_t)$ when the randomizer is "(i) drawn independently across units and independently of U, and (ii) its distribution does not depend on P". The section places $\varepsilon_t$ in $L_t$ "without loss of generality". Section 4, page 850, keeps the efficiency theory to a $d$ that does not depend on P. Theorem 1, page 849, Section 5.2, page 852, and Theorem 3, page 853 |
-| steps | with $\varepsilon_t$ in $L_t$, the estimator that records the randomizer is Theorem 3 as stated. The package ships the integrated estimator, which has no Monte Carlo noise. To marginalize $\varepsilon_{t+1}$ in the Theorem 1 recursion is to average under a known law, so $m_t$ reads $\sum_j q_{t+1}(j \mid h)\, m_{t+1}(j, h)$ and $r_t$ becomes $q_t/g_t$. The curve without $\varepsilon$ is $E[D_{\mathrm{aug}} \mid O]$, the projection of the augmented curve onto the tangent space without $\varepsilon$. The remainder is $E_\varepsilon[\mathrm{Rem}]$, second order by linearity of expectation. The Eligibility row is the chain rule with a known weight |
-| conditions met by construction | (i) no $m_t$ reads a randomizer; (ii) each $r_k$ reads $\varepsilon_k$ only; (iii) the randomizers are mutually independent. $q_t$ reads $h_t$ only |
-| objection search | page 850 says multiply robust estimation "is not generally possible for random regimes d that depend on P". That applies to a policy that depends on P only, which stays out: [X19](#x19-incremental-interventions-over-time) owns the incremental tilt. The earlier sentence of this item, that a point-treatment stochastic regime is not sufficient evidence, gives way to this direct longitudinal source |
-| inherited conditions | the Theorem 3 rate condition $\sum_t \lVert \hat r_t - r_t \rVert\, \lVert \tilde m_t - m_t \rVert = o_P(n^{-1/2})$; bounded ratios, $P\{r_t < c\} = 1$; positivity of $g_t$ wherever $q_t > 0$; a policy density that is known and fixed before the fit (`density_kind="known"`, as the point-treatment `Stochastic` regime requires). A policy that reads the natural value $A_t$ needs Assumption 3 and is a modified treatment policy ([X12](#x12-modified-treatment-policies-beyond-the-additive-point-shift)) |
-
-Acceptance:
-
-- a node with a known policy density inside `DynamicRegimen`, whose recursion evaluates
-  $\sum_j q\, m(j, \cdot)$ and whose cumulative ratio uses $q/g$;
-- an exact-law Gateaux witness with a nonzero, non-degenerate $q$;
-- mutation controls that use a selected column in place of the ratio, or drop a node, and fail;
-- an exact reduction to the deterministic regimen when $q$ is a point mass;
-- cross-fitted `msm=` over policy cells, through the pooled stacked update of the
-  [longitudinal projection](technical-reference/msm-projections.md#the-longitudinal-projection),
-  with the saturated reduction at `n_folds=5`;
-- the estimator that records the randomizer, as a cross-check on one law;
-- a registered study. `lmtp` has no direct comparator.
 
 ### X12. Modified treatment policies beyond the additive point shift
 
@@ -317,6 +293,16 @@ the categorical one.
 
 Each policy must be fixed before the fit and declared `"known"`, as `Rule` and `DynamicRegimen`
 declare it. A policy learned from the analysis sample stays refused.
+
+Part (b) can build on four private helpers that the
+[known stochastic policies](technical-reference/longitudinal-tmle.md#known-stochastic-policies)
+fit ships. They are `regimen._node_numerator(plan, data, time)`, the plan's density at the
+observed arm; `sequential.outcome_design(data, plan, time, arm)`, the node design with the arm
+blocks; `sequential._carried(policy, by_arm)`, the policy-weighted mean of the per-level
+predictions; and `Plan.masks(data)`, the support masks. A categorical policy $d(a_t, h_t)$ passes
+the one-hot matrix of $d$ as `policy` to `_carried`. Its numerator reads the fitted mechanism,
+so `_node_numerator` must gain an argument for `Mechanism.treatment_observed`, the `(n, K)`
+matrix of $g_t(\cdot \mid H_t)$.
 
 Acceptance:
 
@@ -495,6 +481,12 @@ tilt.
 
 Part (b) is a different parameter from part (a). Give it its own name and its own estimand, and
 do not alias it to `Incremental`.
+
+A tilt is a policy density that is a function of the mechanism. The
+[known stochastic policies](technical-reference/longitudinal-tmle.md#known-stochastic-policies)
+fit carries such a density through `sequential._carried(policy, by_arm)` and reads its numerator
+through `regimen._node_numerator(plan, data, time)`. A tilt also needs the numerator to read
+`Mechanism.treatment_observed`, and the curve needs a mechanism-derivative term at every node.
 
 Acceptance:
 

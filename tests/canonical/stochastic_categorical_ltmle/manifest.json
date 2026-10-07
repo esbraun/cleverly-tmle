@@ -1,0 +1,140 @@
+{
+  "schema_version": 2,
+  "study": "ordinary known stochastic categorical longitudinal TMLE",
+  "slug": "stochastic-categorical-ltmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-stochastic-categorical-ltmle",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "6016304170388777f341e698c18432be9b08dc79",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": {
+      "implementation": "lmtp",
+      "lmtp_version": "1.5.4",
+      "lmtp_source_commit": "f04a2b47f46debc515ce4ae778e05ebfde922c44",
+      "lmtp_tarball_sha256": "fd49d9f291d4ddabb78c36d152b25aaa234a7204b645b9921f998c152e3d2ba5",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_construction": "integrated policy estimator by proportional replication: each unit copied 4 times, copy c taking its shifted arm from row c of the node's allocation table, exact per-node ratio q/g at the natural arm, unit-mean eif",
+      "reference_adapter": "tests/canonical/lmtp_policy_adapter.R"
+    }
+  },
+  "configuration": {
+    "replicates": 2000,
+    "n": 2000,
+    "seed": 20261033,
+    "resampling_seed": 2026103301,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "categorical_policy_end_of_study": [
+        "ey_regimen[low]",
+        "ey_regimen[mix]",
+        "ey_regimen[taper]",
+        "ate_regimen[mix vs low]",
+        "ate_regimen[taper vs low]"
+      ]
+    },
+    "construction": "ordinary",
+    "outcome_kind": "end_of_study",
+    "cross_fit": false,
+    "n_folds": 1,
+    "learner_folds": 2,
+    "learner_folds_effect": "none for single learners",
+    "treatment_levels": [
+      "high",
+      "low",
+      "standard"
+    ],
+    "regimens": [
+      "low",
+      "mix",
+      "taper"
+    ],
+    "policies": {
+      "mix": "POLICY1 at node 1, POLICY2 at node 2",
+      "taper": "label 'high' at node 1, POLICY2 at node 2"
+    },
+    "reference": "low",
+    "simultaneous_intervals": false,
+    "g_bounds": [
+      1e-08,
+      1.0
+    ],
+    "outcome_learner": "QuasiBinomialGLM",
+    "pseudo_learner": "LinearRegression",
+    "mechanism": "supplied_from_the_law_to_both",
+    "reference_density_ratios": "exact_per_node_policy_ratio",
+    "reference_copies": 4,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_stochastic_categorical_ltmle.py": "e944ff65d0efbcce0b72413241b8d42293a9e633d1330dc96c2495ab74e760e2",
+    "tests/studies/stochastic_categorical_ltmle_properties.py": "931ffc7645c32a4b92f8fa700ee6825d9af7a35dcb180d81a69ba0b6f9c1ecd6",
+    "tests/studies/categorical_longitudinal_common.py": "b0af1c6a12476e7c73d1a8c0776b635d7a2799c7e8d4ed5796ef75e869f1ec23",
+    "tests/studies/canonical_categorical_ltmle.py": "d1ca52f08002e45c6cf1cef0f1774536fdd884c6678eeea223bd4f8dcc189c19",
+    "tests/studies/canonical_ltmle.py": "db44a0fabb57fc19f37e94b9229f1f425de28745d6b109d4d1600eb60d0678f1",
+    "tests/studies/fractional_glm.py": "5570ff1756acad859e627be9d155e1b43f789ffb8626ac3c53a049bb0662488e",
+    "tests/discrete_law_longitudinal_policy.py": "85ec10a4276a8e4a013015698aca5172dfab3d110a4a3ef940e0beb6893a97e7",
+    "tests/discrete_law_longitudinal_multivalue.py": "cfa103e239b345376cab2f2cd5d1dc43fee365893d6885c1a2a9ea0f5f4cac79",
+    "tests/discrete_law_longitudinal.py": "acc9eaaf056050dae69e7bdbe203797e0dc6fe2502423c15369f69dbcc41d59c",
+    "tests/discrete_law_survival.py": "58b8175fb1a2757cb38fdfa3a73e333adf63b4fb08365284e223da38a4e948c8",
+    "tests/discrete_law_competing.py": "cd24ff5b1177f25206f3b29115e645e63749823f7440117deb267fbd733a7092",
+    "tests/longitudinal_policies.py": "985bdce84f3d7c090231289dc96d8413d96d86462995bbba35721059ee727696",
+    "tests/studies/evidence/comparison.py": "653c091f0c1cd240b41e4ed7026da8f67c0feda58404e7c27e80eabab38a2217",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "9c8e6a923bb16fd6637dbec77492c43aef29d9a5f825799a20ce5002ca5e9590",
+    "tests/studies/evidence/property_verdicts.py": "7ae8f5de8bdf68b62fb0ab9e1aca3dc17a0766f3009c08117f563a390ba49273",
+    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
+    "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15",
+    "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+    "tests/canonical/lmtp_crossfit_adapter.R": "6ea0d48d3143222f0342ea49fde84affa0740ba668fbdb874f5f0919d31e97b6",
+    "tests/canonical/lmtp_policy_adapter.R": "3af33ae0bb1c1731779d84714651f8b4679889d1bf3cfcfbe8e94a5f20f358e0",
+    "tests/canonical/stochastic_categorical_ltmle_runner.R": "646005ee165a703e1d37ec3e3ef585a0233563b7de38335a2869b17b50c722fb"
+  },
+  "reference_sha256": {
+    "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+    "tests/canonical/stochastic_categorical_ltmle_runner.R": "646005ee165a703e1d37ec3e3ef585a0233563b7de38335a2869b17b50c722fb",
+    "tests/canonical/lmtp_policy_adapter.R": "3af33ae0bb1c1731779d84714651f8b4679889d1bf3cfcfbe8e94a5f20f358e0",
+    "tests/canonical/lmtp_crossfit_adapter.R": "6ea0d48d3143222f0342ea49fde84affa0740ba668fbdb874f5f0919d31e97b6",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "sha256": {
+    "replicates.csv.gz": "7f9c3246c3e434b669c7b7e7bc0eca8951b7a819b563161fd7390ec6f2f42275",
+    "summary.csv": "29e18c5c832ac0cee484142f123690dd9e57dd0e112b0c828c791a638f6ab475",
+    "equivalence.csv": "9af8be97a7e6114237b6bf5363202e03dca7796154c854e822d0fcf2a19a47b0",
+    "performance-tests.csv": "e5067742310908a5275a55f9dcc859c42ff40de715e2ac9a0fc38928cba5d544",
+    "property-replicates.csv.gz": "ead05f0b04967a0850d52f92a454c18057b12954de3db237e5d3402ec0c00fd6",
+    "properties.csv": "102b08ea0518c5d292e0a39dccab791c26f28d6f1d794fc4f3e3c3cd0bb281e3"
+  }
+}
