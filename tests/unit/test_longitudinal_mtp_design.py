@@ -327,3 +327,23 @@ def test_the_power_cell_reaches_its_floor_on_the_exact_law() -> None:
     )
     assert power == pytest.approx(DESIGN_POWER, abs=1e-6)
     assert power_cell_pass_probability(power, properties.NULL_REPLICATES) >= 0.99
+
+
+def test_the_quadrature_truths_match_a_simulation_of_definition_one() -> None:
+    """Plan 6.12: an independent check of each continuous truth, by simulating the law.
+
+    Each unit draws its natural dose, the policy moves it, the next covariate and the next
+    natural dose are drawn given the intervened past, and the policy moves that dose too
+    (Díaz et al. 2023, Definition 1).  The mean of the outcome regression over 400,000 such
+    units must lie within four Monte Carlo standard errors of the quadrature.
+    """
+    rng = np.random.default_rng(20261061)
+    n = 400_000
+    w = rng.integers(0, 2, n).astype(float)
+    for label, (d1, d2) in common.CONTINUOUS_MAPS.items():
+        a1d = d1(common.truncated_draw(rng, common.mean1(w)))
+        l2 = rng.binomial(1, common.p_l2(w, a1d)).astype(float)
+        a2d = d2(common.truncated_draw(rng, common.mean2(w, a1d, l2)), a1d)
+        q = common.outcome_mean(w, a1d, l2, a2d)
+        se = float(np.std(q)) / np.sqrt(n)
+        assert abs(float(np.mean(q)) - common.continuous_truth(label)) < 4.0 * se, label

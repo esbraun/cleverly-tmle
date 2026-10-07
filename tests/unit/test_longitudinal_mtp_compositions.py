@@ -275,7 +275,7 @@ def test_r5_an_undeclared_policy() -> None:
 
 def test_r13_a_vector_node_with_a_continuous_component() -> None:
     frame = law.frame(vector=True).assign(A1a=lambda f: f["A1a"] + 0.25)
-    with pytest.raises(DataError, match="vector with continuous components"):
+    with pytest.raises(CapabilityError, match="vector with continuous components"):
         _refused(
             {"natural": Shift(0.0, cap=None)},
             frame=frame,

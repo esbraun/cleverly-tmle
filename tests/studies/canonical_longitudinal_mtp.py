@@ -45,7 +45,7 @@ node over every row (Díaz et al. 2023, Section 5.2, Step 3; ``lmtp`` upstream 9
 the training-fold update as a defect), so the ``mtp_continuous_crossfit`` pairs compare two
 constructions.  They are declared ``reporting`` before any run: a red cross-fitted paired row
 is read as that construction difference and gets the owner row
-``X12-crossfit-construction`` in "Red-cell owners", with no budget, margin or law change, and
+``mtp-crossfit-construction`` in "Red-cell owners", with no budget, margin or law change, and
 it does not block the merge.  A red primary truth row, or a red one-fold paired row, blocks
 the merge and gets a diagnosis.
 

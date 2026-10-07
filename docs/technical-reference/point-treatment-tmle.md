@@ -765,8 +765,11 @@ interval $I_j$, and $b_j$ is the inverse of that piece.
 | `ModifiedPolicy(..., randomizer=Randomizer(...))` | one branch per randomizer value, with known probabilities | the weighted mean of the branch ratios |
 | `RiskRatioTilt(delta)` | the `ipsi` rule of `lmtp` on a 0/1 treatment | discrete formula |
 
-The pieces must partition the real line. Each moving piece must be strictly monotone, and its
-declared inverse must invert its map. `policy_kind="known"` declares that the map does not
+Every observed dose must lie in exactly one piece of a `ModifiedPolicy`. A `Piecewise` policy
+leaves a dose in no interval unchanged, and its ratio counts that dose as an identity piece.
+Each moving piece must be strictly monotone, and its declared inverse must invert its map. The
+declared derivative of the inverse must equal $1 / d'(a)$ from a central difference of the map.
+`policy_kind="known"` declares that the map does not
 depend on the observed-data law, and a fit accepts no other value. A policy that fails these
 checks is refused before any nuisance fit.
 
@@ -779,12 +782,20 @@ mixtures of the branch means and curves, with the known probabilities as weights
 `ratio="classifier"` replaces the density with the stacked classification of Section 5.4 of
 Díaz et al. (2023). The treatment learner classifies an observed row against its policy copy,
 and the ratio is the odds $u / (1 - u)$. This route fits no density, so the support report gives
-`min_density` as NaN.
+`min_density` and `unsupported` as `None` and says that they are not measured.
 
 Evidence: `tests/unit/test_policy_point_exact.py` checks the ratio and the influence curve of each
 class on the exact laws of `tests/discrete_law_policy_point.py`. Its mutation controls drop the
 inverse and the Jacobian, and each control fails. `tests/unit/test_influence_gateaux_rr_tilt.py`
-checks the tilt on `tests/discrete_law.py`. The registered study is `policy-point-mtp`.
+checks the tilt on `tests/discrete_law.py`. The registered study is `policy-point-mtp`. It is
+declared, and its run is pending.
+
+The bin count limits the density route at a point treatment as it does at a longitudinal node.
+With the outcome regression wrong, the binned density's error enters the bias at first order, so
+double robustness through the density needs `density_bins` to grow with $n$. The
+[longitudinal section](longitudinal-tmle.md#modified-treatment-policies-at-a-node) gives the
+measurements. `policy-point-mtp` reads 160 oracle bins. There, the density-only arms measured a
+mean standardized bias below 0.08, over 40 draws of 8,000 rows.
 
 The implementation fits a conditional density, targets the outcome regression as a function of
 dose, and evaluates it at $d(A,W)$. Missingness and intermediate mechanisms multiply the density
