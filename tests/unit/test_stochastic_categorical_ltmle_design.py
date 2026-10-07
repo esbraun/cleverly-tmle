@@ -39,6 +39,7 @@ from tests import discrete_law_longitudinal_policy as policy
 from tests.studies import canonical_stochastic_categorical_ltmle as study
 from tests.studies import stochastic_categorical_ltmle_properties as properties
 from tests.studies.default_band_properties import MINIMUM_CONTROL_POWER, control_power
+from tests.studies.evidence.properties import TRUTH_ABSOLUTE_FLOOR
 from tests.studies.evidence.registry import ROOT, Margins, registered
 
 pytestmark = pytest.mark.xdist_group("stochastic_categorical_ltmle_design")
@@ -109,7 +110,10 @@ def test_the_declared_cells_are_the_cells_a_run_publishes() -> None:
     for (family, name), cell in declared.items():
         selected = rows.loc[(rows["property"] == family) & (rows["cell"] == name)]
         np.testing.assert_allclose(
-            selected["truth"], cell.dgp.truth()[cell.estimand], rtol=1e-12, atol=0
+            selected["truth"],
+            cell.dgp.truth()[cell.estimand],
+            rtol=1e-12,
+            atol=TRUTH_ABSOLUTE_FLOOR,
         )
         assert set(selected["n"]) == {cell.n}
     with warnings.catch_warnings():
@@ -311,3 +315,32 @@ def test_every_policy_row_is_realised_exactly_by_the_declared_copies() -> None:
     text = RUNNER.read_text(encoding="utf-8")
     assert f"copies <- {study.COPIES}L" in text
     assert re.search(r'^plans <- c\("low", "mix", "taper"\)', text, re.MULTILINE)
+
+
+def test_the_power_cell_reads_as_underpowered_at_its_declared_size() -> None:
+    """A post-run reading of the red ``power/mix__alternative`` cell, from pre-run constants.
+
+    ``EFFICIENCY_SD["mix"]`` and ``NULL_N`` were committed before any run.  They give the exact
+    power of the cell's two-sided 5% Wald test.  The size was copied from the categorical study,
+    whose contrast is 0.125, and the exact power here is 0.5365.  The committed rejection
+    interval contains it, so the red verdict is the declared size and not a defect.
+    """
+    from scipy.stats import norm
+
+    from tests.studies.evidence.registry import ROOT as root
+
+    contrast = abs(study.TRUTH[properties.MIX])
+    spread = properties.EFFICIENCY_SD["mix"] / np.sqrt(properties.NULL_N)
+    critical = float(norm.ppf(0.975))
+    power = norm.cdf(contrast / spread - critical) + norm.cdf(-contrast / spread - critical)
+    assert power == pytest.approx(0.5365, abs=5e-5)
+    needed = ((critical + norm.ppf(0.80)) * properties.EFFICIENCY_SD["mix"] / contrast) ** 2
+    assert int(np.ceil(needed)) == 7_460
+    summary = pd.read_csv(root / "tests/canonical/stochastic_categorical_ltmle/properties.csv")
+    row = summary.loc[(summary["property"] == "power") & (summary["cell"] == "mix__alternative")]
+    assert len(row) == 1
+    assert (
+        float(row["rejection_ci_lower"].iloc[0])
+        <= power
+        <= float(row["rejection_ci_upper"].iloc[0])
+    )

@@ -335,9 +335,13 @@ The registered study `stochastic-categorical-ltmle` pairs the in-sample fit with
 `lmtp` takes one shifted value per unit, so `tests/canonical/lmtp_policy_adapter.R` realises each
 policy by copying every unit four times. Copy $c$ takes its shifted arm from row $c$ of the node's
 allocation table, and every policy probability is a multiple of one quarter. The pre-declaration
-smoke run required the policy mean to pair within $10^{-6}$. Over the 2,000 committed
-replications it pairs to $4.9 \times 10^{-11}$. The `low` mean and the two contrasts pair to about
-$9 \times 10^{-3}$ per sample only, because `lmtp` pools label nodes over every arm. The
+smoke run required the policy mean to pair within $10^{-6}$.
+
+Over the 2,000 committed
+replications its mean paired difference is $4.9 \times 10^{-11}$, and the largest is
+$6.3 \times 10^{-10}$. The `low` mean and the two contrasts are not exactness pairs, because
+`lmtp` pools label nodes over every arm. Their mean absolute paired difference is about
+$9 \times 10^{-3}$, and the largest is 0.042. The
 [study page](method-evidence/stochastic-categorical-longitudinal-tmle.md) gives every verdict.
 
 ### Modified treatment policies at a node

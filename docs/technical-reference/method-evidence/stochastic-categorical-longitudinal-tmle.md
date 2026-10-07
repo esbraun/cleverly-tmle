@@ -25,9 +25,11 @@ every policy probability is a multiple of one quarter.
 
 For `mix` the two designs span the same columns and the learners match, so the pair is an
 exactness witness. For `low` and `taper`, this package fits the label nodes on the units that
-follow the plan, while `lmtp` pools over every arm. These pairs and the two contrasts therefore
-differ by up to about $9 \times 10^{-3}$ per sample. They are read under the default paired
-margins, as in the [categorical study](ordinary-categorical-longitudinal-tmle.md).
+follow the plan, while `lmtp` pools over every arm. For `low` and the two contrasts the mean
+absolute paired difference is about $9 \times 10^{-3}$, and the largest is 0.040 to 0.042. For
+`taper` they are $2.3 \times 10^{-3}$ and 0.017. For `mix` the mean paired difference is
+$4.9 \times 10^{-11}$, and the largest is $6.3 \times 10^{-10}$. The pairs are read under the
+default paired margins, as in the [categorical study](ordinary-categorical-longitudinal-tmle.md).
 
 ## Accuracy against known truth
 
@@ -107,9 +109,11 @@ The recorded estimator reads a fresh uniform randomizer at each node, which is T
 stated. The one-sided 99% bootstrap upper bound of the ratio of their spreads must lie below one.
 These two cells read `ey_regimen[mix]`. Every other `mix` cell reads `ate_regimen[mix vs low]`.
 
-The `power` cell is red. The contrast is -0.0488, and its reported standard error at n = 4,000
-is about 0.0237. A two-sided 5% test therefore has power near 0.54 at the declared size, and the
-cell measured 0.5575. Its bias is inside the margin and its coverage is 0.9475.
+The `power` cell is red because it is underpowered at its declared size. Its n = 4,000 was
+copied from the categorical study, where the contrast is 0.125. Here the contrast is -0.0488,
+and the exact power of a two-sided 5% test is 0.5365. Exact power 0.80 needs n = 7,460. The cell
+measured 0.5575, and its 99% interval contains the exact power. Its bias is inside the margin
+and its coverage is 0.9475.
 
 The study was
 declared `gated`. By its declared red-cell route it was re-registered under `reporting`, with the
@@ -177,9 +181,9 @@ the committed results and checked at the precision printed.
 | limit | what it means for use |
 | --- | --- |
 | one law, two nodes and three levels | the evidence covers one finite law with policies fixed before the run |
-| the power cell is red by design | its declared size gives a power near 0.54. The `F1-power-design` owner holds it, and the `type_i_error` cell of the same law passes |
+| the power cell is underpowered at its declared size | the size was copied from a study with a contrast 2.56 times larger, so the exact power is 0.5365. The `F1-power-design` owner holds it. The `type_i_error` cell, on the null variant of the law, passes |
 | no study cell for weights, clusters, competing risks, a continuous outcome or fold repeats | these compositions have the exact-law and end-to-end evidence of the [known stochastic policies](../longitudinal-tmle.md#known-stochastic-policies) section only |
-| `low`, `taper` and both contrasts pair to about $9 \times 10^{-3}$ only | `lmtp` pools label nodes over every arm, and this package fits them on the followers. Only `ey_regimen[mix]` is an exactness pair |
+| `low`, `taper` and both contrasts are not exactness pairs | the mean absolute paired difference is about $9 \times 10^{-3}$ for `low` and the contrasts, with a largest of 0.040 to 0.042, and $2.3 \times 10^{-3}$ for `taper`, with a largest of 0.017. `lmtp` pools label nodes over every arm, and this package fits them on the followers. Only `ey_regimen[mix]` is an exactness pair |
 | the comparator copies each unit four times | the pairing needs every policy probability on a grid of one quarter. A policy off that grid has no exact `lmtp` pair |
 | the mechanism is supplied | both implementations receive the generating probabilities. The double-robustness cells cover misspecified mechanisms |
 | a policy must be known and fixed | a policy learned from the sample, a policy that reads the natural treatment, and a policy that depends on the law are outside this evidence |

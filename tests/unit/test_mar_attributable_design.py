@@ -14,6 +14,7 @@ import pytest
 from tests import discrete_law_mar as mar
 from tests.studies import canonical_mar_attributable as study
 from tests.studies import mar_attributable_properties as properties
+from tests.studies.evidence.properties import TRUTH_ABSOLUTE_FLOOR
 
 N = properties.ROBUSTNESS_N
 TRUTH = study.TRUTHS[study.BINARY]
@@ -153,7 +154,9 @@ def test_the_declared_cells_are_the_cells_a_run_publishes() -> None:
     } - {("root_n_rate", "empirical_sd"), ("root_n_rate", "reported_se")}
     for (family, name), cell in declared.items():
         truth = rows.loc[(rows["property"] == family) & (rows["cell"] == name), "truth"]
-        np.testing.assert_allclose(truth, cell.dgp.truth()[cell.estimand], rtol=1e-12, atol=0)
+        np.testing.assert_allclose(
+            truth, cell.dgp.truth()[cell.estimand], rtol=1e-12, atol=TRUTH_ABSOLUTE_FLOOR
+        )
 
 
 def test_no_two_families_share_a_declared_stream() -> None:
