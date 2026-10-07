@@ -143,6 +143,12 @@ _QUANTILES = (0.01, 0.05, 0.5, 0.95, 0.99)
 #: Relative tolerance of the declared-inverse check.
 _INVERSE_TOLERANCE = 1e-8
 
+#: Relative step of the central difference that checks a declared derivative, and the
+#: relative gap it allows.  A central difference of a smooth map errs by O(step^2), far
+#: below the tolerance, and a wrong slope (a factor, a sign of the reciprocal) is far above.
+_DERIVATIVE_STEP = 1e-5
+_DERIVATIVE_TOLERANCE = 1e-4
+
 #: Grid points per piece and row on which a declared map is checked to be monotone.
 _MONOTONE_GRID = 9
 
@@ -383,7 +389,8 @@ class Piecewise:
     ----------
     pieces : tuple of tuple
         ``(lower, upper, map)`` per piece, where ``map`` is ``Shift(delta, None)`` or
-        ``Scale(factor, None)``.  The intervals do not overlap.
+        ``Scale(factor, None)``.  The intervals do not overlap.  A dose in no interval keeps
+        its value, and the density ratio counts it as an identity piece.
     closed : {"left", "right"}
         Which end of every interval belongs to it.
     name : str
@@ -894,7 +901,18 @@ class _PiecewiseBranch(_Branch):
         for lower, upper, mapping in self.policy.pieces:
             if _is_identity_map(mapping):
                 covariate = covariate + _member(b, lower, upper, self.policy.closed).astype(float)
+        # ``assign`` leaves a dose in no declared interval where it is, so the uncovered set is
+        # an identity piece of Equation (3): a value there can only have come from itself.
+        covariate = covariate + self.uncovered(b).astype(float)
         return np.asarray(covariate, dtype=float)
+
+    def uncovered(self, values: FloatArray) -> BoolArray:
+        """Doses in no declared interval, which the policy leaves unchanged."""
+        b = np.asarray(values, dtype=float).reshape(-1)
+        covered = np.zeros(b.size, dtype=bool)
+        for lower, upper, _ in self.policy.pieces:
+            covered |= _member(b, lower, upper, self.policy.closed)
+        return np.asarray(~covered & np.isfinite(b), dtype=bool)
 
 
 class _PieceBranch(_Branch):
@@ -1215,6 +1233,25 @@ def _check_monotone(
                     f"policy {name!r} at {where}: the derivative of the inverse is "
                     f"{float(slope[row])!r} at b = {float(image[row]):g} on piece {index}. "
                     "It must be finite and nonzero, since the density ratio multiplies by it"
+                )
+            # The declared derivative of the inverse is 1 / d'(a) at b = d(a).  A central
+            # difference of the declared map at the same point checks its value, which the
+            # density ratio multiplies by, and not only its sign and finiteness.
+            step = _DERIVATIVE_STEP * np.maximum(1.0, np.abs(point))
+            with np.errstate(all="ignore"):
+                upper_value = _per_row(_call(piece.map, point + step, frame()), a.size)
+                lower_value = _per_row(_call(piece.map, point - step, frame()), a.size)
+                expected = (2.0 * step) / (upper_value - lower_value)
+                gap = np.abs(slope - expected) / np.maximum(np.abs(expected), 1e-12)
+            wrong = usable & ~(gap <= _DERIVATIVE_TOLERANCE)
+            if wrong.any():
+                row = int(np.flatnonzero(wrong)[0])
+                raise DataError(
+                    f"policy {name!r} at {where}: the declared derivative of the inverse is "
+                    f"{float(slope[row]):.6g} at b = {float(image[row]):g} on piece {index}, "
+                    f"but 1 / d'(a) from the declared map is {float(expected[row]):.6g} at "
+                    f"a = {float(point[row]):g}. The density ratio multiplies by this value, "
+                    "so declare the derivative of the inverse map"
                 )
 
 

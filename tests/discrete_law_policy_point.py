@@ -211,6 +211,10 @@ POLICIES: dict[str, dict[str, Branches]] = {
             (0.25, _deterministic(UNIT, lambda w, a: a - 1.0 if a >= 2.5 else a)[0][1]),
             (0.75, _identity(UNIT)[0][1]),
         ),
+        # A piece closed on the right at the support point 1: the doses 0 and 1 move up one.
+        # Closed on the left, the dose 1 would stay, so the closed end decides the answer.
+        "right closed": _deterministic(UNIT, lambda w, a: a + 1.0 if a <= 1.0 else a),
+        "right closed piece": _deterministic(UNIT, lambda w, a: a + 1.0 if a <= 1.0 else a),
     },
     "multiplicative": {
         "natural course": _identity(MULTIPLICATIVE),
@@ -221,12 +225,18 @@ POLICIES: dict[str, dict[str, Branches]] = {
         "piecewise": _deterministic(
             PIECEWISE, lambda w, a: 2.0 * a if a < 1.5 else a + 2.0 if a < 7.0 else a
         ),
+        # The same policy with no piece above 7: an uncovered dose keeps its value.
+        "piecewise gap": _deterministic(
+            PIECEWISE, lambda w, a: 2.0 * a if a < 1.5 else a + 2.0 if a < 7.0 else a
+        ),
     },
     "binary": {
         "natural course": _identity(BINARY),
-        "rr 0.5": (
-            (0.5, _identity(BINARY)[0][1]),
-            (0.5, _deterministic(BINARY, lambda w, a: 0.0)[0][1]),
+        # Asymmetric on purpose: at delta = 0.5 the keep and drop branches have equal weight,
+        # so a swap of the two probabilities would not move the mean.
+        "rr 0.25": (
+            (0.25, _identity(BINARY)[0][1]),
+            (0.75, _deterministic(BINARY, lambda w, a: 0.0)[0][1]),
         ),
         "rr 4": (
             (0.25, _identity(BINARY)[0][1]),
@@ -237,6 +247,8 @@ POLICIES: dict[str, dict[str, Branches]] = {
     "three level": {
         "natural course": _identity(THREE_LEVEL),
         "drop above 2": _deterministic(THREE_LEVEL, lambda w, a: a - 1.0 if a > 2.0 else a),
+        # Closed on the right at the level 2, which is a support point.
+        "right closed": _deterministic(THREE_LEVEL, lambda w, a: a + 1.0 if a <= 2.0 else a),
     },
 }
 
@@ -245,6 +257,7 @@ POLICIES: dict[str, dict[str, Branches]] = {
 _SLOPES: dict[tuple[str, str], Callable[[float], float]] = {
     ("multiplicative", "x2"): lambda a: 0.5,
     ("piecewise", "piecewise"): lambda a: 0.5 if a < 1.5 else 1.0,
+    ("piecewise", "piecewise gap"): lambda a: 0.5 if a < 1.5 else 1.0,
 }
 
 
