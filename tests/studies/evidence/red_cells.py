@@ -373,6 +373,9 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     "F1-power-design": (
         *_keys("stochastic-categorical-ltmle", "property", "power/mix__alternative"),
     ),
+    "mtp-point-calibration": (
+        *_keys("policy-point-mtp", "property", "interval_calibration/halve__correctly_specified"),
+    ),
 }
 
 

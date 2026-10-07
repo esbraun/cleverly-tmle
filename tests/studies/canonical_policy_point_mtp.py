@@ -32,7 +32,7 @@ regression on the columns and the squared dose (``SL.glm.quadratic``), so the un
 estimates agree to rounding.  The paired rows are read under the default margins and are not
 an exactness check.
 
-Publication policy is ``gated`` (see the declarations below).  The red-cell route follows the
+Publication policy is ``reporting`` (see the declarations below).  The red-cell route follows the
 rule of ``docs/development/method-benchmarking.md``: every red cell is diagnosed first.  A
 genuine problem (an algorithm defect, an inconsistent estimator, or a test or design bug) is
 fixed, and the study re-runs under a fresh declaration that states the change.  A red cell with
@@ -57,6 +57,17 @@ first ``longitudinal-mtp`` diagnosis.  Every cell changes, so the study re-runs 
 declaration, ``gated``; the first run's red cell and its owner are withdrawn, and a red cell of
 this run is diagnosed and routed by the rule above.  The laws, seeds,
 budgets, margins, learners and cells are unchanged.
+
+**Re-registration of the second run.**  The fresh run (HEAD ``1b409b1c``) passed 14 of 14 truth
+and 7 of 7 paired tests, and 26 of 27 property cells.  ``interval_calibration/
+halve__correctly_specified`` failed its SE-ratio band again: 1.0429, with a 99% interval of
+1.0011 to 1.0881, against 1.0430 at 160 bins, so the bin count does not move it.  Its coverage
+is 0.9605, and its reported efficiency ratio is 1.0018, so the reported standard error matches
+the bound and the empirical spread sits 4% below it (99% interval 0.921 to 1.0003).  The
+influence curve with the binned ratio predicts a ratio of 0.9998.  At 2,000 replications a
+calibrated cell crosses the bound with a probability of about 5%.  The diagnosis finds no
+defect, so by the rule the study moves to ``reporting`` with the owner row
+``mtp-point-calibration``, and the run repeats with no other change.
 """
 
 from __future__ import annotations
@@ -351,7 +362,7 @@ STUDY = StudyRecord(
     runner_module="tests.studies.canonical_policy_point_mtp",
     properties_module="tests.studies.policy_point_mtp_properties",
     property_cells=PROPERTY_CELLS,
-    publication_policy="gated",
+    publication_policy="reporting",
 )
 
 REFERENCE_METADATA = {
