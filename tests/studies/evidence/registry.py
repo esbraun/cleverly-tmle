@@ -352,6 +352,10 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_multi_arm_tmle import STUDY as CANONICAL_MULTI_ARM_TMLE
     from tests.studies.canonical_point_msm import STUDY as CANONICAL_POINT_MSM
+    from tests.studies.canonical_point_survival import STUDY as POINT_SURVIVAL
+    from tests.studies.canonical_point_survival_crossfit import (
+        STUDY as POINT_SURVIVAL_CROSSFIT,
+    )
     from tests.studies.canonical_policy_point_mtp import STUDY as POLICY_POINT_MTP
     from tests.studies.canonical_shift_policies import STUDY as CANONICAL_SHIFT_POLICIES
     from tests.studies.canonical_stochastic_categorical_ltmle import (
@@ -439,6 +443,8 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_LTMLE_SURVIVAL_CROSSFIT,
         CANONICAL_LTMLE_COMPETING,
         CANONICAL_LTMLE_COMPETING_CROSSFIT,
+        POINT_SURVIVAL,
+        POINT_SURVIVAL_CROSSFIT,
         OMITTED_VARIABLE_BOUND_SE,
         CALIBRATION_SLOPE_WARNING,
         DEFAULT_SIMULTANEOUS_BANDS,

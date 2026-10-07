@@ -177,8 +177,9 @@ def point_survival_truth(
     continuous_event_time: bool = False,
     grid: Sequence[float] | None = None,
     end_of_study: bool = False,
+    weight: Callable[[int, int], float] | None = None,
 ) -> FloatArray:
-    """The exact truth of :func:`make_point_survival` under an intervention on :math:`A`.
+    r"""The exact truth of :func:`make_point_survival` under an intervention on :math:`A`.
 
     Parameters
     ----------
@@ -189,6 +190,9 @@ def point_survival_truth(
         shifted treatment.
     arms, causes, n_times, time_varying, dose, continuous_event_time, grid, end_of_study
         As for :func:`make_point_survival`.
+    weight : callable or None
+        ``weight(w1, w2)``, an observation weight of the baseline stratum.  The truth is then
+        the parameter of the tilted law :math:`dP_w = w\,dP / E[w]`.  ``None`` is no tilt.
 
     Returns
     -------
@@ -199,9 +203,14 @@ def point_survival_truth(
     levels = _levels(arms, dose)
     total = np.zeros((n_times, causes)) if not end_of_study else np.zeros(1)
     times = _grid(grid, n_times, continuous_event_time)
+    tilt = (
+        1.0
+        if weight is None
+        else sum(0.5 * 0.25 * float(weight(w1, w2)) for w1 in (0, 1) for w2 in _W2)
+    )
     for w1 in (0, 1):
         for w2 in _W2:
-            mass = 0.5 * 0.25
+            mass = 0.5 * 0.25 * (1.0 if weight is None else float(weight(w1, w2))) / tilt
             probability = np.asarray(assign(w1, w2), dtype=float)
             for code, level in enumerate(levels):
                 share = float(probability[code])
@@ -284,6 +293,7 @@ def make_point_survival(
     grid: Sequence[float] | None = None,
     end_of_study: bool = False,
     layout: str = "long",
+    cluster_size: int | None = None,
     backend: Backend | str | None = None,
 ) -> tuple[Any, dict[str, float]]:
     """A baseline treatment, a discrete-time event, and dropout at the visits.
@@ -325,6 +335,10 @@ def make_point_survival(
         layout only; every censoring node then has dropout.
     layout : {"long", "wide"}
         The frame layout.
+    cluster_size : int or None
+        Rows per cluster.  ``W1`` and ``W2`` are then drawn once per cluster and shared by its rows,
+        which correlates the rows of a cluster and leaves the law of one row unchanged.  The
+        frame gains an ``id`` column.  ``None`` leaves the rows independent.
     backend : {"pandas", "polars", "pyarrow"} or None, default=None
         Dataframe backend.
 
@@ -354,8 +368,15 @@ def make_point_survival(
     if continuous_event_time and (layout != "long" or causes != 1 or time_varying):
         raise ValueError("continuous_event_time=True needs layout='long', one cause, no L")
     rng = np.random.default_rng(seed)
-    w1 = rng.binomial(1, 0.5, n).astype(float)
-    w2 = rng.integers(0, 4, n).astype(float)
+    if cluster_size is None:
+        w1 = rng.binomial(1, 0.5, n).astype(float)
+        w2 = rng.integers(0, 4, n).astype(float)
+        ids = None
+    else:
+        ids = np.arange(n) // cluster_size
+        clusters = int(ids[-1]) + 1
+        w1 = rng.binomial(1, 0.5, clusters).astype(float)[ids]
+        w2 = rng.integers(0, 4, clusters).astype(float)[ids]
     probabilities = treatment_probabilities(w1, w2, arms=arms, dose=dose)
     cumulative = np.cumsum(probabilities, axis=1)
     draw = rng.uniform(size=n)
@@ -364,6 +385,8 @@ def make_point_survival(
     a = levels[code]
     treatment_name = "D" if dose is not None else "A"
     payload: dict[str, Any] = {"W1": w1, "W2": w2, treatment_name: a}
+    if ids is not None:
+        payload["id"] = ids.astype(float)
     times = _grid(grid, n_times, continuous_event_time)
 
     if end_of_study:

@@ -539,6 +539,22 @@ Competing events affect the at-risk population but do not add a denominator fact
 estimand explicitly intervenes on them. Cause-specific estimates need not be renormalized to a
 simplex.
 
+A held design has one treatment decision, at node 1, held over every node. Each later node is an
+identity node. Its plan value is the observed node-1 value, its factor is exactly one in the ratio
+numerator and denominator, and it fits no model. It is never a policy node or a modified treatment
+policy node, and it adds no block to a mechanism or outcome design: there is one block per
+decision. Regimens resolve on the decisions, so a rule or a policy is evaluated once, on the node-1
+history. `tests/unit/test_point_policy_mtp.py` makes the held nodes policy nodes and sees the
+Gateaux check fail. `tests/unit/test_point_survival_mutations.py` re-evaluates a rule at every node
+and sees the estimate move.
+
+A censoring node at which no eligible unit is censored has the fixed factor one and fits no
+learner. The eligible rows are the rows at risk before the node with positive weight. A
+cross-fitted training fold with no censored unit predicts one, which is its empirical rate. The
+nuisance report shows an omission in place of a model row. `survtmle` sets `G_dC = 1` at `t = 1`
+for the same case. `tests/unit/test_no_censoring_node.py` removes the guard and sees the solver
+error return.
+
 ## Weights, bounds, and sensitivity
 
 Observation weights define the target population and must flow through nuisance loss, score
