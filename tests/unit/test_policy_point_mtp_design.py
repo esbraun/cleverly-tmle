@@ -97,7 +97,7 @@ FIT_SET_SIZES = {
 
 def test_the_declared_numbers() -> None:
     record = study.STUDY
-    assert record.publication_policy == "gated"
+    assert record.publication_policy == "reporting"
     assert record.margins == Margins()
     assert (study.PRIMARY_REPLICATES, study.PRIMARY_N) == (1_000, 2_000)
     assert (study.SEED, study.RESAMPLING_SEED) == (20261043, 2026104301)
@@ -274,3 +274,23 @@ def test_the_positive_cells_pass_with_high_probability_at_their_declared_size() 
         worse = abs(mean) + 0.058
         probability = norm.cdf((limit - worse) / spread) - norm.cdf((-limit - worse) / spread)
         assert probability > 0.98, cell
+
+
+#: The re-registration reading of ``interval_calibration/halve__correctly_specified``, from the
+#: declared run at ``bd2af429``: the SE ratio and its 99% interval, and the ratio that the
+#: influence curve with the binned ratio predicts on 8,000 rows (``_x12_halve_diag.py``).
+HALVE_SE_RATIO = (1.042963, 1.001548, 1.088058)
+HALVE_PREDICTED_RATIO = 0.9998
+
+
+def test_the_red_calibration_cell_reads_as_a_limit_of_its_budget() -> None:
+    """A calibrated cell crosses the SE-ratio bound with a probability of several percent."""
+    from scipy.stats import norm
+
+    _, lower, upper = HALVE_SE_RATIO
+    half = (upper - lower) / 2.0
+    standard_error = half / float(norm.ppf(0.995))
+    bound = Margins().calibration_se_ratio[1]
+    false_fail = 1.0 - float(norm.cdf((bound - half - HALVE_PREDICTED_RATIO) / standard_error))
+    assert 0.03 < false_fail < 0.10
+    assert upper > bound and HALVE_SE_RATIO[0] < bound

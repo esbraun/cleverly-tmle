@@ -32,13 +32,27 @@ regression on the columns and the squared dose (``SL.glm.quadratic``), so the un
 estimates agree to rounding.  The paired rows are read under the default margins and are not
 an exactness check.
 
-Publication policy is ``gated``.  The red-cell route is declared before any run: a red primary
+Publication policy was ``gated`` and is ``reporting`` after the re-registration below.  The red-cell
+route is declared before any run: a red primary
 or paired row blocks the merge and gets a diagnosis.  A red property cell that reads as a
 finite-sample limit is re-registered ``reporting`` with an owner row in "Red-cell owners"
 before any re-run.  A replication that raises is never redrawn; the shared harness refuses a
 cell that lost one, so the failing cell drops to its red-cell owner with its failure count
 stated as a page limit and the run repeats without it, with no other change.  No budget,
 margin, law, learner or seed changes after a verdict is seen.
+
+**Re-registration.**  The declared run (HEAD ``bd2af429``) passed every truth and paired gate
+(14 of 14 and 7 of 7) and 26 of 27 property cells.  ``interval_calibration/
+halve__correctly_specified`` failed its SE-ratio band: 1.043, with a 99% interval of 1.0015 to
+1.088 against an upper bound of 1.07.  Its coverage is 0.9615, inside the coverage band, so the
+reported standard error is conservative.  The influence curve with the binned ratio predicts a
+ratio of 0.9998 for this cell (a probe of 8,000 rows), so no structural gap explains it.  At
+2,000 replications the interval's half-width is about 0.043, so a calibrated cell crosses the
+upper bound with a probability of about 5%.  The interval's lower end is just above 1, so a
+small finite-sample conservatism is also possible.  The cell reads as a finite-sample limit of
+its budget, so by the
+declared route the study is re-registered under ``reporting`` with the owner row
+``mtp-point-calibration``, and the run repeats with no other change.
 """
 
 from __future__ import annotations
@@ -325,7 +339,7 @@ STUDY = StudyRecord(
     runner_module="tests.studies.canonical_policy_point_mtp",
     properties_module="tests.studies.policy_point_mtp_properties",
     property_cells=PROPERTY_CELLS,
-    publication_policy="gated",
+    publication_policy="reporting",
 )
 
 REFERENCE_METADATA = {
