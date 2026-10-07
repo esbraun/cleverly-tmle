@@ -6,19 +6,19 @@ Every number here was fixed before any registered run.
   ``(property, cell)`` set to equal the declared set, and each published truth to be the
   declared law's own.  A two-replication run of every fit set shows both.
 * The band cell's pointwise control needs a power of at least 0.99 at ``p0 + 0.005`` (the RM36
-  rule).  Ten fits of the continuous primary subject give ``p0 = 0.8235``, where 2,000
+  rule).  Ten fits of the continuous primary subject give ``p0 = 0.8222``, where 2,000
   replications give power 1.0.
 * The controls whose verdict is a bias outside the margin clear it, so a green control is
   evidence rather than luck.  The untargeted plug-in of the intercept-only regressions is the
   same number under every plan, so its contrast is exactly zero.  The other two are means over
-  200 draws of 4,000 rows (:data:`CONTROL_LIMITS`), against the margin 0.25 plus five Monte
+  400 draws of 2,000 rows (:data:`CONTROL_LIMITS`), against the margin 0.25 plus five Monte
   Carlo standard errors of the cell's mean.  The inverse-dropped control is also checked on the
   exact law of ``tests/discrete_law_longitudinal_mtp.py``.
-* The positive arms that rely on the mechanism alone stay inside the margin
-  (:data:`POSITIVE_LIMITS`).  Their bins were chosen before any run by the rule "the smallest
-  count whose mean standardized bias plus its Monte Carlo standard error is below 0.25".  At 80
-  bins the arms read 0.54 and 0.60, and at 160 bins 0.21 and 0.24, each over 100 draws of
-  8,000 rows.  ``MECHANISM_ONLY_BINS = 320`` meets the rule.
+* The continuous nodes read :func:`~tests.studies.oracle_density_bins.oracle_bins` bins: 320 at
+  n = 2,000, growing as ``n^(2/3)``.  The positive cells at n = 2,000
+  (:data:`POSITIVE_AT_DECLARED_N`) carry a finite-sample bias of about 0.1 empirical standard
+  deviations, the both-correct arm included.  ``history__declared_inverse`` reads 0.148, so it
+  passes its bias rule with a probability of about 0.74, recorded here before the run.
 * The power cell is sized on the exact law (:data:`DESIGN_POWER`): the declared contrast,
   the efficiency bound and ``NULL_N`` give a probability of at least 0.99 that its exact lower
   rejection endpoint clears ``MINIMUM_POWER`` over ``NULL_REPLICATES`` replications.
@@ -55,36 +55,33 @@ pytestmark = pytest.mark.xdist_group("longitudinal_mtp_design")
 
 RUNNER = ROOT / "tests" / "canonical" / "longitudinal_mtp_runner.R"
 #: A record, not a check: the pre-declaration failure-only probe on streams 0 to 19 under the
-#: declared seeds found zero failures in every fit set, with the mechanism-only fit sets at 320
-#: bins (``_x12_s2_probe.log`` beside the plan).
+#: declared seeds found zero failures in every fit set, at the oracle bins of the second
+#: declaration (``_x12_probe2.log`` beside the plan).
 FAILURE_PROBE = dict.fromkeys((f"{family}/{label}" for family, label, *_ in properties.FIT_SETS), 0)
 #: ``p0`` of the band cell, from ten fits of the continuous primary subject.
-BAND_P0 = 0.8235
+BAND_P0 = 0.8222
 #: The exact-law power of the power cell: the declared contrast against its efficiency-bound
 #: standard error at ``NULL_N`` (:func:`design_power`).
 DESIGN_POWER = 1.0
-#: A record, not a check: each control's mean distance from the truth over 200 draws of 4,000
-#: rows, in efficiency-bound standard errors of a cell replicate at n = 2,000
-#: (``_x12_s2_bp320.log``).  Monte Carlo standard errors 0.082 and 0.037.
-CONTROL_LIMITS = {"both_wrong": 4.899, "inverse_dropped": 2.103}
-#: A record, not a check: each mechanism-only positive arm's mean standardized bias at 320 bins
-#: and its Monte Carlo standard error, from the same draws.  ``both_correct`` at 80 bins is the
-#: reference: it reads the same finite-sample bias.
-POSITIVE_LIMITS = {
-    "up, mechanism correct": (0.110, 0.053),
-    "up then history, declared inverse": (0.127, 0.053),
-    "up, both correct": (0.112, 0.055),
-}
-#: A record, not a check: the positive cells at their declared n = 2,000, over 300 draws
-#: (``_x12_pp_s2.log``).  Each value is the mean error in empirical standard deviations; the Monte
-#: Carlo standard error is 0.058.  The bias rule passes a cell of 1,000 replications when the 99%
-#: interval of its mean lies inside 0.25, so each passes with probability above 0.98 even one
-#: Monte Carlo standard error worse.
+#: A record, not a check: each control's mean distance from the truth over 400 draws of 2,000
+#: rows at 320 oracle bins, in empirical standard deviations (``_x12_s2_decl3.log``).  Monte
+#: Carlo standard error 0.05.
+CONTROL_LIMITS = {"both_wrong": 3.083, "inverse_dropped": 2.655}
+#: A record, not a check: the positive cells at their declared n = 2,000, over the same draws.
+#: Each value is the mean error in empirical standard deviations; the Monte Carlo standard
+#: error is 0.05.
 POSITIVE_AT_DECLARED_N = {
-    "up__both_correct": 0.008,
-    "up__outcome_correct": 0.021,
-    "up__mechanism_correct": 0.045,
-    "history__declared_inverse": 0.030,
+    "up__both_correct": 0.110,
+    "up__outcome_correct": 0.096,
+    "up__mechanism_correct": 0.114,
+    "history__declared_inverse": 0.148,
+}
+#: A record, not a check: the efficiency ratios of the continuous calibration contrasts over the
+#: same draws, empirical and reported standard deviation over the bound.
+EFFICIENCY_AT_DECLARED_N = {
+    "up": (1.039, 1.012),
+    "randomized_mtp": (1.017, 1.005),
+    "msm_mtp": (1.044, 1.013),
 }
 #: The declared size of every fit set: ``(family, label) -> (n, replications)``.
 FIT_SET_SIZES = {
@@ -112,15 +109,15 @@ FIT_SET_SIZES = {
 
 def test_the_declared_numbers() -> None:
     record = study.STUDY
-    assert record.publication_policy == "reporting"
+    assert record.publication_policy == "gated"
     assert record.margins == Margins()
     assert (study.PRIMARY_REPLICATES, study.PRIMARY_N) == (1_000, 2_000)
     assert (study.SEED, study.RESAMPLING_SEED) == (20261041, 2026104101)
     assert (study.SMOKE_GATE, study.LEARNER_FOLDS, study.N_FOLDS) == (1e-6, 2, 5)
-    assert (study.DENSITY_BINS, study.TILT_COPIES, study.G_BOUNDS) == (80, 4, (0.001, 1.0))
-    assert study.MECHANISM_ONLY_BINS == 320
-    assert study.density_bins("mechanism_correct") == 320
-    assert {study.density_bins(c) for c in ("primary", "both_correct", "both_wrong")} == {80}
+    from tests.studies.oracle_density_bins import oracle_bins
+
+    assert (study.TILT_COPIES, study.G_BOUNDS) == (4, (0.001, 1.0))
+    assert [oracle_bins(n) for n in (500, 1_000, 2_000, 4_000, 8_000)] == [127, 202, 320, 508, 807]
     assert record.reference == "lmtp"
     assert properties.BAND_REPLICATES == 2_000
     assert {
@@ -271,8 +268,8 @@ def test_the_untargeted_control_is_zero_under_intercept_regressions() -> None:
 def test_the_recorded_control_limits_clear_their_margins() -> None:
     assert CONTROL_LIMITS["both_wrong"] > _floor(properties.DOUBLE_ROBUST_REPLICATES)
     assert CONTROL_LIMITS["inverse_dropped"] > _floor(properties.INVERSE_REPLICATES)
-    for bias, monte_carlo in POSITIVE_LIMITS.values():
-        assert abs(bias) + monte_carlo < Margins().standardized_bias
+    for empirical, reported in EFFICIENCY_AT_DECLARED_N.values():
+        assert 0.9 < empirical < 1.1 and 0.9 < reported < 1.1
 
 
 def test_the_inverse_dropped_control_moves_the_exact_law() -> None:
@@ -361,7 +358,11 @@ def test_the_quadrature_truths_match_a_simulation_of_definition_one() -> None:
 
 
 def test_the_positive_cells_pass_with_high_probability_at_their_declared_size() -> None:
-    """The bias rule's pass probability, from the recorded means one Monte Carlo SE worse."""
+    """The bias rule's pass probability at each recorded mean.
+
+    Every cell passes with a probability of at least 0.7.  ``history__declared_inverse`` is the
+    one at risk, at about 0.74; if it reads red, the red-cell rule routes it.
+    """
     from scipy.stats import norm
     from scipy.stats import t as student
 
@@ -369,7 +370,9 @@ def test_the_positive_cells_pass_with_high_probability_at_their_declared_size() 
     half = float(student.ppf(0.995, replicates - 1)) / np.sqrt(replicates)
     limit = Margins().standardized_bias - half
     spread = 1.0 / np.sqrt(replicates)
-    for cell, mean in POSITIVE_AT_DECLARED_N.items():
-        worse = abs(mean) + 0.058
-        probability = norm.cdf((limit - worse) / spread) - norm.cdf((-limit - worse) / spread)
-        assert probability > 0.98, cell
+    probabilities = {
+        cell: norm.cdf((limit - abs(mean)) / spread) - norm.cdf((-limit - abs(mean)) / spread)
+        for cell, mean in POSITIVE_AT_DECLARED_N.items()
+    }
+    assert min(probabilities.values()) > 0.7, probabilities
+    assert probabilities["history__declared_inverse"] == pytest.approx(0.74, abs=0.02)

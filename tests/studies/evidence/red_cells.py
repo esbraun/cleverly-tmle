@@ -373,28 +373,6 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     "F1-power-design": (
         *_keys("stochastic-categorical-ltmle", "property", "power/mix__alternative"),
     ),
-    "binned-density-tail": (
-        *_keys(
-            "longitudinal-mtp",
-            "property",
-            "interval_calibration/up__correctly_specified",
-            "interval_calibration/msm_mtp__correctly_specified",
-            "interval_calibration/randomized_mtp__correctly_specified",
-            "crossfit_overfitting/cross_fitted_mtp_ltmle",
-            "crossfit_overfitting/in_sample_control",
-        ),
-    ),
-    "mtp-longitudinal-finite-sample": (
-        *_keys(
-            "longitudinal-mtp",
-            "property",
-            "interval_calibration/categorical_mtp__correctly_specified",
-            "root_n_and_efficiency/up__n_500",
-        ),
-    ),
-    "mtp-point-calibration": (
-        *_keys("policy-point-mtp", "property", "interval_calibration/halve__correctly_specified"),
-    ),
 }
 
 

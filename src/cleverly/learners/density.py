@@ -353,7 +353,17 @@ class ConditionalDensity:
 # ------------------------------------------------------------------- fitting
 
 
-def _bin_block(index: IntArray, n_hazards: int) -> FloatArray:
+#: A hazard learner that sets ``bin_design = "index"`` reads only the bin index, so the
+#: pooled design omits the indicator block.  The block has ``K - 1`` columns over about
+#: ``n K / 2`` records, which is most of the memory of a fit at a large bin count.
+INDEX_ONLY = "index"
+
+
+def _index_only(learner: Any) -> bool:
+    return getattr(learner, "bin_design", None) == INDEX_ONLY
+
+
+def _bin_block(index: IntArray, n_hazards: int, index_only: bool = False) -> FloatArray:
     """How the bin a record belongs to enters the pooled hazard design.
 
     Two representations of the same integer, side by side, because the two kinds of
@@ -371,12 +381,14 @@ def _bin_block(index: IntArray, n_hazards: int) -> FloatArray:
       linear model shift the whole baseline by ``W`` but never change its *shape* with
       ``W`` -- a proportional-hazards restriction on the density that nothing here needs.
     """
+    if index_only:
+        return index.astype(float).reshape(-1, 1)
     indicators = (index.reshape(-1, 1) == np.arange(1, n_hazards).reshape(1, -1)).astype(float)
     return np.column_stack([index.astype(float), indicators])
 
 
 def _long_expansion(
-    covariates: FloatArray, bins: IntArray, n_hazards: int
+    covariates: FloatArray, bins: IntArray, n_hazards: int, index_only: bool = False
 ) -> tuple[FloatArray, FloatArray, IntArray]:
     """The ``(unit, bin)`` records a pooled hazard model is fit on.
 
@@ -392,18 +404,22 @@ def _long_expansion(
     rows = np.repeat(np.arange(bins.size, dtype=np.int64), counts)
     offsets = np.repeat(np.cumsum(counts) - counts, counts)
     index = np.arange(rows.size, dtype=np.int64) - offsets
-    design = np.column_stack([covariates[rows], _bin_block(index, n_hazards)])
+    design = np.column_stack([covariates[rows], _bin_block(index, n_hazards, index_only)])
     target = (index == bins[rows]).astype(float)
     return design, target, rows
 
 
-def _hazard_matrix(model: Learner, covariates: FloatArray, n_hazards: int) -> FloatArray:
+def _hazard_matrix(
+    model: Learner, covariates: FloatArray, n_hazards: int, index_only: bool = False
+) -> FloatArray:
     """``(n, n_hazards)`` predicted hazards, one column per bin the model covers."""
     n = covariates.shape[0]
     columns = [
         predict_mean(
             model,
-            np.column_stack([covariates, _bin_block(np.full(n, b, dtype=np.int64), n_hazards)]),
+            np.column_stack(
+                [covariates, _bin_block(np.full(n, b, dtype=np.int64), n_hazards, index_only)]
+            ),
             "classification",
         )
         for b in range(n_hazards)
@@ -473,12 +489,13 @@ def fit_conditional_density(
 
     n_total = int(grid.size - 1)
     n_hazards = n_total - 1
+    index_only = _index_only(learner)
     bins = np.clip(np.digitize(a, grid) - 1, 0, n_total - 1).astype(np.int64)
 
     def fit_on(rows: IntArray) -> Learner:
         if mask is not None:
             rows = rows[mask[rows]]
-        design, target, source = _long_expansion(w[rows], bins[rows], n_hazards)
+        design, target, source = _long_expansion(w[rows], bins[rows], n_hazards, index_only)
         return fit_learner(
             learner,
             design,
@@ -493,7 +510,9 @@ def fit_conditional_density(
 
     if folds.is_single:
         model = fit_on(np.arange(a.size, dtype=np.int64))
-        probabilities[:] = _probabilities_from_hazards(_hazard_matrix(model, w, n_hazards))
+        probabilities[:] = _probabilities_from_hazards(
+            _hazard_matrix(model, w, n_hazards, index_only)
+        )
         found = getattr(model, "diagnostics_", None)
         if found is not None:
             diagnostics.append(found)
@@ -501,7 +520,7 @@ def fit_conditional_density(
 
         def run_fold(train: IntArray, test: IntArray) -> tuple[IntArray, FloatArray, Any]:
             model = fit_on(train)
-            hazards = _hazard_matrix(model, w[test], n_hazards)
+            hazards = _hazard_matrix(model, w[test], n_hazards, index_only)
             return test, _probabilities_from_hazards(hazards), getattr(model, "diagnostics_", None)
 
         for test, values, found in map_parallel(

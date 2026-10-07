@@ -10,12 +10,10 @@ Every number here was fixed before any registered run.
   the same number under both policies, so its contrast is exactly zero.  The inverse-dropped
   control is exactly zero for the same reason: the dropped ratio takes the same value at a dose
   and at its image, so the joint fluctuation returns the sample mean under both policies.  The
-  both-wrong control is measured as a mean over eight draws of 8,000 rows
-  (:data:`CONTROL_LIMITS`).  Each limit is compared with the margin 0.25 plus five Monte Carlo
-  standard errors of the cell's mean.
-* The positive arms that read the binned oracle density stay inside the margin.  The mean over
-  40 draws of 8,000 rows is recorded in :data:`POSITIVE_LIMITS`, with its Monte Carlo
-  standard error.
+  both-wrong control is measured over 400 draws of 2,000 rows (:data:`CONTROL_LIMITS`).  Each
+  limit is compared with the margin 0.25 plus five Monte Carlo standard errors of the cell's mean.
+* The oracle density reads :func:`~tests.studies.oracle_density_bins.oracle_bins` bins, 320 at
+  n = 2,000, growing as ``n^(2/3)``.
 * The power cell is sized on the exact law (:data:`DESIGN_POWER`): the declared contrast,
   the efficiency bound and ``NULL_N`` give a probability of at least 0.99 that its exact lower
   rejection endpoint clears ``MINIMUM_POWER`` over ``NULL_REPLICATES`` replications.
@@ -48,32 +46,31 @@ pytestmark = pytest.mark.xdist_group("policy_point_mtp_design")
 
 RUNNER = ROOT / "tests" / "canonical" / "policy_point_mtp_runner.R"
 #: A record, not a check: the pre-declaration failure-only probe on streams 0 to 19 under the
-#: declared seeds found zero failures in every fit set (``_x12_s1_probe.log`` beside the plan).
+#: declared seeds found zero failures in every fit set (``_x12_probe2.log`` beside the plan).
 FAILURE_PROBE = dict.fromkeys((f"{family}/{label}" for family, label, *_ in properties.FIT_SETS), 0)
 #: The exact-law power of the power cell: the declared contrast against its efficiency-bound
 #: standard error at ``NULL_N`` (:func:`design_power`).
 DESIGN_POWER = 0.942235
-#: A record, not a check: each control's distance from the truth, in efficiency-bound standard
-#: errors of a cell replicate at n = 2,000 (``_x12_s1_limits.log``).
-CONTROL_LIMITS = {"both_wrong": 2.959, "inverse_dropped": 2.808}
-#: A record, not a check: the standardized bias of each positive arm read with the binned
-#: oracle density and a prior-only outcome, and its Monte Carlo standard error
-#: (``_x12_s1_positives.log``).
-POSITIVE_LIMITS = {
-    "x1.25": (0.076, 0.095),
-    "piecewise": (-0.077, 0.077),
-    "halve below 3": (0.024, 0.075),
-}
-#: A record, not a check: the positive cells at their declared n = 2,000, over 300 draws
-#: (``_x12_pp_s1.log``).  Each value is the mean error in empirical standard deviations; the Monte
-#: Carlo standard error is 0.058.  The bias rule passes a cell of 1,000 replications when the 99%
-#: interval of its mean lies inside 0.25, so each passes with probability above 0.98 even one
-#: Monte Carlo standard error worse.
+#: A record, not a check: each control's mean distance from the truth over 400 draws of 2,000
+#: rows at 320 oracle bins (``_x12_s1_decl.log``): the both-wrong arm in its empirical standard
+#: deviations, and the inverse-dropped arm, whose estimates are all zero, in efficiency-bound
+#: standard errors.
+CONTROL_LIMITS = {"both_wrong": 3.204, "inverse_dropped": 2.808}
+#: A record, not a check: the positive cells at their declared n = 2,000, over 400 draws at 320
+#: oracle bins (``_x12_s1_decl.log``).  Each value is the mean error in empirical standard
+#: deviations; the Monte Carlo standard error is 0.05.
 POSITIVE_AT_DECLARED_N = {
-    "x1_25__both_correct": 0.015,
-    "x1_25__outcome_correct": 0.026,
-    "x1_25__density_correct": 0.001,
-    "halve__declared_inverse": 0.043,
+    "x1_25__both_correct": -0.013,
+    "x1_25__outcome_correct": 0.006,
+    "x1_25__density_correct": -0.019,
+    "halve__declared_inverse": 0.006,
+}
+#: A record, not a check: the efficiency ratios of the calibration contrasts over the same draws,
+#: empirical and reported standard deviation over the bound.
+EFFICIENCY_AT_DECLARED_N = {
+    "x1_25": (1.023, 0.989),
+    "piecewise": (1.048, 1.003),
+    "halve": (0.984, 1.003),
 }
 #: The declared size of every fit set: ``(family, label) -> (n, replications)``.
 FIT_SET_SIZES = {
@@ -97,11 +94,13 @@ FIT_SET_SIZES = {
 
 def test_the_declared_numbers() -> None:
     record = study.STUDY
-    assert record.publication_policy == "reporting"
+    assert record.publication_policy == "gated"
     assert record.margins == Margins()
     assert (study.PRIMARY_REPLICATES, study.PRIMARY_N) == (1_000, 2_000)
     assert (study.SEED, study.RESAMPLING_SEED) == (20261043, 2026104301)
-    assert study.DENSITY_BINS == 160
+    from tests.studies.oracle_density_bins import oracle_bins
+
+    assert [oracle_bins(n) for n in (500, 2_000, 4_000, 8_000)] == [127, 320, 508, 807]
     assert (study.FACTOR, study.CAP, study.KNEE, study.DROP, study.HALVE_BELOW) == (
         1.25,
         5.5,
@@ -235,8 +234,8 @@ def test_the_inverse_dropped_control_returns_the_natural_course() -> None:
 def test_the_recorded_limits_clear_their_margins() -> None:
     assert CONTROL_LIMITS["both_wrong"] > _floor(properties.DOUBLE_ROBUST_REPLICATES)
     assert CONTROL_LIMITS["inverse_dropped"] > _floor(properties.INVERSE_REPLICATES)
-    for bias, monte_carlo in POSITIVE_LIMITS.values():
-        assert abs(bias) + monte_carlo < Margins().standardized_bias
+    for empirical, reported in EFFICIENCY_AT_DECLARED_N.values():
+        assert 0.9 < empirical < 1.1 and 0.9 < reported < 1.1
 
 
 # ------------------------------------------------------------------ the comparator's table
@@ -271,26 +270,6 @@ def test_the_positive_cells_pass_with_high_probability_at_their_declared_size() 
     limit = Margins().standardized_bias - half
     spread = 1.0 / np.sqrt(replicates)
     for cell, mean in POSITIVE_AT_DECLARED_N.items():
-        worse = abs(mean) + 0.058
+        worse = abs(mean) + 0.05
         probability = norm.cdf((limit - worse) / spread) - norm.cdf((-limit - worse) / spread)
         assert probability > 0.98, cell
-
-
-#: The re-registration reading of ``interval_calibration/halve__correctly_specified``, from the
-#: declared run at ``bd2af429``: the SE ratio and its 99% interval, and the ratio that the
-#: influence curve with the binned ratio predicts on 8,000 rows (``_x12_halve_diag.py``).
-HALVE_SE_RATIO = (1.042963, 1.001548, 1.088058)
-HALVE_PREDICTED_RATIO = 0.9998
-
-
-def test_the_red_calibration_cell_reads_as_a_limit_of_its_budget() -> None:
-    """A calibrated cell crosses the SE-ratio bound with a probability of several percent."""
-    from scipy.stats import norm
-
-    _, lower, upper = HALVE_SE_RATIO
-    half = (upper - lower) / 2.0
-    standard_error = half / float(norm.ppf(0.995))
-    bound = Margins().calibration_se_ratio[1]
-    false_fail = 1.0 - float(norm.cdf((bound - half - HALVE_PREDICTED_RATIO) / standard_error))
-    assert 0.03 < false_fail < 0.10
-    assert upper > bound and HALVE_SE_RATIO[0] < bound

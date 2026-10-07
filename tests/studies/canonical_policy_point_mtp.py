@@ -19,7 +19,7 @@ Gauss-Legendre quadrature over the dose, split at every point where a policy jum
 by doubling the order (agreement below ``1e-10``).
 
 **Learners.**  The density is the oracle binned density of the truncated normal
-(:class:`OraclePointHazard`, ``DENSITY_BINS`` bins) and the outcome regression the correctly
+(:class:`OraclePointHazard`, :func:`~tests.studies.oracle_density_bins.oracle_bins` bins) and the outcome regression the correctly
 specified logistic model in ``[A, A^2, W1, W2]``.
 
 **The comparator.**  ``lmtp`` 1.5.4 is handed the ratio array this package computed
@@ -32,27 +32,31 @@ regression on the columns and the squared dose (``SL.glm.quadratic``), so the un
 estimates agree to rounding.  The paired rows are read under the default margins and are not
 an exactness check.
 
-Publication policy was ``gated`` and is ``reporting`` after the re-registration below.  The red-cell
-route is declared before any run: a red primary
-or paired row blocks the merge and gets a diagnosis.  A red property cell that reads as a
-finite-sample limit is re-registered ``reporting`` with an owner row in "Red-cell owners"
-before any re-run.  A replication that raises is never redrawn; the shared harness refuses a
-cell that lost one, so the failing cell drops to its red-cell owner with its failure count
-stated as a page limit and the run repeats without it, with no other change.  No budget,
-margin, law, learner or seed changes after a verdict is seen.
+Publication policy is ``gated`` (see the declarations below).  The red-cell route follows the
+rule of ``docs/development/method-benchmarking.md``: every red cell is diagnosed first.  A
+genuine problem (an algorithm defect, an inconsistent estimator, or a test or design bug) is
+fixed, and the study re-runs under a fresh declaration that states the change.  A red cell with
+no defect is published red under ``reporting`` with an owner row in "Red-cell owners", declared
+before the repeat run.  A replication that raises is never redrawn.  No change may make a test
+less meaningful or easier to pass.
 
-**Re-registration.**  The declared run (HEAD ``bd2af429``) passed every truth and paired gate
-(14 of 14 and 7 of 7) and 26 of 27 property cells.  ``interval_calibration/
-halve__correctly_specified`` failed its SE-ratio band: 1.043, with a 99% interval of 1.0015 to
-1.088 against an upper bound of 1.07.  Its coverage is 0.9615, inside the coverage band, so the
-reported standard error is conservative.  The influence curve with the binned ratio predicts a
-ratio of 0.9998 for this cell (a probe of 8,000 rows), so no structural gap explains it.  At
-2,000 replications the interval's half-width is about 0.043, so a calibrated cell crosses the
-upper bound with a probability of about 5%.  The interval's lower end is just above 1, so a
-small finite-sample conservatism is also possible.  The cell reads as a finite-sample limit of
-its budget, so by the
-declared route the study is re-registered under ``reporting`` with the owner row
-``mtp-point-calibration``, and the run repeats with no other change.
+**First run.**  The declared run (HEAD ``bd2af429``) passed every truth and paired gate (14 of 14
+and 7 of 7) and 26 of 27 property cells.  ``interval_calibration/halve__correctly_specified``
+failed its SE-ratio band: 1.043, with a 99% interval of 1.0015 to 1.088 against an upper bound of
+1.07.  Its coverage is 0.9615, so the reported standard error is conservative.  The influence
+curve with the binned ratio predicts a ratio of 0.9998 for this cell (a probe of 8,000 rows), and
+at 2,000 replications a calibrated cell crosses the bound with a probability of about 5%.  The
+cell reads as a finite-sample limit of its budget, so the study moved to ``reporting`` with the
+owner row ``mtp-point-calibration``; the repeat reproduced every artifact.
+
+**Second declaration.**  ``longitudinal-mtp`` then found that a binned density ratio at a fixed
+bin count is not consistent.  This study read its dose at a fixed 160 bins, on every size of its
+ladder.  Its bins now follow :func:`~tests.studies.oracle_density_bins.oracle_bins`, which grows
+as ``n^(2/3)`` from 320 at n = 2,000, the count that made the oracle's binning negligible in the
+first ``longitudinal-mtp`` diagnosis.  Every cell changes, so the study re-runs as a fresh
+declaration, ``gated``; the first run's red cell and its owner are withdrawn, and a red cell of
+this run is diagnosed and routed by the rule above.  The laws, seeds,
+budgets, margins, learners and cells are unchanged.
 """
 
 from __future__ import annotations
@@ -83,6 +87,7 @@ from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
 from tests.studies.fractional_glm import QuasiBinomialGLM
+from tests.studies.oracle_density_bins import oracle_bins
 from tests.studies.point_study_helpers import primary_rows
 
 PRIMARY_REPLICATES = 1_000
@@ -90,7 +95,6 @@ PRIMARY_N = 2_000
 SEED = 20261043
 RESAMPLING_SEED = 2026104301
 SCENARIO = "policy_point"
-DENSITY_BINS = 160
 LOWER, UPPER = 0.0, 6.0
 CAP = 5.5
 FACTOR = 1.25
@@ -234,6 +238,9 @@ class OraclePointHazard(BaseEstimator):
         Whether to ignore the covariates, the misspecified mechanism.
     """
 
+    #: The oracle reads only the bin index, so the density layer omits the indicator block.
+    bin_design = "index"
+
     def __init__(self, edges: tuple[float, ...], marginal: bool = False) -> None:
         self.edges = edges
         self.marginal = marginal
@@ -320,6 +327,7 @@ STUDY = StudyRecord(
     modules=(
         "tests/studies/canonical_policy_point_mtp.py",
         "tests/studies/policy_point_mtp_properties.py",
+        "tests/studies/oracle_density_bins.py",
         "tests/studies/canonical_categorical_ltmle.py",
         "tests/studies/canonical_ltmle.py",
         "tests/studies/categorical_longitudinal_common.py",
@@ -343,7 +351,7 @@ STUDY = StudyRecord(
     runner_module="tests.studies.canonical_policy_point_mtp",
     properties_module="tests.studies.policy_point_mtp_properties",
     property_cells=PROPERTY_CELLS,
-    publication_policy="reporting",
+    publication_policy="gated",
 )
 
 REFERENCE_METADATA = {
@@ -363,7 +371,7 @@ REFERENCE_METADATA = {
 CONFIGURATION = {
     "construction": "ordinary",
     "cross_fit": False,
-    "density_bins": DENSITY_BINS,
+    "density_bins": "ceil(320 (n / 2000)^(2/3)): 320 at n = 2,000, index-only oracle design",
     "outcome_learner": "QuadraticOutcome",
     "density": "oracle binned density of the truncated normal dose",
     "policies": list(LABELS),
@@ -377,7 +385,8 @@ def slug(label: str) -> str:
 
 def edges_of(frame: pd.DataFrame) -> tuple[float, ...]:
     return tuple(
-        float(value) for value in bin_edges(frame["A"].to_numpy(dtype=float), DENSITY_BINS)
+        float(value)
+        for value in bin_edges(frame["A"].to_numpy(dtype=float), oracle_bins(len(frame)))
     )
 
 
@@ -403,7 +412,7 @@ def fit(
             treatment_learner=density if treatment_learner is None else treatment_learner,
             cross_fit=False,
             simultaneous=False,
-            density_bins=DENSITY_BINS,
+            density_bins=oracle_bins(len(frame)),
             ratio=ratio,
             max_iter=100,
             tol=1e-10,
