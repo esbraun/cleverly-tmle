@@ -16,9 +16,11 @@ of ``canonical-ltmle-crossfit`` measured 0.353 (99% interval 0.346 to 0.360) at 
 
 Failure rule: a replication that raises is never redrawn.  ``failure_probe`` of the properties
 module counts failed fits per fit set and records no estimate.  On streams 0 to 199 of every fit
-set it found no failure (:data:`FAILURE_PROBE_200`).  The declared probe reads streams 0 to 1,999
-before the run, and a fit set with any failure is dropped before the run with its gap stated as a
-page limit.  The shared harness refuses a cell that lost a replication, so a failure in the run
+set it found no failure.  The declared probe on streams 0 to 1,999 found 5 failures in the
+``n_500`` rung and none elsewhere (:data:`FAILURE_PROBE_2000`), so that rung was dropped.  A
+rate needs three sizes, so the n = 1,000 rung of ``canonical-ltmle-crossfit`` replaced it, after
+its own failure-only probe found no failure.  A fit set with any probe failure is dropped
+before the run, with its gap stated as a page limit.  The shared harness refuses a cell that lost a replication, so a failure in the run
 itself stops the run.  That cell drops to its red-cell owner with its failure count published,
 and the run repeats without it, with no other change.
 
@@ -42,10 +44,26 @@ from tests.studies.evidence.registry import Margins, registered
 
 pytestmark = pytest.mark.xdist_group("crossfit_longitudinal_msm_design")
 
-#: The pre-declaration failure-only probe on streams 0 to 199: zero failures in every fit set.
-FAILURE_PROBE_200 = dict.fromkeys(
-    (f"{family}/{label}" for family, label, *_ in properties.FIT_SETS), 0
-)
+#: The declared failure-only probe on streams 0 to 1,999, recorded before the run.  The
+#: ``root_n_and_efficiency/n_500`` fit set failed 5 times and was dropped before the run.
+FAILURE_PROBE_2000 = {
+    "double_robustness/both_correct": 0,
+    "double_robustness/outcome_correct": 0,
+    "double_robustness/mechanism_correct": 0,
+    "double_robustness/both_wrong": 0,
+    "root_n_and_efficiency/n_500": 5,
+    "root_n_and_efficiency/n_2000": 0,
+    "root_n_and_efficiency/n_8000": 0,
+    "interval_calibration/correctly_specified": 0,
+    "interval_calibration/duration_logit": 0,
+    "type_i_error/sharp_null": 0,
+    "power/alternative": 0,
+    "targeting_necessity/targeted": 0,
+    "projection_necessity/declared_weights": 0,
+    "crossfit_overfitting/paired": 0,
+}
+#: The replacement rung's own failure-only probe on streams 0 to 1,999: no failure.
+FAILURE_PROBE_N1000 = 0
 #: The band cell's design, from ten fits of the primary subject: ``p0`` and the correlation.
 BAND_DESIGN = (0.9245, -0.838)
 #: The positive-arm pass probability of the coverage clause at 4,000 replications, at true
@@ -57,7 +75,7 @@ FIT_SET_SIZES = {
     ("double_robustness", "outcome_correct"): (2_000, 1_000),
     ("double_robustness", "mechanism_correct"): (2_000, 1_000),
     ("double_robustness", "both_wrong"): (2_000, 1_000),
-    ("root_n_and_efficiency", "n_500"): (500, 700),
+    ("root_n_and_efficiency", "n_1000"): (1_000, 700),
     ("root_n_and_efficiency", "n_2000"): (2_000, 700),
     ("root_n_and_efficiency", "n_8000"): (8_000, 700),
     ("interval_calibration", "correctly_specified"): (2_000, 4_000),
@@ -118,6 +136,17 @@ def test_the_declared_cells_are_the_cells_a_run_publishes() -> None:
     assert {(row.property, row.cell) for row in summary.itertuples()} == {
         (family, cell) for family, cells in study.STUDY.property_cells.items() for cell in cells
     }
+
+
+def test_the_fit_sets_follow_the_failure_probes() -> None:
+    """Every fit set with a probe failure is gone, and every remaining one was probed clean."""
+    declared = {f"{family}/{label}" for family, label, *_ in properties.FIT_SETS}
+    failed = {key for key, count in FAILURE_PROBE_2000.items() if count}
+    assert failed == {"root_n_and_efficiency/n_500"}
+    assert not declared & failed
+    assert declared == (set(FAILURE_PROBE_2000) - failed) | {"root_n_and_efficiency/n_1000"}
+    assert FAILURE_PROBE_N1000 == 0
+    assert properties.RATE_SIZES == (1_000, 2_000, 8_000)
 
 
 def test_no_two_families_share_a_declared_stream() -> None:

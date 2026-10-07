@@ -17,10 +17,17 @@ The marginal cells read the same fits as the stratum cells, so they add no fit. 
 estimate of a stratified fit reduces on ``(g_n, V)``.  It is a different estimator from the
 unstratified fit, and the primary scenario does not pair it.
 
-The both-correct configuration runs 2,000 replications, and its fits serve the calibration
-cells and the ``both_correct`` robustness cells alike, seeded by
-``stream_seed(STUDY, "property_sample", configuration, r)``.  Each other configuration runs 800,
-the shipped DR-TMLE study's budget.  Every fit is the primary scenario's cross-fitted fit.
+The calibration cells read 2,000 both-correct fits, seeded by
+``stream_seed(STUDY, "property_sample", "both_correct", r)``.  The ``both_correct`` robustness
+cells read 2,000 more on their own stream, ``"robustness_both_correct"``, and each other
+configuration runs 800, the shipped DR-TMLE study's budget, on the stream of its name.  Every fit
+is the primary scenario's cross-fitted fit.
+
+The declared run at ``70005d5`` read the calibration cells and the ``both_correct`` robustness
+cells off one set of fits, so two claims shared one sample stream, which
+``tests/unit/test_method_evidence.py`` forbids.  The robustness cells moved to their own stream
+before the re-run.  The calibration stream, its draws and every other stream are unchanged, so no
+red cell moved.
 
 The shipped DR-TMLE study's contraction ladder is not repeated per stratum: its cells are
 written for one marginal parameter, and a stratum's rate statement is the same theorem on the
@@ -65,7 +72,17 @@ SHRUNKEN_SE_FACTOR = 0.70
 EFFICIENCY_RATIO_BAND = (0.90, 1.10)
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 
-#: Each configuration's budget.  ``both_correct`` serves calibration and robustness.
+#: The calibration batch: its configuration, stream and budget.
+CALIBRATION_STREAM = "both_correct"
+#: The stream of each robustness configuration.  ``both_correct`` has its own, apart from the
+#: calibration stream.
+ROBUSTNESS_STREAMS = {
+    "both_correct": "robustness_both_correct",
+    "outcome_correct": "outcome_correct",
+    "treatment_correct": "treatment_correct",
+    "both_wrong": "both_wrong",
+}
+#: Each robustness configuration's budget.
 BUDGETS = {
     "both_correct": CALIBRATION_REPLICATES,
     "outcome_correct": DOUBLE_ROBUST_REPLICATES,
@@ -90,45 +107,50 @@ def _seed(configuration: str, replicate: int) -> int:
     return stream_seed(STUDY, "property_sample", configuration, replicate)
 
 
-def _fit_replication(payload: tuple[str, int, int, int, int]) -> list[dict[str, Any]]:
-    configuration, replicate, n, requested, seed = payload
+def _fit_replication(payload: tuple[str, str, int, int, int, int]) -> list[dict[str, Any]]:
+    family, configuration, replicate, n, requested, seed = payload
     frame, truth = draw_from_seed(SCENARIO, n, seed)
     result = fit_cleverly(frame, configuration)
     rows: list[dict[str, Any]] = []
     for label in ATE_LABELS:
         name = ate_name(label)
-        families = ["double_robustness"]
-        if configuration == "both_correct":
-            families.append("interval_calibration")
-        for family in families:
-            cell = (
-                f"{label}__correctly_specified"
-                if family == "interval_calibration"
-                else f"{label}__{configuration}"
+        cell = (
+            f"{label}__correctly_specified"
+            if family == "interval_calibration"
+            else f"{label}__{configuration}"
+        )
+        rows.append(
+            replicate_row(
+                property_name=family,
+                cell=cell,
+                role="control" if configuration == "both_wrong" else "positive",
+                replicate=replicate,
+                n=n,
+                requested=requested,
+                truth=float(truth[name]),
+                estimate=result[name],
+                alpha=STUDY.margins.alpha,
             )
-            rows.append(
-                replicate_row(
-                    property_name=family,
-                    cell=cell,
-                    role="control" if configuration == "both_wrong" else "positive",
-                    replicate=replicate,
-                    n=n,
-                    requested=requested,
-                    truth=float(truth[name]),
-                    estimate=result[name],
-                    alpha=STUDY.margins.alpha,
-                )
-            )
+        )
     return rows
 
 
-def _payloads(budget: int | None = None) -> list[tuple[tuple[str, int, int, int, int]]]:
-    out: list[tuple[tuple[str, int, int, int, int]]] = []
-    for configuration in DOUBLE_ROBUST_CONFIGURATIONS:
-        declared = BUDGETS[configuration]
+def _payloads(budget: int | None = None) -> list[tuple[tuple[str, str, int, int, int, int]]]:
+    batches = [("interval_calibration", "both_correct", CALIBRATION_STREAM, CALIBRATION_REPLICATES)]
+    batches += [
+        (
+            "double_robustness",
+            configuration,
+            ROBUSTNESS_STREAMS[configuration],
+            BUDGETS[configuration],
+        )
+        for configuration in DOUBLE_ROBUST_CONFIGURATIONS
+    ]
+    out: list[tuple[tuple[str, str, int, int, int, int]]] = []
+    for family, configuration, stream, declared in batches:
         count = declared if budget is None else budget
         out += [
-            ((configuration, replicate, PROPERTY_N, declared, _seed(configuration, replicate)),)
+            ((family, configuration, replicate, PROPERTY_N, declared, _seed(stream, replicate)),)
             for replicate in range(count)
         ]
     return out
@@ -190,7 +212,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
                     treatment_learner=lambda: None,
                     n=PROPERTY_N,
                     replicates=CALIBRATION_REPLICATES,
-                    seed=_seed("both_correct", 0),
+                    seed=_seed(CALIBRATION_STREAM, 0),
                     role=role,
                     estimand=name,
                 )
@@ -205,7 +227,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
                     treatment_learner=lambda: None,
                     n=PROPERTY_N,
                     replicates=BUDGETS[configuration],
-                    seed=_seed(configuration, 0),
+                    seed=_seed(ROBUSTNESS_STREAMS[configuration], 0),
                     role="control" if configuration == "both_wrong" else "positive",
                     estimand=name,
                 )

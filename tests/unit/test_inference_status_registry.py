@@ -188,19 +188,24 @@ class TestTheFewClusterThreshold:
 
         assert _inference_status.MINIMUM_INTERVAL_CLUSTERS == min(CLUSTER_COUNTS) == 10
 
+    def test_the_longitudinal_floor_is_the_smallest_measured_ltmle_count(self) -> None:
+        from tests.studies.clustered_few_cluster_tmle import fits_at
+
+        measured = [count for count in (10, 20, 30) if "ltmle_in_sample" in fits_at(count)]
+        assert _inference_status.MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS == min(measured) == 20
+
     def test_the_reason_states_the_floor_and_the_threshold_it_applies(self) -> None:
         threshold = _inference_status.FEW_CLUSTER_THRESHOLD
         floor = _inference_status.MINIMUM_INTERVAL_CLUSTERS
         reason = NON_INFERENTIAL["few_cluster_plugin"].reason
-        cross_fitted = _inference_status.MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS
         assert (
-            "when it reads fewer clusters with positive weight mass, in the fit or in one "
-            "reported baseline stratum, than the smallest count its registered study measures: "
-            f"{floor} for TMLE, DR-TMLE and in-sample LTMLE, and {cross_fitted} for "
-            "cross-fitted LTMLE"
+            f"when it reads fewer than {floor} clusters with positive weight mass, "
+            "in the fit or in one reported baseline stratum"
         ) in reason
-        assert f"From the floor to {threshold - 1} such clusters" in reason
-        assert "No registered study measures an interval below the floor of its fit" in reason
+        longitudinal = _inference_status.MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
+        assert f"fewer than {longitudinal} on a longitudinal fit" in reason
+        assert f"From that floor to {threshold - 1} such clusters" in reason
+        assert "no registered study measures an interval below those counts" in reason
         assert f"fewer than {threshold}" in _inference_status.T_REFERENCE_NOTE
         assert f"fewer than {threshold}" in _inference_status.NO_T_REFERENCE_BANDS
 

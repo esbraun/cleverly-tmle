@@ -247,9 +247,15 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "simultaneous_coverage/crossfit_strata__simultaneous_band",
         ),
     ),
-    # Four default bands that cover just under the band, read as finite-sample by
+    # Four default bands and the cluster multiplier band of the cross-fitted clustered LTMLE,
+    # which cover just under the band, read as finite-sample by
     # ``tests/unit/test_band_shortfall_reading.py``.
     "band-finite-sample": (
+        *_keys(
+            "clustered-cross-fitted-ltmle",
+            "property",
+            "simultaneous_coverage/clustered_regimens__simultaneous_band",
+        ),
         *_keys(
             "canonical-ltmle-survival",
             "property",
@@ -270,6 +276,53 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "property",
         "interval_calibration/ate__correctly_specified",
         "simultaneous_coverage/arms__simultaneous_band",
+    ),
+    # The logit-MSM slope in the two smaller strata of the stratified incremental and MSM
+    # study.  ``tests/unit/test_band_shortfall_reading.py`` rebuilds the reading.
+    "X8-logit-small-stratum": _keys(
+        "canonical-stratified-incremental-msm",
+        "property",
+        "interval_calibration/logit_v1_a__correctly_specified",
+        "interval_calibration/logit_v2_a__correctly_specified",
+    ),
+    # Stratum 2 of the identity-MSM study: a calibration cell and the paired W row that is
+    # inconclusive on its calibration leg.  ``tests/unit/test_band_shortfall_reading.py``.
+    "X8-identity-small-stratum": (
+        *_keys(
+            "canonical-stratified-msm-identity",
+            "paired",
+            "stratified_msm_identity/msm[W][V=2]",
+        ),
+        *_keys(
+            "canonical-stratified-msm-identity",
+            "property",
+            "interval_calibration/identity_v2_a__correctly_specified",
+        ),
+    ),
+    # The treatment-correct cells of the stratified DR-TMLE study, read by
+    # ``tests/diagnostics/x8_drtmle_treatment_correct``: the one-sided bias of RM18 at stratum
+    # size, shared by the shipped unstratified fit and by R drtmle.
+    "X8-drtmle-one-sided-bias": _keys(
+        "canonical-stratified-drtmle",
+        "property",
+        "double_robustness/marginal_ate__treatment_correct",
+        "double_robustness/v0_ate__treatment_correct",
+        "double_robustness/v1_ate__treatment_correct",
+        "double_robustness/v2_ate__treatment_correct",
+    ),
+    # The smallest stratum of the stratified DR-TMLE study, red in both implementations alike.
+    "X8-drtmle-small-stratum": (
+        *_keys(
+            "canonical-stratified-drtmle",
+            "truth",
+            "cleverly-stratified-drtmle/stratified_both_correct/ey[1][V=2]",
+            "drtmle-r-stratified/stratified_both_correct/ey[1][V=2]",
+        ),
+        *_keys(
+            "canonical-stratified-drtmle",
+            "property",
+            "interval_calibration/v2_ate__correctly_specified",
+        ),
     ),
     # The two longitudinal bootstrap kinds the X20 study measured red.  Rule 3 of the
     # study keeps each kind out of ``LICENSED_BOOTSTRAP_DESIGNS``.
@@ -294,6 +347,31 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "truth",
         "cleverly-learned-rule-cvtmle/exceptional/ey_learned_rule[learned rule]",
         "cleverly-learned-rule-cvtmle/weak_blip/ey_learned_rule[learned rule]",
+    ),
+    # The finite-sample limits of clustered intervals: the fold-evaluated covariate pair of the
+    # unequal-size study, and the few-cluster study's unequal-size fold-evaluated bias cells and
+    # DR-TMLE IID controls.
+    "F28": (
+        *_keys(
+            "clustered-unequal-cvtmle",
+            "property",
+            "clustered_inference/cluster_robust_fold_evaluated_cluster_covariate",
+            "clustered_inference/iid_control_fold_evaluated_cluster_covariate",
+        ),
+        *_keys(
+            "clustered-few-cluster-tmle",
+            "property",
+            "few_cluster_reference/drtmle_crossfit__equal10__j10__iid_t_control",
+            "few_cluster_reference/drtmle_crossfit__equal10__j20__iid_t_control",
+            "few_cluster_reference/drtmle_crossfit__equal10__j30__iid_t_control",
+            "few_cluster_reference/drtmle_crossfit__unequal_informative__j10__iid_t_control",
+            "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j10__t_reference",
+            "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j20__t_reference",
+            "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j30__t_reference",
+        ),
+    ),
+    "F1-power-design": (
+        *_keys("stochastic-categorical-ltmle", "property", "power/mix__alternative"),
     ),
 }
 

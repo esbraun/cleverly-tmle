@@ -37,6 +37,14 @@ cell then drops to its red-cell owner with its failure count stated as a page li
 run repeats without it with no other change.  This is the rule ``clustered-cross-fitted-ltmle``
 and ``cross-fitted-longitudinal-msm`` declare.  No budget, margin, law, learner, fold count or
 seed changes after a verdict is seen.
+
+**Re-registration.**  The declared run (HEAD ``da2dbf92``) passed every truth, paired and
+property gate but one: ``power/mix__alternative`` rejected at 0.5575 (99% interval 0.511 to
+0.603) against a floor of 0.80.  Its bias and coverage passed.  The contrast is -0.0488 and
+its reported standard error at n = 4,000 is about 0.0237, so a two-sided 5% test has power
+about 0.54 by design.  The cell reads as a finite-sample limit of its declared size, so by
+the declared route the study is re-registered under ``reporting`` with the owner row
+``F1-power-design``, and the run repeats with no other change.
 """
 
 from __future__ import annotations
@@ -161,7 +169,7 @@ STUDY = StudyRecord(
     runner_module="tests.studies.canonical_stochastic_categorical_ltmle",
     properties_module="tests.studies.stochastic_categorical_ltmle_properties",
     property_cells=PROPERTY_CELLS,
-    publication_policy="gated",
+    publication_policy="reporting",
 )
 
 REFERENCE_METADATA = {

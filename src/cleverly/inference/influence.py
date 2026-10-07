@@ -52,7 +52,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Any, Literal, NamedTuple
 
@@ -361,10 +361,11 @@ class ClusterReference:
 
     An estimate named in :attr:`fold_evaluated` carries the fold-evaluated variance of
     :func:`~cleverly.inference.cross_validated_variance`. That variance centres the cluster
-    totals inside each of the :attr:`validation_folds` folds, so it estimates one mean per
-    fold and has :math:`J - V` degrees of freedom, the pooled within-group count. Below
+    totals inside each of the :attr:`validation_folds` folds. Its reference policy uses
+    :math:`J - V`, the pooled within-group count. Below
     :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters such an estimate takes
-    :math:`\min(J - 2, J - V)`.
+    :math:`\min(J - 2, J - V)`. The registered studies measure this policy. The count is
+    not an exact degrees-of-freedom result for heterogeneous cluster variances.
 
     Parameters
     ----------
@@ -385,7 +386,7 @@ class ClusterReference:
     cluster: IntArray
     weights: FloatArray | None = None
     strata: IntArray | None = None
-    stratum_of: Mapping[str, int] = MappingProxyType({})
+    stratum_of: Mapping[str, int] = field(default_factory=lambda: MappingProxyType({}))
     fold_evaluated: frozenset[str] = frozenset()
     validation_folds: int = 0
 
@@ -514,10 +515,10 @@ def reference_label(estimate: ParameterEstimate) -> str:
 def minimum_reference_df(estimates: Sequence[ParameterEstimate]) -> int | None:
     """The degrees of freedom of an estimate derived from ``estimates``.
 
-    The smallest of the inputs' degrees of freedom, with the normal reference counting as
-    infinite. The Welch-Satterthwaite degrees of freedom of a combination is never below
-    the smallest input's, so the minimum is conservative. A contrast within one fit reads
-    the same cluster totals as its inputs, and the minimum equals their common value.
+    The reference policy takes the smallest of the inputs' degrees of freedom, with the
+    normal reference counting as infinite. When the inputs share a reference, the contrast
+    retains it. This policy does not establish conservative coverage for correlated inputs
+    with different references.
 
     Parameters
     ----------
@@ -741,6 +742,16 @@ class ParameterEstimate:
         """The two-sided p-value at the scale's default null, under any inference status."""
         return self._plugin_wald_test(None).pvalue
 
+    def _reported_pvalue(self) -> float:
+        """The default test for a report, with a missing test represented by ``nan``."""
+        try:
+            return self._plugin_pvalue()
+        except ValueError:
+            # A transformed estimate can have a valid interval without a default test.
+            # Its default null lies outside the transform's domain; wald_test(null=...)
+            # still lets the caller declare an interior null.
+            return float("nan")
+
     @property
     def supplies_inference(self) -> bool:
         """Whether the package supplies inference for this estimate.
@@ -777,12 +788,7 @@ class ParameterEstimate:
             spread_name("ci_upper", self.inference): high,
         }
         if pvalue and self.supplies_inference:
-            try:
-                columns["p_value"] = self._plugin_pvalue()
-            except ValueError:
-                # A transformed estimate whose default null is outside the transform's
-                # domain has no default test. ``wald_test(null=...)`` names one.
-                columns["p_value"] = float("nan")
+            columns["p_value"] = self._reported_pvalue()
         return columns
 
     @property
@@ -981,7 +987,7 @@ class ParameterEstimate:
         return (
             f"{self.name}: {self.psi:.5g} (se {self.std_error:.4g}, "
             f"{reference}{(1 - self.alpha) * 100:g}% CI [{low:.5g}, {high:.5g}], "
-            f"p={self.pvalue:.3g})"
+            f"p={self._reported_pvalue():.3g})"
         )
 
 
@@ -1008,7 +1014,8 @@ class BootstrapSummary:
     n_replicates : int
         Replicates with a finite estimate.
     n_failed : int
-        Replicates that raised and were dropped.
+        Failed full refits. A derived parameter also counts requested draws with missing,
+        nonfinite, or out-of-domain derived values.
     draws : ndarray
         The finite replicate estimates.
     inferential : bool, default=True

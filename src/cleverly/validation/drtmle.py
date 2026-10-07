@@ -143,7 +143,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from ..estimators.composite import targeting_inputs
+from ..estimators._strata import stratum_probabilities
+from ..estimators.composite import complement_form, composite_clipping_mask, targeting_inputs
 from ..estimators.tmle import correction_parts, reported_mechanism
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
@@ -727,9 +728,9 @@ def correction_check(
                     )
                 missingness_bound = float(reduction.missingness_bound)
                 observation_bounds = (missingness_bound, 1.0)
-                initial = np.asarray(nuisance.propensity.values, dtype=float)
-                lower, upper = reduction.bounds
-                initial_clipped = int(np.count_nonzero((initial < lower) | (initial > upper)))
+                initial_clipped = int(
+                    np.count_nonzero(nuisance.propensity.truncate(reduction.bounds).clipped)
+                )
                 # The second mechanism this fit divides by, at the second bound.  It is
                 # counted separately from `initial_clipped` and not folded into it because
                 # the two are truncated separately and neither implies the other: on a
@@ -746,9 +747,24 @@ def correction_check(
                     _margin(reduction.reduced.gamma_m, observation_bounds),
                 )
                 stored = {
-                    "D*_A": np.asarray(mechanism.score),
-                    "D*_M": np.asarray(observation.score),
-                    "D*_Y": np.asarray(reduction.score),
+                    "D*_A": _marginal_scores(
+                        mechanism.score,
+                        data,
+                        len(reduction.reduced.arms),
+                        arm_major=len(reduction.reduced.arms) > 2,
+                    ),
+                    "D*_M": _marginal_scores(
+                        observation.score,
+                        data,
+                        len(reduction.reduced.arms),
+                        arm_major=True,
+                    ),
+                    "D*_Y": _marginal_scores(
+                        reduction.score,
+                        data,
+                        len(reduction.reduced.arms),
+                        arm_major=False,
+                    ),
                 }
                 reported = {"D*_A": parts.d_a, "D*_M": parts.d_m, "D*_Y": parts.d_y}
                 for column, arm in enumerate(reduction.reduced.arms):
@@ -781,13 +797,31 @@ def correction_check(
             # of what equation (8)'s covariate divides by and reading it here is exact. The
             # second mechanism, and the second bound, exist only on the branch that has
             # `observation_clipped` and `observation_margin` to report them.
-            initial_fit = nuisance.propensity
-            initial = np.column_stack([initial_fit.arm(arm) for arm in reduction.reduced.arms])
-            lower, upper = reduction.bounds
-            initial_clipped = int(np.count_nonzero((initial < lower) | (initial > upper)))
+            initial_clipped = int(
+                np.count_nonzero(nuisance.propensity.truncate(reduction.bounds).clipped)
+            )
+            if result.extra.get("missing_data") == "composite":
+                initial_clipped = int(
+                    np.count_nonzero(
+                        composite_clipping_mask(
+                            repeat.nuisance, result.config.g_bounds, result.config.missingness_bound
+                        )
+                    )
+                )
             gr1_margin = _margin(reduction.reduced.gr1, reduction.bounds)
-            stored_g = np.asarray(mechanism.score) if mechanism is not None else np.zeros(0)
-            stored_q = np.asarray(reduction.score)
+            stored_g = (
+                _marginal_scores(
+                    mechanism.score,
+                    data,
+                    len(reduction.reduced.arms),
+                    arm_major=not complement_form(nuisance.propensity),
+                )
+                if mechanism is not None
+                else np.zeros(0)
+            )
+            stored_q = _marginal_scores(
+                reduction.score, data, len(reduction.reduced.arms), arm_major=False
+            )
             for column, arm in enumerate(reduction.reduced.arms):
                 # `reduced_mechanism_covariate` and `reduced_outcome_submodel` both build
                 # their columns in `reduced.arms` order, so the stored score's column and
@@ -845,6 +879,24 @@ def correction_check(
         backend=result.data.backend,
         cross_fitted=any(repeat.nuisance.folds.n_folds > 1 for repeat in result.repeats),
     )
+
+
+def _marginal_scores(scores: Any, data: Any, arms: int, *, arm_major: bool) -> np.ndarray:
+    """Undo the stratum score normalization before comparing with marginal corrections.
+
+    Each block stores ``P_n[I_s H residual / p_s]``. The marginal mean is the
+    sum of those blocks times ``p_s``, under the fit's weights. Armwise mechanism
+    solvers store all strata of one arm together; outcome solvers store all arms
+    of one stratum together. Unstratified scores retain their original values.
+    """
+    values = np.asarray(scores, dtype=float)
+    if not data.has_strata or not values.size:
+        return values
+    probabilities = np.asarray(stratum_probabilities(data), dtype=float)
+    by_arm = (
+        values.reshape(arms, data.n_strata) if arm_major else values.reshape(data.n_strata, arms).T
+    )
+    return np.asarray(by_arm @ probabilities, dtype=float)
 
 
 def _margin(mechanism: Any, bounds: tuple[float, float]) -> float:

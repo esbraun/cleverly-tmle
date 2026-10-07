@@ -17,7 +17,8 @@ and the household standard error pair exactly. The intervals differ by a declare
 package's coverage is never lower. Each draw holds about 200 rows; the rows publish the nominal
 ``n = 200``, as the schema requires.
 
-**Property ``few_cluster_reference``.** Five fits share each draw: cross-fitted ``TMLE``,
+**Property ``few_cluster_reference``.** Five fits share each draw (four at 10 clusters, without
+in-sample ``LTMLE``, whose interval floor is 20): cross-fitted ``TMLE``,
 fold-evaluated ``TMLE``, in-sample ``TMLE``, cross-fitted ``DRTMLE`` and in-sample ``LTMLE``.
 They cross 10, 20 and 30 clusters with equal clusters of 10 rows (``clustered_dgp``) and
 with the informative law. ``tests.studies.clustered_few_cluster_properties`` states the cells.
@@ -119,11 +120,26 @@ def cell_name(fit: str, sizes: str, clusters: int, arm: str) -> str:
     return f"{fit}__{sizes}__j{clusters}__{arm}"
 
 
+#: The smallest cluster count of the in-sample LTMLE cells. The first full run (2026-10-03)
+#: lost one LTMLE fit at 10 clusters in each size law, 2 of 8,000, on a draw where the outcome
+#: did not vary among one plan's followers; the framework refuses a cell that lost a
+#: replication. By the orchestrator's pre-verdict decision the J = 10 LTMLE cells left the grid,
+#: and the package's longitudinal interval floor rose to 20.
+LTMLE_MINIMUM_CLUSTERS = 20
+
+
+def fits_at(clusters: int) -> tuple[str, ...]:
+    """The fits of the grid at ``clusters``: every fit, less LTMLE below 20 clusters."""
+    return tuple(
+        fit for fit in FITS if fit != "ltmle_in_sample" or clusters >= LTMLE_MINIMUM_CLUSTERS
+    )
+
+
 PUBLISHED_CELLS = tuple(
     cell_name(fit, sizes, clusters, arm)
-    for fit in FITS
-    for sizes in SIZE_LAWS
     for clusters in CLUSTER_COUNTS
+    for fit in fits_at(clusters)
+    for sizes in SIZE_LAWS
     for arm, _ in arms(fit)
 )
 

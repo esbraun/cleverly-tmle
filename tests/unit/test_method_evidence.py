@@ -921,7 +921,9 @@ BIAS_GATED_PROPERTIES = frozenset(
         "treatment_complete_case",
         "fold_locality",
         "weight_necessity",
+        "policy_necessity",
         "projection_necessity",
+        "randomizer_projection",
         "ratio_necessity",
         "rule_necessity",
     }
@@ -1523,6 +1525,20 @@ def _declared_limits(path: Path) -> int:
     return rows
 
 
+#: Efficiency language, but not the "efficien" inside "coefficient", which an MSM row names.
+_EFFICIENCY = re.compile(r"(?<!co)efficien", re.IGNORECASE)
+
+
+def _mentions_efficiency(text: str) -> bool:
+    return _EFFICIENCY.search(text) is not None
+
+
+def test_a_coefficient_is_not_efficiency_language() -> None:
+    assert not _mentions_efficiency("treatment coefficient of the logit MSM")
+    assert _mentions_efficiency("exact-EIF efficiency and calibration")
+    assert _mentions_efficiency("an independently computed Efficiency bound")
+
+
 def _grid() -> dict[str, dict[str, str]]:
     rows = {row["method in `cleverly`"]: row for row in pipe_table(GRID, GRID_COLUMNS)}
     assert len(rows) == len(pipe_table(GRID, GRID_COLUMNS)), "the grid has a duplicate method"
@@ -1663,7 +1679,7 @@ class TestTheMethodEvidenceGrid:
         properties = load(study)["properties"]
         columns = [name for name in properties if name.startswith("efficiency_")]
         has_bound = bool(columns) and bool(properties[columns].notna().any().any())
-        claim = "efficien" in _grid()[study.name]["theory properties"].casefold()
+        claim = _mentions_efficiency(_grid()[study.name]["theory properties"])
         assert claim == has_bound, (
             f"{study.slug}'s grid efficiency claim is {claim}, but its committed properties "
             f"carry an independent efficiency comparison={has_bound}"
@@ -1928,7 +1944,7 @@ class TestThePublishedTestTables:
             for row in rows
             for column in ("what was tested", "what must hold", "measured")
         ).casefold()
-        assert ("efficien" in published) == has_bound
+        assert _mentions_efficiency(published) == has_bound
 
     def test_a_study_without_a_comparator_publishes_no_agreement_table(
         self, study: StudyRecord
@@ -2139,6 +2155,7 @@ MARGIN_SOURCES: dict[str, Any] = {
         lambda s: s.properties().CATEGORICAL_PROBABILITY_DISPLACEMENT
     ),
     "margin:projection_displacement": lambda s: s.properties().PROJECTION_DISPLACEMENT,
+    "margin:policy_displacement": lambda s: s.properties().POLICY_DISPLACEMENT,
     "margin:recursion_displacement": lambda s: s.properties().RECURSION_DISPLACEMENT,
 }
 

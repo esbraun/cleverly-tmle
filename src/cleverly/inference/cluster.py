@@ -597,11 +597,9 @@ def cluster_inference_status(
     weights : ndarray of float or None, default None
         The observation weight of each row, or ``None`` for an unweighted fit.
     minimum : int or None, default None
-        A floor above :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS`, or
-        ``None`` for that floor alone. The cross-fitted
-        ``LTMLE`` passes
-        :data:`~cleverly._inference_status.MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS`,
-        the smallest count its registered study measures.
+        The floor. ``None`` reads
+        :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS`. ``LTMLE`` passes
+        :data:`~cleverly._inference_status.MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS`.
 
     Returns
     -------
@@ -622,9 +620,7 @@ def cluster_inference_status(
     """
     if cluster is None:
         return "influence_curve"
-    floor = (
-        MINIMUM_INTERVAL_CLUSTERS if minimum is None else max(minimum, MINIMUM_INTERVAL_CLUSTERS)
-    )
+    floor = MINIMUM_INTERVAL_CLUSTERS if minimum is None else minimum
     if fewest_clusters(cluster, strata, weights) < floor:
         return "few_cluster_plugin"
     return "influence_curve"

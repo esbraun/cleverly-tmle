@@ -276,6 +276,14 @@ def measured(row: Any) -> str:
         # cell, so the number that separates the two belongs in the column a reader reads.
         if family == "selector_necessity" and pd.notna(getattr(row, "rmse_ratio", None)):
             measured += f", RMSE ratio {render(float(row.rmse_ratio))}"
+        # The randomizer projection's joint clause reads the spread ratio of its two arms.
+        if family == "randomizer_projection" and pd.notna(
+            getattr(row, "projection_sd_ratio", None)
+        ):
+            measured += (
+                f", sd ratio {render(float(row.projection_sd_ratio))}, 99% upper "
+                f"{render(float(row.projection_sd_ratio_ci_upper))}"
+            )
         # The union-model family carries a second endpoint for the same reason.  A collapsed
         # nuisance reports an error two orders of magnitude off its own spread and leaves the
         # bias interval looking like any other cell's, so the ratio the screen is read from
@@ -353,6 +361,19 @@ def measured(row: Any) -> str:
             "paired coverage gain "
             f"{_interval(row.coverage_gain_ci_lower, row.coverage_gain_ci_upper)}"
         )
+    if family == "estimand_weighting":
+        return f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+    if family == "cluster_aggregation_rule":
+        return (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}"
+        )
+    if family == "few_cluster_reference":
+        return (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
+        )
     if family in {"corrected_mar_inference", "ordinary_targeting"}:
         return (
             f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
@@ -366,6 +387,15 @@ def measured(row: Any) -> str:
             f"spread ratio {render(float(row.spread_ratio))}, "
             f"{_interval(row.spread_ratio_ci_lower, row.spread_ratio_ci_upper)}, "
             f"boundary {render(float(row.spread_ratio_boundary))}"
+        )
+    if family == "in_sample_agreement":
+        # A reported distance with no truth and no standard error of its own, so it has no
+        # bias or SE-ratio interval to print.
+        return (
+            "mean absolute difference / SE "
+            f"{render(float(row.mean_abs_difference_over_se))}, "
+            "share of draws with the in-sample estimate inside the cross-fitted interval "
+            f"{float(row.coverage):.4f}"
         )
     if family == "static_reduction":
         return f"maximum paired difference {render(float(row.maximum_static_difference))}"
@@ -403,7 +433,9 @@ _BIAS_GATED = frozenset(
         "mar_robustness",
         "missingness_necessity",
         "robustness_contract",
+        "policy_necessity",
         "projection_necessity",
+        "randomizer_projection",
         "ratio_necessity",
         "rule_necessity",
         "selector_necessity",

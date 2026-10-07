@@ -143,7 +143,10 @@ ARMS: dict[str, str] = {
     "longitudinal_msm": "the two terms of the longitudinal MSM projection",
     "cross_fitted_msm": "the two terms of the cross-fitted longitudinal MSM projection",
     "duration_logit": "the treatment-duration coefficient of a logit working model",
-    "mix": "the contrast of the known policy mix against the label low",
+    "mix": (
+        "the known policy mix, as its contrast against low, and as its mean in "
+        "randomizer_projection"
+    ),
     "up": "the contrast of the shift up at both nodes against the natural course",
     "classifier_route": "the primary policy contrast with its ratio estimated by classification",
     "x1_25": "the contrast of the dose times 1.25, capped at 5.5, against the natural course",
@@ -1095,7 +1098,7 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("in_sample_agreement", "in_sample_agreement"): (
         "the absolute difference from the in-sample coefficient on the same draw, over the "
-        "cross-fitted standard error; mean_abs_difference_over_se is its mean",
+        "cross-fitted standard error; the summary publishes its mean",
         "none; the row reports the statistic",
     ),
     ("crossfit_overfitting", "cross_fitted_ltmle"): (
@@ -1957,6 +1960,7 @@ CELLS.update(
         for clusters in _FEW_CLUSTER_COUNTS
         for arm, (arm_text, required) in _FEW_CLUSTER_ARMS.items()
         if arm != "t_j_minus_2_reference" or fit == "tmle_cv_evaluation"
+        if fit != "ltmle_in_sample" or clusters >= 20
     }
 )
 
@@ -1969,10 +1973,12 @@ _CROSSFIT_FEW_CLUSTER_SIZES = {
     "equal40": "clusters of 40 rows",
     "unequal40": "clusters of size uniform on 10 to 70",
 }
-CELLS.update(
+# ``ltmle_crossfit`` is an arm prefix of :data:`ARMS`, so ``cell`` strips it and reads these by
+# ``(family, arm, rest)``; the arm text is printed before each description.
+ARM_CELLS.update(
     {
-        ("few_cluster_reference", f"ltmle_crossfit__{sizes}__j{clusters}__{arm}"): (
-            f"cross-fitted clustered LTMLE, {clusters} {size_text}: {arm_text}",
+        ("few_cluster_reference", "ltmle_crossfit", f"{sizes}__j{clusters}__{arm}"): (
+            f"with id= and five whole-cluster folds, {clusters} {size_text}: {arm_text}",
             required,
         )
         for sizes, size_text in _CROSSFIT_FEW_CLUSTER_SIZES.items()

@@ -89,7 +89,7 @@ Every other status is a non-inferential status.
 | `"working_mechanism_plugin"` | a `CTMLE` fit with `strategy="greedy"`, `"ordered"`, or `"discrete"`. A `discrete` fit with one declared candidate, equal to the full adjustment set, takes the TMLE status instead. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `working-mechanism se` | [F18](../roadmap.md#f18-selector-path-c-tmle-inference) |
 | `"generated_design_plugin"` | every `CTMLE` fit with `strategy="oat"`, including a fit with `delta=` and a fit that requests one arm mean. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `generated-design se` | [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | `"estimated_weight_plugin"` | a `DRTMLE` fit with a non-empty `guard` and varying weights declared estimated (`weights_estimated=True`). A fit with `guard=()` keeps `"influence_curve"`. Constant weights fit the unweighted estimator, so they keep it too. [DR-TMLE supported estimands](dr-tmle/supported-estimands.md#refused-by-name) gives the reason | raise `CapabilityError` with the reason of the status | `fixed-weight se` | [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
-| `"few_cluster_plugin"` | a `TMLE`, `DRTMLE`, or `LTMLE` fit with `id=` and fewer than 10 clusters with positive weight mass in the fit or one reported baseline stratum, or a cross-fitted `LTMLE` fit with fewer than 20. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `normal-reference se` | [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) |
+| `"few_cluster_plugin"` | a `TMLE` or `DRTMLE` fit with `id=` and fewer than 10 clusters with positive weight mass in the fit or one reported baseline stratum, or an `LTMLE` fit with fewer than 20. The `LTMLE` floor applies in sample and under cross-fitting. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `normal-reference se` | [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) |
 
 At every status, `plugin_std_error` and `plugin_interval` return the plug-in spread of the
 reported curve. On `"influence_curve"` they return the numbers of `std_error` and `ci` under names
@@ -214,7 +214,7 @@ see that term, so `tests/unit/test_cluster_ratio_variance.py` checks it at sizes
 | path | variance at unequal sizes |
 | --- | --- |
 | in sample, and the stacked cross-fitted report | the cluster-sum variance above |
-| `cv_evaluation=True` | the centered cluster variance inside each validation fold ([CV-TMLE](cv-tmle.md#the-algorithm-as-implemented)). Each validation fold needs 2 clusters |
+| `cv_evaluation=True` | the centered cluster variance inside each validation fold ([CV-TMLE](cv-tmle.md#the-algorithm-as-implemented)). Each validation fold needs 2 clusters with positive weight mass |
 | `targeting_scheme="fold"`, `DRTMLE` cross-fitted, and `repeats` above 1 | the variance of the shipped construction. Each sums the curve within clusters |
 | baseline strata | the stratum curve, embedded at $n/n_s$ and summed over the full cluster vector |
 
@@ -231,7 +231,7 @@ this package at unequal sizes.
 
 ### Few clusters
 
-A clustered fit that reads $J$ clusters with positive weight mass, with $10 \le J < 40$, reports
+A clustered fit that reads $J$ clusters with positive weight mass, with $10 \le J < 40$ ($20 \le J < 40$ for `LTMLE`), reports
 its intervals and p-values on a Student $t$ reference with $J-2$ degrees of freedom. Nugent et
 al. (2024), Section 2.2, last paragraph, give the rule. At 40 clusters or more the normal
 reference stays. `ParameterEstimate.reference_df` holds the degrees of freedom, or `None` for the
@@ -241,7 +241,7 @@ normal reference.
 | --- | --- |
 | a marginal estimate of the fit | $J-2$, with $J$ the positive-mass cluster count of the fit |
 | a baseline-stratum estimate | $J_s-2$, with $J_s$ the positive-mass cluster count of the stratum |
-| a fold-evaluated estimate over $V$ validation folds: the `cv_evaluation=True` report and the `fold_evaluated` report of `cv_targeting` | $\min(J-2, J-V)$. Its variance centers the cluster totals in each fold, so it estimates one mean per fold and keeps $J-V$ degrees of freedom, the pooled within-group count |
+| a fold-evaluated estimate over $V$ validation folds: the `cv_evaluation=True` report and the `fold_evaluated` report of `cv_targeting` | $\min(J-2, J-V)$. The package uses the pooled within-fold count as a reference rule |
 | a derived estimate: `contrast()`, `ratio()`, and the median over `repeats` | the smallest `reference_df` of its inputs. `None` counts as infinite |
 | an in-fit `rr` or `or` | the value of the arm means it reads |
 | every estimate of a `"few_cluster_plugin"` fit | `None`. The diagnostic keeps the normal reference |
@@ -258,22 +258,31 @@ missingness tilt and the omitted-variable limits read it through `wald_ci` and
 | the cluster bootstrap | printed as a percentile range with a diagnostic note. No result validates the cluster bootstrap below 40 clusters |
 
 $J-2$ is the rule that Nugent et al. (2024) and Benitez et al. (2023), Sections 3.1.2 and 3.2.1,
-state for cluster-randomized trials. An arm mean of this package is a one-sample mean of $J$
-cluster totals, whose classical reference has $J-1$ degrees of freedom. R `ltmle` uses $J-1$. So
-$J-2$ is conservative by one degree of freedom on the in-sample and stacked reports.
+state for cluster-randomized trials. A classical one-sample mean of independent normal cluster
+totals with a common variance uses $J-1$. R `ltmle` uses $J-1$.
+The $J-2$ quantile is larger, but this comparison does not establish coverage for estimated
+TMLE curves.
 
-A fold-evaluated report has fewer degrees of freedom, $J-V$, and takes $\min(J-2, J-V)$. An
-implementation review measured the difference at 2 clusters per fold: at $J=10$ and $V=5$,
-$t_{J-2}$ covered 0.935 and $t_{J-V}$ covered 0.955 over 1,500 draws.
+A fold-evaluated report takes $\min(J-2, J-V)$, using the pooled within-fold count.
+Unequal fold sizes and heterogeneous cluster variances do not give this sum of variances an
+exact $t_{J-V}$ reference. The registered few-cluster study measures the declared rule on its two
+size laws. An implementation review measured the difference at $J=10$ and $V=5$, with 2 clusters per fold.
+Over 1,500 draws, $t_{J-2}$ covered 0.935 and $t_{J-V}$ covered 0.955.
+
+Prefer the stacked report when cluster sizes depend on the outcome. There a fold-evaluated point
+has a bias of about $V$ times the stacked bias at few clusters per fold. The reference corrects
+the variance and not this bias. At 2, 4 and 6 clusters per fold the few-cluster study reads 0.61,
+0.43 and 0.32 empirical standard deviations ([CV-TMLE](cv-tmle.md#the-algorithm-as-implemented)).
 
 Wang et al. (2024), Remark 3, caution against complex nuisance learners at about 20 clusters. The
 registered few-cluster evidence uses parametric nuisance learners only.
 
 Below 10 clusters with positive weight mass, in the fit or in one reported baseline stratum, the
-fit takes `"few_cluster_plugin"`. 10 is the smallest count that the registered few-cluster study
-measures, and [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) owns 4 to 9
-clusters. A cross-fitted `LTMLE` fit takes the status below 20 clusters, because its registered
-study measures 20 and 30 clusters only. F28 owns 4 to 19 clusters for that fit. The status is
+fit takes `"few_cluster_plugin"`. An `LTMLE` fit takes it below 20. Each floor is the smallest
+count that the registered few-cluster study measures for that fit
+(`MINIMUM_INTERVAL_CLUSTERS` and `MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS`), and
+[F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) owns the counts below. The
+status is
 determined from prepared cluster labels, strata, and weights, without reading a fitted quantity.
 A fit has one status, so one stratum below the floor withholds the interval of every estimate.
 The rule applies to the in-sample and the cross-fitted `LTMLE` fit too, whose data hold no

@@ -38,6 +38,7 @@ from cleverly.utils.parallel import map_parallel
 from tests.conftest import OracleTreatment
 from tests.parallel import STUDY_JOBS
 from tests.studies import clustered_unequal_laws as laws
+from tests.studies.canonical_drtmle import G_BOUNDS as DRTMLE_G_BOUNDS
 from tests.studies.canonical_drtmle import ColumnLogistic
 from tests.studies.clustered_unequal_cvtmle import (
     CLUSTER_AVERAGE,
@@ -194,6 +195,9 @@ def _informative_fit(kind: str, seed: int) -> tuple[Any, float]:
         settings = tmle_settings(
             reduced_outcome_learner=LinearRegression(),
             reduced_treatment_learner=ColumnLogistic(),
+            # The canonical DR-TMLE study's bounds: the reduced treatment regression is
+            # fitted, not exact, and 1e-9 let one curve entry reach 4.7e5.
+            g_bounds=DRTMLE_G_BOUNDS,
         )
         result = (
             DRTMLE(**settings)

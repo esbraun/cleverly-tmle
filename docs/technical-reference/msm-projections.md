@@ -137,6 +137,7 @@ realized design. With `id=`, the [cluster rules](longitudinal-tmle.md#clusters) 
 | --- | --- |
 | `tests/unit/test_cross_fitted_longitudinal_msm.py` | a saturated model reproduces the cross-fitted per-regimen report on survival, competing-risk, dynamic and three-level grids. The coefficient curve is the stacked delta-method curve. Every node's stacked score is solved. Eight mutations fail, including a fold-local fluctuation |
 | `tests/e2e/test_ltmle_msm.py` | the saturated reduction at one and five folds, under the identity and the logit link |
+| [cross-fitted longitudinal MSM projection](method-evidence/cross-fitted-longitudinal-msm-projection.md) | repeated-sampling properties on the projection law of the ordinary study, paired with a projection of four cross-fitted R `lmtp` regimen fits |
 
 Survival, competing-risk, weighted and clustered projections have the fast-tier exact identities
 only. A cross-fitted `lmtp` 1.5.4 regimen fit differs from this construction twice. It fluctuates
@@ -197,7 +198,10 @@ because $dm/d\eta>0$.
 `tests/unit/test_stratified_msm_exact.py` checks the linked coefficients and curves against the
 expanded-design fit, and the curve against a complex-step Gateaux derivative of $\beta_s$.
 `tests/unit/test_stratified_continuous_msm_exact.py` checks the dose case against the expanded
-design under the identity and logit links.
+design under the identity and logit links. The
+[stratified identity-link MSM study](method-evidence/stratified-msm-identity.md) and the
+[stratified incremental MSM study](method-evidence/stratified-incremental-msm.md) measure the
+stratum coefficients against exact laws.
 
 The package cannot inspect a callable, so it reads the declarations of the design and of the
 projection weight. The table gives each place that checks both declarations.
@@ -337,6 +341,8 @@ guidance rather than an optional extra.
 | [working model over regimen and horizon cells](evidence.md#longitudinal-estimands-outside-the-target-registry) | the non-saturated, nonuniform projection law, the exact pooled-design and loss-weight checks, and the rank-refusal tests |
 | [point-treatment repeated-sampling study](method-evidence/point-treatment-msm-projection.md) | truth, R `tmle3` agreement, coefficient efficiency, robustness, targeting, and a load-bearing projection-measure control |
 | [ordinary longitudinal repeated-sampling study](method-evidence/ordinary-longitudinal-msm-projection.md) | projected joint R `ltmle` curves, longitudinal robustness, coefficient efficiency, targeting, and the projection-measure control |
+| [cross-fitted longitudinal repeated-sampling study](method-evidence/cross-fitted-longitudinal-msm-projection.md) | projected joint cross-fitted R `lmtp` curves, the same families at five folds, logit-link calibration, a fully grown tree pair, and a simultaneous band |
 
-The registered rows cover fixed, identity-link, ordinary projections. The continuous-dose test
-still uses a linear truth, and a nonlinear continuous-dose Gateaux oracle remains absent.
+The registered rows cover fixed projections. In sample they cover the identity link. Under
+cross-fitting they cover the identity link and the calibration of a logit link. The continuous-dose
+test still uses a linear truth, and a nonlinear continuous-dose Gateaux oracle remains absent.

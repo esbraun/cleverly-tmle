@@ -165,7 +165,9 @@ indicator. The table gives what changes inside the alternation.
 
 Each stratum's equations then share no row with another stratum's, so a stratum's estimate is
 the DR-TMLE of the law given $S=s$. `tests/unit/test_stratified_drtmle_exact.py` checks this
-against separate fits on the stratum subsets, on every route.
+against separate fits on the stratum subsets, on every route. The
+[stratified DR-TMLE study](../method-evidence/stratified-dr-tmle.md) measures the marginal and
+stratum ATEs against exact truths and pairs the stratum targets with R `drtmle`.
 
 The marginal estimate is the $P_n(S=s)$-weighted mixture of the stratum estimates. Its reductions
 condition on $(g_n(W), S)$, which is finer than the $g_n(W)$ of Theorem 1 of Benkeser et al.

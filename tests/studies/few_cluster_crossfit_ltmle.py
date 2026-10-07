@@ -2,11 +2,11 @@
 
 Below 40 clusters with positive weight mass a clustered estimate reports its interval on a
 Student t reference with ``J - 2`` degrees of freedom. ``clustered-few-cluster-tmle`` measures
-that rule for in-sample ``LTMLE`` from 10 clusters. This study measures it for the cross-fitted
+that rule for in-sample ``LTMLE`` from 20 clusters. This study measures it for the cross-fitted
 ``LTMLE`` with five whole-cluster folds, whose targeting pools every follower, so the fold count
-does not enter the degrees of freedom. The grid starts at 20, so a cross-fitted fit below 20
-clusters takes ``"few_cluster_plugin"``
-(``cleverly._inference_status.MINIMUM_CROSS_FITTED_LONGITUDINAL_CLUSTERS``).
+does not enter the degrees of freedom. The grid starts at 20, and an ``LTMLE`` fit below 20
+clusters, in sample or cross-fitted, takes ``"few_cluster_plugin"``
+(``cleverly._inference_status.MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS``).
 
 The subject is the ``clustered-cross-fitted-ltmle`` subject. The law is the end-of-study law
 of :mod:`tests.studies.clustered_longitudinal_laws` with the **scaled** latent

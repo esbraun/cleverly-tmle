@@ -138,7 +138,7 @@ from ..fluctuation.submodel import (
     stratify_columns,
 )
 from ..inference.bootstrap import Resampling, run_bootstrap
-from ..inference.cluster import cluster_inference_status, cross_validated_variance
+from ..inference.cluster import cluster_inference_status, cross_validated_variance, fewest_clusters
 from ..inference.influence import (
     ArmMean,
     ClusterReference,
@@ -2828,17 +2828,17 @@ class TMLE:
         return tuple(zip(folds, seeds, strict=True))
 
     def _preflight_cluster_validation_folds(self, data: CausalData, folds: Sequence[Folds]) -> None:
-        """Refuse a fold-wise clustered split with a validation fold of one cluster.
+        """Refuse a fold-wise split with fewer than two positive-mass clusters in a fold.
 
         Two settings evaluate each validation fold on its own. ``cv_evaluation=True`` takes
         the centred variance of the cluster totals inside each fold
         (:func:`~cleverly.inference.cluster.cross_validated_variance`), and
         ``targeting_scheme="fold"`` builds each fold's estimate with a cluster-robust
-        variance of its own rows. Both need at least two clusters in every validation fold.
+        variance of its own rows. Both need two positive-mass clusters per validation fold.
         The check reads every realized or supplied draw before the first learner.
         :func:`~cleverly.learners.crossfit.random_partition` deals the clusters into
-        near-equal counts, so a generated split passes when the fold count is at most half
-        the cluster count.
+        near-equal label counts. Zero-mass clusters do not supply an independent total, so
+        the check counts positive weight mass in each realized fold.
         """
         fold_targeting = self.targeting_scheme == "fold"
         if not (self.cv_evaluation or fold_targeting) or data.cluster is None:
@@ -2849,17 +2849,23 @@ class TMLE:
             if self.cv_evaluation
             else 'one pooled fluctuation (targeting_scheme="pooled")'
         )
+        weights = data.weights if data.is_weighted else None
         for draw in folds:
             if draw.is_single:
                 continue
             for fold, (_, test) in enumerate(draw):
-                held = int(np.unique(data.cluster[test]).size)
+                held = fewest_clusters(
+                    data.cluster[test], weights=None if weights is None else weights[test]
+                )
                 if held < 2:
-                    n_clusters = int(np.unique(data.cluster).size)
+                    n_clusters = fewest_clusters(data.cluster, weights=weights)
+                    mass_clause = " with positive weight mass" if data.is_weighted else ""
                     raise CapabilityError(
-                        f"{setting} needs at least 2 clusters in every validation fold, "
+                        f"{setting} needs at least 2 clusters{mass_clause} "
+                        "in every validation fold, "
                         "because each fold's variance compares cluster totals inside the "
-                        f"fold. This split puts {n_clusters} clusters into {draw.n_folds} "
+                        f"fold. This split puts {n_clusters} clusters{mass_clause} "
+                        f"into {draw.n_folds} "
                         f"folds, and fold {fold} holds {held}. Request at most "
                         f"{n_clusters // 2} folds (CrossFitting(n_folds=...)), or use "
                         f"{stacked}."
