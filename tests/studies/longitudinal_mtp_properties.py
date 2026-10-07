@@ -873,8 +873,11 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
     jobs = _payloads(budget)
     heavy = [job for job in jobs if _heavy(job[0])]
     light = [job for job in jobs if not _heavy(job[0])]
+    outcomes = map_parallel(_run, light, n_jobs=n_jobs)
+    # Read the free memory only once the light pool is done.  Read at the start, it saw the
+    # memory the reference phase's container still held, and capped the pool at one worker.
     capped = memory_capped_workers(n_jobs, MECHANISM_ONLY_FIT_BYTES)
-    outcomes = map_parallel(_run, light, n_jobs=n_jobs) + map_parallel(_run, heavy, n_jobs=capped)
+    outcomes += map_parallel(_run, heavy, n_jobs=capped)
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [
