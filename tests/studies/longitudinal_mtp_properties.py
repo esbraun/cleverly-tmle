@@ -87,6 +87,7 @@ from tests.studies.canonical_longitudinal_mtp import (
     PRIMARY_N,
     STUDY,
     TRUTH,
+    density_bins,
     edges_of,
     fit,
 )
@@ -399,7 +400,9 @@ def untargeted(frame: pd.DataFrame, configuration: str) -> float:
     carries node 2's update.  Node 2 is regressed on ``[W, L2, A1, A2]`` and predicted at the
     policy dose, node 1 regresses that on ``[W, A1]`` and is predicted at the policy dose.
     """
-    outcome, pseudo, _ = common.continuous_learners(configuration, edges_of(frame))
+    outcome, pseudo, _ = common.continuous_learners(
+        configuration, edges_of(frame, density_bins(configuration))
+    )
     w = frame["W"].to_numpy(dtype=float)
     a1 = frame["A1"].to_numpy(dtype=float)
     l2 = frame["L2"].to_numpy(dtype=float)

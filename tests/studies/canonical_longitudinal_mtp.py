@@ -26,7 +26,8 @@ node, both written beside the replicate data (columns ``ratio__<plan>__<node>`` 
 ``shift__<plan>__<node>__<copy>``).  No side estimates a ratio the other does not see, so the
 paired difference measures the recursion and the fluctuation alone.  The continuous nodes read
 an oracle binned density (:class:`~tests.studies.longitudinal_mtp_common.OracleDoseHazard`,
-``DENSITY_BINS`` bins); the categorical and binary nodes read a saturated multinomial.
+``DENSITY_BINS`` bins, or ``MECHANISM_ONLY_BINS`` where the outcome regressions are wrong); the
+categorical and binary nodes read a saturated multinomial.
 
 **Learners.**  The node regressions match the comparator's ``SL.glm``: a quasibinomial GLM at
 the last node and least squares at the first.  ``lmtp`` sees the same columns: the history, the
@@ -101,6 +102,13 @@ TILT = "rr_tilt"
 N_FOLDS = 5
 LEARNER_FOLDS = 2
 DENSITY_BINS = 80
+#: The bins of a fit whose outcome regressions are wrong, so the mechanism alone carries the
+#: estimate.  The binned density's error then enters the bias at first order: at 80 bins the
+#: mean standardized bias of the mechanism-only arms was 0.54 to 0.60, and at 160 bins 0.21 to
+#: 0.24 (100 draws of 8,000 rows each).  ``tests/unit/test_longitudinal_mtp_design.py``
+#: records the 320-bin measurement.  Where the outcome is also right, the density error enters
+#: only through a product, and 80 bins suffice.
+MECHANISM_ONLY_BINS = 320
 #: Bounds wide enough that no cumulative probability of these laws reaches them.
 G_BOUNDS = (0.001, 1.0)
 #: The pre-declaration smoke gate on the one-fold pairs.
@@ -254,6 +262,7 @@ CONFIGURATION = {
     "n_folds": {CONTINUOUS: 1, CROSSFIT: N_FOLDS, CATEGORICAL: 1, TILT: 1},
     "learner_folds": LEARNER_FOLDS,
     "density_bins": DENSITY_BINS,
+    "density_bins_mechanism_only": MECHANISM_ONLY_BINS,
     "g_bounds": list(G_BOUNDS),
     "outcome_learner": "QuasiBinomialGLM",
     "pseudo_learner": "LinearRegression",
@@ -278,18 +287,25 @@ def regimens(scenario: str) -> dict[str, Any]:
     return common.tilt_regimens()
 
 
-def edges_of(frame: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+def density_bins(configuration: str) -> int:
+    """The bin count of a configuration: finer where the mechanism alone carries the fit."""
+    return MECHANISM_ONLY_BINS if configuration == "mechanism_correct" else DENSITY_BINS
+
+
+def edges_of(frame: pd.DataFrame, bins: int = DENSITY_BINS) -> tuple[np.ndarray, np.ndarray]:
     """The whole-sample bin edges each continuous node's density reads."""
     return (
-        bin_edges(frame["A1"].to_numpy(dtype=float), DENSITY_BINS),
-        bin_edges(frame["A2"].to_numpy(dtype=float), DENSITY_BINS),
+        bin_edges(frame["A1"].to_numpy(dtype=float), bins),
+        bin_edges(frame["A2"].to_numpy(dtype=float), bins),
     )
 
 
 def _learners(scenario: str, frame: pd.DataFrame, configuration: str) -> tuple[Any, Any, Any]:
     if scenario in {CONTINUOUS, CROSSFIT}:
         extra = 1 if "U" in frame else 0
-        return common.continuous_learners(configuration, edges_of(frame), extra=extra)
+        return common.continuous_learners(
+            configuration, edges_of(frame, density_bins(configuration)), extra=extra
+        )
     if configuration != "primary":
         raise ValueError(f"no {configuration!r} configuration on {scenario!r}")
     return QuasiBinomialGLM(), LinearRegression(), CellProbabilities()
@@ -321,7 +337,7 @@ def fit(
         n_folds=folds,
         learner_folds=LEARNER_FOLDS,
         g_bounds=G_BOUNDS,
-        density_bins=DENSITY_BINS,
+        density_bins=density_bins(configuration),
         ratio=ratio,
         simultaneous=simultaneous,
         max_iter=100,
