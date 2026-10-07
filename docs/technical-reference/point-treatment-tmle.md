@@ -641,9 +641,12 @@ $$
 The shipped plug-in is the treated mean of $\bar Q^*_1-\bar Q^*_0$. With the ATT score
 equation, it gives $\hat\psi-\psi_0=(P_n-P_0)D^*_{\text{ATT}}(\bar Q_\infty,g_0)$ up to
 the empirical-process term. The remainder is zero for any $\bar Q$, and the ATC is the mirror
-image. The curve is not the efficient one when the score is known. Hahn (1998) gives a smaller ATT
-bound for a known propensity score than for an unknown one. The g-weighted plug-in
-$P_n\{g_0(\bar Q^*_1-\bar Q^*_0)\}/P_n g_0$ attains it, and the package does not ship it.
+image.
+
+The curve is not the efficient one when the score is known. Hahn (1998) gives a smaller ATT
+bound for a known propensity score than for an unknown one, as read from the abstract. By the
+remainder algebra above, the g-weighted plug-in $P_n\{g_0(\bar Q^*_1-\bar Q^*_0)\}/P_n g_0$ has
+the smaller curve. The package does not ship it.
 
 **Incremental interventions.** With $g_0$ known, $q_\delta(g_0)=\delta g_0/(\delta g_0+1-g_0)$ is
 a known stochastic regime. The model with a known mechanism has no mechanism scores, so the
@@ -653,6 +656,14 @@ Corollary 2: "If the propensity scores were known, the efficient influence funct
 the first weighted average term." The fit therefore solves no mechanism equation.
 `tests/unit/test_known_treatment_mechanism.py` checks that the fit equals the
 `Stochastic(density_kind="known")` fit at $q_\delta(g_0)$.
+
+**Modified treatment policies.** A discrete `policies=` fit reads $g$ only in the ratio
+$g^d/g$, and the plug-in reads the observed treatment. A declared $g_0$ is the degenerate estimate
+$g_n=g_0$. The remainder is a product of the ratio error and the outcome error, so it is zero.
+The shipped curve at $(\bar Q_\infty,g_0)$ is therefore exact. The fit evaluates the discrete formula at the
+declaration. `tests/unit/test_known_treatment_mechanism.py` checks that the fit equals the fit
+whose learner returns $g_0$, at two and three arms. `ratio="classifier"` learns the ratio, so it
+is refused beside a declaration.
 
 **Weights.** With `weights=`, the declaration is the mechanism of the weight-tilted law. That law's
 mechanism equals the design mechanism when the weights depend on $W$ only, as survey and transport
@@ -676,7 +687,8 @@ rows.
 | reader | declared mechanism |
 | --- | --- |
 | `n_bootstrap=` and the subset refutation | carried. Each replicate reads the declared values of the rows it drew |
-| the placebo refutation and simulated confounding | dropped, because a permuted or simulated treatment has a mechanism of its own. The refit estimates it, and the report says so |
+| the placebo refutation | dropped, because a permuted treatment has a mechanism of its own. The refit estimates it, and the report says so. The permuted treatment is independent of $W$, so the re-estimated null stays centred |
+| simulated confounding | carried as the flipped mechanism. The flip of strength $s$ is independent of $W$, so the flipped treatment's mechanism is $g_s(a\mid W)=(1-s)\,g_0(a\mid W)+s\,g_0(1-a\mid W)$. Each cell declares $g_s$, and its refit fits no treatment learner |
 | `random_common_cause`, measurement error and the negative-control outcome | carried |
 | replay and `refit` | carried. A refit of a known-mechanism fit reproduces it bit for bit |
 | `retarget`, the truncation curve, the MNAR tilt, and the omitted-variable bound | read the cached declared mechanism |
@@ -689,10 +701,10 @@ rows.
 | --- | --- | --- |
 | `CTMLE`, or `CollaborativeTMLEMethod` on a declaring design | `CapabilityError` | C-TMLE selects the mechanism, and the declaration leaves nothing to select |
 | a continuous treatment | `CapabilityError` | the declaration gives arm probabilities, and a dose has a conditional density |
-| `policies=` | `CapabilityError` | a modified treatment policy reads the mechanism in its estimand and in its ratio, and the known-mechanism translation is written for `incremental=` only |
+| `policies=` with `ratio="classifier"` | `CapabilityError` | the classifier learns the ratio that the declaration fixes. Pass `ratio="density"` |
 | `treatment_delta=` | `CapabilityError` | a missing treatment needs $P(A=a\mid\Delta_A=1,W)$, which equals the design mechanism only when recording is independent of treatment given $W$ |
 | `screen_treatment=True` | `ValueError` | the screen selects covariates for the treatment learner, which the declaration replaces |
-| `DRTMLE(evaluation=...)` whose companion declares no mechanism | `CapabilityError` | the companion's mechanism must be its own declaration. Declare the same columns on it |
+| `DRTMLE(evaluation=...)` whose companion declares no mechanism | `CapabilityError` | the companion's mechanism must be its own declaration. Declare the same columns on an evaluation frame, or pass a `CausalData` companion that declares its own |
 | a second declaration of the mechanism | `ValueError` | declare it once, on the data or at fit |
 
 The result records the choice. `TMLEConfig.treatment_mechanism` reads `"known"`, the summary

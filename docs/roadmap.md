@@ -78,7 +78,8 @@ Priorities 2 to 5 follow the beta.
 | 1.16 | Targeting and fitting options | no new theory; each option keeps its default bit-identical | none | [X22](#x22-targeting-and-fitting-options) |
 | 1.17 | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
 | 1.18 | Plug-in omitted-variable limits with a declared parametric mechanism | [published support; stacked-equation extension](technical-reference/natural-extension-verdicts.md) | the shipped plug-in bound | [X26](#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism) |
-| 2 | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
+| 2.1 | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
+| 2.2 | Efficient known-score ATT and ATC | published support; pending source read | X15 | [X35](#x35-efficient-known-score-att-and-atc) |
 | 3.1 | Natural and interventional mediation effects | published support; pending source read | target-specific identification and evidence | [X5](#x5-natural-and-interventional-mediation-effects) |
 | 3.2 | Continuous-time survival and competing risks | published support; pending source read | continuous-time intensity and targeting contracts; X14 | [X6](#x6-continuous-time-survival-and-competing-risks) |
 | 3.3 | Two-phase and outcome-dependent sampling | published support; pending source read | observed-data likelihood and influence correction | [X7](#x7-two-phase-and-outcome-dependent-sampling) |
@@ -523,6 +524,33 @@ Acceptance:
 Rust and Rao (1996) govern replication variance for complex surveys. Add BRR, jackknife, or
 another replicate design only after a source audit matches its construction to this package's
 weighted-law estimands and inference conventions.
+
+### X35. Efficient known-score ATT and ATC
+
+On data that declares its treatment mechanism, the shipped ATT divides by $g_0$ and reports the
+treated mean of $\bar Q^*_1-\bar Q^*_0$. That curve is not the efficient one when the propensity
+score is known. Hahn (1998) gives a smaller ATT bound for a known score than for an unknown one.
+
+By the remainder algebra of the
+[known treatment mechanism](technical-reference/point-treatment-tmle.md#known-treatment-mechanism)
+section, the g-weighted plug-in $P_n\{g_0(\bar Q^*_1-\bar Q^*_0)\}/P_n g_0$ has the smaller curve.
+The ATC is the mirror image. No pinned comparator implements it. R `tmle` and the `tmle3`
+`Param_ATT` both fluctuate $g$, so their ATT has the unknown-score curve. The item therefore follows
+the beta.
+
+| item | contract |
+| --- | --- |
+| base result | Hahn (1998), *Econometrica* 66(2):315–331, Theorems 1 and 2. [References](references.md) records that only the abstract was read. Read Theorem 2 first-hand before the row starts |
+| step | the g-weighted plug-in at $g_n=g_0$, with the remainder algebra of the shipped known-mechanism ATT |
+| estimator choice | an option on the known-mechanism ATT and ATC. The shipped treated-mean form stays the default |
+| comparator | none. The study cells compare with the truth only |
+
+Acceptance:
+
+- an exact-law test of the curve of the g-weighted plug-in;
+- a variance witness: on a law where the score carries information, the reported standard error is
+  below the standard error of the shipped form;
+- truth-only registered study cells.
 
 ### X5. Natural and interventional mediation effects
 
