@@ -178,3 +178,21 @@ def test_a_repeated_static_plan_reads_as_its_one_arm() -> None:
     repeated = _fit(law, regimens={"a1": (1, 1, 1)})
     for name in one.estimates:  # type: ignore[attr-defined]
         assert one[name].psi == repeated[name].psi  # type: ignore[index]
+
+
+def test_a_saturated_working_model_reproduces_the_held_risks() -> None:
+    """One coefficient per arm and horizon: the projection is the risks themselves."""
+    from cleverly.msm import MSM
+
+    law = survival_law()
+    cells = [(label, horizon) for label in REGIMENS for horizon in HORIZONS]
+
+    def design(label: object, horizon: int, frame: object) -> np.ndarray:
+        n = len(frame)  # type: ignore[arg-type]
+        return np.column_stack([np.full(n, float((label, horizon) == cell)) for cell in cells])
+
+    msm = MSM(design=design, terms=tuple(f"{a}_t{h}" for a, h in cells), design_kind="known")
+    fit = LTMLE(REGIMENS, n_folds=1, msm=msm, **_learners()).fit(law.frame(), **law.fit_columns())
+    for (label, horizon), term in zip(cells, msm.terms, strict=True):
+        truth = law.functional(law.probs, static(REGIMENS[label]), horizon)
+        assert fit[f"msm_regimen[{term}]"].psi == pytest.approx(truth, rel=1e-10, abs=FLOOR)

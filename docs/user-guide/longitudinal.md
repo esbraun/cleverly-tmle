@@ -232,6 +232,52 @@ A mapping from cause labels to absorbing outcome sequences declares competing ri
 horizon, and regimen remain separate key fields. The engine uses a cause-specific recursion while
 keeping all prior competing events out of later risk sets.
 
+## A baseline treatment and a time-to-event outcome
+
+Use `TimeToEvent` when each unit has one follow-up time, one event code and one treatment given at
+baseline. Code `0` means censored. The design bins the times onto a grid of visit times and holds
+the treatment over every visit.
+
+```python
+from cleverly import TimeToEvent
+from cleverly.datasets import make_point_survival
+
+frame, truth = make_point_survival(n=1_000, seed=4, n_times=4)
+design = TimeToEvent(
+    time="time", event="event", treatment="A", baseline=("W1", "W2"), grid=(1, 2, 3, 4)
+)
+curve = CausalStudy(frame, design=design).estimate(
+    RegimeContrast({"arm1": 1, "arm0": 0}, reference="arm0", horizons=(2, 4)),
+    outcome_learner=LinearRegression(),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    cross_fit=False,
+)
+print(curve["ate_regimen[arm1 vs arm0 @ t=4]"].ci, truth["ate_regimen[arm1 vs arm0 @ t=4]"])
+```
+
+Follow these rules for the input.
+
+| rule | reason |
+| --- | --- |
+| Declare `grid=` at the visit times. Omit it only for integer times, and the grid is then `1, 2, ...` up to the largest event time | a grid read off the sample would change with the sample |
+| Record a censoring time as a grid time, or as a time after the last grid time | a censoring between two grid times cannot be ordered against that interval's events, so the fit refuses it |
+| Give `horizons=` and the `tau` of `rmst` as grid times | the parameter name keeps the node index, and `curve()` and `to_frame()` report the grid time in a `time` column |
+| Expect $K(K+1)/2$ regressions per regimen and cause for $K$ grid times | a default grid on day-level times can hold thousands of nodes |
+
+An event after the last grid time leaves the unit event-free at the end of the grid. `causes=`
+maps each nonzero code to a cause label. Without it, codes `0` and `1` declare one event and any
+other codes declare competing causes.
+
+On the wide layout, declare the same design with one column name: `treatment="A"` on
+`LongitudinalTreatment`. The node count then comes from the outcome columns, else from
+`censoring=`, else from `time_varying=`. The wide layout also takes a covariate measured after
+baseline, and an end-of-study outcome after several censoring nodes. A regimen is one arm, a known
+rule, a known stochastic policy, or a modified treatment policy, all at baseline. A plan that
+changes the treatment after baseline is refused, because the design holds one decision.
+[One baseline treatment held over the nodes](../technical-reference/longitudinal-tmle.md#one-baseline-treatment-held-over-the-nodes)
+gives the contract and its evidence.
+
 ## Longitudinal MSM projections
 
 `MSMProjection` can project regimen-specific longitudinal means onto a declared working model. The

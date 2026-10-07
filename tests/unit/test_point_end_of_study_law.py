@@ -106,3 +106,23 @@ def test_the_node_count_comes_from_censoring_and_must_agree() -> None:
     result = LTMLE(REGIMENS, n_folds=1, **_learners()).fit(law.frame(), **law.fit_columns())
     assert result.data.n_times == 2
     assert result.data.treatment_names == ("A",)
+
+
+def test_an_event_only_at_the_last_node_is_the_end_of_study_fit() -> None:
+    """A held survival fit whose event can only happen at node K reproduces the held mean."""
+    law = end_of_study_law()
+    frame = law.frame()
+    end = LTMLE(REGIMENS, n_folds=1, **_learners()).fit(frame, **law.fit_columns())
+    observed = (frame["C1"] == 1) & (frame["C2"] == 1)
+    frame["Y1"] = np.where(frame["C1"] == 1, 0.0, np.nan)
+    frame["Y2"] = np.where(observed, frame["Y"], np.nan)
+    columns = law.fit_columns()
+    columns["outcome"] = ["Y1", "Y2"]
+    survival = LTMLE(REGIMENS, n_folds=1, horizons=[2], **_learners()).fit(frame, **columns)
+    for label in REGIMENS:
+        left = end[f"ey_regimen[{label}]"]
+        right = survival[f"risk_regimen[{label} @ t=2]"]
+        assert left.psi == pytest.approx(right.psi, rel=1e-12, abs=FLOOR)
+        np.testing.assert_allclose(
+            left.influence_curve, right.influence_curve, rtol=1e-10, atol=1e-12
+        )

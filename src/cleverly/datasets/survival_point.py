@@ -188,8 +188,22 @@ def point_survival_truth(
         in level order.  A static arm is one-hot, a rule is one-hot by covariate, a
         stochastic policy is a density, and a modified treatment policy is the law of the
         shifted treatment.
-    arms, causes, n_times, time_varying, dose, continuous_event_time, grid, end_of_study
-        As for :func:`make_point_survival`.
+    arms : {2, 3}
+        The number of arms, as for :func:`make_point_survival`.
+    causes : {1, 2}
+        The number of causes.
+    n_times : int
+        The number of nodes.
+    time_varying : bool
+        Whether ``L_k`` enters the hazard.
+    dose : {"discrete"} or None
+        ``"discrete"`` for the dose on ``0..5``.
+    continuous_event_time : bool
+        Whether the event time is exponential.
+    grid : sequence of float or None
+        The grid of the continuous event time.
+    end_of_study : bool
+        Whether the outcome is one ``Y`` after the censoring nodes.
     weight : callable or None
         ``weight(w1, w2)``, an observation weight of the baseline stratum.  The truth is then
         the parameter of the tilted law :math:`dP_w = w\,dP / E[w]`.  ``None`` is no tilt.

@@ -342,3 +342,24 @@ def test_the_study_path_fits_a_time_to_event_design() -> None:
     )
     truth = LAW.functional(LAW.probs, static(1), 3) - LAW.functional(LAW.probs, static(0), 3)
     assert result["ate_regimen[a1 vs a0 @ t=3]"].psi == pytest.approx(truth, rel=1e-12)
+
+
+def test_both_off_grid_censoring_conventions_are_biased() -> None:
+    """Why R11 refuses rather than picks a convention for a censoring inside an interval.
+
+    One interval ``(0, 1]``, ``T ~ Exp(0.3)`` and an independent ``C ~ Exp(0.2)``.  An event is
+    observed when ``T <= 1`` and ``T < C``, which has probability
+    ``0.3 / 0.5 * (1 - exp(-0.5))``.  The rule that censors a unit inside the interval divides by
+    the units observed to the end of the interval or to their event; the rule that observes it
+    through the interval divides by everybody.  Neither is the truth ``1 - exp(-0.3)``.
+    """
+    truth = 1.0 - np.exp(-0.3)
+    observed_event = 0.3 / 0.5 * (1.0 - np.exp(-0.5))
+    censor_inside = observed_event / (observed_event + np.exp(-0.5))
+    observe_through = observed_event / 1.0
+    assert truth == pytest.approx(0.259, abs=5e-4)
+    assert censor_inside == pytest.approx(0.280, abs=5e-4)
+    assert observe_through == pytest.approx(0.236, abs=5e-4)
+    # Either error is larger than one standard error of the risk at n = 2,000.
+    standard_error = np.sqrt(truth * (1.0 - truth) / 2_000)
+    assert min(abs(censor_inside - truth), abs(observe_through - truth)) > standard_error
