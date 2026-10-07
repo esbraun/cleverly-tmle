@@ -1335,9 +1335,9 @@ def _fit_node_regression(
     task = "classification" if time == horizon and data.family == "binomial" else "regression"
     constant = constant_target(next_outcome, fitted_on)
     if constant is not None:
-        # Every row the regression is fitted on has one target value, such as a grid node at
-        # which no follower had the event.  The maximum-likelihood regression is that value,
-        # so the node fits no learner, and the node's score is zero at that prediction.
+        # Every row the regression is fitted on holds 0, such as a grid node at which no
+        # follower had the event, or every row holds 1.  The maximum-likelihood regression is
+        # that value, so the node fits no learner, and the node's score is zero there.
         predictions = {name: np.full(data.n, constant) for name in predict_designs}
         diagnostics: list[SuperLearnerDiagnostics] = []
     else:
@@ -1649,14 +1649,19 @@ def _pseudo_outcome(
 
 
 def constant_target(target: FloatArray, fitted_on: BoolArray) -> float | None:
-    """The one value ``target`` takes on ``fitted_on``, or ``None`` when it varies.
+    """``0.0`` or ``1.0`` when ``target`` holds that one value on ``fitted_on``, else ``None``.
 
-    A node whose regression rows hold one value, such as a grid node at which no follower
-    had the event, has that value as its maximum-likelihood regression and fits no learner.
-    The nuisance report shows ``LONGITUDINAL_CONSTANT_TARGET`` in place of its row.
+    A node whose regression rows all hold 0, such as a grid node at which no follower had
+    the event, or all hold 1, has that value as its maximum-likelihood regression and fits
+    no learner.  The nuisance report shows ``LONGITUDINAL_CONSTANT_TARGET`` in place of its
+    row.  A constant strictly inside ``(0, 1)``, such as an intercept-only regression carried
+    back from a later node, is not read here: the learner fits it and the fluctuation moves
+    it as any prediction, so a fit that never refused keeps its numbers bit for bit.
     """
     values = np.unique(np.asarray(target, dtype=float)[np.asarray(fitted_on, dtype=bool)])
-    return float(values[0]) if values.size == 1 else None
+    if values.size == 1 and values[0] in (0.0, 1.0):
+        return float(values[0])
+    return None
 
 
 def _finish_regimen_fit(

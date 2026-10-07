@@ -20,6 +20,7 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+from cleverly.datasets import make_longitudinal
 from cleverly.estimators import _nuisance
 from cleverly.exceptions import CapabilityError
 from cleverly.longitudinal import LTMLE, LongitudinalData
@@ -109,3 +110,51 @@ def test_a_pooled_working_model_refuses_an_event_free_cell() -> None:
     msm = MSM(design=design, terms=("1", "treated", "horizon"), design_kind="known")
     with pytest.raises(CapabilityError, match="pooled working-model fluctuation"):
         _estimator(n_folds=1, msm=msm).fit(_data())
+
+
+def test_a_constant_inside_the_unit_interval_is_not_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An intercept-only regression carried back holds one value in (0, 1) at a node.
+
+    The rule reads 0 and 1 only, so the learner still fits that node, and the fit is the
+    learner's fit bit for bit, as it was before the rule.  The registered studies'
+    intercept-only cells depend on this: reading their constants moved them by 3e-16.
+    """
+    from sklearn.dummy import DummyClassifier, DummyRegressor
+
+    one_valued: list[float] = []
+
+    class Recording(DummyRegressor):
+        def fit(self, X: Any, y: Any, sample_weight: Any = None) -> Recording:
+            values = np.unique(np.asarray(y, dtype=float))
+            if values.size == 1:
+                one_valued.append(float(values[0]))
+            return super().fit(X, y, sample_weight=sample_weight)
+
+    frame, _ = make_longitudinal(n=400, seed=0)
+
+    def fit() -> Any:
+        return LTMLE(
+            {"always": 1, "never": 0},
+            outcome_learner=DummyClassifier(strategy="prior"),
+            pseudo_learner=Recording(strategy="mean"),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            censoring_learner=LogisticRegression(max_iter=1000),
+            n_folds=1,
+            random_state=0,
+        ).fit(
+            frame,
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            censoring=["C1", "C2"],
+            time_varying=[[], ["L2"]],
+        )
+
+    reading = fit()
+    assert one_valued, "no pseudo node held one value, so this witness tests nothing"
+    assert all(0.0 < value < 1.0 for value in one_valued)
+    monkeypatch.setattr(sequential_module, "constant_target", lambda target, fitted_on: None)
+    learner = fit()
+    for name in reading.estimates:
+        assert reading.psi(name) == learner.psi(name)
+        assert reading[name].std_error == learner[name].std_error

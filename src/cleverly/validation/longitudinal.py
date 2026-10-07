@@ -30,6 +30,7 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray
 from ..data.weighting import effective_sample_size
+from ..longitudinal.sequential import constant_target
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
 from .nuisance import (
@@ -65,9 +66,11 @@ LONGITUDINAL_CENSORING_NOT_FITTED = "complete data has no censoring learner"
 #: treatment likelihood to report there.
 LONGITUDINAL_CLASSIFIER_RATIO = "continuous node ratio estimated by classification, no density"
 
-#: Every follower at the node holds one target value, such as a grid node at which no
-#: follower had the event.  The node's regression is that value, so no learner ran.
-LONGITUDINAL_CONSTANT_TARGET = "every follower holds one target value, regression is that value"
+#: Every follower at the node holds 0, such as a grid node at which no follower had the
+#: event, or every follower holds 1.  The node's regression is that value, so no learner ran.
+LONGITUDINAL_CONSTANT_TARGET = (
+    "every follower holds the same 0 or 1 target, regression is that value"
+)
 
 #: The node is an identity node of a held design: it repeats the baseline decision, its
 #: factor is exactly one, and the estimator fitted no treatment model there.
@@ -823,7 +826,7 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
             target = (
                 step.pseudo_outcome if step.regression_target is None else step.regression_target
             )
-            if np.unique(np.asarray(target, dtype=float)[mask]).size == 1:
+            if constant_target(target, mask) is not None:
                 omissions.append(
                     LongitudinalNuisanceOmission(
                         role,

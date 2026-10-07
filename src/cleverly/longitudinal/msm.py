@@ -662,17 +662,15 @@ def fit_regimens_msm(
         for time in range(max(cell.horizon for cell in model.cells), 0, -1):
             live = [k for k, cell in enumerate(model.cells) if cell.horizon >= time]
             prepared = {k: node_inputs(k, time, carried[k]) for k in live}
-            # A cell whose followers all hold 0 or 1, such as a node with no event, has that
-            # value as its regression.  The pooled logistic fluctuation would first move it
-            # into its bounds, so such a cell is refused.  A constant inside (0, 1), such as
-            # an intercept-only regression carried back, fluctuates as any prediction does.
+            # A cell whose followers all hold 0 or all hold 1, such as a node with no event,
+            # has that value as its regression.  The pooled logistic fluctuation would first
+            # move it into its bounds, so such a cell is refused.
             pinned = sorted(
                 {
                     model.cells[k].label
                     for k in live
-                    if (value := constant_target(prepared[k].pseudo_outcome, prepared[k].fitted_on))
+                    if constant_target(prepared[k].pseudo_outcome, prepared[k].fitted_on)
                     is not None
-                    and not 0.0 < value < 1.0
                 }
             )
             if pinned:

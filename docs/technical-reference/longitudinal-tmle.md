@@ -490,7 +490,7 @@ the rule and sees that error return.
 
 ### A node with no event
 
-A node regression whose fitted rows all hold one target value is that value, and no learner runs
+A node regression whose fitted rows all hold 0, or all hold 1, is that value, and no learner runs
 there. A grid node at which no follower of a regimen had the event has this shape, with hazard
 zero. Zero is the maximum-likelihood hazard, and `survtmle` reads such a node the same way. The
 fluctuation at the node is skipped, because the score is exactly zero at the initial fit. The rule
@@ -499,9 +499,9 @@ applies to every outcome and pseudo-outcome node, on both layouts.
 | case | result |
 | --- | --- |
 | no follower had the event at every node through the horizon | risk zero, a zero influence curve, and an interval of width zero |
-| the followers of one outer training fold hold one value | that fold's regression is the value. The pooled fluctuation then bounds its predictions as it does any prediction |
-| `msm=` with a cell whose followers hold 0 or 1 | `CapabilityError`. The pooled logistic fluctuation would move the value into its bounds |
-| `msm=` with a cell whose followers hold one value inside $(0, 1)$ | fitted. The value fluctuates as any prediction does |
+| the followers of one outer training fold all hold 0, or all hold 1 | that fold's regression is the value. The pooled fluctuation then bounds its predictions as it does any prediction |
+| `msm=` with a cell whose followers all hold 0, or all hold 1 | `CapabilityError`. The pooled logistic fluctuation would move the value into its bounds |
+| a pseudo-outcome that holds one value inside $(0, 1)$, such as an intercept-only regression carried back | not read by this rule. The learner fits it and the fluctuation moves it, so a fit that ran before the rule keeps its numbers |
 
 The nuisance report shows `LONGITUDINAL_CONSTANT_TARGET` in place of the node's row, with the
 regimen, the cause and the horizon. `tests/unit/test_event_free_node.py` checks the zero risk, the
@@ -740,8 +740,9 @@ handling when it ships.
 
 Two side effects follow from the cross-fitted default. A fit with fewer than 10 clusters warns that
 it reduces `n_folds` to the cluster count, and a fit with fewer than 20 reports no interval. At few clusters a training fold can lack a first-node
-level, or hold one outcome value among a regimen's followers. The fit then raises
-`LongitudinalError` after the draw, and the message names the in-sample fit.
+level. The fit then raises `LongitudinalError` after the draw, and the message names the
+in-sample fit. A training fold whose followers all hold one outcome value reads that value, as
+[a node with no event](#a-node-with-no-event) states.
 
 `tests/unit/test_clustered_cross_fitted_ltmle.py` holds the fast evidence. Each witness has a
 mutation control that fails it.
