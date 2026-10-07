@@ -33,6 +33,13 @@ three-arm law with a time-varying covariate, the continuous event time, the held
 outcome, the weighted law and the clustered law are property cells, because ``survtmle`` has
 none of them (``point_survival_properties``).
 
+**The initial estimate is not one quantity on the two sides.**  Here ``initial_estimate`` is
+the mean of the node-1 regression, which is fitted on pseudo-outcomes that the later nodes
+already targeted.  The ``survtmle`` value is a second call with ``Gcomp=TRUE``, the fully
+untargeted recursion.  The two coincide at visit 1, which has no later node, and differ at
+later visits.  The paired rows compare the targeted estimates only, so the initial columns are
+context and enter no verdict.
+
 Publication policy is ``reporting``.  The red-cell route was declared before any run.  A red
 band cell is owned by ``band-finite-sample``, a red clustered cell by the X24/X25 cluster owner
 that applies, and any other red cell by ``X13-finite-sample``, which closes when a

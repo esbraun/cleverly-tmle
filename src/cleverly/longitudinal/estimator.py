@@ -2826,7 +2826,9 @@ class LTMLE:
             continuous_treatment=continuous_treatment,
         )
         regimens = resolve_regimens(
-            self.regimens, prepared.n_decisions, held=prepared.treatment_held
+            self.regimens,
+            prepared.n_decisions,
+            held_nodes=prepared.n_times if prepared.treatment_held else None,
         )
         if prepared.is_survival:
             infixes = (HORIZON_INFIX,) + ((CAUSE_INFIX,) if prepared.is_competing else ())
@@ -2895,7 +2897,7 @@ class LTMLE:
 
         horizons = self._horizons(prepared)
         preflight_mechanism_support(prepared, prepared.regimen_masks(prepared.treatment), folds)
-        preflight_terminal_outcomes(prepared, plans, horizons, folds, scaler)
+        preflight_terminal_outcomes(prepared, plans, horizons, folds)
         mechanism = fit_mechanism(
             prepared,
             plans,

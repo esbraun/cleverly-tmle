@@ -96,7 +96,7 @@ def test_a_rule_is_evaluated_once_on_the_decision_history(
     # re-reads it on L2, as the shipped broadcast of one rule over T nodes does.
     monkeypatch.setattr(LongitudinalData, "n_decisions", property(lambda self: self.n_times))
 
-    def broadcast(label: str, plan: Any) -> Any:
+    def broadcast(label: str, plan: Any, n_times: int) -> Any:
         if isinstance(plan, DynamicRegimen) and len(plan.plan) == 1:
             return DynamicRegimen(label, plan.plan * law.n_times, rule_kind="known")
         return plan

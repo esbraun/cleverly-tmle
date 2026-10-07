@@ -1055,14 +1055,13 @@ def preflight_terminal_outcomes(
     plans: Sequence[Plan],
     horizons: Sequence[int],
     folds: Folds,
-    scaler: OutcomeScaler,
 ) -> None:
-    """Check terminal classification regressions before any mechanism learner fits.
+    """Check that every reported horizon has followers, before any mechanism learner fits.
 
-    The target at a reported horizon is the observed outcome or event indicator. It does
-    not depend on a fitted nuisance or an earlier targeting step, so its support can be
-    checked for every regimen, cause, horizon, and outer training complement now. The
-    masks and target are the same ones :func:`prepare_node` uses at that horizon.
+    Who follows a regimen through a horizon does not depend on a fitted nuisance, so a
+    regimen, horizon or outer training complement with no follower is refused now.  A
+    horizon whose followers all hold one event value is not refused: its regression is that
+    value (:func:`constant_target`).
 
     Parameters
     ----------
@@ -1074,41 +1073,17 @@ def preflight_terminal_outcomes(
         Reported outcome or event times.
     folds : Folds
         The realized outer split.
-    scaler : OutcomeScaler
-        The outcome transformation used by the recursion.
     """
     preflight_policy_support(data, plans, horizons, folds)
-    if data.family != "binomial":
-        return
-    carried = seed_carried(data, scaler)
-    causes: tuple[str | None, ...] = data.cause_labels or (None,)
     for plan in plans:
         masks = plan.masks(data)
         for horizon in horizons:
             at_risk = masks.at_risk(horizon)
             followers = masks.following(horizon)
-            for cause in causes:
-                target = _pseudo_outcome(data, carried, horizon, cause)
-                for fold, (train, _) in enumerate(folds):
-                    outer_fold = None if folds.is_single else fold
-                    fitted_on = followers.copy()
-                    if not folds.is_single:
-                        train_rows = np.zeros(data.n, dtype=bool)
-                        train_rows[train] = True
-                        fitted_on &= train_rows
-                    _require_regimen_followers(
-                        data, plan, horizon, at_risk, fitted_on, outer_fold=outer_fold
-                    )
-                    _check_outcome_varies(
-                        data,
-                        target,
-                        fitted_on,
-                        plan,
-                        horizon,
-                        horizon,
-                        cause,
-                        outer_fold=outer_fold,
-                    )
+            for outer_fold, train_rows in _fit_rows(data, folds):
+                _require_regimen_followers(
+                    data, plan, horizon, at_risk, followers & train_rows, outer_fold=outer_fold
+                )
 
 
 def _fit_rows(data: LongitudinalData, folds: Folds) -> list[tuple[int | None, BoolArray]]:
@@ -1358,24 +1333,30 @@ def _fit_node_regression(
         predict_designs["history"] = design
     learner = outcome_learner if time == horizon else pseudo_learner
     task = "classification" if time == horizon and data.family == "binomial" else "regression"
-    if task == "classification":
-        _check_outcome_varies(
-            data, next_outcome, fitted_on, plan, time, horizon, cause, outer_fold=outer_fold
-        )
-    with phase("outcome_learner_fit"):
-        predictions, diagnostics = cross_fit_predictions(
-            learner,
-            design,
-            next_outcome,
-            data.weights,
-            folds,
-            task=task,  # type: ignore[arg-type]
-            predict_designs=predict_designs,
-            fit_mask=fitted_on,
-            groups=data.cluster,
-            clip=(0.0, 1.0),
-            n_jobs=n_jobs,
-        )
+    constant = constant_target(next_outcome, fitted_on)
+    if constant is not None:
+        # Every row the regression is fitted on has one target value, such as a grid node at
+        # which no follower had the event.  The maximum-likelihood regression is that value,
+        # so the node fits no learner, and the node's score is zero at that prediction.
+        predictions = {name: np.full(data.n, constant) for name in predict_designs}
+        diagnostics: list[SuperLearnerDiagnostics] = []
+    else:
+        with phase("outcome_learner_fit"):
+            predictions, diagnostics = cross_fit_predictions(
+                learner,
+                design,
+                next_outcome,
+                data.weights,
+                folds,
+                task=task,  # type: ignore[arg-type]
+                predict_designs=predict_designs,
+                fit_mask=fitted_on,
+                groups=data.cluster,
+                clip=(0.0, 1.0),
+                n_jobs=n_jobs,
+                # A training fold whose rows hold one class predicts that class.
+                constant_folds=[] if task == "classification" else None,
+            )
     if not policy_node:
         return _NodeRegression(
             time=time,
@@ -1589,6 +1570,24 @@ def _fluctuate_node(
         for code in range(arms.shape[1]):
             initial_arms[_policy_arm(code)] = arms[:, code]
             submodel_arms[_policy_arm(code)] = intercept
+    constant = constant_target(pseudo_outcome, fitted_on)
+    if constant is not None and np.all(np.asarray(initial)[fitted_on] == constant):
+        # The regression already equals its one target value on every row the score reads,
+        # so the score is zero at epsilon = 0.  The logistic solver would first shrink a
+        # prediction of 0 or 1 into the bounds and then chase it, so it is not called.
+        names = (f"epsilon[{label}, t={time}]",)
+        zero = np.zeros(1)
+        return Fluctuation(
+            epsilon=zero,
+            targeted=InitialFit(initial, initial_arms),
+            score=zero,
+            converged=True,
+            n_iter=0,
+            trace=(0.0,),
+            method="iterative",
+            names=names,
+            score_initial=zero,
+        )
     return solve_fluctuation(
         pseudo_outcome,
         InitialFit(initial, initial_arms),
@@ -1649,67 +1648,15 @@ def _pseudo_outcome(
     return carried
 
 
-def _check_outcome_varies(
-    data: LongitudinalData,
-    next_outcome: FloatArray,
-    fitted_on: BoolArray,
-    plan: Plan,
-    time: int,
-    horizon: int,
-    cause: str | None,
-    *,
-    outer_fold: int | None = None,
-) -> None:
-    """Refuse a classification with nothing to separate, saying which case it is.
+def constant_target(target: FloatArray, fitted_on: BoolArray) -> float | None:
+    """The one value ``target`` takes on ``fitted_on``, or ``None`` when it varies.
 
-    The set the check reads is ``fitted_on``, the rows the regression is *fitted* on, and
-    that set is what the refusal has to name.  On a single-fold pass it is every follower
-    in the sample.  Under outer cross-fitting it is the followers in one fold's training
-    complement, a strict subset, so the same frame can be estimable at ``n_folds=1`` and
-    refused at ``n_folds=2``.  Calling the binding set "this sample" in both cases reports
-    the second as a sample-size problem, which sends the reader to collect more data when
-    the fold count is what moved.
+    A node whose regression rows hold one value, such as a grid node at which no follower
+    had the event, has that value as its maximum-likelihood regression and fits no learner.
+    The nuisance report shows ``LONGITUDINAL_CONSTANT_TARGET`` in place of its row.
     """
-    seen = np.unique(next_outcome[fitted_on])
-    if seen.size >= 2:
-        return
-    where = "" if outer_fold is None else f" in outer training fold {outer_fold + 1}"
-    scope = "this sample" if outer_fold is None else f"outer training fold {outer_fold + 1}"
-    crossfit_note = (
-        ""
-        if outer_fold is None
-        else (
-            " The check applies to each outer fold's training rows, not to the sample as a "
-            "whole, so a cross-fitted fit needs the outcome to vary in every fold's "
-            "training complement. That is stricter than a single-fold fit, which fits on "
-            "every row, and the same frame can be estimable at n_folds=1. "
-            + _CROSS_FIT_NODE_REMEDY.format(
-                alternative="choose an estimand this fold count supports"
-            )
-        )
-    )
-    raise LongitudinalError(
-        f"every unit following regimen {plan.label!r} through time {time}{where} has "
-        f"the same outcome ({seen.tolist()}), so the regression there has "
-        "nothing to separate. "
-        + (
-            (
-                f"The incidence of {cause!r} at horizon {horizon} is not "
-                f"estimable from {scope}: no unit following the regimen was "
-                f"observed to leave through {cause!r}. A rare cause reaches "
-                "this well before a common one does, so it is refused per "
-                "cause rather than for the fit as a whole."
-            )
-            if cause is not None
-            else (
-                f"The risk at horizon {horizon} is not estimable from {scope}: "
-                "no event was observed among the regimen's followers."
-            )
-            if data.is_survival
-            else "The outcome does not vary among the regimen's followers."
-        )
-        + crossfit_note
-    )
+    values = np.unique(np.asarray(target, dtype=float)[np.asarray(fitted_on, dtype=bool)])
+    return float(values[0]) if values.size == 1 else None
 
 
 def _finish_regimen_fit(

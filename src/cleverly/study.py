@@ -768,7 +768,8 @@ class TimeToEvent:
     the treatment is one decision held over every node.
     :meth:`cleverly.longitudinal.LongitudinalData.from_time_to_event` states the binning
     rules and the refusals.  The estimand is a risk or a cumulative incidence at the grid
-    times, as for a survival :class:`LongitudinalTreatment`.
+    times, as for a survival :class:`LongitudinalTreatment`.  At a grid time before which
+    no follower of a regimen had the event, the risk is zero with an interval of width zero.
 
     Parameters
     ----------
@@ -799,6 +800,9 @@ class TimeToEvent:
     time_varying : None
         Not accepted.  One row per unit holds no covariate measured after baseline, so any
         other value raises :class:`TypeError`.
+    continuous_treatment : bool
+        Whether the treatment is a continuous dose.  A regimen is then a modified treatment
+        policy at baseline.
 
     Attributes
     ----------
@@ -831,6 +835,7 @@ class TimeToEvent:
     weights_type: Literal["probability"] = "probability"
     weights_estimated: bool = False
     time_varying: None = None
+    continuous_treatment: bool = False
 
     def __post_init__(self) -> None:
         if self.time_varying is not None:
@@ -883,6 +888,7 @@ class TimeToEvent:
             weights=self.weights,
             weights_type=self.weights_type,
             weights_estimated=self.weights_estimated,
+            continuous_treatment=self.continuous_treatment,
         )
 
     def _check_prepared(self, data: LongitudinalData) -> None:
@@ -897,6 +903,7 @@ class TimeToEvent:
             ("weights", self.weights, data.weights_name),
             ("weights_type", self.weights_type, data.weight_spec.kind),
             ("weights_estimated", self.weights_estimated, data.weight_spec.estimated),
+            ("continuous_treatment", self.continuous_treatment, data.is_continuous_node(1)),
         )
         for role, declared, held in expected:
             if declared != held:
@@ -905,11 +912,41 @@ class TimeToEvent:
                     f"design declares {role}={declared!r}; build the data from this design, "
                     "or correct the design"
                 )
-        if self.grid is not None and tuple(self.grid) != data.time_grid:
+        grid = self.grid if self.grid is not None else _default_grid(data)
+        if tuple(grid) != data.time_grid:
+            declared_grid = "the default grid " if self.grid is None else ""
             raise DataError(
                 f"the supplied LongitudinalData was built with grid={data.time_grid!r}, but "
-                f"this design declares grid={self.grid!r}"
+                f"this design declares {declared_grid}grid={tuple(grid)!r}"
             )
+        held_causes = (
+            dict(zip(data.event_codes, data.cause_labels, strict=True))
+            if data.cause_labels
+            else None
+        )
+        declared_causes = (
+            dict(self.causes)
+            if self.causes is not None
+            else None
+            if set(data.event_codes) <= {1}
+            else {code: str(code) for code in data.event_codes}
+        )
+        if declared_causes != held_causes:
+            raise DataError(
+                f"the supplied LongitudinalData was built with causes={held_causes!r}, but "
+                f"this design declares causes={self.causes!r}; build the data from this "
+                "design, or correct the design"
+            )
+
+
+def _default_grid(data: LongitudinalData) -> tuple[float, ...]:
+    """The grid ``grid=None`` gives on this container's times: 1 to the largest event time."""
+    times, codes = data.to_time_to_event()
+    events = times[codes > 0]
+    last = float(events.max()) if events.size else 0.0
+    if not last.is_integer():
+        return ()
+    return tuple(float(g) for g in range(1, int(last) + 1))
 
 
 @dataclass(frozen=True)
@@ -2690,7 +2727,7 @@ class CausalStudy:
     ----------
     data : dataframe, CausalData, or LongitudinalData
         Observed study data. Pandas and Polars dataframes are supported.
-    design : PointTreatment or LongitudinalTreatment
+    design : PointTreatment, LongitudinalTreatment, or TimeToEvent
         Column roles and treatment-time structure.
     protocol : StudyProtocol or None
         Scientific study protocol. ``None`` records that no protocol was supplied.
@@ -2698,13 +2735,14 @@ class CausalStudy:
     Attributes
     ----------
     data : CausalData or LongitudinalData
-    design : PointTreatment or LongitudinalTreatment
+    design : PointTreatment, LongitudinalTreatment, or TimeToEvent
     protocol : StudyProtocol or None
 
     See Also
     --------
     PointTreatment : The design declaration for treatment given once.
     LongitudinalTreatment : The design declaration for time-varying treatment.
+    TimeToEvent : The design declaration for one follow-up time and one event code per unit.
     IdentifiedEffect : What :meth:`identify` returns.
 
     Examples

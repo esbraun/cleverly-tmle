@@ -44,6 +44,7 @@ from .nuisance import (
 __all__ = [
     "LONGITUDINAL_CENSORING_NOT_FITTED",
     "LONGITUDINAL_CLASSIFIER_RATIO",
+    "LONGITUDINAL_CONSTANT_TARGET",
     "LONGITUDINAL_HELD_DECISION",
     "LONGITUDINAL_NO_CENSORING",
     "LONGITUDINAL_NO_CENSORING_IN_FOLD",
@@ -64,6 +65,10 @@ LONGITUDINAL_CENSORING_NOT_FITTED = "complete data has no censoring learner"
 #: treatment likelihood to report there.
 LONGITUDINAL_CLASSIFIER_RATIO = "continuous node ratio estimated by classification, no density"
 
+#: Every follower at the node holds one target value, such as a grid node at which no
+#: follower had the event.  The node's regression is that value, so no learner ran.
+LONGITUDINAL_CONSTANT_TARGET = "every follower holds one target value, regression is that value"
+
 #: The node is an identity node of a held design: it repeats the baseline decision, its
 #: factor is exactly one, and the estimator fitted no treatment model there.
 LONGITUDINAL_HELD_DECISION = "baseline decision held at this node, factor one, no model"
@@ -73,8 +78,9 @@ LONGITUDINAL_HELD_DECISION = "baseline decision held at this node, factor one, n
 LONGITUDINAL_NO_CENSORING = "no unit censored at this node, retention factor one, no learner"
 
 #: A training fold of a cross-fitted fit held no censored unit at the node.  That fold
-#: predicts retention one, its empirical rate, and fits no learner.  The node's model row
-#: stays, from the folds that did fit.
+#: predicts retention one, its empirical rate, and fits no learner.  Its held-out fold then
+#: holds every censored unit at the node.  The node's model row stays, from the folds that
+#: did fit.
 LONGITUDINAL_NO_CENSORING_IN_FOLD = "a training fold had no censored unit, that fold predicts one"
 
 
@@ -310,11 +316,20 @@ class LongitudinalNuisanceOmission:
         One-based node index. ``None`` means the whole role is inapplicable.
     reason : str
         Stable reason that the role is absent.
+    regimen : str or None
+        The regimen of an outcome or pseudo-outcome role, ``None`` for a mechanism role.
+    cause : str or None
+        The cause of a competing-risk outcome role, else ``None``.
+    horizon : int or None
+        The horizon of a survival outcome role, else ``None``.
     """
 
     role: str
     time: int | None
     reason: str
+    regimen: str | None = None
+    cause: str | None = None
+    horizon: int | None = None
 
 
 @dataclass(frozen=True)
@@ -664,7 +679,7 @@ def _treatment_report(result: Any, time: int, mask: BoolArray) -> NuisanceModelR
     """
     mechanism = result.mechanism
     if result.data.is_continuous_node(time):
-        density = getattr(mechanism, "densities", {}).get(time)
+        density = mechanism.densities.get(time)
         if density is None:
             return None
         dose = np.nan_to_num(result.data.treatment[:, time - 1], nan=0.0)
@@ -751,12 +766,12 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
 
         if not result.data.censoring_names:
             continue
-        if time in getattr(mechanism, "no_censoring_nodes", ()):
+        if time in mechanism.no_censoring_nodes:
             omissions.append(
                 LongitudinalNuisanceOmission("censoring", time, LONGITUDINAL_NO_CENSORING)
             )
             continue
-        if time in getattr(mechanism, "no_censoring_folds", {}):
+        if time in mechanism.no_censoring_folds:
             omissions.append(
                 LongitudinalNuisanceOmission("censoring", time, LONGITUDINAL_NO_CENSORING_IN_FOLD)
             )
@@ -806,10 +821,20 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
             # its own untargeted recursion, so the pooled-targeted `pseudo_outcome` is not
             # that target and scoring `initial` against it would mix two recursions.
             target = (
-                step.pseudo_outcome
-                if getattr(step, "regression_target", None) is None
-                else step.regression_target
+                step.pseudo_outcome if step.regression_target is None else step.regression_target
             )
+            if np.unique(np.asarray(target, dtype=float)[mask]).size == 1:
+                omissions.append(
+                    LongitudinalNuisanceOmission(
+                        role,
+                        step.time,
+                        LONGITUDINAL_CONSTANT_TARGET,
+                        regimen=fit.regimen.label,
+                        cause=fit.cause,
+                        horizon=fit.horizon if result.data.is_survival else None,
+                    )
+                )
+                continue
             report = (
                 _binary_report(
                     name,

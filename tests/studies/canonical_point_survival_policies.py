@@ -3,7 +3,8 @@
 The subject is ``LTMLE`` on the held survival design with a known stochastic policy (F1) or a
 modified treatment policy (X12) at the one treatment decision, and identity nodes after it.
 That is Díaz, Williams, Hoffman and Schenck (2023), Definition 1 with
-:math:`d_t(a_t, h_t) = a_t` for ``t >= 2``, and it is ``lmtp`` with ``trt`` of length one.
+:math:`d_t(a_t, h_t) = a_t` for ``t >= 2``.  In ``lmtp`` it is ``trt`` of length K, K copied
+treatment columns with the shifted value at the first and the observed value after it.
 
 ==========  ========================================================================  ========
 scenario    law and plans                                                             visits
@@ -33,6 +34,11 @@ probabilities are multiples of one quarter, so four copies of each unit realise 
 sequential regressions are the logistic regression on ``W1``, ``W2`` and the treatment on both
 sides (the dose as a factor).  The fluctuations differ by construction, so the paired rows are
 read under the default margins.
+
+**The initial estimate is one quantity on the two sides.**  Here ``initial_estimate`` is the
+mean of the node-1 regression at the plan's treatment, fitted on pseudo-outcomes that the
+later nodes already targeted.  The ``lmtp`` value is its first regression predicted at the
+shifted treatment, which ``lmtp`` also fits on the targeted later nodes.  It enters no verdict.
 
 Publication policy is ``reporting``.  The red-cell route was declared before any run: a red
 paired ``lmtp`` row is owned by the X12 owner of that comparator, and any other red cell by
@@ -174,9 +180,11 @@ REFERENCE_METADATA = {
     "lmtp_tarball_sha256": LMTP_TARBALL_SHA256,
     "r_base_image": R_BASE_IMAGE,
     "reference_construction": (
-        "lmtp cf_tmle and theta_dr with trt of length one, K event and censoring nodes, the "
-        "shifted treatment of four copies (policy) or one copy (MTP, natural course), and the "
-        "law's own per-node density ratio written beside the replicate data"
+        "lmtp cf_tmle and theta_dr with trt of length K: K copied treatment columns with the "
+        "shifted value at the first and the observed value after it (the identity policy at "
+        "t >= 2), K event and censoring nodes, the shifted first treatment of four copies "
+        "(policy) or one copy (MTP, natural course), and the law's own per-node density ratio "
+        "written beside the replicate data"
     ),
     "reference_adapter": "tests/canonical/lmtp_held_survival_adapter.R",
     "pairing": "read under the default margins; the fluctuations differ by construction",

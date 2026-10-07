@@ -13,7 +13,9 @@ import os
 import numpy as np
 import pytest
 
-from cleverly.longitudinal import LTMLE
+from cleverly.exceptions import DataError
+from cleverly.interventions import Shift, Stochastic
+from cleverly.longitudinal import LTMLE, DynamicRegimen
 from cleverly.validation.longitudinal import LONGITUDINAL_HELD_DECISION
 from tests.discrete_law_point_survival import (
     CellMeans,
@@ -156,20 +158,53 @@ def test_one_cause_declared_as_a_mapping_equals_survival() -> None:
             _same(left.influence_curve, right.influence_curve)
 
 
-def test_a_multi_node_plan_on_a_held_design_is_refused_before_any_learner() -> None:
-    class Refuse(CellMeans):
-        def fit(self, *args: object, **kwargs: object) -> object:
-            raise AssertionError("a learner ran")
+def _rule(history: object) -> object:
+    return np.ones(len(history))  # type: ignore[arg-type]
 
+
+def _policy(frame: object) -> np.ndarray:
+    return np.tile([0.25, 0.5, 0.25], (len(frame), 1))  # type: ignore[arg-type]
+
+
+_POLICY = Stochastic(_policy, "q", density_kind="known")
+_IDENTITY = Shift(0.0, cap=None)
+
+#: R9: every plan that says something different at a later node of a held design.
+MULTI_NODE_PLANS = {
+    "static": (0, 1, 1),
+    "rules": DynamicRegimen("rules", (_rule, _rule, _rule), rule_kind="known"),
+    "policies": DynamicRegimen("policies", (_POLICY, _POLICY, _POLICY)),
+    "mtp": DynamicRegimen("mtp", (Shift(1.0, cap=2.0), _IDENTITY, _IDENTITY)),
+    "static labels": DynamicRegimen("static labels", (0, 1, 1)),
+}
+
+
+class _Refuse(CellMeans):
+    def fit(self, *args: object, **kwargs: object) -> object:
+        raise AssertionError("a learner ran")
+
+
+def _refusing() -> dict[str, object]:
+    return {
+        "outcome_learner": _Refuse(),
+        "treatment_learner": _Refuse(),
+        "censoring_learner": _Refuse(),
+    }
+
+
+@pytest.mark.parametrize("kind", list(MULTI_NODE_PLANS))
+def test_a_multi_node_plan_on_a_held_design_is_refused_before_any_learner(kind: str) -> None:
     law = survival_law()
+    plan = MULTI_NODE_PLANS[kind]
+    label = kind if isinstance(plan, tuple) else plan.label  # type: ignore[union-attr]
     with pytest.raises(ValueError, match="declares 3 nodes, but this design has one treatment"):
-        LTMLE(
-            {"switch": (0, 1, 1)},
-            n_folds=1,
-            outcome_learner=Refuse(),
-            treatment_learner=Refuse(),
-            censoring_learner=Refuse(),
-        ).fit(law.frame(), **law.fit_columns())
+        LTMLE({label: plan}, n_folds=1, **_refusing()).fit(law.frame(), **law.fit_columns())
+
+
+def test_a_repeated_static_plan_of_another_length_is_refused() -> None:
+    law = survival_law()
+    with pytest.raises(DataError, match=r"assigns 2 arm\(s\) but the data has 3 treatment"):
+        LTMLE({"x": (1, 1)}, n_folds=1, **_refusing()).fit(law.frame(), **law.fit_columns())
 
 
 def test_a_repeated_static_plan_reads_as_its_one_arm() -> None:

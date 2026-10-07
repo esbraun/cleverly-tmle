@@ -447,7 +447,9 @@ order them. `grid=None` needs integer times and uses $g_k = k$ up to the largest
 regimen and cause costs $K(K+1)/2$ sequential regressions, so a default grid on day-level times can
 hold thousands of nodes. `summary()` prints the grid. On a gridded fit, `horizons=` and the `tau`
 of `rmst` take grid times, `curve()` reports the grid time in its `time` column, and `to_frame()`
-adds a `time` column. A parameter name keeps the node index.
+adds a `time` column. A parameter name keeps the node index. `continuous_treatment=True` declares
+the treatment a continuous dose. Node 1 then fits one conditional density, and a regimen is a
+modified treatment policy.
 
 A censoring time strictly between two grid times is refused. Such a time cannot be ordered against
 the events of its interval, and both conventions are biased. Declare the grid at the visit times.
@@ -479,12 +481,32 @@ binning and the censor-first map are its mutations, and each one misses the trut
 
 A censoring node at which no eligible unit is censored has the fixed factor one and fits no
 learner. The eligible rows are the rows at risk before the node with positive weight. On the long
-layout node 1 always has this shape, because every time is at least $g_1$. A cross-fitted training
+layout node 1 always has this shape, because every censoring time is at least $g_1$. A cross-fitted training
 fold with no censored unit predicts one, its empirical rate. The nuisance report shows
 `LONGITUDINAL_NO_CENSORING`, or `LONGITUDINAL_NO_CENSORING_IN_FOLD` beside the node's row.
 `survtmle` sets `G_dC = 1` at `t = 1` and has a `noCens` branch for the same case. Before this rule a
 standard classifier raised on the constant target. `tests/unit/test_no_censoring_node.py` removes
 the rule and sees that error return.
+
+### A node with no event
+
+A node regression whose fitted rows all hold one target value is that value, and no learner runs
+there. A grid node at which no follower of a regimen had the event has this shape, with hazard
+zero. Zero is the maximum-likelihood hazard, and `survtmle` reads such a node the same way. The
+fluctuation at the node is skipped, because the score is exactly zero at the initial fit. The rule
+applies to every outcome and pseudo-outcome node, on both layouts.
+
+| case | result |
+| --- | --- |
+| no follower had the event at every node through the horizon | risk zero, a zero influence curve, and an interval of width zero |
+| the followers of one outer training fold hold one value | that fold's regression is the value. The pooled fluctuation then bounds its predictions as it does any prediction |
+| `msm=` with a cell whose followers hold 0 or 1 | `CapabilityError`. The pooled logistic fluctuation would move the value into its bounds |
+| `msm=` with a cell whose followers hold one value inside $(0, 1)$ | fitted. The value fluctuates as any prediction does |
+
+The nuisance report shows `LONGITUDINAL_CONSTANT_TARGET` in place of the node's row, with the
+regimen, the cause and the horizon. `tests/unit/test_event_free_node.py` checks the zero risk, the
+omission rows and the absent learner fits. Its mutation removes the rule and sees the bounded
+fluctuation move the risk off zero.
 
 ## Functionals of a fitted result
 

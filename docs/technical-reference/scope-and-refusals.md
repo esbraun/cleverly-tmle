@@ -19,23 +19,21 @@ problem is, and there are three places it can be.
 | [Wrong by construction](#wrong-by-construction) | in the method | the naive version *runs* and returns a plausible number that is wrong, usually with a known direction of error. Read these as warnings about the analysis, not about this package's coverage |
 
 A fourth group needs no taxonomy. A fit whose *data* cannot support what you declared is refused
-where the problem arises. Examples are a horizon at which no event was observed among a regimen's
-followers, a cause with no events, a regimen nobody followed, and two absorbing causes firing at
-one node. A known policy that can draw a level no fitted row of its node received is another, and
+where the problem arises. Examples are a regimen nobody followed and two absorbing causes firing
+at one node. A known policy that can draw a level no fitted row of its node received is another, and
 [known stochastic policies](longitudinal-tmle.md#known-stochastic-policies) states why. Those are
 statements about the sample.
 
-Cross-fitting narrows what the sample supports. Each outer fold fits its regressions and its
-mechanism on its training rows alone, so every fold must carry enough events for each declared
-cause. A rare cause therefore needs more data under cross-fitting than under one fold. The split
-reads no treatment and no outcome, so it cannot protect a rare level. The package checks the
-realized draw instead, before the first learner, and the refusal names no redraw. The
-[fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) give every such message.
+A horizon at which no follower of a regimen had the event is not refused. Its regression is
+zero, the maximum-likelihood hazard, and
+[a node with no event](longitudinal-tmle.md#a-node-with-no-event) gives the rule.
 
-`make_longitudinal_competing(n=220, seed=41)` shows that boundary. It fits at `n_folds=1` and is
-refused at `n_folds=2`, because one fold's training rows carry no event of one cause among the
-regimen's followers. The message names the in-sample fit, or an estimand this fold count
-supports.
+Cross-fitting narrows what the sample supports. Each outer fold fits its regressions and its
+mechanism on its training rows alone, so every fold must carry the followers and treatment levels
+that each node needs. The split reads no treatment and no outcome, so it cannot protect a rare
+level. The package checks the realized draw instead, before the first learner, and the refusal
+names no redraw. The [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) give
+every such message.
 
 ### Not written yet
 

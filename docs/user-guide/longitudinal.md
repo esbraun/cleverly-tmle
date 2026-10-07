@@ -264,10 +264,12 @@ Follow these rules for the input.
 | Record a censoring time as a grid time, or as a time after the last grid time | a censoring between two grid times cannot be ordered against that interval's events, so the fit refuses it |
 | Give `horizons=` and the `tau` of `rmst` as grid times | the parameter name keeps the node index, and `curve()` and `to_frame()` report the grid time in a `time` column |
 | Expect $K(K+1)/2$ regressions per regimen and cause for $K$ grid times | a default grid on day-level times can hold thousands of nodes |
+| Expect a risk of zero, with an interval of width zero, at a grid time before any follower of an arm had the event | the regression of a node with no event is zero, its maximum-likelihood hazard. `msm=` refuses such a cell |
 
 An event after the last grid time leaves the unit event-free at the end of the grid. `causes=`
 maps each nonzero code to a cause label. Without it, codes `0` and `1` declare one event and any
-other codes declare competing causes.
+other codes declare competing causes. Declare `continuous_treatment=True` for a continuous dose,
+and give each regimen as a modified treatment policy such as `Shift(0.5, cap=None)`.
 
 On the wide layout, declare the same design with one column name: `treatment="A"` on
 `LongitudinalTreatment`. The node count then comes from the outcome columns, else from

@@ -837,7 +837,12 @@ def cross_fit_companion(
         raise ValueError("constant_folds applies to a binary target with no classes only")
 
     def one_value(rows: IntArray) -> float | None:
-        """The single target value of ``rows`` with positive weight, or ``None``."""
+        """The single target value of ``rows`` with positive weight, or ``None``.
+
+        A censoring fold whose rows are all censored gets the value 0 here.  No result
+        reaches that case: such a fold has no follower at the node, so the outcome
+        regression's follower check refuses the fit first.
+        """
         if constant_folds is None:
             return None
         informative = rows[np.asarray(weights, dtype=float)[rows] > 0.0]

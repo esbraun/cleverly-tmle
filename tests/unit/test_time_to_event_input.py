@@ -15,13 +15,16 @@ rule misses that identity.
 from __future__ import annotations
 
 import os
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import CausalStudy, RegimeContrast, TimeToEvent
 from cleverly.exceptions import DataError
+from cleverly.interventions import Shift
 from cleverly.longitudinal import LTMLE, LongitudinalData
 from cleverly.longitudinal import data as data_module
 from tests.discrete_law_point_survival import CellMeans, CellProbabilities, static, survival_law
@@ -306,6 +309,61 @@ def test_r10_a_container_from_the_other_path() -> None:
     design = TimeToEvent(time="time", event="event", treatment="A", baseline=["W"])
     with pytest.raises(DataError, match="was built with"):
         CausalStudy(wide, design=design)
+
+
+def test_r10_a_container_built_with_another_grid_cause_map_or_dose() -> None:
+    """A long container is reconciled with the design on its grid, causes and dose kind."""
+    roles: dict[str, Any] = {"time": "time", "event": "event", "treatment": "A", "baseline": ["W"]}
+    # The default grid of these times is 1 to 3; the container was built on 1 to 4.
+    on_four = _build(_frame(), grid=[1, 2, 3, 4])
+    with pytest.raises(DataError, match="the default grid"):
+        CausalStudy(on_four, design=TimeToEvent(**roles))
+    CausalStudy(on_four, design=TimeToEvent(**roles, grid=[1, 2, 3, 4]))
+    CausalStudy(_build(_frame()), design=TimeToEvent(**roles))
+
+    events = [1, 0, 2, 1, 0, 2, 0, 1, 2, 0] * 2
+    unnamed = _build(_frame(event=events))
+    named = {1: "relapse", 2: "death"}
+    with pytest.raises(DataError, match="causes="):
+        CausalStudy(unnamed, design=TimeToEvent(**roles, causes=named))
+    with pytest.raises(DataError, match="causes="):
+        CausalStudy(_build(_frame(event=events), causes=named), design=TimeToEvent(**roles))
+    CausalStudy(unnamed, design=TimeToEvent(**roles))
+
+    with pytest.raises(DataError, match="continuous_treatment"):
+        CausalStudy(_build(_frame()), design=TimeToEvent(**roles, continuous_treatment=True))
+
+
+def test_a_continuous_dose_on_the_long_path_equals_the_wide_held_fit() -> None:
+    """``continuous_treatment=True`` holds a dose over the grid, as ``treatment="D"`` does."""
+
+    def dose(frame: pd.DataFrame) -> pd.Series:
+        return frame["A"] + 0.3 + 0.2 * frame["W"]
+
+    learners = {
+        "outcome_learner": LogisticRegression(max_iter=1000),
+        "pseudo_learner": LinearRegression(),
+        "treatment_learner": LogisticRegression(max_iter=1000),
+        "censoring_learner": LogisticRegression(max_iter=1000),
+    }
+    regimens = {"up": Shift(0.5, cap=None)}
+    long_frame = LAW.long_frame((1.0, 2.0, 3.0)).assign(D=dose)
+    data = LongitudinalData.from_time_to_event(
+        long_frame,
+        time="time",
+        event="event",
+        treatment="D",
+        baseline=["W"],
+        continuous_treatment=True,
+    )
+    assert data.is_continuous_node(1)
+    assert data.treatment_held
+    long: Any = LTMLE(regimens, n_folds=1, **learners).fit(data)
+    columns = {**LAW.fit_columns(), "treatment": "D", "continuous_treatment": ["D"]}
+    wide: Any = LTMLE(regimens, n_folds=1, **learners).fit(LAW.frame().assign(D=dose), **columns)
+    assert sorted(long.mechanism.densities) == [1]
+    for name in wide.estimates:
+        _same(long[name].psi, wide[name].psi)
 
 
 def test_r11_a_censoring_time_between_grid_points() -> None:

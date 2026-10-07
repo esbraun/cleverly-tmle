@@ -502,6 +502,7 @@ class LongitudinalData:
         weights: str | None = None,
         weights_type: str = "probability",
         weights_estimated: bool = False,
+        continuous_treatment: bool = False,
     ) -> LongitudinalData:
         r"""Build a point-treatment survival container from one time and one event column.
 
@@ -528,6 +529,11 @@ class LongitudinalData:
         An event and a censoring at one grid time are ordered event first, as ``survtmle``
         orders them.  A censoring time strictly between two grid times is refused: it
         cannot be ordered against the events of its interval.
+
+        A grid time before which no follower of a regimen had the event is not refused.
+        The regression of such a node is zero, its maximum-likelihood hazard, so the risk
+        there is zero with an interval of width zero.  Declare ``horizons=`` at grid times
+        where each arm has events, or a coarser grid, to report only informative times.
 
         Parameters
         ----------
@@ -559,6 +565,10 @@ class LongitudinalData:
             How to read ``weights``, as for :meth:`from_frame`.
         weights_estimated : bool
             Declare that the weights came out of a fitted model.
+        continuous_treatment : bool
+            Declare the treatment a continuous dose.  Node 1 then has a conditional density,
+            and a regimen is a modified treatment policy, as ``continuous_treatment=`` on
+            :meth:`from_frame` declares.
 
         Returns
         -------
@@ -669,7 +679,8 @@ class LongitudinalData:
             if competing
             else [[f"{event}@{g}" for g in stamp]]
         )
-        censoring_names = [f"{time}>{g}" for g in stamp]
+        # Node k's indicator is 1{C >= g_k}: a unit censored at g_k is observed through k.
+        censoring_names = [f"{time}>={g}" for g in stamp]
         has_censoring = bool(np.any(inside))
         raw = column_array(frame, str(treatment), dtype=object)
         return cls._build(
@@ -694,7 +705,7 @@ class LongitudinalData:
             outcome_name=event_names[-1][-1],
             family="binomial",
             backend=backend_of(frame),
-            continuous_nodes=(),
+            continuous_nodes=(True,) * n_times if continuous_treatment else (),
             treatment_held=True,
             time_grid=grid_values,
             time_name=str(time),
