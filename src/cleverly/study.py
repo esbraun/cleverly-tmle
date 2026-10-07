@@ -92,6 +92,7 @@ __all__ = [
     "RegimeMean",
     "RiskRatio",
     "StudyProtocol",
+    "TimeToEvent",
 ]
 
 
@@ -574,8 +575,10 @@ class LongitudinalTreatment:
     ----------
     outcome : str, sequence of str, or mapping of str to sequence of str
         End-of-study outcome, survival event nodes, or competing-risk event nodes.
-    treatment : sequence of str
-        Treatment nodes in time order.
+    treatment : str or sequence of str
+        Treatment nodes in time order.  One column name declares one baseline decision
+        held over every node.  The node count then comes from the survival outcome, else
+        from ``censoring``, else from ``time_varying``, else it is one.
     baseline : sequence of str
         Covariates observed before the first treatment.
     time_varying : sequence of sequence of str or None
@@ -599,6 +602,7 @@ class LongitudinalTreatment:
     See Also
     --------
     PointTreatment : The same declaration for treatment given once.
+    TimeToEvent : A baseline treatment with one time and one event column.
     CausalStudy : What a design is handed to along with the data.
     cleverly.datasets.make_longitudinal : A frame with the nodes this example names.
 
@@ -626,7 +630,7 @@ class LongitudinalTreatment:
     """
 
     outcome: str | Sequence[str] | Mapping[str, Sequence[str]]
-    treatment: Sequence[str]
+    treatment: str | Sequence[str]
     baseline: Sequence[str]
     time_varying: Sequence[Sequence[str]] | None = None
     censoring: Sequence[str] | None = None
@@ -639,7 +643,8 @@ class LongitudinalTreatment:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "continuous_treatment", tuple(self.continuous_treatment))
-        object.__setattr__(self, "treatment", tuple(self.treatment))
+        if not isinstance(self.treatment, str):
+            object.__setattr__(self, "treatment", tuple(self.treatment))
         object.__setattr__(self, "baseline", tuple(self.baseline))
         if self.time_varying is not None:
             object.__setattr__(
@@ -705,13 +710,17 @@ class LongitudinalTreatment:
         """
         events, causes = self._outcome_roles()
         empty: tuple[str, ...] = ()
+        held = isinstance(self.treatment, str)
+        declared_treatment = (self.treatment,) if held else tuple(self.treatment)
         blocks = (
-            tuple(empty for _ in self.treatment)
+            tuple(empty for _ in range(data.n_times if held else len(declared_treatment)))
             if self.time_varying is None
             else tuple(tuple(block) for block in self.time_varying)
         )
         expected: tuple[tuple[str, Any, Any], ...] = (
-            ("treatment", tuple(self.treatment), tuple(data.treatment_names)),
+            ("treatment", declared_treatment, tuple(data.treatment_names)),
+            ("held treatment", held, data.treatment_held),
+            ("time grid", None, data.time_grid),
             ("baseline", tuple(self.baseline), tuple(data.baseline_names)),
             ("time_varying", blocks, tuple(data.time_varying_names)),
             ("censoring", tuple(self.censoring or ()), tuple(data.censoring_names)),
@@ -747,6 +756,159 @@ class LongitudinalTreatment:
             raise DataError(
                 f"the supplied LongitudinalData has family={data.family!r}, but this design "
                 f"declares outcome_family={self.outcome_family!r}"
+            )
+
+
+@dataclass(frozen=True)
+class TimeToEvent:
+    r"""Declare a baseline treatment with one follow-up time and one event code per unit.
+
+    The data hold one row per unit.  The time is binned onto a grid
+    :math:`0 = g_0 < g_1 < \dots < g_K`, node :math:`k` covers :math:`(g_{k-1}, g_k]`, and
+    the treatment is one decision held over every node.
+    :meth:`cleverly.longitudinal.LongitudinalData.from_time_to_event` states the binning
+    rules and the refusals.  The estimand is a risk or a cumulative incidence at the grid
+    times, as for a survival :class:`LongitudinalTreatment`.
+
+    Parameters
+    ----------
+    time : str
+        The follow-up time column.  Every time is a positive finite number.
+    event : str
+        The event-code column: ``0`` for censored, and a positive integer per cause.
+    treatment : str
+        The baseline treatment column.
+    baseline : sequence of str
+        Covariates measured before the treatment.
+    grid : sequence of float or None
+        The grid times, which are the visit times.  ``None`` needs integer times and uses
+        :math:`g_k = k` up to the largest event time.  The fit costs :math:`K(K+1)/2`
+        sequential regressions per regimen and cause, so a default grid on day-level times
+        can hold thousands of nodes.
+    causes : mapping of int to str or None
+        The label of each nonzero event code.  ``None`` reads codes ``{0, 1}`` as one event
+        and any other codes as competing causes labelled ``str(code)``.
+    cluster : str or None
+        Independent-cluster identifier.
+    weights : str or None
+        Probability-weight column.
+    weights_type : {"probability"}
+        Interpretation of ``weights``.
+    weights_estimated : bool
+        Whether the supplied weights were estimated from these data.
+    time_varying : None
+        Not accepted.  One row per unit holds no covariate measured after baseline, so any
+        other value raises :class:`TypeError`.
+
+    Attributes
+    ----------
+    outcome : str
+
+    See Also
+    --------
+    LongitudinalTreatment : The wide layout, which also takes post-baseline covariates.
+    CausalStudy : What a design is handed to along with the data.
+    cleverly.longitudinal.LongitudinalData.from_time_to_event : The container it builds.
+
+    Examples
+    --------
+    >>> from cleverly import TimeToEvent
+    >>> design = TimeToEvent(
+    ...     time="ftime", event="ftype", treatment="arm", baseline=["age"], grid=[30, 60, 90]
+    ... )
+    >>> design.grid
+    (30.0, 60.0, 90.0)
+    """
+
+    time: str
+    event: str
+    treatment: str
+    baseline: Sequence[str]
+    grid: Sequence[float] | None = None
+    causes: Mapping[int, str] | None = None
+    cluster: str | None = None
+    weights: str | None = None
+    weights_type: Literal["probability"] = "probability"
+    weights_estimated: bool = False
+    time_varying: None = None
+
+    def __post_init__(self) -> None:
+        if self.time_varying is not None:
+            raise TypeError(
+                "TimeToEvent reads one row per unit, so it has no covariate measured after "
+                "baseline. Use LongitudinalTreatment(treatment='A', time_varying=...) on the "
+                "wide layout"
+            )
+        if not isinstance(self.treatment, str):
+            raise TypeError(
+                "TimeToEvent takes one baseline treatment column; a treatment that changes "
+                "over time needs LongitudinalTreatment on the wide layout"
+            )
+        object.__setattr__(self, "baseline", tuple(self.baseline))
+        if self.grid is not None:
+            object.__setattr__(self, "grid", tuple(float(g) for g in self.grid))
+        if self.causes is not None:
+            object.__setattr__(self, "causes", dict(self.causes))
+
+    @property
+    def outcome(self) -> str:
+        """The event-code column, which the identified functional names as the outcome."""
+        return self.event
+
+    def prepare(self, data: Any) -> LongitudinalData:
+        """Validate data and construct its held survival representation.
+
+        Parameters
+        ----------
+        data : dataframe or LongitudinalData
+            Pandas, Polars, or prepared longitudinal data.
+
+        Returns
+        -------
+        LongitudinalData
+            The held container with its time grid.
+        """
+        if isinstance(data, LongitudinalData):
+            self._check_prepared(data)
+            return data
+        return LongitudinalData.from_time_to_event(
+            data,
+            time=self.time,
+            event=self.event,
+            treatment=self.treatment,
+            baseline=self.baseline,
+            grid=self.grid,
+            causes=self.causes,
+            id=self.cluster,
+            weights=self.weights,
+            weights_type=self.weights_type,
+            weights_estimated=self.weights_estimated,
+        )
+
+    def _check_prepared(self, data: LongitudinalData) -> None:
+        """Reconcile an already-built container with the roles this design declares."""
+        expected: tuple[tuple[str, Any, Any], ...] = (
+            ("time", self.time, data.time_name),
+            ("event", self.event, data.event_name),
+            ("treatment", (self.treatment,), tuple(data.treatment_names)),
+            ("held treatment", True, data.treatment_held),
+            ("baseline", tuple(self.baseline), tuple(data.baseline_names)),
+            ("cluster", self.cluster, data.cluster_name),
+            ("weights", self.weights, data.weights_name),
+            ("weights_type", self.weights_type, data.weight_spec.kind),
+            ("weights_estimated", self.weights_estimated, data.weight_spec.estimated),
+        )
+        for role, declared, held in expected:
+            if declared != held:
+                raise DataError(
+                    f"the supplied LongitudinalData was built with {role}={held!r}, but this "
+                    f"design declares {role}={declared!r}; build the data from this design, "
+                    "or correct the design"
+                )
+        if self.grid is not None and tuple(self.grid) != data.time_grid:
+            raise DataError(
+                f"the supplied LongitudinalData was built with grid={data.time_grid!r}, but "
+                f"this design declares grid={self.grid!r}"
             )
 
 
@@ -2309,7 +2471,7 @@ class ExplicitAdjustmentProvider:
             Functional, assumptions, and method availability for the question.
         """
         design = study.design
-        if isinstance(design, LongitudinalTreatment):
+        if isinstance(design, (LongitudinalTreatment, TimeToEvent)):
             return self._identify_longitudinal(study, estimand)
         return self._identify_point(study, estimand)
 
@@ -2446,7 +2608,7 @@ class ExplicitAdjustmentProvider:
         self, study: CausalStudy, estimand: PointEstimand
     ) -> IdentifiedEffect:
         design = study.design
-        assert isinstance(design, LongitudinalTreatment)
+        assert isinstance(design, (LongitudinalTreatment, TimeToEvent))
         if isinstance(estimand, LearnedRuleValue):
             raise CapabilityError(
                 "LearnedRuleValue is a point-treatment target, and a learned longitudinal "
@@ -2463,16 +2625,16 @@ class ExplicitAdjustmentProvider:
         target = "msm_regimen" if isinstance(estimand, MSMProjection) else estimand.name
         data = study.data
         assert isinstance(data, LongitudinalData)
-        # The conditioning set of the treatment mechanism at each node, in the column order of
-        # ``LongitudinalData.history_design``: the covariate history up to that node, then
-        # every earlier treatment.
+        # The conditioning set of the treatment mechanism at each decision, in the column
+        # order of ``LongitudinalData.history_design``: the covariate history up to that
+        # node, then every earlier treatment.  A held design has one decision, at node 1.
         history = tuple(
             (node, (*data.history_names(time), *data.treatment_names[: time - 1]))
             for time, node in enumerate(data.treatment_names, start=1)
         )
         functional = BackdoorMeanContrast(
             outcome=design.outcome,
-            treatment=tuple(design.treatment),
+            treatment=tuple(data.treatment_names),
             adjustment=tuple(design.baseline),
             target=target,
             axis="regimen" if target != "msm_regimen" else "msm",
@@ -2543,7 +2705,7 @@ class CausalStudy:
         self,
         data: Any,
         *,
-        design: PointTreatment | LongitudinalTreatment,
+        design: PointTreatment | LongitudinalTreatment | TimeToEvent,
         protocol: StudyProtocol | None = None,
     ) -> None:
         if protocol is not None and not isinstance(protocol, StudyProtocol):
@@ -2553,7 +2715,7 @@ class CausalStudy:
         self._protocol = protocol
 
     @property
-    def design(self) -> PointTreatment | LongitudinalTreatment:
+    def design(self) -> PointTreatment | LongitudinalTreatment | TimeToEvent:
         """Return the immutable study design."""
         return self._design
 

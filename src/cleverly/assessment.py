@@ -46,6 +46,7 @@ from .utils.text import format_draw, format_table
 from .validation.drtmle import IDENTITY_TOLERANCE
 from .validation.longitudinal import (
     LONGITUDINAL_CENSORING_NOT_FITTED,
+    LONGITUDINAL_HELD_DECISION,
     LONGITUDINAL_NO_CENSORING,
     LONGITUDINAL_NO_CENSORING_IN_FOLD,
     LongitudinalDiagnostics,
@@ -64,6 +65,7 @@ from .validation.score import DEFAULT_TOLERANCE
 __all__ = [
     "ASSESSMENT_CAPABILITIES",
     "LONGITUDINAL_CENSORING_NOT_FITTED",
+    "LONGITUDINAL_HELD_DECISION",
     "LONGITUDINAL_NO_CENSORING",
     "LONGITUDINAL_NO_CENSORING_IN_FOLD",
     "SENSITIVITY_ROUTES",

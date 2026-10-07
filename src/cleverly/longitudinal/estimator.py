@@ -675,6 +675,11 @@ class LongitudinalConfig:
     #: reachable row.  Such a node was resolved as the rule it equals, and the fit ran that
     #: rule's code.  Empty when no policy node collapsed.
     policy_point_mass_nodes: tuple[tuple[str, tuple[int, ...]], ...] = ()
+    #: The column of the one baseline decision a held design carries over every node, and
+    #: ``None`` on a design with one decision per node.
+    held_treatment: str | None = None
+    #: The grid times of a container built from a time and an event column, else ``None``.
+    time_grid: tuple[float, ...] | None = None
 
     def describe(self, *, contrast: bool) -> list[str]:
         """Return the settings lines of :meth:`LongitudinalResult.summary`.
@@ -698,6 +703,14 @@ class LongitudinalConfig:
             f"outcome family: {self.family}",
             f"regimens: {plans}",
         ]
+        if self.held_treatment is not None:
+            lines.insert(
+                1,
+                f"treatment: one baseline decision {self.held_treatment!r}, held over "
+                f"{self.n_times} node(s)",
+            )
+        if self.time_grid is not None:
+            lines.insert(1, f"time grid: {', '.join(f'{g:g}' for g in self.time_grid)}")
         if len(self.outcome_names) > 1:
             lines.insert(
                 1,
@@ -1205,20 +1218,49 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             return parameter_name(f"{prefix}{kind}_regimen", arm=arm)
         return f"{prefix}{kind}[{numerator} vs {denominator}]"
 
+    def _restriction(self, horizon: float, what: str) -> tuple[int, tuple[float, ...]]:
+        r"""The node index :math:`m` of a restriction time, and the grid spacings below it.
+
+        On the wide path, and on a unit grid, the time is the node index ``m`` from 2 to
+        ``n_times + 1`` and every spacing is one.  On any other grid the time is a grid
+        value :math:`g_m` with :math:`2 \le m \le K`, and the spacings are
+        :math:`g_k - g_{k-1}` for :math:`k = 2, \ldots, m`.
+        """
+        n_times = self.data.n_times
+        grid = self.data.time_grid
+        if grid is None or grid == tuple(float(k) for k in range(1, n_times + 1)):
+            if (
+                isinstance(horizon, bool)
+                or not isinstance(
+                    horizon, (int, np.integer) if grid is None else (int, float, np.number)
+                )
+                or float(horizon) != int(horizon)
+                or not 2 <= int(horizon) <= n_times + 1
+            ):
+                raise ValueError(
+                    f"horizon must be an integer from 2 to {n_times + 1}; {what} up to t=1 is "
+                    "the constant 1"
+                )
+            return int(horizon), (1.0,) * (int(horizon) - 1)
+        values = np.asarray(grid, dtype=float)
+        matches = np.flatnonzero(values == float(horizon))
+        if isinstance(horizon, bool) or matches.size != 1 or int(matches[0]) == 0:
+            shown = ", ".join(f"{g:g}" for g in grid[1:])
+            raise ValueError(
+                f"horizon {horizon!r} is not a reported grid time; this fit's grid is "
+                f"{', '.join(f'{g:g}' for g in grid)}. {what} takes a grid time from the second "
+                f"to the last, {shown}: up to the first grid time it is that time times one"
+            )
+        m = int(matches[0]) + 1
+        return m, tuple(float(values[k] - values[k - 1]) for k in range(1, m))
+
     def _risk_names(
         self, regimen: str, horizon: int, causes: Sequence[str | None], what: str
     ) -> list[str]:
-        """The names of the levels at horizons ``1`` to ``horizon - 1``, one per cause."""
-        n_times = self.data.n_times
-        if (
-            isinstance(horizon, bool)
-            or not isinstance(horizon, (int, np.integer))
-            or not 2 <= horizon <= n_times + 1
-        ):
-            raise ValueError(
-                f"horizon must be an integer from 2 to {n_times + 1}; {what} up to t=1 is "
-                "the constant 1"
-            )
+        """The names of the levels at nodes ``1`` to ``horizon - 1``, one per cause.
+
+        ``horizon`` is the node index :math:`m` that :meth:`_restriction` returns.
+        """
         levels = self._levels()
         regimens = sorted({key[0] for key in levels})
         if regimen not in regimens:
@@ -1305,14 +1347,17 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         """
         self._refuse_curve_functional("RMST")
         causes: tuple[str | None, ...] = self.data.cause_labels or (None,)
-        names = self._risk_names(regimen, horizon, causes, "RMST")
-        weights = dict.fromkeys(names, -1.0)
+        node, spacings = self._restriction(horizon, "RMST")
+        names = self._risk_names(regimen, node, causes, "RMST")
+        per_name = [spacing for spacing in spacings for _ in causes]
+        weights = {key: -spacing for key, spacing in zip(names, per_name, strict=True)}
         constant = float(horizon)
         label = regimen
         scale: Scale = "level"
         if versus is not None:
-            for other in self._risk_names(versus, horizon, causes, "RMST"):
-                weights[other] = weights.get(other, 0.0) + 1.0
+            others = self._risk_names(versus, node, causes, "RMST")
+            for other, spacing in zip(others, per_name, strict=True):
+                weights[other] = weights.get(other, 0.0) + spacing
             constant = 0.0
             label = f"{regimen} vs {versus}"
             scale = "difference"
@@ -1323,8 +1368,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             n=self.n,
             cluster=self.data.cluster,
             alpha=self.config.alpha_sig,
-            name=name
-            or parameter_name("rmst_regimen", arm=_index(label, None, int(horizon), True)),
+            name=name or parameter_name("rmst_regimen", arm=_index(label, None, node, True)),
             scale=scale,
         )
         return with_derived_bootstrap(
@@ -1425,13 +1469,15 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                     else "this fit declares no causes; leave cause=None for its one event"
                 )
             chosen = cause
-        names = self._risk_names(regimen, horizon, (chosen,), "RMTL")
-        weights = dict.fromkeys(names, 1.0)
+        node, spacings = self._restriction(horizon, "RMTL")
+        names = self._risk_names(regimen, node, (chosen,), "RMTL")
+        weights = dict(zip(names, spacings, strict=True))
         label = regimen
         scale: Scale = "level"
         if versus is not None:
-            for other in self._risk_names(versus, horizon, (chosen,), "RMTL"):
-                weights[other] = weights.get(other, 0.0) - 1.0
+            others = self._risk_names(versus, node, (chosen,), "RMTL")
+            for other, spacing in zip(others, spacings, strict=True):
+                weights[other] = weights.get(other, 0.0) - spacing
             label = f"{regimen} vs {versus}"
             scale = "difference"
         derived = linear_functional(
@@ -1440,8 +1486,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             n=self.n,
             cluster=self.data.cluster,
             alpha=self.config.alpha_sig,
-            name=name
-            or parameter_name("rmtl_regimen", arm=_index(label, chosen, int(horizon), True)),
+            name=name or parameter_name("rmtl_regimen", arm=_index(label, chosen, node, True)),
             scale=scale,
         )
         return with_derived_bootstrap(
@@ -1586,7 +1631,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 )
                 variance = influence_covariance(curve.reshape(-1, 1), cluster=self.data.cluster)
                 rows["regimen"].append(regimen.label)
-                rows["time"].append(int(horizon))
+                rows["time"].append(self._time_of(int(horizon)))
                 rows["total"].append(total)
                 rows[column].append(float(np.sqrt(variance[0, 0])))
                 rows["excess"].append(max(0.0, total - 1.0))
@@ -1683,7 +1728,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             ``cause``
                 The absorbing cause, on a fit that declared its causes only.
             ``time``
-                The horizon, as an integer.
+                The horizon, as an integer node index, or as the grid time :math:`g_k` on a
+                fit with a time grid.
             ``inference``
                 The inference status, on a fit whose status supplies no inference only.
             ``psi``, ``std_err``, ``ci_lower``, ``ci_upper``
@@ -1776,7 +1822,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             rows["regimen"].append(label)
             if competing:
                 rows["cause"].append(cause)
-            rows["time"].append(int(horizon))
+            rows["time"].append(self._time_of(int(horizon)))
             rows["psi"].append(float(psi))
             if diagnostic:
                 rows["inference"].append(status)
@@ -1786,6 +1832,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             rows["scale"].append(estimate.scale)
             rows["view"].append(scale)
         return self.data.frame_like(rows)
+
+    def _time_of(self, horizon: int) -> int | float:
+        """The reported time of node ``horizon``: its grid time, or the index itself."""
+        grid = self.data.time_grid
+        return int(horizon) if grid is None else float(grid[horizon - 1])
 
     def coefficients(self, scale: str = "link") -> Any:
         """A working model's coefficients, on the link scale or exponentiated.
@@ -1858,10 +1909,20 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         Returns
         -------
         dataframe
-            One row per reported parameter, in the backend the data arrived in.
+            One row per reported parameter, in the backend the data arrived in.  A fit with
+            a time grid adds a ``time`` column, the grid time of each parameter's horizon.
         """
         rows = [estimate.to_dict() for estimate in self.estimates.values()]
         payload: dict[str, list[Any]] = {key: [row[key] for row in rows] for key in rows[0]}
+        if self.data.time_grid is not None and self.parameter_index:
+            # A fit with a time grid reports each horizon's grid time beside its name, which
+            # carries the node index.
+            payload["time"] = [
+                self._time_of(self.parameter_index[name][2])
+                if name in self.parameter_index
+                else None
+                for name in self.estimates
+            ]
         return self.data.frame_like(payload)
 
     def summary(self, *, protocol: ProtocolDetail = "full") -> str:
@@ -2661,7 +2722,7 @@ class LTMLE:
         data: Any,
         *,
         outcome: str | Sequence[str] | Mapping[str, Sequence[str]] | None = None,
-        treatment: Sequence[str] | None = None,
+        treatment: str | Sequence[str] | None = None,
         baseline: Sequence[str] | None = None,
         time_varying: Sequence[Sequence[str]] | None = None,
         censoring: Sequence[str] | None = None,
@@ -2703,8 +2764,10 @@ class LTMLE:
             One column for an end-of-study outcome, one column per node for a survival
             outcome, or a mapping of cause to one column per node for competing risks,
             as for :meth:`LongitudinalData.from_frame`.
-        treatment : sequence of str or None
+        treatment : str, sequence of str, or None
             The treatment column of each node, in time order.  Its length declares ``T``.
+            One column name declares one baseline decision held over every node, as for
+            :meth:`LongitudinalData.from_frame`.
         baseline : sequence of str or None
             The covariates measured before any treatment.
         time_varying : sequence of sequence of str or None
@@ -2761,7 +2824,9 @@ class LTMLE:
             family=family,
             continuous_treatment=continuous_treatment,
         )
-        regimens = resolve_regimens(self.regimens, prepared.n_times)
+        regimens = resolve_regimens(
+            self.regimens, prepared.n_decisions, held=prepared.treatment_held
+        )
         if prepared.is_survival:
             infixes = (HORIZON_INFIX,) + ((CAUSE_INFIX,) if prepared.is_competing else ())
             for infix in infixes:
@@ -2909,6 +2974,8 @@ class LTMLE:
             policy_point_mass_nodes=tuple(
                 (plan.label, plan.point_mass_nodes) for plan in plans if plan.point_mass_nodes
             ),
+            held_treatment=prepared.treatment_names[0] if prepared.treatment_held else None,
+            time_grid=prepared.time_grid,
             msm_terms=None if model is None else model.terms,
             msm_link=None if model is None else str(model.link),
             # The evaluated arrays rather than the design, for the reason the plans are
@@ -3002,7 +3069,7 @@ class LTMLE:
         data: Any,
         *,
         outcome: str | Sequence[str] | Mapping[str, Sequence[str]] | None,
-        treatment: Sequence[str] | None,
+        treatment: str | Sequence[str] | None,
         baseline: Sequence[str] | None,
         time_varying: Sequence[Sequence[str]] | None,
         censoring: Sequence[str] | None,
@@ -3076,6 +3143,8 @@ class LTMLE:
             return (data.n_times,)
         if self.horizons is None:
             return tuple(range(1, data.n_times + 1))
+        if data.time_grid is not None:
+            return self._grid_horizons(data.time_grid)
         wanted = tuple(int(horizon) for horizon in self.horizons)
         if not wanted:
             raise ValueError("horizons= is empty; a fit reporting no parameter is not one")
@@ -3087,6 +3156,25 @@ class LTMLE:
             )
         if len(set(wanted)) != len(wanted):
             raise ValueError(f"horizons= repeats a time point: {list(wanted)}")
+        return tuple(sorted(wanted))
+
+    def _grid_horizons(self, grid: tuple[float, ...]) -> tuple[int, ...]:
+        """The node indices of ``horizons=`` on a fit with a time grid, which names grid times."""
+        assert self.horizons is not None
+        values = np.asarray(grid, dtype=float)
+        wanted: list[int] = []
+        for horizon in self.horizons:
+            matches = np.flatnonzero(values == float(horizon))
+            if isinstance(horizon, bool) or matches.size != 1:
+                raise ValueError(
+                    f"horizon {horizon!r} is not a reported grid time; this fit's grid is "
+                    f"{', '.join(f'{g:g}' for g in grid)}"
+                )
+            wanted.append(int(matches[0]) + 1)
+        if not wanted:
+            raise ValueError("horizons= is empty; a fit reporting no parameter is not one")
+        if len(set(wanted)) != len(wanted):
+            raise ValueError(f"horizons= repeats a time point: {list(self.horizons)}")
         return tuple(sorted(wanted))
 
     @staticmethod
@@ -3346,6 +3434,7 @@ def bootstrap_design_kind(
     """
     if (
         msm is not None
+        or data.treatment_held
         or data.is_competing
         or data.is_weighted
         or data.family != "binomial"

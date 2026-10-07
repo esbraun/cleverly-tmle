@@ -44,6 +44,7 @@ from .nuisance import (
 __all__ = [
     "LONGITUDINAL_CENSORING_NOT_FITTED",
     "LONGITUDINAL_CLASSIFIER_RATIO",
+    "LONGITUDINAL_HELD_DECISION",
     "LONGITUDINAL_NO_CENSORING",
     "LONGITUDINAL_NO_CENSORING_IN_FOLD",
     "LongitudinalDiagnostics",
@@ -62,6 +63,10 @@ LONGITUDINAL_CENSORING_NOT_FITTED = "complete data has no censoring learner"
 #: A continuous node on the classifier ratio route fits no density, so there is no
 #: treatment likelihood to report there.
 LONGITUDINAL_CLASSIFIER_RATIO = "continuous node ratio estimated by classification, no density"
+
+#: The node is an identity node of a held design: it repeats the baseline decision, its
+#: factor is exactly one, and the estimator fitted no treatment model there.
+LONGITUDINAL_HELD_DECISION = "baseline decision held at this node, factor one, no model"
 
 #: No eligible unit was censored at the node, so its retention factor is exactly one and the
 #: estimator fitted no censoring learner there.
@@ -722,8 +727,13 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
     fit_masks = result.data.regimen_masks(result.data.treatment)
     for time in range(1, result.data.n_times + 1):
         at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
-        report = _treatment_report(result, time, at_risk)
-        if report is None:
+        held = result.data.is_held_node(time)
+        report = None if held else _treatment_report(result, time, at_risk)
+        if held:
+            omissions.append(
+                LongitudinalNuisanceOmission("treatment", time, LONGITUDINAL_HELD_DECISION)
+            )
+        elif report is None:
             omissions.append(
                 LongitudinalNuisanceOmission("treatment", time, LONGITUDINAL_CLASSIFIER_RATIO)
             )

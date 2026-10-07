@@ -729,7 +729,7 @@ def preflight_mechanism_support(
         The realized outer split.
     """
     for time in range(1, data.n_times + 1):
-        if data.is_continuous_node(time):
+        if data.is_continuous_node(time) or data.is_held_node(time):
             continue
         at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
         arm = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
@@ -740,7 +740,7 @@ def preflight_mechanism_support(
             folds,
             classes,
             data.treatment_levels[time - 1],
-            data.treatment_names[time - 1],
+            data.decision_name(time),
             every_level=time == 1 and not folds.is_single,
         )
 
@@ -794,7 +794,13 @@ def fit_mechanism(
     for time in range(1, data.n_times + 1):
         at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
         arm = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
-        if data.is_continuous_node(time):
+        if data.is_held_node(time):
+            # An identity node of a held design: its factor is exactly one in the
+            # numerator and the denominator, and it fits no model.
+            treatment.append({plan.label: np.ones(data.n) for plan in plans})
+            treatment_observed.append(np.zeros((data.n, 0)))
+            treatment_diagnostics.append(())
+        elif data.is_continuous_node(time):
             with phase("mechanism_fit"):
                 density = _continuous_node_ratios(
                     data,

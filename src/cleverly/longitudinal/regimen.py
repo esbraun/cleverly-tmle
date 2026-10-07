@@ -858,6 +858,12 @@ def _resolve_plan(regimen: RegimenSpec, data: LongitudinalData, *, collapse: boo
     targets: list[tuple[FloatArray, ...] | None] = []
     assignments: list[tuple[tuple[float, IntArray], ...] | None] = []
     for time in range(1, data.n_times + 1):
+        if data.is_held_node(time):
+            # An identity node of a held design: never a policy or MTP node.
+            policy.append(None)
+            targets.append(None)
+            assignments.append(None)
+            continue
         if regimen.is_mtp(time):
             carry, target, assigned = _resolve_mtp_node(regimen, data, time)
             policy.append(carry)
@@ -1192,7 +1198,7 @@ def _plan_nodes(label: object, plan: Any) -> tuple[Any, ...] | None:
     return tuple(plan)
 
 
-def resolve_regimens(spec: Any, n_times: int) -> tuple[RegimenSpec, ...]:
+def resolve_regimens(spec: Any, n_times: int, *, held: bool = False) -> tuple[RegimenSpec, ...]:
     """Turn a user's ``regimens=`` argument into an ordered tuple of regimens.
 
     Accepts a mapping from label to plan, where a plan is a single arm meaning "that arm
@@ -1223,7 +1229,13 @@ def resolve_regimens(spec: Any, n_times: int) -> tuple[RegimenSpec, ...]:
         The ``regimens=`` argument: a mapping from label to plan, one regimen, or a
         sequence of regimens.
     n_times : int
-        The number of treatment nodes, which a single arm is broadcast across.
+        The number of treatment nodes, which a single arm is broadcast across.  On a held
+        design it is the number of decisions, one.
+    held : bool, default=False
+        Whether the design holds one baseline decision over every node.  A plan of one
+        label repeated over several nodes is then read as that label.  Any other plan with
+        more than one node raises :class:`ValueError`, because the later nodes keep the
+        baseline value.
 
     Returns
     -------
@@ -1271,8 +1283,30 @@ def resolve_regimens(spec: Any, n_times: int) -> tuple[RegimenSpec, ...]:
         if name in seen:
             raise DataError(f"regimen label {name!r} appears twice; labels name parameters")
         seen.add(name)
-        resolved.append(_resolve_one(name, plan, n_times))
+        resolved.append(_resolve_one(name, _held_plan(name, plan) if held else plan, n_times))
     return tuple(resolved)
+
+
+def _held_plan(label: str, plan: Any) -> Any:
+    """One plan of a held design, read as its single decision.
+
+    A plan of one entry passes.  A static plan that repeats one label over its nodes is that
+    label, since the later nodes keep the baseline value whatever the plan says there.  Any
+    other plan of more than one node is refused before any learner.
+    """
+    nodes = _plan_nodes(label, plan)
+    if nodes is None or len(nodes) == 1:
+        return plan
+    static = not isinstance(plan, DynamicRegimen) and not any(
+        callable(node) or isinstance(node, Stochastic) or _is_mtp(node) for node in nodes
+    )
+    if static and all(_same_label(node, nodes[0]) for node in nodes):
+        return Regimen(label, (nodes[0],)) if isinstance(plan, Regimen) else nodes[0]
+    raise ValueError(
+        f"regimen {label!r} declares {len(nodes)} nodes, but this design has one treatment "
+        "decision, at baseline, held over every node. Declare one arm, or a one-node rule, "
+        "policy or modified treatment policy; the later nodes keep the baseline value"
+    )
 
 
 def _resolve_one(label: str, plan: Any, n_times: int) -> RegimenSpec:
