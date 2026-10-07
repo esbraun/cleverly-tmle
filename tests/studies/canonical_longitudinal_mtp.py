@@ -51,7 +51,7 @@ the merge and gets a diagnosis.
 
 **Properties.** :mod:`tests.studies.longitudinal_mtp_properties` declares every family.
 
-Publication policy is ``gated``.  The red-cell route follows the rule of
+Publication policy is ``reporting`` after the re-registration below.  The red-cell route follows the rule of
 ``docs/development/method-benchmarking.md``, declared before any run: every red cell is
 diagnosed first.  A genuine problem (an algorithm defect, an inconsistent estimator, or a test
 or design bug) is fixed, and the study re-runs under a fresh declaration that states the change.
@@ -70,6 +70,22 @@ fixed and the study re-runs: the package's default bin count now grows with ``n`
 study's oracle bins follow :func:`~tests.studies.oracle_density_bins.oracle_bins`, which grows
 as ``n^(2/3)`` from 320 at n = 2,000 (one count for every configuration).  No first-run verdict
 is reused.  The laws, seeds, budgets, margins, learners and cells are unchanged.
+
+**Re-registration of the second run.**  The second run (HEAD ``24d960b7``) passed 44 of 44 truth
+tests, 22 of 22 paired tests and 38 of 40 property cells.  Every cell the first run lost to the
+fixed bin count passes.  Two cells read red, and the diagnosis finds no defect in either:
+
+- ``interval_calibration/categorical_mtp__correctly_specified`` (six-level law, no binned
+  density): the efficiency ratios read 1.12 and 1.10 against a band of 0.9 to 1.1, and coverage
+  0.9435 passes.  With saturated learners the ratio falls from 1.07 at n = 2,000 to 1.02 at
+  n = 8,000, so it is a finite-sample limit of the sparse six-level cells.
+- ``crossfit_overfitting/in_sample_control``: the in-sample trees report standard errors 26%
+  below the spread (SE ratio 0.741, 99% interval ending at 0.754) against a ceiling of 0.75.  The
+  control shows the overfitting it exists to show, far from the cross-fitted arm (1.167), but its
+  interval reaches past the declared ceiling at this law and budget.
+
+By the rule the study moves to ``reporting`` with the owner row ``mtp-longitudinal-limits``, and
+the run repeats with no other change.
 """
 
 from __future__ import annotations
@@ -244,7 +260,7 @@ STUDY = StudyRecord(
     runner_module="tests.studies.canonical_longitudinal_mtp",
     properties_module="tests.studies.longitudinal_mtp_properties",
     property_cells=PROPERTY_CELLS,
-    publication_policy="gated",
+    publication_policy="reporting",
 )
 
 REFERENCE_METADATA = {
