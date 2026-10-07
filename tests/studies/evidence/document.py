@@ -394,7 +394,8 @@ def measured(row: Any) -> str:
         return (
             "mean absolute difference / SE "
             f"{render(float(row.mean_abs_difference_over_se))}, "
-            f"in-sample estimate inside the cross-fitted interval {render(float(row.coverage))}"
+            "share of draws with the in-sample estimate inside the cross-fitted interval "
+            f"{float(row.coverage):.4f}"
         )
     if family == "static_reduction":
         return f"maximum paired difference {render(float(row.maximum_static_difference))}"

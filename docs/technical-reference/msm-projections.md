@@ -343,5 +343,6 @@ guidance rather than an optional extra.
 | [ordinary longitudinal repeated-sampling study](method-evidence/ordinary-longitudinal-msm-projection.md) | projected joint R `ltmle` curves, longitudinal robustness, coefficient efficiency, targeting, and the projection-measure control |
 | [cross-fitted longitudinal repeated-sampling study](method-evidence/cross-fitted-longitudinal-msm-projection.md) | projected joint cross-fitted R `lmtp` curves, the same families at five folds, logit-link calibration, a fully grown tree pair, and a simultaneous band |
 
-The registered rows cover fixed projections: identity-link in sample, and identity-link and logit-link calibration under cross-fitting. The continuous-dose test
-still uses a linear truth, and a nonlinear continuous-dose Gateaux oracle remains absent.
+The registered rows cover fixed projections. In sample they cover the identity link. Under
+cross-fitting they cover the identity link and the calibration of a logit link. The continuous-dose
+test still uses a linear truth, and a nonlinear continuous-dose Gateaux oracle remains absent.

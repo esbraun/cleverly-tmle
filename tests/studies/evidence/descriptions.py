@@ -1062,7 +1062,7 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("in_sample_agreement", "in_sample_agreement"): (
         "the absolute difference from the in-sample coefficient on the same draw, over the "
-        "cross-fitted standard error; mean_abs_difference_over_se is its mean",
+        "cross-fitted standard error; the summary publishes its mean",
         "none; the row reports the statistic",
     ),
     ("crossfit_overfitting", "cross_fitted_ltmle"): (
