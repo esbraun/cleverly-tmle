@@ -20,9 +20,10 @@ quarter) and supplies the exact per-node ratio ``q / g`` at the natural arm.  Fo
 designs span the same columns and the learners match, so the paired difference is an
 exactness witness: a pre-declaration smoke run requires it below ``1e-6``.  For ``taper`` this
 package stratifies the second node on the first-node label and ``lmtp`` pools over it, so
-that pair is read under the default margins.  ``low`` differs the same way, so ``low`` and both
-contrasts pair only to about ``9e-3`` at n = 2,000 in the smoke run, and none of the three is
-an exactness witness.  The study page states this limit.  ``low`` runs through the shared
+that pair is read under the default margins.  ``low`` differs the same way, so neither ``low``
+nor either contrast is an exactness witness.  In the committed run their mean absolute paired
+difference is about ``9e-3`` with a largest of 0.042, and ``taper``'s is ``2.3e-3`` with a
+largest of 0.017.  The study page states this limit.  ``low`` runs through the shared
 ``lmtp_tmle_with_folds`` exactly as ``canonical-categorical-ltmle`` runs it.
 
 **Properties.** ``tests.studies.stochastic_categorical_ltmle_properties`` declares every
@@ -41,8 +42,9 @@ seed changes after a verdict is seen.
 **Re-registration.**  The declared run (HEAD ``da2dbf92``) passed every truth, paired and
 property gate but one: ``power/mix__alternative`` rejected at 0.5575 (99% interval 0.511 to
 0.603) against a floor of 0.80.  Its bias and coverage passed.  The contrast is -0.0488 and
-its reported standard error at n = 4,000 is about 0.0237, so a two-sided 5% test has power
-about 0.54 by design.  The cell reads as a finite-sample limit of its declared size, so by
+its reported standard error at n = 4,000 is about 0.0237.  The cell is underpowered at its
+declared size: n = 4,000 was copied from the categorical study, whose contrast is 0.125, and
+the exact power here is 0.5365.  The cell reads as a finite-sample limit of that size, so by
 the declared route the study is re-registered under ``reporting`` with the owner row
 ``F1-power-design``, and the run repeats with no other change.
 """
