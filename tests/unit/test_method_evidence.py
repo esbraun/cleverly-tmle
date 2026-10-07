@@ -41,6 +41,7 @@ from tests.studies.evidence.document import (
 )
 from tests.studies.evidence.inference import clopper_pearson, student_interval
 from tests.studies.evidence.performance import independent_performance_tests, summarize
+from tests.studies.evidence.properties import TRUTH_ABSOLUTE_FLOOR
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
 from tests.studies.evidence.schema import truth_on_inference_scale, validate_replicates
 from tests.studies.evidence.seeds import replicate_seed
@@ -1217,7 +1218,9 @@ def _truth_findings(study: StudyRecord, rows: pd.DataFrame) -> list[str]:
         observed = rows.loc[
             (rows["property"] == key[0]) & (rows["cell"] == key[1]), "truth"
         ].to_numpy(dtype=float)
-        if not np.allclose(observed, expected, rtol=TRUTH_BINDING_TOLERANCE, atol=0.0):
+        if not np.allclose(
+            observed, expected, rtol=TRUTH_BINDING_TOLERANCE, atol=TRUTH_ABSOLUTE_FLOOR
+        ):
             findings.append(
                 f"{key[0]}/{key[1]} publishes truth {observed[0]!r} for {cell.estimand!r}, "
                 f"and {cell.dgp.name} integrates to {expected!r}"
@@ -1279,6 +1282,9 @@ class TestPropertyTruthsAreTheDeclaredLawsOwn:
         mutated = clean.copy()
         target = mutated["property"] == "double_robustness"
         assert target.any()
+        shift = (mutated.loc[target, "truth"] * 1e-9).abs()
+        # The control must clear the absolute floor too, or a small truth would hide it.
+        assert float(shift.min()) > 10 * TRUTH_ABSOLUTE_FLOOR
         mutated.loc[target, "truth"] *= 1.0 + 1e-9
         findings = _truth_findings(study, mutated)
         assert len(findings) == int(target.sum())

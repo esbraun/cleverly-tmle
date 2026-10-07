@@ -38,6 +38,7 @@ from tests.studies.default_band_properties import (
     design,
 )
 from tests.studies.evidence import property_verdicts
+from tests.studies.evidence.properties import TRUTH_ABSOLUTE_FLOOR
 from tests.studies.evidence.registry import Margins
 from tests.studies.evidence.seeds import stream_seed
 
@@ -87,7 +88,10 @@ def test_the_declared_cells_are_the_cells_a_run_publishes(pair: tuple[object, ob
     for (family, name), cell in declared.items():
         selected = rows.loc[(rows["property"] == family) & (rows["cell"] == name)]
         np.testing.assert_allclose(
-            selected["truth"], cell.dgp.truth()[cell.estimand], rtol=1e-12, atol=0
+            selected["truth"],
+            cell.dgp.truth()[cell.estimand],
+            rtol=1e-12,
+            atol=TRUTH_ABSOLUTE_FLOOR,
         )
         assert set(selected["n"]) == {cell.n}
 

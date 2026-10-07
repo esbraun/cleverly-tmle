@@ -17,6 +17,7 @@ from tests.studies import clustered_few_cluster_tmle as few_study
 from tests.studies import clustered_unequal_cvtmle as unequal_study
 from tests.studies import clustered_unequal_laws as laws
 from tests.studies import clustered_unequal_properties as unequal_properties
+from tests.studies.evidence.properties import TRUTH_ABSOLUTE_FLOOR
 
 pytestmark = pytest.mark.xdist_group("clustered_unequal_study")
 
@@ -43,7 +44,9 @@ def test_the_declared_cells_are_the_cells_a_run_publishes(pair: tuple[object, ob
     assert int(rows["failed_replicates"].max()) == 0
     for (family, name), cell in declared.items():
         truth = rows.loc[(rows["property"] == family) & (rows["cell"] == name), "truth"]
-        np.testing.assert_allclose(truth, cell.dgp.truth()[cell.estimand], rtol=1e-12, atol=0)
+        np.testing.assert_allclose(
+            truth, cell.dgp.truth()[cell.estimand], rtol=1e-12, atol=TRUTH_ABSOLUTE_FLOOR
+        )
 
 
 def test_no_two_families_share_a_declared_stream(pair: tuple[object, object]) -> None:

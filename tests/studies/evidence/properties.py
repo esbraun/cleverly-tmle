@@ -172,6 +172,16 @@ def replication_payloads(
     return out
 
 
+#: The absolute floor a property truth is read back at, beside a relative tolerance.
+#:
+#: A relative tolerance alone cannot read a truth that is zero by construction, such as a
+#: sharp-null contrast.  Its two computations land on float noise of order ``1e-16``,
+#: and that noise differs across numpy versions, so ``atol=0`` failed CI on Python 3.11 and
+#: 3.12 for a truth of ``-7.25e-16`` read against ``-6.70e-16``.  The floor is three orders
+#: above that noise and far below any displacement a deliberate-mutation control applies.
+TRUTH_ABSOLUTE_FLOOR = 1e-13
+
+
 @dataclass(frozen=True)
 class PropertyCell:
     """One repeated-sampling cell: a law, a nuisance configuration, a size, a seed.
