@@ -13,10 +13,14 @@ z <- qnorm(0.975)
 # The plans of each scenario, the copies that realise each, and the reported visits.
 # Transcribed from tests/studies/canonical_point_survival_policies.py; a gate test reads these
 # lines back.
-plans <- list(policy = c("natural", "policy"), mtp = c("natural", "mtp"))
-copies <- c(natural = 1L, policy = 4L, mtp = 1L)
+plans <- list(
+  policy = c("natural course", "baseline policy"),
+  mtp = c("natural course", "baseline minus one")
+)
+copies <- c("natural course" = 1L, "baseline policy" = 4L, "baseline minus one" = 1L)
 reported <- c(1L, 3L, 5L)
-reference <- "natural"
+reference <- "natural course"
+slug <- function(label) gsub(" ", "_", label, fixed = TRUE)
 nodes <- 5L
 
 truth_for <- function(scenario, replicate, estimand) {
@@ -65,12 +69,12 @@ carry_events <- function(frame) {
 fit_plan <- function(frame, scenario, label, horizon) {
   as_label <- scenario == "mtp"
   data <- frame[c("W1", "W2", "A", sprintf("C%d", seq_len(horizon)), sprintf("Y%d", seq_len(horizon)))]
-  draws <- as.matrix(frame[sprintf("shift__%s__%d", label, seq_len(copies[[label]]))])
+  draws <- as.matrix(frame[sprintf("shift__%s__%d", slug(label), seq_len(copies[[label]]))])
   if (as_label) {
     data$A <- as.character(data$A)
     draws <- matrix(as.character(draws), nrow = nrow(draws))
   }
-  ratios <- as.matrix(frame[sprintf("ratio__%s__%d", label, seq_len(horizon))])
+  ratios <- as.matrix(frame[sprintf("ratio__%s__%d", slug(label), seq_len(horizon))])
   fit <- lmtp_held_survival_tmle(
     data, draws, ratios,
     trt = "A",

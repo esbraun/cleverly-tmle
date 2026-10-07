@@ -89,30 +89,38 @@ def test_the_pairing_columns_are_the_laws_policy_and_ratios() -> None:
     frame, _ = study.draw_scenario("policy", 2_000, 0)
     columns = study.pairing_columns("policy", frame)
     q = common.policy_probability(frame["W1"], frame["W2"])
-    copies = np.column_stack([columns[f"shift__policy__{c}"] for c in range(1, study.COPIES + 1)])
+    copies = np.column_stack(
+        [columns[f"shift__baseline_policy__{c}"] for c in range(1, study.COPIES + 1)]
+    )
     np.testing.assert_allclose(copies.mean(axis=1), q, atol=1e-12)
     g = law_module.treatment_probabilities(frame["W1"], frame["W2"])[:, 1]
     a = frame["A"].to_numpy()
     expected = np.where(a == 1, q / g, (1 - q) / (1 - g))
-    np.testing.assert_allclose(columns["ratio__policy__1"], expected, rtol=1e-12)
-    assert abs(columns["ratio__policy__1"].mean() - 1.0) < 0.1
+    np.testing.assert_allclose(columns["ratio__baseline_policy__1"], expected, rtol=1e-12)
+    assert abs(columns["ratio__baseline_policy__1"].mean() - 1.0) < 0.1
     retained = frame["C3"].to_numpy() == 1.0
-    assert np.all(columns["ratio__policy__3"][~retained] == 0.0)
-    assert np.all(columns["ratio__policy__3"][retained] > 1.0)
+    assert np.all(columns["ratio__baseline_policy__3"][~retained] == 0.0)
+    assert np.all(columns["ratio__baseline_policy__3"][retained] > 1.0)
     dose, _ = study.draw_scenario("mtp", 2_000, 0)
     moved = study.pairing_columns("mtp", dose)
-    np.testing.assert_array_equal(moved["shift__mtp__1"], common.minus_one(dose["D"]))
-    assert np.all(moved["ratio__mtp__1"][dose["D"].to_numpy() == 5.0] == 0.0)
+    np.testing.assert_array_equal(
+        moved["shift__baseline_minus_one__1"], common.minus_one(dose["D"])
+    )
+    assert np.all(moved["ratio__baseline_minus_one__1"][dose["D"].to_numpy() == 5.0] == 0.0)
 
 
 def test_the_runner_transcribes_the_python_design() -> None:
     text = RUNNER.read_text(encoding="utf-8")
-    assert 'plans <- list(policy = c("natural", "policy"), mtp = c("natural", "mtp"))' in text
-    assert "copies <- c(natural = 1L, policy = 4L, mtp = 1L)" in text
+    assert 'policy = c("natural course", "baseline policy"),' in text
+    assert 'mtp = c("natural course", "baseline minus one")' in text
+    assert (
+        'copies <- c("natural course" = 1L, "baseline policy" = 4L, "baseline minus one" = 1L)'
+        in text
+    )
     assert "reported <- c(1L, 3L, 5L)" in text
     assert f'reference <- "{study.REFERENCE}"' in text
     assert {label for plans in study.REGIMENS.values() for label in plans} == {
-        "natural",
-        "policy",
-        "mtp",
+        "natural course",
+        "baseline policy",
+        "baseline minus one",
     }

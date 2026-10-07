@@ -41,6 +41,16 @@ _CAUSE = ", "
 #: Which plan, cause and horizon a longitudinal property cell belongs to.  Cells prefix their
 #: arm, so :func:`cell` strips it and reports it beside the family's shared description.
 ARMS: dict[str, str] = {
+    "survival_t5": "difference of arm 1 and arm 0 at visit 5, five-visit held law",
+    "rmst_5": "RMST difference up to visit 5, five-visit held law",
+    "competing_t4": "difference in the death incidence at visit 4, two causes",
+    "three_arm_t3": "difference of arm 2 and arm 0 at visit 3, three arms with L_t",
+    "continuous_t4": "difference at grid time 3, exponential event time, visit dropout",
+    "end_of_study": "held end-of-study difference after two censoring nodes",
+    "weighted_t5": "difference at visit 5 under the weight 1 + W1 / 2",
+    "clustered_t5": "arm-0 risk at visit 5, 25 clusters of 80 that share W",
+    "policy_t5": "baseline policy against the natural course at visit 5",
+    "mtp_t5": "baseline minus one against the natural course at visit 5",
     "ate": "average treatment effect",
     "static": "static plan",
     "dynamic": "dynamic plan",
@@ -344,6 +354,9 @@ _TERM = re.compile(
 
 IMPLEMENTATIONS: dict[str, str] = {
     "cleverly": "`cleverly`",
+    "cleverly-cross-fitted-point-survival": "`cleverly` cross-fitted point-treatment survival",
+    "cleverly-held-policy-ltmle": "`cleverly` LTMLE with a policy at a held baseline treatment",
+    "survtmle": 'R `survtmle`, `method="mean"`',
     "cleverly-categorical-ltmle": "`cleverly` ordinary categorical LTMLE",
     "cleverly-cde-tmle": "`cleverly` controlled direct-effect TMLE",
     "cleverly-ltmle-derived": "`cleverly` LTMLE ratio contrast",
@@ -444,6 +457,11 @@ IMPLEMENTATIONS: dict[str, str] = {
 
 SCENARIOS: dict[str, str] = {
     "binary": "binary-outcome law",
+    "survival": "five visits, a binary baseline treatment held over every node, visit dropout",
+    "competing": "four visits, two competing causes, a held binary treatment, visit dropout",
+    "three_arm": "three visits, three arms held over every node, a binary L_t at each later visit",
+    "policy": "five visits, a held binary treatment, a known stochastic policy at baseline",
+    "mtp": "five visits, a held dose on 0 to 5, lmtp's minus-one policy at baseline",
     "clustered_end_of_study": (
         "100 clusters of 40 rows, a mean-zero cluster component on the final outcome, censored "
         "two-node panel"
@@ -621,6 +639,13 @@ ESTIMANDS: dict[str, str] = {
 
 #: The bracketed half of a longitudinal estimand key.
 REGIMENS: dict[str, str] = {
+    "arm0": "assign arm 0 at baseline and hold it",
+    "arm1": "assign arm 1 at baseline and hold it",
+    "arm2": "assign arm 2 at baseline and hold it",
+    "baseline policy": "draw the baseline arm from a known policy, then hold it",
+    "baseline minus one": (
+        "lower the baseline dose by one wherever it stays at least one, then hold it"
+    ),
     "always": "treat at both times",
     "mix": "draw each arm from a known policy at both times",
     "natural": "leave the observed dose unchanged at both times",

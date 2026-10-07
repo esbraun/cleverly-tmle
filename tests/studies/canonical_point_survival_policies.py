@@ -91,12 +91,17 @@ def _minus_one(a: Any, h: Any) -> Any:
 NATURAL = Shift(0.0, cap=None)
 POLICY = Stochastic(_policy_density, "q", density_kind="known")
 MTP = ModifiedPolicy("minus one", apply=_minus_one, policy_kind="known")
+REFERENCE = "natural course"
+PLAN = {"policy": "baseline policy", "mtp": "baseline minus one"}
 REGIMENS: dict[str, dict[str, Any]] = {
-    "policy": {"natural": NATURAL, "policy": POLICY},
-    "mtp": {"natural": NATURAL, "mtp": MTP},
+    "policy": {REFERENCE: NATURAL, PLAN["policy"]: POLICY},
+    "mtp": {REFERENCE: NATURAL, PLAN["mtp"]: MTP},
 }
-REFERENCE = "natural"
-PLAN = {"policy": "policy", "mtp": "mtp"}
+
+
+def slug(label: str) -> str:
+    """A plan label as it appears in a pairing column name."""
+    return label.replace(" ", "_")
 
 
 def _names(scenario: str) -> tuple[str, ...]:
@@ -138,6 +143,9 @@ STUDY = StudyRecord(
         "tests/studies/canonical_point_survival.py",
         "tests/studies/canonical_ltmle.py",
         "tests/studies/canonical_categorical_ltmle.py",
+        "tests/studies/categorical_longitudinal_common.py",
+        "tests/discrete_law_longitudinal.py",
+        "tests/discrete_law_longitudinal_multivalue.py",
         "tests/studies/fractional_glm.py",
         "src/cleverly/datasets/survival_point.py",
         "tests/studies/evidence/comparison.py",
@@ -251,11 +259,11 @@ def pairing_columns(scenario: str, frame: pd.DataFrame) -> dict[str, np.ndarray]
             first = induced[rows, observed] / g[rows, observed]
             copies = [common.minus_one(a)]
         for copy, values in enumerate(copies, start=1):
-            out[f"shift__{label}__{copy}"] = np.asarray(values, dtype=float)
-        out[f"ratio__{label}__1"] = first
+            out[f"shift__{slug(label)}__{copy}"] = np.asarray(values, dtype=float)
+        out[f"ratio__{slug(label)}__1"] = first
         for node in range(2, law.n_times + 1):
             retained = frame[f"C{node}"].to_numpy(dtype=float)
-            out[f"ratio__{label}__{node}"] = np.where(retained == 1.0, 1.0 / stay, 0.0)
+            out[f"ratio__{slug(label)}__{node}"] = np.where(retained == 1.0, 1.0 / stay, 0.0)
     return out
 
 
