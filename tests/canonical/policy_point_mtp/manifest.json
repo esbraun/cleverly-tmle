@@ -1,0 +1,118 @@
+{
+  "schema_version": 2,
+  "study": "point-treatment modified treatment policies beyond the additive shift",
+  "slug": "policy-point-mtp",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-policy-tmle",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "b3a25e2d7455887d862c9cdb2f62a84717acf03b",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": {
+      "implementation": "lmtp",
+      "lmtp_version": "1.5.4",
+      "lmtp_source_commit": "f04a2b47f46debc515ce4ae778e05ebfde922c44",
+      "lmtp_tarball_sha256": "fd49d9f291d4ddabb78c36d152b25aaa234a7204b645b9921f998c152e3d2ba5",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_construction": "lmtp cf_tmle and theta_dr with one node, the policy dose and the density ratio this package computed (PolicySet.policy_ratio), written beside the replicate data; no lmtp density ratio is fitted",
+      "reference_adapter": "tests/canonical/lmtp_mtp_adapter.R",
+      "pairing": "read under the default margins; the point fluctuations differ by construction"
+    }
+  },
+  "configuration": {
+    "replicates": 1000,
+    "n": 2000,
+    "seed": 20261043,
+    "resampling_seed": 2026104301,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "policy_point": [
+        "ey_policy[natural course]",
+        "ey_policy[x1.25]",
+        "ey_policy[piecewise]",
+        "ey_policy[halve below 3]",
+        "ate_policy[x1.25 vs natural course]",
+        "ate_policy[piecewise vs natural course]",
+        "ate_policy[halve below 3 vs natural course]"
+      ]
+    },
+    "construction": "ordinary",
+    "cross_fit": false,
+    "density_bins": 160,
+    "outcome_learner": "QuadraticOutcome",
+    "density": "oracle binned density of the truncated normal dose",
+    "policies": [
+      "natural course",
+      "x1.25",
+      "piecewise",
+      "halve below 3"
+    ],
+    "reference": "natural course",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_policy_point_mtp.py": "7e53a08cdc2c9ef65ba56edc738a61e711bae1f18d7a7cd9795d3100f2f1e726",
+    "tests/studies/policy_point_mtp_properties.py": "8848a3702bcffe74755af4e3917de946bc58fe61072a4189deae9311e82537f6",
+    "tests/studies/canonical_categorical_ltmle.py": "d1ca52f08002e45c6cf1cef0f1774536fdd884c6678eeea223bd4f8dcc189c19",
+    "tests/studies/fractional_glm.py": "5570ff1756acad859e627be9d155e1b43f789ffb8626ac3c53a049bb0662488e",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/studies/evidence/comparison.py": "653c091f0c1cd240b41e4ed7026da8f67c0feda58404e7c27e80eabab38a2217",
+    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
+    "tests/studies/evidence/property_verdicts.py": "bfe7a46273aad4ed36b96bbf0435988f6ea721e81173c4ea1f6e53c76177a47a",
+    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
+    "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+    "tests/canonical/lmtp_crossfit_adapter.R": "6ea0d48d3143222f0342ea49fde84affa0740ba668fbdb874f5f0919d31e97b6",
+    "tests/canonical/lmtp_policy_adapter.R": "3af33ae0bb1c1731779d84714651f8b4679889d1bf3cfcfbe8e94a5f20f358e0",
+    "tests/canonical/lmtp_mtp_adapter.R": "ce52f70ba0cbe69cd151b4453d14fe274e3a68fcc8d8f86f54d0fc7b74976788",
+    "tests/canonical/policy_point_mtp_runner.R": "e2553423aa1546d4efb7118bb611d03f3de3e1c83e61d72d05b53c4e1469fe97"
+  },
+  "reference_sha256": {
+    "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+    "tests/canonical/policy_point_mtp_runner.R": "e2553423aa1546d4efb7118bb611d03f3de3e1c83e61d72d05b53c4e1469fe97",
+    "tests/canonical/lmtp_mtp_adapter.R": "ce52f70ba0cbe69cd151b4453d14fe274e3a68fcc8d8f86f54d0fc7b74976788",
+    "tests/canonical/lmtp_policy_adapter.R": "3af33ae0bb1c1731779d84714651f8b4679889d1bf3cfcfbe8e94a5f20f358e0",
+    "tests/canonical/lmtp_crossfit_adapter.R": "6ea0d48d3143222f0342ea49fde84affa0740ba668fbdb874f5f0919d31e97b6",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "sha256": {
+    "replicates.csv.gz": "d900cf58a8cd72a089a5b40dc57258d44711df4bd5d90559a37e11ff5371a73d",
+    "summary.csv": "6cc80aa993a24710a58d951ebf9ca2bad28aabfa352e82d49af2a814d23ff492",
+    "equivalence.csv": "ddbb359d635ebb48e2a89516155f0c1d86a7d68117090959214a8818fc33d7d7",
+    "performance-tests.csv": "449d31f804931ed7f21c3508b7d7d3be4a5884738a3d336c74677e82dab67471",
+    "property-replicates.csv.gz": "9879de1e552243efd5ffa9ca50a31c4a3438eb5f29cbf02ec1aa08064573700a",
+    "properties.csv": "8042b685baeccfdaec267c6d47d9b6fdb0e5edaf90482124d7f88f919c964dd5"
+  }
+}
