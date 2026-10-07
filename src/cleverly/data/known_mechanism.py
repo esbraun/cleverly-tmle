@@ -43,7 +43,7 @@ __all__ = [
     "CONTINUOUS_REFUSAL",
     "KNOWN_CTMLE_REFUSAL",
     "KNOWN_EVALUATION_REFUSAL",
-    "KNOWN_POLICIES_REFUSAL",
+    "KNOWN_POLICY_CLASSIFIER_REFUSAL",
     "KNOWN_SCREEN_REFUSAL",
     "KNOWN_TREATMENT_DELTA_REFUSAL",
     "KnownMechanism",
@@ -74,11 +74,12 @@ KNOWN_CTMLE_REFUSAL = (
     "CTMLE selects the treatment mechanism, and the data declares it known, so there is "
     "nothing to select. Fit TMLE or DRTMLE on the declared data."
 )
-#: The refusal of a modified treatment policy beside a declared mechanism.
-KNOWN_POLICIES_REFUSAL = (
-    "treatment_probabilities= and policies= are not combined. A modified treatment policy "
-    "reads the mechanism in its estimand and in its ratio, and the known-mechanism "
-    "translation is written for incremental= only. Fit without treatment_probabilities=."
+#: The refusal of the classifier ratio route beside a declared mechanism.
+KNOWN_POLICY_CLASSIFIER_REFUSAL = (
+    "ratio='classifier' learns each policy's density ratio from a stacked classifier, and "
+    "treatment_probabilities= declares the mechanism that ratio is built from. Pass "
+    "ratio='density', which reads the declared mechanism in the discrete formula, or fit "
+    "without treatment_probabilities=."
 )
 #: The refusal of covariate screening beside a declared mechanism.
 KNOWN_SCREEN_REFUSAL = (
@@ -95,8 +96,9 @@ KNOWN_TREATMENT_DELTA_REFUSAL = (
 #: The refusal of a DR-TMLE evaluation companion that declares no mechanism.
 KNOWN_EVALUATION_REFUSAL = (
     "evaluation= evaluates every nuisance on an independent draw, and that draw declares no "
-    "known treatment mechanism. Declare the same treatment_probabilities columns on the "
-    "evaluation data, or drop evaluation=."
+    "known treatment mechanism. Declare the same treatment_probabilities columns on an "
+    "evaluation frame, pass a CausalData evaluation companion that declares its own "
+    "treatment_probabilities, or drop evaluation=."
 )
 
 

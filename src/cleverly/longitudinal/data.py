@@ -643,6 +643,7 @@ class LongitudinalData:
         weights_type: str = "probability",
         weights_estimated: bool = False,
         continuous_treatment: bool = False,
+        treatment_probabilities: Mapping[Any, str] | None = None,
     ) -> LongitudinalData:
         r"""Build a point-treatment survival container from one time and one event column.
 
@@ -709,6 +710,12 @@ class LongitudinalData:
             Declare the treatment a continuous dose.  Node 1 then has a conditional density,
             and a regimen is a modified treatment policy, as ``continuous_treatment=`` on
             :meth:`from_frame` declares.
+        treatment_probabilities : mapping of level to str, or None
+            The known baseline treatment mechanism: each treatment level mapped to the
+            column that holds :math:`P(A = \text{level} \mid W)`.  The fit then divides by
+            these probabilities at the decision node and fits no treatment learner, as
+            :attr:`known_mechanisms` describes.  The columns are not covariates.  Arrays go
+            to :meth:`cleverly.longitudinal.LTMLE.fit`.
 
         Returns
         -------
@@ -721,7 +728,8 @@ class LongitudinalData:
             If a time is missing, not finite or at or below zero; if ``grid=None`` and a
             time is not an integer; if an event code is missing, negative, not an integer
             or not named by ``causes``; if a cause has no event at or before :math:`g_K`;
-            or if a censoring time lies strictly between two grid times.
+            if a censoring time lies strictly between two grid times; or if
+            ``treatment_probabilities`` is not a mapping of levels to columns.
         ValueError
             If ``grid`` is not a strictly increasing sequence of positive finite times.
 
@@ -760,10 +768,25 @@ class LongitudinalData:
             wanted.append(id)
         if weights is not None:
             wanted.append(str(weights))
-        missing = [name for name in wanted if name not in columns]
+        known_columns: tuple[tuple[Any, str], ...] = ()
+        if treatment_probabilities is not None:
+            pairs = probability_columns(treatment_probabilities)
+            if pairs is None:
+                raise DataError(
+                    "from_time_to_event takes treatment_probabilities as a mapping from each "
+                    "treatment level to the column that holds its probability. Put the "
+                    "probabilities in the frame, or pass the arrays to "
+                    "LTMLE.fit(treatment_probabilities=)."
+                )
+            known_columns = pairs
+        probability_names = [name for _, name in known_columns]
+        missing = [name for name in [*wanted, *probability_names] if name not in columns]
         if missing:
             raise DataError(f"columns not found in the frame: {missing}; available: {columns}")
         _refuse_duplicates(wanted)
+        overlap = sorted(set(probability_names) & set(wanted))
+        if overlap:
+            raise DataError(f"columns {overlap} are used both as a role and as a known probability")
 
         times = column_array(frame, str(time))
         codes = column_array(frame, str(event))
@@ -823,7 +846,7 @@ class LongitudinalData:
         censoring_names = [f"{time}>={g}" for g in stamp]
         has_censoring = bool(np.any(inside))
         raw = column_array(frame, str(treatment), dtype=object)
-        return cls._build(
+        built = cls._build(
             outcome=None,
             event=event_blocks,
             event_names=event_names,
@@ -851,6 +874,16 @@ class LongitudinalData:
             time_name=str(time),
             event_name=str(event),
             event_codes=tuple(int(code) for code in code_of_cause),
+        )
+        if not known_columns:
+            return built
+        node = str(treatment)
+        return built._declare_known(
+            treatment_probabilities={
+                node: {level: column_array(frame, name) for level, name in known_columns}
+            },
+            censoring_probabilities=None,
+            treatment_columns={node: known_columns},
         )
 
     def to_time_to_event(self) -> tuple[FloatArray, IntArray]:

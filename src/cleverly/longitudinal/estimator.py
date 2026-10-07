@@ -636,6 +636,20 @@ def _replay_recipe(
     )
 
 
+def _known_factors(data: LongitudinalData) -> tuple[str, ...]:
+    """The treatment and censoring columns whose factor ``data`` declares known."""
+    known = data.known_mechanisms
+    if known is None:
+        return ()
+    names: list[str] = []
+    for time in range(1, data.n_times + 1):
+        if not data.is_held_node(time) and known.treatment_at(time) is not None:
+            names.append(data.decision_name(time))
+        if data.censoring_names and known.censoring_at(time) is not None:
+            names.append(data.censoring_names[time - 1])
+    return tuple(names)
+
+
 @dataclass(frozen=True)
 class LongitudinalConfig:
     """A snapshot of the settings a longitudinal fit actually used."""
@@ -682,6 +696,10 @@ class LongitudinalConfig:
     held_treatment: str | None = None
     #: The grid times of a container built from a time and an event column, else ``None``.
     time_grid: tuple[float, ...] | None = None
+    #: The treatment and censoring columns whose factor the data declares known
+    #: (:attr:`~cleverly.longitudinal.LongitudinalData.known_mechanisms`), in node order.
+    #: Each fits no learner and is not truncated.  Empty on a fit that declares none.
+    known_factors: tuple[str, ...] = ()
 
     def describe(self, *, contrast: bool) -> list[str]:
         """Return the settings lines of :meth:`LongitudinalResult.summary`.
@@ -789,6 +807,11 @@ class LongitudinalConfig:
                 else ""
             ),
         ]
+        if self.known_factors:
+            lines.append(
+                f"known factors (declared, no learner): {', '.join(self.known_factors)}; no "
+                "truncation bound moved a declared value"
+            )
         if self.q_bounds is not None:
             lines.append(f"q_bounds: [{self.q_bounds[0]:.4g}, {self.q_bounds[1]:.4g}]")
         lines.append(f"confidence level: {(1 - self.alpha_sig) * 100:g}%")
@@ -2998,6 +3021,7 @@ class LTMLE:
             ),
             held_treatment=prepared.treatment_names[0] if prepared.treatment_held else None,
             time_grid=prepared.time_grid,
+            known_factors=_known_factors(prepared),
             msm_terms=None if model is None else model.terms,
             msm_link=None if model is None else str(model.link),
             # The evaluated arrays rather than the design, for the reason the plans are

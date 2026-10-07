@@ -114,7 +114,7 @@ from .._typing import (
 from ..data.causal_data import CausalData, TreatmentKind, arm_share
 from ..data.known_mechanism import (
     KNOWN_CTMLE_REFUSAL,
-    KNOWN_POLICIES_REFUSAL,
+    KNOWN_POLICY_CLASSIFIER_REFUSAL,
     KNOWN_SCREEN_REFUSAL,
     moved_known_values_refusal,
 )
@@ -1514,7 +1514,8 @@ class TMLE:
         Raises
         ------
         CapabilityError
-            For ``CTMLE`` and for ``policies=``.
+            For ``CTMLE``, and for ``policies=`` with ``ratio="classifier"``, which
+            learns the ratio the declaration fixes.
         ValueError
             For ``screen_treatment=True``, which conflicts with the declaration.
         """
@@ -1522,8 +1523,8 @@ class TMLE:
             return
         if self._assessment_method == "collaborative_tmle":
             raise CapabilityError(KNOWN_CTMLE_REFUSAL)
-        if self.policies:
-            raise CapabilityError(KNOWN_POLICIES_REFUSAL)
+        if self.policies and self.ratio == "classifier":
+            raise CapabilityError(KNOWN_POLICY_CLASSIFIER_REFUSAL)
         if self.screen_treatment:
             raise ValueError(KNOWN_SCREEN_REFUSAL)
 

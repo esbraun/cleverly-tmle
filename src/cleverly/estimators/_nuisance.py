@@ -1183,7 +1183,8 @@ def fit_nuisances(
     replaces the treatment learner.  The propensity is a :class:`KnownPropensity` that holds
     the declaration, no treatment model is fitted, and an incremental tilt is evaluated at the
     declaration and marked known, so that its targeting solves no mechanism equation.  A
-    companion's propensity is the companion's own declaration in every fold.
+    discrete modified treatment policy is evaluated at the declaration, as at a fitted
+    mechanism.  A companion's propensity is the companion's own declaration in every fold.
     """
     if data.composite_view:
         raise ValueError(
@@ -1270,6 +1271,14 @@ def fit_nuisances(
                     tuple(incremental), data, propensity.values, reference=incremental_reference
                 ),
                 mechanism_known=True,
+            )
+        if policies:
+            # The discrete formula reads g only in the ratio g^d / g, and the plug-in reads
+            # the observed treatment, so a known g is the degenerate estimate g_n = g0: the
+            # product remainder is zero and the shipped curve is exact.  The classifier route
+            # learns the ratio, and the preflight refuses it beside a declaration.
+            policy_set = PolicySet.evaluate(
+                tuple(policies), data, propensity=propensity.values, reference=policy_reference
             )
     elif fit_treatment:
         propensity_out, propensity_companion, propensity_diagnostics = cross_fit_companion(

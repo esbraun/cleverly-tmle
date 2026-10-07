@@ -316,25 +316,51 @@ def test_a_longitudinal_design_declares_the_columns() -> None:
     assert abs(estimate.psi - law.smart_truth(1, 1)) <= 1e-6
 
 
-def test_a_modified_treatment_policy_at_a_declared_node_is_refused() -> None:
+def test_a_modified_treatment_policy_at_a_declared_node_equals_a_learner_that_returns_it() -> None:
+    """The ratio numerator reads the declared matrix, as it reads a fitted one.
+
+    A declared node is the degenerate estimate ``g_n = g0``, so the remainder, a product of
+    the ratio error and the outcome error, is zero there.
+    """
     from cleverly.interventions import ModifiedPolicy
     from cleverly.longitudinal import DynamicRegimen
 
     flip = ModifiedPolicy(
         "flip", apply=lambda a, h: 1.0 - np.asarray(a, dtype=float), policy_kind="known"
     )
+    regimens = {"flip": DynamicRegimen("flip", (1, flip)), "always": 1}
     frame = law.smart_frame(censoring=False)
-    NeverFit.calls = 0
-    with pytest.raises(CapabilityError, match="a modified treatment policy at node 'A2'"):
-        LTMLE(
-            {"flip": DynamicRegimen("flip", (1, flip))},
-            n_folds=1,
-            outcome_learner=NeverFit(),
-            pseudo_learner=NeverFit(),
-            treatment_learner=NeverFit(),
-            censoring_learner=NeverFit(),
-        ).fit(frame, **_columns(False), **_mappings(False))
-    assert NeverFit.calls == 0
+    declared_regimens = LTMLE(
+        regimens,
+        n_folds=1,
+        random_state=0,
+        outcome_learner=LogisticRegression(max_iter=1000),
+        pseudo_learner=LinearRegression(),
+        treatment_learner=NeverFit(),
+        censoring_learner=NeverFit(),
+        simultaneous=False,
+    ).fit(frame, **_columns(False), **_mappings(False))
+    fitted = LTMLE(
+        regimens,
+        n_folds=1,
+        random_state=0,
+        outcome_learner=LogisticRegression(max_iter=1000),
+        pseudo_learner=LinearRegression(),
+        treatment_learner=SmartMechanism(),
+        censoring_learner=NeverFit(),
+        simultaneous=False,
+    ).fit(frame, **_columns(False))
+    assert declared_regimens.mechanism.known_treatment_nodes == (1, 2)
+    for name in fitted.estimates:
+        np.testing.assert_allclose(
+            declared_regimens[name].psi, fitted[name].psi, rtol=1e-12, atol=1e-15
+        )
+        np.testing.assert_allclose(
+            declared_regimens[name].influence_curve,
+            fitted[name].influence_curve,
+            rtol=1e-11,
+            atol=1e-13,
+        )
 
 
 def test_a_known_stochastic_policy_at_a_declared_node_recovers_the_truth() -> None:
@@ -471,3 +497,236 @@ def _clustered_pair(frame: pd.DataFrame, settings: dict[str, Any]) -> tuple[Any,
         **base,
     ).fit(frame, outcome="Y", id="id", **PANEL)
     return declared, fitted
+
+
+# ----------------------------------------------------------------------------- identification
+
+
+def _certain_responders() -> pd.DataFrame:
+    """The SMART law with responders after A1 = 1 kept on arm 1 with certainty.
+
+    ``P(A2 = 0 | L1 = 1, A1 = 1) = 0``, so the regimen ``(1, 0)`` is not identified for
+    those responders, and the declaration says so.
+    """
+    frame = law.smart_frame(censoring=False)
+    certain = (frame["L1"] == 1.0) & (frame["A1"] == 1.0)
+    frame.loc[certain, "A2"] = 1.0
+    frame.loc[certain, "g2_0"] = 0.0
+    frame.loc[certain, "g2_1"] = 1.0
+    return frame
+
+
+def test_a_regimen_the_declared_design_cannot_follow_is_refused_before_any_learner() -> None:
+    """H1: a declared zero on the arm a regimen assigns at-risk rows refuses that regimen."""
+    frame = _certain_responders()
+    count = int(((frame["L1"] == 1.0) & (frame["A1"] == 1.0)).sum())
+    NeverFit.calls = 0
+    with pytest.raises(DataError) as raised:
+        _ltmle(outcome_learner=NeverFit(), pseudo_learner=NeverFit()).fit(
+            frame, **_columns(False), **_mappings(False)
+        )
+    message = str(raised.value)
+    assert "regimen 'early' is not identified under the declared design" in message
+    assert "at node 'A2' it assigns an arm the declared mechanism gives probability 0" in message
+    assert f"on {count} row(s) at risk under the regimen" in message
+    assert NeverFit.calls == 0
+    identified = LTMLE(
+        {"always": 1, "never": 0},
+        n_folds=1,
+        random_state=0,
+        outcome_learner=LogisticRegression(max_iter=1000),
+        pseudo_learner=LinearRegression(),
+        treatment_learner=NeverFit(),
+        censoring_learner=NeverFit(),
+        simultaneous=False,
+    ).fit(frame, **_columns(False), **_mappings(False))
+    assert np.isfinite(identified["ey_regimen[always]"].psi)
+
+
+def test_a_stochastic_policy_on_a_declared_zero_is_refused() -> None:
+    from cleverly.interventions import Stochastic
+    from cleverly.longitudinal import DynamicRegimen
+
+    half = Stochastic(lambda frame: np.full((len(frame), 2), 0.5), "half", density_kind="known")
+    NeverFit.calls = 0
+    with pytest.raises(
+        DataError, match="it draws an arm the declared mechanism gives probability 0"
+    ):
+        LTMLE(
+            {"half": DynamicRegimen("half", (1, half))},
+            n_folds=1,
+            outcome_learner=NeverFit(),
+            pseudo_learner=NeverFit(),
+            treatment_learner=NeverFit(),
+            censoring_learner=NeverFit(),
+        ).fit(_certain_responders(), **_columns(False), **_mappings(False))
+    assert NeverFit.calls == 0
+
+
+def _all_censored_after_treatment() -> pd.DataFrame:
+    """The censored SMART law with every ``L0 = 1, A1 = 1`` unit censored at ``C1``."""
+    frame = law.smart_frame(censoring=True)
+    lost = (frame["L0"] == 1.0) & (frame["A1"] == 1.0)
+    frame.loc[lost, "C1"] = 0.0
+    frame.loc[lost, ["L1", "A2", "C2", "Y", "g2_0", "g2_1", "r2"]] = np.nan
+    frame.loc[lost, "r1"] = 0.0
+    return frame
+
+
+def test_a_declared_zero_retention_on_a_regimen_s_followers_is_refused() -> None:
+    frame = _all_censored_after_treatment()
+    NeverFit.calls = 0
+    with pytest.raises(DataError) as raised:
+        _ltmle(outcome_learner=NeverFit(), pseudo_learner=NeverFit()).fit(
+            frame, **_columns(True), **_mappings(True)
+        )
+    message = str(raised.value)
+    assert "regimen 'always' is not identified under the declared design" in message
+    assert "at censoring node 'C1'" in message
+    assert NeverFit.calls == 0
+
+
+def test_a_declared_zero_retention_for_a_unit_that_stayed_is_refused() -> None:
+    """L8: a contradiction, not a bound the caller could widen."""
+    frame = law.smart_frame(censoring=True)
+    stayed = np.flatnonzero(frame["C1"].to_numpy() == 1.0)[:3]
+    frame.loc[stayed, "r1"] = 0.0
+    with pytest.raises(DataError, match="retention probability 0 to 3 unit\\(s\\) that stayed"):
+        _ltmle().fit(frame, **_columns(True), **_mappings(True))
+
+
+def test_a_rare_level_at_a_declared_node_needs_no_training_fold() -> None:
+    """M2: a declared node fits no learner, so the fold-support check skips it."""
+    frame = law.smart_frame(censoring=False)
+    at_risk = frame["A2"].notna().to_numpy()
+    frame["g2_2"] = np.where(at_risk, 0.05, np.nan)
+    frame["g2_0"] = frame["g2_0"] * 0.95
+    frame["g2_1"] = frame["g2_1"] * 0.95
+    rare = np.flatnonzero(at_risk)[:2]
+    frame.loc[rare, "A2"] = 2.0
+    treatment = {
+        "A1": law.SMART_TREATMENT["A1"],
+        "A2": {0.0: "g2_0", 1.0: "g2_1", 2.0: "g2_2"},
+    }
+    NeverFit.calls = 0
+    result = _ltmle(n_folds=3).fit(frame, **_columns(False), treatment_probabilities=treatment)
+    assert NeverFit.calls == 0
+    assert np.isfinite(result["ey_regimen[always]"].psi)
+
+
+def test_the_record_names_each_declared_factor() -> None:
+    frame = law.smart_frame(censoring=True)
+    result = _ltmle().fit(frame, **_columns(True), **_mappings(True))
+    assert result.config.known_factors == ("A1", "C1", "A2", "C2")
+    assert "known factors (declared, no learner): A1, C1, A2, C2" in result.summary()
+    estimated = _ltmle(
+        treatment_learner=SmartMechanism(), censoring_learner=LogisticRegression()
+    ).fit(frame, **_columns(True))
+    assert estimated.config.known_factors == ()
+
+
+# ----------------------------------------------------------------------------- held designs
+
+
+def _held_mechanism(frame: pd.DataFrame) -> np.ndarray:
+    from tests.discrete_law_point_survival import G
+
+    return G[frame["W"].to_numpy().astype(int)]
+
+
+def _held_fits(
+    declared_input: Any,
+    fitted_input: Any,
+    regimens: dict[str, Any],
+    declaration: dict[str, Any] | None = None,
+    **columns: Any,
+) -> tuple[Any, Any]:
+    """A fit on the declaration and a fit whose treatment learner returns it."""
+    from tests.discrete_law_point_survival import CellMeans, CellProbabilities
+
+    common: dict[str, Any] = {
+        "n_folds": 1,
+        "random_state": 0,
+        "outcome_learner": CellMeans(),
+        "censoring_learner": CellMeans(),
+    }
+    declared = LTMLE(regimens, treatment_learner=NeverFit(), **common).fit(
+        declared_input, **columns, **(declaration or {})
+    )
+    fitted = LTMLE(regimens, treatment_learner=CellProbabilities(), **common).fit(
+        fitted_input, **columns
+    )
+    return declared, fitted
+
+
+def _assert_same(declared: Any, fitted: Any) -> None:
+    assert declared.estimates.keys() == fitted.estimates.keys()
+    for name in declared.estimates:
+        np.testing.assert_allclose(declared[name].psi, fitted[name].psi, rtol=1e-12, atol=1e-15)
+        np.testing.assert_allclose(
+            declared[name].influence_curve, fitted[name].influence_curve, rtol=1e-11, atol=1e-13
+        )
+
+
+@pytest.mark.parametrize("causes", [1, 2], ids=["survival", "competing_risks"])
+def test_a_held_declaration_equals_a_learner_that_returns_it(causes: int) -> None:
+    """E4 on a held three-level baseline decision, with one cause or two.
+
+    The single-cause case adds a categorical MTP at the declared decision node.
+    """
+    from cleverly.interventions import ModifiedPolicy
+    from tests.discrete_law_point_survival import survival_law
+
+    law_ = survival_law(causes=causes)
+    frame = law_.frame()
+    matrix = _held_mechanism(frame)
+    regimens: dict[str, Any] = {"a0": 0, "a2": 2}
+    if causes == 1:
+        regimens["up"] = ModifiedPolicy(
+            "up",
+            apply=lambda a, h: np.minimum(np.asarray(a, dtype=float) + 1.0, 2.0),
+            policy_kind="known",
+        )
+    declaration = {"treatment_probabilities": {"A": {float(a): matrix[:, a] for a in range(3)}}}
+    declared, fitted = _held_fits(
+        frame, frame, regimens, declaration, **law_.fit_columns(held=True)
+    )
+    assert declared.mechanism.known_treatment_nodes == (1,)
+    assert declared.config.known_factors == ("A",)
+    _assert_same(declared, fitted)
+
+
+def test_a_time_to_event_container_declares_its_baseline_mechanism() -> None:
+    """``from_time_to_event`` and ``TimeToEvent`` take the column form, and the fit agrees."""
+    from cleverly import TimeToEvent
+    from tests.discrete_law_point_survival import survival_law
+
+    law_ = survival_law(censor_first=False)
+    grid = (1.0, 2.0, 3.0)
+    long = law_.long_frame(grid)
+    matrix = _held_mechanism(long)
+    long = long.assign(p0=matrix[:, 0], p1=matrix[:, 1], p2=matrix[:, 2])
+    columns = {0.0: "p0", 1.0: "p1", 2.0: "p2"}
+    roles: dict[str, Any] = {
+        "time": "time",
+        "event": "event",
+        "treatment": "A",
+        "baseline": ["W"],
+        "grid": grid,
+    }
+    declared_data = LongitudinalData.from_time_to_event(
+        long, **roles, treatment_probabilities=columns
+    )
+    plain = LongitudinalData.from_time_to_event(long, **roles)
+    assert list(declared_data.baseline_names) == ["W"]
+    assert declared_data.known_mechanisms is not None
+    declared, fitted = _held_fits(declared_data, plain, {"a0": 0, "a2": 2})
+    _assert_same(declared, fitted)
+
+    design = TimeToEvent(**roles, treatment_probabilities=columns)
+    assert design.treatment_probabilities == tuple(columns.items())
+    prepared = design.prepare(long)
+    assert prepared.known_mechanisms is not None
+    design.prepare(declared_data)
+    with pytest.raises(DataError, match="names columns"):
+        TimeToEvent(**roles, treatment_probabilities=matrix)

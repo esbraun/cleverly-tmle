@@ -940,6 +940,12 @@ class TimeToEvent:
     continuous_treatment : bool
         Whether the treatment is a continuous dose.  A regimen is then a modified treatment
         policy at baseline.
+    treatment_probabilities : mapping of level to str, or None
+        The known baseline treatment mechanism of a randomized design: each treatment level
+        mapped to the column that holds :math:`P(A = \text{level} \mid W)`.  The fit then
+        divides by these probabilities and fits no treatment learner.  A design names
+        columns, so the array forms of :meth:`cleverly.longitudinal.LTMLE.fit` are refused
+        here.
 
     Attributes
     ----------
@@ -973,8 +979,19 @@ class TimeToEvent:
     weights_estimated: bool = False
     time_varying: None = None
     continuous_treatment: bool = False
+    treatment_probabilities: Any = None
 
     def __post_init__(self) -> None:
+        if self.treatment_probabilities is not None:
+            columns = probability_columns(self.treatment_probabilities)
+            if columns is None:
+                raise DataError(
+                    "TimeToEvent(treatment_probabilities=) maps each treatment level to the "
+                    "column that holds its probability, as every other design field names "
+                    "columns. Put the probabilities in the frame, or pass the arrays to "
+                    "LTMLE.fit(treatment_probabilities=)."
+                )
+            object.__setattr__(self, "treatment_probabilities", columns)
         if self.time_varying is not None:
             raise TypeError(
                 "TimeToEvent reads one row per unit, so it has no covariate measured after "
@@ -1026,11 +1043,16 @@ class TimeToEvent:
             weights_type=self.weights_type,
             weights_estimated=self.weights_estimated,
             continuous_treatment=self.continuous_treatment,
+            treatment_probabilities=(
+                None if self.treatment_probabilities is None else dict(self.treatment_probabilities)
+            ),
         )
 
     def _check_prepared(self, data: LongitudinalData) -> None:
         """Reconcile an already-built container with the roles this design declares."""
+        held_columns = dict(_held_node_columns(data) or ()).get(self.treatment)
         expected: tuple[tuple[str, Any, Any], ...] = (
+            ("treatment_probabilities", self.treatment_probabilities, held_columns),
             ("time", self.time, data.time_name),
             ("event", self.event, data.event_name),
             ("treatment", (self.treatment,), tuple(data.treatment_names)),

@@ -915,3 +915,130 @@ def test_the_array_entry_point_reads_g1w_as_the_known_mechanism() -> None:
     ).single()
     columns = TMLE(**settings).fit(frame, **ROLES, treatment_probabilities=g1).single()
     assert arrays.estimates["ate"].psi == columns.estimates["ate"].psi
+
+
+# ----------------------------------------------------------------------------- review additions
+
+
+@pytest.mark.parametrize(
+    "make",
+    [
+        pytest.param(lambda **kw: _tmle(**kw), id="tmle"),
+        pytest.param(lambda **kw: _tmle(cross_fit=True, n_folds=5, **kw), id="cv_tmle"),
+    ],
+)
+def test_a_three_arm_known_mechanism_equals_a_learner_that_returns_it(make: Any) -> None:
+    """E4 on three arms: the declaration and a learner returning it give one fit."""
+    declared, fitted = _pair(make, law.point_frame(3), arms=3)
+    _assert_same_fit(declared, fitted)
+
+
+def _treat_w2(a: Any, h: Any) -> Any:
+    return np.where(np.asarray(h["W2"], dtype=float) == 1.0, 1.0, np.asarray(a, dtype=float))
+
+
+def _drop_top(a: Any, h: Any) -> Any:
+    values = np.asarray(a, dtype=float)
+    return np.where(values == 2.0, 1.0, values)
+
+
+@pytest.mark.parametrize("arms", [2, 3])
+def test_a_discrete_modified_policy_divides_by_the_known_mechanism(arms: int) -> None:
+    """A discrete MTP on a declared mechanism equals the fit whose learner returns it.
+
+    The discrete formula reads ``g`` only in the ratio ``g^d / g``, so a declared ``g`` is
+    the degenerate estimate ``g_n = g0`` and the shipped curve applies unchanged.
+    """
+    from cleverly.interventions import ModifiedPolicy
+
+    apply = _treat_w2 if arms == 2 else _drop_top
+    policy = ModifiedPolicy("mtp", apply=apply, policy_kind="known")
+    frame = law.point_frame(arms) if arms == 3 else _finite_frame()
+    declared, fitted = _pair(lambda **kw: _tmle(policies=[policy], **kw), frame, arms=arms)
+    _assert_same_fit(declared, fitted)
+    assert declared.config.treatment_mechanism == "known"
+
+
+def test_the_classifier_ratio_is_refused_beside_a_declared_mechanism() -> None:
+    from cleverly.data.known_mechanism import KNOWN_POLICY_CLASSIFIER_REFUSAL
+    from cleverly.interventions import ModifiedPolicy
+
+    policy = ModifiedPolicy("mtp", apply=_treat_w2, policy_kind="known")
+    assert_refused_before_any_call(
+        lambda: TMLE(
+            cross_fit=False, policies=[policy], ratio="classifier", **never_fit_learners()
+        ).fit(_trial(), **ROLES, treatment_probabilities=_columns(2)),
+        None,
+        "learner",
+        KNOWN_POLICY_CLASSIFIER_REFUSAL,
+        error=CapabilityError,
+    )
+
+
+def test_the_flipped_mechanism_is_the_mixture_the_flip_induces() -> None:
+    from cleverly.sensitivity.simulated_confounding import flipped_mechanism
+
+    g1 = np.array([0.2, 0.5, 0.75])
+    declared = np.column_stack([1.0 - g1, g1])
+    flipped = flipped_mechanism(declared, 0.1)
+    np.testing.assert_allclose(flipped[:, 1], 0.9 * g1 + 0.1 * (1.0 - g1), rtol=1e-15)
+    np.testing.assert_allclose(flipped.sum(axis=1), 1.0, rtol=1e-15)
+    np.testing.assert_array_equal(flipped_mechanism(declared, 0.0), declared)
+
+
+def test_simulated_confounding_carries_the_flipped_mechanism_in_every_cell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every cell divides by a known mechanism, so the surface measures confounding only.
+
+    The treatment learner is a ``NeverFit``: a cell that dropped the declaration would fit
+    it and fail.  At a 1% flip the displacement stays near zero, where an intercept-only
+    refit of the mechanism moved it by about 0.056 (implementation review, probe 5).
+    """
+    from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
+
+    frame = _confounded_frame(n=2000)
+    design = PointTreatment(
+        outcome="Y",
+        treatment="A",
+        adjustment=("W1", "W2"),
+        treatment_probabilities=_columns(2),
+    )
+    result = (
+        CausalStudy(frame, design=design)
+        .identify(ATE())
+        .estimate(
+            TMLEMethod().with_overrides(
+                outcome_learner=_wrong_outcome(),
+                treatment_learner=NeverFit(),
+                cross_fit=False,
+                random_state=0,
+            )
+        )
+    )
+    grid = ConfounderStrengthGrid(treatment=(0.0, 0.01, 0.2), outcome=(0.0, 0.1))
+    declared: list[np.ndarray] = []
+    original = CausalData.with_known_mechanism
+
+    def spy(self: CausalData, treatment_probabilities: Any) -> CausalData:
+        declared.append(np.asarray(treatment_probabilities, dtype=float))
+        return original(self, treatment_probabilities)
+
+    monkeypatch.setattr(CausalData, "with_known_mechanism", spy)
+    NeverFit.calls = 0
+    surface = simulated_confounding(result, "ate", grid=grid, random_state=3)
+    g0 = np.column_stack([frame["p0"], frame["p1"]])
+    # Two outcome strengths at each nonzero treatment strength, in grid order.
+    assert len(declared) == 4
+    for values, strength in zip(declared, (0.01, 0.01, 0.2, 0.2), strict=True):
+        np.testing.assert_allclose(values, (1 - strength) * g0 + strength * g0[:, ::-1], rtol=1e-15)
+    assert surface.complete, [cell.failure for cell in surface.cells if cell.failure]
+    assert NeverFit.calls == 0
+    assert surface.known_mechanism_carried
+    assert any("declares the flipped mechanism" in line for line in surface.population_lines())
+    small = next(
+        cell
+        for cell in surface.cells
+        if cell.treatment_strength == 0.01 and cell.outcome_strength == 0.0
+    )
+    assert abs(small.displacement) < 0.02

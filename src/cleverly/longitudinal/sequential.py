@@ -728,7 +728,8 @@ def preflight_mechanism_support(
     cannot finish spends no learner time finding that out.
 
     The first node is checked at any level count, the later ones only from three levels
-    up.  :func:`_check_categorical_fold_support` says why the two differ.
+    up.  :func:`_check_categorical_fold_support` says why the two differ.  A node whose
+    mechanism the data declares known fits no learner and is not checked.
 
     Parameters
     ----------
@@ -739,8 +740,12 @@ def preflight_mechanism_support(
     folds : Folds
         The realized outer split.
     """
+    known = data.known_mechanisms
     for time in range(1, data.n_times + 1):
         if data.is_continuous_node(time) or data.is_held_node(time):
+            continue
+        if known is not None and known.treatment_at(time) is not None:
+            # A declared node fits no learner, so no training fold can lack a level there.
             continue
         at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
         arm = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
@@ -834,6 +839,9 @@ def fit_mechanism(
             treatment_observed.append(declared)
             treatment_diagnostics.append(())
             known_treatment_nodes.append(time)
+            _mtp_numerators(
+                data, plans, time, at_risk, {plan.label: declared for plan in plans}, numerators
+            )
         elif data.is_continuous_node(time):
             with phase("mechanism_fit"):
                 density = _continuous_node_ratios(
@@ -952,27 +960,20 @@ def _filled_matrix(values: FloatArray | None) -> FloatArray:
     return filled
 
 
-#: The refusal of a modified treatment policy at a node whose mechanism is declared.
-KNOWN_NODE_POLICY_REFUSAL = (
-    "treatment_probabilities= and a modified treatment policy at node {node!r} are not "
-    "combined. The policy's ratio numerator reads the mechanism at the levels the policy "
-    "sends a unit to, and the known-mechanism translation is not written for it. Leave the "
-    "node estimated, or declare a known stochastic policy there instead."
-)
-
-
 def preflight_known_mechanisms(
     data: LongitudinalData, plans: Sequence[Plan], bounds: tuple[float, float]
 ) -> None:
     """Check every declared factor before the first learner is fitted.
 
-    Four checks, in order.  A modified treatment policy at a declared node is refused.  A
-    declared value must be finite on every row at risk at its node.  A declared treatment
-    probability of zero for the arm an at-risk unit took is refused, because the unit's
-    data contradicts it.  And the running product of the declared factors on every row that
-    follows a plan must lie inside ``bounds``: truncating a known product moves the estimate
-    with no variance reason.  With estimated factors beside declared ones, the product is
-    over the declared factors alone, and the estimated factors keep the shipped truncation.
+    Four checks, in order.  A declared value must be finite on every row at risk at its
+    node.  A declared probability of zero for the arm an at-risk unit took, or a declared
+    retention of zero for a unit that stayed, is refused, because the unit's data
+    contradicts it.  A regimen that the declared design cannot identify is refused: see
+    :func:`_refuse_unidentified_regimens`.  And the running product of the declared factors
+    on every row that follows a plan must lie inside ``bounds``: truncating a known product
+    moves the estimate with no variance reason.  With estimated factors beside declared
+    ones, the product is over the declared factors alone, and the estimated factors keep
+    the shipped truncation.
 
     Parameters
     ----------
@@ -986,9 +987,10 @@ def preflight_known_mechanisms(
     Raises
     ------
     CapabilityError
-        For a policy at a declared node, and for a product outside ``bounds``.
+        For a product outside ``bounds``.
     DataError
-        For a missing declared value on an at-risk row, and for a contradicted zero.
+        For a missing declared value on an at-risk row, for a contradicted zero, and for a
+        regimen that the declared design does not identify.
     """
     known = data.known_mechanisms
     if known is None:
@@ -999,9 +1001,6 @@ def preflight_known_mechanisms(
         declared = None if data.is_held_node(time) else known.treatment_at(time)
         if declared is not None:
             node = data.decision_name(time)
-            for plan in plans:
-                if plan.is_mtp_node(time):
-                    raise CapabilityError(KNOWN_NODE_POLICY_REFUSAL.format(node=node))
             matrix = np.asarray(declared, dtype=float)
             missing = at_risk & ~np.all(np.isfinite(matrix), axis=1)
             if np.any(missing):
@@ -1021,13 +1020,23 @@ def preflight_known_mechanisms(
                 )
         retention = known.censoring_at(time) if data.censoring_names else None
         if retention is not None:
+            name = data.censoring_names[time - 1]
             observed = at_risk & np.isfinite(data.treatment[:, time - 1])
-            missing = observed & ~np.isfinite(np.asarray(retention, dtype=float))
+            values = np.asarray(retention, dtype=float)
+            missing = observed & ~np.isfinite(values)
             if np.any(missing):
                 raise DataError(
-                    f"censoring_probabilities at {data.censoring_names[time - 1]!r} is missing "
+                    f"censoring_probabilities at {name!r} is missing "
                     f"on {int(np.count_nonzero(missing))} row(s) at risk there"
                 )
+            stayed = observed & data.uncensored[:, time - 1] & (np.nan_to_num(values) <= 0.0)
+            if np.any(stayed):
+                raise DataError(
+                    f"censoring_probabilities at {name!r} gives retention probability 0 to "
+                    f"{int(np.count_nonzero(stayed))} unit(s) that stayed under observation; "
+                    "the data contradicts the declared mechanism"
+                )
+    _refuse_unidentified_regimens(data, plans)
     lower, upper = bounds
     for plan in plans:
         masks = plan.masks(data)
@@ -1053,6 +1062,103 @@ def preflight_known_mechanisms(
                     "g_bounds=(lower, upper) that contains every declared cumulative "
                     "probability, such as a lower bound below the smallest one."
                 )
+
+
+def _refuse_unidentified_regimens(data: LongitudinalData, plans: Sequence[Plan]) -> None:
+    """Refuse a regimen that the declared design gives no unit a chance to follow.
+
+    The check reads, for each plan and node, the rows that followed the plan through the
+    previous node and are at risk at this one.  On those rows a declared zero is refused
+    when the regimen needs the zero-probability event:
+
+    =============================  ==========================================================
+    node                           refused when, on a row at risk under the plan
+    =============================  ==========================================================
+    label or rule                  the declared probability of the assigned arm is 0
+    stochastic policy              the policy puts mass on an arm whose declared value is 0
+    modified treatment policy      the policy sends a unit to a level whose declared value
+                                   is 0
+    declared censoring             the declared retention of a unit that took the regimen's
+                                   arm is 0
+    =============================  ==========================================================
+
+    Such a unit's history occurs under the design, and no unit with it can follow the
+    regimen.  Its mean there is then an extrapolation of the outcome regression, and an
+    interval for it would describe no identified parameter.  A zero on a row that is not
+    at risk under the plan is never read.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel, which declares some factors known.
+    plans : sequence of Plan
+        The resolved plans.
+
+    Raises
+    ------
+    DataError
+        For the first plan and node at which the declared design does not identify the
+        regimen.
+    """
+    known = data.known_mechanisms
+    assert known is not None
+    rows = np.arange(data.n)
+    for plan in plans:
+        masks = plan.masks(data)
+        stays = plan.support(data)
+        for time in range(1, data.n_times + 1):
+            at_risk = masks.at_risk(time)
+            declared = None if data.is_held_node(time) else known.treatment_at(time)
+            if declared is not None:
+                filled = _filled_matrix(declared)
+                if plan.is_mtp_node(time):
+                    branches = plan.mtp_assignments[time - 1]
+                    assert branches is not None
+                    induced = np.zeros_like(filled)
+                    for probability, level_map in branches:
+                        induced = induced + probability * induced_probabilities(level_map, filled)
+                    unsupported = at_risk & np.any((induced > 0.0) & (filled <= 0.0), axis=1)
+                    reason = "sends a unit to a level the declared mechanism gives probability 0"
+                elif plan.is_policy_node(time):
+                    density = plan.policy_at(time)
+                    unsupported = at_risk & np.any((density > 0.0) & (filled <= 0.0), axis=1)
+                    reason = "draws an arm the declared mechanism gives probability 0"
+                else:
+                    assigned = filled[rows, plan.arm(time).astype(np.int64)]
+                    unsupported = at_risk & (assigned <= 0.0)
+                    reason = "assigns an arm the declared mechanism gives probability 0"
+                if np.any(unsupported):
+                    raise DataError(
+                        _unidentified_message(
+                            plan.label,
+                            f"node {data.decision_name(time)!r}",
+                            reason,
+                            int(np.count_nonzero(unsupported)),
+                        )
+                    )
+            retention = known.censoring_at(time) if data.censoring_names else None
+            if retention is not None:
+                values = np.nan_to_num(np.asarray(retention, dtype=float), nan=1.0)
+                unsupported = at_risk & stays[:, time - 1] & (values <= 0.0)
+                if np.any(unsupported):
+                    raise DataError(
+                        _unidentified_message(
+                            plan.label,
+                            f"censoring node {data.censoring_names[time - 1]!r}",
+                            "needs a unit to stay where the declared retention is 0",
+                            int(np.count_nonzero(unsupported)),
+                        )
+                    )
+
+
+def _unidentified_message(label: str, node: str, reason: str, count: int) -> str:
+    """The refusal of a regimen that the declared design does not identify."""
+    return (
+        f"regimen {label!r} is not identified under the declared design: at {node} it "
+        f"{reason}, on {count} row(s) at risk under the regimen. No unit with those histories "
+        "can follow the regimen, so its mean would extrapolate the outcome regression. "
+        "Remove the regimen, or check the declared probabilities at that node."
+    )
 
 
 def _retains_every_eligible_unit(data: LongitudinalData, at_risk: BoolArray, time: int) -> bool:
@@ -1116,14 +1222,32 @@ def _categorical_node(
             for plan in plans
         }
     )
-    observed = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
+    _mtp_numerators(data, plans, time, at_risk, probabilities, numerators)
+
+
+def _mtp_numerators(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    time: int,
+    at_risk: BoolArray,
+    mechanisms: dict[str, FloatArray],
+    numerators: dict[str, dict[int, FloatArray]],
+) -> None:
+    r"""Each modified treatment policy's ratio numerator at categorical node ``time``.
+
+    The discrete formula :math:`g^d(A_t \mid H_t)` reads ``mechanisms[plan.label]``, the
+    ``(n, K)`` mechanism of the plan: the fitted one, or the declared one at a known node.
+    A known mechanism is the degenerate estimate :math:`g_n = g_0`, so the remainder, a
+    product of the ratio error and the outcome error, is zero there.
+    """
+    rows = np.arange(data.n)
+    codes = np.nan_to_num(data.treatment[:, time - 1], nan=0.0).astype(np.int64)
     for plan in plans:
         if not plan.is_mtp_node(time):
             continue
         assigned = plan.mtp_assignments[time - 1]
         assert assigned is not None
-        g = np.asarray(probabilities[plan.label], dtype=float)
-        codes = observed.astype(np.int64)
+        g = np.asarray(mechanisms[plan.label], dtype=float)
         numerator = np.zeros(data.n)
         for probability, level_map in assigned:
             numerator = numerator + probability * induced_probabilities(level_map, g)[rows, codes]
