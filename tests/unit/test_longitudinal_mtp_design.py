@@ -75,6 +75,17 @@ POSITIVE_LIMITS = {
     "up then history, declared inverse": (0.127, 0.053),
     "up, both correct": (0.112, 0.055),
 }
+#: A record, not a check: the positive cells at their declared n = 2,000, over 300 draws
+#: (``_x12_pp_s2.log``).  Each value is the mean error in empirical standard deviations; the Monte
+#: Carlo standard error is 0.058.  The bias rule passes a cell of 1,000 replications when the 99%
+#: interval of its mean lies inside 0.25, so each passes with probability above 0.98 even one
+#: Monte Carlo standard error worse.
+POSITIVE_AT_DECLARED_N = {
+    "up__both_correct": 0.008,
+    "up__outcome_correct": 0.021,
+    "up__mechanism_correct": 0.045,
+    "history__declared_inverse": 0.030,
+}
 #: The declared size of every fit set: ``(family, label) -> (n, replications)``.
 FIT_SET_SIZES = {
     ("double_robustness", "both_correct"): (2_000, 1_000),
@@ -347,3 +358,18 @@ def test_the_quadrature_truths_match_a_simulation_of_definition_one() -> None:
         q = common.outcome_mean(w, a1d, l2, a2d)
         se = float(np.std(q)) / np.sqrt(n)
         assert abs(float(np.mean(q)) - common.continuous_truth(label)) < 4.0 * se, label
+
+
+def test_the_positive_cells_pass_with_high_probability_at_their_declared_size() -> None:
+    """The bias rule's pass probability, from the recorded means one Monte Carlo SE worse."""
+    from scipy.stats import norm
+    from scipy.stats import t as student
+
+    replicates = 1_000
+    half = float(student.ppf(0.995, replicates - 1)) / np.sqrt(replicates)
+    limit = Margins().standardized_bias - half
+    spread = 1.0 / np.sqrt(replicates)
+    for cell, mean in POSITIVE_AT_DECLARED_N.items():
+        worse = abs(mean) + 0.058
+        probability = norm.cdf((limit - worse) / spread) - norm.cdf((-limit - worse) / spread)
+        assert probability > 0.98, cell
