@@ -41,6 +41,15 @@ _CAUSE = ", "
 #: Which plan, cause and horizon a longitudinal property cell belongs to.  Cells prefix their
 #: arm, so :func:`cell` strips it and reports it beside the family's shared description.
 ARMS: dict[str, str] = {
+    "att": "average effect on the treated",
+    "atc": "average effect on the untreated",
+    "ey_ipsi": "incremental mean at odds multiplier 2",
+    "ey0": "arm-0 mean, three arms",
+    "ey1": "arm-1 mean, three arms",
+    "ey2": "arm-2 mean, three arms",
+    "ate_1_vs_0": "difference of arm 1 and arm 0, three arms",
+    "ate_2_vs_0": "difference of arm 2 and arm 0, three arms",
+    "ate_regimen": "contrast of always against never, two-node SMART",
     "survival_t5": "difference of arm 1 and arm 0 at visit 5, five-visit held law",
     "rmst_5": "RMST difference up to visit 5, five-visit held law",
     "competing_t4": "difference in the death incidence at visit 4, two causes",
@@ -355,6 +364,12 @@ _TERM = re.compile(
 
 
 IMPLEMENTATIONS: dict[str, str] = {
+    "cleverly-known-mechanism": "`cleverly` TMLE on a declared known mechanism",
+    "tmle-r-known-g": "R `tmle` with the known mechanism as `g1W`",
+    "cleverly-known-mechanism-drtmle": "`cleverly` DR-TMLE on a declared known mechanism",
+    "drtmle-r-known-g": "R `drtmle` with the known mechanism as `gn`",
+    "cleverly-known-node-mechanisms": "`cleverly` LTMLE on declared known node mechanisms",
+    "ltmle-known-gform": "R `ltmle` with the known factors as a numeric `gform`",
     "cleverly": "`cleverly`",
     "cleverly-cross-fitted-point-survival": "`cleverly` cross-fitted point-treatment survival",
     "cleverly-held-policy-ltmle": "`cleverly` LTMLE with a policy at a held baseline treatment",
@@ -458,6 +473,14 @@ IMPLEMENTATIONS: dict[str, str] = {
 
 
 SCENARIOS: dict[str, str] = {
+    "binary_q_correct": ("randomized by W2 with a known mechanism, correct outcome regression"),
+    "binary_q_wrong": ("randomized by W2 with a known mechanism, outcome regression without W2"),
+    "guard_none": "known mechanism, outcome regression without W2, no DR-TMLE guard",
+    "guard_q": "known mechanism, outcome regression without W2, guard Q",
+    "guard_g": "known mechanism, outcome regression without W2, guard g",
+    "guard_qg": "known mechanism, outcome regression without W2, guards Q and g",
+    "smart_q_correct": "two-node SMART with known factors, correct outcome regressions",
+    "smart_q_wrong": "two-node SMART with known factors, outcome regressions without L1",
     "binary": "binary-outcome law",
     "survival": "five visits, a binary baseline treatment held over every node, visit dropout",
     "competing": "four visits, two competing causes, a held binary treatment, visit dropout",
@@ -713,6 +736,18 @@ PARAMETERISED: dict[str, str] = {
 
 
 PROPERTIES: dict[str, str] = {
+    "known_mechanism_accuracy": (
+        "a fit that divides by the declared mechanism is accurate and its interval covers, "
+        "whatever the outcome regression"
+    ),
+    "bootstrap_coverage": (
+        "the percentile interval of the full-refit bootstrap covers, each replicate reading "
+        "the declared values of its own rows"
+    ),
+    "variance_direction": (
+        "the spread of the ATE when the mechanism is estimated by a correct parametric model, "
+        "against its spread when it is declared"
+    ),
     "cap_necessity": "the declared cap changes which continuous doses the policy shifts",
     "categorical_probability_necessity": (
         "the assigned categorical arm selects its own mechanism probability"
@@ -863,6 +898,71 @@ PROPERTIES: dict[str, str] = {
 
 #: ``(family, cell)`` after any arm prefix is stripped, to ``(what was tested, what must hold)``.
 CELLS: dict[tuple[str, str], tuple[str, str]] = {
+    ("known_mechanism_accuracy", "known_g__q_correct"): (
+        "declared mechanism, correct outcome regression",
+        "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+    ),
+    ("known_mechanism_accuracy", "known_g__q_wrong"): (
+        "declared mechanism, outcome regression without W2",
+        "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+    ),
+    ("known_mechanism_accuracy", "estimated_g_wrong__q_wrong"): (
+        "intercept-only estimated mechanism, outcome regression without W2",
+        "bias interval lies outside the margin",
+    ),
+    ("known_mechanism_accuracy", "known_g__q_wrong__cv"): (
+        "declared mechanism, outcome regression without W2, stacked CV-TMLE over five folds",
+        "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+    ),
+    ("known_mechanism_accuracy", "known_g__incremental"): (
+        "declared mechanism, outcome regression without W2, the known stochastic regime of the tilt",
+        "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+    ),
+    ("known_mechanism_accuracy", "known_g__multi_arm__q_wrong"): (
+        "declared three-arm mechanism, outcome regression without W2",
+        "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+    ),
+    ("known_mechanism_accuracy", "drtmle_known__none"): (
+        "DR-TMLE with no guard on the declared mechanism, outcome regression without W2",
+        "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+    ),
+    ("known_mechanism_accuracy", "drtmle_known__Q"): (
+        "DR-TMLE with guard Q on the declared mechanism, outcome regression without W2",
+        "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+    ),
+    ("known_mechanism_accuracy", "drtmle_known__g"): (
+        "DR-TMLE with guard g on the declared mechanism, outcome regression without W2",
+        "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+    ),
+    ("known_mechanism_accuracy", "drtmle_known__Qg"): (
+        "DR-TMLE with guards Q and g on the declared mechanism, outcome regression without W2",
+        "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+    ),
+    ("known_mechanism_accuracy", "ltmle_known__q_wrong"): (
+        "LTMLE with every factor declared, outcome regressions without L1",
+        "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+    ),
+    ("known_mechanism_accuracy", "ltmle_known_treatment__censoring_estimated"): (
+        "LTMLE with the treatment declared and the censoring estimated, outcome regressions "
+        "without L1",
+        "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+    ),
+    ("bootstrap_coverage", "known_g__q_wrong__percentile"): (
+        "declared mechanism, outcome regression without W2, 200-replicate percentile interval",
+        "coverage interval clears the floor",
+    ),
+    ("interval_calibration", "known_g_q_wrong"): (
+        "declared mechanism, outcome regression without W2",
+        "SE-ratio and coverage intervals inside the calibration bands",
+    ),
+    ("variance_direction", "known_mechanism"): (
+        "declared mechanism, outcome regression without W2",
+        "reported, no verdict",
+    ),
+    ("variance_direction", "parametric_mechanism"): (
+        "mechanism estimated by a logistic regression on W2, outcome regression without W2",
+        "reported, no verdict",
+    ),
     ("cde_robustness", "all_correct"): (
         "the outcome regression and all three mechanisms are correct",
         "bias interval inside the equivalence margin",
