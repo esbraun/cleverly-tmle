@@ -1,12 +1,12 @@
 {
   "schema_version": 2,
-  "study": "point-treatment modified treatment policies beyond the additive shift",
+  "study": "ordinary point modified treatment policies",
   "slug": "policy-point-mtp",
   "generated_with": {
     "subject": {
       "implementation": "cleverly-policy-tmle",
       "cleverly_version": "0.1.2",
-      "cleverly_commit": "b3a25e2d7455887d862c9cdb2f62a84717acf03b",
+      "cleverly_commit": "b74f295f815bb8b7d41b803ebd365c2c5d692c1c",
       "cleverly_worktree_clean": false,
       "python": "3.13.7",
       "numpy": "2.5.3",
@@ -81,13 +81,17 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_policy_point_mtp.py": "7e53a08cdc2c9ef65ba56edc738a61e711bae1f18d7a7cd9795d3100f2f1e726",
+    "tests/studies/canonical_policy_point_mtp.py": "60d0e2aa02e6415680886befb84cffa019fa1a07de9e15561fc900f4f89eb0f7",
     "tests/studies/policy_point_mtp_properties.py": "8848a3702bcffe74755af4e3917de946bc58fe61072a4189deae9311e82537f6",
     "tests/studies/canonical_categorical_ltmle.py": "d1ca52f08002e45c6cf1cef0f1774536fdd884c6678eeea223bd4f8dcc189c19",
+    "tests/studies/canonical_ltmle.py": "db44a0fabb57fc19f37e94b9229f1f425de28745d6b109d4d1600eb60d0678f1",
+    "tests/studies/categorical_longitudinal_common.py": "b0af1c6a12476e7c73d1a8c0776b635d7a2799c7e8d4ed5796ef75e869f1ec23",
+    "tests/discrete_law_longitudinal.py": "acc9eaaf056050dae69e7bdbe203797e0dc6fe2502423c15369f69dbcc41d59c",
+    "tests/discrete_law_longitudinal_multivalue.py": "cfa103e239b345376cab2f2cd5d1dc43fee365893d6885c1a2a9ea0f5f4cac79",
     "tests/studies/fractional_glm.py": "5570ff1756acad859e627be9d155e1b43f789ffb8626ac3c53a049bb0662488e",
     "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
     "tests/studies/evidence/comparison.py": "653c091f0c1cd240b41e4ed7026da8f67c0feda58404e7c27e80eabab38a2217",
-    "tests/studies/evidence/inference.py": "357f9f45cc32c0de2fda7fb06d13283086eb2abe66c3a24348f334cfdcec689d",
+    "tests/studies/evidence/inference.py": "d0ddc6ca24fd9cd8347eb5bfa4f91e4a87037262c8e0e14dfba168685924a0a6",
     "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
     "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
     "tests/studies/evidence/property_verdicts.py": "bfe7a46273aad4ed36b96bbf0435988f6ea721e81173c4ea1f6e53c76177a47a",
@@ -113,6 +117,6 @@
     "equivalence.csv": "ddbb359d635ebb48e2a89516155f0c1d86a7d68117090959214a8818fc33d7d7",
     "performance-tests.csv": "449d31f804931ed7f21c3508b7d7d3be4a5884738a3d336c74677e82dab67471",
     "property-replicates.csv.gz": "9879de1e552243efd5ffa9ca50a31c4a3438eb5f29cbf02ec1aa08064573700a",
-    "properties.csv": "8042b685baeccfdaec267c6d47d9b6fdb0e5edaf90482124d7f88f919c964dd5"
+    "properties.csv": "77f0fe1c407aa06a0a657a8f724cf34f344e90a85eaee4d0c959a018ad7c1261"
   }
 }
