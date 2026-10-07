@@ -44,6 +44,8 @@ from .nuisance import (
 __all__ = [
     "LONGITUDINAL_CENSORING_NOT_FITTED",
     "LONGITUDINAL_CLASSIFIER_RATIO",
+    "LONGITUDINAL_NO_CENSORING",
+    "LONGITUDINAL_NO_CENSORING_IN_FOLD",
     "LongitudinalDiagnostics",
     "LongitudinalNuisanceDiagnostics",
     "LongitudinalNuisanceOmission",
@@ -60,6 +62,15 @@ LONGITUDINAL_CENSORING_NOT_FITTED = "complete data has no censoring learner"
 #: A continuous node on the classifier ratio route fits no density, so there is no
 #: treatment likelihood to report there.
 LONGITUDINAL_CLASSIFIER_RATIO = "continuous node ratio estimated by classification, no density"
+
+#: No eligible unit was censored at the node, so its retention factor is exactly one and the
+#: estimator fitted no censoring learner there.
+LONGITUDINAL_NO_CENSORING = "no unit censored at this node, retention factor one, no learner"
+
+#: A training fold of a cross-fitted fit held no censored unit at the node.  That fold
+#: predicts retention one, its empirical rate, and fits no learner.  The node's model row
+#: stays, from the folds that did fit.
+LONGITUDINAL_NO_CENSORING_IN_FOLD = "a training fold had no censored unit, that fold predicts one"
 
 
 @dataclass(frozen=True)
@@ -730,6 +741,15 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
 
         if not result.data.censoring_names:
             continue
+        if time in getattr(mechanism, "no_censoring_nodes", ()):
+            omissions.append(
+                LongitudinalNuisanceOmission("censoring", time, LONGITUDINAL_NO_CENSORING)
+            )
+            continue
+        if time in getattr(mechanism, "no_censoring_folds", {}):
+            omissions.append(
+                LongitudinalNuisanceOmission("censoring", time, LONGITUDINAL_NO_CENSORING_IN_FOLD)
+            )
         diagnostics = (
             mechanism.censoring_diagnostics[time - 1]
             if time <= len(mechanism.censoring_diagnostics)

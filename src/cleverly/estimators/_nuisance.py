@@ -728,6 +728,7 @@ def cross_fit_predictions(
     classes: Sequence[float] | None = None,
     n_jobs: int = 1,
     remedy: str = _CROSS_FIT_REMEDY,
+    constant_folds: list[int] | None = None,
 ) -> tuple[dict[str, FloatArray], list[SuperLearnerDiagnostics]]:
     """Out-of-fold predictions of one nuisance regression.
 
@@ -752,6 +753,13 @@ def cross_fit_predictions(
         with columns in ``classes`` order.
     remedy:
         The sentences a fold with no trainable rows closes its error with.
+    constant_folds:
+        A list that collects the training folds whose positive-weight rows hold one target
+        value.  ``None`` fits the learner on every fold.  With a list, such a fold fits no
+        learner and predicts that value, which is the maximum-likelihood fit of a binary
+        target with one observed class.  The one-based index of each such fold is
+        appended, and ``0`` stands for the in-sample fit.  Only a binary target with no
+        ``classes`` takes it.
 
     Returns
     -------
@@ -773,6 +781,7 @@ def cross_fit_predictions(
         classes=classes,
         n_jobs=n_jobs,
         remedy=remedy,
+        constant_folds=constant_folds,
     )
     return predictions, diagnostics
 
@@ -793,6 +802,7 @@ def cross_fit_companion(
     classes: Sequence[float] | None = None,
     n_jobs: int = 1,
     remedy: str = _CROSS_FIT_REMEDY,
+    constant_folds: list[int] | None = None,
 ) -> tuple[dict[str, FloatArray], dict[str, FloatArray], list[SuperLearnerDiagnostics]]:
     """:func:`cross_fit_predictions`, and each fold's model evaluated at further rows.
 
@@ -823,8 +833,26 @@ def cross_fit_companion(
     mask = np.ones(n, dtype=bool) if fit_mask is None else np.asarray(fit_mask, dtype=bool)
     if not mask.any():
         raise ValueError("no rows are eligible for fitting this nuisance model")
+    if constant_folds is not None and (classes is not None or task != "classification"):
+        raise ValueError("constant_folds applies to a binary target with no classes only")
+
+    def one_value(rows: IntArray) -> float | None:
+        """The single target value of ``rows`` with positive weight, or ``None``."""
+        if constant_folds is None:
+            return None
+        informative = rows[np.asarray(weights, dtype=float)[rows] > 0.0]
+        values = np.unique(np.asarray(target, dtype=float)[informative])
+        return float(values[0]) if values.size == 1 else None
+
+    def fit(rows: IntArray) -> Learner:
+        value = one_value(rows)
+        if value is not None:
+            return _ConstantFit(value)
+        return fit_on_rows(learner, design, target, weights, rows, task, groups)
 
     def predict(model: Learner, matrix: FloatArray) -> FloatArray:
+        if isinstance(model, _ConstantFit):
+            return _clip(np.full(matrix.shape[0], model.value, dtype=float), clip)
         if classes is None:
             return _clip(predict_mean(model, matrix, task), clip)
         return _clip(predict_probabilities(model, matrix, classes), clip)
@@ -837,7 +865,9 @@ def cross_fit_companion(
 
     if folds.is_single:
         rows = np.flatnonzero(mask)
-        model = fit_on_rows(learner, design, target, weights, rows, task, groups)
+        model = fit(rows)
+        if constant_folds is not None and isinstance(model, _ConstantFit):
+            constant_folds.append(0)
         predictions = {name: predict(model, matrix) for name, matrix in predict_designs.items()}
         companion = {name: values[None, ...] for name, values in companion_at(model, 0).items()}
         diagnostics = getattr(model, "diagnostics_", None)
@@ -853,7 +883,7 @@ def cross_fit_companion(
             raise ValueError(
                 f"a cross-fitting fold has no trainable rows for a nuisance model. {remedy}"
             )
-        model = fit_on_rows(learner, design, target, weights, rows, task, groups)
+        model = fit(rows)
         predictions = {
             name: predict(model, matrix[test]) for name, matrix in predict_designs.items()
         }
@@ -872,6 +902,10 @@ def cross_fit_companion(
     order: list[int] = []
     diagnostics_list: list[SuperLearnerDiagnostics] = []
     for fold, test, predictions, companion_values, diagnostics in results:
+        # Read from the rows, by the test ``fit`` applies, rather than from the workers'
+        # models, which a process pool does not hand back.
+        if constant_folds is not None and one_value(jobs[fold][1][mask[jobs[fold][1]]]) is not None:
+            constant_folds.append(fold + 1)
         for name, values in predictions.items():
             out[name][test] = values
         order.append(fold)
@@ -887,6 +921,18 @@ def cross_fit_companion(
         name: np.stack([values[index] for index in rank]) for name, values in slabs.items()
     }
     return out, companion, diagnostics_list
+
+
+@dataclass(frozen=True)
+class _ConstantFit:
+    """A fold's fit of a binary target that took one value on the fold's training rows.
+
+    The maximum-likelihood probability of that value is one, so the fold predicts
+    ``value`` everywhere and fits no learner.  A standard classifier refuses such a target,
+    and a regularised one returns a value short of it.
+    """
+
+    value: float
 
 
 def _companion_matrix(design: CompanionDesign, fold: int) -> FloatArray:

@@ -254,6 +254,14 @@ class Mechanism:
         Learner diagnostics from each treatment node and fitted fold.
     censoring_diagnostics : tuple of tuple of SuperLearnerDiagnostics
         Learner diagnostics from each censoring node and fitted fold.
+    policy_numerators : dict of str to dict of int to FloatArray
+        Ratio numerators of the modified treatment policy nodes, by plan and node.
+    densities : dict of int to ConditionalDensity
+        Out-of-fold conditional densities of the continuous nodes.
+    no_censoring_nodes : tuple of int
+        Censoring nodes with no censored unit in the eligible sample.
+    no_censoring_folds : dict of int to tuple of int
+        By censoring node, the training folds with no censored unit.
     """
 
     treatment: tuple[dict[str, FloatArray], ...]
@@ -278,6 +286,16 @@ class Mechanism:
     #: The out-of-fold conditional density of each continuous node, by node counted from
     #: one, on the density route.  Empty without a continuous node.
     densities: dict[int, ConditionalDensity] = field(default_factory=dict)
+    #: The censoring nodes, counted from one, at which no eligible unit was censored.  The
+    #: eligible sample is the rows at risk before the node, with positive weight.  Such a
+    #: node's factor is exactly one at every plan, and no learner is fitted there
+    #: (``survtmle`` sets ``G_dC = 1`` at ``t = 1`` and has a ``noCens`` branch for the same
+    #: case).  The nuisance report shows an omission in place of a model row.
+    no_censoring_nodes: tuple[int, ...] = ()
+    #: By censoring node, counted from one, the one-based training folds of a cross-fitted
+    #: fit that held no censored unit while the eligible sample did.  Each such fold predicts
+    #: retention exactly one, which is its empirical rate, and fits no learner.
+    no_censoring_folds: dict[int, tuple[int, ...]] = field(default_factory=dict)
 
     def cumulative(
         self, data: LongitudinalData, plan: Plan, bounds: tuple[float, float]
@@ -766,6 +784,8 @@ def fit_mechanism(
         plan.label: {} for plan in plans if plan.has_mtp
     }
     densities: dict[int, ConditionalDensity] = {}
+    no_censoring_nodes: list[int] = []
+    no_censoring_folds: dict[int, tuple[int, ...]] = {}
     # Neither factor depends on a regimen, so one scan serves every node.  `followed` is
     # unused here and the all-true assignment makes that explicit rather than implicit.
     with phase("mask_construction"):
@@ -815,6 +835,15 @@ def fit_mechanism(
             censoring.append({plan.label: np.ones(data.n) for plan in plans})
             continue
         stayed = np.where(at_risk, data.uncensored[:, time - 1].astype(float), 0.0)
+        # No eligible unit was censored at this node, so the retention factor is exactly
+        # one and the learner has a constant target, which a standard classifier refuses.
+        # This is the first node of every default integer grid.
+        if _retains_every_eligible_unit(data, at_risk, time):
+            censoring.append({plan.label: np.ones(data.n) for plan in plans})
+            censoring_observed.append(np.ones(data.n))
+            censoring_diagnostics.append(())
+            no_censoring_nodes.append(time)
+            continue
         censor_designs = {
             plan.label: data.history_design(time, treatment=plan.values, include_current=True)
             for plan in plans
@@ -824,6 +853,7 @@ def fit_mechanism(
             **censor_designs,
             censor_observed_key: data.history_design(time, include_current=True),
         }
+        constant_folds: list[int] = []
         with phase("mechanism_fit"):
             predictions, diagnostics = cross_fit_predictions(
                 censoring_learner,
@@ -837,7 +867,10 @@ def fit_mechanism(
                 groups=data.cluster,
                 clip=(0.0, 1.0),
                 n_jobs=n_jobs,
+                constant_folds=constant_folds,
             )
+        if constant_folds:
+            no_censoring_folds[time] = tuple(sorted(constant_folds))
         censoring_observed.append(np.asarray(predictions.pop(censor_observed_key), dtype=float))
         censoring_diagnostics.append(tuple(diagnostics))
         censoring.append(predictions)
@@ -850,7 +883,19 @@ def fit_mechanism(
         tuple(censoring_diagnostics),
         numerators,
         densities,
+        tuple(no_censoring_nodes),
+        no_censoring_folds,
     )
+
+
+def _retains_every_eligible_unit(data: LongitudinalData, at_risk: BoolArray, time: int) -> bool:
+    """Whether no unit at risk before censoring node ``time``, with positive weight, left.
+
+    A zero-weight row is in no weighted fit, so it cannot make the node's retention rate
+    differ from one.
+    """
+    eligible = at_risk & (data.weights > 0.0)
+    return not bool(np.any(eligible & ~data.uncensored[:, time - 1]))
 
 
 def _categorical_node(
