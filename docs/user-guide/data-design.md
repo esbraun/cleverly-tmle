@@ -66,11 +66,12 @@ randomized = CausalStudy(
 ```
 
 A trial that records the probability with which each unit was assigned each arm declares that
-known mechanism. Name the frame column of each arm's probability:
+known mechanism. Name the frame column of each arm's probability. In this example, every unit had
+probability one half:
 
 ```python
 trial = CausalStudy(
-    frame,
+    frame.assign(p_control=0.5, p_treated=0.5),
     design=PointTreatment(
         outcome="Y",
         treatment="A",
