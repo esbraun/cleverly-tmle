@@ -335,7 +335,7 @@ class LongitudinalData:
                     f"{sorted(set(node_block) & set(continuous_names))!r}. A vector node is one "
                     "categorical node over the tuples of its components; the density ratio "
                     "of a vector policy on a continuous component needs a joint density, "
-                    "which this version does not estimate (docs/roadmap.md, X29). Declare the "
+                    "which this version does not estimate (docs/roadmap.md, X31). Declare the "
                     "continuous component as its own node, or collapse it into categories"
                 )
 

@@ -359,7 +359,7 @@ gives the ratio at a continuous node, and the discrete formula gives it at a cat
 | vector of categorical columns | a list of columns as one entry of `treatment=` | the discrete formula over the joint levels |
 
 `LTMLE.fit` refuses a vector node with a continuous component with `CapabilityError`, before any
-learner. [X29](../roadmap.md#x29-vector-treatments-with-a-continuous-component) owns it. At a
+learner. [X31](../roadmap.md#x31-continuous-vector-components-at-a-node) owns it. At a
 continuous node the treatment factor of the cumulative product is the ratio itself. So
 `g_bounds` bounds the censoring and categorical factors only, and the fit stores each node's
 ratio as `node_ratio`. A cross-fitted fit (`n_folds` above one) uses the pooled

@@ -86,7 +86,7 @@ Priorities 2 to 5 follow the beta.
 | 3.5 | Continuous-dose MSM with a second mechanism | source audit | implemented continuous-dose MSM targeting, missing-outcome arm targeting, and controlled-direct-effect targeting | [X10](#x10-continuous-dose-msm-with-a-second-mechanism) |
 | 3.6 | Learned-policy follow-ups | published support for parts (g) and (h); published support; pending source read for parts (a), (b), (e) and (f); source audit for parts (c) and (d) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
 | 3.7 | Fold-evaluated CV-TMLE with baseline strata | [published support; finite-partition extension](technical-reference/natural-extension-verdicts.md) | the shipped fold-evaluated estimate and the shipped stratified fluctuation | [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata) |
-| 3.8 | Vector treatments with a continuous component | published support; pending source read | shipped longitudinal modified treatment policies | [X29](#x29-vector-treatments-with-a-continuous-component) |
+| 3.8 | Continuous vector components at a node | published support; pending source read | shipped longitudinal modified treatment policies | [X31](#x31-continuous-vector-components-at-a-node) |
 | 4 | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
 | 5.1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | 5.2 | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -672,7 +672,7 @@ Acceptance:
 - an exact-law test of each stratum curve;
 - a registered calibration cell.
 
-### X29. Vector treatments with a continuous component
+### X31. Continuous vector components at a node
 
 `LTMLE` takes a vector of categorical columns as one node, and the discrete formula gives its
 ratio. `LongitudinalData.from_frame` refuses a vector node with a continuous component, before any
