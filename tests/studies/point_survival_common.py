@@ -61,6 +61,8 @@ class Scenario:
         Whether the outcome is one ``Y`` after the censoring nodes.
     grid : tuple of float
         The grid the long layout is declared on.
+    wide : bool
+        Whether to draw the wide layout, with one censoring and one event column per node.
     """
 
     name: str
@@ -72,10 +74,11 @@ class Scenario:
     dose: str | None = None
     end_of_study: bool = False
     grid: tuple[float, ...] = ()
+    wide: bool = False
 
     @property
     def layout(self) -> str:
-        return "wide" if self.time_varying or self.end_of_study else "long"
+        return "wide" if self.wide or self.time_varying or self.end_of_study else "long"
 
     @property
     def treatment(self) -> str:
@@ -178,8 +181,12 @@ def static(level: int, levels: Sequence[int]) -> Callable[[int, int], tuple[floa
 
 
 def policy_probability(w1: Any, w2: Any) -> Any:
-    """The known stochastic policy of ``point-treatment-survival-policies``: ``q(1 | W)``."""
-    return 0.2 + 0.15 * np.asarray(w2, dtype=float)
+    """The known stochastic policy of ``point-treatment-survival-policies``: ``q(1 | W)``.
+
+    ``0.5 + 0.25 W1 + 0.25 1{W2 >= 2}``, a multiple of one quarter, so ``lmtp`` realises it
+    exactly with four copies of each unit.  It treats more often than the natural course does.
+    """
+    return 0.5 + 0.25 * np.asarray(w1, dtype=float) + 0.25 * (np.asarray(w2, dtype=float) >= 2.0)
 
 
 def known_policy(w1: int, w2: int) -> tuple[float, float]:
@@ -194,12 +201,16 @@ def minus_one(level: Any) -> Any:
 
 
 def shifted(
-    mapping: Callable[[Any], Any], levels: Sequence[int]
+    mapping: Callable[[Any], Any],
+    levels: Sequence[int],
+    *,
+    arms: int = 2,
+    dose: str | None = "discrete",
 ) -> Callable[[int, int], tuple[float, ...]]:
-    """The law of the shifted dose ``mapping(D)`` given ``W``."""
+    """The law of the shifted treatment ``mapping(A)`` given ``W``, on the dose by default."""
 
     def assign(w1: int, w2: int) -> tuple[float, ...]:
-        g = law_module.treatment_probabilities(w1, w2, dose="discrete")[0]
+        g = law_module.treatment_probabilities(w1, w2, arms=arms, dose=dose)[0]
         out = np.zeros(len(levels))
         for code, level in enumerate(levels):
             out[list(levels).index(int(mapping(level)))] += g[code]
@@ -337,7 +348,8 @@ def _intervention(
     if target.kind == "policy":
         return np.array(target.value(w1, w2)), None
     mapping = target.value
-    return np.array(shifted(mapping, levels)(w1, w2)), lambda a: int(mapping(a))
+    law = shifted(mapping, levels, arms=scenario.arms, dose=scenario.dose)
+    return np.array(law(w1, w2)), lambda a: int(mapping(a))
 
 
 def efficiency_sd(
@@ -468,6 +480,53 @@ def _curve(
 
 
 # ------------------------------------------------------------------ learners
+
+
+class KnownPointMechanism(BaseEstimator):
+    """The law's own treatment or retention probabilities, read off a held design.
+
+    The treatment design is ``[W1, W2]``.  A censoring design is ``[W1, W2]`` followed by the
+    node-1 treatment block: one column for two arms, and the five drop-first indicators of a
+    six-level dose.  Any other width raises.
+
+    Parameters
+    ----------
+    kind : {"treatment", "censoring"}
+        Which factor to report.
+    dose : str or None
+        ``"discrete"`` for the dose law.
+    """
+
+    def __init__(self, kind: str, dose: str | None = None) -> None:
+        self.kind = kind
+        self.dose = dose
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> KnownPointMechanism:
+        del sample_weight
+        self.classes_ = np.unique(np.asarray(y, dtype=float))
+        return self
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        matrix = np.asarray(X, dtype=float)
+        w1, w2 = matrix[:, 0], matrix[:, 1]
+        if self.kind == "treatment":
+            if matrix.shape[1] != 2:
+                raise ValueError(f"a treatment design has 2 columns, not {matrix.shape[1]}")
+            return np.asarray(
+                law_module.treatment_probabilities(w1, w2, dose=self.dose), dtype=float
+            )
+        block = matrix[:, 2:]
+        expected = 5 if self.dose is not None else 1
+        if block.shape[1] != expected:
+            raise ValueError(
+                f"a censoring design has {2 + expected} columns, not {matrix.shape[1]}"
+            )
+        if self.dose is not None:
+            arm = np.where(block.any(axis=1), np.argmax(block, axis=1) + 1.0, 0.0)
+        else:
+            arm = block[:, 0]
+        stay = 1.0 - np.asarray(law_module._dropout(arm, w1, w2, 0.0, self.dose), dtype=float)
+        return np.column_stack([1.0 - stay, stay])
 
 
 class CellProbabilities(BaseEstimator):

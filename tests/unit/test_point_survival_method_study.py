@@ -216,3 +216,14 @@ def test_the_primary_fit_is_the_paired_construction() -> None:
         (1, "survival"),
         (1, "competing"),
     ]
+
+
+@pytest.mark.parametrize("label", ["survival_t5", "rmst_5", "continuous_t4", "weighted_t5"])
+def test_a_pinned_bound_matches_the_spread_of_a_large_fit(label: str) -> None:
+    """The enumeration and the estimator's curve agree, which neither could show alone."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        frame = properties.draw(label, 20_000, 23)
+        result = properties.fit_label(label, frame)
+    spread = float(np.std(properties.estimate_of(result, label).influence_curve))
+    assert spread == pytest.approx(properties.EFFICIENCY_SD[label], rel=0.05)
