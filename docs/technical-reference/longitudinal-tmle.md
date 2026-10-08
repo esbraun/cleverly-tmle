@@ -541,11 +541,13 @@ theirs.
 
 | output | what it shows |
 | --- | --- |
-| the fit | one `DataWarning` that names every such parameter |
+| the fit | one `DataWarning` with the count of such parameters, the first 10 names, and the reason. `constant_node_parameters(result)` lists them all |
 | `summary()` | the estimate and a starred plug-in spread, with "not reported" for the interval and the p-value, and the reason under the table |
-| `curve()` and `to_frame()` | the status in the `inference` column, and no interval |
+| `curve()` and `to_frame()` | the status in the `inference` column, NaN in the inferential spread columns, and the plug-in spread in the `plugin_` columns |
+| `incidence_total()` | each total takes the status of the incidences it sums, with the same columns as `curve()` |
 | a contrast, `rmst()` and `rmtl()` | the status, when they read such a parameter |
-| the simultaneous band | the other parameters only |
+| the simultaneous band | the other parameters only. A `CausalStudy` band narrowed to `RegimeMean` or `RegimeContrast` leaves them out too |
+| `assess()` | the nuisance item adds the status note, with the count of such parameters |
 
 [F31](../roadmap.md#f31-inference-at-a-boundary-node-estimate) owns an interval at such a node.
 The nuisance report shows `LONGITUDINAL_CONSTANT_TARGET` in place of the node's row, with the

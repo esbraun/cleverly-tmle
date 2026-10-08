@@ -149,7 +149,8 @@ def reported_status(estimates: Mapping[str, ParameterEstimate]) -> InferenceStat
     Raises
     ------
     ValueError
-        When the estimates declare different statuses.
+        When the estimates declare two different fit statuses. A parameter status beside
+        the fit status does not raise.
     """
     if not estimates:
         return "influence_curve"

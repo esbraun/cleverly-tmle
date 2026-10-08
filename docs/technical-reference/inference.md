@@ -101,10 +101,16 @@ non-inferential status. The refusal, the `summary()` paragraph, the assessment n
 E-value row each read that table. `tests/unit/test_inference_status_registry.py` checks that the
 table, the `InferenceStatus` type, and the rows above list the same statuses.
 
-A fit has one status. `TMLEResult.inference_status` and `LongitudinalResult.inference_status`
-return it. The estimator decides the status from its configuration and the prepared data. It reads
-no fitted quantity. When more than one non-inferential status applies, the fit takes the first one
-in the table above. The rows are in that order.
+A fit has one fit status. `TMLEResult.inference_status` and `LongitudinalResult.inference_status`
+return it. The estimator decides the fit status from its configuration and the prepared data. It
+reads no fitted quantity. When more than one non-inferential status applies, the fit takes the
+first one in the table above. The rows are in that order.
+
+A parameter status can sit beside the fit status on some estimates. `"constant_node_plugin"` is
+the one parameter status. `LTMLE` stamps it on a parameter whose recursion read a constant node
+regression, which is a fitted quantity, and the other estimates keep the fit status. So read each
+estimate's `supplies_inference` before its `std_error`, `ci` or `pvalue`. The result's
+`inference_status` stays the fit status unless every estimate carries the parameter status.
 
 A report that publishes a spread names its columns through `spread_name` in
 `cleverly.inference.influence`. On a non-inferential status, `to_frame()` emits `inference`,
@@ -156,13 +162,13 @@ A contrast inherits the status of its inputs, so a contrast of two diagnostic es
 case emits a warning; `summary()` states the omission on a fit with two or more estimates. The
 constructor default does not distinguish an explicit request from the default.
 
-Two selections that mix the statuses raise `ValueError`. No fit produces either input, because the
-estimator stamps one status on every estimate it reports.
+A selection that mixes statuses either takes the parameter status or raises `ValueError`.
 
-| function | selection | reason |
+| function | selection | result |
 | --- | --- | --- |
-| `contrast()`, and `smooth_contrast` in `cleverly.inference.results` | estimates that declare different statuses | an inferential status would give the refused input an interval |
-| `median_estimates` in `cleverly.inference.influence` | repeats whose estimates declare different statuses | the median would report one draw's refusal under the other draw's name |
+| `contrast()`, `ratio()`, `rmst()`, `rmtl()`, and `smooth_contrast` in `cleverly.inference.results` | a fit status and the parameter status, such as an inferential risk and a constant-node risk | the derived estimate takes `"constant_node_plugin"`, the earlier status in the table. It reports no interval |
+| the same functions | two different fit statuses | `ValueError`. An inferential status would give the refused input an interval. No fit produces this input, because the estimator stamps one fit status on every estimate |
+| `median_estimates` in `cleverly.inference.influence` | repeats whose estimates declare different statuses, of any kind | `ValueError`. The median would report one draw's refusal under the other draw's name |
 
 `tests/unit/test_inference.py::TestTheInferenceStatus` checks the inheritance, both `ValueError`
 selections, and the band refusal.

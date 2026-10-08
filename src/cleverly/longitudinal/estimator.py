@@ -818,8 +818,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     Parameters
     ----------
     estimates : dict of str to ParameterEstimate
-        Estimates keyed by stable parameter alias. Each declares the fit's one inference
-        status, which :attr:`inference_status` returns.
+        Estimates keyed by stable parameter alias. Each declares the fit status, which
+        :attr:`inference_status` returns, or a parameter status such as
+        ``"constant_node_plugin"``.
     fits : dict of str to RegimenFit
         Sequential fits by regimen, cause, and horizon.
     data : LongitudinalData
@@ -1612,7 +1613,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         parameter with an influence curve -- the sum of the causes' curves -- so
         ``excess`` can be read against it rather than eyeballed.  On a fit whose status
         supplies no inference the column is ``plugin_std_err``, a diagnostic, as
-        :meth:`to_frame` names the same spread.
+        :meth:`to_frame` names the same spread.  Each total takes the status of the
+        incidences it sums.  On a fit that supplies inference, a total that reads a
+        constant-node incidence has NaN under ``std_err``, its spread under
+        ``plugin_std_err``, and its status in an ``inference`` column.
 
         Returns
         -------
@@ -1764,13 +1768,16 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 The horizon, as an integer node index, or as the grid time :math:`g_k` on a
                 fit with a time grid.
             ``inference``
-                The inference status, on a fit whose status supplies no inference only.
+                The inference status of each row, on a fit whose status supplies no
+                inference, or on a fit with a parameter that carries its own status.
             ``psi``, ``std_err``, ``ci_lower``, ``ci_upper``
                 The estimate, its standard error, and its confidence interval, under
                 the requested view.  On a fit whose status supplies no inference the
                 three spread columns are ``plugin_std_err``, ``plugin_interval_lower``
                 and ``plugin_interval_upper``, a diagnostic, as :meth:`to_frame` names
-                them.
+                them.  On a fit that supplies inference, a row with a parameter status
+                has NaN in the three inferential columns and its diagnostic in the three
+                plug-in columns, which the frame then adds.
             ``scale``
                 ``"level"`` or ``"difference"``, as :meth:`to_frame` reports it.
             ``view``
@@ -2322,7 +2329,10 @@ class _Reported:
 
 
 def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
-    """The one inference status of every estimate a longitudinal fit reports.
+    """The fit status that every estimate of a longitudinal fit starts from.
+
+    :func:`_parameter_status` may replace it on a parameter whose recursion read a constant
+    node regression; every other estimate keeps it.
 
     The point-treatment cluster rule applies to the prepared cluster labels and, on a weighted fit,
     to the unit weights. It reads nothing fitted. ``LongitudinalData`` carries no baseline strata,
