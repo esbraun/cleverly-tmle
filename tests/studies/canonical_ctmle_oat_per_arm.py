@@ -227,8 +227,9 @@ CONFIGURATION = {
         "phase in which a replicate raised, as every R runner in the repository does"
     ),
     "measured_budget": (
-        "single-process timing of a 20-replicate smoke: about 1.8 CPU-hours for the property "
-        "study (0.94 for the four generated-design cells), 0.06 for the primary Python "
+        "single-process timing of a 20-replicate smoke: about 2.2 CPU-hours for the property "
+        "study (0.94 for the four generated-design cells, 0.75 for the four calibration cells "
+        "at R = 2,000), 0.06 for the primary Python "
         "phase (two fits per replicate), and under one CPU-hour for the R phase; the "
         "Python phase runs first, then the R phase"
     ),

@@ -9,6 +9,7 @@ A replication that raises is never redrawn: the shared harness refuses a cell th
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import numpy as np
 import pytest
@@ -17,6 +18,7 @@ from cleverly.estimators import ctmle as ctmle_module
 from tests.studies import canonical_ctmle_oat_per_arm as study
 from tests.studies import ctmle_oat_per_arm_properties as properties
 from tests.studies import oat_per_arm_laws as laws
+from tests.studies.canonical_full_refit_bootstrap import calibration_pass_probability
 from tests.studies.default_band_properties import control_power
 from tests.studies.evidence.property_verdicts import (
     MINIMUM_POWER,
@@ -50,8 +52,8 @@ def test_the_declared_numbers() -> None:
         properties.JOINT_REPLICATES,
     ) == (
         2_000,
-        1_000,
-        800,
+        2_000,
+        2_000,
         1_000,
         2_000,
         800,
@@ -150,6 +152,32 @@ def test_the_efficient_sd_is_the_per_arm_sd_over_the_root_efficiency_ratio() -> 
     """The declared efficiency ratio of the binary ``ate`` at ``10^6`` draws is 0.4279."""
     ratio = (properties.POWER_CURVE_SD / properties.EIF_CURVE_SD) ** 2
     assert ratio == pytest.approx(0.4279, abs=5e-4)
+
+
+@pytest.mark.parametrize(
+    "cell",
+    [
+        cell
+        for cell in properties.cells()
+        if cell.role == "positive" and cell.property in ("interval_calibration", "generated_design")
+    ],
+    ids=lambda cell: cell.cell,
+)
+def test_each_calibration_cell_is_sized_for_its_pass_probability(cell: Any) -> None:
+    """A perfectly calibrated cell passes the calibration rule with probability at least 0.90.
+
+    The rule needs the 99% bootstrap interval of the SE ratio inside (0.93, 1.07) and the
+    coverage interval inside (0.92, 0.98).  The generated-design pair answers to the same rule.
+    """
+    margins = Margins()
+    probability = calibration_pass_probability(
+        cell.replicates,
+        true_se_ratio=1.0,
+        confidence_level=margins.confidence_level,
+        se_band=margins.calibration_se_ratio,
+        coverage_band=margins.calibration_coverage,
+    )
+    assert probability >= 0.90, (cell.cell, cell.replicates, probability)
 
 
 def test_the_robustness_control_can_fail() -> None:

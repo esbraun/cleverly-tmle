@@ -85,8 +85,12 @@ CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 
 #: Sizes and budgets, declared before any run.
 CALIBRATION_N = 2_000
-CALIBRATION_REPLICATES = 1_000
-REPEATS_REPLICATES = 800
+#: Every positive calibration cell's budget.  The SE-ratio rule needs the 99% bootstrap interval
+#: inside (0.93, 1.07), and a perfectly calibrated cell passes it with probability 0.39 at
+#: R = 1,000 and 0.14 at R = 800.  At R = 2,000 it passes with probability 0.935, above the 0.90
+#: floor of the sizing rule, so the weighted and repeated-split cells take it too.
+CALIBRATION_REPLICATES = 2_000
+REPEATS_REPLICATES = 2_000
 GENERATED_DESIGN_N = 2_000
 NULL_N = 1_000
 #: The power cell's size.  At ``n = 1,000`` it clears ``MINIMUM_POWER`` only on the
