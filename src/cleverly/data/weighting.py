@@ -647,8 +647,11 @@ def estimand_lines(report: WeightReport) -> list[str]:
         "Estimand: the requested causal parameter in the weight-tilted population "
         "dP_w = w dP / E[w], estimated by TMLE on the weighted empirical measure "
         "(weighted nuisance fits, weighted targeting, weighted plug-in).",
-        "Standard errors: influence curve (w / E[w]) * D*(P_w), i.e. the efficient "
-        "influence function of that parameter when the weights are observed data.",
+        "Standard errors: influence curve (w / E[w]) * D(P_w) of the fitted estimator. "
+        "For TMLE and DR-TMLE, D is D*, the efficient influence function of that parameter "
+        "when the weights are observed data. For a per-arm outcome-adaptive C-TMLE fit, D "
+        "is the curve of Benkeser, Cai and van der Laan (2020), Theorem 1, which is not "
+        "the efficient one.",
     ]
     if report.estimated:
         lines.append(
@@ -660,8 +663,9 @@ def estimand_lines(report: WeightReport) -> list[str]:
             "rows and renormalises the weights it was handed, never re-deriving them, so "
             "its intervals condition on the fitted weights too. Closing it needs the weight "
             "model in the resampling loop, outside this package. A DRTMLE fit with a "
-            "non-empty guard reports no interval on estimated weights: the conditioning "
-            "argument concerns D* and not the reduced regressions, so the fit takes the "
+            "non-empty guard and a per-arm outcome-adaptive CTMLE fit report no interval on "
+            "estimated weights: the conditioning argument concerns D*, and not the reduced "
+            "regressions or the curve of the per-arm design, so each fit takes the "
             f"estimated_weight_plugin status, and {_ESTIMATED_WEIGHT_REOPEN} in "
             "docs/roadmap.md reopens it."
         )

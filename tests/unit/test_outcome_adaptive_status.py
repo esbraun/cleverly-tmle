@@ -12,7 +12,9 @@ the joint curve. A per-arm fit on complete data without baseline strata therefor
 its interval while :data:`~cleverly.estimators.ctmle.OAT_PER_ARM_INFERENTIAL` is set. That
 covers the binary and the three-arm fits, an ``ey1``-only request, the cross-fitted fit,
 fixed weights and ``repeats=`` with ``simultaneous=False``. A per-arm fit with missing
-outcomes or strata withholds, and X29 in the roadmap holds the missing construction.
+outcomes or strata withholds, and X29 in the roadmap holds the missing construction. A
+per-arm fit on weights declared estimated takes ``"estimated_weight_plugin"``, as a guarded
+DR-TMLE fit does.
 
 The control is the ordinary TMLE on the same frames. Each mutation control restores one
 wrong status and must fail the check its cases pass.
@@ -44,6 +46,7 @@ from tests.unit._inference_status_support import (
     assert_withholds,
 )
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
+from tests.unit._source_mutation import mutate
 
 pytestmark = pytest.mark.xdist_group("outcome_adaptive_status")
 
@@ -220,21 +223,35 @@ class TestTheAdmittedOutputs:
         )
         assert {"std_err", "ci_lower", "ci_upper", "p_value"} <= set(importance.to_frame().columns)
 
-    def test_estimated_weights_take_the_ordinary_tmle_status(self) -> None:
-        """Estimated weights condition on the weights, as the ordinary TMLE does."""
-        frame = _weighted()
-        roles = {"weights": "wt", "weights_estimated": True}
-        result = (
-            CTMLE(strategy="oat", **linear_in_sample(estimands=("ate",)))
-            .fit(frame, outcome="Y", treatment="A", **roles)
-            .single()
-        )
-        ordinary = (
-            TMLE(**linear_in_sample(estimands=("ate",)))
-            .fit(frame, outcome="Y", treatment="A", **roles)
-            .single()
-        )
-        assert result.inference_status == ordinary.inference_status
+    def test_estimated_weights_withhold_the_interval(self) -> None:
+        """The conditioning argument concerns the efficient curve, and this curve is not."""
+        estimated = _estimated_weight_fit()
+        assert_withholds(estimated, "estimated_weight_plugin")
+        # The control: the same frame with the weights declared fixed keeps its interval.
+        fixed = fit(CTMLE, "weighted")
+        assert_keeps_inference(fixed)
+
+    def test_a_hook_that_ignores_the_declaration_fails_the_check(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The mutation control: estimated weights given the ordinary status."""
+
+        def mutant(self: CTMLE, data: Any) -> str:
+            if ctmle_module.per_arm_design_admits(self, data):
+                return str(TMLE._inference_status(self, data))
+            return STATUS
+
+        monkeypatch.setattr(CTMLE, "_inference_status", mutant)
+        with pytest.raises(AssertionError):
+            assert_withholds(_estimated_weight_fit(), "estimated_weight_plugin")
+
+
+def _estimated_weight_fit() -> Any:
+    return (
+        CTMLE(strategy="oat", **linear_in_sample(estimands=("ate",)))
+        .fit(_weighted(), outcome="Y", treatment="A", weights="wt", weights_estimated=True)
+        .single()
+    )
 
 
 @pytest.mark.parametrize("withheld", WITHHELD)
@@ -323,6 +340,21 @@ class TestTheStatusIsTheHooksToWithhold:
         result = fit(CTMLE, ignored)
         with pytest.raises(AssertionError):
             assert_withholds(result, STATUS)
+
+    def test_a_key_that_ignores_the_revert_flag_fails_the_check(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The key with its read of the flag dropped keeps the interval after a revert."""
+        mutate(
+            monkeypatch,
+            ctmle_module,
+            ctmle_module,
+            "per_arm_design_admits",
+            [("OAT_PER_ARM_INFERENTIAL\n        and ", "")],
+        )
+        monkeypatch.setattr(ctmle_module, "OAT_PER_ARM_INFERENTIAL", False)
+        with pytest.raises(AssertionError):
+            assert_withholds(fit(CTMLE, "binary"), STATUS)
 
     @pytest.mark.parametrize("admitted", ADMITTED)
     def test_the_revert_flag_withholds_every_admitted_case(

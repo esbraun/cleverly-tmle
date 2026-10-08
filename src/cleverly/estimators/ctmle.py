@@ -284,7 +284,7 @@ from typing import TYPE_CHECKING, Any, Final, Literal
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 
-from .._inference_status import InferenceStatus
+from .._inference_status import InferenceStatus, precedent_status
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
 from ..exceptions import CapabilityError
@@ -805,10 +805,13 @@ class CTMLE(TMLE):
         An ``"oat"`` fit with the per-arm design takes the :class:`~cleverly.TMLE` status
         when :func:`per_arm_design_admits` admits it: complete outcomes and treatment, no
         baseline strata, and :data:`OAT_PER_ARM_INFERENTIAL` set. Benkeser, Cai and van der
-        Laan (2020), Theorem 1, give its curve. Every other ``"oat"`` fit takes
-        ``"generated_design_plugin"``. That is every ``oat_design="shared"`` fit, which F19
-        holds, and a per-arm fit with missing outcomes or strata, which X29 holds. The
-        status table of ``docs/technical-reference/inference.md`` states both.
+        Laan (2020), Theorem 1, give its curve. With weights declared estimated it takes
+        ``"estimated_weight_plugin"``: the argument that an interval conditions on the
+        weights concerns the efficient curve, and this curve is not efficient. Every other
+        ``"oat"`` fit takes ``"generated_design_plugin"``. That is every
+        ``oat_design="shared"`` fit, which F19 holds, and a per-arm fit with missing outcomes
+        or strata, which X29 holds. The status table of
+        ``docs/technical-reference/inference.md`` states both.
 
         Parameters
         ----------
@@ -831,7 +834,16 @@ class CTMLE(TMLE):
         if is_selector_strategy(self.strategy):
             return "working_mechanism_plugin"
         if per_arm_design_admits(self, data):
-            return super()._inference_status(data)
+            # The interval conditions on the weights only for the efficient curve. The per-arm
+            # curve is Theorem 1's, so estimated weights withhold it, as a guarded DRTMLE does.
+            return precedent_status(
+                [
+                    "estimated_weight_plugin"
+                    if data.declares_estimated_weights
+                    else "influence_curve",
+                    super()._inference_status(data),
+                ]
+            )
         return "generated_design_plugin"
 
     def _bootstrap_inferential(self, data: CausalData) -> bool:

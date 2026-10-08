@@ -223,16 +223,19 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
         ),
         "estimated_weight_plugin": StatusRecord(
             reason=(
-                "A DR-TMLE fit with a guard and weights declared estimated "
+                "A DR-TMLE fit with a guard, or a per-arm outcome-adaptive C-TMLE fit "
+                "(strategy='oat', oat_design='per_arm'), with weights declared estimated "
                 "(weights_estimated=True) reports no confidence interval, no p-value and no "
                 "standard error. The argument that an interval conditions on the weights "
-                "concerns the efficient influence curve. No result read here gives the "
-                "reduced-dimension regressions of an estimated weight, or the contribution "
-                "of the weight estimate to the curve. The point estimate stands. The plug-in "
-                "standard error of that curve remains as a diagnostic under plugin_std_error "
-                "and plugin_interval. F5 in docs/roadmap.md reopens this when a paper "
-                "supplies that contribution. guard=() fits the ordinary TMLE, whose interval "
-                "conditions on the weights."
+                "concerns the efficient influence curve. The DR-TMLE fit adds "
+                "reduced-dimension regressions of the weighted law. The per-arm C-TMLE curve "
+                "is the curve of Benkeser, Cai and van der Laan (2020), Theorem 1, and not "
+                "the efficient one. No result read here gives the contribution of the weight "
+                "estimate to either curve. The point estimate stands. The plug-in standard "
+                "error of that curve remains as a diagnostic under plugin_std_error and "
+                "plugin_interval. F5 in docs/roadmap.md reopens this when a paper supplies "
+                "that contribution. The ordinary TMLE (DRTMLE with guard=(), or TMLE) keeps "
+                "an interval that conditions on the weights."
             ),
             assessment_note=(
                 "the reported curve is a fixed-weight diagnostic: no confidence interval or "
