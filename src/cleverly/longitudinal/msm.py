@@ -99,7 +99,7 @@ import numpy as np
 from .._declarations import FunctionDeclaration, FunctionKind
 from .._typing import FloatArray, Learner
 from ..estimators.targeting import ProjectionFluctuation
-from ..exceptions import DataError
+from ..exceptions import CapabilityError, DataError
 from ..fluctuation.iterative import (
     Fluctuation,
     InitialFit,
@@ -130,6 +130,7 @@ from .sequential import (
     SequentialStep,
     _carried,
     _policy_arm,
+    constant_target,
     pooled_node_inputs,
     prepare_node,
     seed_carried,
@@ -661,6 +662,26 @@ def fit_regimens_msm(
         for time in range(max(cell.horizon for cell in model.cells), 0, -1):
             live = [k for k, cell in enumerate(model.cells) if cell.horizon >= time]
             prepared = {k: node_inputs(k, time, carried[k]) for k in live}
+            # A cell whose followers all hold 0 or all hold 1, such as a node with no event,
+            # has that value as its regression.  The pooled logistic fluctuation would first
+            # move it into its bounds, so such a cell is refused.
+            pinned = sorted(
+                {
+                    model.cells[k].label
+                    for k in live
+                    if constant_target(prepared[k].pseudo_outcome, prepared[k].fitted_on)
+                    is not None
+                }
+            )
+            if pinned:
+                raise CapabilityError(
+                    f"every follower of regimen(s) {pinned} holds one outcome value, 0 or 1, at "
+                    f"time {time}, such as a node with no event. A per-regimen fit reads that "
+                    "node's regression as the value and does not fluctuate it, but the "
+                    "pooled working-model fluctuation would move the value into its bounds. "
+                    "Fit without msm=, or report horizons at which every regimen's followers "
+                    "have an event"
+                )
             initial = np.concatenate([prepared[k].initial for k in live])
             stacked_design = np.concatenate([fluctuation_design[:, k, :] for k in live])
             initial_arms, design_arms = _stacked_arms(

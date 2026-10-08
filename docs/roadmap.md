@@ -27,12 +27,79 @@ This queue holds the remediation work that must be complete before a beta releas
 shipped behavior that needs a correction or a recorded decision, and a published method needed to
 resolve a shipped refusal. Examples are wrong numbers, intervals that no claimed contract covers,
 capability rows that do not match their calls, late refusals, and shipped outputs that no
-registered study measures. Deliver the rows in priority order, and complete every row before
-main-roadmap priority 1.
+registered study measures. The queue also holds a defect of the validation harness that can lose
+or invalidate a registered study run. Deliver the rows in priority order, and complete every row
+before main-roadmap priority 1.
 
 A new capability still needs its own contract and evidence, even in this queue.
 
-The queue has no open row.
+| priority | item | tier | acceptance |
+| ---: | --- | --- | --- |
+| 0.1 | RM39. Keep a study run alive through a failed replicate | b | the contract in [RM39](#rm39-keep-a-study-run-alive-through-a-failed-replicate), its tests, and passing handoff checks |
+
+### RM39. Keep a study run alive through a failed replicate
+
+A registered study with a comparator runs in two phases. The Python phase fits `cleverly`. The
+reference phase fits the pinned comparator, usually R in its container. Today one failed replicate
+stops a phase or makes the summary refuse the run. A failure can come from separation,
+non-convergence or a container restart. A run of several hours is then lost to one draw.
+
+| where | what happens today |
+| --- | --- |
+| `tests/canonical/study_harness.R` | `study_fitter` and `study_stream` catch each error. `study_refuse_failures` then stops the script. `study_collect` writes the output once, at the end, so a stop writes no row |
+| streaming runners | `study_stream` keeps each completed batch in memory and stops at the first batch with a failure. The `lmtp`, `npcausal` and `stochastic_regimes` runners use it, and they are the longest runs |
+| runners outside the harness | `ctmle3_oat/run_ctmle3_oat.R`, `ctmle_selector/run_ctmle.R`, `drtmle/run_drtmle.R` and `zepid_cvtmle/run_zepid_cvtmle.py` stop at the first error too |
+| `tests/canonical/regenerate.py` | `Reference.run` runs the container with `check=True`. `_reference_rows` reuses a cached reference result only when it holds every replicate |
+| the Python phase | each `draw_and_fit` maps its fits with `map_parallel`, and one exception stops the phase. Only `CoverageStudy` records a failed fit, in the `failed_replicates` column |
+| the summary | `validate_replicates` refuses a cell with fewer rows than `StudyRecord.replicates`. `require_complete` refuses a property cell with a nonzero `failed_replicates` |
+
+The [benchmarking strategy](development/method-benchmarking.md#reference-implementation-comparisons)
+states the current rule: fail the run on a dropped or unsuccessful replication. This row replaces
+that rule with a failure bound that the study declares before its run.
+
+Goal: one failed replicate costs one replicate. The phase continues, a crash resumes, and the
+summary accounts for each failure against the declared bound. The row takes tier b, because its
+defect is a crash of a registered study run.
+
+| part | acceptance |
+| --- | --- |
+| (a) isolation of each replicate | each R runner fits each replicate under `tryCatch`. A failure writes one failed-replicate record: the implementation, the replicate key, the seed, the stage and the error message. The phase then continues. The runners outside the harness move onto it. A killed worker writes no record, so the phase reports it as incomplete, and a resume fits it again |
+| (a) systematic failure | when every one of the first 20 replicates of a cell fails, the phase stops. The cause is then the configuration, not the draw |
+| (b) a resumable reference phase | the harness writes each completed result and each failure record to a checkpoint in the run cache. A restart with the same cache fits only the replicates without a checkpoint. A resumed run writes output bytes identical to an uninterrupted run |
+| (b) a stale checkpoint | a checkpoint records the hashes of the runner, the harness, the container and the sample file. A resume refuses a checkpoint whose hashes differ |
+| (c) declared failure accounting | `StudyRecord` declares a failure bound for each implementation before the run. The default bound is zero, so an existing study keeps its behavior. A paired statistic reads only the replicates where both implementations succeeded |
+| (c) the report | the summary reports the failure count and rate of each implementation in each cell. A `failures.csv` artifact publishes each record. A rate above the bound makes the cell red, and the [red-cell rule](development/method-benchmarking.md#red-cells) routes it |
+| (c) no gain from a failure | a failure must not make a verdict easier to pass. A coverage or rejection rate counts each failed replicate as the outcome against the cell's claim, in the direction of the cell's role. A bias, spread or paired statistic must also pass when each failed replicate takes the worst value in the observed range of its cell |
+| (c) an informative-failure witness | a paired cell reports the error of the surviving implementation on the failed replicates against its error on the other replicates. The witness is a report, not the gate |
+| (d) the Python phase | the Python phase, the property studies and the Python comparator get the same isolation, the same records and the same checkpoint. A `CapabilityError` on a replicate is a design defect, so it still stops the phase |
+| (e) provenance | the edits are result-neutral for every committed study. Declare each changed source and each recorded hash in `tests/canonical/provenance-revisions.md`. Do not regenerate a study |
+| (f) tests | the tests in the next table pass, and the [benchmarking strategy](development/method-benchmarking.md) and [testing strategy](development/testing-strategy.md) state the new rule |
+
+The design treats a failure conservatively, and it does not rely on a test that failures are
+independent of the outcome. That test cannot see the missing outcome of the failed implementation,
+so it cannot carry the gate alone. The range-bounded worst case can miss a failure whose value
+falls outside the observed range. A small declared bound limits that case.
+
+The edit changes the recorded hash of `study_harness.R` in 45 manifests. It also changes the
+hashes of the runners outside the harness, and of the two Dockerfiles that copy a runner into the
+image. No committed artifact has a failed replicate, so the new branches never run for a committed
+study. A scan of the 62 study directories on 2026-10-07 found no nonzero `failed_replicates` in
+any `properties.csv` or `property-replicates.csv.gz`, and no short property cell.
+`study_collect` refuses a short R table. `tests/unit/test_method_evidence.py` runs
+`validate_replicates` on each committed `replicates.csv.gz`, and that check requires the full
+count. No published verdict moves.
+
+| test | what it shows |
+| --- | --- |
+| a failing replicate | a small fixture runner raises on one declared replicate. The phase continues, writes the record, and the summary reports one failure |
+| the bound | a mutation control puts one failure above the bound, and the cell turns red. At the bound, the cell passes |
+| no gain from a failure | a fixture puts each failure on a replicate that misses coverage. The gate fails a cell that passes on the survivors alone |
+| a resume | a run stops after a declared number of replicates and resumes. The output sha256 equals that of an uninterrupted run |
+| a complete run | on a fixture without a failure, the new harness writes the same bytes as the recorded harness |
+| a stale checkpoint | a changed runner hash makes the resume refuse |
+
+The fast tier has no R. The R tests therefore run as a smoke command in a pinned image, and the
+fast tier reads their committed outputs.
 
 Each row takes a tier by the harm that its defect does to a user today. The table gives the tiers,
 from the most harmful. Inside a tier, a row with a wider reach comes first. A row that another row
@@ -41,7 +108,7 @@ depends on comes before that row.
 | tier | reason | rows |
 | --- | --- | --- |
 | a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | no open row |
-| b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | no open row |
+| b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | RM39 |
 | c | a correct refusal that arrives late or as the wrong type | no open row |
 | d | a diagnostic or a warning that misleads | no open row |
 | e | a display or a message that misstates a fact that the fit records. By extension, an argument check or a capability row that misstates what a call accepts or needs, when no number moves and nothing raises that is not a refusal | no open row |
@@ -68,12 +135,11 @@ Priorities 2 to 5 follow the beta.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1.9 | Point-treatment survival and time-to-event input | published support; pending source read | shipped survival and competing-risk recursion | [X13](#x13-point-treatment-survival-and-time-to-event-input) |
 | 1.10 | Known treatment mechanism | source audit | shipped `treatment_probabilities=` on `DRTMLE` | [X15](#x15-known-treatment-mechanism) |
 | 1.11 | Outcome-adaptive C-TMLE intervals from per-arm scalar designs | published support for one mean; natural extension for every arm and contrast | shipped `strategy="oat"` | [X17](#x17-outcome-adaptive-c-tmle-intervals-from-per-arm-scalar-designs) |
 | 1.12 | C-TMLE candidate sequences | published support; pending source read | shipped selector paths | [X16](#x16-c-tmle-candidate-sequences) |
 | 1.13 | Sequential doubly robust longitudinal estimation | published support; pending source read | implemented longitudinal targets | [X4](#x4-sequential-doubly-robust-longitudinal-estimation) |
-| 1.14 | Hazard-based and monotone survival curves | published support; pending source read | X13 | [X14](#x14-hazard-based-and-monotone-survival-curves) |
+| 1.14 | Hazard-based and monotone survival curves | published support; pending source read | the shipped point-treatment survival design | [X14](#x14-hazard-based-and-monotone-survival-curves) |
 | 1.15 | Incremental interventions over time | source audit | shipped longitudinal modified treatment policies | [X19](#x19-incremental-interventions-over-time) |
 | 1.16 | Targeting and fitting options | no new theory; each option keeps its default bit-identical | none | [X22](#x22-targeting-and-fitting-options) |
 | 1.17 | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
@@ -276,6 +342,7 @@ owners do the same for the stratified DR-TMLE study.
 | `F1-power-design` | the `power/mix__alternative` cell of `stochastic-categorical-ltmle` | reading `underpowered at its declared size`. Its n = 4,000 was copied from `canonical-categorical-ltmle`, where the contrast is 0.125. Here the contrast is -0.0488, so the exact power of a two-sided 5% test is 0.5365, and exact power 0.80 needs n = 7,460. The cell rejects at 0.5575 (99% interval 0.511 to 0.603) against a floor of 0.80, and that interval contains the exact power ([`tests/unit/test_stochastic_categorical_ltmle_design.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_stochastic_categorical_ltmle_design.py)). Its bias is inside the margin and its coverage is 0.9475. The `type_i_error` cell, on the null variant of the law, passes. The owner closes when a re-declared power cell, with its law or size declared before its run, passes. Until then the cell stays published red under `reporting` |
 | `mtp-longitudinal-limits` | the `interval_calibration/categorical_mtp__correctly_specified` cell of `longitudinal-mtp` | reading `finite-sample, sparse cells`: the efficiency ratios read 1.120 and 1.098 against a band of 0.9 to 1.1, and coverage 0.9435 and the SE ratio pass. The cell fits saturated cell probabilities for the six-level mechanism. A diagnostic refitted it on fresh draws. The in-sample fit reads a reported efficiency ratio of 1.103 at n = 2,000 and 1.023 at n = 8,000, and the five-fold fit 1.389 and 1.048, on 300 fresh draws per size. The excess falls about four times as n grows four times, which is the order of the cost of estimating sparse cell probabilities. A wrong bound or an inefficient curve would keep its excess ([`tests/diagnostics/longitudinal_mtp_categorical_efficiency/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/longitudinal_mtp_categorical_efficiency), [`tests/unit/test_longitudinal_mtp_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_longitudinal_mtp_reading.py)). The cell read the same in runs 2 and 3. The owner closes when a re-declared cell, with its size declared before its run, passes. Until then the cell stays published red under `reporting` |
 | `mtp-point-calibration` | the `interval_calibration/halve__correctly_specified` cell of `policy-point-mtp` | reading `Monte Carlo excursion`. The SE ratio is 1.0429, with a 99% interval of 1.0011 to 1.0881 against an upper bound of 1.07. It was 1.0430 at 160 bins, so the bin count does not move it. Coverage is 0.9605, and the reported standard error matches the efficiency bound (ratio 1.0018). The influence curve with the binned ratio predicts a ratio of 0.9998. A diagnostic refitted the same configuration on 2,000 fresh draws and read 0.999, with a bootstrap 99% interval of 0.959 to 1.043. Fewer than 1% of its bootstrap ratios reach 1.0429 ([`tests/diagnostics/mtp_point_halve_excursion/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/mtp_point_halve_excursion)). The diagnostic cannot change the verdict. The owner closes when a re-declared calibration cell for this policy passes, with a budget of no more than 2,000 replications fixed before its run. Until then the cell stays published red under `reporting` |
+| `X13-finite-sample` | the `interval_calibration/weighted_t5__correctly_specified` cell of `point-treatment-survival` and the `interval_calibration/three_arm_t3__correctly_specified` cell of `point-treatment-survival-crossfit` | reading `finite-sample`. The weighted cell's SE ratio is 1.027, with a 99% interval of 0.981 to 1.076 against an upper bound of 1.07. Its reported standard error equals the weighted efficiency bound (ratio 1.0007), and the interval of its empirical efficiency ratio, 0.930 to 1.020, contains one. The cross-fitted three-arm cell's empirical efficiency interval is 1.010 to 1.108 against 1.10, with an SE ratio of 1.008. A probe on fresh draws put its reported standard error over the bound at 1.0003 in sample, 1.082 at five folds and 1.055 at ten folds at n = 2,000, and 1.0085 at five folds at n = 8,000, so the excess is the finite-sample cost of cross-fitting saturated cell means. The owner closes when a re-declared cell, with its size or replications declared before its run, passes. Until then each cell stays published red under `reporting` |
 | `F28` | finite-sample limits of clustered intervals: the fold-evaluated covariate pair of `clustered-unequal-cvtmle`, and the fold-evaluated bias cells and cross-fitted `DRTMLE` IID controls of `clustered-few-cluster-tmle` | each group closes on its own registered study that passes. The fold-evaluated pair of `clustered-unequal-cvtmle` at 40 clusters in 10 folds: a fold-evaluated degrees-of-freedom rule $t(\min(J-2, J-V))$ at 40 clusters or more. The three `tmle_cv_evaluation__unequal_informative` cells: a cluster-size-weighted fold average or another fold-evaluated point whose bias stays inside the margin. The stacked report is the remedy today. The four `drtmle_crossfit` `iid_t_control` cells: a calibrated cross-fitted `DRTMLE` cluster variance, or an IID control that compares the two SEs and not the IID SE with the empirical SD ([F28](#f28-finite-sample-limits-of-clustered-intervals)) |
 | `X20-bootstrap` | the `interval_calibration` cells `boot_ey_crossfit__correctly_specified`, `boot_ate_crossfit__correctly_specified` and `boot_ate_clustered__correctly_specified` of `full-refit-bootstrap-and-derived-contrasts` | the declared rule 3 keeps the `end_of_study/cross_fit` and `end_of_study/cluster` kinds out of `LICENSED_BOOTSTRAP_DESIGNS`, so their bootstrap prints as a diagnostic. A diagnostic reading, not a registered result: on this cell the cross-fitted estimator is heavy-tailed. Its 4,000 committed estimates have excess kurtosis 6.7, and about 5% of them lie at the probability boundary, because `g_bounds=(1e-8, 1)` with saturated cell means leaves sparse training cells unbounded. A bootstrap resample holds about 63% unique units, so more replicates reach the boundary and the replicate spread exceeds the sampling spread (SE ratios 1.23 and 1.27). A probe that kept each unit's copies in one fold raised the SE ratio to about 1.65, so the split of copies across folds is not the cause. The cluster contrast covers 0.924 with a calibrated SE ratio (0.977), a finite-sample shortfall of the percentile interval at 60 clusters. The owner closes when a re-declared cell for the kind, with its law, size, nuisance bounds or resampling scheme declared before its run, passes a registered cell |
 
@@ -283,35 +350,6 @@ owners do the same for the stratified DR-TMLE study.
 
 The sections below give one contract for each open item. Their physical order does not override
 the main grid.
-
-### X13. Point-treatment survival and time-to-event input
-
-The shipped survival and competing-risk fits take a wide table with one column for each node, and
-one treatment column at every node. A baseline-only treatment is refused with `DataError`. The
-survival packages of the TMLE ecosystem start from a different design and a different data
-layout.
-
-| part | what to add | published source | comparator |
-| --- | --- | --- | --- |
-| (a) a point-treatment survival curve | a baseline treatment, censoring over time, and the survival or cumulative-incidence curve at declared horizons, as a design of its own. The fit intervenes on the baseline treatment and on censoring only | Stitelman, De Gruttola and van der Laan (2012); Benkeser, Carone and Gilbert (2018), *Statistics in Medicine* 37(2), for `survtmle` | `tmle3` `tmle_survival` at the pinned `ed72f8a`; `survtmle` `method = "mean"` |
-| (b) long-format input | a converter from one row per unit with an event time and an event type, the `ftime` and `ftype` layout, to the node layout at a declared time grid | no theory. It is a data transformation | `survtmle`; `concrete` |
-
-Part (a) can reuse the sequential recursion. State in the contract whether it builds the
-treatment nodes from the baseline column, or fits a separate point-treatment recursion. The two
-must give the same estimate on one law, and a test pins that identity.
-
-Part (b) must refuse an event time outside the grid and a tie that the grid cannot order. It must
-state how it bins a continuous time. It must round-trip on a law whose event times sit on the
-grid.
-
-Acceptance:
-
-- exact-law witnesses for part (a), with a nonzero censoring mechanism;
-- a registered ordinary study against the pinned `tmle3`;
-- a converter test for each refusal of part (b).
-
-`survtmle`, `concrete` and MOSS are archived on CRAN, so a pinned commit is needed before any of
-them becomes a comparator.
 
 ### X15. Known treatment mechanism
 
@@ -427,7 +465,15 @@ states this limit.
 | (b) one-step whole-curve targeting | one targeting step that solves the score equations of every horizon together, with a simultaneous band over the curve | Cai and van der Laan (2020), *Biometrics* 76(3), the one-step survival paper. It is a different paper from their HAL bootstrap paper | MOSS |
 
 Both parts need a pinned commit of their comparator, because `survtmle` and MOSS are archived on
-CRAN. Part (b) supplies a one-step band over the whole curve. The
+CRAN. Part (b) supplies a one-step band over the whole curve. `tmle3` `tmle_survival` at the
+pinned `ed72f8a` is a second part (b) candidate. It takes constrained hazard steps, a binary
+treatment, and the grid $1, \dots, \max \tilde T$. A pairing must give it the grid of the
+`cleverly` fit.
+
+Both parts start from the
+[held point-treatment design](technical-reference/longitudinal-tmle.md#one-baseline-treatment-held-over-the-nodes) and from `TimeToEvent`, which carry the per-node
+indicators, the masks, the censoring and the grid. The `survtmle` runner of the
+`point-treatment-survival` study takes `method=`, so part (a) needs no new image. The
 [survival-curve study](technical-reference/method-evidence/ordinary-survival-curve-longitudinal-tmle.md)
 measures the band of the shipped per-horizon curve.
 
@@ -474,6 +520,7 @@ theory. Each option keeps every default fit bit-identical, and each changes a fi
 | (e) Markov order | restrict each node's nuisance history to the last `k` nodes | an assumption about the data. The identification summary states it | `lmtp` `k` |
 | (f) per-arm outcome fit | fit the outcome regression separately in each arm | a nuisance choice for `TMLE` and `DRTMLE` | `drtmle` `stratify` |
 | (g) early stop on a C-TMLE path | stop the greedy search after a declared number of steps without a risk improvement | a cheaper path. The fit keeps its `working_mechanism_plugin` status | `ctmle` `patience` |
+| (h) hazard and outcome bounds | bound each node's regression into a declared interval before the logistic fluctuation | a fit on a declared range of the hazard or the iterated mean | `survtmle` `bounds` |
 
 At a continuous modified-treatment-policy node of `LTMLE`, the ratio that part (d) trims is the
 node's density ratio, which the fit stores as `RegimenFit.node_ratio`.
@@ -550,9 +597,12 @@ Rytgaard, Eriksson and van der Laan (2023). Its last release is 1.0.5, and CRAN 
 
 That comparator takes a binary baseline treatment under a static or dynamic intervention, which
 bounds the paired cells a first study can claim. A discrete-time study is not evidence for a
-continuous-time interval, so the existing longitudinal rows do not transfer. The point-treatment
-design of [X13](#x13-point-treatment-survival-and-time-to-event-input) and the whole-curve
-targeting of [X14](#x14-hazard-based-and-monotone-survival-curves) come first.
+continuous-time interval, so the existing longitudinal rows do not transfer. The whole-curve
+targeting of [X14](#x14-hazard-based-and-monotone-survival-curves) comes first. On a discrete
+grid, a `concrete` intervention on the baseline treatment is a
+[held point-treatment design](technical-reference/longitudinal-tmle.md#one-baseline-treatment-held-over-the-nodes) with a plan at node 1. A stochastic intervention is a
+[known stochastic policy](technical-reference/longitudinal-tmle.md#known-stochastic-policies) at
+that node.
 
 ### X7. Two-phase and outcome-dependent sampling
 

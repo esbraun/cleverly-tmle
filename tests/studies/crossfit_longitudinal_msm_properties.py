@@ -55,7 +55,9 @@ and none elsewhere.  Each failure is the cross-fit refusal "every unit following
 n = 1,000 rung of the sibling ``canonical-ltmle-crossfit`` ladder replaced it as the control
 rung.  Its own
 failure-only probe on streams 0 to 1,999 found no failure.  No estimate of either rung was read.
-The page states the n = 500 gap as a limit.
+The page states the n = 500 gap as a limit.  The estimator now reads a training fold with
+one outcome value as that value, so that refusal no longer applies.  The declared fit sets are
+unchanged.
 
 Measured budget, from one single-process draw of each fit set before the declaration.  The
 first row includes the process warm-up.

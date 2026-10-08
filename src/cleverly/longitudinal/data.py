@@ -132,6 +132,11 @@ _SHARED_FIELDS: tuple[str, ...] = (
     "weights_name",
     "dropped_covariates",
     "backend",
+    "treatment_held",
+    "time_grid",
+    "time_name",
+    "event_name",
+    "event_codes",
 )
 
 #: What arm a regimen assigns at each node: one arm per node for a static plan, or an
@@ -235,6 +240,25 @@ class LongitudinalData:
     #: declared as a list of columns, is one categorical node over the observed tuples of
     #: its components (Díaz et al. 2023, Section 2: :math:`A_t` may be a vector).
     treatment_components: tuple[tuple[str, ...], ...] = ()
+    #: Whether the design has **one baseline treatment decision held over every node**.
+    #: Declared by passing ``treatment=`` as one column name.  Node 1 is the decision.
+    #: Every later node is an *identity node*: :attr:`treatment` carries the observed node-1
+    #: value there on the rows still in the study, its mechanism factor is exactly one, it
+    #: fits no model, it adds no block to any design, and a regimen is resolved on node 1
+    #: alone.  :attr:`treatment_names` then has one entry, for the decision, and
+    #: :attr:`treatment_levels` and :attr:`continuous_nodes` repeat node 1's entry per node.
+    treatment_held: bool = False
+    #: The grid times :math:`g_1 < \dots < g_K` of a container built from one time and one
+    #: event column (:meth:`from_time_to_event`), and ``None`` on the wide path.  Node
+    #: :math:`k` covers the interval :math:`(g_{k-1}, g_k]`, with :math:`g_0 = 0`.
+    time_grid: tuple[float, ...] | None = None
+    #: The time column of a container built by :meth:`from_time_to_event`, else ``None``.
+    time_name: str | None = None
+    #: The event-code column of a container built by :meth:`from_time_to_event`, else ``None``.
+    event_name: str | None = None
+    #: The event code of each absorbing cause, in :attr:`cause_labels` order (``(1,)`` for a
+    #: single event), on a container built by :meth:`from_time_to_event`.  Empty otherwise.
+    event_codes: tuple[int, ...] = ()
 
     # ------------------------------------------------------------------ build
 
@@ -244,7 +268,7 @@ class LongitudinalData:
         data: Any,
         *,
         outcome: str | Sequence[str] | Mapping[str, Sequence[str]],
-        treatment: Sequence[str | Sequence[str]],
+        treatment: str | Sequence[str | Sequence[str]],
         baseline: Sequence[str],
         time_varying: Sequence[Sequence[str]] | None = None,
         censoring: Sequence[str] | None = None,
@@ -273,6 +297,9 @@ class LongitudinalData:
             Treatment column per time point, in time order.  Its length declares ``T``.  A
             node may be a list of columns, ``[["A1a", "A1b"], ["A2a", "A2b"]]``: it is then
             one categorical node whose levels are the observed tuples of its components.
+            One column name, ``treatment="A"``, declares **one baseline decision held over
+            every node** (:attr:`treatment_held`).  ``T`` then comes from the survival
+            outcome, else from ``censoring=``, else from ``time_varying=``, else it is one.
         baseline:
             Covariates measured before any treatment.
         time_varying:
@@ -307,20 +334,29 @@ class LongitudinalData:
         frame = as_frame(data)
         columns = list(frame.columns)
 
+        held = isinstance(treatment, str)
         components: list[tuple[str, ...]] = []
-        for node in treatment:
-            if isinstance(node, str):
-                components.append((node,))
-            else:
-                node_columns = tuple(str(name) for name in node)
-                if not node_columns:
-                    raise DataError("a vector treatment node needs at least one column")
-                components.append(node_columns)
-        treatment_names = ["+".join(node_block) for node_block in components]
-        if not treatment_names:
-            raise DataError("treatment= is empty; a longitudinal fit needs at least one node")
-        n_times = len(treatment_names)
-        flat_treatment = [name for node_block in components for name in node_block]
+        if held:
+            decision = str(treatment)
+            components = [(decision,)] * _held_node_count(
+                decision, outcome, censoring, time_varying
+            )
+            treatment_names = [decision]
+            flat_treatment = [decision]
+        else:
+            for node in treatment:
+                if isinstance(node, str):
+                    components.append((node,))
+                else:
+                    node_columns = tuple(str(name) for name in node)
+                    if not node_columns:
+                        raise DataError("a vector treatment node needs at least one column")
+                    components.append(node_columns)
+            treatment_names = ["+".join(node_block) for node_block in components]
+            if not treatment_names:
+                raise DataError("treatment= is empty; a longitudinal fit needs at least one node")
+            flat_treatment = [name for node_block in components for name in node_block]
+        n_times = len(components)
         continuous_names = [str(name) for name in continuous_treatment]
         unknown_continuous = sorted(set(continuous_names) - set(flat_treatment))
         if unknown_continuous:
@@ -448,7 +484,289 @@ class LongitudinalData:
             outcome_name=outcome_names[-1],
             family=family,
             backend=backend_of(frame),
+            treatment_held=held,
         )
+
+    @classmethod
+    def from_time_to_event(
+        cls,
+        data: Any,
+        *,
+        time: str,
+        event: str,
+        treatment: str,
+        baseline: Sequence[str],
+        grid: Sequence[float] | None = None,
+        causes: Mapping[int, str] | None = None,
+        id: str | None = None,
+        weights: str | None = None,
+        weights_type: str = "probability",
+        weights_estimated: bool = False,
+        continuous_treatment: bool = False,
+    ) -> LongitudinalData:
+        r"""Build a point-treatment survival container from one time and one event column.
+
+        The frame holds one row per unit: a follow-up time, an event code (``0`` for
+        censored), one baseline treatment and the baseline covariates.  The time is binned
+        onto a grid :math:`0 = g_0 < g_1 < \dots < g_K`, and node :math:`k` covers
+        :math:`(g_{k-1}, g_k]`.  The treatment is one decision held over every node, as
+        ``treatment="A"`` declares on :meth:`from_frame`.
+
+        The rules follow the visit structure of Benkeser, Carone and Gilbert (2018,
+        Section 2.1):
+
+        ==========================================  ==========================================
+        unit                                        nodes
+        ==========================================  ==========================================
+        event of cause ``j`` at :math:`T \le g_K`   event at the node :math:`k` with
+                                                    :math:`g_{k-1} < T \le g_k`
+        censored at a grid time :math:`g_j < g_K`   observed through node :math:`j`, then
+                                                    censored
+        event or censoring after :math:`g_K`, or    event-free and observed through node
+        censored at :math:`g_K`                     :math:`K` (the administrative end)
+        ==========================================  ==========================================
+
+        An event and a censoring at one grid time are ordered event first, as ``survtmle``
+        orders them.  A censoring time strictly between two grid times is refused: it
+        cannot be ordered against the events of its interval.
+
+        A grid time before which no follower of a regimen had the event is not refused.
+        The regression of such a node is zero, its maximum-likelihood hazard, so the risk
+        there is zero with an interval of width zero.  Declare ``horizons=`` at grid times
+        where each arm has events, or a coarser grid, to report only informative times.
+
+        Parameters
+        ----------
+        data : DataFrame
+            A pandas or polars frame with one row per unit.
+        time : str
+            The follow-up time column.  Every time is a positive finite number.
+        event : str
+            The event-code column: ``0`` for censored, and a positive integer code for each
+            absorbing cause.
+        treatment : str
+            The baseline treatment column.
+        baseline : sequence of str
+            The covariates measured before the treatment.
+        grid : sequence of float or None
+            The grid times :math:`g_1 < \dots < g_K`, which are the visit times.  ``None``
+            needs integer times and uses :math:`g_k = k` up to the largest event time.  The
+            fit costs :math:`K(K+1)/2` sequential regressions per regimen and cause, so a
+            default grid on day-level times can hold thousands of nodes.
+        causes : mapping of int to str or None
+            The label of each nonzero event code.  ``None`` reads codes ``{0, 1}`` as one
+            event and any other codes as competing causes labelled ``str(code)``.  A mapping
+            declares competing risks, even with one cause.
+        id : str or None
+            A cluster column.
+        weights : str or None
+            A column of observation weights, as for :meth:`from_frame`.
+        weights_type : str
+            How to read ``weights``, as for :meth:`from_frame`.
+        weights_estimated : bool
+            Declare that the weights came out of a fitted model.
+        continuous_treatment : bool
+            Declare the treatment a continuous dose.  Node 1 then has a conditional density,
+            and a regimen is a modified treatment policy, as ``continuous_treatment=`` on
+            :meth:`from_frame` declares.
+
+        Returns
+        -------
+        LongitudinalData
+            A held survival container with :attr:`time_grid` set.
+
+        Raises
+        ------
+        DataError
+            If a time is missing, not finite or at or below zero; if ``grid=None`` and a
+            time is not an integer; if an event code is missing, negative, not an integer
+            or not named by ``causes``; if a cause has no event at or before :math:`g_K`;
+            or if a censoring time lies strictly between two grid times.
+        ValueError
+            If ``grid`` is not a strictly increasing sequence of positive finite times.
+
+        See Also
+        --------
+        LongitudinalData.to_time_to_event : The inverse map, in grid values.
+        cleverly.TimeToEvent : The same input as a study design.
+
+        Examples
+        --------
+        >>> import pandas as pd
+        >>> from cleverly.longitudinal import LongitudinalData
+        >>> frame = pd.DataFrame(
+        ...     {
+        ...         "ftime": [1, 2, 3, 3, 1, 2, 3, 2, 1, 3] * 2,
+        ...         "ftype": [1, 0, 1, 0, 1, 1, 0, 1, 0, 1] * 2,
+        ...         "arm": [0, 1] * 10,
+        ...         "age": [40, 52, 61, 45, 38, 70, 55, 49, 66, 58] * 2,
+        ...     }
+        ... )
+        >>> data = LongitudinalData.from_time_to_event(
+        ...     frame, time="ftime", event="ftype", treatment="arm", baseline=["age"]
+        ... )
+        >>> data.n_times, data.time_grid, data.treatment_held
+        (3, (1.0, 2.0, 3.0), True)
+        """
+        if not is_dataframe(data):
+            raise DataError(
+                "LongitudinalData.from_time_to_event expects a pandas or polars DataFrame"
+            )
+        frame = as_frame(data)
+        columns = list(frame.columns)
+        baseline_names = [str(name) for name in baseline]
+        wanted = [str(time), str(event), str(treatment), *baseline_names]
+        if id is not None:
+            wanted.append(id)
+        if weights is not None:
+            wanted.append(str(weights))
+        missing = [name for name in wanted if name not in columns]
+        if missing:
+            raise DataError(f"columns not found in the frame: {missing}; available: {columns}")
+        _refuse_duplicates(wanted)
+
+        times = column_array(frame, str(time))
+        codes = column_array(frame, str(event))
+        grid_values = _time_grid(times, codes, str(time), grid)
+        labels, code_of_cause, competing = _event_causes(codes, str(event), causes)
+        n_times = len(grid_values)
+        last = grid_values[-1]
+        for label, code in zip(labels, code_of_cause, strict=True):
+            if not np.any((codes == code) & (times <= last)):
+                raise DataError(
+                    f"cause {label!r} has no event at or before the last grid time {last:g}; "
+                    "its incidence would be zero at every horizon"
+                )
+        censored = codes == 0.0
+        inside = censored & (times < last)
+        off_grid = inside & ~np.isin(times, np.asarray(grid_values))
+        if np.any(off_grid):
+            example = float(times[np.flatnonzero(off_grid)[0]])
+            raise DataError(
+                f"time column {time!r} has {int(off_grid.sum())} censoring time(s) between grid "
+                f"points, for example {example!r}. A censoring that falls inside an interval "
+                "cannot be ordered against that interval's events, so the risk at the grid "
+                "times is not identified from these rows. Declare the grid at the visit times "
+                "when follow-up is checked, so that every censoring time is a grid value or "
+                "later than the last grid time"
+            )
+
+        grid_array = np.asarray(grid_values, dtype=float)
+        nodes = np.arange(1, n_times + 1)
+        never = n_times + 1
+        # The node of each unit's event, and the node at which a censored unit leaves; a
+        # unit that does neither by the last grid time gets ``K + 1`` for both.
+        event_node = np.where(
+            (codes > 0.0) & (times <= last), _event_node(grid_array, times), never
+        )
+        censor_node = np.where(inside, _censor_node(grid_array, times), never)
+        before_event = nodes[None, :] <= event_node[:, None]
+        present_censoring = before_event & (nodes[None, :] <= censor_node[:, None])
+        stays = nodes[None, :] < censor_node[:, None]
+        censoring = np.where(present_censoring, stays.astype(float), np.nan)
+        present_event = before_event & stays
+        fired = nodes[None, :] == event_node[:, None]
+        event_blocks = np.stack(
+            [
+                np.where(present_event, (fired & (codes == code)[:, None]).astype(float), np.nan)
+                for code in code_of_cause
+            ],
+            axis=2,
+        )
+        stamp = [f"{g:g}" for g in grid_values]
+        event_names = (
+            [[f"{event}={code}@{g}" for g in stamp] for code in code_of_cause]
+            if competing
+            else [[f"{event}@{g}" for g in stamp]]
+        )
+        # Node k's indicator is 1{C >= g_k}: a unit censored at g_k is observed through k.
+        censoring_names = [f"{time}>={g}" for g in stamp]
+        has_censoring = bool(np.any(inside))
+        raw = column_array(frame, str(treatment), dtype=object)
+        return cls._build(
+            outcome=None,
+            event=event_blocks,
+            event_names=event_names,
+            cause_labels=labels if competing else (),
+            baseline=matrix_from_columns(frame, baseline_names) if baseline_names else None,
+            baseline_names=baseline_names,
+            treatment=np.column_stack([raw] * n_times),
+            treatment_names=[str(treatment)],
+            censoring=censoring if has_censoring else None,
+            censoring_names=censoring_names if has_censoring else [],
+            time_varying=[None] * n_times,
+            time_varying_names=[[] for _ in range(n_times)],
+            cluster=None if id is None else frame[id].to_numpy(),
+            cluster_name=id,
+            weights=None if weights is None else column_array(frame, weights),
+            weights_type=weights_type,
+            weights_estimated=weights_estimated,
+            weights_name=weights,
+            outcome_name=event_names[-1][-1],
+            family="binomial",
+            backend=backend_of(frame),
+            continuous_nodes=(True,) * n_times if continuous_treatment else (),
+            treatment_held=True,
+            time_grid=grid_values,
+            time_name=str(time),
+            event_name=str(event),
+            event_codes=tuple(int(code) for code in code_of_cause),
+        )
+
+    def to_time_to_event(self) -> tuple[FloatArray, IntArray]:
+        """The follow-up time and event code of each unit, in grid values.
+
+        The inverse of :meth:`from_time_to_event` on a law whose event and censoring times
+        sit on the grid.  The wide path reads node :math:`k` as the grid time :math:`k`.
+
+        ======================================  ======================================
+        unit                                    returned pair
+        ======================================  ======================================
+        an event of cause ``j`` at node ``k``   :math:`(g_k, j)`
+        a censored unit                         its last observed grid time, and ``0``
+        an event-free unit at the end           :math:`(g_K, 0)`
+        ======================================  ======================================
+
+        A unit censored before node 1 on the wide path returns time ``0``.
+
+        Returns
+        -------
+        tuple of ndarray
+            ``(time, event)``: the grid time as float and the event code as int.
+
+        Raises
+        ------
+        DataError
+            On a container with one end-of-study outcome.
+        """
+        if self.event is None:
+            raise DataError(
+                f"{self.outcome_name!r} is an end-of-study outcome, so the container has no "
+                "event time to return"
+            )
+        grid = np.asarray(
+            self.time_grid if self.time_grid is not None else range(1, self.n_times + 1),
+            dtype=float,
+        )
+        padded = np.concatenate([[0.0], grid])
+        observed_through = _prefix_all(self.uncensored)[:, 1:].sum(axis=1)
+        times = padded[np.minimum(observed_through, self.n_times)]
+        codes = np.zeros(self.n, dtype=np.int64)
+        had = np.asarray(self.event[:, -1], dtype=bool)
+        first = np.argmax(self.event, axis=1)
+        times[had] = grid[first[had]]
+        if self.cause_event is None:
+            codes[had] = self.event_codes[0] if self.event_codes else 1
+        else:
+            by_cause = self.cause_event[np.arange(self.n), first, :]
+            cause = np.argmax(by_cause, axis=1)
+            table = (
+                np.asarray(self.event_codes, dtype=np.int64)
+                if self.event_codes
+                else np.arange(1, len(self.cause_labels) + 1)
+            )
+            codes[had] = table[cause[had]]
+        return times, codes
 
     @classmethod
     def _build(
@@ -477,6 +795,11 @@ class LongitudinalData:
         backend: str | None,
         continuous_nodes: Sequence[bool] = (),
         treatment_components: Sequence[Sequence[str]] = (),
+        treatment_held: bool = False,
+        time_grid: Sequence[float] | None = None,
+        time_name: str | None = None,
+        event_name: str | None = None,
+        event_codes: Sequence[int] = (),
     ) -> LongitudinalData:
         survival = event is not None
         if survival:
@@ -560,12 +883,20 @@ class LongitudinalData:
             )
         a = np.full((n, n_times), np.nan)
         level_sets: list[tuple[object, ...]] = []
-        for time, name in enumerate(treatment_names, start=1):
+        for time in range(1, n_times + 1):
+            name = treatment_names[0 if treatment_held else time - 1]
             # Named apart from the ``column`` index and ``values`` matrix of the block
             # loop above: mypy unifies a name's type across the whole function body, so
             # reusing either here is an error rather than a shadow.
             arms = raw_treatment[:, time - 1]
             at_this_node = at_risk[:, time - 1]
+            if treatment_held and time > 1:
+                # An identity node: the decision's own value, on the rows still in the
+                # study.  Its column is a copy of the decision column, so it has no
+                # presence of its own to check.
+                a[at_this_node, time - 1] = a[at_this_node, 0]
+                level_sets.append(level_sets[0])
+                continue
             _check_presence(arms, at_this_node, str(name))
             if continuous_nodes and continuous_nodes[time - 1]:
                 a[at_this_node, time - 1] = _continuous_dose(arms[at_this_node], str(name))
@@ -656,6 +987,11 @@ class LongitudinalData:
                 if any(len(block) > 1 for block in treatment_components)
                 else ()
             ),
+            treatment_held=bool(treatment_held),
+            time_grid=None if time_grid is None else tuple(float(g) for g in time_grid),
+            time_name=time_name,
+            event_name=event_name,
+            event_codes=tuple(int(code) for code in event_codes),
         )
 
     # ------------------------------------------------------------- properties
@@ -668,6 +1004,41 @@ class LongitudinalData:
     def n_times(self) -> int:
         """Number of treatment nodes, ``T``."""
         return int(self.treatment.shape[1])
+
+    @property
+    def n_decisions(self) -> int:
+        """Number of treatment decisions: one on a held design, else :attr:`n_times`."""
+        return 1 if self.treatment_held else self.n_times
+
+    def decision_name(self, time: int) -> str:
+        """The treatment column that decides node ``time``, counted from one.
+
+        Parameters
+        ----------
+        time : int
+            The treatment node, counted from one.
+
+        Returns
+        -------
+        str
+            The node's own column, or the baseline column at every node of a held design.
+        """
+        return self.treatment_names[0 if self.treatment_held else time - 1]
+
+    def is_held_node(self, time: int) -> bool:
+        """Whether node ``time``, counted from one, is an identity node of a held design.
+
+        Parameters
+        ----------
+        time : int
+            The treatment node, counted from one.
+
+        Returns
+        -------
+        bool
+            ``True`` at every node after the first on a held design.
+        """
+        return self.treatment_held and time > 1
 
     def is_continuous_node(self, time: int) -> bool:
         """Whether node ``time``, counted from one, holds a continuous dose.
@@ -1002,7 +1373,7 @@ class LongitudinalData:
 
     def policy_names(self, time: int) -> tuple[str, ...]:
         """Column names of :meth:`policy_frame`: the history, then the earlier treatments."""
-        return (*self.history_names(time), *self.treatment_names[: time - 1])
+        return (*self.history_names(time), *self.treatment_names[: min(time - 1, self.n_decisions)])
 
     def observed_labels(self, time: int) -> Any:
         """``(n,)`` object array of the label each unit received at ``time``, ``None`` if absent.
@@ -1050,7 +1421,7 @@ class LongitudinalData:
         payload: dict[str, Any] = {
             name: history[:, index] for index, name in enumerate(self.history_names(time))
         }
-        for node in range(1, time):
+        for node in range(1, min(time, self.n_decisions + 1)):
             if self.is_continuous_node(node):
                 payload[self.treatment_names[node - 1]] = np.nan_to_num(
                     self.treatment[:, node - 1], nan=0.0
@@ -1148,6 +1519,10 @@ class LongitudinalData:
         last = time if include_current else time - 1
         plan = None if treatment is None else assignment_matrix(treatment, self.n, self.n_times)
         for t in range(1, last + 1):
+            if self.is_held_node(t):
+                # One block per *decision*: an identity node repeats node 1, so it adds
+                # nothing the node-1 block does not already hold.
+                continue
             if plan is None:
                 codes = np.nan_to_num(self.treatment[:, t - 1], nan=0.0)
             else:
@@ -1174,21 +1549,27 @@ class LongitudinalData:
         a ``float`` level and a ``numpy.str_`` find a ``str``.
         """
         raw = np.asarray(assignment, dtype=object)
+        width = self.n_decisions
         if raw.ndim == 1:
-            if raw.shape[0] != self.n_times:
+            if raw.shape[0] != width:
                 raise DataError(
                     f"regimen {label!r} assigns {raw.shape[0]} arm(s) but the data has "
-                    f"{self.n_times} treatment node(s)"
+                    f"{width} treatment decision(s)"
                 )
-            raw = np.broadcast_to(raw, (self.n, self.n_times))
-        if raw.shape != (self.n, self.n_times):
+            raw = np.broadcast_to(raw, (self.n, width))
+        if raw.shape != (self.n, width):
             raise DataError(
                 f"regimen {label!r} produced assignments with shape {raw.shape}; expected "
-                f"({self.n}, {self.n_times})"
+                f"({self.n}, {width})"
             )
 
         encoded = np.zeros((self.n, self.n_times), dtype=float)
-        for time, levels in enumerate(self.treatment_levels, start=1):
+        for time in range(self.n_decisions + 1, self.n_times + 1):
+            # An identity node's plan value is the observed decision, on the rows still in
+            # the study, so a unit follows the plan there exactly when it followed node 1.
+            reachable = self.uncensored_through(time - 1) & self.event_free_through(time - 1)
+            encoded[reachable, time - 1] = self.treatment[reachable, time - 1]
+        for time, levels in enumerate(self.treatment_levels[: self.n_decisions], start=1):
             reachable = self.uncensored_through(time - 1) & self.event_free_through(time - 1)
             column = raw[:, time - 1]
             if self.is_continuous_node(time):
@@ -1213,7 +1594,7 @@ class LongitudinalData:
                     # elementwise, and a wrongly shaped mask marks the wrong rows
                     # silently -- checked rather than assumed, as everywhere here.
                     raise DataError(
-                        f"treatment column {self.treatment_names[time - 1]!r} has a "
+                        f"treatment column {self.decision_name(time)!r} has a "
                         f"non-scalar level {level!r}; a treatment arm must be a single "
                         "label per unit"
                     )
@@ -1224,7 +1605,7 @@ class LongitudinalData:
                 value = column[unknown[0]]
                 raise DataError(
                     f"regimen {label!r} assigns {value!r} at time {time}; treatment "
-                    f"column {self.treatment_names[time - 1]!r} has levels "
+                    f"column {self.decision_name(time)!r} has levels "
                     f"{list(levels)!r}"
                 )
         return encoded
@@ -1249,6 +1630,8 @@ class LongitudinalData:
         if self.censoring_names:
             share = float(self.uncensored_through(self.n_times).mean())
             parts.append(f"uncensored={share:.3f}")
+        if self.treatment_held:
+            parts.append(f"held={self.treatment_names[0]!r}")
         if self.cluster is not None:
             parts.append(f"clusters={self.n_clusters}")
         if self.is_weighted:
@@ -1265,6 +1648,131 @@ _TOO_MANY_LEVELS_REMEDY = (
     "continuous dose with continuous_treatment=[...] and fit a modified treatment policy at "
     "it, such as Shift(0.5, cap=...)."
 )
+
+
+def _event_node(grid: FloatArray, times: FloatArray) -> IntArray:
+    """The node ``k`` of an event at ``T``: the one with ``g_{k-1} < T <= g_k``."""
+    return np.asarray(np.searchsorted(grid, times, side="left") + 1, dtype=np.int64)
+
+
+def _censor_node(grid: FloatArray, times: FloatArray) -> IntArray:
+    """The node at which a unit censored at the grid time ``g_j`` leaves: ``j + 1``.
+
+    The unit is observed through node ``j``, so an event at ``g_j`` in another unit is
+    ordered first and this unit was at risk for it.
+    """
+    return np.asarray(np.searchsorted(grid, times, side="left") + 2, dtype=np.int64)
+
+
+def _time_grid(
+    times: FloatArray, codes: FloatArray, name: str, grid: Sequence[float] | None
+) -> tuple[float, ...]:
+    """Validate the time column and return the grid, declared or default."""
+    bad = ~np.isfinite(times) | ~(times > 0.0)
+    if np.any(bad):
+        example = float(times[np.flatnonzero(bad)[0]])
+        raise DataError(
+            f"time column {name!r} has {int(bad.sum())} value(s) that are missing, not finite, "
+            f"or at or below zero, for example {example!r}. A time is measured from the "
+            "baseline treatment, so every time must be a positive number"
+        )
+    if grid is None:
+        fractional = times != np.floor(times)
+        if np.any(fractional):
+            example = float(times[np.flatnonzero(fractional)[0]])
+            raise DataError(
+                f"time column {name!r} holds non-integer times, for example {example!r}, so "
+                "there is no default grid. Declare grid=[g1, g2, ...] at the visit times. A "
+                "grid read off the observed times would change with the sample, and the curve "
+                "would have no fixed horizons"
+            )
+        events = times[np.isfinite(codes) & (codes > 0.0)]
+        if events.size == 0:
+            raise DataError(
+                f"time column {name!r} has no event, so there is no default grid; the "
+                "default grid runs from 1 to the largest event time"
+            )
+        return tuple(float(g) for g in range(1, int(events.max()) + 1))
+    try:
+        values = np.asarray(list(grid), dtype=float)
+    except (TypeError, ValueError):
+        values = np.asarray([np.nan])
+    if (
+        values.ndim != 1
+        or values.size == 0
+        or not np.all(np.isfinite(values))
+        or not np.all(values > 0.0)
+        or not np.all(np.diff(values) > 0.0)
+    ):
+        raise ValueError(
+            f"grid must be a strictly increasing sequence of positive finite times; got {grid!r}"
+        )
+    return tuple(float(g) for g in values)
+
+
+def _event_causes(
+    codes: FloatArray, name: str, causes: Mapping[int, str] | None
+) -> tuple[tuple[str, ...], tuple[int, ...], bool]:
+    """Validate the event codes; return the cause labels, their codes, and whether competing."""
+    absent = ~np.isfinite(codes)
+    if np.any(absent):
+        raise DataError(f"event column {name!r} has {int(absent.sum())} missing value(s)")
+    invalid = (codes < 0.0) | (codes != np.floor(codes))
+    if np.any(invalid):
+        shown = sorted({float(code) for code in codes[invalid]})[:6]
+        raise DataError(
+            f"event column {name!r} holds code(s) {shown} that are negative or not integers. "
+            "A code is 0 for censored and a positive integer for each absorbing cause"
+        )
+    nonzero = sorted({int(code) for code in codes if code != 0.0})
+    if causes is None:
+        if set(nonzero) <= {1}:
+            return ("1",), (1,), False
+        return tuple(str(code) for code in nonzero), tuple(nonzero), True
+    declared = {int(code): str(label) for code, label in causes.items()}
+    unnamed = [code for code in nonzero if code not in declared]
+    if unnamed:
+        raise DataError(
+            f"event column {name!r} holds code(s) {unnamed} that causes= does not name. Name "
+            "every nonzero code, or recode a code as 0 if it means censored"
+        )
+    if 0 in declared:
+        raise DataError("causes= names code 0, which is the censoring code, not a cause")
+    order = sorted(declared)
+    return tuple(declared[code] for code in order), tuple(order), True
+
+
+def _held_node_count(
+    name: str,
+    outcome: Any,
+    censoring: Sequence[str] | None,
+    time_varying: Sequence[Sequence[str]] | None,
+) -> int:
+    """The node count of a held design, read from the per-node arguments.
+
+    A survival outcome gives one node per event column.  An end-of-study outcome takes the
+    count from ``censoring=``, else from ``time_varying=``, else it is one.  Every per-node
+    argument that is given must agree, because the decision is held over the same nodes.
+    """
+    counts: list[tuple[str, int]] = []
+    if isinstance(outcome, Mapping):
+        blocks = [list(block) for block in outcome.values()]
+        if blocks:
+            counts.append(("outcome", len(blocks[0])))
+    elif not isinstance(outcome, str):
+        counts.append(("outcome", len(list(outcome))))
+    if censoring is not None:
+        counts.append(("censoring=", len(list(censoring))))
+    if time_varying is not None:
+        counts.append(("time_varying=", len(list(time_varying))))
+    if len({count for _, count in counts}) > 1:
+        given = ", ".join(f"{role} gives {count}" for role, count in counts)
+        raise DataError(
+            f"treatment={name!r} is one baseline decision held over every node, and the nodes "
+            f"are counted from the other columns: {given}. Give every per-node argument the "
+            "same length"
+        )
+    return counts[0][1] if counts else 1
 
 
 def _encode_node_treatment(values: Any, name: str) -> tuple[FloatArray, tuple[object, ...]]:

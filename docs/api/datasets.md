@@ -37,6 +37,8 @@ Three functions serve the navigation program that the [examples](../examples/ind
    cleverly.datasets.make_longitudinal_survival
    cleverly.datasets.make_longitudinal_competing
    cleverly.datasets.make_longitudinal_weighted
+   cleverly.datasets.make_point_survival
+   cleverly.datasets.point_survival_truth
    cleverly.datasets.navigation_data
    cleverly.datasets.navigation_protocol
    cleverly.datasets.longitudinal_navigation_protocol

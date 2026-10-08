@@ -19,23 +19,21 @@ problem is, and there are three places it can be.
 | [Wrong by construction](#wrong-by-construction) | in the method | the naive version *runs* and returns a plausible number that is wrong, usually with a known direction of error. Read these as warnings about the analysis, not about this package's coverage |
 
 A fourth group needs no taxonomy. A fit whose *data* cannot support what you declared is refused
-where the problem arises. Examples are a horizon at which no event was observed among a regimen's
-followers, a cause with no events, a regimen nobody followed, and two absorbing causes firing at
-one node. A known policy that can draw a level no fitted row of its node received is another, and
+where the problem arises. Examples are a regimen nobody followed and two absorbing causes firing
+at one node. A known policy that can draw a level no fitted row of its node received is another, and
 [known stochastic policies](longitudinal-tmle.md#known-stochastic-policies) states why. Those are
 statements about the sample.
 
-Cross-fitting narrows what the sample supports. Each outer fold fits its regressions and its
-mechanism on its training rows alone, so every fold must carry enough events for each declared
-cause. A rare cause therefore needs more data under cross-fitting than under one fold. The split
-reads no treatment and no outcome, so it cannot protect a rare level. The package checks the
-realized draw instead, before the first learner, and the refusal names no redraw. The
-[fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) give every such message.
+A horizon at which no follower of a regimen had the event is not refused. Its regression is
+zero, the maximum-likelihood hazard, and
+[a node with no event](longitudinal-tmle.md#a-node-with-no-event) gives the rule.
 
-`make_longitudinal_competing(n=220, seed=41)` shows that boundary. It fits at `n_folds=1` and is
-refused at `n_folds=2`, because one fold's training rows carry no event of one cause among the
-regimen's followers. The message names the in-sample fit, or an estimand this fold count
-supports.
+Cross-fitting narrows what the sample supports. Each outer fold fits its regressions and its
+mechanism on its training rows alone, so every fold must carry the followers and treatment levels
+that each node needs. The split reads no treatment and no outcome, so it cannot protect a rare
+level. The package checks the realized draw instead, before the first learner, and the refusal
+names no redraw. The [fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules) give
+every such message.
 
 ### Not written yet
 
@@ -314,6 +312,7 @@ one into the other.
 | the per-arm propensity table on a continuous fit | a per-arm table has no rows when there are no arms. `diagnostics.support()` is not itself refused. On a fit that declared `policies=` it dispatches to the question that does apply, which is whether the density *ratio* stays bounded |
 | `res.sensitivity`, `res.diagnostics` and `res.validate()` on an `LTMLE` result | each is part of the shared result contract. Stagewise support, scores, nuisance loss, and the descriptive full-recursion truncation grid are supported. Sensitivity operations without a longitudinal derivation report `unavailable`. `res.save()` is supported, and [persistence and replayability](../user-guide/results-assessment.md#persistence-and-replayability) states its contract |
 | `ratio(..., view="survival")` on an end-of-study fit, or on a fit with two or more causes; `rmst` and `rmtl` on an end-of-study fit or a working-model fit; `ratio` on a working-model fit | an end-of-study fit reports means and no survival curve. One minus one cause's incidence is not all-cause survival. A coefficient is not a regimen mean. [Functionals of a fitted result](longitudinal-tmle.md#functionals-of-a-fitted-result) gives each message |
+| a plan that changes the treatment after baseline on a held design (`treatment="A"` or `TimeToEvent`) | a time-varying treatment plan. Declare one treatment column per node on the wide layout. The held design raises `ValueError` before any learner, and a plan that repeats one label is read as that label |
 | `logistic_plugin` on a fit that is not a selector `CTMLE` fit, or on an `oat`, multi-arm, cross-fitted, weighted, missing-outcome or `intermediate=` fit | R `ctmle` defines the logistic-estimation term for a binary treatment whose propensity is fitted once on all rows. [Collaborative TMLE](collaborative-tmle.md) gives the term |
 | a non-empty `assess(arguments=...)` block for `score_equations` | the validation battery owns that name and runs it argument-free. The battery presents one row per name, and it presents the validation row. A caller's tolerance would be computed and then hidden, so a check that failed at that tolerance would never reach `attention`. Call `res.diagnostics.run_all(arguments=...)`, or the operation itself. The battery also owns `support` and `nuisance_models`, which accept no argument, so an argument for either is a `TypeError` from the signature |
 
@@ -344,6 +343,7 @@ target or an interval whose stated conditions are not met.
 | joint covariance, post-fit contrasts, or simultaneous bands after `repeats=` | coordinatewise medians do not preserve linear identities among estimates; a central-draw curve also does not represent the split-adjusted median estimator needed for a multiplier band |
 | a cross-validated variance for the curve a repeated fit retains | at equal fold sizes it collapses to the pooled uncentred second moment for *every* partition, so the partition carries no information. That rule was rejected, and the split-adjusted median variance replaced it |
 | a one-shot non-identity-link MSM | the derivative of the inverse link depends on the coefficient, so a single pass reports a standard error for an equation it did not solve. The link is supported. What is refused is skipping the alternation it needs |
+| a censoring time between two grid times, read as censored at a grid time | the censoring cannot be ordered against the events of its interval, so either reading biases the risk. On one interval with exponential times the two readings give 0.280 and 0.236 against a truth of 0.259 (`test_both_off_grid_censoring_conventions_are_biased`). `LongitudinalData.from_time_to_event` raises `DataError` before any learner and names the visit grid as the remedy |
 | frequency (count) weights | they assert a sample size the variance does not use. Expand the rows instead, which says the same thing where every part of the fit can see it |
 | an `LTMLE` outcome missing for a reason other than censoring | its probability of being observed is silently taken to be one. Encode it as a final censoring column so that it is estimated and enters the cumulative product |
 | a binary-only target on a multi-arm fit | it would report a contrast of arms `0` and `1` out of five, under the name of a parameter about all of them. Targets declare `requires_binary_treatment` for this |

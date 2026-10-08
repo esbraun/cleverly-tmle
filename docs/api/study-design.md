@@ -11,6 +11,7 @@ Use these objects to declare the observed data, identify a causal quantity, and 
    cleverly.StudyProtocol
    cleverly.PointTreatment
    cleverly.LongitudinalTreatment
+   cleverly.TimeToEvent
    cleverly.Estimand
    cleverly.IdentificationProvider
    cleverly.ExplicitAdjustmentProvider
@@ -42,7 +43,7 @@ The public objects divide responsibility as follows:
 | object | responsibility |
 | --- | --- |
 | `StudyProtocol` | study context and study-specific assumption rationale |
-| `PointTreatment` or `LongitudinalTreatment` | observed column roles and treatment-time structure |
+| `PointTreatment`, `LongitudinalTreatment` or `TimeToEvent` | observed column roles and treatment-time structure |
 | typed estimand | the mathematical contrast and intervention metadata |
 | `IdentifiedEffect` | the observed-data functional and identification contract |
 | estimation method | learner, targeting, inference, and runtime configuration |

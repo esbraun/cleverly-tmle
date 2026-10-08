@@ -178,7 +178,11 @@ The `mse` field answers about node regressions alone. A treatment row and a cens
 
 The nested `model` retains calibration and Super Learner details when the learner supplies them.
 `nuisance.omissions` retains typed reasons for unavailable mechanism rows. A complete-data fit records
-`LONGITUDINAL_CENSORING_NOT_FITTED`.
+`LONGITUDINAL_CENSORING_NOT_FITTED`. A censoring node with no censored unit records
+`LONGITUDINAL_NO_CENSORING`, and each later node of a held baseline treatment records
+`LONGITUDINAL_HELD_DECISION`. A node regression whose followers all hold 0, such as a node
+with no event, or all hold 1, records `LONGITUDINAL_CONSTANT_TARGET`. [Validation methods](../technical-reference/validation-methods.md)
+lists every reason.
 
 A categorical treatment row uses `kind="multinomial probability"` and an empty calibration table.
 The report does not convert top-class confidence into binary calibration for a privileged arm.

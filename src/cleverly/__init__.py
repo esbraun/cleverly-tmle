@@ -97,6 +97,7 @@ from .study import (
     RegimeContrast,
     RegimeMean,
     RiskRatio,
+    TimeToEvent,
 )
 from .variable_importance import (
     VariableImportanceEntry,
@@ -160,6 +161,7 @@ __all__ = [
     "SuperLearner",
     "TMLEMethod",
     "Targeting",
+    "TimeToEvent",
     "ValidationReport",
     "VariableImportanceEntry",
     "VariableImportanceResult",
