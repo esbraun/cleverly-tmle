@@ -27,12 +27,79 @@ This queue holds the remediation work that must be complete before a beta releas
 shipped behavior that needs a correction or a recorded decision, and a published method needed to
 resolve a shipped refusal. Examples are wrong numbers, intervals that no claimed contract covers,
 capability rows that do not match their calls, late refusals, and shipped outputs that no
-registered study measures. Deliver the rows in priority order, and complete every row before
-main-roadmap priority 1.
+registered study measures. The queue also holds a defect of the validation harness that can lose
+or invalidate a registered study run. Deliver the rows in priority order, and complete every row
+before main-roadmap priority 1.
 
 A new capability still needs its own contract and evidence, even in this queue.
 
-The queue has no open row.
+| priority | item | tier | acceptance |
+| ---: | --- | --- | --- |
+| 0.1 | RM39. Keep a study run alive through a failed replicate | b | the contract in [RM39](#rm39-keep-a-study-run-alive-through-a-failed-replicate), its tests, and passing handoff checks |
+
+### RM39. Keep a study run alive through a failed replicate
+
+A registered study with a comparator runs in two phases. The Python phase fits `cleverly`. The
+reference phase fits the pinned comparator, usually R in its container. Today one failed replicate
+stops a phase or makes the summary refuse the run. A failure can come from separation,
+non-convergence or a container restart. A run of several hours is then lost to one draw.
+
+| where | what happens today |
+| --- | --- |
+| `tests/canonical/study_harness.R` | `study_fitter` and `study_stream` catch each error. `study_refuse_failures` then stops the script. `study_collect` writes the output once, at the end, so a stop writes no row |
+| streaming runners | `study_stream` keeps each completed batch in memory and stops at the first batch with a failure. The `lmtp`, `npcausal` and `stochastic_regimes` runners use it, and they are the longest runs |
+| runners outside the harness | `ctmle3_oat/run_ctmle3_oat.R`, `ctmle_selector/run_ctmle.R`, `drtmle/run_drtmle.R` and `zepid_cvtmle/run_zepid_cvtmle.py` stop at the first error too |
+| `tests/canonical/regenerate.py` | `Reference.run` runs the container with `check=True`. `_reference_rows` reuses a cached reference result only when it holds every replicate |
+| the Python phase | each `draw_and_fit` maps its fits with `map_parallel`, and one exception stops the phase. Only `CoverageStudy` records a failed fit, in the `failed_replicates` column |
+| the summary | `validate_replicates` refuses a cell with fewer rows than `StudyRecord.replicates`. `require_complete` refuses a property cell with a nonzero `failed_replicates` |
+
+The [benchmarking strategy](development/method-benchmarking.md#reference-implementation-comparisons)
+states the current rule: fail the run on a dropped or unsuccessful replication. This row replaces
+that rule with a failure bound that the study declares before its run.
+
+Goal: one failed replicate costs one replicate. The phase continues, a crash resumes, and the
+summary accounts for each failure against the declared bound. The row takes tier b, because its
+defect is a crash of a registered study run.
+
+| part | acceptance |
+| --- | --- |
+| (a) isolation of each replicate | each R runner fits each replicate under `tryCatch`. A failure writes one failed-replicate record: the implementation, the replicate key, the seed, the stage and the error message. The phase then continues. The runners outside the harness move onto it. A killed worker writes no record, so the phase reports it as incomplete, and a resume fits it again |
+| (a) systematic failure | when every one of the first 20 replicates of a cell fails, the phase stops. The cause is then the configuration, not the draw |
+| (b) a resumable reference phase | the harness writes each completed result and each failure record to a checkpoint in the run cache. A restart with the same cache fits only the replicates without a checkpoint. A resumed run writes output bytes identical to an uninterrupted run |
+| (b) a stale checkpoint | a checkpoint records the hashes of the runner, the harness, the container and the sample file. A resume refuses a checkpoint whose hashes differ |
+| (c) declared failure accounting | `StudyRecord` declares a failure bound for each implementation before the run. The default bound is zero, so an existing study keeps its behavior. A paired statistic reads only the replicates where both implementations succeeded |
+| (c) the report | the summary reports the failure count and rate of each implementation in each cell. A `failures.csv` artifact publishes each record. A rate above the bound makes the cell red, and the [red-cell rule](development/method-benchmarking.md#red-cells) routes it |
+| (c) no gain from a failure | a failure must not make a verdict easier to pass. A coverage or rejection rate counts each failed replicate as the outcome against the cell's claim, in the direction of the cell's role. A bias, spread or paired statistic must also pass when each failed replicate takes the worst value in the observed range of its cell |
+| (c) an informative-failure witness | a paired cell reports the error of the surviving implementation on the failed replicates against its error on the other replicates. The witness is a report, not the gate |
+| (d) the Python phase | the Python phase, the property studies and the Python comparator get the same isolation, the same records and the same checkpoint. A `CapabilityError` on a replicate is a design defect, so it still stops the phase |
+| (e) provenance | the edits are result-neutral for every committed study. Declare each changed source and each recorded hash in `tests/canonical/provenance-revisions.md`. Do not regenerate a study |
+| (f) tests | the tests in the next table pass, and the [benchmarking strategy](development/method-benchmarking.md) and [testing strategy](development/testing-strategy.md) state the new rule |
+
+The design treats a failure conservatively, and it does not rely on a test that failures are
+independent of the outcome. That test cannot see the missing outcome of the failed implementation,
+so it cannot carry the gate alone. The range-bounded worst case can miss a failure whose value
+falls outside the observed range. A small declared bound limits that case.
+
+The edit changes the recorded hash of `study_harness.R` in 45 manifests. It also changes the
+hashes of the runners outside the harness, and of the two Dockerfiles that copy a runner into the
+image. No committed artifact has a failed replicate, so the new branches never run for a committed
+study. A scan of the 62 study directories on 2026-10-07 found no nonzero `failed_replicates` in
+any `properties.csv` or `property-replicates.csv.gz`, and no short property cell.
+`study_collect` refuses a short R table. `tests/unit/test_method_evidence.py` runs
+`validate_replicates` on each committed `replicates.csv.gz`, and that check requires the full
+count. No published verdict moves.
+
+| test | what it shows |
+| --- | --- |
+| a failing replicate | a small fixture runner raises on one declared replicate. The phase continues, writes the record, and the summary reports one failure |
+| the bound | a mutation control puts one failure above the bound, and the cell turns red. At the bound, the cell passes |
+| no gain from a failure | a fixture puts each failure on a replicate that misses coverage. The gate fails a cell that passes on the survivors alone |
+| a resume | a run stops after a declared number of replicates and resumes. The output sha256 equals that of an uninterrupted run |
+| a complete run | on a fixture without a failure, the new harness writes the same bytes as the recorded harness |
+| a stale checkpoint | a changed runner hash makes the resume refuse |
+
+The fast tier has no R. The R tests therefore run as a smoke command in a pinned image, and the
+fast tier reads their committed outputs.
 
 Each row takes a tier by the harm that its defect does to a user today. The table gives the tiers,
 from the most harmful. Inside a tier, a row with a wider reach comes first. A row that another row
@@ -41,7 +108,7 @@ depends on comes before that row.
 | tier | reason | rows |
 | --- | --- | --- |
 | a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | no open row |
-| b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | no open row |
+| b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | RM39 |
 | c | a correct refusal that arrives late or as the wrong type | no open row |
 | d | a diagnostic or a warning that misleads | no open row |
 | e | a display or a message that misstates a fact that the fit records. By extension, an argument check or a capability row that misstates what a call accepts or needs, when no number moves and nothing raises that is not a refusal | no open row |
