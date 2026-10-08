@@ -378,8 +378,6 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "longitudinal-mtp",
             "property",
             "interval_calibration/categorical_mtp__correctly_specified",
-            "crossfit_overfitting/cross_fitted_mtp_ltmle",
-            "crossfit_overfitting/in_sample_control",
         ),
     ),
     "mtp-point-calibration": (

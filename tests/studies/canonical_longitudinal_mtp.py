@@ -115,6 +115,16 @@ a limit of interpolating learners under cross-fitting, not a defect, and would g
 Every other cell is unchanged, and its artifacts are expected to reproduce run 2.  The categorical cell
 keeps its declared route: ``reporting``, owner ``mtp-longitudinal-limits``.  Nothing from run 2
 of the pair is reused.
+
+**Run 3.**  The run (HEAD ``64076439``) passed 44 of 44 truth and 22 of 22 paired tests, and 39
+of 40 property cells.  The pair passes: the control reads 0.675 (99% interval to 0.688), the
+cross-fitted arm 1.166 (to 1.188), and the coverage gain 0.316 to 0.341.  Every other artifact
+reproduced run 2 byte for byte.  The red cell is the categorical calibration cell, as in run 2,
+on its efficiency ratios.  The diagnostic ``tests/diagnostics/
+longitudinal_mtp_categorical_efficiency`` refitted it on 300 fresh draws per size.  The reported
+efficiency ratio falls from 1.103 at n = 2,000 to 1.023 at n = 8,000 in sample, and from 1.389
+to 1.048 at five folds.  So the excess is a finite-sample cost of the sparse saturated cells, and
+the cell stays under ``reporting`` with its declared owner.
 """
 
 from __future__ import annotations
