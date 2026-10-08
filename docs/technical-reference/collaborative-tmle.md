@@ -368,6 +368,9 @@ that the flag reads. Before the run, it declared that a red cell with no defect 
 | type I error at the sharp null | 0.88 | 0.904 |
 | the default band over the three-arm family | not applicable | 0.871 joint coverage |
 
+The shipped fit builds no band. The study's band cell sets the flag for its own fit only, so it
+measures the band that the per-arm design would build from its stacked curves.
+
 The deficit does not shrink with $n$. R `drtmle` 1.1.2, with `adapt_g = TRUE`, agrees with
 `cleverly` to `1e-8` in each estimate and standard error. The bias is equivalent to zero in each
 cell. So the code computes the curve that the paper states, and that curve omits a term.

@@ -25,7 +25,9 @@ family                     cells
 ``crossfit_overfitting``   ``cross_fitted_oat`` against ``in_sample_control``, with the
                            parent study's trees and budget
 ``simultaneous_coverage``  the default band over the three arm means and two contrasts of
-                           the three-arm law, and its pointwise control
+                           the three-arm law, and its pointwise control.  The shipped fit
+                           withholds the band, so :func:`fit_joint` sets the revert flag
+                           for that one fit, inside the study only
 =========================  ===============================================================
 
 A replicate that raises is not redrawn.  The summary refuses a cell that lost a replicate, so
@@ -40,7 +42,8 @@ not gated, as the plan declared.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import pandas as pd
@@ -48,6 +51,7 @@ from scipy.stats import norm
 from sklearn.tree import DecisionTreeRegressor
 
 from cleverly.estimators import CTMLE
+from cleverly.estimators import ctmle as ctmle_module
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import cvtmle_properties
@@ -355,8 +359,30 @@ def _estimator(cell: PropertyCell) -> Callable[[], CTMLE]:
     )
 
 
+@contextmanager
+def _revert_undone() -> Iterator[None]:
+    """Set :data:`~cleverly.estimators.ctmle.OAT_PER_ARM_INFERENTIAL` for one fit, then restore it."""
+    saved = ctmle_module.OAT_PER_ARM_INFERENTIAL
+    ctmle_module.OAT_PER_ARM_INFERENTIAL = True  # type: ignore[misc]
+    try:
+        yield
+    finally:
+        ctmle_module.OAT_PER_ARM_INFERENTIAL = saved  # type: ignore[misc]
+
+
 def fit_joint(frame: pd.DataFrame) -> Any:
-    """The joint cell's fit: the three-arm law, cross-fitted, with the default band on."""
+    """The joint cell's fit: the three-arm law, cross-fitted, with the default band on.
+
+    The shipped per-arm fit withholds its interval and builds no band, because the revert flag
+    is ``False``.  This fit sets the flag for its own duration only, so the cell measures the
+    band the per-arm design would build from its stacked curves.  The point estimates and the
+    curves do not read the flag.
+    """
+    with _revert_undone():
+        return _fit_joint(frame)
+
+
+def _fit_joint(frame: pd.DataFrame) -> Any:
     return (
         CTMLE(
             strategy="oat",

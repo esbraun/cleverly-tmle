@@ -32,6 +32,40 @@ the harness holds one ``n`` per study, and the three-arm law needs 1,500.
 the same sample, for the reported ``design_gap``.  ``rows_at_bound`` counts the rows whose
 per-arm mechanism sits at either declared bound.  The laws keep the projection inside the
 bounds, so the expected count is zero, and a nonzero count is reported, not dropped.
+
+**The applied revert.**  The first declaration published under ``gated``, with
+:data:`REVERT_CELLS` as the cells that the flag
+:data:`~cleverly.estimators.ctmle.OAT_PER_ARM_INFERENTIAL` reads.  The gated run at
+``ad722652`` read them red: standard errors 8 to 24 percent too small, flat in ``n``, while the
+oracle-design cells were calibrated and R ``drtmle`` agreed to ``1e-8``.  The diagnosis found no
+defect in the code.  Condition (v) of Theorem 1 (preprint Appendix F, the remainder ``R24``)
+fails for an estimated outcome regression, so the curve omits a first-order generated-design
+term (``tests/diagnostics/x17_generated_design/``).  The flag is now ``False``, and every per-arm
+fit withholds its interval.  Each cell still reads ``plugin_std_error`` and
+``plugin_interval`` through :func:`~tests.studies.evidence.schema.reported_inference`, so it
+measures the withheld diagnostic with the same arithmetic.
+
+**This declaration** publishes under ``reporting``, and :data:`RED_CELL_OWNER`, F19, owns every
+red cell.  Three things changed, and no seed, budget, law or margin did:
+
+* the policy, from ``gated`` to ``reporting``;
+* the joint cell.  The withheld status builds no band, so
+  :func:`~tests.studies.ctmle_oat_per_arm_properties.fit_joint` sets the flag inside the study
+  only, for that one fit.  The cell then measures the band the per-arm design would build from
+  its stacked curves, which is what it measured before;
+* ``calibration_efficiency_ratio=False``.  The estimator is superefficient by design, so the
+  calibration cells claim no ratio against the efficient bound.  The first declaration left the
+  default, and the shared claims reader then asked for an efficiency band that the study never
+  declared.  The noise control still scales by :data:`~tests.studies.ctmle_oat_per_arm_properties.CURVE_SD`.
+
+**The declared reading** of the re-run.  The primary and R phases reuse the gated run's cache;
+replicates 0, 1, 399 and 799 of both scenarios refit at this declaration to the cached rows bit
+for bit, and the R runner is unchanged.  So :data:`EXPECTED_RED` is the gated run's red set.
+None of its rows is a finite-sample red in the sense of the red-row rule: the 99% interval of
+each red SE ratio excludes 1.  Each is the measured deficit of the term that F19 holds, and the
+interval it would have supported is withheld, so no unfixed defect ends as an owner row.  A
+re-run whose red set differs from :data:`EXPECTED_RED` is a defect suspect, and it is diagnosed
+before anything is published.
 """
 
 from __future__ import annotations
@@ -110,10 +144,10 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     ),
 }
 
-#: The revert flag's cells, declared before the run.  If one of them is red and no defect is
-#: found, the post-run commit sets ``OAT_PER_ARM_INFERENTIAL`` to ``False`` and the study
-#: publishes under ``reporting``.  The primary coverage of every estimand of both scenarios
-#: belongs to the list as well; :data:`REVERT_PRIMARY` names it.
+#: The revert flag's cells, declared before the first run.  They were red with no defect, so
+#: ``OAT_PER_ARM_INFERENTIAL`` is ``False`` and the study publishes under ``reporting``.  The
+#: primary coverage of every estimand of both scenarios belongs to the list as well;
+#: :data:`REVERT_PRIMARY` names it.
 REVERT_CELLS: tuple[tuple[str, str], ...] = (
     ("interval_calibration", "binary_active__correctly_specified"),
     ("interval_calibration", "three_arm_active__correctly_specified"),
@@ -128,12 +162,37 @@ REVERT_CELLS: tuple[tuple[str, str], ...] = (
 #: The primary coverage rows of the subject that belong to the revert list.
 REVERT_PRIMARY = "coverage of every estimand of both scenarios, implementation " + IMPLEMENTATION
 
-#: The owner of a red cell that reveals no defect, declared before the run.  The orchestrator
-#: assigns its roadmap ID.
-RED_CELL_OWNER = (
-    "finite-sample limits of the per-arm outcome-adaptive C-TMLE: the listed red cells of "
-    "ctmle-oat-per-arm"
+#: The owner of every red cell, by its ``id`` in the roadmap's "Red-cell owners" table: F19, the
+#: generated-design term of the per-arm design.
+RED_CELL_OWNER = "F19"
+
+#: The red rows this declaration expects, the gated run's red set.  Truth rows are
+#: ``implementation/scenario/estimand``; property rows are ``family/cell``.  Every other row is
+#: expected green, including all 16 paired rows.
+EXPECTED_RED_TRUTH: tuple[str, ...] = tuple(
+    f"{implementation}/{scenario}/{estimand}"
+    for implementation in (IMPLEMENTATION, REFERENCE)
+    for scenario, estimands in (
+        ("binary_active", BINARY_ESTIMANDS),
+        ("three_arm_active", THREE_ARM_ESTIMANDS),
+    )
+    for estimand in estimands
+    if estimand != "ey[0]"
 )
+EXPECTED_RED_PROPERTIES: tuple[str, ...] = (
+    "interval_calibration/binary_active__correctly_specified",
+    "interval_calibration/three_arm_active__correctly_specified",
+    "interval_calibration/binary_weighted__correctly_specified",
+    "interval_calibration/binary_repeats__correctly_specified",
+    "generated_design/binary_active__estimated",
+    "generated_design/three_arm_active__estimated",
+    "root_n_and_efficiency/n_500",
+    "root_n_and_efficiency/n_2000",
+    "root_n_and_efficiency/n_8000",
+    "type_i_error/sharp_null",
+    "simultaneous_coverage/three_arm_active__simultaneous_band",
+)
+EXPECTED_RED = EXPECTED_RED_TRUTH + EXPECTED_RED_PROPERTIES
 
 STUDY = StudyRecord(
     name="outcome-adaptive per-arm C-TMLE",
@@ -178,7 +237,8 @@ STUDY = StudyRecord(
     runner_module="tests.studies.canonical_ctmle_oat_per_arm",
     properties_module="tests.studies.ctmle_oat_per_arm_properties",
     property_cells=PROPERTY_CELLS,
-    publication_policy="gated",
+    publication_policy="reporting",
+    calibration_efficiency_ratio=False,
 )
 
 REFERENCE_METADATA = {
@@ -203,6 +263,12 @@ REFERENCE_METADATA = {
     "red_cell_owner": RED_CELL_OWNER,
     "revert_flag": "cleverly.estimators.ctmle.OAT_PER_ARM_INFERENTIAL",
     "revert_cells": [f"{family}/{cell}" for family, cell in REVERT_CELLS] + [REVERT_PRIMARY],
+    "revert_applied": (
+        "the gated run at ad722652 read the revert cells red with no code defect: condition (v) "
+        "of Theorem 1 fails for an estimated outcome regression. OAT_PER_ARM_INFERENTIAL is "
+        "False, and this declaration publishes under reporting with F19 as the owner"
+    ),
+    "expected_red": list(EXPECTED_RED),
 }
 
 CONFIGURATION = {
@@ -210,6 +276,19 @@ CONFIGURATION = {
     "oat_design": "per_arm",
     "cross_fit": False,
     "simultaneous_intervals": False,
+    "joint_cell": (
+        "fitted with OAT_PER_ARM_INFERENTIAL set inside the study only, for that one fit, so it "
+        "measures the band the per-arm design would build from its stacked curves; the shipped "
+        "fit withholds the band"
+    ),
+    "calibration_efficiency_ratio": (
+        "False: the estimator is superefficient, so no calibration cell claims a ratio against "
+        "the efficient bound"
+    ),
+    "cache": (
+        "the primary Python and R phases reuse the gated run's phase; replicates 0, 1, 399 and "
+        "799 of both scenarios refit at this declaration to the cached rows bit for bit"
+    ),
     "g_bounds": list(laws.G_BOUNDS),
     "stratify_folds": STRATIFY_FOLDS,
     "outcome_learner": "unpenalized logistic regression on [A indicators, W, A x W]",

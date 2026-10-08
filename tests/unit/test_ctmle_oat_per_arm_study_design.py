@@ -32,7 +32,9 @@ pytestmark = pytest.mark.xdist_group("ctmle_oat_per_arm_design")
 
 def test_the_declared_numbers() -> None:
     record = study.STUDY
-    assert record.publication_policy == "gated"
+    assert record.publication_policy == "reporting"
+    assert record.calibration_efficiency_ratio is False
+    assert study.RED_CELL_OWNER == "F19"
     assert record.margins == Margins()
     assert (study.PRIMARY_REPLICATES, study.PRIMARY_N) == (800, 1_500)
     assert (study.SEED, study.RESAMPLING_SEED) == (20261017, 2026101701)
@@ -112,6 +114,40 @@ def test_the_revert_cells_are_declared_positive_cells() -> None:
     assert study.REFERENCE_METADATA["revert_flag"].endswith("OAT_PER_ARM_INFERENTIAL")
     # The study's revert cells were red, so the declared revert is applied.
     assert ctmle_module.OAT_PER_ARM_INFERENTIAL is False
+
+
+def test_the_expected_red_rows_are_declared_rows() -> None:
+    """Each expected red row is a row the run publishes, and no oracle-design cell is in it."""
+    declared = {f"{cell.property}/{cell.cell}" for cell in properties.declared_cells()}
+    assert set(study.EXPECTED_RED_PROPERTIES) <= declared
+    assert not any("oracle_design" in row for row in study.EXPECTED_RED_PROPERTIES)
+    assert all(
+        cell.role == "positive"
+        for cell in properties.declared_cells()
+        if f"{cell.property}/{cell.cell}" in study.EXPECTED_RED_PROPERTIES
+    )
+    truth = {
+        f"{implementation}/{scenario}/{estimand}"
+        for implementation in (study.IMPLEMENTATION, study.REFERENCE)
+        for scenario, estimands in study.STUDY.scenarios.items()
+        for estimand in estimands
+    }
+    assert set(study.EXPECTED_RED_TRUTH) <= truth
+    assert len(study.EXPECTED_RED_TRUTH) == len(truth) - 2
+
+
+def test_the_joint_fit_builds_the_band_and_leaves_the_flag_unset() -> None:
+    """Option (A): the joint cell sets the flag for its own fit and restores it."""
+    frame, _ = laws.THREE_ARM_ACTIVE.sample(400, 5)
+    result = properties.fit_joint(frame)
+    assert result.inference_status == "influence_curve"
+    assert result.simultaneous is not None
+    assert ctmle_module.OAT_PER_ARM_INFERENTIAL is False
+    # The control: the same fit without the context withholds and builds no band.
+    withheld = properties._fit_joint(frame)
+    assert withheld.inference_status == "generated_design_plugin"
+    assert withheld.simultaneous is None
+    assert withheld["ey[1]"].psi == result["ey[1]"].psi
 
 
 @pytest.mark.parametrize("law", list(laws.LAWS.values()), ids=lambda law: law.name)
