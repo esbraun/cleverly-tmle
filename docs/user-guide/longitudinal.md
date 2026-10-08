@@ -264,7 +264,7 @@ Follow these rules for the input.
 | Record a censoring time as a grid time, or as a time after the last grid time | a censoring between two grid times cannot be ordered against that interval's events, so the fit refuses it |
 | Give `horizons=` and the `tau` of `rmst` as grid times | the parameter name keeps the node index, and `curve()` and `to_frame()` report the grid time in a `time` column |
 | Expect $K(K+1)/2$ regressions per regimen and cause for $K$ grid times | a default grid on day-level times can hold thousands of nodes |
-| Expect a risk of zero, with an interval of width zero, at a grid time before any follower of an arm had the event | the regression of a node with no event is zero, its maximum-likelihood hazard. `msm=` refuses such a cell |
+| Expect a risk of zero with no interval at a grid time before any follower of an arm had the event | the regression of a node with no event is zero, its maximum-likelihood hazard. That node adds no variance to the curve, so the risk and its contrasts report no interval, and the fit warns. `msm=` refuses such a cell |
 
 An event after the last grid time leaves the unit event-free at the end of the grid. `causes=`
 maps each nonzero code to a cause label. Without it, codes `0` and `1` declare one event and any

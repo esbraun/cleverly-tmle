@@ -94,3 +94,33 @@ def test_the_primary_rows_are_cross_fitted() -> None:
     assert result.folds.n_folds == 5
     for scenario, names in study.ESTIMANDS.items():
         assert set(rows.loc[rows["scenario"] == scenario, "estimand"]) == set(names)
+
+
+#: The page's and the owner row's reading of the three-arm red cell, by ``(n, folds)``.
+THREE_ARM_READING = {
+    (2_000, 1): 1.0003,
+    (2_000, 5): 1.082,
+    (2_000, 10): 1.055,
+    (8_000, 5): 1.0085,
+}
+
+
+def test_the_three_arm_diagnostic_reproduces_the_quoted_reading() -> None:
+    """The red three-arm calibration cell is a finite-sample cost of cross-fitting.
+
+    ``tests/diagnostics/x13_crossfit_three_arm/`` refits the cell's configuration on fresh
+    draws.  The mean reported standard error reaches the exact bound in sample, exceeds it at
+    five folds, falls at ten folds, and nearly reaches it at n = 8,000.  The rows rebuild the
+    numbers the page quotes, at the precision it prints them.
+    """
+    import pandas as pd
+
+    from tests.diagnostics.x13_crossfit_three_arm import run as diagnostic
+
+    rows = pd.read_csv(diagnostic.HERE / "rows.csv.gz", float_precision="round_trip")
+    assert len(rows) == sum(replications for _, _, replications in diagnostic.DESIGNS)
+    reading = diagnostic.reading(rows).set_index(["n", "folds"])["reported_over_bound"]
+    for design, quoted in THREE_ARM_READING.items():
+        digits = len(str(quoted).split(".")[1])
+        assert round(float(reading[design]), digits) == quoted, design
+    assert reading[(2_000, 5)] > reading[(2_000, 10)] > reading[(8_000, 5)] > reading[(2_000, 1)]

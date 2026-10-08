@@ -227,3 +227,33 @@ def test_a_pinned_bound_matches_the_spread_of_a_large_fit(label: str) -> None:
         result = properties.fit_label(label, frame)
     spread = float(np.std(properties.estimate_of(result, label).influence_curve))
     assert spread == pytest.approx(properties.EFFICIENCY_SD[label], rel=0.05)
+
+
+#: The page's and the owner row's reading of the weighted red cell on fresh draws.
+WEIGHTED_READING = {
+    "se_ratio": 1.022,
+    "empirical_efficiency_ratio": 0.979,
+    "reported_efficiency_ratio": 1.000,
+    "coverage": 0.957,
+}
+
+
+def test_the_weighted_diagnostic_reproduces_the_quoted_reading() -> None:
+    """The red weighted calibration cell is Monte Carlo resolution, not a calibration defect.
+
+    ``tests/diagnostics/x13_weighted_calibration/`` refits the cell on 1,000 fresh draws.  Its
+    SE ratio sits inside the band, its reported standard error equals the bound, and its
+    coverage is nominal.  The rows rebuild the numbers the page quotes, at the precision it
+    prints them.
+    """
+    import pandas as pd
+
+    from tests.diagnostics.x13_weighted_calibration import run as diagnostic
+
+    rows = pd.read_csv(diagnostic.HERE / "rows.csv.gz", float_precision="round_trip")
+    assert len(rows) == diagnostic.REPLICATES
+    reading = diagnostic.reading(rows).iloc[0]
+    for column, quoted in WEIGHTED_READING.items():
+        assert round(float(reading[column]), 3) == quoted, column
+    low, high = Margins().calibration_se_ratio
+    assert low < float(reading["se_ratio"]) < high
