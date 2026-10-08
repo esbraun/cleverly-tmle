@@ -608,7 +608,8 @@ regression with every factor declared returns the truth, with and without declar
 also checks four compositions: a modified treatment policy, a held survival design, competing risks
 and a time-to-event container. In each one, a declared factor and a learner that returns it give
 one fit. The
-registered `known-node-mechanisms` study pairs the fit with R `ltmle` at a numeric `gform`.
+registered [known-node-mechanisms study](method-evidence/known-node-mechanisms-ltmle.md) pairs
+the fit with R `ltmle` at a numeric `gform`.
 
 ## Functionals of a fitted result
 

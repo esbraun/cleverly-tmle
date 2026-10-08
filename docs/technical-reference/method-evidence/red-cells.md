@@ -201,6 +201,9 @@ row. A move to `gated` is a separate registry decision.
 | [outcome-adaptive point-treatment C-TMLE](outcome-adaptive-point-treatment-c-tmle.md) | 29 | 0 |
 | [cross-fitted end-of-study longitudinal TMLE](cross-fitted-end-of-study-longitudinal-tmle.md) | 47 | 0 |
 | [policies at a held baseline treatment](point-treatment-survival-policies.md) | 60 | 0 |
+| [TMLE on a declared known treatment mechanism](known-treatment-mechanism.md) | 57 | 0 |
+| [DR-TMLE on a declared known treatment mechanism](known-mechanism-dr-tmle.md) | 55 | 0 |
+| [LTMLE on declared known node mechanisms](known-node-mechanisms-ltmle.md) | 20 | 0 |
 | [omitted-variable bound standard error](omitted-variable-bound-standard-error.md) | 14 | 0 |
 | [calibration-slope warning](calibration-slope-warning.md) | 13 | 0 |
 <!-- /generated -->

@@ -625,10 +625,10 @@ can use.
 | --- | --- |
 | the declared design mechanism | an interval that is not conservative, for any outcome learner |
 | maximum likelihood in a parametric model that contains $g_0$, such as a logistic regression on the randomization strata | a smaller true variance when $\bar Q$ is wrong. The reported standard error is then conservative (Moore and van der Laan 2009, Section 4.2 and Section 7.3, Table IV; Petersen et al. 2014, Section 3.7) |
-| a flexible treatment learner, with an outcome regression that can be wrong | the TMLE need not be asymptotically linear (Benkeser et al. 2017). Use the declared mechanism or `DRTMLE` |
+| a flexible treatment learner, with an outcome regression that can be wrong | the TMLE need not be asymptotically linear (Benkeser et al. 2017). Use the declared mechanism |
 
-The registered `known-treatment-mechanism` study reports the spread of the first two side by
-side, as a cell with no verdict.
+The registered [known-mechanism TMLE study](method-evidence/known-treatment-mechanism.md) reports
+the spread of the first two side by side, as a row with no verdict.
 
 **The ATT and the ATC.** Write $p=P(A=1)$ and $\bar Q_{a,0}$ for the true arm regression. At the
 declared mechanism,
