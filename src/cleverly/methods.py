@@ -81,7 +81,8 @@ class ModelSpec:
         Longitudinal observation-mechanism learner.
     density_bins : int or None
         Number of bins for a continuous-treatment conditional density.  ``None`` grows the
-        count with the sample, ``max(20, ceil(2 n^(1/3)))``, so the density is consistent.
+        count with the sample, ``max(20, ceil(2 n^(1/3)))``.  A growing count is necessary for
+        a consistent density, and the hazard learner must also be consistent.
     screen_treatment : bool
         Whether to screen treatment-mechanism covariates by correlation.
     screen_threshold : float

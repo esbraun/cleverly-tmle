@@ -366,7 +366,7 @@ ratio as `node_ratio`. A cross-fitted fit (`n_folds` above one) uses the pooled
 construction of the other plan kinds. `msm=` accepts modified treatment policy cells.
 
 **The bin count of the density route.** A binned density at a fixed bin count is not
-consistent. The bin edges are sample quantiles, so the tail bins are wide, and the binned ratio
+consistent. A growing count is necessary, and the hazard learner must also be consistent. The bin edges are sample quantiles, so the tail bins are wide, and the binned ratio
 errs most there. The table gives the error that one draw of the `longitudinal-mtp` law measured
 with the exact bin probabilities, so the binning is the only error left.
 
@@ -377,11 +377,29 @@ with the exact bin probabilities, so the binning is the only error left.
 | 160 | 1.04 | 1.13 |
 | 320 | 0.99 | 1.00 |
 
-At a fixed count the error stays as $n$ grows, and it halves each time the count doubles. So the
+At a fixed count the excess spread stays as $n$ grows. It falls as the count grows: at
+n = 2,000 it is 0.62 at 20 bins, 0.14 at 80 bins and 0.04 at 160 bins. So the
 default `density_bins=None` grows the count with the sample: `max(20, ceil(2 n^(1/3)))`, the rate
 of Scott (1979). An explicit `density_bins=` is used as given. `tests/unit/test_density_bins_consistency.py`
 shows the tail error shrinking with $n$ under the default, and a mutation that holds the count at
-20 fails it.
+20 fails it. The same file checks the default count through `fit_conditional_density` and
+through a `TMLE` fit at n = 2,000.
+
+**The memory of the density route.** The pooled hazard design holds about $n (K + 1) / 2$
+records of the covariates and $K - 1$ bin columns, at 8 bytes each. At the default count it grows
+as $n^{5/3}$. The table gives the design at one covariate column.
+
+| n | default bins | design |
+| ---: | ---: | ---: |
+| 10,000 | 44 | 0.07 GiB |
+| 100,000 | 93 | 3.2 GiB |
+| 300,000 | 134 | 20 GiB |
+| 1,000,000 | 200 | 150 GiB |
+
+A fit counts the design before it allocates it. When the design exceeds the available memory, the
+fit raises `MethodConfigurationError`. The message gives the size and the largest bin count whose
+design fits in half of the memory. `cleverly.learners.density.hazard_design_bytes` gives the
+estimate. A learner copies its design, so the peak can be a multiple of the table.
 
 Two consequences follow. When the outcome regression is wrong, the bin error enters the bias at
 first order, so double robustness through the density alone needs a ratio error of
@@ -396,9 +414,10 @@ Evidence: `tests/unit/test_influence_gateaux_longitudinal_mtp.py` checks the est
 curve against the g-formula of `tests/discrete_law_longitudinal_mtp.py` and its Gateaux
 derivative. `tests/unit/test_longitudinal_mtp_targeting.py` holds the mutation controls, and
 `tests/unit/test_longitudinal_mtp_compositions.py` covers survival, `msm=`, cross-fitting and the
-refusals. The registered study is `longitudinal-mtp`. It is declared, and its run is pending.
-Its mechanism-only cells read 320 oracle bins for the reason above, so they test the targeting
-with a nearly exact ratio and not the default density.
+refusals. The registered study is
+[`longitudinal-mtp`](method-evidence/longitudinal-modified-treatment-policies.md). Its
+mechanism-only cells read oracle bins that grow as $n^{2/3}$, 320 at n = 2,000, for the reason
+above. So they test the targeting with a nearly exact ratio and not the default density.
 
 ## Functionals of a fitted result
 

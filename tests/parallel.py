@@ -31,6 +31,8 @@ import os
 
 import joblib
 
+from cleverly.utils.memory import available_memory
+
 __all__ = [
     "CORES_ENV",
     "available_cores",
@@ -119,39 +121,6 @@ if __name__ == "__main__":  # pragma: no cover - a shell entry point, not a test
 #: The share of the available memory a memory-capped pool may plan to use.  The rest is the
 #: margin for the parent process, the operating system and a fit's peak above its estimate.
 MEMORY_SHARE = 0.75
-
-
-def available_memory() -> int | None:
-    """The physical memory available now, in bytes, or ``None`` where it cannot be read.
-
-    Read with the standard library only (``psutil`` is not a dependency): the Windows
-    ``GlobalMemoryStatusEx`` call, else the POSIX available-page count.
-    """
-    if os.name == "nt":
-        import ctypes
-
-        class _Status(ctypes.Structure):
-            _fields_ = [
-                ("dwLength", ctypes.c_ulong),
-                ("dwMemoryLoad", ctypes.c_ulong),
-                ("ullTotalPhys", ctypes.c_ulonglong),
-                ("ullAvailPhys", ctypes.c_ulonglong),
-                ("ullTotalPageFile", ctypes.c_ulonglong),
-                ("ullAvailPageFile", ctypes.c_ulonglong),
-                ("ullTotalVirtual", ctypes.c_ulonglong),
-                ("ullAvailVirtual", ctypes.c_ulonglong),
-                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
-            ]
-
-        status = _Status()
-        status.dwLength = ctypes.sizeof(_Status)
-        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):  # type: ignore[attr-defined]
-            return None
-        return int(status.ullAvailPhys)
-    try:
-        return int(os.sysconf("SC_AVPHYS_PAGES")) * int(os.sysconf("SC_PAGE_SIZE"))
-    except (AttributeError, OSError, ValueError):
-        return None
 
 
 def memory_capped_workers(jobs: int, per_worker_bytes: int) -> int:

@@ -787,12 +787,15 @@ and the ratio is the odds $u / (1 - u)$. This route fits no density, so the supp
 Evidence: `tests/unit/test_policy_point_exact.py` checks the ratio and the influence curve of each
 class on the exact laws of `tests/discrete_law_policy_point.py`. Its mutation controls drop the
 inverse and the Jacobian, and each control fails. `tests/unit/test_influence_gateaux_rr_tilt.py`
-checks the tilt on `tests/discrete_law.py`. The registered study is `policy-point-mtp`. It is
-declared, and its run is pending.
+checks the tilt on `tests/discrete_law.py`. The registered study is
+[`policy-point-mtp`](method-evidence/point-modified-treatment-policies.md).
 
 The bin count limits the density route at a point treatment as it does at a longitudinal node. The
-default `density_bins=None` grows the count with the sample, `max(20, ceil(2 n^(1/3)))`, so the
-binned density is consistent. An explicit `density_bins=` is used as given. A coarse count
+default `density_bins=None` grows the count with the sample, `max(20, ceil(2 n^(1/3)))`. A
+growing count is necessary for a consistent density, and the hazard learner must also be
+consistent. An explicit `density_bins=` is used as given. The memory paragraph of the
+[longitudinal section](longitudinal-tmle.md#modified-treatment-policies-at-a-node) applies here
+too. A coarse count
 inflates the influence curve where the tail bins are wide, so the intervals are conservative.
 When efficiency matters, use `ratio="classifier"` with a flexible classifier, or set
 `density_bins=` higher. The
