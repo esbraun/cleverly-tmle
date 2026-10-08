@@ -4,6 +4,16 @@ This page defines the release process for `cleverly`. The
 [Python Packaging User Guide](https://packaging.python.org/en/latest/) supplies the packaging
 standards behind this process.
 
+## Release history
+
+- [cleverly 0.1.2](release-notes-0.1.2.md)
+
+```{toctree}
+:hidden:
+
+release-notes-0.1.2
+```
+
 ## Version policy
 
 `src/cleverly/_version.py` is the sole version source. Hatch reads that file when it creates
