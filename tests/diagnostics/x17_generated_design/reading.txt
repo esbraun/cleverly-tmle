@@ -1,0 +1,12 @@
+n=1500 R=400
+  per-arm estimated Q       sd 0.02797  mean se 0.02451  ratio 0.876  cover 0.900
+  + generated-design term   sd 0.02797  mean se 0.02891  ratio 1.034  cover 0.960
+  per-arm oracle Q          sd 0.02460  mean se 0.02453  ratio 0.997  cover 0.938
+  TMLE known g0             sd 0.03504  mean se 0.03309  ratio 0.944  cover 0.915
+  sqrt(n) sd of the per-arm estimate 1.0833
+n=6000 R=400
+  per-arm estimated Q       sd 0.01474  mean se 0.01225  ratio 0.831  cover 0.905
+  + generated-design term   sd 0.01474  mean se 0.01449  ratio 0.983  cover 0.950
+  per-arm oracle Q          sd 0.01241  mean se 0.01226  ratio 0.988  cover 0.950
+  TMLE known g0             sd 0.01916  mean se 0.01764  ratio 0.921  cover 0.935
+  sqrt(n) sd of the per-arm estimate 1.1417
