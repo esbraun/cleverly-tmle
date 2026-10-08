@@ -126,6 +126,26 @@ def replay(slugs: Sequence[str], replicates: int, n_jobs: int, labels: Mapping[s
     return worst
 
 
+def equal_entries(left: pd.Series, right: pd.Series, rtol: float = 0.0) -> np.ndarray:
+    """Per row, whether two columns agree.
+
+    Numbers agree when equal, both missing, or within ``rtol`` of the largest finite magnitude
+    in either column.  An infinite entry sets no scale, so it cannot widen the tolerance of
+    every other row; it agrees only with the same infinity.  Text agrees when equal or both
+    missing.
+    """
+    if pd.api.types.is_numeric_dtype(left) and pd.api.types.is_numeric_dtype(right):
+        a, b = left.to_numpy(dtype=float), right.to_numpy(dtype=float)
+        both = np.abs(np.concatenate([a, b]))
+        finite = both[np.isfinite(both)]
+        scale = float(finite.max()) if finite.size else 0.0
+        with np.errstate(invalid="ignore"):
+            close = np.abs(a - b) <= rtol * scale
+        return np.asarray((a == b) | close | (np.isnan(a) & np.isnan(b)), dtype=bool)
+    missing = (left.isna() & right.isna()).to_numpy()
+    return np.asarray(missing | (left.astype(str) == right.astype(str)).to_numpy(), dtype=bool)
+
+
 def relabel_check(
     slug: str, ref: str, labels: Mapping[str, str], rtol: float = 0.0
 ) -> tuple[list[str], list[str]]:
@@ -147,16 +167,7 @@ def relabel_check(
             problems.append(f"{relative}: columns or row count differ")
             continue
         for column in after.columns:
-            left, right = before[column], after[column]
-            if pd.api.types.is_numeric_dtype(left) and pd.api.types.is_numeric_dtype(right):
-                a, b = left.to_numpy(dtype=float), right.to_numpy(dtype=float)
-                both = np.concatenate([np.abs(a), np.abs(b)])
-                scale = float(np.nanmax(both)) if np.isfinite(both).any() else 0.0
-                close = np.abs(a - b) <= rtol * scale
-                equal = (a == b) | close | (np.isnan(a) & np.isnan(b))
-            else:
-                missing = (left.isna() & right.isna()).to_numpy()
-                equal = missing | (left.astype(str) == right.astype(str)).to_numpy()
+            equal = equal_entries(before[column], after[column], rtol)
             if not np.all(equal):
                 message = f"{relative}: column {column!r} differs on {int((~equal).sum())} rows"
                 if column in RESAMPLED.get(path.name, frozenset()):
