@@ -121,8 +121,8 @@ the initial `P_n D_A` exceeds `1e-3`, the final score is solved, and `max |g* âˆ
 Every reduction and both `reduced_crossfit` settings admit a declared mechanism. The nested
 construction reuses `g_0` in every inner fold, because a declared mechanism does not depend on the
 rows a model saw. An `evaluation=` companion must declare the same columns. The registered
-`known-treatment-mechanism-drtmle` study pairs each guard with R `drtmle` (`gn=`) at a wrong
-outcome regression.
+[known-mechanism DR-TMLE study](../method-evidence/known-mechanism-dr-tmle.md) pairs each guard
+with R `drtmle` (`gn=`) at a wrong outcome regression.
 
 ## Randomized trials with missing outcomes
 
