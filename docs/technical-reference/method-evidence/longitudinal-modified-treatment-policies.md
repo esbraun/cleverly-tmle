@@ -114,8 +114,8 @@ for that reason. All of them pass.
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `crossfit_overfitting` | `cross_fitted_mtp_ltmle` | positive | five-fold policy LTMLE with fully grown outcome trees | SE ratio clears the overfitting floor and stays inside the sanity band | SE ratio 1.1463 to 1.1877 | pass |
-| `crossfit_overfitting` | `in_sample_control` | control | the same flexible learner fitted in sample, with no cross-fitting | SE ratio must fall below the overfitting ceiling | SE ratio 0.7276 to 0.7543 | **fail** |
+| `crossfit_overfitting` | `cross_fitted_mtp_ltmle` | positive | five-fold policy LTMLE with interpolating extra-trees outcome learners | SE ratio clears the overfitting floor and stays inside the sanity band | SE ratio 1.1460 to 1.1877 | pass |
+| `crossfit_overfitting` | `in_sample_control` | control | the same flexible learner fitted in sample, with no cross-fitting | SE ratio must fall below the overfitting ceiling | SE ratio 0.6634 to 0.6882 | pass |
 | `double_robustness` | `up__both_correct` | positive | the contrast of the shift up at both nodes against the natural course: both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000553 to 0.000877, margin 0.0022, SE ratio 1.0070 | pass |
 | `double_robustness` | `up__both_wrong` | control | the contrast of the shift up at both nodes against the natural course: both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias 0.0343 to 0.0363, margin 0.0031, SE ratio 1.1475 | pass |
 | `double_robustness` | `up__mechanism_correct` | positive | the contrast of the shift up at both nodes against the natural course: only the mechanisms are correctly specified, read from 320 oracle bins so the binned density's own first-order error stays below the margin | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000664 to 0.000930, margin 0.0024, SE ratio 0.9574 | pass |
@@ -172,29 +172,58 @@ the true log ratio, so the classifier is correctly specified. `inverse_necessity
 history` twice on one sample. The positive arm reads Equation (3) at the declared inverse, and
 the control reads it at the dose itself.
 
-Two property cells fail their own rule. The diagnosis finds no defect in the estimator. The
-cross-fitted tree arm passes its own rule, but its family's joint clause fails with the control,
-so the ledger counts three red cells. The table gives each reading. The owner row
-`mtp-longitudinal-limits` holds all three.
+One property cell fails its own rule, and the diagnosis finds no defect. The owner row
+`mtp-longitudinal-limits` holds it.
 
 | cell | measured | reading |
 | --- | --- | --- |
-| `interval_calibration/categorical_mtp__correctly_specified` | efficiency ratios 1.12 and 1.10 against a band of 0.9 to 1.1; coverage 0.9435 | finite-sample: with saturated learners the ratio falls from 1.07 at n = 2,000 to 1.02 at n = 8,000 |
-| `crossfit_overfitting/in_sample_control` | SE ratio 0.741, 99% interval ending at 0.754 against a ceiling of 0.75; paired coverage gain 0.116 to 0.136 against a floor of 0.15 | control underpowered by design: the gain misses its floor at its point estimate, 0.126, so no budget passes it. The in-sample trees fit every outcome exactly, so the control's standard error is the spread of the plug-in at the shifted dose |
+| `interval_calibration/categorical_mtp__correctly_specified` | efficiency ratios 1.120 and 1.098 against a band of 0.9 to 1.1; coverage 0.9435; SE ratio 0.980 | finite-sample, sparse cells |
 
-The categorical cell's outcome regression is a logistic GLM, and the six-level law has a linear
-probability, so the outcome regression is not exactly specified. The mechanism is the law's own,
-so the fit is consistent through the mechanism.
+The cell fits saturated cell probabilities for the six-level mechanism. Both outcome regressions
+are misspecified, although the cell's stream is named `correctly_specified`. At node 2 a logistic
+GLM fits a linear probability. At node 1 least squares fits a regression that is nonlinear in the
+first dose. The estimate does not depend on them: with a saturated mechanism on a finite law, the
+fit equals the NPMLE whatever the outcome learner. A diagnostic refitted the cell on fresh draws
+([`tests/diagnostics/longitudinal_mtp_categorical_efficiency/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/longitudinal_mtp_categorical_efficiency)).
 
-A fully grown tree cannot learn the dose hazard of the overfitting pair. A probe on one draw gave
-infinite ratios in the cross-fitted arm. The in-sample control's standard error was 0.0211 with
-the learned hazard and with the oracle, because the control multiplies the ratio by zero
-residuals.
+| fit | reported efficiency ratio, n = 2,000 | the same, n = 8,000 |
+| --- | ---: | ---: |
+| in sample, as declared | 1.103 | 1.023 |
+| five folds | 1.389 | 1.048 |
+
+The reported ratio's excess falls about four times as $n$ grows four times. That is the order of
+the cost of estimating sparse cell probabilities. At larger sizes the reported ratio reads 1.019
+at n = 8,000, 1.005 at n = 32,000 and 1.003 at n = 128,000, on 20 draws each (`large_n.log` in
+the same directory). A wrong bound or an inefficient curve would keep its excess as $n$ grows.
+
+The empirical ratio, 1.107 and 1.052 on the diagnostic's draws, is too noisy to show this alone.
+It reads the same estimates as an NPMLE, which is efficient at this bound. The cell read the same
+in runs 2 and 3.
+
+**The overfitting pair.** Run 2 published the pair red. A single fully grown tree returns one
+training outcome at a shifted dose, so the in-sample curve kept the outcome noise, and the
+control could not reach its margins. Run 3 fits an interpolating extra-trees ensemble in both
+arms, with the margins unchanged. The control reads an SE ratio of 0.675 and the cross-fitted arm
+1.166, and the pair passes. The pre-run probe and the design screen are in
+[`tests/diagnostics/longitudinal_mtp_overfit_design/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/longitudinal_mtp_overfit_design).
+
+Part of the control's coverage loss comes from its bias, about 0.89 of its empirical SD, because
+the in-sample fit is the ensemble's plug-in. The SE-ratio clause measures the understated
+standard error directly.
+
+Before the run, the probe put the cross-fitted arm's pass probability at about 0.23, or about 0.4
+with the screen's draws. Its SE ratio sits near the top of the 0.8 to 1.2 band, and more
+replications cannot move a structurally conservative ratio. The declaration routed a red there
+to `reporting`. The run read 1.166, inside the band.
+
+A fully grown tree cannot learn the dose hazard of the pair. On two draws, trees with leaves of 5
+to 200 rows gave cross-fitted standard errors of 1e17 or more, and a tree with leaves of one row
+gave none (`checks.jsonl`). The in-sample control's standard error stayed between 0.0206 and
+0.0211, because the control multiplies the ratio by zero residuals. So learning the hazard could
+not make the control discriminate.
 
 The study was declared `gated`. By the red-cell rule it moved to `reporting` before a repeat run
-with no other change, and the repeat reproduced every artifact. The routing commit before the
-repeat named the control alone. The cross-fitted arm joined the owner after the repeat, because
-the routing read `passed` and not `property_passed`.
+of run 2. Run 3 kept the categorical cell's declared route.
 
 ## Measured values and declared margins
 
@@ -209,13 +238,13 @@ the committed results and checked at the precision printed.
 | `independent_tests_total` | 44 | truth tests reported |
 | `paired_tests_passed` | 22 | paired comparisons passing |
 | `paired_tests_total` | 22 | paired comparisons reported |
-| `property_cells_passed` | 37 | property cells passing |
+| `property_cells_passed` | 39 | property cells passing |
 | `property_cells_total` | 40 | property cells reported |
 | `max_standardized_bias` | 0.0731 | largest primary standardized bias |
 | `min_coverage` | 0.9380 | lowest primary coverage |
 | `max_margin_utilization` | 0.0216 | largest paired similarity-margin share |
-| `properties[crossfit_overfitting/cross_fitted_mtp_ltmle]:coverage` | 0.9772 | cross-fitted tree coverage |
-| `properties[crossfit_overfitting/in_sample_control]:coverage` | 0.8511 | in-sample tree coverage |
+| `properties[crossfit_overfitting/cross_fitted_mtp_ltmle]:coverage` | 0.9743 | cross-fitted tree coverage |
+| `properties[crossfit_overfitting/in_sample_control]:coverage` | 0.6455 | in-sample tree coverage |
 | `margin:confidence_level` | 0.9900 | Monte Carlo confidence level |
 | `margin:standardized_bias` | 0.2500 | standardized-bias margin |
 | `margin:coverage_floor` | 0.9000 | primary coverage floor |
@@ -257,7 +286,7 @@ the committed results and checked at the precision printed.
 | one continuous law, one categorical law and one binary law, each with two nodes | the evidence covers these laws with policies fixed before the run |
 | the density is an oracle | a continuous node reads the generating density through a bin count that grows with $n$. The default estimated density is not tested here |
 | the cross-fitted pairs compare two constructions | `lmtp` 1.5.4 fluctuates on the training rows of each fold. The pairs pass, but they are not exactness checks |
-| three property cells are red under `reporting` | a finite-sample categorical calibration cell, and the cross-fit tree pair whose control sits near its ceiling. The `mtp-longitudinal-limits` owner holds them |
+| one property cell is red under `reporting` | a finite-sample categorical calibration cell with sparse cells. The `mtp-longitudinal-limits` owner holds it |
 | the tilt pairing copies each unit four times | the pairing needs every branch weight on a grid of one quarter |
 | a vector node with a continuous component is refused | [X31](../../roadmap.md#x31-continuous-vector-components-at-a-node) owns it |
 | a policy must be known and fixed | a policy learned from the sample, or one that depends on the law, is outside this evidence |
