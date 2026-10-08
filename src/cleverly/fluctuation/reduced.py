@@ -6,9 +6,9 @@ A plain TMLE solves one score equation per counterfactual mean,
 remainder is a signed integral carrying both nuisance errors, bounded under positivity by
 :math:`\|\hat g - g_0\| \cdot \|\hat{\bar Q} - \bar Q_0\|`, and :math:`\sqrt n` times that
 bound needs *both* factors shrinking.  van der Laan (2014) and
-Benkeser, Carone, van der Laan & Gilbert (2017) buy an interval that survives one
-inconsistent nuisance by solving two further equations, written here in the numbering the
-software paper uses (Benkeser & Hejazi 2023, Observational Studies 9(2):43-78):
+Benkeser, Carone, van der Laan & Gilbert (2017) solve two further equations that remove the
+part of the remainder that is a function of the consistent nuisance, written here in the
+numbering the software paper uses (Benkeser & Hejazi 2023, Observational Studies 9(2):43-78):
 
 .. math::
 

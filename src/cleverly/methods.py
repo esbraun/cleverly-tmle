@@ -787,7 +787,8 @@ class CollaborativeTMLEMethod(TMLEMethod):
     See Also
     --------
     TMLEMethod : The base configuration, without covariate selection.
-    DRTMLEMethod : The other correction for a mechanism that is hard to fit.
+    DRTMLEMethod : Extra score equations against one inconsistent nuisance, valid in the cases its
+        contract lists.
     cleverly.estimators.ctmle : Why selection is made against the targeted loss.
 
     Notes
@@ -878,7 +879,7 @@ class DRTMLEMethod(TMLEMethod):
     name : str
         Stable method name.
     guard : tuple of {"Q", "g"}, default=("Q", "g")
-        Nuisance components protected by the correction.
+        The extra score equations to solve, named by the nuisance they target.
     reduction : {"univariate", "bivariate"}, default="univariate"
         Reduced-regression family.
     reduced_outcome_learner : estimator or None, default=None
@@ -900,7 +901,7 @@ class DRTMLEMethod(TMLEMethod):
     See Also
     --------
     TMLEMethod : The base configuration, without the reduced-dimension correction.
-    CollaborativeTMLEMethod : The other correction for a mechanism that is hard to fit.
+    CollaborativeTMLEMethod : A treatment mechanism selected for the targeted estimate.
     ModelSpec : Owns the first-stage learners the reduced regressions correct.
 
     Examples

@@ -30,8 +30,10 @@ CALIBRATION_N = 3000
 #: equivalence margin of a quarter of an empirical standard deviation, and on this law the two
 #: one-correct cells exceed it at ``n = 1,500``.  A single red cell cannot say which of two
 #: very different things happened: a second-order remainder that has not yet decayed, which is
-#: what Theorem 1 predicts and leaves the interval eventually valid, or an estimator that is
-#: not consistent at all.  Those have the same appearance at one size and opposite meanings.
+#: what Theorem 1 predicts on this law and leaves the interval eventually valid, or an estimator
+#: that is not consistent at all.  The law is H1 in both branches by symmetry
+#: (``tests/unit/test_drtmle_h1_symmetry.py``), so its conditioning terms vanish and the
+#: one-correct cells measure second-order terms only.  Those have the same appearance at one size and opposite meanings.
 #:
 #: Fitting log |bias| on log ``n`` tests whether the observed bias contracts.  A second-order
 #: remainder predicts a slope near ``-1``, a first-order term predicts one near ``-1/2``, and an

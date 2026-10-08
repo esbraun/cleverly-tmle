@@ -11,9 +11,12 @@ which is why one consistent nuisance suffices for *consistency*.  It is also why
 consistent nuisance does **not** suffice for *inference*: with the other factor not
 shrinking, :math:`R_2` is first order in the good one's error, :math:`\sqrt n R_2` does not
 vanish, and the estimator stops being asymptotically linear.  Doubly robust inference
-(van der Laan 2014; Benkeser, Carone, van der Laan & Gilbert 2017) repairs that by
-estimating the first-order part of :math:`R_2` with *reduced-dimension* regressions and
-solving their score equations too.
+(van der Laan 2014; Benkeser, Carone, van der Laan & Gilbert 2017) estimates the part of
+:math:`R_2`'s first-order term that is a function of the consistent nuisance with
+*reduced-dimension* regressions, and solves their score equations too.  The rest, a
+conditioning term linear in the consistent nuisance's error, is zero on the laws below
+because the consistent nuisance separates every cell;
+:mod:`tests.unit.test_conditioning_remainder_drtmle` adds a law where it is not.
 
 Written in this package's notation, with :math:`1_a = 1\{A = a\}`, the reduced regressions
 are, relative to a given :math:`\hat{\bar Q}` and :math:`\hat g`,
@@ -52,14 +55,17 @@ would pass against a wrong sign, a sum where a difference belongs, or a wrong
 numerator does.  The remainder idiom evaluates the expansion at nuisances that are **wrong
 on purpose**, where all of that is visible and every term is an exact finite sum.
 
-**One guard removes the whole first-order remainder; two over-correct.**  That is the
+**On a finite law whose consistent nuisance separates every cell, one guard removes the
+whole first-order remainder; two over-correct.**  That is the
 finding this module exists to state, and it is not a defect.  Each extra equation subtracts a
 *projection* of :math:`R_2` -- equation (9) onto :math:`\sigma(\hat g)`, the other onto
 :math:`\sigma(\hat{\bar Q})`.  On a three-cell law with distinct nuisance values both
 :math:`\sigma`-algebras are all of :math:`\sigma(W)`, so **either** projection recovers the
-whole of :math:`R_2` and subtracting both leaves :math:`-R_2`.  Asymptotically that is
-harmless, because at most one of the two errors fails to vanish and so at most one projection
-is non-negligible; here it is exact arithmetic, and asserting that "the remainder vanishes
+whole of :math:`R_2` and subtracting both leaves :math:`-R_2`.  On a continuous law one
+guard removes the projection on :math:`\sigma(\hat g)` only, and the conditioning term can
+remain (``docs/technical-reference/dr-tmle/theorem.md`` lists when it vanishes).  The pair
+costs nothing asymptotically, because with one nuisance consistent the correction built from
+its residual tends to zero (Appendix C).  Here it is exact arithmetic, and asserting that "the remainder vanishes
 when both guards are on" would be asserting something false.  The tie constants below are
 what make the single-guard claim non-trivial: with :math:`\hat g` tied across two cells,
 :math:`\sigma(\hat g)` is genuinely coarser than :math:`\sigma(W)` and the g-guard no longer
@@ -363,8 +369,9 @@ class TestOneGuardRemovesTheFirstOrderRemainder:
     :math:`\\sigma`-algebra its reduced regression conditions on.  Where that is all of
     :math:`\\sigma(W)` -- which is the case on this law whenever the conditioning nuisance
     takes three distinct values -- the projection is the identity and the guard removes the
-    remainder outright.  That is what "doubly robust inference" buys, in the one setting
-    where it can be checked to machine precision rather than simulated.
+    remainder outright.  That holds because the conditioning nuisance separates every cell;
+    on a continuous law the conditioning term can remain
+    (:mod:`tests.unit.test_conditioning_remainder_drtmle`).
     """
 
     @pytest.mark.parametrize("guard", [("Q",), ("g",)])
@@ -416,9 +423,9 @@ class TestTwoGuardsOverCorrectOnASaturatedLaw:
 
     Each guard subtracts a projection, and on a law where both conditioning
     :math:`\\sigma`-algebras are all of :math:`\\sigma(W)` each projection is the whole
-    remainder, so the pair subtracts it twice.  Asymptotically at most one of the two nuisance
-    errors fails to vanish, so at most one projection is non-negligible and the pair costs
-    nothing -- which is why ``drtmle`` solves both by default.  Pinned here so that a later
+    remainder, so the pair subtracts it twice.  With one nuisance consistent, the correction
+    built from that nuisance's residual tends to zero (Benkeser et al. 2017, Appendix C), so
+    the pair costs nothing asymptotically -- which is why ``drtmle`` solves both by default.  Pinned here so that a later
     reader meeting the exact-law number does not "fix" a combination that is correct.
     """
 
@@ -546,10 +553,12 @@ class TestTheReducedOutcomeRegressionConditionsOnTheArm:
 class TestTheRemainderCarriesAReducedErrorAndAPrimaryOne:
     """What is left is second order in the *reduced* regressions' error, not in the nuisances'.
 
-    This is the theorem's actual mechanism, and it is why the reduced regressions may be
-    estimated at univariate rates however badly the primary nuisances do: what survives a
-    guard is a **product** of that guard's reduced error with a primary nuisance error, so
-    each factor only has to shrink at :math:`n^{-1/4}`.
+    This is the theorem's mechanism for the reduced regressions' own error.  What survives a
+    guard is a **product** of that guard's reduced error with a primary nuisance error only
+    when the consistent nuisance's error keeps the level sets of its truth, or on a law where
+    the term vanishes (H1); this law is one, because its nuisances separate every cell.
+    Otherwise a term linear in that error remains
+    (:mod:`tests.unit.test_conditioning_remainder_drtmle`).
 
     Measuring it needs the reduced regressions perturbed away from their true values, which
     is what :data:`QR_DIRECTION` is for.  Scaling the primary errors alone cannot show it: on

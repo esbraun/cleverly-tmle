@@ -268,7 +268,9 @@ class TestAFitWithOracleReductionsRecoversTheTruth:
 
     That is :mod:`tests.unit.test_remainder_drtmle`'s arithmetic arriving at the other end of
     the estimator.  That module shows on this law that one guard removes the whole first-order
-    remainder at exact reductions; here the same law is *fitted*, and what the expansion says
+    remainder at exact reductions, because the consistent nuisance separates every cell (on a
+    continuous law the conditioning term of :mod:`tests.unit.test_conditioning_remainder_drtmle`
+    can remain); here the same law is *fitted*, and what the expansion says
     should happen to :math:`\hat\Psi` happens to it.  The two are independent in the way that
     matters -- one is a hand-written expansion, the other is the production alternation -- so
     this is the end-to-end confirmation the arithmetic could not give itself.

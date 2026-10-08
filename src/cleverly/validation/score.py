@@ -439,8 +439,9 @@ class ScoreCheck:
             # Not "the efficient score equation": this fit solved *its own* equations, and
             # the curve they leave is the estimator's influence function at the nuisance
             # limits. The two coincide when both nuisances are consistent, because the
-            # corrections then vanish row by row -- and that is exactly the case the
-            # variant is not for.
+            # corrections then vanish row by row -- the corrections add cost and no
+            # asymptotic gain there. With one nuisance wrong the interval holds only in the
+            # cases the contract lists (dr-tmle/theorem.md, the conditioning terms).
             solved = sum(1 for row in self.rows if row.kind == "fluctuation")
             verdict = "\n".join(
                 [
@@ -448,10 +449,10 @@ class ScoreCheck:
                     "of the doubly-robust estimator.",
                     *(
                         [
-                            f"Validity is not efficiency: the curve reported is {self._curve()}, "
-                            "entitled to be believed",
-                            "under weaker conditions than D* rather than efficient under them. See "
-                            "cleverly.estimators.drtmle.",
+                            f"Validity is not efficiency: the curve reported is {self._curve()}. "
+                            "Theorem 1 makes it valid under its conditions.",
+                            "With one wrong nuisance it holds only in the cases "
+                            "cleverly.estimators.drtmle lists.",
                         ]
                         if supplies_inference(self.inference)
                         else [
