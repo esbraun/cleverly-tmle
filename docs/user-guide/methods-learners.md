@@ -28,11 +28,10 @@ Call `effect.available_methods()` before fitting when method availability matter
 method comes with a capability reason.
 
 The collaborative fit above reports no confidence interval, no p-value, and no standard error. The
-`"greedy"` strategy is the default. `"ordered"` and `"discrete"` refuse the same three accessors.
-Each estimate keeps `plugin_std_error` and `plugin_interval` as a diagnostic. For an interval, use
-`TMLEMethod`, or `strategy="oat"` with its default per-arm design on complete data without strata.
-[Collaborative TMLE](../technical-reference/collaborative-tmle.md) gives the reason for each
-strategy.
+`"greedy"` strategy is the default. `"ordered"`, `"discrete"`, and `"oat"` refuse the same three
+accessors. Each estimate keeps `plugin_std_error` and `plugin_interval` as a diagnostic. For an
+interval, use `TMLEMethod`. [Collaborative TMLE](../technical-reference/collaborative-tmle.md)
+gives the reason for each strategy.
 
 Both variants are named here with a parametric learner on purpose. Neither fits a fixed number of
 nuisance models: collaborative TMLE fits one per candidate along its selection path, and DR-TMLE

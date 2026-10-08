@@ -1091,7 +1091,10 @@ sizes only the cluster sum is the delta-method variance of the row mean
   10 states the ATE route: "repeating the entire procedure but switching the labeling of the
   treatment". The proof on pages 30-31 splits the remainder into $R_{21}$ to $R_{24}$, and
   $R_{24}$ is the generated-regressor term that conditions (ii), (iii), (v) and (vi) make second
-  order. Section 4.1, page 12, reports that "the estimated standard errors of CTMLE had poor
+  order. Condition (v), on page 33, bounds a derivative of $P(A = 1 \mid \bar Q_n, \bar Q_0)$ in
+  $\bar Q_0$. Page 33 calls it "a technical condition" that is sufficient and not necessary. It
+  fails for a root-$n$ outcome regression on a continuous $W$, so $R_{24}$ is first order, and the
+  per-arm study measured the resulting deficit. Section 4.1, page 12, reports that "the estimated standard errors of CTMLE had poor
   performance, often underestimating the true variability of the estimator". The Discussion,
   pages 17-18, calls the estimator "an irregular estimator" and notes "the poor behavior of the
   confidence intervals in both simulations". The published article was not reachable from this
@@ -1378,8 +1381,9 @@ sizes only the cluster sum is the delta-method variance of the row mean
   asymptotic law of the shipped selector or the full multi-arm outcome-adaptive construction. The
   binary scalar outcome-adaptive construction has a positive theorem after the fold-nesting
   correction described below. The shared design is a finite-dimensional extension whose exact
-  scalar expansions are not stated in the paper. The per-arm design, which X17 ships, reduces to
-  the paper's scalar construction arm by arm. The contracts carry those separate verdicts.
+  scalar expansions are not stated in the paper. The per-arm design reduces to the paper's scalar
+  construction arm by arm, and its interval is withheld because condition (v) fails. The
+  contracts carry those separate verdicts.
 
   The selector path has outer nuisance, selection, and inner selection-training folds. Its
   pointwise and simultaneous intervals use a plug-in curve that treats the selected candidate as

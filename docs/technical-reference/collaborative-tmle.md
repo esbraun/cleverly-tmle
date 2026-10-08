@@ -268,7 +268,7 @@ especially important unresolved regime.
 
 | design | treatment mechanism | status |
 | --- | --- | --- |
-| `"per_arm"`, the default | for each arm $a$, a binary regression of $1\{A = a\}$ on the one column $\bar Q_n(a, W)$. Column $a$ holds $P(A = a \mid \bar Q_n(a, W))$, so the rows are not a distribution over the arms | the ordinary TMLE status on complete data without baseline strata. Otherwise `"generated_design_plugin"` |
+| `"per_arm"`, the default | for each arm $a$, a binary regression of $1\{A = a\}$ on the one column $\bar Q_n(a, W)$. Column $a$ holds $P(A = a \mid \bar Q_n(a, W))$, so the rows are not a distribution over the arms | `"generated_design_plugin"` on every fit. See [the applied revert](#the-applied-revert) |
 | `"shared"` | one categorical regression of $A$ on the vector $[\bar Q_n(a, W) : a]$, as the archived `ctmle3` `LF_oat` fits it | `"generated_design_plugin"` on every fit |
 
 Both designs use the ordinary $K$-column mean fluctuation. Its columns $1\{A = a\}/g_a$ have
@@ -283,11 +283,15 @@ appendices inconsistently: the text cites "Appendix G" for the conditions, which
 Appendix F, and the Remark cites "Appendix F" for the direct ATE estimator, which is in
 Appendix D.
 
+The table states the construction of the per-arm curve. `plugin_std_error` and
+`plugin_interval` report it as a diagnostic. No fit reports it as an interval, because condition
+(v) fails for an estimated outcome regression.
+
 | item | content |
 | --- | --- |
 | base result | Theorem 1 (preprint p. 9) and its construction, Section 3, steps 1-7 (pp. 8-9). Conditions (i)-(vi) and the proof are in Appendix F, "Details for Theorem 1" (pp. 28-33) |
-| the reported curve | $D(O \mid \bar Q_0, Q_{0,W}, G_0(\cdot \mid \bar Q_0))$, the influence function of Theorem 1, with $G_0(a \mid \bar Q_0) = P(A = a \mid \bar Q_0(a, W))$. It is not the efficient influence function. Its variance is at most the efficient variance, because the estimator is superefficient |
-| why no generated-design term | the proof writes the remainder as $R_{21} + R_{22} + R_{23} + R_{24}$ (pp. 30-31). $R_{24}$ is the effect of the generated regressor. Lemma 1 and condition (v) bound it by $\lVert \bar Q_n - \bar Q_0 \rVert$, and condition (ii) makes the product second order. $R_{22}$ is condition (vi) and $R_{23}$ is condition (iii) |
+| the diagnostic curve | $D(O \mid \bar Q_0, Q_{0,W}, G_0(\cdot \mid \bar Q_0))$, the influence function of Theorem 1, with $G_0(a \mid \bar Q_0) = P(A = a \mid \bar Q_0(a, W))$. It is not the efficient influence function. Its variance is at most the efficient variance |
+| the generated-design term | the proof writes the remainder as $R_{21} + R_{22} + R_{23} + R_{24}$ (pp. 30-31). $R_{24}$ is the effect of the generated regressor. Lemma 1 and condition (v) bound it by $\lVert \bar Q_n - \bar Q_0 \rVert$, and condition (ii) makes the product second order. $R_{22}$ is condition (vi) and $R_{23}$ is condition (iii). Condition (v) fails for an estimated outcome regression, so $R_{24}$ is first order. See [the applied revert](#the-applied-revert) |
 | the measurability step | the proof replaces $A$ by $G_0(\cdot \mid \bar Q_n, \bar Q_0)$ inside $P_0[(G_n - A) f]$. That step needs $f$ to be a function of $(\bar Q_n(W), \bar Q_0(W))$. In `cleverly`, $Q^*(a, W) = \operatorname{expit}(\operatorname{logit} \bar Q_n(a, W) + \epsilon_a / g_a(\bar Q_n(a, W)))$, and the fluctuation reads column $a$ only. So $Q^*(a, \cdot)$ is a function of $\bar Q_n(a, W)$, in sample and in each fold |
 | (a) one arm mean | Theorem 1 directly. The design is the arm's own initial prediction |
 | (b) every arm | an indicator reduction to $1\{A = a\}$ for each arm, as the Remark on p. 10 states: "repeating the entire procedure but switching the labeling of the treatment". Then a fixed-dimension stack of the $K$ curves on the same rows. The joint covariance comes from the stacked curves |
@@ -296,18 +300,12 @@ Appendix D.
 | (e) fixed weights | Theorem 1 under the weight-tilted law. The weighted projection gives the same identity, and the weight is a known bounded factor. Weights declared estimated take the `"estimated_weight_plugin"` status. The argument that an interval conditions on the weights concerns the efficient curve, and this curve is Theorem 1's. No cell of the registered study measures estimated weights |
 | (f) repeated splits | each draw is asymptotically linear with the same split-free curve, so the median estimate is the estimator of Chernozhukov et al. (2018), equation (3.14). A default band beside `repeats > 1` is refused, as for `TMLE` |
 | variance | in sample, the empirical variance of the reported curve. Cross-fitted, the variance of the stacked out-of-fold curve |
-| conditions | (i) the curve equation is solved to $o_P(n^{-1/2})$. (ii) $\bar Q_n$ and $Q^*_n$ converge at $o_P(n^{-1/4})$ in $L_2(P_0)$. (iii) the treatment learner is consistent for $P(A = a \mid \bar Q_n(a, W))$ at $o_P(n^{-1/4})$. A misspecified learner makes $R_{23}$ first order whenever $Q^*_n - \bar Q_0 = O_P(n^{-1/2})$, which includes every correctly specified parametric outcome model. (iv) the curve converges in $L_2$, and in sample its class is Donsker. (v) $G_0(\cdot \mid \bar Q_n, \bar Q_0)$ is differentiable in $\bar Q_0$ with a bounded derivative. (vi) the term from fitting $G$ on the initial $\bar Q_n$ is negligible. Positivity: the projection $P(A = a \mid \bar Q_0(a, W))$ lies inside `g_bounds`. Also iid rows, or fixed known weights, and a consistent outcome regression. A correct $g$ alone does not give consistency |
+| conditions | (i) the curve equation is solved to $o_P(n^{-1/2})$. (ii) $\bar Q_n$ and $Q^*_n$ converge at $o_P(n^{-1/4})$ in $L_2(P_0)$. (iii) the treatment learner is consistent for $P(A = a \mid \bar Q_n(a, W))$ at $o_P(n^{-1/4})$. A misspecified learner makes $R_{23}$ first order whenever $Q^*_n - \bar Q_0 = O_P(n^{-1/2})$, which includes every correctly specified parametric outcome model. (iv) the curve converges in $L_2$, and in sample its class is Donsker. (v) $G_0(\cdot \mid \bar Q_n, \bar Q_0)$ is differentiable in $\bar Q_0$ with a bounded derivative. This condition fails for a root-$n$ outcome regression on a continuous $W$, as the next section states. (vi) the term from fitting $G$ on the initial $\bar Q_n$ is negligible. Positivity: the projection $P(A = a \mid \bar Q_0(a, W))$ lies inside `g_bounds`. Also iid rows, or fixed known weights, and a consistent outcome regression. A correct $g$ alone does not give consistency |
 | the source's warnings | Section 4.1 (p. 12): "the estimated standard errors of CTMLE had poor performance, often underestimating the true variability of the estimator". The Discussion (pp. 17-18) calls the CTMLE "an irregular estimator, it may perform poorly for certain data generating distributions", and notes "the poor behavior of the confidence intervals in both simulations". The limit is pointwise at a fixed law. It is not locally uniform |
-| admitted | `strategy="oat"`, `oat_design="per_arm"`, complete outcomes and treatment, no `strata=`, no weights or fixed weights, and `repeats >= 1`. In sample and cross-fitted, at any arm count. Estimands `ey`, `ey1`, `ey0`, `ate`, `rr`, `or`, `ey_obs`, `par` and `paf`. Outputs: the pointwise interval, the p-value, the default band at one split, the derived contrasts, the E-value with its interval, and `variable_importance` |
-| withheld | every `oat_design="shared"` fit, which [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) holds, and a per-arm fit with `delta=` or `strata=`, which [X29](../roadmap.md#x29-per-arm-outcome-adaptive-c-tmle-with-baseline-strata-and-missing-data) holds |
+| the key's cases | `strategy="oat"`, `oat_design="per_arm"`, complete outcomes and treatment, no `strata=`, no weights or fixed weights, and `repeats >= 1`. In sample and cross-fitted, at any arm count. Estimands `ey`, `ey1`, `ey0`, `ate`, `rr`, `or`, `ey_obs`, `par` and `paf`. These fits withhold their interval while the revert flag is `False` |
+| withheld | every `strategy="oat"` fit, of either design. [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) holds the generated-design term of both designs. A per-arm fit with `delta=` or `strata=` also has no construction, and [X29](../roadmap.md#x29-per-arm-outcome-adaptive-c-tmle-with-baseline-strata-and-missing-data) holds it |
 | bootstrap | `n_bootstrap=` is a diagnostic on every `oat` fit. Theorem 1 does not cover the bootstrap of a superefficient estimator |
 | key | `per_arm_design_admits(estimator, data)` in `cleverly.estimators.ctmle`. It reads the strategy, the design, the missing outcomes and treatment, the strata and the revert flag, and never a fitted array |
-
-**The revert flag.** `OAT_PER_ARM_INFERENTIAL` in `cleverly.estimators.ctmle` is `True` while the
-registered study `ctmle-oat-per-arm` supports the admitted fits. Its declaration lists the
-positive coverage and calibration cells that the flag reads. If one of them is red and no defect
-is found, the flag becomes `False`. Every per-arm fit then takes `"generated_design_plugin"`, and
-the reason names the red cells.
 
 **The shared design publishes no inference.** It fits one categorical mechanism on the outcome
 predictions of every arm. Theorem 1 covers one scalar design, and no reviewed result supplies the
@@ -318,11 +316,14 @@ independent sample.
 
 Every `oat_design="shared"` fit takes the `"generated_design_plugin"` status.
 `ci`, `pvalue` and `std_error` raise `CapabilityError` with the reason of the status, and the
-`summary()` column is `generated-design se`. At `n = 1,000`, the registered point-treatment pair
+`summary()` column is `generated-design se`.
+
+At `n = 1,000`, the registered point-treatment pair
 resolves a finite-sample deficit in the standard-error ratio without invalid coverage. The
-multi-arm pair resolves no deficit. Neither measurement identifies a first-order term.
+multi-arm pair resolves no deficit. Neither measurement identifies a first-order term. The
+per-arm measurement does, because its study pins the design to the truth in a paired cell.
 [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) records the shared
-design and uniformity for both designs.
+design, the generated-design term and uniformity for both designs.
 [RM20](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm20-intervals-outside-every-claimed-contract) records the first decision.
 
 The selector paths report no interval. Each one reports the spread of the ordinary plug-in curve
@@ -341,7 +342,55 @@ result cited in the audit fixes its data-adaptive complexity bound rather than r
 | --- | --- |
 | [selector-based point-treatment C-TMLE](method-evidence/selector-based-point-treatment-c-tmle.md) | greedy, ordered, and discrete selectors against R `ctmle` 0.1.2, with a forced-selection versus empty-path control. Parity is unpenalized, non-cross-fitted, and binary-ATE only |
 | [outcome-adaptive point-treatment C-TMLE](method-evidence/outcome-adaptive-point-treatment-c-tmle.md) | the shared design against the archived `ctmle3`, including a pinned-versus-estimated design pair that measures the finite-sample cost of estimating the design |
-| the registered study `ctmle-oat-per-arm` | the per-arm design against R `drtmle` 1.1.2 with `adapt_g = TRUE`, by a binary recode per arm, on two laws with an arm-specific outcome index and an instrument. Declared, and not yet run |
+| the registered study `ctmle-oat-per-arm` | the per-arm design against R `drtmle` 1.1.2 with `adapt_g = TRUE`, by a binary recode per arm, on two laws with an arm-specific outcome index and an instrument. Its declared revert cells are red, so every per-arm fit withholds its interval. [The applied revert](#the-applied-revert) gives the cells |
+| `tests/diagnostics/x17_generated_design/` | the generated-design term $c^\top \mathrm{IF}_\beta$ restores the standard-error ratio on the binary law |
 | `tests/unit/test_outcome_adaptive_per_arm.py` | an exact law on which the two designs differ, the curve of Theorem 1 row by row, in-sample and cross-fitted longhands to `1e-8`, the joint covariance, and fixed weights against duplicated rows. Its class `TestEachMutationFailsItsCheck` applies 13 mutations by `monkeypatch`, and each one fails its check |
 | `tests/unit/test_shared_oat_replay.py` | the shared design refits replication 0 of each registered `ctmle3` study to its committed rows |
 | [estimator variants over registered targets](evidence.md#estimator-variants-over-registered-targets) | the candidate-path identities, the selection mutations, and the outcome-adaptive design witnesses |
+
+### The applied revert
+
+`OAT_PER_ARM_INFERENTIAL` in `cleverly.estimators.ctmle` is `False`. Every per-arm fit takes
+`"generated_design_plugin"`, and the reason names condition (v) and the registered study.
+
+The study `ctmle-oat-per-arm` declared its positive coverage and calibration cells as the cells
+that the flag reads. Before the run, it declared that a red cell with no defect sets the flag to
+`False`. The table gives the run at the declared budgets.
+
+| cells | standard-error ratio | coverage |
+| --- | --- | --- |
+| primary, binary law, seven estimands | 0.78 to 0.85 | 0.888 to 0.916 |
+| primary, three-arm law, nine estimands | 0.76 to 0.92 | 0.859 to 0.936 |
+| calibration, binary, three-arm, weighted and repeated fits | 0.84 to 0.89 | 0.900 to 0.911 |
+| generated design, estimated $\bar Q_n$ | 0.84 and 0.89 | 0.901 and 0.919 |
+| generated design, $\bar Q_n$ pinned to the truth | 0.997 and 1.009 | 0.946 and 0.950 |
+| the $n$ ladder, $n$ = 500, 2,000 and 8,000 | 0.83, 0.86 and 0.86 | 0.90 to 0.92 |
+| type I error at the sharp null | 0.88 | 0.904 |
+| the default band over the three-arm family | not applicable | 0.871 joint coverage |
+
+The deficit does not shrink with $n$. R `drtmle` 1.1.2, with `adapt_g = TRUE`, agrees with
+`cleverly` to `1e-8` in each estimate and standard error. The bias is equivalent to zero in each
+cell. So the code computes the curve that the paper states, and that curve omits a term.
+
+The cause is condition (v). For a root-$n$ outcome regression on a continuous $W$, the
+derivative in that condition grows like $n^{1/2}$, so $R_{24}$ is first order. The remainder is
+linear in $\bar Q_n - \bar Q_0$, with the factor $1 - g_0 / G$. For a parametric outcome
+model, the omitted term is $c^\top \mathrm{IF}_\beta$, with
+$c = E[(1 - g_0 / G)\, \partial \bar Q / \partial \beta]$. The paper reports the same
+symptom: its Section 4.1 (p. 12) and its Discussion (pp. 17-18) state that the standard errors
+underestimate the variability.
+
+`tests/diagnostics/x17_generated_design/run.py` adds $c^\top \mathrm{IF}_\beta$ to the
+reported curve, with the true $g_0$, on the binary law. Its `reading.txt` gives the result over
+400 draws.
+
+| fit | $n$ = 1,500: ratio, coverage | $n$ = 6,000: ratio, coverage |
+| --- | --- | --- |
+| per-arm, estimated $\bar Q_n$ | 0.876, 0.900 | 0.831, 0.905 |
+| the same curve with $c^\top \mathrm{IF}_\beta$ | 1.034, 0.960 | 0.983, 0.950 |
+| per-arm, $\bar Q_n$ pinned to the truth | 0.997, 0.938 | 0.988, 0.950 |
+
+The term needs the full mechanism $g_0$ and the influence function of the outcome learner. The
+per-arm design exists to avoid the first, and no source read here gives it for a flexible
+learner. [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) holds it.
+The point estimate stands, so the per-arm design stays the default.
