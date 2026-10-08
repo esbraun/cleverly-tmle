@@ -39,67 +39,79 @@ A new capability still needs its own contract and evidence, even in this queue.
 
 ### RM39. Keep a study run alive through a failed replicate
 
+Status: part a1 (resilience) is delivered. Parts a2 (failure recording and accounting) and b (the
+Python phase) are open. The section leaves this file when a2 and b merge.
+
 A registered study with a comparator runs in two phases. The Python phase fits `cleverly`. The
-reference phase fits the pinned comparator, usually R in its container. Today one failed replicate
-stops a phase or makes the summary refuse the run. A failure can come from separation,
-non-convergence or a container restart. A run of several hours is then lost to one draw.
+reference phase fits the pinned comparator, usually R in its container. Before RM39, one failed
+replicate stopped a phase, and a killed worker or container lost the whole phase. A run of several
+hours was then lost to one draw.
 
-| where | what happens today |
+Goal: one failed replicate costs one replicate. A killed worker costs the group in flight, a crash
+resumes, and the summary accounts for each failure against a declared bound. The row takes tier b,
+because its defect is a crash of a registered study run.
+
+| term | meaning |
 | --- | --- |
-| `tests/canonical/study_harness.R` | `study_fitter` and `study_stream` catch each error. `study_refuse_failures` then stops the script. `study_collect` writes the output once, at the end, so a stop writes no row |
-| streaming runners | `study_stream` keeps each completed batch in memory and stops at the first batch with a failure. The `lmtp`, `npcausal` and `stochastic_regimes` runners use it, and they are the longest runs |
-| runners outside the harness | `ctmle3_oat/run_ctmle3_oat.R`, `ctmle_selector/run_ctmle.R`, `drtmle/run_drtmle.R` and `zepid_cvtmle/run_zepid_cvtmle.py` stop at the first error too |
-| `tests/canonical/regenerate.py` | `Reference.run` runs the container with `check=True`. `_reference_rows` reuses a cached reference result only when it holds every replicate |
-| the Python phase | each `draw_and_fit` maps its fits with `map_parallel`, and one exception stops the phase. Only `CoverageStudy` records a failed fit, in the `failed_replicates` column |
-| the summary | `validate_replicates` refuses a cell with fewer rows than `StudyRecord.replicates`. `require_complete` refuses a property cell with a nonzero `failed_replicates` |
+| replicate | one drawn sample and its fits |
+| group | the unit that one fit call takes. A group can hold several scenarios |
+| kill | a group with a start marker and no checkpoint after a pass. Its worker died |
+| incomplete | a group with two kills. The run stops and names the group |
+| checkpoint | the stored result of one group. In part a2, also the failure record of one group |
+| resume key | the fields that two runs must share before they share checkpoints |
+| failure | in part a2, an error inside the declared comparator-fit stage. The run records it and counts it against the bound |
+| fatal error | any other error. It stops the phase |
 
-The [benchmarking strategy](development/method-benchmarking.md#reference-implementation-comparisons)
-states the current rule: fail the run on a dropped or unsuccessful replication. This row replaces
-that rule with a failure bound that the study declares before its run.
+#### Part a1: resilience
 
-Goal: one failed replicate costs one replicate. The phase continues, a crash resumes, and the
-summary accounts for each failure against the declared bound. The row takes tier b, because its
-defect is a crash of a registered study run.
+Every error stays fatal in part a1. No summary, published table or verdict changes.
 
-| part | acceptance |
+| acceptance | status |
 | --- | --- |
-| (a) isolation of each replicate | each R runner fits each replicate under `tryCatch`. A failure writes one failed-replicate record: the implementation, the replicate key, the seed, the stage and the error message. The phase then continues. The runners outside the harness move onto it. A killed worker writes no record, so the phase reports it as incomplete, and a resume fits it again |
-| (a) systematic failure | when every one of the first 20 replicates of a cell fails, the phase stops. The cause is then the configuration, not the draw |
-| (b) a resumable reference phase | the harness writes each completed result and each failure record to a checkpoint in the run cache. A restart with the same cache fits only the replicates without a checkpoint. A resumed run writes output bytes identical to an uninterrupted run |
-| (b) a stale checkpoint | a checkpoint records the hashes of the runner, the harness, the container and the sample file. A resume refuses a checkpoint whose hashes differ |
-| (c) declared failure accounting | `StudyRecord` declares a failure bound for each implementation before the run. The default bound is zero, so an existing study keeps its behavior. A paired statistic reads only the replicates where both implementations succeeded |
-| (c) the report | the summary reports the failure count and rate of each implementation in each cell. A `failures.csv` artifact publishes each record. A rate above the bound makes the cell red, and the [red-cell rule](development/method-benchmarking.md#red-cells) routes it |
-| (c) no gain from a failure | a failure must not make a verdict easier to pass. A coverage or rejection rate counts each failed replicate as the outcome against the cell's claim, in the direction of the cell's role. A bias, spread or paired statistic must also pass when each failed replicate takes the worst value in the observed range of its cell |
-| (c) an informative-failure witness | a paired cell reports the error of the surviving implementation on the failed replicates against its error on the other replicates. The witness is a report, not the gate |
-| (d) the Python phase | the Python phase, the property studies and the Python comparator get the same isolation, the same records and the same checkpoint. A `CapabilityError` on a replicate is a design defect, so it still stops the phase |
-| (e) provenance | the edits are result-neutral for every committed study. Declare each changed source and each recorded hash in `tests/canonical/provenance-revisions.md`. Do not regenerate a study |
-| (f) tests | the tests in the next table pass, and the [benchmarking strategy](development/method-benchmarking.md) and [testing strategy](development/testing-strategy.md) state the new rule |
+| each R fit runs in a forked child and writes a checkpoint. No fit runs in the parent R process | delivered |
+| the run fits a killed group once more, alone, after it halves the workers. A second kill stops the run with exit 3 and names the group | delivered |
+| a pass that makes no progress stops the run with exit 3 | delivered |
+| a rerun resumes from the checkpoints and writes the bytes of an uninterrupted run | delivered |
+| the resume key holds the declaration without its output path, `HEAD` and the tree state, the reference sources, the harness, the content of the samples and the truth, n, the replicate count and the Python versions | delivered |
+| the worker count follows measured memory. Calibration fits the first group of each scenario in a fresh fork and measures its peak and its private memory | delivered |
+| the driver runs a container that was killed whole once more, with half the workers. A second kill stops the run | delivered |
+| a host lock and a container name refuse a second driver on one resume key | delivered |
+| `ctmle3_oat`, `ctmle_selector` and `drtmle` stay off the harness. Each carries a byte-identical copy of its RM39 functions | delivered |
+| each fit sets the seed that the driver declares for its replicate | delivered |
+| no study is regenerated, because the edits are result-neutral. A runner that fails the determinism gate stops the row | delivered |
 
-The design treats a failure conservatively, and it does not rely on a test that failures are
-independent of the outcome. That test cannot see the missing outcome of the failed implementation,
-so it cannot carry the gate alone. The range-bounded worst case can miss a failure whose value
-falls outside the observed range. A small declared bound limits that case.
+The [testing strategy](development/testing-strategy.md#resume-a-study-run) gives the commands, the
+cache locations and the memory log. `tests/canonical/harness_fixture/determinism.csv` records the
+determinism gate for each runner. `tests/canonical/provenance-revisions.md` declares the changed
+hash of `study_harness.R` and of the three runners outside the harness.
 
-The edit changes the recorded hash of `study_harness.R` in 45 manifests. It also changes the
-hashes of the runners outside the harness, and of the two Dockerfiles that copy a runner into the
-image. No committed artifact has a failed replicate, so the new branches never run for a committed
-study. A scan of the 62 study directories on 2026-10-07 found no nonzero `failed_replicates` in
-any `properties.csv` or `property-replicates.csv.gz`, and no short property cell.
-`study_collect` refuses a short R table. `tests/unit/test_method_evidence.py` runs
-`validate_replicates` on each committed `replicates.csv.gz`, and that check requires the full
-count. No published verdict moves.
+#### Part a2: failure recording and accounting
 
-| test | what it shows |
-| --- | --- |
-| a failing replicate | a small fixture runner raises on one declared replicate. The phase continues, writes the record, and the summary reports one failure |
-| the bound | a mutation control puts one failure above the bound, and the cell turns red. At the bound, the cell passes |
-| no gain from a failure | a fixture puts each failure on a replicate that misses coverage. The gate fails a cell that passes on the survivors alone |
-| a resume | a run stops after a declared number of replicates and resumes. The output sha256 equals that of an uninterrupted run |
-| a complete run | on a fixture without a failure, the new harness writes the same bytes as the recorded harness |
-| a stale checkpoint | a changed runner hash makes the resume refuse |
+| acceptance |
+| --- |
+| a runner wraps its comparator-fit call, and only that call, in `study_stage`. An error inside the stage is a failure: the run records it and continues. Every other error is fatal |
+| a failure record holds the group, its scenarios and replicates, the attempt, the class, the stage, the call, the message and the seed |
+| when each of the first 20 groups fails, the run stops with the class `systematic` and the first message |
+| `StudyRecord.failure_bound` declares a bound for each implementation before the run. The bound is between 0 and 0.05, and the default is 0 |
+| `failures.csv` publishes each record, and `failure-accounting.csv` publishes the count and rate of each cell. Each file exists only when a failure exists. The published schema does not change |
+| a cell is red when its failures exceed the bound times the replicate count, rounded down, or when a worst-case leg fails. The [red-cell rule](development/method-benchmarking.md#red-cells) routes it |
+| a rate takes every split of the failed replicates. A bias statistic keeps its complete-case scale. A spread statistic also takes the survivor mean. A failed reference replicate in a non-inferiority leg takes the reference's best case |
+| a paired statistic reads only the replicates where both implementations succeeded, and it reports the dropped replicates |
+| an informative-failure witness reports the error of the surviving implementation on the failed replicates. It is a report, not the gate |
 
-The fast tier has no R. The R tests therefore run as a smoke command in a pinned image, and the
-fast tier reads their committed outputs.
+The design treats a failure conservatively. It does not rely on a test that failures are
+independent of the outcome, because that test cannot see the missing outcome. The range-bounded
+worst case can miss a failure whose value falls outside the observed range. A small declared bound
+limits that case.
+
+#### Part b: the Python phase
+
+| acceptance |
+| --- |
+| `fit_replicates` gives the Python phase, the property studies and the zEpid comparator the isolation, the records and the checkpoints of parts a1 and a2 |
+| these exceptions stop the phase: `CapabilityError`, `MethodConfigurationError`, `KeyboardInterrupt`, `SystemExit`, `MemoryError`, `TypeError`, `AttributeError`, `NameError`, `ImportError` and `AssertionError` |
+| the phase records only `DataError`, `LongitudinalError`, `numpy.linalg.LinAlgError`, `FloatingPointError`, `ZeroDivisionError`, `OverflowError`, and a plain `ValueError` or `RuntimeError` that `numpy`, `scipy`, `sklearn` or `statsmodels` raised |
+| the Python phase uses the part a1 resume key |
 
 Each row takes a tier by the harm that its defect does to a user today. The table gives the tiers,
 from the most harmful. Inside a tier, a row with a wider reach comes first. A row that another row

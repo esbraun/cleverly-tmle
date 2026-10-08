@@ -1,0 +1,16 @@
+{
+ "date": "2026-10-08",
+ "image": "sha256:0a089bfb57c87f61a4da003e5ff86a6e7562d0f09f53fd5e686acdd705984404",
+ "inputs": {
+  "tests/canonical/harness_fixture/fixture_random_runner.R": "68beadec0214381a6f0a9298fc582508b94c50128bfc542cda01aac9336adecb",
+  "tests/canonical/harness_fixture/fixture_runner.R": "18dff5b037a13cb8d4c2af929feb9ebacf2118dc5625f1b261b7ade445a33b4e",
+  "tests/canonical/harness_fixture/smoke.py": "aa6635b43712d389035ce194bca97054323edc31a979d6d247508b51970f2411",
+  "tests/canonical/study_harness.R": "8726ba2c11e8dc94d3a2dc997b500fd09bdb65715ec06d48a40d6f0e78299cad",
+  "tests/canonical/tmle3/Dockerfile": "9b9847818b6551450c0259bbeb6eb806ca5b2fc415d9805266f912f05abd1335"
+ },
+ "outputs": {
+  "smoke/plain.csv": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8",
+  "smoke/random.csv": "486c7e0c36c878947101cef06470c917de8d0952728abcf4d3ae656631481198",
+  "smoke/results.json": "2bdab6aecc81e70628f69e09d5a1ed8ae870507915e0f3823064ab5bdd1600ca"
+ }
+}
