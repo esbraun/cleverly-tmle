@@ -1095,9 +1095,9 @@ sizes only the cluster sum is the delta-method variance of the row mean
   performance, often underestimating the true variability of the estimator". The Discussion,
   pages 17-18, calls the estimator "an irregular estimator" and notes "the poor behavior of the
   confidence intervals in both simulations". The published article was not reachable from this
-  environment during X17, so the
+  environment during X17. The RM5 audit above read it, but it recorded no page locators. So the
   [per-arm contract](technical-reference/collaborative-tmle.md#the-per-arm-outcome-adaptive-design)
-  cites the preprint locators. The preprint also names "Appendix 17" on page 3 and "Appendix XXX"
+  cites the preprint locators and says so. The preprint also names "Appendix 17" on page 3 and "Appendix XXX"
   on page 12, both placeholders, and its Appendix D cites "condition (iv) of Appendix E" for a
   condition that Appendix F states.
   The paired comparator of the per-arm study is R `drtmle` 1.1.2 at `538a3a2` by a binary recode:

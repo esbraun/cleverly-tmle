@@ -1352,11 +1352,15 @@ search selects one candidate and the unweighted search selects the other, while 
 stays equal.
 
 End-to-end mutations drop every selector weight or drop the shared outcome-adaptive
-mechanism weights. The per-arm design has its own control: integer weights must equal
-duplicated rows, and dropping the weights from the per-arm mechanism fails that test. Each mutation moves a manual refit that runs on the surface's seeds at strengths
-0.2 and 0.3. Neither control reads a surface cell, because its grid holds the anchor alone and the
-anchor runs no refit. Each control requires a move above one part in a thousand of the unmutated
-refit's estimate.
+mechanism weights. Each mutation moves a manual refit that runs on the surface's seeds at
+strengths 0.2 and 0.3. Neither control reads a surface cell, because its grid holds the anchor
+alone and the anchor runs no refit. Each control requires a move above one part in a thousand of
+the unmutated refit's estimate.
+
+The per-arm outcome-adaptive design has its own weight controls in
+`tests/unit/test_outcome_adaptive_per_arm.py`. Integer weights must equal duplicated rows, and a
+cross-fitted longhand with fixed weights must agree to `1e-8`. Dropping the weights from the
+per-arm mechanism, in sample or in each fold, fails these checks.
 
 The tests rebuild the vector-target penalty and the ratio penalty once each. The `ey1`, `ey0`, and
 `or` estimands reuse the same arm-curve and delta-method arithmetic, and they carry no separate

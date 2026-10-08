@@ -1,6 +1,7 @@
 # Multi-arm outcome-adaptive C-TMLE versus R `ctmle3`
 
-This registered study compares Cleverly's three-arm outcome-adaptive construction with
+This registered study compares Cleverly's three-arm outcome-adaptive construction, the shared
+design `oat_design="shared"`, with
 archived `ctmle3` 0.1.0. The R snapshot's categorical counterfactual GLM adapter drops a
 factor column, so the shared evidence law is expressed through numeric arm codes on the R
 side and labelled arms on the Cleverly side. Its outcome mean is linear in those codes,

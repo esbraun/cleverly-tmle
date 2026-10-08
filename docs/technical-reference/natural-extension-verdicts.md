@@ -1,6 +1,6 @@
 # Natural-extension verdicts
 
-This page records the source audit of fourteen compositions that the package refused or did not
+This page records the source audit of fifteen compositions that the package refused or did not
 implement. The audit applies the [Eligibility](../roadmap.md#eligibility) rule of the roadmap. A
 part qualifies when each step is a standard step and no source records an objection. An objection
 is a source that records a step as open or as a defect. A step that needs a new kind of limit
@@ -43,6 +43,7 @@ A row that delivers a part updates the last column of the table below.
 | (l) cross-fitted longitudinal `msm=` | none; the refusal is removed | Díaz et al. (2023), Section 5.2, page 852, and Theorem 3, page 853, for each regimen and horizon cell; the shipped in-sample [longitudinal projection](msm-projections.md#the-longitudinal-projection) | a fixed-dimension stack of the cross-fitted cells, the delta method for the projection, and the chain rule for the stacked update over every follower | the earlier refusal named an evidence gap, not a theory gap. No read source records a defect | shipped | [the longitudinal projection](msm-projections.md#the-longitudinal-projection) |
 | (m) `incremental=` on data that declares its treatment mechanism | none; the refusal is removed | Kennedy (2019), arXiv v3, Theorem 2 and Corollary 2, Section 3.3, and Lemma 2 of Section 8.2 for a known stochastic intervention | the chain rule with a known weight: with $g_0$ known, $q_\delta(g_0)$ is a known stochastic regime, and the efficient curve is the full-model curve projected off the mechanism tangent space, which removes the term in $(A-g)$ | Kennedy (2019) states after Corollary 2 that with known propensity scores the efficient influence function is the first weighted average term. That is this step, not an objection | shipped | [known treatment mechanism](point-treatment-tmle.md#known-treatment-mechanism) |
 | (n) a discrete `policies=` fit, or a modified treatment policy at a categorical `LTMLE` node, on a declared mechanism | none; the refusals are removed | Díaz, Williams, Hoffman and Schenck (2023), Section 4 (the discrete formula) and Theorem 3, page 853 | the degenerate estimator $g_n=g_0$: the remainder is a product of the ratio error and the outcome error, so it is zero, and the shipped curve at $(\bar Q_\infty,g_0)$ is exact | none. The ratio $g^d/g$ is the only place the fit reads $g$, and the plug-in reads the observed treatment | shipped | [known treatment mechanism](point-treatment-tmle.md#known-treatment-mechanism) |
+| (o) the per-arm outcome-adaptive C-TMLE design with baseline strata, a missing outcome or a missing treatment | the `generated_design_plugin` status with `strata=` or `delta=`; `treatment_delta=` is refused on every `CTMLE` fit | Benkeser, Cai and van der Laan (2020), Theorem 1, as part (k) ships it | a finite partition with a stratum-local design; the composite-indicator reduction to $C_a = \Delta_A \Delta 1\{A = a\}$ | Appendix C, preprint page 24, leaves general adaptive censoring targets to future work. It does not record this reduction as open: each data structure has Theorem 1's form | qualifies for implementation | [X29](../roadmap.md#x29-per-arm-outcome-adaptive-c-tmle-with-baseline-strata-and-missing-data) |
 
 ## The conditions each part inherits
 
@@ -61,3 +62,4 @@ A row that delivers a part updates the last column of the table below.
 | (l) | the Theorem 3 rates and bounded density ratios in every cell; a fixed number of cells; a full-rank realized design; with `id=`, the rules of parts (f) and (g) |
 | (m) | a declared mechanism equal to the design mechanism; positivity of $g_0$ on the arms $q_\delta$ charges; the conditions of the known-regime TMLE |
 | (n) | a declared mechanism equal to the design mechanism; positivity of $g_0$ on every level the policy sends a unit to; the Theorem 3 conditions of the outcome regression |
+| (o) | the conditions of part (k) for each factor of the product mechanism; each factor's projection inside its bound; the X23 composite identification conditions; a fixed number of strata, each with positive mass |
