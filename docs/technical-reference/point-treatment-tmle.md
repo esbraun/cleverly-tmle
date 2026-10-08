@@ -793,7 +793,9 @@ checks the tilt on `tests/discrete_law.py`. The registered study is
 The bin count limits the density route at a point treatment as it does at a longitudinal node. The
 default `density_bins=None` grows the count with the sample, `max(20, ceil(2 n^(1/3)))`. A
 growing count is necessary for a consistent density, and the hazard learner must also be
-consistent. An explicit `density_bins=` is used as given. The memory paragraph of the
+consistent.
+
+An explicit `density_bins=` is used as given. The memory paragraph of the
 [longitudinal section](longitudinal-tmle.md#modified-treatment-policies-at-a-node) applies here
 too. A coarse count
 inflates the influence curve where the tail bins are wide, so the intervals are conservative.

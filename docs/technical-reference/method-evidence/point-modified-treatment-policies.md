@@ -110,8 +110,9 @@ study re-ran under a fresh declaration.
 The `halve__correctly_specified` calibration cell is red on its SE-ratio band, in both runs. The
 SE ratio is 1.0429, and its 99% interval is 1.0011 to 1.0881 against an upper bound of 1.07. It
 was 1.0430 at 160 bins, so the bin count does not move it. Its coverage is 0.9605, and the
-reported standard error matches the efficiency bound (ratio 1.0018). The influence curve with the
-binned ratio predicts a ratio of 0.9998. A diagnostic refitted the same configuration on 2,000
+reported standard error matches the efficiency bound (ratio 1.0018).
+
+The influence curve with the binned ratio predicts a ratio of 0.9998. A diagnostic refitted the same configuration on 2,000
 fresh draws, the cell's own budget. It read an SE ratio of 0.999, with a bootstrap 99% interval of
 0.959 to 1.043. Fewer than 1% of its bootstrap ratios reach 1.0429
 ([`tests/diagnostics/mtp_point_halve_excursion/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/mtp_point_halve_excursion)). So the registered draw set is a Monte
