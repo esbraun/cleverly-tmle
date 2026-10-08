@@ -386,7 +386,11 @@ def test_the_redesigned_overfitting_control_discriminates_before_the_run() -> No
     upper end, and the paired coverage gain clears its 0.15 floor at the lower end of a 99%
     normal interval.  Every standard error of both arms is finite.  The cross-fitted arm reads
     about 1.20, at the upper end of its sanity band, as the single-tree design of run 2 did
-    (1.167): the declaration states that risk rather than sizing it away.
+    (1.167): the declaration states that risk rather than sizing it away.  Its pass probability
+    at the declared 10,000 replications is about 0.23 from this probe, or about 0.4 pooled with
+    the screen.  More replications cannot raise it: the SE ratio is structurally conservative,
+    and a narrower interval around it does not move it under 1.2.  The range asserted below
+    records the value and does not size the cell.
     """
     import pandas as pd
 

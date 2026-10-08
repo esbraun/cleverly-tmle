@@ -95,8 +95,9 @@ every artifact.
 its control cannot reach its margins.  A single fully grown tree returns one training outcome at
 a shifted dose, so the in-sample influence curve still carries the outcome noise.  Over 1,000
 fresh draws the control read 0.737 to 0.750 with one, five or ten noise columns, and the gain
-0.12 to 0.14.  A tree learning the dose hazard gave infinite cross-fitted ratios, and 1-NN
-outcome learners moved the control's bias, not its SE ratio.  So both arms now fit an
+0.12 to 0.14.  A tree learning the dose hazard gave cross-fitted standard errors of 1e17 or
+more, or none, and 1-NN outcome learners moved the control's bias, not its SE ratio
+(``screen.jsonl`` and ``checks.jsonl`` of the probe directory below).  So both arms now fit an
 interpolating extra-trees ensemble
 (:data:`~tests.studies.longitudinal_mtp_common.OVERFIT_ENSEMBLE`): no bootstrap and leaves of
 one row, so every in-sample residual is zero while the plug-in at a shifted dose is smooth.  The
@@ -107,8 +108,12 @@ The committed pre-run probe ``tests/diagnostics/longitudinal_mtp_overfit_design`
 redesigned pair on 400 fresh draws.  The control read an SE ratio of 0.681 and coverage 0.653,
 and the paired coverage gain 0.335 (standard error 0.024).  Every standard error was finite.  The
 cross-fitted arm read 1.204, at the upper end of its sanity band, as the single-tree arm did in
-run 2 (1.167); ten folds (1.188) and fully random splits (1.201) did not move it.  So the
-cross-fitted arm may fail its upper bound by a conservative standard error.  That red would be
+run 2 (1.167); ten folds (1.188) and fully random splits (1.201) did not move it
+(``checks.jsonl``).  So the cross-fitted arm may fail its upper bound by a conservative
+standard error.  The review after the run sized that risk: the probe's bootstrap SD of 0.040
+puts the arm's pass probability at about 0.23 at 10,000 replications, or about 0.4 with the
+screen's 400 other draws.  More replications cannot raise it, because they narrow the interval
+around a structurally conservative ratio and do not move the ratio.  That red would be
 a limit of interpolating learners under cross-fitting, not a defect, and would go to
 ``mtp-longitudinal-limits`` under ``reporting``.
 

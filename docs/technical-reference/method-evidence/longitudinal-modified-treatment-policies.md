@@ -179,9 +179,11 @@ One property cell fails its own rule, and the diagnosis finds no defect. The own
 | --- | --- | --- |
 | `interval_calibration/categorical_mtp__correctly_specified` | efficiency ratios 1.120 and 1.098 against a band of 0.9 to 1.1; coverage 0.9435; SE ratio 0.980 | finite-sample, sparse cells |
 
-The cell fits saturated cell probabilities for the six-level mechanism. Its outcome regression
-is a logistic GLM, and the law has a linear probability, so the outcome regression is not exactly
-specified. A diagnostic refitted the cell on fresh draws
+The cell fits saturated cell probabilities for the six-level mechanism. Both outcome regressions
+are misspecified, although the cell's stream is named `correctly_specified`. At node 2 a logistic
+GLM fits a linear probability. At node 1 least squares fits a regression that is nonlinear in the
+first dose. The estimate does not depend on them: with a saturated mechanism on a finite law, the
+fit equals the NPMLE whatever the outcome learner. A diagnostic refitted the cell on fresh draws
 ([`tests/diagnostics/longitudinal_mtp_categorical_efficiency/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/longitudinal_mtp_categorical_efficiency)).
 
 | fit | reported efficiency ratio, n = 2,000 | the same, n = 8,000 |
@@ -189,16 +191,36 @@ specified. A diagnostic refitted the cell on fresh draws
 | in sample, as declared | 1.103 | 1.023 |
 | five folds | 1.389 | 1.048 |
 
-The excess falls about four times as $n$ grows four times. That is the order of the cost of
-estimating sparse cell probabilities. A wrong bound or an inefficient curve would keep its excess
-as $n$ grows. The cell read the same in runs 2 and 3.
+The reported ratio's excess falls about four times as $n$ grows four times. That is the order of
+the cost of estimating sparse cell probabilities. At larger sizes the reported ratio reads 1.019
+at n = 8,000, 1.005 at n = 32,000 and 1.003 at n = 128,000, on 20 draws each (`large_n.log` in
+the same directory). A wrong bound or an inefficient curve would keep its excess as $n$ grows.
+
+The empirical ratio, 1.107 and 1.052 on the diagnostic's draws, is too noisy to show this alone.
+It reads the same estimates as an NPMLE, which is efficient at this bound. The cell read the same
+in runs 2 and 3.
 
 **The overfitting pair.** Run 2 published the pair red. A single fully grown tree returns one
 training outcome at a shifted dose, so the in-sample curve kept the outcome noise, and the
 control could not reach its margins. Run 3 fits an interpolating extra-trees ensemble in both
 arms, with the margins unchanged. The control reads an SE ratio of 0.675 and the cross-fitted arm
 1.166, and the pair passes. The pre-run probe and the design screen are in
-`tests/diagnostics/longitudinal_mtp_overfit_design/`.
+[`tests/diagnostics/longitudinal_mtp_overfit_design/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/longitudinal_mtp_overfit_design).
+
+Part of the control's coverage loss comes from its bias, about 0.89 of its empirical SD, because
+the in-sample fit is the ensemble's plug-in. The SE-ratio clause measures the understated
+standard error directly.
+
+Before the run, the probe put the cross-fitted arm's pass probability at about 0.23, or about 0.4
+with the screen's draws. Its SE ratio sits near the top of the 0.8 to 1.2 band, and more
+replications cannot move a structurally conservative ratio. The declaration routed a red there
+to `reporting`. The run read 1.166, inside the band.
+
+A fully grown tree cannot learn the dose hazard of the pair. On two draws, trees with leaves of 5
+to 200 rows gave cross-fitted standard errors of 1e17 or more, and a tree with leaves of one row
+gave none (`checks.jsonl`). The in-sample control's standard error stayed between 0.0206 and
+0.0211, because the control multiplies the ratio by zero residuals. So learning the hazard could
+not make the control discriminate.
 
 The study was declared `gated`. By the red-cell rule it moved to `reporting` before a repeat run
 of run 2. Run 3 kept the categorical cell's declared route.

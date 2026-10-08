@@ -1,8 +1,13 @@
 """The design screen behind the third declaration of the ``longitudinal-mtp`` overfitting pair.
 
 Each design fits both arms on fresh draws.  ``screen.jsonl`` holds one line per run, in run
-order.  The screen chose the design; ``run.py`` is the committed probe of the chosen one.  The
-two shift designs computed their truth by a 768-point quadrature.
+order.  The screen chose the design; ``run.py`` is the committed probe of the chosen one.
+
+The screen draws its noise columns from its own generator, not from
+``sample_continuous(noise=True)``, so its draws are not the study's; ``run.py`` reads the
+study's draw path.  ``tree_u1_step1`` moves the policy step from 0.5 to 1.0, which changes the
+estimand, so the screen rejected it whatever it read; its truth comes from a 768-point
+quadrature.  A step of 0.75 failed the quadrature's stability check and has no line.
 
     python tests/diagnostics/longitudinal_mtp_overfit_design/screen.py <design> <draws> <jobs>
 """
@@ -26,17 +31,14 @@ DESIGNS = {
     "nn_u1": ("nn", 1, 1000),
     "nn_u3": ("nn", 3, 1000),
     "nn_u5": ("nn", 5, 1000),
-    "nn_u10": ("nn", 10, 1000),
     "tree_u1_n500": ("tree", 1, 500),
     "tree_u1_n250": ("tree", 1, 250),
     "nnraw_u1": ("nnraw", 1, 1000),
     "nnraw_u0": ("nnraw", 0, 1000),
     "tree_u1_step1": ("tree", 1, 1000),
     "et50_u1": ("et50", 1, 1000),
-    "et50_u0": ("et50", 0, 1000),
-    "tree_u1_step075": ("tree", 1, 1000),
 }
-STEPS = {"tree_u1_step1": 1.0, "tree_u1_step075": 0.75}
+STEPS = {"tree_u1_step1": 1.0}
 
 
 def plans(design):

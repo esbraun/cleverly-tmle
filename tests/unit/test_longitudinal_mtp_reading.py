@@ -52,10 +52,13 @@ def test_the_categorical_cell_fails_on_efficiency_alone() -> None:
 
 
 def test_the_efficiency_excess_shrinks_with_n_on_fresh_draws() -> None:
-    """A wrong bound or an inefficient curve keeps its excess; the cell's excess falls as 1/n.
+    """A wrong bound or an inefficient curve keeps its excess; the reported excess falls as 1/n.
 
-    The excess over one falls by more than three times from n = 2,000 to n = 8,000, in sample
-    and at five folds, and the in-sample ratio at n = 2,000 matches the registered cell.
+    The reported ratio's excess over one falls by more than three times from n = 2,000 to
+    n = 8,000, in sample and at five folds, and the in-sample ratio at n = 2,000 matches the
+    registered cell.  The empirical ratio is too noisy at 300 draws to show the same alone.  The
+    saturated mechanism makes the fit the NPMLE whatever the outcome learner, so the estimates,
+    and their spread, are those of an efficient estimator.
     """
     registered = float(_summary().loc[CATEGORICAL, "efficiency_reported_ratio"])
     for arm in diagnostic.FOLDS:

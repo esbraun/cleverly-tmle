@@ -1,0 +1,12 @@
+{"check": "hazard", "seed": 917000000, "leaf": 1, "cross_fitted_std_error": null, "in_sample_std_error": 0.015790765934171235}
+{"check": "hazard", "seed": 917000000, "leaf": 5, "cross_fitted_std_error": 7.384387165338127e+22, "in_sample_std_error": 0.0205970159868446}
+{"check": "hazard", "seed": 917000000, "leaf": 20, "cross_fitted_std_error": 5.9814258594614166e+19, "in_sample_std_error": 0.020754933084082473}
+{"check": "hazard", "seed": 917000000, "leaf": 50, "cross_fitted_std_error": 1.0469506008839866e+19, "in_sample_std_error": 0.020606454885198126}
+{"check": "hazard", "seed": 917000000, "leaf": 200, "cross_fitted_std_error": 6.532383057890739e+17, "in_sample_std_error": 0.020849269941281622}
+{"check": "hazard", "seed": 917000001, "leaf": 1, "cross_fitted_std_error": null, "in_sample_std_error": 0.015760674354413046}
+{"check": "hazard", "seed": 917000001, "leaf": 5, "cross_fitted_std_error": 5.417649033824426e+21, "in_sample_std_error": 0.021067475279886193}
+{"check": "hazard", "seed": 917000001, "leaf": 20, "cross_fitted_std_error": 4.218248178970047e+19, "in_sample_std_error": 0.02096428090807071}
+{"check": "hazard", "seed": 917000001, "leaf": 50, "cross_fitted_std_error": 4.6124661431331906e+19, "in_sample_std_error": 0.021062738880335344}
+{"check": "hazard", "seed": 917000001, "leaf": 200, "cross_fitted_std_error": 1.0725985438156429e+17, "in_sample_std_error": 0.021061030464570512}
+{"check": "folds", "folds": 10, "cross_fitted_se_ratio": 1.1882329998109595}
+{"check": "max_features", "max_features": 1, "cross_fitted_se_ratio": 1.2011756209158908, "in_sample_se_ratio": 0.6840457171385901}
