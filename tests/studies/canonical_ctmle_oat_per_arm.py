@@ -156,6 +156,12 @@ STUDY = StudyRecord(
         "tests/studies/oat_per_arm_laws.py",
         "tests/studies/point_study_helpers.py",
         "tests/studies/cvtmle_properties.py",
+        "tests/studies/bounded_cv_laws.py",
+        "tests/studies/canonical_cvtmle.py",
+        "tests/studies/canonical_properties.py",
+        "tests/studies/canonical_tmle.py",
+        "tests/studies/fractional_glm.py",
+        "tests/conftest.py",
         "tests/studies/default_band_properties.py",
         "tests/studies/evidence/comparison.py",
         "tests/studies/evidence/inference.py",
@@ -214,11 +220,14 @@ CONFIGURATION = {
     "laws": {name: law.name for name, law in SCENARIO_LAWS.items()},
     "failure_probe": (
         "before the declaration, 2,000 draws of every property cell, of the joint cell and "
-        "of both primary scenarios raised no failure; a replicate that raises is not redrawn, "
-        "and the summary refuses a cell that lost one"
+        "of both primary scenarios raised no failure in the Python phase, and the R runner "
+        "fitted 100 primary replicates of each law with no failure (points within 3.5e-7 of "
+        "this package's, standard errors within 5.7e-9). A replicate that raises is not "
+        "redrawn: the summary refuses a cell that lost one, and the R harness refuses a "
+        "phase in which a replicate raised, as every R runner in the repository does"
     ),
     "measured_budget": (
-        "single-process timing of a 20-replicate smoke: 1.75 CPU-hours for the property "
+        "single-process timing of a 20-replicate smoke: about 1.8 CPU-hours for the property "
         "study (0.94 for the four generated-design cells), 0.06 for the primary Python "
         "phase (two fits per replicate), and under one CPU-hour for the R phase; the "
         "Python phase runs first, then the R phase"

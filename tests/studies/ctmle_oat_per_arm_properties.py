@@ -15,11 +15,13 @@ family                     cells
                            ``repeats=3``, reading the median estimate
 ``generated_design``       ``<law>__oracle_design`` (``Qbar`` pinned to the truth) against
                            ``<law>__estimated``, one seed per pair
-``type_i_error``           ``sharp_null`` on the sharp-null twin of the binary law
-``power``                  ``alternative`` on the binary law
+``type_i_error``           ``sharp_null`` on the sharp-null twin of the binary law, at
+                           ``n = 1,000``
+``power``                  ``alternative`` on the binary law, at ``n = 2,000``
 ``root_n_and_efficiency``  ``n_500``, ``n_2000`` and ``n_8000`` on the binary law
 ``robustness_contract``    ``outcome_correct`` against the ``outcome_wrong`` control (the
-                           main-terms GLM): OAT has no treatment-only leg
+                           main-terms GLM without ``W1``, the confounder): OAT has no
+                           treatment-only leg
 ``crossfit_overfitting``   ``cross_fitted_oat`` against ``in_sample_control``, with the
                            parent study's trees and budget
 ``simultaneous_coverage``  the default band over the three arm means and two contrasts of
@@ -28,6 +30,12 @@ family                     cells
 
 A replicate that raises is not redrawn.  The summary refuses a cell that lost a replicate, so
 a failure stops the publishing run.
+
+One quantity of the plan is not fitted.  ``root_n_and_efficiency`` was to report the SE ratio to
+the ordinary ``TMLE`` on the same draws.  The harness has no reported-only family, so the
+evidence page reads the superefficiency off the ladder instead: the reported SE times
+``sqrt(n)`` against :data:`EIF_CURVE_SD`, the law-level efficient SD.  The number is reported,
+not gated, as the plan declared.
 """
 
 from __future__ import annotations
@@ -81,6 +89,10 @@ CALIBRATION_REPLICATES = 1_000
 REPEATS_REPLICATES = 800
 GENERATED_DESIGN_N = 2_000
 NULL_N = 1_000
+#: The power cell's size.  At ``n = 1,000`` it clears ``MINIMUM_POWER`` only on the
+#: superefficient SD (0.977) and not on the efficient one (0.735), so the cell would rest on the
+#: very gain the source warns about.  At ``n = 2,000`` it clears both (0.9999 and 0.955).
+POWER_N = 2_000
 NULL_REPLICATES = 800
 LADDER = (500, 2_000, 8_000)
 LADDER_REPLICATES = 700
@@ -98,14 +110,17 @@ SHRUNKEN_SE_FACTOR = 0.70
 CURVE_SD = {"binary_active": 0.9493, "three_arm_active": 1.2221}
 
 #: The design numbers of the gated rejection and control cells, computed before any run.
-#: ``POWER_CURVE_SD`` is the law-level standard deviation of the binary ``ate`` curve, from
-#: which :func:`~tests.studies.evidence.property_verdicts.design_power` sizes the power cell.
+#: ``POWER_CURVE_SD`` is the law-level standard deviation of the binary ``ate`` per-arm curve,
+#: and ``EIF_CURVE_SD`` that of its efficient influence function: ``POWER_CURVE_SD`` over the
+#: square root of the efficiency ratio 0.4279.  The power cell must clear the floor of
+#: :func:`~tests.studies.evidence.property_verdicts.design_power` under both.
 #: ``CONTROL_BIAS`` and ``CONTROL_SD`` are the robustness control's population bias on ``ate``
 #: and its standard deviation at :data:`ROBUSTNESS_N`, from two cross-fitted fits at
 #: ``n = 200,000`` (bias 0.0738 and 0.0773, curve standard deviation 1.42 and 1.40).
 #: ``JOINT_P0`` is the pointwise joint coverage of the band family, from the curve correlation
 #: averaged over ten fits at :data:`JOINT_N`, read off two million normal draws.
 POWER_CURVE_SD = 0.9493
+EIF_CURVE_SD = 1.4513
 CONTROL_BIAS = 0.0755
 CONTROL_SD = 0.0316
 JOINT_P0 = 0.8267
@@ -238,7 +253,7 @@ def cells() -> tuple[PropertyCell, ...]:
         _cell(
             "type_i_error", "sharp_null", laws.BINARY_NULL, NULL_N, NULL_REPLICATES, SEEDS["null"]
         ),
-        _cell("power", "alternative", binary, NULL_N, NULL_REPLICATES, SEEDS["power"]),
+        _cell("power", "alternative", binary, POWER_N, NULL_REPLICATES, SEEDS["power"]),
     ]
     out += [
         _cell(

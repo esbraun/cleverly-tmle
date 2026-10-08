@@ -552,9 +552,9 @@ def design_numbers(law: OatLaw, draws: int, seed: int) -> dict[str, Any]:
     -------
     dict
         ``psi`` (arm means), ``ratio`` (the variance of the projection curve over the
-        efficient influence function's variance, per arm mean), ``ate_ratio`` and
-        ``ate_sd`` (the same, and the projection curve's standard deviation, for each
-        contrast against arm 0), ``gap`` (the ``L2`` distance between the per-arm and the
+        efficient influence function's variance, per arm mean), ``ate_ratio``, ``ate_sd`` and
+        ``ate_eif_sd`` (the same, the projection curve's standard deviation and the efficient
+        influence function's, for each contrast against arm 0), ``gap`` (the ``L2`` distance between the per-arm and the
         shared limits, per arm), ``range`` (each projection's range), ``outside`` (each
         projection's share outside ``(0.025, 0.975)``), ``g0_outside`` (the same for
         ``g_0``) and ``learner`` (each arm's learner-limit distance).
@@ -578,17 +578,20 @@ def design_numbers(law: OatLaw, draws: int, seed: int) -> dict[str, Any]:
     ]
     ate_ratio = []
     ate_sd = []
+    ate_eif_sd = []
     for a in range(1, law.k):
         spread = float((plug[:, a] - plug[:, 0]).var())
         numerator = float(residual_proj[a] + residual_proj[0] + spread)
         denominator = float(residual_eif[a] + residual_eif[0] + spread)
         ate_ratio.append(numerator / denominator)
         ate_sd.append(float(np.sqrt(numerator)))
+        ate_eif_sd.append(float(np.sqrt(denominator)))
     return {
         "psi": [float(value) for value in q.mean(axis=0)],
         "ratio": ratio,
         "ate_ratio": ate_ratio,
         "ate_sd": ate_sd,
+        "ate_eif_sd": ate_eif_sd,
         "gap": [float(value) for value in np.sqrt(((proj - shared) ** 2).mean(axis=0))],
         "range": [(float(proj[:, a].min()), float(proj[:, a].max())) for a in range(law.k)],
         "outside": [
