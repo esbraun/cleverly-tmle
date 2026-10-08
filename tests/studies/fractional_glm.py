@@ -11,16 +11,39 @@ and the longitudinal study is not where a point-treatment study should reach for
 move is result-neutral: the bytes of :class:`QuasiBinomialGLM` are identical, so every
 study that already fitted it fits the same numbers.  ``tests/canonical/provenance-revisions.md``
 records that judgement for each study whose manifest predates the move.
+
+A fit whose coefficients do not converge in ``max_iter`` steps used to raise.  It now returns
+its last iterate with :class:`QuasiBinomialSeparationWarning` when the deviance has converged
+by R's ``glm.control`` rule, as R's ``glm`` returns its fit with a warning.  That is the
+quasi-complete separation case: a covariate cell with no event, whose coefficient diverges
+while the fitted values and the deviance settle.  Every fit that converged before takes the
+same iterates and stops at the same step, because only the branch that raised changed.  A fit
+whose deviance has not settled still raises.
 """
 
 from __future__ import annotations
 
 import math
+import warnings
 from typing import Any
 
 import numpy as np
-from scipy.special import expit
+from scipy.special import expit, xlogy
 from sklearn.base import BaseEstimator
+
+#: R's ``glm.control(epsilon=)``: the relative deviance change at which ``glm`` stops.
+DEVIANCE_EPSILON = 1e-8
+
+
+class QuasiBinomialSeparationWarning(RuntimeWarning):
+    """The coefficients diverged while the deviance converged, so the last iterate is kept."""
+
+
+def deviance(target: np.ndarray, fitted: np.ndarray, weights: np.ndarray) -> float:
+    """The weighted binomial deviance of a fractional target, with ``0 log 0 = 0``."""
+    terms = xlogy(target, target) - xlogy(target, fitted)
+    terms += xlogy(1.0 - target, 1.0 - target) - xlogy(1.0 - target, 1.0 - fitted)
+    return float(2.0 * np.sum(weights * terms))
 
 
 class QuasiBinomialGLM(BaseEstimator):
@@ -48,7 +71,9 @@ class QuasiBinomialGLM(BaseEstimator):
         mean = float(np.average(target, weights=weights))
         coefficient = np.zeros(design.shape[1], dtype=float)
         coefficient[0] = math.log(np.clip(mean, 1e-8, 1.0 - 1e-8) / np.clip(1.0 - mean, 1e-8, 1.0))
+        previous = coefficient
         for _ in range(self.max_iter):
+            previous = coefficient
             fitted = expit(design @ coefficient)
             variance = np.clip(fitted * (1.0 - fitted), 1e-10, None)
             working = design @ coefficient + (target - fitted) / variance
@@ -61,7 +86,16 @@ class QuasiBinomialGLM(BaseEstimator):
                 break
             coefficient = updated
         else:
-            raise RuntimeError("quasibinomial IRLS did not converge")
+            before = deviance(target, expit(design @ previous), weights)
+            after = deviance(target, expit(design @ coefficient), weights)
+            if abs(after - before) / (abs(after) + 0.1) >= DEVIANCE_EPSILON:
+                raise RuntimeError("quasibinomial IRLS did not converge")
+            warnings.warn(
+                f"quasibinomial IRLS coefficients did not converge in {self.max_iter} steps, "
+                "but the deviance did: quasi-complete separation, last iterate kept",
+                QuasiBinomialSeparationWarning,
+                stacklevel=2,
+            )
         self.coef_ = coefficient[1:][None, :]
         self.intercept_ = coefficient[:1]
         self.classes_ = np.array([0.0, 1.0])

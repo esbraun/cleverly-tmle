@@ -40,6 +40,14 @@ mean of the node-1 regression at the plan's treatment, fitted on pseudo-outcomes
 later nodes already targeted.  The ``lmtp`` value is its first regression predicted at the
 shifted treatment, which ``lmtp`` also fits on the targeted later nodes.  It enters no verdict.
 
+**A separated fit keeps its last iterate.**  ``QuasiBinomialGLM`` keeps its last iterate,
+with ``QuasiBinomialSeparationWarning``, when its coefficients diverge while its deviance
+settles by R's ``glm.control`` rule.  R's ``glm`` returns such a fit with a warning, and the
+comparator fits ``glm``.  A fit whose deviance has not settled still raises and fails the run.
+A failure-only scan of every declared primary replication, which read no estimate, found
+two such fits, both in replication 1,003 of ``mtp``, and no failed fit.  Its rows are kept and
+read as every other row.
+
 Publication policy is ``reporting``.  The red-cell route was declared before any run.
 Every red cell is diagnosed before it is routed.  A genuine defect (an algorithm
 defect, an inconsistent estimator, or a test or design bug that makes the cell measure the

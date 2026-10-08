@@ -40,6 +40,16 @@ untargeted recursion.  The two coincide at visit 1, which has no later node, and
 later visits.  The paired rows compare the targeted estimates only, so the initial columns are
 context and enter no verdict.
 
+**A separated fit keeps its last iterate.**  ``QuasiBinomialGLM`` keeps its last iterate,
+with ``QuasiBinomialSeparationWarning``, when its coefficients diverge while its deviance
+settles by R's ``glm.control`` rule.  R's ``glm`` returns such a fit with a warning, and the
+comparator fits ``glm``.  A fit whose deviance has not settled still raises and fails the run.
+The first declared run stopped on replication 189 of ``competing``, where the coefficient
+of ``W1`` diverged at a node with no event of one cause in one ``W1`` cell, and it published
+nothing.  A failure-only scan of every declared primary replication, which read no estimate,
+then found such a fit in replications 189, 1,008, 1,302 and 1,398 of ``competing`` and no
+failed fit.  Their rows are kept and read as every other row.
+
 Publication policy is ``reporting``.  The red-cell route was declared before any run.
 Every red cell is diagnosed before it is routed.  A genuine defect (an algorithm
 defect, an inconsistent estimator, or a test or design bug that makes the cell measure the
