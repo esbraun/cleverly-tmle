@@ -1,0 +1,137 @@
+{
+  "schema_version": 2,
+  "study": "DR-TMLE on a declared known treatment mechanism",
+  "slug": "known-treatment-mechanism-drtmle",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-known-mechanism-drtmle",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "de9f56264469397657721d5a12602b6224f0d8d7",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": {
+      "implementation": "drtmle-r-known-g",
+      "drtmle_commit": "538a3a264c1ca984b6d88978ca7f96165f43152c",
+      "drtmle_version": "1.1.2",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_construction": "drtmle(Qn = list(qn0, qn1), gn = list(1 - g0, g0), glm_Qr = 'gn', glm_gr = 'Qn', reduction = 'univariate', maxIter = 100, tolIC = 1e-8, tolg = 0.1, cvFolds = 1); Qn is this package's initial outcome regression; the three-arm scenario passes a_0 = 0:2 and one Qn and gn per level",
+      "rejected_candidates": "tmle3 LF_known multi-arm pairing: replaced by the three-arm drtmle scenario at guard=(), which is the plain TMLE at the declared mechanism and needs no new image",
+      "targeting_witness_floor": 0.005
+    }
+  },
+  "configuration": {
+    "replicates": 1000,
+    "n": 2000,
+    "seed": 20261151,
+    "resampling_seed": 2026115101,
+    "scenario_seed_owners": {
+      "guard_none": "guard_qg",
+      "guard_q": "guard_qg",
+      "guard_g": "guard_qg"
+    },
+    "publication_policy": "reporting",
+    "scenarios": {
+      "guard_none": [
+        "ey0",
+        "ey1",
+        "ate"
+      ],
+      "guard_q": [
+        "ey0",
+        "ey1",
+        "ate"
+      ],
+      "guard_g": [
+        "ey0",
+        "ey1",
+        "ate"
+      ],
+      "guard_qg": [
+        "ey0",
+        "ey1",
+        "ate"
+      ],
+      "three_arm_guard_none": [
+        "ey[0.0]",
+        "ey[1.0]",
+        "ey[2.0]",
+        "ate[1.0 vs 0.0]",
+        "ate[2.0 vs 0.0]"
+      ]
+    },
+    "construction": "complete-data DR-TMLE dividing by the declared mechanism",
+    "cross_fit": false,
+    "simultaneous_intervals": false,
+    "g_bounds": [
+      0.1,
+      0.9
+    ],
+    "treatment_mechanism": "known (declared by column)",
+    "outcome_learner": "unpenalized logistic regression on A, W1, W3 (omits W2)",
+    "reduced_outcome_learner": "linear regression on the mechanism",
+    "reduced_treatment_learner": "logistic regression on the outcome regression",
+    "reduction": "univariate",
+    "max_outer": 100,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_known_mechanism_drtmle.py": "af1842ea93e9219361571b8752655aa7b5ab3bc85cf2e56f2208c11516d26213",
+    "tests/studies/known_mechanism_drtmle_properties.py": "c0deea1fee5b21c5e90e5f1e85fbb5dfa62f8a213f7b425aa9a51955a43d73f0",
+    "tests/studies/canonical_known_mechanism.py": "4d3a3bb1b04329ce782f5eee6d45c7ac52c4d518de6beabdc34373c902933f52",
+    "tests/studies/known_mechanism_properties.py": "be745593c187cd31cbefb4307739f3587dacddfd80de132fe0202646a09de349",
+    "tests/studies/known_mechanism_law.py": "23f4d7cfde71d01ffde84ddb704fdbd2104d93e9ad088528a6ca8cbd76251567",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/studies/evidence/comparison.py": "653c091f0c1cd240b41e4ed7026da8f67c0feda58404e7c27e80eabab38a2217",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
+    "tests/studies/evidence/property_verdicts.py": "3de1ed905e0e940351fade806d3ac0b759bcce823418aa46ddd5fc2df4ada31c",
+    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
+    "tests/canonical/drtmle/Dockerfile": "470471189bf2b407411d6a89a533e073fd4f2dffb971a9480702658d5da88fe2",
+    "tests/canonical/known_mechanism_drtmle/run_study.R": "b37e56ffc39a3acf03e1df3b7abd7a62951d0df09b887d6e2f56cff0336ab704",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "reference_sha256": {
+    "tests/canonical/drtmle/Dockerfile": "470471189bf2b407411d6a89a533e073fd4f2dffb971a9480702658d5da88fe2",
+    "tests/canonical/known_mechanism_drtmle/run_study.R": "b37e56ffc39a3acf03e1df3b7abd7a62951d0df09b887d6e2f56cff0336ab704",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "sha256": {
+    "replicates.csv.gz": "9e9343bdbd7859abd211e8d545ff2f19561480e3393b8b5fb8f64ffe43a5d492",
+    "summary.csv": "1a39a49777d522d15b9c6c0f170e795b6cc3e358c47f5ada0a688932c3a8502b",
+    "equivalence.csv": "7fad7711432aa158308d43a3333daddbb7b21ee274603a32f0557826b2fe8bd7",
+    "performance-tests.csv": "167468e235429765cdd0560cb643497b50f5c5ca9eaf55c9fff04c2c8124eafb",
+    "property-replicates.csv.gz": "9cbaa1f6724f7e7b8a43bc9538e2f5a125963ca4ce7e2d0bab78de8330fe8b2b",
+    "properties.csv": "a42058fe4ece9a12dc0a90ba830aa4bab443a2f49cad74985307a4df21b74905"
+  }
+}

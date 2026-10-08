@@ -139,7 +139,7 @@ def test_the_declared_cells_are_the_cells_a_run_publishes(name: str) -> None:
         warnings.simplefilter("ignore")
         rows = properties.generate_property_rows(n_jobs=1, budget=3)
         summary = properties.summarize_properties(rows)
-    declared = {(family, cell): truth for family, cell, _, truth in properties.declared_cells()}
+    declared = {(family, cell): truth for family, cell, _, truth in properties.declared_truths()}
     assert {tuple(key) for key in rows.groupby(["property", "cell"]).groups} == set(declared)
     for (family, cell), truth in declared.items():
         selected = rows.loc[(rows["property"] == family) & (rows["cell"] == cell)]
@@ -148,6 +148,23 @@ def test_the_declared_cells_are_the_cells_a_run_publishes(name: str) -> None:
     assert {(row.property, row.cell) for row in summary.itertuples()} == {
         (family, cell) for family, cells in study.STUDY.property_cells.items() for cell in cells
     }
+
+
+@pytest.mark.parametrize("name", sorted(STUDIES))
+def test_each_committed_property_truth_is_the_declared_one(name: str) -> None:
+    """The committed rows carry the law's own truths, once each study has run."""
+    study, properties = STUDIES[name]
+    path = study.STUDY.artifact("property-replicates.csv.gz")
+    if not path.exists():
+        pytest.skip("the registered run has not been committed yet")
+    import pandas as pd
+
+    rows = pd.read_csv(path, float_precision="round_trip")
+    declared = {(family, cell): truth for family, cell, _, truth in properties.declared_truths()}
+    assert {tuple(key) for key in rows.groupby(["property", "cell"]).groups} == set(declared)
+    for (family, cell), truth in declared.items():
+        selected = rows.loc[(rows["property"] == family) & (rows["cell"] == cell), "truth"]
+        np.testing.assert_allclose(selected.to_numpy(dtype=float), truth, rtol=1e-12, atol=1e-12)
 
 
 @pytest.mark.parametrize("name", sorted(STUDIES))
