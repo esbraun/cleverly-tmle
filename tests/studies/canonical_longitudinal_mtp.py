@@ -90,6 +90,31 @@ The cross-fitted tree arm passes its own rule, but its family's joint clause fai
 control, so the owner also holds it.  By the rule the study moves to ``reporting`` with the owner
 row ``mtp-longitudinal-limits``, and the run repeats with no other change; the repeat reproduced
 every artifact.
+
+**Third declaration.**  The review of run 2 found a test-design defect in the overfitting pair:
+its control cannot reach its margins.  A single fully grown tree returns one training outcome at
+a shifted dose, so the in-sample influence curve still carries the outcome noise.  Over 1,000
+fresh draws the control read 0.737 to 0.750 with one, five or ten noise columns, and the gain
+0.12 to 0.14.  A tree learning the dose hazard gave infinite cross-fitted ratios, and 1-NN
+outcome learners moved the control's bias, not its SE ratio.  So both arms now fit an
+interpolating extra-trees ensemble
+(:data:`~tests.studies.longitudinal_mtp_common.OVERFIT_ENSEMBLE`): no bootstrap and leaves of
+one row, so every in-sample residual is zero while the plug-in at a shifted dose is smooth.  The
+law, the oracle dose hazard, the noise column, the five folds, the 10,000 replications at
+n = 1,000, the seeds and the margins (0.85, 0.75, 0.15, 1.2) are unchanged.
+
+The committed pre-run probe ``tests/diagnostics/longitudinal_mtp_overfit_design`` fitted the
+redesigned pair on 400 fresh draws.  The control read an SE ratio of 0.681 and coverage 0.653,
+and the paired coverage gain 0.335 (standard error 0.024).  Every standard error was finite.  The
+cross-fitted arm read 1.204, at the upper end of its sanity band, as the single-tree arm did in
+run 2 (1.167); ten folds (1.188) and fully random splits (1.201) did not move it.  So the
+cross-fitted arm may fail its upper bound by a conservative standard error.  That red would be
+a limit of interpolating learners under cross-fitting, not a defect, and would go to
+``mtp-longitudinal-limits`` under ``reporting``.
+
+Every other cell is unchanged, and its artifacts are expected to reproduce run 2.  The categorical cell
+keeps its declared route: ``reporting``, owner ``mtp-longitudinal-limits``.  Nothing from run 2
+of the pair is reused.
 """
 
 from __future__ import annotations

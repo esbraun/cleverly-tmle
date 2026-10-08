@@ -114,7 +114,7 @@ for that reason. All of them pass.
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `crossfit_overfitting` | `cross_fitted_mtp_ltmle` | positive | five-fold policy LTMLE with fully grown outcome trees | SE ratio clears the overfitting floor and stays inside the sanity band | SE ratio 1.1463 to 1.1877 | pass |
+| `crossfit_overfitting` | `cross_fitted_mtp_ltmle` | positive | five-fold policy LTMLE with interpolating extra-trees outcome learners | SE ratio clears the overfitting floor and stays inside the sanity band | SE ratio 1.1463 to 1.1877 | pass |
 | `crossfit_overfitting` | `in_sample_control` | control | the same flexible learner fitted in sample, with no cross-fitting | SE ratio must fall below the overfitting ceiling | SE ratio 0.7276 to 0.7543 | **fail** |
 | `double_robustness` | `up__both_correct` | positive | the contrast of the shift up at both nodes against the natural course: both the outcome regression and the treatment mechanism are correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000553 to 0.000877, margin 0.0022, SE ratio 1.0070 | pass |
 | `double_robustness` | `up__both_wrong` | control | the contrast of the shift up at both nodes against the natural course: both nuisances are misspecified | bias interval must fall entirely outside the margin, with the reported standard error still on the scale of the empirical spread | bias 0.0343 to 0.0363, margin 0.0031, SE ratio 1.1475 | pass |

@@ -1376,7 +1376,7 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "bias interval must fall entirely outside the margin",
     ),
     ("crossfit_overfitting", "cross_fitted_mtp_ltmle"): (
-        "five-fold policy LTMLE with fully grown outcome trees",
+        "five-fold policy LTMLE with interpolating extra-trees outcome learners",
         "SE ratio clears the overfitting floor and stays inside the sanity band",
     ),
     ("policy_necessity", "declared_policy"): (

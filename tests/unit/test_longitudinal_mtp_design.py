@@ -376,3 +376,42 @@ def test_the_positive_cells_pass_with_high_probability_at_their_declared_size() 
     }
     assert min(probabilities.values()) > 0.7, probabilities
     assert probabilities["history__declared_inverse"] == pytest.approx(0.74, abs=0.02)
+
+
+def test_the_redesigned_overfitting_control_discriminates_before_the_run() -> None:
+    """The pre-run probe of the third declaration: the pair can pass its fixed margins.
+
+    ``tests/diagnostics/longitudinal_mtp_overfit_design`` fits both arms of the redesigned pair
+    on 400 fresh draws.  The control's SE ratio clears its 0.75 ceiling at the bootstrap 99%
+    upper end, and the paired coverage gain clears its 0.15 floor at the lower end of a 99%
+    normal interval.  Every standard error of both arms is finite.  The cross-fitted arm reads
+    about 1.20, at the upper end of its sanity band, as the single-tree design of run 2 did
+    (1.167): the declaration states that risk rather than sizing it away.
+    """
+    import pandas as pd
+
+    from tests.diagnostics.longitudinal_mtp_overfit_design import run as probe
+    from tests.studies.evidence.property_verdicts import (
+        OVERFIT_COVERAGE_GAIN,
+        OVERFIT_SE_CONTROL_CEILING,
+    )
+
+    rows = pd.read_csv(probe.HERE / "rows.csv.gz", float_precision="round_trip")
+    assert len(rows) == probe.REPLICATES
+    truth = float(properties.TRUTH[properties.CONTINUOUS][properties.UP])
+    critical = 1.959963984540054
+    covered = {}
+    for arm in ("cross_fitted", "in_sample"):
+        estimate = rows[f"{arm}_estimate"].to_numpy()
+        error = rows[f"{arm}_std_error"].to_numpy()
+        assert np.isfinite(error).all() and np.isfinite(estimate).all()
+        covered[arm] = np.abs(estimate - truth) <= critical * error
+    control = rows[["in_sample_estimate", "in_sample_std_error"]].to_numpy()
+    draws = np.random.default_rng(20261008).integers(0, len(rows), size=(2_000, len(rows)))
+    ratios = control[draws, 1].mean(axis=1) / control[draws, 0].std(axis=1, ddof=1)
+    assert float(np.quantile(ratios, 0.995)) < OVERFIT_SE_CONTROL_CEILING
+    gain = covered["cross_fitted"].astype(float) - covered["in_sample"].astype(float)
+    lower = gain.mean() - 2.5758293035489004 * gain.std(ddof=1) / np.sqrt(len(gain))
+    assert lower > OVERFIT_COVERAGE_GAIN
+    positive = rows["cross_fitted_std_error"].mean() / rows["cross_fitted_estimate"].std(ddof=1)
+    assert 1.15 < positive < 1.25
