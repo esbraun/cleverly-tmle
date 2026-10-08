@@ -172,7 +172,7 @@ the true log ratio, so the classifier is correctly specified. `inverse_necessity
 history` twice on one sample. The positive arm reads Equation (3) at the declared inverse, and
 the control reads it at the dose itself.
 
-Two property cells fail their own rule, and the diagnosis finds no defect in either. The
+Two property cells fail their own rule. The diagnosis finds no defect in the estimator. The
 cross-fitted tree arm passes its own rule, but its family's joint clause fails with the control,
 so the ledger counts three red cells. The table gives each reading. The owner row
 `mtp-longitudinal-limits` holds all three.
@@ -180,10 +180,21 @@ so the ledger counts three red cells. The table gives each reading. The owner ro
 | cell | measured | reading |
 | --- | --- | --- |
 | `interval_calibration/categorical_mtp__correctly_specified` | efficiency ratios 1.12 and 1.10 against a band of 0.9 to 1.1; coverage 0.9435 | finite-sample: with saturated learners the ratio falls from 1.07 at n = 2,000 to 1.02 at n = 8,000 |
-| `crossfit_overfitting/in_sample_control` | SE ratio 0.741, 99% interval ending at 0.754 against a ceiling of 0.75 | the control is anti-conservative as designed, far from the cross-fitted arm (1.167), but its interval reaches its ceiling at this law and budget |
+| `crossfit_overfitting/in_sample_control` | SE ratio 0.741, 99% interval ending at 0.754 against a ceiling of 0.75; paired coverage gain 0.116 to 0.136 against a floor of 0.15 | control underpowered by design: the gain misses its floor at its point estimate, 0.126, so no budget passes it. The in-sample trees fit every outcome exactly, so the control's standard error is the spread of the plug-in at the shifted dose |
+
+The categorical cell's outcome regression is a logistic GLM, and the six-level law has a linear
+probability, so the outcome regression is not exactly specified. The mechanism is the law's own,
+so the fit is consistent through the mechanism.
+
+A fully grown tree cannot learn the dose hazard of the overfitting pair. A probe on one draw gave
+infinite ratios in the cross-fitted arm. The in-sample control's standard error was 0.0211 with
+the learned hazard and with the oracle, because the control multiplies the ratio by zero
+residuals.
 
 The study was declared `gated`. By the red-cell rule it moved to `reporting` before a repeat run
-with no other change, and the repeat reproduced every artifact.
+with no other change, and the repeat reproduced every artifact. The routing commit before the
+repeat named the control alone. The cross-fitted arm joined the owner after the repeat, because
+the routing read `passed` and not `property_passed`.
 
 ## Measured values and declared margins
 

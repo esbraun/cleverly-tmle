@@ -10,7 +10,10 @@ import pandas as pd
 import pytest
 
 from tests.studies import canonical_longitudinal_mtp as study
-from tests.studies.evidence.property_verdicts import OVERFIT_SE_CONTROL_CEILING
+from tests.studies.evidence.property_verdicts import (
+    OVERFIT_COVERAGE_GAIN,
+    OVERFIT_SE_CONTROL_CEILING,
+)
 
 pytestmark = pytest.mark.xdist_group("longitudinal_mtp_design")
 
@@ -45,12 +48,18 @@ def test_the_categorical_cell_reads_as_finite_sample() -> None:
     assert CATEGORICAL_EFFICIENCY[8_000] < CATEGORICAL_EFFICIENCY[2_000] < 1.1
 
 
-def test_the_in_sample_control_sits_at_its_ceiling() -> None:
-    """The control is anti-conservative, as it must be, but its interval reaches the ceiling."""
+def test_the_in_sample_control_is_underpowered_by_design() -> None:
+    """The control's interval reaches its ceiling, and the coverage gain misses at its point.
+
+    A gain whose whole interval sits below its floor fails at any budget, so the reading is a
+    design that cannot discriminate and not a budget that is too small.
+    """
     summary = _summary()
     control = summary.loc[("crossfit_overfitting", "in_sample_control")]
     positive = summary.loc[("crossfit_overfitting", "cross_fitted_mtp_ltmle")]
     assert float(control["se_ratio"]) < OVERFIT_SE_CONTROL_CEILING
     assert float(control["se_ratio_ci_upper"]) > OVERFIT_SE_CONTROL_CEILING
+    assert float(control["coverage_gain_ci_upper"]) < OVERFIT_COVERAGE_GAIN
+    assert float(positive["coverage"]) - float(control["coverage"]) < OVERFIT_COVERAGE_GAIN
     assert float(positive["se_ratio"]) - float(control["se_ratio"]) > 0.3
     assert bool(positive["passed"])

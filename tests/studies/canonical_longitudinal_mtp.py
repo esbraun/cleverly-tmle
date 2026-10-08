@@ -80,9 +80,11 @@ fixed bin count passes.  Two cells read red, and the diagnosis finds no defect i
   0.9435 passes.  With saturated learners the ratio falls from 1.07 at n = 2,000 to 1.02 at
   n = 8,000, so it is a finite-sample limit of the sparse six-level cells.
 - ``crossfit_overfitting/in_sample_control``: the in-sample trees report standard errors 26%
-  below the spread (SE ratio 0.741, 99% interval ending at 0.754) against a ceiling of 0.75.  The
-  control shows the overfitting it exists to show, far from the cross-fitted arm (1.167), but its
-  interval reaches past the declared ceiling at this law and budget.
+  below the spread (SE ratio 0.741, 99% interval ending at 0.754) against a ceiling of 0.75, and
+  the paired coverage gain reads 0.116 to 0.136 against a floor of 0.15.  The gain misses at its
+  point estimate, 0.126, so the control is underpowered by design, not by budget.  The in-sample
+  trees fit every outcome exactly, so the control's standard error is the spread of the plug-in
+  at the shifted dose, and the dose model does not enter it.
 
 The cross-fitted tree arm passes its own rule, but its family's joint clause fails with the
 control, so the owner also holds it.  By the rule the study moves to ``reporting`` with the owner
