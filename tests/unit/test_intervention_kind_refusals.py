@@ -12,7 +12,7 @@ pins these things:
   item and the typed estimands for its kind, and cites F17;
 * ``identify`` refuses a mapping, a string or a bare item as a point set with ``DataError``;
 * no learner fits before either refusal;
-* the estimator keeps a second guard on ``interventions=``, ``shifts=`` and ``incremental=``;
+* the estimator keeps a second guard on ``interventions=``, ``policies=`` and ``incremental=``;
 * a set of one kind still identifies, and each keyword of one kind still constructs;
 * a mutation that removes the identification check fails every ``identify`` witness, and a
   mutation that removes every check lets a learner fit.
@@ -161,17 +161,17 @@ MIXED = {
     ),
     "incremental in a shift set": Request(
         dose,
-        ModifiedTreatmentPolicy(shifts=(Shift(0.5, cap=None, name="s"), Incremental(2.0))),
+        ModifiedTreatmentPolicy(policies=(Shift(0.5, cap=None, name="s"), Incremental(2.0))),
         CapabilityError,
-        "ModifiedTreatmentPolicy.shifts",
+        "ModifiedTreatmentPolicy.policies",
         ("item 2", INCREMENTAL, F17),
         1,
     ),
     "regime in a shift set": Request(
         dose,
-        ModifiedTreatmentPolicyEffect(shifts=(Shift(0.5, cap=None, name="s"), Static(1))),
+        ModifiedTreatmentPolicyEffect(policies=(Shift(0.5, cap=None, name="s"), Static(1))),
         CapabilityError,
-        "ModifiedTreatmentPolicyEffect.shifts",
+        "ModifiedTreatmentPolicyEffect.policies",
         ("item 2", REGIME, F17),
         1,
     ),
@@ -319,7 +319,7 @@ class TestTheEstimatorKeepsASecondGuard:
             (
                 "interventions",
                 (Shift(0.5, cap=None),),
-                ("interventions=", "item 1", SHIFT, "TMLE(shifts=...)", F17),
+                ("interventions=", "item 1", SHIFT, "TMLE(policies=...)", F17),
             ),
             (
                 "incremental",
@@ -332,14 +332,14 @@ class TestTheEstimatorKeepsASecondGuard:
                 ("incremental=", "item 2", SHIFT, F17),
             ),
             (
-                "shifts",
+                "policies",
                 (Shift(0.5, cap=None), Incremental(2.0)),
-                ("shifts=", "item 2", INCREMENTAL, F17),
+                ("policies=", "item 2", INCREMENTAL, F17),
             ),
             (
-                "shifts",
+                "policies",
                 (0.5,),
-                ("shifts=", "item 1", BARE, "Shift(0.5, cap=None)"),
+                ("policies=", "item 1", BARE, "Shift(0.5, cap=None)"),
             ),
         ],
         ids=[
@@ -384,7 +384,7 @@ class TestAOneKindRequestStillIdentifies:
     def test_each_keyword_of_one_kind_constructs(self) -> None:
         assert len(TMLE(interventions=(1, 0)).interventions) == 2
         assert len(TMLE(incremental=(Incremental(1.0), Incremental(2.0))).incremental) == 2
-        assert len(TMLE(shifts=(Shift(0.5, cap=None),)).shifts) == 1
+        assert len(TMLE(policies=(Shift(0.5, cap=None),)).policies) == 1
 
 
 class TestTheWitnessesHaveTeeth:

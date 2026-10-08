@@ -45,8 +45,8 @@ implemented in its own module, under typed estimands and a ``TMLE`` keyword of i
   declares ``density_kind = "known"``, by the same three states.
 - A **modified treatment policy** reads the dose that a unit received and moves it, so
   it is not a conditional distribution over the arms.  It is a parameter axis of its own
-  too: :mod:`cleverly.interventions.shift`, the typed estimands ``ModifiedTreatmentPolicy``
-  and ``ModifiedTreatmentPolicyEffect``, and ``TMLE(shifts=)``.
+  too: :mod:`cleverly.interventions.policy`, the typed estimands ``ModifiedTreatmentPolicy``
+  and ``ModifiedTreatmentPolicyEffect``, and ``TMLE(policies=)``.
 
 :func:`refuse_mixed_interventions` refuses either one in a set of regimes, and names the
 typed estimands that hold it.
@@ -446,7 +446,7 @@ def check_regime_density(
 # ----------------------------------------------------------------- the refusals
 
 
-InterventionKind = Literal["regime", "shift", "incremental"]
+InterventionKind = Literal["regime", "policy", "incremental"]
 
 
 class _KindText(NamedTuple):
@@ -468,12 +468,12 @@ _KIND_TEXT: dict[InterventionKind, _KindText] = {
         "RegimeMean and RegimeContrast",
         "TMLE(interventions=...)",
     ),
-    "shift": _KindText(
-        "Shift objects",
+    "policy": _KindText(
+        "modified treatment policies (Shift, Scale, Piecewise, ModifiedPolicy, RiskRatioTilt)",
         "Shift(0.5, cap=None)",
         "a modified treatment policy, which moves the dose that a unit received",
         "ModifiedTreatmentPolicy and ModifiedTreatmentPolicyEffect",
-        "TMLE(shifts=...)",
+        "TMLE(policies=...)",
     ),
     "incremental": _KindText(
         "Incremental objects",
@@ -490,24 +490,26 @@ _NOT_A_REGIME: dict[InterventionKind, str] = {
         " Its g*(a | W) is a functional of P, so its influence curve carries a term for the "
         "treatment mechanism g (Kennedy 2019) that a regime curve lacks."
     ),
-    "shift": (
-        " A shift is a function d(A, W) of the treatment that a unit received, and a regime "
-        "depends on the covariates alone (Haneuse and Rotnitzky 2013). A shift needs a "
-        "continuous treatment, treatment_kind='continuous'."
+    "policy": (
+        " A modified treatment policy is a function d(A, W) of the treatment that a unit "
+        "received, and a regime depends on the covariates alone (Haneuse and Rotnitzky 2013). "
+        "Declare it in policies=."
     ),
 }
 
 
 def _intervention_kind(item: object) -> InterventionKind:
-    """``"shift"`` for a Shift, ``"incremental"`` for an Incremental, else ``"regime"``.
+    """``"policy"`` for a modified treatment policy, ``"incremental"`` for an Incremental.
+
+    Anything else is ``"regime"``.
 
     A bare value is a regime, because :func:`as_interventions` reads it as a Static level.
     """
     from .incremental import Incremental
-    from .shift import Shift
+    from .policy import POLICY_TYPES
 
-    if isinstance(item, Shift):
-        return "shift"
+    if isinstance(item, POLICY_TYPES):
+        return "policy"
     if isinstance(item, Incremental):
         return "incremental"
     return "regime"
@@ -528,17 +530,17 @@ def refuse_mixed_interventions(
     incremental set is not a regime the user meant, so its message shows the object to
     write instead.  ``CausalStudy.identify`` runs this on the set of each typed estimand,
     :func:`as_interventions` on ``interventions=``, and the ``TMLE`` constructor on
-    ``shifts=`` and ``incremental=``.
+    ``policies=`` and ``incremental=``.
 
     Parameters
     ----------
     items : iterable of object
         The set of one typed estimand or of one ``TMLE`` keyword.
-    kind : {"regime", "shift", "incremental"}
+    kind : {"regime", "policy", "incremental"}
         The kind that the holder accepts.
     holder : str
         The field or the keyword that the message names, such as
-        ``"RegimeContrast.regimens"`` or ``"shifts="``.
+        ``"RegimeContrast.regimens"`` or ``"policies="``.
 
     Raises
     ------

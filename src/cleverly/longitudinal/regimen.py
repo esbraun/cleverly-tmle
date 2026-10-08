@@ -55,8 +55,8 @@ from typing import TYPE_CHECKING, Any, TypeAlias
 import numpy as np
 
 from .._declarations import FunctionKind
-from .._typing import FloatArray
-from ..exceptions import DataError
+from .._typing import BoolArray, FloatArray, IntArray
+from ..exceptions import CapabilityError, DataError
 from ..interventions.base import (
     _RULE_DECLARATION,
     Stochastic,
@@ -64,8 +64,17 @@ from ..interventions.base import (
     check_regime_density,
     refuse_regime_densities,
 )
+from ..interventions.policy import (
+    POLICY_TYPES,
+    check_continuous_policy,
+    discrete_assignments,
+    lazy_frame,
+    policy_branches,
+    refuse_policy_declarations,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle avoidance, types only
+    from ..interventions.policy import Policy
     from .data import LongitudinalData, RegimenMasks
 
 __all__ = [
@@ -73,16 +82,23 @@ __all__ = [
     "Plan",
     "Regimen",
     "RegimenSpec",
+    "declares_mtp",
     "declares_policy",
     "refuse_regimen_rules",
     "resolve_plans",
     "resolve_regimens",
 ]
 
-#: One node of a plan: a categorical label, a rule reading that node's history, or a known
-#: policy density over the node's levels.
+#: One node of a plan: a categorical label, a rule reading that node's history, a known
+#: policy density over the node's levels, or a modified treatment policy that reads the
+#: unit's own treatment at the node.
 TreatmentLabel: TypeAlias = "str | np.str_ | bool | int | float | np.number"
-RuleNode: TypeAlias = "TreatmentLabel | Callable[[Any], Any] | Stochastic"
+RuleNode: TypeAlias = "TreatmentLabel | Callable[[Any], Any] | Stochastic | Policy"
+
+
+def _is_mtp(node: object) -> bool:
+    """Whether a plan node is a modified treatment policy."""
+    return isinstance(node, POLICY_TYPES)
 
 
 @dataclass(frozen=True)
@@ -105,9 +121,9 @@ class Regimen:
     def __post_init__(self) -> None:
         if not self.values:
             raise DataError(f"regimen {self.label!r} assigns no treatment at any time point")
-        if any(isinstance(value, Stochastic) for value in self.values):
+        if any(isinstance(value, Stochastic) or _is_mtp(value) for value in self.values):
             raise DataError(
-                f"regimen {self.label!r} holds a stochastic policy node. Write a plan with a "
+                f"regimen {self.label!r} holds a policy node. Write a plan with a "
                 "policy node as DynamicRegimen(label, plan), or pass it in regimens= as a "
                 "mapping value"
             )
@@ -237,7 +253,25 @@ class DynamicRegimen:
         bool
             ``True`` when the entry of ``plan`` at ``time`` is callable.
         """
-        return callable(self.plan[time - 1])
+        node = self.plan[time - 1]
+        return callable(node) and not _is_mtp(node)
+
+    def is_mtp(self, time: int) -> bool:
+        """Whether ``time``'s arm is a modified treatment policy of the unit's own treatment.
+
+        Parameters
+        ----------
+        time : int
+            The treatment node, counted from one.
+
+        Returns
+        -------
+        bool
+            ``True`` when the entry of ``plan`` at ``time`` is a policy object, such as
+            :class:`~cleverly.interventions.Shift` or
+            :class:`~cleverly.interventions.ModifiedPolicy`.
+        """
+        return _is_mtp(self.plan[time - 1])
 
     def is_policy(self, time: int) -> bool:
         """Whether ``time``'s arm is drawn from a known policy density.
@@ -257,8 +291,13 @@ class DynamicRegimen:
 
     @property
     def has_policy(self) -> bool:
-        """Whether any node of ``plan`` is a :class:`~cleverly.interventions.Stochastic` node."""
-        return any(isinstance(node, Stochastic) for node in self.plan)
+        """Whether any node of ``plan`` is a stochastic policy or a modified treatment policy."""
+        return any(isinstance(node, Stochastic) or _is_mtp(node) for node in self.plan)
+
+    @property
+    def has_mtp(self) -> bool:
+        """Whether any node of ``plan`` is a modified treatment policy."""
+        return any(_is_mtp(node) for node in self.plan)
 
     def assignment(self, data: LongitudinalData) -> Any:
         """Evaluate every node's rule and return the ``(n, T)`` arm matrix.
@@ -314,7 +353,7 @@ class DynamicRegimen:
         columns = []
         for time, node in enumerate(self.plan, start=1):
             reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
-            if isinstance(node, Stochastic):
+            if isinstance(node, Stochastic) or _is_mtp(node):
                 arms = data.observed_labels(time)
             elif callable(node):
                 arms = self._evaluate(node, data, time, reachable)
@@ -473,6 +512,8 @@ def _describe_node(node: RuleNode) -> str:
     """
     if isinstance(node, Stochastic):
         return f"q:{node.name}" if node.name else "q"
+    if _is_mtp(node):
+        return f"m:{getattr(node, 'name', '')}"
     if not callable(node):
         return str(node)
     name = getattr(node, "__name__", "<lambda>")
@@ -512,21 +553,87 @@ class Plan:
     point_mass_nodes : tuple of int
         The policy nodes whose density was one-hot on every reachable row, and which were
         therefore resolved as the rule they equal.
+    mtp_nodes : tuple of int
+        The nodes that hold a modified treatment policy.  At such a node ``values`` holds
+        the observed code or dose, and ``policy`` holds the ``(n, J)`` weights of the
+        predictions the node carries: the levels the policy sends a unit to at a
+        categorical node, and the randomizer's probabilities at a continuous one.
+    policy_targets : tuple
+        Per node, the ``(n,)`` dose of each branch at a continuous policy node, and
+        ``None`` elsewhere.  Empty without one.
+    mtp_assignments : tuple
+        Per node, each branch of a categorical policy node as ``(probability, codes)``,
+        with ``codes`` the ``(n, K)`` level map of the discrete formula, and ``None``
+        elsewhere.  Empty without one.
+    mtp_numerators : tuple
+        Per node, the ratio numerator of a policy node once the mechanism is fitted, and
+        ``None`` elsewhere.  Empty until :func:`attach_policy_numerators` sets it.
 
     Attributes
     ----------
     label : str
     has_policy : bool
+    has_mtp : bool
     """
 
     regimen: RegimenSpec
     values: FloatArray
     policy: tuple[FloatArray | None, ...] = ()
     point_mass_nodes: tuple[int, ...] = ()
+    #: The nodes, counted from one, that hold a modified treatment policy.
+    mtp_nodes: tuple[int, ...] = ()
+    #: Per node, the ``(n,)`` dose each branch of a continuous node's policy assigns, and
+    #: ``None`` elsewhere.  Empty without a continuous policy node.
+    policy_targets: tuple[tuple[FloatArray, ...] | None, ...] = ()
+    #: Per node, each branch of a categorical node's policy as ``(probability, codes)``
+    #: with ``codes`` the ``(n, K)`` level map of the discrete formula, and ``None``
+    #: elsewhere.  Empty without a categorical policy node.
+    mtp_assignments: tuple[tuple[tuple[float, IntArray], ...] | None, ...] = ()
+    #: Per node, the ``(n,)`` ratio numerator of a policy node once the mechanism is fitted:
+    #: :math:`g^d_t(A_t \mid H_t)` at a categorical node and :math:`r_t = g^d_t / g_t` at a
+    #: continuous one.  Empty until :func:`attach_policy_numerators` sets it.
+    mtp_numerators: tuple[FloatArray | None, ...] = ()
 
     @property
     def label(self) -> str:
         return self.regimen.label
+
+    @property
+    def has_mtp(self) -> bool:
+        """Whether any node of this plan is a modified treatment policy."""
+        return bool(self.mtp_nodes)
+
+    def is_mtp_node(self, time: int) -> bool:
+        """Whether node ``time``, counted from one, is a modified treatment policy.
+
+        Parameters
+        ----------
+        time : int
+            The treatment node, counted from one.
+
+        Returns
+        -------
+        bool
+            ``True`` at a modified treatment policy node.
+        """
+        return time in self.mtp_nodes
+
+    def carry_targets(self, time: int) -> tuple[FloatArray, ...] | None:
+        """The doses a continuous policy node's regression is predicted at, one per branch.
+
+        Parameters
+        ----------
+        time : int
+            The treatment node, counted from one.
+
+        Returns
+        -------
+        tuple of FloatArray or None
+            One ``(n,)`` dose per branch at a continuous policy node, ``None`` elsewhere.
+        """
+        if not self.policy_targets:
+            return None
+        return self.policy_targets[time - 1]
 
     @property
     def has_policy(self) -> bool:
@@ -590,6 +697,32 @@ class Plan:
             [_node_numerator(self, data, time) for time in range(1, data.n_times + 1)]
         )
 
+    def support(self, data: LongitudinalData) -> BoolArray:
+        r"""``(n, T)`` indicator that a row stays on the plan at each node.
+
+        At a label or rule node it is :math:`1\{A_t = d_t(H_t)\}`, at a stochastic policy
+        node :math:`q_t(A_t \mid H_t) > 0`, and at a modified treatment policy node every
+        row with a treatment there: the policy reads the unit's own treatment, so no row
+        leaves the plan, and a row whose ratio is zero keeps a zero term.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The panel the plan was resolved against.
+
+        Returns
+        -------
+        BoolArray
+            Booleans as one column per node.
+        """
+        columns = []
+        for time in range(1, data.n_times + 1):
+            if self.is_mtp_node(time):
+                columns.append(~np.isnan(data.treatment[:, time - 1]))
+            else:
+                columns.append(_node_numerator(self, data, time) > 0.0)
+        return np.column_stack(columns)
+
     def cumulative_numerator(self, data: LongitudinalData) -> FloatArray | None:
         r"""``(n, T)`` running product :math:`\prod_{s \le t} \pi_s(A_s \mid H_s)`, or ``None``.
 
@@ -637,7 +770,7 @@ class Plan:
         """
         if not self.has_policy:
             return data.regimen_masks(self.values)
-        return data.regimen_masks(self.values, support=self.intervention_density(data) > 0.0)
+        return data.regimen_masks(self.values, support=self.support(data))
 
 
 def _node_numerator(plan: Plan, data: LongitudinalData, time: int) -> FloatArray:
@@ -663,6 +796,14 @@ def _node_numerator(plan: Plan, data: LongitudinalData, time: int) -> FloatArray
     """
     observed = data.treatment[:, time - 1]
     present = ~np.isnan(observed)
+    if plan.is_mtp_node(time):
+        numerator = plan.mtp_numerators[time - 1] if plan.mtp_numerators else None
+        if numerator is None:
+            raise ValueError(
+                f"node {time} of regimen {plan.label!r} is a modified treatment policy, whose "
+                "ratio numerator reads the fitted mechanism; attach it first"
+            )
+        return np.where(present, numerator, 0.0)
     if plan.is_policy_node(time):
         codes = np.nan_to_num(observed, nan=0.0).astype(np.int64)
         density = plan.policy_at(time)
@@ -706,13 +847,26 @@ def resolve_plans(
 
 def _resolve_plan(regimen: RegimenSpec, data: LongitudinalData, *, collapse: bool) -> Plan:
     """One regimen's plan, with its policy densities evaluated and point masses collapsed."""
+    refuse_continuous_assignments(regimen, data)
     values = data.encode_assignment(regimen.assignment(data), regimen.label)
     if not (isinstance(regimen, DynamicRegimen) and regimen.has_policy):
         return Plan(regimen, values)
     values = np.array(values, dtype=float, copy=True)
     policy: list[FloatArray | None] = []
     collapsed: list[int] = []
+    mtp_nodes: list[int] = []
+    targets: list[tuple[FloatArray, ...] | None] = []
+    assignments: list[tuple[tuple[float, IntArray], ...] | None] = []
     for time in range(1, data.n_times + 1):
+        if regimen.is_mtp(time):
+            carry, target, assigned = _resolve_mtp_node(regimen, data, time)
+            policy.append(carry)
+            targets.append(target)
+            assignments.append(assigned)
+            mtp_nodes.append(time)
+            continue
+        targets.append(None)
+        assignments.append(None)
         if not regimen.is_policy(time):
             policy.append(None)
             continue
@@ -725,7 +879,120 @@ def _resolve_plan(regimen: RegimenSpec, data: LongitudinalData, *, collapse: boo
         else:
             policy.append(density)
     kept = tuple(policy) if any(entry is not None for entry in policy) else ()
-    return Plan(regimen, values, kept, tuple(collapsed))
+    return Plan(
+        regimen,
+        values,
+        kept,
+        tuple(collapsed),
+        mtp_nodes=tuple(mtp_nodes),
+        policy_targets=tuple(targets) if any(t is not None for t in targets) else (),
+        mtp_assignments=tuple(assignments) if any(a is not None for a in assignments) else (),
+    )
+
+
+def _resolve_mtp_node(
+    regimen: DynamicRegimen, data: LongitudinalData, time: int
+) -> tuple[FloatArray, tuple[FloatArray, ...] | None, tuple[tuple[float, IntArray], ...] | None]:
+    r"""Evaluate a modified treatment policy at one node, once, before any learner.
+
+    Returns the ``(n, J)`` carry weights, and either the ``(n,)`` dose of each branch at a
+    continuous node or each branch's ``(n, K)`` level map at a categorical one.  The policy
+    reads the policy frame, :math:`[W, L_1, \ldots, L_t]` and the earlier treatments, which
+    hold the observed values on which the regression conditions.  Rows that left the study
+    before the node hold zero weight and a zero dose.
+    """
+    node = regimen.plan[time - 1]
+    name = data.treatment_names[time - 1]
+    where = f"node {name!r} at time {time} of regimen {regimen.label!r}"
+    reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
+    frame = lazy_frame(lambda: data.policy_frame(time))
+    branches = policy_branches(node)
+    probabilities = np.array([probability for probability, _ in branches])
+    if data.is_continuous_node(time):
+        observed = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
+        check_continuous_policy(node, observed, frame, reachable, where=where)
+        doses = []
+        for _, branch in branches:
+            assigned = np.asarray(branch.assign(observed, frame), dtype=float).reshape(-1)
+            doses.append(np.where(reachable, assigned, 0.0))
+        carry = np.where(reachable[:, None], np.tile(probabilities, (data.n, 1)), 0.0)
+        return carry, tuple(doses), None
+    levels = data.treatment_levels[time - 1]
+    assigned_codes = discrete_assignments(node, levels, frame, reachable, where=where)
+    observed_codes = np.nan_to_num(data.treatment[:, time - 1], nan=0.0).astype(np.int64)
+    carry = np.zeros((data.n, len(levels)))
+    rows = np.arange(data.n)
+    for probability, codes in assigned_codes:
+        np.add.at(carry, (rows, codes[rows, observed_codes]), probability)
+    carry = np.where(reachable[:, None], carry, 0.0)
+    return carry, None, assigned_codes
+
+
+def refuse_continuous_assignments(regimen: RegimenSpec, data: LongitudinalData) -> None:
+    """Refuse a label, rule or known density at a continuous node, before any learner.
+
+    A static dose on a continuous treatment is not pathwise differentiable (Díaz, Williams,
+    Hoffman and Schenck 2023, Section 4), and neither is a rule that sets one, so a
+    continuous node takes a modified treatment policy only.
+
+    Parameters
+    ----------
+    regimen : Regimen or DynamicRegimen
+        The resolved regimen.
+    data : LongitudinalData
+        The validated panel.
+
+    Raises
+    ------
+    CapabilityError
+        If a continuous node holds anything other than a policy object.
+    """
+    if not data.has_continuous_node:
+        return
+    nodes = regimen.values if isinstance(regimen, Regimen) else regimen.plan
+    for time, node in enumerate(nodes, start=1):
+        if data.is_continuous_node(time) and not _is_mtp(node):
+            raise CapabilityError(
+                f"regimen {regimen.label!r} sets the continuous node "
+                f"{data.treatment_names[time - 1]!r} to a fixed dose or rule. A static dose on "
+                "a continuous treatment is not pathwise differentiable (Díaz et al. 2023, "
+                "Section 4). Declare a modified treatment policy at that node"
+            )
+
+
+def attach_policy_numerators(
+    plans: Sequence[Plan], numerators: Mapping[str, dict[int, FloatArray]]
+) -> tuple[Plan, ...]:
+    """Each plan with its policy nodes' ratio numerators, once the mechanism is fitted.
+
+    Parameters
+    ----------
+    plans : sequence of Plan
+        The resolved plans.
+    numerators : mapping
+        By plan label, by node counted from one, the ``(n,)`` numerator.
+
+    Returns
+    -------
+    tuple of Plan
+        The plans, unchanged where they hold no modified treatment policy.
+    """
+    from dataclasses import replace
+
+    out = []
+    for plan in plans:
+        if not plan.has_mtp:
+            out.append(plan)
+            continue
+        by_node = numerators[plan.label]
+        n_times = int(plan.values.shape[1])
+        out.append(
+            replace(
+                plan,
+                mtp_numerators=tuple(by_node.get(time) for time in range(1, n_times + 1)),
+            )
+        )
+    return tuple(out)
 
 
 def _is_point_mass(density: FloatArray) -> bool:
@@ -788,7 +1055,7 @@ def refuse_regimen_rules(regimens: Any) -> None:
         kind: object = plan.rule_kind if isinstance(plan, DynamicRegimen) else None
         nodes = _plan_nodes(label, plan)
         entries = (plan,) if nodes is None else nodes
-        if any(callable(node) for node in entries):
+        if any(callable(node) and not _is_mtp(node) for node in entries):
             # ``refuse`` runs ``check`` first, so every refusal of a rule is the shared one.
             _RULE_DECLARATION.refuse(kind)
         else:
@@ -796,6 +1063,8 @@ def refuse_regimen_rules(regimens: Any) -> None:
         # Each policy node carries its own declaration, which the point-treatment
         # ``Stochastic`` check reads, so the two cannot refuse one policy differently.
         refuse_regime_densities(node for node in entries if isinstance(node, Stochastic))
+        # A modified treatment policy is known by its class, or declares policy_kind.
+        refuse_policy_declarations(node for node in entries if _is_mtp(node))
 
 
 def declares_policy(regimens: Any) -> bool:
@@ -821,6 +1090,30 @@ def declares_policy(regimens: Any) -> bool:
         except DataError:
             continue
         if any(isinstance(node, Stochastic) for node in ((plan,) if nodes is None else nodes)):
+            return True
+    return False
+
+
+def declares_mtp(regimens: Any) -> bool:
+    """Whether any plan of a ``regimens=`` argument holds a modified treatment policy.
+
+    Parameters
+    ----------
+    regimens : Any
+        The ``regimens=`` argument of a fit or of a longitudinal estimand.
+
+    Returns
+    -------
+    bool
+        ``True`` when some node of some plan is a policy object, such as
+        :class:`~cleverly.interventions.Shift`.
+    """
+    for label, plan in _plans(regimens):
+        try:
+            nodes = _plan_nodes(label, plan)
+        except DataError:
+            continue
+        if any(_is_mtp(node) for node in ((plan,) if nodes is None else nodes)):
             return True
     return False
 
@@ -883,7 +1176,12 @@ def _plan_nodes(label: object, plan: Any) -> tuple[Any, ...] | None:
             "label to assign it at every node, a sequence with one entry per node, or "
             "DynamicRegimen(label, ordered_nodes, rule_kind='known') for a plan with a rule"
         )
-    if callable(plan) or isinstance(plan, _LABEL_TYPES) or not hasattr(plan, "__iter__"):
+    if (
+        callable(plan)
+        or _is_mtp(plan)
+        or isinstance(plan, _LABEL_TYPES)
+        or not hasattr(plan, "__iter__")
+    ):
         return None
     if isinstance(plan, Iterator):
         raise DataError(
@@ -985,7 +1283,7 @@ def _resolve_one(label: str, plan: Any, n_times: int) -> RegimenSpec:
     """
     kind: FunctionKind | None = plan.rule_kind if isinstance(plan, DynamicRegimen) else None
     nodes = _nodes(label, plan, n_times)
-    if any(callable(node) or isinstance(node, Stochastic) for node in nodes):
+    if any(callable(node) or isinstance(node, Stochastic) or _is_mtp(node) for node in nodes):
         return DynamicRegimen(label, nodes, rule_kind=kind)
     return Regimen(label, nodes)
 
@@ -998,11 +1296,12 @@ def _nodes(label: str, plan: Any, n_times: int) -> tuple[RuleNode, ...]:
         # ``isinstance(..., Sequence)``, which neither registers for.  ``_plan_nodes`` tests
         # for the iteration protocol instead, so the message about rules is not aimed at
         # an array whose diagnosis it gets wrong.
-        if not (callable(plan) or isinstance(plan, (Stochastic, *_LABEL_TYPES))):
+        if not (callable(plan) or _is_mtp(plan) or isinstance(plan, (Stochastic, *_LABEL_TYPES))):
             raise DataError(
                 f"regimen {label!r} must be a treatment label, a rule d_t(H_t), a known "
-                f"policy Stochastic(q, name, density_kind='known'), or a sequence of "
-                f"{n_times} of these; got {plan!r}"
+                f"policy Stochastic(q, name, density_kind='known'), a modified treatment "
+                f"policy such as Shift(0.5, cap=4.0), or a sequence of {n_times} of these; "
+                f"got {plan!r}"
             )
         # A rule or a policy gets the broadcast that a scalar arm gets.  So a rule that reads a
         # late-measured covariate is diagnosed at evaluation rather than here: whether

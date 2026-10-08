@@ -1792,11 +1792,11 @@ class ShiftDGP:
             return moved
         return np.where(moved > float(cap), np.asarray(dose, dtype=float), moved)
 
-    def truth(self, shifts: Sequence[tuple[float, float | None, str]]) -> dict[str, float]:
+    def truth(self, policies: Sequence[tuple[float, float | None, str]]) -> dict[str, float]:
         r"""``E[Y^{d}]`` per shift and ``E[Y^{d}] - E[Y^{d_ref}]`` per contrast.
 
         Keyed by the names the estimator reports, so a test can compare without
-        translating.  ``shifts`` is ``(delta, cap, name)`` per policy and the *first* is
+        translating.  ``policies`` is ``(delta, cap, name)`` per policy and the *first* is
         the reference, which is the rule the estimator follows.
 
         Integrated over a Sobol sequence in ``n_latent + 1`` dimensions: the covariates
@@ -1816,20 +1816,20 @@ class ShiftDGP:
                     )
                 )
             )
-            for delta, cap, name in shifts
+            for delta, cap, name in policies
         }
-        base = shifts[0][2]
-        truth = {f"ey_shift[{name}]": value for name, value in means.items()}
+        base = policies[0][2]
+        truth = {f"ey_policy[{name}]": value for name, value in means.items()}
         for name, value in means.items():
             if name != base:
-                truth[f"ate_shift[{name} vs {base}]"] = value - means[base]
+                truth[f"ate_policy[{name} vs {base}]"] = value - means[base]
         return truth
 
     def sample(
         self,
         n: int,
         *,
-        shifts: Sequence[tuple[float, float | None, str]] = ((0.0, None, "natural course"),),
+        policies: Sequence[tuple[float, float | None, str]] = ((0.0, None, "natural course"),),
         seed: int | np.random.Generator | None = None,
         backend: Backend | str | None = None,
     ) -> tuple[Any, dict[str, float]]:
@@ -1848,7 +1848,7 @@ class ShiftDGP:
         payload: dict[str, Any] = {"Y": y, "A": dose}
         for index, name in enumerate(self.covariate_names):
             payload[name] = latent[:, index]
-        return frame_from_dict(payload, backend=backend), self.truth(shifts)
+        return frame_from_dict(payload, backend=backend), self.truth(policies)
 
 
 def shift_dgp(*, curvature: float = 0.25, confounding: float = 0.7) -> ShiftDGP:
@@ -1886,7 +1886,7 @@ def shift_dgp(*, curvature: float = 0.25, confounding: float = 0.7) -> ShiftDGP:
 def make_shift_dose(
     n: int = 1000,
     *,
-    shifts: Sequence[tuple[float, float | None, str]] = (
+    policies: Sequence[tuple[float, float | None, str]] = (
         (0.0, None, "natural course"),
         (0.5, 5.0, "+0.5"),
     ),
@@ -1904,7 +1904,7 @@ def make_shift_dose(
     ----------
     n : int
         Number of observations.
-    shifts : sequence of tuple
+    policies : sequence of tuple
         One ``(delta, cap, name)`` per policy the truth is computed for.
     seed : int, Generator, or None
         Seed or NumPy random generator.
@@ -1918,7 +1918,7 @@ def make_shift_dose(
     truth : dict of str to float
         Exact causal parameters for the data-generating process.
     """
-    return shift_dgp().sample(n, shifts=shifts, seed=seed, backend=backend)
+    return shift_dgp().sample(n, policies=policies, seed=seed, backend=backend)
 
 
 #: Every generator, for parametrised tests and the simulation harness.

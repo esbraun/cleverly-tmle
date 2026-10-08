@@ -31,7 +31,15 @@ import os
 
 import joblib
 
-__all__ = ["CORES_ENV", "available_cores", "describe_cores"]
+from cleverly.utils.memory import available_memory
+
+__all__ = [
+    "CORES_ENV",
+    "available_cores",
+    "available_memory",
+    "describe_cores",
+    "memory_capped_workers",
+]
 
 #: Pins the budget without pinning the process.  Above ``LOKY_MAX_CPU_COUNT`` deliberately:
 #: that one also constrains joblib's own pools at runtime, so a developer who wants the test
@@ -108,3 +116,32 @@ if __name__ == "__main__":  # pragma: no cover - a shell entry point, not a test
 
     print(worker_count() if "--workers" in sys.argv else describe_cores())
     sys.exit(0)
+
+
+#: The share of the available memory a memory-capped pool may plan to use.  The rest is the
+#: margin for the parent process, the operating system and a fit's peak above its estimate.
+MEMORY_SHARE = 0.75
+
+
+def memory_capped_workers(jobs: int, per_worker_bytes: int) -> int:
+    """At most ``jobs`` workers, and no more than :data:`MEMORY_SHARE` of the free memory holds.
+
+    A worker count does not change any result here: every replication draws from its own
+    stream.  So a cap only trades wall time for not running the machine out of memory.
+
+    Parameters
+    ----------
+    jobs : int
+        The worker count the caller asked for.
+    per_worker_bytes : int
+        The measured peak of one worker's fit, with its margin.
+
+    Returns
+    -------
+    int
+        The worker count to use, at least one.
+    """
+    free = available_memory()
+    if free is None:
+        return max(1, jobs)
+    return max(1, min(jobs, int(MEMORY_SHARE * free // per_worker_bytes)))

@@ -844,7 +844,12 @@ def _stacked_arms(
     for code in range(max(widths, default=0)):
         initial_arms[_policy_arm(code)] = np.concatenate(
             [
-                node.initial if node.initial_by_arm is None else node.initial_by_arm[:, code]
+                # A cell whose node carries fewer columns -- a continuous policy carries one
+                # per randomizer value, a categorical one one per level -- stacks its
+                # observed-arm prediction under the extra key, which no reader takes.
+                node.initial
+                if node.initial_by_arm is None or code >= node.initial_by_arm.shape[1]
+                else node.initial_by_arm[:, code]
                 for node in nodes
             ]
         )

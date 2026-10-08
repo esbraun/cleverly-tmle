@@ -575,8 +575,8 @@ class TestSupportedNeighboursStillFit:
         )
 
     def test_shifts(self) -> None:
-        estimator = TMLE(shifts=[Shift(0.5, cap=None)], density_bins=6, **linear_in_sample())
-        assert "ey_shift[+0.5][S=1]" in self.names(fit_dose(estimator))
+        estimator = TMLE(policies=[Shift(0.5, cap=None)], density_bins=6, **linear_in_sample())
+        assert "ey_policy[+0.5][S=1]" in self.names(fit_dose(estimator))
 
     def test_an_empty_drtmle_guard(self, unguarded_result: Any) -> None:
         assert "ate[S=1]" in unguarded_result.estimates
@@ -733,7 +733,7 @@ def test_a_missing_treatment_composition_is_refused_before_any_learner(row: str)
 def test_a_missing_treatment_with_a_dose_is_refused_by_the_container() -> None:
     """A conditional density has no composite indicator; the container refuses first."""
     assert_refused_before_any_call(
-        lambda: _fit_missing_treatment(TMLE(**_never(shifts=[Shift(1.0, cap=None)]))),
+        lambda: _fit_missing_treatment(TMLE(**_never(policies=[Shift(1.0, cap=None)]))),
         None,
         "learner",
         "arm-coded treatment only",

@@ -16,11 +16,11 @@ from .estimators._strata import check_stratified_targets
 from .estimators.composite import missing_treatment_design_refusal
 from .exceptions import CapabilityError, CleverlyError, DataError, MethodConfigurationError
 from .inference.multiplier import SimultaneousBands, simultaneous_bands
-from .interventions import Incremental, IPSISet, RegimeSet, Shift, ShiftSet
+from .interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet
 from .interventions.base import InterventionKind, refuse_mixed_interventions
 from .interventions.learned import LearnedRule, refuse_learned_rule_composition
 from .longitudinal import LTMLE, LongitudinalData, LongitudinalResult
-from .longitudinal.regimen import declares_policy
+from .longitudinal.regimen import declares_mtp, declares_policy
 from .methods import (
     CollaborativeTMLEMethod,
     DRTMLEMethod,
@@ -592,6 +592,9 @@ class LongitudinalTreatment:
         Whether the supplied weights were estimated from these data.
     outcome_family : {"auto", "gaussian", "binomial"}
         Outcome family used by the sequential regressions.
+    continuous_treatment : sequence of str
+        The treatment nodes that hold a continuous dose.  Each such node takes a modified
+        treatment policy, such as :class:`~cleverly.interventions.Shift`.
 
     See Also
     --------
@@ -632,8 +635,10 @@ class LongitudinalTreatment:
     weights_type: Literal["probability"] = "probability"
     weights_estimated: bool = False
     outcome_family: Family = "auto"
+    continuous_treatment: Sequence[str] = ()
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "continuous_treatment", tuple(self.continuous_treatment))
         object.__setattr__(self, "treatment", tuple(self.treatment))
         object.__setattr__(self, "baseline", tuple(self.baseline))
         if self.time_varying is not None:
@@ -673,6 +678,7 @@ class LongitudinalTreatment:
             weights_type=self.weights_type,
             weights_estimated=self.weights_estimated,
             family=self.outcome_family,
+            continuous_treatment=self.continuous_treatment,
         )
 
     def _outcome_roles(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
@@ -715,6 +721,15 @@ class LongitudinalTreatment:
             ("weights_estimated", self.weights_estimated, data.weight_spec.estimated),
             ("outcome event nodes", events, tuple(data.event_names)),
             ("outcome causes", causes, tuple(data.cause_labels)),
+            (
+                "continuous_treatment",
+                tuple(self.continuous_treatment),
+                tuple(
+                    name
+                    for time, name in enumerate(data.treatment_names, start=1)
+                    if data.is_continuous_node(time)
+                ),
+            ),
         )
         for role, declared, held in expected:
             if declared != held:
@@ -845,7 +860,7 @@ class CounterfactualMean:
     --------
     ATE : The contrast between these means.
     RegimeMean : Means under declared regimens rather than fixed levels.
-    ModifiedTreatmentPolicy : Means under shifts of a continuous dose.
+    ModifiedTreatmentPolicy : Means under modified treatment policies.
 
     Examples
     --------
@@ -1102,20 +1117,22 @@ class LearnedRuleValue:
 
 @dataclass(frozen=True)
 class ModifiedTreatmentPolicy:
-    """Request mean outcomes under continuous-dose shift policies.
+    """Request mean outcomes under modified treatment policies.
 
     Parameters
     ----------
-    shifts : sequence of Shift
-        Named dose shifts to evaluate.
+    policies : sequence of Policy
+        Named policies to evaluate: ``Shift``, ``Scale``, ``Piecewise`` or
+        ``ModifiedPolicy``.  A ``RiskRatioTilt`` reports its own estimand, ``ey_rr_tilt``, which
+        has no typed request; this class refuses it.
     reference : str or None
-        Shift label retained as the comparison reference.
+        Policy label retained as the comparison reference.
 
     See Also
     --------
     ModifiedTreatmentPolicyEffect : The contrast between these means.
-    cleverly.interventions.Shift : The dose shift a policy is built from.
-    cleverly.interventions.check_shift_support : Whether the shifted dose is supported.
+    cleverly.interventions.Shift : The additive dose shift, the simplest policy.
+    cleverly.interventions.check_policy_support : Whether the shifted dose is supported.
 
     Examples
     --------
@@ -1123,33 +1140,54 @@ class ModifiedTreatmentPolicy:
 
     >>> from cleverly import ModifiedTreatmentPolicy
     >>> from cleverly.interventions import Shift
-    >>> estimand = ModifiedTreatmentPolicy(shifts=[Shift(delta=1.0, cap=None, name="up1")])
-    >>> estimand.shifts[0].cap is None
+    >>> estimand = ModifiedTreatmentPolicy(policies=[Shift(delta=1.0, cap=None, name="up1")])
+    >>> estimand.policies[0].cap is None
     True
     """
 
-    shifts: Sequence[Shift]
+    policies: Sequence[Policy]
     reference: str | None = None
-    name: str = field(default="ey_shift", init=False)
+    name: str = field(default="ey_policy", init=False)
     definition: str = field(default="mean outcome under each modified treatment policy", init=False)
+
+    def __post_init__(self) -> None:
+        _refuse_typed_tilts(self.policies, type(self).__name__)
 
 
 @dataclass(frozen=True)
 class ModifiedTreatmentPolicyEffect:
-    """Compare continuous-dose shift policies.
+    """Compare modified treatment policies.
 
     Parameters
     ----------
-    shifts : sequence of Shift
-        Named dose shifts to compare.
+    policies : sequence of Policy
+        Named policies to compare.  A ``RiskRatioTilt`` is refused, as in
+        :class:`ModifiedTreatmentPolicy`.
     reference : str or None
-        Reference shift label. ``None`` uses the first shift.
+        Reference policy label. ``None`` uses the first policy.
     """
 
-    shifts: Sequence[Shift]
+    policies: Sequence[Policy]
     reference: str | None = None
-    name: str = field(default="ate_shift", init=False)
+    name: str = field(default="ate_policy", init=False)
     definition: str = field(default="contrast of modified treatment policies", init=False)
+
+    def __post_init__(self) -> None:
+        _refuse_typed_tilts(self.policies, type(self).__name__)
+
+
+def _refuse_typed_tilts(policies: Sequence[Any], holder: str) -> None:
+    """Refuse a risk-ratio tilt in a typed policy request, which reports ``ey_policy``."""
+    from .interventions import RiskRatioTilt
+
+    tilts = [getattr(item, "name", "") for item in policies if isinstance(item, RiskRatioTilt)]
+    if tilts:
+        raise CapabilityError(
+            f"{holder} holds the risk-ratio tilt(s) {tilts}. A tilt reports its own estimands, "
+            "ey_rr_tilt and ate_rr_tilt, and no typed study request reports them. Fit "
+            "TMLE(policies=[RiskRatioTilt(1.0), RiskRatioTilt(delta)]) directly and read "
+            "estimates['ey_rr_tilt[...]']"
+        )
 
 
 @dataclass(frozen=True)
@@ -1319,8 +1357,8 @@ _STRING_ESTIMANDS: dict[str, str] = {
     "ey_regime": "RegimeMean(regimens=...)",
     "ate_regime": "RegimeContrast(regimens=...)",
     "ey_learned_rule": "LearnedRuleValue()",
-    "ey_shift": "ModifiedTreatmentPolicy(shifts=...)",
-    "ate_shift": "ModifiedTreatmentPolicyEffect(shifts=...)",
+    "ey_policy": "ModifiedTreatmentPolicy(policies=...)",
+    "ate_policy": "ModifiedTreatmentPolicyEffect(policies=...)",
     "ey_ipsi": "IncrementalMean(interventions=...)",
     "ate_ipsi": "IncrementalEffect(interventions=...)",
     "msm": "MSMProjection(model=...)",
@@ -1392,7 +1430,7 @@ class BackdoorMeanContrast:
     target : str
         Registered engine target.
     axis : str
-        Parameter axis, such as ``"arm"``, ``"regimen"``, or ``"shift"``.
+        Parameter axis, such as ``"arm"``, ``"regimen"``, or ``"policy"``.
     reference : Any or None
         Reference level or label.
     interventions : Any
@@ -2031,7 +2069,7 @@ def _point_identification(
                 f"{reference!r} | W) P({missingness} = 1 | {design.treatment} = "
                 f"{reference!r}, W) > 0 almost surely"
             )
-        elif axis == "shift":
+        elif axis == "policy":
             assumptions.append(
                 f"response positivity for {missingness}: P({missingness} = 1 | "
                 f"{design.treatment} = d(a, W), W) > 0 almost surely wherever a declared "
@@ -2129,7 +2167,7 @@ def _declared_interventions(actual: Any) -> tuple[str, InterventionKind] | None:
     if isinstance(actual, (RegimeMean, RegimeContrast)):
         return "regimens", "regime"
     if isinstance(actual, (ModifiedTreatmentPolicy, ModifiedTreatmentPolicyEffect)):
-        return "shifts", "shift"
+        return "policies", "policy"
     if isinstance(actual, (IncrementalMean, IncrementalEffect)):
         return "interventions", "incremental"
     return None
@@ -2239,6 +2277,33 @@ _LONGITUDINAL_POLICY_IDENTIFICATION = Identification(
 )
 
 
+#: The identification of a regimen set with a modified treatment policy node.  Díaz,
+#: Williams, Hoffman and Schenck (2023), Theorem 1: under their Assumption 3 (strong
+#: sequential randomization) the functional identifies the LMTP, and under Assumption 2
+#: alone the same functional is the LMTP-SI.  One number, two readings.
+_LONGITUDINAL_MTP_IDENTIFICATION = Identification(
+    assumptions=(
+        *_LONGITUDINAL_IDENTIFICATION.assumptions[:2],
+        "sequential exchangeability of the natural treatment and the outcome given the "
+        "recorded history (Díaz et al. 2023, Assumption 3) identifies the modified treatment "
+        "policy effect; under exchangeability given the history before each node alone "
+        "(Assumption 2) the same number is the LMTP-SI of their Theorem 1 (i)",
+        "positivity: the dose a policy assigns, d(a_t, h_t), lies in the support of A_t given "
+        "h_t wherever a_t does (Assumption 1), and so does remaining under observation",
+        "each policy is known and fixed before the fit, and on a continuous node it is "
+        "piecewise smooth invertible (Assumption 4); a policy reads the history and the "
+        "unit's own treatment at its node, and its earlier treatment columns stand for the "
+        "intervened values",
+    ),
+    required_nuisances=_LONGITUDINAL_IDENTIFICATION.required_nuisances,
+    dr_condition=(
+        "the remainder is a sum over nodes of the products of the density ratio error and "
+        "the outcome regression error (Díaz et al. 2023, Theorem 3), with bounded ratios"
+    ),
+    references=("Díaz, Williams, Hoffman & Schenck (2023)",),
+)
+
+
 @dataclass(frozen=True)
 class ExplicitAdjustmentProvider:
     """Identify effects from declared adjustment sets or sequential histories.
@@ -2338,7 +2403,7 @@ class ExplicitAdjustmentProvider:
         # -- while telling the caller it was "arm-indexed", which it is not.  A regime is a
         # density over arms and an incremental intervention tilts an odds, so those two stay
         # refused; both statements now come from the axis rather than from a spelling.
-        if design.treatment_kind == "continuous" and axis not in {"shift", "msm"}:
+        if design.treatment_kind == "continuous" and axis not in {"policy", "msm"}:
             raise CapabilityError(
                 f"{type(actual).__name__} is indexed by {axis}, which a continuous dose does "
                 "not provide; a continuous-dose design supports modified treatment policies "
@@ -2445,7 +2510,9 @@ class ExplicitAdjustmentProvider:
             estimand=estimand,
             functional=functional,
             identification=(
-                _LONGITUDINAL_POLICY_IDENTIFICATION
+                _LONGITUDINAL_MTP_IDENTIFICATION
+                if declares_mtp(regimens)
+                else _LONGITUDINAL_POLICY_IDENTIFICATION
                 if declares_policy(regimens)
                 else _LONGITUDINAL_IDENTIFICATION
             ),
@@ -2904,8 +2971,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             kwargs["interventions"] = functional.interventions
         elif functional.axis == "learned_rule":
             (kwargs["learned_rule"],) = functional.interventions
-        elif functional.axis == "shift":
-            kwargs["shifts"] = functional.interventions
+        elif functional.axis == "policy":
+            kwargs["policies"] = functional.interventions
         elif functional.axis == "ipsi":
             kwargs["incremental"] = functional.interventions
         elif functional.axis == "msm":
@@ -3019,7 +3086,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 "regime": result.nuisance.regimes,
                 # The fold-local rule is carried as a one-regime set named by the rule.
                 "learned_rule": result.nuisance.regimes,
-                "shift": result.nuisance.shifts,
+                "policy": result.nuisance.policies,
+                "rr_tilt": result.nuisance.policies,
                 "ipsi": result.nuisance.incremental,
                 "msm": result.nuisance.msm,
             }[self.functional.axis]
@@ -3029,7 +3097,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 assert isinstance(state, MSMSet)
                 names = state.terms
             else:
-                assert isinstance(state, (RegimeSet, ShiftSet, IPSISet))
+                assert isinstance(state, (RegimeSet, PolicySet, IPSISet))
                 names = state.names
             reference_name = names[int(state.reference)] if hasattr(state, "reference") else None
             if target.startswith("ey_"):

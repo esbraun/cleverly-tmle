@@ -53,17 +53,17 @@ from cleverly.exceptions import DataError
 from cleverly.interventions import (
     Incremental,
     IPSISet,
+    PolicySet,
     RegimeSet,
     Rule,
     Shift,
-    ShiftSet,
     Static,
     check_incremental_support,
-    check_shift_support,
+    check_policy_support,
     check_support,
 )
 from cleverly.interventions.incremental import IncrementalSupport
-from cleverly.interventions.shift import ShiftSupport
+from cleverly.interventions.policy import PolicySupport
 from cleverly.interventions.support import RegimeSupport, _intervention_loads
 from cleverly.learners.density import ConditionalDensity
 from cleverly.sensitivity import positivity_report
@@ -116,7 +116,7 @@ SPECS: dict[str, tuple[Callable[..., Any], int, dict[str, Any]]] = {
         make_shift_dose,
         32,
         {
-            "shifts": (Shift(0.0, cap=None, name="current"), Shift(0.5, cap=5.0, name="up")),
+            "policies": (Shift(0.0, cap=None, name="current"), Shift(0.5, cap=5.0, name="up")),
             "density_bins": 20,
         },
     ),
@@ -431,13 +431,13 @@ def _bare_support_reports() -> dict[str, Mapping[str, Any]]:
             treatment_kind="continuous",
         )
         density = ConditionalDensity(np.tile(np.array([0.4, 0.3, 0.2, 0.1]), (n, 1)), edges)
-        shifts = ShiftSet.evaluate((Shift(1.0, cap=3.0, name="up"),), continuous, density)
+        shifts = PolicySet.evaluate((Shift(1.0, cap=3.0, name="up"),), continuous, density)
 
     return {
         "check_support": check_support(
             RegimeSet.evaluate([Static(1)], arms), arms.treatment, propensity
         ).regimes,
-        "check_shift_support": check_shift_support(shifts, density, continuous.treatment),
+        "check_policy_support": check_policy_support(shifts, density, continuous.treatment),
         "check_incremental_support": check_incremental_support(
             IPSISet.evaluate((Incremental(2.0),), arms, propensity), arms.treatment
         ),
@@ -445,7 +445,7 @@ def _bare_support_reports() -> dict[str, Mapping[str, Any]]:
 
 
 @pytest.mark.parametrize(
-    "entry_point", ["check_support", "check_shift_support", "check_incremental_support"]
+    "entry_point", ["check_support", "check_policy_support", "check_incremental_support"]
 )
 def test_a_direct_caller_who_passes_no_score_weights_reads_the_absent_artifact_reason(
     entry_point: str,
@@ -993,7 +993,7 @@ def score_load_records(intervention_results: dict[str, Any]) -> dict[str, Any]:
     ("key", "expected"),
     [
         ("regime", RegimeSupport),
-        ("mtp", ShiftSupport),
+        ("mtp", PolicySupport),
         ("ipsi", IncrementalSupport),
         ("positivity", PositivityReport),
     ],

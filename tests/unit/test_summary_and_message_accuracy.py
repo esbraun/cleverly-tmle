@@ -307,7 +307,7 @@ def _dose_fit(frame: pd.DataFrame, *, cross_fit: bool, missing: bool, **settings
 
 _F21_SENTENCE = (
     " A cross-fitted fit with missing outcomes, declared with missingness=<column> on "
-    "PointTreatment, or delta=<column> on fit() or CausalData, refuses a shift target (F21 "
+    "PointTreatment, or delta=<column> on fit() or CausalData, refuses a policy target (F21 "
     "in docs/roadmap.md). To estimate the natural course, fit in sample with cross_fit=False "
     "on the engine (CrossFitting(enabled=False))."
 )
@@ -362,14 +362,14 @@ class TestTheSuggestedShiftNamesTheFitThatRunsIt:
             )
         message = str(raised.value)
         assert message.startswith(refusal)
-        for advice in ("shifts=", "F21", "cross_fit=False"):
+        for advice in ("policies=", "F21", "cross_fit=False"):
             assert advice not in message
 
     def test_the_named_in_sample_fit_reports_the_natural_course(self) -> None:
         result = _dose_fit(
-            _dose_frame(), cross_fit=False, missing=True, shifts=[Shift(0.0, cap=None)]
+            _dose_frame(), cross_fit=False, missing=True, policies=[Shift(0.0, cap=None)]
         ).single()
-        assert "ey_shift[natural course]" in result.estimates
+        assert "ey_policy[natural course]" in result.estimates
 
     @pytest.mark.parametrize(
         ("cross_fit", "missing"), [(False, True), (True, False)], ids=["in_sample", "complete"]

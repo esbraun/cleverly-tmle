@@ -377,11 +377,11 @@ def continuous_binomial_means_result() -> Any:
 
 
 def _shift_alias(result: Any) -> str:
-    return alias_for(result, estimate_prefix="ate_shift[")
+    return alias_for(result, estimate_prefix="ate_policy[")
 
 
 def _mean_alias(result: Any, policy: str = "up half") -> str:
-    return alias_for(result, "ey_shift", value=policy)
+    return alias_for(result, "ey_policy", value=policy)
 
 
 def _arm_means(data: Any) -> tuple[float, float]:
@@ -930,7 +930,7 @@ def test_fixed_weights_run_every_supported_ordinary_tmle_parameter_surface() -> 
             assert surface.cells[1].estimate is not None
             exercised.add(result.parameter_keys[alias].estimand)
 
-    assert exercised == {"ate", "ey", "ey1", "ey0", "rr", "or", "ey_shift", "ate_shift"}
+    assert exercised == {"ate", "ey", "ey1", "ey0", "rr", "or", "ey_policy", "ate_policy"}
 
 
 def test_fixed_weights_run_every_supported_binary_drtmle_parameter_surface() -> None:
@@ -2246,6 +2246,7 @@ def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
         "longitudinal",
         "result_type",
         "learned_rule",
+        "risk_ratio_tilt",
         "multi_arm",
         "missing_outcome",
         "missing_treatment",
@@ -2940,9 +2941,9 @@ def test_continuous_real_refit_recomputes_the_active_cap_on_perturbed_dose(
     alias = _shift_alias(result)
     policies = tuple(result.identified_effect.functional.interventions)
     original_refit = result.estimator.refit
-    original_shifts = result.nuisance.shifts
+    original_shifts = result.nuisance.policies
     assert original_shifts is not None
-    assert int(original_shifts.capped[:, 1].sum()) > 0
+    assert int((~original_shifts.moved[:, 1]).sum()) > 0
     witnessed: list[Any] = []
 
     def checked_refit(
@@ -2956,12 +2957,12 @@ def test_continuous_real_refit_recomputes_the_active_cap_on_perturbed_dose(
             intermediate_value=intermediate_value,
             random_state=random_state,
         )
-        shifts = refitted.nuisance.shifts
+        shifts = refitted.nuisance.policies
         assert shifts is not None
         expected_shifted = np.column_stack([policy.apply(data.treatment)[0] for policy in policies])
         expected_capped = np.column_stack([policy.apply(data.treatment)[1] for policy in policies])
         assert np.array_equal(shifts.shifted, expected_shifted)
-        assert np.array_equal(shifts.capped, expected_capped)
+        assert np.array_equal(shifts.moved, expected_shifted != data.treatment[:, None])
         assert int(expected_capped[:, 1].sum()) > 0
         witnessed.append(data)
         return refitted
@@ -2978,7 +2979,7 @@ def test_continuous_real_refit_recomputes_the_active_cap_on_perturbed_dose(
     assert len(witnessed) == 1
     assert not np.array_equal(witnessed[0].treatment, result.data.treatment)
     assert not np.array_equal(
-        policies[1].apply(witnessed[0].treatment)[1], original_shifts.capped[:, 1]
+        policies[1].apply(witnessed[0].treatment)[1], ~original_shifts.moved[:, 1]
     )
 
 
@@ -3898,7 +3899,7 @@ def test_unsupported_compositions_are_refused_before_refit(
     elif change == "modified":
         result = _with_functional(
             result,
-            axis="shift",
+            axis="policy",
             interventions=(object(),),
         )
     elif change == "msm":
@@ -3976,7 +3977,7 @@ def test_continuous_requires_an_explicit_policy_parameter_alias_before_refit(
 ) -> None:
     """A mutation control on the alias filter, run against a fabricated alias set.
 
-    No real fit reports ``ate_shift`` and ``ey_shift`` together. This test fabricates
+    No real fit reports ``ate_policy`` and ``ey_policy`` together. This test fabricates
     the mixed set to hold the filter's two accepted prefixes.
     """
     calls = _record_refits(continuous_gaussian_result, monkeypatch, psi="shift")
@@ -3985,18 +3986,18 @@ def test_continuous_requires_an_explicit_policy_parameter_alias_before_refit(
         continuous_gaussian_result,
         estimates={
             **continuous_gaussian_result.estimates,
-            "ey_shift[up half]": continuous_gaussian_result[alias],
+            "ey_policy[up half]": continuous_gaussian_result[alias],
         },
     )
-    assert "ey_shift[up half]" in with_level.estimates
+    assert "ey_policy[up half]" in with_level.estimates
 
-    with pytest.raises(ValueError, match=r"explicit ey_shift\[\.\.\.\] policy mean") as refusal:
+    with pytest.raises(ValueError, match=r"explicit ey_policy\[\.\.\.\] policy mean") as refusal:
         simulated_confounding(
             with_level,
             grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
         )
     assert alias in str(refusal.value)
-    assert "ey_shift[up half]" in str(refusal.value)
+    assert "ey_policy[up half]" in str(refusal.value)
     assert calls == []
 
 
@@ -4009,23 +4010,23 @@ def test_a_means_only_fit_requires_selection_and_names_the_available_means(
     it here would offer the reader a parameter that the next call rejects.
     """
     result = continuous_means_result
-    assert sorted(result.estimates) == ["ey_shift[natural course]", "ey_shift[up half]"]
-    assert not [name for name in result.estimates if name.startswith("ate_shift[")]
+    assert sorted(result.estimates) == ["ey_policy[natural course]", "ey_policy[up half]"]
+    assert not [name for name in result.estimates if name.startswith("ate_policy[")]
     monkeypatch.setattr(
         result.estimator,
         "refit",
         lambda *args, **kwargs: pytest.fail("refused before any refit"),
     )
 
-    with pytest.raises(ValueError, match=r"explicit ey_shift\[\.\.\.\] policy mean") as refusal:
+    with pytest.raises(ValueError, match=r"explicit ey_policy\[\.\.\.\] policy mean") as refusal:
         simulated_confounding(
             result,
             grid=ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,)),
         )
 
     message = str(refusal.value)
-    assert "ey_shift[up half]" in message
-    assert "ey_shift[natural course]" not in message
+    assert "ey_policy[up half]" in message
+    assert "ey_policy[natural course]" not in message
 
 
 def test_an_unavailable_alias_never_advertises_the_refused_natural_course_mean(
@@ -4033,7 +4034,7 @@ def test_an_unavailable_alias_never_advertises_the_refused_natural_course_mean(
 ) -> None:
     """A mistyped alias must not be answered with a mean that the next call refuses.
 
-    ``ey_shift[natural course]`` names the zero-delta policy, and the surface refuses its
+    ``ey_policy[natural course]`` names the zero-delta policy, and the surface refuses its
     mean. The availability message filters that alias for the same reason the selection
     message does.
     """
@@ -4052,8 +4053,8 @@ def test_an_unavailable_alias_never_advertises_the_refused_natural_course_mean(
         )
 
     message = str(refusal.value)
-    assert "choose one of ['ey_shift[up half]']" in message
-    assert "ey_shift[natural course]" not in message
+    assert "choose one of ['ey_policy[up half]']" in message
+    assert "ey_policy[natural course]" not in message
 
 
 def test_an_unavailable_alias_reports_none_when_the_filter_empties_the_list(
@@ -4128,7 +4129,7 @@ def test_a_contrast_against_the_natural_course_stays_accepted(
     """
     result = continuous_gaussian_result
     alias = _shift_alias(result)
-    assert alias == "ate_shift[up half vs natural course]"
+    assert alias == "ate_policy[up half vs natural course]"
     reference = result.identified_effect.functional.interventions[0]
     assert reference.name == "natural course"
     assert reference.delta == 0.0
@@ -4181,7 +4182,7 @@ def test_continuous_policy_mean_runs_a_real_ordinary_tmle_refit(
 ) -> None:
     """Anchor the policy-mean composition on the real estimator rather than on a spy.
 
-    Every other ``ey_shift`` check replaces ``TMLE.refit`` with a spy that returns
+    Every other ``ey_policy`` check replaces ``TMLE.refit`` with a spy that returns
     ``mean(A * Y)``. That fake answers the treatment axis by construction, so it would
     pass on a mean the real estimator never moves. The gated cell below carries a nonzero
     treatment strength and a nonzero outcome strength, because those are the two axes a
@@ -4310,29 +4311,31 @@ def test_policy_mean_checks_every_policy_state_layer_before_the_latent_draw(
         result = _with_functional(result, interventions=tuple(policies))
     elif layer == "typed":
         typed = result.identified_effect.estimand
-        policies = list(typed.shifts)
+        policies = list(typed.policies)
         policies[1] = replace(policies[1], delta=0.75)
         result = replace(
             result,
             identified_effect=replace(
-                result.identified_effect, estimand=replace(typed, shifts=tuple(policies))
+                result.identified_effect, estimand=replace(typed, policies=tuple(policies))
             ),
         )
     elif layer == "estimator":
         estimator = copy(result.estimator)
-        policies = list(estimator.shifts)
+        policies = list(estimator.policies)
         policies[1] = replace(policies[1], delta=0.75)
-        estimator.shifts = tuple(policies)
+        estimator.policies = tuple(policies)
         result = replace(result, estimator=estimator)
     else:
-        shifts = result.nuisance.shifts
+        shifts = result.nuisance.policies
         assert shifts is not None
-        shifts = replace(shifts, deltas=(0.0, 0.75))
-        repeat = replace(result.repeats[0], nuisance=replace(result.nuisance, shifts=shifts))
+        shifts = replace(
+            shifts, descriptions=(shifts.descriptions[0], "Shift(delta=0.75, cap=5.0)")
+        )
+        repeat = replace(result.repeats[0], nuisance=replace(result.nuisance, policies=shifts))
         result = replace(result, repeats=(repeat,))
 
     forbid_draw_and_refit(monkeypatch, result.estimator)
-    with pytest.raises(CapabilityError, match="structured shift metadata"):
+    with pytest.raises(CapabilityError, match="structured policy metadata"):
         simulated_confounding(
             result,
             estimand=alias,
@@ -4390,20 +4393,20 @@ def test_three_policy_fit_accepts_the_reference_contrast_and_refuses_any_other_b
 ) -> None:
     """A contrast against a fitted non-reference policy has no reachable alias.
 
-    ``_difference_against_reference`` names every ``ate_shift`` alias against the fitted
-    reference, so a three-policy fit reports no ``ate_shift[up one vs up half]`` and a
+    ``_difference_against_reference`` names every ``ate_policy`` alias against the fitted
+    reference, so a three-policy fit reports no ``ate_policy[up one vs up half]`` and a
     caller who asks for one meets the ``estimand is unavailable`` refusal first. The
     ``key.reference != fitted_reference`` guard therefore needs fabricated metadata to
     reach, which the second half of this test supplies. The first half pins the
     three-policy accept path, which a caller can reach and no other test covers.
     """
     result = three_policy_result
-    aliases = sorted(name for name in result.estimates if name.startswith("ate_shift["))
+    aliases = sorted(name for name in result.estimates if name.startswith("ate_policy["))
     assert aliases == [
-        "ate_shift[up half vs natural course]",
-        "ate_shift[up one vs natural course]",
+        "ate_policy[up half vs natural course]",
+        "ate_policy[up one vs natural course]",
     ]
-    fitted = result.nuisance.shifts
+    fitted = result.nuisance.policies
     assert fitted is not None
     assert fitted.names == ("natural course", "up half", "up one")
     assert fitted.names[int(fitted.reference)] == "natural course"
@@ -4422,7 +4425,7 @@ def test_three_policy_fit_accepts_the_reference_contrast_and_refuses_any_other_b
     # The unreachable branch, reached with fabricated metadata. The alias, its value, and
     # the name the surface rebuilds from them all agree here, so the reference clause is
     # the only one that can refuse this request.
-    contrast = "ate_shift[up one vs up half]"
+    contrast = "ate_policy[up one vs up half]"
     key = replace(result.parameter_keys[aliases[1]], alias=contrast, reference="up half")
     assert key.value == "up one"
     fabricated = replace(
@@ -4430,7 +4433,7 @@ def test_three_policy_fit_accepts_the_reference_contrast_and_refuses_any_other_b
         estimates={contrast: result[aliases[1]]},
         parameter_keys={contrast: key},
     )
-    with pytest.raises(CapabilityError, match="structured shift metadata"):
+    with pytest.raises(CapabilityError, match="structured policy metadata"):
         simulated_confounding(
             fabricated,
             estimand=contrast,
@@ -4543,26 +4546,26 @@ def test_continuous_retains_refit_failure_and_replays_seed(
     ("change", "message"),
     [
         ("collaborative", "exact ordinary TMLE"),
-        ("key-estimand", "only an ey_shift policy mean or ate_shift contrast"),
-        ("key-axis", "only an ey_shift policy mean or ate_shift contrast"),
+        ("key-estimand", "only an ey_policy policy mean or ate_policy contrast"),
+        ("key-axis", "only an ey_policy policy mean or ate_policy contrast"),
         ("conditional", "inconsistent baseline-stratum metadata"),
-        ("key-alias", "structured shift metadata"),
-        ("key-value", "structured shift metadata"),
-        ("fitted-names", "structured shift metadata"),
-        ("fitted-deltas", "structured shift metadata"),
-        ("fitted-reference", "structured shift metadata"),
-        ("fitted-shifted", "structured shift metadata"),
-        ("fitted-capped", "structured shift metadata"),
-        ("functional-name", "structured shift metadata"),
-        ("functional-delta", "structured shift metadata"),
-        ("functional-cap", "structured shift metadata"),
-        ("functional-reference", "structured shift metadata"),
-        ("typed-delta", "structured shift metadata"),
-        ("typed-cap", "structured shift metadata"),
-        ("typed-reference", "structured shift metadata"),
-        ("estimator-delta", "structured shift metadata"),
-        ("estimator-cap", "structured shift metadata"),
-        ("estimator-reference", "structured shift metadata"),
+        ("key-alias", "structured policy metadata"),
+        ("key-value", "structured policy metadata"),
+        ("fitted-names", "structured policy metadata"),
+        ("fitted-descriptions", "structured policy metadata"),
+        ("fitted-reference", "structured policy metadata"),
+        ("fitted-shifted", "structured policy metadata"),
+        ("fitted-moved", "structured policy metadata"),
+        ("functional-name", "structured policy metadata"),
+        ("functional-delta", "structured policy metadata"),
+        ("functional-cap", "structured policy metadata"),
+        ("functional-reference", "structured policy metadata"),
+        ("typed-delta", "structured policy metadata"),
+        ("typed-cap", "structured policy metadata"),
+        ("typed-reference", "structured policy metadata"),
+        ("estimator-delta", "structured policy metadata"),
+        ("estimator-cap", "structured policy metadata"),
+        ("estimator-reference", "structured policy metadata"),
         ("provenance", "registered modified-policy identification provenance"),
         ("declared-provenance", "registered modified-policy identification provenance"),
         ("target-provenance", "registered modified-policy identification provenance"),
@@ -4588,23 +4591,25 @@ def test_continuous_alias_metadata_and_provenance_are_refused_before_refit(
         elif change == "conditional":
             key = replace(key, stratum=(0,))
         elif change == "key-alias":
-            key = replace(key, alias="ate_shift[wrong vs natural course]")
+            key = replace(key, alias="ate_policy[wrong vs natural course]")
         else:
             key = replace(key, value="natural course")
         result = replace(result, parameter_keys={alias: key})
     elif change in {
         "fitted-names",
-        "fitted-deltas",
+        "fitted-descriptions",
         "fitted-reference",
         "fitted-shifted",
-        "fitted-capped",
+        "fitted-moved",
     }:
-        shifts = result.nuisance.shifts
+        shifts = result.nuisance.policies
         assert shifts is not None
         if change == "fitted-names":
             shifts = replace(shifts, names=("natural course", "wrong"))
-        elif change == "fitted-deltas":
-            shifts = replace(shifts, deltas=(0.0, 0.75))
+        elif change == "fitted-descriptions":
+            shifts = replace(
+                shifts, descriptions=(shifts.descriptions[0], "Shift(delta=0.75, cap=5.0)")
+            )
         elif change == "fitted-reference":
             shifts = replace(shifts, reference=1.0)
         elif change == "fitted-shifted":
@@ -4612,10 +4617,10 @@ def test_continuous_alias_metadata_and_provenance_are_refused_before_refit(
             shifted[:, 1] += 0.25
             shifts = replace(shifts, shifted=shifted)
         else:
-            capped = shifts.capped.copy()
-            capped[:, 1] = ~capped[:, 1]
-            shifts = replace(shifts, capped=capped)
-        repeat = replace(result.repeats[0], nuisance=replace(result.nuisance, shifts=shifts))
+            moved = shifts.moved.copy()
+            moved[:, 1] = ~moved[:, 1]
+            shifts = replace(shifts, moved=moved)
+        repeat = replace(result.repeats[0], nuisance=replace(result.nuisance, policies=shifts))
         result = replace(result, repeats=(repeat,))
     elif change in {"functional-name", "functional-delta", "functional-cap"}:
         interventions = list(result.identified_effect.functional.interventions)
@@ -4633,12 +4638,12 @@ def test_continuous_alias_metadata_and_provenance_are_refused_before_refit(
         if change == "typed-reference":
             typed = replace(typed, reference="up half")
         else:
-            policies = list(typed.shifts)
+            policies = list(typed.policies)
             policies[1] = replace(
                 policies[1],
                 **({"delta": 0.75} if change == "typed-delta" else {"cap": 2.0}),
             )
-            typed = replace(typed, shifts=tuple(policies))
+            typed = replace(typed, policies=tuple(policies))
         result = replace(
             result,
             identified_effect=replace(result.identified_effect, estimand=typed),
@@ -4648,12 +4653,12 @@ def test_continuous_alias_metadata_and_provenance_are_refused_before_refit(
         if change == "estimator-reference":
             estimator.reference = "up half"
         else:
-            policies = list(estimator.shifts)
+            policies = list(estimator.policies)
             policies[1] = replace(
                 policies[1],
                 **({"delta": 0.75} if change == "estimator-delta" else {"cap": 2.0}),
             )
-            estimator.shifts = tuple(policies)
+            estimator.policies = tuple(policies)
         result = replace(result, estimator=estimator)
     elif change == "provenance":
         identification = replace(
@@ -4984,3 +4989,34 @@ def test_the_frame_and_the_summary_carry_the_induced_association(
     assert all(f"{cell.induced_treatment_association:+.4f}" in text for cell in surface.cells)
     assert "misclassification and not by confounding" in text
     assert "qualitative" in text
+
+
+def test_a_risk_ratio_tilt_fit_is_refused_before_any_draw() -> None:
+    """The tilt's mean reads g, so the replay would move the policy; the surface refuses."""
+    import sklearn.linear_model
+
+    from cleverly.estimators import TMLE
+    from cleverly.interventions import RiskRatioTilt
+
+    rng = np.random.default_rng(4)
+    w = rng.normal(size=400)
+    a = rng.binomial(1, 1 / (1 + np.exp(-0.6 * w)))
+    y = rng.binomial(1, 1 / (1 + np.exp(-(0.3 * w + 0.8 * a))))
+    frame = pd.DataFrame({"W": w, "A": a, "Y": y})
+    result = (
+        TMLE(
+            outcome_learner=sklearn.linear_model.LogisticRegression(),
+            treatment_learner=sklearn.linear_model.LogisticRegression(),
+            cross_fit=False,
+            policies=[RiskRatioTilt(1.0), RiskRatioTilt(0.5)],
+            simultaneous=False,
+        )
+        .fit(frame, outcome="Y", treatment="A", covariates=["W"])
+        .single()
+    )
+    with pytest.raises(CapabilityError, match="risk-ratio tilt fit"):
+        simulated_confounding(
+            result,
+            estimand="ate_rr_tilt[rr 0.5 vs natural course]",
+            grid=ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0, 0.1)),
+        )

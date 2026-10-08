@@ -234,7 +234,7 @@ def functional(probs: Any, estimand: str, level: int | None) -> Any:
     :func:`gateaux`.  ``level`` selects the parameter:
 
     * ``None`` -- the shift parameter with ``Z`` left alone, which is what a fit declaring
-      ``shifts=`` and ``delta=`` reports.  Summing the ``z`` axis out replaces
+      ``policies=`` and ``delta=`` reports.  Summing the ``z`` axis out replaces
       :math:`P(Y = 1 \mid A, Z = z, \Delta = 1, W)` by
       :math:`P(Y = 1 \mid A, \Delta = 1, W)`, which *is* the marginalisation.
     * ``0`` or ``1`` -- the controlled direct effect under the policy, the conditional mean
@@ -263,10 +263,10 @@ def functional(probs: Any, estimand: str, level: int | None) -> Any:
         recorded = p[:, :, level, OBSERVED_ZERO] + p[:, :, level, OBSERVED_ONE]
         qbar = p[:, :, level, OBSERVED_ONE] / recorded
 
-    if estimand.startswith("ey_shift["):
-        return _mean_under(joint, qbar, estimand[len("ey_shift[") : -1])
-    if estimand.startswith("ate_shift["):
-        left, right = estimand[len("ate_shift[") : -1].split(" vs ")
+    if estimand.startswith("ey_policy["):
+        return _mean_under(joint, qbar, estimand[len("ey_policy[") : -1])
+    if estimand.startswith("ate_policy["):
+        left, right = estimand[len("ate_policy[") : -1].split(" vs ")
         return _mean_under(joint, qbar, left) - _mean_under(joint, qbar, right)
     raise ValueError(f"no oracle branch for {estimand!r}")
 
@@ -370,13 +370,13 @@ def eif(estimand: str, level: int | None) -> np.ndarray:
 #: ``truth_for`` depend on law order -- so there is no ``oracle_names`` here and these are
 #: for the modules that check the coarsened shift path to read.
 PER_SHIFT_NAMES: dict[str, tuple[str, ...]] = {
-    "ey_shift": tuple(f"ey_shift[{label}]" for label in POLICIES),
-    "ate_shift": tuple(
-        f"ate_shift[{label} vs natural course]" for label in POLICIES if label != "natural course"
+    "ey_policy": tuple(f"ey_policy[{label}]" for label in POLICIES),
+    "ate_policy": tuple(
+        f"ate_policy[{label} vs natural course]" for label in POLICIES if label != "natural course"
     ),
 }
 
-NAMES: tuple[str, ...] = (*PER_SHIFT_NAMES["ey_shift"], *PER_SHIFT_NAMES["ate_shift"])
+NAMES: tuple[str, ...] = (*PER_SHIFT_NAMES["ey_policy"], *PER_SHIFT_NAMES["ate_policy"])
 
 #: Every estimand at every level, keyed ``TRUTH[level][name]`` with ``None`` for the
 #: parameter that leaves ``Z`` alone.

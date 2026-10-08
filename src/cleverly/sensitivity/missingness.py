@@ -160,7 +160,7 @@ def _refuse_continuous(result: Any) -> str | None:
         return None
     return (
         "missingness_tilt is written for the arm-indexed estimands; this fit declared "
-        "a continuous dose with shifts= and reports ey_shift/ate_shift. The tilt "
+        "a continuous dose with policies= and reports ey_policy/ate_policy. The tilt "
         "re-mixes the targeted Qbar at each arm under a moved missingness mechanism, "
         "and a shift's plug-in is Qbar at the dose the policy assigns rather than at "
         "an arm -- so the tilt would have to move pi at that dose too, and whether "

@@ -299,7 +299,7 @@ def test_registered_point_targets_have_an_explicit_surface_disposition() -> None
     way it does. ``policy`` and ``refused`` therefore both map a name to its reason.
     """
     binary = {"ate", "att", "atc", "ey", "ey1", "ey0", "par", "paf", "rr", "or"}
-    continuous = {"ey_shift", "ate_shift"}
+    continuous = {"ey_policy", "ate_policy"}
     policy = {
         "ey_regime": "fixed-regime mean, replayed on the regime axis under ordinary TMLE",
         "ate_regime": "fixed-regime contrast, replayed on the regime axis under ordinary TMLE",
@@ -310,6 +310,8 @@ def test_registered_point_targets_have_an_explicit_surface_disposition() -> None
     refused = {
         "ey_obs": "natural-course mean has no counterfactual treatment term",
         "ey_learned_rule": "learned-rule value: a replay relearns the rules, so its target moves",
+        "ey_rr_tilt": "risk-ratio tilt mean: the policy reads g, so a replay moves the policy",
+        "ate_rr_tilt": "risk-ratio tilt contrast: refused fit-wide for the same reason",
     }
     assert binary == set(_BINARY_PARAMETER_TARGETS)
     dispositions = (binary, continuous, policy.keys(), refused.keys())
@@ -333,7 +335,7 @@ def test_attributable_identity_and_registry_metadata_refuse_before_draws(
         field, value = {
             "registry-scale": ("scale", "ratio"),
             "registry-family": ("requires_family", "gaussian"),
-            "registry-axis": ("parameter_axis", "shift"),
+            "registry-axis": ("parameter_axis", "policy"),
         }[change]
         monkeypatch.setitem(TARGETS, target, replace(TARGETS[target], **{field: value}))
     elif change == "config":

@@ -98,7 +98,7 @@ def _fit_population(
     reference: int = 0,
     strata: bool = True,
 ) -> Any:
-    continuous = target in {"ey_shift", "ate_shift"}
+    continuous = target in {"ey_policy", "ate_policy"}
     binary = target in {"rr", "or", "ey", "ey1", "ey0"}
     policies = (Shift(0.0, cap=10.0, name="natural"), Shift(0.4, cap=10.0, name="up"))
     targets = {
@@ -110,8 +110,8 @@ def _fit_population(
         "ey": CounterfactualMean(),
         "ey1": CounterfactualMean(treatment=1),
         "ey0": CounterfactualMean(treatment=0),
-        "ey_shift": ModifiedTreatmentPolicy(shifts=policies),
-        "ate_shift": ModifiedTreatmentPolicyEffect(shifts=policies),
+        "ey_policy": ModifiedTreatmentPolicy(policies=policies),
+        "ate_policy": ModifiedTreatmentPolicyEffect(policies=policies),
     }
     configured: Any = method
     if method in _STRATEGY_OVERRIDES:
@@ -138,7 +138,7 @@ def _fit_population(
 
 
 def _alias(result: Any, target: str, stratum: tuple[str, ...] | None) -> str:
-    return alias_for(result, target, stratum, value="up" if target == "ey_shift" else None)
+    return alias_for(result, target, stratum, value="up" if target == "ey_policy" else None)
 
 
 def _correlation(x: np.ndarray, y: np.ndarray, w: np.ndarray) -> float:
@@ -366,7 +366,7 @@ def test_collaborative_strata_keep_full_weighted_selection_refit(method: str, ta
     )
 
 
-@pytest.mark.parametrize("target", ["ey_shift", "ate_shift"])
+@pytest.mark.parametrize("target", ["ey_policy", "ate_policy"])
 def test_continuous_policy_strata_equal_complete_refits(target: str) -> None:
     result = _fit_population(target)
     alias = _alias(result, target, ("small",))
@@ -724,7 +724,7 @@ def test_unsupported_conditional_population_estimators_refuse_before_draws(
 
 
 def test_unavailable_policy_alias_excludes_conditional_natural_course_means() -> None:
-    result = _fit_population("ey_shift")
+    result = _fit_population("ey_policy")
     supported = [alias for alias, key in result.parameter_keys.items() if key.value == "up"]
     natural = [alias for alias, key in result.parameter_keys.items() if key.value == "natural"]
     assert len(natural) == 3 and len(supported) == 3
@@ -824,15 +824,15 @@ def test_the_natural_course_mean_is_withheld_from_its_canonical_name_alone() -> 
     and the stored parameter keys for every stratified alias. A result whose keys omit the
     canonical alias leaves only the first half to withhold it.
     """
-    result = _fit_population("ey_shift")
-    canonical = parameter_name("ey_shift", arm="natural")
+    result = _fit_population("ey_policy")
+    canonical = parameter_name("ey_policy", arm="natural")
     stripped = {
         alias: key
         for alias, key in result.parameter_keys.items()
-        if not (key.estimand == "ey_shift" and key.value == "natural" and key.stratum is None)
+        if not (key.estimand == "ey_policy" and key.value == "natural" and key.stratum is None)
     }
     forged = replace(result, parameter_keys=stripped)
-    offered = parameter_name("ey_shift", arm="up")
+    offered = parameter_name("ey_policy", arm="up")
 
     assert canonical in result.estimates
     assert canonical not in stripped

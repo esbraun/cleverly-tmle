@@ -216,22 +216,25 @@ _IPSI_ID = Identification(
 )
 
 
-_SHIFT_ID = Identification(
+_POLICY_ID = Identification(
     assumptions=(
         "consistency: Y = Y^a when A = a",
         *_NO_INTERFERENCE,
         "no unmeasured confounding: Y^a is independent of A given W",
-        "positivity *for the shifted dose*: g(d(a, w) | w) > 0 wherever g(a | w) > 0, so "
+        "positivity *for the assigned dose*: g(d(a, w) | w) > 0 wherever g(a | w) > 0, so "
         "the dose the policy assigns is one the data have seen at that covariate value. "
         "The policy must preserve conditional treatment support. An upper cap alone "
         "does not ensure this for negative shifts or support gaps. The fit warns when "
         "assigned doses leave the observed range in either direction. "
-        "check_shift_support reports estimated zero density at assigned doses; "
+        "check_policy_support reports estimated zero density at assigned doses; "
         "it does not establish true conditional support or identification",
-        "the shift is a known function of (A, W): d does not depend on the observed-data "
-        "law, so the influence function carries no term for estimating it. A cap fitted "
-        "from the data would break this, which is why cap= is required rather than "
-        "defaulted to max(A)",
+        "the policy is a known function of (A, W), and of a randomizer of known law when "
+        "it is randomized: d does not depend on the observed-data law, so the influence "
+        "function carries no term for estimating it. A cap fitted from the data would "
+        "break this, which is why cap= is required rather than defaulted to max(A)",
+        "on a continuous treatment, d is piecewise smooth invertible (Diaz, Williams, "
+        "Hoffman & Schenck 2023, Assumption 4): a policy that maps an interval to one dose "
+        "is not pathwise differentiable and is refused",
         "with delta=: missingness at random given (A, W), and positivity for it *at the "
         "assigned dose* -- P(Delta = 1 | A = d(a, w), W = w) > 0, not only at the dose "
         "observed. The fluctuation updates Qbar as a function of the dose, so obtaining "
@@ -241,11 +244,11 @@ _SHIFT_ID = Identification(
     ),
     required_nuisances=(OUTCOME_REGRESSION, "treatment_density"),
     dr_condition=(
-        "consistent if either Qbar(A, W) or the conditional density g(a | W) is "
-        "consistent; the mechanism half is a density ratio rather than a propensity, so "
-        "its error is the error in g(a - delta | W) / g(a | W) rather than in a "
-        "probability. With delta= that half becomes the *product* of the ratio and "
-        "P(Delta = 1 | A, W), and with intermediate= the ratio times "
+        "consistent if either Qbar(A, W) or the treatment mechanism g(a | W) is "
+        "consistent; the mechanism half is the ratio g^d(a | W) / g(a | W) of the density "
+        "the policy induces to the observed one, so its error is the error in that ratio "
+        "rather than in a probability. With delta= that half becomes the *product* of the "
+        "ratio and P(Delta = 1 | A, W), and with intermediate= the ratio times "
         "P(Z = z | A, W) * P(Delta = 1 | A, W) -- so it is Qbar right OR the whole "
         "product right, exactly as on the arm path, and not either mechanism alone"
     ),
@@ -254,6 +257,28 @@ _SHIFT_ID = Identification(
         "Haneuse & Rotnitzky (2013)",
         "Diaz, Williams, Hoffman & Schenck (2023)",
     ),
+)
+
+
+_RR_TILT_ID = Identification(
+    assumptions=(
+        "consistency: Y = Y^a when A = a",
+        *_NO_INTERFERENCE,
+        "no unmeasured confounding: Y^a is independent of A given W",
+        "positivity for the treated arm wherever the tilt keeps it: g(1 | w) > 0 where the "
+        "risk ratio is below one, and g(0 | w) > 0 where it is above one",
+        "the tilt draws a two-point randomizer of known law, independent of everything else, "
+        "so the policy does not depend on the observed-data law (Hoffman et al. 2024, "
+        "Example 8): its g enters the clever covariate as a nuisance and not the estimand",
+    ),
+    required_nuisances=(OUTCOME_REGRESSION, TREATMENT_MECHANISM),
+    dr_condition=(
+        "consistent if either Qbar(A, W) or the treatment mechanism g(a | W) is consistent: "
+        "the policy's law does not depend on P, so the remainder is a product of the two "
+        "errors, as for every modified treatment policy. This is the difference from the "
+        "odds-ratio tilt ey_ipsi, whose intervention is built out of g"
+    ),
+    references=("Hoffman et al. (2024)", "Diaz, Williams, Hoffman & Schenck (2023)"),
 )
 
 
@@ -379,7 +404,7 @@ def _level_per_code(ctx: TargetContext, stem: str) -> list[ParameterEstimate]:
     """``E[Y^{g}]`` for every code the fit's means are keyed by.
 
     The level-side counterpart of :func:`_difference_against_reference`, and shared by
-    ``ey_regime``, ``ey_ipsi`` and ``ey_shift`` for the same reason: they are the same
+    ``ey_regime``, ``ey_ipsi`` and ``ey_policy`` for the same reason: they are the same
     functional of whatever :attr:`~cleverly.targets.TargetContext.means` is keyed by, and
     what differs is one level down, in which mean function that property calls.  The stem
     is a parameter only because a reported name has to say which axis it came from.
@@ -430,24 +455,34 @@ def _ate_ipsi(ctx: TargetContext) -> list[ParameterEstimate]:
     return _difference_against_reference(ctx, "ate_ipsi")
 
 
-def _ey_shift(ctx: TargetContext) -> list[ParameterEstimate]:
-    """``E[Y^{d}]`` for every declared shift.
+def _ey_rr_tilt(ctx: TargetContext) -> list[ParameterEstimate]:
+    """``E[Y^{d_delta}]`` for every declared risk-ratio tilt."""
+    return _level_per_code(ctx, "ey_rr_tilt")
 
-    The same shape as :func:`_ey_regime` because a shift is another thing
+
+def _ate_rr_tilt(ctx: TargetContext) -> list[ParameterEstimate]:
+    """``E[Y^{d_delta}] - E[Y^{d_ref}]``, once per non-reference risk-ratio tilt."""
+    return _difference_against_reference(ctx, "ate_rr_tilt")
+
+
+def _ey_policy(ctx: TargetContext) -> list[ParameterEstimate]:
+    """``E[Y^{d}]`` for every declared modified treatment policy.
+
+    The same shape as :func:`_ey_regime` because a policy is another thing
     :attr:`~cleverly.targets.TargetContext.means` can be keyed by.  What differs is one
     level down, in which mean function that property calls -- see its docstring.
     """
-    return _level_per_code(ctx, "ey_shift")
+    return _level_per_code(ctx, "ey_policy")
 
 
-def _ate_shift(ctx: TargetContext) -> list[ParameterEstimate]:
+def _ate_policy(ctx: TargetContext) -> list[ParameterEstimate]:
     """``E[Y^{d}] - E[Y^{d_ref}]``, once per non-reference shift.
 
     The reference is usually the natural course (``delta=0``), which makes this the
     *effect* of shifting rather than a contrast of two policies -- but it is whichever
     shift the fit declared as reference, exactly as for arms and regimes.
     """
-    return _difference_against_reference(ctx, "ate_shift")
+    return _difference_against_reference(ctx, "ate_policy")
 
 
 def _msm(ctx: TargetContext) -> list[ParameterEstimate]:
@@ -727,24 +762,46 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         description="contrast of each tilt against the reference tilt",
     ),
     Target(
-        name="ey_shift",
+        name="ey_policy",
         group="mtp",
         scale="level",
-        build=_ey_shift,
-        identification=_SHIFT_ID,
-        parameter_axis="shift",
+        build=_ey_policy,
+        identification=_POLICY_ID,
+        parameter_axis="policy",
         in_default_set=True,
-        description="counterfactual mean under each declared shift, E[Y^{d}]",
+        description="counterfactual mean under each declared policy, E[Y^{d}]",
     ),
     Target(
-        name="ate_shift",
+        name="ate_policy",
         group="mtp",
         scale="difference",
-        build=_ate_shift,
-        identification=_SHIFT_ID,
-        parameter_axis="shift",
+        build=_ate_policy,
+        identification=_POLICY_ID,
+        parameter_axis="policy",
         in_default_set=True,
-        description="contrast of each shift against the reference shift",
+        description="contrast of each policy against the reference policy",
+    ),
+    Target(
+        name="ey_rr_tilt",
+        group="mtp",
+        scale="level",
+        build=_ey_rr_tilt,
+        identification=_RR_TILT_ID,
+        parameter_axis="rr_tilt",
+        requires_binary_treatment=True,
+        in_default_set=True,
+        description="counterfactual mean under each declared risk-ratio tilt, E[Y^{d_delta}]",
+    ),
+    Target(
+        name="ate_rr_tilt",
+        group="mtp",
+        scale="difference",
+        build=_ate_rr_tilt,
+        identification=_RR_TILT_ID,
+        parameter_axis="rr_tilt",
+        requires_binary_treatment=True,
+        in_default_set=True,
+        description="contrast of each risk-ratio tilt against the reference tilt",
     ),
     Target(
         name="msm",

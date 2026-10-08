@@ -68,17 +68,17 @@ Priorities 2 to 5 follow the beta.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1.8 | Modified treatment policies beyond the additive point shift | published support; pending source read | shipped additive shift and categorical longitudinal nodes | [X12](#x12-modified-treatment-policies-beyond-the-additive-point-shift) |
 | 1.9 | Point-treatment survival and time-to-event input | published support; pending source read | shipped survival and competing-risk recursion | [X13](#x13-point-treatment-survival-and-time-to-event-input) |
 | 1.10 | Known treatment mechanism | source audit | shipped `treatment_probabilities=` on `DRTMLE` | [X15](#x15-known-treatment-mechanism) |
 | 1.11 | Outcome-adaptive C-TMLE intervals from per-arm scalar designs | published support for one mean; natural extension for every arm and contrast | shipped `strategy="oat"` | [X17](#x17-outcome-adaptive-c-tmle-intervals-from-per-arm-scalar-designs) |
 | 1.12 | C-TMLE candidate sequences | published support; pending source read | shipped selector paths | [X16](#x16-c-tmle-candidate-sequences) |
 | 1.13 | Sequential doubly robust longitudinal estimation | published support; pending source read | implemented longitudinal targets | [X4](#x4-sequential-doubly-robust-longitudinal-estimation) |
 | 1.14 | Hazard-based and monotone survival curves | published support; pending source read | X13 | [X14](#x14-hazard-based-and-monotone-survival-curves) |
-| 1.15 | Incremental interventions over time | source audit | X12 for the longitudinal intervention density | [X19](#x19-incremental-interventions-over-time) |
+| 1.15 | Incremental interventions over time | source audit | shipped longitudinal modified treatment policies | [X19](#x19-incremental-interventions-over-time) |
 | 1.16 | Targeting and fitting options | no new theory; each option keeps its default bit-identical | none | [X22](#x22-targeting-and-fitting-options) |
 | 1.17 | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
-| 1.18 | Plug-in omitted-variable limits with a declared parametric mechanism | [published support; stacked-equation extension](technical-reference/natural-extension-verdicts.md) | the shipped plug-in bound | [X26](#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism) |
+| 1.18 | Continuous vector components at a node | published support; pending source read | shipped longitudinal modified treatment policies | [X31](#x31-continuous-vector-components-at-a-node) |
+| 1.19 | Plug-in omitted-variable limits with a declared parametric mechanism | [published support; stacked-equation extension](technical-reference/natural-extension-verdicts.md) | the shipped plug-in bound | [X26](#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism) |
 | 2 | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
 | 3.1 | Natural and interventional mediation effects | published support; pending source read | target-specific identification and evidence | [X5](#x5-natural-and-interventional-mediation-effects) |
 | 3.2 | Continuous-time survival and competing risks | published support; pending source read | continuous-time intensity and targeting contracts; X14 | [X6](#x6-continuous-time-survival-and-competing-risks) |
@@ -207,10 +207,13 @@ owner by an `id` in the table below. `tests/studies/evidence/red_cells.py` reads
 `tests/unit/test_red_cell_ledger.py` fails on four states: a red row with no owner, an owner with
 no red row, an owner that the `id` column does not list, and a red row in a `gated` study.
 
-Every red verdict stays red under `reporting` at its registered budget and margin. Three remedies
-are refused after a run: raising a budget, moving a margin, and re-declaring a cell's law, learner
-or size after its verdict is seen. A change of law, budget or convention is declared before the
-regeneration that it governs.
+Every red verdict is diagnosed first. A genuine problem (an algorithm defect, an inconsistent
+estimator, or a test or design bug) is fixed, and the study re-runs under a fresh declaration that
+states the change. A red cell with no defect stays red under `reporting` at its registered budget
+and margin, with an owner row below. No change may make a test less meaningful or easier to pass:
+moving a margin, adding replications to cross a bound, weakening the law, dropping or relabelling a
+cell, or substituting an oracle. The
+[red-cell rule](development/method-benchmarking.md#red-cells) gives the full text.
 
 The `RM18-` owners hold the cells that went red when sixteen registered studies moved to
 unstratified folds and bounded laws, and five longitudinal studies moved to the pooled update. A
@@ -238,6 +241,13 @@ The `F1-power-design` owner holds the power cell of the known-policy study, whos
 gives it an exact power of 0.5365. It is a standing record of a reading, and it does not gate the beta
 release.
 
+The `mtp-point-calibration` owner holds one calibration cell of the point modified-treatment-policy
+study. Its standard error is conservative, and the diagnosis finds no defect.
+
+The `mtp-longitudinal-limits` owner holds two cells of the longitudinal modified-treatment-policy
+study whose diagnosis finds no defect: a finite-sample calibration cell and a control whose
+interval reaches its ceiling.
+
 The `F28` owner holds the clustered cells of the unequal-size and few-cluster studies that read
 red under their `reporting` policy. It owns a finite-sample limit, not a missing theorem.
 
@@ -255,7 +265,7 @@ owners do the same for the stratified DR-TMLE study.
 | `RM18-boundary` | cells at a finite-budget boundary: `root_n_and_efficiency/n_500` of `canonical-multi-arm-ctmle-selector`; `double_robust_contraction/treatment_correct_n1500` of `canonical-drtmle`; `double_robust_contraction/outcome_correct_n4000`, `interval_calibration/correctly_specified` and `root_n_and_efficiency/n_500` of `canonical-multi-arm-drtmle`; `double_robustness/static__both_wrong` and the paired `ey_regimen[always]` and `ey_regimen[treat then continue if l2 positive]` rows of `weighted-ltmle-crossfit` | reading `resolved: truth satisfies the gate` for the six cells, and `comparator SE convention` for the two paired rows ([`tests/diagnostics/rm18_boundary/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_boundary)). Before a future regeneration of `weighted-ltmle-crossfit`, declare whether it adopts the `lmtp` standard-error convention for the two paired rows |
 | `RM18-one-sided-bias` | `double_robustness/outcome_correct` and `double_robustness/treatment_correct` of `canonical-drtmle`, and `double_robustness/treatment_correct` of `canonical-multi-arm-drtmle` | reading `shared` and `mixed` on the binary rows, and `finite-sample excess detected` on the multi-arm row ([`tests/diagnostics/rm18_one_sided_bias/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_one_sided_bias)). A declared localization design on 2,000 fresh draws read `no increment at the declared resolution` ([`tests/diagnostics/rm19_one_sided_increment/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm19_one_sided_increment)). No validated R comparator fits the multi-arm configuration, so the multi-arm excess has no attribution |
 | `RM18-ordinary-weighted` | `interval_calibration/static__correctly_specified`, `type_i_error/static__sharp_null` and the four `targeting_necessity` cells of `weighted-ltmle` | reading `finite-sample, contracting`, `resolved within gate`, `control underpowered by design` and `family resolved` ([`tests/diagnostics/rm18_ordinary_weighted/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_ordinary_weighted)). The static untargeted control discriminates with a probability near 0.72 at the registered 1,200 replicates. Re-declare that control's law before any regeneration of the study, as the control precedent at `69de6f8` allows |
-| `RM18-comparator-density` | the paired `ate_shift[+0.25 vs natural course]` row of `shift-policies` | reading `cleverly density representation` ([`tests/diagnostics/rm18_comparator_density/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_comparator_density)). The calibration leg fails with a 99% upper endpoint of 0.065856 against a margin of 0.05, so the conclusion is `inconclusive`. If X12 changes the density representation, it re-reads this row |
+| `RM18-comparator-density` | the paired `ate_policy[+0.25 vs natural course]` row of `shift-policies` | reading `cleverly density representation` ([`tests/diagnostics/rm18_comparator_density/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_comparator_density)). The calibration leg fails with a 99% upper endpoint of 0.064762 against a margin of 0.05, so the conclusion is `inconclusive`. The modified-treatment-policy work kept the density representation. The design ran again after the estimand rename, which draws a new bootstrap stream, and the reading stands |
 | `strata-boundary-mean` | the two primary truth rows of `ey[1][V=2]` and the `interval_calibration/v2_ey1__correctly_specified`, `simultaneous_coverage/strata__simultaneous_band` and `simultaneous_coverage/crossfit_strata__simultaneous_band` cells of `canonical-stratified-tmle` | reading `finite-sample Wald interval`: the treated mean of stratum V = 2 is 0.9358, and at n = 2,000 the stratum holds about 157 treated rows and about 9 expected non-events. R `tmle3` shows the same coverage on the same draws, the bias is inside its margin, and the oracle band at the exact critical value also under-covers ([`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py)). The owner closes when a re-declared cell, with its law or size declared before its run, or a small-sample interval correction with its own registered study passes. Until then each cell stays published red under `reporting` |
 | `band-finite-sample` | the `simultaneous_coverage/all_reported__simultaneous_band` cell of `canonical-ltmle-survival`, the `categorical_ltmle__simultaneous_band`, `categorical_ltmle_crossfit__simultaneous_band` and `cde_z0__simultaneous_band` cells of `default-simultaneous-bands`, and the `clustered_regimens__simultaneous_band` cell of `clustered-cross-fitted-ltmle` | reading `finite-sample, pointwise shortfall inherited`: the oracle band at the design critical value also covers below 0.95, and the source study's pointwise calibration of the same parameters sits near the lower edge of its band. The package critical value averages a little below the design one, so the multiplier explains a small part of each shortfall ([`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py)). The owner closes when a re-declared cell, with its law or size declared before its run, or a small-sample interval correction with its own registered study passes. Until then each cell stays published red under `reporting` |
 | `F4-calibration-draws` | the `interval_calibration/ate__correctly_specified` and `simultaneous_coverage/arms__simultaneous_band` cells of `multi-arm-mar-drtmle`, which read one set of 2,400 fits | reading `finite-sample, one draw set`. The SE-ratio interval ends at 0.9294 against a floor of 0.93, and the joint-coverage interval at 0.9196 against 0.92. The calibration fits have an empirical SD 1.037 times their mean standard error. The same configuration gives 0.997 at `n_2000` and 0.989 at `l3_ate_low__both_correct`, on independent draws. `simultaneous=True` changes no estimate and no standard error. The band critical value averages 2.500 against the oracle 2.508, and the oracle band covers 0.9342 against the package's 0.9337, so the band construction explains none of the shortfall ([`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py)). Pooled over the 4,400 independent both-correct fits of `ate[low vs high]` at n = 2,000, the spread is 1.020 times the mean standard error (bootstrap 99% interval 0.991 to 1.047), and a Bartlett test across the three cells gives p = 0.20, so the draw set differs from its siblings by no more than chance. No defect was found in the K-arm code. The owner closes when a re-declared cell, with its law or size declared before its run, or a small-sample interval correction with its own registered study passes. Until then both cells stay published red under `reporting` |
@@ -265,6 +275,8 @@ owners do the same for the stratified DR-TMLE study.
 | `X8-drtmle-one-sided-bias` | the four `double_robustness/*__treatment_correct` cells of `canonical-stratified-drtmle`: the marginal ATE and each stratum ATE | reading `shared` in strata 0 and 1 and `mixed` in stratum 2, in the vocabulary of `RM18-one-sided-bias` ([`tests/diagnostics/x8_drtmle_treatment_correct/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x8_drtmle_treatment_correct)). The refit reproduces the committed estimates exactly. On each stratum's rows, the shipped unstratified `DRTMLE` and R `drtmle` 1.1.2, handed the same initial arrays, carry a positive bias too. In stratum 2 the package's bias, 0.0237, exceeds R's, 0.0157: the paired difference is 0.0080 with a standard error of 0.0018. The unstratified fit on the stratum's rows matches the package there to 2e-5, so the excess belongs to `DRTMLE` at about 400 rows and not to the strata. In stratum 1 the stratified and subset fits differ by 0.0057 (standard error 0.0013). The stratified marginal is the mixture of the stratum estimates, so it inherits their bias: 0.56 of its spread at n = 2,000 (99% interval 0.43 to 0.69) and 0.43 at n = 8,000 (0.25 to 0.61). The intervals overlap, so contraction faster than the spread is not established. No defect of the stratified construction was found. The owner closes when a re-declared cell, with its law or size declared before its run, passes, or when `RM18-one-sided-bias` closes with a correction that also covers the stratified fit. Until then the four cells stay published red under `reporting` |
 | `X8-drtmle-small-stratum` | the two primary truth rows of `ey[1][V=2]` and the `interval_calibration/v2_ate__correctly_specified` cell of `canonical-stratified-drtmle` | reading `finite-sample, shared with the comparator`. Stratum 2 holds about 400 of the 2,000 rows. Coverage of `ey[1][V=2]` is 0.900 in the package and 0.8925 in R `drtmle` on the same draws, with estimates 4e-5 apart on average. The calibration cell's SE-ratio interval ends at 0.9294 against a floor of 0.93, and on the primary draws the same ATE reads 0.985 in the package and 0.973 in R ([`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py)). The owner closes when a re-declared cell, with its law or size declared before its run, passes. Until then the three stay published red under `reporting` |
 | `F1-power-design` | the `power/mix__alternative` cell of `stochastic-categorical-ltmle` | reading `underpowered at its declared size`. Its n = 4,000 was copied from `canonical-categorical-ltmle`, where the contrast is 0.125. Here the contrast is -0.0488, so the exact power of a two-sided 5% test is 0.5365, and exact power 0.80 needs n = 7,460. The cell rejects at 0.5575 (99% interval 0.511 to 0.603) against a floor of 0.80, and that interval contains the exact power ([`tests/unit/test_stochastic_categorical_ltmle_design.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_stochastic_categorical_ltmle_design.py)). Its bias is inside the margin and its coverage is 0.9475. The `type_i_error` cell, on the null variant of the law, passes. The owner closes when a re-declared power cell, with its law or size declared before its run, passes. Until then the cell stays published red under `reporting` |
+| `mtp-longitudinal-limits` | the `interval_calibration/categorical_mtp__correctly_specified` cell and both `crossfit_overfitting` cells of `longitudinal-mtp`. The cross-fitted arm passes its own rule, but the family's joint clause fails with its control | reading `finite-sample` for the categorical cell: its efficiency ratios read 1.12 and 1.10 against a band of 0.9 to 1.1, its coverage 0.9435 passes, and with saturated learners the ratio falls from 1.07 at n = 2,000 to 1.02 at n = 8,000. Reading `control underpowered by design` for the overfitting pair: the in-sample SE ratio is 0.741, with a 99% interval ending at 0.754 against a ceiling of 0.75, and the paired coverage gain is 0.116 to 0.136 against a floor of 0.15. The gain misses at its point estimate, 0.126, so no budget passes it. The in-sample trees fit every outcome exactly, so the control's standard error is the spread of the plug-in at the shifted dose, and the dose model does not enter it. The cross-fitted arm reads 1.167 and passes its own rule ([`tests/unit/test_longitudinal_mtp_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_longitudinal_mtp_reading.py)). Re-declare the pair's control design before any regeneration of the study. The owner closes when re-declared cells, with their sizes or control designs declared before their run, pass |
+| `mtp-point-calibration` | the `interval_calibration/halve__correctly_specified` cell of `policy-point-mtp` | reading `Monte Carlo excursion`. The SE ratio is 1.0429, with a 99% interval of 1.0011 to 1.0881 against an upper bound of 1.07. It was 1.0430 at 160 bins, so the bin count does not move it. Coverage is 0.9605, and the reported standard error matches the efficiency bound (ratio 1.0018). The influence curve with the binned ratio predicts a ratio of 0.9998. A diagnostic refitted the same configuration on 2,000 fresh draws and read 0.999, with a bootstrap 99% interval of 0.959 to 1.043. Fewer than 1% of its bootstrap ratios reach 1.0429 ([`tests/diagnostics/mtp_point_halve_excursion/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/mtp_point_halve_excursion)). The diagnostic cannot change the verdict. The owner closes when a re-declared calibration cell for this policy passes, with a budget of no more than 2,000 replications fixed before its run. Until then the cell stays published red under `reporting` |
 | `F28` | finite-sample limits of clustered intervals: the fold-evaluated covariate pair of `clustered-unequal-cvtmle`, and the fold-evaluated bias cells and cross-fitted `DRTMLE` IID controls of `clustered-few-cluster-tmle` | each group closes on its own registered study that passes. The fold-evaluated pair of `clustered-unequal-cvtmle` at 40 clusters in 10 folds: a fold-evaluated degrees-of-freedom rule $t(\min(J-2, J-V))$ at 40 clusters or more. The three `tmle_cv_evaluation__unequal_informative` cells: a cluster-size-weighted fold average or another fold-evaluated point whose bias stays inside the margin. The stacked report is the remedy today. The four `drtmle_crossfit` `iid_t_control` cells: a calibrated cross-fitted `DRTMLE` cluster variance, or an IID control that compares the two SEs and not the IID SE with the empirical SD ([F28](#f28-finite-sample-limits-of-clustered-intervals)) |
 | `X20-bootstrap` | the `interval_calibration` cells `boot_ey_crossfit__correctly_specified`, `boot_ate_crossfit__correctly_specified` and `boot_ate_clustered__correctly_specified` of `full-refit-bootstrap-and-derived-contrasts` | the declared rule 3 keeps the `end_of_study/cross_fit` and `end_of_study/cluster` kinds out of `LICENSED_BOOTSTRAP_DESIGNS`, so their bootstrap prints as a diagnostic. A diagnostic reading, not a registered result: on this cell the cross-fitted estimator is heavy-tailed. Its 4,000 committed estimates have excess kurtosis 6.7, and about 5% of them lie at the probability boundary, because `g_bounds=(1e-8, 1)` with saturated cell means leaves sparse training cells unbounded. A bootstrap resample holds about 63% unique units, so more replicates reach the boundary and the replicate spread exceeds the sampling spread (SE ratios 1.23 and 1.27). A probe that kept each unit's copies in one fold raised the SE ratio to about 1.65, so the split of copies across folds is not the cause. The cluster contrast covers 0.924 with a calibrated SE ratio (0.977), a finite-sample shortfall of the percentile interval at 60 clusters. The owner closes when a re-declared cell for the kind, with its law, size, nuisance bounds or resampling scheme declared before its run, passes a registered cell |
 
@@ -272,47 +284,6 @@ owners do the same for the stratified DR-TMLE study.
 
 The sections below give one contract for each open item. Their physical order does not override
 the main grid.
-
-### X12. Modified treatment policies beyond the additive point shift
-
-`Shift` adds a constant to a continuous dose at a point treatment, with an optional cap
-(`src/cleverly/interventions/shift.py`). The pinned `lmtp` 1.5.4 also estimates three targets that
-`cleverly` does not.
-
-| part | what is missing | published source | comparator |
-| --- | --- | --- | --- |
-| (a) a general point-treatment policy | a multiplicative shift, and a policy $d(a, w)$ that a user declares, invertible where the density ratio needs it | Haneuse and Rotnitzky (2013); Díaz and van der Laan (2012) | `lmtp_tmle` with one time point and a `shift` function |
-| (b) a longitudinal policy on a continuous dose | a fixed policy $d(a_t, h_t)$ at each node of a longitudinal fit, additive, multiplicative or declared. `LTMLE` refuses `shifts=` today, and it reads a numeric node as unordered arms | Díaz, Williams, Hoffman and Schenck (2023), Theorem 3, journal page 853, which the [longitudinal reference](technical-reference/longitudinal-tmle.md) already cites for categorical rules | `lmtp_tmle` with `mtp = TRUE` |
-| (c) several treatment columns at one node | a policy on a vector of exposures at one time point | Hoffman et al. (2024), *Epidemiology* 35(5). This locator is pending its source read | `lmtp` with `trt` as a list |
-
-Read Theorem 3 for the density-ratio condition on a continuous dose, the policy invertibility
-condition, and the remainder. The longitudinal density ratio needs a conditional density of the
-dose at every node. The point-treatment shift already estimates one with `density_bins=`. Each
-node's ratio enters the cumulative product, and `g_bounds` must bound the product as it bounds
-the categorical one.
-
-Each policy must be fixed before the fit and declared `"known"`, as `Rule` and `DynamicRegimen`
-declare it. A policy learned from the analysis sample stays refused.
-
-Part (b) can build on four private helpers that the
-[known stochastic policies](technical-reference/longitudinal-tmle.md#known-stochastic-policies)
-fit ships. They are `regimen._node_numerator(plan, data, time)`, the plan's density at the
-observed arm; `sequential.outcome_design(data, plan, time, arm)`, the node design with the arm
-blocks; `sequential._carried(policy, by_arm)`, the policy-weighted mean of the per-level
-predictions; and `Plan.masks(data)`, the support masks. A categorical policy $d(a_t, h_t)$ passes
-the one-hot matrix of $d$ as `policy` to `_carried`. Its numerator reads the fitted mechanism,
-so `_node_numerator` must gain an argument for `Mechanism.treatment_observed`, the `(n, K)`
-matrix of $g_t(\cdot \mid H_t)$.
-
-Acceptance:
-
-- exact-law Gateaux witnesses for the point and longitudinal curves on a coarse discrete dose;
-- mutation controls for the inverse policy, the density ratio at each node, and the node order;
-- registered ordinary and cross-fitted studies against the pinned `lmtp` 1.5.4, with identical
-  folds and exact density inputs where the comparator accepts them;
-- a re-read of the `RM18-comparator-density` paired row if the density representation changes;
-- an update of the `shifts` refusal in `_REFUSED`, and of the continuous-dose rows of the
-  longitudinal and scope pages, which then point to the shipped fit.
 
 ### X13. Point-treatment survival and time-to-event input
 
@@ -441,7 +412,7 @@ rows already use, and no new container is needed.
 Theorem 4 of the same article certifies a fold-local recursion for the SDR estimator. Theorem 3
 certifies the pooled fluctuation that the cross-fitted TMLE runs. Read the rate conditions that
 the SDR interval claims first, because they differ from the sequential regression conditions.
-After X12 ships, the SDR estimator covers the continuous-dose policies too, and its study covers
+The SDR estimator also covers the continuous-dose modified treatment policies, and its study covers
 one of them.
 
 ### X14. Hazard-based and monotone survival curves
@@ -472,15 +443,11 @@ Acceptance:
 `TMLE(incremental=...)` fits Kennedy's odds tilt of a binary point treatment. `LTMLE` refuses
 `incremental=`, because the tilt needs the product of tilted mechanisms and a mechanism submodel at
 every node. The pinned `lmtp` 1.5.4 ships `ipsi()`, which is a risk-ratio tilt and not the odds
-tilt.
+tilt. `RiskRatioTilt` ships that rule at a point treatment and at each node of a plan.
 
 | part | what to add | published source | comparator |
 | --- | --- | --- | --- |
 | (a) the odds tilt over time | the incremental intervention at every node of a binary longitudinal treatment | Kennedy (2019), *Journal of the American Statistical Association* 114(526), which treats time-varying treatments | `npcausal` 0.1.0, pinned for the point-treatment incremental study. The audit must confirm that its `ipsi()` fits time-varying data |
-| (b) the risk-ratio tilt | `lmtp`'s risk-ratio incremental intervention, at a point treatment and over time | the source that the `lmtp` documentation cites for `ipsi()`. The audit must read it | `lmtp` 1.5.4 `ipsi()` |
-
-Part (b) is a different parameter from part (a). Give it its own name and its own estimand, and
-do not alias it to `Incremental`.
 
 A tilt is a policy density that is a function of the mechanism. The
 [known stochastic policies](technical-reference/longitudinal-tmle.md#known-stochastic-policies)
@@ -492,7 +459,7 @@ Acceptance:
 
 - exact-law witnesses with a nonzero tilt at every node;
 - a mutation control that drops one node's tilt;
-- a registered study for each part against its comparator.
+- a registered study against `npcausal`.
 
 ### X22. Targeting and fitting options
 
@@ -508,6 +475,9 @@ theory. Each option keeps every default fit bit-identical, and each changes a fi
 | (e) Markov order | restrict each node's nuisance history to the last `k` nodes | an assumption about the data. The identification summary states it | `lmtp` `k` |
 | (f) per-arm outcome fit | fit the outcome regression separately in each arm | a nuisance choice for `TMLE` and `DRTMLE` | `drtmle` `stratify` |
 | (g) early stop on a C-TMLE path | stop the greedy search after a declared number of steps without a risk improvement | a cheaper path. The fit keeps its `working_mechanism_plugin` status | `ctmle` `patience` |
+
+At a continuous modified-treatment-policy node of `LTMLE`, the ratio that part (d) trims is the
+node's density ratio, which the fit stores as `RegimenFit.node_ratio`.
 
 Acceptance: for each part, a test that the default fit is bit-identical to the fit before the
 option, and a witness on a law where the option binds. Parts (d) and (e) also name their
@@ -708,6 +678,28 @@ Acceptance:
   stratum plug-ins;
 - an exact-law test of each stratum curve;
 - a registered calibration cell.
+
+### X31. Continuous vector components at a node
+
+`LTMLE` takes a vector of categorical columns as one node, and the discrete formula gives its
+ratio. `LongitudinalData.from_frame` refuses a vector node with a continuous component, before any
+learner. `CausalData` takes one treatment column, so a point treatment has no vector node at all.
+The pinned `lmtp` 1.5.4 accepts a list of columns as one node of `trt`, so this is a parity gap.
+
+| part | what to add | published source | comparator |
+| --- | --- | --- | --- |
+| (a) a point vector treatment | `CausalData(treatment=["A1", "A2"])` with a joint policy, on the routes the longitudinal vector node uses | Hoffman et al. (2024), *Epidemiology* 35(5). This locator is pending its source read | `lmtp` 1.5.4 with one node of two columns |
+| (b) a continuous component | the ratio of a joint policy when one column is a dose | the same source, and Section 5.4 of Díaz, Williams, Hoffman and Schenck (2023) for the classifier route | the same |
+
+The classifier route (`ratio="classifier"`) needs only the joint policy and the stacked fit, so it
+is the first route to build. A density route needs a joint conditional density, or declared
+per-component pieces whose Jacobian is the product of the component Jacobians.
+
+Acceptance:
+
+- exact-law Gateaux witnesses for each part on a coarse discrete law;
+- a mutation control that drops one component's ratio;
+- a registered study against the pinned `lmtp` 1.5.4, with the ratio supplied to both sides.
 
 ### P1. EP learner
 

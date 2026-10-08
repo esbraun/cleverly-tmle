@@ -23,7 +23,7 @@ import pandas as pd
 from scipy.stats import norm
 
 from cleverly.exceptions import PositivityWarning
-from cleverly.interventions.shift import ShiftSet
+from cleverly.interventions.policy import PolicySet
 from tests.diagnostics import rm18_shared as shared
 from tests.studies import canonical_shift_policies as study
 from tests.studies.evidence.comparison import _bounds
@@ -35,7 +35,7 @@ HERE = Path(__file__).resolve().parent
 DESIGN = "comparator-density"
 PART = "CD"
 SHIFT = study.STUDY
-ESTIMAND = "ate_shift[+0.25 vs natural course]"
+ESTIMAND = "ate_policy[+0.25 vs natural course]"
 DELTA = 0.25
 N = study.PRIMARY_N
 DGP = study.shift_dgp(curvature=study.PRIMARY_CURVATURE)
@@ -65,7 +65,7 @@ UNRESOLVED = "unresolved"
 class AnalyticDensity:
     """The law's conditional dose density, ``phi(a - mu(W))`` with SD 1, on each row.
 
-    ``ShiftSet.evaluate`` reads ``density_at`` for every clever covariate.  It reads
+    ``PolicySet.evaluate`` reads ``density_at`` for every clever covariate.  It reads
     ``crossing_fraction`` only to warn when a binned density cannot resolve a shift, and the
     exact density resolves every shift, so it reports one.
     """
@@ -87,7 +87,7 @@ def analytic_retarget(result: Any, frame: pd.DataFrame) -> Any:
     """The registered fit, targeted again with the analytic density ratio.
 
     The seam ``canonical_shift_policies.reversed_ratio_control`` uses: replace
-    ``nuisance.shifts`` and call ``result.estimator.retarget``.
+    ``nuisance.policies`` and call ``result.estimator.retarget``.
     """
     covariates = frame[list(DGP.covariate_names)].to_numpy(dtype=float)
     with warnings.catch_warnings():
@@ -95,15 +95,15 @@ def analytic_retarget(result: Any, frame: pd.DataFrame) -> Any:
         warnings.simplefilter("ignore", PositivityWarning)
         # ``evaluate`` reads ``density_at`` and ``crossing_fraction`` alone, which the analytic
         # density supplies; it is not a fitted ``ConditionalDensity``.
-        evaluated = ShiftSet.evaluate(
+        evaluated = PolicySet.evaluate(
             study.shifts(),
             result.data,
             AnalyticDensity(covariates),  # type: ignore[arg-type]
         )
-    shifts = replace(evaluated, reference=result.nuisance.shifts.reference)
-    nuisance = replace(result.nuisance, shifts=shifts)
+    policy_set = replace(evaluated, reference=result.nuisance.policies.reference)
+    nuisance = replace(result.nuisance, policies=policy_set)
     estimates, _ = result.estimator.retarget(
-        result.data, nuisance, estimands=("ey_shift", "ate_shift")
+        result.data, nuisance, estimands=("ey_policy", "ate_policy")
     )
     return replace(result, estimates=estimates)
 

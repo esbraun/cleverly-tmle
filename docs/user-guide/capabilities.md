@@ -4,7 +4,7 @@
 
 The [technical implementation matrix](../technical-reference/index.md) is the authoritative
 reader-facing inventory. In brief, the package supports point and longitudinal TMLE, arm and
-regimen contrasts, continuous shifts, incremental interventions, MSM projections, controlled
+regimen contrasts, modified treatment policies, incremental interventions, MSM projections, controlled
 direct effects, C-TMLE, DR-TMLE, cross-fitting, influence-curve inference, sensitivity analysis,
 and post-fit diagnostics in the combinations documented there.
 

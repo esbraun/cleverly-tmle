@@ -210,7 +210,7 @@ def shift_fit() -> Any:
     """A real modified-treatment-policy fit on a continuous dose."""
     frame, _ = make_shift_dose(n=300, seed=0)
     return (
-        TMLE(**linear_in_sample(shifts=[Shift(0.0, cap=None), Shift(0.5, cap=5.0)]))
+        TMLE(**linear_in_sample(policies=[Shift(0.0, cap=None), Shift(0.5, cap=5.0)]))
         .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
         .single()
     )
@@ -395,7 +395,7 @@ class TestEachReasonNamesTheMissingResult:
         ("fixture", "axis", "phrase"),
         [
             ("ipsi_fit", "ipsi", "part of the estimand"),
-            ("shift_fit", "shift", "A modified-policy mean"),
+            ("shift_fit", "policy", "A modified-policy mean"),
             ("msm_fit", "msm", "A point-treatment MSM coefficient"),
         ],
     )

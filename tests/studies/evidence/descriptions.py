@@ -147,9 +147,22 @@ ARMS: dict[str, str] = {
         "the known policy mix, as its contrast against low, and as its mean in "
         "randomizer_projection"
     ),
+    "up": "the contrast of the shift up at both nodes against the natural course",
+    "classifier_route": (
+        "the primary policy contrast, its ratio estimated by a classifier on the true log ratio"
+    ),
+    "x1_25": "the contrast of the dose times 1.25, capped at 5.5, against the natural course",
+    "piecewise": "the contrast of the dose lowered by 0.5 above 3 against the natural course",
+    "halve": "the contrast of the declared policy halve below 3 against the natural course",
+    "categorical_mtp": "the minus-one policy contrast on the six-level law",
+    "vector_node": "the vector-node policy contrast on two binary components",
+    "randomized_mtp": "the contrast of a randomized node-2 shift against the natural course",
+    "survival_mtp_h2": "the cumulative risk at t = 2 of a policy plan on the survival law",
+    "msm_mtp": "the dose coefficient of a working model over three continuous plans",
+    "history": "the contrast of the history-reading plan against the natural course",
     "policy_risk_h2": "the cumulative risk at t = 2 of a known policy on the survival law",
     "msm_policy": "the dose coefficient of a working model over low, mix and taper",
-    "primary": "the five primary estimands of the known-policy study",
+    "primary": "every primary estimand of the study",
     # The stratum labels of the baseline-strata study: ``v<s>_<parameter>``.
     **{
         f"v{stratum}_{key}": f"{words} in stratum V = {stratum}"
@@ -346,6 +359,8 @@ IMPLEMENTATIONS: dict[str, str] = {
     ),
     "cleverly-cross-fitted-categorical-ltmle": "`cleverly` cross-fitted categorical LTMLE",
     "cleverly-cross-fitted-ltmle-msm": "`cleverly` cross-fitted longitudinal MSM projection",
+    "cleverly-mtp-ltmle": "`cleverly` LTMLE under modified treatment policies",
+    "cleverly-policy-tmle": "`cleverly` point-treatment TMLE under modified treatment policies",
     "cleverly-stochastic-categorical-ltmle": (
         "`cleverly` ordinary LTMLE under known stochastic categorical policies"
     ),
@@ -480,6 +495,11 @@ SCENARIOS: dict[str, str] = {
         "selected two-time-point law with monotone censoring and fixed observation weights"
     ),
     "categorical_end_of_study": "two-time-point law with three treatment levels at both nodes",
+    "mtp_continuous": "two-node law with a truncated-normal dose at both nodes",
+    "policy_point": "one truncated-normal dose on [0, 6] with an outcome quadratic in the dose",
+    "mtp_continuous_crossfit": ("the two-node continuous-dose law, cross-fitted over five folds"),
+    "mtp_categorical": "two-node law with six integer treatment levels at both nodes",
+    "rr_tilt": "two-node law with a binary treatment at both nodes",
     "categorical_policy_end_of_study": (
         "the three-level law with known stochastic policies at both nodes"
     ),
@@ -605,6 +625,18 @@ ESTIMANDS: dict[str, str] = {
 REGIMENS: dict[str, str] = {
     "always": "treat at both times",
     "mix": "draw each arm from a known policy at both times",
+    "natural": "leave the observed dose unchanged at both times",
+    "up": "add 0.5 to the dose at both times, capped at 5.5",
+    "scale at 2": "multiply the second dose by 1.25, capped at 5.5",
+    "up then history": (
+        "add 0.5 to the first dose, then add 0.5 to the second where the first exceeds 3"
+    ),
+    "minus one": "lower the level by one at both times wherever it stays at least one",
+    "gated": "lower the second level by one where L2 equals one",
+    "rr 0.25": "keep each treated unit treated with probability 0.25 at both times",
+    "random at 2": "add 0.5 to the second dose with probability 0.5",
+    "vector": "set the second component to zero where both components are one",
+    "mtp": "risk-ratio tilt 0.5 first, then treat where L2 equals one",
     "taper": "assign the high arm first, then draw from a known policy",
     "continue_if_l2": "treat first, then continue if L2 equals one",
     "high": "assign the high arm at both times",
@@ -617,6 +649,9 @@ REGIMENS: dict[str, str] = {
     "+0.25": "shift dose by 0.25",
     "+0.5 capped": "shift dose by 0.5 subject to the declared cap",
     "natural course": "leave the observed treatment mechanism unchanged",
+    "x1.25": "multiply the dose by 1.25, holding doses whose product exceeds 5.5",
+    "piecewise": "lower the dose by 0.5 above 3, and leave it unchanged at or below 3",
+    "halve below 3": "move a dose at or below 3 halfway toward 3",
     "odds x0.5": "multiply the treatment odds by 0.5",
     "odds x2": "multiply the treatment odds by two",
     "rule": "follow the covariate-dependent rule",
@@ -644,11 +679,11 @@ PARAMETERISED: dict[str, str] = {
     "or_regimen": "odds ratio, with inference on the log scale, between the plans",
     "ate_ipsi": "difference in means under the incremental interventions",
     "ate_regime": "difference in means under the regimes",
-    "ate_shift": "difference in means under the modified treatment policies",
+    "ate_policy": "difference in means under the modified treatment policies",
     "ey_ipsi": "mean under the incremental intervention",
     "ey_learned_rule": "fold average of the value of the rule",
     "ey_regime": "mean under the regime",
-    "ey_shift": "mean under the modified treatment policy",
+    "ey_policy": "mean under the modified treatment policy",
 }
 
 
@@ -725,6 +760,9 @@ PROPERTIES: dict[str, str] = {
     ),
     "density_necessity": "the declared stochastic intervention density determines the target",
     "policy_necessity": "the declared longitudinal policy densities determine the target",
+    "inverse_necessity": (
+        "the declared inverse of a policy piece enters the density ratio of Equation (3)"
+    ),
     "randomizer_projection": (
         "the integrated policy estimator is the projection of the estimator that records the "
         "randomizer, so its spread is no larger"
@@ -1328,6 +1366,18 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("categorical_probability_necessity", "binary_complement"): (
         "the same fit replaces the third arm's probability with a binary complement",
         "bias interval must fall entirely outside the margin",
+    ),
+    ("inverse_necessity", "declared_inverse"): (
+        "the density ratio reads each piece at its declared inverse",
+        "bias interval inside the equivalence margin",
+    ),
+    ("inverse_necessity", "inverse_dropped_control"): (
+        "the same fit reads each moving piece at the dose itself",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("crossfit_overfitting", "cross_fitted_mtp_ltmle"): (
+        "five-fold policy LTMLE with fully grown outcome trees",
+        "SE ratio clears the overfitting floor and stays inside the sanity band",
     ),
     ("policy_necessity", "declared_policy"): (
         "the recursion integrates over the declared policy at each node",
@@ -1938,4 +1988,32 @@ ARM_CELLS.update(
         for arm, (arm_text, required) in _FEW_CLUSTER_ARMS.items()
         if arm != "t_j_minus_2_reference"
     }
+)
+
+#: ``longitudinal-mtp`` reads its mechanism-only arms at 320 oracle bins.  With the outcome
+#: regressions wrong, the binned density's error enters the bias at first order: 0.54 to 0.60
+#: standardized at 80 bins, 0.21 to 0.24 at 160 (100 draws of 8,000 rows).  These cells
+#: therefore witness the targeting with a nearly exact ratio, not the shipped default density.
+ARM_CELLS[("double_robustness", "up", "mechanism_correct")] = (
+    "only the mechanisms are correctly specified, read from 320 oracle bins so the binned "
+    "density's own first-order error stays below the margin",
+    "bias interval inside the equivalence margin, with the reported standard error "
+    "on the scale of the empirical spread",
+)
+ARM_CELLS[("targeting_necessity", "up", "targeted")] = (
+    "the targeted fit with only the mechanisms correct, at 320 oracle bins",
+    "bias interval inside the equivalence margin",
+)
+ARM_CELLS[("inverse_necessity", "history", "declared_inverse")] = (
+    "the density ratio reads each piece at its declared inverse, at 320 oracle bins",
+    "bias interval inside the equivalence margin",
+)
+ARM_CELLS[("inverse_necessity", "history", "inverse_dropped_control")] = (
+    "the same fit reads each moving piece at the dose itself, at 320 oracle bins",
+    "bias interval must fall entirely outside the margin",
+)
+ARM_CELLS[("interval_calibration", "classifier_route", "correctly_specified")] = (
+    "the ratio by stacked classification, with a logistic model on the true log ratio, so the "
+    "classifier is correctly specified",
+    "SE ratio and coverage intervals both inside their calibration bands",
 )

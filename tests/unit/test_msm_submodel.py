@@ -217,7 +217,7 @@ def test_a_builder_without_the_msm_keyword_is_told_what_to_add() -> None:
         intermediate_density=None,
         selection=None,
         regimes=None,
-        shifts=None,
+        policies=None,
     ):
         raise AssertionError("should not be reached")  # pragma: no cover
 

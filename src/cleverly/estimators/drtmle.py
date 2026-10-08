@@ -440,7 +440,7 @@ class DRTMLE(TMLE):
     loop would not run:
 
     * a continuous treatment, whose density-based equations are not derived here;
-    * ``att``/``atc`` and the ``interventions=``, ``shifts=``, ``incremental=`` and ``msm=``
+    * ``att``/``atc`` and the ``interventions=``, ``policies=``, ``incremental=`` and ``msm=``
       axes -- each is a different score equation with no reduced-dimension derivation;
     * ``intermediate=``, whose mechanism factor would sit inside the reduced regressions;
     * a missing treatment beside ``randomized=True`` or ``treatment_probabilities=``, and
@@ -764,7 +764,7 @@ class DRTMLE(TMLE):
                 "fold-wise evaluation. Neither follows by looping over the pooled "
                 "reduction. Use targeting_scheme='pooled', cv_evaluation=False."
             )
-        for keyword in ("interventions", "shifts", "incremental", "msm"):
+        for keyword in ("interventions", "policies", "incremental", "msm"):
             if getattr(self, keyword, None):
                 raise CapabilityError(
                     f"DRTMLE and {keyword}= are not combined. The reduced-dimension "
@@ -1181,15 +1181,15 @@ class DRTMLE(TMLE):
         self._check_drtmle(data)
         return estimands
 
-    def _check_shifts(self, data: CausalData) -> None:
+    def _check_policies(self, data: CausalData) -> None:
         """Refuse a continuous dose before the shift check can suggest a shift.
 
-        ``TMLE._check_shifts`` runs first in the preflight, and it answers a dose with no
-        ``shifts=`` by suggesting one, which DRTMLE does not fit.
+        ``TMLE._check_policies`` runs first in the preflight, and it answers a dose with no
+        ``policies=`` by suggesting one, which DRTMLE does not fit.
         """
         if data.is_continuous_treatment:
             refuse_unsupported("continuous")
-        super()._check_shifts(data)
+        super()._check_policies(data)
 
     def _check_drtmle(self, data: CausalData) -> None:
         """The refusals that run before any learner of a fit or a refit, each by name."""

@@ -51,7 +51,7 @@ NECESSITY_DISPLACEMENT = 0.25
 TARGETING_DISPLACEMENT = NECESSITY_DISPLACEMENT
 IDENTITY_TOLERANCE = 1e-8
 PROPERTY_CURVATURE = 0.15
-TARGET = "ate_shift[+0.5 capped vs natural course]"
+TARGET = "ate_policy[+0.5 capped vs natural course]"
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 
 
@@ -95,7 +95,7 @@ def fit(
         )
     density = OracleShiftDensity(density_dgp, edges)
     estimator = TMLE(
-        shifts=shifts(capped=capped),
+        policies=shifts(capped=capped),
         outcome_learner=outcome,
         treatment_learner=density,
         cross_fit=False,
@@ -115,7 +115,7 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
         if property_name == "type_i_error"
         else policy_dgp(curvature=PROPERTY_CURVATURE)
     )
-    frame, truth_map = dgp.sample(n, shifts=POLICIES, seed=seed, backend="pandas")
+    frame, truth_map = dgp.sample(n, policies=POLICIES, seed=seed, backend="pandas")
     truth = float(truth_map[TARGET])
     result = fit(frame, dgp, configuration)
     role = (
@@ -185,7 +185,7 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
             )
         )
     if property_name == "natural_course_identity":
-        estimate = result["ey_shift[natural course]"]
+        estimate = result["ey_policy[natural course]"]
         natural_truth = float(np.mean(np.asarray(frame["Y"], dtype=float)))
         rows = [
             replicate_row(

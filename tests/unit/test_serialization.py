@@ -311,7 +311,7 @@ def continuous_result():  # type: ignore[no-untyped-def]
     )
     return study.identify(
         ModifiedTreatmentPolicyEffect(
-            shifts=(
+            policies=(
                 Shift(0.0, cap=10.0, name="natural course"),
                 Shift(0.5, cap=10.0, name="up half"),
             )
@@ -446,7 +446,7 @@ def test_ratio_simulated_confounding_cache_survives_round_trip(
 def test_continuous_simulated_confounding_cache_survives_round_trip(
     continuous_result,
 ) -> None:  # type: ignore[no-untyped-def]
-    alias = next(name for name in continuous_result.estimates if name.startswith("ate_shift["))
+    alias = next(name for name in continuous_result.estimates if name.startswith("ate_policy["))
     kwargs = {
         "estimand": alias,
         "grid": ConfounderStrengthGrid(treatment=(0.0, -0.2), outcome=(0.0, 0.3)),

@@ -373,7 +373,7 @@ def _missing_binary(k: int, **settings: Any) -> Any:
 
 
 def _shift(k: int) -> Any:
-    return fit_clustered(make_shift_dose(n=300, seed=0)[0], k, shifts=[Shift(0.5, cap=5.0)])
+    return fit_clustered(make_shift_dose(n=300, seed=0)[0], k, policies=[Shift(0.5, cap=5.0)])
 
 
 def _regime(k: int) -> Any:

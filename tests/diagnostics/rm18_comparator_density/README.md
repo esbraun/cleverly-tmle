@@ -1,7 +1,7 @@
 # RM18 design CD: the density attribution of the shift row
 
 This directory holds the design that RM18 of `docs/roadmap.md` at commit `985849c6` declares in
-"Design CD", for the red paired row `ate_shift[+0.25 vs natural course]` of `shift-policies`. It draws no new sample,
+"Design CD", for the red paired row `ate_policy[+0.25 vs natural course]` of `shift-policies`. It draws no new sample,
 runs no R, and changes no study, verdict or committed row.
 
 | file | what it holds |
@@ -20,8 +20,10 @@ reading reads the (Ca, L) bound and that each mutation moves it. The test also c
 committed rows meet the declared budget, rebuilds `cd-reading.csv`, and retargets one committed
 Ca row. A missing committed file fails the test.
 
-The design ran once. The roadmap at commit `985849c6` gives the reading in
+The design first ran at commit `4b91a916`. The roadmap at commit `985849c6` gives that reading in
 "[What design CD found](https://github.com/esbraun/cleverly-tmle/blob/985849c668a18cf800094714ddae3fea0675cb91/docs/roadmap.md#what-design-cd-found)".
+The design ran again after `ate_shift` became `ate_policy`. The committed files are from that run.
+The bootstrap seed hashes the estimand label, so the excess bounds moved. The reading did not.
 
 ## Run
 
@@ -39,8 +41,8 @@ This table was fixed and committed before the run.
 | point | resolution | reason |
 | --- | --- | --- |
 | Cb | `draw_scenario(SCENARIO, 2000, k)` and `fit_cleverly(frame)` of `canonical_shift_policies`, transcribed by `cleverly_rows` | the registered fit and rows |
-| Ca | `ShiftSet.evaluate(shifts(), result.data, AnalyticDensity(W))`, with the fit's own contrast reference, placed in `nuisance.shifts`, then `result.estimator.retarget(..., estimands=("ey_shift", "ate_shift"))` | the `reversed_ratio_control` seam that the declaration names |
-| `AnalyticDensity` | `density_at(a) = phi((a - mu(W)) / sigma) / sigma`, with `mu` and `sigma` from the law's own `dose_mean` and `dose_scale`, where sigma is 1. `crossing_fraction` returns 1, because the exact density resolves every shift, and `ShiftSet.evaluate` reads it only to warn about bin resolution. The uncapped-support `PositivityWarning` is contained, as `fit_shift_estimator` contains it for Cb | the declared density |
+| Ca | `PolicySet.evaluate(shifts(), result.data, AnalyticDensity(W))`, with the fit's own contrast reference, placed in `nuisance.policies`, then `result.estimator.retarget(..., estimands=("ey_policy", "ate_policy"))` | the `reversed_ratio_control` seam that the declaration names |
+| `AnalyticDensity` | `density_at(a) = phi((a - mu(W)) / sigma) / sigma`, with `mu` and `sigma` from the law's own `dose_mean` and `dose_scale`, where sigma is 1. `crossing_fraction` returns 1, because the exact density resolves every shift, and `PolicySet.evaluate` reads it only to warn about bin resolution. The uncapped-support `PositivityWarning` is contained, as `fit_shift_estimator` contains it for Cb | the declared density |
 | `sigma*` | the declared closed form, with `Var(A) = dose_scale^2 + sum(loading^2)` read off `dose_mean`, 1.58 | the declared bound |
 | `D` intervals | the framework `bootstrap` over the three arms' `std_error` columns, paired by replicate, 10,000 draws, seed `stream_seed(SHIFT, "rm18", "comparator-density", "bootstrap", "D")`. The three differences come from the same index matrix | the declared paired bootstrap |
 | framework excess | `comparison._bounds` for each pair, with the pair as subject and reference, on the registered stream `stream_seed(SHIFT, "equivalence", scenario, estimand)`. Its `calibration_excess_upper` is the bound | the declared framework calibration excess, bound and resolution |
@@ -56,6 +58,6 @@ This table was fixed and committed before the run.
 
 ## Runtime
 
-One Cb fit takes 1.9 to 2.1 s on one core, and a retarget 0.01 s. The declared run took 774.9 s
+One Cb fit takes 1.9 to 2.1 s on one core, and a retarget 0.01 s. The second run took 755.1 s
 of wall time on 16 logical cores. `run.log` records it. A smoke run at `--replicates 4` took
 13 s.

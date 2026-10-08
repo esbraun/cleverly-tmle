@@ -124,7 +124,7 @@ def fit_shift(frame: Any = None, **overrides: Any) -> Any:
     """
     frame = dose_frame() if frame is None else frame
     return (
-        TMLE(**linear_in_sample(shifts=[Shift(0.5, cap=5.0)], **overrides))
+        TMLE(**linear_in_sample(policies=[Shift(0.5, cap=5.0)], **overrides))
         .fit(frame, outcome="Y", treatment="A")
         .single()
     )
@@ -233,7 +233,7 @@ def fit_shift_missing() -> Any:
     noise = np.random.default_rng(0).standard_normal(len(frame))
     dose = frame.assign(A=frame["A"] + noise)
     return (
-        TMLE(**linear_in_sample(shifts=[Shift(0.5, cap=None)]))
+        TMLE(**linear_in_sample(policies=[Shift(0.5, cap=None)]))
         .fit(dose, outcome="Y", treatment="A", delta="Delta")
         .single()
     )

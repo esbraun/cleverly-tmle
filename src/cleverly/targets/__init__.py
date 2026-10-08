@@ -106,7 +106,7 @@ def default_names(family: str, n_arms: int = 2, *, axis: ParameterAxis = "arm") 
 
     ``axis`` switches the report between the arm-indexed estimands, the regime-indexed
     ones and the shift-indexed ones.  It is a switch rather than a widening because
-    declaring ``interventions=`` or ``shifts=`` says what the fit's counterfactuals
+    declaring ``interventions=`` or ``policies=`` says what the fit's counterfactuals
     *are*; see :attr:`~cleverly.targets.Target.parameter_axis`.
     """
     return tuple(
@@ -148,10 +148,11 @@ def targets_for(group: TargetGroup, estimands: Sequence[str]) -> tuple[Target, .
 #: them will read.  Keyed by axis so the sentence names the keyword rather than the
 #: internal word.
 _AXIS_DECLARED_BY = {
-    "arm": "a fit without interventions=, learned_rule=, shifts=, incremental= or msm=",
+    "arm": "a fit without interventions=, learned_rule=, policies=, incremental= or msm=",
     "regime": "a fit that declares interventions=",
     "learned_rule": "a fit that declares learned_rule=",
-    "shift": "a fit that declares shifts=",
+    "policy": "a fit that declares policies=",
+    "rr_tilt": "a fit that declares policies= of RiskRatioTilt objects",
     "ipsi": "a fit that declares incremental=",
     "msm": "a fit that declares msm=",
 }
@@ -161,7 +162,8 @@ _AXIS_INDEXES_BY = {
     "arm": "treatment arm",
     "regime": "declared regime",
     "learned_rule": "rule learned inside each training fold",
-    "shift": "declared shift",
+    "policy": "declared modified treatment policy",
+    "rr_tilt": "declared risk-ratio tilt",
     "ipsi": "declared tilt of the treatment mechanism",
     "msm": "working-model coefficient",
 }
@@ -237,7 +239,7 @@ def resolve_estimands(
         raise ValueError(
             f"estimand(s) {mismatched} do not belong to {_AXIS_DECLARED_BY[axis]}. "
             f"{_off_axis_reason(mismatched, axis)}. Declaring interventions=, "
-            "learned_rule=, shifts= or incremental= says what the fit's counterfactuals "
+            "learned_rule=, policies= or incremental= says what the fit's counterfactuals "
             "are, and msm= says how they are summarised, so reporting across two of them "
             "from a single fluctuation would put two score equations under one heading. "
             f"Available here: {available}."

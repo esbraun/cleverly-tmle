@@ -115,18 +115,18 @@ fit_one <- function(frame) {
     ic = capped$ic - natural$ic
   )
   rbind(
-    row_for(replicate, "ey_shift[natural course]", natural, nrow(frame)),
-    row_for(replicate, "ey_shift[+0.25]", quarter, nrow(frame)),
-    row_for(replicate, "ey_shift[+0.5 capped]", capped, nrow(frame)),
+    row_for(replicate, "ey_policy[natural course]", natural, nrow(frame)),
+    row_for(replicate, "ey_policy[+0.25]", quarter, nrow(frame)),
+    row_for(replicate, "ey_policy[+0.5 capped]", capped, nrow(frame)),
     row_for(
       replicate,
-      "ate_shift[+0.25 vs natural course]",
+      "ate_policy[+0.25 vs natural course]",
       quarter_contrast,
       nrow(frame)
     ),
     row_for(
       replicate,
-      "ate_shift[+0.5 capped vs natural course]",
+      "ate_policy[+0.5 capped vs natural course]",
       capped_contrast,
       nrow(frame)
     )

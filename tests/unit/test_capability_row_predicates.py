@@ -910,7 +910,7 @@ class TestReportedScaleNoEffectNull:
             ("ate", "arm"),
             ("ate_regime", "regime"),
             ("ate_ipsi", "ipsi"),
-            ("ate_shift", "shift"),
+            ("ate_policy", "policy"),
         ),
     )
     def test_additive_targets_keep_zero_through_structured_keys(
@@ -929,7 +929,7 @@ class TestReportedScaleNoEffectNull:
         assert _no_effect_null(result, alias) == 0.0
         assert refute_refusal(result, estimand=alias, tests=("placebo",)) is None
 
-    @pytest.mark.parametrize("estimand", ("ey1", "ey0", "ey_obs", "ey_shift", "msm"))
+    @pytest.mark.parametrize("estimand", ("ey1", "ey0", "ey_obs", "ey_policy", "msm"))
     @pytest.mark.parametrize("test", ("placebo", "negative_control_outcome"))
     def test_levels_and_coefficients_refuse_before_refit(
         self, refute_fits: dict[str, Any], estimand: str, test: str
@@ -1471,8 +1471,8 @@ CONFOUNDING_REQUESTS: dict[str, tuple[tuple[dict[str, Any], bool], ...]] = {
     ),
     "natural_course": (({}, False), ({"estimand": "ey_obs"}, False)),
     "policy_means": (
-        ({"estimand": "ey_shift[natural course]"}, False),
-        ({"estimand": "ey_shift[up half]"}, True),
+        ({"estimand": "ey_policy[natural course]"}, False),
+        ({"estimand": "ey_policy[up half]"}, True),
     ),
 }
 
@@ -1621,12 +1621,12 @@ class TestTheSimulatedConfoundingRowResolvesEachRequest:
         bare = result.sensitivity.capability("simulated_confounding")
         assert bare.available
         assert bare.requires_arguments == ("grid", "estimand")
-        zero = {"grid": ANCHOR, "estimand": "ey_shift[natural course]"}
+        zero = {"grid": ANCHOR, "estimand": "ey_policy[natural course]"}
         row = result.sensitivity._capability_for_arguments("simulated_confounding", zero)
         assert row.status is AssessmentStatus.UNAVAILABLE
         assert row.reason == simulated_confounding_refusal(result, zero["estimand"])
         assert row.reason is not None and "zero-delta policy" in row.reason
-        up = {"grid": ANCHOR, "estimand": "ey_shift[up half]"}
+        up = {"grid": ANCHOR, "estimand": "ey_policy[up half]"}
         assert result.sensitivity._capability_for_arguments("simulated_confounding", up).available
 
 

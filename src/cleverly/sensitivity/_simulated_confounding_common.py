@@ -13,7 +13,8 @@ from ..targets.base import stratum_alias
 
 _AXIS_SLOTS = {
     "arm": (),
-    "shift": ("shifts",),
+    "policy": ("policies",),
+    "rr_tilt": ("policies",),
     "regime": ("interventions",),
     "msm": ("msm",),
     "ipsi": ("incremental",),
@@ -120,7 +121,7 @@ def check_only_declared_axis(result: Any, key: Any, axis: str, error: str) -> No
         or functional.horizons is not None
         or functional.intermediate is not None
         or any(getattr(estimator, slot) for slot in slots if slot not in allowed)
-        or (bool(functional.interventions) != (axis in {"shift", "regime", "ipsi"}))
+        or (bool(functional.interventions) != (axis in {"policy", "regime", "ipsi"}))
         or (functional.msm is not None) != (axis == "msm")
         or any(getattr(key, slot) is not None for slot in ("regimen", "cause", "horizon"))
         or (axis != "msm" and key.term is not None)

@@ -281,7 +281,7 @@ class TestAControlledDirectEffectRefusesEveryBranch:
         with warnings.catch_warnings():
             # The uncapped shift extrapolates on a few rows. The refusal reads no mechanism.
             warnings.simplefilter("ignore", PositivityWarning)
-            result = fit_cde(frame, shifts=[Shift(0.5, cap=None)])[0.0]
+            result = fit_cde(frame, policies=[Shift(0.5, cap=None)])[0.0]
         assert result.data.is_continuous_treatment
         assert declares_intermediate(result)
         row = result.sensitivity.capability("evalue")
@@ -355,7 +355,7 @@ class TestARequestedParameterGetsItsOwnRefusal:
     @pytest.mark.parametrize(
         "key_changes,reason",
         [
-            ({"axis": "shift"}, "an E-value needs an arm contrast, not the 'shift' axis"),
+            ({"axis": "policy"}, "an E-value needs an arm contrast, not the 'policy' axis"),
             (
                 {"stratum": ("W", 1)},
                 "this package requires an unconditioned marginal arm contrast; this contrast "

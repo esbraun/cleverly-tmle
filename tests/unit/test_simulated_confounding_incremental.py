@@ -309,7 +309,7 @@ def test_incremental_provenance_corruption_refuses_before_draw(
     else:
         from cleverly.interventions import Shift
 
-        result = with_estimator(result, shifts=(Shift(0.5, cap=3.0),))
+        result = with_estimator(result, policies=(Shift(0.5, cap=3.0),))
     forbid_draw_and_refit(monkeypatch, result.estimator)
     with pytest.raises(CapabilityError, match=r"incremental|parameter"):
         simulated_confounding(result, estimand=alias, grid=_GRID, random_state=31)

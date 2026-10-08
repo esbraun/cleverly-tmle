@@ -468,6 +468,13 @@ A regime is a density over arms and is a parameter axis distinct from arms, shif
 interventions, and MSM coefficients. Keep those axes explicit; a fit must not mix incompatible
 definitions of its counterfactual under one result namespace.
 
+A modified treatment policy is a map of the natural dose, and `policies=` is its axis. Every
+policy class resolves to deterministic branches with known probabilities, through
+`policy_branches` for a continuous dose and `discrete_assignments` for a categorical one. The
+ratio, the support report and the longitudinal node read those branches and nothing else. A new
+class adds a branch type there, not a new axis. `RiskRatioTilt` differs in its report only. It
+reads `g`, so it reports on the `rr_tilt` axis. `TMLE` refuses a tilt beside other policies.
+
 An estimator variant that only changes which nuisance estimate is targeted should override the
 nuisance hook, return a replaced `NuisanceEstimates` with diagnostics, and inherit targeting and
 result behavior. `CTMLE` is the reference pattern. A method with different data ordering or
@@ -495,6 +502,12 @@ deterministic under the resolved plan. At a policy node the design also holds th
 the node carries the policy-weighted mean of its per-arm predictions. A plan without a policy node
 runs the arrays of a deterministic plan, and `tests/unit/test_influence_gateaux_longitudinal_policy.py`
 pins a one-hot policy to its rule bit for bit.
+
+A modified treatment policy node reuses the per-arm carry of a policy node. At a categorical node
+its columns are the levels. At a continuous node its columns are the randomizer branches, and the
+node's treatment factor in the cumulative product is the density ratio. `g_bounds` therefore
+bounds only the censoring and categorical factors. The fit attaches the ratio to the plan after
+the mechanism fit. A frozen plan carries it, so a replay reads the same ratio.
 
 A cross-fitted per-regimen fit targets after its folds, not inside them. Each fold runs an
 untargeted backward regression sequence on its training rows. One pooled fluctuation per node then

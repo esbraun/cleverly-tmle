@@ -834,7 +834,7 @@ shift_study = CausalStudy(
 )
 shift_result = shift_study.estimate(
     ModifiedTreatmentPolicyEffect(
-        shifts=(
+        policies=(
             Shift(0.0, cap=3.0, name="natural course"),
             Shift(0.5, cap=3.0, name="up half"),
         )
@@ -846,7 +846,7 @@ shift_result = shift_study.estimate(
     random_state=21,
     simultaneous=False,
 )
-shift_alias = "ate_shift[up half vs natural course]"
+shift_alias = "ate_policy[up half vs natural course]"
 shift_surface = shift_result.sensitivity.simulated_confounding(
     estimand=shift_alias,
     grid=ConfounderStrengthGrid(
@@ -859,11 +859,11 @@ shift_surface = shift_result.sensitivity.simulated_confounding(
 ```
 
 A `ModifiedTreatmentPolicy` fit reports policy means instead. Select one mean with an alias such
-as `ey_shift[up half]`. The surface reports that mean and its signed displacement in each cell.
+as `ey_policy[up half]`. The surface reports that mean and its signed displacement in each cell.
 
 Select a policy whose `delta` is nonzero. A zero-delta shift assigns every unit its own dose, so
 its mean is $E[Y]$ and no common cause can move it through the treatment. The surface refuses that
-mean by name. It still accepts an `ate_shift[...]` contrast that uses the zero-delta policy as its
+mean by name. It still accepts an `ate_policy[...]` contrast that uses the zero-delta policy as its
 reference, because the contrast keeps its treatment dependence.
 
 The continuous treatment law is $A'=A+k_AU$. It keeps the declared modified treatment policies
@@ -893,7 +893,7 @@ dose perturbation alone. The technical reference states the same
 
 The zero treatment-strength column carries no confounding path either. Its movement reports the
 outcome perturbation alone. The Gaussian outcome law subtracts a level from every row, and an
-`ate_shift[...]` contrast removes most of that level. An `ey_shift[...]` policy mean keeps it, so
+`ate_policy[...]` contrast removes most of that level. An `ey_policy[...]` policy mean keeps it, so
 read the zero treatment-strength column of a policy-mean surface as an artifact of the outcome
 law.
 

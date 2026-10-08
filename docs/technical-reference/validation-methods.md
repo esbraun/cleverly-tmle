@@ -141,7 +141,7 @@ declares. A given condition therefore produces the same text whichever report ho
 | `SCORE_LOAD_MASK_TOO_LARGE` | the mask holds more rows than the fitted data |
 
 The table order is the guard order. A caller can be in the first two states at once, because
-`check_support`, `check_shift_support`, and `check_incremental_support` all default to no artifact
+`check_support`, `check_policy_support`, and `check_incremental_support` all default to no artifact
 and no equation names. That caller reads `SCORE_LOAD_MISSING`.
 
 Two of those rows are behavior changes. The empty-mask and oversized-mask conditions were one reason
@@ -1090,8 +1090,8 @@ movement reports dose perturbation alone.
 **The zero treatment-strength column.** A cell at $k_A=0$ leaves $U$ out of the treatment, so it
 carries no confounding path either. Its movement reports the outcome perturbation alone. The
 Gaussian law $Y'=Y-k_YU$ is a level shift, and the surface draws $U$ uncentred. An
-`ate_shift[...]` contrast subtracts one policy mean from the other, so it removes most of that
-level and the column stays small. An `ey_shift[...]` policy mean keeps it, so read the $k_A=0$
+`ate_policy[...]` contrast subtracts one policy mean from the other, so it removes most of that
+level and the column stays small. An `ey_policy[...]` policy mean keeps it, so read the $k_A=0$
 column of a policy-mean surface as an artifact of the outcome law.
 `tests/unit/test_simulated_confounding.py::test_continuous_policy_mean_runs_a_real_ordinary_tmle_refit`
 measures both columns on one fit.
@@ -1121,8 +1121,8 @@ Risk ratios, odds ratios, and PAF require a binomial outcome. The other rows sup
 | binary | marginal or baseline-stratum `ey_regime[...]` mean or `ate_regime[...]` contrast | exact ordinary TMLE; fixed `Static`, `Rule`, or `Stochastic` intervention |
 | binary or continuous | marginal or baseline-stratum `msm[...]` coefficient | exact ordinary TMLE; built-in identity, log, or logit link with fixed projection measure |
 | binary | marginal or baseline-stratum `ey_ipsi[...]` mean or `ate_ipsi[...]` contrast | exact ordinary TMLE; fixed odds multipliers with a refitted mechanism |
-| continuous | one explicitly named marginal or baseline-stratum `ey_shift[...]` policy mean | exact ordinary TMLE |
-| continuous | one explicitly named marginal or baseline-stratum `ate_shift[...]` contrast | exact ordinary TMLE |
+| continuous | one explicitly named marginal or baseline-stratum `ey_policy[...]` policy mean | exact ordinary TMLE |
+| continuous | one explicitly named marginal or baseline-stratum `ate_policy[...]` contrast | exact ordinary TMLE |
 
 Every row accepts fixed probability weights under its listed estimators.
 
@@ -1446,7 +1446,7 @@ surface refuses. The
 | continuous-treatment C-TMLE and DR-TMLE | not written yet | both estimators refuse a modified-policy functional. See [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
 | PAR or PAF under C-TMLE or DR-TMLE | not written yet | the method catalog lacks a score or correction for these observed-law contrasts. See [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
 | `NaturalCourseMean`, reported as `ey_obs` | wrong by construction | $E[Y]$ has no counterfactual treatment term. Outcome perturbation alone cannot make it a confounding diagnostic |
-| the policy mean of a zero-delta shift | wrong by construction | $d_0(a, w) = a$ on both branches, so the policy is the natural course. Its mean is $E[Y]$, and no counterfactual treatment dependence remains for a common cause to move. The `ate_shift[...]` contrast that uses this policy as its reference is still accepted |
+| the policy mean of a zero-delta shift | wrong by construction | $d_0(a, w) = a$ on both branches, so the policy is the natural course. Its mean is $E[Y]$, and no counterfactual treatment dependence remains for a common cause to move. The `ate_policy[...]` contrast that uses this policy as its reference is still accepted |
 | an incremental mean at multiplier one | wrong by construction | its mean is $E[Y]$. Contrasts with this reference remain supported |
 | a categorical benchmark covariate | waiting on published theory | no logical-covariate calibration maps categories to these perturbation strengths. See [F10](../roadmap.md#f10-logical-categorical-confounder-calibration) |
 

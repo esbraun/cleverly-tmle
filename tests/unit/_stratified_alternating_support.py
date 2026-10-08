@@ -256,7 +256,7 @@ GOLDEN: dict[str, Callable[[pd.DataFrame], Any]] = {
         TMLE(interventions=(Static(1), Static(0)), **settings()), f, strata=True
     ),
     "strata_shifts": lambda f: _dose(
-        TMLE(shifts=[Shift(0.5, cap=None)], density_bins=6, **settings()), f, "Y", strata=True
+        TMLE(policies=[Shift(0.5, cap=None)], density_bins=6, **settings()), f, "Y", strata=True
     ),
     "strata_msm_identity": lambda f: _fit(
         TMLE(msm=MSM.linear(modifiers=("W",)), **settings()), f, strata=True

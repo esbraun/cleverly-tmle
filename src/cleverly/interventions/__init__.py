@@ -26,28 +26,49 @@ from .incremental import (
     check_incremental_support,
 )
 from .learned import LearnedRule, LearnedRuleRecord
-from .shift import Shift, ShiftSet, ShiftSupport, check_shift_support
+from .policy import (
+    POLICY_TYPES,
+    ModifiedPolicy,
+    Piece,
+    Piecewise,
+    Policy,
+    PolicySet,
+    PolicySupport,
+    Randomizer,
+    RiskRatioTilt,
+    Scale,
+    Shift,
+    check_policy_support,
+)
 from .support import RegimeSupport, SupportReport, check_support
 
 __all__ = [
+    "POLICY_TYPES",
     "IPSISet",
     "Incremental",
     "IncrementalSupport",
     "Intervention",
     "LearnedRule",
     "LearnedRuleRecord",
+    "ModifiedPolicy",
+    "Piece",
+    "Piecewise",
+    "Policy",
+    "PolicySet",
+    "PolicySupport",
+    "Randomizer",
     "RegimeSet",
     "RegimeSupport",
+    "RiskRatioTilt",
     "Rule",
+    "Scale",
     "Shift",
-    "ShiftSet",
-    "ShiftSupport",
     "Static",
     "Stochastic",
     "SupportReport",
     "as_interventions",
     "check_incremental_support",
-    "check_shift_support",
+    "check_policy_support",
     "check_support",
     "refuse_mixed_interventions",
 ]

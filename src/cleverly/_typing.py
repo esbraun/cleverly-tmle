@@ -94,8 +94,10 @@ EstimandName = Literal[
     "ey_learned_rule",
     "ey_ipsi",
     "ate_ipsi",
-    "ey_shift",
-    "ate_shift",
+    "ey_rr_tilt",
+    "ate_rr_tilt",
+    "ey_policy",
+    "ate_policy",
     "msm",
 ]
 
@@ -117,7 +119,10 @@ EstimandName = Literal[
 #: ``"learned_rule"`` is the value of a rule learned inside each training fold.  It
 #: reuses the regime fluctuation, but its target is data-adaptive, so every axis-keyed
 #: consumer decides it explicitly rather than reading it as a declared regime.
-ParameterAxis = Literal["arm", "regime", "learned_rule", "shift", "ipsi", "msm"]
+#: ``"rr_tilt"`` is the risk-ratio tilt of ``lmtp::ipsi``, a randomized modified
+#: treatment policy with its own estimand names, so it is not reported under
+#: ``"policy"`` or ``"ipsi"``.
+ParameterAxis = Literal["arm", "regime", "learned_rule", "policy", "rr_tilt", "ipsi", "msm"]
 
 #: Propensity-score truncation: ``"auto"`` for the sample-size dependent
 #: default, a single float ``lo`` meaning ``[lo, 1 - lo]``, or an explicit pair.

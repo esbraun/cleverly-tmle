@@ -107,12 +107,12 @@ __all__ = [
     "missing_outcome_correction_parts",
     "msm_coefficients",
     "natural_course_mean",
+    "policy_means",
     "ratio_estimates",
     "reduced_correction_parts",
     "reduced_corrections",
     "reference_label",
     "regime_means",
-    "shift_means",
     "spread_name",
     "stamp_inference",
     "supplies_inference",
@@ -1761,14 +1761,15 @@ def missing_outcome_correction_parts(
     )
 
 
-def shift_means(
+def policy_means(
     outcome: FloatArray,
     targeted: InitialFit,
     submodel: Submodel,
     weights: FloatArray,
     observed: BoolArray | None = None,
+    mixing: FloatArray | None = None,
 ) -> dict[float, ArmMean]:
-    r"""Each shift's mean and influence curve, keyed by shift code.
+    r"""Each policy's mean and influence curve, keyed by policy code.
 
     .. math::
 
@@ -1829,7 +1830,19 @@ def shift_means(
         prediction = targeted.arms[code]
         psi = float(np.average(prediction, weights=w))
         out[code] = ArmMean(psi, w * (submodel.column_for(code) * residual + prediction - psi))
-    return out
+    if mixing is None:
+        return out
+    # A randomized policy's mean is the known-weight sum of its components' means, and so
+    # is its curve: the randomizer law does not depend on P, so integrating it out is
+    # linearity of expectation and adds no term (Diaz et al. 2023, Section 2).
+    components = [out[float(index)] for index in range(len(out))]
+    mixed: dict[float, ArmMean] = {}
+    for row, probabilities in enumerate(np.asarray(mixing, dtype=float)):
+        used = [(float(p), components[c]) for c, p in enumerate(probabilities) if p > 0.0]
+        psi = sum(p * part.psi for p, part in used)
+        curve = sum(p * np.asarray(part.influence_curve, dtype=float) for p, part in used)
+        mixed[float(row)] = ArmMean(float(psi), np.asarray(curve, dtype=float))
+    return mixed
 
 
 def regime_means(
@@ -2068,7 +2081,7 @@ def msm_coefficients(
         this layer is written against what a saved result carries.
 
     Both arrays are passed plainly rather than as a
-    :class:`~cleverly.msm.MSMSet`, on the same terms as ``regimes`` and ``shifts``: the
+    :class:`~cleverly.msm.MSMSet`, on the same terms as ``regimes`` and ``policies``: the
     inference layer is written against arrays so that it does not depend on the objects
     that produced them.
     """

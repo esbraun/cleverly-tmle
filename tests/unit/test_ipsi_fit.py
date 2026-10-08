@@ -104,7 +104,7 @@ class TestTheRefusals:
         ("kwargs", "match"),
         [
             ({"interventions": [Static(0)]}, "cannot solve their score equations at once"),
-            ({"shifts": [Shift(0.5, cap=None)]}, "cannot solve their score equations at once"),
+            ({"policies": [Shift(0.5, cap=None)]}, "cannot solve their score equations at once"),
         ],
     )
     def test_two_counterfactual_axes_together_are_refused(self, kwargs: dict, match: str) -> None:

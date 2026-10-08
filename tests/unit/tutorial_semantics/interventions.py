@@ -74,7 +74,7 @@ UNPRINTED_DECIMALS = {
     "0.94": f"median propensity calibration slope, shallow booster (0.939): {_BINARY}",
     "0.9525": "coverage of ate_regime[rule vs never]: tests/canonical/lmtp_regimes/summary.csv",
     "0.9625": (
-        "coverage of ate_shift[+0.5 capped vs natural course]: "
+        "coverage of ate_policy[+0.5 capped vs natural course]: "
         "tests/canonical/lmtp_shift/summary.csv"
     ),
     "0.94625": (
@@ -87,9 +87,9 @@ UNPRINTED_DECIMALS = {
 
 SCREEN = "ate_regime[screen on risk vs offer to none]"
 OFFER_ALL = "ate_regime[offer to all vs offer to none]"
-CAPPED = "ate_shift[+0.5 capped at 5 vs current practice]"
-UNCAPPED = "ate_shift[+0.5 uncapped vs current practice]"
-ONE = "ate_shift[+1.0 uncapped vs current practice]"
+CAPPED = "ate_policy[+0.5 capped at 5 vs current practice]"
+UNCAPPED = "ate_policy[+0.5 uncapped vs current practice]"
+ONE = "ate_policy[+1.0 uncapped vs current practice]"
 IPSI = "ate_ipsi[double odds vs current odds]"
 
 
@@ -101,7 +101,7 @@ def check(namespace: dict[str, Any]) -> None:
     # recomputes it from the structural equations as 0.024137 (MC SE 2.4e-06).
     double_odds = namespace["incremental_truth"]["ate_ipsi[odds x2 vs natural course]"]
     assert double_odds == pytest.approx(0.024137, abs=2e-5)
-    assert "positivity *for the shifted dose*" in namespace["shift_effect"].summary()
+    assert "positivity *for the assigned dose*" in namespace["shift_effect"].summary()
     assert "An upper cap alone does not ensure this for negative shifts or support gaps" in (
         namespace["shift_effect"].summary()
     )

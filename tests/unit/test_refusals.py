@@ -155,7 +155,7 @@ LEDGER: tuple[Row, ...] = (
         lambda: _ltmle(interventions=1),
         instead="regimens=",
     ),
-    Row("shifts", "not written yet", lambda: _ltmle(shifts=1)),
+    Row("policies", REDIRECTION, lambda: _ltmle(policies=1), instead="regimens="),
     Row("incremental", "not written yet", lambda: _ltmle(incremental=1)),
     Row("delta", "wrong by construction", lambda: _ltmle(delta=1)),
     Row("eliminate", "a different question", lambda: _ltmle(eliminate=1)),
@@ -253,23 +253,22 @@ def test_a_real_refusal_says_what_the_derivation_would_need(row: Row) -> None:
     )
 
 
-def test_the_shift_refusal_names_the_nodes_ltmle_takes_and_x12() -> None:
-    """``shifts=`` names the categorical nodes ``LTMLE`` takes and the roadmap row.
+def test_the_policies_redirection_names_the_plan_node_form() -> None:
+    """``policies=`` on ``LTMLE`` points to the plan-node form and the continuous nodes.
 
-    The negative assertion is the witness for the text: the previous reason said a
-    longitudinal fit takes a binary treatment at every node, which the categorical fit
-    below contradicts.
+    A longitudinal modified treatment policy is a node of a regimen, so the keyword the
+    point-treatment fit takes is a redirection here, not a missing feature.
     """
     with pytest.raises(TypeError) as raised:
-        LTMLE({"always": 1, "never": 0}, shifts=1)
+        LTMLE({"always": 1, "never": 0}, policies=1)
     message = str(raised.value)
-    for needed in ("categorical", "continuous dose", "Theorem 3", "X12"):
+    for needed in ("node of a regimen", "DynamicRegimen", "continuous_treatment="):
         assert needed in message, (needed, message)
-    assert "binary treatment at every node" not in message, message
+    assert "not written yet" not in message, message
 
 
 def test_ltmle_fits_the_third_label_of_a_categorical_node() -> None:
-    """The fit the ``shifts=`` reason names: a regimen that assigns a node's third label."""
+    """The fit the ``policies=`` reason names: a regimen that assigns a node's third label."""
     settings = _linear_settings(reference="never")
     assert settings["n_folds"] == 3
     frame = multivalue_panel(n=600, seed=8)

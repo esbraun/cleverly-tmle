@@ -2397,7 +2397,7 @@ class DiagnosticsFacade(_CapabilityFacade):
             nuisance = self._result.nuisance
             from .interventions import (
                 check_incremental_support,
-                check_shift_support,
+                check_policy_support,
                 check_support,
             )
             from .sensitivity.positivity import positivity_report
@@ -2428,7 +2428,7 @@ class DiagnosticsFacade(_CapabilityFacade):
             # density is a broken shift fit, and the density-ratio report says so by name.
             # Adding the second condition sent it to the arm-level report instead, which
             # answers a different question or refuses for an unrelated reason.
-            if nuisance.shifts is not None:
+            if nuisance.policies is not None:
                 bound = self._result.config.missingness_bound
                 level = self._result.intermediate_value
                 mechanisms = [
@@ -2439,10 +2439,15 @@ class DiagnosticsFacade(_CapabilityFacade):
                     )
                     if values is not None
                 ]
-                return check_shift_support(
-                    nuisance.shifts,
+                return check_policy_support(
+                    nuisance.policies,
                     nuisance.density,
                     self._result.data.treatment,
+                    propensity=(
+                        None
+                        if self._result.data.is_continuous_treatment
+                        else nuisance.propensity.values
+                    ),
                     mechanisms=mechanisms,
                     folds=nuisance.folds,
                     **score_arguments("mtp"),
@@ -2850,7 +2855,11 @@ def _support_metrics(report: Any) -> tuple[float | None, float | None]:
         # Only the shift and incremental rows carry a cap. A regime row has no
         # `capped_fraction`, and defaulting one to zero for it would turn "this report
         # truncates nothing" into a reported maximum of 0.0%.
-        truncated.extend(float(getattr(row, "capped_fraction", 0.0)) for row in report.values())
+        truncated.extend(
+            float(capped)
+            for row in report.values()
+            if (capped := getattr(row, "capped_fraction", None)) is not None
+        )
     ess.extend(float(getattr(row, "ess_ratio", np.nan)) for _, row in _intervention_rows(report))
     clean_ess = [value for value in ess if np.isfinite(value)]
     return (max(truncated) if truncated else None, min(clean_ess) if clean_ess else None)
@@ -3500,9 +3509,11 @@ def _support_warning(report: Any) -> str | None:
         # an ``ess_ratio`` but no ``unsupported`` or ``capped_fraction``, and a missing
         # field must not read as a breach.  The ``ess_ratio`` is reported, never graded.
         for name, item in report.items():
-            if int(getattr(item, "unsupported", 0)) > 0:
+            unsupported = getattr(item, "unsupported", None)
+            if unsupported is not None and int(unsupported) > 0:
                 return f"intervention {name!r} has units with estimated zero support"
-            if float(getattr(item, "capped_fraction", 0.0)) > 0.05:
+            capped = getattr(item, "capped_fraction", None)
+            if capped is not None and float(capped) > 0.05:
                 return f"intervention {name!r} had more than 5% of its weights capped"
         return None
     regimes = getattr(report, "regimes", None)

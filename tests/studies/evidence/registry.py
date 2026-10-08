@@ -317,6 +317,7 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as CANONICAL_LEARNED_WEIGHTED_TMLE,
     )
     from tests.studies.canonical_longitudinal_msm import STUDY as CANONICAL_LONGITUDINAL_MSM
+    from tests.studies.canonical_longitudinal_mtp import STUDY as LONGITUDINAL_MTP
     from tests.studies.canonical_ltmle import STUDY as CANONICAL_LTMLE
     from tests.studies.canonical_ltmle_competing import STUDY as CANONICAL_LTMLE_COMPETING
     from tests.studies.canonical_ltmle_competing_crossfit import (
@@ -351,6 +352,7 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_multi_arm_tmle import STUDY as CANONICAL_MULTI_ARM_TMLE
     from tests.studies.canonical_point_msm import STUDY as CANONICAL_POINT_MSM
+    from tests.studies.canonical_policy_point_mtp import STUDY as POLICY_POINT_MTP
     from tests.studies.canonical_shift_policies import STUDY as CANONICAL_SHIFT_POLICIES
     from tests.studies.canonical_stochastic_categorical_ltmle import (
         STUDY as STOCHASTIC_CATEGORICAL_LTMLE,
@@ -421,11 +423,13 @@ def registered() -> tuple[StudyRecord, ...]:
         LEARNED_RULE_CVTMLE_BOUNDARY,
         CANONICAL_STOCHASTIC_REGIMES,
         CANONICAL_SHIFT_POLICIES,
+        POLICY_POINT_MTP,
         CANONICAL_INCREMENTAL_INTERVENTIONS,
         CANONICAL_LTMLE,
         CANONICAL_WEIGHTED_LTMLE,
         CANONICAL_CATEGORICAL_LTMLE,
         STOCHASTIC_CATEGORICAL_LTMLE,
+        LONGITUDINAL_MTP,
         CANONICAL_LONGITUDINAL_MSM,
         CROSSFIT_LONGITUDINAL_MSM,
         CANONICAL_LTMLE_CROSSFIT,

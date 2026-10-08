@@ -1,17 +1,17 @@
 === CD, cap None
-command: 'C:\Users\erics\Documents\Projects\cleverly-tmle\.venv\Scripts\python.exe' 'C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\tests\diagnostics\rm18_comparator_density\run.py' --part CD --output C:/Users/erics/rm18_scratch/runs/rm18_comparator_density
-commit: 4b91a91625735045b5ce0d4ba132a60cfe8a2d67; upstream 4b91a91625735045b5ce0d4ba132a60cfe8a2d67
+command: 'C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x12\.venv\Scripts\python.exe' 'C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x12\tests\diagnostics\rm18_comparator_density\run.py' --part CD --output 'C:\Users\erics\Documents\Projects\cleverly-beta-plans\_x12_rm18'
+commit: 0df91b92c1581a5524a77dab22359f98dd018ef4; upstream 0df91b92c1581a5524a77dab22359f98dd018ef4
 clean tree: True
-cleverly 0.1.2 from C:\Users\erics\Documents\Projects\cleverly-tmle\.claude\worktrees\bridge-cse_01BbvRGwt6wTxoguDudAmLTi\src\cleverly\__init__.py
-python 3.13.7; numpy 2.4.6; scipy 1.18.0; pandas 3.0.5; scikit-learn 1.9.0; joblib 1.5.3
-installed distributions: 130, sha256 f4b33890dcf2623521a239ea0ba2ac74046a0304cc8d4b96933ca443c5644ebd
+cleverly 0.1.2 from C:\Users\erics\Documents\Projects\cleverly-tmle-beta-x12\src\cleverly\__init__.py
+python 3.13.7; numpy 2.5.3; scipy 1.18.1; pandas 3.0.6; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 130, sha256 b829f1ebe405c1d9668583dbd5449dc0d036653b560b831a93b48ed17e9542fe
 threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 cores: 16
-started: 2026-09-27T06:16:12+00:00
-finished: 2026-09-27T06:29:07+00:00
-wall seconds: 774.9
+started: 2026-10-07T22:56:35+00:00
+finished: 2026-10-07T23:09:10+00:00
+wall seconds: 755.1
 exit code: 0
-sha256 cd-reading.csv: f2827ff6c0f94c6ef8532ad9b9fcea91573cd8cebd3ef8628ad7a581cadd7aba
+sha256 cd-reading.csv: 7fe48bf6c685db953f25df93b74cc870fd1a03c1d2fa59fd4ff7744085790db2
 sha256 cd-rows.csv.gz: 6ae172ad1c2e763405d356eeb5d7098e3bd8b94efc38a4c90862ffce99beb5f2
-sha256 cd-validation.csv: f25ba5ea6ea0a123b2b38ae3c20b13f65b1331286aa857c1c7055bb974b44568
+sha256 cd-validation.csv: 6031795fb0a188d76ddb4b261ce417b8f31731c4f2dec6818983a3f4fc3180ad
 

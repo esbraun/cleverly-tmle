@@ -226,7 +226,7 @@ def test_r9_a_static_regimen_cannot_hold_a_policy() -> None:
     with pytest.raises(DataError) as caught:
         Regimen("p", (Stochastic(_uniform, "q1", density_kind="known"), "low"))
     assert str(caught.value) == (
-        "regimen 'p' holds a stochastic policy node. Write a plan with a policy node as "
+        "regimen 'p' holds a policy node. Write a plan with a policy node as "
         "DynamicRegimen(label, plan), or pass it in regimens= as a mapping value"
     )
 

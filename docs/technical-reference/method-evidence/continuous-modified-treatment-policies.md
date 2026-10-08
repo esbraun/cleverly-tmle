@@ -14,16 +14,16 @@ margins while keeping the unresolved comparison visible.
 <!-- generated: accuracy -->
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| continuous-dose law with uncapped and capped shifts | `ate_shift[+0.25 vs natural course]` | difference in means under the modified treatment policies "shift dose by 0.25" against "leave the observed treatment mechanism unchanged" | `cleverly` | -0.000377 to 0.000573 | 0.9525 | 1.0317 | pass |
-| continuous-dose law with uncapped and capped shifts | `ate_shift[+0.25 vs natural course]` | difference in means under the modified treatment policies "shift dose by 0.25" against "leave the observed treatment mechanism unchanged" | R `lmtp` | -0.000575 to 0.000348 | 0.9437 | 0.9892 | pass |
-| continuous-dose law with uncapped and capped shifts | `ate_shift[+0.5 capped vs natural course]` | difference in means under the modified treatment policies "shift dose by 0.5 subject to the declared cap" against "leave the observed treatment mechanism unchanged" | `cleverly` | -0.000619 to 0.0013 | 0.9625 | 1.0465 | pass |
-| continuous-dose law with uncapped and capped shifts | `ate_shift[+0.5 capped vs natural course]` | difference in means under the modified treatment policies "shift dose by 0.5 subject to the declared cap" against "leave the observed treatment mechanism unchanged" | R `lmtp` | -0.000590 to 0.0014 | 0.9637 | 1.0547 | pass |
-| continuous-dose law with uncapped and capped shifts | `ey_shift[+0.25]` | mean under the modified treatment policy shift dose by 0.25 | `cleverly` | -0.0024 to 0.0077 | 0.9500 | 1.0161 | pass |
-| continuous-dose law with uncapped and capped shifts | `ey_shift[+0.25]` | mean under the modified treatment policy shift dose by 0.25 | R `lmtp` | -0.0026 to 0.0075 | 0.9487 | 1.0143 | pass |
-| continuous-dose law with uncapped and capped shifts | `ey_shift[+0.5 capped]` | mean under the modified treatment policy shift dose by 0.5 subject to the declared cap | `cleverly` | -0.0018 to 0.0076 | 0.9500 | 1.0141 | pass |
-| continuous-dose law with uncapped and capped shifts | `ey_shift[+0.5 capped]` | mean under the modified treatment policy shift dose by 0.5 subject to the declared cap | R `lmtp` | -0.0018 to 0.0076 | 0.9500 | 1.0135 | pass |
-| continuous-dose law with uncapped and capped shifts | `ey_shift[natural course]` | mean under the modified treatment policy leave the observed treatment mechanism unchanged | `cleverly` | -0.0023 to 0.0074 | 0.9525 | 1.0191 | pass |
-| continuous-dose law with uncapped and capped shifts | `ey_shift[natural course]` | mean under the modified treatment policy leave the observed treatment mechanism unchanged | R `lmtp` | -0.0023 to 0.0074 | 0.9525 | 1.0191 | pass |
+| continuous-dose law with uncapped and capped shifts | `ate_policy[+0.25 vs natural course]` | difference in means under the modified treatment policies "shift dose by 0.25" against "leave the observed treatment mechanism unchanged" | `cleverly` | -0.000377 to 0.000573 | 0.9525 | 1.0317 | pass |
+| continuous-dose law with uncapped and capped shifts | `ate_policy[+0.25 vs natural course]` | difference in means under the modified treatment policies "shift dose by 0.25" against "leave the observed treatment mechanism unchanged" | R `lmtp` | -0.000575 to 0.000348 | 0.9437 | 0.9892 | pass |
+| continuous-dose law with uncapped and capped shifts | `ate_policy[+0.5 capped vs natural course]` | difference in means under the modified treatment policies "shift dose by 0.5 subject to the declared cap" against "leave the observed treatment mechanism unchanged" | `cleverly` | -0.000619 to 0.0013 | 0.9625 | 1.0465 | pass |
+| continuous-dose law with uncapped and capped shifts | `ate_policy[+0.5 capped vs natural course]` | difference in means under the modified treatment policies "shift dose by 0.5 subject to the declared cap" against "leave the observed treatment mechanism unchanged" | R `lmtp` | -0.000590 to 0.0014 | 0.9637 | 1.0547 | pass |
+| continuous-dose law with uncapped and capped shifts | `ey_policy[+0.25]` | mean under the modified treatment policy shift dose by 0.25 | `cleverly` | -0.0024 to 0.0077 | 0.9500 | 1.0161 | pass |
+| continuous-dose law with uncapped and capped shifts | `ey_policy[+0.25]` | mean under the modified treatment policy shift dose by 0.25 | R `lmtp` | -0.0026 to 0.0075 | 0.9487 | 1.0143 | pass |
+| continuous-dose law with uncapped and capped shifts | `ey_policy[+0.5 capped]` | mean under the modified treatment policy shift dose by 0.5 subject to the declared cap | `cleverly` | -0.0018 to 0.0076 | 0.9500 | 1.0141 | pass |
+| continuous-dose law with uncapped and capped shifts | `ey_policy[+0.5 capped]` | mean under the modified treatment policy shift dose by 0.5 subject to the declared cap | R `lmtp` | -0.0018 to 0.0076 | 0.9500 | 1.0135 | pass |
+| continuous-dose law with uncapped and capped shifts | `ey_policy[natural course]` | mean under the modified treatment policy leave the observed treatment mechanism unchanged | `cleverly` | -0.0023 to 0.0074 | 0.9525 | 1.0191 | pass |
+| continuous-dose law with uncapped and capped shifts | `ey_policy[natural course]` | mean under the modified treatment policy leave the observed treatment mechanism unchanged | R `lmtp` | -0.0023 to 0.0074 | 0.9525 | 1.0191 | pass |
 <!-- /generated -->
 
 ## Agreement with the canonical implementation
@@ -31,11 +31,11 @@ margins while keeping the unresolved comparison visible.
 <!-- generated: agreement -->
 | law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| continuous-dose law with uncapped and capped shifts | `ate_shift[+0.25 vs natural course]` | difference in means under the modified treatment policies "shift dose by 0.25" against "leave the observed treatment mechanism unchanged" | 0.000211 | 0.2745 | 1.0583 | 0.0088 | 0.0450 vs 0.0500 | **inconclusive** |
-| continuous-dose law with uncapped and capped shifts | `ate_shift[+0.5 capped vs natural course]` | difference in means under the modified treatment policies "shift dose by 0.5 subject to the declared cap" against "leave the observed treatment mechanism unchanged" | -0.000020 | 0.0123 | 1.0167 | -0.0012 | 0.0147 vs 0.0500 | equivalent |
-| continuous-dose law with uncapped and capped shifts | `ey_shift[+0.25]` | mean under the modified treatment policy shift dose by 0.25 | 0.000211 | 0.0255 | 1.0020 | 0.0012 | 0.0024 vs 0.0500 | equivalent |
-| continuous-dose law with uncapped and capped shifts | `ey_shift[+0.5 capped]` | mean under the modified treatment policy shift dose by 0.5 subject to the declared cap | -0.000020 | 0.0025 | 1.0007 | 0 | 0.0013 vs 0.0500 | equivalent |
-| continuous-dose law with uncapped and capped shifts | `ey_shift[natural course]` | mean under the modified treatment policy leave the observed treatment mechanism unchanged | -1.162e-11 | 1.462e-09 | 1.0000 | 0 | 6.944e-11 vs 0.0500 | equivalent |
+| continuous-dose law with uncapped and capped shifts | `ate_policy[+0.25 vs natural course]` | difference in means under the modified treatment policies "shift dose by 0.25" against "leave the observed treatment mechanism unchanged" | 0.000211 | 0.2745 | 1.0587 | 0.0088 | 0.0439 vs 0.0500 | **inconclusive** |
+| continuous-dose law with uncapped and capped shifts | `ate_policy[+0.5 capped vs natural course]` | difference in means under the modified treatment policies "shift dose by 0.5 subject to the declared cap" against "leave the observed treatment mechanism unchanged" | -0.000020 | 0.0123 | 1.0168 | -0.0012 | 0.0151 vs 0.0500 | equivalent |
+| continuous-dose law with uncapped and capped shifts | `ey_policy[+0.25]` | mean under the modified treatment policy shift dose by 0.25 | 0.000211 | 0.0255 | 1.0019 | 0.0012 | 0.0024 vs 0.0500 | equivalent |
+| continuous-dose law with uncapped and capped shifts | `ey_policy[+0.5 capped]` | mean under the modified treatment policy shift dose by 0.5 subject to the declared cap | -0.000020 | 0.0025 | 1.0007 | 0 | 0.0013 vs 0.0500 | equivalent |
+| continuous-dose law with uncapped and capped shifts | `ey_policy[natural course]` | mean under the modified treatment policy leave the observed treatment mechanism unchanged | -1.162e-11 | 1.462e-09 | 1.0000 | 0 | 6.819e-11 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties
@@ -120,7 +120,7 @@ targeting, density-ratio direction, the active cap, and the exact natural-course
 - The study covers ordinary, non-cross-fitted targeting and pointwise Wald intervals.
 - The uncapped shift requires extrapolation at rare sample-edge doses; the support warning is an explicit limitation.
 - One of five paired comparisons is inconclusive at the shared 99% non-inferiority margin. The reporting policy publishes it without changing the observed margin. The [red-cell ledger](red-cells.md) names the roadmap ask that owns it.
-  - That row is `ate_shift[+0.25 vs natural course]`, and it fails calibration non-inferiority alone.
+  - That row is `ate_policy[+0.25 vs natural course]`, and it fails calibration non-inferiority alone.
     RM18 design CD attributes the excess under a rule declared before its run. It targeted the same
     `cleverly` fit again, with the analytic normal density in place of the 320 bins. That fit
     reports a standard error on the scale of the exact efficiency bound, as `lmtp` does. The
@@ -128,7 +128,7 @@ targeting, density-ratio direction, the active cap, and the exact natural-course
     [What design CD found](https://github.com/esbraun/cleverly-tmle/blob/985849c668a18cf800094714ddae3fea0675cb91/docs/roadmap.md#what-design-cd-found) at commit `985849c6` gives the numbers, and
     [`tests/diagnostics/rm18_comparator_density/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_comparator_density) holds the rows.
   - Three earlier measurements describe the density asymmetry. The two natural-course rows agree
-    to six figures. The two `ey_shift[+0.25]` SE ratios agree to within 0.2 percent. The
+    to six figures. The two `ey_policy[+0.25]` SE ratios agree to within 0.2 percent. The
     discretized ratio differs from the analytic ratio on the primary law by a median of
     0.3 percent. A shift of 0.25 moves 99.6 percent of rows across a bin edge, against a median
     bin width of 0.013.

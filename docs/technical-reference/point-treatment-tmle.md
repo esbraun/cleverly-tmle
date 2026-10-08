@@ -690,7 +690,7 @@ that no setting repairs comes before a refusal whose remedy is a setting, as the
 | order | request | item |
 | ---: | --- | --- |
 | 1 | `CTMLE` or `DRTMLE` with `learned_rule=` | [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
-| 2 | `learned_rule=` beside `interventions=`, `shifts=`, `incremental=`, `msm=` or `reference=`, or beside an arm estimand | [X11](../roadmap.md#x11-learned-policy-follow-ups) (c) for `interventions=`, `reference=` and an arm estimand. [F17](../roadmap.md#f17-joint-point-treatment-parameter-axes) for `shifts=`, `incremental=` and `msm=` |
+| 2 | `learned_rule=` beside `interventions=`, `policies=`, `incremental=`, `msm=` or `reference=`, or beside an arm estimand | [X11](../roadmap.md#x11-learned-policy-follow-ups) (c) for `interventions=`, `reference=` and an arm estimand. [F17](../roadmap.md#f17-joint-point-treatment-parameter-axes) for `policies=`, `incremental=` and `msm=` |
 | 3 | a continuous treatment | F27 |
 | 4 | a treatment with more than two arms | X11 (d) |
 | 5 | missing outcomes, `delta=` | [F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants), with a learned-rule text that runs before the F21 refusal |
@@ -749,6 +749,60 @@ $$
 with the inverse-map and Jacobian terms the declared policy needs. Identification requires the
 shifted dose to stay inside the observed conditional support. A fixed `cap=` is part of the policy.
 Estimating the cap from the same data would define a different, pathwise-dependent intervention.
+
+`TMLE(policies=...)` accepts the policy classes in the table. On a continuous dose, each class
+gives the ratio by Equation (3) of Díaz, Williams, Hoffman and Schenck (2023):
+$g^d(b \mid w) = \sum_j 1\{b \in I_j\}\, g(b_j(b) \mid w)\, |b_j'(b)|$. Here piece $j$ maps the
+interval $I_j$, and $b_j$ is the inverse of that piece.
+
+| class | map $d(a, w)$ | ratio source |
+| --- | --- | --- |
+| `Shift(delta, cap)` | $a + \delta$, held at $a$ where $a + \delta$ exceeds `cap` | closed form |
+| `Scale(factor, cap)` | $a \cdot$ `factor`, held at $a$ where the product exceeds `cap` | closed form, Jacobian `1 / factor` |
+| `Piecewise(pieces, closed)` | a `Shift` or a `Scale` on each interval | closed form per piece |
+| `ModifiedPolicy(name, pieces=...)` | a declared `map`, `inverse` and `derivative` per `Piece` | Equation (3) |
+| `ModifiedPolicy(name, apply=...)` | any function that returns a level | categorical treatment only |
+| `ModifiedPolicy(..., randomizer=Randomizer(...))` | one branch per randomizer value, with known probabilities | the weighted mean of the branch ratios |
+| `RiskRatioTilt(delta)` | the `ipsi` rule of `lmtp` on a 0/1 treatment | discrete formula |
+
+Every observed dose must lie in exactly one piece of a `ModifiedPolicy`. A `Piecewise` policy
+leaves a dose in no interval unchanged, and its ratio counts that dose as an identity piece.
+Each moving piece must be strictly monotone, and its declared inverse must invert its map. The
+declared derivative of the inverse must equal $1 / d'(a)$ from a central difference of the map.
+`policy_kind="known"` declares that the map does not
+depend on the observed-data law, and a fit accepts no other value. A policy that fails these
+checks is refused before any nuisance fit.
+
+On a categorical treatment the ratio is the discrete formula
+$g^d(b \mid w) = \sum_a 1\{d(a, w) = b\}\, g(a \mid w)$, and a map must return a level of the
+treatment. `RiskRatioTilt` reports on its own axis, `ey_rr_tilt` and `ate_rr_tilt`, and needs the
+levels 0 and 1. A randomized policy reports one mean. That mean and its influence curve are the
+mixtures of the branch means and curves, with the known probabilities as weights.
+
+`ratio="classifier"` replaces the density with the stacked classification of Section 5.4 of
+Díaz et al. (2023). The treatment learner classifies an observed row against its policy copy,
+and the ratio is the odds $u / (1 - u)$. This route fits no density, so the support report gives
+`min_density` and `unsupported` as `None` and says that they are not measured.
+
+Evidence: `tests/unit/test_policy_point_exact.py` checks the ratio and the influence curve of each
+class on the exact laws of `tests/discrete_law_policy_point.py`. Its mutation controls drop the
+inverse and the Jacobian, and each control fails. `tests/unit/test_influence_gateaux_rr_tilt.py`
+checks the tilt on `tests/discrete_law.py`. The registered study is
+[`policy-point-mtp`](method-evidence/point-modified-treatment-policies.md).
+
+The bin count limits the density route at a point treatment as it does at a longitudinal node. The
+default `density_bins=None` grows the count with the sample, `max(20, ceil(2 n^(1/3)))`. A
+growing count is necessary for a consistent density, and the hazard learner must also be
+consistent.
+
+An explicit `density_bins=` is used as given. The memory paragraph of the
+[longitudinal section](longitudinal-tmle.md#modified-treatment-policies-at-a-node) applies here
+too. A coarse count
+inflates the influence curve where the tail bins are wide, so the intervals are conservative.
+When efficiency matters, use `ratio="classifier"` with a flexible classifier, or set
+`density_bins=` higher. The
+[longitudinal section](longitudinal-tmle.md#modified-treatment-policies-at-a-node) gives the
+measurements.
 
 The implementation fits a conditional density, targets the outcome regression as a function of
 dose, and evaluates it at $d(A,W)$. Missingness and intermediate mechanisms multiply the density
@@ -816,7 +870,7 @@ Evidence: the probe scripts and logs in `reviews/notebook-review/probes/iv-n3/` 
 
 Theory: Díaz Muñoz and van der Laan (2012), Haneuse and Rotnitzky (2013), and Díaz, Williams,
 Hoffman and Schenck (2023). Implementation:
-[`interventions/shift.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/shift.py),
+[`interventions/policy.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/interventions/policy.py),
 [`learners/density.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/learners/density.py),
 and
 [`fluctuation/submodel.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/fluctuation/submodel.py).

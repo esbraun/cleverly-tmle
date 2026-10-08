@@ -120,16 +120,16 @@ class Composition:
 
 COMPOSITIONS = {
     "shift": Composition(
-        "shift",
-        {"shifts": [Shift(0.5, cap=None)], "density_bins": 4},
+        "policy",
+        {"policies": [Shift(0.5, cap=None)], "density_bins": 4},
         binary_missing_frame,
         {"treatment": "dose", "treatment_kind": "continuous"},
     ),
     # The package's natural course on a continuous dose. Neither contract covers it,
     # because both apply to a discrete treatment, and the refusal must say so.
     "continuous natural course": Composition(
-        "shift",
-        {"shifts": [Shift(0.0, cap=None)], "density_bins": 4},
+        "policy",
+        {"policies": [Shift(0.0, cap=None)], "density_bins": 4},
         binary_missing_frame,
         {"treatment": "dose", "treatment_kind": "continuous"},
     ),

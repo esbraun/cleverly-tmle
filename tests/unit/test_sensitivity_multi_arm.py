@@ -586,7 +586,7 @@ class TestTheBoundOnAFitWithNoArmsToContrast:
 
     @pytest.mark.parametrize(
         ("axis", "noun"),
-        [("shift", "A modified-policy mean"), ("msm", "A point-treatment MSM coefficient")],
+        [("policy", "A modified-policy mean"), ("msm", "A point-treatment MSM coefficient")],
     )
     def test_each_well_posed_axis_names_its_own_functional(
         self, regime_fit: Any, axis: str, noun: str

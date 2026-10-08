@@ -427,7 +427,7 @@ def test_derived_ratio_preserves_cv_legacy_axis_and_conditional_refusals() -> No
     cases = (
         (replace(result, config=replace(result.config, cv_evaluation=True)), "CV-evaluated"),
         (
-            replace(result, parameter_keys={"ate": replace(key, axis="shift")}),
+            replace(result, parameter_keys={"ate": replace(key, axis="policy")}),
             "arm contrast",
         ),
         (

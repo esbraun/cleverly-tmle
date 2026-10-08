@@ -136,7 +136,7 @@ def test_welch_interval_matches_scipy() -> None:
     assert ours.interval.high == pytest.approx(theirs.high, rel=1e-10)
 
 
-def _shift_reference(binary: pd.DataFrame, scenario: str, shift: float) -> pd.DataFrame:
+def _policy_reference(binary: pd.DataFrame, scenario: str, shift: float) -> pd.DataFrame:
     mutated = binary.copy()
     rows = (
         (mutated["implementation"] == BINARY_REFERENCE)
@@ -176,7 +176,7 @@ def test_shifting_reference_rows_changes_the_reading(
     binary, primary, properties = artefacts
     before = _reading(rebuilt, "canonical-drtmle", configuration)
     after = _reading(
-        readings(_shift_reference(binary, scenario, shift), primary, properties),
+        readings(_policy_reference(binary, scenario, shift), primary, properties),
         "canonical-drtmle",
         configuration,
     )

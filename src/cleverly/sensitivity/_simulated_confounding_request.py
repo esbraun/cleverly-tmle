@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from numbers import Real
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
@@ -251,6 +250,19 @@ def _refuse_learned_rule(result: Any) -> str | None:
     )
 
 
+def _refuse_risk_ratio_tilt(result: Any) -> str | None:
+    """Refuse a risk-ratio tilt fit, whose policy reads the treatment mechanism."""
+    if result.config.parameter_axis != "rr_tilt":
+        return None
+    return (
+        "simulated_confounding does not cover a risk-ratio tilt fit (ey_rr_tilt, "
+        "ate_rr_tilt): the tilt's policy mean reads the treatment mechanism, so a simulated "
+        "common cause moves the policy as well as the confounding, and this package has not "
+        "derived that replay. Fit the static arms (ate) or an incremental odds tilt (ipsi) "
+        "for this surface"
+    )
+
+
 def _refuse_missing_estimator(result: Any) -> str | None:
     """Refuse a result that stores no replay estimator."""
     if result.estimator is None:
@@ -391,6 +403,7 @@ _FIT_WIDE_RULES: tuple[tuple[str, Callable[[Any], str | None]], ...] = (
     ("longitudinal", _refuse_longitudinal),
     ("result_type", _refuse_result_type),
     ("learned_rule", _refuse_learned_rule),
+    ("risk_ratio_tilt", _refuse_risk_ratio_tilt),
     ("multi_arm", _refuse_multi_arm),
     ("missing_outcome", _refuse_missing_outcome),
     ("missing_treatment", _refuse_missing_treatment),
@@ -703,15 +716,22 @@ def _validate_continuous_policy_state(
     estimator: Any,
 ) -> None:
     """Require one coherent modified-policy request across every stored layer."""
-    from ..interventions.shift import Shift
+    from ..interventions.policy import (
+        POLICY_TYPES,
+        RiskRatioTilt,
+        describe_policy,
+        is_identity_policy,
+        lazy_frame,
+        policy_branches,
+    )
     from ..study import ModifiedTreatmentPolicy, ModifiedTreatmentPolicyEffect
     from ..targets.base import parameter_name
 
     target = key.estimand
     typed_estimand = identified.estimand
     typed_type = {
-        "ey_shift": ModifiedTreatmentPolicy,
-        "ate_shift": ModifiedTreatmentPolicyEffect,
+        "ey_policy": ModifiedTreatmentPolicy,
+        "ate_policy": ModifiedTreatmentPolicyEffect,
     }.get(target)
     if typed_type is None or type(typed_estimand) is not typed_type:
         raise CapabilityError(
@@ -719,49 +739,63 @@ def _validate_continuous_policy_state(
             "identification provenance"
         )
     typed_state: Any = typed_estimand
-    typed_policies = tuple(typed_state.shifts)
+    typed_policies = tuple(typed_state.policies)
     typed_reference = typed_state.reference
 
     declared_policies = tuple(functional.interventions)
-    replay_policies = tuple(estimator.shifts)
-    if any(type(shift) is not Shift for shift in (*declared_policies, *replay_policies)):
+    replay_policies = tuple(estimator.policies)
+    if any(
+        not isinstance(policy, POLICY_TYPES) or isinstance(policy, RiskRatioTilt)
+        for policy in (*declared_policies, *replay_policies)
+    ):
         raise CapabilityError(
-            "continuous simulated_confounding found inconsistent structured shift metadata"
+            "continuous simulated_confounding found inconsistent structured policy metadata"
         )
-    declared_names = tuple(shift.name for shift in declared_policies)
-    declared_deltas = tuple(float(shift.delta) for shift in declared_policies)
+    declared_names = tuple(policy.name for policy in declared_policies)
+    declared_descriptions = tuple(describe_policy(policy) for policy in declared_policies)
     declared_reference = declared_names[0] if functional.reference is None else functional.reference
-    fitted_shifts = result.nuisance.shifts
+    fitted_shifts = result.nuisance.policies
     fitted_names = () if fitted_shifts is None else tuple(fitted_shifts.names)
-    fitted_deltas = () if fitted_shifts is None else tuple(fitted_shifts.deltas)
+    fitted_descriptions = () if fitted_shifts is None else tuple(fitted_shifts.descriptions)
     fitted_reference = None if fitted_shifts is None else fitted_names[int(fitted_shifts.reference)]
     expected_alias = parameter_name(
         target,
         arm=key.value,
-        versus=key.reference if target == "ate_shift" else None,
+        versus=key.reference if target == "ate_policy" else None,
+    )
+    # The replay re-applies each declared policy to the replayed dose, so the stored
+    # assignment must be the one the declared policies give on the fitted data.
+    observed_dose = np.asarray(result.data.treatment, dtype=float)
+    data = result.data
+    frame = lazy_frame(
+        lambda: data.frame_like(
+            {name: data.covariates[:, j] for j, name in enumerate(data.covariate_names)}
+        )
     )
     expected_shifted = np.column_stack(
-        [shift.apply(result.data.treatment)[0] for shift in declared_policies]
+        [
+            branch.assign(observed_dose, frame)
+            for policy in declared_policies
+            for _, branch in policy_branches(policy)
+        ]
     )
-    expected_capped = np.column_stack(
-        [shift.apply(result.data.treatment)[1] for shift in declared_policies]
-    )
-    expected_reference = fitted_reference if target == "ate_shift" else None
+    expected_moved = expected_shifted != observed_dose[:, None]
+    expected_reference = fitted_reference if target == "ate_policy" else None
     if (
         fitted_shifts is None
         or typed_policies != declared_policies
         or typed_reference != functional.reference
         or replay_policies != declared_policies
         or fitted_names != declared_names
-        or fitted_deltas != declared_deltas
+        or fitted_descriptions != declared_descriptions
         or fitted_reference != declared_reference
         or not np.array_equal(fitted_shifts.shifted, expected_shifted)
-        or not np.array_equal(fitted_shifts.capped, expected_capped)
+        or not np.array_equal(fitted_shifts.moved, expected_moved)
         or key.value not in fitted_names
         or key.reference != expected_reference
     ):
         raise CapabilityError(
-            "continuous simulated_confounding found inconsistent structured shift metadata"
+            "continuous simulated_confounding found inconsistent structured policy metadata"
         )
 
     error = (
@@ -770,37 +804,39 @@ def _validate_continuous_policy_state(
     )
     if getattr(typed_estimand, "name", None) != target:
         raise CapabilityError(error)
-    check_registered_target(result, key, "shift", error)
+    check_registered_target(result, key, "policy", error)
     check_replay_declaration(
-        result, key, "continuous simulated_confounding found inconsistent structured shift metadata"
+        result,
+        key,
+        "continuous simulated_confounding found inconsistent structured policy metadata",
     )
     check_alias(
         result,
         estimand,
         key,
         expected_alias,
-        "continuous simulated_confounding found inconsistent structured shift metadata",
+        "continuous simulated_confounding found inconsistent structured policy metadata",
     )
 
     # A zero-delta shift maps every dose to itself, so its policy mean is E[Y] and its
     # counterfactual treatment has no dependence on the dose a common cause would move.
     # The treatment axis of such a surface is identically zero, and the outcome axis
-    # reports the level shift ``Y' = Y - k_Y U`` alone.  An ``ate_shift`` contrast that
+    # reports the level shift ``Y' = Y - k_Y U`` alone.  An ``ate_policy`` contrast that
     # uses the same policy as its reference keeps treatment dependence, so it stays.
-    if target == "ey_shift":
+    if target == "ey_policy":
         selected = declared_policies[declared_names.index(key.value)]
-        if float(selected.delta) == 0.0:
+        if is_identity_policy(selected):
             raise CapabilityError(
                 f"continuous simulated_confounding refuses the policy mean {estimand!r}; a "
                 "zero-delta policy is the natural course, its mean is E[Y], and it carries no "
                 "counterfactual treatment dependence for a simulated common cause to move. "
-                "Select a nonzero-delta ey_shift[...] mean, or an ate_shift[...] contrast "
+                "Select a nonzero-delta ey_policy[...] mean, or an ate_policy[...] contrast "
                 "that uses the natural course as its reference"
             )
 
 
 def _zero_delta_policy_means(result: Any) -> frozenset[str]:
-    """Name every ``ey_shift`` alias whose policy is the zero-delta natural course.
+    """Name every ``ey_policy`` alias whose policy is the zero-delta natural course.
 
     Parameters
     ----------
@@ -813,20 +849,20 @@ def _zero_delta_policy_means(result: Any) -> frozenset[str]:
         Aliases the selection message must not advertise, because each one names a
         policy mean the surface refuses.
     """
+    from ..interventions.policy import is_identity_policy
     from ..targets.base import parameter_name
 
     names = set()
     for policy in result.identified_effect.functional.interventions:
-        delta = getattr(policy, "delta", None)
         name = getattr(policy, "name", None)
-        if isinstance(name, str) and isinstance(delta, Real) and float(delta) == 0.0:
+        if isinstance(name, str) and is_identity_policy(policy):
             names.add(name)
     return frozenset(
-        {parameter_name("ey_shift", arm=name) for name in names}
+        {parameter_name("ey_policy", arm=name) for name in names}
         | {
             alias
             for alias, key in result.parameter_keys.items()
-            if key.estimand == "ey_shift" and key.value in names
+            if key.estimand == "ey_policy" and key.value in names
         }
     )
 
@@ -1018,7 +1054,7 @@ def _validated_parameter(
         admissible = [
             name
             for name in result.estimates
-            if name.startswith(("ey_shift[", "ate_shift[", "msm[")) and name not in vacuous
+            if name.startswith(("ey_policy[", "ate_policy[", "msm[")) and name not in vacuous
         ]
         detail = (
             f"choose one of {admissible}"
@@ -1026,8 +1062,8 @@ def _validated_parameter(
             else "this fit reports none that this surface can assess"
         )
         raise ValueError(
-            "continuous simulated_confounding requires an explicit ey_shift[...] policy mean "
-            f"or ate_shift[...] contrast alias, or an msm[...] coefficient alias; {detail}"
+            "continuous simulated_confounding requires an explicit ey_policy[...] policy mean "
+            f"or ate_policy[...] contrast alias, or an msm[...] coefficient alias; {detail}"
         )
     if estimand not in result.estimates:
         if treatment_family == "binary":
@@ -1074,14 +1110,14 @@ def _validated_parameter(
         check_only_declared_axis(
             result,
             key,
-            "shift",
+            "policy",
             "continuous simulated_confounding supports a modified-treatment-policy "
             "parameter, not an arm, regimen, stochastic, incremental, or MSM parameter",
         )
-        if key.estimand not in {"ey_shift", "ate_shift"} or key.axis != "shift":
+        if key.estimand not in {"ey_policy", "ate_policy"} or key.axis != "policy":
             raise CapabilityError(
-                "continuous simulated_confounding supports only an ey_shift policy mean or "
-                "ate_shift contrast; other parameters are outside its source boundary"
+                "continuous simulated_confounding supports only an ey_policy policy mean or "
+                "ate_policy contrast; other parameters are outside its source boundary"
             )
         _validate_continuous_policy_state(result, estimand, key, identified, functional, estimator)
 

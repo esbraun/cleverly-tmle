@@ -773,7 +773,7 @@ def _at_realised_treatment(data: CausalData, mechanism: FloatArray) -> FloatArra
     model was fitted on :math:`(A_i, W_i)`, so it is :math:`\hat\pi(A_i, W_i)` that
     :math:`\Delta_i` is evidence about, not the value at some other arm.
 
-    On a ``shifts=`` fit the mechanism is ``(n, S + 1)`` and column ``0`` *is* the value at
+    On a ``policies=`` fit the mechanism is ``(n, S + 1)`` and column ``0`` *is* the value at
     the row's own dose, so there is nothing to select.  Reading ``[:, 1]`` there would
     silently report the mechanism at some shift's assigned dose against the observed
     outcome, selected by ``dose == 1.0`` -- a plausible number for a quantity nobody asked

@@ -71,7 +71,7 @@ METHOD_REMEDY = "CrossFitting(enabled=True, fold_evaluation=True)"
 
 #: The two routes a learned-rule message must not offer: an in-sample fit, which X11 (a)
 #: refuses, and a shift, which F17 refuses beside ``learned_rule=``.
-FORBIDDEN = ("cross_fit=False", "CrossFitting(enabled=False)", "shifts=[")
+FORBIDDEN = ("cross_fit=False", "CrossFitting(enabled=False)", "policies=[")
 
 
 def _engine(**overrides: Any) -> TMLE:
@@ -169,7 +169,7 @@ class TestEachRowRefusesBeforeAnyLearner:
             ({"interventions": [Static(1)]}, "X11 (c)"),
             ({"reference": "learned rule"}, "X11 (c)"),
             ({"estimands": ("ate",)}, "X11 (c)"),
-            ({"shifts": [Shift(0.5, cap=None)]}, "F17"),
+            ({"policies": [Shift(0.5, cap=None)]}, "F17"),
             ({"incremental": [Incremental(2.0)]}, "F17"),
             ({"msm": MSM.linear()}, "F17"),
         ],
@@ -214,7 +214,7 @@ class TestTheOrder:
         assert "fold_evaluation=True" not in message
 
     def test_a_continuous_treatment_is_not_told_to_declare_a_shift(self) -> None:
-        """``_check_shifts`` would suggest ``shifts=``, which row 2 then refuses."""
+        """``_check_shifts`` would suggest ``policies=``, which row 2 then refuses."""
         message = _refused(lambda: _fit(_engine(), "continuous"), "F27")
         assert not any(route in message for route in FORBIDDEN)
 
@@ -631,7 +631,7 @@ class TestALearnedRuleIsNotARegime:
     Without the check, ``interventions=`` would wrap it as a ``Static`` treatment level.
     """
 
-    @pytest.mark.parametrize("keyword", ["interventions", "shifts", "incremental"])
+    @pytest.mark.parametrize("keyword", ["interventions", "policies", "incremental"])
     def test_the_engine_names_the_learned_rule_route(self, keyword: str) -> None:
         message = _refused(lambda: TMLE(**{keyword: [LearnedRule()]}), "LearnedRuleValue")
         assert "TMLE(learned_rule=..." in message

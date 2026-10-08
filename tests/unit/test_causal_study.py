@@ -839,9 +839,14 @@ def test_point_treatment_targets_state_no_interference_separately() -> None:
             "positivity *for the regime*" in item
             for item in by_name[name].identification.assumptions
         )
-    for name in ("ey_shift", "ate_shift"):
+    for name in ("ey_policy", "ate_policy"):
         assert any(
-            "positivity *for the shifted dose*" in item
+            "positivity *for the assigned dose*" in item
+            for item in by_name[name].identification.assumptions
+        )
+    for name in ("ey_rr_tilt", "ate_rr_tilt"):
+        assert any(
+            "wherever the tilt keeps it" in item
             for item in by_name[name].identification.assumptions
         )
 
@@ -1534,7 +1539,7 @@ def test_a_conditional_caveat_survives_when_its_replacement_does_not_apply() -> 
         ),
     )
     shifts = (Shift(0.0, cap=None), Shift(0.5, cap=None))
-    effect = study.identify(ModifiedTreatmentPolicy(shifts=shifts))
+    effect = study.identify(ModifiedTreatmentPolicy(policies=shifts))
     assumptions = effect.identification.assumptions
     assert any(item.startswith(MISSINGNESS_CAVEAT_PREFIX) for item in assumptions)
     assert any(item.startswith(INTERMEDIATE_CAVEAT_PREFIX) for item in assumptions)
@@ -1628,3 +1633,15 @@ def test_the_study_declares_no_nuisance_name_the_registry_does_not_own() -> None
     assert {INTERMEDIATE_MECHANISM, MISSINGNESS_MECHANISM} <= set(
         effect.identification.required_nuisances
     )
+
+
+@pytest.mark.parametrize(
+    "request_type", ["ModifiedTreatmentPolicy", "ModifiedTreatmentPolicyEffect"]
+)
+def test_a_typed_policy_request_refuses_a_risk_ratio_tilt(request_type: str) -> None:
+    """A tilt reports ey_rr_tilt, so a typed ey_policy request would fail only at estimate."""
+    import cleverly
+    from cleverly.interventions import RiskRatioTilt
+
+    with pytest.raises(CapabilityError, match="ey_rr_tilt and ate_rr_tilt"):
+        getattr(cleverly, request_type)(policies=(RiskRatioTilt(1.0), RiskRatioTilt(0.25)))

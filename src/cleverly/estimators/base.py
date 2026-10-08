@@ -111,8 +111,8 @@ MEAN_GROUP_ESTIMANDS: frozenset[str] = frozenset(
 #: ``rr`` and ``or``, which are only defined when the means are probabilities.
 #:
 #: Spans every parameter axis, so it is a *listing* rather than a report any one fit
-#: produces: no fit reports ``ate`` and ``ey_regime`` and ``ey_shift`` together, because
-#: declaring ``interventions=`` or ``shifts=`` switches which axis is in scope.  Use
+#: produces: no fit reports ``ate`` and ``ey_regime`` and ``ey_policy`` together, because
+#: declaring ``interventions=`` or ``policies=`` switches which axis is in scope.  Use
 #: :func:`~cleverly.targets.default_names` with the fit's axis for the report itself.
 DEFAULT_ESTIMANDS: tuple[str, ...] = tuple(
     name for name, target in TARGETS.items() if target.in_default_set
@@ -159,6 +159,10 @@ class TMLEConfig:
     #: did estimate and truncate ``g`` -- and those fits must still print the bound they
     #: applied.
     fits_treatment: bool = True
+    #: Whether the treatment is a continuous dose, whose policy ratio reads a density that
+    #: no bound truncates.  A categorical treatment's policy ratio reads the bounded
+    #: propensity, so its summary prints the bound.
+    continuous_treatment: bool = False
     #: The arm code every contrast estimand is taken against.  Part of the *estimand*
     #: rather than a setting: ``ate[medium vs low]`` and ``ate[medium vs high]`` are
     #: different parameters, so which one was reported has to be recorded alongside the
@@ -241,11 +245,13 @@ class TMLEConfig:
                 f"  ({self.crossfit.n_folds} folds were declared; the split was capped "
                 f"at {self.n_folds} by the rarest stratum or the cluster count)"
             )
-        # A shift fit's mechanism is a conditional density, not a propensity: nothing is
+        # A policy fit on a dose reads a conditional density, not a propensity: nothing is
         # truncated into g_bounds and reporting the bound would name a step that did not
         # happen. What bounds a density ratio there is the cap the analyst declared,
         # which is part of the estimand and so appears in the parameter names instead.
-        if self.parameter_axis != "shift" and self.fits_treatment:
+        if not (self.parameter_axis == "policy" and self.continuous_treatment) and (
+            self.fits_treatment
+        ):
             bounds = f"propensity truncated to [{self.g_bounds[0]:.4g}, {self.g_bounds[1]:.4g}]"
             if self.auto_bounds_n is not None:
                 # Named because it is a deliberate divergence from R's rule, and because a

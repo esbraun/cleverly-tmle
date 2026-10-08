@@ -16,7 +16,7 @@ import pytest
 from cleverly.data import CausalData
 from cleverly.exceptions import DataError, PositivityWarning
 from cleverly.fluctuation.submodel import submodel_for
-from cleverly.interventions import Shift, ShiftSet, check_shift_support
+from cleverly.interventions import PolicySet, Shift, check_policy_support
 from cleverly.learners.density import ConditionalDensity
 
 #: Doses 0, 1, 2, 3 with edges at the half-integers, so every bin is one wide and the
@@ -38,11 +38,11 @@ def _setup() -> tuple[CausalData, ConditionalDensity, np.ndarray]:
     return data, ConditionalDensity(np.tile(G, (N, 1)), EDGES), treatment
 
 
-def _shifts(*shifts: Shift) -> ShiftSet:
+def _shifts(*shifts: Shift) -> PolicySet:
     data, density, _ = _setup()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return ShiftSet.evaluate(shifts, data, density)
+        return PolicySet.evaluate(shifts, data, density)
 
 
 class TestTheCleverCovariate:
@@ -95,10 +95,10 @@ class TestTheCleverCovariate:
         holed = np.tile(np.array([0.5, 0.5, 0.0, 0.0]), (N, 1))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            shifts = ShiftSet.evaluate(
+            shifts = PolicySet.evaluate(
                 (Shift(1.0, cap=3.0),), data, ConditionalDensity(holed, EDGES)
             )
-            support = check_shift_support(shifts, ConditionalDensity(holed, EDGES), treatment)
+            support = check_policy_support(shifts, ConditionalDensity(holed, EDGES), treatment)
         assert np.all(np.isfinite(shifts.ratio))
         assert support["+1"].min_density == 0.0
         assert support["+1"].unsupported == 3 * N // 4
@@ -109,7 +109,7 @@ class TestTheSubmodel:
         data, _, _ = _setup()
         built = _shifts(*shifts)
         return built, submodel_for(
-            "mtp", data.treatment, np.zeros((N, 0)), arms=(), shifts=built.design
+            "mtp", data.treatment, np.zeros((N, 0)), arms=(), policies=built.design
         )
 
     def test_a_column_targets_one_shift(self) -> None:
@@ -129,14 +129,14 @@ class TestTheSubmodel:
 
     def test_a_missing_shifts_argument_says_how_to_build_one(self) -> None:
         data, _, _ = _setup()
-        with pytest.raises(ValueError, match="needs shifts="):
+        with pytest.raises(ValueError, match="needs policies="):
             submodel_for("mtp", data.treatment, np.zeros((N, 0)), arms=())
 
     def test_a_mis_shaped_shifts_argument_is_refused(self) -> None:
         data, _, _ = _setup()
         with pytest.raises(ValueError, match=r"shape \(n, S \+ 1, S\)"):
             submodel_for(
-                "mtp", data.treatment, np.zeros((N, 0)), arms=(), shifts=np.zeros((N, 2, 2))
+                "mtp", data.treatment, np.zeros((N, 0)), arms=(), policies=np.zeros((N, 2, 2))
             )
 
     def test_a_fit_with_no_extra_mechanism_is_the_bare_ratio(self) -> None:
@@ -170,7 +170,7 @@ class TestTheSubmodel:
             data.treatment,
             np.zeros((N, 0)),
             arms=(),
-            shifts=built.design,
+            policies=built.design,
             missingness=pi,
             intermediate_density=qz,
         )
@@ -204,7 +204,7 @@ class TestTheSubmodel:
             data.treatment,
             np.zeros((N, 0)),
             arms=(),
-            shifts=built.design,
+            policies=built.design,
             selection=selection,
         )
         np.testing.assert_array_equal(submodel.observed, built.design[:, 0, :] * selection[:, None])
@@ -223,23 +223,23 @@ class TestTheSubmodel:
                 data.treatment,
                 np.zeros((N, 0)),
                 arms=(),
-                shifts=built.design,
+                policies=built.design,
                 missingness=np.full((N, 2), 0.5),
             )
 
     def test_the_arm_builders_accept_and_ignore_it(self) -> None:
         # The registry dispatches on the group name alone, so every builder takes the
-        # same keyword-only signature. A builder that targets arms must tolerate shifts=.
+        # same keyword-only signature. A builder that targets arms must tolerate policies=.
         rng = np.random.default_rng(1)
         treatment = rng.binomial(1, 0.5, N).astype(float)
         propensity = np.column_stack([np.full(N, 0.5), np.full(N, 0.5)])
         submodel = submodel_for(
-            "mean", treatment, propensity, arms=(0.0, 1.0), shifts=np.zeros((N, 2, 1))
+            "mean", treatment, propensity, arms=(0.0, 1.0), policies=np.zeros((N, 2, 1))
         )
         assert submodel.group == "mean"
 
 
-class TestTheShiftSet:
+class TestThePolicySet:
     def test_it_keys_parameters_by_code_not_by_delta(self) -> None:
         # The regime path's convention: codes 0..S-1, labels carried separately. A float
         # key derived from a user-supplied delta is a worse dictionary key than an ordinal.
@@ -267,12 +267,12 @@ class TestTheShiftSet:
         data, density, _ = _setup()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            chosen = ShiftSet.evaluate(
+            chosen = PolicySet.evaluate(
                 (Shift(0.0, cap=3.0), Shift(1.0, cap=3.0)), data, density, reference="+1"
             )
         assert chosen.reference == 1.0
-        with pytest.raises(DataError, match="is not one of the shifts"):
-            ShiftSet.evaluate((Shift(0.0, cap=3.0),), data, density, reference="nope")
+        with pytest.raises(DataError, match="is not one of the policies"):
+            PolicySet.evaluate((Shift(0.0, cap=3.0),), data, density, reference="nope")
 
 
 class TestTheRefusalsAndWarnings:
@@ -286,21 +286,21 @@ class TestTheRefusalsAndWarnings:
     def test_an_uncapped_shift_that_extrapolates_warns(self) -> None:
         data, density, _ = _setup()
         with pytest.warns(PositivityWarning, match="above the largest one observed"):
-            ShiftSet.evaluate((Shift(1.0, cap=None),), data, density)
+            PolicySet.evaluate((Shift(1.0, cap=None),), data, density)
 
     def test_a_cap_above_the_observed_doses_warns(self) -> None:
         # The doses are 0 to 3, so cap=4 lets the rows at 3 move to 4: a cap secures
         # the upper observed range in this positive-shift example.
         data, density, _ = _setup()
         with pytest.warns(PositivityWarning, match=r"cap=4, which lies above the largest dose"):
-            ShiftSet.evaluate((Shift(1.0, cap=4.0),), data, density)
+            PolicySet.evaluate((Shift(1.0, cap=4.0),), data, density)
 
     def test_the_identification_text_limits_what_a_cap_secures(self) -> None:
         from cleverly.targets import TARGETS
 
         positivity = next(
             item
-            for item in TARGETS["ey_shift"].identification.assumptions
+            for item in TARGETS["ey_policy"].identification.assumptions
             if item.startswith("positivity")
         )
         assert "policy must preserve conditional treatment support" in positivity
@@ -311,13 +311,13 @@ class TestTheRefusalsAndWarnings:
         data, density, _ = _setup()
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            ShiftSet.evaluate((Shift(1.0, cap=3.0),), data, density)
+            PolicySet.evaluate((Shift(1.0, cap=3.0),), data, density)
         assert not [w for w in caught if "largest" in str(w.message)]
 
     def test_at_least_one_shift_is_required(self) -> None:
         data, density, _ = _setup()
-        with pytest.raises(DataError, match="at least one shift"):
-            ShiftSet.evaluate((), data, density)
+        with pytest.raises(DataError, match="at least one policy"):
+            PolicySet.evaluate((), data, density)
 
     def test_a_default_name_says_which_policy_it_is(self) -> None:
         assert Shift(0.0, cap=None).name == "natural course"
@@ -329,7 +329,7 @@ class TestTheRefusalsAndWarnings:
 def test_negative_shifts_warn_about_lower_excursions(cap: float | None) -> None:
     data, density, _ = _setup()
     with pytest.warns(PositivityWarning, match="below the smallest one observed") as caught:
-        ShiftSet.evaluate((Shift(-1.0, cap=cap),), data, density)
+        PolicySet.evaluate((Shift(-1.0, cap=cap),), data, density)
     warning = next(str(item.message) for item in caught if "below" in str(item.message))
     assert "25.0%" in warning
     assert "An upper cap cannot prevent" in warning
@@ -369,15 +369,15 @@ def test_exact_supported_mass_counts_assigned_doses(
         data = CausalData.from_arrays(
             np.arange(n) % 2, treatment, np.arange(n)[:, None], treatment_kind="continuous"
         )
-        shifts = ShiftSet.evaluate((Shift(delta, cap=cap),), data, density)
+        shifts = PolicySet.evaluate((Shift(delta, cap=cap),), data, density)
     before = tuple(array.copy() for array in (shifts.shifted, shifts.ratio, shifts.ratio_at))
-    row = check_shift_support(shifts, density, treatment)[shifts.names[0]]
+    row = check_policy_support(shifts, density, treatment)[shifts.names[0]]
     assert row.unsupported == unsupported
     assert row.min_density == pytest.approx(4 / 3 if gap else 1.0)
     assert row.mean_ratio == pytest.approx(mean)
     assert row.mean_ratio == pytest.approx(1 - unsupported / n)
-    assert row.cap == cap
-    assert shifts.subset(np.arange(10)).caps == (cap,)
+    assert row.policy == f"Shift(delta={float(delta)!r}, cap={cap!r})"
+    assert shifts.subset(np.arange(10)).descriptions == (row.policy,)
     for original, array in zip(
         before, (shifts.shifted, shifts.ratio, shifts.ratio_at), strict=True
     ):

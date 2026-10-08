@@ -38,14 +38,14 @@ import tests.discrete_law_shift_cde as law
 from cleverly.data import CausalData
 from cleverly.fluctuation.iterative import InitialFit
 from cleverly.fluctuation.submodel import submodel_for
-from cleverly.inference.influence import shift_means
-from cleverly.interventions import Shift, ShiftSet
+from cleverly.inference.influence import policy_means
+from cleverly.interventions import PolicySet, Shift
 from cleverly.learners.density import ConditionalDensity
 
-MEANS = ("ey_shift[natural course]", "ey_shift[+1]", "ey_shift[+1 (cap 2)]")
+MEANS = ("ey_policy[natural course]", "ey_policy[+1]", "ey_policy[+1 (cap 2)]")
 CONTRASTS = (
-    "ate_shift[+1 vs natural course]",
-    "ate_shift[+1 (cap 2) vs natural course]",
+    "ate_policy[+1 vs natural course]",
+    "ate_policy[+1 (cap 2) vs natural course]",
 )
 
 #: ``None`` is the parameter a ``delta=``-only fit reports; ``0`` and ``1`` are the
@@ -62,7 +62,7 @@ SHIFTS = (
 
 
 class _Pieces:
-    """The law's true nuisances, assembled into what ``shift_means`` consumes."""
+    """The law's true nuisances, assembled into what ``policy_means`` consumes."""
 
     def __init__(self, level: int | None) -> None:
         frame = law.frame()
@@ -85,11 +85,11 @@ class _Pieces:
                 treatment_kind="continuous",
                 delta=self.observed.astype(float),
             )
-            self.shifts = ShiftSet.evaluate(SHIFTS, data, density)
+            self.policies = PolicySet.evaluate(SHIFTS, data, density)
 
-        maps = [np.asarray(law.POLICIES[name]) for name in self.shifts.labels.values()]
+        maps = [np.asarray(law.POLICIES[name]) for name in self.policies.labels.values()]
         # (n, S + 1): the dose each block is evaluated at -- the row's own, then each
-        # policy's. The order is ShiftSet.design's first axis.
+        # policy's. The order is PolicySet.design's first axis.
         at = np.column_stack([index] + [mapping[index] for mapping in maps])
         self.evaluated_at = at
 
@@ -108,7 +108,7 @@ class _Pieces:
             qbar[self.covariate, index],
             {
                 float(code): qbar[self.covariate, mapping[index]]
-                for code, mapping in zip(self.shifts.codes, maps, strict=True)
+                for code, mapping in zip(self.policies.codes, maps, strict=True)
             },
         )
         self.submodel = submodel_for(
@@ -116,14 +116,14 @@ class _Pieces:
             self.dose,
             np.zeros((self.dose.size, 0)),
             arms=(),
-            shifts=self.shifts.design,
+            policies=self.policies.design,
             missingness=self.missingness,
             intermediate_density=self.density_z,
             selection=self.selection,
         )
 
     def means(self) -> dict[float, object]:
-        return shift_means(
+        return policy_means(
             self.outcome,
             self.initial,
             self.submodel,
@@ -132,8 +132,8 @@ class _Pieces:
         )
 
     def code_of(self, name: str) -> float:
-        label = name[len("ey_shift[") : -1]
-        return float(list(self.shifts.labels.values()).index(label))
+        label = name[len("ey_policy[") : -1]
+        return float(list(self.policies.labels.values()).index(label))
 
 
 class TestThePremisesHold:
@@ -190,7 +190,7 @@ class TestTheInfluenceCurveIsTheEfficientOne:
         pieces = _Pieces(level)
         means = pieces.means()
         curve = means[1.0].influence_curve - means[0.0].influence_curve
-        expected = law.eif("ate_shift[+1 vs natural course]", level)
+        expected = law.eif("ate_policy[+1 vs natural course]", level)
         np.testing.assert_allclose(curve[law.first_row_of()], expected, atol=1e-14, rtol=0)
 
     @pytest.mark.parametrize("level", LEVELS)
@@ -204,7 +204,7 @@ class TestTheInfluenceCurveIsTheEfficientOne:
         """
         pieces = _Pieces(level)
         means = pieces.means()
-        code = pieces.code_of("ey_shift[+1]")
+        code = pieces.code_of("ey_policy[+1]")
         curve = np.asarray(means[code].influence_curve)
         plug_in = pieces.initial.arms[code] - means[code].psi
         missing = ~pieces.observed
@@ -223,7 +223,7 @@ class TestTheInfluenceCurveIsTheEfficientOne:
         """
         pieces = _Pieces(None)
         psi = pieces.means()[0.0].psi
-        assert psi == pytest.approx(law.TRUTH[None]["ey_shift[natural course]"], abs=1e-12)
+        assert psi == pytest.approx(law.TRUTH[None]["ey_policy[natural course]"], abs=1e-12)
         complete_case = float(np.nanmean(pieces.outcome[pieces.observed]))
         assert abs(psi - complete_case) > 1e-2
 
@@ -238,13 +238,13 @@ class TestTheNegativeControls:
             pieces.dose,
             np.zeros((pieces.dose.size, 0)),
             arms=(),
-            shifts=pieces.shifts.design,
+            policies=pieces.policies.design,
         )
-        means = shift_means(
+        means = policy_means(
             pieces.outcome, pieces.initial, naive, np.ones(pieces.outcome.size), pieces.observed
         )
         reported = np.asarray(means[1.0].influence_curve)[law.first_row_of()]
-        gap = np.max(np.abs(reported - law.eif("ey_shift[+1]", None)))
+        gap = np.max(np.abs(reported - law.eif("ey_policy[+1]", None)))
         assert gap > 1e-2, "a covariate with no 1/pi must not match the coarsened EIF"
 
     def test_dropping_the_intermediate_factor_breaks_the_match(self) -> None:
@@ -254,15 +254,15 @@ class TestTheNegativeControls:
             pieces.dose,
             np.zeros((pieces.dose.size, 0)),
             arms=(),
-            shifts=pieces.shifts.design,
+            policies=pieces.policies.design,
             missingness=pieces.missingness,
             selection=pieces.selection,
         )
-        means = shift_means(
+        means = policy_means(
             pieces.outcome, pieces.initial, without, np.ones(pieces.outcome.size), pieces.observed
         )
         reported = np.asarray(means[1.0].influence_curve)[law.first_row_of()]
-        gap = np.max(np.abs(reported - law.eif("ey_shift[+1]", 1)))
+        gap = np.max(np.abs(reported - law.eif("ey_policy[+1]", 1)))
         assert gap > 1e-2
 
     def test_dropping_the_selection_indicator_breaks_the_match(self) -> None:
@@ -272,20 +272,20 @@ class TestTheNegativeControls:
             pieces.dose,
             np.zeros((pieces.dose.size, 0)),
             arms=(),
-            shifts=pieces.shifts.design,
+            policies=pieces.policies.design,
             missingness=pieces.missingness,
             intermediate_density=pieces.density_z,
         )
-        means = shift_means(
+        means = policy_means(
             pieces.outcome, pieces.initial, without, np.ones(pieces.outcome.size), pieces.observed
         )
         reported = np.asarray(means[1.0].influence_curve)[law.first_row_of()]
-        gap = np.max(np.abs(reported - law.eif("ey_shift[+1]", 0)))
+        gap = np.max(np.abs(reported - law.eif("ey_policy[+1]", 0)))
         assert gap > 1e-2
 
     def test_dropping_the_delta_mask_breaks_the_match(self) -> None:
         pieces = _Pieces(None)
-        means = shift_means(
+        means = policy_means(
             pieces.outcome, pieces.initial, pieces.submodel, np.ones(pieces.outcome.size), None
         )
         reported = np.asarray(means[1.0].influence_curve)[law.first_row_of()]
@@ -299,7 +299,7 @@ class TestTheNegativeControls:
         pieces = _Pieces(level)
         means = pieces.means()
         reported = np.asarray(means[1.0].influence_curve)[law.first_row_of()]
-        gap = np.max(np.abs(reported - law.eif("ey_shift[+1]", other)))
+        gap = np.max(np.abs(reported - law.eif("ey_policy[+1]", other)))
         assert gap > 1e-2
 
     def test_leaving_z_alone_is_a_different_parameter_again(self) -> None:
@@ -307,7 +307,7 @@ class TestTheNegativeControls:
         means = pieces.means()
         for level in (0, 1):
             reported = np.asarray(means[1.0].influence_curve)[law.first_row_of()]
-            gap = np.max(np.abs(reported - law.eif("ey_shift[+1]", level)))
+            gap = np.max(np.abs(reported - law.eif("ey_policy[+1]", level)))
             assert gap > 1e-2
 
     def test_the_complete_case_functional_is_a_different_number(self) -> None:
@@ -325,7 +325,7 @@ class TestTheNegativeControls:
         # the wrong turn tempting.
         for level in LEVELS:
             regime = float(law.induced_regime_functional(law.PROBS, "+1", level))
-            assert regime == pytest.approx(law.TRUTH[level]["ey_shift[+1]"], abs=1e-12)
+            assert regime == pytest.approx(law.TRUTH[level]["ey_policy[+1]"], abs=1e-12)
 
     def test_scaling_the_clever_covariate_breaks_the_match(self) -> None:
         pieces = _Pieces(1)
@@ -334,9 +334,9 @@ class TestTheNegativeControls:
             observed=pieces.submodel.observed * 1.05,
             arms={code: values * 1.05 for code, values in pieces.submodel.arms.items()},
         )
-        means = shift_means(
+        means = policy_means(
             pieces.outcome, pieces.initial, scaled, np.ones(pieces.outcome.size), pieces.observed
         )
         reported = np.asarray(means[1.0].influence_curve)[law.first_row_of()]
-        gap = np.max(np.abs(reported - law.eif("ey_shift[+1]", 1)))
+        gap = np.max(np.abs(reported - law.eif("ey_policy[+1]", 1)))
         assert gap > 1e-2

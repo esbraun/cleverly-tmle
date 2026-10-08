@@ -402,7 +402,7 @@ def mean_submodel(
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
     regimes: FloatArray | None = None,
-    shifts: FloatArray | None = None,
+    policies: FloatArray | None = None,
     msm: FloatArray | None = None,
     incremental: FloatArray | None = None,
 ) -> Submodel:
@@ -450,7 +450,7 @@ def mean_submodel(
         indicator multiplies only the *observed* covariate -- the counterfactual
         columns are already evaluated at ``Z = z`` by construction.
     """
-    del arm_fractions, reference, regimes, shifts, msm, incremental  # see the docstrings
+    del arm_fractions, reference, regimes, policies, msm, incremental  # see the docstrings
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     k = len(arms)
@@ -488,7 +488,7 @@ def natural_course_submodel(
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
     regimes: FloatArray | None = None,
-    shifts: FloatArray | None = None,
+    policies: FloatArray | None = None,
     msm: FloatArray | None = None,
     incremental: FloatArray | None = None,
 ) -> Submodel:
@@ -511,7 +511,7 @@ def natural_course_submodel(
         intermediate_density,
         selection,
         regimes,
-        shifts,
+        policies,
         msm,
         incremental,
     )
@@ -570,7 +570,7 @@ def regime_submodel(
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
     regimes: FloatArray | None = None,
-    shifts: FloatArray | None = None,
+    policies: FloatArray | None = None,
     msm: FloatArray | None = None,
     incremental: FloatArray | None = None,
 ) -> Submodel:
@@ -605,7 +605,7 @@ def regime_submodel(
     arm_fractions, reference:
         Accepted and ignored; see :func:`mean_submodel`.
     """
-    del arm_fractions, reference, shifts, msm, incremental  # see the parameter's docstring
+    del arm_fractions, reference, policies, msm, incremental  # see the parameter's docstring
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     k = len(arms)
@@ -671,7 +671,7 @@ def ipsi_submodel(
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
     regimes: FloatArray | None = None,
-    shifts: FloatArray | None = None,
+    policies: FloatArray | None = None,
     msm: FloatArray | None = None,
     incremental: FloatArray | None = None,
 ) -> Submodel:
@@ -734,7 +734,7 @@ def ipsi_submodel(
         two are never anything but trivial by the time they arrive.
     """
     del propensity, arm_fractions, reference, intermediate_density, selection
-    del regimes, shifts, msm  # see the parameters' docstrings
+    del regimes, policies, msm  # see the parameters' docstrings
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     k = len(arms)
@@ -793,7 +793,7 @@ def msm_submodel(
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
     regimes: FloatArray | None = None,
-    shifts: FloatArray | None = None,
+    policies: FloatArray | None = None,
     msm: FloatArray | None = None,
     incremental: FloatArray | None = None,
 ) -> Submodel:
@@ -843,7 +843,7 @@ def msm_submodel(
     arm_fractions, reference:
         Accepted and ignored; see :func:`mean_submodel`.
     """
-    del arm_fractions, reference, regimes, shifts, incremental  # see the parameters' docstrings
+    del arm_fractions, reference, regimes, policies, incremental  # see the parameters' docstrings
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     k = len(arms)
@@ -884,7 +884,7 @@ def mtp_submodel(
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
     regimes: FloatArray | None = None,
-    shifts: FloatArray | None = None,
+    policies: FloatArray | None = None,
     msm: FloatArray | None = None,
     incremental: FloatArray | None = None,
 ) -> Submodel:
@@ -895,7 +895,7 @@ def mtp_submodel(
         h_r(a, W) = \frac{g(a - \delta_r \mid W)}{g(a \mid W)}
                     + \mathbb 1\{a > u_r - \delta_r\}
 
-    -- see :mod:`cleverly.interventions.shift` for the derivation, the sanity checks it
+    -- see :mod:`cleverly.interventions.policy` for the derivation, the sanity checks it
     satisfies, and why this is not the ``regime`` fluctuation at the induced density.
 
     with a further factor per mechanism that stands between the dose and a recorded
@@ -905,17 +905,17 @@ def mtp_submodel(
 
         H_r(a, W) = \frac{h_r(a, W)}{\pi(a, W)\, q_z(a, W)}
 
-    ``shifts`` is the ``(n, S, S)`` array
+    ``policies`` is the ``(n, S, S)`` array
     :math:`h_r(d_s(A_i, W_i), W_i)` **stacked with** the ``(n, S)`` covariate at the
     observed treatment; both are read off
-    :class:`~cleverly.interventions.shift.ShiftSet`, which computed them from one stored
+    :class:`~cleverly.interventions.policy.PolicySet`, which computed them from one stored
     conditional density.  ``propensity`` is ignored: a continuous treatment has no
     per-arm mechanism, and its ``(n, 0)`` propensity carries no information.
 
     ``missingness`` and ``intermediate_density`` are **not** ignored, and the axis they
     are indexed by is the thing to get right.  Both are ``(n, S + 1)`` -- the mechanism at
     the observed dose in column ``0`` and at :math:`d_s(A, W)` in column ``s + 1``, which
-    is ``shifts``' first axis exactly -- so block ``j`` of the covariate is divided by
+    is ``policies``' first axis exactly -- so block ``j`` of the covariate is divided by
     column ``j`` of each.  Dividing every block by column ``0`` would be the arm path's
     mistake with the indicator removed: :math:`\bar Q^*(d_s(A,W), W)` is the fluctuation
     read *at the shifted dose*, so the mechanism has to be the one that holds there.  It is
@@ -934,23 +934,23 @@ def mtp_submodel(
     Unlike ``regime``, ``arm_columns`` is **populated**: column ``s`` really does target
     one parameter, the mean under shift ``s``, so
     :meth:`~Submodel.column_for` can answer and
-    :func:`~cleverly.inference.influence.shift_means` reads it.
+    :func:`~cleverly.inference.influence.policy_means` reads it.
     """
     del propensity, arms, arm_fractions, reference, regimes
     del msm
     del incremental
-    if shifts is None:
+    if policies is None:
         raise ValueError(
-            "the 'mtp' submodel needs shifts=: the clever covariate evaluated at the "
+            "the 'mtp' submodel needs policies=: the clever covariate evaluated at the "
             "observed treatment and at each shifted one. Build one with "
-            "cleverly.interventions.ShiftSet.evaluate."
+            "cleverly.interventions.PolicySet.evaluate."
         )
-    stacked = np.asarray(shifts, dtype=float)
+    stacked = np.asarray(policies, dtype=float)
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     if stacked.ndim != 3 or stacked.shape[0] != n or stacked.shape[1] != stacked.shape[2] + 1:
         raise ValueError(
-            "the 'mtp' submodel needs shifts= of shape (n, S + 1, S): the covariate at "
+            "the 'mtp' submodel needs policies= of shape (n, S + 1, S): the covariate at "
             f"the observed treatment stacked above the one at each shifted treatment. "
             f"Got {stacked.shape} for {n} rows."
         )
@@ -964,7 +964,7 @@ def mtp_submodel(
     return Submodel(
         observed,
         counterfactual,
-        tuple(f"h_shift{r}" for r in range(stacked.shape[2])),
+        tuple(f"h_policy{r}" for r in range(stacked.shape[2])),
         "mtp",
         {float(index): index for index in range(stacked.shape[2])},
     )
@@ -999,7 +999,7 @@ def att_submodel(
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
     regimes: FloatArray | None = None,
-    shifts: FloatArray | None = None,
+    policies: FloatArray | None = None,
     msm: FloatArray | None = None,
     incremental: FloatArray | None = None,
 ) -> Submodel:
@@ -1030,7 +1030,7 @@ def att_submodel(
     bare ``P(A = 1)`` for a binary treatment on the same terms as ``propensity`` may be
     given as a bare ``g_1``.
     """
-    del regimes, shifts, msm, incremental  # accepted and ignored; this conditions on an arm
+    del regimes, policies, msm, incremental  # accepted and ignored; this conditions on an arm
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     k = len(arms)
@@ -1062,7 +1062,7 @@ def atc_submodel(
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
     regimes: FloatArray | None = None,
-    shifts: FloatArray | None = None,
+    policies: FloatArray | None = None,
     msm: FloatArray | None = None,
     incremental: FloatArray | None = None,
 ) -> Submodel:
@@ -1079,7 +1079,7 @@ def atc_submodel(
     this is the classic ATC, and with more there is one such effect per non-reference arm,
     all averaged over the reference arm's covariate distribution.
     """
-    del regimes, shifts, msm, incremental  # accepted and ignored, as in att_submodel
+    del regimes, policies, msm, incremental  # accepted and ignored, as in att_submodel
     a = np.asarray(treatment, dtype=float).reshape(-1)
     n = a.shape[0]
     k = len(arms)
@@ -1253,10 +1253,10 @@ _SIGNATURE_ADDITIONS: dict[str, str] = {
         "its keyword-only parameters. A builder that targets arms rather than regimes "
         "should accept and ignore it, as mean_submodel does."
     ),
-    "shifts": (
+    "policies": (
         "Every submodel builder takes the shift clever covariates, because a treatment may "
         "be continuous and its intervention a modified treatment policy rather than "
-        "anything indexed by an arm; add 'shifts=None' to its keyword-only parameters. A "
+        "anything indexed by an arm; add 'policies=None' to its keyword-only parameters. A "
         "builder that targets arms or regimes should accept and ignore it, as "
         "mean_submodel does."
     ),
@@ -1303,7 +1303,7 @@ def submodel_for(
     intermediate_density: FloatArray | None = None,
     selection: FloatArray | None = None,
     regimes: FloatArray | None = None,
-    shifts: FloatArray | None = None,
+    policies: FloatArray | None = None,
     msm: FloatArray | None = None,
     incremental: FloatArray | None = None,
 ) -> Submodel:
@@ -1332,7 +1332,7 @@ def submodel_for(
             intermediate_density=intermediate_density,
             selection=selection,
             regimes=regimes,
-            shifts=shifts,
+            policies=policies,
             msm=msm,
             incremental=incremental,
         )

@@ -344,7 +344,7 @@ def learned_rule_configuration_refusal(estimator: Any) -> str | None:
     axes = [
         keyword
         for keyword, value in (
-            ("shifts=", getattr(estimator, "shifts", ())),
+            ("policies=", getattr(estimator, "policies", ())),
             ("incremental=", getattr(estimator, "incremental", ())),
             ("msm=", getattr(estimator, "msm", None) is not None),
         )

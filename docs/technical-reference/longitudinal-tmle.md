@@ -312,11 +312,11 @@ A deterministic rule receives the history frame, which holds no earlier treatmen
 must read an arm drawn at an earlier policy node, such as "continue the arm drawn at the first
 node", is a one-hot `Stochastic` node that reads the policy frame. It resolves as that rule.
 
-Two neighbouring targets are outside this section. The table names the owner of each.
+Two neighbouring targets are outside this section. The table names where each one is covered.
 
 | target | why it is not a known policy | owner |
 | --- | --- | --- |
-| a policy that reads the natural value $A_t$, such as a categorical modified treatment policy | its ratio reads the fitted mechanism, and identification needs Assumption 3 | [X12](../roadmap.md#x12-modified-treatment-policies-beyond-the-additive-point-shift) part (b) |
+| a policy that reads the natural value $A_t$, such as a modified treatment policy | its ratio reads the fitted mechanism, and identification needs Assumption 3 | [modified treatment policies at a node](#modified-treatment-policies-at-a-node) |
 | a policy density that depends on $P$, such as an incremental odds tilt | page 850 records that multiply robust estimation "is not generally possible" for such a regime; the curve needs a mechanism-derivative term | [X19](../roadmap.md#x19-incremental-interventions-over-time) |
 
 `tests/unit/test_influence_gateaux_longitudinal_policy.py` holds the exact-law evidence. The point
@@ -343,6 +343,81 @@ $6.3 \times 10^{-10}$. The `low` mean and the two contrasts are not exactness pa
 `lmtp` pools label nodes over every arm. Their mean absolute paired difference is about
 $9 \times 10^{-3}$, and the largest is 0.042. The
 [study page](method-evidence/stochastic-categorical-longitudinal-tmle.md) gives every verdict.
+
+### Modified treatment policies at a node
+
+A node of a `DynamicRegimen` plan can be a modified treatment policy. That policy reads the
+natural value $A_t$ and the history. The classes are those of the
+[point-treatment section](point-treatment-tmle.md#modified-treatment-policies). Díaz, Williams,
+Hoffman and Schenck (2023), Theorem 1, identifies the mean under Assumption 3. Equation (3)
+gives the ratio at a continuous node, and the discrete formula gives it at a categorical node.
+
+| node kind | how to declare it | ratio |
+| --- | --- | --- |
+| continuous dose | `LTMLE.fit(..., continuous_treatment=["A1", "A2"])` | a pooled-hazard density with `density_bins` bins, or `ratio="classifier"` |
+| categorical | the default | the discrete formula over the fitted mechanism |
+| vector of categorical columns | a list of columns as one entry of `treatment=` | the discrete formula over the joint levels |
+
+`LTMLE.fit` refuses a vector node with a continuous component with `CapabilityError`, before any
+learner. [X31](../roadmap.md#x31-continuous-vector-components-at-a-node) owns it. At a
+continuous node the treatment factor of the cumulative product is the ratio itself. So
+`g_bounds` bounds the censoring and categorical factors only, and the fit stores each node's
+ratio as `node_ratio`. A cross-fitted fit (`n_folds` above one) uses the pooled
+construction of the other plan kinds. `msm=` accepts modified treatment policy cells.
+
+**The bin count of the density route.** A binned density at a fixed bin count is not
+consistent. A growing count is necessary, and the hazard learner must also be consistent. The bin edges are sample quantiles, so the tail bins are wide, and the binned ratio
+errs most there. The table gives the error that one draw of the `longitudinal-mtp` law measured
+with the exact bin probabilities, so the binning is the only error left.
+
+| bins | spread of the influence curve over the efficient one, n = 2,000 | the same, n = 8,000 |
+| ---: | --- | --- |
+| 20 | 1.62 | 1.72 |
+| 80 | 1.14 | 1.20 |
+| 160 | 1.04 | 1.13 |
+| 320 | 0.99 | 1.00 |
+
+At a fixed count the excess spread stays as $n$ grows. It falls as the count grows: at
+n = 2,000 it is 0.62 at 20 bins, 0.14 at 80 bins and 0.04 at 160 bins. So the
+default `density_bins=None` grows the count with the sample: `max(20, ceil(2 n^(1/3)))`, the rate
+of Scott (1979). An explicit `density_bins=` is used as given. `tests/unit/test_density_bins_consistency.py`
+shows the tail error shrinking with $n$ under the default, and a mutation that holds the count at
+20 fails it. The same file checks the default count through `fit_conditional_density` and
+through a `TMLE` fit at n = 2,000.
+
+**The memory of the density route.** The pooled hazard design holds about $n (K + 1) / 2$
+records of the covariates and $K - 1$ bin columns, at 8 bytes each. At the default count it grows
+as $n^{5/3}$. The table gives the design at one covariate column.
+
+| n | default bins | design |
+| ---: | ---: | ---: |
+| 10,000 | 44 | 0.07 GiB |
+| 100,000 | 93 | 3.2 GiB |
+| 300,000 | 134 | 20 GiB |
+| 1,000,000 | 200 | 150 GiB |
+
+A fit counts the design before it allocates it. When the design exceeds the available memory, the
+fit raises `MethodConfigurationError`. The message gives the size and the largest bin count whose
+design fits in half of the memory. `cleverly.learners.density.hazard_design_bytes` gives the
+estimate. A learner copies its design, so the peak can be a multiple of the table.
+
+Two consequences follow. When the outcome regression is wrong, the bin error enters the bias at
+first order, so double robustness through the density alone needs a ratio error of
+$o(n^{-1/2})$, which a histogram does not give. When the outcome regression is right, a coarse
+count inflates the influence curve, and the intervals are conservative. When efficiency matters,
+use `ratio="classifier"` with a flexible classifier, or set `density_bins=` higher.
+
+`regimens=` takes the policy as a plan node, and the `policies=` keyword stays refused by name:
+`regimens={"+0.5": DynamicRegimen("+0.5", (Shift(0.5, cap=4.0),) * 2)}`.
+
+Evidence: `tests/unit/test_influence_gateaux_longitudinal_mtp.py` checks the estimate and the
+curve against the g-formula of `tests/discrete_law_longitudinal_mtp.py` and its Gateaux
+derivative. `tests/unit/test_longitudinal_mtp_targeting.py` holds the mutation controls, and
+`tests/unit/test_longitudinal_mtp_compositions.py` covers survival, `msm=`, cross-fitting and the
+refusals. The registered study is
+[`longitudinal-mtp`](method-evidence/longitudinal-modified-treatment-policies.md). Its
+mechanism-only cells read oracle bins that grow as $n^{2/3}$, 320 at n = 2,000, for the reason
+above. So they test the targeting with a nearly exact ratio and not the default density.
 
 ## Functionals of a fitted result
 
@@ -468,7 +543,8 @@ step, and established argument.
 
 Theorem 3 also requires every mechanism ratio and targeted sequential regression to be consistent,
 the sum over nodes of their error products to be $o_P(n^{-1/2})$, and the density ratios to stay
-bounded. Those are conditions on the targeted regressions. Appendix E of the competing-risk paper
+bounded. On a continuous node a binned density meets the mechanism-ratio rate only if its bin
+count grows with $n$ (see the bin count paragraph under modified treatment policies). Those are conditions on the targeted regressions. Appendix E of the competing-risk paper
 shows that a sufficient condition stated in terms of the initial recursive learners can contain
 cross-time products between a mechanism error at node $t$ and regression errors at later nodes.
 The weighted row additionally needs weights that are known and bounded.
@@ -505,7 +581,6 @@ the question, the construction, or coverage.
 | a callable written inline in a `regimens=` mapping | wrong by construction | an inline callable carries no declaration, so the fit refuses it before any learner. Write the plan as a `DynamicRegimen` declared `rule_kind="known"`, with `(rule,) * T` for one rule at every node |
 | an outcome missing for a reason other than censoring | wrong by construction | left as it is, the probability of observing it is silently taken to be one. Encode it as a final censoring column, so it is estimated and enters the cumulative product |
 | longitudinal sensitivity-bound estimation | not written yet | a sample estimator and sampling theory for its bound functionals. [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) holds the stop |
-| a **continuous dose** at a node, and `shifts=` | not written yet | Díaz, Williams, Hoffman and Schenck (2023), Theorem 3, journal page 853, covers a fixed modified treatment policy $d(a_t, h_t)$ on a continuous dose. The fit needs a conditional density of the dose at every node, and each node's density ratio enters the cumulative product. `LTMLE` estimates no such density, so it refuses `shifts=` by name. It reads a numeric node as unordered arms. It warns at 10 or more distinct values, and it raises `DataError` above 20. [X12](../roadmap.md#x12-modified-treatment-policies-beyond-the-additive-point-shift) part (b) holds the work |
 | `incremental=` | not written yet | Kennedy (2019), *Journal of the American Statistical Association* 114(526), treats incremental interventions on a time-varying treatment. The tilt is built from the mechanism, so it needs the product of tilted mechanisms and a mechanism submodel at every node. [X19](../roadmap.md#x19-incremental-interventions-over-time) holds the work |
 | a continuous outcome with `q_bounds=None` above one fold | not written yet | with `q_bounds=None` the scale comes from every observed outcome, held-out rows included, and no shipped result covers that scale |
 
@@ -556,8 +631,9 @@ uses parametric nuisances.
 
 The cluster handling does not depend on the target. The split, the inner groups, the
 cluster-summed curve and the status are the same for every target, a
-[known policy](#known-stochastic-policies) included. `shifts=` and `incremental=` stay refused for
-their own reasons. Each one inherits this handling when it ships.
+[known policy](#known-stochastic-policies) included. A [modified treatment policy](#modified-treatment-policies-at-a-node)
+node is included too. `incremental=` stays refused for its own reason, and it inherits this
+handling when it ships.
 
 Two side effects follow from the cross-fitted default. A fit with fewer than 10 clusters warns that
 it reduces `n_folds` to the cluster count, and a fit with fewer than 20 reports no interval. At few clusters a training fold can lack a first-node

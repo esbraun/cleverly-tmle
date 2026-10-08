@@ -42,7 +42,7 @@ SHIFTS = ((0.0, "current practice"), (1.0, "+1.0"))
 
 def _fit(density: str, *, cross_fit: bool):  # type: ignore[no-untyped-def]
     frame, _ = make_shift_dose(
-        n=3000, seed=SEED, shifts=tuple((delta, None, name) for delta, name in SHIFTS)
+        n=3000, seed=SEED, policies=tuple((delta, None, name) for delta, name in SHIFTS)
     )
     bins = 320 if density == "oracle" else 40
     if density == "oracle":
@@ -80,7 +80,7 @@ def _fit(density: str, *, cross_fit: bool):  # type: ignore[no-untyped-def]
 
 
 def _independent_fold_means(result, column: int) -> list[float]:  # type: ignore[no-untyped-def]
-    ratio = np.asarray(result.nuisance.shifts.ratio[:, column], dtype=float)
+    ratio = np.asarray(result.nuisance.policies.ratio[:, column], dtype=float)
     return [float(ratio[test].mean()) for _, test in result.nuisance.folds]
 
 
@@ -109,7 +109,7 @@ def test_an_in_sample_fit_reports_one_fold_equal_to_the_overall_mean() -> None:
     row = result.diagnostics.support()["+1.0"]
     assert row.fold_mean_ratio == (row.mean_ratio,)
     assert row.mean_ratio == pytest.approx(
-        float(np.mean(result.nuisance.shifts.ratio[:, 1])), abs=1e-12
+        float(np.mean(result.nuisance.policies.ratio[:, 1])), abs=1e-12
     )
     # The natural course has ratio 1 at every row with positive density.
     assert result.diagnostics.support()["current practice"].mean_ratio == pytest.approx(1.0)
@@ -118,17 +118,17 @@ def test_an_in_sample_fit_reports_one_fold_equal_to_the_overall_mean() -> None:
 def test_the_summary_states_the_reference_mean_for_each_shift_kind() -> None:
     # The reference is supported policy mass for either sign and cap choice.
     # Empirical means need not exactly equal the population expectation.
-    from cleverly.interventions.shift import ShiftSupport
+    from cleverly.interventions.policy import PolicySupport
 
-    row = ShiftSupport(
+    row = PolicySupport(
         name="+1.0",
-        delta=1.0,
-        cap=None,
+        policy="Shift(delta=1.0, cap=None)",
         min_density=0.1,
         ratio_quantiles={0.5: 1.0},
         max_ratio=2.0,
         effective_sample_size=900.0,
         ess_ratio=0.9,
+        moved_fraction=1.0,
         capped_fraction=0.0,
         unsupported=0,
         mean_ratio=0.9,

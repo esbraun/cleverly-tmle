@@ -28,7 +28,7 @@ from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.fluctuation.iterative import InitialFit, solve_fluctuation
 from cleverly.fluctuation.submodel import submodel_for
-from cleverly.interventions import Shift, ShiftSet, Static, check_shift_support
+from cleverly.interventions import PolicySet, Shift, Static, check_policy_support
 from cleverly.learners.density import ConditionalDensity
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
@@ -90,11 +90,11 @@ def fit(**kwargs):  # type: ignore[no-untyped-def]
 
 class TestWhatAShiftFitReports:
     def test_one_mean_per_shift_and_one_contrast_per_non_reference_shift(self) -> None:
-        result = fit(shifts=SHIFTS)
+        result = fit(policies=SHIFTS)
         assert set(result.estimates) == {
-            "ey_shift[natural course]",
-            "ey_shift[+0.5]",
-            "ate_shift[+0.5 vs natural course]",
+            "ey_policy[natural course]",
+            "ey_policy[+0.5]",
+            "ate_policy[+0.5 vs natural course]",
         }
 
     def test_the_parameters_are_named_by_the_policy_not_by_an_arm(self) -> None:
@@ -104,31 +104,31 @@ class TestWhatAShiftFitReports:
         neither history nor an unambiguous reading, so "the ATE" of one policy against
         another is not a name a reader can resolve without the labels.
         """
-        result = fit(shifts=SHIFTS)
+        result = fit(policies=SHIFTS)
         assert not any(name in result.estimates for name in ("ate", "ey1", "ey0", "ey"))
 
     def test_the_fit_solves_the_mtp_score_equation(self) -> None:
-        result = fit(shifts=SHIFTS)
+        result = fit(policies=SHIFTS)
         assert "mtp" in result.fluctuations
         assert result.fluctuations["mtp"].converged
         assert bool(result.diagnostics.score_equations())
 
     def test_the_config_records_the_axis(self) -> None:
-        assert fit(shifts=SHIFTS).config.parameter_axis == "shift"
+        assert fit(policies=SHIFTS).config.parameter_axis == "policy"
         assert fit_binary().config.parameter_axis == "arm"
 
     def test_the_reference_selects_which_contrast_is_reported(self) -> None:
-        result = fit(shifts=SHIFTS, reference="+0.5")
-        assert "ate_shift[natural course vs +0.5]" in result.estimates
+        result = fit(policies=SHIFTS, reference="+0.5")
+        assert "ate_policy[natural course vs +0.5]" in result.estimates
         # The means do not depend on the reference; only the contrast does.
-        other = fit(shifts=SHIFTS)
-        assert result.psi("ey_shift[+0.5]") == pytest.approx(other.psi("ey_shift[+0.5]"))
+        other = fit(policies=SHIFTS)
+        assert result.psi("ey_policy[+0.5]") == pytest.approx(other.psi("ey_policy[+0.5]"))
 
     def test_the_natural_course_reports_the_outcome_mean(self) -> None:
         """Exact, and independent of every nuisance: ``delta = 0`` makes ``h`` one."""
         data = frame()
-        result = fit(shifts=[Shift(0.0, cap=None)])
-        assert result.psi("ey_shift[natural course]") == pytest.approx(
+        result = fit(policies=[Shift(0.0, cap=None)])
+        assert result.psi("ey_policy[natural course]") == pytest.approx(
             float(np.mean(np.asarray(data["Y"]))), abs=1e-10
         )
 
@@ -136,13 +136,13 @@ class TestWhatAShiftFitReports:
 class TestDeclaringTheAxis:
     def test_shifts_alone_declares_the_treatment_continuous(self) -> None:
         """From a dataframe there is no other way to say it, and a shift names no arm."""
-        result = fit(shifts=SHIFTS)
+        result = fit(policies=SHIFTS)
         assert result.data.treatment_kind == "continuous"
         assert result.data.n_arms == 0
 
     def test_treatment_kind_can_be_declared_explicitly(self) -> None:
         result = (
-            estimator(shifts=SHIFTS)
+            estimator(policies=SHIFTS)
             .fit(
                 frame(),
                 outcome="Y",
@@ -163,18 +163,20 @@ class TestDeclaringTheAxis:
             treatment_kind="continuous",
         )
         with pytest.raises(ValueError, match="already assigned"):
-            estimator(shifts=SHIFTS).fit(data, treatment_kind="continuous")
+            estimator(policies=SHIFTS).fit(data, treatment_kind="continuous")
 
 
 class TestTheRefusals:
     def test_shifts_and_interventions_together_are_refused(self) -> None:
         with pytest.raises(CapabilityError, match="cannot solve their score equations at once"):
-            estimator(shifts=SHIFTS, interventions=[Static(0), Static(1)])
+            estimator(policies=SHIFTS, interventions=[Static(0), Static(1)])
 
-    def test_a_shift_of_an_arm_coded_treatment_is_refused(self) -> None:
+    def test_a_shift_off_the_levels_of_an_arm_coded_treatment_is_refused(self) -> None:
+        # A shift of 0.5 maps the levels 0 and 1 to 0.5 and 1.5, which are not levels: the
+        # discrete formula has no support there (Diaz et al. 2023, Assumption 1).
         data = binary_frame()
-        with pytest.raises(DataError, match="fits it on a continuous treatment only"):
-            estimator(shifts=SHIFTS).fit(
+        with pytest.raises(DataError, match="that are not levels of the node"):
+            estimator(policies=SHIFTS).fit(
                 data,
                 outcome="Y",
                 treatment="A",
@@ -212,7 +214,7 @@ class TestTheRefusals:
 
     def test_a_shift_fit_cannot_be_asked_for_an_arm_estimand(self) -> None:
         with pytest.raises(ValueError, match="indexed by treatment arm"):
-            fit(shifts=SHIFTS, estimands=["ate"])
+            fit(policies=SHIFTS, estimands=["ate"])
 
     def test_a_shift_fit_cannot_be_asked_for_a_regime_estimand(self) -> None:
         """The failure the three-valued axis exists to produce.
@@ -223,15 +225,15 @@ class TestTheRefusals:
         missing ``regimes=`` rather than about the estimand.
         """
         with pytest.raises(ValueError, match="indexed by declared regime"):
-            fit(shifts=SHIFTS, estimands=["ey_regime"])
+            fit(policies=SHIFTS, estimands=["ey_regime"])
 
     def test_an_arm_fit_cannot_be_asked_for_a_shift_estimand(self) -> None:
-        with pytest.raises(ValueError, match="indexed by declared shift"):
-            fit_binary(estimands=["ey_shift"])
+        with pytest.raises(ValueError, match="indexed by declared modified treatment policy"):
+            fit_binary(estimands=["ey_policy"])
 
     def test_an_unknown_reference_names_the_declared_shifts(self) -> None:
-        with pytest.raises(DataError, match="is not one of the shifts"):
-            fit(shifts=SHIFTS, reference="+2")
+        with pytest.raises(DataError, match="is not one of the policies"):
+            fit(policies=SHIFTS, reference="+2")
 
     @pytest.mark.parametrize("bins", [0, 2])
     def test_too_few_density_bins_are_refused(self, bins: int) -> None:
@@ -257,7 +259,7 @@ class TestACoarsenedShiftFit:
         is not this law's unit-width partition. Nothing here depends on it -- the shifted
         doses come from ``Shift.apply`` and the mechanisms from the oracle.
         """
-        kwargs.setdefault("shifts", LAW_SHIFTS)
+        kwargs.setdefault("policies", LAW_SHIFTS)
         kwargs.setdefault("outcome_learner", conftest.OracleDoseOutcome(LAW_DGP))
         kwargs.setdefault("missingness_learner", conftest.OracleDoseMechanism(LAW_DGP))
         settings = {"cross_fit": False, "density_bins": 4, **kwargs}
@@ -296,7 +298,7 @@ class TestACoarsenedShiftFit:
         assert missingness.shape == (shift_law.N, len(LAW_SHIFTS) + 1)
 
         # Block 0 is the row's own dose; block s + 1 is the dose policy s assigns. The
-        # order is ShiftSet.design's first axis, and the correspondence is the contract.
+        # order is PolicySet.design's first axis, and the correspondence is the contract.
         np.testing.assert_allclose(
             missingness[:, 0], shift_law.PI_EXACT[covariate, index], atol=1e-9, rtol=0
         )
@@ -333,7 +335,7 @@ class TestACoarsenedShiftFit:
         # On this law the shift effect changes sign between the levels, and neither equals
         # the parameter that leaves Z alone -- so a fit that ignored `intermediate=` would
         # be reporting a visibly different number rather than a subtly different one.
-        name = "ate_shift[+1 vs natural course]"
+        name = "ate_policy[+1 vs natural course]"
         marginal = self._law_fit().psi(name)
         at_zero, at_one = self._cde_fit(0).psi(name), self._cde_fit(1).psi(name)
         assert at_zero < 0.0 < at_one
@@ -381,7 +383,7 @@ class TestACoarsenedShiftFit:
                 treatment_kind="continuous",
                 delta=observed.astype(float),
             )
-            shifts = ShiftSet.evaluate(LAW_SHIFTS, data, density)
+            shifts = PolicySet.evaluate(LAW_SHIFTS, data, density)
 
         maps = [np.asarray(shift_law.POLICIES[n]) for n in shifts.labels.values()]
         # Deliberately wrong by a constant on the logit scale, so epsilon is not zero.
@@ -405,7 +407,7 @@ class TestACoarsenedShiftFit:
                 dose,
                 np.zeros((dose.size, 0)),
                 arms=(),
-                shifts=shifts.design,
+                policies=shifts.design,
                 missingness=pi,
             )
             fluctuation = solve_fluctuation(
@@ -427,15 +429,15 @@ class TestACoarsenedShiftFit:
             float(np.min(np.maximum(shift_law.PI_EXACT[covariate, index], 0.01))), abs=1e-9
         )
         # The two reweightings multiply, so the weight's ESS is below the bare ratio's.
-        bare = check_shift_support(
-            result.nuisance.shifts, result.nuisance.density, result.data.treatment
+        bare = check_policy_support(
+            result.nuisance.policies, result.nuisance.density, result.data.treatment
         )
         assert support["+1"].ess_ratio < bare["+1"].ess_ratio
         assert bare["+1"].min_mechanism is None
 
     def test_the_mnar_tilt_refuses_this_axis_by_name(self) -> None:
         result = self._law_fit()
-        with pytest.raises(ValueError, match="continuous dose with shifts="):
+        with pytest.raises(ValueError, match="continuous dose with policies="):
             result.sensitivity.missingness()
 
     def test_the_mechanism_truncation_curve_is_not_flat(self) -> None:
@@ -445,7 +447,7 @@ class TestACoarsenedShiftFit:
         mechanism exists and passes the swept bound into ``retarget``.  A flat curve reads
         as "the estimate does not hinge on the truncation choice", so it has to be a real
         sweep or it is a wrong conclusion reported silently.  This is the diagnostic that
-        would be vacuous by construction had the mechanism been folded into ``ShiftSet``
+        would be vacuous by construction had the mechanism been folded into ``PolicySet``
         at nuisance-fit time rather than kept on ``NuisanceEstimates`` and bounded here.
 
         The outcome learner is deliberately **not** the oracle: with an exact ``Qbar``
@@ -455,7 +457,7 @@ class TestACoarsenedShiftFit:
         result = self._law_fit(outcome_learner=sklearn.linear_model.LinearRegression())
         assert float(np.max(np.abs(result.fluctuations["mtp"].epsilon))) > 1e-6
         curve = result.diagnostics.truncation_curve(mechanism=True, bounds=[0.01, 0.3, 0.45])
-        values = np.asarray(curve["psi"])[np.asarray(curve["estimand"]) == "ey_shift[+1]"]
+        values = np.asarray(curve["psi"])[np.asarray(curve["estimand"]) == "ey_policy[+1]"]
         assert float(np.ptp(values)) > 1e-6
 
 
@@ -469,7 +471,7 @@ class TestAWeightedShiftFit:
         data = frame()
         data = data.assign(wt=weights(data))
         return (
-            estimator(shifts=SHIFTS, **kwargs)
+            estimator(policies=SHIFTS, **kwargs)
             .fit(data, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"], weights="wt")
             .single()
         )
@@ -478,7 +480,7 @@ class TestAWeightedShiftFit:
         # The package's convention is mean-one weights, so a constant weight is exactly
         # one and the whole fit -- density included -- must be the one it always was.
         flat = self._weighted(lambda d: np.ones(len(d)))
-        plain = fit(shifts=SHIFTS)
+        plain = fit(policies=SHIFTS)
         for name in plain.estimates:
             assert flat.psi(name) == pytest.approx(plain.psi(name), abs=1e-12)
             assert flat.estimates[name].std_error == pytest.approx(
@@ -487,12 +489,12 @@ class TestAWeightedShiftFit:
 
     def test_the_tilt_reaches_the_density_and_moves_the_estimate(self) -> None:
         tilted = self._weighted(lambda d: np.exp(0.6 * np.asarray(d["W1"])))
-        plain = fit(shifts=SHIFTS)
-        assert abs(tilted.psi("ey_shift[+0.5]") - plain.psi("ey_shift[+0.5]")) > 1e-3
+        plain = fit(policies=SHIFTS)
+        assert abs(tilted.psi("ey_policy[+0.5]") - plain.psi("ey_policy[+0.5]")) > 1e-3
         # The clever covariate is the *tilted* density's ratio, so the mechanism itself
         # has to have seen the weights -- not only the outcome regression and the average.
-        ratio = np.asarray(tilted.nuisance.shifts.ratio[:, 1])
-        assert np.max(np.abs(ratio - np.asarray(plain.nuisance.shifts.ratio[:, 1]))) > 1e-3
+        ratio = np.asarray(tilted.nuisance.policies.ratio[:, 1])
+        assert np.max(np.abs(ratio - np.asarray(plain.nuisance.policies.ratio[:, 1]))) > 1e-3
 
     def test_the_auto_bound_resolves_at_the_effective_sample_size(self) -> None:
         # Not a no-op line: `_bounds_n` returns Kish's effective n, and the summary says so
@@ -517,11 +519,11 @@ class TestAWeightedShiftFit:
 
 class TestTheDiagnosticsMatchTheAxis:
     def test_support_dispatches_to_the_density_ratio_report(self) -> None:
-        result = fit(shifts=SHIFTS)
+        result = fit(policies=SHIFTS)
         assert set(result.diagnostics.support()) == {"natural course", "+0.5"}
 
     def test_shift_support_reports_the_density_ratio_per_shift(self) -> None:
-        result = fit(shifts=SHIFTS)
+        result = fit(policies=SHIFTS)
         report = result.diagnostics.support()
         assert set(report) == {"natural course", "+0.5"}
         # A shift of zero divides a density by itself, so its ratio is one everywhere and
@@ -533,12 +535,19 @@ class TestTheDiagnosticsMatchTheAxis:
     def test_declared_caps_survive_result_serialization(self) -> None:
         from cleverly.estimators.serialize import dumps, loads
 
-        result = fit(shifts=SHIFTS)
+        result = fit(policies=SHIFTS)
         restored = loads(dumps(result))
-        assert restored.nuisance.shifts.caps == (None, 5.0)
-        assert restored.diagnostics.support()["natural course"].cap is None
-        assert restored.diagnostics.support()["+0.5"].cap == 5.0
-        np.testing.assert_array_equal(restored.nuisance.shifts.ratio, result.nuisance.shifts.ratio)
+        assert restored.nuisance.policies.descriptions == (
+            "Shift(delta=0.0, cap=None)",
+            "Shift(delta=0.5, cap=5.0)",
+        )
+        assert restored.diagnostics.support()["natural course"].policy == (
+            "Shift(delta=0.0, cap=None)"
+        )
+        assert restored.diagnostics.support()["+0.5"].policy == "Shift(delta=0.5, cap=5.0)"
+        np.testing.assert_array_equal(
+            restored.nuisance.policies.ratio, result.nuisance.policies.ratio
+        )
 
     def test_support_dispatches_to_propensity_overlap_on_an_arm_fit(self) -> None:
         report = fit_binary().diagnostics.support()

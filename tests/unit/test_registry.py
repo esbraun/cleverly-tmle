@@ -106,7 +106,7 @@ class TestOracleCoverage:
     def test_the_oracle_covers_no_more_than_the_registry(self) -> None:
         """The reverse direction: an oracle branch with no target is dead code.
 
-        Unioned over the laws, so registering ``ey_shift`` without ``ate_shift`` fails
+        Unioned over the laws, so registering ``ey_policy`` without ``ate_policy`` fails
         here even though the forward direction passes -- the shift law declares a truth
         for both.
         """
@@ -378,7 +378,7 @@ class TestACustomFluctuation:
         intermediate_density=None,
         selection=None,
         regimes=None,
-        shifts=None,
+        policies=None,
         msm=None,
         incremental=None,
     ):  # type: ignore[no-untyped-def]
@@ -614,7 +614,7 @@ class TestEvidenceManifest:
     against :func:`oracle_for` -- the same function the coverage gate reads -- so the
     manifest's *oracle law* column cannot claim a law whose ``functional`` has no branch.
 
-    Verified by mutation: pointing ``ey_shift``'s row at ``tests/discrete_law.py`` turns
+    Verified by mutation: pointing ``ey_policy``'s row at ``tests/discrete_law.py`` turns
     :meth:`test_the_oracle_column_is_the_law_that_really_covers_it` red while every other
     test in this module stays green, which is the drift the column exists to catch.
     """

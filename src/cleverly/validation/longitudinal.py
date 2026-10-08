@@ -43,6 +43,7 @@ from .nuisance import (
 
 __all__ = [
     "LONGITUDINAL_CENSORING_NOT_FITTED",
+    "LONGITUDINAL_CLASSIFIER_RATIO",
     "LongitudinalDiagnostics",
     "LongitudinalNuisanceDiagnostics",
     "LongitudinalNuisanceOmission",
@@ -55,6 +56,10 @@ __all__ = [
 
 #: The data has no censoring columns, so the estimator made no censoring fit.
 LONGITUDINAL_CENSORING_NOT_FITTED = "complete data has no censoring learner"
+
+#: A continuous node on the classifier ratio route fits no density, so there is no
+#: treatment likelihood to report there.
+LONGITUDINAL_CLASSIFIER_RATIO = "continuous node ratio estimated by classification, no density"
 
 
 @dataclass(frozen=True)
@@ -384,11 +389,15 @@ def _assigned_shares(assigned: FloatArray, levels: Sequence[object]) -> str:
 
 
 def _node_kind(fit: Any, time: int) -> str:
-    """``"policy"``, ``"rule"`` or ``"label"``: what decided the arm at ``time``.
+    """``"mtp"``, ``"policy"``, ``"rule"`` or ``"label"``: what decided the arm at ``time``.
 
-    A policy node whose density was one-hot on every reachable row was resolved as a rule,
+    A modified treatment policy reads the unit's own treatment, and reports ``"mtp"``.  A
+    policy node whose density was one-hot on every reachable row was resolved as a rule,
     and is reported as one, because the fit ran that rule's code.
     """
+    regimen = fit.regimen
+    if hasattr(regimen, "is_mtp") and regimen.is_mtp(time):
+        return "mtp"
     if fit.policy and fit.policy[time - 1] is not None:
         return "policy"
     regimen = fit.regimen
@@ -439,7 +448,17 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
             kind = _node_kind(fit, step.time)
             levels = result.data.treatment_levels[step.time - 1]
             assignment: float | str
-            if kind == "policy":
+            if kind == "mtp":
+                # A modified treatment policy assigns no arm; its column reports the mean
+                # raw ratio of the node over the at-risk rows, whose expectation is one when
+                # the policy preserves the support.
+                ratio = (
+                    float(np.mean(fit.node_ratio[step.at_risk, step.time - 1]))
+                    if fit.node_ratio is not None and step.at_risk.any()
+                    else float("nan")
+                )
+                assignment = f"mean ratio={ratio:.3g}" if categorical else ratio
+            elif kind == "policy":
                 density = fit.policy[step.time - 1][step.at_risk]
                 assignment = _policy_shares(density, levels, categorical)
             elif categorical:
@@ -621,9 +640,29 @@ def _nuisance_row(
     )
 
 
-def _treatment_report(result: Any, time: int, mask: BoolArray) -> NuisanceModelReport:
-    """Observed-law treatment report, including multinomial negative log likelihood."""
+def _treatment_report(result: Any, time: int, mask: BoolArray) -> NuisanceModelReport | None:
+    """Observed-law treatment report, including multinomial negative log likelihood.
+
+    A continuous node reports the negative log likelihood of its binned density, and
+    ``None`` on the classifier route, which fits no density.
+    """
     mechanism = result.mechanism
+    if result.data.is_continuous_node(time):
+        density = getattr(mechanism, "densities", {}).get(time)
+        if density is None:
+            return None
+        dose = np.nan_to_num(result.data.treatment[:, time - 1], nan=0.0)
+        values = np.clip(density.density_at(dose), 1e-300, None)
+        log_loss = float(-np.average(np.log(values[mask]), weights=result.data.weights[mask]))
+        learner_weights, learner_risks = _aggregate_learner_info(())
+        return NuisanceModelReport(
+            name=f"treatment[t={time}]",
+            kind="conditional density",
+            metrics={"log_loss": log_loss},
+            calibration={},
+            learner_weights=learner_weights,
+            learner_risks=learner_risks,
+        )
     probabilities = np.asarray(mechanism.treatment_observed[time - 1], dtype=float)
     actual = np.nan_to_num(result.data.treatment[:, time - 1], nan=0.0).astype(np.int64)
     diagnostics = (
@@ -673,16 +712,21 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
     for time in range(1, result.data.n_times + 1):
         at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
         report = _treatment_report(result, time, at_risk)
-        rows.append(
-            _nuisance_row(
-                role="treatment",
-                time=time,
-                report=report,
-                loss_name="log_loss",
-                evaluation=evaluation,
-                n=int(at_risk.sum()),
+        if report is None:
+            omissions.append(
+                LongitudinalNuisanceOmission("treatment", time, LONGITUDINAL_CLASSIFIER_RATIO)
             )
-        )
+        else:
+            rows.append(
+                _nuisance_row(
+                    role="treatment",
+                    time=time,
+                    report=report,
+                    loss_name="log_loss",
+                    evaluation=evaluation,
+                    n=int(at_risk.sum()),
+                )
+            )
 
         if not result.data.censoring_names:
             continue

@@ -102,12 +102,12 @@ class OracleShiftOutcome(BaseEstimator):
 
 def _fit(*, n: int = N, seed: int = 5, curvature: float = 0.25, **kwargs: Any):  # type: ignore[no-untyped-def]
     dgp = shift_dgp(curvature=curvature)
-    frame, truth = dgp.sample(n, shifts=POLICIES, seed=seed)
+    frame, truth = dgp.sample(n, policies=POLICIES, seed=seed)
     settings: dict[str, Any] = {
         "outcome_learner": OracleShiftOutcome(dgp),
         "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
         "cross_fit": False,
-        "shifts": SHIFTS,
+        "policies": SHIFTS,
         "density_bins": BINS,
         "random_state": 0,
         "simultaneous": False,
@@ -181,7 +181,9 @@ class TestTheScoreEquationIsSolved:
         # 23 units and the density ratio reaches ~45, so the same claim in absolute terms
         # would be an arbitrary constant. The scale is computed here rather than read
         # from `row.threshold`, which would make the assertion circular.
-        scale = float(np.ptp(np.asarray(frame["Y"]))) * float(np.max(result.nuisance.shifts.ratio))
+        scale = float(np.ptp(np.asarray(frame["Y"]))) * float(
+            np.max(result.nuisance.policies.ratio)
+        )
         for row in check.rows:
             assert abs(row.score) < 1e-12 * scale
 
@@ -207,18 +209,18 @@ class TestAgainstAnIndependentEstimator:
         result, _, _ = oracle_fit
         delta, cap, name = POLICIES[index]
         reference = shift_one_step(result, index, delta, cap)
-        assert result.psi(f"ey_shift[{name}]") == pytest.approx(reference, abs=5e-3)
+        assert result.psi(f"ey_policy[{name}]") == pytest.approx(reference, abs=5e-3)
 
 
 class TestTheTruthIsRecovered:
     @pytest.mark.parametrize(
         "estimand",
         [
-            "ey_shift[natural course]",
-            "ey_shift[+0.25]",
-            "ey_shift[+0.5]",
-            "ate_shift[+0.25 vs natural course]",
-            "ate_shift[+0.5 vs natural course]",
+            "ey_policy[natural course]",
+            "ey_policy[+0.25]",
+            "ey_policy[+0.5]",
+            "ate_policy[+0.25 vs natural course]",
+            "ate_policy[+0.5 vs natural course]",
         ],
     )
     def test_within_sampling_error(self, oracle_fit, estimand: str) -> None:  # type: ignore[no-untyped-def]
@@ -234,9 +236,9 @@ class TestTheTruthIsRecovered:
         """The response is increasing over the dose range these policies reach."""
         result, _, _ = oracle_fit
         assert (
-            result.psi("ey_shift[natural course]")
-            < result.psi("ey_shift[+0.25]")
-            < result.psi("ey_shift[+0.5]")
+            result.psi("ey_policy[natural course]")
+            < result.psi("ey_policy[+0.25]")
+            < result.psi("ey_policy[+0.5]")
         )
 
 
@@ -248,7 +250,7 @@ class TestTheDegenerateShifts:
         # delta = 0 makes the clever covariate identically one and the plug-in read the
         # observed dose, so the influence curve collapses to Y - psi: the estimator of
         # E[Y]. Exact, not statistical -- a tolerance here would hide a real error.
-        assert result.psi("ey_shift[natural course]") == pytest.approx(
+        assert result.psi("ey_policy[natural course]") == pytest.approx(
             float(np.mean(np.asarray(frame["Y"]))), abs=1e-10
         )
 
@@ -260,13 +262,13 @@ class TestTheDegenerateShifts:
         one that a cap sitting above the largest dose never exercises.
         """
         dgp = shift_dgp()
-        frame, _ = dgp.sample(1500, shifts=POLICIES, seed=11)
+        frame, _ = dgp.sample(1500, policies=POLICIES, seed=11)
         low = float(np.min(np.asarray(frame["A"]))) - 1.0
         estimator = TMLE(
             outcome_learner=OracleShiftOutcome(dgp),
             treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
             cross_fit=False,
-            shifts=[Shift(1.0, cap=low, name="unreachable")],
+            policies=[Shift(1.0, cap=low, name="unreachable")],
             random_state=0,
             simultaneous=False,
         )
@@ -277,7 +279,7 @@ class TestTheDegenerateShifts:
             result = estimator.fit(
                 frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"]
             ).single()
-        assert result.psi("ey_shift[unreachable]") == pytest.approx(
+        assert result.psi("ey_policy[unreachable]") == pytest.approx(
             float(np.mean(np.asarray(frame["Y"]))), abs=1e-10
         )
 
@@ -295,7 +297,7 @@ class TestTheDensityIsLoadBearing:
     def _uncapped_effect(curvature: float) -> float:
         dgp = shift_dgp(curvature=curvature)
         truth = dgp.truth([(0.0, None, "natural course"), (1.0, None, "+1")])
-        return truth["ate_shift[+1 vs natural course]"]
+        return truth["ate_policy[+1 vs natural course]"]
 
     def test_a_linear_response_gives_the_shift_a_density_free_effect(self) -> None:
         # beta * delta = 0.5 * 1, exactly, for any mechanism.
@@ -316,7 +318,7 @@ class _MissingAtRandom:
 
     The coefficients are not decorative.  The dose is itself confounded by :math:`w_1`
     with coefficient 0.7, so a mechanism whose two slopes push along that direction very
-    nearly cancels: at :math:`(-0.45, 0.7)` the population bias on ``ey_shift[+0.5]`` is
+    nearly cancels: at :math:`(-0.45, 0.7)` the population bias on ``ey_policy[+0.5]`` is
     ``-0.025``, a third of a standard error, and the negative control would have been
     vacuous while reading as though it were not.  These leave ``-0.173`` and keep
     :math:`\pi` above 0.014 everywhere -- clear of ``nuisance_bound``, so nothing is
@@ -374,7 +376,7 @@ class TestAShiftWithOutcomesMissingAtRandom:
     @pytest.fixture(scope="class")
     def mar_fit(self):  # type: ignore[no-untyped-def]
         dgp = shift_dgp(curvature=0.25)
-        frame, truth = dgp.sample(self.MAR_N, shifts=POLICIES, seed=5)
+        frame, truth = dgp.sample(self.MAR_N, policies=POLICIES, seed=5)
         holed, observed = _mar_frame(frame, dgp, seed=11)
         result = (
             TMLE(
@@ -382,7 +384,7 @@ class TestAShiftWithOutcomesMissingAtRandom:
                 treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 missingness_learner=conftest.OracleDoseMechanism(_MissingAtRandom(dgp)),
                 cross_fit=False,
-                shifts=SHIFTS,
+                policies=SHIFTS,
                 density_bins=BINS,
                 random_state=0,
                 simultaneous=False,
@@ -403,7 +405,7 @@ class TestAShiftWithOutcomesMissingAtRandom:
 
     @pytest.mark.parametrize(
         "estimand",
-        ["ey_shift[natural course]", "ey_shift[+0.5]", "ate_shift[+0.5 vs natural course]"],
+        ["ey_policy[natural course]", "ey_policy[+0.5]", "ate_policy[+0.5 vs natural course]"],
     )
     def test_the_truth_is_recovered(self, mar_fit, estimand: str) -> None:  # type: ignore[no-untyped-def]
         result, truth, _, _ = mar_fit
@@ -429,7 +431,7 @@ class TestAShiftWithOutcomesMissingAtRandom:
                 outcome_learner=OracleShiftOutcome(dgp),
                 treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 cross_fit=False,
-                shifts=SHIFTS,
+                policies=SHIFTS,
                 density_bins=BINS,
                 random_state=0,
                 simultaneous=False,
@@ -437,7 +439,7 @@ class TestAShiftWithOutcomesMissingAtRandom:
             .fit(complete, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
             .single()
         )
-        name = "ey_shift[+0.5]"
+        name = "ey_policy[+0.5]"
         corrected = abs(result.psi(name) - truth[name])
         dropped = abs(naive.psi(name) - truth[name])
         # Three rather than four standard errors, and the gap is Monte Carlo slack rather
@@ -465,7 +467,7 @@ class TestAShiftWithOutcomesMissingAtRandom:
                 treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 missingness_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 cross_fit=False,
-                shifts=SHIFTS,
+                policies=SHIFTS,
                 density_bins=BINS,
                 random_state=0,
                 simultaneous=False,
@@ -496,7 +498,7 @@ class TestTheFitSurvivesARoundTrip:
                 outcome_learner=sklearn.linear_model.LinearRegression(),
                 treatment_learner=sklearn.linear_model.LogisticRegression(max_iter=1000),
                 cross_fit=False,
-                shifts=SHIFTS,
+                policies=SHIFTS,
                 density_bins=BINS,
                 random_state=0,
                 simultaneous=False,
@@ -512,8 +514,8 @@ class TestTheFitSurvivesARoundTrip:
         # levels, and is_continuous_treatment silently flips to False.
         assert back.data.treatment_kind == "continuous"
         assert back.data.is_continuous_treatment and back.data.n_arms == 0
-        assert back.config.parameter_axis == "shift"
-        assert back.nuisance.shifts.names == result.nuisance.shifts.names
+        assert back.config.parameter_axis == "policy"
+        assert back.nuisance.policies.names == result.nuisance.policies.names
         np.testing.assert_array_equal(
             back.nuisance.density.bin_probabilities, result.nuisance.density.bin_probabilities
         )

@@ -489,7 +489,7 @@ def missing_treatment_refusal(
             "stated.",
             _DROP_REMEDY,
         )
-    for keyword in ("incremental", "shifts"):
+    for keyword in ("incremental", "policies"):
         if getattr(estimator, keyword, None):
             return _message(data, f"{identification} {keyword}= reads P({name} | W).", _DROP_REMEDY)
     if getattr(estimator, "learned_rule", None) is not None:
