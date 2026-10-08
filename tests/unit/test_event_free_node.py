@@ -22,9 +22,10 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.datasets import make_longitudinal
 from cleverly.estimators import _nuisance
-from cleverly.exceptions import CapabilityError
+from cleverly.exceptions import CapabilityError, DataWarning
 from cleverly.longitudinal import LTMLE, LongitudinalData
 from cleverly.longitudinal import sequential as sequential_module
+from cleverly.longitudinal.estimator import constant_node_parameters
 from cleverly.msm import MSM
 from cleverly.validation.longitudinal import LONGITUDINAL_CONSTANT_TARGET
 
@@ -158,3 +159,69 @@ def test_a_constant_inside_the_unit_interval_is_not_read(monkeypatch: pytest.Mon
     for name in reading.estimates:
         assert reading.psi(name) == learner.psi(name)
         assert reading[name].std_error == learner[name].std_error
+
+
+#: The control arm's parameters whose recursion reads a constant node, at horizons 1 and 2.
+CONSTANT_NODE = (
+    "risk_regimen[control @ t=1]",
+    "risk_regimen[control @ t=2]",
+    "ate_regimen[control vs treated @ t=1]",
+    "ate_regimen[control vs treated @ t=2]",
+)
+
+
+def _reported(**kwargs: Any) -> Any:
+    with pytest.warns(DataWarning, match="constant 0 or 1"):
+        return _estimator(n_folds=1, **kwargs).fit(_data())
+
+
+def test_a_constant_node_parameter_reports_no_interval() -> None:
+    """The witness: a risk of zero has a zero curve, so it reports a diagnostic and no CI.
+
+    The control arm's risk at horizons 1 and 2, and its contrasts there, take
+    ``constant_node_plugin``.  Every other parameter keeps the fit's status, the band covers
+    those others only, and a derived estimate that reads a flagged parameter is flagged too.
+    """
+    result = _reported()
+    flagged = {
+        name for name, estimate in result.estimates.items() if not estimate.supplies_inference
+    }
+    assert flagged == set(CONSTANT_NODE)
+    assert constant_node_parameters(result) == tuple(
+        name for name in result.estimates if name in CONSTANT_NODE
+    )
+    for name in CONSTANT_NODE:
+        assert result[name].inference == "constant_node_plugin"
+        with pytest.raises(CapabilityError, match="constant target"):
+            _ = result[name].ci
+    assert result.inference_status == "influence_curve"
+    assert result["risk_regimen[control @ t=3]"].supplies_inference
+    assert result.simultaneous is not None
+    assert set(result.simultaneous.bands).isdisjoint(CONSTANT_NODE)
+    assert result.rmst("control", 3, versus="treated").inference == "constant_node_plugin"
+    difference = result.contrast(
+        lambda values: float(values[1] - values[0]),
+        ["risk_regimen[control @ t=1]", "risk_regimen[treated @ t=1]"],
+        name="difference",
+        gradient=lambda values: np.array([-1.0, 1.0]),
+    )
+    assert difference.inference == "constant_node_plugin"
+    summary = result.summary()
+    assert summary.count("not reported") == 2 * len(CONSTANT_NODE)
+    assert "constant-node se, a diagnostic and not a standard error" in summary
+    curve = result.curve()
+    rows = curve[curve["inference"] == "constant_node_plugin"]
+    assert set(rows["parameter"]) == set(CONSTANT_NODE)
+    assert rows["std_err"].isna().all()
+
+
+def test_removing_the_stamp_reports_a_zero_width_interval(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation control: without the status the risk of zero reports the interval [0, 0]."""
+    from cleverly.longitudinal import estimator as estimator_module
+
+    monkeypatch.setattr(estimator_module, "constant_nodes", lambda fit: ())
+    result = _estimator(n_folds=1).fit(_data())
+    estimate = result["risk_regimen[control @ t=1]"]
+    assert estimate.supplies_inference
+    assert estimate.std_error == 0.0
+    assert estimate.ci == (0.0, 0.0)

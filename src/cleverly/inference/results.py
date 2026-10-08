@@ -14,7 +14,7 @@ from typing import Any, Literal, Protocol, TypeVar
 
 import numpy as np
 
-from .._inference_status import InferenceStatus
+from .._inference_status import PARAMETER_STATUSES, InferenceStatus, precedent_status
 from .._typing import FloatArray
 from ..exceptions import CapabilityError
 from .bootstrap import BootstrapResult
@@ -106,24 +106,35 @@ def inference_status(
 ) -> InferenceStatus:
     """The one inference status every selected estimate declares.
 
-    A selection that mixes statuses is refused. A contrast of one inferential estimate
+    A selection that mixes fit statuses is refused. A contrast of one inferential estimate
     and one working-mechanism plug-in estimate is not inference, and inheriting the
     inferential status would launder the refused half into an interval.
+
+    A status of :data:`~cleverly._inference_status.PARAMETER_STATUSES` belongs to one
+    parameter and sits beside its fit's status. A selection that reads such a parameter
+    takes it, through :func:`~cleverly._inference_status.precedent_status`, so a contrast of
+    a constant-node risk and an ordinary one is a constant-node diagnostic.
     """
     statuses = {estimates[name].inference for name in names}
-    if len(statuses) != 1:
+    fit_level = {status for status in statuses if status not in PARAMETER_STATUSES}
+    if len(fit_level) > 1:
         raise ValueError(
             f"the selected estimates {list(names)} declare different inference statuses "
             f"{sorted(statuses)}; a contrast is inferential output or it is not"
         )
+    if len(fit_level) < len(statuses):
+        return precedent_status(statuses)
     return statuses.pop()
 
 
 def reported_status(estimates: Mapping[str, ParameterEstimate]) -> InferenceStatus:
-    """The one inference status of every estimate a report holds.
+    """The one inference status of the fit a report holds.
 
     A report with no estimate refuses nothing, so its status is ``"influence_curve"``.
-    Otherwise this is :func:`inference_status` over every estimate, which refuses a mix.
+    Otherwise this is :func:`inference_status` over every estimate, which refuses a mix of
+    fit statuses. A parameter status
+    (:data:`~cleverly._inference_status.PARAMETER_STATUSES`) is not the fit's, so it is left
+    out unless every estimate declares one.
 
     Parameters
     ----------
@@ -142,7 +153,10 @@ def reported_status(estimates: Mapping[str, ParameterEstimate]) -> InferenceStat
     """
     if not estimates:
         return "influence_curve"
-    return inference_status(estimates, tuple(estimates))
+    fitted = tuple(
+        name for name, estimate in estimates.items() if estimate.inference not in PARAMETER_STATUSES
+    )
+    return inference_status(estimates, fitted or tuple(estimates))
 
 
 def estimate_covariance(

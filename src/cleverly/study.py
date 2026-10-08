@@ -769,7 +769,8 @@ class TimeToEvent:
     :meth:`cleverly.longitudinal.LongitudinalData.from_time_to_event` states the binning
     rules and the refusals.  The estimand is a risk or a cumulative incidence at the grid
     times, as for a survival :class:`LongitudinalTreatment`.  At a grid time before which
-    no follower of a regimen had the event, the risk is zero with an interval of width zero.
+    no follower of a regimen had the event, the risk is zero and reports no interval
+    (status ``"constant_node_plugin"``).
 
     Parameters
     ----------

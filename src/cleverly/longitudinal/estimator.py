@@ -76,11 +76,12 @@ from .._inference_status import (
     NO_T_REFERENCE_BANDS,
     T_REFERENCE_NOTE,
     InferenceStatus,
+    precedent_status,
     status_record,
     supplies_inference,
 )
 from .._typing import BoolArray, CumulativeGBounds, FloatArray, Learner
-from ..exceptions import CapabilityError, LongitudinalError, PositivityWarning
+from ..exceptions import CapabilityError, DataWarning, LongitudinalError, PositivityWarning
 from ..inference.bootstrap import BootstrapResult, Resampling, run_bootstrap
 from ..inference.cluster import (
     cluster_inference_status,
@@ -156,6 +157,7 @@ from .regimen import (
 from .sequential import (
     Mechanism,
     RegimenFit,
+    constant_nodes,
     fit_mechanism,
     fit_regimen,
     node_ratios,
@@ -163,7 +165,13 @@ from .sequential import (
     preflight_terminal_outcomes,
 )
 
-__all__ = ["LTMLE", "LongitudinalConfig", "LongitudinalResult", "ltmle"]
+__all__ = [
+    "LTMLE",
+    "LongitudinalConfig",
+    "LongitudinalResult",
+    "constant_node_parameters",
+    "ltmle",
+]
 
 
 #: Stable replayability omission codes.  These values are persisted and exposed through
@@ -1774,7 +1782,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         competing = self.data.is_competing
         # The names ``to_frame`` publishes for the same numbers, through the same table.
         status = self.inference_status
-        diagnostic = not supplies_inference(status)
+        # A parameter status, such as a constant-node risk, adds the ``inference`` column too,
+        # and that row's interval columns hold NaN under the fit's inferential names.
+        diagnostic = not supplies_inference(status) or any(
+            not estimate.supplies_inference for estimate in self.estimates.values()
+        )
         std_name, low_name, high_name = (
             spread_name(name, status) for name in ("std_err", "ci_lower", "ci_upper")
         )
@@ -1826,10 +1838,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             rows["time"].append(self._time_of(int(horizon)))
             rows["psi"].append(float(psi))
             if diagnostic:
-                rows["inference"].append(status)
-            rows[std_name].append(estimate.plugin_std_error)
-            rows[low_name].append(float(low))
-            rows[high_name].append(float(high))
+                rows["inference"].append(estimate.inference)
+            withheld = supplies_inference(status) and not estimate.supplies_inference
+            rows[std_name].append(np.nan if withheld else estimate.plugin_std_error)
+            rows[low_name].append(np.nan if withheld else float(low))
+            rows[high_name].append(np.nan if withheld else float(high))
             rows["scale"].append(estimate.scale)
             rows["view"].append(scale)
         return self.data.frame_like(rows)
@@ -1914,7 +1927,16 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             a time grid adds a ``time`` column, the grid time of each parameter's horizon.
         """
         rows = [estimate.to_dict() for estimate in self.estimates.values()]
-        payload: dict[str, list[Any]] = {key: [row[key] for row in rows] for key in rows[0]}
+        # A parameter status, such as a constant-node risk, gives its row the plug-in column
+        # names and an ``inference`` column, so the frame holds the union of the columns and
+        # every row names its status.
+        keys = list(dict.fromkeys(key for row in rows for key in row))
+        for row, estimate in zip(rows, self.estimates.values(), strict=True):
+            if "inference" in keys:
+                row.setdefault("inference", estimate.inference)
+        payload: dict[str, list[Any]] = {
+            key: [row.get(key, np.nan) for row in rows] for key in keys
+        }
         if self.data.time_grid is not None and self.parameter_index:
             # A fit with a time grid reports each horizon's grid time beside its name, which
             # carries the node index.
@@ -1947,6 +1969,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         record = None if supplies_inference(status) else status_record(status)
         t_reference = has_t_reference(self.estimates)
         rows = []
+        marked: dict[str, Any] = {}
         if record is not None:
             # The whole interval column is refused, so it is not printed with a dash under
             # it: a heading would still tell a reader an interval belongs there.
@@ -1955,6 +1978,21 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             table = format_table(["parameter", "estimate", record.summary_label], rows)
         else:
             for name, estimate in self.estimates.items():
+                if not estimate.supplies_inference:
+                    # A parameter with its own status, such as a constant-node risk: the
+                    # plug-in spread is marked, and no interval or p-value is printed.
+                    marked[estimate.inference] = status_record(estimate.inference)
+                    rows.append(
+                        [
+                            name,
+                            f"{estimate.psi:.4f}",
+                            f"{estimate.plugin_std_error:.4f}*",
+                            "not reported",
+                            "not reported",
+                            *([""] if t_reference else []),
+                        ]
+                    )
+                    continue
                 low, high = estimate.ci
                 rows.append(
                     [
@@ -2010,6 +2048,17 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             table,
             # The refusal's own reason, as ``TMLEResult.summary`` prints it.
             *(["", record.summary_note()] if record is not None else []),
+            *(
+                line
+                for marked_record in marked.values()
+                for line in (
+                    "",
+                    "* "
+                    + marked_record.reason
+                    + f" A starred spread above is the {marked_record.summary_label}, a "
+                    "diagnostic and not a standard error.",
+                )
+            ),
             *(
                 [
                     "",
@@ -2363,7 +2412,7 @@ def _estimates(
             cluster=data.cluster,
             scale="level",
             alpha=alpha_sig,
-            inference=inference,
+            inference=_parameter_status(inference, fit),
             reference_df=reference_df,
         )
     for fit in fits.values():
@@ -2385,10 +2434,63 @@ def _estimates(
             cluster=data.cluster,
             scale="difference",
             alpha=alpha_sig,
-            inference=inference,
+            inference=_parameter_status(inference, fit, base),
             reference_df=reference_df,
         )
     return _Reported(estimates=estimates, index=index, contributors=contributors)
+
+
+def _parameter_status(inference: InferenceStatus, *read: RegimenFit) -> InferenceStatus:
+    """The status of a parameter that reads ``read``: the fit's, or the constant-node one.
+
+    A fit with a node regression read as a constant 0 or 1 (:func:`constant_nodes`) has an
+    identically zero curve term at that node, so its plug-in standard error leaves that
+    node's variance out.  The parameter, and a contrast that reads it, take
+    ``"constant_node_plugin"``.  A fit status that withholds inference already, such as
+    ``"few_cluster_plugin"``, comes first in the table and so stays.
+    """
+    if any(constant_nodes(fit) for fit in read):
+        return precedent_status((inference, "constant_node_plugin"))
+    return inference
+
+
+def _warn_constant_nodes(estimates: Mapping[str, ParameterEstimate]) -> None:
+    """Warn once per fit, naming every parameter that takes the constant-node status."""
+    names = [
+        name for name, estimate in estimates.items() if estimate.inference == "constant_node_plugin"
+    ]
+    if not names:
+        return
+    warnings.warn(
+        f"{len(names)} reported parameter(s) read a node regression as a constant 0 or 1, "
+        f"such as a grid node with no event among a regimen's followers: {names}. Their "
+        "point estimates stand, but each node's term of the influence curve is zero, so "
+        "they report no interval or p-value (status 'constant_node_plugin'), and the "
+        "band leaves them out. Report horizons at which every regimen's followers have an "
+        "event, or declare a coarser grid, for intervals there",
+        DataWarning,
+        stacklevel=3,
+    )
+
+
+def constant_node_parameters(result: LongitudinalResult) -> tuple[str, ...]:
+    """The reported parameters that take the ``"constant_node_plugin"`` status.
+
+    Parameters
+    ----------
+    result : LongitudinalResult
+        A fitted longitudinal result.
+
+    Returns
+    -------
+    tuple of str
+        The parameter names, in report order.
+    """
+    return tuple(
+        name
+        for name, estimate in result.estimates.items()
+        if estimate.inference == "constant_node_plugin"
+    )
 
 
 def _msm_estimates(
@@ -2998,6 +3100,7 @@ class LTMLE:
                 else _msm_estimates(prepared, msm_fits, alpha_sig=self.alpha_sig, inference=status)
             )
         estimates = reported.estimates
+        _warn_constant_nodes(estimates)
         with phase("inference"):
             bands = self._bands(estimates, prepared, status)
         result = LongitudinalResult(
@@ -3253,9 +3356,14 @@ class LTMLE:
         with few clusters.  :meth:`LongitudinalResult.summary` states the omission.
         ``status`` is the one the fit stamped on ``estimates``.
         """
-        if not self.simultaneous or len(estimates) < 2:
-            return None
         if not supplies_inference(status):
+            return None
+        # A parameter with its own non-inferential status, such as a constant-node risk,
+        # stays out of the band, which is then a joint statement over the others.
+        estimates = {
+            name: estimate for name, estimate in estimates.items() if estimate.supplies_inference
+        }
+        if not self.simultaneous or len(estimates) < 2:
             return None
         # No source gives a t-calibrated joint band, so a fit whose estimates carry a
         # Student t reference builds none either, and the summary says so.

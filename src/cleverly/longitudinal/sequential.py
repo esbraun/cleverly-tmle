@@ -508,6 +508,10 @@ class SequentialStep:
     fluctuation: Fluctuation
     #: Super Learner diagnostics retained from the regression that produced ``initial``.
     learner_diagnostics: tuple[SuperLearnerDiagnostics, ...] = ()
+    #: On a cross-fitted fit, the one-based outer folds whose training rows held one target
+    #: value, 0 or 1, at this node.  Each such fold's regression is
+    #: that value (:func:`constant_target`), and the nuisance report records the folds.
+    constant_folds: tuple[int, ...] = ()
     #: What the node regression was fitted to, where that is not ``pseudo_outcome``.  On a
     #: cross-fitted fit each fold regresses its own *untargeted* recursion, so row ``i``
     #: holds the target that row ``i``'s held-out fold composed from that fold's untargeted
@@ -1648,6 +1652,35 @@ def _pseudo_outcome(
     return carried
 
 
+def constant_nodes(fit: RegimenFit) -> tuple[int, ...]:
+    """The nodes of ``fit`` whose regression read a constant 0 or 1 over the whole sample.
+
+    The target is the one the regression was fitted to: the untargeted recursion's on a
+    cross-fitted fit, else the pseudo-outcome.  A non-empty answer gives every parameter
+    that reads ``fit`` the ``"constant_node_plugin"`` status, because each such node's term
+    of the influence curve is identically zero.
+
+    Parameters
+    ----------
+    fit : RegimenFit
+        One regimen's fit at one cause and horizon.
+
+    Returns
+    -------
+    tuple of int
+        The one-based nodes, in time order.
+    """
+    return tuple(
+        step.time
+        for step in fit.steps
+        if constant_target(
+            step.pseudo_outcome if step.regression_target is None else step.regression_target,
+            step.trained_on,
+        )
+        is not None
+    )
+
+
 def constant_target(target: FloatArray, fitted_on: BoolArray) -> float | None:
     """``0.0`` or ``1.0`` when ``target`` holds that one value on ``fitted_on``, else ``None``.
 
@@ -1857,7 +1890,11 @@ def fit_regimen(
 
 
 def _targeted_step(
-    node: NodeInputs, fluctuation: Fluctuation, *, regression_target: FloatArray | None
+    node: NodeInputs,
+    fluctuation: Fluctuation,
+    *,
+    regression_target: FloatArray | None,
+    constant_folds: tuple[int, ...] = (),
 ) -> SequentialStep:
     """One retained step from a node's inputs and its solved fluctuation.
 
@@ -1884,6 +1921,7 @@ def _targeted_step(
         marginal=marginal,
         targeted_by_arm=by_arm,
         initial_by_arm=node.initial_by_arm,
+        constant_folds=constant_folds,
     )
 
 
@@ -1924,17 +1962,21 @@ class StitchedInitial:
         At each policy node, row ``i``'s ``(K_t,)`` per-arm predictions from the fold that
         held row ``i`` out.  ``initial`` at that node is the observed-arm column of it.
         Empty on a plan without a policy node.
+    constant_folds : dict of int to tuple of int
+        By node, the one-based outer folds whose training rows held one target value, 0 or
+        1, so that the fold's regression is that value.  A node with no such fold is absent.
     """
 
     initial: dict[int, FloatArray]
     regression_target: dict[int, FloatArray]
     diagnostics: dict[int, tuple[SuperLearnerDiagnostics, ...]]
     initial_by_arm: dict[int, FloatArray] = field(default_factory=dict)
+    constant_folds: dict[int, tuple[int, ...]] = field(default_factory=dict)
 
 
 _FoldOutputs = dict[
     int,
-    tuple[FloatArray, FloatArray, tuple[SuperLearnerDiagnostics, ...], FloatArray | None],
+    tuple[FloatArray, FloatArray, tuple[SuperLearnerDiagnostics, ...], FloatArray | None, bool],
 ]
 
 
@@ -1980,6 +2022,7 @@ def _untargeted_recursion_in_fold(
             node.pseudo_outcome[test],
             node.learner_diagnostics,
             None if node.initial_by_arm is None else node.initial_by_arm[test],
+            constant_target(node.pseudo_outcome, node.fitted_on) is not None,
         )
         # The fold's *untargeted* prediction is what the earlier node regresses.  Steps 1-4
         # of the Section 5.2 construction carry the untargeted prediction and target only in
@@ -2081,19 +2124,25 @@ def untargeted_fold_recursions(
             for time in nodes
             if cell.plan.is_policy_node(time)
         }
-        for test, outputs, _ in outcomes:
-            for time, (held_out, target, fold_diagnostics, arms) in outputs[position].items():
+        constant_folds: dict[int, list[int]] = {}
+        for fold, (test, outputs, _) in enumerate(outcomes):
+            for time, (held_out, target, fold_diagnostics, arms, constant) in outputs[
+                position
+            ].items():
                 initial[time][test] = held_out
                 regression_target[time][test] = target
                 diagnostics[time].extend(fold_diagnostics)
                 if arms is not None:
                     by_arm[time][test] = arms
+                if constant:
+                    constant_folds.setdefault(time, []).append(fold + 1)
         stitched.append(
             StitchedInitial(
                 initial=initial,
                 regression_target=regression_target,
                 diagnostics={time: tuple(values) for time, values in diagnostics.items()},
                 initial_by_arm=by_arm,
+                constant_folds={time: tuple(folds) for time, folds in constant_folds.items()},
             )
         )
     return stitched
@@ -2290,7 +2339,12 @@ def _pooled_targeting(
                 tol=tol,
                 arms=node.initial_by_arm,
             )
-        step = _targeted_step(node, fluctuation, regression_target=stitched.regression_target[time])
+        step = _targeted_step(
+            node,
+            fluctuation,
+            regression_target=stitched.regression_target[time],
+            constant_folds=stitched.constant_folds.get(time, ()),
+        )
         steps.append(step)
         carried = np.where(node.at_risk, step.value, _FILLER)
     steps.reverse()

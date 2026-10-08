@@ -20,6 +20,7 @@ from cleverly.datasets import (
 from cleverly.exceptions import DataError, PositivityWarning
 from cleverly.longitudinal import LTMLE, DynamicRegimen, LongitudinalResult
 from cleverly.longitudinal.estimator import _level_head
+from cleverly.validation.longitudinal import LONGITUDINAL_CONSTANT_TARGET_IN_FOLD
 
 #: Fast-tier settings: parametric nuisances, few folds, seeded.  The mechanism of
 #: ``make_longitudinal`` is logistic-linear in the recorded history, so ``glm`` estimates
@@ -1750,6 +1751,35 @@ class TestCompetingRisks:
         assert crossed.folds.n_folds == 2
         assert len(single.estimates) == len(crossed.estimates) == 4
         assert all(np.isfinite(crossed.psi(name)) for name in crossed)
+        # The witness: the nuisance report names every fold that read a constant, so a seed
+        # that stopped exercising the path would fail here rather than pass unnoticed.
+        assert self._in_fold_reads(crossed), "no training fold read a constant regression"
+        assert not self._in_fold_reads(single)
+
+    @staticmethod
+    def _in_fold_reads(result: LongitudinalResult) -> list[tuple[str, int, tuple[int, ...]]]:
+        return [
+            (str(row.cause), int(row.time), row.folds)
+            for row in result.diagnostics.nuisance_models().omissions
+            if row.reason == LONGITUDINAL_CONSTANT_TARGET_IN_FOLD
+        ]
+
+    def test_removing_the_in_fold_reading_leaves_no_omission(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutation control: the omission rows come from the in-fold reading and nothing else."""
+        from cleverly.longitudinal import sequential
+
+        monkeypatch.setattr(sequential, "constant_target", lambda target, fitted_on: None)
+        frame, _ = make_longitudinal_competing(n=220, seed=41)
+        settings = {**FAST, "random_state": 17, "n_folds": 2}
+        crossed = LTMLE({"always": 1}, reference="always", **settings).fit(
+            frame,
+            outcome={"relapse": ["R1", "R2"], "death": ["D1", "D2"]},
+            **self.COMPETING_COLUMNS,
+        )
+        assert crossed.folds.n_folds == 2
+        assert not self._in_fold_reads(crossed)
 
     def test_recovers_the_truth_on_average(self) -> None:
         """Averaged over independent samples, every incidence lands on its quadrature truth.

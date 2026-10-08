@@ -525,15 +525,39 @@ applies to every outcome and pseudo-outcome node, on both layouts.
 
 | case | result |
 | --- | --- |
-| no follower had the event at every node through the horizon | risk zero, a zero influence curve, and an interval of width zero |
+| no follower had the event at every node through the horizon | risk zero and a zero influence curve. The parameter takes the `constant_node_plugin` status, so it reports no interval or p-value |
+| a node of the recursion read a constant, at a horizon with events at other nodes | the point estimate stands. The node's term of the influence curve is zero, so the parameter takes the `constant_node_plugin` status too |
 | the followers of one outer training fold all hold 0, or all hold 1 | that fold's regression is the value. The pooled fluctuation then bounds its predictions as it does any prediction |
 | `msm=` with a cell whose followers all hold 0, or all hold 1 | `CapabilityError`. The pooled logistic fluctuation would move the value into its bounds |
 | a pseudo-outcome that holds one value inside $(0, 1)$, such as an intercept-only regression carried back | not read by this rule. The learner fits it and the fluctuation moves it, so a fit that ran before the rule keeps its numbers |
 
+A node's term of the influence curve is identically zero when the node reads a constant. The
+true hazard there can still be positive, so the plug-in standard error leaves that node's variance
+out. A risk of zero would report a standard error of zero, and a contrast against it would carry
+the other arm's variance only. Each parameter whose recursion reads such a node therefore takes
+the `constant_node_plugin` status
+([inference status](inference.md#inference-status)). The other parameters of the fit keep
+theirs.
+
+| output | what it shows |
+| --- | --- |
+| the fit | one `DataWarning` that names every such parameter |
+| `summary()` | the estimate and a starred plug-in spread, with "not reported" for the interval and the p-value, and the reason under the table |
+| `curve()` and `to_frame()` | the status in the `inference` column, and no interval |
+| a contrast, `rmst()` and `rmtl()` | the status, when they read such a parameter |
+| the simultaneous band | the other parameters only |
+
+[F29](../roadmap.md#f29-inference-at-a-boundary-node-estimate) owns an interval at such a node.
 The nuisance report shows `LONGITUDINAL_CONSTANT_TARGET` in place of the node's row, with the
-regimen, the cause and the horizon. `tests/unit/test_event_free_node.py` checks the zero risk, the
-omission rows and the absent learner fits. Its mutation removes the rule and sees the bounded
-fluctuation move the risk off zero.
+regimen, the cause and the horizon. A cross-fitted training fold that reads a constant while the
+sample does not adds `LONGITUDINAL_CONSTANT_TARGET_IN_FOLD`, which names the folds, and the node's
+row stays.
+
+`tests/unit/test_event_free_node.py` checks the zero risk, the status of each flagged parameter,
+the omission rows and the absent learner fits. One mutation removes the rule and sees the bounded
+fluctuation move the risk off zero. Another removes the status and sees the interval $[0, 0]$
+return. `tests/e2e/test_ltmle.py` checks the fold-level omission, and its mutation removes the
+in-fold reading and sees the omission go.
 
 ## Functionals of a fitted result
 
