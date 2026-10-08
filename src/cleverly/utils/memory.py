@@ -8,6 +8,7 @@ answer there is ``None``, and a caller that guards an allocation then skips its 
 from __future__ import annotations
 
 import os
+import sys
 
 __all__ = ["available_memory"]
 
@@ -20,7 +21,7 @@ def available_memory() -> int | None:
     int or None
         The available bytes, or ``None`` on a platform that does not report them.
     """
-    if os.name == "nt":
+    if sys.platform == "win32":
         import ctypes
 
         class _Status(ctypes.Structure):
@@ -38,7 +39,7 @@ def available_memory() -> int | None:
 
         status = _Status()
         status.dwLength = ctypes.sizeof(_Status)
-        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):  # type: ignore[attr-defined]
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
             return None
         return int(status.ullAvailPhys)
     try:
