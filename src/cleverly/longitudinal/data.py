@@ -673,8 +673,10 @@ class LongitudinalData:
 
         A grid time before which no follower of a regimen had the event is not refused.
         The regression of such a node is zero, its maximum-likelihood hazard, so the risk
-        there is zero with an interval of width zero.  Declare ``horizons=`` at grid times
-        where each arm has events, or a coarser grid, to report only informative times.
+        there is zero.  That risk, and every contrast that reads it, takes the
+        ``"constant_node_plugin"`` status: it reports no interval or p-value, the fit warns,
+        and ``summary()`` marks the row.  Declare ``horizons=`` at grid times where each
+        arm has events, or a coarser grid, for intervals at every reported time.
 
         Parameters
         ----------

@@ -4,7 +4,9 @@ An estimate declares one :data:`InferenceStatus`. ``"influence_curve"`` is the o
 case: the package supplies ``std_error``, ``ci`` and ``pvalue``. Every other status names a
 reason the package supplies none, and :data:`NON_INFERENTIAL` holds that reason with every
 text a report prints for it. A consumer reads the table and never branches on a status
-name, so a new status is one new entry here and one new member of the Literal.
+name, so a new status is one new entry here and one new member of the Literal. The one
+exception is the estimator that stamps a parameter status
+(:data:`PARAMETER_STATUSES`), which names it through :data:`CONSTANT_NODE_STATUS`.
 
 A leaf module. It imports the standard library only, as :mod:`cleverly._typing` does, so
 :mod:`cleverly.exceptions`, which the rest of the package imports, can read the table at
@@ -19,6 +21,7 @@ from types import MappingProxyType
 from typing import Final, Literal, cast
 
 __all__ = [
+    "CONSTANT_NODE_STATUS",
     "FEW_CLUSTER_THRESHOLD",
     "HELD_OUT_SCALE",
     "MINIMUM_INTERVAL_CLUSTERS",
@@ -26,6 +29,7 @@ __all__ = [
     "NON_INFERENTIAL",
     "NO_SIMULTANEOUS_BANDS",
     "NO_T_REFERENCE_BANDS",
+    "PARAMETER_STATUSES",
     "T_REFERENCE_BOOTSTRAP_NOTE",
     "T_REFERENCE_NOTE",
     "InferenceStatus",
@@ -45,6 +49,7 @@ InferenceStatus = Literal[
     "generated_design_plugin",
     "estimated_weight_plugin",
     "few_cluster_plugin",
+    "constant_node_plugin",
 ]
 
 # Below this many clusters with positive weight mass, in the fit or in the stratum an
@@ -285,8 +290,48 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             diagnostic_noun="few-cluster plug-in diagnostic",
             reopened_by="F28",
         ),
+        "constant_node_plugin": StatusRecord(
+            reason=(
+                "A longitudinal parameter reports no confidence interval, no p-value and no "
+                "standard error when a node regression of its recursion read a constant "
+                "target, such as a grid node at which no follower of the regimen had the "
+                "event. That regression is its maximum-likelihood value, 0 or 1, so the "
+                "point estimate stands. The node's term of the influence curve is then "
+                "identically zero, although the true hazard there can be positive, so the "
+                "plug-in standard error leaves that node's variance out. A contrast or a "
+                "restricted mean that reads such a parameter takes this status too, and the "
+                "simultaneous band leaves it out. The plug-in standard error remains as a "
+                "diagnostic under "
+                "plugin_std_error and plugin_interval. F31 in docs/roadmap.md reopens this "
+                "when a result supplies an interval at a boundary node estimate."
+            ),
+            assessment_note=(
+                "the reported curve is a constant-node diagnostic: no confidence interval or "
+                "p-value is available for a parameter whose recursion read a constant node "
+                "regression, and F31 in the roadmap is the condition that reopens it"
+            ),
+            summary_label="constant-node se",
+            bootstrap_note=(
+                "a diagnostic; a resample can hold an event at the node that the sample "
+                "lacks, and no result validates the bootstrap coverage at a boundary node"
+            ),
+            diagnostic_noun="constant-node plug-in diagnostic",
+            reopened_by="F31",
+        ),
     }
 )
+
+
+#: The status of a longitudinal parameter whose recursion read a node regression as a
+#: constant 0 or 1. The estimator stamps it by name, so the name lives here once.
+CONSTANT_NODE_STATUS: Final = "constant_node_plugin"
+
+#: The statuses one parameter takes beside the status of its fit. Every other status holds
+#: for the whole fit. :data:`CONSTANT_NODE_STATUS` marks a longitudinal parameter whose
+#: recursion read a constant node regression, and the other parameters of that fit keep their
+#: status. A derived estimate that reads such a parameter takes it too. A reader therefore
+#: asks each estimate's ``supplies_inference``, and never the fit's status alone.
+PARAMETER_STATUSES: Final[frozenset[str]] = frozenset({CONSTANT_NODE_STATUS})
 
 
 def supplies_inference(status: str) -> bool:

@@ -81,8 +81,12 @@ trial = CausalStudy(
 )
 ```
 
-- Every method divides by the declared probabilities and fits no treatment learner. The estimate
-  is then consistent for any outcome learner, and the interval is not conservative.
+- Every method divides by the declared probabilities and fits no treatment learner. On complete
+  data, the estimate is then consistent for any outcome learner, and the interval is not
+  conservative. With missing outcomes, the fit still estimates the missingness mechanism, and the
+  outcome learner must also be consistent.
+  [Known treatment mechanism](../technical-reference/point-treatment-tmle.md#known-treatment-mechanism)
+  gives each case.
 - The probability columns are not adjustment variables, and they can depend on the adjustment
   set, as a stratified allocation does.
 - `CollaborativeTMLEMethod` is unavailable on such a design, because there is no mechanism to

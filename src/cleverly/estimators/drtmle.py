@@ -144,7 +144,10 @@ from typing import Any, cast
 
 from .._inference_status import InferenceStatus, precedent_status
 from ..data.causal_data import CausalData
-from ..data.known_mechanism import KNOWN_EVALUATION_REFUSAL
+from ..data.known_mechanism import (
+    KNOWN_EVALUATION_REFUSAL,
+    KNOWN_MISSING_OUTCOME_BOOTSTRAP_REFUSAL,
+)
 from ..exceptions import CapabilityError
 from ..learners.crossfit import Folds
 from ..learners.library import _validate_learner
@@ -405,7 +408,11 @@ class DRTMLE(TMLE):
         To use known probabilities instead, declare them on the data with
         ``treatment_probabilities=`` in :meth:`~cleverly.TMLE.fit` or
         :meth:`~cleverly.data.CausalData.from_frame`; the fit then reads the declaration in
-        place of the treatment learner, at every ``delta=`` setting.  Without either, a
+        place of the treatment learner, at every ``delta=`` setting.  The declaration
+        supplies the treatment mechanism only: the observation mechanism is still estimated,
+        so with a wrong outcome regression the interval of this construction is not
+        established (the remainder is linear in the observation mechanism's error), and a
+        guarded fit refuses ``n_bootstrap=``.  Without either, a
         guarded fit with ``delta=`` is observational and takes the composite-indicator
         construction.  A declared missing treatment refuses both, because the randomized
         construction observes the treatment on every row.
@@ -1158,6 +1165,8 @@ class DRTMLE(TMLE):
                 "(CrossFitting(enabled=False) on DRTMLEMethod)"
             )
         if route == "randomized_missing_outcome" and self.guard:
+            if data.known_treatment is not None and self.n_bootstrap:
+                raise CapabilityError(KNOWN_MISSING_OUTCOME_BOOTSTRAP_REFUSAL)
             if data.is_weighted:
                 raise CapabilityError(
                     "missing-outcome DRTMLE is not certified for a weight-tilted target law; "

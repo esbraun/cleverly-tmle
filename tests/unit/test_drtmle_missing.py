@@ -638,22 +638,19 @@ def test_invalid_three_arm_known_probabilities_are_refused(probabilities, messag
         )
 
 
-@pytest.mark.parametrize("guard", [("Q", "g"), ()], ids=["guarded", "unguarded"])
 @ARMS
-def test_bootstrapping_known_probabilities_reads_each_replicates_rows(
-    arms: int, guard: tuple[str, ...]
-) -> None:
+def test_bootstrapping_known_probabilities_reads_each_replicates_rows(arms: int) -> None:
     """The mechanism is carried on the data, so a replicate reads the rows it drew.
 
-    The bootstrap refusal once kept a row-aligned array from meeting a resample it could
-    not follow.  The declaration now lives on :class:`~cleverly.data.CausalData`, and
-    ``subset`` indexes it with the rows.  ``_FailIfFit`` is the witness that no replicate
-    fell back to the treatment learner: ``run_bootstrap`` keeps a failed replicate as a
-    failure, so ``n_failed == 0`` says every replicate divided by the declaration.
+    At ``guard=()`` the fit is the ordinary missing-outcome TMLE, whose remainder is a
+    product.  The declaration lives on :class:`~cleverly.data.CausalData`, and ``subset``
+    indexes it with the rows.  ``_FailIfFit`` is the witness that no replicate fell back to
+    the treatment learner: ``run_bootstrap`` keeps a failed replicate as a failure, so
+    ``n_failed == 0`` says every replicate divided by the declaration.
     """
     frame = _with_arms(_trial(100), arms)
     result = (
-        _estimator(guard=guard, n_bootstrap=5, estimands=("ate",), treatment_learner=_FailIfFit())
+        _estimator(guard=(), n_bootstrap=5, estimands=("ate",), treatment_learner=_FailIfFit())
         .fit(
             frame,
             outcome="Y",
@@ -667,6 +664,37 @@ def test_bootstrapping_known_probabilities_reads_each_replicates_rows(
     assert result.bootstrap is not None
     assert result.bootstrap.n_failed == 0
     assert result.config.treatment_mechanism == "known"
+
+
+@ARMS
+def test_bootstrapping_the_randomized_route_on_declared_data_is_refused(arms: int) -> None:
+    """A guarded fit with ``delta=`` on declared data runs the randomized construction.
+
+    The declaration supplies ``g_A`` only.  With a wrong outcome regression the remainder is
+    linear in the observation mechanism's error, and a resample refits the same estimator,
+    so the refusal names the reason and the two remedies before any learner runs.
+    """
+    with pytest.raises(CapabilityError, match="n_bootstrap= is not combined with delta="):
+        _estimator(
+            guard=("Q", "g"), n_bootstrap=5, estimands=("ate",), treatment_learner=_FailIfFit()
+        ).fit(
+            _with_arms(_trial(100), arms),
+            outcome="Y",
+            treatment="A",
+            covariates=["W1", "W2"],
+            delta="Delta",
+            treatment_probabilities=_uniform(100, arms),
+        )
+    # The control: the same call without the bootstrap fits.
+    fitted = _estimator(guard=("Q", "g"), estimands=("ate",), treatment_learner=_FailIfFit()).fit(
+        _with_arms(_trial(100), arms),
+        outcome="Y",
+        treatment="A",
+        covariates=["W1", "W2"],
+        delta="Delta",
+        treatment_probabilities=_uniform(100, arms),
+    )
+    assert fitted.single().config.treatment_mechanism == "known"
 
 
 def test_known_probabilities_configure_an_unguarded_plain_tmle() -> None:

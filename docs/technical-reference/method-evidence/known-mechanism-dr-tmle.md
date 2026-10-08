@@ -6,7 +6,7 @@ $g = g_0$ of the theorem's hypothesis holds by declaration. The section
 [a known treatment mechanism](../dr-tmle/theorem.md#a-known-treatment-mechanism) states the
 construction for each guard.
 
-This study measures the known-mechanism case only. It does not measure an estimated mechanism
+This study measures the complete-data known-mechanism case only. It does not measure an estimated mechanism
 with one wrong nuisance.
 
 ## What was compared
@@ -156,7 +156,8 @@ the committed results and checked at the precision printed.
 | limit | what it means for use |
 | --- | --- |
 | a declared mechanism only | the study does not measure `DRTMLE` with an estimated mechanism. With one wrong nuisance and an estimated mechanism, the interval is not established here |
-| complete data, in sample, with the univariate reduction | the cross-fitted, nested, bivariate and missing-data paths have exact-law evidence only |
+| complete data, in sample, with the univariate reduction | the cross-fitted, nested and bivariate paths have exact-law evidence only |
+| no missing-outcome path | with `delta=`, the fit still estimates the observation mechanism. With a wrong outcome regression, the interval of that route is not established, because its remainder is linear in the observation mechanism's error. This is a gap in the theory, not in the evidence. See [a known treatment mechanism](../dr-tmle/theorem.md#a-known-treatment-mechanism) |
 | one wrong outcome regression | a flexible outcome learner has fast-tier evidence only |
 
 ## Reproduction

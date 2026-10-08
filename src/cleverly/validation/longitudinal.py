@@ -46,6 +46,7 @@ __all__ = [
     "LONGITUDINAL_CENSORING_NOT_FITTED",
     "LONGITUDINAL_CLASSIFIER_RATIO",
     "LONGITUDINAL_CONSTANT_TARGET",
+    "LONGITUDINAL_CONSTANT_TARGET_IN_FOLD",
     "LONGITUDINAL_HELD_DECISION",
     "LONGITUDINAL_KNOWN_MECHANISM",
     "LONGITUDINAL_NO_CENSORING",
@@ -71,6 +72,14 @@ LONGITUDINAL_CLASSIFIER_RATIO = "continuous node ratio estimated by classificati
 #: event, or every follower holds 1.  The node's regression is that value, so no learner ran.
 LONGITUDINAL_CONSTANT_TARGET = (
     "every follower holds the same 0 or 1 target, regression is that value"
+)
+
+#: A training fold of a cross-fitted fit held one target value, 0 or 1, at the node while the
+#: sample did not.  That fold's regression is the value, so the fold fitted no learner and
+#: its held-out rows start the pooled fluctuation there.  The node's model row stays, from the
+#: folds that did fit, and the omission names the folds.
+LONGITUDINAL_CONSTANT_TARGET_IN_FOLD = (
+    "a training fold holds the same 0 or 1 target, its regression is that value"
 )
 
 #: The node is an identity node of a held design: it repeats the baseline decision, its
@@ -330,6 +339,9 @@ class LongitudinalNuisanceOmission:
         The cause of a competing-risk outcome role, else ``None``.
     horizon : int or None
         The horizon of a survival outcome role, else ``None``.
+    folds : tuple of int
+        The one-based outer folds the omission applies to, for a fold-level reason. Empty
+        otherwise.
     """
 
     role: str
@@ -338,6 +350,7 @@ class LongitudinalNuisanceOmission:
     regimen: str | None = None
     cause: str | None = None
     horizon: int | None = None
+    folds: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -853,6 +866,18 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
                     )
                 )
                 continue
+            if step.constant_folds:
+                omissions.append(
+                    LongitudinalNuisanceOmission(
+                        role,
+                        step.time,
+                        LONGITUDINAL_CONSTANT_TARGET_IN_FOLD,
+                        regimen=fit.regimen.label,
+                        cause=fit.cause,
+                        horizon=fit.horizon if result.data.is_survival else None,
+                        folds=step.constant_folds,
+                    )
+                )
             report = (
                 _binary_report(
                     name,

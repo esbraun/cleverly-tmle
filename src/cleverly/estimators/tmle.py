@@ -1142,9 +1142,11 @@ class TMLE:
             then divides by it in place of an estimate and fits no treatment learner.  The
             preferred form maps each level to the frame column that holds its probability,
             ``{"active": "p_active", "placebo": "p_placebo"}``; the array forms of
-            :meth:`~cleverly.data.CausalData.from_frame` are read too.  With a known
-            mechanism the estimator is consistent for any outcome learner and its interval is
-            not conservative (Moore and van der Laan 2009, Sections 2 and 5).  The declaration is
+            :meth:`~cleverly.data.CausalData.from_frame` are read too.  On complete data with
+            no ``intermediate=``, a known mechanism makes the estimator consistent for any
+            outcome learner and its interval not conservative (Moore and van der Laan 2009,
+            Sections 2 and 5).  With ``delta=`` or ``intermediate=`` the second mechanism is
+            still estimated, and the ordinary TMLE conditions apply.  The declaration is
             carried on the data, so a bootstrap replicate reads the known values of its own
             rows.  Beside a prepared :class:`~cleverly.data.CausalData` the array forms are
             attached with :meth:`~cleverly.data.CausalData.with_known_mechanism`, and a

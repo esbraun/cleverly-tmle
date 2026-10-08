@@ -48,12 +48,12 @@ ARMS: dict[str, str] = {
     "att": "average effect on the treated",
     "atc": "average effect on the untreated",
     "ey_ipsi": "incremental mean at odds multiplier 2",
-    "ey0": "arm-0 mean, three arms",
-    "ey1": "arm-1 mean, three arms",
-    "ey2": "arm-2 mean, three arms",
-    "ate_1_vs_0": "difference of arm 1 and arm 0, three arms",
-    "ate_2_vs_0": "difference of arm 2 and arm 0, three arms",
-    "ate_regimen": "contrast of always against never, two-node SMART",
+    "ey0": "arm-0 mean",
+    "ey1": "arm-1 mean",
+    "ey2": "arm-2 mean",
+    "ate_1_vs_0": "difference of arm 1 and arm 0",
+    "ate_2_vs_0": "difference of arm 2 and arm 0",
+    "ate_regimen": "contrast of always against never",
     "survival_t5": "difference of arm 1 and arm 0 at visit 5, five-visit held law",
     "rmst_5": "RMST difference up to visit 5, five-visit held law",
     "competing_t4": "difference in the death incidence at visit 4, two causes",
@@ -954,12 +954,12 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
     ),
     ("known_mechanism_accuracy", "ltmle_known__q_wrong"): (
-        "LTMLE with every factor declared, outcome regressions without L1",
+        "LTMLE on a two-node SMART with every factor declared, outcome regressions without L1",
         "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
     ),
     ("known_mechanism_accuracy", "ltmle_known_treatment__censoring_estimated"): (
-        "LTMLE with the treatment declared and the censoring estimated, outcome regressions "
-        "without L1",
+        "LTMLE on a two-node SMART with the treatment declared and the censoring "
+        "estimated, outcome regressions without L1",
         "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
     ),
     ("bootstrap_coverage", "known_g__q_wrong__percentile"): (

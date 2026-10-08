@@ -124,6 +124,18 @@ rows a model saw. An `evaluation=` companion must declare the same columns. The 
 [known-mechanism DR-TMLE study](../method-evidence/known-mechanism-dr-tmle.md) pairs each guard
 with R `drtmle` (`gn=`) at a wrong outcome regression.
 
+The statements above are for complete data. With `delta=`, the declaration supplies the treatment
+mechanism `g_A` only, and the fit still estimates the observation mechanism `g_Delta`. The table
+gives what follows for the randomized missing-outcome route.
+
+| question | answer |
+| --- | --- |
+| the remainder with a wrong outcome regression | linear in the error of `g_A g_Delta`, not a product of two errors. The term sits in the step at equation (21) of the proof in Díaz and van der Laan (2017), Appendix A.1. A known `g_A` does not remove it, because `g_Delta` is estimated |
+| the measured effect | a project audit simulated a known `g_A`, a wrong outcome regression and a slowly converging `g_Delta`. Coverage fell to 0.85 at n = 16,000, and the bias grew with n |
+| when the interval is established | when the outcome regression and `g_Delta` are both consistent |
+| what a declared `g_A` alone gives | no established interval. This is a gap in the theory, not in the evidence |
+| `n_bootstrap=` | refused on a guarded fit. A full-refit bootstrap resamples the same estimator, so its range would carry the same bias |
+
 ## Randomized trials with missing outcomes
 
 For observed data `O=(W,A,Delta,Delta Y)`, write `g_A(a|W)=P(A=a|W)`,
@@ -199,7 +211,7 @@ argument in five parts. Page numbers are those of the arXiv v1 author manuscript
 | base result | Theorem 2 (p. 20) under Condition 2 (Donsker, p. 13) and Condition 3 (p. 15). It gives `n^(1/2)(psi_dtmle − psi_0) → N(0, Var D_dr)` with `D_dr` of Theorem 1 (p. 16), for one indicator `A` and the target `E(Y_1)`. Section 2.1 (p. 6) applies it to "four such indicators" in its application |
 | steps | indicator reduction: arm `a` uses `(W, 1(A=a), Delta, Delta Y)` and its own `g_A(a|W)` and `g_Delta(a,W)`. Fixed-dimension stack: the `K` arm estimators are asymptotically linear on the same rows, so their joint covariance is `P_0[D_a D_b]`. Linearity gives each `ate`, and the delta method gives `rr` and `or` on the log scale. The simultaneous band is the multiplier band over the stacked curves |
 | objection search | p. 25 rejects a composite `T = AM` reduction. The armwise construction keeps `g_A` and `g_Delta` apart, so the objection does not apply. p. 26 discusses cross-fitting, not arms. No source records the indicator reduction or the stack as open |
-| conditions | Assumptions 1 to 4 (pp. 6-7) at every arm, with positivity `g_A(a|W) g_Delta(a,W) > 0`. Randomization by design: `randomized=True`, or a declared known mechanism, which can depend on `W`. Conditions 2 and 3 for every arm, hence `cross_fit=False`. Every arm's four score equations solved to `o_P(n^(−1/2))` |
+| conditions | Assumptions 1 to 4 (pp. 6-7) at every arm, with positivity `g_A(a|W) g_Delta(a,W) > 0`. Randomization by design: `randomized=True`, or a declared known mechanism, which can depend on `W`. A declared mechanism supplies `g_A` only, so it does not establish the interval when the outcome regression is wrong ([a known treatment mechanism](#a-known-treatment-mechanism)). Conditions 2 and 3 for every arm, hence `cross_fit=False`. Every arm's four score equations solved to `o_P(n^(−1/2))` |
 | evidence | the exact-law checks, nonzero witnesses, mutation controls and independent reference of `tests/unit/test_drtmle_missing_multi_arm.py`, and the registered [multi-arm missing-outcome study](../method-evidence/randomized-multi-arm-missing-outcome-dr-tmle.md) |
 
 **No fluctuation parameter is shared across arms above two arms.** This condition is what lets

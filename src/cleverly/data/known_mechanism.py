@@ -1,10 +1,14 @@
 r"""A treatment mechanism that the design declares known.
 
 A randomized trial fixes :math:`g_0(a \mid W)` by its allocation scheme.  A fit can divide by
-that known mechanism instead of an estimate of it.  With :math:`g = g_0` the TMLE remainder
-:math:`P_0[(g - g_0)/g \cdot (\bar Q - \bar Q_0)]` is identically zero, so the estimator is
+that known mechanism instead of an estimate of it.  When every mechanism a fit divides by is
+declared (a complete-data point TMLE, or an LTMLE with every node factor declared), the
+remainder is identically zero.  For a point treatment it is
+:math:`P_0[(g - g_0)/g \cdot (\bar Q - \bar Q_0)]` at :math:`g = g_0`.  The estimator is then
 consistent for any outcome-regression limit and its influence curve is
-:math:`D^*(\bar Q_\infty, g_0)` exactly (Moore and van der Laan 2009).
+:math:`D^*(\bar Q_\infty, g_0)` exactly (Moore and van der Laan 2009).  A fit that still
+estimates a second mechanism, such as the missingness mechanism of ``delta=``, keeps the
+ordinary conditions for that mechanism and the outcome regression.
 
 The declaration lives on the **data**, not on an estimator.  Every reader that subsets or
 resamples rows (the bootstrap, a data-subset refutation) then carries the matching rows of the
@@ -43,6 +47,7 @@ __all__ = [
     "CONTINUOUS_REFUSAL",
     "KNOWN_CTMLE_REFUSAL",
     "KNOWN_EVALUATION_REFUSAL",
+    "KNOWN_MISSING_OUTCOME_BOOTSTRAP_REFUSAL",
     "KNOWN_POLICY_CLASSIFIER_REFUSAL",
     "KNOWN_SCREEN_REFUSAL",
     "KNOWN_TREATMENT_DELTA_REFUSAL",
@@ -99,6 +104,20 @@ KNOWN_EVALUATION_REFUSAL = (
     "known treatment mechanism. Declare the same treatment_probabilities columns on an "
     "evaluation frame, pass a CausalData evaluation companion that declares its own "
     "treatment_probabilities, or drop evaluation=."
+)
+
+#: A guarded ``DRTMLE`` with ``delta=`` on declared data runs the randomized missing-outcome
+#: construction.  Its interval rests on a remainder that is linear in the observation
+#: mechanism's error when the outcome regression is wrong, and a full-refit bootstrap
+#: resamples the same estimator, so its range carries the same bias.
+KNOWN_MISSING_OUTCOME_BOOTSTRAP_REFUSAL = (
+    "n_bootstrap= is not combined with delta= on data that declares its treatment mechanism. "
+    "The declaration supplies the treatment mechanism only; the observation mechanism is "
+    "still estimated, and with a wrong outcome regression the remainder of the randomized "
+    "missing-outcome construction is linear in its error (Diaz and van der Laan 2017, the "
+    "step at equation (21) of Appendix A.1). A full-refit bootstrap resamples the same "
+    "estimator, so its range would carry that bias. Drop n_bootstrap=, or fit guard=() for "
+    "the ordinary missing-outcome TMLE, whose remainder is a product."
 )
 
 
