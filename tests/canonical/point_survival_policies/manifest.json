@@ -1,0 +1,136 @@
+{
+  "schema_version": 2,
+  "study": "policies at a held baseline treatment",
+  "slug": "point-treatment-survival-policies",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-held-policy-ltmle",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "b06a42a8ffd7eac08233c676d880ef424f9777b0",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": {
+      "implementation": "lmtp",
+      "lmtp_version": "1.5.4",
+      "lmtp_source_commit": "f04a2b47f46debc515ce4ae778e05ebfde922c44",
+      "lmtp_tarball_sha256": "fd49d9f291d4ddabb78c36d152b25aaa234a7204b645b9921f998c152e3d2ba5",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_construction": "lmtp cf_tmle and theta_dr with trt of length K: K copied treatment columns with the shifted value at the first and the observed value after it (the identity policy at t >= 2), K event and censoring nodes, the shifted first treatment of four copies (policy) or one copy (MTP, natural course), and the law's own per-node density ratio written beside the replicate data",
+      "reference_adapter": "tests/canonical/lmtp_held_survival_adapter.R",
+      "pairing": "read under the default margins; the fluctuations differ by construction"
+    }
+  },
+  "configuration": {
+    "replicates": 1600,
+    "n": 2000,
+    "seed": 20261062,
+    "resampling_seed": 2026106201,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "policy": [
+        "risk_regimen[natural course @ t=1]",
+        "risk_regimen[natural course @ t=3]",
+        "risk_regimen[natural course @ t=5]",
+        "risk_regimen[baseline policy @ t=1]",
+        "risk_regimen[baseline policy @ t=3]",
+        "risk_regimen[baseline policy @ t=5]",
+        "ate_regimen[baseline policy vs natural course @ t=1]",
+        "ate_regimen[baseline policy vs natural course @ t=3]",
+        "ate_regimen[baseline policy vs natural course @ t=5]"
+      ],
+      "mtp": [
+        "risk_regimen[natural course @ t=1]",
+        "risk_regimen[natural course @ t=3]",
+        "risk_regimen[natural course @ t=5]",
+        "risk_regimen[baseline minus one @ t=1]",
+        "risk_regimen[baseline minus one @ t=3]",
+        "risk_regimen[baseline minus one @ t=5]",
+        "ate_regimen[baseline minus one vs natural course @ t=1]",
+        "ate_regimen[baseline minus one vs natural course @ t=3]",
+        "ate_regimen[baseline minus one vs natural course @ t=5]"
+      ]
+    },
+    "construction": "held point-treatment survival with a policy at the decision",
+    "cross_fit": false,
+    "outcome_learner": "QuasiBinomialGLM on W1, W2 and the treatment block",
+    "mechanism": "the law's own treatment and retention probabilities",
+    "copies": 4,
+    "reported_nodes": [
+      1,
+      3,
+      5
+    ],
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_point_survival_policies.py": "605cc60086022ac9648704756761d816675c150f44a0c69e070ca01676ca95bf",
+    "tests/studies/point_survival_policies_properties.py": "ee54c8b9717afcfcd4d44b039d0b008eab76bf9b4d450cc060fec568559c7803",
+    "tests/studies/point_survival_common.py": "ac7b9bb6c590ce9a2e4527e4deb789a118a01c1fa5dfcf6db6720702d43a56c5",
+    "tests/studies/canonical_point_survival.py": "7a07cd6711e412edf1864113f189df92c57ee55070d0a032e57f397841ec1df0",
+    "tests/studies/canonical_ltmle.py": "db44a0fabb57fc19f37e94b9229f1f425de28745d6b109d4d1600eb60d0678f1",
+    "tests/studies/canonical_categorical_ltmle.py": "d1ca52f08002e45c6cf1cef0f1774536fdd884c6678eeea223bd4f8dcc189c19",
+    "tests/studies/categorical_longitudinal_common.py": "b0af1c6a12476e7c73d1a8c0776b635d7a2799c7e8d4ed5796ef75e869f1ec23",
+    "tests/discrete_law_longitudinal.py": "acc9eaaf056050dae69e7bdbe203797e0dc6fe2502423c15369f69dbcc41d59c",
+    "tests/discrete_law_longitudinal_multivalue.py": "cfa103e239b345376cab2f2cd5d1dc43fee365893d6885c1a2a9ea0f5f4cac79",
+    "tests/studies/fractional_glm.py": "2d05af8d7c02787d8375da1d1918e9e8e69e86ced312a90c73facf0f122b5da9",
+    "src/cleverly/datasets/survival_point.py": "240a9cca9c37f965968cbd1e54267d9eddcff41a6134682ef2303de9e9cafd95",
+    "tests/studies/evidence/comparison.py": "653c091f0c1cd240b41e4ed7026da8f67c0feda58404e7c27e80eabab38a2217",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
+    "tests/studies/evidence/property_verdicts.py": "3de1ed905e0e940351fade806d3ac0b759bcce823418aa46ddd5fc2df4ada31c",
+    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
+    "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+    "tests/canonical/lmtp_crossfit_adapter.R": "6ea0d48d3143222f0342ea49fde84affa0740ba668fbdb874f5f0919d31e97b6",
+    "tests/canonical/lmtp_policy_adapter.R": "3af33ae0bb1c1731779d84714651f8b4679889d1bf3cfcfbe8e94a5f20f358e0",
+    "tests/canonical/lmtp_held_survival_adapter.R": "c990f58bf514e3c8aaf2d7acbac8a997a7821f02e6544abd89ba3f61d8054e51",
+    "tests/canonical/point_survival_policies_runner.R": "70f6d1481b81d9318734ed9e5a6784b0aa52cfde69812d7519e6f88e53219250",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "reference_sha256": {
+    "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+    "tests/canonical/point_survival_policies_runner.R": "70f6d1481b81d9318734ed9e5a6784b0aa52cfde69812d7519e6f88e53219250",
+    "tests/canonical/lmtp_held_survival_adapter.R": "c990f58bf514e3c8aaf2d7acbac8a997a7821f02e6544abd89ba3f61d8054e51",
+    "tests/canonical/lmtp_policy_adapter.R": "3af33ae0bb1c1731779d84714651f8b4679889d1bf3cfcfbe8e94a5f20f358e0",
+    "tests/canonical/lmtp_crossfit_adapter.R": "6ea0d48d3143222f0342ea49fde84affa0740ba668fbdb874f5f0919d31e97b6",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "sha256": {
+    "replicates.csv.gz": "baac5c39e094775e48091d0e63bf81cb51b4cc8c32044ad78efb739b971cb73b",
+    "summary.csv": "13d63d9a5287623205a1e9a9d8842cdd4f2cb0c439507e167e59a36fe12f9b2a",
+    "equivalence.csv": "e27d6d2fcf97919ee7e29e527f4ccd25d3657b1025b40bd7f318386beff17207",
+    "performance-tests.csv": "0fa00bcb608eebfb6b1eb58e55959f57b3295a86f37a388c0fc5b336d63248e5",
+    "property-replicates.csv.gz": "04fded834ccdfce06cf51a54b14e1190ac0f03e192e2ce9f1e6762c9fa1deac3",
+    "properties.csv": "15db65929608a2a7f78377c40c0071520561f68e87f99c09c4d1e50d82108c0a"
+  }
+}
