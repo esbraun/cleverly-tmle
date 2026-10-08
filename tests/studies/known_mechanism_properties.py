@@ -268,8 +268,12 @@ def _payloads(budget: int | None = None) -> list[tuple[tuple[str, Any]]]:
     return [(payload,) for payload in payloads]
 
 
-def declared_cells() -> tuple[tuple[str, str, str, float], ...]:
-    """Every ``(family, cell, estimand, truth)`` the replication file carries."""
+def declared_truths() -> tuple[tuple[str, str, str, float], ...]:
+    """Every ``(family, cell, estimand, truth)`` the replication file carries.
+
+    Not named ``declared_cells``: the shared evidence tests read that name as a tuple of
+    :class:`~tests.studies.evidence.properties.PropertyCell` objects with a ``dgp``.
+    """
     cells = [(ACCURACY, cell, name, truth) for cell, (name, truth, _) in TWO_ARM_CELLS.items()]
     cells += [(ACCURACY, cell, name, truth) for cell, (name, truth) in THREE_ARM_CELLS.items()]
     cells.append((BOOTSTRAP, "ate__known_g__q_wrong__percentile", "ate", TWO_ARM["ate"]))

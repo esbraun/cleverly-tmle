@@ -558,6 +558,28 @@ class TestPublishedVerdicts:
                 f"{row.cell} publishes passed={row.passed} against its own contraction endpoint"
             )
 
+        accuracy = published.loc[published["property"] == "known_mechanism_accuracy"]
+        for row in accuracy.itertuples():
+            if row.role == "control":
+                expected = bool(row.bias_discriminated)
+            else:
+                expected = (
+                    bool(row.bias_equivalent)
+                    and row.coverage_ci_lower >= study.margins.coverage_floor
+                    and study.margins.se_ratio_sanity[0]
+                    <= row.se_ratio
+                    <= study.margins.se_ratio_sanity[1]
+                )
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own accuracy endpoints"
+            )
+        bootstrap = published.loc[published["property"] == "bootstrap_coverage"]
+        for row in bootstrap.itertuples():
+            expected = row.coverage_ci_lower >= study.margins.coverage_floor
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own coverage floor"
+            )
+
         # Unconditional over every study with calibration cells.  Guarding this block on the
         # presence of the efficiency columns left a study that publishes no exact ratio with
         # *no* reader of its calibration verdicts at all.
@@ -964,6 +986,11 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         "natural_course_identity",
         # The composite TMLE's cells: bias inside the margin, a coverage floor and an SE band.
         "ordinary_targeting",
+        # The same three endpoints on a declared mechanism; its control answers to bias
+        # discrimination.  Checked row by row below.
+        "known_mechanism_accuracy",
+        # A percentile bootstrap interval, gated on its coverage floor alone.
+        "bootstrap_coverage",
         "power",
         "repeat_stability",
         "root_n_and_efficiency",
@@ -985,7 +1012,12 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
 #: policy cannot be gated: every policy it compares but the unstratified reference is
 #: refused, so no cell establishes that any of them is valid.
 DIAGNOSTIC_PROPERTIES = frozenset(
-    {property_verdicts.FOLD_POLICY_FAMILY, "cluster_aggregation_rule", "in_sample_agreement"}
+    {
+        property_verdicts.FOLD_POLICY_FAMILY,
+        "cluster_aggregation_rule",
+        "in_sample_agreement",
+        "variance_direction",
+    }
 )
 
 

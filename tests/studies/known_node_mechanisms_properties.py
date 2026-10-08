@@ -73,8 +73,12 @@ def _replication(replicate: int) -> list[dict[str, Any]]:
     ]
 
 
-def declared_cells() -> tuple[tuple[str, str, str, float], ...]:
-    """Every ``(family, cell, estimand, truth)`` the replication file carries."""
+def declared_truths() -> tuple[tuple[str, str, str, float], ...]:
+    """Every ``(family, cell, estimand, truth)`` the replication file carries.
+
+    Not named ``declared_cells``: the shared evidence tests read that name as a tuple of
+    :class:`~tests.studies.evidence.properties.PropertyCell` objects with a ``dgp``.
+    """
     return tuple((ACCURACY, cell, ESTIMAND, TRUTH) for cell in STUDY.property_cells[ACCURACY])
 
 
