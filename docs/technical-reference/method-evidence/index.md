@@ -82,6 +82,9 @@ ordinary-survival-curve-longitudinal-tmle
 cross-fitted-survival-curve-longitudinal-tmle
 ordinary-competing-risk-longitudinal-tmle
 cross-fitted-competing-risk-longitudinal-tmle
+point-treatment-survival
+cross-fitted-point-treatment-survival
+point-treatment-survival-policies
 omitted-variable-bound-standard-error
 calibration-slope-warning
 default-simultaneous-bands

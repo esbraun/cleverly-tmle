@@ -12,12 +12,10 @@ binary ``L_t`` on the wide layout; the risks of arms 0 and 2 and the differences
 2 against arm 0 at visits 1 and 3), each at n = 2,000 with 1,600 replications.  The learners are
 the saturated cell means, which are correct on these finite laws.
 
-**A separated fit keeps its last iterate.**  ``QuasiBinomialGLM`` keeps its last iterate,
-with ``QuasiBinomialSeparationWarning``, when its coefficients diverge while its deviance
-settles by R's ``glm.control`` rule.  R's ``glm`` returns such a fit with a warning, and the
-comparator fits ``glm``.  A fit whose deviance has not settled still raises and fails the run.
-A failure-only scan of every declared primary replication, which read no estimate, found no
-such fit and no failed fit.
+**No fit here reaches the separation rule.**  The re-declaration of 2026-10-07 lets
+``QuasiBinomialGLM`` keep a separated fit, for ``point-treatment-survival``.  Every fit of this
+study uses the saturated cell means, so the rule does not reach it.  A failure-only scan of every
+declared primary replication, which read no estimate, found no failed fit.
 
 Publication policy is ``reporting``.  The red-cell route was declared before any run.
 Every red cell is diagnosed before it is routed.  A genuine defect (an algorithm
