@@ -101,7 +101,7 @@ def check(namespace: dict[str, Any]) -> None:
     # recomputes it from the structural equations as 0.024137 (MC SE 2.4e-06).
     double_odds = namespace["incremental_truth"]["ate_ipsi[odds x2 vs natural course]"]
     assert double_odds == pytest.approx(0.024137, abs=2e-5)
-    assert "positivity *for the shifted dose*" in namespace["shift_effect"].summary()
+    assert "positivity *for the assigned dose*" in namespace["shift_effect"].summary()
     assert "An upper cap alone does not ensure this for negative shifts or support gaps" in (
         namespace["shift_effect"].summary()
     )

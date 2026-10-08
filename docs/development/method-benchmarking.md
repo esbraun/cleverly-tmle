@@ -234,8 +234,9 @@ invalid schemas, non-finite estimates, or incomplete provenance. Existing studie
 Published studies retain `replicates.csv.gz`, `property-replicates.csv.gz`, `summary.csv`,
 `performance-tests.csv`, `equivalence.csv`, `properties.csv`, and a provenance- and hash-complete
 `manifest.json`. Run a disposable smoke study first, then the declared study without permitting
-failed replications or tuning margins after seeing the result. A regeneration owns its declared core budget.
-Do not run the Python and R full-core phases concurrently. Do not run the fast tests
+failed replications. The [red cells](#red-cells) section states what may change after a result.
+
+A regeneration owns its declared core budget. Do not run the Python and R full-core phases concurrently. Do not run the fast tests
 beside a study regeneration. Documentation quotes measured values through
 `tests/studies/evidence/claims.py` so tests can check them against the artifacts.
 
@@ -244,6 +245,19 @@ missingness, weights, clusters, fold repeats, learner class, truncation, interva
 unsupported estimands. Validate changes with the complete fast suite and every registered study
 whose evaluated path a result-determining change can affect. Record each selected study and its
 regeneration command in the pull request.
+
+## Red cells
+
+Diagnose every red cell before you route it. The table gives the route for each diagnosis.
+
+| diagnosis | route |
+| --- | --- |
+| a genuine problem: an algorithm defect, an inconsistent estimator, or a test or design bug that makes the cell measure the wrong thing | fix the code or the test. Then re-run under a fresh declaration commit that states what changed and why. This is allowed after a verdict |
+| no defect, such as a finite-sample limit | publish the cell red under `reporting`, with an owner row. Declare the route before the repeat run |
+
+Never game a test. A change whose effect is to make a test less meaningful or easier to pass is
+refused, before or after a verdict. Examples are moving a margin, adding replications to cross a
+bound, weakening the law, dropping or relabelling a cell, and substituting an oracle.
 
 ## What makes a study stale
 

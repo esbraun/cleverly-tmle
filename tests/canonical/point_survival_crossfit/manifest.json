@@ -1,0 +1,115 @@
+{
+  "schema_version": 2,
+  "study": "cross-fitted point-treatment survival",
+  "slug": "point-treatment-survival-crossfit",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-cross-fitted-point-survival",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "35c27d86c8029ab16e924f78bd5a39c68a1f1c41",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1600,
+    "n": 2000,
+    "seed": 20261061,
+    "resampling_seed": 2026106101,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "survival": [
+        "risk_regimen[arm0 @ t=1]",
+        "risk_regimen[arm0 @ t=3]",
+        "risk_regimen[arm0 @ t=5]",
+        "risk_regimen[arm1 @ t=1]",
+        "risk_regimen[arm1 @ t=3]",
+        "risk_regimen[arm1 @ t=5]",
+        "ate_regimen[arm1 vs arm0 @ t=1]",
+        "ate_regimen[arm1 vs arm0 @ t=3]",
+        "ate_regimen[arm1 vs arm0 @ t=5]"
+      ],
+      "three_arm": [
+        "risk_regimen[arm0 @ t=1]",
+        "risk_regimen[arm0 @ t=3]",
+        "risk_regimen[arm2 @ t=1]",
+        "risk_regimen[arm2 @ t=3]",
+        "ate_regimen[arm1 vs arm0 @ t=1]",
+        "ate_regimen[arm1 vs arm0 @ t=3]",
+        "ate_regimen[arm2 vs arm0 @ t=1]",
+        "ate_regimen[arm2 vs arm0 @ t=3]"
+      ]
+    },
+    "construction": "held point-treatment survival, pooled cross-fitted targeting",
+    "cross_fit": true,
+    "n_folds": 5,
+    "learners": "saturated cell means for every nuisance",
+    "reported_nodes": {
+      "survival": [
+        1,
+        3,
+        5
+      ],
+      "three_arm": [
+        1,
+        3
+      ]
+    },
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_point_survival_crossfit.py": "c0c2c2c0bbc01e5ddeae6762d9917b21bdeff59a5c3efa51831032e42ea26981",
+    "tests/studies/point_survival_crossfit_properties.py": "490c9b0bbd75886c6c6014316b5595b94b9b9359edc9d2d2077c70cae2409f0e",
+    "tests/studies/point_survival_properties.py": "48f8f86dec8bb34a25809b90d0c2ea5f466de31dae1e833780f2629c80c38fcc",
+    "tests/studies/canonical_point_survival.py": "7a07cd6711e412edf1864113f189df92c57ee55070d0a032e57f397841ec1df0",
+    "tests/studies/point_survival_common.py": "ac7b9bb6c590ce9a2e4527e4deb789a118a01c1fa5dfcf6db6720702d43a56c5",
+    "tests/studies/canonical_ltmle.py": "db44a0fabb57fc19f37e94b9229f1f425de28745d6b109d4d1600eb60d0678f1",
+    "tests/studies/fractional_glm.py": "2d05af8d7c02787d8375da1d1918e9e8e69e86ced312a90c73facf0f122b5da9",
+    "src/cleverly/datasets/survival_point.py": "240a9cca9c37f965968cbd1e54267d9eddcff41a6134682ef2303de9e9cafd95",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
+    "tests/studies/evidence/property_verdicts.py": "3de1ed905e0e940351fade806d3ac0b759bcce823418aa46ddd5fc2df4ada31c",
+    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
+    "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "fe342a8f28fbb31cb1add811489091783cf49a61f00315b0bf38dc665dfbfff3",
+    "summary.csv": "cfcc03456eb5fa1b64d98be19e05ee0b244e3ab31052689b8453b20835559a7a",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "bc1cc1d46b6f3e996aa843a4f1eb44a2180bcc9c7b3f5a204727ee4e54cfd0f7",
+    "property-replicates.csv.gz": "5d43cc27ff462d0e139d2619cc5b45136a0fb5b926154d682d6c72f96a3d5208",
+    "properties.csv": "9a2fcf97ea59a1461b3d8164f289c4193f45ef041f700493446875a8e2e6f051"
+  }
+}

@@ -834,7 +834,7 @@ class TMLE:
         incremental: Sequence[Incremental] | None = None,
         msm: MSM | None = None,
         learned_rule: LearnedRule | None = None,
-        density_bins: int = 20,
+        density_bins: int | None = None,
         ratio: Literal["density", "classifier"] = "density",
         reference: Any = None,
         alpha_sig: float = 0.05,
@@ -1035,7 +1035,7 @@ class TMLE:
                 "estimates a policy's ratio from a binned conditional density of the dose, and "
                 "'classifier' from a stacked classification (Diaz et al. 2023, Section 5.4)"
             )
-        if self.density_bins < 3:
+        if self.density_bins is not None and self.density_bins < 3:
             raise ValueError(
                 f"density_bins must be at least 3; got {self.density_bins}. Two bins make "
                 "the density a single hazard, which cannot describe a dose-response."

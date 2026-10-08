@@ -27,8 +27,8 @@ node, both written beside the replicate data (columns ``ratio__<plan>__<node>`` 
 ``shift__<plan>__<node>__<copy>``).  No side estimates a ratio the other does not see, so the
 paired difference measures the recursion and the fluctuation alone.  The continuous nodes read
 an oracle binned density (:class:`~tests.studies.longitudinal_mtp_common.OracleDoseHazard`,
-``DENSITY_BINS`` bins, or ``MECHANISM_ONLY_BINS`` where the outcome regressions are wrong); the
-categorical and binary nodes read a saturated multinomial.
+:func:`~tests.studies.oracle_density_bins.oracle_bins` bins, growing with ``n``); the categorical
+and binary nodes read a saturated multinomial.
 
 **Learners.**  The node regressions match the comparator's ``SL.glm``: a quasibinomial GLM at
 the last node and least squares at the first.  ``lmtp`` sees the same columns: the history, the
@@ -51,15 +51,45 @@ the merge and gets a diagnosis.
 
 **Properties.** :mod:`tests.studies.longitudinal_mtp_properties` declares every family.
 
-Publication policy is ``gated``.  The red-cell route is declared before any run: a red
-property cell that reads as a finite-sample limit is re-registered under
-``publication_policy="reporting"`` with an owner row in "Red-cell owners" before any re-run.  A
-replication that raises is never redrawn.  The shared harness refuses a cell that lost a
-replication, so a raise stops the run; the failing cell then drops to its red-cell owner with
-its failure count stated as a page limit, and the run repeats without it with no other change.
-This is the rule ``clustered-cross-fitted-ltmle``, ``cross-fitted-longitudinal-msm`` and
-``stochastic-categorical-ltmle`` declare.  No budget, margin, law, learner, fold count or seed
-changes after a verdict is seen.
+Publication policy is ``reporting`` after the re-registration below.  The red-cell route follows the rule of
+``docs/development/method-benchmarking.md``, declared before any run: every red cell is
+diagnosed first.  A genuine problem (an algorithm defect, an inconsistent estimator, or a test
+or design bug) is fixed, and the study re-runs under a fresh declaration that states the change.
+A red cell with no defect is published red under ``reporting`` with an owner row in "Red-cell
+owners", declared before the repeat run.  A replication that raises is never redrawn; the
+failing cell drops to its owner with its failure count stated as a page limit.  No change may
+make a test less meaningful or easier to pass.
+
+**Second declaration.**  The first run (HEAD ``c094fffd``, 2026-10-07) read its continuous
+nodes at a fixed 80 bins (320 where the outcome was wrong).  Its diagnosis found an inconsistent
+estimator: at a fixed bin count the binned density ratio's error in the tail bins does not
+shrink with ``n`` (on one draw, the influence curve's spread was 1.14 times the efficient one at
+n = 2,000 and 1.20 times at n = 8,000), so five calibration and cross-fit cells read red.  Under
+the red-cell rule of ``docs/development/method-benchmarking.md`` that is a defect, so it is
+fixed and the study re-runs: the package's default bin count now grows with ``n``, and this
+study's oracle bins follow :func:`~tests.studies.oracle_density_bins.oracle_bins`, which grows
+as ``n^(2/3)`` from 320 at n = 2,000 (one count for every configuration).  No first-run verdict
+is reused.  The laws, seeds, budgets, margins, learners and cells are unchanged.
+
+**Re-registration of the second run.**  The second run (HEAD ``24d960b7``) passed 44 of 44 truth
+tests, 22 of 22 paired tests and 38 of 40 property cells.  Every cell the first run lost to the
+fixed bin count passes.  Two cells read red, and the diagnosis finds no defect in either:
+
+- ``interval_calibration/categorical_mtp__correctly_specified`` (six-level law, no binned
+  density): the efficiency ratios read 1.12 and 1.10 against a band of 0.9 to 1.1, and coverage
+  0.9435 passes.  With saturated learners the ratio falls from 1.07 at n = 2,000 to 1.02 at
+  n = 8,000, so it is a finite-sample limit of the sparse six-level cells.
+- ``crossfit_overfitting/in_sample_control``: the in-sample trees report standard errors 26%
+  below the spread (SE ratio 0.741, 99% interval ending at 0.754) against a ceiling of 0.75, and
+  the paired coverage gain reads 0.116 to 0.136 against a floor of 0.15.  The gain misses at its
+  point estimate, 0.126, so the control is underpowered by design, not by budget.  The in-sample
+  trees fit every outcome exactly, so the control's standard error is the spread of the plug-in
+  at the shifted dose, and the dose model does not enter it.
+
+The cross-fitted tree arm passes its own rule, but its family's joint clause fails with the
+control, so the owner also holds it.  By the rule the study moves to ``reporting`` with the owner
+row ``mtp-longitudinal-limits``, and the run repeats with no other change; the repeat reproduced
+every artifact.
 """
 
 from __future__ import annotations
@@ -90,6 +120,7 @@ from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
 from tests.studies.fractional_glm import QuasiBinomialGLM
+from tests.studies.oracle_density_bins import oracle_bins
 
 PRIMARY_REPLICATES = 1_000
 PRIMARY_N = 2_000
@@ -102,14 +133,6 @@ CATEGORICAL = "mtp_categorical"
 TILT = "rr_tilt"
 N_FOLDS = 5
 LEARNER_FOLDS = 2
-DENSITY_BINS = 80
-#: The bins of a fit whose outcome regressions are wrong, so the mechanism alone carries the
-#: estimate.  The binned density's error then enters the bias at first order: at 80 bins the
-#: mean standardized bias of the mechanism-only arms was 0.54 to 0.60, and at 160 bins 0.21 to
-#: 0.24 (100 draws of 8,000 rows each).  ``tests/unit/test_longitudinal_mtp_design.py``
-#: records the 320-bin measurement.  Where the outcome is also right, the density error enters
-#: only through a product, and 80 bins suffice.
-MECHANISM_ONLY_BINS = 320
 #: Bounds wide enough that no cumulative probability of these laws reaches them.
 G_BOUNDS = (0.001, 1.0)
 #: The pre-declaration smoke gate on the one-fold pairs.
@@ -215,6 +238,7 @@ STUDY = StudyRecord(
     modules=(
         "tests/studies/canonical_longitudinal_mtp.py",
         "tests/studies/longitudinal_mtp_properties.py",
+        "tests/studies/oracle_density_bins.py",
         "tests/studies/longitudinal_mtp_common.py",
         "tests/studies/canonical_categorical_ltmle.py",
         "tests/studies/canonical_ltmle.py",
@@ -223,6 +247,9 @@ STUDY = StudyRecord(
         "tests/discrete_law_longitudinal.py",
         "tests/discrete_law_survival.py",
         "tests/discrete_law_longitudinal_mtp.py",
+        "tests/discrete_law_competing.py",
+        "tests/longitudinal_mtp.py",
+        "tests/studies/categorical_longitudinal_common.py",
         "tests/studies/evidence/comparison.py",
         "tests/studies/evidence/inference.py",
         "tests/studies/evidence/performance.py",
@@ -240,7 +267,7 @@ STUDY = StudyRecord(
     runner_module="tests.studies.canonical_longitudinal_mtp",
     properties_module="tests.studies.longitudinal_mtp_properties",
     property_cells=PROPERTY_CELLS,
-    publication_policy="gated",
+    publication_policy="reporting",
 )
 
 REFERENCE_METADATA = {
@@ -264,8 +291,7 @@ CONFIGURATION = {
     "outcome_kind": "end_of_study",
     "n_folds": {CONTINUOUS: 1, CROSSFIT: N_FOLDS, CATEGORICAL: 1, TILT: 1},
     "learner_folds": LEARNER_FOLDS,
-    "density_bins": DENSITY_BINS,
-    "density_bins_mechanism_only": MECHANISM_ONLY_BINS,
+    "density_bins": "ceil(320 (n / 2000)^(2/3)): 320 at n = 2,000, index-only oracle design",
     "g_bounds": list(G_BOUNDS),
     "outcome_learner": "QuasiBinomialGLM",
     "pseudo_learner": "LinearRegression",
@@ -290,13 +316,9 @@ def regimens(scenario: str) -> dict[str, Any]:
     return common.tilt_regimens()
 
 
-def density_bins(configuration: str) -> int:
-    """The bin count of a configuration: finer where the mechanism alone carries the fit."""
-    return MECHANISM_ONLY_BINS if configuration == "mechanism_correct" else DENSITY_BINS
-
-
-def edges_of(frame: pd.DataFrame, bins: int = DENSITY_BINS) -> tuple[np.ndarray, np.ndarray]:
-    """The whole-sample bin edges each continuous node's density reads."""
+def edges_of(frame: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    """The whole-sample bin edges each continuous node's density reads, at :func:`oracle_bins`."""
+    bins = oracle_bins(len(frame))
     return (
         bin_edges(frame["A1"].to_numpy(dtype=float), bins),
         bin_edges(frame["A2"].to_numpy(dtype=float), bins),
@@ -306,9 +328,7 @@ def edges_of(frame: pd.DataFrame, bins: int = DENSITY_BINS) -> tuple[np.ndarray,
 def _learners(scenario: str, frame: pd.DataFrame, configuration: str) -> tuple[Any, Any, Any]:
     if scenario in {CONTINUOUS, CROSSFIT}:
         extra = 1 if "U" in frame else 0
-        return common.continuous_learners(
-            configuration, edges_of(frame, density_bins(configuration)), extra=extra
-        )
+        return common.continuous_learners(configuration, edges_of(frame), extra=extra)
     if configuration != "primary":
         raise ValueError(f"no {configuration!r} configuration on {scenario!r}")
     return QuasiBinomialGLM(), LinearRegression(), CellProbabilities()
@@ -340,7 +360,7 @@ def fit(
         n_folds=folds,
         learner_folds=LEARNER_FOLDS,
         g_bounds=G_BOUNDS,
-        density_bins=density_bins(configuration),
+        density_bins=oracle_bins(len(frame)),
         ratio=ratio,
         simultaneous=simultaneous,
         max_iter=100,

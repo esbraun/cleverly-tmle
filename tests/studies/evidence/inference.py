@@ -181,7 +181,11 @@ def standardized_bias_verdict(
     instead, and fails once the Monte Carlo error drops below the estimator's real
     second-order remainder.
     """
-    spread = float(np.std(errors, ddof=1)) if scale is None else scale
+    # A cell whose errors are all equal has no spread.  np.std of a constant array can return
+    # a last-bit residue instead of zero, and the residue differs between an in-memory array and
+    # its CSV round trip, so the standardized bias of such a cell is NaN by definition here.
+    constant = scale is None and np.ptp(np.asarray(errors, dtype=float)) == 0.0
+    spread = 0.0 if constant else (float(np.std(errors, ddof=1)) if scale is None else scale)
     return BiasVerdict(
         bias=float(np.mean(errors)),
         interval=student_interval(errors, confidence_level=confidence_level),
