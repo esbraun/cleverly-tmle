@@ -22,14 +22,11 @@ carries its own nonzero instrument instead:
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
-
 import numpy as np
 import pytest
 import sklearn.linear_model
 from scipy.optimize import brentq
 from scipy.special import expit, logit
-from sklearn.base import BaseEstimator
 
 from cleverly.estimators import CTMLE, DRTMLE
 from cleverly.estimators.reduced import ReducedSet
@@ -38,6 +35,7 @@ from cleverly.exceptions import PositivityWarning
 from cleverly.fluctuation.mechanism import solve_armwise_bounded_mechanism
 from cleverly.fluctuation.reduced import reduced_mechanism_covariate
 from tests import discrete_law_multi as law
+from tests.discrete_law_oat import SaturatedCategorical
 
 COMMON = {
     "outcome_learner": law.OracleMultiOutcome(),
@@ -68,7 +66,11 @@ ORACLES = ("ey[0]", "ey[1]", "ey[2]", "ate[0 vs 2]", "ate[1 vs 2]")
 
 @pytest.fixture(scope="module")
 def oat_fit():
-    return CTMLE(strategy="oat", **COMMON).fit(law.frame(), outcome="Y", treatment="A").single()
+    return (
+        CTMLE(strategy="oat", oat_design="shared", **COMMON)
+        .fit(law.frame(), outcome="Y", treatment="A")
+        .single()
+    )
 
 
 @pytest.fixture(scope="module")
@@ -374,58 +376,6 @@ def test_multi_arm_truncation_is_reported_per_row_not_per_cell() -> None:
 # ----------------------------------------------------------- the outcome-adaptive design
 
 
-class _SaturatedCategorical(BaseEstimator):
-    """``P(A = a | design)`` as the weighted class frequencies within each design row.
-
-    A ``K``-class sibling of :class:`tests.discrete_law_longitudinal.CellMeans`, and here
-    for the same reason: on a sample that realises its law exactly, an unpenalised
-    saturated fit *is* the oracle, so "did the mechanism come out right" becomes an exact
-    assertion rather than a tolerance.
-
-    :attr:`designs` collects what every ``fit`` was handed, so one test can check what the
-    treatment model was *given* and another what it learned from it.  It is a **class**
-    attribute rather than a constructor argument because ``sklearn.clone`` rebuilds an
-    estimator from ``get_params`` and deep-copies anything that is not itself an
-    estimator: a list passed in would arrive at the fitted clone as a copy, and the caller
-    would watch an empty one.
-    """
-
-    designs: ClassVar[list[np.ndarray]] = []
-
-    def __init__(self, record: bool = False) -> None:
-        self.record = record
-
-    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> _SaturatedCategorical:
-        design = np.asarray(X, dtype=float)
-        target = np.asarray(y, dtype=float).reshape(-1)
-        weights = (
-            np.ones_like(target)
-            if sample_weight is None
-            else np.asarray(sample_weight, dtype=float).reshape(-1)
-        )
-        if self.record:
-            type(self).designs.append(design.copy())
-        self.classes_ = np.unique(target)
-        keys, inverse = np.unique(np.round(design, 9), axis=0, return_inverse=True)
-        totals = np.zeros((keys.shape[0], self.classes_.size))
-        for column, level in enumerate(self.classes_):
-            totals[:, column] = np.bincount(
-                inverse, weights=weights * (target == level), minlength=keys.shape[0]
-            )
-        sizes = totals.sum(axis=1, keepdims=True)
-        self.keys_ = keys
-        self.frequencies_ = np.where(sizes > 0, totals / np.where(sizes > 0, sizes, 1.0), 0.0)
-        self.default_ = totals.sum(axis=0) / totals.sum()
-        return self
-
-    def predict_proba(self, X: Any) -> np.ndarray:
-        design = np.round(np.asarray(X, dtype=float), 9)
-        out = np.tile(self.default_, (design.shape[0], 1))
-        for position, key in enumerate(self.keys_):
-            out[np.all(design == key, axis=1)] = self.frequencies_[position]
-        return out
-
-
 def test_oat_fits_the_treatment_model_on_the_arm_specific_qbar_matrix() -> None:
     """The design is ``[Qbar(a, W)]`` by content, not merely by the names recorded.
 
@@ -433,17 +383,18 @@ def test_oat_fits_the_treatment_model_on_the_arm_specific_qbar_matrix() -> None:
     what has to be checked is the matrix -- a design of the *observed* predictions, or of
     the covariates, would leave ``treatment_features`` reading exactly the same.
     """
-    _SaturatedCategorical.designs.clear()
+    SaturatedCategorical.designs.clear()
     fit = (
         CTMLE(
             strategy="oat",
-            **{**COMMON, "treatment_learner": _SaturatedCategorical(record=True)},
+            oat_design="shared",
+            **{**COMMON, "treatment_learner": SaturatedCategorical(record=True)},
         )
         .fit(law.frame(), outcome="Y", treatment="A")
         .single()
     )
-    seen = list(_SaturatedCategorical.designs)
-    _SaturatedCategorical.designs.clear()
+    seen = list(SaturatedCategorical.designs)
+    SaturatedCategorical.designs.clear()
 
     expected = np.column_stack([fit.nuisance.outcome.arms[arm] for arm in fit.nuisance.arms])
     # The shared nuisance pass is outcome-first for every CTMLE strategy, so this is the
@@ -473,7 +424,11 @@ def test_oat_recovers_a_mechanism_generated_by_qbar() -> None:
     the module docstring of :mod:`cleverly.estimators.ctmle`.
     """
     fit = (
-        CTMLE(strategy="oat", **{**COMMON, "treatment_learner": _SaturatedCategorical()})
+        CTMLE(
+            strategy="oat",
+            oat_design="shared",
+            **{**COMMON, "treatment_learner": SaturatedCategorical()},
+        )
         .fit(law.frame(), outcome="Y", treatment="A")
         .single()
     )
@@ -498,9 +453,9 @@ def test_oat_records_the_shared_treatment_model_api(oat_fit) -> None:
 
 def test_oat_refuses_selector_only_controls() -> None:
     with pytest.raises(ValueError, match="penalty= configure selector strategies"):
-        CTMLE(strategy="oat", penalty=False)
+        CTMLE(strategy="oat", oat_design="shared", penalty=False)
     with pytest.raises(ValueError, match="selection_folds= configure selector strategies"):
-        CTMLE(strategy="oat", selection_folds=3)
+        CTMLE(strategy="oat", oat_design="shared", selection_folds=3)
 
 
 def test_oat_accepts_a_selector_setting_written_at_its_default() -> None:

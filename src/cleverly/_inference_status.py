@@ -196,16 +196,16 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
         ),
         "generated_design_plugin": StatusRecord(
             reason=(
-                "The outcome-adaptive collaborative path, strategy='oat', reports no "
-                "confidence interval, no p-value and no standard error. It fits one treatment "
-                "mechanism on the estimated outcome predictions of every arm, and it targets "
-                "every arm mean jointly. Benkeser, Cai and van der Laan (2020), Theorem 1, "
-                "prove the ordinary curve for one binary treatment-specific mean with one "
-                "scalar design. No result covers this joint construction. Missing outcomes, "
-                "weights and repeated splits are also outside that theorem. The point "
-                "estimate stands. The plug-in standard error of that curve remains as a "
-                "diagnostic under plugin_std_error and plugin_interval. F19 in "
-                "docs/roadmap.md reopens this when it supplies that result."
+                "This outcome-adaptive collaborative fit, strategy='oat', reports no "
+                "confidence interval, no p-value and no standard error. The shared design, "
+                "oat_design='shared', fits one treatment mechanism on the outcome predictions "
+                "of every arm, and no result covers it. The per-arm design, "
+                "oat_design='per_arm', has a result: Benkeser, Cai and van der Laan (2020), "
+                "Theorem 1. The package does not yet build that design for missing outcomes "
+                "or baseline strata. The point estimate stands. The plug-in standard error "
+                "of the ordinary curve remains as a diagnostic under plugin_std_error and "
+                "plugin_interval. For an interval, fit oat_design='per_arm' on complete data "
+                "without strata, or fit TMLE. F19 and X29 in docs/roadmap.md track the rest."
             ),
             assessment_note=(
                 "the reported curve is a generated-design diagnostic: no confidence interval "

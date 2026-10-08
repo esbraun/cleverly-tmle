@@ -141,13 +141,13 @@ class TestVariableImportanceRefusesBeforeItFits:
             self._call(estimator)
 
     def test_the_outcome_adaptive_path_is_refused_by_its_own_reason(self) -> None:
-        """``oat`` refuses at the entry point too, with the reason of its own status.
+        """The shared ``oat`` design refuses at the entry point too, with its own reason.
 
         It was the control against a refusal broadened to every collaborative fit until
         RM20 gave it a status. The ordinary estimator below is that control now.
         """
         with pytest.raises(CapabilityError) as raised:
-            self._call(linear_ctmle("oat", estimands=("ate",)))
+            self._call(linear_ctmle("oat", estimands=("ate",), oat_design="shared"))
         message = str(raised.value)
         assert message.startswith("variable_importance() is not defined here.")
         assert NON_INFERENTIAL["generated_design_plugin"].reason in message

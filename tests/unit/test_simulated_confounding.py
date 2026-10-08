@@ -1975,7 +1975,11 @@ def test_fixed_weight_ctmle_control_detects_dropped_selector_weights(
 def test_fixed_weight_oat_control_detects_dropped_mechanism_weights(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The outcome-adaptive treatment model must read the row mass.
+    """The shared outcome-adaptive treatment model must read the row mass.
+
+    The per-arm design has its own control:
+    ``tests/unit/test_outcome_adaptive_per_arm.py`` compares integer weights with
+    duplicated rows.
 
     The gate is relative for the same reason the selector control's gate is. In sample
     (this fit's fixture, the fold and outcome-scale rules), the movement at treatment=0.2,
@@ -1986,7 +1990,7 @@ def test_fixed_weight_oat_control_detects_dropped_mechanism_weights(
     result = _fit(
         method="collaborative_tmle",
         weight_scale=1.0,
-        collaborative_kwargs={"strategy": "oat"},
+        collaborative_kwargs={"strategy": "oat", "oat_design": "shared"},
     )
     surface = simulated_confounding(result, grid=_ANCHOR_GRID, random_state=31)
     baseline = _manual_repeated_refit(result, surface, treatment=0.4, outcome=0.4)

@@ -63,6 +63,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
 def _estimator(cell: PropertyCell):  # type: ignore[no-untyped-def]
     return lambda: CTMLE(
         strategy="oat",
+        oat_design="shared",
         outcome_learner=cell.outcome_learner(),
         treatment_learner=cell.treatment_learner(),
         cross_fit=True,

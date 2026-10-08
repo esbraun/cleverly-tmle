@@ -183,6 +183,7 @@ def _estimator(cell: PropertyCell):  # type: ignore[no-untyped-def]
     in_sample = cell.property == "crossfit_overfitting" and cell.cell == "in_sample_control"
     return lambda: CTMLE(
         strategy="oat",
+        oat_design="shared",
         outcome_learner=cell.outcome_learner(),
         treatment_learner=cell.treatment_learner(),
         cross_fit=not in_sample,

@@ -1,30 +1,37 @@
-"""Every outcome-adaptive collaborative fit withholds its interval, as RM20 decides.
+"""The status of each outcome-adaptive collaborative fit, by design.
 
-``CTMLE(strategy="oat")`` fits one treatment mechanism on the estimated outcome predictions
-of every arm and targets every arm mean jointly. Theorem 1 of Benkeser, Cai and van der
-Laan (2020) proves the ordinary curve for one binary treatment-specific mean with one scalar
-design, so no result covers a shipped fit. An ``ey1``-only request uses the same joint
-design, and a fit with ``delta=`` is outside the theorem too. Every such fit therefore takes
-the ``"generated_design_plugin"`` status, and F19 in the roadmap holds the reopen route.
+``CTMLE(strategy="oat")`` has two treatment designs. ``oat_design="shared"`` fits one
+treatment mechanism on the estimated outcome predictions of every arm, and no result covers
+it, so every shared fit takes the ``"generated_design_plugin"`` status (RM20). F19 in the
+roadmap holds its reopen route.
 
-The cases are the RM20 probes: the binary joint fit, the three-arm fit, the in-sample fit
-with missing outcomes, an ``ey1``-only request, and the cross-fitted default. The control is
-the ordinary TMLE on the same frames, because the roadmap's "one binary treatment-specific
-mean" control has no shipped instance. A mutation that restores the ordinary status on
-``oat`` must fail the check the cases pass.
+``oat_design="per_arm"``, the default, fits one binary mechanism per arm on that arm's own
+prediction. Theorem 1 of Benkeser, Cai and van der Laan (2020) gives its curve for one
+treatment-specific mean, and an indicator reduction per arm and a fixed-dimension stack give
+the joint curve. A per-arm fit on complete data without baseline strata therefore reports
+its interval while :data:`~cleverly.estimators.ctmle.OAT_PER_ARM_INFERENTIAL` is set. That
+covers the binary and the three-arm fits, an ``ey1``-only request, the cross-fitted fit,
+fixed weights and ``repeats=`` with ``simultaneous=False``. A per-arm fit with missing
+outcomes or strata withholds, and X29 in the roadmap holds the missing construction.
+
+The control is the ordinary TMLE on the same frames. Each mutation control restores one
+wrong status and must fail the check its cases pass.
 """
 
 from __future__ import annotations
 
+import copy
 from typing import Any
 
+import numpy as np
 import pytest
 
+from cleverly import variable_importance
 from cleverly._inference_status import NON_INFERENTIAL
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_binary_outcome, make_missing_outcome, make_multi_arm
 from cleverly.estimators import CTMLE, TMLE
-from cleverly.estimators.ctmle import is_selector_strategy
+from cleverly.estimators import ctmle as ctmle_module
 from cleverly.exceptions import CapabilityError
 from tests.conftest import linear_in_sample
 from tests.unit._inference_status_support import (
@@ -36,38 +43,82 @@ from tests.unit._inference_status_support import (
     assert_variable_importance_refuses,
     assert_withholds,
 )
-from tests.unit._natural_course_support import never_fit_learners
+from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
 pytestmark = pytest.mark.xdist_group("outcome_adaptive_status")
 
 STATUS = "generated_design_plugin"
 RECORD = NON_INFERENTIAL[STATUS]
 
+
+def _binary() -> Any:
+    return make_binary_outcome(n=500, seed=3)[0]
+
+
+def _stratified() -> Any:
+    frame = _binary()
+    return frame.assign(S=(frame["W1"] > 0).astype(float))
+
+
+def _weighted() -> Any:
+    frame = _binary()
+    return frame.assign(wt=0.5 + (frame["W1"] > 0).astype(float))
+
+
 #: Each case: the frame builder, the roles the fit reads, and the estimator settings.
-CASES: dict[str, tuple[Any, dict[str, str], dict[str, Any]]] = {
-    "binary": (lambda: make_binary_outcome(n=500, seed=3)[0], {}, {"estimands": ("ate",)}),
+CASES: dict[str, tuple[Any, dict[str, Any], dict[str, Any]]] = {
+    "binary": (_binary, {}, {"estimands": ("ate",)}),
     "multi_arm": (lambda: make_multi_arm(n=600, seed=5)[0], {}, {"estimands": ("ate",)}),
     "missing_outcome": (
         lambda: make_missing_outcome(n=500, seed=4)[0],
         {"delta": "Delta"},
         {"estimands": ("ate",)},
     ),
-    "ey1_only": (lambda: make_binary_outcome(n=500, seed=3)[0], {}, {"estimands": ("ey1",)}),
-    "cross_fitted": (
-        lambda: make_binary_outcome(n=500, seed=3)[0],
+    "ey1_only": (_binary, {}, {"estimands": ("ey1",)}),
+    "cross_fitted": (_binary, {}, {"estimands": ("ate",), "cross_fit": True, "n_folds": 3}),
+    "weighted": (_weighted, {"weights": "wt"}, {"estimands": ("ate",)}),
+    "repeats": (
+        _binary,
         {},
-        {"estimands": ("ate",), "cross_fit": True, "n_folds": 3},
+        {"estimands": ("ate", "ey"), "cross_fit": True, "n_folds": 3, "repeats": 3},
+    ),
+    "strata": (
+        _stratified,
+        {"strata": ["S"], "covariates": ["W1", "W2", "W3", "S"]},
+        {"estimands": ("ate",)},
     ),
 }
 
+#: The cases the per-arm design admits, and the two it withholds.
+ADMITTED = ("binary", "multi_arm", "ey1_only", "cross_fitted", "weighted", "repeats")
+WITHHELD = ("missing_outcome", "strata")
 
-def fit(estimator: type, case: str) -> Any:
+
+def fit(estimator: type, case: str, design: str | None = None) -> Any:
     build, roles, settings = CASES[case]
-    extra = {"strategy": "oat"} if estimator is CTMLE else {}
+    extra: dict[str, Any] = {}
+    if estimator is CTMLE:
+        extra = {"strategy": "oat", "oat_design": design}
     return (
         estimator(**extra, **linear_in_sample(**settings))
         .fit(build(), outcome="Y", treatment="A", **roles)
         .single()
+    )
+
+
+def _prepared(estimator: CTMLE, case: str) -> Any:
+    """The prepared data of the fit ``case`` names, with no learner run."""
+    build, roles, _ = CASES[case]
+    return estimator._prepare(
+        build(),
+        outcome="Y",
+        treatment="A",
+        covariates=roles.get("covariates"),
+        delta=roles.get("delta"),
+        weights=roles.get("weights"),
+        id=None,
+        intermediate=None,
+        strata=roles.get("strata"),
     )
 
 
@@ -77,34 +128,127 @@ def case(request: pytest.FixtureRequest) -> str:
 
 
 @pytest.fixture(scope="module")
-def result(case: str) -> Any:
-    return fit(CTMLE, case)
+def shared_result(case: str) -> Any:
+    return fit(CTMLE, case, "shared")
 
 
-class TestEveryOutcomeAdaptiveFitReportsNoInterval:
-    def test_the_estimates_withhold_their_inference(self, result: Any) -> None:
-        assert_withholds(result, STATUS)
+class TestEverySharedDesignFitReportsNoInterval:
+    def test_the_estimates_withhold_their_inference(self, shared_result: Any) -> None:
+        assert_withholds(shared_result, STATUS)
 
-    def test_the_nuisance_report_and_the_assessment_carry_the_note(self, result: Any) -> None:
-        assert_assessment_note(result, STATUS)
+    def test_the_nuisance_report_and_the_assessment_carry_the_note(
+        self, shared_result: Any
+    ) -> None:
+        assert_assessment_note(shared_result, STATUS)
 
-    def test_the_evalue_is_unavailable_with_the_reason(self, result: Any, case: str) -> None:
-        contrasts = [name for name in result.estimates if name.startswith("ate")]
+    def test_the_evalue_is_unavailable_with_the_reason(self, shared_result: Any, case: str) -> None:
+        contrasts = [name for name in shared_result.estimates if name.startswith("ate")]
         if not contrasts:
             # An arm mean has no two-arm contrast, and that check runs before the status.
-            capability = result.sensitivity.capability("evalue")
+            capability = shared_result.sensitivity.capability("evalue")
             assert capability.status is AssessmentStatus.NOT_APPLICABLE
             return
-        row = result.sensitivity.run_all(arguments={"evalue": {"estimand": contrasts[0]}})
+        row = shared_result.sensitivity.run_all(arguments={"evalue": {"estimand": contrasts[0]}})
         assert row["evalue"].status is AssessmentStatus.UNAVAILABLE
         assert RECORD.reason in row["evalue"].detail
         with pytest.raises(CapabilityError) as raised:
-            result.sensitivity.evalue(contrasts[0])
+            shared_result.sensitivity.evalue(contrasts[0])
         assert RECORD.reason in str(raised.value)
-        if case != "multi_arm":
+        if case not in ("multi_arm", "strata"):
             # Two contrasts defer the bare row to an explicit estimand, so only a
             # single-contrast fit shows the reason on the bare capability row.
-            assert_evalue_unavailable(result, STATUS)
+            assert_evalue_unavailable(shared_result, STATUS)
+
+
+@pytest.mark.parametrize("admitted", ADMITTED)
+class TestAnAdmittedPerArmFitReportsItsInterval:
+    def test_the_estimates_keep_their_inference(self, admitted: str) -> None:
+        result = fit(CTMLE, admitted)
+        assert result.extra["ctmle"].design == "per_arm"
+        assert_keeps_inference(result)
+        text = result.summary()
+        assert "95% CI" in text
+        assert RECORD.summary_note() not in text
+
+    def test_the_status_is_the_ordinary_fits(self, admitted: str) -> None:
+        """The same frame under ``TMLE`` gives the same status: the control."""
+        estimator = CTMLE(strategy="oat", **linear_in_sample(**CASES[admitted][2]))
+        ordinary = fit(TMLE, admitted)
+        assert ordinary.inference_status == "influence_curve"
+        assert estimator._inference_status(ordinary.data) == ordinary.inference_status
+
+
+class TestTheAdmittedOutputs:
+    def test_the_default_band_is_built_at_one_split(self) -> None:
+        result = (
+            CTMLE(strategy="oat", **linear_in_sample(estimands=("ey", "ate"), simultaneous=True))
+            .fit(_binary(), outcome="Y", treatment="A")
+            .single()
+        )
+        assert result.inference_status == "influence_curve"
+        assert result.simultaneous is not None
+        assert result.simultaneous.critical_value > 1.96
+
+    def test_a_default_band_beside_repeats_raises_the_repeat_refusal(self) -> None:
+        estimator = CTMLE(
+            strategy="oat",
+            **linear_in_sample(
+                estimands=("ey", "ate"), simultaneous=True, cross_fit=True, n_folds=3, repeats=3
+            ),
+        )
+        with pytest.raises(CapabilityError, match="simultaneous=True"):
+            estimator.fit(_binary(), outcome="Y", treatment="A")
+
+    def test_the_evalue_carries_its_interval(self) -> None:
+        # The ATE E-value reads the reported reference-arm mean, so the fit reports it.
+        result = (
+            CTMLE(strategy="oat", **linear_in_sample(estimands=("ate", "ey0")))
+            .fit(_binary(), outcome="Y", treatment="A")
+            .single()
+        )
+        assert result.sensitivity.capability("evalue").available
+        report = result.sensitivity.evalue("ate")
+        assert np.isfinite(report.limit)
+
+    def test_variable_importance_reports_inference(self) -> None:
+        importance = variable_importance(
+            _binary(),
+            outcome="Y",
+            candidates=["A"],
+            covariates=["W1", "W2", "W3"],
+            estimator=CTMLE(strategy="oat", **linear_in_sample(estimands=("ate",))),
+        )
+        assert {"std_err", "ci_lower", "ci_upper", "p_value"} <= set(importance.to_frame().columns)
+
+    def test_estimated_weights_take_the_ordinary_tmle_status(self) -> None:
+        """Estimated weights condition on the weights, as the ordinary TMLE does."""
+        frame = _weighted()
+        roles = {"weights": "wt", "weights_estimated": True}
+        result = (
+            CTMLE(strategy="oat", **linear_in_sample(estimands=("ate",)))
+            .fit(frame, outcome="Y", treatment="A", **roles)
+            .single()
+        )
+        ordinary = (
+            TMLE(**linear_in_sample(estimands=("ate",)))
+            .fit(frame, outcome="Y", treatment="A", **roles)
+            .single()
+        )
+        assert result.inference_status == ordinary.inference_status
+
+
+@pytest.mark.parametrize("withheld", WITHHELD)
+class TestAPerArmFitOutsideTheResultWithholds:
+    def test_the_estimates_withhold_their_inference(self, withheld: str) -> None:
+        result = fit(CTMLE, withheld)
+        assert result.extra["ctmle"].design == "per_arm"
+        assert_withholds(result, STATUS)
+
+    def test_the_status_is_known_before_any_learner_is_fitted(self, withheld: str) -> None:
+        settings = CASES[withheld][2]
+        estimator = CTMLE(strategy="oat", **linear_in_sample(**settings, **never_fit_learners()))
+        assert estimator._inference_status(_prepared(estimator, withheld)) == STATUS
+        assert NeverFit.calls == 0
 
 
 class TestTheOrdinaryTMLEKeepsItsInterval:
@@ -115,35 +259,93 @@ class TestTheOrdinaryTMLEKeepsItsInterval:
 
 
 class TestVariableImportanceRefusesBeforeItFits:
-    def test_the_refusal_arrives_before_the_first_learner_is_fitted(self) -> None:
+    def test_the_shared_design_is_refused_before_the_first_learner_is_fitted(self) -> None:
         assert_variable_importance_refuses(
             STATUS,
             make_binary_outcome(n=200, seed=3)[0],
             covariates=["W1", "W2", "W3"],
+            estimator=CTMLE(
+                strategy="oat", oat_design="shared", **linear_in_sample(**never_fit_learners())
+            ),
+        )
+
+    def test_a_per_arm_fit_with_missing_outcomes_is_refused_before_it_fits(self) -> None:
+        assert_variable_importance_refuses(
+            STATUS,
+            make_missing_outcome(n=200, seed=4)[0],
+            covariates=["W1", "W2", "W3"],
             estimator=CTMLE(strategy="oat", **linear_in_sample(**never_fit_learners())),
+            delta="Delta",
         )
 
 
+def _without(data: Any, **fields: Any) -> Any:
+    """A shallow copy of ``data`` with ``fields`` replaced, for a mutant key to read."""
+    clone = copy.copy(data)
+    for name, value in fields.items():
+        object.__setattr__(clone, name, value)
+    return clone
+
+
 class TestTheStatusIsTheHooksToWithhold:
-    def test_a_hook_that_restores_the_ordinary_status_fails_the_check(
+    def test_a_hook_that_admits_the_shared_design_fails_the_check(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The mutation control: the hook as it stood before RM20."""
-
-        def before_rm20(self: CTMLE, data: Any) -> str:
-            if is_selector_strategy(self.strategy):
-                return "working_mechanism_plugin"
-            return "influence_curve"
-
-        monkeypatch.setattr(CTMLE, "_inference_status", before_rm20)
-        mutant = fit(CTMLE, "binary")
+        """The mutation control: the shared design given the ordinary status."""
+        monkeypatch.setattr(ctmle_module, "per_arm_design_admits", lambda estimator, data: True)
+        mutant = fit(CTMLE, "binary", "shared")
         with pytest.raises(AssertionError):
             assert_withholds(mutant, STATUS)
 
+    def test_a_hook_that_withholds_the_admitted_per_arm_fit_fails_the_check(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(ctmle_module, "per_arm_design_admits", lambda estimator, data: False)
+        mutant = fit(CTMLE, "binary")
+        with pytest.raises(AssertionError):
+            assert_keeps_inference(mutant)
+
+    @pytest.mark.parametrize("ignored", WITHHELD)
+    def test_a_key_that_ignores_a_withheld_input_fails_the_check(
+        self, monkeypatch: pytest.MonkeyPatch, ignored: str
+    ) -> None:
+        """The key with one of its data reads dropped admits the withheld case."""
+        original = ctmle_module.per_arm_design_admits
+
+        def mutant(estimator: Any, data: Any) -> bool:
+            if ignored == "strata":
+                data = _without(data, strata=None)
+            else:
+                data = _without(data, observed=np.ones(data.n, dtype=bool))
+            return original(estimator, data)
+
+        monkeypatch.setattr(ctmle_module, "per_arm_design_admits", mutant)
+        result = fit(CTMLE, ignored)
+        with pytest.raises(AssertionError):
+            assert_withholds(result, STATUS)
+
+    @pytest.mark.parametrize("admitted", ADMITTED)
+    def test_the_revert_flag_withholds_every_admitted_case(
+        self, monkeypatch: pytest.MonkeyPatch, admitted: str
+    ) -> None:
+        """With the declared revert applied, every per-arm fit takes the withheld status."""
+        monkeypatch.setattr(ctmle_module, "OAT_PER_ARM_INFERENTIAL", False)
+        assert_withholds(fit(CTMLE, admitted), STATUS)
+
 
 class TestASavedResultLoadsAsSaved:
-    """An ``oat`` result loads with the status it was saved under."""
+    """An ``oat`` result loads with the status and the design it was saved under."""
 
     @pytest.mark.parametrize("route", ROUTES)
-    def test_the_estimates_keep_the_status(self, result: Any, route: str) -> None:
-        assert_round_trips(result, STATUS, route)
+    def test_the_shared_estimates_keep_the_status(self, shared_result: Any, route: str) -> None:
+        restored = assert_round_trips(shared_result, STATUS, route)
+        assert restored.estimator.oat_design == "shared"
+        assert restored.extra["ctmle"].design == "shared"
+
+    @pytest.mark.parametrize("route", ROUTES)
+    def test_a_per_arm_fit_keeps_its_interval(self, route: str) -> None:
+        result = fit(CTMLE, "binary")
+        restored = assert_round_trips(result, "influence_curve", route)
+        assert restored.estimator.oat_design == "per_arm"
+        assert restored.extra["ctmle"].design == "per_arm"
+        assert restored["ate"].ci == result["ate"].ci

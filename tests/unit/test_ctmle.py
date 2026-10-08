@@ -871,8 +871,12 @@ class TestSelection:
 
 
 class TestOutcomeAdaptiveCrossFitting:
-    def test_validation_outcomes_cannot_reach_their_own_propensity(self) -> None:
+    @pytest.mark.parametrize("design", ["per_arm", "shared"])
+    def test_validation_outcomes_cannot_reach_their_own_propensity(self, design: str) -> None:
         """The adaptive propensity and its generated design are one fold-local learner.
+
+        Both designs: the per-arm design fits one binary mechanism per arm inside each
+        fold, on that fold's own outcome model, and the shared design one categorical one.
 
         Fold zero's outcomes are changed while its treatment, covariates, and declared
         split stay fixed.  Its outcome model is trained outside fold zero, and its
@@ -892,6 +896,7 @@ class TestOutcomeAdaptiveCrossFitting:
             # q_bounds refusal TMLE_KWARGS otherwise avoids does not apply here anyway.
             "cross_fit": True,
             "strategy": "oat",
+            "oat_design": design,
             "n_folds": 3,
             "split_plan": plan,
             "outcome_learner": LogisticRegression(C=1e6, max_iter=1000),
@@ -1286,8 +1291,9 @@ class TestReporting:
         assert "bias" not in footer
         assert "variance" not in footer
 
+    @pytest.mark.parametrize("design", ["shared", "per_arm"])
     def test_the_outcome_adaptive_treatment_risk_is_the_weighted_deviance(
-        self, instrument_frame
+        self, instrument_frame, design: str
     ) -> None:
         """``strategy='oat'`` reports its own deviance, and no selector path reaches it.
 
@@ -1298,19 +1304,38 @@ class TestReporting:
         weight factor. That leaves this the only check that can see it.
         """
         result = (
-            CTMLE(**{**TMLE_KWARGS, "strategy": "oat"})
+            CTMLE(**{**TMLE_KWARGS, "strategy": "oat", "oat_design": design})
             .fit(_weighted(instrument_frame), outcome="Y", treatment="A", weights="weight")
             .single()
         )
         selection = result.extra["ctmle"]
         data = result.data
         propensity = result.nuisance.propensity
+        assert selection.strategy == "oat"
+        assert selection.design == design
+        assert not np.allclose(data.weights, 1.0)
+        if design == "per_arm":
+            # The sum over arms of each binary mechanism's own deviance: arm a's mechanism
+            # predicts 1{A = a}, and its column is not the complement of another arm's.
+            per_arm = {}
+            for arm in data.arm_codes:
+                g = np.clip(propensity.arm(arm), 1e-12, 1.0 - 1e-12)
+                hit = (data.treatment == arm).astype(float)
+                per_arm[data.arm_label(arm)] = np.log(np.where(hit == 1.0, g, 1.0 - g))
+            assert selection.treatment_risk_by_arm == pytest.approx(
+                {label: float(-np.sum(data.weights * row)) for label, row in per_arm.items()},
+                rel=1e-12,
+            )
+            deviance = sum(per_arm.values())
+            assert selection.treatment_risk == pytest.approx(
+                float(-np.sum(data.weights * deviance)), rel=1e-12
+            )
+            assert selection.treatment_risk != pytest.approx(float(-np.sum(deviance)), rel=1e-6)
+            return
         columns = np.array([propensity.column_for(float(arm)) for arm in data.treatment], dtype=int)
         observed = np.clip(propensity.values[np.arange(data.n), columns], 1e-12, 1.0)
         deviance = np.log(observed)
-
-        assert selection.strategy == "oat"
-        assert not np.allclose(data.weights, 1.0)
+        assert selection.treatment_risk_by_arm is None
         assert selection.treatment_risk == pytest.approx(
             float(-np.sum(data.weights * deviance)), rel=1e-12
         )

@@ -66,6 +66,7 @@ from ..utils.text import format_draw, format_table
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..data.causal_data import CausalData
+    from ..estimators._nuisance import NuisanceEstimates
     from ..estimators.base import TMLEResult
     from ..estimators.ctmle import CTMLEOutcomeAdaptiveFit, CTMLESelection
 
@@ -835,7 +836,10 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
             )
         )
 
-    if data.is_binary_treatment and nuisance.fits_treatment:
+    # Two arms read one column only when the mechanism is a distribution over the arms. The
+    # per-arm outcome-adaptive mechanism of CTMLE is off the simplex: its arm-0 column is
+    # not the complement of its arm-1 column, so each arm takes its own report below.
+    if data.is_binary_treatment and nuisance.fits_treatment and nuisance.propensity.simplex:
         models.append(
             _binary_report(
                 "propensity",
@@ -856,14 +860,15 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
         # and a per-arm report is what says which arm to go and look at.
         # Continuous MSM counterfactual codes name integration doses, not arms.
         # Their fitted mechanism is a density; no propensity calibration exists.
-        for arm in nuisance.arms:
+        by_arm = _per_arm_learner_diagnostics(nuisance)
+        for index, arm in enumerate(nuisance.arms):
             models.append(
                 _binary_report(
                     f"propensity[{data.arm_label(arm)}]",
                     nuisance.propensity.arm(arm),
                     (data.treatment == arm).astype(float),
                     data.weights,
-                    nuisance.diagnostics.get("propensity"),
+                    nuisance.diagnostics.get("propensity") if by_arm is None else by_arm[index],
                     inverse_weight_rows="label_one",
                     folds=folds,
                     cluster=data.cluster,
@@ -1000,6 +1005,31 @@ def _spread_rows(result: TMLEResult) -> tuple[tuple[RepeatSpreadRow, ...], str |
     if not_finite:
         return tuple(rows), SPREAD_NOT_FINITE + ", ".join(not_finite)
     return tuple(rows), None
+
+
+def _per_arm_learner_diagnostics(nuisance: NuisanceEstimates) -> list[Any] | None:
+    """Each arm's own learner diagnostics, when the mechanism fitted one learner per arm.
+
+    The per-arm outcome-adaptive mechanism of :class:`~cleverly.estimators.CTMLE` stores one
+    entry per arm under ``"propensity"``, in arm order, and is off the simplex. Every other
+    mechanism stores one entry per fold for the one categorical learner.
+
+    Parameters
+    ----------
+    nuisance : NuisanceEstimates
+        The fitted nuisances.
+
+    Returns
+    -------
+    list or None
+        The per-arm entries, or ``None`` when the mechanism fitted one learner.
+    """
+    stored = nuisance.diagnostics.get("propensity")
+    if nuisance.propensity.simplex or not isinstance(stored, list):
+        return None
+    if len(stored) != len(nuisance.arms) or not all(isinstance(entry, list) for entry in stored):
+        return None
+    return stored
 
 
 def _aggregate_learner_info(

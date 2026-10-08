@@ -761,6 +761,27 @@ class TMLE:
             weights=data.weights if data.is_weighted else None,
         )
 
+    def _bootstrap_inferential(self, data: CausalData) -> bool:
+        """Whether a registered study licenses the full-refit bootstrap interval as inference.
+
+        A hook beside :meth:`_inference_status`, because only the estimator knows which
+        construction the bootstrap reruns. The point-treatment fit returns
+        :data:`POINT_BOOTSTRAP_INFERENTIAL`. :class:`~cleverly.estimators.CTMLE` returns
+        ``False`` for ``strategy="oat"``.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data the estimates are fitted on.
+
+        Returns
+        -------
+        bool
+            Whether the percentile interval publishes under its inferential name.
+        """
+        del data
+        return POINT_BOOTSTRAP_INFERENTIAL
+
     def _refuse_undeclared_functions(self) -> None:
         """Raise unless every function of the configuration is declared known.
 
@@ -1728,7 +1749,9 @@ class TMLE:
                 random_state=self.random_state,
                 n_jobs=self.n_jobs,
             )
-            result = attach_bootstrap(result, bootstrap, inferential=POINT_BOOTSTRAP_INFERENTIAL)
+            result = attach_bootstrap(
+                result, bootstrap, inferential=self._bootstrap_inferential(data)
+            )
 
         return result
 

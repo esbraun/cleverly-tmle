@@ -151,9 +151,19 @@ def fit_multi_arm() -> Any:
 
 
 def fit_ctmle_oat() -> Any:
-    """An outcome-adaptive collaborative fit on ``make_instrument(500, 44)``."""
+    """A per-arm outcome-adaptive collaborative fit on ``make_instrument(500, 44)``.
+
+    The per-arm design reports inference on complete data, so its bound rows answer.
+    """
     frame, _ = make_instrument(n=500, seed=44)
     estimator = linear_ctmle("oat", estimands=("ate",))
+    return estimator.fit(frame, outcome="Y", treatment="A").single()
+
+
+def fit_ctmle_oat_shared() -> Any:
+    """The shared outcome-adaptive fit on the same frame, which reports no inference."""
+    frame, _ = make_instrument(n=500, seed=44)
+    estimator = linear_ctmle("oat", estimands=("ate",), oat_design="shared")
     return estimator.fit(frame, outcome="Y", treatment="A").single()
 
 
@@ -745,7 +755,8 @@ KINDS: dict[str, Kind] = {
     "shift": _kind(fit_shift, *_LIVE),
     "cde": _kind(fit_cde, *_LIVE),
     "multi_arm": _kind(fit_multi_arm, *_ARM),
-    "ctmle_oat": _kind(fit_ctmle_oat, *_LIVE),
+    "ctmle_oat": _kind(fit_ctmle_oat, *_LIVE, "evalue"),
+    "ctmle_oat_shared": _kind(fit_ctmle_oat_shared, *_LIVE),
     "msm": _kind(fit_msm, *_LIVE),
     "regime": _kind(fit_regime, *_LIVE),
     # A refit relearns the rules, so no refutation or bound row answers.

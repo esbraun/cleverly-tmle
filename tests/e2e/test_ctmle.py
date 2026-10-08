@@ -443,7 +443,13 @@ class TestDownstreamMachineryStillWorks:
         assert report.learner_weights == {}
         assert report.learner_risks == {}
 
-    def test_but_oat_reports_the_table_from_its_one_shared_fit(self, frame_and_truth) -> None:
+    @pytest.mark.parametrize("design", ["shared", "per_arm"])
+    def test_but_oat_reports_the_table_from_its_own_fits(self, frame_and_truth, design) -> None:
+        """The shared design reports its one learner, and the per-arm design one per arm.
+
+        Each per-arm row reads its own arm's learner table: the per-arm mechanism is off
+        the simplex, so the arm-0 column is not the complement of the arm-1 column.
+        """
         frame, _ = frame_and_truth
         oat = (
             CTMLE(
@@ -455,25 +461,28 @@ class TestDownstreamMachineryStillWorks:
                     ),
                 },
                 strategy="oat",
+                oat_design=design,
             )
             .fit(frame, outcome="Y", treatment="A")
             .single()
         )
-        report = oat.diagnostics.nuisance_models()["propensity"]
-        assert report.learner_weights and report.learner_risks
         diagnostics = oat.diagnostics.nuisance_models()
+        rows = ["propensity"] if design == "shared" else ["propensity[0]", "propensity[1]"]
+        for row in rows:
+            report = diagnostics[row]
+            assert report.learner_weights and report.learner_risks
         assert diagnostics.selection is oat.extra["ctmle"]
         assert diagnostics.treatment_role == "collaborative_working_model"
         features = len(oat.extra["ctmle"].treatment_features)
-        assert features > 0
-        assert (
-            f"C-TMLE outcome-adaptive fit used {features} Qbar feature(s)" in diagnostics.summary()
+        assert features == 2
+        sentence = (
+            "C-TMLE outcome-adaptive fit used 2 Qbar features in one categorical mechanism"
+            if design == "shared"
+            else "C-TMLE outcome-adaptive fit used one Qbar feature per arm in 2 binary mechanisms"
         )
-        assert diagnostics.selection.describe() in diagnostics.summary()
-        assert (
-            f"C-TMLE outcome-adaptive fit used {features} Qbar feature(s)"
-            in oat.diagnostics.run_all()["nuisance_models"].detail
-        )
+        assert oat.extra["ctmle"].describe() == sentence
+        assert sentence in diagnostics.summary()
+        assert sentence in oat.diagnostics.run_all()["nuisance_models"].detail
 
     def test_refutation_runs(self, fit) -> None:
         # A placebo refit goes back through CTMLE._nuisances, so the selection is
@@ -975,11 +984,16 @@ class TestTheSelectorPathsPublishNoInference:
         """A fresh fit, for a test that calls a facade and so writes the result's cache."""
         frame, _ = make_instrument(n=400, seed=5)
         covariates = [name for name in frame.columns if name.startswith("W")]
-        estimator = (
-            TMLE(**linear_in_sample(estimands=("ate",)))
-            if strategy == cls.ORDINARY
-            else linear_ctmle(strategy, estimands=("ate",), **SELECTOR_CONFIGS.get(strategy, {}))
-        )
+        if strategy == cls.ORDINARY:
+            estimator = TMLE(**linear_in_sample(estimands=("ate",)))
+        elif strategy.startswith("oat"):
+            # ``"oat"`` is the shared design, which withholds; ``"oat_per_arm"`` reports.
+            design = "per_arm" if strategy == "oat_per_arm" else "shared"
+            estimator = linear_ctmle("oat", estimands=("ate",), oat_design=design)
+        else:
+            estimator = linear_ctmle(
+                strategy, estimands=("ate",), **SELECTOR_CONFIGS.get(strategy, {})
+            )
         return estimator.fit(frame, outcome="Y", treatment="A", covariates=covariates).single()
 
     @pytest.fixture(scope="class")
@@ -1028,6 +1042,15 @@ class TestTheSelectorPathsPublishNoInference:
             getattr(estimate, accessor)
         assert NON_INFERENTIAL["generated_design_plugin"].reason in str(raised.value)
         assert WORKING_MECHANISM.reason not in str(raised.value)
+
+    @pytest.mark.parametrize("accessor", ["ci", "pvalue", "std_error"])
+    def test_the_per_arm_outcome_adaptive_path_answers(
+        self, shared: Callable[[str], Any], accessor: str
+    ) -> None:
+        """The per-arm design on complete data has a result, so it keeps the accessors."""
+        estimate = shared("oat_per_arm")["ate"]
+        assert estimate.inference == "influence_curve"
+        assert getattr(estimate, accessor) is not None
 
     def test_the_retained_diagnostic_is_the_refused_number(
         self, shared: Callable[[str], Any]
@@ -1101,6 +1124,7 @@ class TestTheSelectorPathsPublishNoInference:
         adaptive = self._fit("oat").sensitivity.capability("evalue")
         assert adaptive.available is False
         assert NON_INFERENTIAL["generated_design_plugin"].reason in (adaptive.reason or "")
+        assert self._fit("oat_per_arm").sensitivity.capability("evalue").available
 
     def test_the_truncation_curve_reports_the_diagnostic_rather_than_raising(self) -> None:
         """Reachable on a C-TMLE fit, and it builds an inference-shaped frame per bound."""

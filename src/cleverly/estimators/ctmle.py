@@ -278,7 +278,7 @@ import copy
 import inspect
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal
 
 import numpy as np
 from sklearn.linear_model import LogisticRegression
@@ -311,7 +311,9 @@ if TYPE_CHECKING:
 __all__ = [
     "CTMLE",
     "CTMLE_SELECTOR_STRATEGIES",
+    "OAT_PER_ARM_INFERENTIAL",
     "CTMLELoss",
+    "CTMLEOatDesign",
     "CTMLEOutcomeAdaptiveFit",
     "CTMLEPreorder",
     "CTMLESelection",
@@ -319,11 +321,19 @@ __all__ = [
     "LogisticPlugin",
     "is_selector_strategy",
     "logistic_plugin",
+    "per_arm_design_admits",
 ]
 
 CTMLEStrategy = Literal["greedy", "ordered", "discrete", "oat"]
 CTMLELoss = Literal["auto", "loglik", "squared"]
 CTMLEPreorder = Literal["logistic", "partial_correlation"]
+CTMLEOatDesign = Literal["per_arm", "shared"]
+
+#: Whether an admitted per-arm outcome-adaptive fit publishes inference. Declared ``True``
+#: with the registered study ``ctmle-oat-per-arm``. A red positive coverage or calibration
+#: cell of that study, with no defect found, sets this to ``False``. Every per-arm fit then
+#: takes the ``"generated_design_plugin"`` status. :func:`per_arm_design_admits` reads it.
+OAT_PER_ARM_INFERENTIAL: Final[bool] = True
 
 #: The strategies that build a candidate path and cut it at a data-chosen stopping index.
 #: ``"oat"`` is not one: it fits one categorical mechanism on the outcome-prediction vector
@@ -382,6 +392,42 @@ def declares_full_adjustment_only(
     if strategy != "discrete" or candidates is None or len(candidates) != 1:
         return False
     return len(covariate_names) > 0 and sorted(candidates[0]) == sorted(covariate_names)
+
+
+def per_arm_design_admits(estimator: Any, data: CausalData) -> bool:
+    """Whether an outcome-adaptive fit is inside the per-arm result and reports inference.
+
+    The per-arm design regresses ``1{A = a}`` on the one column ``Qbar_n(a, W)`` for each arm.
+    Benkeser, Cai and van der Laan (2020), Theorem 1, give the influence curve of that
+    construction for one treatment-specific mean. An indicator reduction per arm and a
+    fixed-dimension stack give the joint curve of every arm.
+    ``docs/technical-reference/collaborative-tmle.md`` states the contract. The key reads
+    the estimator configuration, the prepared data and :data:`OAT_PER_ARM_INFERENTIAL`. It
+    never reads a fitted array, so a caller knows the answer before the fit.
+
+    Parameters
+    ----------
+    estimator : CTMLE
+        The collaborative estimator. Only ``strategy`` and ``oat_design`` are read.
+    data : CausalData
+        The prepared data. Missing outcomes, a missing treatment and baseline strata are
+        read.
+
+    Returns
+    -------
+    bool
+        ``True`` when the strategy is ``"oat"``, the design is ``"per_arm"``, every outcome
+        and treatment is observed, the fit declares no baseline strata, and
+        :data:`OAT_PER_ARM_INFERENTIAL` is ``True``.
+    """
+    return bool(
+        OAT_PER_ARM_INFERENTIAL
+        and getattr(estimator, "strategy", None) == "oat"
+        and getattr(estimator, "oat_design", None) == "per_arm"
+        and not data.has_missing_outcome
+        and not data.has_missing_treatment
+        and not data.has_strata
+    )
 
 
 #: Floor applied to targeted predictions before taking a logarithm in the loss.
@@ -568,11 +614,30 @@ class CTMLESelection:
 
 @dataclass(frozen=True)
 class CTMLEOutcomeAdaptiveFit:
-    """Diagnostics for the ctmle3-style outcome-adaptive treatment model."""
+    """Diagnostics for the outcome-adaptive treatment mechanism of ``strategy="oat"``.
+
+    Parameters
+    ----------
+    strategy : str
+        Always ``"oat"``.
+    treatment_features : tuple of str
+        The ``Qbar`` features that reached the treatment mechanism, one per arm.
+    treatment_risk : float
+        The weighted treatment negative log likelihood. Under the per-arm design it is the
+        sum over arms of each binary mechanism's negative log likelihood.
+    design : {"per_arm", "shared"}
+        ``"per_arm"`` fits one binary mechanism per arm on that arm's own ``Qbar``
+        feature. ``"shared"`` fits one categorical mechanism on every feature.
+    treatment_risk_by_arm : dict of str to float or None
+        Each arm's binary negative log likelihood under the per-arm design, keyed by the
+        arm label. ``None`` under the shared design.
+    """
 
     strategy: CTMLEStrategy
     treatment_features: tuple[str, ...]
     treatment_risk: float
+    design: CTMLEOatDesign = "shared"
+    treatment_risk_by_arm: dict[str, float] | None = None
 
     @property
     def treatment_risk_selected(self) -> float:
@@ -580,29 +645,51 @@ class CTMLEOutcomeAdaptiveFit:
         return self.treatment_risk
 
     def describe(self) -> str:
-        """One sentence naming this fit and the size of the treatment model it built.
+        """One sentence naming this fit and the treatment design it built.
 
         The counterpart of :meth:`CTMLESelection.describe`.  There is no candidate path to
-        cut, so what a reader wants instead is how many ``Qbar`` features reached ``g``.
+        cut, so what a reader wants instead is how the ``Qbar`` features reached ``g``.
 
         Returns
         -------
         str
             A complete sentence, ready to embed in a report line.
         """
-        return f"C-TMLE outcome-adaptive fit used {len(self.treatment_features)} Qbar feature(s)"
+        count = len(self.treatment_features)
+        if self.design == "per_arm":
+            return (
+                f"C-TMLE outcome-adaptive fit used one Qbar feature per arm in {count} "
+                "binary mechanisms"
+            )
+        return (
+            f"C-TMLE outcome-adaptive fit used {count} Qbar features in one categorical mechanism"
+        )
 
     def summary(self) -> str:
+        """A printable report of the outcome-adaptive treatment design.
+
+        Returns
+        -------
+        str
+            The design, the features and the treatment negative log likelihood.
+        """
         features = ", ".join(self.treatment_features)
-        return "\n".join(
-            [
-                "Collaborative TMLE outcome-adaptive fit",
-                "=" * 39,
-                "strategy = oat; treatment model = A ~ [Qbar(a, W)]",
-                f"features: {features}",
-                f"treatment negative log likelihood: {self.treatment_risk:.6g}",
-            ]
-        )
+        if self.design == "per_arm":
+            model = "per_arm; treatment model = 1{A = a} ~ Qbar(a, W), one per arm"
+        else:
+            model = "shared; treatment model = A ~ [Qbar(a, W)]"
+        lines = [
+            "Collaborative TMLE outcome-adaptive fit",
+            "=" * 39,
+            f"strategy = oat; design = {model}",
+            f"features: {features}",
+            f"treatment negative log likelihood: {self.treatment_risk:.6g}",
+        ]
+        if self.treatment_risk_by_arm is not None:
+            lines.extend(
+                f"  arm {label}: {value:.6g}" for label, value in self.treatment_risk_by_arm.items()
+            )
+        return "\n".join(lines)
 
 
 @dataclass(frozen=True)
@@ -633,14 +720,16 @@ class CTMLE(TMLE):
     :class:`~cleverly.estimators.TMLEResult` with the selection recorded under
     ``result.extra["ctmle"]``.
 
-    On every strategy its estimates refuse ``ci``, ``pvalue`` and ``std_error``, and
-    report ``plugin_std_error`` and ``plugin_interval`` instead.  A contrast of them, a
-    simultaneous band and every E-value branch refuse for the same reason.  The selector
-    strategies and ``strategy="oat"`` give different reasons, and F18 and F19 in the
-    roadmap hold them.  For an interval, fit :class:`~cleverly.TMLE`.  See the module
-    docstring.  The exception is a ``"discrete"`` fit whose one declared candidate is the
-    full adjustment set: it selects nothing, equals the ordinary TMLE, and reports its
-    interval.
+    The selector strategies refuse ``ci``, ``pvalue`` and ``std_error``, and report
+    ``plugin_std_error`` and ``plugin_interval`` instead.  A contrast of them, a
+    simultaneous band and every E-value branch refuse for the same reason, which F18 in the
+    roadmap holds.  The exception is a ``"discrete"`` fit whose one declared candidate is
+    the full adjustment set: it selects nothing, equals the ordinary TMLE, and reports its
+    interval.  ``strategy="oat"`` with the default per-arm design reports an interval on
+    complete data without baseline strata.  Benkeser, Cai and van der Laan (2020),
+    Theorem 1, give its influence curve.  Every ``oat_design="shared"`` fit, and a per-arm
+    fit with missing outcomes or strata, withholds the interval for the reason F19 and X29
+    hold.  See the module docstring.
 
     Parameters
     ----------
@@ -679,6 +768,13 @@ class CTMLE(TMLE):
         so unlike a plain TMLE, one fit cannot serve every estimand equally. At ``K``
         arms, ``ate``, ``rr`` and ``or`` jointly optimize the ``K - 1`` contrasts against
         ``reference=`` and ``ey`` jointly optimizes all ``K`` means. Must be requested.
+    oat_design:
+        The treatment design of ``strategy="oat"``.  ``"per_arm"`` (the default under
+        ``"oat"``) fits one binary mechanism per arm, ``P(A = a | Qbar(a, W))``, on that
+        arm's own outcome prediction.  ``"shared"`` fits one categorical mechanism on the
+        vector ``[Qbar(a, W): a in arms]``, as ``ctmle3::LF_oat`` does.  Only the per-arm
+        design reports inference; see the module docstring.  ``None`` resolves to
+        ``"per_arm"`` under ``"oat"``, and any other value raises under a selector strategy.
 
     Notes
     -----
@@ -705,31 +801,59 @@ class CTMLE(TMLE):
         declared list and the prepared covariate names, and never the fitted path.
         ``docs/technical-reference/collaborative-tmle.md`` states the contract.
 
-        ``"oat"`` takes its own status on every fit, as the status table of
-        ``docs/technical-reference/inference.md`` states. Its
-        mechanism is always fitted on the outcome predictions of every arm, whatever
-        estimands are requested, so an ``ey1``-only fit is the joint fit, and a fit with
-        ``delta=`` is outside the theorem too. F19 holds the result that would reopen it.
+        An ``"oat"`` fit with the per-arm design takes the :class:`~cleverly.TMLE` status
+        when :func:`per_arm_design_admits` admits it: complete outcomes and treatment, no
+        baseline strata, and :data:`OAT_PER_ARM_INFERENTIAL` set. Benkeser, Cai and van der
+        Laan (2020), Theorem 1, give its curve. Every other ``"oat"`` fit takes
+        ``"generated_design_plugin"``. That is every ``oat_design="shared"`` fit, which F19
+        holds, and a per-arm fit with missing outcomes or strata, which X29 holds. The
+        status table of ``docs/technical-reference/inference.md`` states both.
 
         Parameters
         ----------
         data : CausalData
-            The prepared data. Only its covariate names are read here. The admitted
-            ``"discrete"`` fit passes ``data`` to the :class:`~cleverly.TMLE` status.
+            The prepared data. Its covariate names, missing outcomes, missing treatment and
+            strata are read here. An admitted fit passes ``data`` to the
+            :class:`~cleverly.TMLE` status.
 
         Returns
         -------
         str
             One of :data:`~cleverly.inference.influence.InferenceStatus`: the
-            :class:`~cleverly.TMLE` status for the admitted ``"discrete"`` fit,
-            ``"working_mechanism_plugin"`` for every other ``"greedy"``, ``"ordered"`` and
-            ``"discrete"`` fit, and ``"generated_design_plugin"`` for ``"oat"``.
+            :class:`~cleverly.TMLE` status for the admitted ``"discrete"`` fit and the
+            admitted per-arm ``"oat"`` fit, ``"working_mechanism_plugin"`` for every other
+            ``"greedy"``, ``"ordered"`` and ``"discrete"`` fit, and
+            ``"generated_design_plugin"`` for every other ``"oat"`` fit.
         """
         if declares_full_adjustment_only(self.strategy, self.candidates, data.covariate_names):
             return super()._inference_status(data)
         if is_selector_strategy(self.strategy):
             return "working_mechanism_plugin"
+        if per_arm_design_admits(self, data):
+            return super()._inference_status(data)
         return "generated_design_plugin"
+
+    def _bootstrap_inferential(self, data: CausalData) -> bool:
+        """Whether the full-refit bootstrap interval is published as inference.
+
+        ``False`` on every ``"oat"`` fit. Theorem 1 of Benkeser, Cai and van der Laan (2020)
+        gives the influence curve of a superefficient estimator, and it does not cover the
+        bootstrap of that estimator. Every other strategy takes the :class:`~cleverly.TMLE`
+        answer.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+
+        Returns
+        -------
+        bool
+            ``False`` for ``strategy="oat"``, otherwise the :class:`~cleverly.TMLE` answer.
+        """
+        if self.strategy == "oat":
+            return False
+        return super()._bootstrap_inferential(data)
 
     def __init__(
         self,
@@ -743,6 +867,7 @@ class CTMLE(TMLE):
         loss: CTMLELoss = "auto",
         penalty: bool = True,
         ctmle_estimand: str = "ate",
+        oat_design: CTMLEOatDesign | None = None,
         **kwargs: Any,
     ) -> None:
         if kwargs.get("learned_rule") is not None:
@@ -766,9 +891,12 @@ class CTMLE(TMLE):
         self.loss = loss
         self.penalty = penalty
         self.ctmle_estimand = ctmle_estimand
+        self.oat_design = oat_design
         self._validate_ctmle_settings()
         if self.strategy == "ordered" and self.ordering is None and self.preorder is None:
             self.preorder = "logistic"
+        if self.strategy == "oat" and self.oat_design is None:
+            self.oat_design = "per_arm"
 
     def _validate_ctmle_settings(self) -> None:
         if self.loss not in ("auto", "loglik", "squared"):
@@ -793,6 +921,10 @@ class CTMLE(TMLE):
             raise ValueError(f"preorder= only applies to strategy='ordered', not {self.strategy!r}")
         if self.ordering is not None and self.preorder is not None:
             raise ValueError("preorder= cannot be combined with an explicit ordering=")
+        if self.oat_design not in (None, "per_arm", "shared"):
+            raise ValueError(f"oat_design must be 'per_arm' or 'shared'; got {self.oat_design!r}")
+        if self.strategy != "oat" and self.oat_design is not None:
+            raise ValueError(f"oat_design= only applies to strategy='oat', not {self.strategy!r}")
         if self.selection_folds < 2:
             raise ValueError(f"selection_folds must be at least 2; got {self.selection_folds}")
         if self.selection_inner_folds < 2:
@@ -1014,18 +1146,47 @@ class CTMLE(TMLE):
     def _outcome_adaptive_nuisances(
         self, data: CausalData, base: NuisanceEstimates, *, seed: int | None
     ) -> tuple[NuisanceEstimates, dict[str, Any]]:
-        """Fit categorical ``A`` on the vector of arm-specific Qbar predictions.
+        """Fit the outcome-adaptive treatment mechanism on the arm-specific Qbar predictions.
 
-        This is the construction in ``ctmle3::LF_oat``: no candidate path or
-        parameter-specific risk is involved.  The ordinary K-column mean fluctuation
-        targets the returned nuisances later in the shared TMLE pipeline.  With more
-        than one outer fold, each propensity is trained on predictions from an outcome
-        model fitted wholly inside the same training fold.  That nesting is what keeps
-        an evaluation row's outcome out of its own generated mechanism design.
+        ``oat_design="per_arm"`` regresses ``1{A = a}`` on the one column ``Qbar(a, W)`` for
+        each arm. Column ``a`` of the returned mechanism holds ``P(A = a | Qbar(a, W))``, so
+        the rows are not a distribution over the arms and the mechanism is marked off the
+        simplex. Every arm's learner is resolved from the one seed of the draw.
+        ``oat_design="shared"`` is the construction in ``ctmle3::LF_oat``: one categorical
+        mechanism on the vector ``[Qbar(a, W): a in arms]``.
+
+        Neither design has a candidate path or a parameter-specific risk. The ordinary
+        K-column mean fluctuation targets the returned nuisances later in the shared TMLE
+        pipeline. Its columns ``1{A = a} / g_a`` have disjoint supports, so under the
+        per-arm design each arm keeps its own coefficient. With more than one outer fold,
+        each mechanism is trained on predictions from an outcome model fitted wholly inside
+        the same training fold. That nesting keeps an evaluation row's outcome out of its
+        own generated mechanism design.
         """
         arms = data.arm_codes
+        per_arm = self.oat_design == "per_arm"
         learner = self._resolve_learner(self.treatment_learner, task="classification", seed=seed)
-        if base.folds.is_single:
+        if base.folds.is_single and per_arm:
+            columns: list[FloatArray] = []
+            diagnostics: list[Any] = []
+            for arm in arms:
+                design = base.outcome.arms[arm][:, None]
+                predictions, arm_diagnostics = cross_fit_predictions(
+                    learner,
+                    design,
+                    (data.treatment == arm).astype(float),
+                    data.weights,
+                    base.folds,
+                    task="classification",
+                    predict_designs={"g": design},
+                    groups=data.cluster,
+                    clip=(0.0, 1.0),
+                    n_jobs=self.n_jobs,
+                )
+                columns.append(predictions["g"])
+                diagnostics.append(arm_diagnostics)
+            propensity_values = np.column_stack(columns)
+        elif base.folds.is_single:
             design = np.column_stack([base.outcome.arms[arm] for arm in arms])
             predictions, diagnostics = cross_fit_predictions(
                 learner,
@@ -1045,16 +1206,30 @@ class CTMLE(TMLE):
             base, propensity_values, diagnostics = self._cross_fit_outcome_adaptive(
                 data, base, learner, seed=seed
             )
-        propensity = Propensity(propensity_values, arms)
-        observed_columns = np.array(
-            [propensity.column_for(float(arm)) for arm in data.treatment], dtype=int
-        )
-        observed_probability = propensity.values[np.arange(data.n), observed_columns]
-        risk = float(-np.sum(data.weights * np.log(np.clip(observed_probability, _LOSS_EPS, 1.0))))
+        risk_by_arm: dict[str, float] | None
+        if per_arm:
+            propensity = Propensity(propensity_values, arms, simplex=False)
+            risk_by_arm = {
+                data.arm_label(arm): _binary_risk(
+                    propensity.arm(arm), (data.treatment == arm).astype(float), data.weights
+                )
+                for arm in arms
+            }
+            risk = float(sum(risk_by_arm.values()))
+        else:
+            propensity = Propensity(propensity_values, arms)
+            observed_columns = np.array(
+                [propensity.column_for(float(arm)) for arm in data.treatment], dtype=int
+            )
+            observed_probability = propensity.values[np.arange(data.n), observed_columns]
+            risk = float(
+                -np.sum(data.weights * np.log(np.clip(observed_probability, _LOSS_EPS, 1.0)))
+            )
+            risk_by_arm = None
         features = tuple(f"Qbar[{data.arm_label(arm)}]" for arm in arms)
         nuisance_diagnostics = dict(base.diagnostics)
         nuisance_diagnostics.pop("propensity", None)
-        if diagnostics:
+        if (per_arm and any(diagnostics)) or (not per_arm and diagnostics):
             nuisance_diagnostics["propensity"] = diagnostics
         nuisance = replace(
             base,
@@ -1064,7 +1239,11 @@ class CTMLE(TMLE):
         )
         return nuisance, {
             "ctmle": CTMLEOutcomeAdaptiveFit(
-                strategy="oat", treatment_features=features, treatment_risk=risk
+                strategy="oat",
+                treatment_features=features,
+                treatment_risk=risk,
+                design="per_arm" if per_arm else "shared",
+                treatment_risk_by_arm=risk_by_arm,
             )
         }
 
@@ -1085,18 +1264,26 @@ class CTMLE(TMLE):
         propensity.  Here one outcome model fitted on ``train_v`` creates *both* sides
         of fold ``v``'s generated design before ``g_v`` is fitted on ``train_v``.
 
+        Under ``oat_design="per_arm"`` fold ``v`` fits ``K`` binary mechanisms on
+        ``train_v``, each regressing ``1{A = a}`` on the column ``Qbar_v(a, W)`` alone.  The
+        nesting is the same.  This is the cross-validated construction of Benkeser, Cai and
+        van der Laan (2020), Appendix D: fold-trained ``Qbar_v`` and ``g_v(. | Qbar_v)``, and
+        one coefficient per arm pooled over the validation rows.
+
         The outcome predictions returned in ``base`` are replaced by the validation
         pieces from these very models.  That matters for stochastic learners: the
         outcome regression used to build a clever covariate cannot be a second refit
         that merely has the same learner settings.
         """
         arms = data.arm_codes
+        per_arm = self.oat_design == "per_arm"
         folds = base.folds
         outcome_task = base.outcome_task
         outcome_learner = self._resolve_learner(self.outcome_learner, task=outcome_task, seed=seed)
         outcome_design = data.treatment_design()
         counterfactual = {arm: data.counterfactual_design(arm) for arm in arms}
         scaled = base.scaler.scale(data.outcome)
+        indicators = {arm: (data.treatment == arm).astype(float) for arm in arms}
         jobs = [(fold, train, test) for fold, (train, test) in enumerate(folds)]
 
         def predict_outcome(model: Learner, design: FloatArray) -> FloatArray:
@@ -1138,18 +1325,46 @@ class CTMLE(TMLE):
                 for arm, design in counterfactual.items()
             }
             generated = np.column_stack([by_arm[arm] for arm in arms])
-            treatment_model = fit_on_rows(
-                treatment_learner,
-                generated,
-                data.treatment,
-                data.weights,
-                train,
-                "classification",
-                data.cluster,
-            )
-            propensity = np.clip(
-                predict_probabilities(treatment_model, generated[test], arms), 0.0, 1.0
-            )
+            treatment_diagnostic: Any
+            if per_arm:
+                columns = []
+                arm_diagnostics = []
+                for j, arm in enumerate(arms):
+                    arm_model = fit_on_rows(
+                        treatment_learner,
+                        generated[:, [j]],
+                        indicators[arm],
+                        data.weights,
+                        train,
+                        "classification",
+                        data.cluster,
+                    )
+                    columns.append(
+                        np.clip(
+                            predict_mean(arm_model, generated[test][:, [j]], "classification"),
+                            0.0,
+                            1.0,
+                        )
+                    )
+                    arm_diagnostics.append(getattr(arm_model, "diagnostics_", None))
+                propensity = np.column_stack(columns)
+                treatment_diagnostic = (
+                    arm_diagnostics if any(item is not None for item in arm_diagnostics) else None
+                )
+            else:
+                treatment_model = fit_on_rows(
+                    treatment_learner,
+                    generated,
+                    data.treatment,
+                    data.weights,
+                    train,
+                    "classification",
+                    data.cluster,
+                )
+                propensity = np.clip(
+                    predict_probabilities(treatment_model, generated[test], arms), 0.0, 1.0
+                )
+                treatment_diagnostic = getattr(treatment_model, "diagnostics_", None)
             return (
                 fold,
                 test,
@@ -1157,7 +1372,7 @@ class CTMLE(TMLE):
                 {arm: values[test] for arm, values in by_arm.items()},
                 propensity,
                 getattr(outcome_model, "diagnostics_", None),
-                getattr(treatment_model, "diagnostics_", None),
+                treatment_diagnostic,
             )
 
         observed = np.empty(data.n, dtype=float)
@@ -1177,6 +1392,12 @@ class CTMLE(TMLE):
             if g_diagnostic is not None:
                 treatment_diagnostics.append(g_diagnostic)
 
+        if per_arm and treatment_diagnostics:
+            # One list per arm, each holding that arm's fold diagnostics, so the per-arm
+            # calibration report reads the arm's own learner table.
+            treatment_diagnostics = [
+                [fold_entry[j] for fold_entry in treatment_diagnostics] for j in range(len(arms))
+            ]
         diagnostics = dict(base.diagnostics)
         diagnostics.pop("outcome", None)
         diagnostics.pop("propensity", None)
@@ -1937,6 +2158,28 @@ class _Selector:
             missingness=missingness,
             diagnostics={},
         )
+
+
+def _binary_risk(predicted: FloatArray, indicator: FloatArray, weights: FloatArray) -> float:
+    """The weighted negative log likelihood of one binary mechanism.
+
+    Parameters
+    ----------
+    predicted : ndarray of float
+        The fitted probability ``P(A = a | Qbar(a, W))`` of each row.
+    indicator : ndarray of float
+        ``1{A = a}`` for each row.
+    weights : ndarray of float
+        The row weights.
+
+    Returns
+    -------
+    float
+        ``-sum_i w_i [I_i log g_i + (1 - I_i) log(1 - g_i)]``, with ``g`` floored away from
+        0 and 1 at the loss floor.
+    """
+    g = np.clip(np.asarray(predicted, dtype=float), _LOSS_EPS, 1.0 - _LOSS_EPS)
+    return float(-np.sum(weights * (indicator * np.log(g) + (1.0 - indicator) * np.log1p(-g))))
 
 
 def _penalty_of(influence_curve: FloatArray) -> float:

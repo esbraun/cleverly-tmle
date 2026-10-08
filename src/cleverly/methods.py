@@ -761,10 +761,10 @@ class CollaborativeTMLEMethod(TMLEMethod):
     name : str
         Stable method name.
     strategy : {"greedy", "ordered", "discrete", "oat"}, default="greedy"
-        Collaborative search strategy. No strategy reports a confidence interval, a
-        p-value or a standard error, with one exception that the Notes state.
-        ``"greedy"``, ``"ordered"`` and ``"discrete"`` give the reason that F18 in the
-        roadmap holds, and ``"oat"`` the reason that F19 holds.
+        Collaborative search strategy. ``"greedy"``, ``"ordered"`` and ``"discrete"``
+        report no confidence interval, no p-value and no standard error, with one
+        exception that the Notes state. F18 in the roadmap holds the reason. ``"oat"``
+        with the per-arm design reports an interval on complete data without strata.
     preorder : {"logistic", "partial_correlation"} or None, default=None
         Preordering rule for candidate covariates.
     ordering : tuple of str or None, default=None
@@ -781,6 +781,10 @@ class CollaborativeTMLEMethod(TMLEMethod):
         Whether to apply the collaborative complexity penalty.
     selection_estimand : str, default="ate"
         Estimand used by the selector.
+    oat_design : {"per_arm", "shared"} or None, default=None
+        The treatment design of ``strategy="oat"``. ``None`` resolves to ``"per_arm"``.
+        ``"shared"`` fits the one categorical mechanism of ``ctmle3`` and reports no
+        interval, for the reason F19 in the roadmap holds.
 
     See Also
     --------
@@ -799,6 +803,10 @@ class CollaborativeTMLEMethod(TMLEMethod):
     :class:`TMLEMethod`. The exception is a ``"discrete"`` fit whose one declared
     candidate is the full adjustment set. It selects nothing, equals the ordinary TMLE,
     and reports the ordinary interval.
+
+    ``strategy="oat"`` selects nothing. With the default per-arm design, on complete data
+    without baseline strata, it reports the interval that Benkeser, Cai and van der Laan
+    (2020), Theorem 1, give. Every other ``"oat"`` fit keeps the diagnostic only.
 
     Examples
     --------
@@ -826,6 +834,7 @@ class CollaborativeTMLEMethod(TMLEMethod):
     loss: str = "auto"
     penalty: bool = True
     selection_estimand: str = "ate"
+    oat_design: str | None = None
     name: str = "collaborative_tmle"
 
     def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
@@ -854,6 +863,7 @@ class CollaborativeTMLEMethod(TMLEMethod):
             "loss": self.loss,
             "penalty": self.penalty,
             "ctmle_estimand": self.selection_estimand,
+            "oat_design": self.oat_design,
         }
 
 

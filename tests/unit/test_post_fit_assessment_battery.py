@@ -260,7 +260,7 @@ def test_explicit_or_evalue_is_not_blocked_by_default_derivation() -> None:
 
 @pytest.mark.parametrize("estimand", [OddsRatio(), ATE()], ids=["or", "ate"])
 def test_an_outcome_adaptive_fit_refuses_every_evalue_branch_by_its_status(estimand) -> None:
-    """Every E-value branch reads an interval, and ``strategy="oat"`` reports none.
+    """Every E-value branch reads an interval, and the shared ``strategy="oat"`` reports none.
 
     ``oat`` stood in the test above and in the missing-baseline test below because it
     kept an interval. The odds-ratio request is the explicit branch, and the ATE without
@@ -272,7 +272,7 @@ def test_an_outcome_adaptive_fit_refuses_every_evalue_branch_by_its_status(estim
         _study()
         .identify(estimand)
         .estimate(
-            method=CollaborativeTMLEMethod(strategy="oat"),
+            method=CollaborativeTMLEMethod(strategy="oat", oat_design="shared"),
             outcome_learner=LinearRegression(),
             treatment_learner=LogisticRegression(max_iter=1000),
             n_folds=2,
@@ -995,7 +995,13 @@ def test_an_outcome_adaptive_evalue_refusal_is_identical_live_saved_and_detached
 
     frame, _ = make_binary_outcome(n=160, seed=3)
     raw = (
-        _raw(CTMLE, strategy="oat", estimands=("ate", "ey0"), learner_folds=2)
+        _raw(
+            CTMLE,
+            strategy="oat",
+            oat_design="shared",
+            estimands=("ate", "ey0"),
+            learner_folds=2,
+        )
         .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
         .single()
     )
