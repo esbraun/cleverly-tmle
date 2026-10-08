@@ -306,6 +306,10 @@ class PositivityReport:
         mechanism and a combination of draws would describe one no estimate came from.
     backend : str or None
         Dataframe backend :meth:`to_frame` returns when ``data`` is omitted.
+    treatment_mechanism : {"estimated", "known"}
+        Whether ``g(W)`` is an estimate or the mechanism the data declares known.  A known
+        mechanism never moves under the fitted bounds, because the fit refuses a bound pair
+        that would move it.
     """
 
     propensity_quantiles: dict[str, dict[float, float]]
@@ -338,6 +342,7 @@ class PositivityReport:
     #: than reconstructed from a submodel that might not be the one the fit used (for
     #: example under fold-specific targeting).
     group_score_load_omissions: dict[str, str] = field(default_factory=dict)
+    treatment_mechanism: str = "estimated"
 
     def to_frame(self, data: Any = None) -> Any:
         """Propensity quantiles as a tidy frame.
@@ -392,7 +397,12 @@ class PositivityReport:
         lines = [
             "Positivity / overlap diagnostics",
             "-" * 32,
-            f"n = {self.n}; propensity truncated to [{self.bounds[0]:.4g}, {self.bounds[1]:.4g}]",
+            f"n = {self.n}; propensity truncated to [{self.bounds[0]:.4g}, {self.bounds[1]:.4g}]"
+            + (
+                "; treatment mechanism known (declared)"
+                if self.treatment_mechanism == "known"
+                else ""
+            ),
         ]
         if self.n_repeats > 1:
             lines.append(
@@ -895,6 +905,7 @@ def _binary_positivity_report(result: TMLEResult) -> PositivityReport:
         backend=data.backend,
         group_score_load=group_score_load,
         group_score_load_omissions=group_omissions,
+        treatment_mechanism=result.nuisance.treatment_mechanism,
     )
 
 
@@ -983,6 +994,7 @@ def _multi_arm_positivity_report(result: TMLEResult) -> PositivityReport:
         backend=data.backend,
         group_score_load=group_score_load,
         group_score_load_omissions=group_omissions,
+        treatment_mechanism=result.nuisance.treatment_mechanism,
     )
 
 
@@ -1622,6 +1634,9 @@ def truncation_curve(
         # and nothing that varies between the parameters sharing that pair.
         truncated_fraction = _clipped_fraction(result, pair, mechanism)
         moved = _moved_factor(result, mechanism)
+        # A swept g(W) bound on a known mechanism moves a declared value, which the fit
+        # itself refuses, so each row names the mechanism the swept bound reads.
+        known = not mechanism and result.nuisance.treatment_mechanism == "known"
         for name in reported:
             estimate = estimates[name]
             # The columns ``ParameterEstimate.to_dict`` publishes, for the same reason: a
@@ -1649,6 +1664,7 @@ def truncation_curve(
                     # A composite fit divides by a product of factors, and a bound moves
                     # some of them only, so the row names the factors it truncated.
                     **({} if moved is None else {"truncated_factor": moved}),
+                    **({"treatment_mechanism": "known"} if known else {}),
                 }
             )
 

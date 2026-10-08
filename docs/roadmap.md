@@ -135,7 +135,6 @@ Priorities 2 to 5 follow the beta.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1.10 | Known treatment mechanism | source audit | shipped `treatment_probabilities=` on `DRTMLE` | [X15](#x15-known-treatment-mechanism) |
 | 1.11 | Outcome-adaptive C-TMLE intervals from per-arm scalar designs | published support for one mean; natural extension for every arm and contrast | shipped `strategy="oat"` | [X17](#x17-outcome-adaptive-c-tmle-intervals-from-per-arm-scalar-designs) |
 | 1.12 | C-TMLE candidate sequences | published support; pending source read | shipped selector paths | [X16](#x16-c-tmle-candidate-sequences) |
 | 1.13 | Sequential doubly robust longitudinal estimation | published support; pending source read | implemented longitudinal targets | [X4](#x4-sequential-doubly-robust-longitudinal-estimation) |
@@ -145,7 +144,8 @@ Priorities 2 to 5 follow the beta.
 | 1.17 | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
 | 1.18 | Continuous vector components at a node | published support; pending source read | shipped longitudinal modified treatment policies | [X31](#x31-continuous-vector-components-at-a-node) |
 | 1.19 | Plug-in omitted-variable limits with a declared parametric mechanism | [published support; stacked-equation extension](technical-reference/natural-extension-verdicts.md) | the shipped plug-in bound | [X26](#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism) |
-| 2 | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
+| 2.1 | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
+| 2.2 | Efficient known-score ATT and ATC | published support; pending source read | the shipped known treatment mechanism | [X35](#x35-efficient-known-score-att-and-atc) |
 | 3.1 | Natural and interventional mediation effects | published support; pending source read | target-specific identification and evidence | [X5](#x5-natural-and-interventional-mediation-effects) |
 | 3.2 | Continuous-time survival and competing risks | published support; pending source read | continuous-time intensity and targeting contracts; X14 | [X6](#x6-continuous-time-survival-and-competing-risks) |
 | 3.3 | Two-phase and outcome-dependent sampling | published support; pending source read | observed-data likelihood and influence correction | [X7](#x7-two-phase-and-outcome-dependent-sampling) |
@@ -352,35 +352,6 @@ owners do the same for the stratified DR-TMLE study.
 The sections below give one contract for each open item. Their physical order does not override
 the main grid.
 
-### X15. Known treatment mechanism
-
-`TMLE` always estimates the treatment mechanism. `DRTMLE` takes `treatment_probabilities=` only
-with `delta=`, and it refuses the array on complete data. A randomized trial knows its mechanism.
-`tmle3` (`LF_known`) and `drtmle` (`gn`) accept it.
-
-Work: add a declared known mechanism to `TMLE`, and to complete-data `DRTMLE`. Keep it distinct
-from `randomized=True`, which estimates the mechanism for chance-imbalance adjustment. Read the
-source for each inference claim before choosing the reported curve.
-
-| question | where the audit starts |
-| --- | --- |
-| the curve when the mechanism is known, and the direction of its variance against the efficient curve | the audit must find and read a source. Moore and van der Laan (2009), *Statistics in Medicine* 28(1), on covariate adjustment in trials, is the first candidate |
-| the `DRTMLE` complete-data refusal | the row of [DR-TMLE supported estimands](technical-reference/dr-tmle/supported-estimands.md) that states the gap |
-
-The known array is row-aligned to the data as passed, so it keeps the shipped refusal with
-`n_bootstrap=`.
-
-Acceptance:
-
-- a contract that cites the read source for the reported curve;
-- an exact-law test where the outcome regression is wrong and the known mechanism is true, with a
-  mutation control that perturbs the array;
-- a test that a known mechanism and a fitted mechanism give the same point on an exact law where
-  the fitted mechanism equals the known one;
-- a registered study at a randomized law.
-
-The [refusal taxonomy](technical-reference/scope-and-refusals.md) then drops the `DRTMLE` row.
-
 ### X17. Outcome-adaptive C-TMLE intervals from per-arm scalar designs
 
 Benkeser, Cai and van der Laan (2020), *Statistical Science*, Theorem 1, proves that the ordinary
@@ -577,6 +548,33 @@ Acceptance:
 Rust and Rao (1996) govern replication variance for complex surveys. Add BRR, jackknife, or
 another replicate design only after a source audit matches its construction to this package's
 weighted-law estimands and inference conventions.
+
+### X35. Efficient known-score ATT and ATC
+
+On data that declares its treatment mechanism, the shipped ATT divides by $g_0$ and reports the
+treated mean of $\bar Q^*_1-\bar Q^*_0$. That curve is not the efficient one when the propensity
+score is known. Hahn (1998) gives a smaller ATT bound for a known score than for an unknown one.
+
+By the remainder algebra of the
+[known treatment mechanism](technical-reference/point-treatment-tmle.md#known-treatment-mechanism)
+section, the g-weighted plug-in $P_n\{g_0(\bar Q^*_1-\bar Q^*_0)\}/P_n g_0$ has the smaller curve.
+The ATC is the mirror image. No pinned comparator implements it. R `tmle` and the `tmle3`
+`Param_ATT` both fluctuate $g$, so their ATT has the unknown-score curve. The item therefore follows
+the beta.
+
+| item | contract |
+| --- | --- |
+| base result | Hahn (1998), *Econometrica* 66(2):315–331, Theorems 1 and 2. [References](references.md) records that only the abstract was read. Read Theorem 2 first-hand before the row starts |
+| step | the g-weighted plug-in at $g_n=g_0$, with the remainder algebra of the shipped known-mechanism ATT |
+| estimator choice | an option on the known-mechanism ATT and ATC. The shipped treated-mean form stays the default |
+| comparator | none. The study cells compare with the truth only |
+
+Acceptance:
+
+- an exact-law test of the curve of the g-weighted plug-in;
+- a variance witness: on a law where the score carries information, the reported standard error is
+  below the standard error of the shipped form;
+- truth-only registered study cells.
 
 ### X5. Natural and interventional mediation effects
 

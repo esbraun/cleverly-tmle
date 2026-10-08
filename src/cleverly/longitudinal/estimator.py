@@ -164,6 +164,7 @@ from .sequential import (
     fit_mechanism,
     fit_regimen,
     node_ratios,
+    preflight_known_mechanisms,
     preflight_mechanism_support,
     preflight_terminal_outcomes,
 )
@@ -646,6 +647,20 @@ def _replay_recipe(
     )
 
 
+def _known_factors(data: LongitudinalData) -> tuple[str, ...]:
+    """The treatment and censoring columns whose factor ``data`` declares known."""
+    known = data.known_mechanisms
+    if known is None:
+        return ()
+    names: list[str] = []
+    for time in range(1, data.n_times + 1):
+        if not data.is_held_node(time) and known.treatment_at(time) is not None:
+            names.append(data.decision_name(time))
+        if data.censoring_names and known.censoring_at(time) is not None:
+            names.append(data.censoring_names[time - 1])
+    return tuple(names)
+
+
 @dataclass(frozen=True)
 class LongitudinalConfig:
     """A snapshot of the settings a longitudinal fit actually used."""
@@ -692,6 +707,10 @@ class LongitudinalConfig:
     held_treatment: str | None = None
     #: The grid times of a container built from a time and an event column, else ``None``.
     time_grid: tuple[float, ...] | None = None
+    #: The treatment and censoring columns whose factor the data declares known
+    #: (:attr:`~cleverly.longitudinal.LongitudinalData.known_mechanisms`), in node order.
+    #: Each fits no learner and is not truncated.  Empty on a fit that declares none.
+    known_factors: tuple[str, ...] = ()
 
     def describe(self, *, contrast: bool) -> list[str]:
         """Return the settings lines of :meth:`LongitudinalResult.summary`.
@@ -799,6 +818,11 @@ class LongitudinalConfig:
                 else ""
             ),
         ]
+        if self.known_factors:
+            lines.append(
+                f"known factors (declared, no learner): {', '.join(self.known_factors)}; no "
+                "truncation bound moved a declared value"
+            )
         if self.q_bounds is not None:
             lines.append(f"q_bounds: [{self.q_bounds[0]:.4g}, {self.q_bounds[1]:.4g}]")
         lines.append(f"confidence level: {(1 - self.alpha_sig) * 100:g}%")
@@ -2891,6 +2915,8 @@ class LTMLE:
         weights_estimated: bool = False,
         family: str = "auto",
         continuous_treatment: Sequence[str] = (),
+        treatment_probabilities: Any = None,
+        censoring_probabilities: Any = None,
         **refused: Any,
     ) -> LongitudinalResult:
         """Fit on a wide dataframe, or on an already-built :class:`LongitudinalData`.
@@ -2949,6 +2975,18 @@ class LTMLE:
             The treatment columns that hold a continuous dose, as for
             :meth:`LongitudinalData.from_frame`.  Each such node takes a modified treatment
             policy.
+        treatment_probabilities : array-like, mapping, or None
+            The known treatment mechanism of a sequentially randomized design, as for
+            :meth:`LongitudinalData.from_frame`.  A declared node fits no treatment learner,
+            and its factor is the declared probability of the arm each row is assigned.
+            With every factor known, the remainder is zero and the curve is
+            ``D*(Q_inf, g0)`` for any outcome learner (van der Laan and Gruber 2012).  The
+            fit refuses, before any learner, a declared cumulative probability that
+            ``g_bounds`` would move.  Beside a container the array forms are attached with
+            :meth:`LongitudinalData.with_known_mechanisms`.
+        censoring_probabilities : array-like, mapping, or None
+            The known retention probabilities, as for
+            :meth:`LongitudinalData.from_frame`.  A declared node fits no censoring learner.
         **refused : Any
             A point-treatment keyword.  Each one raises :class:`TypeError` with the
             reason that a longitudinal fit does not support it.
@@ -2982,6 +3020,8 @@ class LTMLE:
             weights_estimated=weights_estimated,
             family=family,
             continuous_treatment=continuous_treatment,
+            treatment_probabilities=treatment_probabilities,
+            censoring_probabilities=censoring_probabilities,
         )
         regimens = resolve_regimens(
             self.regimens,
@@ -3009,6 +3049,8 @@ class LTMLE:
         # Every rule is called here and nowhere else, so a mask and the design the
         # mechanism was evaluated at cannot disagree about what the regimen assigned.
         plans = resolve_plans(regimens, prepared)
+        # Every declared factor is checked against the bounds before any learner.
+        preflight_known_mechanisms(prepared, plans, resolve_cumulative_g_bounds(self.g_bounds))
 
         self._refuse_unbounded_cross_fitted_scale(prepared)
         if self.n_bootstrap and self.bootstrap_resampling == "cluster" and prepared.cluster is None:
@@ -3137,6 +3179,7 @@ class LTMLE:
             ),
             held_treatment=prepared.treatment_names[0] if prepared.treatment_held else None,
             time_grid=prepared.time_grid,
+            known_factors=_known_factors(prepared),
             msm_terms=None if model is None else model.terms,
             msm_link=None if model is None else str(model.link),
             # The evaluated arrays rather than the design, for the reason the plans are
@@ -3241,6 +3284,8 @@ class LTMLE:
         weights_estimated: bool,
         family: str,
         continuous_treatment: Sequence[str] = (),
+        treatment_probabilities: Any = None,
+        censoring_probabilities: Any = None,
     ) -> LongitudinalData:
         if isinstance(data, LongitudinalData):
             declared = {
@@ -3271,6 +3316,11 @@ class LTMLE:
                     "and passing them again cannot change them. Pass them to "
                     "LongitudinalData.from_frame, which is where the columns are read"
                 )
+            if treatment_probabilities is not None or censoring_probabilities is not None:
+                return data.with_known_mechanisms(
+                    treatment_probabilities=treatment_probabilities,
+                    censoring_probabilities=censoring_probabilities,
+                )
             return data
         if outcome is None or treatment is None or baseline is None:
             raise TypeError(
@@ -3290,6 +3340,8 @@ class LTMLE:
             weights_estimated=weights_estimated,
             family=family,
             continuous_treatment=continuous_treatment,
+            treatment_probabilities=treatment_probabilities,
+            censoring_probabilities=censoring_probabilities,
         )
 
     def _horizons(self, data: LongitudinalData) -> tuple[int, ...]:

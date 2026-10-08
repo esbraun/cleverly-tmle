@@ -48,6 +48,7 @@ __all__ = [
     "LONGITUDINAL_CONSTANT_TARGET",
     "LONGITUDINAL_CONSTANT_TARGET_IN_FOLD",
     "LONGITUDINAL_HELD_DECISION",
+    "LONGITUDINAL_KNOWN_MECHANISM",
     "LONGITUDINAL_NO_CENSORING",
     "LONGITUDINAL_NO_CENSORING_IN_FOLD",
     "LongitudinalDiagnostics",
@@ -84,6 +85,10 @@ LONGITUDINAL_CONSTANT_TARGET_IN_FOLD = (
 #: The node is an identity node of a held design: it repeats the baseline decision, its
 #: factor is exactly one, and the estimator fitted no treatment model there.
 LONGITUDINAL_HELD_DECISION = "baseline decision held at this node, factor one, no model"
+
+#: The data declares the node's factor known, so the estimator read the declaration and
+#: fitted no learner there.
+LONGITUDINAL_KNOWN_MECHANISM = "factor declared known on the data, no learner"
 
 #: No eligible unit was censored at the node, so its retention factor is exactly one and the
 #: estimator fitted no censoring learner there.
@@ -759,10 +764,15 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
     for time in range(1, result.data.n_times + 1):
         at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
         held = result.data.is_held_node(time)
-        report = None if held else _treatment_report(result, time, at_risk)
+        declared = time in mechanism.known_treatment_nodes
+        report = None if held or declared else _treatment_report(result, time, at_risk)
         if held:
             omissions.append(
                 LongitudinalNuisanceOmission("treatment", time, LONGITUDINAL_HELD_DECISION)
+            )
+        elif declared:
+            omissions.append(
+                LongitudinalNuisanceOmission("treatment", time, LONGITUDINAL_KNOWN_MECHANISM)
             )
         elif report is None:
             omissions.append(
@@ -785,6 +795,11 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
         if time in mechanism.no_censoring_nodes:
             omissions.append(
                 LongitudinalNuisanceOmission("censoring", time, LONGITUDINAL_NO_CENSORING)
+            )
+            continue
+        if time in mechanism.known_censoring_nodes:
+            omissions.append(
+                LongitudinalNuisanceOmission("censoring", time, LONGITUDINAL_KNOWN_MECHANISM)
             )
             continue
         if time in mechanism.no_censoring_folds:

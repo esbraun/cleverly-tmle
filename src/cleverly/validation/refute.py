@@ -2108,6 +2108,12 @@ def refute(
                         f"{_standardized_distance(distance, std_error):.1f} {unit} "
                         f"from {no_effect_null:g}. A large gap can indicate fold leakage "
                         "or a misdefined estimand"
+                        + (
+                            ". The known treatment mechanism was dropped for each permuted "
+                            "treatment and re-estimated"
+                            if data.known_treatment is not None
+                            else ""
+                        )
                     ),
                     mean_kind=mean_kind,
                 )

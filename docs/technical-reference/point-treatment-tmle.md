@@ -585,6 +585,137 @@ counts, so each arm must appear in two distinct clusters. See
 `submodel_alpha` bounds the logistic submodel. `alpha` is the interval's significance level. The
 two are separate keywords because they once shared a name and a fit read one as the other.
 
+### Known treatment mechanism
+
+A randomized trial fixes its treatment mechanism $g_0(a\mid W)$ by design. Declare it with
+`treatment_probabilities=` in `TMLE.fit` or in `CausalData.from_frame`. In the study API, declare
+it with `PointTreatment(treatment_probabilities=...)`. The fit then divides by $g_0$, and it fits no
+treatment learner.
+
+| form | reading |
+| --- | --- |
+| `{level: "column"}` | each level's probability is the named frame column. The columns are not adjustment covariates |
+| `{level: array}` | one `(n,)` array per arm. Every arm must be named |
+| `(n, K)` array | columns in the sorted level order |
+| `(n,)` array | two arms only, read as $P(A = \text{levels}[1]\mid W)$ |
+
+The declaration is a data field (`CausalData.known_treatment`), not an estimator setting.
+`TMLE.fit` accepts it beside a dataframe, and the array forms beside a prepared `CausalData`. A
+container that already declares a mechanism refuses a second declaration.
+
+The claims below hold when every mechanism the fit divides by is declared. For a
+point treatment, that is complete data with no `intermediate=`.
+
+With $g=g_0$ the remainder
+$P_0\{(g-g_0)/g\,(\bar Q-\bar Q_0)\}$ is zero. The estimate is then consistent for any limit
+$\bar Q_\infty$ of the outcome regression. Its influence curve is exactly
+$D^*(\bar Q_\infty,g_0)$. Moore and van der Laan (2009), Section 2, state the consistency.
+Their Section 5 states that inference with the true mechanism is not conservative. The table gives
+the curve each fit reports.
+
+| fit with a declared mechanism | reported curve | source |
+| --- | --- | --- |
+| arm means, ATE, RR, OR, PAR, PAF, regimes and MSMs, on complete data | the ordinary curve at $g_0$, which is the exact influence curve | Moore and van der Laan (2009), Sections 2 and 5 |
+| missing outcomes (`delta=`) and a controlled direct effect (`intermediate=`) | the ordinary curve at $g_0$ and at the estimated second mechanism. The declaration replaces the treatment mechanism only. The observation mechanism $\hat\pi$, or the intermediate mechanism $\hat q_z$, is still estimated. The remainder is the product of that mechanism's error and the outcome error, so the ordinary TMLE conditions apply. The interval is established when both are consistent at a product rate. It is not established for a wrong outcome regression | the missing-outcome and controlled-direct-effect contracts above |
+| ATT and ATC | the shipped ATT and ATC curve at $g_0$. It is exact, and it is not the known-score efficient curve | the algebra below; Hahn (1998) |
+| `incremental=` | the curve of the known stochastic regime $q_\delta(g_0)$, with no term in $(A-g)$ | Kennedy (2019), the remark after Corollary 2 |
+| `learned_rule=` | the shipped learned-rule curve. The rule reads the outcome regression only | the learned-rule contract above |
+| `DRTMLE` | see the [DR-TMLE contract](dr-tmle/theorem.md#a-known-treatment-mechanism) | Benkeser et al. (2017), Theorem 1 |
+| `LTMLE` | see [known node mechanisms](longitudinal-tmle.md#known-node-mechanisms) | van der Laan and Gruber (2012), Theorem 2 and Section 4 |
+
+A known mechanism is not the only choice. The table compares the three mechanisms a trial analyst
+can use.
+
+| mechanism | what the interval means |
+| --- | --- |
+| the declared design mechanism, on complete data with no `intermediate=` | an interval that is not conservative, for any outcome learner |
+| maximum likelihood in a parametric model that contains $g_0$, such as a logistic regression on the randomization strata | a smaller true variance when $\bar Q$ is wrong. The reported standard error is then conservative (Moore and van der Laan 2009, Section 4.2 and Section 7.3, Table IV; Petersen et al. 2014, Section 3.7) |
+| a flexible treatment learner, with an outcome regression that can be wrong | the TMLE need not be asymptotically linear (Benkeser et al. 2017). Use the declared mechanism |
+
+The registered [known-mechanism TMLE study](method-evidence/known-treatment-mechanism.md) reports
+the spread of the first two side by side, as a row with no verdict.
+
+**The ATT and the ATC.** Write $p=P(A=1)$ and $\bar Q_{a,0}$ for the true arm regression. At the
+declared mechanism,
+
+$$
+P_0\{A(Y-\bar Q_1)\} = P_0\{g_0(\bar Q_{1,0}-\bar Q_1)\}, \qquad
+P_0\Big\{(1-A)\frac{g_0}{1-g_0}(Y-\bar Q_0)\Big\} = P_0\{g_0(\bar Q_{0,0}-\bar Q_0)\}.
+$$
+
+The shipped plug-in is the treated mean of $\bar Q^*_1-\bar Q^*_0$. With the ATT score
+equation, it gives $\hat\psi-\psi_0=(P_n-P_0)D^*_{\text{ATT}}(\bar Q_\infty,g_0)$ up to
+the empirical-process term. The remainder is zero for any $\bar Q$, and the ATC is the mirror
+image.
+
+The curve is not the efficient one when the score is known. Hahn (1998) gives a smaller ATT
+bound for a known propensity score than for an unknown one, as read from the abstract. By the
+remainder algebra above, the g-weighted plug-in $P_n\{g_0(\bar Q^*_1-\bar Q^*_0)\}/P_n g_0$ has
+the smaller curve. The package does not ship it.
+
+**Incremental interventions.** With $g_0$ known, $q_\delta(g_0)=\delta g_0/(\delta g_0+1-g_0)$ is
+a known stochastic regime. The model with a known mechanism has no mechanism scores, so the
+efficient curve is Kennedy's curve projected off that tangent space. The projection removes the
+middle term in $(A-g)$ and leaves the regime curve. Kennedy (2019), arXiv v3, states it after
+Corollary 2: "If the propensity scores were known, the efficient influence function would just be
+the first weighted average term." The fit therefore solves no mechanism equation.
+`tests/unit/test_known_treatment_mechanism.py` checks that the fit equals the
+`Stochastic(density_kind="known")` fit at $q_\delta(g_0)$.
+
+**Modified treatment policies.** A discrete `policies=` fit reads $g$ only in the ratio
+$g^d/g$, and the plug-in reads the observed treatment. A declared $g_0$ is the degenerate estimate
+$g_n=g_0$. The remainder is a product of the ratio error and the outcome error, so it is zero.
+The shipped curve at $(\bar Q_\infty,g_0)$ is therefore exact. The fit evaluates the discrete formula at the
+declaration. `tests/unit/test_known_treatment_mechanism.py` checks that the fit equals the fit
+whose learner returns $g_0$, at two and three arms. `ratio="classifier"` learns the ratio, so it
+is refused beside a declaration.
+
+**Weights.** With `weights=`, the declaration is the mechanism of the weight-tilted law. That law's
+mechanism equals the design mechanism when the weights depend on $W$ only, as survey and transport
+weights do. The declaration is the analyst's assertion, as the array itself is.
+
+**Bounds.** Truncating a known mechanism moves the estimate with no variance reason. Before any
+learner, the fit checks each declared value against every bound pair it uses. These are the
+ATE-family pair, and the ATT and ATC pair when `att` or `atc` is requested. If a pair would move
+a value, the fit refuses:
+
+> treatment_probabilities has {k} values outside the truncation bounds [{lo}, {hi}] (smallest
+> {min}, largest {max}). Truncating a known design mechanism moves the estimate with no variance
+> reason. Pass g_bounds=(lower, upper) that contains every known probability.
+
+The truncation curve still sweeps other bounds. Each row of a sweep on a known mechanism carries a
+`treatment_mechanism` column that reads `"known"`.
+
+**Readers.** Each reader that refits uses the data it is handed, so the declaration follows the
+rows.
+
+| reader | declared mechanism |
+| --- | --- |
+| `n_bootstrap=` and the subset refutation | carried. Each replicate reads the declared values of the rows it drew |
+| the placebo refutation | dropped, because a permuted treatment has a mechanism of its own. The refit estimates it, and the report says so. The permuted treatment is independent of $W$, so the re-estimated null stays centred |
+| simulated confounding | carried as the flipped mechanism. The flip of strength $s$ is independent of $W$, so the flipped treatment's mechanism is $g_s(a\mid W)=(1-s)\,g_0(a\mid W)+s\,g_0(1-a\mid W)$. Each cell declares $g_s$, and its refit fits no treatment learner |
+| `random_common_cause`, measurement error and the negative-control outcome | carried |
+| replay and `refit` | carried. A refit of a known-mechanism fit reproduces it bit for bit |
+| `retarget`, the truncation curve, the MNAR tilt, and the omitted-variable bound | read the cached declared mechanism |
+| the omitted-variable `benchmark` | refused. A declared mechanism does not change when a covariate is dropped |
+| `variable_importance` | not carried. Each candidate is a different treatment with no declaration |
+
+**Refusals.** Each of these refuses before any learner.
+
+| composition | error | reason |
+| --- | --- | --- |
+| `CTMLE`, or `CollaborativeTMLEMethod` on a declaring design | `CapabilityError` | C-TMLE selects the mechanism, and the declaration leaves nothing to select |
+| a continuous treatment | `CapabilityError` | the declaration gives arm probabilities, and a dose has a conditional density |
+| `policies=` with `ratio="classifier"` | `CapabilityError` | the classifier learns the ratio that the declaration fixes. Pass `ratio="density"` |
+| `treatment_delta=` | `CapabilityError` | a missing treatment needs $P(A=a\mid\Delta_A=1,W)$, which equals the design mechanism only when recording is independent of treatment given $W$ |
+| `screen_treatment=True` | `ValueError` | the screen selects covariates for the treatment learner, which the declaration replaces |
+| `DRTMLE(evaluation=...)` whose companion declares no mechanism | `CapabilityError` | the companion's mechanism must be its own declaration. Declare the same columns on an evaluation frame, or pass a `CausalData` companion that declares its own |
+| a second declaration of the mechanism | `ValueError` | declare it once, on the data or at fit |
+
+The result records the choice. `TMLEConfig.treatment_mechanism` reads `"known"`, the summary
+prints `treatment mechanism: known (declared)`, and `to_frame()` adds a `treatment_mechanism`
+column. A saved result keeps the record.
+
 ### Known regimes
 
 For a known stochastic intervention $g^*(a\mid w)$,

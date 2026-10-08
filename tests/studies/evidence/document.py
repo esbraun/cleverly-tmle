@@ -380,6 +380,32 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {render(float(row.se_ratio))}"
         )
+    if family == "known_mechanism_accuracy":
+        # A positive cell answers to the bias margin, the coverage floor and the SE screen
+        # together; the control to its bias alone, so the margin is printed beside it.
+        return (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"margin {render(float(row.bias_margin))}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}"
+        )
+    if family == "bootstrap_coverage":
+        return f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+    if family == "variance_direction":
+        # Reported, with no margin to read.  Each row prints its own spread and SE ratio, and
+        # the ratio of the two spreads, which both rows store, is printed once: on the
+        # estimated-mechanism row, the numerator.
+        measured = (
+            f"empirical SD {render(float(row.empirical_se))}, "
+            f"SE ratio {render(float(row.se_ratio))}"
+        )
+        if not str(row.cell).endswith("known_mechanism"):
+            measured += (
+                ", estimated-over-declared spread ratio "
+                f"{render(float(row.sd_ratio_estimated_over_known))}, "
+                f"{_interval(row.sd_ratio_ci_lower, row.sd_ratio_ci_upper)}"
+            )
+        return measured
     if family == "correction_necessity":
         return f"score {_interval(row.bias_ci_lower, row.bias_ci_upper)}"
     if family == "repeat_stability":

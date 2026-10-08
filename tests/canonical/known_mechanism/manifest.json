@@ -1,0 +1,125 @@
+{
+  "schema_version": 2,
+  "study": "TMLE on a declared known treatment mechanism",
+  "slug": "known-treatment-mechanism",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-known-mechanism",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "25dfe2e36484b1480ffd2ea66389ceacd577fe16",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": {
+      "implementation": "tmle-r-known-g",
+      "tmle_version": "2.1.1",
+      "tmle_source_sha256": "5e1fccaea7bf923456b8197d3eca5314db074dcbec8ca0510a15cb837883b133",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_construction": "tmle(Y, A, W, Q = cbind(qn0, qn1), g1W = g0, gbound = 0.1, family = 'binomial', cvQinit = FALSE); Q is this package's initial outcome regression",
+      "pairing": "att and atc are paired at the correct outcome regression only: R tmle trims, recalibrates g1W and fluctuates it for the ATT and the ATC, a construction asymptotically equivalent to the known-mechanism ATT only when Qbar is correct",
+      "rejected_candidates": "tmle3 LF_known multi-arm pairing: moved to the three-arm drtmle scenario at guard=(); known_g__learned_rule cell: the unit test makes the known fit equal to a learner that returns g0, and the shipped learned-rule studies cover a correct parametric g"
+    }
+  },
+  "configuration": {
+    "replicates": 1000,
+    "n": 2000,
+    "seed": 20261150,
+    "resampling_seed": 2026115001,
+    "scenario_seed_owners": {
+      "binary_q_wrong": "binary_q_correct"
+    },
+    "publication_policy": "reporting",
+    "scenarios": {
+      "binary_q_correct": [
+        "ey0",
+        "ey1",
+        "ate",
+        "rr",
+        "or",
+        "att",
+        "atc"
+      ],
+      "binary_q_wrong": [
+        "ey0",
+        "ey1",
+        "ate",
+        "rr",
+        "or"
+      ]
+    },
+    "construction": "ordinary binary TMLE dividing by the declared mechanism",
+    "cross_fit": false,
+    "simultaneous_intervals": false,
+    "g_bounds": [
+      0.1,
+      0.9
+    ],
+    "treatment_mechanism": "known (declared by column)",
+    "outcome_learner": {
+      "binary_q_correct": "unpenalized logistic regression on the true terms",
+      "binary_q_wrong": "unpenalized logistic regression on A, W1, W3 (omits W2)"
+    },
+    "control_population_bias": 0.0790275,
+    "targeting_witness_floor": 0.005,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_known_mechanism.py": "4d3a3bb1b04329ce782f5eee6d45c7ac52c4d518de6beabdc34373c902933f52",
+    "tests/studies/known_mechanism_properties.py": "0f64b90fe3d66baf07bc04d2c389f578fa6e5902cf95820b7eb16076a279fc2a",
+    "tests/studies/known_mechanism_law.py": "23f4d7cfde71d01ffde84ddb704fdbd2104d93e9ad088528a6ca8cbd76251567",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/studies/evidence/comparison.py": "653c091f0c1cd240b41e4ed7026da8f67c0feda58404e7c27e80eabab38a2217",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
+    "tests/studies/evidence/property_verdicts.py": "3de1ed905e0e940351fade806d3ac0b759bcce823418aa46ddd5fc2df4ada31c",
+    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
+    "tests/canonical/tmle_mar/Dockerfile": "e1ddb86f1ed8ff57960fea5ade5b5429b9e92d4b86ffcaa7d1a3ef199401c18e",
+    "tests/canonical/known_mechanism/run_study.R": "8fb1ebdad1997903440905d97c0b1ba49792787c6166309ca81b32ba606dce9d",
+    "tests/canonical/tmle_point_adapter.R": "4e8bc374a05764bb97e6219b96d05895a38354cb668af83434065ee1e0d9dbce",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "reference_sha256": {
+    "tests/canonical/tmle_mar/Dockerfile": "e1ddb86f1ed8ff57960fea5ade5b5429b9e92d4b86ffcaa7d1a3ef199401c18e",
+    "tests/canonical/known_mechanism/run_study.R": "8fb1ebdad1997903440905d97c0b1ba49792787c6166309ca81b32ba606dce9d",
+    "tests/canonical/tmle_point_adapter.R": "4e8bc374a05764bb97e6219b96d05895a38354cb668af83434065ee1e0d9dbce",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "sha256": {
+    "replicates.csv.gz": "8723ad1b46b5cfd07b904a8e5aaa3ed50ca6befae4b8d3c7d310e2893225e8c4",
+    "summary.csv": "772466c25634c210836a1d8d979744cad43f8f9c28fb5db475711d4e366c96a6",
+    "equivalence.csv": "136218e8e157b6f2d99b25e201ce875d74d9acd15feac6d4139419705f2d75ef",
+    "performance-tests.csv": "9b27c9743d8e8dc6c26c671d79f60bec5ff313ed613edeaecfcfd6ff81501415",
+    "property-replicates.csv.gz": "352859614cda5fdd1974ef539f9a73aad5a0652d3639effcfc57e77a59187982",
+    "properties.csv": "c3b318378276f205d79dd86865e065de491c7fa9b20ff5012a99c5556cba462f"
+  }
+}

@@ -428,6 +428,7 @@ the table.
 | `LONGITUDINAL_NO_CENSORING_IN_FOLD` | `censoring` at one node | one training fold had no censored unit and predicts one. Its held-out fold holds every censored unit at the node. The node's model row stays |
 | `LONGITUDINAL_HELD_DECISION` | `treatment` at a later node | the node holds the baseline decision, so its factor is exactly one and no model ran |
 | `LONGITUDINAL_CLASSIFIER_RATIO` | `treatment` at a continuous node | the classifier ratio route fits no density |
+| `LONGITUDINAL_KNOWN_MECHANISM` | `treatment` or `censoring` at one node | the data declares the node's factor known, so the fit read the declaration and no learner ran |
 | `LONGITUDINAL_CONSTANT_TARGET` | `outcome` or `pseudo_outcome` at one node | every follower held 0, such as no event at the node, or every follower held 1. The regression is that value and no learner ran |
 | `LONGITUDINAL_CONSTANT_TARGET_IN_FOLD` | `outcome` or `pseudo_outcome` at one node | one or more training folds held 0, or held 1, while the sample did not. Those folds fitted no learner, and `folds` names them. The node's model row stays |
 
