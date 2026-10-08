@@ -78,7 +78,7 @@ LONGITUDINAL_CONSTANT_TARGET = (
 #: its held-out rows start the pooled fluctuation there.  The node's model row stays, from the
 #: folds that did fit, and the omission names the folds.
 LONGITUDINAL_CONSTANT_TARGET_IN_FOLD = (
-    "a training fold held one 0 or 1 target, its regression is that"
+    "a training fold holds the same 0 or 1 target, its regression is that value"
 )
 
 #: The node is an identity node of a held design: it repeats the baseline decision, its

@@ -1581,14 +1581,21 @@ def _narrow_bands(
     That makes them the bands the engine itself would have produced had it been asked for this
     family alone. Below two parameters there is no joint question left, and both engines
     already return ``None`` there rather than a one-parameter band.
+
+    A parameter that supplies no inference on its own, such as a constant-node risk of a
+    longitudinal fit, stays out of the family, as the engine's band leaves it out.  The band is
+    a joint statement over the retained parameters that supply inference.
     """
     bands = result.simultaneous
-    if bands is None or len(retained) == len(result.estimates):
+    if bands is None:
+        return None
+    family = {name: estimate for name, estimate in retained.items() if estimate.supplies_inference}
+    if set(family) == set(bands.bands):
         return bands
-    if len(retained) < 2:
+    if len(family) < 2:
         return None
     return simultaneous_bands(
-        retained,
+        family,
         alpha=bands.alpha,
         n_replicates=bands.n_replicates,
         kind=bands.kind,

@@ -4,7 +4,9 @@ An estimate declares one :data:`InferenceStatus`. ``"influence_curve"`` is the o
 case: the package supplies ``std_error``, ``ci`` and ``pvalue``. Every other status names a
 reason the package supplies none, and :data:`NON_INFERENTIAL` holds that reason with every
 text a report prints for it. A consumer reads the table and never branches on a status
-name, so a new status is one new entry here and one new member of the Literal.
+name, so a new status is one new entry here and one new member of the Literal. The one
+exception is the estimator that stamps a parameter status
+(:data:`PARAMETER_STATUSES`), which names it through :data:`CONSTANT_NODE_STATUS`.
 
 A leaf module. It imports the standard library only, as :mod:`cleverly._typing` does, so
 :mod:`cleverly.exceptions`, which the rest of the package imports, can read the table at
@@ -19,6 +21,7 @@ from types import MappingProxyType
 from typing import Final, Literal, cast
 
 __all__ = [
+    "CONSTANT_NODE_STATUS",
     "FEW_CLUSTER_THRESHOLD",
     "HELD_OUT_SCALE",
     "MINIMUM_INTERVAL_CLUSTERS",
@@ -311,11 +314,16 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
 )
 
 
+#: The status of a longitudinal parameter whose recursion read a node regression as a
+#: constant 0 or 1. The estimator stamps it by name, so the name lives here once.
+CONSTANT_NODE_STATUS: Final = "constant_node_plugin"
+
 #: The statuses one parameter takes beside the status of its fit. Every other status holds
-#: for the whole fit. ``"constant_node_plugin"`` marks a longitudinal parameter whose recursion
-#: read a constant node regression, and the other parameters of that fit keep their status.
-#: A derived estimate that reads such a parameter takes it too.
-PARAMETER_STATUSES: Final[frozenset[str]] = frozenset({"constant_node_plugin"})
+#: for the whole fit. :data:`CONSTANT_NODE_STATUS` marks a longitudinal parameter whose
+#: recursion read a constant node regression, and the other parameters of that fit keep their
+#: status. A derived estimate that reads such a parameter takes it too. A reader therefore
+#: asks each estimate's ``supplies_inference``, and never the fit's status alone.
+PARAMETER_STATUSES: Final[frozenset[str]] = frozenset({CONSTANT_NODE_STATUS})
 
 
 def supplies_inference(status: str) -> bool:
