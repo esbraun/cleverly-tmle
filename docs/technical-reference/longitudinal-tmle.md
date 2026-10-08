@@ -547,7 +547,7 @@ theirs.
 | a contrast, `rmst()` and `rmtl()` | the status, when they read such a parameter |
 | the simultaneous band | the other parameters only |
 
-[F29](../roadmap.md#f29-inference-at-a-boundary-node-estimate) owns an interval at such a node.
+[F31](../roadmap.md#f31-inference-at-a-boundary-node-estimate) owns an interval at such a node.
 The nuisance report shows `LONGITUDINAL_CONSTANT_TARGET` in place of the node's row, with the
 regimen, the cause and the horizon. A cross-fitted training fold that reads a constant while the
 sample does not adds `LONGITUDINAL_CONSTANT_TARGET_IN_FOLD`, which names the folds, and the node's

@@ -291,13 +291,13 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "restricted mean that reads such a parameter takes this status too, and the "
                 "simultaneous band leaves it out. The plug-in standard error remains as a "
                 "diagnostic under "
-                "plugin_std_error and plugin_interval. F29 in docs/roadmap.md reopens this "
+                "plugin_std_error and plugin_interval. F31 in docs/roadmap.md reopens this "
                 "when a result supplies an interval at a boundary node estimate."
             ),
             assessment_note=(
                 "the reported curve is a constant-node diagnostic: no confidence interval or "
                 "p-value is available for a parameter whose recursion read a constant node "
-                "regression, and F29 in the roadmap is the condition that reopens it"
+                "regression, and F31 in the roadmap is the condition that reopens it"
             ),
             summary_label="constant-node se",
             bootstrap_note=(
@@ -305,7 +305,7 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "lacks, and no result validates the bootstrap coverage at a boundary node"
             ),
             diagnostic_noun="constant-node plug-in diagnostic",
-            reopened_by="F29",
+            reopened_by="F31",
         ),
     }
 )
