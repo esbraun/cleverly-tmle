@@ -109,6 +109,63 @@ hash difference. Regenerate a result-determining reference edit. Record a result
 Read [method benchmarking](method-benchmarking.md#what-makes-a-study-stale) for the complete
 provenance contract.
 
+## Resume a study run
+
+`tests/canonical/regenerate.py` keeps the scratch of each run outside the repository. An R
+reference stores the result of each group as a checkpoint. A rerun of the same command reuses the
+Python phase, the calibration and each checkpoint. The rerun prints what it reused. Every error
+stays fatal: the first error stops the phase with its message.
+
+A run shares its cache with a rerun only when the two have one *resume key*. The key holds the
+declared study without its output path, `HEAD` and the tree state. It also holds the reference
+sources, the R harness, the content of the samples and the truth, n, the replicate count and the
+Python versions. A change to any of these starts a new cache.
+
+| item | location or command |
+| --- | --- |
+| host scratch | `%LOCALAPPDATA%/cleverly/runs/<slug>/<key>/` on Windows, `~/.cache/cleverly/runs/<slug>/<key>/` elsewhere. `--cache DIR` replaces it |
+| R checkpoints | `/cache/<slug>/<key>/<runner>__<output>/` in the Docker volume `cleverly-cache` |
+| discard the cache of this key | add `--fresh` |
+| host lock | `_lock` in the host scratch. A second driver on one key refuses and names the holder. The driver removes the lock of a dead process |
+| container lock | the container name `cleverly-<slug>-<key>-<leaf>`. Docker refuses a second live container of one name |
+| the RM39 smoke | `python -m tests.canonical.harness_fixture.smoke` |
+
+A run that completes deletes its key directory in the volume and its default host scratch. It does
+not delete a `--cache` directory. A declared run keeps both until its pull request merges, for
+audit. The run prints both paths, and the implementer records them in the row's progress file.
+Delete them after the merge with these commands:
+
+```text
+docker run --rm -v cleverly-cache:/cache alpine rm -rf /cache/<slug>/<key>
+rmdir /s /q "%LOCALAPPDATA%\cleverly\runs\<slug>\<key>"
+```
+
+The driver sizes the R workers from measured memory. A calibration run fits the first group of
+each scenario in a fresh fork. It measures the peak and the private memory of each fork.
+The harness then sets the workers to 0.85 of the available memory over 1.25 times the per-worker
+cost.
+
+A runner can declare `Reference(worker_memory_mb=...)` as a floor, or
+`Reference(memory_override=(factor, share, reason))`. At its start, a phase logs the memory, the
+calibration, the plan and its binding reason. Each retry pass logs `MemAvailable` and the workers.
+
+| event | what the run does |
+| --- | --- |
+| a killed worker | the next pass halves the workers and fits the group again, alone |
+| a second kill of one group | the phase stops with exit 3 and names the group. A rerun resumes |
+| a pass that makes no progress | the phase stops with exit 3. A rerun resumes |
+| a container killed whole (exit 137) | the driver runs the container once more with `CLEVERLY_R_WORKER_CAP` at half the last workers |
+| a second container kill | the run stops. A rerun resumes |
+
+Give the study machine a memory limit in `.wslconfig`, so a memory overrun kills a container and
+not the host. The log line `MemTotal ... MemAvailable ... cgroup limit ...` shows what the
+container saw.
+
+Run the RM39 smoke after an edit to `tests/canonical/study_harness.R`, to a fixture runner, or to
+the `tmle3` Dockerfile. The smoke runs in Docker, because CI installs no R. It commits its results
+and `tests/canonical/harness_fixture/fixture-manifest.json`. The fast suite fails until the
+manifest names the current bytes of each of those files.
+
 ## Notebook artifacts
 
 A committed notebook stores the outputs of a run rather than recomputing them. The fast suite

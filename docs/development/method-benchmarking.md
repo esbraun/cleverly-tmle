@@ -29,6 +29,8 @@ samples; one method does not inherit another's parity or coverage claims.
 - Preserve native inference scales, including log-scale risk-ratio and odds-ratio intervals.
 - Fail the run on a dropped or unsuccessful replication. Do not replace samples or summarize a
   shorter run than the one declared.
+- Resume a reference phase that a killed worker or container stopped. The phase refits only the
+  groups without a checkpoint, as the [testing strategy](testing-strategy.md#resume-a-study-run) describes.
 - Retain paired replication-level estimates, standard errors, interval endpoints, truth,
   coverage, initial estimates where exposed, and pairing keys. Require a nonzero targeting
   witness so parity cannot be explained by both implementations returning their initial fits.

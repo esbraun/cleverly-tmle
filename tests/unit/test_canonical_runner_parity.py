@@ -44,8 +44,62 @@ from tests.canonical import runner_source
 from tests.studies.evidence.registry import ROOT
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 
-#: Every reference runner, by the study directory that owns it.
-RUNNERS = tuple(sorted((ROOT / "tests" / "canonical").glob("*/run_*.R")))
+CANONICAL = ROOT / "tests" / "canonical"
+
+#: The runners that sit beside the harness rather than in a study directory.  Each is named by
+#: the ``Reference.runner`` of one or more studies, so the ``*/run_*.R`` glob cannot find it.
+ROOT_RUNNERS = tuple(
+    CANONICAL / name
+    for name in (
+        "categorical_ltmle_runner.R",
+        "longitudinal_mtp_runner.R",
+        "point_survival_policies_runner.R",
+        "point_survival_runner.R",
+        "policy_point_mtp_runner.R",
+        "stochastic_categorical_ltmle_runner.R",
+    )
+)
+
+#: Every reference runner whose row a study publishes: one per study directory, plus the
+#: root runners.  These answer to the published-row contract.
+RUNNERS = tuple(sorted((*CANONICAL.glob("*/run_*.R"), *ROOT_RUNNERS)))
+
+#: The three runners that stay off the harness and carry its RM39 functions in place.
+IN_PLACE_RUNNERS = tuple(
+    CANONICAL / name
+    for name in (
+        "ctmle3_oat/run_ctmle3_oat.R",
+        "ctmle_selector/run_ctmle.R",
+        "drtmle/run_drtmle.R",
+    )
+)
+
+_COLLECTS = re.compile(r"\bstudy_(?:collect|stream)\(")
+
+
+def _collectors() -> tuple[Path, ...]:
+    """Every file that hands its fits to the harness, plus the three in-place runners.
+
+    These answer to the harness contract: the argument check, the replication refusal and the
+    worker check.  A probe that collects through the harness is one of them, and so is a root
+    runner.  The RM39 harness fixture is not a reference runner, so it is left out.
+    """
+    found = {
+        path
+        for path in CANONICAL.rglob("*.R")
+        if path.name != "study_harness.R"
+        and "harness_fixture" not in path.parts
+        and _COLLECTS.search(path.read_text(encoding="utf-8"))
+    }
+    return tuple(sorted(found | set(IN_PLACE_RUNNERS)))
+
+
+COLLECTORS = _collectors()
+
+
+def _label(path: Path) -> str:
+    return path.relative_to(CANONICAL).as_posix()
+
 
 _KEY = re.compile(r"^\s*(?P<name>[a-z_]+)\s*=")
 
@@ -119,9 +173,31 @@ def published_keys(source: str) -> tuple[str, ...]:
 def test_every_registered_runner_is_covered() -> None:
     """A new runner joins these checks by existing, not by being added to a list."""
     assert len(RUNNERS) >= 12, f"only {len(RUNNERS)} reference runners found under tests/canonical"
+    assert set(ROOT_RUNNERS) <= set(RUNNERS)
+    assert all(path.exists() for path in ROOT_RUNNERS)
 
 
-@pytest.mark.parametrize("runner", RUNNERS, ids=lambda path: path.parent.name)
+def test_every_root_runner_is_one_a_study_names() -> None:
+    """The root-runner list is complete: a study that names a root runner finds it listed."""
+    named = {
+        match.group("runner")
+        for regenerate in CANONICAL.glob("*/regenerate.py")
+        for match in _NAMED_RUNNER.finditer(regenerate.read_text(encoding="utf-8"))
+        if "/" not in match.group("runner") and (CANONICAL / match.group("runner")).exists()
+    }
+    assert named == {path.name for path in ROOT_RUNNERS}
+
+
+def test_every_collector_is_checked_against_the_harness_contract() -> None:
+    """The widening reaches the probes and root runners the study glob misses (RM39, M6)."""
+    labels = {_label(path) for path in COLLECTORS}
+    assert {_label(path) for path in IN_PLACE_RUNNERS} <= labels
+    assert {_label(path) for path in ROOT_RUNNERS} <= labels
+    assert "tmle_mar_attributable/probe_scale_workaround.R" in labels
+    assert len(labels) >= 45 + len(IN_PLACE_RUNNERS)
+
+
+@pytest.mark.parametrize("runner", RUNNERS, ids=_label)
 class TestTheSharedPublishedContract:
     def test_the_published_row_is_the_declared_schema(self, runner: Path) -> None:
         keys = published_keys(runner_source(runner))
@@ -136,6 +212,9 @@ class TestTheSharedPublishedContract:
         # carries four fit-health columns that way.
         assert len(set(keys)) == len(keys), f"{runner.parent.name} names a column twice"
 
+
+@pytest.mark.parametrize("runner", COLLECTORS, ids=_label)
+class TestTheSharedHarnessContract:
     def test_the_runner_takes_the_three_paths_the_driver_passes(self, runner: Path) -> None:
         assert "if (length(args) != 3) stop(" in runner_source(runner), (
             f"{runner.parent.name} does not refuse a wrong argument count. "
@@ -173,7 +252,29 @@ def sourced_files(runner: Path) -> tuple[Path, ...]:
     return tuple(root / match.group("path") for match in _SOURCED_PATH.finditer(runner.read_text()))
 
 
-@pytest.mark.parametrize("runner", RUNNERS, ids=lambda path: path.parent.name)
+#: ``runner="..."`` in a study's ``regenerate.py``.
+_NAMED_RUNNER = re.compile(r"""runner\s*=\s*["'](?P<runner>[^"']+\.R)["']""")
+
+
+def runner_manifests(runner: Path) -> tuple[Path, ...]:
+    """The manifests that hash ``runner``: its own directory's, or for a root runner, those of
+    the studies whose ``Reference.runner`` names it."""
+    if runner.parent != CANONICAL:
+        return (runner.parent / "manifest.json",)
+    return tuple(
+        sorted(
+            regenerate.parent / "manifest.json"
+            for regenerate in CANONICAL.glob("*/regenerate.py")
+            if any(
+                match.group("runner") == runner.name
+                for match in _NAMED_RUNNER.finditer(regenerate.read_text(encoding="utf-8"))
+            )
+            and (regenerate.parent / "manifest.json").exists()
+        )
+    )
+
+
+@pytest.mark.parametrize("runner", RUNNERS, ids=_label)
 def test_every_file_a_runner_sources_is_hashed_by_its_own_manifest(runner: Path) -> None:
     """A shared adapter is half of a comparator, so the manifest has to record it.
 
@@ -188,15 +289,18 @@ def test_every_file_a_runner_sources_is_hashed_by_its_own_manifest(runner: Path)
     ``reference_sha256``, which makes adding one a deliberate act with a regeneration attached
     rather than an edit that quietly drops a source out of the record.
     """
-    manifest = json.loads((runner.parent / "manifest.json").read_text())
-    hashed = set(manifest["reference_sha256"])
-    for source in sourced_files(runner):
-        name = source.relative_to(ROOT).as_posix()
-        assert name in hashed, (
-            f"{runner.parent.name} sources {name}, which its manifest does not hash. The "
-            f"container runs that file, so the study's recorded provenance does not cover the "
-            f"code that produced its rows. Add it to Reference.extra_files and regenerate"
-        )
+    manifests = runner_manifests(runner)
+    assert manifests, f"no study manifest hashes {_label(runner)}"
+    for path in manifests:
+        hashed = set(json.loads(path.read_text())["reference_sha256"])
+        for source in sourced_files(runner):
+            name = source.relative_to(ROOT).as_posix()
+            assert name in hashed, (
+                f"{_label(runner)} sources {name}, which {path.parent.name}'s manifest does not "
+                f"hash. The container runs that file, so the study's recorded provenance does "
+                f"not cover the code that produced its rows. Add it to Reference.extra_files "
+                f"and regenerate"
+            )
 
 
 #: The two point-treatment adapters, which restate one transcription.

@@ -1,6 +1,506 @@
 suppressPackageStartupMessages(library(drtmle))
 options(digits = 17)
 
+# ---- RM39 shared resilience functions: begin ----
+# tests/canonical/study_harness.R and the three runners that stay off it (ctmle3_oat,
+# ctmle_selector, drtmle) carry this block byte for byte; tests/unit/test_harness_drift.py
+# compares the four copies.  Change it here and copy it to the other three.
+#
+# What it does: every fit runs in a forked child, writes a start marker, and leaves its result
+# in a checkpoint file.  A killed child leaves the marker and no checkpoint, so the retry loop
+# can name it, run it again alone, and stop when it is killed twice.  A rerun of the container
+# reuses every checkpoint.  The worker count comes from measured memory, not from the input
+# size.  Every error is still fatal: the first one stops the run with its message.
+
+study_parent_pid <- Sys.getpid()
+
+study_env <- function(name, default = "") {
+  value <- Sys.getenv(name, "")
+  if (identical(value, "")) default else value
+}
+
+study_number <- function(name, default) {
+  value <- suppressWarnings(as.numeric(study_env(name, "")))
+  if (length(value) != 1L || is.na(value)) default else value
+}
+
+study_granted <- function(default) {
+  requested <- suppressWarnings(as.integer(study_env("CLEVERLY_R_CORES", "")))
+  if (is.na(requested) || requested < 1L) as.integer(default) else requested
+}
+
+study_calibrating <- function() {
+  identical(study_env("CLEVERLY_HARNESS_CALIBRATE"), "1")
+}
+
+study_checkpoint_dir <- function() {
+  dir <- study_env("CLEVERLY_CHECKPOINT", file.path(tempdir(), "cleverly-checkpoints"))
+  dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+  dir
+}
+
+study_declared_groups <- function() {
+  declared <- strsplit(study_env("CLEVERLY_R_CALIBRATION_GROUPS"), ",", fixed = TRUE)[[1]]
+  declared[nzchar(declared)]
+}
+
+study_runner_name <- function() {
+  file <- grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)
+  if (length(file)) basename(sub("^--file=", "", file[[1]])) else "runner"
+}
+
+study_memory <- function() {
+  # MB.  `memory.max` reads `max` when the container has no `-m`, which is no limit.
+  info <- readLines("/proc/meminfo")
+  field <- function(name) {
+    line <- grep(sprintf("^%s:", name), info, value = TRUE)
+    if (!length(line)) return(NA_real_)
+    as.numeric(sub("^[^0-9]*([0-9]+).*$", "\\1", line[[1]])) / 1024
+  }
+  cgroup <- function(name) {
+    path <- file.path("/sys/fs/cgroup", name)
+    if (!file.exists(path)) return(NA_real_)
+    value <- trimws(readLines(path, n = 1L, warn = FALSE))
+    if (!length(value) || identical(value, "max")) return(NA_real_)
+    as.numeric(value) / 1048576
+  }
+  list(
+    total = field("MemTotal"),
+    available = field("MemAvailable"),
+    limit = cgroup("memory.max"),
+    current = cgroup("memory.current")
+  )
+}
+
+study_memory_line <- function() {
+  memory <- study_memory()
+  sprintf(
+    "MemTotal %.0f MB, MemAvailable %.0f MB, cgroup limit %s",
+    memory$total, memory$available,
+    if (is.na(memory$limit)) "none" else sprintf("%.0f MB (%.0f MB used)", memory$limit, memory$current)
+  )
+}
+
+study_status_mb <- function(name) {
+  line <- grep(sprintf("^%s:", name), readLines("/proc/self/status"), value = TRUE)
+  as.numeric(sub("^[^0-9]*([0-9]+).*$", "\\1", line[[1]])) / 1024
+}
+
+study_rss_mb <- function() study_status_mb("VmRSS")
+
+study_hwm_mb <- function() study_status_mb("VmHWM")
+
+study_private_mb <- function() {
+  # A forked child shares its parent's pages until it writes them.  A full collection writes
+  # the mark bits of every object, so after it the child's private memory includes its copy of
+  # the parent heap, which is what a worker really costs.
+  invisible(gc(full = TRUE))
+  lines <- readLines("/proc/self/smaps_rollup")
+  private <- grep("^Private_(Clean|Dirty):", lines, value = TRUE)
+  sum(as.numeric(sub("^[^0-9]*([0-9]+).*$", "\\1", private))) / 1024
+}
+
+study_fork <- function(expr) {
+  # One fresh child for `expr`.  A killed child returns NULL, as it does under `mclapply`.  An
+  # error comes back as a `try-error` value, so it is raised again here: a fit that errors in
+  # a fork must stop the run like any other error.
+  job <- parallel::mcparallel(expr)
+  collected <- parallel::mccollect(job, wait = TRUE)
+  value <- if (is.null(collected) || !length(collected)) NULL else collected[[1]]
+  if (inherits(value, "try-error")) {
+    condition <- attr(value, "condition")
+    if (is.null(condition)) stop(as.character(value), call. = FALSE)
+    stop(condition)
+  }
+  value
+}
+
+study_write_state <- function(...) {
+  # The driver cannot read the container's output, so the plan and any stop go to a file in
+  # the work directory.  After a whole-container kill the driver reads the last worker count.
+  path <- study_env("CLEVERLY_R_STATE")
+  if (identical(path, "")) return(invisible(NULL))
+  fields <- list(...)
+  held <- if (file.exists(path)) readLines(path, warn = FALSE) else character(0)
+  keys <- sub("=.*$", "", held)
+  for (name in names(fields)) {
+    line <- sprintf("%s=%s", name, gsub("[\r\n]+", " ", as.character(fields[[name]])))
+    if (name %in% keys) held[keys == name] <- line else held <- c(held, line)
+    keys <- sub("=.*$", "", held)
+  }
+  temporary <- sprintf("%s.%d.tmp", path, Sys.getpid())
+  writeLines(held, temporary)
+  file.rename(temporary, path)
+  invisible(NULL)
+}
+
+study_exit <- function(status, text) {
+  # Exit 3 means "a rerun resumes": a group killed twice, or a pass that made no progress.
+  study_write_state(stop = text)
+  message(text)
+  quit(save = "no", status = status)
+}
+
+study_worker_plan <- function(granted, per_worker_mb, factor = 1.25, share = 0.85, cap = Inf,
+                              basis = "measured") {
+  memory <- study_memory()
+  available <- memory$available
+  if (!is.na(memory$limit)) available <- min(available, memory$limit - memory$current)
+  bound <- min(granted, cap)
+  reason <- if (cap < granted) "worker cap" else "cores"
+  workers <- bound
+  if (!is.na(per_worker_mb) && per_worker_mb > 0) {
+    affordable <- floor(share * available / (factor * per_worker_mb))
+    if (affordable < bound) {
+      reason <- if (identical(basis, "declared")) "declared estimate" else "memory"
+      workers <- affordable
+    }
+  }
+  workers <- as.integer(max(1, workers))
+  cat(sprintf(
+    "worker plan: granted %d, worker cap %s, per-worker %s MB, factor %s, share %s, available %.0f MB, workers %d, binding %s\n",
+    as.integer(granted), if (is.finite(cap)) as.character(cap) else "none",
+    if (is.na(per_worker_mb)) "unmeasured" else sprintf("%.0f", per_worker_mb),
+    format(factor), format(share), available, workers, reason
+  ))
+  list(workers = workers, reason = reason, available = available)
+}
+
+study_plan <- function(granted) {
+  # The run log of a phase: what memory there is, what one worker costs, and why the worker
+  # count is what it is.  The driver passes the measured cost after a calibration run.
+  memory <- study_memory()
+  reason <- study_env("CLEVERLY_R_MEMORY_REASON")
+  cat(study_memory_line(), "\n", sep = "")
+  cat(sprintf("calibration: %s\n", study_env("CLEVERLY_R_MEASURED", "not run")))
+  cat(sprintf("declared per-worker MB: %s\n", study_env("CLEVERLY_R_DECLARED_MB", "none")))
+  cat(sprintf("parent private MB: %.0f\n", study_private_mb()))
+  if (nzchar(reason)) cat(sprintf("memory override: %s\n", reason))
+  plan <- study_worker_plan(
+    granted,
+    study_number("CLEVERLY_R_WORKER_MB", NA_real_),
+    factor = study_number("CLEVERLY_R_MEMORY_FACTOR", 1.25),
+    share = study_number("CLEVERLY_R_MEMORY_SHARE", 0.85),
+    cap = study_number("CLEVERLY_R_WORKER_CAP", Inf),
+    basis = study_env("CLEVERLY_R_WORKER_BASIS", "measured")
+  )
+  study_write_state(
+    workers = plan$workers, reason = plan$reason,
+    mem_available_mb = sprintf("%.0f", memory$available)
+  )
+  plan
+}
+
+study_chunk <- function(groups, workers) {
+  chunk <- study_number("CLEVERLY_R_CHUNK", NA_real_)
+  if (is.na(chunk)) chunk <- ceiling(groups / (workers * 8))
+  as.integer(max(1, chunk))
+}
+
+study_seeds <- function(path) {
+  if (identical(path, "") || !file.exists(path)) return(NULL)
+  read.csv(path, colClasses = c("character", "integer", "integer"), stringsAsFactors = FALSE)
+}
+
+study_seed_for <- function(frame, seeds) {
+  # A group of one scenario takes that scenario's seed; a group that spans scenarios, or a
+  # frame without a scenario column, takes the replicate's `*` row.
+  if (is.null(seeds)) return(NULL)
+  replicate <- unique(frame$replicate)
+  if (length(replicate) != 1L) {
+    stop(sprintf("a seeded group holds one replicate, not %d", length(replicate)))
+  }
+  scenarios <- if ("scenario" %in% names(frame)) unique(as.character(frame$scenario)) else character(0)
+  if (length(scenarios) == 1L) {
+    row <- which(seeds$scenario == scenarios & seeds$replicate == replicate)
+    if (length(row) == 1L) return(seeds$seed[[row]])
+  }
+  row <- which(seeds$scenario == "*" & seeds$replicate == replicate)
+  if (length(row) != 1L) stop(sprintf("the seeds file has no row for replicate %s", replicate))
+  seeds$seed[[row]]
+}
+
+study_label <- function(frame) {
+  # How a failure names the replication it came from.  A scenario column is not universal:
+  # the studies that draw from one law do not carry one.
+  if ("scenario" %in% names(frame)) {
+    sprintf("%s replicate %s", frame$scenario[[1]], frame$replicate[[1]])
+  } else {
+    sprintf("replicate %s", frame$replicate[[1]])
+  }
+}
+
+study_checkpoint_paths <- function(dir, id) {
+  list(
+    started = file.path(dir, paste0(id, ".started")),
+    rds = file.path(dir, paste0(id, ".rds")),
+    kills = file.path(dir, paste0(id, ".kills"))
+  )
+}
+
+study_write_fatal <- function(dir, id, frame, condition) {
+  call <- conditionCall(condition)
+  lines <- c(
+    sprintf("%s (group %s): %s", study_label(frame), id, conditionMessage(condition)),
+    sprintf("call: %s", if (is.null(call)) "none" else paste(deparse(call), collapse = " "))
+  )
+  temporary <- file.path(dir, sprintf("_fatal.%d.tmp", Sys.getpid()))
+  writeLines(lines, temporary)
+  file.rename(temporary, file.path(dir, "_fatal"))
+}
+
+study_check_fatal <- function(dir) {
+  fatal <- file.path(dir, "_fatal")
+  if (file.exists(fatal)) {
+    text <- paste(readLines(fatal, warn = FALSE), collapse = "\n")
+    study_write_state(stop = text)
+    stop(text, call. = FALSE)
+  }
+  invisible(NULL)
+}
+
+study_fit_group <- function(id, frame, fit_one, dir, seeds) {
+  # No fit runs in the parent R process.  Called there -- by a one-core `mclapply`, a one-chunk
+  # map or a solo second attempt -- it forks itself, so a kill costs one child, never the run.
+  paths <- study_checkpoint_paths(dir, id)
+  if (file.exists(paths$rds)) return(invisible(NULL))
+  if (Sys.getpid() == study_parent_pid) {
+    return(study_fork(study_fit_group(id, frame, fit_one, dir, seeds)))
+  }
+  if (file.exists(file.path(dir, "_fatal"))) return(invisible(NULL))
+  writeLines(as.character(Sys.getpid()), paths$started)
+  probe <- identical(study_env("CLEVERLY_HARNESS_RNG_PROBE"), "1")
+  result <- tryCatch(
+    {
+      seed <- study_seed_for(frame, seeds)
+      if (!is.null(seed)) set.seed(seed) else if (probe) set.seed(0L)
+      before <- if (probe) get(".Random.seed", envir = globalenv()) else NULL
+      fitted <- fit_one(frame)
+      if (probe) {
+        after <- get0(".Random.seed", envir = globalenv(), inherits = FALSE)
+        cat(sprintf(
+          "rng-probe: %s %s %s\n", study_runner_name(), id,
+          if (identical(before, after)) "untouched" else "consumed"
+        ))
+      }
+      fitted
+    },
+    error = function(condition) {
+      study_write_fatal(dir, id, frame, condition)
+      stop(condition)
+    }
+  )
+  record <- list(
+    id = id,
+    pid = Sys.getpid(),
+    scenarios = if ("scenario" %in% names(frame)) unique(frame$scenario) else NULL,
+    replicates = unique(frame$replicate),
+    result = result
+  )
+  temporary <- sprintf("%s.%d.tmp", paths$rds, Sys.getpid())
+  saveRDS(record, temporary)
+  file.rename(temporary, paths$rds)
+  unlink(paths$started)
+  result
+}
+
+study_calibrate_group <- function(id, frame, fit_one, seeds) {
+  # One fresh fork per group, so the high-water mark starts at the fork and not at an earlier
+  # group's peak.  A transient allocation freed before the fit returns still raises VmHWM, and
+  # a retained one counts in both terms, which errs large.
+  measured <- study_fork({
+    rss_start <- study_rss_mb()
+    seed <- study_seed_for(frame, seeds)
+    if (!is.null(seed)) set.seed(seed)
+    invisible(fit_one(frame))
+    hwm_end <- study_hwm_mb()
+    private <- study_private_mb()
+    list(
+      id = id, rss_start = rss_start, hwm_end = hwm_end, peak_growth = hwm_end - rss_start,
+      private_after_gc = private, per_worker = hwm_end - rss_start + private
+    )
+  })
+  if (is.null(measured)) {
+    stop(sprintf("calibration group %s was killed; %s", id, study_memory_line()), call. = FALSE)
+  }
+  measured
+}
+
+study_calibrate <- function(frames, ids, fit_one, seeds, declared = character(0)) {
+  # Calibration mode only: fit the first group of each scenario, and each group the runner
+  # declares heaviest, one at a time in fresh forks; write calibration.json; quit.
+  if (!study_calibrating()) return(invisible(FALSE))
+  seen <- character(0)
+  selected <- character(0)
+  for (index in seq_along(frames)) {
+    frame <- frames[[index]]
+    scenarios <- if ("scenario" %in% names(frame)) unique(as.character(frame$scenario)) else "*"
+    fresh <- setdiff(scenarios, seen)
+    if (length(fresh)) {
+      selected <- c(selected, ids[[index]])
+      seen <- c(seen, fresh)
+    }
+  }
+  absent <- setdiff(declared, ids)
+  if (length(absent)) cat(sprintf("declared calibration groups not present: %s\n", paste(absent, collapse = ", ")))
+  selected <- unique(c(selected, intersect(declared, ids)))
+  measures <- lapply(selected, function(id) {
+    study_calibrate_group(id, frames[[match(id, ids)]], fit_one, seeds)
+  })
+  parent <- study_private_mb()
+  memory <- study_memory()
+  number <- function(value) if (is.na(value)) "null" else sprintf("%.3f", value)
+  entries <- vapply(measures, function(m) {
+    sprintf(
+      "{\"id\": \"%s\", \"rss_start\": %s, \"hwm_end\": %s, \"peak_growth\": %s, \"private_after_gc\": %s, \"per_worker\": %s}",
+      m$id, number(m$rss_start), number(m$hwm_end), number(m$peak_growth),
+      number(m$private_after_gc), number(m$per_worker)
+    )
+  }, character(1))
+  json <- c(
+    "{",
+    sprintf("  \"groups\": [%s],", paste(entries, collapse = ", ")),
+    sprintf("  \"parent_private_mb\": %s,", number(parent)),
+    sprintf(
+      "  \"memory\": {\"total\": %s, \"available\": %s, \"limit\": %s, \"current\": %s}",
+      number(memory$total), number(memory$available), number(memory$limit), number(memory$current)
+    ),
+    "}"
+  )
+  path <- study_env("CLEVERLY_R_CALIBRATION", file.path(tempdir(), "calibration.json"))
+  writeLines(json, path)
+  for (m in measures) {
+    cat(sprintf(
+      "calibration %s: peak_growth %.0f MB, private_after_gc %.0f MB, per_worker %.0f MB\n",
+      m$id, m$peak_growth, m$private_after_gc, m$per_worker
+    ))
+  }
+  cat(sprintf("calibration: parent private %.0f MB; %s\n", parent, study_memory_line()))
+  quit(save = "no", status = 0)
+}
+
+study_map <- function(ids, fun, workers, chunk) {
+  # Dynamic scheduling in chunks: a free worker takes the next chunk, and a kill loses the
+  # group in flight and leaves the rest of its chunk unstarted for the next pass.
+  chunks <- split(ids, ceiling(seq_along(ids) / chunk))
+  invisible(parallel::mclapply(
+    chunks,
+    function(part) {
+      for (id in part) fun(id)
+      length(part)
+    },
+    mc.cores = workers,
+    mc.preschedule = FALSE
+  ))
+}
+
+study_startup <- function(dir, meta, ids = NULL) {
+  # Called once in the parent before any fit.  The leaf's meta copy is the resume key: a leaf
+  # written under another key (in practice, another image) refuses.
+  dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+  copy <- file.path(dir, "_meta.json")
+  if (!identical(meta, "") && file.exists(meta)) {
+    wanted <- readLines(meta, warn = FALSE)
+    if (file.exists(copy)) {
+      held <- readLines(copy, warn = FALSE)
+      if (!identical(held, wanted)) {
+        stop(sprintf(
+          "the checkpoints in %s were written under another resume key: %s",
+          dir, paste(trimws(setdiff(held, wanted)), collapse = "; ")
+        ), call. = FALSE)
+      }
+    } else {
+      writeLines(wanted, copy)
+    }
+  }
+  stale <- list.files(dir, pattern = "\\.started$", full.names = TRUE)
+  unlink(stale)
+  cat(sprintf("cleared %d stale start markers without counting them as kills\n", length(stale)))
+  fatal <- file.path(dir, "_fatal")
+  if (file.exists(fatal)) {
+    cat("cleared a fatal error left by an earlier run:\n", paste(readLines(fatal, warn = FALSE), collapse = "\n"), "\n", sep = "")
+    unlink(fatal)
+  }
+  unlink(list.files(dir, pattern = "\\.tmp$", full.names = TRUE))
+  saved <- list.files(dir, pattern = "\\.rds$", full.names = TRUE)
+  readable <- vapply(saved, function(path) {
+    !inherits(try(readRDS(path), silent = TRUE), "try-error")
+  }, logical(1))
+  if (any(!readable)) cat(sprintf("deleted %d unreadable checkpoints\n", sum(!readable)))
+  unlink(saved[!readable])
+  reused <- sum(readable)
+  cat(sprintf(
+    "resumed: reused %d groups, fitting %s\n", reused,
+    if (is.null(ids)) "the rest" else as.character(length(ids) - reused)
+  ))
+  study_write_state(reused = reused)
+  invisible(reused)
+}
+
+study_retry <- function(ids, fun, dir, workers, chunk) {
+  # Pass after pass until every group has a checkpoint.  A group with a start marker and no
+  # checkpoint was killed in flight: the next pass halves the workers and fits it alone.  A
+  # second kill, or a pass that changes nothing, stops with exit 3, and a rerun resumes.
+  no_retry <- identical(study_env("CLEVERLY_R_NO_RETRY"), "1")
+  first <- TRUE
+  before <- -1L
+  repeat {
+    study_check_fatal(dir)
+    paths <- lapply(ids, study_checkpoint_paths, dir = dir)
+    done <- vapply(paths, function(p) file.exists(p$rds), logical(1))
+    if (all(done)) break
+    pending <- ids[!done]
+    pending_paths <- paths[!done]
+    started <- vapply(pending_paths, function(p) file.exists(p$started), logical(1))
+    killed <- pending[started]
+    for (p in pending_paths[started]) {
+      kills <- if (file.exists(p$kills)) as.integer(readLines(p$kills, warn = FALSE)[[1]]) else 0L
+      writeLines(as.character(kills + 1L), p$kills)
+      unlink(p$started)
+    }
+    kills <- vapply(pending_paths, function(p) {
+      if (file.exists(p$kills)) as.integer(readLines(p$kills, warn = FALSE)[[1]]) else 0L
+    }, integer(1))
+    if (length(killed) && no_retry) {
+      stop(sprintf(
+        "killed: %s; CLEVERLY_R_NO_RETRY=1 makes a kill fatal; %s",
+        paste(killed, collapse = ", "), study_memory_line()
+      ), call. = FALSE)
+    }
+    twice <- pending[kills >= 2L]
+    if (length(twice)) {
+      study_exit(3L, sprintf(
+        "incomplete: %s were killed twice; %s", paste(twice, collapse = ", "), study_memory_line()
+      ))
+    }
+    if (!first && sum(done) == before && !length(killed)) {
+      study_exit(3L, sprintf(
+        "no progress: %s; %s", paste(utils::head(pending, 20), collapse = ", "), study_memory_line()
+      ))
+    }
+    before <- sum(done)
+    if (length(killed)) workers <- max(1L, workers %/% 2L)
+    memory <- study_memory()
+    cat(sprintf(
+      "pass: %d pending, %d killed, MemAvailable %.0f MB, workers %d, chunk %d\n",
+      length(pending), length(killed), memory$available, as.integer(workers), as.integer(chunk)
+    ))
+    study_write_state(workers = workers, mem_available_mb = sprintf("%.0f", memory$available))
+    second <- pending[kills == 1L]
+    rest <- setdiff(pending, second)
+    if (length(rest)) study_map(rest, fun, workers, chunk)
+    for (id in second) fun(id)
+    first <- FALSE
+  }
+  as.integer(workers)
+}
+
+study_assemble <- function(dir, ids) {
+  # Zero-padded ids, so string order is numeric order and the table keeps the group order.
+  lapply(sort(ids), function(id) readRDS(study_checkpoint_paths(dir, id)$rds)$result)
+}
+# ---- RM39 shared resilience functions: end ----
+
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) != 3) stop("usage: run_drtmle.R SAMPLES.csv.gz TRUTH.csv OUTPUT.csv")
 samples <- read.csv(gzfile(args[[1]]), stringsAsFactors = FALSE)
@@ -109,15 +609,19 @@ fit_one <- function(frame) {
 }
 
 groups <- split(samples, interaction(samples$scenario, samples$replicate, drop = TRUE))
-requested <- suppressWarnings(as.integer(Sys.getenv("CLEVERLY_R_CORES", "1")))
-cores <- if (is.na(requested) || requested < 1L) 1L else requested
-results <- if (.Platform$OS.type == "unix" && cores > 1L) {
-  # Keep one fork per core.  Each child processes its assigned replicate stream, avoiding
-  # thousands of expensive forks of the multi-gigabyte shared input frame.
-  parallel::mclapply(groups, fit_one, mc.cores = cores, mc.preschedule = TRUE)
-} else {
-  lapply(groups, fit_one)
-}
+# RM39: the shared functions above fit each group in a forked child, checkpoint it, retry a
+# killed group once and resume a rerun from the checkpoints.  Every error is still fatal.
+# A fork of the multi-gigabyte input frame is costly, so with several workers each chunk of
+# groups (`study_chunk`) shares one fork rather than taking one fork per group.
+ids <- sprintf("g%09d", seq_along(groups))
+seeds <- study_seeds(study_env("CLEVERLY_R_SEEDS"))
+study_calibrate(groups, ids, fit_one, seeds, study_declared_groups())
+dir <- study_checkpoint_dir()
+study_startup(dir, study_env("CLEVERLY_R_META"), ids)
+plan <- study_plan(study_granted(1L))
+fit_id <- function(id) study_fit_group(id, groups[[match(id, ids)]], fit_one, dir, seeds)
+study_retry(ids, fit_id, dir, plan$workers, study_chunk(length(ids), plan$workers))
+results <- study_assemble(dir, ids)
 failed <- !vapply(results, is.data.frame, logical(1))
 if (any(failed)) stop(sprintf("%d R worker(s) returned no result", sum(failed)))
 out <- do.call(rbind, results)
