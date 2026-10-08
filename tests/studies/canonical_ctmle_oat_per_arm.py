@@ -212,6 +212,17 @@ CONFIGURATION = {
         "l = logit(clip(Qbar(a, W), 1e-6, 1 - 1e-6))"
     ),
     "laws": {name: law.name for name, law in SCENARIO_LAWS.items()},
+    "failure_probe": (
+        "before the declaration, 2,000 draws of every property cell, of the joint cell and "
+        "of both primary scenarios raised no failure; a replicate that raises is not redrawn, "
+        "and the summary refuses a cell that lost one"
+    ),
+    "measured_budget": (
+        "single-process timing of a 20-replicate smoke: 1.75 CPU-hours for the property "
+        "study (0.94 for the four generated-design cells), 0.06 for the primary Python "
+        "phase (two fits per replicate), and under one CPU-hour for the R phase; the "
+        "Python phase runs first, then the R phase"
+    ),
     "primary_n": (
         "1,500 on both laws; the plan named 1,000 for the binary law, and the harness holds "
         "one n per study"
