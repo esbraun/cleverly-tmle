@@ -22,8 +22,15 @@ approximately zero. Reading the mean off the sample, instead of substituting zer
 the reported variance a statement about the curve that was actually computed.
 
 A fit on data that declares its treatment mechanism reads the same rule. Its curve is evaluated at
-the declared $g_0$, where it is the estimator's exact influence curve for any outcome regression.
-The interval is therefore not conservative. An estimated mechanism gives the ordinary curve at
+the declared $g_0$. When every mechanism the fit divides by is declared, as for a complete-data
+`TMLE`, the curve is the estimator's exact influence curve for any outcome regression. The
+interval is therefore not conservative.
+
+A fit that still estimates a second mechanism, such as
+the missingness mechanism of `delta=`, needs that mechanism and the outcome regression both
+consistent. Under the `"Q"` guard, `DRTMLE` reports the curve at its fluctuated mechanism
+([DR-TMLE contract](dr-tmle/theorem.md#a-known-treatment-mechanism)). An estimated mechanism
+gives the ordinary curve at
 $\hat g$ instead. That curve is conservative when a correct parametric mechanism model meets a
 wrong outcome regression. The
 [known-treatment-mechanism contract](point-treatment-tmle.md#known-treatment-mechanism) gives the

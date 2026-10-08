@@ -585,8 +585,10 @@ $D^*(\bar Q_\infty,g_0)$ for any outcome regression. Theorem 2 of van der Laan a
 states the double robustness. Their Section 4, page 19, states the curve at $g_n=g_0$. Petersen et
 al. (2014), Appendix B, Corollary 1, give the identity $-P_0D^*(Q,g_0)=\Psi(Q)-\psi_0$.
 
-With the treatment declared and the censoring estimated, the usual double-robust conditions apply
-to the censoring factor alone. That is the common SMART analysis.
+With the treatment declared and the censoring estimated, the censoring factor must be consistent.
+That is the common SMART analysis. With a wrong outcome regression, the interval is conservative
+for a correctly specified parametric censoring model. It is not established for a flexible
+censoring learner.
 
 **Bounds.** The cumulative bound applies to the running product of the declared factors on every
 row that follows a plan. A product outside `g_bounds` moves the estimate with no variance reason,

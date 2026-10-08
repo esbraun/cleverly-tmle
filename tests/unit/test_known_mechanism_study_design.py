@@ -216,3 +216,31 @@ def test_the_targeting_witness_floor_is_declared(name: str) -> None:
     subjects = {key.split(" ")[0] for key in displacement}
     assert subjects == {study.IMPLEMENTATION, study.REFERENCE}
     assert min(displacement.values()) > study.TARGETING_WITNESS_FLOOR
+
+
+def _calibration_pass_probability(replicates: int, margins: Margins) -> float:
+    """The SE-ratio rule's pass probability for a perfectly calibrated, normal estimate.
+
+    The ratio of the mean reported SE to the empirical SD has spread ``1 / sqrt(2 R)`` for a
+    normal estimate.  The rule needs the ratio's 99% interval inside the calibration band.
+    """
+    from scipy.stats import norm
+
+    low, high = margins.calibration_se_ratio
+    spread = 1.0 / math.sqrt(2.0 * replicates)
+    room = min(1.0 - low, high - 1.0) - float(norm.ppf(0.995)) * spread
+    return float(norm.cdf(room / spread) - norm.cdf(-room / spread))
+
+
+def test_the_calibration_cell_passes_with_high_probability_at_its_declared_size() -> None:
+    """Recorded after the run: the declaration predates the brief's pass-probability rule.
+
+    The approximation reproduces the brief's anchors (0.16 at R = 800, 0.80 at 1,600 and 0.95
+    at 2,400) to within 0.04, and puts the declared R = 2,000 at 0.936.  The committed cell's
+    estimates have kurtosis 2.85, so the normal spread is not optimistic for this cell.
+    """
+    margins = point.STUDY.margins
+    for replicates, anchor in ((800, 0.16), (1_600, 0.80), (2_400, 0.95)):
+        assert _calibration_pass_probability(replicates, margins) == pytest.approx(anchor, abs=0.04)
+    probability = _calibration_pass_probability(point_properties.CALIBRATION_REPLICATES, margins)
+    assert probability >= 0.90

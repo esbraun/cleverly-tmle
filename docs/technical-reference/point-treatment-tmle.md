@@ -603,15 +603,20 @@ The declaration is a data field (`CausalData.known_treatment`), not an estimator
 `TMLE.fit` accepts it beside a dataframe, and the array forms beside a prepared `CausalData`. A
 container that already declares a mechanism refuses a second declaration.
 
-With $g=g_0$ the remainder $P_0\{(g-g_0)/g\,(\bar Q-\bar Q_0)\}$ is zero. The estimate is then
-consistent for any limit $\bar Q_\infty$ of the outcome regression. Its influence curve is
-exactly $D^*(\bar Q_\infty,g_0)$. Moore and van der Laan (2009), Section 2, state the consistency.
+The claims below hold when every mechanism the fit divides by is declared. For a
+point treatment, that is complete data with no `intermediate=`.
+
+With $g=g_0$ the remainder
+$P_0\{(g-g_0)/g\,(\bar Q-\bar Q_0)\}$ is zero. The estimate is then consistent for any limit
+$\bar Q_\infty$ of the outcome regression. Its influence curve is exactly
+$D^*(\bar Q_\infty,g_0)$. Moore and van der Laan (2009), Section 2, state the consistency.
 Their Section 5 states that inference with the true mechanism is not conservative. The table gives
 the curve each fit reports.
 
 | fit with a declared mechanism | reported curve | source |
 | --- | --- | --- |
-| arm means, ATE, RR, OR, PAR, PAF, regimes, MSMs, a controlled direct effect, missing outcomes | the ordinary curve at $g_0$, which is the exact influence curve | Moore and van der Laan (2009), Sections 2 and 5 |
+| arm means, ATE, RR, OR, PAR, PAF, regimes and MSMs, on complete data | the ordinary curve at $g_0$, which is the exact influence curve | Moore and van der Laan (2009), Sections 2 and 5 |
+| missing outcomes (`delta=`) and a controlled direct effect (`intermediate=`) | the ordinary curve at $g_0$ and at the estimated second mechanism. The declaration replaces the treatment mechanism only. The observation mechanism $\hat\pi$, or the intermediate mechanism $\hat q_z$, is still estimated. The remainder is the product of that mechanism's error and the outcome error, so the ordinary TMLE conditions apply. The interval is established when both are consistent at a product rate. It is not established for a wrong outcome regression | the missing-outcome and controlled-direct-effect contracts above |
 | ATT and ATC | the shipped ATT and ATC curve at $g_0$. It is exact, and it is not the known-score efficient curve | the algebra below; Hahn (1998) |
 | `incremental=` | the curve of the known stochastic regime $q_\delta(g_0)$, with no term in $(A-g)$ | Kennedy (2019), the remark after Corollary 2 |
 | `learned_rule=` | the shipped learned-rule curve. The rule reads the outcome regression only | the learned-rule contract above |
@@ -623,7 +628,7 @@ can use.
 
 | mechanism | what the interval means |
 | --- | --- |
-| the declared design mechanism | an interval that is not conservative, for any outcome learner |
+| the declared design mechanism, on complete data with no `intermediate=` | an interval that is not conservative, for any outcome learner |
 | maximum likelihood in a parametric model that contains $g_0$, such as a logistic regression on the randomization strata | a smaller true variance when $\bar Q$ is wrong. The reported standard error is then conservative (Moore and van der Laan 2009, Section 4.2 and Section 7.3, Table IV; Petersen et al. 2014, Section 3.7) |
 | a flexible treatment learner, with an outcome regression that can be wrong | the TMLE need not be asymptotically linear (Benkeser et al. 2017). Use the declared mechanism |
 

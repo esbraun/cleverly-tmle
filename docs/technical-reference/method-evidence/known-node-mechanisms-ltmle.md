@@ -59,16 +59,19 @@ the law.
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `known_mechanism_accuracy` | `ate_regimen__ltmle_known__q_wrong` | positive | contrast of always against never, two-node SMART: LTMLE with every factor declared, outcome regressions without L1 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000880 to 0.0041, margin 0.0077, coverage 0.9249 to 0.9627, SE ratio 0.9988 | pass |
-| `known_mechanism_accuracy` | `ate_regimen__ltmle_known_treatment__censoring_estimated` | positive | contrast of always against never, two-node SMART: LTMLE with the treatment declared and the censoring estimated, outcome regressions without L1 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000880 to 0.0041, margin 0.0077, coverage 0.9272 to 0.9644, SE ratio 0.9974 | pass |
+| `known_mechanism_accuracy` | `ate_regimen__ltmle_known__q_wrong` | positive | contrast of always against never: LTMLE on a two-node SMART with every factor declared, outcome regressions without L1 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000880 to 0.0041, margin 0.0077, coverage 0.9249 to 0.9627, SE ratio 0.9988 | pass |
+| `known_mechanism_accuracy` | `ate_regimen__ltmle_known_treatment__censoring_estimated` | positive | contrast of always against never: LTMLE on a two-node SMART with the treatment declared and the censoring estimated, outcome regressions without L1 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000880 to 0.0041, margin 0.0077, coverage 0.9272 to 0.9644, SE ratio 0.9974 | pass |
 <!-- /generated -->
 
 Both property cells fit the contrast with the wrong outcome regressions. They read one draw for
-each replication, and these draws differ from the primary draws. The first cell declares every
+each replication, and these draws differ from the primary draws.
+
+The first cell declares every
 factor. The second declares the treatment and estimates the censoring
-factor with a logistic regression on $(L_0, A_1)$. That is the usual SMART analysis, where the
-double-robust condition applies to the censoring factor only. Each cell must be unbiased, cover
-at the floor and report a standard error inside the SE-ratio screen.
+factor with a logistic regression on $(L_0, A_1)$, which is correctly specified for this law.
+That is the usual SMART analysis. With a wrong outcome regression, its interval is conservative
+for a correct parametric censoring model, and it is not established for a flexible learner. Each
+cell must be unbiased, cover at the floor and report a standard error inside the SE-ratio screen.
 
 ## Measured values
 
