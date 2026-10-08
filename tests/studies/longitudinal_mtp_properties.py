@@ -81,13 +81,11 @@ from tests.studies.canonical_longitudinal_mtp import (
     CALIBRATION_LABELS,
     CATEGORICAL,
     CONTINUOUS,
-    DENSITY_BINS,
     ESTIMANDS,
     G_BOUNDS,
     PRIMARY_N,
     STUDY,
     TRUTH,
-    density_bins,
     edges_of,
     fit,
 )
@@ -109,6 +107,7 @@ from tests.studies.evidence.property_verdicts import (
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import FAMILY as JOINT
 from tests.studies.evidence.simultaneous import joint_coverage_rows, joint_property_cells
+from tests.studies.oracle_density_bins import fit_bytes, oracle_bins
 
 DOUBLE_ROBUST_REPLICATES = 1_000
 DOUBLE_ROBUST_N = 2_000
@@ -377,7 +376,7 @@ def msm_fit(frame: pd.DataFrame) -> Any:
         treatment_learner=treatment,
         n_folds=1,
         g_bounds=G_BOUNDS,
-        density_bins=DENSITY_BINS,
+        density_bins=oracle_bins(len(frame)),
         simultaneous=False,
         max_iter=100,
         tol=1e-10,
@@ -400,9 +399,7 @@ def untargeted(frame: pd.DataFrame, configuration: str) -> float:
     carries node 2's update.  Node 2 is regressed on ``[W, L2, A1, A2]`` and predicted at the
     policy dose, node 1 regresses that on ``[W, A1]`` and is predicted at the policy dose.
     """
-    outcome, pseudo, _ = common.continuous_learners(
-        configuration, edges_of(frame, density_bins(configuration))
-    )
+    outcome, pseudo, _ = common.continuous_learners(configuration, edges_of(frame))
     w = frame["W"].to_numpy(dtype=float)
     a1 = frame["A1"].to_numpy(dtype=float)
     l2 = frame["L2"].to_numpy(dtype=float)
@@ -851,30 +848,25 @@ def _run(job: tuple[Any, tuple[Any, ...]]) -> list[dict[str, Any]]:
     return list(function(payload))
 
 
-#: The measured peak of one ``mechanism_correct`` fit at n = 2,000 and 320 bins, with its
-#: margin: 1.57 GiB of traced numpy peak and about 2.5 GB resident.  These fit sets run in a
-#: pool capped by :func:`tests.parallel.memory_capped_workers`; at 16 workers they would need
-#: 25 to 40 GB.
-MECHANISM_ONLY_FIT_BYTES = 3 * 1024**3
-
-
-def _heavy(job: tuple[Any, tuple[Any, ...]]) -> bool:
-    """Whether a payload fits at :data:`MECHANISM_ONLY_BINS`."""
+def _size(job: tuple[Any, tuple[Any, ...]]) -> int:
+    """The rows of a payload's fit: its declared ``n``, or the primary size for a band row."""
     function, payload = job
-    return function is _fit_set_rows and density_bins(payload[2]) > DENSITY_BINS
+    return int(payload[4]) if function is _fit_set_rows else PRIMARY_N
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each fit set for a pre-run check.
 
-    The fit sets at :data:`MECHANISM_ONLY_BINS` run in their own pool, capped by the free
-    memory; the worker count does not change any row.
+    The payloads run in one pool per size, smallest first.  Each pool's workers are capped by
+    the free memory read just before it starts, at :func:`fit_bytes` per worker.  The worker
+    count changes no row.
     """
     jobs = _payloads(budget)
-    heavy = [job for job in jobs if _heavy(job[0])]
-    light = [job for job in jobs if not _heavy(job[0])]
-    capped = memory_capped_workers(n_jobs, MECHANISM_ONLY_FIT_BYTES)
-    outcomes = map_parallel(_run, light, n_jobs=n_jobs) + map_parallel(_run, heavy, n_jobs=capped)
+    outcomes: list[Any] = []
+    for size in sorted({_size(job[0]) for job in jobs}):
+        group = [job for job in jobs if _size(job[0]) == size]
+        workers = memory_capped_workers(n_jobs, fit_bytes(size))
+        outcomes += map_parallel(_run, group, n_jobs=workers)
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [

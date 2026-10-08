@@ -40,10 +40,23 @@ mean of the node-1 regression at the plan's treatment, fitted on pseudo-outcomes
 later nodes already targeted.  The ``lmtp`` value is its first regression predicted at the
 shifted treatment, which ``lmtp`` also fits on the targeted later nodes.  It enters no verdict.
 
-Publication policy is ``reporting``.  The red-cell route was declared before any run: a red
-paired ``lmtp`` row is owned by the X12 owner of that comparator, and any other red cell by
-``X13-finite-sample``.  A replication that raises is never redrawn: a failed replication fails
-the run.
+**A separated fit keeps its last iterate.**  ``QuasiBinomialGLM`` keeps its last iterate,
+with ``QuasiBinomialSeparationWarning``, when its coefficients diverge while its deviance
+settles by R's ``glm.control`` rule.  R's ``glm`` returns such a fit with a warning, and the
+comparator fits ``glm``.  A fit whose deviance has not settled still raises and fails the run.
+A failure-only scan of every declared primary replication, which read no estimate, found
+two such fits, both in replication 1,003 of ``mtp``, and no failed fit.  Its rows are kept and
+read as every other row.
+
+Publication policy is ``reporting``.  The red-cell route was declared before any run.
+Every red cell is diagnosed before it is routed.  A genuine defect (an algorithm
+defect, an inconsistent estimator, or a test or design bug that makes the cell measure the
+wrong thing) is fixed and re-run under a fresh declaration commit that records the change.
+Nothing changes to make a cell easier to pass: no margin, budget, law or cell moves.
+A red paired ``lmtp`` row with no defect stays published red under an owner row named
+for its diagnosed reading, as ``RM18-comparator-density`` is.  Any other red cell with no
+defect stays published red under ``X13-finite-sample``.  A replication that raises is never
+redrawn: a failed replication fails the run.
 """
 
 from __future__ import annotations

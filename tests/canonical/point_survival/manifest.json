@@ -1,0 +1,137 @@
+{
+  "schema_version": 2,
+  "study": "point-treatment survival",
+  "slug": "point-treatment-survival",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "f1a8743a02e95cf490969574081b48dcdf6b19ad",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": {
+      "implementation": "survtmle",
+      "survtmle_version": "1.1.1",
+      "survtmle_tarball_sha256": "d286799265f35f2ae7631f2f1714936ff2b1866cdd95a2848c252482f9ce23d0",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_construction": "survtmle(method='mean') per horizon t0, glm.trt='W1 + W2', glm.ftime='trt*(W1 + W2)', glm.ctime with one intercept and three slopes per visit and no shared term; the initial estimate is a second call with Gcomp=TRUE",
+      "pairing": "read under the default margins; the targeting submodels differ by construction"
+    }
+  },
+  "configuration": {
+    "replicates": 1600,
+    "n": 2000,
+    "seed": 20261060,
+    "resampling_seed": 2026106001,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "survival": [
+        "risk_regimen[arm0 @ t=1]",
+        "risk_regimen[arm0 @ t=3]",
+        "risk_regimen[arm0 @ t=5]",
+        "risk_regimen[arm1 @ t=1]",
+        "risk_regimen[arm1 @ t=3]",
+        "risk_regimen[arm1 @ t=5]",
+        "ate_regimen[arm1 vs arm0 @ t=1]",
+        "ate_regimen[arm1 vs arm0 @ t=3]",
+        "ate_regimen[arm1 vs arm0 @ t=5]"
+      ],
+      "competing": [
+        "cif_regimen[arm0, relapse @ t=2]",
+        "cif_regimen[arm0, death @ t=2]",
+        "cif_regimen[arm0, relapse @ t=4]",
+        "cif_regimen[arm0, death @ t=4]",
+        "cif_regimen[arm1, relapse @ t=2]",
+        "cif_regimen[arm1, death @ t=2]",
+        "cif_regimen[arm1, relapse @ t=4]",
+        "cif_regimen[arm1, death @ t=4]",
+        "ate_regimen[arm1 vs arm0, relapse @ t=2]",
+        "ate_regimen[arm1 vs arm0, death @ t=2]",
+        "ate_regimen[arm1 vs arm0, relapse @ t=4]",
+        "ate_regimen[arm1 vs arm0, death @ t=4]"
+      ]
+    },
+    "construction": "held point-treatment survival",
+    "cross_fit": false,
+    "outcome_learner": "QuasiBinomialGLM on W1, W2 per arm (misspecified on purpose)",
+    "treatment_learner": "unpenalized logistic regression on W1, W2",
+    "censoring_learner": "unpenalized logistic regression on W1, W2, A per node",
+    "regimens": [
+      "arm0",
+      "arm1"
+    ],
+    "reported_nodes": {
+      "survival": [
+        1,
+        3,
+        5
+      ],
+      "competing": [
+        2,
+        4
+      ]
+    },
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_point_survival.py": "7a07cd6711e412edf1864113f189df92c57ee55070d0a032e57f397841ec1df0",
+    "tests/studies/point_survival_properties.py": "48f8f86dec8bb34a25809b90d0c2ea5f466de31dae1e833780f2629c80c38fcc",
+    "tests/studies/point_survival_common.py": "ac7b9bb6c590ce9a2e4527e4deb789a118a01c1fa5dfcf6db6720702d43a56c5",
+    "tests/studies/canonical_ltmle.py": "db44a0fabb57fc19f37e94b9229f1f425de28745d6b109d4d1600eb60d0678f1",
+    "tests/studies/fractional_glm.py": "2d05af8d7c02787d8375da1d1918e9e8e69e86ced312a90c73facf0f122b5da9",
+    "src/cleverly/datasets/survival_point.py": "240a9cca9c37f965968cbd1e54267d9eddcff41a6134682ef2303de9e9cafd95",
+    "tests/studies/evidence/comparison.py": "653c091f0c1cd240b41e4ed7026da8f67c0feda58404e7c27e80eabab38a2217",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
+    "tests/studies/evidence/property_verdicts.py": "3de1ed905e0e940351fade806d3ac0b759bcce823418aa46ddd5fc2df4ada31c",
+    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
+    "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15",
+    "tests/canonical/survtmle/Dockerfile": "97177ff7e76f3544acad0f8fde5ee77eae2c84f484a58d00558253518532f513",
+    "tests/canonical/point_survival_runner.R": "fa78667d25b589d771ada0f3df4474cf5130e66964fda147df692aeb66fbbd1c",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "reference_sha256": {
+    "tests/canonical/survtmle/Dockerfile": "97177ff7e76f3544acad0f8fde5ee77eae2c84f484a58d00558253518532f513",
+    "tests/canonical/point_survival_runner.R": "fa78667d25b589d771ada0f3df4474cf5130e66964fda147df692aeb66fbbd1c",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "sha256": {
+    "replicates.csv.gz": "e0c2e0443b8498b6fee493ba45571621b1441a6cf27e0be8d1219d5c76fdd6d1",
+    "summary.csv": "14ae5c4c9dd28a58c6791848a5d559ca9efa68a42675b502f89f13086bedfa4a",
+    "equivalence.csv": "2311a262ed7e4df42e3849f5fec7b37ba99cb3f22cc3161d74e5c4b8b17d8c85",
+    "performance-tests.csv": "66e9f9a13000ba52d60f9f7507eeb6f7fd69a70710b877b6f0b3fa6fd13eff06",
+    "property-replicates.csv.gz": "6509e0ff29cb4fe6ef18d96152a6e48b0d3e0d65ff3bd1fe1de7ea2053ec50b9",
+    "properties.csv": "33267aec79b7deaf7d71f836ecbee1e8c0ee1f952bb7e26c1abc7f1be7e99bd6"
+  }
+}

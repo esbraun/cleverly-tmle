@@ -66,11 +66,13 @@ learned-rule-cvtmle
 learned-rule-cvtmle-boundary
 stochastic-point-treatment-regimes
 continuous-modified-treatment-policies
+point-modified-treatment-policies
 incremental-propensity-interventions
 ordinary-end-of-study-longitudinal-tmle
 ordinary-weighted-end-of-study-longitudinal-tmle
 ordinary-categorical-longitudinal-tmle
 stochastic-categorical-longitudinal-tmle
+longitudinal-modified-treatment-policies
 ordinary-longitudinal-msm-projection
 cross-fitted-longitudinal-msm-projection
 cross-fitted-end-of-study-longitudinal-tmle
@@ -80,6 +82,9 @@ ordinary-survival-curve-longitudinal-tmle
 cross-fitted-survival-curve-longitudinal-tmle
 ordinary-competing-risk-longitudinal-tmle
 cross-fitted-competing-risk-longitudinal-tmle
+point-treatment-survival
+cross-fitted-point-treatment-survival
+point-treatment-survival-policies
 omitted-variable-bound-standard-error
 calibration-slope-warning
 default-simultaneous-bands

@@ -12,9 +12,19 @@ binary ``L_t`` on the wide layout; the risks of arms 0 and 2 and the differences
 2 against arm 0 at visits 1 and 3), each at n = 2,000 with 1,600 replications.  The learners are
 the saturated cell means, which are correct on these finite laws.
 
-Publication policy is ``reporting``.  The red-cell route was declared before any run: a red
-band cell is owned by ``band-finite-sample``, and any other red cell by ``X13-finite-sample``.
-A replication that raises is never redrawn: a failed replication fails the run.
+**No fit here reaches the separation rule.**  The re-declaration of 2026-10-07 lets
+``QuasiBinomialGLM`` keep a separated fit, for ``point-treatment-survival``.  Every fit of this
+study uses the saturated cell means, so the rule does not reach it.  A failure-only scan of every
+declared primary replication, which read no estimate, found no failed fit.
+
+Publication policy is ``reporting``.  The red-cell route was declared before any run.
+Every red cell is diagnosed before it is routed.  A genuine defect (an algorithm
+defect, an inconsistent estimator, or a test or design bug that makes the cell measure the
+wrong thing) is fixed and re-run under a fresh declaration commit that records the change.
+Nothing changes to make a cell easier to pass: no margin, budget, law or cell moves.
+A finite-sample red with no defect stays published red: a band cell under
+``band-finite-sample``, and any other cell under ``X13-finite-sample``.  A replication that
+raises is never redrawn: a failed replication fails the run.
 """
 
 from __future__ import annotations

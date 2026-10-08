@@ -649,6 +649,12 @@ previous reader had is not a citation; a page number is.
   the treatment effect at the rule's node is 1 at every covariate value. The optimal rule therefore
   always treats. The witness rule uses a sample threshold. The paper's optimal-value result does
   not supply the curve for this threshold rule.
+- Scott (1979), *On optimal and data-based histograms*, *Biometrika* 66(3):605–610, DOI
+  [10.1093/biomet/66.3.605](https://doi.org/10.1093/biomet/66.3.605). The bin width that
+  minimises the integrated squared error of a histogram shrinks as $n^{-1/3}$. The default
+  `density_bins=None` follows that rate, `max(20, ceil(2 n^(1/3)))`. A growing count is
+  necessary for a consistent binned density, and the hazard learner must also be consistent. The
+  constant 2 is the Rice rule, which the source does not give.
 - Haneuse & Rotnitzky (2013), *Estimation of the effect of interventions that modify the received
   treatment*, *Statistics in Medicine* 32(30):5260–5277, DOI
   [10.1002/sim.5907](https://doi.org/10.1002/sim.5907).
