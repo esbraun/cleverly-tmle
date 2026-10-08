@@ -206,9 +206,11 @@ def test_calibration_sees_a_transient_peak(facts: dict[str, Any]) -> None:
 def test_the_worker_plan_arithmetic(facts: dict[str, Any]) -> None:
     plan = facts["memory_plan"]
     limited = plan["limited"]
-    expected = max(1, min(8, int(0.85 * limited["available"] // (1.25 * 100))))
+    expected = max(1, min(8, int(0.85 * limited["available"] // (1.25 * 500))))
     assert limited["workers"] == expected
     assert limited["available"] <= 2048
+    # Under a 2 GB limit, 500 MB a worker binds before 8 cores do.
+    assert expected < 8 and limited["reason"] == "memory"
     assert plan["unlimited_no_cgroup_limit"]
     assert plan["capped"]["workers"] == 3 and plan["capped"]["reason"] == "worker cap"
     override = plan["override"]

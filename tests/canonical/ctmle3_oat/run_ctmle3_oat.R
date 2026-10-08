@@ -447,6 +447,10 @@ study_retry <- function(ids, fun, dir, workers, chunk) {
   # checkpoint was killed in flight: the next pass halves the workers and fits it alone.  A
   # second kill, or a pass that changes nothing, stops with exit 3, and a rerun resumes.
   no_retry <- identical(study_env("CLEVERLY_R_NO_RETRY"), "1")
+  cat(sprintf(
+    "retry loop: %d groups, workers %d, chunk %d\n",
+    length(ids), as.integer(workers), as.integer(chunk)
+  ))
   first <- TRUE
   before <- -1L
   repeat {

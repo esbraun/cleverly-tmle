@@ -486,7 +486,7 @@ def memory_cases(smoke: Smoke) -> dict[str, Any]:
     facts["memory_transient"] = {"exit": transient.code, "groups": groups}
 
     limited = smoke.rscript(
-        "invisible(study_worker_plan(8, 100, 1.25, 0.85, Inf))", memory="2g", env={}
+        "invisible(study_worker_plan(8, 500, 1.25, 0.85, Inf))", memory="2g", env={}
     )
     unlimited = smoke.rscript(
         "invisible(study_worker_plan(8, 100, 1.25, 0.85, Inf)); cat(study_memory_line(), '\\n')",
