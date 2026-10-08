@@ -71,16 +71,19 @@ import numpy as np
 from sklearn.base import clone
 
 from .._inference_status import (
+    CONSTANT_NODE_STATUS,
     MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
     NO_SIMULTANEOUS_BANDS,
     NO_T_REFERENCE_BANDS,
+    PARAMETER_STATUSES,
     T_REFERENCE_NOTE,
     InferenceStatus,
+    precedent_status,
     status_record,
     supplies_inference,
 )
 from .._typing import BoolArray, CumulativeGBounds, FloatArray, Learner
-from ..exceptions import CapabilityError, LongitudinalError, PositivityWarning
+from ..exceptions import CapabilityError, DataWarning, LongitudinalError, PositivityWarning
 from ..inference.bootstrap import BootstrapResult, Resampling, run_bootstrap
 from ..inference.cluster import (
     cluster_inference_status,
@@ -105,6 +108,7 @@ from ..inference.results import (
     attach_bootstrap,
     estimate_covariance,
     estimate_curves,
+    inference_status,
     linear_function,
     linear_functional,
     ratio_contrast,
@@ -156,14 +160,22 @@ from .regimen import (
 from .sequential import (
     Mechanism,
     RegimenFit,
+    constant_nodes,
     fit_mechanism,
     fit_regimen,
     node_ratios,
+    preflight_known_mechanisms,
     preflight_mechanism_support,
     preflight_terminal_outcomes,
 )
 
-__all__ = ["LTMLE", "LongitudinalConfig", "LongitudinalResult", "ltmle"]
+__all__ = [
+    "LTMLE",
+    "LongitudinalConfig",
+    "LongitudinalResult",
+    "constant_node_parameters",
+    "ltmle",
+]
 
 
 #: Stable replayability omission codes.  These values are persisted and exposed through
@@ -635,6 +647,20 @@ def _replay_recipe(
     )
 
 
+def _known_factors(data: LongitudinalData) -> tuple[str, ...]:
+    """The treatment and censoring columns whose factor ``data`` declares known."""
+    known = data.known_mechanisms
+    if known is None:
+        return ()
+    names: list[str] = []
+    for time in range(1, data.n_times + 1):
+        if not data.is_held_node(time) and known.treatment_at(time) is not None:
+            names.append(data.decision_name(time))
+        if data.censoring_names and known.censoring_at(time) is not None:
+            names.append(data.censoring_names[time - 1])
+    return tuple(names)
+
+
 @dataclass(frozen=True)
 class LongitudinalConfig:
     """A snapshot of the settings a longitudinal fit actually used."""
@@ -681,6 +707,10 @@ class LongitudinalConfig:
     held_treatment: str | None = None
     #: The grid times of a container built from a time and an event column, else ``None``.
     time_grid: tuple[float, ...] | None = None
+    #: The treatment and censoring columns whose factor the data declares known
+    #: (:attr:`~cleverly.longitudinal.LongitudinalData.known_mechanisms`), in node order.
+    #: Each fits no learner and is not truncated.  Empty on a fit that declares none.
+    known_factors: tuple[str, ...] = ()
 
     def describe(self, *, contrast: bool) -> list[str]:
         """Return the settings lines of :meth:`LongitudinalResult.summary`.
@@ -788,6 +818,11 @@ class LongitudinalConfig:
                 else ""
             ),
         ]
+        if self.known_factors:
+            lines.append(
+                f"known factors (declared, no learner): {', '.join(self.known_factors)}; no "
+                "truncation bound moved a declared value"
+            )
         if self.q_bounds is not None:
             lines.append(f"q_bounds: [{self.q_bounds[0]:.4g}, {self.q_bounds[1]:.4g}]")
         lines.append(f"confidence level: {(1 - self.alpha_sig) * 100:g}%")
@@ -807,8 +842,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     Parameters
     ----------
     estimates : dict of str to ParameterEstimate
-        Estimates keyed by stable parameter alias. Each declares the fit's one inference
-        status, which :attr:`inference_status` returns.
+        Estimates keyed by stable parameter alias. Each declares the fit status, which
+        :attr:`inference_status` returns, or a parameter status such as
+        ``"constant_node_plugin"``.
     fits : dict of str to RegimenFit
         Sequential fits by regimen, cause, and horizon.
     data : LongitudinalData
@@ -960,13 +996,17 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
     @property
     def inference_status(self) -> InferenceStatus:
-        """The inference status every reported estimate declares.
+        """The inference status of the fit.
 
-        One status per fit: ``LTMLE.fit`` stamps it on every estimate it reports, and
-        :func:`~cleverly.inference.results.inference_status` refuses a mix with
-        :class:`ValueError`. ``"influence_curve"`` when the fit reports no estimate,
-        because such a fit refuses nothing. A clustered fit with few clusters takes
-        ``"few_cluster_plugin"``, as a point-treatment fit does.
+        ``LTMLE.fit`` stamps one fit status on every estimate, and a parameter status
+        (:data:`~cleverly._inference_status.PARAMETER_STATUSES`) on the parameters it
+        applies to.  This property is the fit status, through
+        :func:`~cleverly.inference.results.reported_status`, which leaves the parameter
+        statuses out unless every estimate carries one.  So it does not say whether one
+        estimate supplies inference: read that estimate's ``supplies_inference``.
+        ``"influence_curve"`` when the fit reports no estimate, because such a fit refuses
+        nothing.  A clustered fit with few clusters takes ``"few_cluster_plugin"``, as a
+        point-treatment fit does.
         """
         return reported_status(self.estimates)
 
@@ -1597,7 +1637,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         parameter with an influence curve -- the sum of the causes' curves -- so
         ``excess`` can be read against it rather than eyeballed.  On a fit whose status
         supplies no inference the column is ``plugin_std_err``, a diagnostic, as
-        :meth:`to_frame` names the same spread.
+        :meth:`to_frame` names the same spread.  Each total takes the status of the
+        incidences it sums.  On a fit that supplies inference, a total that reads a
+        constant-node incidence has NaN under ``std_err``, its spread under
+        ``plugin_std_err``, and its status in an ``inference`` column.
 
         Returns
         -------
@@ -1611,15 +1654,12 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 "-- to estimate a cumulative incidence per cause"
             )
         # Renamed in place, as the point-treatment sweeps rename their spread columns:
-        # the number is the same plug-in standard error under either status.
-        column = spread_name("std_err", self.inference_status)
-        rows: dict[str, list[Any]] = {
-            "regimen": [],
-            "time": [],
-            "total": [],
-            column: [],
-            "excess": [],
-        }
+        # the number is the same plug-in standard error under either status.  Each total
+        # takes the status of the incidences it sums (:func:`inference_status`), so a sum
+        # that reads a constant-node incidence is a diagnostic, as ``rmst()`` of one is.
+        status = self.inference_status
+        column = spread_name("std_err", status)
+        totals: list[tuple[str, float, float, float, InferenceStatus]] = []
         for regimen in self.config.regimens:
             for horizon in self.config.horizons:
                 names = [
@@ -1631,11 +1671,31 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                     np.column_stack([self[name].influence_curve for name in names]), axis=1
                 )
                 variance = influence_covariance(curve.reshape(-1, 1), cluster=self.data.cluster)
-                rows["regimen"].append(regimen.label)
-                rows["time"].append(self._time_of(int(horizon)))
-                rows["total"].append(total)
-                rows[column].append(float(np.sqrt(variance[0, 0])))
-                rows["excess"].append(max(0.0, total - 1.0))
+                totals.append(
+                    (
+                        regimen.label,
+                        self._time_of(int(horizon)),
+                        total,
+                        float(np.sqrt(variance[0, 0])),
+                        inference_status(self.estimates, names),
+                    )
+                )
+        flagged = [row[4] for row in totals if not supplies_inference(row[4])]
+        mixed = supplies_inference(status) and bool(flagged)
+        plugin = spread_name("std_err", flagged[0]) if mixed else None
+        rows: dict[str, list[Any]] = {
+            "regimen": [row[0] for row in totals],
+            "time": [row[1] for row in totals],
+            "total": [row[2] for row in totals],
+            **({"inference": [row[4] for row in totals]} if mixed else {}),
+            column: [np.nan if mixed and row[4] != status else row[3] for row in totals],
+            **(
+                {plugin: [row[3] if row[4] != status else np.nan for row in totals]}
+                if plugin
+                else {}
+            ),
+            "excess": [max(0.0, row[2] - 1.0) for row in totals],
+        }
         return self.data.frame_like(rows)
 
     # ------------------------------------------------- what this fit cannot do
@@ -1732,13 +1792,16 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 The horizon, as an integer node index, or as the grid time :math:`g_k` on a
                 fit with a time grid.
             ``inference``
-                The inference status, on a fit whose status supplies no inference only.
+                The inference status of each row, on a fit whose status supplies no
+                inference, or on a fit with a parameter that carries its own status.
             ``psi``, ``std_err``, ``ci_lower``, ``ci_upper``
                 The estimate, its standard error, and its confidence interval, under
                 the requested view.  On a fit whose status supplies no inference the
                 three spread columns are ``plugin_std_err``, ``plugin_interval_lower``
                 and ``plugin_interval_upper``, a diagnostic, as :meth:`to_frame` names
-                them.
+                them.  On a fit that supplies inference, a row with a parameter status
+                has NaN in the three inferential columns and its diagnostic in the three
+                plug-in columns, which the frame then adds.
             ``scale``
                 ``"level"`` or ``"difference"``, as :meth:`to_frame` reports it.
             ``view``
@@ -1774,9 +1837,19 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         competing = self.data.is_competing
         # The names ``to_frame`` publishes for the same numbers, through the same table.
         status = self.inference_status
-        diagnostic = not supplies_inference(status)
+        # A parameter status, such as a constant-node risk, on a fit that supplies inference
+        # adds the ``inference`` column and the plug-in columns, as ``to_frame`` does: that
+        # row's inferential columns hold NaN and its plug-in columns hold the diagnostic.
+        flagged = [e.inference for e in self.estimates.values() if not e.supplies_inference]
+        mixed = supplies_inference(status) and bool(flagged)
+        diagnostic = not supplies_inference(status) or mixed
         std_name, low_name, high_name = (
             spread_name(name, status) for name in ("std_err", "ci_lower", "ci_upper")
+        )
+        plugin_names = (
+            tuple(spread_name(name, flagged[0]) for name in ("std_err", "ci_lower", "ci_upper"))
+            if mixed
+            else ()
         )
         rows: dict[str, list[Any]] = {
             "estimand": [],
@@ -1789,6 +1862,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             std_name: [],
             low_name: [],
             high_name: [],
+            **({column: [] for column in plugin_names} if mixed else {}),
             "scale": [],
             "view": [],
         }
@@ -1826,10 +1900,14 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             rows["time"].append(self._time_of(int(horizon)))
             rows["psi"].append(float(psi))
             if diagnostic:
-                rows["inference"].append(status)
-            rows[std_name].append(estimate.plugin_std_error)
-            rows[low_name].append(float(low))
-            rows[high_name].append(float(high))
+                rows["inference"].append(estimate.inference)
+            withheld = mixed and not estimate.supplies_inference
+            spread = (estimate.plugin_std_error, float(low), float(high))
+            for column, number in zip((std_name, low_name, high_name), spread, strict=True):
+                rows[column].append(np.nan if withheld else number)
+            if mixed:
+                for column, number in zip(plugin_names, spread, strict=True):
+                    rows[column].append(number if withheld else np.nan)
             rows["scale"].append(estimate.scale)
             rows["view"].append(scale)
         return self.data.frame_like(rows)
@@ -1914,7 +1992,16 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             a time grid adds a ``time`` column, the grid time of each parameter's horizon.
         """
         rows = [estimate.to_dict() for estimate in self.estimates.values()]
-        payload: dict[str, list[Any]] = {key: [row[key] for row in rows] for key in rows[0]}
+        # A parameter status, such as a constant-node risk, gives its row the plug-in column
+        # names and an ``inference`` column, so the frame holds the union of the columns and
+        # every row names its status.
+        keys = list(dict.fromkeys(key for row in rows for key in row))
+        for row, estimate in zip(rows, self.estimates.values(), strict=True):
+            if "inference" in keys:
+                row.setdefault("inference", estimate.inference)
+        payload: dict[str, list[Any]] = {
+            key: [row.get(key, np.nan) for row in rows] for key in keys
+        }
         if self.data.time_grid is not None and self.parameter_index:
             # A fit with a time grid reports each horizon's grid time beside its name, which
             # carries the node index.
@@ -1941,12 +2028,13 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             A printable report: the estimates, the settings, then the leverage.
         """
         level = f"{(1 - self.config.alpha_sig) * 100:g}%"
-        # One fit's estimates carry one status, as on a point-treatment fit, so the table
-        # is never half refused.
+        # The fit status decides the columns.  On a fit that supplies inference, a parameter
+        # with its own status (a constant-node risk) is starred below, row by row.
         status = self.inference_status
         record = None if supplies_inference(status) else status_record(status)
         t_reference = has_t_reference(self.estimates)
         rows = []
+        marked: dict[str, Any] = {}
         if record is not None:
             # The whole interval column is refused, so it is not printed with a dash under
             # it: a heading would still tell a reader an interval belongs there.
@@ -1955,6 +2043,21 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             table = format_table(["parameter", "estimate", record.summary_label], rows)
         else:
             for name, estimate in self.estimates.items():
+                if not estimate.supplies_inference:
+                    # A parameter with its own status, such as a constant-node risk: the
+                    # plug-in spread is marked, and no interval or p-value is printed.
+                    marked[estimate.inference] = status_record(estimate.inference)
+                    rows.append(
+                        [
+                            name,
+                            f"{estimate.psi:.4f}",
+                            f"{estimate.plugin_std_error:.4f}*",
+                            "not reported",
+                            "not reported",
+                            *([""] if t_reference else []),
+                        ]
+                    )
+                    continue
                 low, high = estimate.ci
                 rows.append(
                     [
@@ -2010,6 +2113,17 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             table,
             # The refusal's own reason, as ``TMLEResult.summary`` prints it.
             *(["", record.summary_note()] if record is not None else []),
+            *(
+                line
+                for marked_record in marked.values()
+                for line in (
+                    "",
+                    "* "
+                    + marked_record.reason
+                    + f" A starred spread above is the {marked_record.summary_label}, a "
+                    "diagnostic and not a standard error.",
+                )
+            ),
             *(
                 [
                     "",
@@ -2239,7 +2353,10 @@ class _Reported:
 
 
 def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
-    """The one inference status of every estimate a longitudinal fit reports.
+    """The fit status that every estimate of a longitudinal fit starts from.
+
+    :func:`_parameter_status` may replace it on a parameter whose recursion read a constant
+    node regression; every other estimate keeps it.
 
     The point-treatment cluster rule applies to the prepared cluster labels and, on a weighted fit,
     to the unit weights. It reads nothing fitted. ``LongitudinalData`` carries no baseline strata,
@@ -2363,7 +2480,7 @@ def _estimates(
             cluster=data.cluster,
             scale="level",
             alpha=alpha_sig,
-            inference=inference,
+            inference=_parameter_status(inference, fit),
             reference_df=reference_df,
         )
     for fit in fits.values():
@@ -2385,10 +2502,75 @@ def _estimates(
             cluster=data.cluster,
             scale="difference",
             alpha=alpha_sig,
-            inference=inference,
+            inference=_parameter_status(inference, fit, base),
             reference_df=reference_df,
         )
     return _Reported(estimates=estimates, index=index, contributors=contributors)
+
+
+def _parameter_status(inference: InferenceStatus, *read: RegimenFit) -> InferenceStatus:
+    """The status of a parameter that reads ``read``: the fit's, or the constant-node one.
+
+    A fit with a node regression read as a constant 0 or 1 (:func:`constant_nodes`) has an
+    identically zero curve term at that node, so its plug-in standard error leaves that
+    node's variance out.  The parameter, and a contrast that reads it, take
+    :data:`~cleverly._inference_status.CONSTANT_NODE_STATUS`.  A fit status that withholds
+    inference already, such as ``"few_cluster_plugin"``, comes first in the table and so
+    stays.  This is the one fitted quantity a status reads.
+    """
+    if any(constant_nodes(fit) for fit in read):
+        return precedent_status((inference, CONSTANT_NODE_STATUS))
+    return inference
+
+
+#: The most parameter names a constant-node warning lists.  A default day-level grid can flag
+#: thousands; :func:`constant_node_parameters` returns every one.
+_WARNED_NAMES = 10
+
+
+def _warn_parameter_statuses(estimates: Mapping[str, ParameterEstimate]) -> None:
+    """Warn once per parameter status of the fit, with a count and the first names.
+
+    The text after the names is the status record's reason, as ``summary()`` prints it.
+    """
+    for status in sorted(PARAMETER_STATUSES):
+        names = [name for name, estimate in estimates.items() if estimate.inference == status]
+        if not names:
+            continue
+        shown = ", ".join(names[:_WARNED_NAMES])
+        more = f", and {len(names) - _WARNED_NAMES} more" if len(names) > _WARNED_NAMES else ""
+        warnings.warn(
+            f"{len(names)} reported parameter(s) take the {status!r} status: {shown}{more} "
+            "(constant_node_parameters(result) lists them). "
+            + status_record(status).reason
+            + " Report horizons at which every regimen's followers at risk have an event, or "
+            "declare a coarser grid, for intervals there",
+            DataWarning,
+            stacklevel=3,
+        )
+
+
+def constant_node_parameters(result: LongitudinalResult) -> tuple[str, ...]:
+    """The reported parameters that take the constant-node status.
+
+    The status is :data:`~cleverly._inference_status.CONSTANT_NODE_STATUS`: the parameter's
+    recursion read a node regression as a constant 0 or 1, so it reports no interval.
+
+    Parameters
+    ----------
+    result : LongitudinalResult
+        A fitted longitudinal result.
+
+    Returns
+    -------
+    tuple of str
+        The parameter names, in report order.
+    """
+    return tuple(
+        name
+        for name, estimate in result.estimates.items()
+        if estimate.inference == CONSTANT_NODE_STATUS
+    )
 
 
 def _msm_estimates(
@@ -2733,6 +2915,8 @@ class LTMLE:
         weights_estimated: bool = False,
         family: str = "auto",
         continuous_treatment: Sequence[str] = (),
+        treatment_probabilities: Any = None,
+        censoring_probabilities: Any = None,
         **refused: Any,
     ) -> LongitudinalResult:
         """Fit on a wide dataframe, or on an already-built :class:`LongitudinalData`.
@@ -2791,6 +2975,18 @@ class LTMLE:
             The treatment columns that hold a continuous dose, as for
             :meth:`LongitudinalData.from_frame`.  Each such node takes a modified treatment
             policy.
+        treatment_probabilities : array-like, mapping, or None
+            The known treatment mechanism of a sequentially randomized design, as for
+            :meth:`LongitudinalData.from_frame`.  A declared node fits no treatment learner,
+            and its factor is the declared probability of the arm each row is assigned.
+            With every factor known, the remainder is zero and the curve is
+            ``D*(Q_inf, g0)`` for any outcome learner (van der Laan and Gruber 2012).  The
+            fit refuses, before any learner, a declared cumulative probability that
+            ``g_bounds`` would move.  Beside a container the array forms are attached with
+            :meth:`LongitudinalData.with_known_mechanisms`.
+        censoring_probabilities : array-like, mapping, or None
+            The known retention probabilities, as for
+            :meth:`LongitudinalData.from_frame`.  A declared node fits no censoring learner.
         **refused : Any
             A point-treatment keyword.  Each one raises :class:`TypeError` with the
             reason that a longitudinal fit does not support it.
@@ -2824,6 +3020,8 @@ class LTMLE:
             weights_estimated=weights_estimated,
             family=family,
             continuous_treatment=continuous_treatment,
+            treatment_probabilities=treatment_probabilities,
+            censoring_probabilities=censoring_probabilities,
         )
         regimens = resolve_regimens(
             self.regimens,
@@ -2851,6 +3049,8 @@ class LTMLE:
         # Every rule is called here and nowhere else, so a mask and the design the
         # mechanism was evaluated at cannot disagree about what the regimen assigned.
         plans = resolve_plans(regimens, prepared)
+        # Every declared factor is checked against the bounds before any learner.
+        preflight_known_mechanisms(prepared, plans, resolve_cumulative_g_bounds(self.g_bounds))
 
         self._refuse_unbounded_cross_fitted_scale(prepared)
         if self.n_bootstrap and self.bootstrap_resampling == "cluster" and prepared.cluster is None:
@@ -2979,6 +3179,7 @@ class LTMLE:
             ),
             held_treatment=prepared.treatment_names[0] if prepared.treatment_held else None,
             time_grid=prepared.time_grid,
+            known_factors=_known_factors(prepared),
             msm_terms=None if model is None else model.terms,
             msm_link=None if model is None else str(model.link),
             # The evaluated arrays rather than the design, for the reason the plans are
@@ -2998,6 +3199,7 @@ class LTMLE:
                 else _msm_estimates(prepared, msm_fits, alpha_sig=self.alpha_sig, inference=status)
             )
         estimates = reported.estimates
+        _warn_parameter_statuses(estimates)
         with phase("inference"):
             bands = self._bands(estimates, prepared, status)
         result = LongitudinalResult(
@@ -3082,6 +3284,8 @@ class LTMLE:
         weights_estimated: bool,
         family: str,
         continuous_treatment: Sequence[str] = (),
+        treatment_probabilities: Any = None,
+        censoring_probabilities: Any = None,
     ) -> LongitudinalData:
         if isinstance(data, LongitudinalData):
             declared = {
@@ -3112,6 +3316,11 @@ class LTMLE:
                     "and passing them again cannot change them. Pass them to "
                     "LongitudinalData.from_frame, which is where the columns are read"
                 )
+            if treatment_probabilities is not None or censoring_probabilities is not None:
+                return data.with_known_mechanisms(
+                    treatment_probabilities=treatment_probabilities,
+                    censoring_probabilities=censoring_probabilities,
+                )
             return data
         if outcome is None or treatment is None or baseline is None:
             raise TypeError(
@@ -3131,6 +3340,8 @@ class LTMLE:
             weights_estimated=weights_estimated,
             family=family,
             continuous_treatment=continuous_treatment,
+            treatment_probabilities=treatment_probabilities,
+            censoring_probabilities=censoring_probabilities,
         )
 
     def _horizons(self, data: LongitudinalData) -> tuple[int, ...]:
@@ -3253,9 +3464,14 @@ class LTMLE:
         with few clusters.  :meth:`LongitudinalResult.summary` states the omission.
         ``status`` is the one the fit stamped on ``estimates``.
         """
-        if not self.simultaneous or len(estimates) < 2:
-            return None
         if not supplies_inference(status):
+            return None
+        # A parameter with its own non-inferential status, such as a constant-node risk,
+        # stays out of the band, which is then a joint statement over the others.
+        estimates = {
+            name: estimate for name, estimate in estimates.items() if estimate.supplies_inference
+        }
+        if not self.simultaneous or len(estimates) < 2:
             return None
         # No source gives a t-calibrated joint band, so a fit whose estimates carry a
         # Student t reference builds none either, and the summary says so.

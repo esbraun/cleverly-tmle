@@ -1678,6 +1678,13 @@ def benchmark_refusal(result: TMLEResult, covariates: Any = None) -> str | None:
         form a malformed request.  :func:`benchmark` reports a malformed request itself,
         before any refusal.
     """
+    if result.data.known_treatment is not None:
+        return (
+            "benchmark compares the treatment mechanism with and without the named "
+            "covariates, and this fit's data declares the mechanism known, so dropping a "
+            "covariate cannot change it. A known design mechanism leaves no omitted "
+            "confounder of the treatment to calibrate against"
+        )
     fitted = _benchmark_covariates(result.data)
     try:
         dropped = set(fitted[:1] if covariates is None else _benchmark_names(result, covariates))

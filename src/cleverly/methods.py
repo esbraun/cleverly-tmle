@@ -893,9 +893,9 @@ class DRTMLEMethod(TMLEMethod):
         Optional evaluation data for a companion fit.
     randomized : bool, default=False
         Whether treatment was randomized, for a fit with missing outcomes.  ``False`` fits an
-        observational missing outcome with the composite indicator.
-    treatment_probabilities : array-like or mapping, default=None
-        Known treatment probabilities for randomized treatment.
+        observational missing outcome with the composite indicator.  Known treatment
+        probabilities belong to the design:
+        ``PointTreatment(treatment_probabilities=...)``.
 
     See Also
     --------
@@ -925,7 +925,6 @@ class DRTMLEMethod(TMLEMethod):
     update_order: str = "drtmle"
     evaluation: Any = None
     randomized: bool = False
-    treatment_probabilities: Any = None
     name: str = "drtmle"
 
     def __post_init__(self) -> None:

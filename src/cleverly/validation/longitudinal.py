@@ -46,7 +46,9 @@ __all__ = [
     "LONGITUDINAL_CENSORING_NOT_FITTED",
     "LONGITUDINAL_CLASSIFIER_RATIO",
     "LONGITUDINAL_CONSTANT_TARGET",
+    "LONGITUDINAL_CONSTANT_TARGET_IN_FOLD",
     "LONGITUDINAL_HELD_DECISION",
+    "LONGITUDINAL_KNOWN_MECHANISM",
     "LONGITUDINAL_NO_CENSORING",
     "LONGITUDINAL_NO_CENSORING_IN_FOLD",
     "LongitudinalDiagnostics",
@@ -72,9 +74,21 @@ LONGITUDINAL_CONSTANT_TARGET = (
     "every follower holds the same 0 or 1 target, regression is that value"
 )
 
+#: A training fold of a cross-fitted fit held one target value, 0 or 1, at the node while the
+#: sample did not.  That fold's regression is the value, so the fold fitted no learner and
+#: its held-out rows start the pooled fluctuation there.  The node's model row stays, from the
+#: folds that did fit, and the omission names the folds.
+LONGITUDINAL_CONSTANT_TARGET_IN_FOLD = (
+    "a training fold holds the same 0 or 1 target, its regression is that value"
+)
+
 #: The node is an identity node of a held design: it repeats the baseline decision, its
 #: factor is exactly one, and the estimator fitted no treatment model there.
 LONGITUDINAL_HELD_DECISION = "baseline decision held at this node, factor one, no model"
+
+#: The data declares the node's factor known, so the estimator read the declaration and
+#: fitted no learner there.
+LONGITUDINAL_KNOWN_MECHANISM = "factor declared known on the data, no learner"
 
 #: No eligible unit was censored at the node, so its retention factor is exactly one and the
 #: estimator fitted no censoring learner there.
@@ -325,6 +339,9 @@ class LongitudinalNuisanceOmission:
         The cause of a competing-risk outcome role, else ``None``.
     horizon : int or None
         The horizon of a survival outcome role, else ``None``.
+    folds : tuple of int
+        The one-based outer folds the omission applies to, for a fold-level reason. Empty
+        otherwise.
     """
 
     role: str
@@ -333,6 +350,7 @@ class LongitudinalNuisanceOmission:
     regimen: str | None = None
     cause: str | None = None
     horizon: int | None = None
+    folds: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -746,10 +764,15 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
     for time in range(1, result.data.n_times + 1):
         at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
         held = result.data.is_held_node(time)
-        report = None if held else _treatment_report(result, time, at_risk)
+        declared = time in mechanism.known_treatment_nodes
+        report = None if held or declared else _treatment_report(result, time, at_risk)
         if held:
             omissions.append(
                 LongitudinalNuisanceOmission("treatment", time, LONGITUDINAL_HELD_DECISION)
+            )
+        elif declared:
+            omissions.append(
+                LongitudinalNuisanceOmission("treatment", time, LONGITUDINAL_KNOWN_MECHANISM)
             )
         elif report is None:
             omissions.append(
@@ -772,6 +795,11 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
         if time in mechanism.no_censoring_nodes:
             omissions.append(
                 LongitudinalNuisanceOmission("censoring", time, LONGITUDINAL_NO_CENSORING)
+            )
+            continue
+        if time in mechanism.known_censoring_nodes:
+            omissions.append(
+                LongitudinalNuisanceOmission("censoring", time, LONGITUDINAL_KNOWN_MECHANISM)
             )
             continue
         if time in mechanism.no_censoring_folds:
@@ -838,6 +866,18 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
                     )
                 )
                 continue
+            if step.constant_folds:
+                omissions.append(
+                    LongitudinalNuisanceOmission(
+                        role,
+                        step.time,
+                        LONGITUDINAL_CONSTANT_TARGET_IN_FOLD,
+                        regimen=fit.regimen.label,
+                        cause=fit.cause,
+                        horizon=fit.horizon if result.data.is_survival else None,
+                        folds=step.constant_folds,
+                    )
+                )
             report = (
                 _binary_report(
                     name,

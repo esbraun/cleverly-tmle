@@ -159,6 +159,10 @@ class TMLEConfig:
     #: did estimate and truncate ``g`` -- and those fits must still print the bound they
     #: applied.
     fits_treatment: bool = True
+    #: ``"known"`` when the fit divided by a mechanism the data declares known
+    #: (:attr:`~cleverly.data.CausalData.known_treatment`), else ``"estimated"``.  Recorded
+    #: so a result read back from disk says which one its interval rests on.
+    treatment_mechanism: str = "estimated"
     #: Whether the treatment is a continuous dose, whose policy ratio reads a density that
     #: no bound truncates.  A categorical treatment's policy ratio reads the bounded
     #: propensity, so its summary prints the bound.
@@ -263,6 +267,10 @@ class TMLEConfig:
                     f"{self.g_bounds_conditional[1]:.4g}]"
                 )
             lines.append(bounds)
+        if self.treatment_mechanism == "known":
+            lines.append(
+                "treatment mechanism: known (declared); no truncation bound moved a known value"
+            )
         if self.bounded_mechanisms:
             # The propensity is not the only denominator in the clever covariate, and a
             # reader comparing two fits needs to see every bound that shaped the estimate
@@ -1336,7 +1344,8 @@ class TMLEResult:
         ``plugin_interval_lower`` and ``plugin_interval_upper`` in their place. Those
         three are a diagnostic and they are not a confidence interval. Exactly one of
         ``std_err`` and ``inference`` is present in any frame, so a consumer that has to
-        tell the two apart has a total test.
+        tell the two apart has a total test.  A fit that divided by a declared known
+        treatment mechanism adds a ``treatment_mechanism`` column that reads ``"known"``.
 
         Returns
         -------
@@ -1362,6 +1371,10 @@ class TMLEResult:
             ]
         if self.intermediate_value is not None:
             payload["intermediate"] = [self.intermediate_value] * len(rows)
+        if self.config.treatment_mechanism == "known":
+            # Only on a fit that divided by a declared mechanism, so an ordinary frame
+            # keeps its columns.
+            payload["treatment_mechanism"] = ["known"] * len(rows)
         return self.data.frame_like(payload)
 
     def coefficients(self, scale: str = "link") -> Any:

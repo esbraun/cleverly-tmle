@@ -135,7 +135,7 @@ class SimulatedConfoundingCell:
 
 @dataclass(frozen=True)
 class SimulatedConfoundingResult:
-    """Store a qualitative simulated-confounding stress surface.
+    r"""Store a qualitative simulated-confounding stress surface.
 
     Parameters
     ----------
@@ -193,6 +193,12 @@ class SimulatedConfoundingResult:
         treatment group. ATT and ATC use the latter.
     conditioning_arm : Any or None
         Original treatment label defining the ATT or ATC population.
+    known_mechanism_carried : bool
+        Whether the fitted data declared a known treatment mechanism.  The flip of
+        strength :math:`s` is drawn from a latent normal independent of :math:`W`, so the
+        flipped treatment's mechanism is known too:
+        :math:`g_s(a \mid W) = (1 - s)\, g_0(a \mid W) + s\, g_0(1 - a \mid W)`.  Every
+        cell that moves the treatment declares :math:`g_s`, and its refit divides by it.
 
     Attributes
     ----------
@@ -227,6 +233,7 @@ class SimulatedConfoundingResult:
     strata_names: tuple[str, ...] = ()
     population: Literal["baseline", "perturbed_treatment_group"] = "baseline"
     conditioning_arm: Any = None
+    known_mechanism_carried: bool = False
 
     @property
     def target_measure(self) -> Literal["unweighted", "fixed_empirical_tilt"]:
@@ -270,6 +277,13 @@ class SimulatedConfoundingResult:
             f"association population: {self.association_population}",
             f"calibration population: {self.calibration_population}",
             f"refit population: {self.refit_population}",
+        ) + (
+            (
+                "treatment mechanism: known on the data; each cell that flips the treatment "
+                "declares the flipped mechanism (1 - s) g0 + s (1 - g0)",
+            )
+            if self.known_mechanism_carried
+            else ()
         )
 
     @property
@@ -596,6 +610,29 @@ def _linear_treatment(
 ) -> np.ndarray[Any, Any]:
     """Apply the source-backed continuous treatment perturbation ``A' = A + k_A U``."""
     return values + strength * latent
+
+
+def flipped_mechanism(values: np.ndarray[Any, Any], strength: float) -> np.ndarray[Any, Any]:
+    r"""The known mechanism of a binary treatment flipped with probability ``strength``.
+
+    The flip mask is :math:`1\{U \ge -\Phi^{-1}(s)\}` for a standard normal :math:`U` drawn
+    independently of :math:`W` and :math:`A`, so :math:`P(\text{flip} \mid W, A) = s` and
+    :math:`g_s(a \mid W) = (1 - s)\, g_0(a \mid W) + s\, g_0(1 - a \mid W)`.
+
+    Parameters
+    ----------
+    values : ndarray
+        The declared ``(n, 2)`` mechanism, one column per arm in code order.
+    strength : float
+        The flip probability :math:`s`.
+
+    Returns
+    -------
+    ndarray
+        The ``(n, 2)`` mechanism of the flipped treatment.
+    """
+    declared = np.asarray(values, dtype=float)
+    return (1.0 - strength) * declared + strength * declared[:, ::-1]
 
 
 def _perturb_treatment(
@@ -936,6 +973,11 @@ def simulated_confounding(
                 request, latent, treatment, result.data.weights
             )
             replacement = result.data.with_treatment(treatment)
+            if result.data.known_treatment is not None and replacement.known_treatment is None:
+                # A zero-strength axis keeps the treatment, and with it the declaration.
+                replacement = replacement.with_known_mechanism(
+                    flipped_mechanism(result.data.known_treatment.values, treatment_strength)
+                )
             if result.data.family == "gaussian":
                 outcome = _gaussian_outcome(result.data.outcome, latent, outcome_strength)
             else:
@@ -1009,6 +1051,7 @@ def simulated_confounding(
             else "Binomial outcome is flipped in the declared upper latent-normal tail."
         ),
         weight_report=result.data.weight_report(),
+        known_mechanism_carried=result.data.known_treatment is not None,
         backend=result.data.backend,
         stratum=request.stratum,
         strata_names=() if request.stratum is None else result.data.strata_names,

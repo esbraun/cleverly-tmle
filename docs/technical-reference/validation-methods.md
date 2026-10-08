@@ -418,7 +418,8 @@ Armwise calibration requires a separate report design because no treatment arm i
 
 `LongitudinalNuisanceDiagnostics.omissions` holds typed `LongitudinalNuisanceOmission` records. Each
 record names `role`, `time`, and `reason`. An outcome or pseudo-outcome record also names
-`regimen`, `cause`, and `horizon`. The reasons are in the table.
+`regimen`, `cause`, and `horizon`, and a fold-level record names its `folds`. The reasons are in
+the table.
 
 | reason | role and time | why the row is absent |
 | --- | --- | --- |
@@ -427,7 +428,9 @@ record names `role`, `time`, and `reason`. An outcome or pseudo-outcome record a
 | `LONGITUDINAL_NO_CENSORING_IN_FOLD` | `censoring` at one node | one training fold had no censored unit and predicts one. Its held-out fold holds every censored unit at the node. The node's model row stays |
 | `LONGITUDINAL_HELD_DECISION` | `treatment` at a later node | the node holds the baseline decision, so its factor is exactly one and no model ran |
 | `LONGITUDINAL_CLASSIFIER_RATIO` | `treatment` at a continuous node | the classifier ratio route fits no density |
+| `LONGITUDINAL_KNOWN_MECHANISM` | `treatment` or `censoring` at one node | the data declares the node's factor known, so the fit read the declaration and no learner ran |
 | `LONGITUDINAL_CONSTANT_TARGET` | `outcome` or `pseudo_outcome` at one node | every follower held 0, such as no event at the node, or every follower held 1. The regression is that value and no learner ran |
+| `LONGITUDINAL_CONSTANT_TARGET_IN_FOLD` | `outcome` or `pseudo_outcome` at one node | one or more training folds held 0, or held 1, while the sample did not. Those folds fitted no learner, and `folds` names them. The node's model row stays |
 
 `to_frame()` starts with the row identity, evaluation, loss, model name, and model kind. It then
 adds the union of metrics that the nested model reports. A binary row reports

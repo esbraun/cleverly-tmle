@@ -142,7 +142,9 @@ CALIBRATION_FAMILY_ALPHA = 0.05
 #: reads a covariate sits many orders of magnitude above this.
 _CONSTANT_LOGIT_SPREAD = 1e-10
 
-TreatmentModelRole = Literal["estimated_treatment_law", "collaborative_working_model"]
+TreatmentModelRole = Literal[
+    "estimated_treatment_law", "declared_treatment_law", "collaborative_working_model"
+]
 
 #: Whether the report's predictions were made out of fold or on the rows each model trained on.
 EvaluationBasis = Literal["out_of_fold", "in_sample"]
@@ -395,9 +397,13 @@ class NuisanceDiagnostics:
         The fitted :class:`~cleverly.estimators.CTMLESelection` or
         :class:`~cleverly.estimators.CTMLEOutcomeAdaptiveFit`. ``None`` means the method
         is not collaborative, or the stored artifact is unavailable.
-    treatment_role : {"estimated_treatment_law", "collaborative_working_model"} or None
-        Statistical role of the propensity predictions in ``models``. A collaborative
-        working mechanism is not the complete treatment law.
+    treatment_role : str or None
+        One of ``"estimated_treatment_law"``, ``"declared_treatment_law"`` and
+        ``"collaborative_working_model"``, or ``None``: the statistical role of the
+        propensity predictions in ``models``.  A collaborative working mechanism is not the
+        complete treatment law.  A declared treatment law is the known mechanism the data
+        declares, and its rows compare that declaration with the observed treatment rather
+        than describe a fitted model.
     repeat_spread : tuple of RepeatSpreadRow
         One descriptive split-sensitivity row per reported parameter. A one-draw fit
         retains an empty tuple rather than a false zero spread.
@@ -932,6 +938,8 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
             if not nuisance.fits_treatment
             else "collaborative_working_model"
             if collaborative
+            else "declared_treatment_law"
+            if nuisance.treatment_mechanism == "known"
             else "estimated_treatment_law"
             if not data.is_continuous_treatment
             else None

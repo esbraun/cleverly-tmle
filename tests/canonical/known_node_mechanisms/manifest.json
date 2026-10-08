@@ -1,0 +1,134 @@
+{
+  "schema_version": 2,
+  "study": "LTMLE on declared known node mechanisms",
+  "slug": "known-node-mechanisms",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-known-node-mechanisms",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "f3566c9cccc452d41422617e2f2194514c51ed15",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": {
+      "implementation": "ltmle-known-gform",
+      "ltmle_version": "1.3-0",
+      "ltmle_source_commit": "338c029dae9692ef20714125773da7037688993b",
+      "ltmle_tarball_sha256": "fb31d0dd6ab81687b81f3279b414c21e91c655e10aac12f73fc6723efd848aad",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_construction": "ltmle(gform = <n x 4 declared factors>, Qform = <the scenario's>, stratify = TRUE, variance.method = 'ic', gbounds = c(1e-8, 1), SL.library = 'glm')",
+      "rejected_candidates": "ltmleMSM pairing with a 3-D gform: the msm case of the unit test makes the known fit equal to learners that return the declared factors",
+      "targeting_witness_floor": 0.001
+    }
+  },
+  "configuration": {
+    "replicates": 1000,
+    "n": 2000,
+    "seed": 20261152,
+    "resampling_seed": 2026115201,
+    "scenario_seed_owners": {
+      "smart_q_wrong": "smart_q_correct"
+    },
+    "publication_policy": "reporting",
+    "scenarios": {
+      "smart_q_correct": [
+        "ey_regimen[always]",
+        "ey_regimen[never]",
+        "ate_regimen[always vs never]"
+      ],
+      "smart_q_wrong": [
+        "ey_regimen[always]",
+        "ey_regimen[never]",
+        "ate_regimen[always vs never]"
+      ]
+    },
+    "construction": "ordinary LTMLE dividing by the declared node factors",
+    "cross_fit": false,
+    "simultaneous_intervals": false,
+    "g_bounds": [
+      1e-08,
+      1.0
+    ],
+    "treatment_mechanism": "known at both nodes (declared by column)",
+    "censoring_mechanism": "known at both nodes (declared by column)",
+    "plans": {
+      "always": [
+        1,
+        1
+      ],
+      "never": [
+        0,
+        0
+      ]
+    },
+    "q_formulas": {
+      "smart_q_correct": [
+        "Q.kplus1 ~ L0",
+        "Q.kplus1 ~ L0 + L1"
+      ],
+      "smart_q_wrong": [
+        "Q.kplus1 ~ 1",
+        "Q.kplus1 ~ L0"
+      ]
+    },
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_known_node_mechanisms.py": "50acb48db47d34f572184e48844cc6ab7358e2a79dfce1bf408550a0a9c6d6ef",
+    "tests/studies/known_node_mechanisms_properties.py": "09d963b7c6a50de88b2d429167e516c3dbd99b907ae3d9c2ff2cac8576fdc099",
+    "tests/studies/known_mechanism_law.py": "23f4d7cfde71d01ffde84ddb704fdbd2104d93e9ad088528a6ca8cbd76251567",
+    "tests/studies/canonical_ltmle.py": "db44a0fabb57fc19f37e94b9229f1f425de28745d6b109d4d1600eb60d0678f1",
+    "tests/studies/fractional_glm.py": "2d05af8d7c02787d8375da1d1918e9e8e69e86ced312a90c73facf0f122b5da9",
+    "tests/studies/evidence/comparison.py": "653c091f0c1cd240b41e4ed7026da8f67c0feda58404e7c27e80eabab38a2217",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
+    "tests/studies/evidence/property_verdicts.py": "3de1ed905e0e940351fade806d3ac0b759bcce823418aa46ddd5fc2df4ada31c",
+    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
+    "tests/canonical/ltmle/Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
+    "tests/canonical/known_node_mechanisms/run_study.R": "04862d6ca7b4489763dbd4cbbea89bd32e9c15f030baeef807f5abb6a8b4cd19",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "reference_sha256": {
+    "tests/canonical/ltmle/Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
+    "tests/canonical/known_node_mechanisms/run_study.R": "04862d6ca7b4489763dbd4cbbea89bd32e9c15f030baeef807f5abb6a8b4cd19",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "sha256": {
+    "replicates.csv.gz": "60b90c1d801c4f865ad2c04cceff9c4683562fba2487b8d5e5eca5dcf07dd4cf",
+    "summary.csv": "5c2c13605ab5eb696dd250172260ba1be344743e1a0734b9bba648561cde20b8",
+    "equivalence.csv": "ca3136088e7ca4aa48b4ba087500c5684d9319a19081aa930fcc7531f2619c8b",
+    "performance-tests.csv": "e9d00bb291796feb77742df8d353d2fcd520d5652164adba1d8a5b05b4ba3f16",
+    "property-replicates.csv.gz": "4b770a0ec4746a8b1a42387cc5260f8ad8fb73db3d5f8aea832f7283b54663e7",
+    "properties.csv": "ae2132fb663b8a8f0ba5ce275a37706dad0eb23c7bcf1aa41d5c18af66b26afb"
+  }
+}

@@ -21,6 +21,21 @@ The curve is centered rather than assumed to be centered. Targeting drives $\bar
 approximately zero. Reading the mean off the sample, instead of substituting zero, is what makes
 the reported variance a statement about the curve that was actually computed.
 
+A fit on data that declares its treatment mechanism reads the same rule. Its curve is evaluated at
+the declared $g_0$. When every mechanism the fit divides by is declared, as for a complete-data
+`TMLE`, the curve is the estimator's exact influence curve for any outcome regression. The
+interval is therefore not conservative.
+
+A fit that still estimates a second mechanism, such as
+the missingness mechanism of `delta=`, needs that mechanism and the outcome regression both
+consistent. Under the `"Q"` guard, `DRTMLE` reports the curve at its fluctuated mechanism
+([DR-TMLE contract](dr-tmle/theorem.md#a-known-treatment-mechanism)). An estimated mechanism
+gives the ordinary curve at
+$\hat g$ instead. That curve is conservative when a correct parametric mechanism model meets a
+wrong outcome regression. The
+[known-treatment-mechanism contract](point-treatment-tmle.md#known-treatment-mechanism) gives the
+sources and the choice between the two.
+
 ## Covariance rules
 
 Each `ParameterEstimate` declares a `covariance_rule`. `result.covariance()` and
@@ -90,6 +105,7 @@ Every other status is a non-inferential status.
 | `"generated_design_plugin"` | every `CTMLE` fit with `strategy="oat"`, including a fit with `delta=` and a fit that requests one arm mean. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `generated-design se` | [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | `"estimated_weight_plugin"` | a `DRTMLE` fit with a non-empty `guard` and varying weights declared estimated (`weights_estimated=True`). A fit with `guard=()` keeps `"influence_curve"`. Constant weights fit the unweighted estimator, so they keep it too. [DR-TMLE supported estimands](dr-tmle/supported-estimands.md#refused-by-name) gives the reason | raise `CapabilityError` with the reason of the status | `fixed-weight se` | [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
 | `"few_cluster_plugin"` | a `TMLE` or `DRTMLE` fit with `id=` and fewer than 10 clusters with positive weight mass in the fit or one reported baseline stratum, or an `LTMLE` fit with fewer than 20. The `LTMLE` floor applies in sample and under cross-fitting. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `normal-reference se` | [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) |
+| `"constant_node_plugin"` | an `LTMLE` parameter whose recursion read a node regression as a constant 0 or 1, such as a horizon at a grid node with no event among the regimen's followers at risk, and every contrast or restricted mean that reads it. The simultaneous band leaves it out. The other parameters of the fit keep their status. [A node with no event](longitudinal-tmle.md#a-node-with-no-event) gives the reason | raise `CapabilityError` with the reason of the status | `constant-node se` | [F31](../roadmap.md#f31-inference-at-a-boundary-node-estimate) |
 
 At every status, `plugin_std_error` and `plugin_interval` return the plug-in spread of the
 reported curve. On `"influence_curve"` they return the numbers of `std_error` and `ci` under names
@@ -100,10 +116,16 @@ non-inferential status. The refusal, the `summary()` paragraph, the assessment n
 E-value row each read that table. `tests/unit/test_inference_status_registry.py` checks that the
 table, the `InferenceStatus` type, and the rows above list the same statuses.
 
-A fit has one status. `TMLEResult.inference_status` and `LongitudinalResult.inference_status`
-return it. The estimator decides the status from its configuration and the prepared data. It reads
-no fitted quantity. When more than one non-inferential status applies, the fit takes the first one
-in the table above. The rows are in that order.
+A fit has one fit status. `TMLEResult.inference_status` and `LongitudinalResult.inference_status`
+return it. The estimator decides the fit status from its configuration and the prepared data. It
+reads no fitted quantity. When more than one non-inferential status applies, the fit takes the
+first one in the table above. The rows are in that order.
+
+A parameter status can sit beside the fit status on some estimates. `"constant_node_plugin"` is
+the one parameter status. `LTMLE` stamps it on a parameter whose recursion read a constant node
+regression, which is a fitted quantity, and the other estimates keep the fit status. So read each
+estimate's `supplies_inference` before its `std_error`, `ci` or `pvalue`. The result's
+`inference_status` stays the fit status unless every estimate carries the parameter status.
 
 A report that publishes a spread names its columns through `spread_name` in
 `cleverly.inference.influence`. On a non-inferential status, `to_frame()` emits `inference`,
@@ -155,13 +177,13 @@ A contrast inherits the status of its inputs, so a contrast of two diagnostic es
 case emits a warning; `summary()` states the omission on a fit with two or more estimates. The
 constructor default does not distinguish an explicit request from the default.
 
-Two selections that mix the statuses raise `ValueError`. No fit produces either input, because the
-estimator stamps one status on every estimate it reports.
+A selection that mixes statuses either takes the parameter status or raises `ValueError`.
 
-| function | selection | reason |
+| function | selection | result |
 | --- | --- | --- |
-| `contrast()`, and `smooth_contrast` in `cleverly.inference.results` | estimates that declare different statuses | an inferential status would give the refused input an interval |
-| `median_estimates` in `cleverly.inference.influence` | repeats whose estimates declare different statuses | the median would report one draw's refusal under the other draw's name |
+| `contrast()`, `ratio()`, `rmst()`, `rmtl()`, and `smooth_contrast` in `cleverly.inference.results` | a fit status and the parameter status, such as an inferential risk and a constant-node risk | the derived estimate takes `"constant_node_plugin"`, the earlier status in the table. It reports no interval |
+| the same functions | two different fit statuses | `ValueError`. An inferential status would give the refused input an interval. No fit produces this input, because the estimator stamps one fit status on every estimate |
+| `median_estimates` in `cleverly.inference.influence` | repeats whose estimates declare different statuses, of any kind | `ValueError`. The median would report one draw's refusal under the other draw's name |
 
 `tests/unit/test_inference.py::TestTheInferenceStatus` checks the inheritance, both `ValueError`
 selections, and the band refusal.

@@ -41,6 +41,7 @@ PRECEDENCE = (
     "generated_design_plugin",
     "estimated_weight_plugin",
     "few_cluster_plugin",
+    "constant_node_plugin",
 )
 
 

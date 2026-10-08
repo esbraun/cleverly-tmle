@@ -53,6 +53,7 @@ from ..utils.frames import (
     is_dataframe,
     matrix_from_columns,
 )
+from .known_mechanism import KnownMechanism, known_mechanism, probability_columns
 from .validate import (
     MIN_OBSERVATIONS,
     MISSING_TREATMENT_DECLARATION,
@@ -84,6 +85,16 @@ __all__ = ["CategoricalEncoding", "CausalData", "TreatmentKind", "arm_share"]
 #: mechanisms (a distribution over arms versus a conditional density) and therefore
 #: different estimands.
 TreatmentKind = Literal["discrete", "continuous"]
+
+#: The refusal of a second declaration of the treatment mechanism.
+DECLARED_TWICE = (
+    "treatment_probabilities is declared twice: on the data and at fit. Declare it once."
+)
+_COLUMN_FORM_NEEDS_A_FRAME = (
+    "treatment_probabilities names columns, and this call has no frame to read them from. "
+    "Pass the arrays, or declare the columns in CausalData.from_frame or in the fit on the "
+    "frame."
+)
 
 
 def arm_share(
@@ -200,6 +211,11 @@ class CausalData:
     #: the readers of a fitted result.  A nuisance fit refuses a view, because its
     #: treatment and observation arrays describe the composite and not the recorded data.
     composite_view: bool = field(default=False, repr=False)
+    #: The treatment mechanism the design declares known, or ``None`` when it is estimated.
+    #: A data field and not an estimator setting, so that every reader that subsets rows
+    #: carries the matching rows and every reader that rewrites the treatment drops it.  See
+    #: :mod:`cleverly.data.known_mechanism`.
+    known_treatment: KnownMechanism | None = None
     #: Name of the dataframe backend the data arrived in, or ``None`` for numpy input.
     #: A *name* and not the frame it came from: this used to hold the whole input
     #: frame, which pinned it in memory for the life of every result derived from the
@@ -228,6 +244,7 @@ class CausalData:
         family: str = "auto",
         treatment_kind: TreatmentKind = "discrete",
         treatment_delta: str | None = None,
+        treatment_probabilities: Any = None,
     ) -> CausalData:
         """Build from a pandas or polars dataframe by column name.
 
@@ -261,6 +278,17 @@ class CausalData:
             and a value it holds there is ignored.  A missing treatment is never inferred
             from a missing value, so an accidental gap cannot start a missing-data
             analysis.
+        treatment_probabilities:
+            The known treatment mechanism of the design, ``P(A = a | W)``, which every fit
+            then divides by in place of an estimate.  The preferred form maps each treatment
+            level to the column that holds its probability, ``{"active": "p_active",
+            "placebo": "p_placebo"}``.  Those columns are read here and are not covariates,
+            so ``covariates=None`` does not adjust for them.  A mapping level to ``(n,)``
+            array, an ``(n, K)`` array in the sorted level order, and an ``(n,)`` array of
+            ``P(A = levels[1] | W)`` at two arms are also read.  With ``weights=``, the
+            declaration is the mechanism of the weight-tilted law, which equals the design
+            mechanism when the weights depend on ``W`` only.  See
+            :mod:`cleverly.data.known_mechanism`.
         """
         if not is_dataframe(data):
             raise DataError(
@@ -290,7 +318,16 @@ class CausalData:
         if missing:
             raise DataError(f"columns not found in the frame: {missing}; available: {columns}")
 
-        claimed = set(roles.values())
+        probability_names = probability_columns(treatment_probabilities)
+        absent_probabilities = [
+            name for _, name in (probability_names or ()) if name not in columns
+        ]
+        if absent_probabilities:
+            raise DataError(
+                f"treatment_probabilities columns not found: {absent_probabilities}; "
+                f"available: {columns}"
+            )
+        claimed = set(roles.values()) | {name for _, name in (probability_names or ())}
         if covariates is None:
             covariate_names = [name for name in columns if name not in claimed]
             if not covariate_names:
@@ -356,6 +393,12 @@ class CausalData:
                 column_array(frame, treatment_delta) if treatment_delta is not None else None
             ),
             treatment_delta_name=treatment_delta,
+            treatment_probabilities=(
+                treatment_probabilities
+                if probability_names is None
+                else {level: column_array(frame, name) for level, name in probability_names}
+            ),
+            known_columns=probability_names or (),
         )
 
     @classmethod
@@ -379,13 +422,18 @@ class CausalData:
         strata: np.ndarray | None = None,
         strata_names: Sequence[str] | None = None,
         treatment_delta: Any = None,
+        treatment_probabilities: Any = None,
     ) -> CausalData:
         """Build from numpy arrays, mirroring ``tmle(Y, A, W, ...)`` in R.
 
         See :meth:`from_frame` for ``weights_type``, ``weights_estimated``,
-        ``treatment_kind`` and ``treatment_delta``.  Here ``treatment_delta`` is the 0/1
-        array itself, in the role of R ``drtmle``'s ``DeltaA``.
+        ``treatment_kind``, ``treatment_delta`` and ``treatment_probabilities``.  Here
+        ``treatment_delta`` is the 0/1 array itself, in the role of R ``drtmle``'s
+        ``DeltaA``, and ``treatment_probabilities`` takes the array forms only, in the role
+        of R ``tmle``'s ``g1W``.
         """
+        if probability_columns(treatment_probabilities) is not None:
+            raise DataError(_COLUMN_FORM_NEEDS_A_FRAME)
         w = np.asarray(covariates, dtype=float)
         if w.ndim == 1:
             w = w.reshape(-1, 1)
@@ -419,6 +467,7 @@ class CausalData:
             backend=None,
             treatment_delta=None if treatment_delta is None else np.asarray(treatment_delta),
             treatment_delta_name="DeltaA" if treatment_delta is not None else None,
+            treatment_probabilities=treatment_probabilities,
         )
 
     @classmethod
@@ -450,6 +499,8 @@ class CausalData:
         strata_levels: Sequence[tuple[Any, ...]] = (),
         treatment_delta: np.ndarray | None = None,
         treatment_delta_name: str | None = None,
+        treatment_probabilities: Any = None,
+        known_columns: tuple[tuple[Any, str], ...] = (),
     ) -> CausalData:
         n = len(outcome)
         if n < MIN_OBSERVATIONS:
@@ -536,6 +587,18 @@ class CausalData:
         elif strata_names or resolved_strata_levels:
             raise DataError("strata_names/strata_levels require strata values")
 
+        known = (
+            None
+            if treatment_probabilities is None
+            else known_mechanism(
+                treatment_probabilities,
+                n=n,
+                levels=levels,
+                treatment_name=treatment_name,
+                columns=known_columns,
+            )
+        )
+
         kept = set(w_names)
         retained_encodings = tuple(
             enc for enc in encodings if any(name in kept for name in enc.generated)
@@ -567,6 +630,7 @@ class CausalData:
             strata_levels=resolved_strata_levels,
             treatment_observed=recorded,
             treatment_delta_name=treatment_delta_name if recorded is not None else None,
+            known_treatment=known,
             backend=backend,
         )
 
@@ -985,6 +1049,47 @@ class CausalData:
             treatment_observed=(
                 None if self.treatment_observed is None else self.treatment_observed[idx]
             ),
+            known_treatment=(
+                None if self.known_treatment is None else self.known_treatment.subset(idx)
+            ),
+        )
+
+    def with_known_mechanism(self, treatment_probabilities: Any) -> CausalData:
+        """Return a copy that declares the treatment mechanism known.
+
+        :meth:`cleverly.TMLE.fit` calls this when it receives ``treatment_probabilities=``
+        beside a prepared container.  The column-name form needs the frame, which a
+        container no longer holds, so only the array forms are read here.
+
+        Parameters
+        ----------
+        treatment_probabilities : array-like or mapping
+            The declaration, in one of the array forms that :meth:`from_frame` reads.
+
+        Returns
+        -------
+        CausalData
+            A copy whose :attr:`known_treatment` holds the validated declaration.
+
+        Raises
+        ------
+        ValueError
+            If this data already declares a mechanism.
+        DataError
+            If the declaration is malformed or names columns.
+        """
+        if self.known_treatment is not None:
+            raise ValueError(DECLARED_TWICE)
+        if probability_columns(treatment_probabilities) is not None:
+            raise DataError(_COLUMN_FORM_NEEDS_A_FRAME)
+        return replace(
+            self,
+            known_treatment=known_mechanism(
+                treatment_probabilities,
+                n=self.n,
+                levels=self.treatment_levels,
+                treatment_name=self.treatment_name,
+            ),
         )
 
     def with_treatment(self, treatment: FloatArray) -> CausalData:
@@ -1001,10 +1106,19 @@ class CausalData:
         rows only, and every other row keeps the code ``NaN``.  The placebo refuter
         permutes the recorded codes among the recorded rows, so the observation pattern
         is kept.
+
+        The copy declares no known mechanism unless the replacement equals the treatment
+        it replaces.  A permuted or simulated treatment has a mechanism of its own, which the
+        declaration does not describe, so a refit on the copy estimates it.
         """
         a = np.asarray(treatment, dtype=float).reshape(-1)
         if a.size != self.n:
             raise DataError(f"replacement treatment has length {a.size}, expected {self.n}")
+        known = (
+            self.known_treatment
+            if np.array_equal(a, np.asarray(self.treatment, dtype=float), equal_nan=True)
+            else None
+        )
         if self.has_missing_treatment:
             recorded = self.treatment_recorded
             if not np.all(np.isfinite(a[recorded])):
@@ -1019,14 +1133,14 @@ class CausalData:
                     f"the recorded rows, but the data declares {list(self.arm_codes)}. A "
                     "replacement treatment must keep every arm."
                 )
-            return replace(self, treatment=a)
+            return replace(self, treatment=a, known_treatment=known)
         if self.is_continuous_treatment:
             # No declared support to keep, so the arm check below has nothing to check.
             # A permutation of a continuous column keeps its marginal distribution, which
             # is what the placebo refuter needs.
             if not np.all(np.isfinite(a)):
                 raise DataError("replacement treatment contains non-finite values")
-            return replace(self, treatment=a)
+            return replace(self, treatment=a, known_treatment=known)
         found = np.unique(a)
         if not np.array_equal(found, np.asarray(self.arm_codes, dtype=float)):
             raise DataError(
@@ -1035,7 +1149,7 @@ class CausalData:
                 "A replacement treatment must keep every arm, or the refitted estimate is "
                 "not a null for the same parameter."
             )
-        return replace(self, treatment=a)
+        return replace(self, treatment=a, known_treatment=known)
 
     def with_outcome(
         self, outcome: Any, *, family: str = "auto", name: str = "replacement outcome"
@@ -1299,6 +1413,8 @@ class CausalData:
             parts.append(f"clusters={self.n_clusters}")
         if self.has_intermediate:
             parts.append("intermediate=yes")
+        if self.known_treatment is not None:
+            parts.append("treatment mechanism=known")
         if self.is_weighted:
             parts.append(f"weighted=yes (effective n={self.effective_n:.0f})")
         return f"CausalData({', '.join(parts)})"

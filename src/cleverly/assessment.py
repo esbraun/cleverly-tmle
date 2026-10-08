@@ -47,7 +47,9 @@ from .validation.drtmle import IDENTITY_TOLERANCE
 from .validation.longitudinal import (
     LONGITUDINAL_CENSORING_NOT_FITTED,
     LONGITUDINAL_CONSTANT_TARGET,
+    LONGITUDINAL_CONSTANT_TARGET_IN_FOLD,
     LONGITUDINAL_HELD_DECISION,
+    LONGITUDINAL_KNOWN_MECHANISM,
     LONGITUDINAL_NO_CENSORING,
     LONGITUDINAL_NO_CENSORING_IN_FOLD,
     LongitudinalDiagnostics,
@@ -67,7 +69,9 @@ __all__ = [
     "ASSESSMENT_CAPABILITIES",
     "LONGITUDINAL_CENSORING_NOT_FITTED",
     "LONGITUDINAL_CONSTANT_TARGET",
+    "LONGITUDINAL_CONSTANT_TARGET_IN_FOLD",
     "LONGITUDINAL_HELD_DECISION",
+    "LONGITUDINAL_KNOWN_MECHANISM",
     "LONGITUDINAL_NO_CENSORING",
     "LONGITUDINAL_NO_CENSORING_IN_FOLD",
     "SENSITIVITY_ROUTES",
@@ -2960,6 +2964,15 @@ def _nuisance_item(
         status = "influence_curve" if _result is None else _result.inference_status
         if not supplies_inference(status):
             detail += f"; {status_record(status).assessment_note}"
+        elif _result is not None:
+            # A parameter status sits beside an inferential fit status, so it is read per
+            # estimate: the note names how many parameters carry it.
+            flagged: dict[str, int] = {}
+            for estimate in _result.estimates.values():
+                if not estimate.supplies_inference:
+                    flagged[estimate.inference] = flagged.get(estimate.inference, 0) + 1
+            for flagged_status, count in flagged.items():
+                detail += f"; {count} parameter(s): {status_record(flagged_status).assessment_note}"
     else:
         facts = [
             "; ".join(findings)
@@ -4018,8 +4031,8 @@ class SensitivityFacade(_CapabilityFacade):
         has none, so :func:`~cleverly.sensitivity.tipping_gamma` refuses it. The row says
         so before the call, in the sentence the call raises. The default point search
         stays available, which is why a request without ``use_ci`` reads the row unchanged.
-        The answer holds for the whole fit, because one fit's estimates carry one
-        inference status.
+        The answer reads every estimate of the fit, so a fit with one estimate that supplies
+        no inference, such as a constant-node parameter, makes the row unavailable.
         """
         if not arguments.get("use_ci"):
             return capability
