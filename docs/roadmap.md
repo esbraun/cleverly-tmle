@@ -68,12 +68,11 @@ Priorities 2 to 5 follow the beta.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1.9 | Point-treatment survival and time-to-event input | published support; pending source read | shipped survival and competing-risk recursion | [X13](#x13-point-treatment-survival-and-time-to-event-input) |
 | 1.10 | Known treatment mechanism | source audit | shipped `treatment_probabilities=` on `DRTMLE` | [X15](#x15-known-treatment-mechanism) |
 | 1.11 | Outcome-adaptive C-TMLE intervals from per-arm scalar designs | published support for one mean; natural extension for every arm and contrast | shipped `strategy="oat"` | [X17](#x17-outcome-adaptive-c-tmle-intervals-from-per-arm-scalar-designs) |
 | 1.12 | C-TMLE candidate sequences | published support; pending source read | shipped selector paths | [X16](#x16-c-tmle-candidate-sequences) |
 | 1.13 | Sequential doubly robust longitudinal estimation | published support; pending source read | implemented longitudinal targets | [X4](#x4-sequential-doubly-robust-longitudinal-estimation) |
-| 1.14 | Hazard-based and monotone survival curves | published support; pending source read | X13 | [X14](#x14-hazard-based-and-monotone-survival-curves) |
+| 1.14 | Hazard-based and monotone survival curves | published support; pending source read | the shipped point-treatment survival design | [X14](#x14-hazard-based-and-monotone-survival-curves) |
 | 1.15 | Incremental interventions over time | source audit | shipped longitudinal modified treatment policies | [X19](#x19-incremental-interventions-over-time) |
 | 1.16 | Targeting and fitting options | no new theory; each option keeps its default bit-identical | none | [X22](#x22-targeting-and-fitting-options) |
 | 1.17 | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
@@ -285,35 +284,6 @@ owners do the same for the stratified DR-TMLE study.
 The sections below give one contract for each open item. Their physical order does not override
 the main grid.
 
-### X13. Point-treatment survival and time-to-event input
-
-The shipped survival and competing-risk fits take a wide table with one column for each node, and
-one treatment column at every node. A baseline-only treatment is refused with `DataError`. The
-survival packages of the TMLE ecosystem start from a different design and a different data
-layout.
-
-| part | what to add | published source | comparator |
-| --- | --- | --- | --- |
-| (a) a point-treatment survival curve | a baseline treatment, censoring over time, and the survival or cumulative-incidence curve at declared horizons, as a design of its own. The fit intervenes on the baseline treatment and on censoring only | Stitelman, De Gruttola and van der Laan (2012); Benkeser, Carone and Gilbert (2018), *Statistics in Medicine* 37(2), for `survtmle` | `tmle3` `tmle_survival` at the pinned `ed72f8a`; `survtmle` `method = "mean"` |
-| (b) long-format input | a converter from one row per unit with an event time and an event type, the `ftime` and `ftype` layout, to the node layout at a declared time grid | no theory. It is a data transformation | `survtmle`; `concrete` |
-
-Part (a) can reuse the sequential recursion. State in the contract whether it builds the
-treatment nodes from the baseline column, or fits a separate point-treatment recursion. The two
-must give the same estimate on one law, and a test pins that identity.
-
-Part (b) must refuse an event time outside the grid and a tie that the grid cannot order. It must
-state how it bins a continuous time. It must round-trip on a law whose event times sit on the
-grid.
-
-Acceptance:
-
-- exact-law witnesses for part (a), with a nonzero censoring mechanism;
-- a registered ordinary study against the pinned `tmle3`;
-- a converter test for each refusal of part (b).
-
-`survtmle`, `concrete` and MOSS are archived on CRAN, so a pinned commit is needed before any of
-them becomes a comparator.
-
 ### X15. Known treatment mechanism
 
 `TMLE` always estimates the treatment mechanism. `DRTMLE` takes `treatment_probabilities=` only
@@ -428,7 +398,15 @@ states this limit.
 | (b) one-step whole-curve targeting | one targeting step that solves the score equations of every horizon together, with a simultaneous band over the curve | Cai and van der Laan (2020), *Biometrics* 76(3), the one-step survival paper. It is a different paper from their HAL bootstrap paper | MOSS |
 
 Both parts need a pinned commit of their comparator, because `survtmle` and MOSS are archived on
-CRAN. Part (b) supplies a one-step band over the whole curve. The
+CRAN. Part (b) supplies a one-step band over the whole curve. `tmle3` `tmle_survival` at the
+pinned `ed72f8a` is a second part (b) candidate. It takes constrained hazard steps, a binary
+treatment, and the grid $1, \dots, \max \tilde T$. A pairing must give it the grid of the
+`cleverly` fit.
+
+Both parts start from the
+[held point-treatment design](technical-reference/longitudinal-tmle.md#one-baseline-treatment-held-over-the-nodes) and from `TimeToEvent`, which carry the per-node
+indicators, the masks, the censoring and the grid. The `survtmle` runner of the
+`point-treatment-survival` study takes `method=`, so part (a) needs no new image. The
 [survival-curve study](technical-reference/method-evidence/ordinary-survival-curve-longitudinal-tmle.md)
 measures the band of the shipped per-horizon curve.
 
@@ -475,6 +453,7 @@ theory. Each option keeps every default fit bit-identical, and each changes a fi
 | (e) Markov order | restrict each node's nuisance history to the last `k` nodes | an assumption about the data. The identification summary states it | `lmtp` `k` |
 | (f) per-arm outcome fit | fit the outcome regression separately in each arm | a nuisance choice for `TMLE` and `DRTMLE` | `drtmle` `stratify` |
 | (g) early stop on a C-TMLE path | stop the greedy search after a declared number of steps without a risk improvement | a cheaper path. The fit keeps its `working_mechanism_plugin` status | `ctmle` `patience` |
+| (h) hazard and outcome bounds | bound each node's regression into a declared interval before the logistic fluctuation | a fit on a declared range of the hazard or the iterated mean | `survtmle` `bounds` |
 
 At a continuous modified-treatment-policy node of `LTMLE`, the ratio that part (d) trims is the
 node's density ratio, which the fit stores as `RegimenFit.node_ratio`.
@@ -551,9 +530,12 @@ Rytgaard, Eriksson and van der Laan (2023). Its last release is 1.0.5, and CRAN 
 
 That comparator takes a binary baseline treatment under a static or dynamic intervention, which
 bounds the paired cells a first study can claim. A discrete-time study is not evidence for a
-continuous-time interval, so the existing longitudinal rows do not transfer. The point-treatment
-design of [X13](#x13-point-treatment-survival-and-time-to-event-input) and the whole-curve
-targeting of [X14](#x14-hazard-based-and-monotone-survival-curves) come first.
+continuous-time interval, so the existing longitudinal rows do not transfer. The whole-curve
+targeting of [X14](#x14-hazard-based-and-monotone-survival-curves) comes first. On a discrete
+grid, a `concrete` intervention on the baseline treatment is a
+[held point-treatment design](technical-reference/longitudinal-tmle.md#one-baseline-treatment-held-over-the-nodes) with a plan at node 1. A stochastic intervention is a
+[known stochastic policy](technical-reference/longitudinal-tmle.md#known-stochastic-policies) at
+that node.
 
 ### X7. Two-phase and outcome-dependent sampling
 
