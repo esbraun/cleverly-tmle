@@ -1,0 +1,33 @@
+# A probe, not a registered study. `cleverly` at 572501b8.
+#
+# The linear-remainder audit of 2026-10-08 ran this script against `cleverly` at commit
+# 572501b8. It is committed so that the numbers RM40 cites from `lra_summary.log` have a
+# command and seeds. Edits from the copy that ran: this comment block, the script names in the
+# usage text, and the removal of an assertion on the name of the audit's temporary worktree.
+#
+# | item | value |
+# | --- | --- |
+# | outcome limit | `q_limit`: 2e6 draws, seed 4242 (logged `Qbar_lim: [0.0267, 0.2936, -0.6687]`) |
+# | runs | `python reviews/rm40/lra_mar_sim.py run <setting> <n> <R> <out.csv>`, one process, one thread: `pislow` at (n, R) = (1,000, 300), (4,000, 200) and (16,000, 60); `piglm` and `piknown` at (4,000, 150) |
+# | seeds | replicate `rep` of setting `s` at size `n` uses `7_000_003 * (index(s) + 1) + 7919 * n + rep`, with `SETTINGS = ("pislow", "piglm", "piknown")` |
+# | constant | `KAPPA = 2`, the logit offset `2 n^(-1/3) W2` of `pislow` |
+# | analysis | `python reviews/rm40/lra_analyze.py`, which reads `_lra_runs/*.csv` beside it. The raw CSVs are not committed |
+#
+# The output of lra_analyze.py follows.
+#
+setting     n estimand   R  bias/SD  MCSE(bias/SD)  term/SD  SE ratio  coverage  MCSE(cov)          status  secs/fit
+  piglm  4000      ate 150    0.205          0.082   -0.005     1.001     0.947      0.018 influence_curve     0.906
+  piglm  4000    ey[0] 150   -0.257          0.082   -0.018     1.030     0.947      0.018 influence_curve     0.906
+  piglm  4000    ey[1] 150    0.025          0.082   -0.023     0.931     0.933      0.020 influence_curve     0.906
+piknown  4000      ate 150   -0.050          0.082    0.000     1.008     0.940      0.019 influence_curve     0.905
+piknown  4000    ey[0] 150    0.049          0.082    0.000     1.045     0.960      0.016 influence_curve     0.905
+piknown  4000    ey[1] 150   -0.022          0.082    0.000     1.008     0.973      0.013 influence_curve     0.905
+ pislow  1000      ate 300    0.052          0.058    0.036     0.917     0.940      0.014 influence_curve     0.516
+ pislow  1000    ey[0] 300   -0.341          0.058   -0.689     0.997     0.940      0.014 influence_curve     0.516
+ pislow  1000    ey[1] 300   -0.241          0.058   -0.576     0.878     0.893      0.018 influence_curve     0.516
+ pislow  4000      ate 200   -0.031          0.071    0.063     1.056     0.960      0.014 influence_curve     0.842
+ pislow  4000    ey[0] 200   -0.521          0.071   -0.922     1.039     0.915      0.020 influence_curve     0.842
+ pislow  4000    ey[1] 200   -0.597          0.071   -0.893     1.070     0.920      0.019 influence_curve     0.842
+ pislow 16000      ate  60   -0.013          0.129    0.061     0.979     0.967      0.023 influence_curve     2.599
+ pislow 16000    ey[0]  60   -0.836          0.129   -1.004     0.983     0.867      0.044 influence_curve     2.599
+ pislow 16000    ey[1]  60   -0.984          0.129   -1.062     1.103     0.850      0.046 influence_curve     2.599
