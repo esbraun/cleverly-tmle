@@ -1097,7 +1097,7 @@ def fit_nuisances(
     incremental: Sequence[Incremental] = (),
     incremental_reference: str | None = None,
     policy_reference: str | None = None,
-    density_bins: int = 20,
+    density_bins: int | None = None,
     policy_ratio: str = "density",
     msm: MSMSet | None = None,
     companion: CausalData | None = None,

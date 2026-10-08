@@ -59,7 +59,7 @@ def test_the_committed_pair_reproduces_the_registered_excess() -> None:
     assert shared.scaled_difference(bound["upper"], upper) <= shared.TOLERANCE
     assert shared.scaled_difference(bound["resolution"], resolution) <= shared.TOLERANCE
     # The declared values, as the roadmap prints them.
-    assert (round(upper, 6), round(resolution, 6)) == (0.065856, 0.045019)
+    assert (round(upper, 6), round(resolution, 6)) == (0.064762, 0.043925)
 
 
 def test_one_refit_reproduces_its_committed_rows() -> None:

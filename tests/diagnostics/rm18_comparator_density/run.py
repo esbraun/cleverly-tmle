@@ -96,7 +96,7 @@ def analytic_retarget(result: Any, frame: pd.DataFrame) -> Any:
         # ``evaluate`` reads ``density_at`` and ``crossing_fraction`` alone, which the analytic
         # density supplies; it is not a fitted ``ConditionalDensity``.
         evaluated = PolicySet.evaluate(
-            study.policies(),
+            study.shifts(),
             result.data,
             AnalyticDensity(covariates),  # type: ignore[arg-type]
         )

@@ -52,6 +52,7 @@ question entirely.
 
 from __future__ import annotations
 
+import math
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
@@ -60,7 +61,8 @@ from typing import Any
 import numpy as np
 
 from .._typing import FloatArray, IntArray, Learner
-from ..exceptions import DataError
+from ..exceptions import DataError, MethodConfigurationError
+from ..utils.memory import available_memory
 from ..utils.parallel import map_parallel
 from ._fitting import fit_learner, predict_mean
 from .crossfit import Folds
@@ -83,6 +85,96 @@ _HAZARD_EPS = 1e-12
 #: binned density and the fit says so.  Not a threshold with a derivation behind it -- it
 #: is the point at which most rows contribute a clever covariate of exactly one.
 _CROSSING_WARNING = 0.5
+
+
+#: The smallest default bin count, the count every fit used before the default grew with n.
+MIN_DEFAULT_BINS = 20
+
+
+def default_density_bins(n: int) -> int:
+    """The default bin count of a binned density fitted on ``n`` rows: ``max(20, ceil(2 n^(1/3)))``.
+
+    A histogram density is consistent only if its bin count grows with ``n`` while each bin
+    still holds a growing number of rows.  A fixed count is not: on the continuous laws of the
+    ``longitudinal-mtp`` study, the error of a binned density ratio in the tail bins did not
+    shrink from ``n = 2,000`` to ``n = 8,000`` at a fixed count, and fell as the count grew.
+    Scott (1979, *Biometrika* 66(3):605-610) gives the rate: the bin width that minimises the
+    integrated squared error shrinks as ``n^(-1/3)``.  The constant 2 is the Rice
+    rule.  Below ``n = 1,000`` the floor of 20 bins applies.
+
+    Parameters
+    ----------
+    n : int
+        The number of rows the density is fitted on.
+
+    Returns
+    -------
+    int
+        The bin count.
+    """
+    return max(MIN_DEFAULT_BINS, math.ceil(2.0 * max(int(n), 1) ** (1.0 / 3.0)))
+
+
+def hazard_design_bytes(n: int, n_bins: int, n_covariates: int, *, index_only: bool = False) -> int:
+    """The bytes of the pooled hazard design at equal-mass bins: ``n (K + 1) / 2`` records.
+
+    Equal-mass bins put about ``n / K`` rows in each bin, and a row in bin ``b`` contributes
+    ``b + 1`` records, so the long table holds about ``n (K + 1) / 2`` records.  Each record
+    holds the covariates, the bin index and ``K - 2`` drop-first indicators of the ``K - 1``
+    hazards, at 8 bytes each.  A learner with ``bin_design = "index"`` omits the indicators.
+    At the default count the total grows as ``n^(5/3)``.
+
+    Parameters
+    ----------
+    n : int
+        The rows the density is fitted on.
+    n_bins : int
+        The bin count ``K``.
+    n_covariates : int
+        The covariate columns.
+    index_only : bool
+        Whether the design omits the indicator block.
+
+    Returns
+    -------
+    int
+        The design's bytes, before any copy a learner makes.
+    """
+    records = n * (n_bins + 1) // 2
+    columns = n_covariates + (1 if index_only else max(n_bins - 1, 1))
+    return int(records * columns * 8)
+
+
+def _refuse_unaffordable(
+    records: int, columns: int, n: int, n_bins: int, n_covariates: int, index_only: bool
+) -> None:
+    """Refuse a hazard design larger than the available memory, before it is allocated.
+
+    A refusal names the design's size, the memory available, and the largest bin count whose
+    design fits in half of it.  Where the platform reports no available memory, nothing is
+    checked.
+    """
+    free = available_memory()
+    needed = records * columns * 8
+    if free is None or needed <= free:
+        return
+    fits = [
+        k
+        for k in range(2, n_bins)
+        if hazard_design_bytes(n, k, n_covariates, index_only=index_only) <= free // 2
+    ]
+    advice = (
+        f"Pass density_bins={max(fits)} or fewer, whose design takes at most half of it."
+        if fits
+        else "No bin count fits; fit on fewer rows."
+    )
+    gib = 1024.0**3
+    raise MethodConfigurationError(
+        f"the binned density's pooled hazard design needs {needed / gib:.1f} GiB "
+        f"({records:,} records x {columns:,} columns x 8 bytes) for {n:,} rows and {n_bins} "
+        f"bins, and {free / gib:.1f} GiB of memory is available. {advice} The default bin "
+        "count grows as 2 n^(1/3), so the design grows as n^(5/3)."
+    )
 
 
 def bin_edges(values: FloatArray, n_bins: int) -> FloatArray:
@@ -324,7 +416,17 @@ class ConditionalDensity:
 # ------------------------------------------------------------------- fitting
 
 
-def _bin_block(index: IntArray, n_hazards: int) -> FloatArray:
+#: A hazard learner that sets ``bin_design = "index"`` reads only the bin index, so the
+#: pooled design omits the indicator block.  The block has ``K - 1`` columns over about
+#: ``n K / 2`` records, which is most of the memory of a fit at a large bin count.
+INDEX_ONLY = "index"
+
+
+def _index_only(learner: Any) -> bool:
+    return getattr(learner, "bin_design", None) == INDEX_ONLY
+
+
+def _bin_block(index: IntArray, n_hazards: int, index_only: bool = False) -> FloatArray:
     """How the bin a record belongs to enters the pooled hazard design.
 
     Two representations of the same integer, side by side, because the two kinds of
@@ -342,12 +444,14 @@ def _bin_block(index: IntArray, n_hazards: int) -> FloatArray:
       linear model shift the whole baseline by ``W`` but never change its *shape* with
       ``W`` -- a proportional-hazards restriction on the density that nothing here needs.
     """
+    if index_only:
+        return index.astype(float).reshape(-1, 1)
     indicators = (index.reshape(-1, 1) == np.arange(1, n_hazards).reshape(1, -1)).astype(float)
     return np.column_stack([index.astype(float), indicators])
 
 
 def _long_expansion(
-    covariates: FloatArray, bins: IntArray, n_hazards: int
+    covariates: FloatArray, bins: IntArray, n_hazards: int, index_only: bool = False
 ) -> tuple[FloatArray, FloatArray, IntArray]:
     """The ``(unit, bin)`` records a pooled hazard model is fit on.
 
@@ -363,18 +467,22 @@ def _long_expansion(
     rows = np.repeat(np.arange(bins.size, dtype=np.int64), counts)
     offsets = np.repeat(np.cumsum(counts) - counts, counts)
     index = np.arange(rows.size, dtype=np.int64) - offsets
-    design = np.column_stack([covariates[rows], _bin_block(index, n_hazards)])
+    design = np.column_stack([covariates[rows], _bin_block(index, n_hazards, index_only)])
     target = (index == bins[rows]).astype(float)
     return design, target, rows
 
 
-def _hazard_matrix(model: Learner, covariates: FloatArray, n_hazards: int) -> FloatArray:
+def _hazard_matrix(
+    model: Learner, covariates: FloatArray, n_hazards: int, index_only: bool = False
+) -> FloatArray:
     """``(n, n_hazards)`` predicted hazards, one column per bin the model covers."""
     n = covariates.shape[0]
     columns = [
         predict_mean(
             model,
-            np.column_stack([covariates, _bin_block(np.full(n, b, dtype=np.int64), n_hazards)]),
+            np.column_stack(
+                [covariates, _bin_block(np.full(n, b, dtype=np.int64), n_hazards, index_only)]
+            ),
             "classification",
         )
         for b in range(n_hazards)
@@ -410,7 +518,7 @@ def fit_conditional_density(
     weights: FloatArray,
     folds: Folds,
     *,
-    n_bins: int = 20,
+    n_bins: int | None = None,
     edges: Sequence[float] | None = None,
     groups: IntArray | None = None,
     n_jobs: int = 1,
@@ -430,24 +538,41 @@ def fit_conditional_density(
     ``fit_mask`` restricts the rows a fold trains on, and the rows the bin edges are read
     from, to the rows that hold a dose: a longitudinal node is fitted on the units still in
     the study before it.  ``None`` reads every row, the point-treatment fit unchanged.
+
+    Before any fold allocates its long table, the fit counts the records of the table over
+    every fitted row and raises :class:`~cleverly.exceptions.MethodConfigurationError` when
+    the table alone exceeds the available memory.  The message gives the size and a bin count
+    that fits.  A fold trains on a subset of those rows, so the count bounds every fold.
     """
     w = np.asarray(covariates, dtype=float)
     a = np.asarray(treatment, dtype=float).reshape(-1)
     sample_weight = np.asarray(weights, dtype=float).reshape(-1)
     mask = None if fit_mask is None else np.asarray(fit_mask, dtype=bool).reshape(-1)
     grid_values = a if mask is None else a[mask]
+    if n_bins is None:
+        n_bins = default_density_bins(grid_values.size)
     grid = bin_edges(grid_values, n_bins) if edges is None else np.asarray(edges, dtype=float)
     if grid.ndim != 1 or grid.size < 3 or np.any(np.diff(grid) <= 0.0):
         raise DataError("edges= must be a strictly increasing sequence of at least 3 values")
 
     n_total = int(grid.size - 1)
     n_hazards = n_total - 1
+    index_only = _index_only(learner)
     bins = np.clip(np.digitize(a, grid) - 1, 0, n_total - 1).astype(np.int64)
+    fitted_bins = bins if mask is None else bins[mask]
+    _refuse_unaffordable(
+        int(np.sum(np.minimum(fitted_bins, n_hazards - 1) + 1)),
+        w.shape[1] + _bin_block(np.zeros(1, dtype=np.int64), n_hazards, index_only).shape[1],
+        int(fitted_bins.size),
+        n_total,
+        w.shape[1],
+        index_only,
+    )
 
     def fit_on(rows: IntArray) -> Learner:
         if mask is not None:
             rows = rows[mask[rows]]
-        design, target, source = _long_expansion(w[rows], bins[rows], n_hazards)
+        design, target, source = _long_expansion(w[rows], bins[rows], n_hazards, index_only)
         return fit_learner(
             learner,
             design,
@@ -462,7 +587,9 @@ def fit_conditional_density(
 
     if folds.is_single:
         model = fit_on(np.arange(a.size, dtype=np.int64))
-        probabilities[:] = _probabilities_from_hazards(_hazard_matrix(model, w, n_hazards))
+        probabilities[:] = _probabilities_from_hazards(
+            _hazard_matrix(model, w, n_hazards, index_only)
+        )
         found = getattr(model, "diagnostics_", None)
         if found is not None:
             diagnostics.append(found)
@@ -470,7 +597,7 @@ def fit_conditional_density(
 
         def run_fold(train: IntArray, test: IntArray) -> tuple[IntArray, FloatArray, Any]:
             model = fit_on(train)
-            hazards = _hazard_matrix(model, w[test], n_hazards)
+            hazards = _hazard_matrix(model, w[test], n_hazards, index_only)
             return test, _probabilities_from_hazards(hazards), getattr(model, "diagnostics_", None)
 
         for test, values, found in map_parallel(
@@ -497,7 +624,7 @@ def fit_conditional_density(
 def warn_if_unresolved(
     density: ConditionalDensity, shifted: FloatArray, observed: FloatArray
 ) -> float:
-    """Warn when a shift moves too few rows across a bin edge, and return the share.
+    """Warn when a policy moves too few rows across a bin edge, and return the share.
 
     Separated from the fit so the check happens where the *policy* is known: the density
     knows its own resolution, but only an intervention knows how far it means to move.
@@ -505,12 +632,12 @@ def warn_if_unresolved(
     crossing = density.crossing_fraction(shifted, observed)
     if crossing < _CROSSING_WARNING:
         warnings.warn(
-            f"the shift moves only {crossing:.1%} of rows across a bin edge of the "
+            f"the policy moves only {crossing:.1%} of rows across a bin edge of the "
             f"estimated density ({density.n_bins} bins over "
             f"[{density.support[0]:.3g}, {density.support[1]:.3g}]). A binned density is "
             "constant within a bin, so for the rest the clever covariate is exactly one "
             "and the intervention is invisible rather than merely noisy. Use more bins, "
-            "or a larger shift, or read the estimate as the effect of a policy the bin "
+            "or a larger change of dose, or read the estimate as the effect of a policy the bin "
             "width can resolve.",
             UserWarning,
             stacklevel=3,

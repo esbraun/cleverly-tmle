@@ -465,8 +465,8 @@ def tilt_regimens() -> dict[str, Any]:
 class OracleDoseHazard(BaseEstimator):
     """The exact pooled-hazard probabilities of the continuous law's dose, per node.
 
-    The density layer hands this the history design followed by the bin block, the bin index
-    and its drop-first indicators.  The history is ``[W]`` at node 1 and ``[W, L2, A1]`` at
+    The density layer hands this the history design followed by the bin index (``bin_design =
+    "index"`` drops the indicator block).  The history is ``[W]`` at node 1 and ``[W, L2, A1]`` at
     node 2, so the width tells the node.  The hazard of bin ``b`` is the conditional
     probability that the dose stops in ``b`` given it reached ``b``, under the truncated
     normal of :func:`mean1` or :func:`mean2`.  ``marginal=True`` is the misspecified
@@ -483,6 +483,9 @@ class OracleDoseHazard(BaseEstimator):
     extra : int
         Leading noise columns the history carries before ``W``, read past.
     """
+
+    #: The oracle reads only the bin index, so the density layer omits the indicator block.
+    bin_design = "index"
 
     def __init__(
         self,
@@ -503,8 +506,7 @@ class OracleDoseHazard(BaseEstimator):
 
     def predict_proba(self, X: Any) -> np.ndarray:
         design = np.asarray(X, dtype=float)
-        bins = len(self.edges1) - 1
-        width = design.shape[1] - (bins - 1)
+        width = design.shape[1] - 1
         history = design[:, :width]
         index = np.rint(design[:, width]).astype(int)
         if width == 1 + self.extra:

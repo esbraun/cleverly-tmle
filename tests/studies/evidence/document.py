@@ -429,6 +429,7 @@ _BIAS_GATED = frozenset(
         "competing_risk_recursion_necessity",
         "density_necessity",
         "fold_locality",
+        "inverse_necessity",
         "learner_weight_necessity",
         "mar_robustness",
         "missingness_necessity",

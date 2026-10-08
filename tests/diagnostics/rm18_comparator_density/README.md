@@ -20,8 +20,10 @@ reading reads the (Ca, L) bound and that each mutation moves it. The test also c
 committed rows meet the declared budget, rebuilds `cd-reading.csv`, and retargets one committed
 Ca row. A missing committed file fails the test.
 
-The design ran once. The roadmap at commit `985849c6` gives the reading in
+The design first ran at commit `4b91a916`. The roadmap at commit `985849c6` gives that reading in
 "[What design CD found](https://github.com/esbraun/cleverly-tmle/blob/985849c668a18cf800094714ddae3fea0675cb91/docs/roadmap.md#what-design-cd-found)".
+The design ran again after `ate_shift` became `ate_policy`. The committed files are from that run.
+The bootstrap seed hashes the estimand label, so the excess bounds moved. The reading did not.
 
 ## Run
 
@@ -56,6 +58,6 @@ This table was fixed and committed before the run.
 
 ## Runtime
 
-One Cb fit takes 1.9 to 2.1 s on one core, and a retarget 0.01 s. The declared run took 774.9 s
+One Cb fit takes 1.9 to 2.1 s on one core, and a retarget 0.01 s. The second run took 755.1 s
 of wall time on 16 logical cores. `run.log` records it. A smoke run at `--replicates 4` took
 13 s.
