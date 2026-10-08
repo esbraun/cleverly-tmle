@@ -76,7 +76,10 @@ COLUMNS = (
 )
 IN_PLACE = ("ctmle3_oat/run_ctmle3_oat.R", "ctmle_selector/run_ctmle.R", "drtmle/run_drtmle.R")
 _NESTED = re.compile(r"\bmclapply\b|\bmcparallel\b|\bfuture\b|\bparallel\s*=")
-_RUNNER = re.compile(r"commandArgs\(|study_arguments\(")
+#: A study runner takes the driver's three paths; a fixture generator does not.
+_RUNNER = re.compile(r"study_arguments\(|length\(args\) != 3")
+#: A ``regenerate.py`` that calls one of the drivers ``_recording`` patches.
+_DRIVER = re.compile(r"from tests\.canonical\.regenerate import|declared_run|learned_rule_run")
 
 
 @dataclass(frozen=True)
@@ -126,6 +129,11 @@ def targets() -> list[Target]:
     """Every runner of every paired study, read from each study's ``regenerate.py``."""
     found: list[Target] = []
     for script in sorted(CANONICAL.glob("*/regenerate.py")):
+        # A script that hands its study to none of the patched drivers regenerates something
+        # itself when run as __main__ (ctmle_logistic_plugin writes its fixture), so it is
+        # never executed here.
+        if not _DRIVER.search(script.read_text(encoding="utf-8")):
+            continue
         with _recording() as calls:
             arguments = list(sys.argv)
             sys.argv = [str(script)]
@@ -201,6 +209,17 @@ def cut(work: Path, target: Target, name: str, replicates: int) -> Path:
     return out
 
 
+def cut_truth(work: Path, target: Target, replicates: int) -> str:
+    """The truth table cut like the samples, so a runner's count check sees one draw."""
+    folder = work / target.slug
+    name = f"truth_{replicates}.csv"
+    frame = pd.read_csv(folder / "truth.csv")
+    if "replicate" in frame:
+        frame = frame.loc[frame["replicate"] < replicates]
+    frame.to_csv(folder / name, index=False, lineterminator="\n")
+    return name
+
+
 def run(
     work: Path,
     target: Target,
@@ -211,6 +230,7 @@ def run(
     cores: int,
     seeds: Path | None = None,
     env: dict[str, str] | None = None,
+    truths: str = "truth.csv",
 ) -> tuple[int, str, Path]:
     """One container: the runner and harness at ``572501b8`` when ``old``, else current."""
     folder = work / target.slug
@@ -261,7 +281,7 @@ def run(
         reference.image,
         *command_tail,
         f"/work/{samples.name}",
-        "/work/truth.csv",
+        f"/work/{truths}",
         f"/work/{output}",
     ]
     completed = subprocess.run(command, capture_output=True, text=True)
@@ -328,6 +348,7 @@ def off_harness(work: Path, chosen: list[Target]) -> list[dict[str, Any]]:
             }
         )
         print(rows[-1], flush=True)
+        record(rows[-1:])  # each row as it finishes, so a stopped step keeps its rows
     return rows
 
 
@@ -336,6 +357,7 @@ def probe(work: Path, chosen: list[Target]) -> list[dict[str, Any]]:
     for target in chosen:
         _build(target)
         samples = cut(work, target, "probe", 1)
+        truths = cut_truth(work, target, 1)
         seeds = seeds_file(work, target, f"seeds_{Path(target.runner).stem}")
         code, log, _ = run(
             work,
@@ -346,6 +368,7 @@ def probe(work: Path, chosen: list[Target]) -> list[dict[str, Any]]:
             cores=1,
             seeds=seeds,
             env={"CLEVERLY_HARNESS_RNG_PROBE": "1"},
+            truths=truths,
         )
         lines = re.findall(r"^rng-probe: \S+ (\S+) (untouched|consumed)$", log, re.M)
         if code != 0:
@@ -372,6 +395,7 @@ def probe(work: Path, chosen: list[Target]) -> list[dict[str, Any]]:
             }
         )
         print(rows[-1], flush=True)
+        record(rows[-1:])  # each row as it finishes, so a stopped step keeps its rows
     return rows
 
 
@@ -411,6 +435,7 @@ def full(work: Path, chosen: list[Target]) -> list[dict[str, Any]]:
             }
         )
         print(rows[-1], flush=True)
+        record(rows[-1:])  # each row as it finishes, so a stopped step keeps its rows
     return rows
 
 
@@ -440,7 +465,7 @@ def main() -> None:
             print(f"inputs for {target.slug}", flush=True)
         return
     step = {"off-harness": off_harness, "probe": probe, "full": full}[arguments.step]
-    record(step(arguments.work, chosen))
+    step(arguments.work, chosen)
 
 
 if __name__ == "__main__":
