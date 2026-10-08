@@ -40,8 +40,8 @@ from scipy.special import expit
 from scipy.stats import norm
 from sklearn.base import BaseEstimator
 from sklearn.dummy import DummyClassifier, DummyRegressor
+from sklearn.ensemble import ExtraTreesClassifier, ExtraTreesRegressor
 from sklearn.linear_model import LinearRegression
-from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
 from cleverly.interventions import ModifiedPolicy, Piece, RiskRatioTilt, Scale, Shift
 from cleverly.longitudinal import DynamicRegimen
@@ -579,6 +579,21 @@ class RichPseudo(BaseEstimator):
         return np.asarray(self.model_.predict(self._design(X)), dtype=float)
 
 
+#: The outcome learners of the overfitting pair: an extra-trees ensemble without bootstrap
+#: and with leaves of one row.  Each tree interpolates its training rows, so in sample every
+#: residual is zero, while the average over trees is smooth at a shifted dose.  So the in-sample
+#: influence curve keeps only the plug-in's spread and loses the outcome noise.  A single fully
+#: grown tree, the design of the first two runs, returns one training outcome at a shifted dose,
+#: so its plug-in carries that noise and the control could not reach its ceiling
+#: (``tests/diagnostics/longitudinal_mtp_overfit_design``).
+OVERFIT_ENSEMBLE: dict[str, Any] = {
+    "n_estimators": 50,
+    "min_samples_leaf": 1,
+    "bootstrap": False,
+    "random_state": 0,
+}
+
+
 def continuous_learners(
     configuration: str, edges: tuple[Any, Any], *, extra: int = 0
 ) -> tuple[Any, Any, Any]:
@@ -589,8 +604,8 @@ def continuous_learners(
         return QuasiBinomialGLM(), LinearRegression(), oracle
     if configuration in {"overfit_crossfit", "overfit_control"}:
         return (
-            DecisionTreeClassifier(min_samples_leaf=1, random_state=0),
-            DecisionTreeRegressor(min_samples_leaf=1, random_state=0),
+            ExtraTreesClassifier(**OVERFIT_ENSEMBLE),
+            ExtraTreesRegressor(**OVERFIT_ENSEMBLE),
             oracle,
         )
     q_correct = configuration in {"both_correct", "outcome_correct"}
