@@ -90,7 +90,8 @@ Theory: van der Laan and Gruber (2010), Gruber and van der Laan (2010), and Ju e
 | `strategy="greedy"` | the package's scalable candidate path. The default |
 | `strategy="ordered"` | both scalable preorders from Ju et al. (2019). `preorder="logistic"` uses one-variable targeting loss and is the default. `preorder="partial_correlation"` conditions the residual-covariate correlation on one-hot treatment indicators rather than on numeric arm codes. Marginal correlation with the outcome is not a published preorder and is not used |
 | `strategy="discrete"` | selection among explicitly supplied candidate covariate sets |
-| `strategy="oat"` | the outcome-adaptive categorical mechanism of the archived `ctmle3`, fitted on the matrix of arm-specific outcome predictions. It has no candidate path and no parameter-specific selector |
+| `strategy="oat"` | the outcome-adaptive mechanism, fitted on the arm-specific outcome predictions. It has no candidate path and no parameter-specific selector |
+| `oat_design=` | the design of `strategy="oat"`. `"per_arm"` (the default) fits one binary mechanism per arm on that arm's own prediction. `"shared"` fits the one categorical mechanism of the archived `ctmle3`. See [the per-arm outcome-adaptive design](#the-per-arm-outcome-adaptive-design) |
 | `candidates=`, `ordering=` | supply the candidate sets or the preorder explicitly. A refit that adds a covariate, such as the `random_common_cause` refutation, places it after the declared ordering. Independent noise has no prior relevance, so it ranks last |
 | `selection_folds=` | folds for the stopping-index cross-validation. Default 5. The draw is unstratified, and it reads the row count and the seed |
 | `selection_inner_folds=` | the explicit cost control. Default 2, so a selection path uses three fits per nuisance or candidate rather than silently borrowing the outer nuisance fold count. This draw is unstratified as well |
@@ -132,7 +133,7 @@ refusal is now unreachable through C-TMLE, because the fit itself refuses `id=`.
 Each cell keeps the weight with its observed row and refits the complete collaborative estimator.
 Selector strategies use the normalized weights in their nuisance fits, losses, penalties,
 cross-validated risks, targeting, and plug-in. The outcome-adaptive strategy uses them in its
-outcome and categorical mechanism fits, targeting, and plug-in. See the
+outcome and mechanism fits, targeting, and plug-in. See the
 [simulated common-cause contract](validation-methods.md#simulated-common-cause-stress-surface).
 
 The canonical R `ctmle` and archived `ctmle3` implementations provide no weighted comparator.
@@ -261,62 +262,85 @@ enforces that sentence rather than only asserting it: the number is reachable un
 `plugin_std_error` and `plugin_interval`, and under no inferential name. Near-ties are an
 especially important unresolved regime.
 
-**The outcome-adaptive path publishes no inference either.** This strategy selects no
-candidate. It fits one categorical mechanism on the estimated outcome predictions of every arm, and
-it targets every arm mean jointly. Every `strategy="oat"` fit takes the `"generated_design_plugin"`
-status. A fit with `delta=` and a fit that requests one arm mean take it too, because each one uses
-the same joint design. `ci`, `pvalue`, and `std_error` raise `CapabilityError` with the reason of
-the status.
+### The per-arm outcome-adaptive design
 
-The accessors, the reports, the five derived operations, and the two sweeps above behave as they
-do on a selector path. The `summary()` column is `generated-design se`. For an interval, fit
-`TMLE`. [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) is the
-condition that reopens this path, and F18 holds the three selector paths.
-[RM20](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm20-intervals-outside-every-claimed-contract) records the decision.
+`strategy="oat"` has two treatment designs. The `oat_design=` setting selects one.
 
-Benkeser, Cai and van der Laan (2020), Theorem 1, prove the ordinary adaptive-propensity curve
-without an extra first-order design term. The theorem covers one binary treatment-specific mean
-with one scalar design, under six regularity conditions. No shipped fit is that construction. The
-cross-fitted implementation follows their fold-local nuisance nesting; the package does not
-diagnose those asymptotic conditions.
+| design | treatment mechanism | status |
+| --- | --- | --- |
+| `"per_arm"`, the default | for each arm $a$, a binary regression of $1\{A = a\}$ on the one column $\bar Q_n(a, W)$. Column $a$ holds $P(A = a \mid \bar Q_n(a, W))$, so the rows are not a distribution over the arms | the ordinary TMLE status on complete data without baseline strata. Otherwise `"generated_design_plugin"` |
+| `"shared"` | one categorical regression of $A$ on the vector $[\bar Q_n(a, W) : a]$, as the archived `ctmle3` `LF_oat` fits it | `"generated_design_plugin"` on every fit |
 
-Three readings narrow that gap, and none closes it. Benkeser, Cai and van der Laan (2020) prove a
-binary treatment-specific-mean result and explicitly construct a two-arm-design ATE using one
-signed fluctuation coefficient. The package uses a shared categorical mechanism and arm-specific
-fluctuation columns, and exposes a joint means, ATE, RR, and OR vector. Cramér--Wold can combine
-already-established scalar expansions; it cannot establish the missing component expansions,
-remainders, or covariance for this exact joint fit. Its result is also limited to iid,
-complete-outcome, unweighted data.
+Both designs use the ordinary $K$-column mean fluctuation. Its columns $1\{A = a\}/g_a$ have
+disjoint supports, so under the per-arm design each arm keeps its own coefficient. At
+convergence, each coefficient equals the scalar fluctuation on that arm's column alone.
+`tests/unit/test_outcome_adaptive_per_arm.py` checks this to `1e-9`.
 
-DOPE allows finitely many treatment levels and fixed contrasts, but its proved ordinary-curve
-result conditions on a representation learned on an independent sample; it also shows how
-root-rate representation learning can add a first-order term for a fixed target. Outcome-adapted
-AutoDML likewise proves a sample-split rather than cross-fitted result. The shipped estimator's
-multi-arm extension fits one shared multinomial mechanism and targets all arm means jointly. No
-reviewed theorem supplies that vector influence function or covariance.
+The source is Benkeser, Cai and van der Laan (2020), *Statistical Science* 35(3), 484-495,
+doi:10.1214/19-STS735. The published article and its supplement were not readable here, so the
+locators below are those of the preprint, arXiv:1901.05056v1. The preprint numbers its
+appendices inconsistently: the text cites "Appendix G" for the conditions, which are in
+Appendix F, and the Remark cites "Appendix F" for the direct ATE estimator, which is in
+Appendix D.
 
-The remaining questions are the joint all-arm covariance, simultaneous inference, and uniformity
-for a superefficient estimator. At `n = 1,000`,
-the registered point-treatment pair resolves a finite-sample standard-error-ratio deficit without
-showing invalid coverage; the multi-arm pair does not resolve a deficit. Neither measurement
-identifies a first-order term.
-[F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) records those items.
+| item | content |
+| --- | --- |
+| base result | Theorem 1 (preprint p. 9) and its construction, Section 3, steps 1-7 (pp. 8-9). Conditions (i)-(vi) and the proof are in Appendix F, "Details for Theorem 1" (pp. 28-33) |
+| the reported curve | $D(O \mid \bar Q_0, Q_{0,W}, G_0(\cdot \mid \bar Q_0))$, the influence function of Theorem 1, with $G_0(a \mid \bar Q_0) = P(A = a \mid \bar Q_0(a, W))$. It is not the efficient influence function. Its variance is at most the efficient variance, because the estimator is superefficient |
+| why no generated-design term | the proof writes the remainder as $R_{21} + R_{22} + R_{23} + R_{24}$ (pp. 30-31). $R_{24}$ is the effect of the generated regressor. Lemma 1 and condition (v) bound it by $\lVert \bar Q_n - \bar Q_0 \rVert$, and condition (ii) makes the product second order. $R_{22}$ is condition (vi) and $R_{23}$ is condition (iii) |
+| the measurability step | the proof replaces $A$ by $G_0(\cdot \mid \bar Q_n, \bar Q_0)$ inside $P_0[(G_n - A) f]$. That step needs $f$ to be a function of $(\bar Q_n(W), \bar Q_0(W))$. In `cleverly`, $Q^*(a, W) = \operatorname{expit}(\operatorname{logit} \bar Q_n(a, W) + \epsilon_a / g_a(\bar Q_n(a, W)))$, and the fluctuation reads column $a$ only. So $Q^*(a, \cdot)$ is a function of $\bar Q_n(a, W)$, in sample and in each fold |
+| (a) one arm mean | Theorem 1 directly. The design is the arm's own initial prediction |
+| (b) every arm | an indicator reduction to $1\{A = a\}$ for each arm, as the Remark on p. 10 states: "repeating the entire procedure but switching the labeling of the treatment". Then a fixed-dimension stack of the $K$ curves on the same rows. The joint covariance comes from the stacked curves |
+| (c) contrasts | linearity for `ate` and `par`. The delta method for `rr`, `or` and `paf`, with `rr` and `or` on the log scale. `ey_obs` has the curve $Y - E[Y]$. The default band is the multiplier band of the stack |
+| (d) cross-fitted | Appendix D, "Cross-validated CTMLE" (p. 26): fold-trained $\bar Q_{n,v}$ and $G_{n,v}(\cdot \mid \bar Q_{n,v})$, and one coefficient pooled over the validation rows. Sample splitting replaces the Donsker part of condition (iv). The fit pools one coefficient per arm and has no fold-local update. The plug-in is the stacked whole-sample mean, not the mean of fold means. Near-equal folds make the difference $O(V/n)$ |
+| (e) fixed weights | Theorem 1 under the weight-tilted law. The weighted projection gives the same identity, and the weight is a known bounded factor. Estimated weights take the ordinary TMLE status, which conditions on the weights |
+| (f) repeated splits | each draw is asymptotically linear with the same split-free curve, so the median estimate is the estimator of Chernozhukov et al. (2018), equation (3.14). A default band beside `repeats > 1` is refused, as for `TMLE` |
+| variance | in sample, the empirical variance of the reported curve. Cross-fitted, the variance of the stacked out-of-fold curve |
+| conditions | (i) the curve equation is solved to $o_P(n^{-1/2})$. (ii) $\bar Q_n$ and $Q^*_n$ converge at $o_P(n^{-1/4})$ in $L_2(P_0)$. (iii) the treatment learner is consistent for $P(A = a \mid \bar Q_n(a, W))$ at $o_P(n^{-1/4})$. A misspecified learner makes $R_{23}$ first order whenever $Q^*_n - \bar Q_0 = O_P(n^{-1/2})$, which includes every correctly specified parametric outcome model. (iv) the curve converges in $L_2$, and in sample its class is Donsker. (v) $G_0(\cdot \mid \bar Q_n, \bar Q_0)$ is differentiable in $\bar Q_0$ with a bounded derivative. (vi) the term from fitting $G$ on the initial $\bar Q_n$ is negligible. Positivity: the projection $P(A = a \mid \bar Q_0(a, W))$ lies inside `g_bounds`. Also iid rows, or fixed known weights, and a consistent outcome regression. A correct $g$ alone does not give consistency |
+| the source's warnings | Section 4.1 (p. 12): "the estimated standard errors of CTMLE had poor performance, often underestimating the true variability of the estimator". The Discussion (pp. 17-18) calls the CTMLE "an irregular estimator, it may perform poorly for certain data generating distributions", and notes "the poor behavior of the confidence intervals in both simulations". The limit is pointwise at a fixed law. It is not locally uniform |
+| admitted | `strategy="oat"`, `oat_design="per_arm"`, complete outcomes and treatment, no `strata=`, any weights, and `repeats >= 1`. In sample and cross-fitted, at any arm count. Estimands `ey`, `ey1`, `ey0`, `ate`, `rr`, `or`, `ey_obs`, `par` and `paf`. Outputs: the pointwise interval, the p-value, the default band at one split, the derived contrasts, the E-value with its interval, and `variable_importance` |
+| withheld | every `oat_design="shared"` fit, which [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) holds, and a per-arm fit with `delta=` or `strata=`, which [X29](../roadmap.md) holds |
+| bootstrap | `n_bootstrap=` is a diagnostic on every `oat` fit. Theorem 1 does not cover the bootstrap of a superefficient estimator |
+| key | `per_arm_design_admits(estimator, data)` in `cleverly.estimators.ctmle`. It reads the strategy, the design, the missing outcomes and treatment, the strata and the revert flag, and never a fitted array |
 
-Neither path reports an interval. Each path reports the spread of the ordinary EIF plug-in curve
-as a diagnostic. Ordinary TMLE conditions alone do not
-establish validity after selection or representation learning, and `cleverly` claims neither
-conditional selector coverage nor collaborative-double-robust coverage.
+**The revert flag.** `OAT_PER_ARM_INFERENTIAL` in `cleverly.estimators.ctmle` is `True` while the
+registered study `ctmle-oat-per-arm` supports the admitted fits. Its declaration lists the
+positive coverage and calibration cells that the flag reads. If one of them is red and no defect
+is found, the flag becomes `False`. Every per-arm fit then takes `"generated_design_plugin"`, and
+the reason names the red cells.
 
-The full-refit bootstrap reruns each adaptive construction, but no reviewed theorem validates it
-for either shipped path. On either path, `summary()` therefore prints the standard deviation of the
-replicate estimates as `bootstrap sd`, and a `percentile range`, under the same diagnostic
-framing. It prints no percentile confidence interval. `to_frame()` emits `bootstrap_sd`,
-`bootstrap_range_lower` and `bootstrap_range_upper` in place of `bootstrap_std_err`,
-`bootstrap_ci_lower` and `bootstrap_ci_upper`. The targeted-HAL bootstrap result cited in the
-audit fixes its data-adaptive complexity bound rather than reselecting it.
+**The shared design publishes no inference.** It fits one categorical mechanism on the outcome
+predictions of every arm. Theorem 1 covers one scalar design, and no reviewed result supplies the
+vector influence function or the covariance of the shared construction. Cramér--Wold combines
+scalar expansions that are already established. It cannot establish the missing ones. DOPE and
+outcome-adapted AutoDML prove sample-split results with a representation learned on an
+independent sample.
+
+Every `oat_design="shared"` fit takes the `"generated_design_plugin"` status.
+`ci`, `pvalue` and `std_error` raise `CapabilityError` with the reason of the status, and the
+`summary()` column is `generated-design se`. At `n = 1,000`, the registered point-treatment pair
+resolves a finite-sample deficit in the standard-error ratio without invalid coverage. The
+multi-arm pair resolves no deficit. Neither measurement identifies a first-order term.
+[F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) records the shared
+design and uniformity for both designs.
+[RM20](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm20-intervals-outside-every-claimed-contract) records the first decision.
+
+The selector paths report no interval. Each one reports the spread of the ordinary plug-in curve
+as a diagnostic. Ordinary TMLE conditions alone do not establish validity after selection, and
+`cleverly` claims neither conditional selector coverage nor collaborative-double-robust coverage.
+
+The full-refit bootstrap reruns each adaptive construction. No reviewed theorem validates it for a
+selector path or for either outcome-adaptive design. On those paths, `summary()` therefore prints
+the standard deviation of the replicate estimates as `bootstrap sd`, and a `percentile range`,
+under the diagnostic framing. It prints no percentile confidence interval. `to_frame()` emits
+`bootstrap_sd`, `bootstrap_range_lower` and `bootstrap_range_upper` in place of
+`bootstrap_std_err`, `bootstrap_ci_lower` and `bootstrap_ci_upper`. The targeted-HAL bootstrap
+result cited in the audit fixes its data-adaptive complexity bound rather than reselecting it.
 
 | where to read the evidence | what is there |
 | --- | --- |
 | [selector-based point-treatment C-TMLE](method-evidence/selector-based-point-treatment-c-tmle.md) | greedy, ordered, and discrete selectors against R `ctmle` 0.1.2, with a forced-selection versus empty-path control. Parity is unpenalized, non-cross-fitted, and binary-ATE only |
-| [outcome-adaptive point-treatment C-TMLE](method-evidence/outcome-adaptive-point-treatment-c-tmle.md) | against the archived `ctmle3`, including a pinned-versus-estimated design pair that measures the finite-sample cost of estimating the design |
+| [outcome-adaptive point-treatment C-TMLE](method-evidence/outcome-adaptive-point-treatment-c-tmle.md) | the shared design against the archived `ctmle3`, including a pinned-versus-estimated design pair that measures the finite-sample cost of estimating the design |
+| the registered study `ctmle-oat-per-arm` | the per-arm design against R `drtmle` 1.1.2 with `adapt_g = TRUE`, by a binary recode per arm, on two laws with an arm-specific outcome index and an instrument. Declared, and not yet run |
+| `tests/unit/test_outcome_adaptive_per_arm.py` | an exact law on which the two designs differ, the curve of Theorem 1 row by row, a longhand of the construction to `1e-8`, the joint covariance, and fixed weights against duplicated rows. Each of nine monkeypatch mutations fails one of these tests |
 | [estimator variants over registered targets](evidence.md#estimator-variants-over-registered-targets) | the candidate-path identities, the selection mutations, and the outcome-adaptive design witnesses |

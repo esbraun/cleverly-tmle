@@ -102,13 +102,70 @@ def cubic_logit_learner() -> Pipeline:
     )
 
 
-def main_terms_outcome() -> LogisticRegression:
-    """An unpenalized logistic regression on the main terms of the outcome design.
+def logit_basis_columns(q: Any) -> np.ndarray:
+    """:func:`logit_basis` of each column, side by side: the shared design's basis."""
+    matrix = np.asarray(q, dtype=float)
+    return np.column_stack([logit_basis(matrix[:, j]) for j in range(matrix.shape[1])])
 
-    Misspecified on both laws, because it has no ``A x W`` term.  It is the outcome model
-    of the ``robustness_contract/outcome_wrong`` control.
+
+def shared_cubic_logit_learner() -> Pipeline:
+    """The shared design's learner: the same cubic in ``logit q``, of every arm's column.
+
+    Only the reported ``design_gap`` fits it, on the primary samples.
+
+    Returns
+    -------
+    Pipeline
+        The column-wise basis, then a multinomial logistic regression.
     """
+    return Pipeline(
+        [
+            ("basis", FunctionTransformer(logit_basis_columns)),
+            (
+                "model",
+                LogisticRegression(C=np.inf, solver="newton-cholesky", tol=1e-10, max_iter=1000),
+            ),
+        ]
+    )
+
+
+def main_terms_outcome() -> LogisticRegression:
+    """An unpenalized logistic regression on the main terms of the outcome design."""
     return LogisticRegression(C=np.inf, solver="newton-cholesky", tol=1e-10, max_iter=1000)
+
+
+def drop_confounder(design: Any, *, indicators: int) -> np.ndarray:
+    """The outcome design without ``W1``, the confounder: ``[I, W2, W3]``."""
+    matrix = np.asarray(design, dtype=float)
+    keep = [j for j in range(matrix.shape[1]) if j != indicators]
+    return matrix[:, keep]
+
+
+def confounder_omitted_outcome(k: int) -> Pipeline:
+    """The wrong outcome model of the robustness control: main terms without ``W1``.
+
+    The main-terms GLM with ``W1`` is not a control on these laws.  Its per-arm design reads
+    ``W1`` alone, ``A`` is independent of ``W2`` given ``W1``, and so its error is orthogonal
+    to ``A - P(A = a | design)``: a large fit leaves a bias of ``0.0005`` on ``ate``.  Without
+    ``W1`` the design reads ``W2`` and ``W3``, the error reads the confounder, and OAT has no
+    treatment-only leg to remove it.
+
+    Parameters
+    ----------
+    k : int
+        The number of arms.
+
+    Returns
+    -------
+    Pipeline
+        The column selection, then an unpenalized logistic regression.
+    """
+    return Pipeline(
+        [
+            ("drop", FunctionTransformer(drop_confounder, kw_args={"indicators": k - 1})),
+            ("model", main_terms_outcome()),
+        ]
+    )
 
 
 def arm_interactions(design: Any, *, indicators: int) -> np.ndarray:
@@ -381,3 +438,167 @@ THREE_ARM_ACTIVE = OatLaw(
 LAWS: Mapping[str, OatLaw] = {
     law.name: law for law in (BINARY_ACTIVE, BINARY_NULL, BINARY_WEIGHTED, THREE_ARM_ACTIVE)
 }
+
+
+class OracleOutcome:
+    """The law's own ``Qbar_0(a, W)``, as an outcome learner on the treatment design.
+
+    The design is ``[A, W1, W2, W3]`` at two arms and ``[I_1, I_2, W1, W2, W3]`` (drop-first
+    arm indicators) at three, as :meth:`~cleverly.data.CausalData.treatment_design` builds
+    them.  It fits nothing, so the ``generated_design/oracle_design`` cell pins the design.
+
+    Parameters
+    ----------
+    law : str
+        The name of a law in :data:`LAWS`.
+    """
+
+    def __init__(self, law: str) -> None:
+        self.law = law
+
+    def get_params(self, deep: bool = True) -> dict[str, Any]:
+        """The sklearn parameter protocol, so the learner clones."""
+        return {"law": self.law}
+
+    def set_params(self, **params: Any) -> OracleOutcome:
+        """The sklearn parameter protocol."""
+        for name, value in params.items():
+            setattr(self, name, value)
+        return self
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> OracleOutcome:
+        """Fit nothing."""
+        return self
+
+    def predict(self, X: Any) -> np.ndarray:
+        """``Qbar_0`` at each row's arm and covariates."""
+        law = LAWS[self.law]
+        design = np.asarray(X, dtype=float)
+        indicators = design[:, : law.k - 1]
+        arm = np.where(indicators.any(axis=1), indicators.argmax(axis=1) + 1, 0)
+        w1 = design[:, law.k - 1]
+        w2 = design[:, law.k]
+        values = np.column_stack([law.outcome_probability(a, w1, w2) for a in range(law.k)])
+        return np.asarray(values[np.arange(design.shape[0]), arm])
+
+
+# ----------------------------------------------------------------------- design numbers
+
+
+def projection(law: OatLaw, arm: int, w1: Any, w2: Any) -> np.ndarray:
+    """``P(A = arm | Qbar_0(arm, W))``, the per-arm limit of the design, by Gauss-Hermite.
+
+    ``Qbar_0(arm, W)`` reads ``W`` through the index ``s = u . (W1, W2)``.  Given ``s``, ``W1``
+    is normal and ``W3`` is independent, so the projection is a two-dimensional
+    Gauss-Hermite integral of ``g_0(arm | W1, W3)``.
+    """
+    u = np.asarray(law.u[arm], dtype=float)
+    s = u[0] * np.asarray(w1, dtype=float) + u[1] * np.asarray(w2, dtype=float)
+    variance = float(u @ u)
+    mean_w1 = u[0] / variance * s
+    sd_w1 = float(np.sqrt(max(1.0 - u[0] ** 2 / variance, 0.0)))
+    nodes, weights = hermegauss(JOINT_HERMITE_NODES)
+    weights = weights / weights.sum()
+    w1_nodes = mean_w1[:, None] + sd_w1 * nodes[None, :]
+    total = np.zeros(s.size)
+    for x3, mass in zip(nodes, weights, strict=True):
+        probabilities = law.mechanism(w1_nodes, np.full_like(w1_nodes, x3))[..., arm]
+        total += mass * (probabilities @ weights)
+    return total
+
+
+def shared_limit(law: OatLaw, w1: Any) -> np.ndarray:
+    """``E[g_0(. | W1, W3) | W1]``: the shared design's limit, which separates ``(W1, W2)``."""
+    nodes, weights = hermegauss(JOINT_HERMITE_NODES)
+    weights = weights / weights.sum()
+    w1 = np.asarray(w1, dtype=float)
+    probabilities = law.mechanism(
+        w1[:, None] * np.ones_like(nodes), np.broadcast_to(nodes, (w1.size, nodes.size))
+    )
+    return np.asarray(np.einsum("nkj,k->nj", probabilities, weights))
+
+
+def learner_limit_distance(q: np.ndarray, target: np.ndarray, rows: int, seed: int) -> float:
+    """The ``L2`` distance between the cubic-logit learner's population limit and ``target``.
+
+    The limit is the unpenalized logistic fit of ``target`` on the basis, read off ``rows``
+    rows drawn from ``q`` with fractional weights.
+    """
+    basis = logit_basis(q)
+    rng = np.random.default_rng(seed)
+    index = rng.choice(q.size, rows, replace=False)
+    x = np.vstack([basis[index], basis[index]])
+    y = np.r_[np.ones(rows), np.zeros(rows)]
+    w = np.r_[target[index], 1.0 - target[index]]
+    model = LogisticRegression(C=np.inf, solver="newton-cholesky", tol=1e-10, max_iter=1000)
+    model.fit(x, y, sample_weight=w)
+    fitted = model.predict_proba(basis)[:, 1]
+    return float(np.sqrt(np.mean((fitted - target) ** 2)))
+
+
+def design_numbers(law: OatLaw, draws: int, seed: int) -> dict[str, Any]:
+    """The law-level numbers of the X17 design, by Monte Carlo over ``W``.
+
+    Parameters
+    ----------
+    law : OatLaw
+        The law.
+    draws : int
+        The Monte Carlo size.
+    seed : int
+        Its seed.
+
+    Returns
+    -------
+    dict
+        ``psi`` (arm means), ``ratio`` (the variance of the projection curve over the
+        efficient influence function's variance, per arm mean), ``ate_ratio`` and
+        ``ate_sd`` (the same, and the projection curve's standard deviation, for each
+        contrast against arm 0), ``gap`` (the ``L2`` distance between the per-arm and the
+        shared limits, per arm), ``range`` (each projection's range), ``outside`` (each
+        projection's share outside ``(0.025, 0.975)``), ``g0_outside`` (the same for
+        ``g_0``) and ``learner`` (each arm's learner-limit distance).
+    """
+    rng = np.random.default_rng(seed)
+    w1, w2, w3 = rng.standard_normal((3, draws))
+    g0 = law.mechanism(w1, w3)
+    q = np.column_stack([law.outcome_probability(a, w1, w2) for a in range(law.k)])
+    chunks = [slice(start, start + 50_000) for start in range(0, draws, 50_000)]
+    proj = np.vstack(
+        [np.column_stack([projection(law, a, w1[c], w2[c]) for a in range(law.k)]) for c in chunks]
+    )
+    shared = np.vstack([shared_limit(law, w1[c]) for c in chunks])
+    conditional = q * (1.0 - q)
+    residual_proj = (g0 * conditional / proj**2).mean(axis=0)
+    residual_eif = (g0 * conditional / g0**2).mean(axis=0)
+    plug = q - q.mean(axis=0)
+    ratio = [
+        float((residual_proj[a] + plug[:, a].var()) / (residual_eif[a] + plug[:, a].var()))
+        for a in range(law.k)
+    ]
+    ate_ratio = []
+    ate_sd = []
+    for a in range(1, law.k):
+        spread = float((plug[:, a] - plug[:, 0]).var())
+        numerator = float(residual_proj[a] + residual_proj[0] + spread)
+        denominator = float(residual_eif[a] + residual_eif[0] + spread)
+        ate_ratio.append(numerator / denominator)
+        ate_sd.append(float(np.sqrt(numerator)))
+    return {
+        "psi": [float(value) for value in q.mean(axis=0)],
+        "ratio": ratio,
+        "ate_ratio": ate_ratio,
+        "ate_sd": ate_sd,
+        "gap": [float(value) for value in np.sqrt(((proj - shared) ** 2).mean(axis=0))],
+        "range": [(float(proj[:, a].min()), float(proj[:, a].max())) for a in range(law.k)],
+        "outside": [
+            float(((proj[:, a] < 0.025) | (proj[:, a] > 0.975)).mean()) for a in range(law.k)
+        ],
+        "g0_outside": [
+            float(((g0[:, a] < 0.025) | (g0[:, a] > 0.975)).mean()) for a in range(law.k)
+        ],
+        "learner": [
+            learner_limit_distance(q[:, a], proj[:, a], min(200_000, draws // 2), seed + 1 + a)
+            for a in range(law.k)
+        ],
+    }

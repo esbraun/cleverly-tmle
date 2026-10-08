@@ -205,7 +205,8 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "or baseline strata. The point estimate stands. The plug-in standard error "
                 "of the ordinary curve remains as a diagnostic under plugin_std_error and "
                 "plugin_interval. For an interval, fit oat_design='per_arm' on complete data "
-                "without strata, or fit TMLE. F19 and X29 in docs/roadmap.md track the rest."
+                "without strata, or fit TMLE. F19 in docs/roadmap.md tracks the shared design, "
+                "and X29 tracks missing outcomes and strata."
             ),
             assessment_note=(
                 "the reported curve is a generated-design diagnostic: no confidence interval "

@@ -1081,6 +1081,28 @@ sizes only the cluster sum is the delta-method variance of the row mean
   (2011), combined with its own appendix proof. The
   [natural-extension verdicts](technical-reference/natural-extension-verdicts.md) use this locator
   for part (k).
+  The X17 row (2026-10-07) read preprint v1 first-hand for the per-arm design. The Remark on page
+  10 states the ATE route: "repeating the entire procedure but switching the labeling of the
+  treatment". The proof on pages 30-31 splits the remainder into $R_{21}$ to $R_{24}$, and
+  $R_{24}$ is the generated-regressor term that conditions (ii), (iii), (v) and (vi) make second
+  order. Section 4.1, page 12, reports that "the estimated standard errors of CTMLE had poor
+  performance, often underestimating the true variability of the estimator". The Discussion,
+  pages 17-18, calls the estimator "an irregular estimator" and notes "the poor behavior of the
+  confidence intervals in both simulations". The published article was not reachable from this
+  environment during X17, so the
+  [per-arm contract](technical-reference/collaborative-tmle.md#the-per-arm-outcome-adaptive-design)
+  cites the preprint locators. The preprint also names "Appendix 17" on page 3 and "Appendix XXX"
+  on page 12, both placeholders, and its Appendix D cites "condition (iv) of Appendix E" for a
+  condition that Appendix F states.
+  The paired comparator of the per-arm study is R `drtmle` 1.1.2 at `538a3a2` by a binary recode:
+  for each arm `a`, `A = as.numeric(A == a)` with `a_0 = c(1, 0)`, `adapt_g = TRUE` and
+  `Qn = list(Qbar(a, W), Qbar(a, W))`. That call enters the two-level `glm_g` branch of
+  `estimate_g` in `R/estimate.R`, whose design names the columns `Q1W` and `Q0W`, so level 1 is
+  $P(A = a \mid \bar Q(a, W))$. With `a_0` equal to every level, `drtmle` fits a sequential
+  conditional-binary chain over the levels instead (`R/estimate.R`, lines 337-371). `drtmle`
+  returns no TMLE influence curve: `ic_drtmle` belongs to its own drtmle stage. The runner
+  therefore rebuilds each arm's TMLE regression on its one-dimensional submodel at the reported
+  estimate, and it refuses a fit unless that curve reproduces `tmle$cov[1, 1]` to `1e-8`.
 - van der Vaart, Dudoit & van der Laan (2006), [*Oracle inequalities for multi-fold cross
   validation*](https://doi.org/10.1524/stnd.2006.24.3.351), *Statistics & Decisions*
   24(3):351-371, DOI 10.1524/stnd.2006.24.3.351. The paper bounds the risk of a cross-validation
@@ -1349,9 +1371,9 @@ sizes only the cluster sum is the delta-method variance of the row mean
 - C-TMLE inference source audit (RM5, 2026-09-11): no reviewed source derives the exact
   asymptotic law of the shipped selector or the full multi-arm outcome-adaptive construction. The
   binary scalar outcome-adaptive construction has a positive theorem after the fold-nesting
-  correction described below. The shipped binary vector is a finite-dimensional extension whose
-  exact scalar expansions are not stated in the paper. The contracts carry those separate
-  verdicts.
+  correction described below. The shared design is a finite-dimensional extension whose exact
+  scalar expansions are not stated in the paper. The per-arm design, which X17 ships, reduces to
+  the paper's scalar construction arm by arm. The contracts carry those separate verdicts.
 
   The selector path has outer nuisance, selection, and inner selection-training folds. Its
   pointwise and simultaneous intervals use a plug-in curve that treats the selected candidate as

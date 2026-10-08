@@ -74,14 +74,14 @@ list holds one candidate and that candidate is the full adjustment set, nothing 
 selected, the estimator is the ordinary TMLE, and the fit takes the ordinary TMLE status.
 
 ``strategy="oat"``
-    The outcome-adaptive treatment mechanism from ``ctmle3::LF_oat``.  **The package
-    supplies no inference for it either, for a different reason**, which the paragraph
-    on its generated design below gives.  This is not a fourth candidate sequence: it
-    fits categorical treatment on the complete vector ``[Qbar(a, W): a in arms]`` and
-    then uses the ordinary all-arm mean fluctuation.
+    The outcome-adaptive treatment mechanism of Benkeser, Cai and van der Laan (2020).
+    This is not a fourth candidate sequence: it fits treatment on the arm-specific
+    outcome predictions and then uses the ordinary all-arm mean fluctuation.
     Consequently it has no candidate path, no parameter-specific selector loss and no
-    stopping index.  Multi-valued treatment is not what distinguishes it: the selector
-    strategies fit one shared categorical propensity path of their own.
+    stopping index.  ``oat_design`` selects one of two designs.  ``"per_arm"``, the
+    default, regresses ``1{A = a}`` on the one column ``Qbar(a, W)`` for each arm.
+    ``"shared"`` is ``ctmle3::LF_oat``: one categorical mechanism on the vector
+    ``[Qbar(a, W): a in arms]``.
 
     **It also trades away one leg of double robustness, and that is the reason to reach
     for it deliberately rather than as a default.**  The three selector strategies choose
@@ -100,16 +100,18 @@ selected, the estimator is the ordinary TMLE, and the fit takes the ordinary TML
     validation rows, and the adaptive mechanism is then trained on those training-row
     predictions only.  This is the honest nesting in Benkeser, Cai and van der Laan
     (2020): no validation outcome can reach its own mechanism through another row's
-    generated feature.  Their Theorem 1 proves the ordinary curve for one binary
-    treatment-specific mean with one scalar design.  The package always fits the
-    mechanism on the predictions of every arm and targets every arm mean jointly, so an
-    ``ey1``-only request is the same joint fit.  No result covers that construction, or
-    this path with ``delta=``.  So every ``oat`` fit takes the ``"generated_design_plugin"``
-    status: ``ci``, ``pvalue`` and ``std_error`` raise
+    generated feature.  Their Theorem 1 proves the influence curve for one
+    treatment-specific mean with one scalar design, and the per-arm design is that
+    construction for each arm.  The curve is not the efficient influence function: the
+    estimator is superefficient.  A per-arm fit on complete data without baseline strata
+    therefore reports ``ci``, ``pvalue`` and ``std_error``, while
+    :data:`OAT_PER_ARM_INFERENTIAL` is set.  No result covers the shared design, so every
+    ``oat_design="shared"`` fit takes the ``"generated_design_plugin"`` status, as does a
+    per-arm fit with ``delta=`` or ``strata=``: ``ci``, ``pvalue`` and ``std_error`` raise
     :class:`~cleverly.exceptions.CapabilityError`, and ``plugin_std_error`` and
-    ``plugin_interval`` report the retained diagnostic.  F19 in ``docs/roadmap.md`` is the
-    condition that reopens this.  ``ctmle3`` does not cross-fit this fit at all --
-    ``LF_oat`` pins ``cv_fold = -1`` -- so non-cross-fitted parity and a cross-fitted
+    ``plugin_interval`` report the retained diagnostic.  F19 and X29 in
+    ``docs/roadmap.md`` hold those parts.  ``ctmle3`` does not cross-fit this fit at all
+    -- ``LF_oat`` pins ``cv_fold = -1`` -- so non-cross-fitted parity and a cross-fitted
     result would have different sources.
 
 The loss
@@ -178,19 +180,18 @@ only -- its epsilon is approximately zero -- but keeping it on the ordinary reta
 path makes the estimate, influence curve, score check and sensitivity analyses agree.
 The initial Qbar is retained separately for nuisance diagnostics.
 
-The reported curve is the ordinary cross-fitted EIF plug-in curve, and on every strategy the
-package reports its spread as a diagnostic and not as inference. The one exception is the
-``"discrete"`` fit whose one declared candidate is the full adjustment set, which is the
-ordinary TMLE. The selector calculation
-treats the selected candidate as fixed but makes no conditional-on-selection coverage claim.
-The outcome-adaptive calculation uses the fold-local nuisance construction of Benkeser, Cai and
-van der Laan (2020). Their theorem proves the ordinary adaptive-propensity curve for one binary
-treatment-specific mean under six stated regularity conditions; Appendix D outlines related ATE
-and cross-validated constructions. The package's joint arm-specific fluctuation and derived
-target vector are not the paper's theorem, and the paper does not establish the shared
-multi-arm extension. See ``docs/roadmap.md F18`` for the selector path and
-``docs/roadmap.md F19`` for the outcome-adaptive path. ``n_bootstrap=`` reruns the adaptive
-construction, but no reviewed theorem validates that bootstrap for either shipped path.
+On the selector strategies the package reports the spread of the plug-in curve as a
+diagnostic and not as inference. The one exception is the ``"discrete"`` fit whose one
+declared candidate is the full adjustment set, which is the ordinary TMLE. The selector
+calculation treats the selected candidate as fixed but makes no conditional-on-selection
+coverage claim. The outcome-adaptive calculation uses the fold-local nuisance construction of
+Benkeser, Cai and van der Laan (2020). Their Theorem 1 proves the adaptive-propensity curve for
+one treatment-specific mean under six stated regularity conditions, and the Remark and
+Appendix D outline the ATE and cross-validated constructions. The per-arm design applies the
+theorem to each arm and stacks the curves; the shared design is not the paper's construction.
+See ``docs/roadmap.md F18`` for the selector path and ``docs/roadmap.md F19`` for the shared
+design. ``n_bootstrap=`` reruns the adaptive construction, but no reviewed theorem validates
+that bootstrap for a selector path or for either outcome-adaptive design.
 
 Fixed probability weights replace the empirical law by its normalized weighted version.
 The same row mass reaches nuisance fits, targeting, selector loss, influence-curve penalty,
@@ -336,9 +337,9 @@ CTMLEOatDesign = Literal["per_arm", "shared"]
 OAT_PER_ARM_INFERENTIAL: Final[bool] = True
 
 #: The strategies that build a candidate path and cut it at a data-chosen stopping index.
-#: ``"oat"`` is not one: it fits one categorical mechanism on the outcome-prediction vector
-#: and has no path, no selector loss and no stopping index (see the module docstring).
-#: F19 owns its inference; F18 owns these three.
+#: ``"oat"`` is not one: it fits its mechanism on the arm-specific outcome predictions and
+#: has no path, no selector loss and no stopping index (see the module docstring).
+#: F19 owns the inference of its shared design; F18 owns these three.
 CTMLE_SELECTOR_STRATEGIES: frozenset[str] = frozenset({"greedy", "ordered", "discrete"})
 
 
@@ -445,8 +446,8 @@ _SELECTION_SPLIT_REMEDY = (
 
 #: Why CTMLE refuses a continuous dose, which every strategy does.
 _DISCRETE_TREATMENT_REFUSAL = (
-    "CTMLE strategies require a discrete treatment. strategy='oat' fits a categorical "
-    "mechanism on one Qbar prediction per arm, and a continuous dose has no finite arm vector."
+    "CTMLE strategies require a discrete treatment. strategy='oat' fits its mechanism on "
+    "one Qbar prediction per arm, and a continuous dose has no finite arm vector."
 )
 
 #: The selection split's refusal remedy in the words the nuisance fold loop closes with.
@@ -736,8 +737,8 @@ class CTMLE(TMLE):
     strategy:
         ``"greedy"`` (default), ``"ordered"``, ``"discrete"`` or ``"oat"``.  The
         selector strategies fit one shared categorical propensity path and jointly score
-        all components of ``ctmle_estimand``; ``"oat"`` fits treatment on the vector of all
-        arm-specific outcome predictions without a candidate path.
+        all components of ``ctmle_estimand``; ``"oat"`` fits treatment on the arm-specific
+        outcome predictions without a candidate path (see ``oat_design``).
         ``"oat"`` excludes ``W`` from ``g`` entirely and so gives up
         consistency-when-only-``g``-is-right; see the module docstring.
     ordering:
@@ -952,8 +953,8 @@ class CTMLE(TMLE):
         if overridden:
             raise ValueError(
                 f"{', '.join(f'{name}=' for name in overridden)} configure selector "
-                "strategies and do not apply to strategy='oat', which fits one categorical "
-                "mechanism and selects nothing"
+                "strategies and do not apply to strategy='oat', which fits its mechanism on "
+                "the outcome predictions and selects nothing"
             )
 
     def _selector_only_overrides(self) -> list[str]:

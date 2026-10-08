@@ -10,7 +10,8 @@ and odds ratios against the `high` arm. Its property design separately checks th
 outcome-regression robustness contract and the precision cost of estimating the generated
 outcome-adaptive design.
 
-Every `CTMLE(strategy="oat")` fit has the `generated_design_plugin` status. The coverage and
+This study fits the shared design, `oat_design="shared"`. Every shared fit has the
+`generated_design_plugin` status. The coverage and
 standard-error ratios below measure `plugin_interval` and `plugin_std_error` as diagnostics;
 their pass labels do not authorize `ci`, `pvalue`, or `std_error`. The two red generated-design
 property cells remain open under [F19](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference).
@@ -121,7 +122,7 @@ outcome scaler is already the identity.
 
 ## Limitations
 
-These cells now measure a diagnostic that the package does not publish as inference. Every
+These cells now measure a diagnostic that the package does not publish as inference. Every shared
 `strategy="oat"` fit takes the `"generated_design_plugin"` status, which
 [RM20](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm20-intervals-outside-every-claimed-contract) decides. `ci`, `pvalue`,
 and `std_error` refuse, and the fit reports `plugin_std_error` and `plugin_interval` instead.

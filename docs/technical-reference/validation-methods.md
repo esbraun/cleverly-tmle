@@ -462,14 +462,16 @@ working model and requires the note. Use `support()` to inspect the denominator 
 mechanism creates.
 
 The selector artifact retains every candidate, risk, fitted fold, and the selected index. The
-outcome-adaptive artifact retains its outcome-prediction features and treatment risk. Each artifact
+outcome-adaptive artifact retains its design, its outcome-prediction features and its treatment
+risk, and under the per-arm design the risk of each arm. Each artifact
 renders one sentence through `describe()`. The nuisance summary and the combined assessment row
 both print that one sentence.
 
 | artifact | what `describe()` renders |
 | --- | --- |
 | `CTMLESelection` | `C-TMLE greedy selected candidate 2 of 4 for ate` |
-| `CTMLEOutcomeAdaptiveFit` | `C-TMLE outcome-adaptive fit used 2 Qbar feature(s)` |
+| `CTMLEOutcomeAdaptiveFit`, `oat_design="per_arm"` | `C-TMLE outcome-adaptive fit used one Qbar feature per arm in 2 binary mechanisms` |
+| `CTMLEOutcomeAdaptiveFit`, `oat_design="shared"` | `C-TMLE outcome-adaptive fit used 2 Qbar features in one categorical mechanism` |
 
 On a repeated fit these objects describe draw 1, because the result retains method-specific state
 for that draw. The nuisance summary and the combined assessment row render the scope through
@@ -1320,7 +1322,7 @@ Van der Laan and Gruber (2010), Sections 2, 5.1, and 6, define C-TMLE for a gene
 empirical distribution. Replacing that law by $P_w$ makes $P_{n,w}$ the empirical measure.
 Selector strategies use the same normalized row mass in nuisance fits, targeting, outcome loss,
 the influence-curve penalty, cross-validated risk, and the plug-in. The outcome-adaptive strategy
-uses it in the outcome fits, categorical mechanism fit, targeting, and plug-in.
+uses it in the outcome fits, the mechanism fits, targeting, and plug-in.
 
 The fixed-weight C-TMLE tests cover greedy selection, both data-adaptive ordered preorders, an
 explicit ordering, discrete selection, and outcome-adaptive fitting. They reconstruct a selected
@@ -1349,8 +1351,9 @@ two candidates that serve opposite weight blocks, in a mass ratio of nine to one
 search selects one candidate and the unweighted search selects the other, while the visited order
 stays equal.
 
-End-to-end mutations drop every selector weight or drop the outcome-adaptive
-mechanism weights. Each mutation moves a manual refit that runs on the surface's seeds at strengths
+End-to-end mutations drop every selector weight or drop the shared outcome-adaptive
+mechanism weights. The per-arm design has its own control: integer weights must equal
+duplicated rows, and dropping the weights from the per-arm mechanism fails that test. Each mutation moves a manual refit that runs on the surface's seeds at strengths
 0.2 and 0.3. Neither control reads a surface cell, because its grid holds the anchor alone and the
 anchor runs no refit. Each control requires a move above one part in a thousand of the unmutated
 refit's estimate.

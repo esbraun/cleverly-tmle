@@ -95,7 +95,7 @@ Every other status is a non-inferential status.
 | --- | --- | --- | --- | --- |
 | `"influence_curve"` | every estimate except the ones below. This is the constructor default | return the values on this page | `std_err` | not applicable |
 | `"working_mechanism_plugin"` | a `CTMLE` fit with `strategy="greedy"`, `"ordered"`, or `"discrete"`. A `discrete` fit with one declared candidate, equal to the full adjustment set, takes the TMLE status instead. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `working-mechanism se` | [F18](../roadmap.md#f18-selector-path-c-tmle-inference) |
-| `"generated_design_plugin"` | every `CTMLE` fit with `strategy="oat"`, including a fit with `delta=` and a fit that requests one arm mean. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `generated-design se` | [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
+| `"generated_design_plugin"` | every `CTMLE` fit with `strategy="oat"` and `oat_design="shared"`, and a per-arm `oat` fit with `delta=` or `strata=`. A per-arm fit on complete data without strata takes the TMLE status instead. [Collaborative TMLE](collaborative-tmle.md#the-per-arm-outcome-adaptive-design) gives the reason | raise `CapabilityError` with the reason of the status | `generated-design se` | [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | `"estimated_weight_plugin"` | a `DRTMLE` fit with a non-empty `guard` and varying weights declared estimated (`weights_estimated=True`). A fit with `guard=()` keeps `"influence_curve"`. Constant weights fit the unweighted estimator, so they keep it too. [DR-TMLE supported estimands](dr-tmle/supported-estimands.md#refused-by-name) gives the reason | raise `CapabilityError` with the reason of the status | `fixed-weight se` | [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
 | `"few_cluster_plugin"` | a `TMLE` or `DRTMLE` fit with `id=` and fewer than 10 clusters with positive weight mass in the fit or one reported baseline stratum, or an `LTMLE` fit with fewer than 20. The `LTMLE` floor applies in sample and under cross-fitting. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `normal-reference se` | [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) |
 
@@ -436,7 +436,7 @@ These fit shapes publish no default band.
 | --- | --- |
 | more than one repeat | refused with two or more estimands, as the [CV-TMLE reference](cv-tmle.md#variations) states |
 | fold-targeted CV-TMLE, the learned-rule value, and the missing-outcome natural-course mean | one estimate per fit |
-| the C-TMLE selector and outcome-adaptive paths | their status supplies no inference, so no band is built |
+| the C-TMLE selector paths and the withheld outcome-adaptive fits | their status supplies no inference, so no band is built. A per-arm outcome-adaptive fit on complete data without strata builds the band |
 
 ## Reporting a subset of a family
 
