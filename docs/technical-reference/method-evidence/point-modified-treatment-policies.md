@@ -111,8 +111,11 @@ The `halve__correctly_specified` calibration cell is red on its SE-ratio band, i
 SE ratio is 1.0429, and its 99% interval is 1.0011 to 1.0881 against an upper bound of 1.07. It
 was 1.0430 at 160 bins, so the bin count does not move it. Its coverage is 0.9605, and the
 reported standard error matches the efficiency bound (ratio 1.0018). The influence curve with the
-binned ratio predicts a ratio of 0.9998, and at 2,000 replications a calibrated cell crosses the
-bound with a probability of about 5%.
+binned ratio predicts a ratio of 0.9998. A diagnostic refitted the same configuration on 2,000
+fresh draws, the cell's own budget. It read an SE ratio of 0.999, with a bootstrap 99% interval of
+0.959 to 1.043. Fewer than 1% of its bootstrap ratios reach 1.0429
+([`tests/diagnostics/mtp_point_halve_excursion/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/mtp_point_halve_excursion)). So the registered draw set is a Monte
+Carlo excursion. The diagnostic cannot change the verdict.
 
 The diagnosis finds no defect. By the red-cell rule the study moved to `reporting`, with the owner
 row `mtp-point-calibration`, and the run repeated with no other change. The repeat reproduced
@@ -173,7 +176,7 @@ the committed results and checked at the precision printed.
 | --- | --- |
 | one law, one dose and two covariates | the evidence covers one bounded dose law with policies fixed before the run |
 | the density is an oracle | the ratio reads the generating density through a bin count that grows with $n$. The [bin count paragraph](../longitudinal-tmle.md#modified-treatment-policies-at-a-node) states why a fixed count is not consistent |
-| one calibration cell is red under `reporting` | the `halve` cell's standard error is conservative by about 4%. The `mtp-point-calibration` owner holds it |
+| one calibration cell is red under `reporting` | the `halve` cell's draw set sits in the upper tail of a calibrated cell's spread. On fresh draws the same fit reads an SE ratio of 0.999. The `mtp-point-calibration` owner holds it |
 | the paired rows are not an exactness check | the two fluctuations differ by construction, so the pairs read under the default margins |
 | a policy must be known and fixed | a policy learned from the sample, or one that depends on the law, is outside this evidence |
 | no cell for a categorical treatment, a risk-ratio tilt or a randomized policy | these compositions have the exact-law and end-to-end evidence of the [point-treatment section](../point-treatment-tmle.md#modified-treatment-policies) only |

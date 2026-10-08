@@ -68,6 +68,13 @@ influence curve with the binned ratio predicts a ratio of 0.9998.  At 2,000 repl
 calibrated cell crosses the bound with a probability of about 5%.  The diagnosis finds no
 defect, so by the rule the study moves to ``reporting`` with the owner row
 ``mtp-point-calibration``, and the run repeats with no other change.
+
+**Reading of the red cell.**  "A limit of its budget" above overstated what was shown.  The
+diagnostic ``tests/diagnostics/mtp_point_halve_excursion`` refitted the cell's configuration on
+2,000 fresh draws, the cell's own budget.  It read an SE ratio of 0.999, with a bootstrap 99%
+interval of 0.959 to 1.043, and fewer than 1% of its bootstrap ratios reach 1.0429.  So the
+registered draw set is a Monte Carlo excursion, not a size effect.  The diagnostic cannot change
+the verdict, and no replication was added.
 """
 
 from __future__ import annotations

@@ -35,6 +35,7 @@ import re
 import warnings
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from tests.studies import canonical_policy_point_mtp as study
@@ -275,25 +276,42 @@ def test_the_positive_cells_pass_with_high_probability_at_their_declared_size() 
         assert probability > 0.98, cell
 
 
-#: The re-registration reading of ``interval_calibration/halve__correctly_specified``, from the
-#: second declared run at ``1b409b1c``: the SE ratio and its 99% interval, the same ratio at 160
-#: bins in the first run, and the ratio the influence curve with the binned ratio predicts on
-#: 8,000 rows (``_x12_halve_diag.py``).
-HALVE_SE_RATIO = (1.042897, 1.001121, 1.088135)
+#: The SE ratio of ``interval_calibration/halve__correctly_specified`` at 160 bins in the first
+#: run, and the ratio the influence curve with the binned ratio predicts on 8,000 rows
+#: (``_x12_halve_diag.py``).
 HALVE_SE_RATIO_AT_160_BINS = 1.042963
 HALVE_PREDICTED_RATIO = 0.9998
+HALVE_CELL = ("interval_calibration", "halve__correctly_specified")
 
 
-def test_the_red_calibration_cell_reads_as_a_limit_of_its_budget() -> None:
-    """A calibrated cell crosses the SE-ratio bound with a probability of several percent."""
-    from scipy.stats import norm
+def _halve_cell() -> pd.Series:
+    summary = pd.read_csv(study.STUDY.artifact("properties.csv"), float_precision="round_trip")
+    return summary.set_index(["property", "cell"]).loc[HALVE_CELL]
 
-    _, lower, upper = HALVE_SE_RATIO
-    half = (upper - lower) / 2.0
-    standard_error = half / float(norm.ppf(0.995))
+
+def test_the_red_calibration_cell_reads_as_a_monte_carlo_excursion() -> None:
+    """Fresh draws of the same fit put the ratio at its prediction, so the run's draw set is high.
+
+    ``tests/diagnostics/mtp_point_halve_excursion/`` refits the cell's configuration on 2,000
+    fresh draws.  Their bootstrap 99% interval holds the predicted ratio.  Fewer than 1% of the
+    bootstrap ratios reach the registered one, which sits in the upper tail of the spread a
+    calibrated cell has at this budget.  The diagnostic cannot change the verdict.
+    """
+    from tests.diagnostics.mtp_point_halve_excursion import run as excursion
+
+    cell = _halve_cell()
+    registered = float(cell["se_ratio"])
     bound = Margins().calibration_se_ratio[1]
-    false_fail = 1.0 - float(norm.cdf((bound - half - HALVE_PREDICTED_RATIO) / standard_error))
-    assert 0.03 < false_fail < 0.10
-    assert upper > bound and HALVE_SE_RATIO[0] < bound
+    assert float(cell["se_ratio_ci_upper"]) > bound > registered
     # The bin count does not move it: 160 and 320 bins agree to the fourth decimal.
-    assert abs(HALVE_SE_RATIO[0] - HALVE_SE_RATIO_AT_160_BINS) < 1e-3
+    assert abs(registered - HALVE_SE_RATIO_AT_160_BINS) < 1e-3
+
+    rows = pd.read_csv(excursion.HERE / "rows.csv.gz", float_precision="round_trip")
+    assert len(rows) == excursion.REPLICATES == int(cell["replicates"])
+    estimate, error = rows["estimate"].to_numpy(), rows["std_error"].to_numpy()
+    rng = np.random.default_rng(20261007)
+    draws = rng.integers(0, len(rows), size=(2_000, len(rows)))
+    ratios = error[draws].mean(axis=1) / estimate[draws].std(axis=1, ddof=1)
+    lower, upper = np.quantile(ratios, [0.005, 0.995])
+    assert lower < HALVE_PREDICTED_RATIO < upper
+    assert float(np.mean(ratios >= registered)) < 0.01
