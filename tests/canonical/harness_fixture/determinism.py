@@ -180,9 +180,15 @@ def _sha(path: Path) -> str:
 
 
 def _git_show(path: str) -> bytes:
-    return subprocess.run(
-        ["git", "show", f"{BASE}:{path}"], cwd=ROOT, capture_output=True, check=True
-    ).stdout
+    """``path`` as it was at ``572501b8``.
+
+    A runner that a study added after that commit has no old version, and RM39 does not edit
+    it, so its current bytes are its old bytes; only the harness it sources is older.
+    """
+    shown = subprocess.run(["git", "show", f"{BASE}:{path}"], cwd=ROOT, capture_output=True)
+    if shown.returncode == 0:
+        return shown.stdout
+    return (ROOT / path).read_bytes()
 
 
 def write_inputs(work: Path, target: Target, *, jobs: int) -> None:
