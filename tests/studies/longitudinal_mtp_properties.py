@@ -28,7 +28,8 @@ family                          cells, replications and size
                                 fit with the inverse dropped from Equation (3); the outcome is
                                 misspecified so the ratio carries the estimate; 1,000 at
                                 n = 2,000
-``crossfit_overfitting``        ``up`` with fully grown trees and a noise column: five folds
+``crossfit_overfitting``        ``up`` with interpolating extra-trees outcome learners and a
+                                noise column: five folds
                                 (positive) and one fold (control), paired draws; 10,000 at
                                 n = 1,000
 ``simultaneous_coverage``       the band over the seven continuous primary estimands and its

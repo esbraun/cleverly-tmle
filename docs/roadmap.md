@@ -27,12 +27,79 @@ This queue holds the remediation work that must be complete before a beta releas
 shipped behavior that needs a correction or a recorded decision, and a published method needed to
 resolve a shipped refusal. Examples are wrong numbers, intervals that no claimed contract covers,
 capability rows that do not match their calls, late refusals, and shipped outputs that no
-registered study measures. Deliver the rows in priority order, and complete every row before
-main-roadmap priority 1.
+registered study measures. The queue also holds a defect of the validation harness that can lose
+or invalidate a registered study run. Deliver the rows in priority order, and complete every row
+before main-roadmap priority 1.
 
 A new capability still needs its own contract and evidence, even in this queue.
 
-The queue has no open row.
+| priority | item | tier | acceptance |
+| ---: | --- | --- | --- |
+| 0.1 | RM39. Keep a study run alive through a failed replicate | b | the contract in [RM39](#rm39-keep-a-study-run-alive-through-a-failed-replicate), its tests, and passing handoff checks |
+
+### RM39. Keep a study run alive through a failed replicate
+
+A registered study with a comparator runs in two phases. The Python phase fits `cleverly`. The
+reference phase fits the pinned comparator, usually R in its container. Today one failed replicate
+stops a phase or makes the summary refuse the run. A failure can come from separation,
+non-convergence or a container restart. A run of several hours is then lost to one draw.
+
+| where | what happens today |
+| --- | --- |
+| `tests/canonical/study_harness.R` | `study_fitter` and `study_stream` catch each error. `study_refuse_failures` then stops the script. `study_collect` writes the output once, at the end, so a stop writes no row |
+| streaming runners | `study_stream` keeps each completed batch in memory and stops at the first batch with a failure. The `lmtp`, `npcausal` and `stochastic_regimes` runners use it, and they are the longest runs |
+| runners outside the harness | `ctmle3_oat/run_ctmle3_oat.R`, `ctmle_selector/run_ctmle.R`, `drtmle/run_drtmle.R` and `zepid_cvtmle/run_zepid_cvtmle.py` stop at the first error too |
+| `tests/canonical/regenerate.py` | `Reference.run` runs the container with `check=True`. `_reference_rows` reuses a cached reference result only when it holds every replicate |
+| the Python phase | each `draw_and_fit` maps its fits with `map_parallel`, and one exception stops the phase. Only `CoverageStudy` records a failed fit, in the `failed_replicates` column |
+| the summary | `validate_replicates` refuses a cell with fewer rows than `StudyRecord.replicates`. `require_complete` refuses a property cell with a nonzero `failed_replicates` |
+
+The [benchmarking strategy](development/method-benchmarking.md#reference-implementation-comparisons)
+states the current rule: fail the run on a dropped or unsuccessful replication. This row replaces
+that rule with a failure bound that the study declares before its run.
+
+Goal: one failed replicate costs one replicate. The phase continues, a crash resumes, and the
+summary accounts for each failure against the declared bound. The row takes tier b, because its
+defect is a crash of a registered study run.
+
+| part | acceptance |
+| --- | --- |
+| (a) isolation of each replicate | each R runner fits each replicate under `tryCatch`. A failure writes one failed-replicate record: the implementation, the replicate key, the seed, the stage and the error message. The phase then continues. The runners outside the harness move onto it. A killed worker writes no record, so the phase reports it as incomplete, and a resume fits it again |
+| (a) systematic failure | when every one of the first 20 replicates of a cell fails, the phase stops. The cause is then the configuration, not the draw |
+| (b) a resumable reference phase | the harness writes each completed result and each failure record to a checkpoint in the run cache. A restart with the same cache fits only the replicates without a checkpoint. A resumed run writes output bytes identical to an uninterrupted run |
+| (b) a stale checkpoint | a checkpoint records the hashes of the runner, the harness, the container and the sample file. A resume refuses a checkpoint whose hashes differ |
+| (c) declared failure accounting | `StudyRecord` declares a failure bound for each implementation before the run. The default bound is zero, so an existing study keeps its behavior. A paired statistic reads only the replicates where both implementations succeeded |
+| (c) the report | the summary reports the failure count and rate of each implementation in each cell. A `failures.csv` artifact publishes each record. A rate above the bound makes the cell red, and the [red-cell rule](development/method-benchmarking.md#red-cells) routes it |
+| (c) no gain from a failure | a failure must not make a verdict easier to pass. A coverage or rejection rate counts each failed replicate as the outcome against the cell's claim, in the direction of the cell's role. A bias, spread or paired statistic must also pass when each failed replicate takes the worst value in the observed range of its cell |
+| (c) an informative-failure witness | a paired cell reports the error of the surviving implementation on the failed replicates against its error on the other replicates. The witness is a report, not the gate |
+| (d) the Python phase | the Python phase, the property studies and the Python comparator get the same isolation, the same records and the same checkpoint. A `CapabilityError` on a replicate is a design defect, so it still stops the phase |
+| (e) provenance | the edits are result-neutral for every committed study. Declare each changed source and each recorded hash in `tests/canonical/provenance-revisions.md`. Do not regenerate a study |
+| (f) tests | the tests in the next table pass, and the [benchmarking strategy](development/method-benchmarking.md) and [testing strategy](development/testing-strategy.md) state the new rule |
+
+The design treats a failure conservatively, and it does not rely on a test that failures are
+independent of the outcome. That test cannot see the missing outcome of the failed implementation,
+so it cannot carry the gate alone. The range-bounded worst case can miss a failure whose value
+falls outside the observed range. A small declared bound limits that case.
+
+The edit changes the recorded hash of `study_harness.R` in 45 manifests. It also changes the
+hashes of the runners outside the harness, and of the two Dockerfiles that copy a runner into the
+image. No committed artifact has a failed replicate, so the new branches never run for a committed
+study. A scan of the 62 study directories on 2026-10-07 found no nonzero `failed_replicates` in
+any `properties.csv` or `property-replicates.csv.gz`, and no short property cell.
+`study_collect` refuses a short R table. `tests/unit/test_method_evidence.py` runs
+`validate_replicates` on each committed `replicates.csv.gz`, and that check requires the full
+count. No published verdict moves.
+
+| test | what it shows |
+| --- | --- |
+| a failing replicate | a small fixture runner raises on one declared replicate. The phase continues, writes the record, and the summary reports one failure |
+| the bound | a mutation control puts one failure above the bound, and the cell turns red. At the bound, the cell passes |
+| no gain from a failure | a fixture puts each failure on a replicate that misses coverage. The gate fails a cell that passes on the survivors alone |
+| a resume | a run stops after a declared number of replicates and resumes. The output sha256 equals that of an uninterrupted run |
+| a complete run | on a fixture without a failure, the new harness writes the same bytes as the recorded harness |
+| a stale checkpoint | a changed runner hash makes the resume refuse |
+
+The fast tier has no R. The R tests therefore run as a smoke command in a pinned image, and the
+fast tier reads their committed outputs.
 
 Each row takes a tier by the harm that its defect does to a user today. The table gives the tiers,
 from the most harmful. Inside a tier, a row with a wider reach comes first. A row that another row
@@ -41,7 +108,7 @@ depends on comes before that row.
 | tier | reason | rows |
 | --- | --- | --- |
 | a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | no open row |
-| b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | no open row |
+| b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | RM39 |
 | c | a correct refusal that arrives late or as the wrong type | no open row |
 | d | a diagnostic or a warning that misleads | no open row |
 | e | a display or a message that misstates a fact that the fit records. By extension, an argument check or a capability row that misstates what a call accepts or needs, when no number moves and nothing raises that is not a refusal | no open row |
@@ -243,9 +310,8 @@ release.
 The `mtp-point-calibration` owner holds one calibration cell of the point modified-treatment-policy
 study. Its standard error is conservative, and the diagnosis finds no defect.
 
-The `mtp-longitudinal-limits` owner holds two cells of the longitudinal modified-treatment-policy
-study whose diagnosis finds no defect: a finite-sample calibration cell and a control whose
-interval reaches its ceiling.
+The `mtp-longitudinal-limits` owner holds one cell of the longitudinal modified-treatment-policy
+study whose diagnosis finds no defect: a finite-sample calibration cell.
 
 The `F28` owner holds the clustered cells of the unequal-size and few-cluster studies that read
 red under their `reporting` policy. It owns a finite-sample limit, not a missing theorem.
@@ -274,7 +340,7 @@ owners do the same for the stratified DR-TMLE study.
 | `X8-drtmle-one-sided-bias` | the four `double_robustness/*__treatment_correct` cells of `canonical-stratified-drtmle`: the marginal ATE and each stratum ATE | reading `shared` in strata 0 and 1 and `mixed` in stratum 2, in the vocabulary of `RM18-one-sided-bias` ([`tests/diagnostics/x8_drtmle_treatment_correct/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x8_drtmle_treatment_correct)). The refit reproduces the committed estimates exactly. On each stratum's rows, the shipped unstratified `DRTMLE` and R `drtmle` 1.1.2, handed the same initial arrays, carry a positive bias too. In stratum 2 the package's bias, 0.0237, exceeds R's, 0.0157: the paired difference is 0.0080 with a standard error of 0.0018. The unstratified fit on the stratum's rows matches the package there to 2e-5, so the excess belongs to `DRTMLE` at about 400 rows and not to the strata. In stratum 1 the stratified and subset fits differ by 0.0057 (standard error 0.0013). The stratified marginal is the mixture of the stratum estimates, so it inherits their bias: 0.56 of its spread at n = 2,000 (99% interval 0.43 to 0.69) and 0.43 at n = 8,000 (0.25 to 0.61). The intervals overlap, so contraction faster than the spread is not established. No defect of the stratified construction was found. The owner closes when a re-declared cell, with its law or size declared before its run, passes, or when `RM18-one-sided-bias` closes with a correction that also covers the stratified fit. Until then the four cells stay published red under `reporting` |
 | `X8-drtmle-small-stratum` | the two primary truth rows of `ey[1][V=2]` and the `interval_calibration/v2_ate__correctly_specified` cell of `canonical-stratified-drtmle` | reading `finite-sample, shared with the comparator`. Stratum 2 holds about 400 of the 2,000 rows. Coverage of `ey[1][V=2]` is 0.900 in the package and 0.8925 in R `drtmle` on the same draws, with estimates 4e-5 apart on average. The calibration cell's SE-ratio interval ends at 0.9294 against a floor of 0.93, and on the primary draws the same ATE reads 0.985 in the package and 0.973 in R ([`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py)). The owner closes when a re-declared cell, with its law or size declared before its run, passes. Until then the three stay published red under `reporting` |
 | `F1-power-design` | the `power/mix__alternative` cell of `stochastic-categorical-ltmle` | reading `underpowered at its declared size`. Its n = 4,000 was copied from `canonical-categorical-ltmle`, where the contrast is 0.125. Here the contrast is -0.0488, so the exact power of a two-sided 5% test is 0.5365, and exact power 0.80 needs n = 7,460. The cell rejects at 0.5575 (99% interval 0.511 to 0.603) against a floor of 0.80, and that interval contains the exact power ([`tests/unit/test_stochastic_categorical_ltmle_design.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_stochastic_categorical_ltmle_design.py)). Its bias is inside the margin and its coverage is 0.9475. The `type_i_error` cell, on the null variant of the law, passes. The owner closes when a re-declared power cell, with its law or size declared before its run, passes. Until then the cell stays published red under `reporting` |
-| `mtp-longitudinal-limits` | the `interval_calibration/categorical_mtp__correctly_specified` cell and both `crossfit_overfitting` cells of `longitudinal-mtp`. The cross-fitted arm passes its own rule, but the family's joint clause fails with its control | reading `finite-sample` for the categorical cell: its efficiency ratios read 1.12 and 1.10 against a band of 0.9 to 1.1, its coverage 0.9435 passes, and with saturated learners the ratio falls from 1.07 at n = 2,000 to 1.02 at n = 8,000. Reading `control underpowered by design` for the overfitting pair: the in-sample SE ratio is 0.741, with a 99% interval ending at 0.754 against a ceiling of 0.75, and the paired coverage gain is 0.116 to 0.136 against a floor of 0.15. The gain misses at its point estimate, 0.126, so no budget passes it. The in-sample trees fit every outcome exactly, so the control's standard error is the spread of the plug-in at the shifted dose, and the dose model does not enter it. The cross-fitted arm reads 1.167 and passes its own rule ([`tests/unit/test_longitudinal_mtp_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_longitudinal_mtp_reading.py)). Re-declare the pair's control design before any regeneration of the study. The owner closes when re-declared cells, with their sizes or control designs declared before their run, pass |
+| `mtp-longitudinal-limits` | the `interval_calibration/categorical_mtp__correctly_specified` cell of `longitudinal-mtp` | reading `finite-sample, sparse cells`: the efficiency ratios read 1.120 and 1.098 against a band of 0.9 to 1.1, and coverage 0.9435 and the SE ratio pass. The cell fits saturated cell probabilities for the six-level mechanism. A diagnostic refitted it on fresh draws. The in-sample fit reads a reported efficiency ratio of 1.103 at n = 2,000 and 1.023 at n = 8,000, and the five-fold fit 1.389 and 1.048, on 300 fresh draws per size. The reported ratio's excess falls about four times as n grows four times, the order of the cost of estimating sparse cell probabilities, and reads 1.003 at n = 128,000. A wrong bound or an inefficient curve would keep its excess. Both outcome regressions are misspecified, and the saturated mechanism makes the fit the NPMLE whatever the outcome learner, so the estimate is unaffected ([`tests/diagnostics/longitudinal_mtp_categorical_efficiency/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/longitudinal_mtp_categorical_efficiency), [`tests/unit/test_longitudinal_mtp_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_longitudinal_mtp_reading.py)). The cell read the same in runs 2 and 3. The owner closes when a re-declared cell, with its size declared before its run, passes. Until then the cell stays published red under `reporting` |
 | `mtp-point-calibration` | the `interval_calibration/halve__correctly_specified` cell of `policy-point-mtp` | reading `Monte Carlo excursion`. The SE ratio is 1.0429, with a 99% interval of 1.0011 to 1.0881 against an upper bound of 1.07. It was 1.0430 at 160 bins, so the bin count does not move it. Coverage is 0.9605, and the reported standard error matches the efficiency bound (ratio 1.0018). The influence curve with the binned ratio predicts a ratio of 0.9998. A diagnostic refitted the same configuration on 2,000 fresh draws and read 0.999, with a bootstrap 99% interval of 0.959 to 1.043. Fewer than 1% of its bootstrap ratios reach 1.0429 ([`tests/diagnostics/mtp_point_halve_excursion/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/mtp_point_halve_excursion)). The diagnostic cannot change the verdict. The owner closes when a re-declared calibration cell for this policy passes, with a budget of no more than 2,000 replications fixed before its run. Until then the cell stays published red under `reporting` |
 | `X13-finite-sample` | the `interval_calibration/weighted_t5__correctly_specified` cell of `point-treatment-survival` and the `interval_calibration/three_arm_t3__correctly_specified` cell of `point-treatment-survival-crossfit` | reading `finite-sample`. The weighted cell's SE ratio is 1.027, with a 99% interval of 0.981 to 1.076 against an upper bound of 1.07. Its reported standard error equals the weighted efficiency bound (ratio 1.0007), and the interval of its empirical efficiency ratio, 0.930 to 1.020, contains one. The cross-fitted three-arm cell's empirical efficiency interval is 1.010 to 1.108 against 1.10, with an SE ratio of 1.008. A probe on fresh draws put its reported standard error over the bound at 1.0003 in sample, 1.082 at five folds and 1.055 at ten folds at n = 2,000, and 1.0085 at five folds at n = 8,000, so the excess is the finite-sample cost of cross-fitting saturated cell means. The owner closes when a re-declared cell, with its size or replications declared before its run, passes. Until then each cell stays published red under `reporting` |
 | `F28` | finite-sample limits of clustered intervals: the fold-evaluated covariate pair of `clustered-unequal-cvtmle`, and the fold-evaluated bias cells and cross-fitted `DRTMLE` IID controls of `clustered-few-cluster-tmle` | each group closes on its own registered study that passes. The fold-evaluated pair of `clustered-unequal-cvtmle` at 40 clusters in 10 folds: a fold-evaluated degrees-of-freedom rule $t(\min(J-2, J-V))$ at 40 clusters or more. The three `tmle_cv_evaluation__unequal_informative` cells: a cluster-size-weighted fold average or another fold-evaluated point whose bias stays inside the margin. The stacked report is the remedy today. The four `drtmle_crossfit` `iid_t_control` cells: a calibrated cross-fitted `DRTMLE` cluster variance, or an IID control that compares the two SEs and not the IID SE with the empirical SD ([F28](#f28-finite-sample-limits-of-clustered-intervals)) |
