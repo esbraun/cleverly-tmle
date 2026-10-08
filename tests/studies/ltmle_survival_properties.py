@@ -64,10 +64,11 @@ RATE_REPLICATES = 800
 #: always *have* a horizon-two parameter: sweeping this study's own
 #: ``stream_seed(STUDY, "property_sample", "root_n_and_efficiency", "n_500", replicate)``
 #: stream, replicate 80 leaves five followers of ``always`` through the second node and every
-#: one of them has ``Y2 = 0``, so the second regression has nothing to separate and the
-#: estimator refuses with ``LongitudinalError``.  That refusal is correct, and
-#: ``docs/development/method-benchmarking.md`` forbids replacing a failed replication, so 500
-#: is unavailable here.  The end-of-study law keeps it because it has no risk set to thin: its
+#: one of them has ``Y2 = 0``, so the second regression has nothing to separate.  The
+#: estimator refused that replication with ``LongitudinalError`` when the study was declared,
+#: and ``docs/development/method-benchmarking.md`` forbids replacing a failed replication, so
+#: 500 is unavailable here.  The estimator now reads such a regression as zero, and the
+#: declared ladder is unchanged.  The end-of-study law keeps it because it has no risk set to thin: its
 #: outcome sits at the end, so no unit leaves before the node the plan is followed through.
 RATE_SIZES = (1_000, 2_000, 8_000)
 #: The horizon-two SE-ratio interval is the binding calibration endpoint.  A 2,400-draw

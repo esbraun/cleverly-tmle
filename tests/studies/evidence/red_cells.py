@@ -385,6 +385,18 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     "mtp-point-calibration": (
         *_keys("policy-point-mtp", "property", "interval_calibration/halve__correctly_specified"),
     ),
+    "X13-finite-sample": (
+        *_keys(
+            "point-treatment-survival",
+            "property",
+            "interval_calibration/weighted_t5__correctly_specified",
+        ),
+        *_keys(
+            "point-treatment-survival-crossfit",
+            "property",
+            "interval_calibration/three_arm_t3__correctly_specified",
+        ),
+    ),
 }
 
 

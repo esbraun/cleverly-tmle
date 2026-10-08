@@ -1402,6 +1402,21 @@ sizes only the cluster sum is the delta-method variance of the row mean
 - Stitelman, De Gruttola & van der Laan (2012), *A General Implementation of TMLE for
   Longitudinal Data Applied to Causal Inference in Survival Analysis*, DOI
   [10.1515/1557-4679.1334](https://doi.org/10.1515/1557-4679.1334).
+- Benkeser, Carone & Gilbert (2018), [*Improved estimation of the cumulative incidence of rare
+  outcomes*](https://doi.org/10.1002/sim.7337), *Statistics in Medicine* 37(2):280–293, DOI
+  10.1002/sim.7337. Read first-hand in the PubMed Central author manuscript, PMC5735003. Section 2.1
+  defines the visit structure: one baseline treatment, attendance at each visit before the
+  endpoints, and an endpoint observed at or before a visit. Section 2.3 identifies the cumulative
+  incidence as iterated means. Sections 4.2 to 4.4 give the sequential regressions, the clever
+  covariate $H_k$ and the estimating equations, and Section 5 the asymptotics. The held baseline
+  treatment and the time-to-event converter follow these sections.
+- R `survtmle` 1.1.1 (CRAN archive, tarball sha256
+  `d286799265f35f2ae7631f2f1714936ff2b1866cdd95a2848c252482f9ce23d0`). `method="mean"` implements
+  Benkeser, Carone & Gilbert (2018). `makeDataList.R` builds prediction rows for `1:t0`, so an event
+  after `t0` adds no event by `t0`. `censoring_estimate.R` predicts the censoring hazard at `t - 1`,
+  sets `G_dC = 1` at `t = 1`, and takes a `noCens` branch when no censoring is observed.
+  `checkInputs.R` refuses more than two treatment values. The registered study
+  `point-treatment-survival` pairs with it.
 - Díaz, Hoffman, Hejazi & Williams (2024), [*Causal survival analysis under competing risks
   using longitudinal modified treatment policies*](https://doi.org/10.1007/s10985-023-09606-7),
   *Lifetime Data Analysis* 30:213–236. The corrected

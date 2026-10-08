@@ -64,6 +64,16 @@ This survey covers the intervention family. Each verdict names the evidence behi
 | R `txshift` 0.3.8 | continuous shift interventions | Not used. It estimates the exposure density through a second density path, which requires a separate study rather than serving as a second opinion on this one. |
 | R `tmle3` at `ed72f8a` | static and dynamic point-treatment regimes | Rejected for stochastic regimes. `Param_TSM` evaluates a counterfactual at one treatment value and does not integrate over a declared density. |
 
+The point-treatment survival survey covers one baseline treatment and an event over visits.
+
+| candidate | parameter it reaches | verdict |
+| --- | --- | --- |
+| R `survtmle` 1.1.1 | `method="mean"`: the iterated-mean TMLE of the cumulative incidence of Benkeser, Carone and Gilbert (2018), for two arms and competing causes | Used by `point-treatment-survival`. It is the governing source's own implementation. It refuses more than two arms and has no RMST, so those are property cells. Its fluctuation fits one logistic coefficient per arm's clever covariate, which separates by arm, and this package fluctuates each node's intercept |
+| R `lmtp` 1.5.4 | survival with a baseline treatment, a known policy or a modified treatment policy | Used by `point-treatment-survival-policies` with K copied treatment columns and the identity policy after node 1. With `trt` of length one it evaluates every node's regression at the shifted treatment, which applies a policy that is not idempotent once per node, a different estimand |
+| R `tmle3` at `ed72f8a` | `tmle_survival`: a whole-curve hazard fluctuation on `k_grid <- 1:max(T_tilde)`, binary treatment | Not used. It belongs to the hazard-based targeting of [X14](../roadmap.md#x14-hazard-based-and-monotone-survival-curves), whose pairing must pass the same grid |
+| MOSS, `concrete` | monotone and continuous-time survival | Not used. They belong to X14 and to continuous-time intensities |
+| R `ltmle` 1.3-0 | a point treatment with survival nodes | Not used. It adds no witness that `survtmle` does not, for one comparator per study |
+
 The cluster survey records how each pinned comparator aggregates a clustered curve. At unequal
 cluster sizes the cluster sum is the delta-method variance of the row mean, and the cluster mean
 is a different variance ([references](../references.md#grouped-folds-and-clustered-cross-fitting)

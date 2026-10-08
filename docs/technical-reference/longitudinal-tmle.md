@@ -419,6 +419,122 @@ refusals. The registered study is
 mechanism-only cells read oracle bins that grow as $n^{2/3}$, 320 at n = 2,000, for the reason
 above. So they test the targeting with a nearly exact ratio and not the default density.
 
+### One baseline treatment held over the nodes
+
+A point-treatment survival analysis has one treatment decision, at baseline, and an event process
+over $K$ visits. Declare it with one column name: `treatment="A"` on `LTMLE.fit`,
+`LongitudinalData.from_frame` and `LongitudinalTreatment`. Node 1 is the decision. Each later node
+is an *identity node*.
+
+| item | rule |
+| --- | --- |
+| identity node | its plan value is the observed node-1 value, and its factor is exactly one in the ratio numerator and in the denominator. It fits no model, it is never a policy or modified treatment policy node, and it adds no block to any mechanism or outcome design |
+| node count | a survival outcome gives one node per event column. An end-of-study outcome takes the count from `censoring=`, else from `time_varying=`, else it is one. Lengths that disagree raise `DataError` |
+| regimens | each regimen resolves on node 1, once, on the node-1 history. A static plan that repeats one label over the nodes reads as that label. Any other plan of more than one node raises `ValueError` before any learner |
+| plans at node 1 | an arm, a known rule, a known stochastic policy, or a modified treatment policy (categorical or continuous), as for an ordinary node 1 |
+| identification | without $L_t$, Benkeser, Carone and Gilbert (2018), Section 2.3. With $L_t$, Díaz, Williams, Hoffman and Schenck (2023), Theorem 1, with the identity policy $d_t(a_t, h_t) = a_t$ at $t \ge 2$ |
+| influence curve | the shipped telescoping curve, with $H_t = 1\{A^d = A\}\,(q_1/g_1) \prod_{s \le t} 1\{C_s = 1\}/c_s$. For an arm or a rule, $q_1/g_1 = 1/g_1(d \mid W)$, which is $H_k$ of Benkeser et al. (2018), Section 4 |
+| end-of-study outcome | the same held design with the shipped end-of-study recursion. Without $L_t$ it equals point TMLE with `delta=` and $\Delta = C_1 \cdots C_K$, because with saturated nuisances the curve keeps only its last term |
+| report | `summary()` prints `treatment: one baseline decision 'A', held over K node(s)`. The nuisance report shows `LONGITUDINAL_HELD_DECISION` in place of a treatment row at each identity node. `bootstrap_design_kind` returns no kind, so the bootstrap is a diagnostic |
+
+The wide layout with one treatment column per node gives the same fit when the later columns copy
+node 1. With cell-mean learners at one fold the copied fit's later factor is exactly one, so the
+two agree to the last bit. With a penalized treatment learner the copied fit's later factor is not
+one, and the two fits differ.
+
+`lmtp` with `trt` of length one evaluates every node's regression at the shifted treatment. For a
+policy that is not idempotent, such as a stochastic draw or `a - 1`, that applies the policy once
+per node, which is a different estimand. Copied treatment columns with the identity policy after
+node 1 reproduce the held estimand in `lmtp` (`point-treatment-survival-policies`).
+
+The evidence is in the table.
+
+| test module | what it checks |
+| --- | --- |
+| `tests/unit/test_point_survival_law.py` | the estimate against the g-formula of `tests/discrete_law_point_survival.py`, the curve against its Gateaux derivative, and the held fit against the copied-column fit |
+| `tests/unit/test_point_end_of_study_law.py` | the same three identities on the end-of-study law, and the point-TMLE reduction |
+| `tests/unit/test_point_policy_mtp.py` | a policy and a modified treatment policy at node 1. A mutation that makes the identity nodes policy nodes fails the Gateaux check |
+| `tests/unit/test_point_survival_mutations.py` | the other witnesses and mutations |
+
+### Time-to-event input
+
+`LongitudinalData.from_time_to_event` and the design `TimeToEvent` read one row per unit: a time,
+an event code (`0` for censored), one baseline treatment and the baseline covariates. Node $k$
+covers the interval $(g_{k-1}, g_k]$ of a grid $0 = g_0 < g_1 < \dots < g_K$. The rules follow the
+visit structure of Benkeser, Carone and Gilbert (2018), Section 2.1.
+
+| unit | nodes |
+| --- | --- |
+| an event of cause $j$ at $T \le g_K$ | the event at the node $k$ with $g_{k-1} < T \le g_k$ |
+| censored at a grid time $g_j < g_K$ | observed through node $j$, then censored |
+| an event or a censoring after $g_K$, or censored at $g_K$ | event-free and observed through node $K$, the administrative end. This is the `survtmle` `t0` convention (`makeDataList.R`) |
+
+An event and a censoring at one grid time are ordered event first, as `survtmle`, `tmle3` and MOSS
+order them. `grid=None` needs integer times and uses $g_k = k$ up to the largest event time. Each
+regimen and cause costs $K(K+1)/2$ sequential regressions, so a default grid on day-level times can
+hold thousands of nodes. `summary()` prints the grid. On a gridded fit, `horizons=` and the `tau`
+of `rmst` take grid times, `curve()` reports the grid time in its `time` column, and `to_frame()`
+adds a `time` column. A parameter name keeps the node index. `continuous_treatment=True` declares
+the treatment a continuous dose. Node 1 then fits one conditional density, and a regimen is a
+modified treatment policy.
+
+A censoring time strictly between two grid times is refused. Such a time cannot be ordered against
+the events of its interval, and both conventions are biased. Declare the grid at the visit times.
+
+Take one interval $(0, 1]$, an exponential event time with rate 0.3 and an independent exponential
+censoring time with rate 0.2. The truth is $P(T \le 1) = 0.259$. The rule that censors the unit
+inside the interval estimates 0.280. The rule that observes it through the interval estimates
+0.236. `test_both_off_grid_censoring_conventions_are_biased` derives the three numbers in closed
+form.
+
+Each refusal of the input is raised before any learner.
+
+| trigger | type |
+| --- | --- |
+| a time that is missing, not finite, or at or below zero | `DataError` |
+| `grid=None` with a time that is not an integer | `DataError` |
+| a grid that is not strictly increasing, positive and finite | `ValueError` |
+| an event code that is missing, negative, not an integer, or not named by `causes=`; a cause with no event at or before $g_K$ | `DataError` |
+| a horizon or an RMST time off the grid, or past $g_K$ on a declared grid | `ValueError` |
+| `time_varying=` on `TimeToEvent` | `TypeError` |
+| a censoring time between two grid times | `DataError` |
+
+`to_time_to_event()` returns each unit's grid time and event code. It is the inverse map on a law
+whose times sit on the grid. `tests/unit/test_time_to_event_input.py` checks one refusal per row
+and the round trip on two grids. It also checks the long fit against the wide held fit. Floor
+binning and the censor-first map are its mutations, and each one misses the truth.
+
+### A censoring node with no censoring
+
+A censoring node at which no eligible unit is censored has the fixed factor one and fits no
+learner. The eligible rows are the rows at risk before the node with positive weight. On the long
+layout node 1 always has this shape, because every censoring time is at least $g_1$. A cross-fitted training
+fold with no censored unit predicts one, its empirical rate. The nuisance report shows
+`LONGITUDINAL_NO_CENSORING`, or `LONGITUDINAL_NO_CENSORING_IN_FOLD` beside the node's row.
+`survtmle` sets `G_dC = 1` at `t = 1` and has a `noCens` branch for the same case. Before this rule a
+standard classifier raised on the constant target. `tests/unit/test_no_censoring_node.py` removes
+the rule and sees that error return.
+
+### A node with no event
+
+A node regression whose fitted rows all hold 0, or all hold 1, is that value, and no learner runs
+there. A grid node at which no follower of a regimen had the event has this shape, with hazard
+zero. Zero is the maximum-likelihood hazard, and `survtmle` reads such a node the same way. The
+fluctuation at the node is skipped, because the score is exactly zero at the initial fit. The rule
+applies to every outcome and pseudo-outcome node, on both layouts.
+
+| case | result |
+| --- | --- |
+| no follower had the event at every node through the horizon | risk zero, a zero influence curve, and an interval of width zero |
+| the followers of one outer training fold all hold 0, or all hold 1 | that fold's regression is the value. The pooled fluctuation then bounds its predictions as it does any prediction |
+| `msm=` with a cell whose followers all hold 0, or all hold 1 | `CapabilityError`. The pooled logistic fluctuation would move the value into its bounds |
+| a pseudo-outcome that holds one value inside $(0, 1)$, such as an intercept-only regression carried back | not read by this rule. The learner fits it and the fluctuation moves it, so a fit that ran before the rule keeps its numbers |
+
+The nuisance report shows `LONGITUDINAL_CONSTANT_TARGET` in place of the node's row, with the
+regimen, the cause and the horizon. `tests/unit/test_event_free_node.py` checks the zero risk, the
+omission rows and the absent learner fits. Its mutation removes the rule and sees the bounded
+fluctuation move the risk off zero.
+
 ## Functionals of a fitted result
 
 Each method below reads the influence curves of the reported estimates. Each one is an exact
@@ -449,7 +565,21 @@ Royston and Parmar (2013) define the RMST. Andersen, Hansen and Klein (2004) def
 to one cause.
 
 The unit is the node index. For nodes $\Delta$ apart, the RMST in calendar time is
-$\Delta \times \mathrm{RMST}$. On a competing-risk fit, $F_d$ is the sum of the cause-specific
+$\Delta \times \mathrm{RMST}$.
+
+On a fit with a time grid, $\tau$ is a grid time $g_m$ with $2 \le m \le K$, and
+
+$$
+\mathrm{RMST}_d(g_m) = \sum_{k \le m} (g_k - g_{k-1})\,S_d(g_{k-1})
+  = g_m - \sum_{k=2}^{m} (g_k - g_{k-1})\,F_d(g_{k-1}),
+$$
+
+with the curve $-\sum_{k=2}^{m} (g_k - g_{k-1})\,IC_{F_d(g_{k-1})}$. `rmtl` takes the same
+spacings with a plus sign. This is $E[\min(\tilde T^d, g_m)]$, with $\tilde T$ the grid ceiling of
+the event time. It equals $\int_0^{g_m} S_d(u)\,du$ only when the events sit on the grid, and for a
+continuous event time it is larger. The name carries the node index $m$. On the unit grid
+$g_k = k$ the time $\tau = K + 1$ is also accepted, and `rmst` equals the wide fit's
+`rmst` (`test_on_the_unit_grid_rmst_is_the_wide_rmst`). On a competing-risk fit, $F_d$ is the sum of the cause-specific
 incidences, so `rmst` needs every declared cause. `rmst` refuses a fit that omits a horizon below
 $\tau$, an end-of-study fit, and a working-model fit.
 
@@ -474,7 +604,7 @@ sums no risk curve.
 | replay | `truncation_curve()` does not rerun the bootstrap. Its check at the fitted bound compares the estimates without their bootstrap summaries |
 | random draws | `run_bootstrap` spawns the stream from `random_state`. The stream draws nothing the fit uses, so every analytic field of the fit is unchanged. `tests/unit/test_ltmle_bootstrap.py` pins a committed `canonical-ltmle` row at `n_bootstrap=0` and at `n_bootstrap=2` |
 | parallel layers | the replicates run in parallel over `n_jobs`, and each replicate fit runs with one worker |
-| licensing scope | `bootstrap_design_kind` names a fit's kind: an end-of-study or single-cause survival outcome, fitted in sample, cross-fitted, clustered in sample (`cluster`) or clustered and cross-fitted (`cluster_cross_fit`), with static regimens, a binary outcome, no weights and no working model. Any other fit has no kind. A kind is licensed as inference only when it is in `LICENSED_BOOTSTRAP_DESIGNS`, and it enters after its cells in the [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md) are green. The registered run licensed `end_of_study/in_sample` and `survival/in_sample`. The cross-fitted and in-sample clustered end-of-study kinds stay diagnostic, with owner `X20-bootstrap`. No study cell measures `cluster_cross_fit`, so it stays diagnostic too. An unlicensed kind prints `bootstrap sd` and a percentile range. The study measures correctly specified cell-mean nuisances on finite binary laws, at $n = 1000$, and at 1,500 rows in 60 clusters for the cluster bootstrap. No result covers a data-adaptive nuisance. Cai and van der Laan (2020) is the warning for that case |
+| licensing scope | `bootstrap_design_kind` names a fit's kind: an end-of-study or single-cause survival outcome, fitted in sample, cross-fitted, clustered in sample (`cluster`) or clustered and cross-fitted (`cluster_cross_fit`), with static regimens, one treatment decision per node, a binary outcome, no weights and no working model. Any other fit has no kind, and a held baseline treatment is one such fit. A kind is licensed as inference only when it is in `LICENSED_BOOTSTRAP_DESIGNS`, and it enters after its cells in the [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md) are green. The registered run licensed `end_of_study/in_sample` and `survival/in_sample`. The cross-fitted and in-sample clustered end-of-study kinds stay diagnostic, with owner `X20-bootstrap`. No study cell measures `cluster_cross_fit`, so it stays diagnostic too. An unlicensed kind prints `bootstrap sd` and a percentile range. The study measures correctly specified cell-mean nuisances on finite binary laws, at $n = 1000$, and at 1,500 rows in 60 clusters for the cluster bootstrap. No result covers a data-adaptive nuisance. Cai and van der Laan (2020) is the warning for that case |
 | derived estimates | `ratio`, `rmst`, `rmtl` and `contrast` apply the same function to each replicate's estimates, and attach the percentile interval of those values. The derived interval is licensed only when every input's interval is |
 
 ## Variations
@@ -637,8 +767,9 @@ handling when it ships.
 
 Two side effects follow from the cross-fitted default. A fit with fewer than 10 clusters warns that
 it reduces `n_folds` to the cluster count, and a fit with fewer than 20 reports no interval. At few clusters a training fold can lack a first-node
-level, or hold one outcome value among a regimen's followers. The fit then raises
-`LongitudinalError` after the draw, and the message names the in-sample fit.
+level. The fit then raises `LongitudinalError` after the draw, and the message names the
+in-sample fit. A training fold whose followers all hold one outcome value reads that value, as
+[a node with no event](#a-node-with-no-event) states.
 
 `tests/unit/test_clustered_cross_fitted_ltmle.py` holds the fast evidence. Each witness has a
 mutation control that fails it.

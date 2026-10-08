@@ -18,7 +18,7 @@ from cleverly.datasets import (
     make_longitudinal_survival,
 )
 from cleverly.exceptions import DataError, PositivityWarning
-from cleverly.longitudinal import LTMLE, DynamicRegimen, LongitudinalError, LongitudinalResult
+from cleverly.longitudinal import LTMLE, DynamicRegimen, LongitudinalResult
 from cleverly.longitudinal.estimator import _level_head
 
 #: Fast-tier settings: parametric nuisances, few folds, seeded.  The mechanism of
@@ -1372,8 +1372,7 @@ class TestASurvivalOutcome:
         the horizon-2 pass is the end-of-study recursion line for line.
 
         ``horizons=(2,)`` because the horizon-1 risk of a sample with no events at the
-        first node is not estimable, and is refused as such -- which is itself the right
-        answer and is checked below.
+        first node is zero by the regression that node reads, which is checked below.
         """
         frame, _ = make_longitudinal(n=1200, seed=4)
         survival = frame.copy()
@@ -1398,19 +1397,32 @@ class TestASurvivalOutcome:
             for left, right in zip(end_of_study.steps, survival_fit.steps, strict=True):
                 np.testing.assert_array_equal(left.fluctuation.epsilon, right.fluctuation.epsilon)
 
-    def test_a_horizon_with_no_events_is_refused_by_name(self) -> None:
-        """Rather than handed to a classifier with one class in it.
+    def test_a_horizon_with_no_events_reads_risk_zero(self) -> None:
+        """The regression of a node with no event is zero, and no classifier is handed one class.
 
-        Reachable on any real survival data -- a late node with a thin risk set, a rare
-        event, a small fold -- where the learner's own failure would be a
-        ``RuntimeError`` from the Super Learner naming no cause.
+        Reachable on any real survival data: a late node with a thin risk set, a rare
+        event, a small fold.  Zero is the maximum-likelihood hazard there, and survtmle
+        reads it the same way.  The horizon-2 fit is the ``horizons=(2,)`` fit bit for bit,
+        so the zero at the first horizon does not leak into the second.
         """
         frame, _ = make_longitudinal(n=1200, seed=4)
         survival = frame.copy()
         survival["Y1"] = np.where(frame["C1"] == 1, 0.0, np.nan)
         survival = survival.rename(columns={"Y": "Y2"})
-        with pytest.raises(LongitudinalError, match="is not estimable from"):
-            LTMLE({"always": 1}, **FAST).fit(survival, **self.SURVIVAL_COLUMNS)
+        settings = {**FAST, "simultaneous": False}
+        both = LTMLE({"always": 1}, **settings).fit(survival, **self.SURVIVAL_COLUMNS)
+        late = LTMLE({"always": 1}, horizons=(2,), **settings).fit(
+            survival, **self.SURVIVAL_COLUMNS
+        )
+
+        first = both.fits["always @ t=1"]
+        assert first.psi_scaled == 0.0
+        np.testing.assert_array_equal(first.influence_curve_scaled, 0.0)
+        assert both.fits["always @ t=2"].psi_scaled == late.fits["always @ t=2"].psi_scaled
+        omissions = both.diagnostics.nuisance_models().omissions
+        assert [(row.role, row.time, row.horizon) for row in omissions if row.regimen] == [
+            ("outcome", 1, 1)
+        ]
 
     def test_the_settings_report_says_the_outcome_is_a_survival_one(
         self, fitted: tuple[LongitudinalResult, dict[str, float]]
@@ -1686,7 +1698,8 @@ class TestCompetingRisks:
                 **self.COMPETING_COLUMNS,
             )
 
-    def test_a_cause_with_no_events_is_refused_by_name(self) -> None:
+    def test_a_cause_with_no_events_has_incidence_zero(self) -> None:
+        """A cause no follower left through has zero incidence, and the other cause fits."""
         frame = self._two_cause_frame(n=400, seed=1)
         empty = frame.copy()
         empty["D1"] = np.where(np.isnan(frame["D1"]), np.nan, 0.0)
@@ -1699,21 +1712,25 @@ class TestCompetingRisks:
                 np.nan,
                 np.maximum(frame[f"R{node}"], np.nan_to_num(frame[f"D{node}"])),
             )
-        with pytest.raises(LongitudinalError, match="is not estimable from"):
-            LTMLE({"always": 1}, reference="always", **FAST).fit(
-                empty,
-                outcome={"relapse": ["R1", "R2"], "death": ["D1", "D2"]},
-                **self.COMPETING_COLUMNS,
-            )
+        result = LTMLE({"always": 1}, reference="always", **FAST).fit(
+            empty,
+            outcome={"relapse": ["R1", "R2"], "death": ["D1", "D2"]},
+            **self.COMPETING_COLUMNS,
+        )
+        for horizon in (1, 2):
+            death = result.fits[f"always, death @ t={horizon}"]
+            assert death.psi_scaled == 0.0
+            np.testing.assert_array_equal(death.influence_curve_scaled, 0.0)
+            assert result.fits[f"always, relapse @ t={horizon}"].psi_scaled > 0.0
 
-    def test_a_rare_cause_fits_at_one_fold_and_is_refused_at_two_by_the_fold(self) -> None:
-        """One frame and two fold counts, because the binding set is a fold's training rows.
+    def test_a_rare_cause_fits_at_one_fold_and_at_two(self) -> None:
+        """A fold whose training rows hold no event of a cause reads that regression as zero.
 
-        The per-cause check reads the rows the node regression is fitted on.  Without outer
-        cross-fitting that is every row.  With it, it is one outer fold's training
-        complement, which is smaller, so a rare cause can be estimable at one fold and not
-        at two on the same sample.  The refusal has to name the fold: telling this reader to
-        collect more data misreports what moved.
+        Without outer cross-fitting the node regression is fitted on every row.  With it,
+        it is fitted on one outer fold's training complement, which is smaller, so a rare
+        cause can have no event there and events in the sample.  Zero is the
+        maximum-likelihood regression of those training rows, so the fit runs at both fold
+        counts rather than depending on the partition.
         """
 
         frame, _ = make_longitudinal_competing(n=220, seed=41)
@@ -1725,29 +1742,14 @@ class TestCompetingRisks:
         single = LTMLE({"always": 1}, reference="always", **{**settings, "n_folds": 1}).fit(
             frame, **columns
         )
+        crossed = LTMLE({"always": 1}, reference="always", **{**settings, "n_folds": 2}).fit(
+            frame, **columns
+        )
 
         assert single.folds.n_folds == 1
-        assert len(single.estimates) == 4
-
-        with pytest.raises(LongitudinalError, match="outer training fold") as caught:
-            LTMLE({"always": 1}, reference="always", **{**settings, "n_folds": 2}).fit(
-                frame, **columns
-            )
-        # Matched on the clause that survives a reworded sentence: the fold is named, and
-        # the reader is told to fit in sample rather than to search for a fold count that
-        # happens to work (the fold and outcome-scale rules: no refusal drawn after a split names a repartition
-        # remedy, since the split reads no treatment, outcome or covariate a remedy could
-        # legitimately react to).
-        message = str(caught.value)
-        assert "the same frame can be estimable at n_folds=1" in message
-        assert (
-            "trying fold counts or seeds until one fits would choose the partition by the "
-            "values it must not read" in message
-        )
-        assert (
-            "Fit in sample (CrossFitting(enabled=False), or n_folds=1 on the engine), or "
-            "choose an estimand this fold count supports"
-        ) in message
+        assert crossed.folds.n_folds == 2
+        assert len(single.estimates) == len(crossed.estimates) == 4
+        assert all(np.isfinite(crossed.psi(name)) for name in crossed)
 
     def test_recovers_the_truth_on_average(self) -> None:
         """Averaged over independent samples, every incidence lands on its quadrature truth.

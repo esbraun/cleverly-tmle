@@ -254,6 +254,14 @@ class Mechanism:
         Learner diagnostics from each treatment node and fitted fold.
     censoring_diagnostics : tuple of tuple of SuperLearnerDiagnostics
         Learner diagnostics from each censoring node and fitted fold.
+    policy_numerators : dict of str to dict of int to FloatArray
+        Ratio numerators of the modified treatment policy nodes, by plan and node.
+    densities : dict of int to ConditionalDensity
+        Out-of-fold conditional densities of the continuous nodes.
+    no_censoring_nodes : tuple of int
+        Censoring nodes with no censored unit in the eligible sample.
+    no_censoring_folds : dict of int to tuple of int
+        By censoring node, the training folds with no censored unit.
     """
 
     treatment: tuple[dict[str, FloatArray], ...]
@@ -278,6 +286,16 @@ class Mechanism:
     #: The out-of-fold conditional density of each continuous node, by node counted from
     #: one, on the density route.  Empty without a continuous node.
     densities: dict[int, ConditionalDensity] = field(default_factory=dict)
+    #: The censoring nodes, counted from one, at which no eligible unit was censored.  The
+    #: eligible sample is the rows at risk before the node, with positive weight.  Such a
+    #: node's factor is exactly one at every plan, and no learner is fitted there
+    #: (``survtmle`` sets ``G_dC = 1`` at ``t = 1`` and has a ``noCens`` branch for the same
+    #: case).  The nuisance report shows an omission in place of a model row.
+    no_censoring_nodes: tuple[int, ...] = ()
+    #: By censoring node, counted from one, the one-based training folds of a cross-fitted
+    #: fit that held no censored unit while the eligible sample did.  Each such fold predicts
+    #: retention exactly one, which is its empirical rate, and fits no learner.
+    no_censoring_folds: dict[int, tuple[int, ...]] = field(default_factory=dict)
 
     def cumulative(
         self, data: LongitudinalData, plan: Plan, bounds: tuple[float, float]
@@ -711,7 +729,7 @@ def preflight_mechanism_support(
         The realized outer split.
     """
     for time in range(1, data.n_times + 1):
-        if data.is_continuous_node(time):
+        if data.is_continuous_node(time) or data.is_held_node(time):
             continue
         at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
         arm = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
@@ -722,7 +740,7 @@ def preflight_mechanism_support(
             folds,
             classes,
             data.treatment_levels[time - 1],
-            data.treatment_names[time - 1],
+            data.decision_name(time),
             every_level=time == 1 and not folds.is_single,
         )
 
@@ -766,6 +784,8 @@ def fit_mechanism(
         plan.label: {} for plan in plans if plan.has_mtp
     }
     densities: dict[int, ConditionalDensity] = {}
+    no_censoring_nodes: list[int] = []
+    no_censoring_folds: dict[int, tuple[int, ...]] = {}
     # Neither factor depends on a regimen, so one scan serves every node.  `followed` is
     # unused here and the all-true assignment makes that explicit rather than implicit.
     with phase("mask_construction"):
@@ -774,7 +794,13 @@ def fit_mechanism(
     for time in range(1, data.n_times + 1):
         at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
         arm = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
-        if data.is_continuous_node(time):
+        if data.is_held_node(time):
+            # An identity node of a held design: its factor is exactly one in the
+            # numerator and the denominator, and it fits no model.
+            treatment.append({plan.label: np.ones(data.n) for plan in plans})
+            treatment_observed.append(np.zeros((data.n, 0)))
+            treatment_diagnostics.append(())
+        elif data.is_continuous_node(time):
             with phase("mechanism_fit"):
                 density = _continuous_node_ratios(
                     data,
@@ -815,6 +841,15 @@ def fit_mechanism(
             censoring.append({plan.label: np.ones(data.n) for plan in plans})
             continue
         stayed = np.where(at_risk, data.uncensored[:, time - 1].astype(float), 0.0)
+        # No eligible unit was censored at this node, so the retention factor is exactly
+        # one and the learner has a constant target, which a standard classifier refuses.
+        # This is the first node of every default integer grid.
+        if _retains_every_eligible_unit(data, at_risk, time):
+            censoring.append({plan.label: np.ones(data.n) for plan in plans})
+            censoring_observed.append(np.ones(data.n))
+            censoring_diagnostics.append(())
+            no_censoring_nodes.append(time)
+            continue
         censor_designs = {
             plan.label: data.history_design(time, treatment=plan.values, include_current=True)
             for plan in plans
@@ -824,6 +859,7 @@ def fit_mechanism(
             **censor_designs,
             censor_observed_key: data.history_design(time, include_current=True),
         }
+        constant_folds: list[int] = []
         with phase("mechanism_fit"):
             predictions, diagnostics = cross_fit_predictions(
                 censoring_learner,
@@ -837,7 +873,10 @@ def fit_mechanism(
                 groups=data.cluster,
                 clip=(0.0, 1.0),
                 n_jobs=n_jobs,
+                constant_folds=constant_folds,
             )
+        if constant_folds:
+            no_censoring_folds[time] = tuple(sorted(constant_folds))
         censoring_observed.append(np.asarray(predictions.pop(censor_observed_key), dtype=float))
         censoring_diagnostics.append(tuple(diagnostics))
         censoring.append(predictions)
@@ -850,7 +889,19 @@ def fit_mechanism(
         tuple(censoring_diagnostics),
         numerators,
         densities,
+        tuple(no_censoring_nodes),
+        no_censoring_folds,
     )
+
+
+def _retains_every_eligible_unit(data: LongitudinalData, at_risk: BoolArray, time: int) -> bool:
+    """Whether no unit at risk before censoring node ``time``, with positive weight, left.
+
+    A zero-weight row is in no weighted fit, so it cannot make the node's retention rate
+    differ from one.
+    """
+    eligible = at_risk & (data.weights > 0.0)
+    return not bool(np.any(eligible & ~data.uncensored[:, time - 1]))
 
 
 def _categorical_node(
@@ -1004,14 +1055,13 @@ def preflight_terminal_outcomes(
     plans: Sequence[Plan],
     horizons: Sequence[int],
     folds: Folds,
-    scaler: OutcomeScaler,
 ) -> None:
-    """Check terminal classification regressions before any mechanism learner fits.
+    """Check that every reported horizon has followers, before any mechanism learner fits.
 
-    The target at a reported horizon is the observed outcome or event indicator. It does
-    not depend on a fitted nuisance or an earlier targeting step, so its support can be
-    checked for every regimen, cause, horizon, and outer training complement now. The
-    masks and target are the same ones :func:`prepare_node` uses at that horizon.
+    Who follows a regimen through a horizon does not depend on a fitted nuisance, so a
+    regimen, horizon or outer training complement with no follower is refused now.  A
+    horizon whose followers all hold one event value is not refused: its regression is that
+    value (:func:`constant_target`).
 
     Parameters
     ----------
@@ -1023,41 +1073,17 @@ def preflight_terminal_outcomes(
         Reported outcome or event times.
     folds : Folds
         The realized outer split.
-    scaler : OutcomeScaler
-        The outcome transformation used by the recursion.
     """
     preflight_policy_support(data, plans, horizons, folds)
-    if data.family != "binomial":
-        return
-    carried = seed_carried(data, scaler)
-    causes: tuple[str | None, ...] = data.cause_labels or (None,)
     for plan in plans:
         masks = plan.masks(data)
         for horizon in horizons:
             at_risk = masks.at_risk(horizon)
             followers = masks.following(horizon)
-            for cause in causes:
-                target = _pseudo_outcome(data, carried, horizon, cause)
-                for fold, (train, _) in enumerate(folds):
-                    outer_fold = None if folds.is_single else fold
-                    fitted_on = followers.copy()
-                    if not folds.is_single:
-                        train_rows = np.zeros(data.n, dtype=bool)
-                        train_rows[train] = True
-                        fitted_on &= train_rows
-                    _require_regimen_followers(
-                        data, plan, horizon, at_risk, fitted_on, outer_fold=outer_fold
-                    )
-                    _check_outcome_varies(
-                        data,
-                        target,
-                        fitted_on,
-                        plan,
-                        horizon,
-                        horizon,
-                        cause,
-                        outer_fold=outer_fold,
-                    )
+            for outer_fold, train_rows in _fit_rows(data, folds):
+                _require_regimen_followers(
+                    data, plan, horizon, at_risk, followers & train_rows, outer_fold=outer_fold
+                )
 
 
 def _fit_rows(data: LongitudinalData, folds: Folds) -> list[tuple[int | None, BoolArray]]:
@@ -1307,24 +1333,30 @@ def _fit_node_regression(
         predict_designs["history"] = design
     learner = outcome_learner if time == horizon else pseudo_learner
     task = "classification" if time == horizon and data.family == "binomial" else "regression"
-    if task == "classification":
-        _check_outcome_varies(
-            data, next_outcome, fitted_on, plan, time, horizon, cause, outer_fold=outer_fold
-        )
-    with phase("outcome_learner_fit"):
-        predictions, diagnostics = cross_fit_predictions(
-            learner,
-            design,
-            next_outcome,
-            data.weights,
-            folds,
-            task=task,  # type: ignore[arg-type]
-            predict_designs=predict_designs,
-            fit_mask=fitted_on,
-            groups=data.cluster,
-            clip=(0.0, 1.0),
-            n_jobs=n_jobs,
-        )
+    constant = constant_target(next_outcome, fitted_on)
+    if constant is not None:
+        # Every row the regression is fitted on holds 0, such as a grid node at which no
+        # follower had the event, or every row holds 1.  The maximum-likelihood regression is
+        # that value, so the node fits no learner, and the node's score is zero there.
+        predictions = {name: np.full(data.n, constant) for name in predict_designs}
+        diagnostics: list[SuperLearnerDiagnostics] = []
+    else:
+        with phase("outcome_learner_fit"):
+            predictions, diagnostics = cross_fit_predictions(
+                learner,
+                design,
+                next_outcome,
+                data.weights,
+                folds,
+                task=task,  # type: ignore[arg-type]
+                predict_designs=predict_designs,
+                fit_mask=fitted_on,
+                groups=data.cluster,
+                clip=(0.0, 1.0),
+                n_jobs=n_jobs,
+                # A training fold whose rows hold one class predicts that class.
+                constant_folds=[] if task == "classification" else None,
+            )
     if not policy_node:
         return _NodeRegression(
             time=time,
@@ -1538,6 +1570,24 @@ def _fluctuate_node(
         for code in range(arms.shape[1]):
             initial_arms[_policy_arm(code)] = arms[:, code]
             submodel_arms[_policy_arm(code)] = intercept
+    constant = constant_target(pseudo_outcome, fitted_on)
+    if constant is not None and np.all(np.asarray(initial)[fitted_on] == constant):
+        # The regression already equals its one target value on every row the score reads,
+        # so the score is zero at epsilon = 0.  The logistic solver would first shrink a
+        # prediction of 0 or 1 into the bounds and then chase it, so it is not called.
+        names = (f"epsilon[{label}, t={time}]",)
+        zero = np.zeros(1)
+        return Fluctuation(
+            epsilon=zero,
+            targeted=InitialFit(initial, initial_arms),
+            score=zero,
+            converged=True,
+            n_iter=0,
+            trace=(0.0,),
+            method="iterative",
+            names=names,
+            score_initial=zero,
+        )
     return solve_fluctuation(
         pseudo_outcome,
         InitialFit(initial, initial_arms),
@@ -1598,67 +1648,20 @@ def _pseudo_outcome(
     return carried
 
 
-def _check_outcome_varies(
-    data: LongitudinalData,
-    next_outcome: FloatArray,
-    fitted_on: BoolArray,
-    plan: Plan,
-    time: int,
-    horizon: int,
-    cause: str | None,
-    *,
-    outer_fold: int | None = None,
-) -> None:
-    """Refuse a classification with nothing to separate, saying which case it is.
+def constant_target(target: FloatArray, fitted_on: BoolArray) -> float | None:
+    """``0.0`` or ``1.0`` when ``target`` holds that one value on ``fitted_on``, else ``None``.
 
-    The set the check reads is ``fitted_on``, the rows the regression is *fitted* on, and
-    that set is what the refusal has to name.  On a single-fold pass it is every follower
-    in the sample.  Under outer cross-fitting it is the followers in one fold's training
-    complement, a strict subset, so the same frame can be estimable at ``n_folds=1`` and
-    refused at ``n_folds=2``.  Calling the binding set "this sample" in both cases reports
-    the second as a sample-size problem, which sends the reader to collect more data when
-    the fold count is what moved.
+    A node whose regression rows all hold 0, such as a grid node at which no follower had
+    the event, or all hold 1, has that value as its maximum-likelihood regression and fits
+    no learner.  The nuisance report shows ``LONGITUDINAL_CONSTANT_TARGET`` in place of its
+    row.  A constant strictly inside ``(0, 1)``, such as an intercept-only regression carried
+    back from a later node, is not read here: the learner fits it and the fluctuation moves
+    it as any prediction, so a fit that never refused keeps its numbers bit for bit.
     """
-    seen = np.unique(next_outcome[fitted_on])
-    if seen.size >= 2:
-        return
-    where = "" if outer_fold is None else f" in outer training fold {outer_fold + 1}"
-    scope = "this sample" if outer_fold is None else f"outer training fold {outer_fold + 1}"
-    crossfit_note = (
-        ""
-        if outer_fold is None
-        else (
-            " The check applies to each outer fold's training rows, not to the sample as a "
-            "whole, so a cross-fitted fit needs the outcome to vary in every fold's "
-            "training complement. That is stricter than a single-fold fit, which fits on "
-            "every row, and the same frame can be estimable at n_folds=1. "
-            + _CROSS_FIT_NODE_REMEDY.format(
-                alternative="choose an estimand this fold count supports"
-            )
-        )
-    )
-    raise LongitudinalError(
-        f"every unit following regimen {plan.label!r} through time {time}{where} has "
-        f"the same outcome ({seen.tolist()}), so the regression there has "
-        "nothing to separate. "
-        + (
-            (
-                f"The incidence of {cause!r} at horizon {horizon} is not "
-                f"estimable from {scope}: no unit following the regimen was "
-                f"observed to leave through {cause!r}. A rare cause reaches "
-                "this well before a common one does, so it is refused per "
-                "cause rather than for the fit as a whole."
-            )
-            if cause is not None
-            else (
-                f"The risk at horizon {horizon} is not estimable from {scope}: "
-                "no event was observed among the regimen's followers."
-            )
-            if data.is_survival
-            else "The outcome does not vary among the regimen's followers."
-        )
-        + crossfit_note
-    )
+    values = np.unique(np.asarray(target, dtype=float)[np.asarray(fitted_on, dtype=bool)])
+    if values.size == 1 and values[0] in (0.0, 1.0):
+        return float(values[0])
+    return None
 
 
 def _finish_regimen_fit(

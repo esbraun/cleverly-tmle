@@ -16,6 +16,7 @@ from .longitudinal import (
     survival_truth,
 )
 from .navigation import longitudinal_navigation_protocol, navigation_data, navigation_protocol
+from .survival_point import make_point_survival, point_survival_truth
 from .synthetic import (
     DGP,
     GENERATORS,
@@ -89,6 +90,7 @@ __all__ = [
     "make_multi_arm",
     "make_nonlinear_ate",
     "make_nonlinear_bounded",
+    "make_point_survival",
     "make_shift_dose",
     "make_weak_overlap",
     "missing_outcome_binary_dgp",
@@ -99,6 +101,7 @@ __all__ = [
     "nonlinear_bounded_dgp",
     "nonlinear_dgp",
     "nonlinear_logit",
+    "point_survival_truth",
     "rule_arm_at_node_two",
     "sampling_probability",
     "shift_dgp",
