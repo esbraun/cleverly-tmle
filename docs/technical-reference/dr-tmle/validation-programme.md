@@ -25,7 +25,8 @@ rather than on `main`. In summary:
 - The sign of the mechanism correction is the appendices' orientation.
 - The reported variance is Theorem 1's.
 - The three score equations are solved at the state returned.
-- The interval beats a plain TMLE's by a material margin where one nuisance is badly estimated.
+- The interval beats a plain TMLE's by a material margin where one nuisance is badly estimated,
+  on that design. It does not show validity.
 
 **Not established in that archived drift-law programme, and recorded as such.** Three things.
 Nominal coverage anywhere in that study,
@@ -34,12 +35,11 @@ ablation over 2,496 fits returned a **null** on its primary column, and a termin
 both a selection and an independent audit cohort nominated **nothing**. And any `src/` change
 justified against the theorem.
 
-Two measured quantities account for the shortfall, and they are one premise measured twice. The
-second-order remainder that Theorem 1 assumes negligible does not vanish at these sizes. The
-reported `se` runs about 10% short of the spread it covers in one drift cell, and about 16%
-*long* in the other. The second is therefore not a separate defect in the variance estimator. `σ̂²_n` is
-Theorem 1's own quantity, valid to first order exactly when the condition the first quantity fails
-holds.
+The reported `se` runs about 10% short of the spread it covers in one drift cell, and about 16%
+*long* in the other. The programme attributed the shortfall to a second-order remainder that does
+not vanish at these sizes. This attribution is withdrawn, under re-examination in [RM40](../../roadmap.md#rm40-correct-the-dr-tmle-inference-claim-when-one-nuisance-is-wrong).
+The `g-drift` mechanism learner converges to an additive approximation of `g_0`, so that cell is
+not inside Theorem 1's union condition. RM40 sizes this error.
 
 That is why the release claim is conditional validity, and why the conditions are stated on this
 page rather than assumed away.

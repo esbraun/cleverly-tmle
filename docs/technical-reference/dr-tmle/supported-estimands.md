@@ -173,8 +173,9 @@ condition on $(g_n(W), S)$, which is finer than the $g_n(W)$ of Theorem 1 of Ben
 
 The theorem's iterated-expectation step needs only that the weights in (9) and (10) are
 measurable in the conditioning sigma-field. Its rate conditions hold inside each stratum for a
-fixed number of strata. The marginal estimate is therefore valid, and it differs from the
-estimate of an unstratified fit. The arm targets of ordinary TMLE follow the same convention.
+fixed number of strata. The marginal estimate is therefore valid under Theorem 1's conditions
+in each stratum, and it differs from the estimate of an unstratified fit. The one-wrong limits of
+[the conditioning terms](theorem.md#the-conditioning-terms-are-linear-in-one-error) apply per stratum. The arm targets of ordinary TMLE follow the same convention.
 
 A stratum with no trainable row of some arm in some fold's training complement refuses after the
 fold draw and before any learner.

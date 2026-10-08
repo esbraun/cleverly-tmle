@@ -206,8 +206,8 @@ treatment learner. An observational missing outcome and a missing treatment take
 of [the composite indicator](#observational-missing-data-the-composite-indicator) instead.
 
 **With a wrong outcome regression the theorem does not establish the interval in general.** The
-proof of Theorem 1 in Díaz and van der Laan (2017), Appendix A.1, conditions a residual mean on the
-pair `(g_0, ĝ)`. It then replaces that mean by one given `g_0` alone, and calls the difference, the
+proof of Theorem 1 is in Appendix A.1 of Díaz and van der Laan (2017). It conditions a residual
+mean on the pair `(g_0, ĝ)`. It then replaces that mean by one given `g_0` alone, and calls the difference, the
 term at equation (21), `O_P(‖ĝ − g_0‖²)`. The difference is linear in `ĝ − g_0` when the error of
 `ĝ` breaks the level sets of `g_0`. Lemma 1 and Theorem 2 inherit the step. Here
 `g = g_A g_Delta`, so the term has the same structure as `R_{3,n}` of
@@ -221,7 +221,9 @@ term at equation (21), `O_P(‖ĝ − g_0‖²)`. The difference is linear in `�
 
 The probe declared `g_A`, fitted a wrong outcome regression, and gave `g_Delta` a constructed slow
 error (`reviews/rm40/lra_summary.log`). The `ey[1]` bias was −0.24, −0.60 and −0.98 SD at
-n = 1,000, 4,000 and 16,000. Its SE ratio stayed between 0.88 and 1.10. The `ate` bias cancelled on
+n = 1,000, 4,000 and 16,000. Its SE ratio stayed between 0.88 and 1.10.
+
+The `ate` bias cancelled on
 that law, because the errors of both arms moved the same way. A known `g_A` alone is therefore not
 enough. The mirror branch, where `r̂_{A,0}` and `r̂_{M,0}` condition on `(m_1, m̂)`, has the same
 structure. No probe measured it.
@@ -470,7 +472,9 @@ R_{3,n} = P_0[ (Q̄_0 − Q̄_n − Q̄_{0,r})/g_0 · (g_0 − g_n) ]
 ```
 
 The first factor tends to `F`. `F` is zero only when `Q̄_0 − Q̄` is a function of `g_0`. So
-`R_{3,n}` is linear in `g_n − g_0`. The paper's own premise for `R_{4,n}` is that the fitted
+`R_{3,n}` is linear in `g_n − g_0`.
+
+The paper's own premise for `R_{4,n}` is that the fitted
 reduction converges to `Q̄_{0,r}`. Under that premise `R_{3,n}` is the first-order leftover of the
 estimator. The paper puts `o_P(n^(−1/4))` on `‖Q̄_{0n,r} − Q̄_{n,r}‖_2`. For an error of `g_n` that
 breaks the level sets of `g_0`, that norm stays of order one. The implication is correct, and its
@@ -592,7 +596,9 @@ above is for the univariate reduction only.
 The interval is valid when both nuisances are consistent, under DR-TMLE's own reduced-regression
 and solve conditions. With one nuisance inconsistent, the two extra equations remove the part of
 the first-order remainder that is a function of the consistent nuisance. The rest, `R_{3,n}` or
-`R̃_{5,n}`, can stay first order. The one-wrong interval is valid for a declared known mechanism and
+`R̃_{5,n}`, can stay first order.
+
+The one-wrong interval is valid for a declared known mechanism and
 conservative for a correctly specified parametric mechanism. It is also valid where the consistent
 estimate keeps the level sets of its truth, or where H1 holds. No fit can check the last two. A
 constructed level-set-breaking error produced a bias that grows with `n`.

@@ -25,7 +25,7 @@ Reach for a different entry in four cases.
 | the exposure repeats over time | [longitudinal TMLE](longitudinal-tmle.md) |
 | you want the effect summarised by a working model | [MSM projections](msm-projections.md) |
 | the adjustment set is large and mostly irrelevant | [collaborative TMLE](collaborative-tmle.md) |
-| you expect one nuisance to be inconsistent and still want an interval | [DR-TMLE](dr-tmle/index.md) |
+| you expect one nuisance to be inconsistent and still want an interval | a declared [known treatment mechanism](#known-treatment-mechanism), or [DR-TMLE](dr-tmle/index.md), whose one-wrong interval is established only in [the listed cases](dr-tmle/theorem.md#the-conditioning-terms-are-linear-in-one-error) |
 
 Three worked applied analyses cover this entry. The
 [point-treatment tutorial](../examples/point-treatment-tmle.ipynb) is the main one, and it also
@@ -523,7 +523,8 @@ fluctuation, because each stratum block reads that stratum's coefficients. The s
 coefficients are the coefficients of one MSM with the expanded design $(I(S=s)\varphi)_s$, whose
 projection loss separates by stratum. The marginal estimate of a stratified `DRTMLE` fit reduces
 on $(g_n(W), S)$, so it differs from the unstratified fit. The
-[DR-TMLE estimands page](dr-tmle/supported-estimands.md) states why it stays valid.
+[DR-TMLE estimands page](dr-tmle/supported-estimands.md) states the conditions under which it is
+valid.
 
 The extension is the finite-partition step of each base result: Kennedy (2019), Theorem 2 of
 arXiv v3, for the incremental curve; the package's least-squares projection for MSMs; Díaz,

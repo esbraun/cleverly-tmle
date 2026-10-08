@@ -118,6 +118,9 @@ and the five-reduction cycle's empirical score reduction against the same scores
   missing-outcome study carries those three instruments for the `delta=` path.
 - The study excludes observational treatment assignment, weights, clusters, simultaneous bands,
   missing treatment, multinomial treatment, MNAR outcomes, and other DR-TMLE compositions. The [default-band study](default-simultaneous-bands.md) measures the default band of this study's subject fit.
+- The drift cells give the consistent nuisance as its exact law table, so the conditioning terms of
+  [the theorem](../dr-tmle/theorem.md#the-conditioning-terms-are-linear-in-one-error) are zero by construction. The cells measure the targeting, not one-wrong
+  inference with an estimated nuisance.
 
 ## Reproduction
 

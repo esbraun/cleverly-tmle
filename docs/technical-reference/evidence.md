@@ -234,9 +234,12 @@ product is formed.
 
 The registered
 [randomized missing-outcome DR-TMLE study](method-evidence/randomized-missing-outcome-dr-tmle.md)
-keeps the deliberately misspecified-outcome/correct-observation half of the union model as
-repeated-sampling evidence beyond score identities, and directly contrasts the empirical
-correction scores before and after the five-reduction cycle. Its R `drtmle` comparison is limited
+keeps the outcome-wrong cell as repeated-sampling evidence beyond score identities. Its
+observation mechanism is the exact law table, so the conditioning term is zero by construction.
+The cell measures the targeting, not one-wrong inference with an estimated mechanism.
+
+The study
+also contrasts the empirical correction scores before and after the five-reduction cycle. Its R `drtmle` comparison is limited
 to the shared both-correct limit because the package exposes one joint treatment-response
 mechanism; numeric agreement is not an acceptance gate for the separate reductions.
 Above two arms, the same construction runs once per arm indicator, and the arm estimators are

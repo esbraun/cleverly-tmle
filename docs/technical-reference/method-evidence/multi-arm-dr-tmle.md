@@ -158,6 +158,12 @@ covers zero. The overall evidence is inconclusive. These rows establish neither 
 its absence.
 [What the one-sided reading found](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#what-the-one-sided-reading-found) gives each interval.
 
+The law is not H1, and in the `treatment_correct` regime the consistent nuisance is a correctly
+specified multinomial GLM. [The theorem](../dr-tmle/theorem.md#the-conditioning-terms-are-linear-in-one-error) then predicts a conservative interval. The
+measured SE ratios of 1.00 to 1.04 do not contradict it. No magnitude was computed for this
+law. The coverage rule is a floor and the SE screen is wide, so no verdict here can detect a
+conservative interval.
+
 RM18 design SL ran the two outer rungs of each regime at 73,000 replications.
 A declaration before the run fixed that budget and the reading rule.
 [RM33](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#rm33-reused-simulation-seeds) replaces collided sample seeds through audited targeted reruns.
