@@ -110,7 +110,8 @@ def test_the_revert_cells_are_declared_positive_cells() -> None:
     for family, cell in study.REVERT_CELLS:
         assert declared[family, cell] == "positive"
     assert study.REFERENCE_METADATA["revert_flag"].endswith("OAT_PER_ARM_INFERENTIAL")
-    assert ctmle_module.OAT_PER_ARM_INFERENTIAL is True
+    # The study's revert cells were red, so the declared revert is applied.
+    assert ctmle_module.OAT_PER_ARM_INFERENTIAL is False
 
 
 @pytest.mark.parametrize("law", list(laws.LAWS.values()), ids=lambda law: law.name)

@@ -6,15 +6,18 @@ it, so every shared fit takes the ``"generated_design_plugin"`` status (RM20). F
 roadmap holds its reopen route.
 
 ``oat_design="per_arm"``, the default, fits one binary mechanism per arm on that arm's own
-prediction. Theorem 1 of Benkeser, Cai and van der Laan (2020) gives its curve for one
-treatment-specific mean, and an indicator reduction per arm and a fixed-dimension stack give
-the joint curve. A per-arm fit on complete data without baseline strata therefore reports
-its interval while :data:`~cleverly.estimators.ctmle.OAT_PER_ARM_INFERENTIAL` is set. That
-covers the binary and the three-arm fits, an ``ey1``-only request, the cross-fitted fit,
-fixed weights and ``repeats=`` with ``simultaneous=False``. A per-arm fit with missing
-outcomes or strata withholds, and X29 in the roadmap holds the missing construction. A
-per-arm fit on weights declared estimated takes ``"estimated_weight_plugin"``, as a guarded
-DR-TMLE fit does.
+prediction, and Theorem 1 of Benkeser, Cai and van der Laan (2020) states its curve. That
+theorem needs its condition (v), which fails for an estimated outcome regression, and the
+registered study ``ctmle-oat-per-arm`` found the reported standard errors 8 to 24 percent
+too small. The declared revert is applied:
+:data:`~cleverly.estimators.ctmle.OAT_PER_ARM_INFERENTIAL` is ``False``, so every per-arm fit
+withholds too.
+
+The key :func:`~cleverly.estimators.ctmle.per_arm_design_admits` still decides which per-arm
+fits the theorem would cover: complete data without baseline strata, at any arm count, in
+sample or cross-fitted, with fixed weights and repeated splits. The classes marked "with the
+flag set" undo the revert by ``monkeypatch`` and check that path, so the flag stays the one
+switch, and its mutation control still fails.
 
 The control is the ordinary TMLE on the same frames. Each mutation control restores one
 wrong status and must fail the check its cases pass.
@@ -163,25 +166,67 @@ class TestEverySharedDesignFitReportsNoInterval:
             assert_evalue_unavailable(shared_result, STATUS)
 
 
+@pytest.fixture
+def flag_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Undo the declared revert, to check the path the flag switches off."""
+    monkeypatch.setattr(ctmle_module, "OAT_PER_ARM_INFERENTIAL", True)
+
+
 @pytest.mark.parametrize("admitted", ADMITTED)
-class TestAnAdmittedPerArmFitReportsItsInterval:
-    def test_the_estimates_keep_their_inference(self, admitted: str) -> None:
+class TestEveryPerArmFitWithholdsItsInterval:
+    def test_the_estimates_withhold_their_inference(self, admitted: str) -> None:
         result = fit(CTMLE, admitted)
         assert result.extra["ctmle"].design == "per_arm"
-        assert_keeps_inference(result)
-        text = result.summary()
-        assert "95% CI" in text
-        assert RECORD.summary_note() not in text
+        assert_withholds(result, STATUS)
+        # The reason names the failed condition and the study that measured it.
+        assert "condition (v)" in RECORD.reason
+        assert "ctmle-oat-per-arm" in RECORD.reason
 
-    def test_the_status_is_the_ordinary_fits(self, admitted: str) -> None:
-        """The same frame under ``TMLE`` gives the same status: the control."""
+    def test_with_the_flag_set_the_fit_takes_the_ordinary_status(
+        self, admitted: str, flag_set: None
+    ) -> None:
+        """The flag is the one switch: undone, the key admits the case as TMLE would."""
+        result = fit(CTMLE, admitted)
+        assert_keeps_inference(result)
         estimator = CTMLE(strategy="oat", **linear_in_sample(**CASES[admitted][2]))
         ordinary = fit(TMLE, admitted)
-        assert ordinary.inference_status == "influence_curve"
         assert estimator._inference_status(ordinary.data) == ordinary.inference_status
 
 
-class TestTheAdmittedOutputs:
+class TestTheWithheldOutputs:
+    def test_no_band_is_built(self) -> None:
+        result = (
+            CTMLE(strategy="oat", **linear_in_sample(estimands=("ey", "ate"), simultaneous=True))
+            .fit(_binary(), outcome="Y", treatment="A")
+            .single()
+        )
+        assert result.inference_status == STATUS
+        assert result.simultaneous is None
+
+    def test_the_evalue_is_unavailable_with_the_reason(self) -> None:
+        result = (
+            CTMLE(strategy="oat", **linear_in_sample(estimands=("ate", "ey0")))
+            .fit(_binary(), outcome="Y", treatment="A")
+            .single()
+        )
+        capability = result.sensitivity.capability("evalue")
+        assert capability.status is AssessmentStatus.UNAVAILABLE
+        assert RECORD.reason in (capability.reason or "")
+
+    def test_variable_importance_is_refused_before_it_fits(self) -> None:
+        assert_variable_importance_refuses(
+            STATUS,
+            make_binary_outcome(n=200, seed=3)[0],
+            covariates=["W1", "W2", "W3"],
+            estimator=CTMLE(strategy="oat", **linear_in_sample(**never_fit_learners())),
+        )
+
+    def test_estimated_weights_withhold_by_the_same_status(self) -> None:
+        assert_withholds(_estimated_weight_fit(), STATUS)
+
+
+@pytest.mark.usefixtures("flag_set")
+class TestTheOutputsWithTheFlagSet:
     def test_the_default_band_is_built_at_one_split(self) -> None:
         result = (
             CTMLE(strategy="oat", **linear_in_sample(estimands=("ey", "ate"), simultaneous=True))
@@ -315,7 +360,7 @@ class TestTheStatusIsTheHooksToWithhold:
             assert_withholds(mutant, STATUS)
 
     def test_a_hook_that_withholds_the_admitted_per_arm_fit_fails_the_check(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, flag_set: None
     ) -> None:
         monkeypatch.setattr(ctmle_module, "per_arm_design_admits", lambda estimator, data: False)
         mutant = fit(CTMLE, "binary")
@@ -324,7 +369,7 @@ class TestTheStatusIsTheHooksToWithhold:
 
     @pytest.mark.parametrize("ignored", WITHHELD)
     def test_a_key_that_ignores_a_withheld_input_fails_the_check(
-        self, monkeypatch: pytest.MonkeyPatch, ignored: str
+        self, monkeypatch: pytest.MonkeyPatch, ignored: str, flag_set: None
     ) -> None:
         """The key with one of its data reads dropped admits the withheld case."""
         original = ctmle_module.per_arm_design_admits
@@ -375,9 +420,8 @@ class TestASavedResultLoadsAsSaved:
         assert restored.extra["ctmle"].design == "shared"
 
     @pytest.mark.parametrize("route", ROUTES)
-    def test_a_per_arm_fit_keeps_its_interval(self, route: str) -> None:
+    def test_a_per_arm_fit_keeps_the_status(self, route: str) -> None:
         result = fit(CTMLE, "binary")
-        restored = assert_round_trips(result, "influence_curve", route)
+        restored = assert_round_trips(result, STATUS, route)
         assert restored.estimator.oat_design == "per_arm"
         assert restored.extra["ctmle"].design == "per_arm"
-        assert restored["ate"].ci == result["ate"].ci

@@ -153,7 +153,8 @@ def fit_multi_arm() -> Any:
 def fit_ctmle_oat() -> Any:
     """A per-arm outcome-adaptive collaborative fit on ``make_instrument(500, 44)``.
 
-    The per-arm design reports inference on complete data, so its bound rows answer.
+    The per-arm design reports no inference (the declared revert of ``ctmle-oat-per-arm``),
+    so its rows are the shared design's.
     """
     frame, _ = make_instrument(n=500, seed=44)
     estimator = linear_ctmle("oat", estimands=("ate",))
@@ -755,7 +756,7 @@ KINDS: dict[str, Kind] = {
     "shift": _kind(fit_shift, *_LIVE),
     "cde": _kind(fit_cde, *_LIVE),
     "multi_arm": _kind(fit_multi_arm, *_ARM),
-    "ctmle_oat": _kind(fit_ctmle_oat, *_LIVE, "evalue"),
+    "ctmle_oat": _kind(fit_ctmle_oat, *_LIVE),
     "ctmle_oat_shared": _kind(fit_ctmle_oat_shared, *_LIVE),
     "msm": _kind(fit_msm, *_LIVE),
     "regime": _kind(fit_regime, *_LIVE),

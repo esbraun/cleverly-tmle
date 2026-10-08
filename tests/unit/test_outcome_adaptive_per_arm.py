@@ -5,7 +5,12 @@ arm.  Column ``a`` of the mechanism holds ``P(A = a | Qbar_n(a, W))``, off the s
 Benkeser, Cai and van der Laan (2020), Theorem 1, give the influence curve of that
 construction for one treatment-specific mean:
 ``D(Q_0, G_0(. | Q_0)) = 1{A = a} / G_0(a | Qbar_0(a, W)) (Y - Qbar_0(a, W)) + Qbar_0(a, W) - psi_a``.
-It is not the efficient influence function.
+It is not the efficient influence function.  Condition (v) of that theorem fails for an
+estimated outcome regression, so the registered study found the reported standard error too
+small, and every ``oat`` fit withholds its interval
+(:data:`~cleverly.estimators.ctmle.OAT_PER_ARM_INFERENTIAL` is ``False``).  The checks below
+read the retained diagnostic, ``plugin_std_error`` and ``plugin_interval``: it is the curve the
+paper states, computed as the paper computes it, and the study's calibration cells measure it.
 
 The checks, and the instrument that makes each one able to fail:
 
@@ -289,7 +294,9 @@ def _assert_matches(result: Any, hand: dict[float, tuple[float, np.ndarray]]) ->
         estimate = result[_mean_name(data, arm)]
         assert estimate.psi == pytest.approx(psi, abs=1e-8)
         np.testing.assert_allclose(estimate.influence_curve, curve, rtol=0.0, atol=1e-8)
-        assert estimate.std_error == pytest.approx(np.sqrt(np.var(curve, ddof=1) / n), abs=1e-8)
+        assert estimate.plugin_std_error == pytest.approx(
+            np.sqrt(np.var(curve, ddof=1) / n), abs=1e-8
+        )
     reference = _reference(result)
     for arm in data.arm_codes:
         if arm == reference:
@@ -299,8 +306,8 @@ def _assert_matches(result: Any, hand: dict[float, tuple[float, np.ndarray]]) ->
         psi = hand[arm][0] - hand[reference][0]
         se = np.sqrt(np.var(hand[arm][1] - hand[reference][1], ddof=1) / n)
         assert estimate.psi == pytest.approx(psi, abs=1e-8)
-        assert estimate.std_error == pytest.approx(se, abs=1e-8)
-        assert estimate.ci == pytest.approx((psi - Z * se, psi + Z * se), abs=1e-8)
+        assert estimate.plugin_std_error == pytest.approx(se, abs=1e-8)
+        assert estimate.plugin_interval == pytest.approx((psi - Z * se, psi + Z * se), abs=1e-8)
 
 
 def check_longhand(which: str) -> None:
@@ -433,7 +440,9 @@ def check_joint_covariance() -> None:
     d0 = np.asarray(result["ey0"].influence_curve)
     # The witness: the two arm curves covary, so a block-diagonal covariance is wrong.
     assert abs(np.cov(d1, d0)[0, 1]) > 1e-3 * np.sqrt(np.var(d1) * np.var(d0))
-    assert result["ate"].std_error == pytest.approx(np.sqrt(np.var(d1 - d0, ddof=1) / n), rel=1e-12)
+    assert result["ate"].plugin_std_error == pytest.approx(
+        np.sqrt(np.var(d1 - d0, ddof=1) / n), rel=1e-12
+    )
 
 
 def check_weights_equal_duplicates() -> None:
@@ -441,7 +450,7 @@ def check_weights_equal_duplicates() -> None:
     counts = 1 + np.arange(len(frame)) % 3
     weighted = glm_fit(frame.assign(wt=counts.astype(float)), weights="wt")
     duplicated = glm_fit(frame.loc[frame.index.repeat(counts)].reset_index(drop=True))
-    assert weighted.inference_status == "influence_curve"
+    assert weighted.inference_status == "generated_design_plugin"
     for name in ("ey0", "ey1", "ate"):
         assert weighted[name].psi == pytest.approx(duplicated[name].psi, abs=1e-7)
     # The witness: the weights move the estimate, so equality is not the unweighted fit.
@@ -527,7 +536,7 @@ def test_the_contrast_reads_the_joint_covariance() -> None:
     check_joint_covariance()
 
 
-def test_the_three_arm_ratio_and_band_read_the_stacked_curves(three_arm: Any) -> None:
+def test_the_three_arm_ratio_reads_the_stacked_curves(three_arm: Any) -> None:
     data = three_arm.data
     reference = _reference(three_arm)
     n = data.n
@@ -542,9 +551,21 @@ def test_the_three_arm_ratio_and_band_read_the_stacked_curves(three_arm: Any) ->
         )
         ratio = three_arm[_contrast(data, "rr", arm, reference)]
         assert ratio.log_psi == pytest.approx(np.log(top.psi / bottom.psi), rel=1e-12)
-        assert ratio.std_error == pytest.approx(np.sqrt(np.var(curve, ddof=1) / n), rel=1e-10)
+        assert ratio.plugin_std_error == pytest.approx(
+            np.sqrt(np.var(curve, ddof=1) / n), rel=1e-10
+        )
 
+
+def test_the_band_reads_the_stacked_curves_when_the_flag_is_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The withheld fit builds no band; with the revert undone it builds it from the stack."""
+    withheld = glm_fit(three_arm_frame(), estimands=("ey", "ate"), simultaneous=True)
+    assert withheld.inference_status == "generated_design_plugin"
+    assert withheld.simultaneous is None
+    monkeypatch.setattr(ctmle_module, "OAT_PER_ARM_INFERENTIAL", True)
     banded = glm_fit(three_arm_frame(), estimands=("ey", "ate"), simultaneous=True)
+    n = banded.data.n
     estimates = list(banded.estimates.values())
     curves = np.column_stack([np.asarray(e.influence_curve) for e in estimates])
     errors = np.array([e.std_error for e in estimates])
@@ -786,8 +807,11 @@ class TestTheSetting:
         assert CollaborativeTMLEMethod(strategy="oat").estimator_kwargs()["oat_design"] is None
 
 
-def test_the_bootstrap_stays_a_diagnostic_on_an_admitted_fit() -> None:
+def test_the_bootstrap_stays_a_diagnostic_when_the_flag_is_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Theorem 1 does not cover the bootstrap of this superefficient estimator."""
+    monkeypatch.setattr(ctmle_module, "OAT_PER_ARM_INFERENTIAL", True)
     result = glm_fit(binary_frame(300, 21), estimands=("ate",), n_bootstrap=20)
     assert result.inference_status == "influence_curve"
     summary = result["ate"].bootstrap
@@ -813,13 +837,14 @@ def test_no_reachable_text_calls_the_curve_efficient() -> None:
         assert "efficien" not in text.lower(), text
 
 
-def test_the_weight_report_of_a_weighted_fit_names_theorem_ones_curve() -> None:
+def test_the_weight_report_of_a_weighted_fit_names_the_withheld_curve() -> None:
     """A weighted fit's summary points at the weight report, which names the per-arm curve."""
     frame = binary_frame(300, 21)
     result = glm_fit(frame.assign(wt=0.5 + (frame["W1"] > 0).astype(float)), weights="wt")
-    assert result.inference_status == "influence_curve"
+    assert result.inference_status == "generated_design_plugin"
     assert "weight_report()" in result.summary()
     report = result.data.weight_report().summary()
+    assert "outcome-adaptive C-TMLE fit reports no standard error" in report
     assert "Theorem 1, which is not the efficient one" in report
     for text in (result.summary(), result.extra["ctmle"].summary()):
         assert "efficien" not in text.lower(), text
@@ -894,6 +919,6 @@ def test_the_missingness_tilt_runs_on_a_withheld_per_arm_fit() -> None:
     assert len(tilt) > 0
 
 
-def test_the_revert_flag_is_declared_true() -> None:
-    """The flag ships ``True``; the registered study's declaration names its revert cells."""
-    assert ctmle_module.OAT_PER_ARM_INFERENTIAL is True
+def test_the_revert_flag_is_applied() -> None:
+    """The registered study's revert cells were red, so the declared revert is applied."""
+    assert ctmle_module.OAT_PER_ARM_INFERENTIAL is False

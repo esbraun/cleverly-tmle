@@ -1044,13 +1044,15 @@ class TestTheSelectorPathsPublishNoInference:
         assert WORKING_MECHANISM.reason not in str(raised.value)
 
     @pytest.mark.parametrize("accessor", ["ci", "pvalue", "std_error"])
-    def test_the_per_arm_outcome_adaptive_path_answers(
+    def test_the_per_arm_outcome_adaptive_path_refuses_by_the_same_reason(
         self, shared: Callable[[str], Any], accessor: str
     ) -> None:
-        """The per-arm design on complete data has a result, so it keeps the accessors."""
+        """The per-arm design withholds too: condition (v) of its theorem fails."""
         estimate = shared("oat_per_arm")["ate"]
-        assert estimate.inference == "influence_curve"
-        assert getattr(estimate, accessor) is not None
+        assert estimate.inference == "generated_design_plugin"
+        with pytest.raises(CapabilityError) as raised:
+            getattr(estimate, accessor)
+        assert NON_INFERENTIAL["generated_design_plugin"].reason in str(raised.value)
 
     def test_the_retained_diagnostic_is_the_refused_number(
         self, shared: Callable[[str], Any]
@@ -1124,7 +1126,7 @@ class TestTheSelectorPathsPublishNoInference:
         adaptive = self._fit("oat").sensitivity.capability("evalue")
         assert adaptive.available is False
         assert NON_INFERENTIAL["generated_design_plugin"].reason in (adaptive.reason or "")
-        assert self._fit("oat_per_arm").sensitivity.capability("evalue").available
+        assert not self._fit("oat_per_arm").sensitivity.capability("evalue").available
 
     def test_the_truncation_curve_reports_the_diagnostic_rather_than_raising(self) -> None:
         """Reachable on a C-TMLE fit, and it builds an inference-shaped frame per bound."""
