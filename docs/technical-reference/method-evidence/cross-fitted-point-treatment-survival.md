@@ -67,8 +67,16 @@ The empirical ratio is 1.058, and its 99% interval is 1.010 to 1.108 against an 
 1.10. The SE ratio is 1.008 and the coverage is 0.957, so the interval is calibrated. The reported
 standard error is 6.7% above the bound, so the reported and the empirical spreads rise together.
 
-A probe on fresh draws, with the study's own fit and bound, separates a defect from a
-finite-sample cost. It measured the mean reported standard error over the bound in each design.
+The update is pooled by construction. Each outer fold fits an untargeted recursion, the fit
+stitches the held-out predictions, and one fluctuation for each node is solved over every follower
+([`_pooled_targeting`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/longitudinal/sequential.py)).
+So a fold-local update is not a candidate.
+
+The diagnostic
+[`tests/diagnostics/x13_crossfit_three_arm/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x13_crossfit_three_arm)
+refits the cell's configuration on fresh draws, with the study's own fit and bound. It separates a
+mis-scaled curve, a wrong truth or a wrong bound from a finite-sample cost. Its module records the
+seeds and the command. It reads the mean reported standard error over the bound in each design.
 
 | design | reported SE over the bound |
 | --- | --- |
@@ -78,8 +86,8 @@ finite-sample cost. It measured the mean reported standard error over the bound 
 | n = 8,000, five folds | 1.0085 |
 
 The in-sample fit reaches the bound, so the truth and the bound are right. The excess falls when
-the training folds grow, and it nearly disappears at n = 8,000. A fold-local update or a
-mis-scaled curve would keep it at every size. The cell has many saturated cells in each training
+the training folds grow, and it nearly disappears at n = 8,000. A mis-scaled curve would keep it
+at every size. The cell has many saturated cells in each training
 fold, because the three-arm law has a covariate after baseline. The diagnosis finds no defect,
 and the cell stays red under `reporting`, with the owner row `X13-finite-sample`.
 

@@ -82,8 +82,9 @@ guard is a plain `TMLE`, bit for bit.
 
 | keyword | status |
 | --- | --- |
-| `delta=`, randomized | `randomized=True` or `treatment_probabilities=` selects Díaz & van der Laan (2017)'s missing-outcome construction, at any number of arms. Above two arms, the fit applies the construction to each arm indicator and stacks the arm estimators. The conditions are below. |
-| `delta=`, observational | without `randomized=` or `treatment_probabilities=`, a non-empty `guard` selects the [composite indicator](theorem.md#observational-missing-data-the-composite-indicator), at any number of arms |
+| a declared known mechanism | complete data at every `guard` and reduction, in sample and with `cross_fit=True`, with `reduced_crossfit="nested"` and with `n_bootstrap=`. It is Theorem 1 at `g_n ≡ g_0`. See [a known treatment mechanism](theorem.md#a-known-treatment-mechanism) |
+| `delta=`, randomized | `randomized=True`, or data that declares a known mechanism, selects Díaz & van der Laan (2017)'s missing-outcome construction, at any number of arms. Above two arms, the fit applies the construction to each arm indicator and stacks the arm estimators. The conditions are below. |
+| `delta=`, observational | without `randomized=` or a declared mechanism, a non-empty `guard` selects the [composite indicator](theorem.md#observational-missing-data-the-composite-indicator), at any number of arms |
 | `treatment_delta=` | a declared missing treatment, with or without `delta=`, selects the composite indicator at every `guard`. `guard=()` is the composite TMLE. The arm means and their contrasts (`ey`, `ate`, `rr`, `or`) at every `guard`, and regime means and arm-indexed `msm=` coefficients on `TMLE`; the table below gives the compositions |
 | `weights=` | **fixed analysis weights only.** The estimand is the parameter of the tilted law `dP_w = w dP / E[w]`. The transport argument is below. |
 | `repeats=` | supported; varies exactly one thing, the **primary split**. Each draw fits its own reductions and runs its own alternation; the report uses the median point and split-adjusted median variance. `result.extra["drtmle"]` describes **draw 0 only**. |
@@ -115,21 +116,18 @@ The `missingness_learner` fits both observation factors. R `drtmle` 1.1.2 fits t
 observation factor with its one treatment learner, `SL_g`.
 
 **What `delta=` accepts on the randomized route.** Set `randomized=True` to estimate the treatment
-probabilities. You can
-instead pass row-aligned known probabilities as `treatment_probabilities=` to `fit`. The
-probabilities can depend on `W`, as in a stratified randomization. The table gives the accepted
-shapes.
-
-| shape | arms | read as |
-| --- | --- | --- |
-| a mapping keyed by treatment level, such as `{"placebo": p0, "active": p1}` | any | one `(n,)` column per level; every level is named |
-| an `(n, K)` array | any | one column per arm, in encoded arm order (the sorted levels) |
-| an `(n,)` array | two only | the probability of the arm whose code is `1`; refused above two arms |
+probabilities. You can instead declare the known probabilities on the data with
+`treatment_probabilities=` in `fit` or in `CausalData.from_frame`. The probabilities can depend on
+`W`, as in a stratified randomization. The
+[point-treatment contract](../point-treatment-tmle.md#known-treatment-mechanism) gives the
+accepted forms. Prefer a mapping of each level to its frame column, such as
+`{"placebo": "p_placebo", "active": "p_active"}`. The positional forms bind to arm codes, which
+are indices into the sorted levels.
 
 The randomized surface requires `cross_fit=False`, `repeats=1`, pooled reductions, and no analysis
 weights or evaluation companion.
 
-With `guard=()`, the same array configures a **plain TMLE** at the design mechanism. The result is
+With `guard=()`, the same declaration configures a **plain TMLE** at the design mechanism. The result is
 the ordinary estimator bit for bit, which is what a pure randomization-probability analysis wants.
 The other conditions above then do not apply, because no extra equation is solved and no theorem is
 claimed. `cross_fit=False` still applies. `DRTMLE` refuses `delta=` with `cross_fit=True` at every
@@ -206,10 +204,10 @@ retained diagnostic.
 | a missing treatment with `att`, `atc`, `ey_obs`, `par`, `paf`, `incremental=` or `policies=` | when the recording may depend on the treatment, `P(A = a \| W)` is not identified, and each of these reads the treatment law of every row. See [what the data do not identify](theorem.md#observational-missing-data-the-composite-indicator) |
 | a missing treatment with `learned_rule=` | the composite conditions identify the value of a fixed rule. No composite derivation for a rule learned from the fit is written, and the value is cross-fitted. See [F27](../../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
 | a missing treatment with `intermediate=` | no derivation of the composite indicator for a controlled direct effect is written, and the condition that ties `Z` to the recording of the treatment is not stated |
-| a missing treatment with `randomized=True` or `treatment_probabilities=` | those select Díaz & van der Laan's construction, which observes the treatment on every row |
+| a missing treatment with `randomized=True` | it selects Díaz & van der Laan's construction, which observes the treatment on every row |
+| a missing treatment with a declared known mechanism | a missing treatment needs `P(A = a \| Delta_A = 1, W)`, which equals the design mechanism only when recording is independent of treatment given `W` |
+| `evaluation=` whose companion declares no known mechanism, on data that declares one | the companion's mechanism must be its own declaration. Declare the same columns on the companion |
 | a missing treatment with `CTMLE` | no collaborative score is derived for the composite indicator ([F5](../../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions)) |
-| `treatment_probabilities=` with `n_bootstrap=`, **whatever `guard=` is** | the array is row-aligned to the data as passed, and a replicate refits on resampled rows it cannot be reindexed to. An n-out-of-n resample passes the length check, so the misalignment would be silent; `randomized=True` estimates the mechanism inside each replicate instead. Unconditional on the guard, because the array is row-aligned however few equations are being solved |
-| `treatment_probabilities=` without `delta=` | it replaces the treatment learner outright, and nothing read here states a complete-data construction that reads a known design mechanism differently from a fitted one |
 | `intermediate=` | the reduced equations carry no controlled-intermediate factor |
 | `delta=` or a missing treatment with `cross_fit=True`, **whatever `guard=` is** | the published missing-outcome theorems use Donsker conditions and do not establish a cross-validated extension. With `guard=()` and `delta=` alone, the fit is a plain TMLE on a surface that only ordinary TMLE's audited stacked contract admits |
 | `targeting_scheme="fold"` | each fold would need its own reduced regressions and alternation |

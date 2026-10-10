@@ -9,11 +9,19 @@ replay, the bootstrap diagnostic, the nuisance report and the summary.
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
-from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast, TimeToEvent
+from cleverly import (
+    CausalStudy,
+    LongitudinalTreatment,
+    RegimeContrast,
+    RegimeMean,
+    TimeToEvent,
+)
 from cleverly.datasets import make_point_survival
+from cleverly.exceptions import CapabilityError, DataWarning
 from cleverly.longitudinal import LTMLE, LongitudinalData
 from cleverly.longitudinal.estimator import bootstrap_design_kind, longitudinal_truncation_curve
 from cleverly.msm import MSM
@@ -161,3 +169,75 @@ def test_the_wide_held_and_long_paths_agree() -> None:
     )
     for name in long.estimates:
         assert long[name].psi == pytest.approx(wide[name].psi, rel=1e-10)
+
+
+def _event_free_frame(n: int = 600, seed: int = 1) -> pd.DataFrame:
+    """Arm 0 has no event at grid times 1 and 2, as in ``tests/unit/test_event_free_node.py``."""
+    rng = np.random.default_rng(seed)
+    w = rng.integers(0, 2, n)
+    a = rng.binomial(1, 0.5, n)
+    time = rng.integers(1, 5, n).astype(float)
+    event = rng.binomial(1, 0.6, n)
+    event[(a == 0) & (time <= 2)] = 0
+    return pd.DataFrame({"time": time, "event": event, "A": a, "W": w})
+
+
+EVENT_FREE_DESIGN = TimeToEvent(
+    time="time", event="event", treatment="A", baseline=["W"], grid=[1, 2, 3, 4]
+)
+EVENT_FREE_LEARNERS = {
+    "outcome_learner": LogisticRegression(max_iter=1000),
+    "pseudo_learner": LinearRegression(),
+    "treatment_learner": LogisticRegression(max_iter=1000),
+    "censoring_learner": LogisticRegression(max_iter=1000),
+}
+
+
+@pytest.mark.parametrize("target", ["mean", "contrast"])
+def test_the_study_path_reports_constant_node_parameters(target: str) -> None:
+    """A narrowed family with a constant-node parameter returns, and its band leaves it out."""
+    estimand = (
+        RegimeMean(regimens={"treated": 1, "control": 0})
+        if target == "mean"
+        else RegimeContrast(regimens={"treated": 1, "control": 0}, reference="treated")
+    )
+    with pytest.warns(DataWarning, match="constant_node_plugin"):
+        result = CausalStudy(_event_free_frame(), design=EVENT_FREE_DESIGN).estimate(
+            estimand, cross_fit=False, **EVENT_FREE_LEARNERS
+        )
+    flagged = {
+        name for name, estimate in result.estimates.items() if not estimate.supplies_inference
+    }
+    expected = (
+        {"risk_regimen[control @ t=1]", "risk_regimen[control @ t=2]"}
+        if target == "mean"
+        else {"ate_regimen[control vs treated @ t=1]", "ate_regimen[control vs treated @ t=2]"}
+    )
+    assert flagged == expected
+    assert result.simultaneous is not None
+    assert set(result.simultaneous.bands) == set(result.estimates) - expected
+    assert "not reported" in result.summary()
+
+
+def test_the_narrowed_band_without_the_filter_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mutation control: a narrowed band over every retained parameter refuses the call."""
+    from cleverly import study as study_module
+
+    def unfiltered(result, retained, method):  # type: ignore[no-untyped-def]
+        bands = result.simultaneous
+        return study_module.simultaneous_bands(
+            retained,
+            alpha=bands.alpha,
+            n_replicates=bands.n_replicates,
+            kind=bands.kind,
+            random_state=0,
+            cluster=result.data.cluster,
+        )
+
+    monkeypatch.setattr(study_module, "_narrow_bands", unfiltered)
+    with pytest.raises(CapabilityError, match="simultaneous_bands"), pytest.warns(DataWarning):
+        CausalStudy(_event_free_frame(), design=EVENT_FREE_DESIGN).estimate(
+            RegimeMean(regimens={"treated": 1, "control": 0}),
+            cross_fit=False,
+            **EVENT_FREE_LEARNERS,
+        )

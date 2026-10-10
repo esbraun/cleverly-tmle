@@ -19,6 +19,12 @@ quasi-complete separation case: a covariate cell with no event, whose coefficien
 while the fitted values and the deviance settle.  Every fit that converged before takes the
 same iterates and stops at the same step, because only the branch that raised changed.  A fit
 whose deviance has not settled still raises.
+
+No registered study that ran before the change moves, for two structural reasons.  No
+committed ``properties.csv`` has a failed replication, and no committed summary records a
+failure, so no committed run reached the branch that raised.  And no registered study puts this
+learner inside a ``SuperLearner`` library or a bootstrap refit, the two places where a raise
+would have been swallowed rather than failing the run.
 """
 
 from __future__ import annotations

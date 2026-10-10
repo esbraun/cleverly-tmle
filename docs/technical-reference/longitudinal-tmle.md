@@ -525,15 +525,119 @@ applies to every outcome and pseudo-outcome node, on both layouts.
 
 | case | result |
 | --- | --- |
-| no follower had the event at every node through the horizon | risk zero, a zero influence curve, and an interval of width zero |
+| no follower had the event at every node through the horizon | risk zero and a zero influence curve. The parameter takes the `constant_node_plugin` status, so it reports no interval or p-value |
+| a node of the recursion read a constant, at a horizon with events at other nodes | the point estimate stands. The node's term of the influence curve is zero, so the parameter takes the `constant_node_plugin` status too |
 | the followers of one outer training fold all hold 0, or all hold 1 | that fold's regression is the value. The pooled fluctuation then bounds its predictions as it does any prediction |
 | `msm=` with a cell whose followers all hold 0, or all hold 1 | `CapabilityError`. The pooled logistic fluctuation would move the value into its bounds |
 | a pseudo-outcome that holds one value inside $(0, 1)$, such as an intercept-only regression carried back | not read by this rule. The learner fits it and the fluctuation moves it, so a fit that ran before the rule keeps its numbers |
 
+A node's term of the influence curve is identically zero when the node reads a constant. The
+true hazard there can still be positive, so the plug-in standard error leaves that node's variance
+out. A risk of zero would report a standard error of zero, and a contrast against it would carry
+the other arm's variance only. Each parameter whose recursion reads such a node therefore takes
+the `constant_node_plugin` status
+([inference status](inference.md#inference-status)). The other parameters of the fit keep
+theirs.
+
+| output | what it shows |
+| --- | --- |
+| the fit | one `DataWarning` with the count of such parameters, the first 10 names, and the reason. `constant_node_parameters(result)` lists them all |
+| `summary()` | the estimate and a starred plug-in spread, with "not reported" for the interval and the p-value, and the reason under the table |
+| `curve()` and `to_frame()` | the status in the `inference` column, NaN in the inferential spread columns, and the plug-in spread in the `plugin_` columns |
+| `incidence_total()` | each total takes the status of the incidences it sums, with the same columns as `curve()` |
+| a contrast, `rmst()` and `rmtl()` | the status, when they read such a parameter |
+| the simultaneous band | the other parameters only. A `CausalStudy` band narrowed to `RegimeMean` or `RegimeContrast` leaves them out too |
+| `assess()` | the nuisance item adds the status note, with the count of such parameters |
+
+[F31](../roadmap.md#f31-inference-at-a-boundary-node-estimate) owns an interval at such a node.
 The nuisance report shows `LONGITUDINAL_CONSTANT_TARGET` in place of the node's row, with the
-regimen, the cause and the horizon. `tests/unit/test_event_free_node.py` checks the zero risk, the
-omission rows and the absent learner fits. Its mutation removes the rule and sees the bounded
-fluctuation move the risk off zero.
+regimen, the cause and the horizon. A cross-fitted training fold that reads a constant while the
+sample does not adds `LONGITUDINAL_CONSTANT_TARGET_IN_FOLD`, which names the folds, and the node's
+row stays.
+
+`tests/unit/test_event_free_node.py` checks the zero risk, the status of each flagged parameter,
+the omission rows and the absent learner fits. One mutation removes the rule and sees the bounded
+fluctuation move the risk off zero. Another removes the status and sees the interval $[0, 0]$
+return. `tests/e2e/test_ltmle.py` checks the fold-level omission, and its mutation removes the
+in-fold reading and sees the omission go.
+
+### Known node mechanisms
+
+A sequentially randomized trial, such as a SMART, fixes its treatment probabilities by design. A
+study can also know its retention probabilities. Declare either with `treatment_probabilities=`
+and `censoring_probabilities=` in `LTMLE.fit` or in `LongitudinalData.from_frame`. In the study
+API, declare them with `LongitudinalTreatment(treatment_probabilities=...,
+censoring_probabilities=...)`. A time-to-event input declares its baseline mechanism as a level to
+column mapping, in `LongitudinalData.from_time_to_event(treatment_probabilities=...)` or in
+`TimeToEvent(treatment_probabilities=...)`. A declared node fits no learner, so the fold-support
+check skips it.
+
+| keyword | form | reading |
+| --- | --- | --- |
+| `treatment_probabilities` | `{"A1": {0: "p1_0", 1: "p1_1"}, ...}` | each node's levels mapped to frame columns of $P(A_t=a\mid\text{observed past})$. Nodes left out are estimated. This form is required when the nodes have different level sets |
+| `treatment_probabilities` | `(n, T)` array | $P(A_t=\text{levels}_t[1]\mid\text{observed past})$, at binary nodes only |
+| `treatment_probabilities` | `(n, T, K)` array | the full matrix, when every node shares $K$ levels |
+| `censoring_probabilities` | `{"C1": "r1", ...}` or `(n, T)` array | $P(C_t=1\mid\text{observed past})$ |
+
+A value on a row that is not at risk at its node is never read, and it may be missing. A missing
+value on an at-risk row is refused with the row count. A node may give an arm probability one, as a
+SMART does for the units it does not re-randomize. A declared zero for the arm an at-risk unit took
+is refused, because the data contradict it. A declared retention of zero for a unit that stayed is
+refused for the same reason.
+
+A declared zero can also leave a regimen unidentified. The fit refuses such a regimen before any
+learner. The check reads the rows that followed the plan through the previous node and are at risk
+at this one.
+
+| node | refused when, on a row at risk under the plan |
+| --- | --- |
+| label or rule | the declared probability of the assigned arm is zero |
+| known stochastic policy | the policy puts mass on an arm whose declared probability is zero |
+| modified treatment policy | the policy sends a unit to a level whose declared probability is zero |
+| declared censoring | the declared retention of a unit that took the plan's arm is zero |
+
+No unit with such a history can follow the regimen, so its mean there would extrapolate the
+outcome regression. The message names the regimen, the node and the row count.
+`tests/unit/test_known_node_mechanisms.py` checks a SMART whose responders keep their first arm with
+certainty: the regimen that switches them is refused, and `always` is fitted.
+
+A node's factor is the declared probability of the arm each row is *assigned*. The clever covariate
+is nonzero only where the plan's history equals the observed one. The declaration describes the
+observed history, so the fit reads it only where the two agree. That is the meaning of `ltmle`'s
+numeric `gform`. On a held design the one decision is the one declared node.
+
+With every treatment and censoring factor known, the remainder is zero and the curve is
+$D^*(\bar Q_\infty,g_0)$ for any outcome regression. Theorem 2 of van der Laan and Gruber (2012)
+states the double robustness. Their Section 4, page 19, states the curve at $g_n=g_0$. Petersen et
+al. (2014), Appendix B, Corollary 1, give the identity $-P_0D^*(Q,g_0)=\Psi(Q)-\psi_0$.
+
+With the treatment declared and the censoring estimated, the censoring factor must be consistent.
+That is the common SMART analysis. With a wrong outcome regression, the interval is conservative
+for a correctly specified parametric censoring model. It is not established for a flexible
+censoring learner.
+
+**Bounds.** The cumulative bound applies to the running product of the declared factors on every
+row that follows a plan. A product outside `g_bounds` moves the estimate with no variance reason,
+so the fit refuses before any learner. The message names `g_bounds` and the node where the product
+first leaves the bounds. Products fall fast: 0.5 at each node reaches 0.01 near the seventh node.
+Pass a lower bound below the smallest declared product, such as `g_bounds=(1e-8, 1.0)`.
+
+| composition | result |
+| --- | --- |
+| static, dynamic and known stochastic plans, `msm=`, cross-fitting, clusters, survival and competing risks, held and time-to-event designs, `n_bootstrap=` | supported. A bootstrap replicate carries the declared values of its own rows |
+| a modified treatment policy at a categorical declared node | supported. The ratio numerator $g^d_t(A_t\mid H_t)$ reads the declared matrix by the discrete formula. A declared node is the degenerate estimate $g_n=g_0$, so the remainder, a product of the ratio error and the outcome error, is zero |
+| a continuous node | refused. A known density is not supported |
+
+The nuisance report shows `LONGITUDINAL_KNOWN_MECHANISM` in place of each declared node's row.
+`LongitudinalConfig.known_factors` names the declared treatment and censoring columns, and the
+summary prints them on one line.
+`tests/unit/test_known_node_mechanisms.py` checks a two-node SMART exact law: a wrong outcome
+regression with every factor declared returns the truth, with and without declared censoring. It
+also checks four compositions: a modified treatment policy, a held survival design, competing risks
+and a time-to-event container. In each one, a declared factor and a learner that returns it give
+one fit. The
+registered [known-node-mechanisms study](method-evidence/known-node-mechanisms-ltmle.md) pairs
+the fit with R `ltmle` at a numeric `gform`.
 
 ## Functionals of a fitted result
 

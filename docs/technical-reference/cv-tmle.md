@@ -116,6 +116,7 @@ and
 | `targeting_scheme="pooled"` | one targeting regression over the stacked validation rows. The default | this is stacked CV-TMLE |
 | `targeting_scheme="fold"` | one fluctuation fit inside each validation fold | **yes**. It removes cross-fold coupling through the fluctuation fit. Python `zEpid` 0.9.1 corroborates this construction at two folds |
 | `cv_evaluation=True` | fold plug-in evaluation with cross-validated variance | **yes**. This is fold-evaluated CV-TMLE |
+| `treatment_probabilities=` | the declared design mechanism replaces every fold's treatment model. Each fold reads the declaration at its own rows, and only the outcome regression is cross-fitted. See [known treatment mechanism](point-treatment-tmle.md#known-treatment-mechanism) | no. Every CV-TMLE shape above admits it |
 
 **Two refusals under `cv_evaluation=True`.** A nonlinear fold aggregate has a fold-varying
 gradient. Until a common targeting score for it is implemented, `rr`, `or`, and MSM coefficients

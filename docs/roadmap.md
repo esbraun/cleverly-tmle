@@ -135,7 +135,6 @@ Priorities 2 to 5 follow the beta.
 
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
-| 1.10 | Known treatment mechanism | source audit | shipped `treatment_probabilities=` on `DRTMLE` | [X15](#x15-known-treatment-mechanism) |
 | 1.11 | Outcome-adaptive C-TMLE intervals from per-arm scalar designs | published support for one mean; natural extension for every arm and contrast | shipped `strategy="oat"` | [X17](#x17-outcome-adaptive-c-tmle-intervals-from-per-arm-scalar-designs) |
 | 1.12 | C-TMLE candidate sequences | published support; pending source read | shipped selector paths | [X16](#x16-c-tmle-candidate-sequences) |
 | 1.13 | Sequential doubly robust longitudinal estimation | published support; pending source read | implemented longitudinal targets | [X4](#x4-sequential-doubly-robust-longitudinal-estimation) |
@@ -145,7 +144,8 @@ Priorities 2 to 5 follow the beta.
 | 1.17 | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
 | 1.18 | Continuous vector components at a node | published support; pending source read | shipped longitudinal modified treatment policies | [X31](#x31-continuous-vector-components-at-a-node) |
 | 1.19 | Plug-in omitted-variable limits with a declared parametric mechanism | [published support; stacked-equation extension](technical-reference/natural-extension-verdicts.md) | the shipped plug-in bound | [X26](#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism) |
-| 2 | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
+| 2.1 | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
+| 2.2 | Efficient known-score ATT and ATC | published support; pending source read | the shipped known treatment mechanism | [X35](#x35-efficient-known-score-att-and-atc) |
 | 3.1 | Natural and interventional mediation effects | published support; pending source read | target-specific identification and evidence | [X5](#x5-natural-and-interventional-mediation-effects) |
 | 3.2 | Continuous-time survival and competing risks | published support; pending source read | continuous-time intensity and targeting contracts; X14 | [X6](#x6-continuous-time-survival-and-competing-risks) |
 | 3.3 | Two-phase and outcome-dependent sampling | published support; pending source read | observed-data likelihood and influence correction | [X7](#x7-two-phase-and-outcome-dependent-sampling) |
@@ -188,6 +188,7 @@ the current boundary, and the refusal that keeps it.
 | Joint point-treatment parameter axes | a targeting and inference result for one fit that carries an MSM projection together with a regime, shift, or incremental intervention, including its joint score and covariance | single-axis point-treatment fits only | [F17](#f17-joint-point-treatment-parameter-axes) |
 | Time-respecting cross-fitting | dependence and split-specific TMLE inference for blocked-temporal or rolling-origin folds | iid and grouped cross-fitting only | [F7](#f7-time-respecting-cross-fitting) |
 | Learned-policy value outside the published conditions | an interval for the fold-average learned-rule value without a limiting rule, and results for the refused compositions | `LearnedRuleValue` fits the fold-evaluated CV-TMLE of [learned rules](technical-reference/point-treatment-tmle.md#learned-rules) under the limiting-rule condition. Its boundary study measures under-coverage at an exceptional law. The other F27 requests refuse before any learner | [F27](#f27-learned-policy-value-outside-the-published-conditions) |
+| Inference at a boundary node estimate | an interval for a longitudinal TMLE parameter when a node regression reads a constant 0 or 1, such as a hazard estimated as zero at a grid node with no event, with its coverage | the point estimate stands. The parameter, and every contrast and restricted mean that reads it, take the `constant_node_plugin` status and report a plug-in diagnostic only. The band leaves them out | [F31](#f31-inference-at-a-boundary-node-estimate) |
 | Finite-sample limits of clustered intervals | a small-sample correction or reference for the cluster-summed TMLE curve, at few clusters, at unequal cluster sizes, and for the fold-evaluated variance at few clusters per fold. An interval at 4 to 9 clusters (4 to 19 for `LTMLE`), which no registered study measures, and a fold-evaluated degrees-of-freedom rule at 40 clusters or more | `few_cluster_plugin` below 10 positive-mass clusters, and below 20 for `LTMLE`, the smallest counts the registered study measures. $t_{J-2}$ from 10 (20 for `LTMLE`) to 39. Fold-evaluated fits need 2 clusters per fold. The registered evidence uses parametric nuisance learners | [F28](#f28-finite-sample-limits-of-clustered-intervals) |
 
 ## Eligibility
@@ -310,9 +311,8 @@ release.
 The `mtp-point-calibration` owner holds one calibration cell of the point modified-treatment-policy
 study. Its standard error is conservative, and the diagnosis finds no defect.
 
-The `mtp-longitudinal-limits` owner holds two cells of the longitudinal modified-treatment-policy
-study whose diagnosis finds no defect: a finite-sample calibration cell and a control whose
-interval reaches its ceiling.
+The `mtp-longitudinal-limits` owner holds one cell of the longitudinal modified-treatment-policy
+study whose diagnosis finds no defect: a finite-sample calibration cell.
 
 The `F28` owner holds the clustered cells of the unequal-size and few-cluster studies that read
 red under their `reporting` policy. It owns a finite-sample limit, not a missing theorem.
@@ -341,9 +341,9 @@ owners do the same for the stratified DR-TMLE study.
 | `X8-drtmle-one-sided-bias` | the four `double_robustness/*__treatment_correct` cells of `canonical-stratified-drtmle`: the marginal ATE and each stratum ATE | reading `shared` in strata 0 and 1 and `mixed` in stratum 2, in the vocabulary of `RM18-one-sided-bias` ([`tests/diagnostics/x8_drtmle_treatment_correct/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x8_drtmle_treatment_correct)). The refit reproduces the committed estimates exactly. On each stratum's rows, the shipped unstratified `DRTMLE` and R `drtmle` 1.1.2, handed the same initial arrays, carry a positive bias too. In stratum 2 the package's bias, 0.0237, exceeds R's, 0.0157: the paired difference is 0.0080 with a standard error of 0.0018. The unstratified fit on the stratum's rows matches the package there to 2e-5, so the excess belongs to `DRTMLE` at about 400 rows and not to the strata. In stratum 1 the stratified and subset fits differ by 0.0057 (standard error 0.0013). The stratified marginal is the mixture of the stratum estimates, so it inherits their bias: 0.56 of its spread at n = 2,000 (99% interval 0.43 to 0.69) and 0.43 at n = 8,000 (0.25 to 0.61). The intervals overlap, so contraction faster than the spread is not established. No defect of the stratified construction was found. The owner closes when a re-declared cell, with its law or size declared before its run, passes, or when `RM18-one-sided-bias` closes with a correction that also covers the stratified fit. Until then the four cells stay published red under `reporting` |
 | `X8-drtmle-small-stratum` | the two primary truth rows of `ey[1][V=2]` and the `interval_calibration/v2_ate__correctly_specified` cell of `canonical-stratified-drtmle` | reading `finite-sample, shared with the comparator`. Stratum 2 holds about 400 of the 2,000 rows. Coverage of `ey[1][V=2]` is 0.900 in the package and 0.8925 in R `drtmle` on the same draws, with estimates 4e-5 apart on average. The calibration cell's SE-ratio interval ends at 0.9294 against a floor of 0.93, and on the primary draws the same ATE reads 0.985 in the package and 0.973 in R ([`tests/unit/test_band_shortfall_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_band_shortfall_reading.py)). The owner closes when a re-declared cell, with its law or size declared before its run, passes. Until then the three stay published red under `reporting` |
 | `F1-power-design` | the `power/mix__alternative` cell of `stochastic-categorical-ltmle` | reading `underpowered at its declared size`. Its n = 4,000 was copied from `canonical-categorical-ltmle`, where the contrast is 0.125. Here the contrast is -0.0488, so the exact power of a two-sided 5% test is 0.5365, and exact power 0.80 needs n = 7,460. The cell rejects at 0.5575 (99% interval 0.511 to 0.603) against a floor of 0.80, and that interval contains the exact power ([`tests/unit/test_stochastic_categorical_ltmle_design.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_stochastic_categorical_ltmle_design.py)). Its bias is inside the margin and its coverage is 0.9475. The `type_i_error` cell, on the null variant of the law, passes. The owner closes when a re-declared power cell, with its law or size declared before its run, passes. Until then the cell stays published red under `reporting` |
-| `mtp-longitudinal-limits` | the `interval_calibration/categorical_mtp__correctly_specified` cell and both `crossfit_overfitting` cells of `longitudinal-mtp`. The cross-fitted arm passes its own rule, but the family's joint clause fails with its control | reading `finite-sample` for the categorical cell: its efficiency ratios read 1.12 and 1.10 against a band of 0.9 to 1.1, its coverage 0.9435 passes, and with saturated learners the ratio falls from 1.07 at n = 2,000 to 1.02 at n = 8,000. Reading `control underpowered by design` for the overfitting pair: the in-sample SE ratio is 0.741, with a 99% interval ending at 0.754 against a ceiling of 0.75, and the paired coverage gain is 0.116 to 0.136 against a floor of 0.15. The gain misses at its point estimate, 0.126, so no budget passes it. The in-sample trees fit every outcome exactly, so the control's standard error is the spread of the plug-in at the shifted dose, and the dose model does not enter it. The cross-fitted arm reads 1.167 and passes its own rule ([`tests/unit/test_longitudinal_mtp_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_longitudinal_mtp_reading.py)). Re-declare the pair's control design before any regeneration of the study. The owner closes when re-declared cells, with their sizes or control designs declared before their run, pass |
+| `mtp-longitudinal-limits` | the `interval_calibration/categorical_mtp__correctly_specified` cell of `longitudinal-mtp` | reading `finite-sample, sparse cells`: the efficiency ratios read 1.120 and 1.098 against a band of 0.9 to 1.1, and coverage 0.9435 and the SE ratio pass. The cell fits saturated cell probabilities for the six-level mechanism. A diagnostic refitted it on fresh draws. The in-sample fit reads a reported efficiency ratio of 1.103 at n = 2,000 and 1.023 at n = 8,000, and the five-fold fit 1.389 and 1.048, on 300 fresh draws per size. The reported ratio's excess falls about four times as n grows four times, the order of the cost of estimating sparse cell probabilities, and reads 1.003 at n = 128,000. A wrong bound or an inefficient curve would keep its excess. Both outcome regressions are misspecified, and the saturated mechanism makes the fit the NPMLE whatever the outcome learner, so the estimate is unaffected ([`tests/diagnostics/longitudinal_mtp_categorical_efficiency/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/longitudinal_mtp_categorical_efficiency), [`tests/unit/test_longitudinal_mtp_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_longitudinal_mtp_reading.py)). The cell read the same in runs 2 and 3. The owner closes when a re-declared cell, with its size declared before its run, passes. Until then the cell stays published red under `reporting` |
 | `mtp-point-calibration` | the `interval_calibration/halve__correctly_specified` cell of `policy-point-mtp` | reading `Monte Carlo excursion`. The SE ratio is 1.0429, with a 99% interval of 1.0011 to 1.0881 against an upper bound of 1.07. It was 1.0430 at 160 bins, so the bin count does not move it. Coverage is 0.9605, and the reported standard error matches the efficiency bound (ratio 1.0018). The influence curve with the binned ratio predicts a ratio of 0.9998. A diagnostic refitted the same configuration on 2,000 fresh draws and read 0.999, with a bootstrap 99% interval of 0.959 to 1.043. Fewer than 1% of its bootstrap ratios reach 1.0429 ([`tests/diagnostics/mtp_point_halve_excursion/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/mtp_point_halve_excursion)). The diagnostic cannot change the verdict. The owner closes when a re-declared calibration cell for this policy passes, with a budget of no more than 2,000 replications fixed before its run. Until then the cell stays published red under `reporting` |
-| `X13-finite-sample` | the `interval_calibration/weighted_t5__correctly_specified` cell of `point-treatment-survival` and the `interval_calibration/three_arm_t3__correctly_specified` cell of `point-treatment-survival-crossfit` | reading `finite-sample`. The weighted cell's SE ratio is 1.027, with a 99% interval of 0.981 to 1.076 against an upper bound of 1.07. Its reported standard error equals the weighted efficiency bound (ratio 1.0007), and the interval of its empirical efficiency ratio, 0.930 to 1.020, contains one. The cross-fitted three-arm cell's empirical efficiency interval is 1.010 to 1.108 against 1.10, with an SE ratio of 1.008. A probe on fresh draws put its reported standard error over the bound at 1.0003 in sample, 1.082 at five folds and 1.055 at ten folds at n = 2,000, and 1.0085 at five folds at n = 8,000, so the excess is the finite-sample cost of cross-fitting saturated cell means. The owner closes when a re-declared cell, with its size or replications declared before its run, passes. Until then each cell stays published red under `reporting` |
+| `X13-finite-sample` | the `interval_calibration/weighted_t5__correctly_specified` cell of `point-treatment-survival` and the `interval_calibration/three_arm_t3__correctly_specified` cell of `point-treatment-survival-crossfit` | reading `finite-sample`. The weighted cell's SE ratio is 1.027, with a 99% interval of 0.981 to 1.076 against an upper bound of 1.07. Its reported standard error equals the weighted efficiency bound (ratio 1.0007), and the interval of its empirical efficiency ratio, 0.930 to 1.020, contains one. A diagnostic on 1,000 fresh draws ([`tests/diagnostics/x13_weighted_calibration/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x13_weighted_calibration)) reads an SE ratio of 1.022 and a coverage of 0.957. The cross-fitted three-arm cell's empirical efficiency interval is 1.010 to 1.108 against 1.10, with an SE ratio of 1.008. A diagnostic on fresh draws ([`tests/diagnostics/x13_crossfit_three_arm/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x13_crossfit_three_arm)) put its reported standard error over the bound at 1.0003 in sample, 1.082 at five folds and 1.055 at ten folds at n = 2,000, and 1.0085 at five folds at n = 8,000, so the excess is the finite-sample cost of cross-fitting saturated cell means. The owner closes when a cell is re-declared with its size and replication count chosen before its run by a stated sizing rule, such as a pass probability of at least 0.90 under exact calibration, and that cell passes. A larger run that happens to pass does not close it. Until then each cell stays published red under `reporting` |
 | `F28` | finite-sample limits of clustered intervals: the fold-evaluated covariate pair of `clustered-unequal-cvtmle`, and the fold-evaluated bias cells and cross-fitted `DRTMLE` IID controls of `clustered-few-cluster-tmle` | each group closes on its own registered study that passes. The fold-evaluated pair of `clustered-unequal-cvtmle` at 40 clusters in 10 folds: a fold-evaluated degrees-of-freedom rule $t(\min(J-2, J-V))$ at 40 clusters or more. The three `tmle_cv_evaluation__unequal_informative` cells: a cluster-size-weighted fold average or another fold-evaluated point whose bias stays inside the margin. The stacked report is the remedy today. The four `drtmle_crossfit` `iid_t_control` cells: a calibrated cross-fitted `DRTMLE` cluster variance, or an IID control that compares the two SEs and not the IID SE with the empirical SD ([F28](#f28-finite-sample-limits-of-clustered-intervals)) |
 | `X20-bootstrap` | the `interval_calibration` cells `boot_ey_crossfit__correctly_specified`, `boot_ate_crossfit__correctly_specified` and `boot_ate_clustered__correctly_specified` of `full-refit-bootstrap-and-derived-contrasts` | the declared rule 3 keeps the `end_of_study/cross_fit` and `end_of_study/cluster` kinds out of `LICENSED_BOOTSTRAP_DESIGNS`, so their bootstrap prints as a diagnostic. A diagnostic reading, not a registered result: on this cell the cross-fitted estimator is heavy-tailed. Its 4,000 committed estimates have excess kurtosis 6.7, and about 5% of them lie at the probability boundary, because `g_bounds=(1e-8, 1)` with saturated cell means leaves sparse training cells unbounded. A bootstrap resample holds about 63% unique units, so more replicates reach the boundary and the replicate spread exceeds the sampling spread (SE ratios 1.23 and 1.27). A probe that kept each unit's copies in one fold raised the SE ratio to about 1.65, so the split of copies across folds is not the cause. The cluster contrast covers 0.924 with a calibrated SE ratio (0.977), a finite-sample shortfall of the percentile interval at 60 clusters. The owner closes when a re-declared cell for the kind, with its law, size, nuisance bounds or resampling scheme declared before its run, passes a registered cell |
 
@@ -351,35 +351,6 @@ owners do the same for the stratified DR-TMLE study.
 
 The sections below give one contract for each open item. Their physical order does not override
 the main grid.
-
-### X15. Known treatment mechanism
-
-`TMLE` always estimates the treatment mechanism. `DRTMLE` takes `treatment_probabilities=` only
-with `delta=`, and it refuses the array on complete data. A randomized trial knows its mechanism.
-`tmle3` (`LF_known`) and `drtmle` (`gn`) accept it.
-
-Work: add a declared known mechanism to `TMLE`, and to complete-data `DRTMLE`. Keep it distinct
-from `randomized=True`, which estimates the mechanism for chance-imbalance adjustment. Read the
-source for each inference claim before choosing the reported curve.
-
-| question | where the audit starts |
-| --- | --- |
-| the curve when the mechanism is known, and the direction of its variance against the efficient curve | the audit must find and read a source. Moore and van der Laan (2009), *Statistics in Medicine* 28(1), on covariate adjustment in trials, is the first candidate |
-| the `DRTMLE` complete-data refusal | the row of [DR-TMLE supported estimands](technical-reference/dr-tmle/supported-estimands.md) that states the gap |
-
-The known array is row-aligned to the data as passed, so it keeps the shipped refusal with
-`n_bootstrap=`.
-
-Acceptance:
-
-- a contract that cites the read source for the reported curve;
-- an exact-law test where the outcome regression is wrong and the known mechanism is true, with a
-  mutation control that perturbs the array;
-- a test that a known mechanism and a fitted mechanism give the same point on an exact law where
-  the fitted mechanism equals the known one;
-- a registered study at a randomized law.
-
-The [refusal taxonomy](technical-reference/scope-and-refusals.md) then drops the `DRTMLE` row.
 
 ### X17. Outcome-adaptive C-TMLE intervals from per-arm scalar designs
 
@@ -577,6 +548,33 @@ Acceptance:
 Rust and Rao (1996) govern replication variance for complex surveys. Add BRR, jackknife, or
 another replicate design only after a source audit matches its construction to this package's
 weighted-law estimands and inference conventions.
+
+### X35. Efficient known-score ATT and ATC
+
+On data that declares its treatment mechanism, the shipped ATT divides by $g_0$ and reports the
+treated mean of $\bar Q^*_1-\bar Q^*_0$. That curve is not the efficient one when the propensity
+score is known. Hahn (1998) gives a smaller ATT bound for a known score than for an unknown one.
+
+By the remainder algebra of the
+[known treatment mechanism](technical-reference/point-treatment-tmle.md#known-treatment-mechanism)
+section, the g-weighted plug-in $P_n\{g_0(\bar Q^*_1-\bar Q^*_0)\}/P_n g_0$ has the smaller curve.
+The ATC is the mirror image. No pinned comparator implements it. R `tmle` and the `tmle3`
+`Param_ATT` both fluctuate $g$, so their ATT has the unknown-score curve. The item therefore follows
+the beta.
+
+| item | contract |
+| --- | --- |
+| base result | Hahn (1998), *Econometrica* 66(2):315–331, Theorems 1 and 2. [References](references.md) records that only the abstract was read. Read Theorem 2 first-hand before the row starts |
+| step | the g-weighted plug-in at $g_n=g_0$, with the remainder algebra of the shipped known-mechanism ATT |
+| estimator choice | an option on the known-mechanism ATT and ATC. The shipped treated-mean form stays the default |
+| comparator | none. The study cells compare with the truth only |
+
+Acceptance:
+
+- an exact-law test of the curve of the g-weighted plug-in;
+- a variance witness: on a law where the score carries information, the reported standard error is
+  below the standard error of the shipped form;
+- truth-only registered study cells.
 
 ### X5. Natural and interventional mediation effects
 
@@ -1495,6 +1493,21 @@ freedom.
 | a fold-evaluated point at informative unequal sizes with few clusters per fold | a fold-evaluated point construction whose bias at 2 to 6 clusters per fold stays inside 0.25 empirical standard deviations, such as a cluster-size-weighted fold average whose fluctuation uses the same weights, with its own registered study. The stacked report is the remedy today. The few-cluster study reads a bias of 0.61, 0.43 and 0.32 at 2, 4 and 6 clusters per fold, where the stacked fit reads 0.14, 0.10 and 0.06. The equal $1/V$ fold average causes it (`tests/unit/test_fold_evaluated_ratio_bias.py`) |
 | a calibrated cross-fitted `DRTMLE` cluster variance at 10 to 30 clusters | a cluster variance for the cross-fitted `DRTMLE` curve whose SE ratio stays inside the calibration band, or a redesigned IID control, with a registered study. The few-cluster study reads cluster-robust SE ratios of 1.19, 1.14 and 1.12 at 10, 20 and 30 equal clusters. The IID SE is 23% to 28% below the cluster-robust SE, and the IID SE ratio upper endpoint reaches the 0.80 ceiling at four cells |
 | complex nuisance learners at about 20 clusters | none for parametric learners. Wang, Park, Small and Li (2024), Remark 3, caution against complex working models at $m = 20$. The registered few-cluster evidence uses parametric nuisance learners only |
+
+### F31. Inference at a boundary node estimate
+
+A longitudinal fit reads a node regression whose fitted rows all hold 0, or all hold 1, as that
+value ([a node with no event](technical-reference/longitudinal-tmle.md#a-node-with-no-event)).
+The point estimate is the maximum-likelihood value, and `survtmle` reads such a node the same
+way. The node's term of the influence curve is then identically zero, although the true hazard
+there can be positive. So the plug-in standard error leaves that node's variance out. A risk of
+zero gets a standard error of zero, and a contrast against it carries the other arm's variance
+only.
+
+| request | missing published result |
+| --- | --- |
+| an interval for a parameter whose recursion reads a boundary node | a construction for a TMLE parameter with a boundary node hazard, such as a one-sided exact bound for the node combined with the influence curve of the other nodes, with its coverage. No source read here derives one |
+| a band that includes such a parameter | the same construction, extended to a joint statement. The fit builds its band over the other parameters |
 
 ## Reading a gap correctly
 

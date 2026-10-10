@@ -200,6 +200,14 @@ class IPSISet:
 
     reference : float
         Code of the tilt contrasts are taken against.
+    mechanism_known : bool
+        Whether ``propensity`` is a declared known mechanism
+        (:attr:`~cleverly.data.CausalData.known_treatment`) rather than an estimate.  Then
+        :math:`q_\\delta(g_0)` is a known stochastic regime: the model has no mechanism
+        scores, so the targeting step solves no mechanism equation and the influence curve
+        has no :math:`(A - g)` term.  That curve is the curve of the
+        :class:`~cleverly.interventions.Stochastic` regime at the same density (Kennedy 2019,
+        the incremental curve projected off the mechanism tangent space).
     """
 
     names: tuple[str, ...]
@@ -209,6 +217,7 @@ class IPSISet:
     derivative: FloatArray
     propensity: FloatArray
     reference: float = 0.0
+    mechanism_known: bool = False
 
     def __post_init__(self) -> None:
         r = len(self.names)
@@ -325,7 +334,11 @@ class IPSISet:
         one = np.asarray(propensity, dtype=float).reshape(-1)
         if one.shape[0] != self.n:
             raise ValueError(f"expected {self.n} propensities, got {one.shape[0]}")
-        return type(self)(*_tilt(self.names, self.deltas, one), reference=self.reference)
+        return type(self)(
+            *_tilt(self.names, self.deltas, one),
+            reference=self.reference,
+            mechanism_known=self.mechanism_known,
+        )
 
     # ----------------------------------------------------------------- access
 

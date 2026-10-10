@@ -180,9 +180,13 @@ is 1.027, and its 99% interval is 0.981 to 1.076 against an upper bound of 1.07.
 0.957. The reported standard error is the weighted efficiency bound to 0.07% (ratio 1.0007). The
 empirical spread is 2.5% below the bound, and its interval, 0.930 to 1.020, contains the bound.
 
-The diagnosis finds no defect: at 1,600 replications the interval reaches past the band from a point
-of 1.027. By the declared route the cell stays red under `reporting`, with the owner row
-`X13-finite-sample`.
+The diagnostic
+[`tests/diagnostics/x13_weighted_calibration/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x13_weighted_calibration)
+refits the cell on 1,000 fresh draws, and its module records the seeds and the command. It reads
+an SE ratio of 1.022, inside the band, an empirical efficiency ratio of 0.979, a reported
+efficiency ratio of 1.000 and a coverage of 0.957. The diagnosis finds no defect: at 1,600
+replications the interval reaches past the band from a point of 1.027. By the declared route the
+cell stays red under `reporting`, with the owner row `X13-finite-sample`.
 
 ## Measured values
 

@@ -10,6 +10,7 @@ import narwhals as nw
 
 from ._typing import Family
 from .data import CausalData
+from .data.known_mechanism import KNOWN_CTMLE_REFUSAL, probability_columns
 from .data.validate import RANDOMIZED_INTERCEPT
 from .estimators import CTMLE, DRTMLE, TMLE, TMLEResult
 from .estimators._strata import check_stratified_targets
@@ -419,6 +420,13 @@ class PointTreatment:
         a treatment missing at random. The composite indicator identifies the arm means and
         their contrasts on in-sample TMLE and DRTMLE fits, and regime means and arm MSMs on
         in-sample TMLE fits.
+    treatment_probabilities : mapping of level to str, or None
+        The known treatment mechanism of a randomized design: each treatment level mapped to
+        the column that holds ``P(A = level | W)``.  Every method then divides by these
+        probabilities in place of an estimate, and the columns are not adjustment
+        covariates.  A design names columns, so the array forms of
+        :meth:`cleverly.TMLE.fit` are refused here.  ``CollaborativeTMLEMethod`` is
+        unavailable on such a design, because there is no mechanism to select.
 
     See Also
     --------
@@ -439,6 +447,16 @@ class PointTreatment:
 
     >>> PointTreatment(outcome="Y", treatment="A", randomized=True).adjustment
     ()
+
+    A trial that knows its allocation probabilities names their columns:
+
+    >>> PointTreatment(
+    ...     outcome="Y",
+    ...     treatment="A",
+    ...     adjustment=("age",),
+    ...     treatment_probabilities={0: "p_control", 1: "p_treated"},
+    ... ).treatment_probabilities
+    ((0, 'p_control'), (1, 'p_treated'))
     """
 
     outcome: str
@@ -455,10 +473,21 @@ class PointTreatment:
     treatment_kind: Literal["discrete", "continuous"] = "discrete"
     outcome_family: Family = "auto"
     treatment_missingness: str | None = None
+    treatment_probabilities: Any = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "adjustment", tuple(self.adjustment))
         object.__setattr__(self, "strata", tuple(self.strata))
+        if self.treatment_probabilities is not None:
+            columns = probability_columns(self.treatment_probabilities)
+            if columns is None:
+                raise DataError(
+                    "PointTreatment(treatment_probabilities=) maps each treatment level to "
+                    "the column that holds its probability, as every other design field "
+                    "names columns. Put the probabilities in the frame, or pass the arrays "
+                    "to TMLE.fit(treatment_probabilities=)."
+                )
+            object.__setattr__(self, "treatment_probabilities", columns)
         if not self.outcome or not self.treatment:
             raise DataError("outcome and treatment must be non-empty column names")
         if self.outcome == self.treatment:
@@ -512,6 +541,9 @@ class PointTreatment:
             family=self.outcome_family,
             treatment_kind=self.treatment_kind,
             treatment_delta=self.treatment_missingness,
+            treatment_probabilities=(
+                None if self.treatment_probabilities is None else dict(self.treatment_probabilities)
+            ),
         )
 
     def _check_prepared(self, data: CausalData) -> None:
@@ -545,6 +577,16 @@ class PointTreatment:
                     f"declares {role}={declared!r}; build the data from this design, or "
                     "correct the design"
                 )
+        held = None if data.known_treatment is None else dict(data.known_treatment.columns)
+        declared = (
+            None if self.treatment_probabilities is None else dict(self.treatment_probabilities)
+        )
+        if held != declared:
+            raise DataError(
+                f"the supplied CausalData declares treatment_probabilities={held!r}, but this "
+                f"design declares treatment_probabilities={declared!r}; build the data from "
+                "this design, or correct the design"
+            )
         # ``outcome_family`` is inferred when the design does not state one, so only a
         # stated disagreement is a disagreement.
         if self.outcome_family != "auto" and self.outcome_family != data.family:
@@ -565,6 +607,62 @@ class PointTreatment:
                 f"declares {sorted(declared_adjustment)}; an identification claim and the "
                 "data it is claimed about have to be the same set"
             )
+
+
+def _node_probability_columns(supplied: Any) -> tuple[tuple[str, tuple[tuple[Any, str], ...]], ...]:
+    """A longitudinal design's treatment declaration, as hashable column pairs by node."""
+    pairs = None
+    if isinstance(supplied, Mapping):
+        pairs = tuple(
+            (str(node), probability_columns(per_node)) for node, per_node in supplied.items()
+        )
+    if pairs is None or any(columns is None for _, columns in pairs):
+        raise DataError(
+            "LongitudinalTreatment(treatment_probabilities=) maps each treatment node to a "
+            "mapping of its levels to the columns that hold their probabilities, as every "
+            "other design field names columns. Put the probabilities in the frame, or pass "
+            "the arrays to LTMLE.fit(treatment_probabilities=)."
+        )
+    return tuple((node, columns) for node, columns in pairs if columns is not None)
+
+
+def _censoring_probability_columns(supplied: Any) -> tuple[tuple[str, str], ...]:
+    """A longitudinal design's censoring declaration, as hashable column pairs."""
+    if not isinstance(supplied, Mapping) or not all(
+        isinstance(column, str) for column in supplied.values()
+    ):
+        raise DataError(
+            "LongitudinalTreatment(censoring_probabilities=) maps each censoring column to the "
+            "column that holds its retention probability. Put the probabilities in the frame, "
+            "or pass the arrays to LTMLE.fit(censoring_probabilities=)."
+        )
+    return tuple((str(node), str(column)) for node, column in supplied.items())
+
+
+def _held_node_columns(
+    data: LongitudinalData,
+) -> tuple[tuple[str, tuple[tuple[Any, str], ...]], ...] | None:
+    """The treatment column declaration a prepared container holds, as the design spells it."""
+    known = data.known_mechanisms
+    if known is None or not known.treatment_columns:
+        return None
+    return tuple(
+        (name, pairs)
+        for name, pairs in zip(data.treatment_names, known.treatment_columns, strict=False)
+        if pairs
+    )
+
+
+def _held_censoring_columns(data: LongitudinalData) -> tuple[tuple[str, str], ...] | None:
+    """The censoring column declaration a prepared container holds, as the design spells it."""
+    known = data.known_mechanisms
+    if known is None or not known.censoring_columns:
+        return None
+    return tuple(
+        (name, column)
+        for name, column in zip(data.censoring_names, known.censoring_columns, strict=False)
+        if column is not None
+    )
 
 
 @dataclass(frozen=True)
@@ -598,6 +696,13 @@ class LongitudinalTreatment:
     continuous_treatment : sequence of str
         The treatment nodes that hold a continuous dose.  Each such node takes a modified
         treatment policy, such as :class:`~cleverly.interventions.Shift`.
+    treatment_probabilities : mapping or None
+        The known treatment mechanism of a sequentially randomized design: each treatment
+        node mapped to a mapping of its levels to the column of
+        ``P(A_t = level | observed past)``.  A declared node fits no treatment learner.
+    censoring_probabilities : mapping or None
+        The known retention probabilities: each censoring column mapped to the column of
+        ``P(C_t = 1 | observed past)``.  A declared node fits no censoring learner.
 
     See Also
     --------
@@ -640,9 +745,23 @@ class LongitudinalTreatment:
     weights_estimated: bool = False
     outcome_family: Family = "auto"
     continuous_treatment: Sequence[str] = ()
+    treatment_probabilities: Any = None
+    censoring_probabilities: Any = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "continuous_treatment", tuple(self.continuous_treatment))
+        if self.treatment_probabilities is not None:
+            object.__setattr__(
+                self,
+                "treatment_probabilities",
+                _node_probability_columns(self.treatment_probabilities),
+            )
+        if self.censoring_probabilities is not None:
+            object.__setattr__(
+                self,
+                "censoring_probabilities",
+                _censoring_probability_columns(self.censoring_probabilities),
+            )
         if not isinstance(self.treatment, str):
             object.__setattr__(self, "treatment", tuple(self.treatment))
         object.__setattr__(self, "baseline", tuple(self.baseline))
@@ -684,6 +803,14 @@ class LongitudinalTreatment:
             weights_estimated=self.weights_estimated,
             family=self.outcome_family,
             continuous_treatment=self.continuous_treatment,
+            treatment_probabilities=(
+                None
+                if self.treatment_probabilities is None
+                else {node: dict(pairs) for node, pairs in self.treatment_probabilities}
+            ),
+            censoring_probabilities=(
+                None if self.censoring_probabilities is None else dict(self.censoring_probabilities)
+            ),
         )
 
     def _outcome_roles(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
@@ -739,6 +866,16 @@ class LongitudinalTreatment:
                     if data.is_continuous_node(time)
                 ),
             ),
+            (
+                "treatment_probabilities",
+                self.treatment_probabilities,
+                _held_node_columns(data),
+            ),
+            (
+                "censoring_probabilities",
+                self.censoring_probabilities,
+                _held_censoring_columns(data),
+            ),
         )
         for role, declared, held in expected:
             if declared != held:
@@ -769,7 +906,8 @@ class TimeToEvent:
     :meth:`cleverly.longitudinal.LongitudinalData.from_time_to_event` states the binning
     rules and the refusals.  The estimand is a risk or a cumulative incidence at the grid
     times, as for a survival :class:`LongitudinalTreatment`.  At a grid time before which
-    no follower of a regimen had the event, the risk is zero with an interval of width zero.
+    no follower of a regimen had the event, the risk is zero and reports no interval
+    (status ``"constant_node_plugin"``).
 
     Parameters
     ----------
@@ -803,6 +941,12 @@ class TimeToEvent:
     continuous_treatment : bool
         Whether the treatment is a continuous dose.  A regimen is then a modified treatment
         policy at baseline.
+    treatment_probabilities : mapping of level to str, or None
+        The known baseline treatment mechanism of a randomized design: each treatment level
+        mapped to the column that holds :math:`P(A = \text{level} \mid W)`.  The fit then
+        divides by these probabilities and fits no treatment learner.  A design names
+        columns, so the array forms of :meth:`cleverly.longitudinal.LTMLE.fit` are refused
+        here.
 
     Attributes
     ----------
@@ -836,8 +980,19 @@ class TimeToEvent:
     weights_estimated: bool = False
     time_varying: None = None
     continuous_treatment: bool = False
+    treatment_probabilities: Any = None
 
     def __post_init__(self) -> None:
+        if self.treatment_probabilities is not None:
+            columns = probability_columns(self.treatment_probabilities)
+            if columns is None:
+                raise DataError(
+                    "TimeToEvent(treatment_probabilities=) maps each treatment level to the "
+                    "column that holds its probability, as every other design field names "
+                    "columns. Put the probabilities in the frame, or pass the arrays to "
+                    "LTMLE.fit(treatment_probabilities=)."
+                )
+            object.__setattr__(self, "treatment_probabilities", columns)
         if self.time_varying is not None:
             raise TypeError(
                 "TimeToEvent reads one row per unit, so it has no covariate measured after "
@@ -889,11 +1044,16 @@ class TimeToEvent:
             weights_type=self.weights_type,
             weights_estimated=self.weights_estimated,
             continuous_treatment=self.continuous_treatment,
+            treatment_probabilities=(
+                None if self.treatment_probabilities is None else dict(self.treatment_probabilities)
+            ),
         )
 
     def _check_prepared(self, data: LongitudinalData) -> None:
         """Reconcile an already-built container with the roles this design declares."""
+        held_columns = dict(_held_node_columns(data) or ()).get(self.treatment)
         expected: tuple[tuple[str, Any, Any], ...] = (
+            ("treatment_probabilities", self.treatment_probabilities, held_columns),
             ("time", self.time, data.time_name),
             ("event", self.event, data.event_name),
             ("treatment", (self.treatment,), tuple(data.treatment_names)),
@@ -1580,14 +1740,21 @@ def _narrow_bands(
     That makes them the bands the engine itself would have produced had it been asked for this
     family alone. Below two parameters there is no joint question left, and both engines
     already return ``None`` there rather than a one-parameter band.
+
+    A parameter that supplies no inference on its own, such as a constant-node risk of a
+    longitudinal fit, stays out of the family, as the engine's band leaves it out.  The band is
+    a joint statement over the retained parameters that supply inference.
     """
     bands = result.simultaneous
-    if bands is None or len(retained) == len(result.estimates):
+    if bands is None:
+        return None
+    family = {name: estimate for name, estimate in retained.items() if estimate.supplies_inference}
+    if set(family) == set(bands.bands):
         return bands
-    if len(retained) < 2:
+    if len(family) < 2:
         return None
     return simultaneous_bands(
-        retained,
+        family,
         alpha=bands.alpha,
         n_replicates=bands.n_replicates,
         kind=bands.kind,
@@ -2980,18 +3147,23 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         # claims nothing.
         design = getattr(self._study, "design", None)
         clustered = getattr(design, "cluster", None) is not None
+        # A design that declares its mechanism leaves C-TMLE nothing to select.
+        known = getattr(design, "treatment_probabilities", None) is not None
         collaborative_blocker = (
-            "C-TMLE has no clustered result: the search draws selection and nested folds "
+            KNOWN_CTMLE_REFUSAL
+            if known
+            else "C-TMLE has no clustered result: the search draws selection and nested folds "
             "of its own, and no reviewed result covers a grouped draw of them"
             if clustered
             else blocker or "no collaborative score is evidenced for this functional"
         )
+        collaborative = variants and not clustered and not known
         return (
             MethodAvailability("tmle", True),
             MethodAvailability(
                 "collaborative_tmle",
-                variants and not clustered,
-                None if variants and not clustered else collaborative_blocker,
+                collaborative,
+                None if collaborative else collaborative_blocker,
             ),
             MethodAvailability(
                 "drtmle",
@@ -3184,10 +3356,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             estimator = DRTMLE(**kwargs)
         else:
             estimator = TMLE(**kwargs)
-        fit_kwargs: dict[str, Any] = {}
-        if isinstance(method, DRTMLEMethod) and method.treatment_probabilities is not None:
-            fit_kwargs["treatment_probabilities"] = method.treatment_probabilities
-        result_set = estimator.fit(self._study.data, **fit_kwargs)
+        result_set = estimator.fit(self._study.data)
         raw = (
             result_set[functional.intermediate]
             if functional.intermediate is not None

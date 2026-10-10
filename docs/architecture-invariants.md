@@ -114,18 +114,30 @@ A point-treatment estimator stamps the inference status in `TMLE._retarget_detai
 builds an interval that the fit refuses. The same method stamps both fold-level reports, and
 `CVTargeting.inference` reads the status from those reports rather than store it.
 
-The longitudinal estimator decides its status in `_inference_status(data, folds)`, in
+The longitudinal estimator decides its fit status in `_inference_status(data, folds)`, in
 `cleverly.longitudinal.estimator`. That function calls `cluster_inference_status` on the prepared
 cluster labels and weights, and it reads nothing fitted. `LTMLE.fit` and the truncation-curve
-replay `_refit_bound` pass the status to `_estimates` and `_msm_estimates`. Those two builders
+replay `_refit_bound` pass the fit status to `_estimates` and `_msm_estimates`. Those two builders
 stamp it on each estimate. The replay must equal the fit field for field, so a stamp in `fit`
 alone would make `truncation_curve()` refuse.
 
+A parameter status sits beside the fit status. `PARAMETER_STATUSES` in
+`src/cleverly/_inference_status.py` names the statuses that one parameter takes, and today it
+holds `constant_node_plugin` only. `_estimates` stamps it through `_parameter_status`, in the fit
+and in `_refit_bound` alike. `_parameter_status` reads one fitted quantity, `constant_nodes(fit)`:
+the nodes whose regression read a constant 0 or 1 over the whole sample. A level takes the status
+when its own fit has such a node, and a contrast when its fit or its reference fit has one. A fit
+status that withholds inference comes first in `NON_INFERENTIAL`, so it stays.
+
 | path | status it sets |
 | --- | --- |
-| `smooth_contrast` and `median_estimates` | the status of their inputs. Each raises `ValueError` on a mix |
+| `smooth_contrast` | the status of its inputs, through `inference_status`. A mix of two fit statuses raises `ValueError`. A mix of a fit status and a parameter status takes the earlier one in `NON_INFERENTIAL` |
+| `median_estimates` | the status of its repeats. Any mix raises `ValueError`, a parameter status included, because a median would report one draw's refusal under another draw's name |
 | `variable_importance` | none. It raises the fold-policy refusal first. On each candidate's prepared data it raises the outcome-scale refusal, then asks the hook. It refuses before the first fit. A cross-fitted run of a continuous outcome with no `q_bounds` meets the scale refusal first in two cases. With `delta=`, its fit would raise the arm-indexed refusal first. With a `CTMLE` template, the hook would give its collaborative status |
 | a longitudinal estimator | `cluster_inference_status` on the prepared cluster labels and weights. The fit and the truncation-curve replay pass it through `_estimates` and `_msm_estimates` to each `make_estimate` call. The replay computes the status again from the data and folds of the result, so the replay at the fitted bound equals the fit in every field that `_fitted_replay_matches` compares |
+| a longitudinal parameter | `_parameter_status` in `_estimates`: `constant_node_plugin` when `constant_nodes` of its fit, or of its reference fit for a contrast, is not empty. `_msm_estimates` never meets it, because `msm=` refuses a constant cell in the backward pass |
+| `incidence_total()` | each total's own status, through `inference_status` over the incidences it sums |
+| a band | none. `LTMLE._bands` and `CausalStudy`'s `_narrow_bands` build the band over the estimates that supply inference, and below two of them they build none |
 
 The same stamp sets the Student $t$ reference of a clustered fit. A builder records the rows an
 estimate reads, and not its degrees of freedom: `_stratum_estimates` returns the stratum code of
@@ -142,17 +154,28 @@ a second normal quantile. A future fold-evaluated report with baseline strata mu
 stratum's row set into `_average_over_folds`, or its stratum estimates read the fit's cluster count.
 *Reconsider when* a source gives a reference that is not a function of the cluster count.
 
-One fit has one status. When more than one non-inferential status applies, the fit takes the
-first one in `NON_INFERENTIAL` (`src/cleverly/_inference_status.py`). An override that finds more
-than one status passes them to `precedent_status`, so the order lives in the table.
+One fit has one fit status. When more than one non-inferential fit status applies, the fit takes
+the first one in `NON_INFERENTIAL` (`src/cleverly/_inference_status.py`). An override that finds
+more than one status passes them to `precedent_status`, so the order lives in the table. A
+parameter status can sit beside it on some estimates. The result's `inference_status`, through
+`reported_status`, is the fit status: it leaves parameter statuses out unless every estimate holds
+one.
 
-A reader of `std_error`, `ci`, or `pvalue` must branch on `supplies_inference`, or on the
-`inference_status` of the result. A frame or label that publishes a spread must take its names from
-`spread_columns()` or `spread_name`, which raises `KeyError` for an inferential name with no
-diagnostic entry. A text that names a status must read it from `NON_INFERENTIAL`.
-[Inference status](technical-reference/inference.md#inference-status) gives the public contract.
-*Reconsider when* [F18](roadmap.md#f18-selector-path-c-tmle-inference) supplies the selector
-paths' influence curve, or an estimator's status depends on a fitted quantity.
+A reader of `std_error`, `ci`, or `pvalue` must branch on each estimate's `supplies_inference`.
+The `inference_status` of a result is the fit status, so it alone does not say that every
+estimate supplies inference. A reader that decides columns from it must also handle the estimates
+that do not: `summary()` stars them, `curve()` and `incidence_total()` add an `inference` column
+and the plug-in columns, and `to_frame()` holds the union of the columns.
+
+A frame or label that
+publishes a spread must take its names from `spread_columns()` or `spread_name`, which raises
+`KeyError` for an inferential name with no diagnostic entry. A text that names a status must read
+it from `NON_INFERENTIAL`. The estimator that stamps a parameter status names it through
+`CONSTANT_NODE_STATUS`. [Inference status](technical-reference/inference.md#inference-status)
+gives the public contract. *Reconsider when* [F18](roadmap.md#f18-selector-path-c-tmle-inference)
+supplies the selector paths' influence curve, when a second parameter status is added, or when
+[F31](roadmap.md#f31-inference-at-a-boundary-node-estimate) supplies an interval at a boundary
+node, which would remove the one status that reads a fitted quantity.
 
 Where a configuration group serves more than one engine, a default that differs between them is
 a sentinel resolved per engine, never a literal that silently picks one engine's answer for the
