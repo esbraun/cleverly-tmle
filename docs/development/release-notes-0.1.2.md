@@ -22,11 +22,15 @@ Changes since 0.1.1.
   [#225](https://github.com/esbraun/cleverly-tmle/pull/225),
   [#227](https://github.com/esbraun/cleverly-tmle/pull/227),
   [#228](https://github.com/esbraun/cleverly-tmle/pull/228))
-- Check `inference_status` before reading uncertainty estimates. C-TMLE selection paths and some
+- Check each estimate's `supplies_inference` before reading uncertainty estimates. C-TMLE selection paths and some
   estimated-weight DR-TMLE fits now withhold standard errors, confidence intervals, and p-values.
   Their `plugin_std_error` and `plugin_interval` remain available as diagnostics.
   ([#223](https://github.com/esbraun/cleverly-tmle/pull/223),
   [#224](https://github.com/esbraun/cleverly-tmle/pull/224))
+- Move `DRTMLEMethod(treatment_probabilities=...)` declarations to
+  `PointTreatment(treatment_probabilities=...)`. Study designs accept mappings from treatment
+  levels to probability columns. Pass arrays through the estimator's `fit` method instead.
+  ([#276](https://github.com/esbraun/cleverly-tmle/pull/276))
 - Replace `diagnostics.stagewise()` with `diagnostics.support()` and
   `cv_targeting.fold_evaluated` with `cv_targeting.canonical`. Saved results no longer receive
   compatibility migrations. Loading a result from another version emits `VersionMismatchWarning`
@@ -73,6 +77,20 @@ strata.
 - Baseline-stratum targeting extends to incremental interventions, MSMs, natural-course means,
   and DR-TMLE. Fold-local targeting and fold evaluation remain unsupported with strata.
   ([#263](https://github.com/esbraun/cleverly-tmle/pull/263))
+
+### Known treatment probabilities
+
+Fits can use treatment probabilities declared by a randomized design instead of estimating them.
+
+- `TMLE.fit(treatment_probabilities=...)` and `PointTreatment(treatment_probabilities=...)`
+  accept known treatment probabilities. TMLE and DR-TMLE use the declaration without fitting a
+  treatment learner. ([#276](https://github.com/esbraun/cleverly-tmle/pull/276))
+- LTMLE accepts known treatment and censoring probabilities at individual nodes, including
+  survival and time-to-event designs. The fit refuses a regimen that requires an event with
+  declared probability zero. ([#276](https://github.com/esbraun/cleverly-tmle/pull/276))
+- Known treatment probabilities replace only the treatment mechanism. Missing-outcome and
+  controlled-direct-effect fits still estimate their additional mechanisms and retain their
+  inference conditions. ([#276](https://github.com/esbraun/cleverly-tmle/pull/276))
 
 ### Treatment policies and learned rules
 
@@ -175,6 +193,10 @@ analyses.
 - Longitudinal nodes with no censoring use a fixed censoring probability of one. Eligible
   event-free nodes use hazard zero, avoiding classifier failures on constant targets.
   ([#270](https://github.com/esbraun/cleverly-tmle/pull/270))
+- Longitudinal parameters that read a constant node now report `constant_node_plugin` and
+  withhold confidence intervals and p-values. Derived contrasts and restricted means inherit
+  the status, and simultaneous bands exclude those parameters.
+  ([#274](https://github.com/esbraun/cleverly-tmle/pull/274))
 
 ## Compatibility
 
