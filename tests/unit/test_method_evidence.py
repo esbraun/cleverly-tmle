@@ -1860,6 +1860,7 @@ _FAMILY = {
     "subject_score_failures": "fit_diagnostics",
     "reference_score_failures": "fit_diagnostics",
     "mean_oracle_se": "harness",
+    "mechanism_": "fit_diagnostics",
 }
 
 

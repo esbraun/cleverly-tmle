@@ -1,0 +1,201 @@
+{
+  "schema_version": 2,
+  "study": "outcome-adaptive per-arm C-TMLE",
+  "slug": "ctmle-oat-per-arm",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-ctmle-oat-per-arm",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "acfaceb2be413d450538c9e03b78efd36dd86639",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": {
+      "implementation": "drtmle-r-oat-per-arm",
+      "drtmle_commit": "538a3a264c1ca984b6d88978ca7f96165f43152c",
+      "drtmle_version": "1.1.2",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_construction": "per arm a: drtmle(W, A = as.numeric(A == a), Y, a_0 = c(1, 0), adapt_g = TRUE, Qn = list(qa, qa), glm_g = cubic in qlogis(pmin(pmax(Q1W, 1e-6), 1 - 1e-6)), cvFolds = 1, guard = NULL, targeted_se = TRUE, tolg = 0.01, maxIter = 100, tolIC = 1e-10); qa is this package's initial outcome regression; tmle$est[1] and tmle$cov[1, 1] give the arm mean and its variance; the contrasts are formed from the per-arm TMLE curves, rebuilt on the logistic submodel at the reported estimate and checked against tmle$cov[1, 1] to 1e-8",
+      "rejected_candidates": "drtmle with a_0 equal to every level: a sequential conditional-binary chain over the levels (R/estimate.R 337-371), not P(A = a | Qbar(a, W)); a single level a_0 = a enters the multi-level branch, whose glm_g sub-branch names the design columns wrongly (line 351)",
+      "red_cell_owner": "F19",
+      "revert_flag": "cleverly.estimators.ctmle.OAT_PER_ARM_INFERENTIAL",
+      "revert_cells": [
+        "interval_calibration/binary_active__correctly_specified",
+        "interval_calibration/three_arm_active__correctly_specified",
+        "interval_calibration/binary_weighted__correctly_specified",
+        "interval_calibration/binary_repeats__correctly_specified",
+        "generated_design/binary_active__oracle_design",
+        "generated_design/binary_active__estimated",
+        "generated_design/three_arm_active__oracle_design",
+        "generated_design/three_arm_active__estimated",
+        "simultaneous_coverage/three_arm_active__simultaneous_band",
+        "coverage of every estimand of both scenarios, implementation cleverly-ctmle-oat-per-arm"
+      ],
+      "revert_applied": "the gated run at ad722652 read the revert cells red with no code defect: condition (v) of Theorem 1 fails for an estimated outcome regression. OAT_PER_ARM_INFERENTIAL is False, and this declaration publishes under reporting with F19 as the owner",
+      "expected_red": [
+        "cleverly-ctmle-oat-per-arm/binary_active/ey0",
+        "cleverly-ctmle-oat-per-arm/binary_active/ey1",
+        "cleverly-ctmle-oat-per-arm/binary_active/ate",
+        "cleverly-ctmle-oat-per-arm/binary_active/rr",
+        "cleverly-ctmle-oat-per-arm/binary_active/or",
+        "cleverly-ctmle-oat-per-arm/binary_active/par",
+        "cleverly-ctmle-oat-per-arm/binary_active/paf",
+        "cleverly-ctmle-oat-per-arm/three_arm_active/ey[1]",
+        "cleverly-ctmle-oat-per-arm/three_arm_active/ey[2]",
+        "cleverly-ctmle-oat-per-arm/three_arm_active/ate[1 vs 0]",
+        "cleverly-ctmle-oat-per-arm/three_arm_active/ate[2 vs 0]",
+        "cleverly-ctmle-oat-per-arm/three_arm_active/rr[1 vs 0]",
+        "cleverly-ctmle-oat-per-arm/three_arm_active/rr[2 vs 0]",
+        "cleverly-ctmle-oat-per-arm/three_arm_active/or[1 vs 0]",
+        "cleverly-ctmle-oat-per-arm/three_arm_active/or[2 vs 0]",
+        "drtmle-r-oat-per-arm/binary_active/ey0",
+        "drtmle-r-oat-per-arm/binary_active/ey1",
+        "drtmle-r-oat-per-arm/binary_active/ate",
+        "drtmle-r-oat-per-arm/binary_active/rr",
+        "drtmle-r-oat-per-arm/binary_active/or",
+        "drtmle-r-oat-per-arm/binary_active/par",
+        "drtmle-r-oat-per-arm/binary_active/paf",
+        "drtmle-r-oat-per-arm/three_arm_active/ey[1]",
+        "drtmle-r-oat-per-arm/three_arm_active/ey[2]",
+        "drtmle-r-oat-per-arm/three_arm_active/ate[1 vs 0]",
+        "drtmle-r-oat-per-arm/three_arm_active/ate[2 vs 0]",
+        "drtmle-r-oat-per-arm/three_arm_active/rr[1 vs 0]",
+        "drtmle-r-oat-per-arm/three_arm_active/rr[2 vs 0]",
+        "drtmle-r-oat-per-arm/three_arm_active/or[1 vs 0]",
+        "drtmle-r-oat-per-arm/three_arm_active/or[2 vs 0]",
+        "interval_calibration/binary_active__correctly_specified",
+        "interval_calibration/three_arm_active__correctly_specified",
+        "interval_calibration/binary_weighted__correctly_specified",
+        "interval_calibration/binary_repeats__correctly_specified",
+        "generated_design/binary_active__estimated",
+        "generated_design/three_arm_active__estimated",
+        "root_n_and_efficiency/n_500",
+        "root_n_and_efficiency/n_2000",
+        "root_n_and_efficiency/n_8000",
+        "type_i_error/sharp_null",
+        "simultaneous_coverage/three_arm_active__simultaneous_band",
+        "generated_design/binary_active__oracle_design",
+        "generated_design/three_arm_active__oracle_design"
+      ]
+    }
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 1500,
+    "seed": 20261017,
+    "resampling_seed": 2026101701,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "binary_active": [
+        "ey0",
+        "ey1",
+        "ate",
+        "rr",
+        "or",
+        "par",
+        "paf"
+      ],
+      "three_arm_active": [
+        "ey[0]",
+        "ey[1]",
+        "ey[2]",
+        "ate[1 vs 0]",
+        "ate[2 vs 0]",
+        "rr[1 vs 0]",
+        "rr[2 vs 0]",
+        "or[1 vs 0]",
+        "or[2 vs 0]"
+      ]
+    },
+    "strategy": "oat",
+    "oat_design": "per_arm",
+    "cross_fit": false,
+    "simultaneous_intervals": false,
+    "joint_cell": "fitted with OAT_PER_ARM_INFERENTIAL set inside the study only, for that one fit, so it measures the band the per-arm design would build from its stacked curves; the shipped fit withholds the band",
+    "calibration_efficiency_ratio": "False: the estimator is superefficient, so no calibration cell claims a ratio against the efficient bound",
+    "cache": "the primary Python and R phases reuse the gated run's phase; replicates 0, 1, 399 and 799 of both scenarios refit at this declaration to the cached rows bit for bit",
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "stratify_folds": "none",
+    "outcome_learner": "unpenalized logistic regression on [A indicators, W, A x W]",
+    "treatment_learner": "per arm, unpenalized logistic regression of 1{A = a} on (l, l^2, l^3), l = logit(clip(Qbar(a, W), 1e-6, 1 - 1e-6))",
+    "laws": {
+      "binary_active": "binary_active",
+      "three_arm_active": "three_arm_active"
+    },
+    "failure_probe": "before the declaration, 2,000 draws of every property cell, of the joint cell and of both primary scenarios raised no failure in the Python phase, and the R runner fitted 100 primary replicates of each law with no failure (points within 3.5e-7 of this package's, standard errors within 5.7e-9). A replicate that raises is not redrawn: the summary refuses a cell that lost one, and the R harness refuses a phase in which a replicate raised, as every R runner in the repository does",
+    "measured_budget": "single-process timing of a 20-replicate smoke: about 2.2 CPU-hours for the property study (0.94 for the four generated-design cells, 0.75 for the four calibration cells at R = 2,000), 0.06 for the primary Python phase (two fits per replicate), and under one CPU-hour for the R phase; the Python phase runs first, then the R phase",
+    "primary_n": "1,500 on both laws; the plan named 1,000 for the binary law, and the harness holds one n per study",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_ctmle_oat_per_arm.py": "10cf980c99c133726f384fa4ff4e13f406be85539f6745affd9245d79bfbc739",
+    "tests/studies/ctmle_oat_per_arm_properties.py": "1f8c104d3020ad4ea8626ba159e96cdcd318ab9d206558f16a2d9a7865440aea",
+    "tests/studies/oat_per_arm_laws.py": "081894d3d80766dbef1ea2ab44b39020ac3006ce604d1a732f0a3a414a197c2c",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/studies/cvtmle_properties.py": "f3d55a2c753101860bf4d8ffd16645547d7b27621a0efa4f33497a871c000335",
+    "tests/studies/bounded_cv_laws.py": "3b203e01801af646a778c120896b215e3d71d9e2589864ac66f5a2545d4b2360",
+    "tests/studies/canonical_cvtmle.py": "129d7117649cb48df0babf5e8a1e1a3d676a4317e770c4f3eb2f2f8be2e1e8dc",
+    "tests/studies/canonical_properties.py": "9dc6a724cfa2694efe83f3270c18b2cc5c65a2b8a0e6aee40f6c027f55330286",
+    "tests/studies/canonical_tmle.py": "87a130965521938ec19b339bb4b2ac6d2bdef3a9732b91aa98296bbe107550f5",
+    "tests/studies/fractional_glm.py": "0d1658ccdcde01e0066be685c92c13b8615951913ff9005b1e90871dc7797b44",
+    "tests/conftest.py": "139b7eb55e16cd474d4b45cbe645ed7a01c80832b07b78b4bc45e03ed1c73a50",
+    "tests/studies/default_band_properties.py": "198ddc46206cb81f27f459d2e93079e948288ec699a8e65f05a0fc251c0ee767",
+    "tests/studies/evidence/comparison.py": "653c091f0c1cd240b41e4ed7026da8f67c0feda58404e7c27e80eabab38a2217",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
+    "tests/studies/evidence/property_verdicts.py": "3de1ed905e0e940351fade806d3ac0b759bcce823418aa46ddd5fc2df4ada31c",
+    "tests/studies/evidence/schema.py": "dea170330603d86ba9244da23c71aea209a73d8f202e5a09cc8c3857ea7e58e9",
+    "tests/studies/evidence/seeds.py": "34abef03afd187540b6f9c163beb261b7a71eb1a1ff545de6a2dcc1ec8c3a1b9",
+    "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15",
+    "tests/canonical/drtmle/Dockerfile": "470471189bf2b407411d6a89a533e073fd4f2dffb971a9480702658d5da88fe2",
+    "tests/canonical/drtmle_oat_per_arm/run_drtmle_oat_per_arm.R": "fcb21a375ccb3e29840c192712131e7c6850ee8ee5a1bbd9c91bf7b7be8d7559",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "reference_sha256": {
+    "tests/canonical/drtmle/Dockerfile": "470471189bf2b407411d6a89a533e073fd4f2dffb971a9480702658d5da88fe2",
+    "tests/canonical/drtmle_oat_per_arm/run_drtmle_oat_per_arm.R": "fcb21a375ccb3e29840c192712131e7c6850ee8ee5a1bbd9c91bf7b7be8d7559",
+    "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
+  },
+  "sha256": {
+    "replicates.csv.gz": "cd15bffd7dcb3787bea890cdc2f0c6806afdde8bc81164bb4e502e2c65d8e2fe",
+    "summary.csv": "ce5e3e8df7d590cc074624699b65a4d61107f81c52856a98e73d5176c54194ae",
+    "equivalence.csv": "cc777253c82d0a1ec1699e6c638a65df867aac757c896a9631eba35743dcb41d",
+    "performance-tests.csv": "168739542afadf464610a96cd0b1800c6b3e3321cd80a658f2364b7fb4824b01",
+    "property-replicates.csv.gz": "3eed397c600e23ca922996da3627554bc2f921f7a210dca4c2ad8e0cd4543249",
+    "properties.csv": "15e7380cebe34cdfe0362826f74820742dcc71e50e4223364969172624b21739",
+    "design-gap.csv": "ed1f0190f24a578895dab0caeef37ee6edc30e64811b911ea24c1311f14418b9",
+    "fit-diagnostics.csv": "201abe629b4beb3b8a7af67f4b67ecd4d3a0e026020ea689b0ee64b952db21cf"
+  }
+}

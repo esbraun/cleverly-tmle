@@ -201,16 +201,21 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
         ),
         "generated_design_plugin": StatusRecord(
             reason=(
-                "The outcome-adaptive collaborative path, strategy='oat', reports no "
-                "confidence interval, no p-value and no standard error. It fits one treatment "
-                "mechanism on the estimated outcome predictions of every arm, and it targets "
-                "every arm mean jointly. Benkeser, Cai and van der Laan (2020), Theorem 1, "
-                "prove the ordinary curve for one binary treatment-specific mean with one "
-                "scalar design. No result covers this joint construction. Missing outcomes, "
-                "weights and repeated splits are also outside that theorem. The point "
-                "estimate stands. The plug-in standard error of that curve remains as a "
-                "diagnostic under plugin_std_error and plugin_interval. F19 in "
-                "docs/roadmap.md reopens this when it supplies that result."
+                "This outcome-adaptive collaborative fit, strategy='oat', reports no "
+                "confidence interval, no p-value and no standard error. The shared design, "
+                "oat_design='shared', fits one treatment mechanism on the outcome predictions "
+                "of every arm, and no result covers it. The per-arm design, "
+                "oat_design='per_arm', applies Benkeser, Cai and van der Laan (2020), "
+                "Theorem 1, to each arm. That theorem needs its condition (v) (preprint "
+                "Appendix F, the remainder R24), which fails for an estimated outcome "
+                "regression, so the reported curve omits a first-order generated-design term. "
+                "The registered study ctmle-oat-per-arm measured standard errors 8 to 24 "
+                "percent too small in its calibration, primary coverage, estimated-design and "
+                "band cells, flat in n, while its oracle-design cells were calibrated. The "
+                "point estimate stands. The plug-in standard error of the ordinary curve "
+                "remains as a diagnostic under plugin_std_error and plugin_interval. For an "
+                "interval, fit TMLE. F19 in docs/roadmap.md tracks the generated-design term "
+                "of both designs."
             ),
             assessment_note=(
                 "the reported curve is a generated-design diagnostic: no confidence interval "
@@ -227,16 +232,19 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
         ),
         "estimated_weight_plugin": StatusRecord(
             reason=(
-                "A DR-TMLE fit with a guard and weights declared estimated "
+                "A DR-TMLE fit with a guard, or a per-arm outcome-adaptive C-TMLE fit "
+                "(strategy='oat', oat_design='per_arm'), with weights declared estimated "
                 "(weights_estimated=True) reports no confidence interval, no p-value and no "
                 "standard error. The argument that an interval conditions on the weights "
-                "concerns the efficient influence curve. No result read here gives the "
-                "reduced-dimension regressions of an estimated weight, or the contribution "
-                "of the weight estimate to the curve. The point estimate stands. The plug-in "
-                "standard error of that curve remains as a diagnostic under plugin_std_error "
-                "and plugin_interval. F5 in docs/roadmap.md reopens this when a paper "
-                "supplies that contribution. guard=() fits the ordinary TMLE, whose interval "
-                "conditions on the weights."
+                "concerns the efficient influence curve. The DR-TMLE fit adds "
+                "reduced-dimension regressions of the weighted law. The per-arm C-TMLE curve "
+                "is the curve of Benkeser, Cai and van der Laan (2020), Theorem 1, and not "
+                "the efficient one. No result read here gives the contribution of the weight "
+                "estimate to either curve. The point estimate stands. The plug-in standard "
+                "error of that curve remains as a diagnostic under plugin_std_error and "
+                "plugin_interval. F5 in docs/roadmap.md reopens this when a paper supplies "
+                "that contribution. The ordinary TMLE (DRTMLE with guard=(), or TMLE) keeps "
+                "an interval that conditions on the weights."
             ),
             assessment_note=(
                 "the reported curve is a fixed-weight diagnostic: no confidence interval or "

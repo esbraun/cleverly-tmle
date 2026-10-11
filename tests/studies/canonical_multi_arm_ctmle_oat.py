@@ -117,6 +117,7 @@ def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
     return (
         CTMLE(
             strategy="oat",
+            oat_design="shared",
             outcome_learner=LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs"),
             treatment_learner=DummyClassifier(strategy="prior"),
             cross_fit=False,
