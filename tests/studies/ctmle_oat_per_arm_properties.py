@@ -42,6 +42,7 @@ not gated, as the plan declared.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
@@ -323,13 +324,33 @@ def _joint_seed(replicate: int) -> int:
 def declared_cells() -> tuple[PropertyCell, ...]:
     """Every cell this study runs, so each committed truth is read back against its law.
 
+    The two calibration controls of each label fit nothing.  ``calibration_controls`` derives
+    them from the replications of that label's ``correctly_specified`` cell, so each one names
+    the same law, size, budget and stream.
+
     Returns
     -------
     tuple of PropertyCell
-        The fitted cells, then the joint pair.
+        The fitted cells, the derived calibration controls, then the joint pair.
     """
+    fitted = cells()
+    positive = {
+        (cell.property, cell.cell): cell
+        for cell in fitted
+        if cell.property == "interval_calibration"
+    }
+    controls = tuple(
+        dataclasses.replace(
+            positive[("interval_calibration", f"{label}__correctly_specified")],
+            cell=f"{label}__{control}",
+            role="control",
+        )
+        for label in CALIBRATION_LABELS
+        for control in ("shrunken_se_control", "noise_control")
+    )
     return (
-        *cells(),
+        *fitted,
+        *controls,
         *joint_property_cells(
             JOINT_LABEL, n=JOINT_N, replicates=JOINT_REPLICATES, seed=_joint_seed(0)
         ),

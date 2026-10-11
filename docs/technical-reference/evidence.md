@@ -103,7 +103,10 @@ do not add target-registry rows. Their multi-arm estimator constructions now hav
 registered repeated-sampling records for [ordinary TMLE](method-evidence/ordinary-multi-arm-tmle.md),
 [DR-TMLE](method-evidence/multi-arm-dr-tmle.md),
 [outcome-adaptive C-TMLE](method-evidence/outcome-adaptive-multi-arm-c-tmle.md), and
-[selector C-TMLE](method-evidence/selector-based-multi-arm-c-tmle.md). Binary compatibility
+[selector C-TMLE](method-evidence/selector-based-multi-arm-c-tmle.md). The per-arm
+outcome-adaptive design has its own record,
+[outcome-adaptive per-arm C-TMLE](method-evidence/outcome-adaptive-per-arm-c-tmle.md), for the
+point estimate only. Binary compatibility
 remains covered by the existing C-TMLE and DR-TMLE rows, which continue down their original
 branches.
 

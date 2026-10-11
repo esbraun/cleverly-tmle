@@ -49,6 +49,7 @@ selector-based-point-treatment-c-tmle
 selector-based-multi-arm-c-tmle
 outcome-adaptive-point-treatment-c-tmle
 outcome-adaptive-multi-arm-c-tmle
+outcome-adaptive-per-arm-c-tmle
 canonical-dr-tmle
 multi-arm-dr-tmle
 ordinary-missing-outcome-tmle
