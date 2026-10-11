@@ -33,6 +33,7 @@ from cleverly.utils.bounds import expit
 from cleverly.utils.parallel import map_parallel
 from cleverly.validation.score import DEFAULT_TOLERANCE, score_threshold
 from tests.parallel import STUDY_JOBS
+from tests.studies.evidence import failures as evidence_failures
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.seeds import draw_replicate
 
@@ -561,3 +562,20 @@ def scientific_failures(
             reported & ~diagnostics["solver_passed"].fillna(True).astype(bool)
         ],
     }
+
+
+def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    """The audits with each recorded failure counted as a failing row (decision Q1).
+
+    A reference fit that failed has no fit-diagnostics row, so the shared-bar score audit
+    counts it as failing.  The solver audit reads the subject only, which records no failure
+    in a2.
+    """
+    return evidence_failures.audits(
+        scientific_failures(artifacts),
+        missing={
+            "score audit (both implementations, shared bar)": evidence_failures.missing_fits(
+                failures, STUDY
+            )
+        },
+    )

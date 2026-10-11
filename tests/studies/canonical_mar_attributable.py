@@ -46,6 +46,7 @@ from tests import discrete_law_mar as mar
 from tests.conftest import OracleMissingness, OracleOutcomeContinuous, OracleTreatment
 from tests.parallel import STUDY_JOBS
 from tests.studies import mar_arm_indexed_laws as laws
+from tests.studies.evidence import failures as evidence_failures
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
@@ -752,7 +753,12 @@ def reference_artifacts(
 ) -> dict[str, pd.DataFrame]:
     """Run the exact-equality probe of the planted-row workaround on every continuous fit."""
     path = output / PROBE_ARTIFACT
-    reference.run(here, samples, truths_path, path, cores=cores, runner=PROBE_RUNNER)
+    # A failed reference fit leaves its replication out of the probe as well (decision Q1).
+    surviving = evidence_failures.surviving_samples(samples, reference_results)
+    try:
+        reference.run(here, surviving, truths_path, path, cores=cores, runner=PROBE_RUNNER)
+    finally:
+        surviving.unlink(missing_ok=True)
     probe = pd.read_csv(path).sort_values(["replicate", "path"], ignore_index=True)
     reference_rows = pd.read_csv(reference_results, usecols=["scenario", "replicate"])
     expected = sorted(
@@ -776,3 +782,15 @@ def scientific_failures(extra_frames: Mapping[str, pd.DataFrame]) -> dict[str, p
         if set(probe["scenario"]) != {CONTINUOUS} or replicates != list(range(count)):
             return {"scale-workaround probe coverage": probe}
     return {"scale-workaround probe": probe.loc[~probe["passed"].fillna(False).eq(True)]}
+
+
+def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    """The probe audits with the failed replications counted as covered (decision Q1)."""
+    return evidence_failures.probe_audits(
+        artifacts[PROBE_ARTIFACT],
+        failures,
+        record=STUDY,
+        scenarios=(CONTINUOUS,),
+        coverage="scale-workaround probe coverage",
+        audit="scale-workaround probe",
+    )

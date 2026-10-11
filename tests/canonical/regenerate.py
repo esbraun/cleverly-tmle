@@ -1192,7 +1192,16 @@ def _regenerate(
                 f"remove the declaration rather than carrying a stale exception"
             )
     if hasattr(study, "scientific_failures"):
-        gates.update(study.scientific_failures(extra_frames))
+        hook_gates = study.scientific_failures(extra_frames)
+        if recorded is not None and hasattr(study, "account_failures"):
+            # The hook reads the surviving rows only, so a failed fit is invisible to it or a
+            # gap to its coverage check.  Its accounting rows apply the same thresholds with
+            # the failed fits counted, and they gate under "failure accounting" below.
+            for name, frame in hook_gates.items():
+                if not frame.empty:
+                    print(f"{name} (gated by failure accounting):\n{frame.to_string(index=False)}")
+        else:
+            gates.update(hook_gates)
     gates["failure accounting"] = failures.red(accounting)
     reported = {
         name: frame for name, frame in gates.items() if frame is not None and not frame.empty

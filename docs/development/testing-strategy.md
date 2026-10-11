@@ -113,8 +113,10 @@ provenance contract.
 
 `tests/canonical/regenerate.py` keeps the scratch of each run outside the repository. An R
 reference stores the result of each group as a checkpoint. A rerun of the same command reuses the
-Python phase, the calibration and each checkpoint. The rerun prints what it reused. Every error
-stays fatal: the first error stops the phase with its message.
+Python phase, the calibration and each checkpoint. The rerun prints what it reused. A failure checkpoint is
+reused like a result: the rerun does not refit a group whose comparator call failed. The
+[failure rule](method-benchmarking.md#comparator-fitting-failures) says which errors stop the
+phase.
 
 A run shares its cache with a rerun only when the two have one *resume key*. The key holds the
 declared study without its output path, `HEAD` and the tree state. It also holds the reference

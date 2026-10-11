@@ -738,7 +738,7 @@ def hook_accounting(
     if not hooks:
         return pd.DataFrame(columns=columns)
     implementation = str(record.reference)
-    failed = len(expand(failures, record)[["scenario", "replicate"]].drop_duplicates())
+    failed = missing_fits(failures, record)
     base = {
         "table": "hook",
         "implementation": implementation,
@@ -784,6 +784,92 @@ def hook_accounting(
             }
         )
     return pd.DataFrame.from_records(out, columns=columns)
+
+
+def missing_fits(failures: pd.DataFrame | None, record: StudyRecord) -> int:
+    """The (scenario, replicate) fits the failure records left without a row."""
+    return len(expand(failures, record)[["scenario", "replicate"]].drop_duplicates())
+
+
+def audits(gates: Mapping[str, pd.DataFrame], *, missing: Mapping[str, int]) -> pd.DataFrame:
+    """The ``account_failures`` frame of a study whose audits fail on any row.
+
+    ``gates`` is the study's own ``scientific_failures`` output.  ``missing`` names the audits
+    a failed fit would have entered, with the count of fits it lost: each one counts as a
+    failing row of that audit (decision Q1).  An audit passes when nothing fails it.
+    """
+    unknown = sorted(set(missing) - set(gates))
+    if unknown:
+        raise ValueError(f"no audit named {unknown}")
+    out = []
+    for leg, frame in gates.items():
+        failed = len(frame) + int(missing.get(leg, 0))
+        out.append({"leg": leg, "failed": failed, "passed": failed == 0})
+    return pd.DataFrame.from_records(out, columns=["leg", "failed", "passed"])
+
+
+def surviving_samples(samples: Path, reference_results: Path) -> Path:
+    """Write the samples of the replications the reference returned, beside ``samples``.
+
+    A probe that reruns the comparator's arithmetic on every reference replication skips the
+    replications whose fit failed (decision Q1).  The validation of the reference rows has
+    already shown that the returned and failed replications together cover the run.  The
+    file sits beside ``samples`` because the container mounts that one directory.  The
+    caller deletes it.
+    """
+    frame = pd.read_csv(samples)
+    returned = pd.read_csv(reference_results, usecols=["scenario", "replicate"]).drop_duplicates()
+    kept = frame.merge(returned, on=["scenario", "replicate"], how="inner")
+    path = samples.with_name(f"surviving-{samples.name}")
+    kept.loc[:, list(frame.columns)].to_csv(
+        path, index=False, lineterminator="\n", compression={"method": "gzip", "mtime": 0}
+    )
+    return path
+
+
+def probe_audits(
+    probe: pd.DataFrame,
+    failures: pd.DataFrame | None,
+    *,
+    record: StudyRecord,
+    scenarios: Iterable[str],
+    coverage: str,
+    audit: str,
+) -> pd.DataFrame:
+    """The ``account_failures`` frame of a probe that skips the failed replications.
+
+    The coverage audit passes when every probe path holds one row for each replication
+    ``0, ..., k - 1`` of ``scenarios`` that did not fail, and the failed ones fill the rest.
+    The ``audit`` leg counts the probe rows whose ``passed`` is not true.  A failed
+    replication has no comparison row, so no published number depends on its scale
+    workaround.
+    """
+    scenarios = set(scenarios)
+    failed = {
+        int(replicate)
+        for scenario, replicate in expand(failures, record)[["scenario", "replicate"]]
+        .drop_duplicates()
+        .itertuples(index=False)
+        if scenario in scenarios
+    }
+    paths = probe.groupby("path") if "path" in probe.columns else [("", probe)]
+    gaps = 0
+    for _, rows in paths:
+        probed = [int(value) for value in rows["replicate"]]
+        covered = set(probed) | failed
+        count = len(probed) + len(failed)
+        if len(set(probed)) != len(probed) or set(probed) & failed:
+            gaps += count
+        else:
+            gaps += len(set(range(count)) ^ covered)
+    if probe.empty or not set(probe["scenario"]) <= scenarios:
+        gaps = max(gaps, 1)
+    failing = int((~probe["passed"].fillna(False).astype(bool)).sum()) if len(probe) else 0
+    out = [
+        {"leg": coverage, "failed": gaps, "passed": gaps == 0},
+        {"leg": audit, "failed": failing, "passed": failing == 0},
+    ]
+    return pd.DataFrame.from_records(out, columns=["leg", "failed", "passed"])
 
 
 def cell_gates(accounting: pd.DataFrame, table: str) -> dict[tuple[str, ...], tuple[bool, str]]:

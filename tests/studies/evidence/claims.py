@@ -16,7 +16,7 @@ from collections.abc import Callable, Mapping
 
 import pandas as pd
 
-from tests.studies.evidence import property_verdicts
+from tests.studies.evidence import failures, property_verdicts
 from tests.studies.evidence.registry import StudyRecord
 
 #: Artefact file names, and the columns each is keyed by.
@@ -43,6 +43,13 @@ FIT_DIAGNOSTICS = "fit_diagnostics"
 HARNESS_FILE = "harness.csv.gz"
 HARNESS = "harness"
 
+#: The failure files (RM39a2), which a study publishes only when a fit failed.  ``accounting``
+#: rows are quotable as ``accounting[performance/<implementation>/<scenario>/<estimand>/<leg>]``
+#: or ``accounting[equivalence/<implementation>/<scenario>/<estimand>/<leg>]``.
+FAILURES = "failures"
+ACCOUNTING = "accounting"
+ACCOUNTING_KEYS = ("table", "implementation", "scenario", "estimand", "leg")
+
 #: A key may carry one balanced pair of brackets of its own, as the estimand
 #: ``ey_learned_rule[learned rule]`` does.  An unbalanced bracket does not match.
 _REFERENCE = re.compile(
@@ -59,6 +66,10 @@ def load(record: StudyRecord) -> dict[str, pd.DataFrame]:
         frames[FIT_DIAGNOSTICS] = pd.read_csv(record.artifact(FIT_DIAGNOSTICS_FILE))
     if HARNESS_FILE in record.extra_artifacts:
         frames[HARNESS] = pd.read_csv(record.artifact(HARNESS_FILE))
+    for name, filename in ((FAILURES, failures.FAILURES), (ACCOUNTING, failures.ACCOUNTING)):
+        path = record.artifact(filename)
+        if path.exists():
+            frames[name] = pd.read_csv(path, keep_default_na=False, na_values=[""])
     return frames
 
 
@@ -115,6 +126,13 @@ def _aggregates(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.Data
             _displacement(data["replicates"], subject).median()
         ),
         "replicates": lambda data: float(record.replicates),
+        # The comparator fits a recorded failure left without a row, zero for a study with no
+        # ``failures.csv``, and their share of the comparator's scenario fits.
+        "reference_failures": lambda data: float(failures.missing_fits(data.get(FAILURES), record)),
+        "failure_rate": lambda data: (
+            float(failures.missing_fits(data.get(FAILURES), record))
+            / float(record.replicates * len(record.scenarios))
+        ),
         "n": lambda data: float(record.n),
         "independent_tests_total": lambda data: count(data["performance"]),
         "independent_tests_passed": lambda data: float(data["performance"]["passed"].sum()),
@@ -216,25 +234,32 @@ def _score_audit_aggregates(
             reference_keys = set(
                 reference_rows.loc[:, ["scenario", "replicate"]].itertuples(False, None)
             )
-            if subject_keys != reference_keys:
+            # A recorded reference failure leaves its fit without a row (RM39a2).
+            failed = failures.expand(data.get(FAILURES), record)
+            failed_keys = set(
+                failed.loc[failed["implementation"] == record.reference, ["scenario", "replicate"]]
+                .astype({"replicate": int})
+                .itertuples(False, None)
+            )
+            if subject_keys != reference_keys | failed_keys or reference_keys & failed_keys:
                 raise ValueError(
                     "the subject and reference score audits are not paired on scenario and "
                     "replicate"
                 )
         return subject_rows, reference_rows
 
-    def failures(rows: pd.DataFrame) -> float:
+    def misses(rows: pd.DataFrame) -> float:
         return float((~rows["score_passed"].astype(bool)).sum())
 
     def reference_failures(data: Mapping[str, pd.DataFrame]) -> float:
         reference_rows = paired(data)[1]
         if reference_rows is None:
             raise ValueError("a reference score audit was requested without a reference")
-        return failures(reference_rows)
+        return misses(reference_rows)
 
     out: dict[str, Callable[[Mapping[str, pd.DataFrame]], float]] = {
         "score_audited_fits": lambda data: float(len(paired(data)[0])),
-        "subject_score_failures": lambda data: failures(paired(data)[0]),
+        "subject_score_failures": lambda data: misses(paired(data)[0]),
     }
     if record.reference is not None:
         out["reference_score_failures"] = reference_failures
@@ -453,6 +478,12 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
     # reporting the same number establishes only that they agree.
     for estimand, deviation in sorted(record.efficiency_bounds.items()):
         declared[f"bound:{estimand}_standard_error"] = float(deviation) / math.sqrt(record.n)
+    # The comparator's declared fitting-failure bound, and the failed fits it allows per cell.
+    if record.reference is not None and record.reference in record.failure_bound:
+        declared["margin:reference_failure_bound"] = float(record.failure_bound[record.reference])
+        declared["margin:reference_failures_allowed"] = float(
+            failures.allowed(record, record.reference)
+        )
     return declared
 
 
@@ -487,11 +518,17 @@ def value(record: StudyRecord, name: str, data: Mapping[str, pd.DataFrame] | Non
         return float(table[name](data))
 
     artifact = match.group("artifact")
-    if artifact not in ARTIFACTS:
+    if artifact == ACCOUNTING:
+        if ACCOUNTING not in data:
+            raise KeyError(f"{name!r} names the failure accounting, which {record.slug} lacks")
+        key_columns: tuple[str, ...] = ACCOUNTING_KEYS
+    elif artifact in ARTIFACTS:
+        _, key_columns = ARTIFACTS[artifact]
+    else:
         raise KeyError(
-            f"{name!r} names artefact {artifact!r}, which is not one of {sorted(ARTIFACTS)}"
+            f"{name!r} names artefact {artifact!r}, which is not one of "
+            f"{sorted([*ARTIFACTS, ACCOUNTING])}"
         )
-    _, key_columns = ARTIFACTS[artifact]
     keys = [part for part in match.group("keys").split("/") if part]
     if len(keys) != len(key_columns):
         raise KeyError(f"{name!r} gives {len(keys)} keys but {artifact} is keyed by {key_columns}")

@@ -26,7 +26,7 @@ import pandas as pd
 import pytest
 
 from tests.documents import pipe_table
-from tests.studies.evidence import descriptions, property_verdicts
+from tests.studies.evidence import descriptions, failures, property_verdicts
 from tests.studies.evidence.claims import load, quantities, thresholds, value
 from tests.studies.evidence.comparison import equivalence
 from tests.studies.evidence.document import (
@@ -121,6 +121,20 @@ def rows(study: StudyRecord) -> pd.DataFrame:
     return _replication_rows(study.slug)
 
 
+def _recorded_failures(study: StudyRecord) -> pd.DataFrame | None:
+    """The study's ``failures.csv``, or ``None`` when no fit failed."""
+    path = study.artifact(failures.FAILURES)
+    return failures.read(path) if path.exists() else None
+
+
+def _accounting(study: StudyRecord) -> pd.DataFrame:
+    """The study's ``failure-accounting.csv``, empty when no fit failed."""
+    path = study.artifact(failures.ACCOUNTING)
+    if not path.exists():
+        return pd.DataFrame(columns=list(failures.ACCOUNTING_COLUMNS))
+    return pd.read_csv(path, keep_default_na=False, na_values=[""])
+
+
 @functools.cache
 def _replication_rows(slug: str) -> pd.DataFrame:
     """Load immutable primary rows once per study and worker."""
@@ -191,7 +205,12 @@ class TestArtifacts:
             "performance-tests.csv",
             "property-replicates.csv.gz",
             "properties.csv",
-        } | set(study.extra_artifacts)
+        } | set(study.extra_artifacts) | {
+            # The failure files exist only when a fit failed, and then both are hashed.
+            name
+            for name in (failures.FAILURES, failures.ACCOUNTING)
+            if study.artifact(name).exists()
+        }
         for name, digest in manifest["sha256"].items():
             assert hashlib.sha256(study.artifact(name).read_bytes()).hexdigest() == digest
         # Reference sources are keyed from the repository root rather than from the study
@@ -226,6 +245,12 @@ class TestArtifacts:
             assert configuration["accepted_reference_failure"] == study.accepted_reference_failure
         else:
             assert "accepted_reference_failure" not in configuration
+        if study.failure_bound:
+            assert configuration["failure_bound"] == dict(study.failure_bound)
+        else:
+            assert "failure_bound" not in configuration
+        recorded = _recorded_failures(study)
+        assert (recorded is None) == (not study.artifact(failures.ACCOUNTING).exists())
 
     def test_the_subject_side_is_identified_rather_than_described(self, study: StudyRecord) -> None:
         """``"working tree"`` names no run; a version and a revision name one.
@@ -248,7 +273,31 @@ class TestArtifacts:
     def test_the_replication_file_satisfies_the_shared_contract(
         self, study: StudyRecord, rows: pd.DataFrame
     ) -> None:
-        validate_replicates(rows, record=study)
+        validate_replicates(rows, record=study, failures=_recorded_failures(study))
+
+    def test_the_failure_accounting_is_recomputed_from_the_rows_and_records(
+        self, study: StudyRecord, rows: pd.DataFrame
+    ) -> None:
+        recorded = _recorded_failures(study)
+        if recorded is None:
+            return
+        published = _accounting(study)
+        recomputed = pd.concat(
+            [
+                failures.truth_accounting(rows, recorded, record=study),
+                failures.paired_accounting(rows, recorded, record=study),
+            ],
+            ignore_index=True,
+        )
+        tables = published.loc[published["table"] != "hook"].reset_index(drop=True)
+        pd.testing.assert_frame_equal(
+            tables.loc[:, list(recomputed.columns)],
+            recomputed.astype(tables.dtypes.to_dict(), errors="ignore"),
+            check_exact=False,
+            check_dtype=False,
+            rtol=1e-12,
+            atol=1e-12,
+        )
 
     def test_published_summaries_are_recomputed_from_the_replication_rows(
         self, study: StudyRecord, rows: pd.DataFrame
@@ -325,8 +374,21 @@ class TestPublishedVerdicts:
             (published["se_ratio_ci_lower"] >= published["se_ratio_margin_lower"])
             & (published["se_ratio_ci_upper"] <= published["se_ratio_margin_upper"])
         )
+        gates = failures.cell_gates(_accounting(study), "performance")
+        accounted = pd.Series(
+            [
+                gates.get((str(i), str(s), str(e)), (True, ""))[0]
+                for i, s, e in published[["implementation", "scenario", "estimand"]].itertuples(
+                    index=False
+                )
+            ],
+            index=published.index,
+        )
         assert published["passed"].equals(
-            published["bias_equivalent"] & published["coverage_valid"] & published["se_calibrated"]
+            published["bias_equivalent"]
+            & published["coverage_valid"]
+            & published["se_calibrated"]
+            & accounted
         )
 
     def test_each_implementation_independently_performs_against_truth(
@@ -347,13 +409,31 @@ class TestPublishedVerdicts:
         if study.reference is None:
             pytest.skip("study declares no comparison implementation")
         published = pd.read_csv(study.artifact("equivalence.csv"))
-        assert published["dropped_replications"].eq(0).all()
-        assert published["passed"].equals(
-            (published["paired_similarity"] & published["subject_not_inferior"])
-            | published["coverage_superior"]
-        ), "the published verdict is not an equivalence or superiority conclusion"
+        # Only a recorded failure may leave a replication out of the pairing.
+        failed = failures.expand(_recorded_failures(study), study)
+        lost = failed.groupby(["scenario", "estimand"])["replicate"].nunique()
+        assert [
+            int(lost.get((str(s), str(e)), 0))
+            for s, e in published[["scenario", "estimand"]].itertuples(index=False)
+        ] == published["dropped_replications"].astype(int).tolist()
+        gates = failures.cell_gates(_accounting(study), "equivalence")
+        accounted = pd.Series(
+            [
+                gates.get((str(s), str(e)), (True, ""))[0]
+                for s, e in published[["scenario", "estimand"]].itertuples(index=False)
+            ],
+            index=published.index,
+            dtype=bool,
+        )
+        legs = (published["paired_similarity"] & published["subject_not_inferior"]) | published[
+            "coverage_superior"
+        ]
+        assert published["passed"].equals(legs & accounted), (
+            "the published verdict is not an equivalence or superiority conclusion"
+        )
         expected = np.select(
             [
+                legs & ~accounted,
                 published["coverage_superior"],
                 published["paired_similarity"] & published["subject_not_inferior"],
                 # A cell whose calibration bound is wider than the calibration margin could
@@ -361,7 +441,7 @@ class TestPublishedVerdicts:
                 # statement about the design and is named apart from an unsettled one.
                 ~published["calibration_resolved"],
             ],
-            ["superior", "equivalent", "underpowered"],
+            [failures.UNACCOUNTED, "superior", "equivalent", "underpowered"],
             default="inconclusive",
         )
         assert published["comparison_conclusion"].tolist() == expected.tolist()
@@ -1860,6 +1940,9 @@ _FAMILY = {
     "subject_score_failures": "fit_diagnostics",
     "reference_score_failures": "fit_diagnostics",
     "mean_oracle_se": "harness",
+    # ``failures.csv``: zero for a study whose comparator never failed.
+    "reference_failures": "failures",
+    "failure_rate": "failures",
 }
 
 

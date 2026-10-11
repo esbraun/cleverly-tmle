@@ -57,8 +57,10 @@ Each implementation is judged on its own terms as well as on the pairing. A refe
 is reported against the reference. It does not turn `cleverly`'s row red.
 
 A paired row concludes `equivalent`, `superior`, `inferior`, or `inconclusive`. Equivalence and
-superiority are separate passing routes. A reporting study can publish a failed scientific
-verdict. It still refuses incomplete replications, invalid schemas, and broken provenance.
+superiority are separate passing routes. A row whose legs pass concludes `unaccounted` when
+its comparator failures fail their accounting. A reporting study can publish a failed scientific
+verdict. It still refuses an unrecorded missing replication, invalid schemas, and broken
+provenance.
 Failure to establish non-inferiority is `inconclusive`, not affirmative evidence of inferiority;
 the `inferior` label is reserved for a future rule with a confidence bound in that direction.
 
@@ -79,6 +81,8 @@ the same set, and each file answers the same question wherever it appears.
 | `performance-tests.csv` | the accuracy verdicts against known truth |
 | `equivalence.csv` | the paired verdicts against the canonical implementation |
 | `properties.csv` | the theory-property cells and their controls |
+| `failures.csv` | each recorded comparator fitting failure, with its replicates, stage, and message. Present only when a fit failed |
+| `failure-accounting.csv` | each cell that lost a replicate, with its bound, its legs at the complete cases and at the worst case, and its gate. Present only when a fit failed |
 
 A study page's Reproduction section adds only what is specific to that study.
 
