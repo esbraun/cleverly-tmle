@@ -43,6 +43,22 @@ FIT_DIAGNOSTICS = "fit_diagnostics"
 HARNESS_FILE = "harness.csv.gz"
 HARNESS = "harness"
 
+#: The third optional result file: the design gap of the per-arm outcome-adaptive study, one
+#: row per scenario and estimand.  A page quotes a row by the reference form,
+#: ``design_gap[binary_active/ate]:mean_design_gap``, as it quotes a row of :data:`ARTIFACTS`.
+DESIGN_GAP_FILE = "design-gap.csv"
+DESIGN_GAP = "design_gap"
+OPTIONAL_ARTIFACTS: dict[str, tuple[str, tuple[str, ...]]] = {
+    DESIGN_GAP: (DESIGN_GAP_FILE, ("scenario", "estimand")),
+}
+
+#: The column that marks ``fit-diagnostics.csv`` as a score audit.  The per-arm
+#: outcome-adaptive study writes a file of the same name with the mechanism columns
+#: :data:`MECHANISM_COLUMNS` instead, and gains the aggregates of
+#: :func:`_mechanism_aggregates` rather than the score-audit counts.
+SCORE_AUDIT_COLUMN = "score_passed"
+MECHANISM_COLUMNS = ("rows_at_bound", "gn_max_abs_diff")
+
 #: A key may carry one balanced pair of brackets of its own, as the estimand
 #: ``ey_learned_rule[learned rule]`` does.  An unbalanced bracket does not match.
 _REFERENCE = re.compile(
@@ -59,7 +75,17 @@ def load(record: StudyRecord) -> dict[str, pd.DataFrame]:
         frames[FIT_DIAGNOSTICS] = pd.read_csv(record.artifact(FIT_DIAGNOSTICS_FILE))
     if HARNESS_FILE in record.extra_artifacts:
         frames[HARNESS] = pd.read_csv(record.artifact(HARNESS_FILE))
+    for name, (filename, _) in OPTIONAL_ARTIFACTS.items():
+        if filename in record.extra_artifacts:
+            frames[name] = pd.read_csv(record.artifact(filename))
     return frames
+
+
+def _fit_diagnostic_columns(record: StudyRecord) -> frozenset[str]:
+    """The header of a study's ``fit-diagnostics.csv``, or nothing when it publishes none."""
+    if FIT_DIAGNOSTICS_FILE not in record.extra_artifacts:
+        return frozenset()
+    return frozenset(pd.read_csv(record.artifact(FIT_DIAGNOSTICS_FILE), nrows=0).columns)
 
 
 def _subject(frame: pd.DataFrame, implementation: str) -> pd.DataFrame:
@@ -190,7 +216,7 @@ def _score_audit_aggregates(
     dict
         Empty for a study that publishes no fit diagnostics.
     """
-    if FIT_DIAGNOSTICS_FILE not in record.extra_artifacts:
+    if SCORE_AUDIT_COLUMN not in _fit_diagnostic_columns(record):
         return {}
 
     def audited(data: Mapping[str, pd.DataFrame], implementation: str) -> pd.DataFrame:
@@ -239,6 +265,45 @@ def _score_audit_aggregates(
     if record.reference is not None:
         out["reference_score_failures"] = reference_failures
     return out
+
+
+def _mechanism_aggregates(
+    record: StudyRecord,
+) -> dict[str, Callable[[Mapping[str, pd.DataFrame]], float]]:
+    """How often the subject's mechanism sits at a bound, and how far R's mechanism is from it.
+
+    Read from a ``fit-diagnostics.csv`` that carries :data:`MECHANISM_COLUMNS`, one row per
+    scenario and primary replication.  ``gn_max_abs_diff`` is the largest gap between the
+    reference's mechanism and the subject's over every arm and row of one replication.
+
+    Parameters
+    ----------
+    record : StudyRecord
+        The study whose diagnostics are read.
+
+    Returns
+    -------
+    dict
+        Empty for a study whose ``fit-diagnostics.csv`` lacks those columns, or that has none.
+    """
+    if not set(MECHANISM_COLUMNS) <= _fit_diagnostic_columns(record):
+        return {}
+
+    def rows(data: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+        return data[FIT_DIAGNOSTICS]
+
+    def off_bound(data: Mapping[str, pd.DataFrame]) -> pd.Series:
+        frame = rows(data)
+        return frame.loc[frame["rows_at_bound"] == 0, "gn_max_abs_diff"]
+
+    return {
+        "mechanism_fits_with_rows_at_bound": lambda data: float(
+            (rows(data)["rows_at_bound"] > 0).sum()
+        ),
+        "mechanism_max_rows_at_bound": lambda data: float(rows(data)["rows_at_bound"].max()),
+        "mechanism_max_gap": lambda data: float(rows(data)["gn_max_abs_diff"].max()),
+        "mechanism_max_gap_off_bound": lambda data: float(off_bound(data).max()),
+    }
 
 
 def _harness_aggregates(
@@ -462,6 +527,7 @@ def quantities(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.DataF
         **_aggregates(record),
         **_scenario_aggregates(record),
         **_score_audit_aggregates(record),
+        **_mechanism_aggregates(record),
         **_harness_aggregates(record),
         **{name: (lambda data, value=value: value) for name, value in declared.items()},
     }
@@ -487,11 +553,13 @@ def value(record: StudyRecord, name: str, data: Mapping[str, pd.DataFrame] | Non
         return float(table[name](data))
 
     artifact = match.group("artifact")
-    if artifact not in ARTIFACTS:
+    known = {**ARTIFACTS, **OPTIONAL_ARTIFACTS}
+    if artifact not in known or artifact not in data:
         raise KeyError(
-            f"{name!r} names artefact {artifact!r}, which is not one of {sorted(ARTIFACTS)}"
+            f"{name!r} names artefact {artifact!r}, which {record.slug} does not publish; "
+            f"it publishes {sorted(set(known) & set(data))}"
         )
-    _, key_columns = ARTIFACTS[artifact]
+    _, key_columns = known[artifact]
     keys = [part for part in match.group("keys").split("/") if part]
     if len(keys) != len(key_columns):
         raise KeyError(f"{name!r} gives {len(keys)} keys but {artifact} is keyed by {key_columns}")

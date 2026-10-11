@@ -303,6 +303,7 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as CROSSFIT_LONGITUDINAL_MSM,
     )
     from tests.studies.canonical_ctmle_oat import STUDY as CANONICAL_CTMLE_OAT
+    from tests.studies.canonical_ctmle_oat_per_arm import STUDY as CTMLE_OAT_PER_ARM
     from tests.studies.canonical_ctmle_selector import STUDY as CANONICAL_CTMLE_SELECTOR
     from tests.studies.canonical_cvtmle import STUDY as CANONICAL_CVTMLE
     from tests.studies.canonical_deterministic_regimes import (
@@ -455,6 +456,7 @@ def registered() -> tuple[StudyRecord, ...]:
         KNOWN_MECHANISM,
         KNOWN_MECHANISM_DRTMLE,
         KNOWN_NODE_MECHANISMS,
+        CTMLE_OAT_PER_ARM,
         OMITTED_VARIABLE_BOUND_SE,
         CALIBRATION_SLOPE_WARNING,
         DEFAULT_SIMULTANEOUS_BANDS,

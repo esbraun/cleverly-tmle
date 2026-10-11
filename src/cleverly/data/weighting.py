@@ -648,7 +648,10 @@ def estimand_lines(report: WeightReport) -> list[str]:
         "dP_w = w dP / E[w], estimated by TMLE on the weighted empirical measure "
         "(weighted nuisance fits, weighted targeting, weighted plug-in).",
         "Standard errors: influence curve (w / E[w]) * D*(P_w), i.e. the efficient "
-        "influence function of that parameter when the weights are observed data.",
+        "influence function of that parameter when the weights are observed data. An "
+        "outcome-adaptive C-TMLE fit reports no standard error (the generated_design_plugin "
+        "status). Under the default per-arm design, its retained diagnostic reads the curve "
+        "of Benkeser, Cai and van der Laan (2020), Theorem 1, which is not the efficient one.",
     ]
     if report.estimated:
         lines.append(

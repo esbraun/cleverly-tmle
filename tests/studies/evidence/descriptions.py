@@ -41,6 +41,10 @@ _CAUSE = ", "
 #: Which plan, cause and horizon a longitudinal property cell belongs to.  Cells prefix their
 #: arm, so :func:`cell` strips it and reports it beside the family's shared description.
 ARMS: dict[str, str] = {
+    "binary_active": "two-arm law with an arm-specific outcome index and an instrument",
+    "three_arm_active": "three-arm law with an arm-specific outcome index and an instrument",
+    "binary_weighted": "the two-arm law under the declared known weight 0.5 + 1{W1 > 0}",
+    "binary_repeats": "the two-arm law, the median estimate over three cross-fitting splits",
     "att": "average effect on the treated",
     "atc": "average effect on the untreated",
     "ey_ipsi": "incremental mean at odds multiplier 2",
@@ -364,6 +368,8 @@ _TERM = re.compile(
 
 
 IMPLEMENTATIONS: dict[str, str] = {
+    "cleverly-ctmle-oat-per-arm": "`cleverly` per-arm outcome-adaptive C-TMLE",
+    "drtmle-r-oat-per-arm": "R `drtmle` with `adapt_g`, by a binary recode per arm",
     "cleverly-known-mechanism": "`cleverly` TMLE on a declared known mechanism",
     "tmle-r-known-g": "R `tmle` with the known mechanism as `g1W`",
     "cleverly-known-mechanism-drtmle": "`cleverly` DR-TMLE on a declared known mechanism",
@@ -473,6 +479,12 @@ IMPLEMENTATIONS: dict[str, str] = {
 
 
 SCENARIOS: dict[str, str] = {
+    "binary_active": (
+        "two arms, an arm-specific outcome index, an instrument, correct outcome regression"
+    ),
+    "three_arm_active": (
+        "three arms, an arm-specific outcome index, an instrument, correct outcome regression"
+    ),
     "binary_q_correct": ("randomized by W2 with a known mechanism, correct outcome regression"),
     "binary_q_wrong": ("randomized by W2 with a known mechanism, outcome regression without W2"),
     "guard_none": "known mechanism, outcome regression without W2, no DR-TMLE guard",
