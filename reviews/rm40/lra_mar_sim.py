@@ -16,7 +16,8 @@
 """Linear-remainder audit, simulation 1: DRTMLE randomized missing-outcome path (Diaz & van der Laan 2017).
 
 Own code (auditor probe, not evidence). Calls the shipped ``cleverly.DRTMLE`` at origin/main
-572501b8 from a temporary detached worktree; ``cleverly.__file__`` is asserted.
+572501b8 from a temporary detached worktree; ``cleverly.__file__`` was asserted in the copy that ran
+(removed in this committed copy).
 
 Question. Diaz & van der Laan (2017), Appendix A.1, proof of Theorem 1, write the drift term in the
 outcome-misspecified branch with ``e_hat_0 = E[Y - m1 | A=1, M=1, g0(W), g_hat(W)]`` and then

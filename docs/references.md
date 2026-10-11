@@ -1945,8 +1945,9 @@ rather than a comparison target.
   Average Treatment Effect*, U.C. Berkeley Division of Biostatistics Working Paper Series, paper
   356. Read first-hand by the RM19 review. RM40 did not read this version. §3.1 and equation (2)
   are p. 9; §3.2, Theorem 1 and the recursive algorithm are pp. 10–11; appendix A is pp. 19–20,
-  appendix B p. 21, appendix C pp. 21–22. Theorem 1, pp. 10–11, states nuisance-limit, score, convergence and remainder conditions for asymptotic
-  linearity. It is not an unconditional guarantee.
+  appendix B p. 21, appendix C pp. 21–22. Theorem 1, pp. 10–11, states nuisance-limit, score,
+  convergence and remainder conditions for asymptotic linearity. It is not an unconditional
+  guarantee.
 - Benkeser, Carone, van der Laan & Gilbert (2017),
   [*Doubly robust nonparametric inference on the average treatment effect*](https://pmc.ncbi.nlm.nih.gov/articles/PMC5793673/),
   *Biometrika* 104(4):863–880. The **published** version of the above, and authoritative wherever
@@ -2020,8 +2021,7 @@ rather than a comparison target.
   $O_P(\lVert \hat g - g_0 \rVert^2)$. The difference is linear in $\hat g - g_0$ when the error
   of $\hat g$ breaks the level sets of $g_0$. Lemma 1 and Theorem 2 inherit the step.
 
-Lemma 2
-  bounds the fitted reductions against their limits, which is a different comparison, and is not
+  Lemma 2 bounds the fitted reductions against their limits, which is a different comparison, and is not
   affected. RM40's audit and the RM40 implementation read Appendix A.1, equations (14) to (21),
   Lemma 1 and Lemma 2 in the arXiv v1 manuscript. They did not compare the journal version. The
   [contract](technical-reference/dr-tmle/theorem.md#randomized-trials-with-missing-outcomes) states the consequence for this route.

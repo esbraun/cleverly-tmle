@@ -783,8 +783,8 @@ PROPERTIES: dict[str, str] = {
         "with parametric nuisance learners, reported rather than gated"
     ),
     "corrected_mar_inference": (
-        "randomized missing-outcome DR-TMLE retains valid inference when either the outcome "
-        "regression or observation mechanism is correct"
+        "randomized missing-outcome DR-TMLE keeps bias and coverage within the margins when "
+        "one nuisance is wrong and the other is the exact law table"
     ),
     "correction_necessity": (
         "the correction cycle materially reduces the empirical correction scores"

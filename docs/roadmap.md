@@ -133,7 +133,7 @@ No registered study's verdict can detect the term. The canonical law is symmetri
 vanishes on it. The missing-data studies give the consistent nuisance as an exact law table. The
 row takes tier a, because the documented interval had no derivation for a data-adaptive learner.
 The status stays `influence_curve` on every route. A fit cannot tell which case it is in, and the
-interval is valid when both nuisances are consistent.
+interval is valid when both nuisances are consistent at the product rates.
 
 | part | PR | acceptance | status |
 | --- | --- | --- | --- |

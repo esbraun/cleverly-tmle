@@ -186,7 +186,7 @@ of `ey[1][V=2]` cover 0.900 and 0.8925 in the two implementations on the same dr
 - The marginal estimate has no paired comparator.
 - The law keeps the symmetry of the paper law in each stratum, so it is H1 in both branches.
   The one-correct cells therefore measure second-order terms only. `tests/unit/test_drtmle_h1_symmetry.py`
-  pins the symmetry, and [the theorem](../dr-tmle/theorem.md#the-conditioning-terms-are-linear-in-one-error) states why it matters.
+  pins it for the unstratified law, and the argument is the same per stratum, and [the theorem](../dr-tmle/theorem.md#the-conditioning-terms-are-linear-in-one-error) states why it matters.
 
 ## Reproduction
 

@@ -424,7 +424,7 @@ class TestTwoGuardsOverCorrectOnASaturatedLaw:
     Each guard subtracts a projection, and on a law where both conditioning
     :math:`\\sigma`-algebras are all of :math:`\\sigma(W)` each projection is the whole
     remainder, so the pair subtracts it twice.  With one nuisance consistent, the correction
-    built from that nuisance's residual tends to zero (Benkeser et al. 2017, Appendix C), so
+    built from that nuisance's residual tends to zero (the theorem page's "Appendix C" section), so
     the pair costs nothing asymptotically -- which is why ``drtmle`` solves both by default.  Pinned here so that a later
     reader meeting the exact-law number does not "fix" a combination that is correct.
     """

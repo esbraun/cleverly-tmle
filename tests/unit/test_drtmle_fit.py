@@ -244,7 +244,7 @@ class TestWhatItReports:
         assert corrected.corrected and not plain.corrected
         assert "efficient" not in corrected.summary().lower().split("validity is not")[0]
         assert "Validity is not efficiency" in corrected.summary()
-        assert "With one wrong nuisance it holds only in the cases" in corrected.summary()
+        assert "With one wrong nuisance the interval holds only in the cases" in corrected.summary()
         assert "solved the estimated efficient score equation" in plain.summary()
 
     def test_the_alternation_terminated_on_its_own(self, fit) -> None:

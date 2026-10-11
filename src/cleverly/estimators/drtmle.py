@@ -94,12 +94,13 @@ together.
 
 **What this is not.**  It is not a better point estimate.  The extra fluctuations update
 :math:`\hat{\bar Q}`, :math:`\hat g`, or both, so :math:`\hat\Psi` differs from a plain TMLE's in
-finite samples.  The interval is valid when both nuisances are consistent, under the reduced
-regressions' own rate and solve conditions.  With one nuisance inconsistent, the extra
-equations remove the part of the first-order remainder that is a function of the consistent
-nuisance; the rest can stay first order.  The one-wrong interval is valid for a declared
+finite samples.  The interval is valid when both nuisances are consistent at the product rates,
+under the reduced regressions' own rate and solve conditions.  With one nuisance inconsistent,
+the extra equations remove the part of the first-order remainder that is a function of the
+consistent nuisance; the rest can stay first order.  The one-wrong interval is valid for a declared
 known mechanism and conservative for a correctly specified parametric mechanism; for a
-data-adaptive learner it is not established.
+data-adaptive learner it is not established.  With the mechanism wrong, it is not established
+even for a correctly specified parametric outcome regression.
 
 **And it is not the efficient one.**  Under misspecification the canonical gradient at
 :math:`P_0` is still :math:`D^*`.  What the three equations leave is
@@ -291,7 +292,8 @@ class DRTMLE(TMLE):
     the same parameters, exactly as :class:`~cleverly.CTMLE` is -- with an influence curve
     whose interval is valid under Theorem 1's conditions.  With one wrong nuisance it is valid
     for a known mechanism, conservative for a correctly specified parametric mechanism, and
-    not established for a data-adaptive learner.
+    not established for a data-adaptive learner.  With the mechanism wrong, it is not established
+    even for a correctly specified parametric outcome regression.
 
     **Read the module docstring's warning before using this in anger**, and
     ``docs/technical-reference/dr-tmle/`` carries the contract in full.  The curve it
@@ -414,7 +416,7 @@ class DRTMLE(TMLE):
         so with a wrong outcome regression the interval of this construction is not
         established (the remainder is linear in the observation mechanism's error).  The same
         limit holds with an estimated treatment mechanism, and for ``n_bootstrap=``, which
-        resamples the same estimator.  Without either, a
+        resamples the same estimator.  Without ``randomized=True`` or a declaration, a
         guarded fit with ``delta=`` is observational and takes the composite-indicator
         construction.  A declared missing treatment refuses both, because the randomized
         construction observes the treatment on every row.

@@ -73,12 +73,13 @@ Three consequences for practice:
    the bound the two observation reductions were formed at.
 3. **Where you cannot argue the rate conditions, do not treat the interval as settled.** Use this
    estimator where you can argue the rate conditions for both nuisances, where the treatment
-   mechanism is known, or where it is a correctly specified parametric model. The interval is
-   then conservative. With one nuisance wrong and a data-adaptive learner for the other, the
+   mechanism is known, or where it is a correctly specified parametric model. Where the treatment
+   mechanism is a correctly specified parametric model and the outcome regression is wrong, the
+   interval is conservative. With one nuisance wrong and a data-adaptive learner for the other, the
    interval is not established.
 
 The same distinction, once more, in the theorem's own terms: Theorem 1 licenses an interval
-*conditional on* the three empirical scores being `o_p(n^(−1/2))` **and** the two second-order
+*conditional on* the three empirical scores being `o_p(n^(−1/2))` **and** the two appendix
 remainder terms being `o_p(n^(−1/2))`. A fit can report on the first. Nothing reports on the
 second.
 

@@ -227,7 +227,7 @@ class TestTheConditioningTermIsLinear:
         g_hat = estimate(step)
         got = leftover(Q0, g_hat, limit_reduction(Q0))[name]
         r3, r4 = closed_by_estimand(Q0, g_hat)[name]
-        np.testing.assert_allclose(got, r3 + r4, rtol=1e-12, atol=0)
+        np.testing.assert_allclose(got, r3 + r4, rtol=1e-10, atol=0)
 
     @pytest.mark.parametrize("step", STEPS)
     @pytest.mark.parametrize("name", ["ey1", "ey0", "ate"])

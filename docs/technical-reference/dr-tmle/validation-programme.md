@@ -25,7 +25,7 @@ rather than on `main`. In summary:
 - The sign of the mechanism correction is the appendices' orientation.
 - The reported variance is Theorem 1's.
 - The three score equations are solved at the state returned.
-- The interval beats a plain TMLE's by a material margin where one nuisance is badly estimated,
+- The interval beats a plain TMLE's by a material margin in the drift cells,
   on that design. It does not show validity.
 
 **Not established in that archived drift-law programme, and recorded as such.** Three things.

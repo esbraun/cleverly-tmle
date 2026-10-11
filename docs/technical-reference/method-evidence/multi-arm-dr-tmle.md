@@ -158,8 +158,8 @@ covers zero. The overall evidence is inconclusive. These rows establish neither 
 its absence.
 [What the one-sided reading found](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md#what-the-one-sided-reading-found) gives each interval.
 
-The law is not H1, and in the `treatment_correct` regime the consistent nuisance is a correctly
-specified multinomial GLM. [The theorem](../dr-tmle/theorem.md#the-conditioning-terms-are-linear-in-one-error) then predicts a conservative interval. The
+No test pins this law as H1. In the `treatment_correct` regime the consistent nuisance is a correctly
+specified multinomial GLM. Where the law is not H1, [the theorem](../dr-tmle/theorem.md#the-conditioning-terms-are-linear-in-one-error) predicts a conservative interval. The
 measured SE ratios of 1.00 to 1.04 do not contradict it. No magnitude was computed for this
 law. The coverage rule is a floor and the SE screen is wide, so no verdict here can detect a
 conservative interval.

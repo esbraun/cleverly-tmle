@@ -68,7 +68,7 @@ B_{A,n} = P_n D_A(Q̄*_{n,r}, g*_n)                       = o_p(n^(−1/2))
 B_{Y,n} = P_n D_Y(Q̄*_n, g*_{1,n,r}, g*_{2,n,r})         = o_p(n^(−1/2))
 ```
 
-**and** suppose the appendix second-order terms satisfy `R_{Q,n} = o_p(n^(−1/2))` and
+**and** suppose the appendix remainder terms satisfy `R_{Q,n} = o_p(n^(−1/2))` and
 `R_{g,n} = o_p(n^(−1/2))`. **Then** the targeted plug-in is asymptotically linear with influence
 function `D^{*,#}`, and `√n(ψ̂ − ψ_0) ⇝ N(0, σ²)` with
 
@@ -102,7 +102,7 @@ Data can declare its treatment mechanism with `treatment_probabilities=` (the
 [point-treatment contract](../point-treatment-tmle.md#known-treatment-mechanism) gives the forms).
 A complete-data fit is then Theorem 1 at the degenerate estimator `g_n ≡ g_0`. The branch
 `g = g_0` of the theorem's hypothesis holds by declaration, and `R_{g,n}` is trivial at `g_0`.
-This is the case where the interval with a wrong outcome regression is established
+This is a case where the interval with a wrong outcome regression is established
 ([the conditioning terms](#the-conditioning-terms-are-linear-in-one-error)). The ordinary TMLE
 interval is valid here too.
 
@@ -216,16 +216,16 @@ term at equation (21), `O_P(‖ĝ − g_0‖²)`. The difference is linear in `�
 | observation mechanism, with the outcome regression wrong | the interval |
 | --- | --- |
 | the product mechanism `g_A g_Delta` known | established. The package always estimates `g_Delta`, so no fit is in this row |
-| a correctly specified parametric model | the projection argument of [the conditioning terms](#the-conditioning-terms-are-linear-in-one-error) applies. No study measures it |
+| a correctly specified parametric model | the projection argument of [the conditioning terms](#the-conditioning-terms-are-linear-in-one-error) suggests a conservative interval. The page derives it for a complete outcome only. The probe's GLM cell (n = 4,000, R = 150) showed no excess and an arm-0 bias that the term does not explain. RM40 re-checks it |
 | a data-adaptive learner | not established. A non-registered probe found an arm-mean bias that grows with n |
 
 The probe declared `g_A`, fitted a wrong outcome regression, and gave `g_Delta` a constructed slow
 error (`reviews/rm40/lra_summary.log`). The `ey[1]` bias was −0.24, −0.60 and −0.98 SD at
-n = 1,000, 4,000 and 16,000. Its SE ratio stayed between 0.88 and 1.10.
+n = 1,000, 4,000 and 16,000. Its SE ratio stayed between 0.88 and 1.10. A known `g_A` alone is not
+enough.
 
 The `ate` bias cancelled on
-that law, because the errors of both arms moved the same way. A known `g_A` alone is therefore not
-enough. The mirror branch, where `r̂_{A,0}` and `r̂_{M,0}` condition on `(m_1, m̂)`, has the same
+that law, because the errors of both arms moved the same way. The mirror branch, where `r̂_{A,0}` and `r̂_{M,0}` condition on `(m_1, m̂)`, has the same
 structure. No probe measured it.
 
 ### More than two arms
@@ -480,7 +480,7 @@ estimator. The paper puts `o_P(n^(−1/4))` on `‖Q̄_{0n,r} − Q̄_{n,r}‖_2
 breaks the level sets of `g_0`, that norm stays of order one. The implication is correct, and its
 premise fails in the generic one-wrong case.
 
-**Only the bias of the error moves the estimate.** The stochastic part of `g_n − g_0` has mean
+**Only the bias of the error moves the centre of the estimate.** The stochastic part of `g_n − g_0` has mean
 zero. It changes the variance, as [the projection](#a-parametric-mechanism-makes-the-interval-conservative)
 shows. A first-order bias needs a bias of `g_n` of order `r_n ≫ n^(−1/2)` along `F/g_0`.
 
@@ -500,21 +500,22 @@ r = (g_0 − ḡ)/ḡ,    h = r − g_0·E[r | Q̄_0]/E[g_0 | Q̄_0],    E[h | Q
 
 It is linear in `Q̄_n − Q̄_0`.
 
-**When the term is `o_P(n^(−1/2))`.** The table is for the univariate reduction.
+**When the term adds no first-order bias.** The table is for the univariate reduction. The first three rows make the term `o_P(n^(−1/2))`. Negligible bias leaves a stochastic part of order `n^(−1/2)`. Its effect on the interval is derived only for a parametric index, where it makes the interval conservative.
 
 | condition | outcome branch (`Q̄` wrong) | mechanism branch (`g` wrong) | checkable from a fit |
 | --- | --- | --- | --- |
 | both nuisances consistent at the product rates | the first factor shrinks too | the same | no. This is the ordinary TMLE rate condition |
-| H2: the consistent estimate keeps the level sets of its truth | `g_n = g_0`, or `g_n = φ(g_0)` | `Q̄_n = φ(Q̄_0)` | yes for a declared known mechanism. Otherwise no |
+| H2: the consistent estimate keeps the level sets of its truth | `g_n = g_0`, or `g_n = φ_n(g_0)` with `φ_n` tending to the identity | `Q̄_n = φ_n(Q̄_0)` | yes for a declared known mechanism. Otherwise no |
 | H1 | `Q̄_0 − Q̄` is a function of `g_0` | `1/ḡ − 1/g_0` is a function of `Q̄_0`, which is `h ≡ 0` | no |
 | negligible bias | the bias of `g_n` along `F/g_0` is `o(n^(−1/2))` | the bias of `Q̄_n` along `h` is `o(n^(−1/2))` | no |
 
 For arm 0, the outcome-branch H1 is: `Q̄_0(0, ·) − Q̄(0, ·)` is a function of `g_0`. The
 mechanism-branch H1 is: `1/(1 − ḡ) − 1/(1 − g_0)` is a function of `Q̄_0(0, ·)`. A limit `ḡ` that
-is constant on the level sets of `Q̄_0` does not meet it. `tests/unit/test_drtmle_h1_symmetry.py`
-pins a constant `ḡ` on law L below for which `L_2(h)` is 0.305.
+is constant on the level sets of `Q̄_0` need not meet it.
 
-`g_n = φ(g_0)` with `φ` not the identity is the one-wrong case where the DR-TMLE interval holds and
+**Law L** has `W1, W2 ~ N(0, 1)`, `g_0 = expit(0.6 W1 + 0.3 W2)` and `Q̄_0 = expit(−0.2 + 0.5 A − W1 + 2 W2)`. `tests/unit/test_drtmle_h1_symmetry.py` pins a constant `ḡ` on law L for which `L_2(h)` is 0.305.
+
+`g_n = φ_n(g_0)`, with `φ_n` tending to the identity, is a one-wrong case where the DR-TMLE interval holds and
 the plain TMLE interval does not. The plain TMLE leftover there is
 `P_0[(g_0 − g_n)/g_n · E(Q̄_0 − Q̄ | g_0)]`, which is first order. Equation (9) removes it.
 
@@ -524,8 +525,8 @@ arms each row applies arm by arm.
 | case | conditioning term | reported interval | evidence |
 | --- | --- | --- | --- |
 | both nuisances consistent at the product rates, plus the reduced-regression and solve conditions | second order | valid (Theorem 1) | the registered both-correct cells of the [canonical](../method-evidence/canonical-dr-tmle.md), [stratified](../method-evidence/stratified-dr-tmle.md) and [multi-arm](../method-evidence/multi-arm-dr-tmle.md) studies |
-| `Q̄` wrong, `g` declared known | `R_{3,n} ≡ 0`. Equation (9) moves `g*` along `Q_r/g_0`, a function of `g_0` | valid. The ordinary TMLE interval is valid too | Theorem 1 at `g_n = g_0`, and the registered [known-mechanism DR-TMLE study](../method-evidence/known-mechanism-dr-tmle.md) with a wrong outcome regression |
-| `Q̄` wrong, `g_n = φ(g_0)`, or H1 | zero | valid under the remaining rates | the derivation. The Section 5.1 law of the paper is H1 (`tests/unit/test_drtmle_h1_symmetry.py`) |
+| `Q̄` wrong, `g` declared known | second order (its first-order part is zero). Equation (9) moves `g*` along `Q_r/g_0`, a function of `g_0` | valid. The ordinary TMLE interval is valid too | Theorem 1 at `g_n = g_0`, and the registered [known-mechanism DR-TMLE study](../method-evidence/known-mechanism-dr-tmle.md) with a wrong outcome regression |
+| `Q̄` wrong, `g_n = φ_n(g_0)` with `φ_n` tending to the identity, or H1 | second order (its first-order part is zero) | valid under the remaining rates | the derivation. The Section 5.1 law of the paper is H1 (`tests/unit/test_drtmle_h1_symmetry.py`) |
 | `Q̄` wrong, `g` a correctly specified fixed-dimension parametric model fitted by maximum likelihood, in sample or cross-fitted | `O_P(n^(−1/2))`, linear in the score | **conservative**: asymptotically linear, with a reported variance too large by `c'I^(−1)c` | the derivation below. A non-registered probe measured an in-sample ATE SE ratio of 1.136 to 1.149 at n = 1,000 to 16,000, with coverage 0.969 to 0.984 |
 | `Q̄` wrong, `g` with a bias of order `r_n ≫ n^(−1/2)` along `F/g_0` | of order `r_n` | **not established** | the identity. In the probe a constructed level-set-breaking error of order `n^(−1/3)` gave an ATE bias of −0.66, −0.84 and −1.22 SD, with coverage 0.928, 0.918 and 0.867, at n = 1,000, 4,000 and 16,000 |
 | `g` wrong, `Q̄` a correctly specified parametric model | `O_P(n^(−1/2))` | not established. An extra first-order term of no fixed sign remains, because the target depends on the parameters of `Q̄` | the derivation only |
@@ -534,7 +535,7 @@ arms each row applies arm by arm.
 No fit can tell which row it is in, except a declared known mechanism. The probe is
 `reviews/rm40/drdr_sim.py`, with its numbers in `reviews/rm40/drdr_summary.log`. It is not a
 registered study. The registered [multi-arm study](../method-evidence/multi-arm-dr-tmle.md) has a
-law that is not H1 and a correctly specified multinomial mechanism. Its SE ratios of 1.00 to 1.04
+law that no test pins as H1, and a correctly specified multinomial mechanism. Its SE ratios of 1.00 to 1.04
 do not contradict the conservative row. Its verdicts cannot detect a conservative interval, because
 its coverage rule is a floor.
 
@@ -544,7 +545,7 @@ studies give the consistent nuisance as an exact law table, which is H2.
 
 **The routes.** DR-TMLE is the only shipped family that publishes an interval exposed to this
 term. Its status stays `influence_curve` on every route, because a fit cannot tell which case it
-is in, and the interval is valid when both nuisances are consistent.
+is in, and the interval is valid when both nuisances are consistent at the product rates.
 
 | route | index of the conditioning term | one-wrong interval established when | non-registered evidence |
 | --- | --- | --- | --- |
@@ -593,12 +594,12 @@ above is for the univariate reduction only.
 
 ### The release claim
 
-The interval is valid when both nuisances are consistent, under DR-TMLE's own reduced-regression
+The interval is valid when both nuisances are consistent at the product rates, under DR-TMLE's own reduced-regression
 and solve conditions. With one nuisance inconsistent, the two extra equations remove the part of
 the first-order remainder that is a function of the consistent nuisance. The rest, `R_{3,n}` or
 `R̃_{5,n}`, can stay first order.
 
 The one-wrong interval is valid for a declared known mechanism and
-conservative for a correctly specified parametric mechanism. It is also valid where the consistent
+conservative for a correctly specified parametric mechanism. With the mechanism wrong, the interval is not established, even for a correctly specified parametric outcome regression. It is also valid where the consistent
 estimate keeps the level sets of its truth, or where H1 holds. No fit can check the last two. A
 constructed level-set-breaking error produced a bias that grows with `n`.

@@ -879,7 +879,8 @@ class DRTMLEMethod(TMLEMethod):
     name : str
         Stable method name.
     guard : tuple of {"Q", "g"}, default=("Q", "g")
-        The extra score equations to solve, named by the nuisance they target.
+        The extra score equations to solve, named by the nuisance whose misspecification each
+        one corrects: ``"Q"`` adds equation (9) and ``"g"`` adds equation (10).
     reduction : {"univariate", "bivariate"}, default="univariate"
         Reduced-regression family.
     reduced_outcome_learner : estimator or None, default=None

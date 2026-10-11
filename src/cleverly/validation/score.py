@@ -450,8 +450,8 @@ class ScoreCheck:
                     *(
                         [
                             f"Validity is not efficiency: the curve reported is {self._curve()}. "
-                            "Theorem 1 makes it valid under its conditions.",
-                            "With one wrong nuisance it holds only in the cases "
+                            "Theorem 1 makes its interval valid under its conditions.",
+                            "With one wrong nuisance the interval holds only in the cases "
                             "cleverly.estimators.drtmle lists.",
                         ]
                         if supplies_inference(self.inference)
