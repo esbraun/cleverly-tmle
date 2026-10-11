@@ -12,8 +12,9 @@ The study pairs the fit with R
 binary recode $1\{A = a\}$. Both sides read this package's initial outcome regression, so the pairs
 test the design, the mechanism and the targeting step.
 
-The study is published under the `reporting` policy. Its declared revert cells are red, so every
-`oat` fit takes the `generated_design_plugin` status and reports no interval. The coverage and
+The study publishes under the `reporting` policy. Its declared revert cells are red, so every
+per-arm fit takes the `generated_design_plugin` status and reports no interval. A shared-design
+fit already withheld its interval before this study. The coverage and
 standard-error columns below measure `plugin_interval` and `plugin_std_error` as diagnostics.
 Their pass labels do not authorize `ci`, `pvalue` or `std_error`.
 [The applied revert](../collaborative-tmle.md#the-applied-revert) gives the diagnosis, and
@@ -34,7 +35,7 @@ Their pass labels do not authorize `ci`, `pvalue` or `std_error`.
 
 The `drtmle` result carries no TMLE curve. The runner rebuilds each arm's curve on its
 one-dimensional logistic submodel at the reported estimate. It refuses a fit unless the rebuilt
-variance equals `tmle$cov[1, 1]` to `1e-8`. The contrasts use the rebuilt curves. A call with
+standard error equals the square root of `tmle$cov[1, 1]` to a relative `1e-8`. The contrasts use the rebuilt curves. A call with
 `a_0` equal to every level does not fit this design, because `drtmle` then builds a sequential
 chain of conditional binary regressions.
 
@@ -47,7 +48,7 @@ variance of Theorem 1's curve over the variance of the efficient influence funct
 | arm means | 0.4406, 0.5593 | 0.4178, 0.4999, 0.5834 |
 | efficiency ratio, arm means | 0.428, 0.428 | 0.792, 0.178, 0.178 |
 | $L_2$ gap between the per-arm and the shared design limits | 0.059, 0.059 | 0.037, 0.114, 0.059 |
-| share of rows with the true $g_0$ outside the bounds | 0.029 | 0.004, 0.072, 0.065 |
+| share of rows with the true $g_0$ outside $(0.025, 0.975)$ | 0.029 | 0.004, 0.072, 0.065 |
 | $L_2$ distance from the learner limit to the projection | below $10^{-6}$ | below $2 \times 10^{-4}$ |
 
 ## Accuracy against known truth
@@ -144,11 +145,18 @@ variance of Theorem 1's curve over the variance of the efficient influence funct
 | `type_i_error` | `sharp_null` | positive | a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0963, 0.0712 to 0.1262 | **fail** |
 <!-- /generated -->
 
-The study declared these cells as revert cells before its gated run: the primary coverage of
-every estimand, the four `interval_calibration` positive cells, the four `generated_design` cells
-and the simultaneous band. One red revert cell with no defect withholds the per-arm interval.
+Before its gated run, the study declared its revert cells.
 
-The two `oracle_design` cells pin $\bar Q$ to the truth and still estimate the mechanism. Each
+| revert cells | count |
+| --- | --- |
+| primary coverage, one cell for each estimand | 16 |
+| `interval_calibration` positive cells | 4 |
+| `generated_design` cells | 4 |
+| the simultaneous band | 1 |
+
+One red revert cell with no defect withholds the per-arm interval.
+
+The two `oracle_design` cells pin $\bar Q$ to the truth. They still estimate the mechanism. Each
 passes its own rule, which the table shows. The [red-cell ledger](red-cells.md) counts each one red
 by the family's joint clause, because its estimated twin fails. That contrast locates the deficit
 in the estimated design.
@@ -181,8 +189,10 @@ the committed results and checked at the precision printed.
 | `mechanism_max_rows_at_bound` | 21 | most rows at a bound in one fit |
 | `mechanism_max_gap_off_bound` | 4.658e-07 | largest gap between the two mechanisms in a fit with no row at a bound |
 | `mechanism_max_gap` | 0.0080 | largest gap between the two mechanisms in any fit |
-| `design_gap[binary_active/ate]:mean_design_gap` | 0.0458 | mean shift from the shared design, in this fit's standard errors, two-arm `ate` |
+| `design_gap[binary_active/ate]:mean_design_gap` | 0.0458 | mean absolute shift from the shared design, in this fit's standard errors, two-arm `ate` |
 | `design_gap[three_arm_active/ey[1]]:mean_design_gap` | 1.0825 | the same for the three-arm `ey[1]` |
+| `properties[crossfit_overfitting/cross_fitted_oat]:standardized_bias` | 0.9461 | bias of the cross-fitted fit with a fully grown tree, in empirical standard deviations |
+| `properties[crossfit_overfitting/cross_fitted_oat]:coverage` | 0.8275 | coverage of that fit's diagnostic interval |
 | `properties[root_n_and_efficiency/n_2000]:empirical_se` | 0.0247 | empirical spread of the two-arm `ate` at n = 2,000 |
 | `properties[root_n_and_efficiency/n_2000]:mean_std_error` | 0.0213 | mean reported diagnostic standard error at n = 2,000 |
 | `margin:alpha` | 0.0500 | nominal size of the reported intervals |
@@ -229,7 +239,8 @@ study fits no ordinary TMLE on the same draws, so this comparison is reported an
 | The diagnostic standard error is too small on both laws | The primary SE ratios run from `min_se_ratio_ci_lower` to `max_se_ratio_ci_upper`, and the ladder does not close the gap as n grows. Condition (v) of Theorem 1 fails for an estimated outcome regression, so the remainder $R_{24}$ is first order. R `drtmle` reports the same standard errors, so the pairing cannot detect the gap |
 | The points are paired, not the intervals | All 16 paired rows are equivalent, with `max_margin_utilization` of the margin used. The truth rows of both implementations are red alike. The per-arm design moves the three-arm points away from the shared design by `design_gap[three_arm_active/ey[1]]:mean_design_gap` standard errors on `ey[1]` |
 | The mechanisms agree only off the bounds | Where no row of the per-arm mechanism sits at a bound, the two mechanisms agree to `mechanism_max_gap_off_bound`. In `mechanism_fits_with_rows_at_bound` fits some rows sit at a bound, and the gap reaches `mechanism_max_gap`. The rows at a bound are reported, not gated |
-| Two parametric laws with a binary outcome | Each law has a normal index for each arm and one instrument. A flexible outcome learner, a continuous outcome and more than three arms have fast-tier evidence only |
+| A flexible outcome learner biases the point estimate | The `crossfit_overfitting` pair fits a fully grown regression tree. Cross-fitting restores the SE ratio, which is all that pair gates. The cross-fitted estimate still has a bias of `properties[crossfit_overfitting/cross_fitted_oat]:standardized_bias` empirical standard deviations, and its diagnostic interval covers `properties[crossfit_overfitting/cross_fitted_oat]:coverage`. The point-estimate evidence holds for the correctly specified GLM |
+| Two parametric laws with a binary outcome | Each law has a normal index for each arm and one instrument. A continuous outcome and more than three arms have fast-tier evidence only |
 | No missing outcomes, strata or clusters | X29 owns the per-arm design with baseline strata and missing outcomes, for the point estimate only |
 | One unstratified split does the cross-fitting | The property cells declare `stratify_folds="none"`. The primary fit is in sample, so the pairing says nothing about cross-fitted parity |
 
@@ -244,3 +255,8 @@ regenerate the artifacts. The
 [design gap](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_oat_per_arm/design-gap.csv)
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_oat_per_arm/properties.csv)
 carry every published row. `tests/diagnostics/x17_generated_design/` reproduces the diagnosis.
+
+The committed R phase ran under the harness before RM39. RM39's revision row for
+`tests/canonical/study_harness.R` covers that hash. `tests/canonical/harness_fixture/determinism.csv`
+has no row for `run_drtmle_oat_per_arm.R` yet. The runner itself calls no random number
+generator. It fits with `cvFolds = 1`, `glm_g` and `uniroot`.
