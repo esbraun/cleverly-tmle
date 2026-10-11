@@ -66,6 +66,15 @@ each red SE ratio excludes 1.  Each is the measured deficit of the term that F19
 interval it would have supported is withheld, so no unfixed defect ends as an owner row.  A
 re-run whose red set differs from :data:`EXPECTED_RED` is a defect suspect, and it is diagnosed
 before anything is published.
+
+**The corrected red set.**  The first re-run at ``5f5e5337`` published 43 red rows against 41
+declared.  The two extra rows are the oracle-design cells of ``generated_design``.  Each passes
+its own rule and is red by the family's joint clause, because its estimated twin fails.
+:func:`~tests.studies.evidence.red_cells.red_rows` counts both kinds of failure, and the earlier
+list counted own-rule failures only.  :data:`REVERT_CELLS`, declared before the first run,
+already lists both cells, so the list was a transcription error.  The re-run matched the gated
+run's verdicts, so no result moved.  This declaration adds the two rows as
+:data:`EXPECTED_JOINT_CLAUSE_RED`, and no seed, budget, law, margin or cell changed.
 """
 
 from __future__ import annotations
@@ -191,6 +200,15 @@ EXPECTED_RED_PROPERTIES: tuple[str, ...] = (
     "root_n_and_efficiency/n_8000",
     "type_i_error/sharp_null",
     "simultaneous_coverage/three_arm_active__simultaneous_band",
+    # Red by the family's joint clause only: each oracle cell passes its own rule, and its
+    # estimated twin fails.  REVERT_CELLS listed both before the first run.
+    "generated_design/binary_active__oracle_design",
+    "generated_design/three_arm_active__oracle_design",
+)
+#: The expected red rows that pass their own rule and are red by the family's joint clause only.
+EXPECTED_JOINT_CLAUSE_RED: tuple[str, ...] = (
+    "generated_design/binary_active__oracle_design",
+    "generated_design/three_arm_active__oracle_design",
 )
 EXPECTED_RED = EXPECTED_RED_TRUTH + EXPECTED_RED_PROPERTIES
 

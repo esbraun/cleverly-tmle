@@ -117,10 +117,20 @@ def test_the_revert_cells_are_declared_positive_cells() -> None:
 
 
 def test_the_expected_red_rows_are_declared_rows() -> None:
-    """Each expected red row is a row the run publishes, and no oracle-design cell is in it."""
+    """Each expected red row is a row the run publishes.
+
+    An oracle-design row is expected red only by the family's joint clause, so it is expected
+    red exactly when its estimated twin is.
+    """
     declared = {f"{cell.property}/{cell.cell}" for cell in properties.declared_cells()}
     assert set(study.EXPECTED_RED_PROPERTIES) <= declared
-    assert not any("oracle_design" in row for row in study.EXPECTED_RED_PROPERTIES)
+    oracle = {row for row in study.EXPECTED_RED_PROPERTIES if row.endswith("__oracle_design")}
+    assert oracle == set(study.EXPECTED_JOINT_CLAUSE_RED)
+    for row in study.EXPECTED_JOINT_CLAUSE_RED:
+        assert row.startswith("generated_design/")
+        assert row.replace("__oracle_design", "__estimated") in study.EXPECTED_RED_PROPERTIES
+    revert = {f"{family}/{cell}" for family, cell in study.REVERT_CELLS}
+    assert set(study.EXPECTED_JOINT_CLAUSE_RED) <= revert
     assert all(
         cell.role == "positive"
         for cell in properties.declared_cells()
@@ -134,6 +144,27 @@ def test_the_expected_red_rows_are_declared_rows() -> None:
     }
     assert set(study.EXPECTED_RED_TRUTH) <= truth
     assert len(study.EXPECTED_RED_TRUTH) == len(truth) - 2
+
+
+def test_the_oracle_design_rows_pass_their_own_rule() -> None:
+    """Each oracle-design cell passes its own rule and is red only by the joint clause."""
+    if not study.STUDY.artifact("properties.csv").exists():
+        pytest.skip("the registered run has not been committed yet")
+    from tests.studies.evidence import red_cells
+
+    tables = red_cells.frames(study.STUDY)
+    red = {row.key.key: row.fails_by for row in red_cells.red_rows(study.STUDY, tables)}
+    summary = tables["properties"].set_index(["property", "cell"])
+    for label in properties.CALIBRATION_LABELS:
+        row = summary.loc[("generated_design", f"{label}__oracle_design")]
+        assert bool(row["passed"]) is True
+        twin = summary.loc[("generated_design", f"{label}__estimated")]
+        assert bool(row["property_passed"]) is bool(twin["passed"])
+    for key in study.EXPECTED_JOINT_CLAUSE_RED:
+        assert red[key] == "the family's joint clause"
+    own = set(study.EXPECTED_RED_PROPERTIES) - set(study.EXPECTED_JOINT_CLAUSE_RED)
+    assert all(red[key] == "its own rule" for key in own)
+    assert set(red) == set(study.EXPECTED_RED)
 
 
 def test_the_joint_fit_builds_the_band_and_leaves_the_flag_unset() -> None:
