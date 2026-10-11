@@ -20,17 +20,36 @@ Three shapes have to fit through one driver, so they are declared rather than br
   package ships its construction.  It writes a valid *empty* equivalence artefact rather than a
   surrogate comparison, and its ``draw_and_fit`` returns rows directly instead of the
   ``(samples, truths, rows)`` triple a paired study has to hand to R.
+
+RM39 made a run resumable.  Every run keeps its scratch in a persistent directory keyed by a
+*resume key*: the declaration, the code, the reference sources, the inputs and the Python
+versions.  An R reference checkpoints each group in the Docker volume ``cleverly-cache``, and
+a rerun with the same key reuses the Python phase, the calibration and every finished group.
+A container killed whole is run again once with half the workers.  Every error is still fatal.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
+import contextvars
 import dataclasses
+import enum
+import gzip
+import hashlib
+import json
+import os
+import re
+import shutil
+import socket
 import subprocess
-import tempfile
+import sys
+import time
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pandas as pd
 
@@ -39,7 +58,9 @@ from tests.studies.evidence.comparison import empty_equivalence, equivalence
 from tests.studies.evidence.manifest import write_csv, write_manifest
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.properties import REPLICATE_COLUMNS as PROPERTY_COLUMNS
+from tests.studies.evidence.registry import ROOT, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS, validate_replicates
+from tests.studies.evidence.seeds import reference_seed
 
 #: Every published artefact, in the order the manifest hashes them.
 ARTIFACT_NAMES = (
@@ -53,6 +74,28 @@ ARTIFACT_NAMES = (
 
 #: Columns the reference writes as text and the schema requires as numbers.
 _TEXT_COLUMNS = frozenset({"implementation", "scenario", "estimand", "inference_scale"})
+
+#: The R harness every mounted runner sources.  Its bytes are part of every R resume key.
+HARNESS = ROOT / "tests" / "canonical" / "study_harness.R"
+
+#: The Docker volume that holds the checkpoint leaves of every R reference run.
+VOLUME = "cleverly-cache"
+
+#: What the scratch directory reuses across runs, and so what the resume key must cover.
+_PYTHON_CACHE = ("samples.csv.gz", "truth.csv", "python-rows.csv.gz")
+
+#: Exit codes of an R reference container.  3 is the harness's "a rerun resumes" stop; 137 is
+#: a container killed whole, by the kernel or by Docker.
+EXIT_RESUMABLE = 3
+EXIT_KILLED = (137, -9)
+
+#: A runner that fits through one of these reaches calibration.  A probe that sources the
+#: harness only for its argument check fits inline, so it gets no calibration run.
+_CALIBRATES = re.compile(r"\bstudy_(?:fitter|stream|calibrate)\(")
+
+#: Lines a declared run records in its ``run.log``.  :func:`main` fills it, and
+#: ``declared_run.publish_run`` hands each line to ``run_log`` as a note.
+RUN_NOTES: list[str] = []
 
 
 @dataclass(frozen=True)
@@ -80,6 +123,13 @@ class Reference:
     runner_root: Path | None = None
     #: Program that executes a mounted runner. Existing R studies retain the historical default.
     interpreter: str = "Rscript"
+    #: Group ids (``g000000007``) that calibration fits besides the first group of each
+    #: scenario, because the runner knows they are the heaviest.
+    calibration_groups: tuple[str, ...] = ()
+    #: A floor on the measured per-worker memory, in MB.
+    worker_memory_mb: float | None = None
+    #: ``(factor, share, reason)`` in place of the harness defaults 1.25 and 0.85.
+    memory_override: tuple[float, float, str] | None = None
 
     def files(self, here: Path) -> list[Path]:
         context = self.build_context or here
@@ -99,7 +149,13 @@ class Reference:
         *,
         cores: int,
         runner: str | None = None,
+        env: Mapping[str, str] | None = None,
     ) -> None:
+        """Run the comparator on ``samples`` and write its rows to ``output``.
+
+        Inside :func:`main` an R reference runs resumably (:func:`_run_resumable`).  A direct
+        call, or a reference with another interpreter, runs the container once.
+        """
         context = self.build_context or here
         root = self.runner_root or here
         selected_runner = self.runner if runner is None else runner
@@ -108,31 +164,532 @@ class Reference:
         if runner is not None and not self.mount_runner:
             raise ValueError("an alternate reference runner requires mount_runner=True")
         subprocess.run(["docker", "build", "-t", self.image, str(context)], check=True)
-        mounts = ["-v", f"{samples.parent.resolve()}:/work"]
-        arguments: list[str] = []
-        if self.mount_runner:
-            mounts += ["-v", f"{root.resolve()}:/fixture:ro"]
-            arguments.append(f"/fixture/{selected_runner}")
-        entrypoint = ["--entrypoint", self.interpreter] if self.mount_runner else []
+        active = _ACTIVE.get()
+        if active is not None and self.interpreter == "Rscript":
+            _run_resumable(
+                self, active, here, samples, truths, output, cores, selected_runner, env or {}
+            )
+            return
         subprocess.run(
-            [
-                "docker",
-                "run",
-                "--rm",
-                "-e",
-                f"CLEVERLY_REFERENCE_CORES={cores}",
-                "-e",
-                f"CLEVERLY_R_CORES={cores}",
-                *mounts,
-                *entrypoint,
-                self.image,
-                *arguments,
-                f"/work/{samples.name}",
-                f"/work/{truths.name}",
-                f"/work/{output.name}",
-            ],
+            _docker_command(self, root, samples, truths, output, selected_runner, cores, env),
             check=True,
         )
+
+
+def _docker_command(
+    reference: Reference,
+    root: Path,
+    samples: Path,
+    truths: Path,
+    output: Path,
+    runner: str,
+    cores: int,
+    env: Mapping[str, str] | None,
+    *,
+    extra: tuple[str, ...] = (),
+) -> list[str]:
+    mounts = ["-v", f"{samples.parent.resolve()}:/work"]
+    arguments: list[str] = []
+    if reference.mount_runner:
+        mounts += ["-v", f"{root.resolve()}:/fixture:ro"]
+        arguments.append(f"/fixture/{runner}")
+    entrypoint = ["--entrypoint", reference.interpreter] if reference.mount_runner else []
+    variables = {
+        "CLEVERLY_REFERENCE_CORES": str(cores),
+        "CLEVERLY_R_CORES": str(cores),
+        **(env or {}),
+    }
+    flags = [part for name, value in variables.items() for part in ("-e", f"{name}={value}")]
+    return [
+        "docker",
+        "run",
+        "--rm",
+        *extra,
+        *flags,
+        *mounts,
+        *entrypoint,
+        reference.image,
+        *arguments,
+        f"/work/{samples.name}",
+        f"/work/{truths.name}",
+        f"/work/{output.name}",
+    ]
+
+
+# ---- the resume key -------------------------------------------------------------------------
+
+
+def canonical(value: Any) -> Any:
+    """``value`` as plain JSON data, so equal declarations hash equal in every process.
+
+    A ``Path`` inside the repository becomes its posix path relative to the root, so two
+    checkouts of one commit agree.  Any type not listed raises, rather than hashing a ``repr``
+    that can carry a memory address.
+    """
+    if value is None or isinstance(value, bool | int | str):
+        return value
+    if isinstance(value, float):
+        return repr(value)
+    if isinstance(value, enum.Enum):
+        return canonical(value.value)
+    if isinstance(value, Path):
+        resolved = value.resolve()
+        if resolved.is_relative_to(ROOT.resolve()):
+            return resolved.relative_to(ROOT.resolve()).as_posix()
+        return resolved.as_posix()
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return {
+            item.name: canonical(getattr(value, item.name)) for item in dataclasses.fields(value)
+        }
+    if isinstance(value, Mapping):
+        return {str(key): canonical(value[key]) for key in sorted(value, key=str)}
+    if isinstance(value, set | frozenset):
+        return sorted((canonical(item) for item in value), key=lambda item: json.dumps(item))
+    if isinstance(value, tuple | list):
+        return [canonical(item) for item in value]
+    if callable(value):
+        return f"{value.__module__}.{value.__qualname__}"
+    raise TypeError(f"no canonical form for {type(value).__name__}: {value!r}")
+
+
+def digest(value: Any) -> str:
+    """The sha256 of ``value``'s canonical JSON."""
+    text = json.dumps(canonical(value), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def declaration_hash(record: StudyRecord) -> str:
+    """The declared study, without where its artefacts go.
+
+    ``artifacts`` is the run's ``--output``.  A declared run resumed into a new empty output
+    is the same run, so the output path is not part of the key.
+    """
+    declared = canonical(record)
+    declared.pop("artifacts", None)
+    return digest(declared)
+
+
+def _file_sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def content_sha(path: Path) -> str:
+    """The sha256 of a file's content, decompressed when it is a gzip archive.
+
+    A gzip header carries a timestamp, so the archive bytes of two equal tables can differ.
+    """
+    data = path.read_bytes()
+    return hashlib.sha256(gzip.decompress(data) if path.name.endswith(".gz") else data).hexdigest()
+
+
+def _git_bytes(*arguments: str) -> bytes:
+    return subprocess.run(
+        ["git", *arguments], cwd=ROOT, capture_output=True, check=True, timeout=120
+    ).stdout
+
+
+def git_state() -> dict[str, Any]:
+    """HEAD and the tree's state.  A dirty tree adds the digest of its diff and new files."""
+    head = _git_bytes("rev-parse", "HEAD").decode().strip()
+    status = _git_bytes("status", "--porcelain", "--untracked-files=all").decode()
+    state: dict[str, Any] = {"head": head, "clean": status == ""}
+    if status:
+        untracked = sorted(line[3:] for line in status.splitlines() if line.startswith("?? "))
+        state["dirty"] = digest(
+            {
+                "diff": hashlib.sha256(_git_bytes("diff", "HEAD", "--binary")).hexdigest(),
+                "untracked": {
+                    name: _file_sha(ROOT / name) for name in untracked if (ROOT / name).is_file()
+                },
+            }
+        )
+    return state
+
+
+def python_versions() -> dict[str, str]:
+    """The Python side's versions, as ``generated_with.subject`` records them."""
+    import platform
+
+    import numpy
+    import scipy
+    import sklearn
+
+    return {
+        "python": platform.python_version(),
+        "numpy": numpy.__version__,
+        "scipy": scipy.__version__,
+        "pandas": pd.__version__,
+        "scikit_learn": sklearn.__version__,
+    }
+
+
+def run_key(record: StudyRecord) -> dict[str, Any]:
+    """The resume-key fields known before the Python phase draws anything."""
+    return {
+        "declaration": declaration_hash(record),
+        "git": git_state(),
+        "n": record.n,
+        "replicates": record.replicates,
+        "versions": python_versions(),
+    }
+
+
+def _repository_name(path: Path) -> str:
+    resolved = path.resolve()
+    if resolved.is_relative_to(ROOT.resolve()):
+        return resolved.relative_to(ROOT.resolve()).as_posix()
+    return resolved.as_posix()
+
+
+def leaf_key(
+    reference: Reference, key: Mapping[str, Any], here: Path, samples: Path, truths: Path
+) -> dict[str, Any]:
+    """Every resume-key field of one reference run, except the image ID.
+
+    The seeds file is not listed: it is a function of the declaration and the runner name,
+    which the key holds.  The group-id list is not listed: it is a function of the runner and
+    the samples, which the key holds too.
+    """
+    files = [*reference.files(here)]
+    if reference.interpreter == "Rscript":
+        files.append(HARNESS)
+    return {
+        **key,
+        "reference": {_repository_name(path): _file_sha(path) for path in files},
+        "samples": content_sha(samples),
+        "truth": content_sha(truths),
+    }
+
+
+def runs_root() -> Path:
+    """Where each run's scratch directory lives, outside the repository."""
+    local = os.environ.get("LOCALAPPDATA")
+    base = Path(local) if local else Path.home() / ".cache"
+    return base / "cleverly" / "runs"
+
+
+@dataclass
+class RunContext:
+    """One driver run: its key, its scratch and what it touched in the volume."""
+
+    record: StudyRecord
+    key: dict[str, Any]
+    scratch: Path
+    default_scratch: bool
+    fresh: bool = False
+    keep: bool = False
+    completed: bool = False
+    #: ``(image, /cache/<slug>/<key12>)`` of each R run, for cleanup.
+    volume_keys: list[tuple[str, str]] = field(default_factory=list)
+    cleared: set[str] = field(default_factory=set)
+
+
+_ACTIVE: contextvars.ContextVar[RunContext | None] = contextvars.ContextVar(
+    "cleverly_regenerate_run", default=None
+)
+
+
+# ---- the host lock --------------------------------------------------------------------------
+
+
+def process_alive(pid: int) -> bool:
+    """Whether ``pid`` is a live process on this host.
+
+    ``os.kill(pid, 0)`` is the POSIX check, but on Windows signal 0 is ``CTRL_C_EVENT``, so
+    there the process is opened and its exit code read instead.
+    """
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        import ctypes
+
+        kernel = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        handle = kernel.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return kernel.GetLastError() == 5  # ERROR_ACCESS_DENIED: it exists
+        try:
+            code = ctypes.c_ulong()
+            if not kernel.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return True
+            return code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+@contextlib.contextmanager
+def host_lock(scratch: Path) -> Iterator[None]:
+    """Hold ``scratch/_lock`` for one driver run; a second driver on the same key refuses.
+
+    A lock whose holder is a dead process on this host is reported and removed.
+    """
+    lock = scratch / "_lock"
+    host = socket.gethostname()
+    for _ in range(2):
+        try:
+            handle = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            held = dict(
+                line.split("=", 1)
+                for line in lock.read_text(encoding="utf-8").splitlines()
+                if "=" in line
+            )
+            pid = int(held.get("pid", "0") or 0)
+            if held.get("host") == host and not process_alive(pid):
+                print(f"removed the lock of a dead driver (pid {pid}) on {lock}", flush=True)
+                lock.unlink(missing_ok=True)
+                continue
+            raise RuntimeError(
+                f"refused: another driver holds {lock}: pid {pid} on {held.get('host')} "
+                f"since {held.get('start')}"
+            ) from None
+        with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write(
+                f"pid={os.getpid()}\nhost={host}\nstart={time.strftime('%Y-%m-%dT%H:%M:%S')}\n"
+            )
+        break
+    try:
+        yield
+    finally:
+        lock.unlink(missing_ok=True)
+
+
+# ---- the resumable R run --------------------------------------------------------------------
+
+
+def _docker_text(*arguments: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["docker", *arguments], capture_output=True, text=True)
+
+
+def image_id(image: str) -> str | None:
+    """The local image's ID, or ``None`` when Docker has no such image."""
+    completed = _docker_text("image", "inspect", "--format", "{{.Id}}", image)
+    return completed.stdout.strip() if completed.returncode == 0 else None
+
+
+def clear_stopped_container(name: str) -> None:
+    """Remove a stopped container left by a whole-container kill; refuse a running one.
+
+    The name is the container lock: Docker refuses a second live container of one name.
+    """
+    completed = _docker_text("inspect", "--format", "{{.State.Running}}", name)
+    if completed.returncode != 0:
+        return
+    if completed.stdout.strip() == "true":
+        raise RuntimeError(f"refused: container {name} is running this key already")
+    _docker_text("rm", "--force", name)
+    print(f"removed the stopped container {name}", flush=True)
+
+
+def read_state(path: Path) -> dict[str, str]:
+    """The ``key=value`` state file the harness writes, or an empty mapping."""
+    if not path.exists():
+        return {}
+    return dict(
+        line.split("=", 1) for line in path.read_text(encoding="utf-8").splitlines() if "=" in line
+    )
+
+
+def write_seeds(path: Path, record: StudyRecord, runner_stem: str) -> None:
+    """One seed per ``(scenario, replicate)`` and per ``("*", replicate)``, all below 2^31."""
+    rows = [
+        {
+            "scenario": scenario,
+            "replicate": replicate,
+            "seed": reference_seed(record, runner_stem, scenario, replicate),
+        }
+        for replicate in range(record.replicates)
+        for scenario in (*record.scenarios, "*")
+    ]
+    write_csv(pd.DataFrame(rows, columns=["scenario", "replicate", "seed"]), path)
+
+
+def _calibrate(
+    reference: Reference,
+    run: Any,
+    work: Path,
+    leaf: str,
+    key12: str,
+) -> dict[str, str]:
+    """Run calibration once per key, and return the memory variables for the real run."""
+    calibration = work / f"{leaf}.calibration.json"
+    stamp = work / f"{leaf}.calibration.key"
+    if not (calibration.exists() and stamp.exists() and stamp.read_text().strip() == key12):
+        calibration.unlink(missing_ok=True)
+        code = run({"CLEVERLY_HARNESS_CALIBRATE": "1"})
+        if code != 0 or not calibration.exists():
+            raise RuntimeError(
+                f"the calibration run of {leaf} exited {code} and wrote no calibration file"
+            )
+        stamp.write_text(key12 + "\n", encoding="utf-8", newline="\n")
+    else:
+        print(f"reusing the calibration of {leaf}", flush=True)
+    measured = json.loads(calibration.read_text(encoding="utf-8"))
+    heaviest = max(measured["groups"], key=lambda group: group["per_worker"])
+    declared = reference.worker_memory_mb or 0.0
+    per_worker = max(float(heaviest["per_worker"]), float(declared))
+    variables = {
+        "CLEVERLY_R_WORKER_MB": f"{per_worker:.0f}",
+        "CLEVERLY_R_WORKER_BASIS": "declared" if declared > heaviest["per_worker"] else "measured",
+        "CLEVERLY_R_MEASURED": (
+            f"group {heaviest['id']}: peak_growth {heaviest['peak_growth']:.0f} MB, "
+            f"private_after_gc {heaviest['private_after_gc']:.0f} MB, "
+            f"per_worker {heaviest['per_worker']:.0f} MB"
+        ),
+        "CLEVERLY_R_DECLARED_MB": "none" if not declared else f"{declared:.0f}",
+    }
+    if reference.memory_override is not None:
+        factor, share, reason = reference.memory_override
+        variables["CLEVERLY_R_MEMORY_FACTOR"] = repr(float(factor))
+        variables["CLEVERLY_R_MEMORY_SHARE"] = repr(float(share))
+        variables["CLEVERLY_R_MEMORY_REASON"] = reason
+        print(f"memory override for {leaf}: factor {factor}, share {share}: {reason}", flush=True)
+    return variables
+
+
+def _run_resumable(
+    reference: Reference,
+    context: RunContext,
+    here: Path,
+    samples: Path,
+    truths: Path,
+    output: Path,
+    cores: int,
+    runner: str,
+    env: Mapping[str, str],
+) -> None:
+    """One R reference run with a checkpoint leaf, a calibration and the exit table."""
+    work = samples.parent.resolve()
+    stem = Path(runner).stem
+    leaf = f"{stem}__{output.stem}"
+    fields = leaf_key(reference, context.key, here, samples, truths)
+    key12 = digest(fields)[:12]
+    image = image_id(reference.image)
+    meta = work / f"{leaf}.meta.json"
+    meta.write_text(
+        json.dumps({**canonical(fields), "image": image, "leaf": leaf}, sort_keys=True, indent=1)
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    write_seeds(work / f"{leaf}.seeds.csv", context.record, stem)
+    slug = context.record.slug
+    key_directory = f"/cache/{slug}/{key12}"
+    if context.fresh and key_directory not in context.cleared:
+        clear_volume(reference.image, key_directory)
+        context.cleared.add(key_directory)
+    context.volume_keys.append((reference.image, key_directory))
+    checkpoint = f"{key_directory}/{leaf}"
+    state = work / f"{leaf}.state"
+    name = f"cleverly-{slug}-{key12}-{leaf}".lower()
+    base = {
+        "CLEVERLY_CHECKPOINT": checkpoint,
+        "CLEVERLY_R_META": f"/work/{meta.name}",
+        "CLEVERLY_R_SEEDS": f"/work/{leaf}.seeds.csv",
+        "CLEVERLY_R_STATE": f"/work/{state.name}",
+        "CLEVERLY_R_CALIBRATION": f"/work/{leaf}.calibration.json",
+        "CLEVERLY_R_CALIBRATION_GROUPS": ",".join(reference.calibration_groups),
+        **env,
+    }
+    root = reference.runner_root or here
+
+    def run(extra: Mapping[str, str]) -> int:
+        clear_stopped_container(name)
+        state.unlink(missing_ok=True)
+        command = _docker_command(
+            reference,
+            root,
+            samples,
+            truths,
+            output,
+            runner,
+            cores,
+            {**base, **extra},
+            extra=("--init", "--name", name, "-v", f"{VOLUME}:/cache"),
+        )
+        return subprocess.run(command).returncode
+
+    source = (root / runner).read_text(encoding="utf-8")
+    memory = _calibrate(reference, run, work, leaf, key12) if _CALIBRATES.search(source) else {}
+    cap: int | None = None
+    for attempt in (1, 2):
+        variables = dict(memory)
+        if cap is not None:
+            variables["CLEVERLY_R_WORKER_CAP"] = str(cap)
+        code = run(variables)
+        held = read_state(state)
+        if "reused" in held:
+            RUN_NOTES.append(f"resumed from {checkpoint}, reused {held['reused']} groups")
+        memory_line = f"MemAvailable {held.get('mem_available_mb', 'unknown')} MB"
+        if code == 0:
+            stamp = output.with_name(f"{output.name}.key")
+            stamp.write_text(f"{key12}\n{image}\n", encoding="utf-8", newline="\n")
+            return
+        if code == EXIT_RESUMABLE:
+            raise RuntimeError(
+                f"the reference stopped: {held.get('stop', 'see its output')}. "
+                f"A rerun resumes from {checkpoint}"
+            )
+        if code in EXIT_KILLED and attempt == 1:
+            workers = int(held.get("workers", cores) or cores)
+            cap = max(1, workers // 2)
+            print(
+                f"container killed: {memory_line}, last workers {workers}; "
+                f"running it again with CLEVERLY_R_WORKER_CAP={cap}",
+                flush=True,
+            )
+            continue
+        if code in EXIT_KILLED:
+            raise RuntimeError(
+                f"container killed twice, rerun to resume; {memory_line}; "
+                f"checkpoints are kept in {checkpoint}"
+            )
+        raise RuntimeError(
+            f"the reference container exited {code}: {held.get('stop', 'see its output')}. "
+            f"Checkpoints are kept in {checkpoint}"
+        )
+
+
+def clear_volume(image: str, key_directory: str) -> None:
+    """Delete one key directory in the volume, never the volume, with an image already here."""
+    subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{VOLUME}:/cache",
+            "--entrypoint",
+            "rm",
+            image,
+            "-rf",
+            key_directory,
+        ],
+        check=True,
+    )
+
+
+def cleanup(context: RunContext) -> None:
+    """Delete what a finished run keeps, or print where a declared run keeps it."""
+    keys = sorted(set(context.volume_keys))
+    if context.keep:
+        for _, key_directory in keys:
+            print(f"kept the volume key {VOLUME}:{key_directory} for audit", flush=True)
+        print(f"kept the host scratch {context.scratch} for audit", flush=True)
+        return
+    for image, key_directory in keys:
+        clear_volume(image, key_directory)
+    if context.default_scratch:
+        shutil.rmtree(context.scratch, ignore_errors=True)
+
+
+# ---- the driver -----------------------------------------------------------------------------
 
 
 @dataclass
@@ -164,8 +721,17 @@ def _arguments(study: ModuleType, here: Path, reference: Reference | None) -> ar
     parser.add_argument("--output", type=Path, default=here)
     parser.add_argument("--jobs", type=int, default=available_cores())
     parser.add_argument(
-        "--cache", type=Path, help="reuse a previous Python phase from this directory"
+        "--cache",
+        type=Path,
+        help="keep the run's scratch in this directory instead of the per-key default",
     )
+    parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="discard this key's cached phases and checkpoints before the run",
+    )
+    # A declared run keeps its scratch and checkpoints until its PR merges, for audit.
+    parser.add_argument("--keep-cache", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument(
         "--refresh-python",
         action="store_true",
@@ -206,8 +772,33 @@ def _arguments(study: ModuleType, here: Path, reference: Reference | None) -> ar
     return arguments
 
 
+def _claim_scratch(scratch: Path, key: Mapping[str, Any], *, fresh: bool) -> None:
+    """Record the resume key in ``scratch``, or refuse a scratch written under another key."""
+    stamp = scratch / "_key.json"
+    text = json.dumps(canonical(key), sort_keys=True, indent=1) + "\n"
+    cached = [
+        name for name in (*_PYTHON_CACHE, "reference-results.csv") if (scratch / name).exists()
+    ]
+    if fresh:
+        for name in cached:
+            (scratch / name).unlink()
+        for pattern in ("*.calibration.json", "*.calibration.key", "*.csv.key"):
+            for path in scratch.glob(pattern):
+                path.unlink()
+    elif cached and (not stamp.exists() or stamp.read_text(encoding="utf-8") != text):
+        raise RuntimeError(
+            f"refused: {scratch} holds a run under another resume key; pass --fresh to "
+            f"discard it, or choose another --cache"
+        )
+    stamp.write_text(text, encoding="utf-8", newline="\n")
+
+
 def _python_phase(study: ModuleType, arguments: argparse.Namespace, scratch: Path) -> _Phase:
-    """Draw the samples and fit the subject, reusing a cached phase when one is declared."""
+    """Draw the samples and fit the subject, reusing the scratch's phase when it holds one.
+
+    :func:`main` keys the scratch by the resume key, so a phase found there was drawn under
+    the same declaration, code and versions.
+    """
     paths = {
         name: scratch / name
         for name in (
@@ -217,13 +808,10 @@ def _python_phase(study: ModuleType, arguments: argparse.Namespace, scratch: Pat
             "reference-results.csv",
         )
     }
-    cache = getattr(arguments, "cache", None)
-    reusable = ("samples.csv.gz", "truth.csv", "python-rows.csv.gz")
-    if cache and not arguments.refresh_python and all(paths[name].exists() for name in reusable):
+    if not arguments.refresh_python and all(paths[name].exists() for name in _PYTHON_CACHE):
         rows = pd.read_csv(paths["python-rows.csv.gz"])
-        if rows["replicate"].nunique() != arguments.replicates:
-            raise RuntimeError("the cached Python phase has the wrong replication count")
         print(f"reusing the cached Python phase in {scratch}", flush=True)
+        RUN_NOTES.append(f"resumed from {scratch}, reused the Python phase")
         return _Phase(rows=rows, cached=True, paths=paths)
 
     drawn = study.draw_and_fit(
@@ -234,10 +822,26 @@ def _python_phase(study: ModuleType, arguments: argparse.Namespace, scratch: Pat
         # else ever reads them, so it returns the estimate table straight out.
         return _Phase(rows=drawn, paths=paths)
     samples, truths, rows = drawn
-    write_csv(samples, paths["samples.csv.gz"], compression="gzip")
+    archive = {"method": "gzip", "mtime": 0}
+    write_csv(samples, paths["samples.csv.gz"], compression=archive)
     write_csv(truths, paths["truth.csv"])
-    write_csv(rows, paths["python-rows.csv.gz"], compression="gzip")
+    write_csv(rows, paths["python-rows.csv.gz"], compression=archive)
     return _Phase(rows=rows, samples=samples, truths=truths, paths=paths)
+
+
+def _reference_key(reference: Reference, here: Path, phase: _Phase) -> str | None:
+    """What a cached reference result must have been written under, or ``None``.
+
+    The key is the reference run's resume key and its image ID: equal sources, inputs,
+    declaration, code and versions.  Outside :func:`main` there is no key.
+    """
+    active = _ACTIVE.get()
+    samples = phase.paths.get("samples.csv.gz")
+    truths = phase.paths.get("truth.csv")
+    if active is None or samples is None or truths is None or not samples.exists():
+        return None
+    fields = leaf_key(reference, active.key, here, samples, truths)
+    return f"{digest(fields)[:12]}\n{image_id(reference.image)}\n"
 
 
 def _reference_rows(
@@ -261,14 +865,18 @@ def _reference_rows(
         return rows
     cached_reference = phase.paths["reference-results.csv"]
     phase.reference_results = cached_reference
-    if (phase.cached or getattr(arguments, "cache", None)) and cached_reference.exists():
-        rows = pd.read_csv(cached_reference)
-        expected = set(range(arguments.replicates))
-        observed = set(rows["replicate"].unique())
-        if observed != expected or set(rows["n"].unique()) != {arguments.n}:
-            raise RuntimeError("the cached reference phase has incompatible replications")
+    stamp = cached_reference.with_name(f"{cached_reference.name}.key")
+    expected = _reference_key(reference, here, phase)
+    if (
+        expected is not None
+        and cached_reference.exists()
+        and stamp.exists()
+        and stamp.read_text(encoding="utf-8") == expected
+    ):
         print(f"reusing the cached reference phase in {cached_reference.parent}", flush=True)
-        return rows
+        RUN_NOTES.append(f"resumed from {cached_reference.parent}, reused the reference phase")
+        return pd.read_csv(cached_reference)
+    stamp.unlink(missing_ok=True)
     reference.run(
         here,
         phase.paths["samples.csv.gz"],
@@ -276,6 +884,9 @@ def _reference_rows(
         cached_reference,
         cores=(getattr(arguments, "reference_jobs", None) or arguments.jobs),
     )
+    if expected is not None and reference.interpreter != "Rscript":
+        # An R run writes its own stamp when it completes; any other reference gets it here.
+        stamp.write_text(expected, encoding="utf-8", newline="\n")
     return pd.read_csv(cached_reference)
 
 
@@ -326,8 +937,49 @@ def main(
     here: Path,
     reference: Reference | None = None,
 ) -> None:
-    """Regenerate one study's committed artefacts, and refuse the run if a gate failed."""
+    """Regenerate one study's committed artefacts, and refuse the run if a gate failed.
+
+    The run holds a host lock on its scratch directory.  Once its artefacts are written, a
+    run deletes its scratch and its checkpoints, unless it is a declared run, which keeps them
+    for audit.
+    """
     arguments = _arguments(study, here, reference)
+    RUN_NOTES.clear()
+    declared = dataclasses.replace(study.STUDY, replicates=arguments.replicates, n=arguments.n)
+    key = run_key(declared)
+    cache = getattr(arguments, "cache", None)
+    scratch = Path(cache) if cache else runs_root() / declared.slug / digest(key)[:12]
+    scratch.mkdir(parents=True, exist_ok=True)
+    context = RunContext(
+        record=declared,
+        key=key,
+        scratch=scratch,
+        default_scratch=not cache,
+        fresh=getattr(arguments, "fresh", False),
+        keep=getattr(arguments, "keep_cache", False),
+    )
+    print(f"run scratch: {scratch}", flush=True)
+    try:
+        with host_lock(scratch):
+            _claim_scratch(scratch, key, fresh=context.fresh)
+            token = _ACTIVE.set(context)
+            try:
+                _regenerate(study, properties, arguments, here, reference, context)
+            finally:
+                _ACTIVE.reset(token)
+    finally:
+        if context.completed:
+            cleanup(context)
+
+
+def _regenerate(
+    study: ModuleType,
+    properties: ModuleType,
+    arguments: argparse.Namespace,
+    here: Path,
+    reference: Reference | None,
+    context: RunContext,
+) -> None:
     out = arguments.output
     out.mkdir(parents=True, exist_ok=True)
     record = dataclasses.replace(
@@ -351,28 +1003,25 @@ def main(
         )
     print(f"regenerating {record.name}: {record.replicates} x n={record.n}", flush=True)
 
-    with tempfile.TemporaryDirectory(prefix=f"cleverly-{record.slug}-") as raw:
-        cache = getattr(arguments, "cache", None)
-        scratch = Path(cache) if cache else Path(raw)
-        scratch.mkdir(parents=True, exist_ok=True)
-        phase = _python_phase(study, arguments, scratch)
-        rows = phase.rows
-        if reference is not None:
-            rows = pd.concat(
-                [phase.rows, _reference_rows(study, reference, arguments, here, phase)],
-                ignore_index=True,
-            )
-        reference_extra_frames: dict[str, pd.DataFrame] = {}
-        if reference is not None and hasattr(study, "reference_artifacts"):
-            reference_extra_frames = study.reference_artifacts(
-                reference=reference,
-                here=here,
-                samples=phase.paths["samples.csv.gz"],
-                truths_path=phase.paths["truth.csv"],
-                reference_results=phase.reference_results,
-                output=scratch,
-                cores=(getattr(arguments, "reference_jobs", None) or arguments.jobs),
-            )
+    scratch = context.scratch
+    phase = _python_phase(study, arguments, scratch)
+    rows = phase.rows
+    if reference is not None:
+        rows = pd.concat(
+            [phase.rows, _reference_rows(study, reference, arguments, here, phase)],
+            ignore_index=True,
+        )
+    reference_extra_frames: dict[str, pd.DataFrame] = {}
+    if reference is not None and hasattr(study, "reference_artifacts"):
+        reference_extra_frames = study.reference_artifacts(
+            reference=reference,
+            here=here,
+            samples=phase.paths["samples.csv.gz"],
+            truths_path=phase.paths["truth.csv"],
+            reference_results=phase.reference_results,
+            output=scratch,
+            cores=(getattr(arguments, "reference_jobs", None) or arguments.jobs),
+        )
 
     extra_frames = dict(reference_extra_frames)
     row_extra_frames = study.extra_artifacts(rows) if hasattr(study, "extra_artifacts") else {}
@@ -419,6 +1068,7 @@ def main(
             "primary-only probe: no property artefacts or publishable manifest were written",
             flush=True,
         )
+        context.completed = True
         return
 
     property_summary = _property_artifacts(properties, arguments, here, paths)
@@ -431,6 +1081,7 @@ def main(
         reference_metadata=getattr(study, "REFERENCE_METADATA", None),
         configuration=study.CONFIGURATION,
     )
+    context.completed = True
 
     independent_failures = performance.loc[~performance["passed"]]
     if reference is not None and record.accepted_reference_failure:

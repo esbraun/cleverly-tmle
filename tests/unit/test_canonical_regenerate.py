@@ -17,6 +17,15 @@ from tests.studies import canonical_tmle, fold_evaluated_cvtmle
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 
 
+@pytest.fixture(autouse=True)
+def _scratch_in_tmp(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """Every driver run here keeps its scratch in a temporary directory, not the user's cache."""
+    runs = tmp_path_factory.mktemp("runs")
+    monkeypatch.setattr(regenerate, "runs_root", lambda: runs)
+
+
 def _rows(implementation: str) -> pd.DataFrame:
     row: dict[str, Any] = dict.fromkeys(REPLICATE_COLUMNS, 0.0)
     row.update(
@@ -440,58 +449,6 @@ def test_a_stale_accepted_reference_failure_is_refused(
     with pytest.raises(RuntimeError, match="stale exception"):
         regenerate.main(
             study, SimpleNamespace(), here=tmp_path, reference=regenerate.Reference("i", "r")
-        )
-
-
-def test_cached_reference_phase_is_reused_only_when_compatible(tmp_path: Any) -> None:
-    cached = pd.DataFrame(
-        {
-            "implementation": ["reference", "reference"],
-            "replicate": [0, 1],
-            "n": [50, 50],
-        }
-    )
-    path = tmp_path / "reference-results.csv"
-    cached.to_csv(path, index=False)
-    phase = regenerate._Phase(
-        rows=_rows("subject"),
-        cached=True,
-        paths={"reference-results.csv": path},
-    )
-    reference = SimpleNamespace(
-        run=lambda *args, **kwargs: pytest.fail("the compatible cached reference was rerun")
-    )
-    arguments = argparse.Namespace(replicates=2, n=50, skip_reference=False)
-
-    rows = regenerate._reference_rows(
-        SimpleNamespace(STUDY=SimpleNamespace(reference="reference")),
-        reference,
-        arguments,
-        tmp_path,
-        phase,
-    )
-
-    pd.testing.assert_frame_equal(rows, cached)
-
-
-def test_incompatible_cached_reference_phase_is_refused(tmp_path: Any) -> None:
-    path = tmp_path / "reference-results.csv"
-    pd.DataFrame({"implementation": ["reference"], "replicate": [0], "n": [50]}).to_csv(
-        path, index=False
-    )
-    phase = regenerate._Phase(
-        rows=_rows("subject"),
-        cached=True,
-        paths={"reference-results.csv": path},
-    )
-
-    with pytest.raises(RuntimeError, match="incompatible replications"):
-        regenerate._reference_rows(
-            SimpleNamespace(STUDY=SimpleNamespace(reference="reference")),
-            regenerate.Reference("image", "runner"),
-            argparse.Namespace(replicates=2, n=50, skip_reference=False),
-            tmp_path,
-            phase,
         )
 
 

@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from tests.canonical import declared_run, learned_rule_run
+from tests.canonical import declared_run, learned_rule_run, regenerate
 from tests.canonical.multi_arm_drtmle import regenerate as multi_arm_regenerate
 from tests.canonical.regenerate import ARTIFACT_NAMES, Reference
 from tests.diagnostics.rm18_shared import THREAD_VARIABLES
@@ -164,7 +164,7 @@ class TestTheGuard:
         _, enter, _ = study
         _guard(monkeypatch, ["--output", str(tmp_path / "run"), "--jobs", "2", *extra])
         _no_driver(monkeypatch)
-        with pytest.raises(SystemExit, match="--output and --jobs only") as refusal:
+        with pytest.raises(SystemExit, match="--output, --jobs and --fresh only") as refusal:
             enter(tmp_path / "here")
         # RM30 cites its own declared rule; the multi-arm study declares no such rule.
         assert ("(rule L11)" in str(refusal.value)) is (enter is _learned_rule)
@@ -242,7 +242,9 @@ class TestTheRecord:
         monkeypatch.setattr(declared_run, "regenerate", _writing_driver(calls=calls))
         enter(here)
 
-        assert calls == [(["regenerate", "--jobs", "3", "--output", str(output)], reference)]
+        assert calls == [
+            (["regenerate", "--jobs", "3", "--keep-cache", "--output", str(output)], reference)
+        ]
         assert seen, "the manifest read no git status"
         assert all(status == before for status in seen)
         recorded = json.loads((here / "manifest.json").read_text(encoding="utf-8"))
@@ -263,6 +265,36 @@ class TestTheRecord:
         # The log records the command line as invoked, not the one rewritten for the driver.
         invoked = shlex.join([sys.executable, "regenerate", "--output", str(output), "--jobs", "3"])
         assert f"command: {invoked}\n" in log
+
+    def test_fresh_reaches_the_driver_and_the_cache_is_kept_for_audit(
+        self, study: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A declared run keeps its cache (``--keep-cache``), and ``--fresh`` discards it first."""
+        _, enter, _ = study
+        output = tmp_path / "run"
+        _guard(monkeypatch, ["--output", str(output), "--jobs", "2", "--fresh"])
+        calls: list[Any] = []
+        monkeypatch.setattr(declared_run, "regenerate", _writing_driver(calls=calls))
+        enter(tmp_path / "here")
+        (argv, _), *_ = calls
+        assert "--keep-cache" in argv and "--fresh" in argv
+
+    def test_the_run_log_records_what_a_resumed_run_reused(
+        self, study: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        _, enter, _ = study
+        here = tmp_path / "here"
+        _guard(monkeypatch, ["--output", str(tmp_path / "run")])
+        driver = _writing_driver()
+
+        def resumed(*args: Any, **kwargs: Any) -> None:
+            regenerate.RUN_NOTES.append("resumed from /cache/x/y/leaf, reused 7 groups")
+            driver(*args, **kwargs)
+
+        monkeypatch.setattr(declared_run, "regenerate", resumed)
+        enter(here)
+        log = (here / "run.log").read_text(encoding="utf-8")
+        assert "note: resumed from /cache/x/y/leaf, reused 7 groups" in log
 
     def test_the_study_directory_is_inside_the_repository(self, study: Any) -> None:
         """The control: writing into the study directory first is what ``git status`` saw."""
