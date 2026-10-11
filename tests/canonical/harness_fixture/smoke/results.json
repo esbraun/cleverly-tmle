@@ -1,0 +1,289 @@
+{
+ "concurrency_halves": {
+  "exit": 0,
+  "forked": true,
+  "passes": [
+   "pass: 1 pending, 1 killed, MemAvailable 14395 MB, workers 2, chunk 1"
+  ],
+  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+ },
+ "container_kill_1": {
+  "cap_passed": true,
+  "complete": true,
+  "killed_logged": true,
+  "stopped_twice": false,
+  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+ },
+ "container_kill_2": {
+  "cap_passed": true,
+  "complete": false,
+  "killed_logged": true,
+  "stopped_twice": true,
+  "table": null
+ },
+ "error_fatal": {
+  "checkpoints_kept": 5,
+  "exit": 1,
+  "fatal_written": true,
+  "forked": true,
+  "message": true,
+  "passes": [],
+  "table": null
+ },
+ "error_fatal_resume": {
+  "cleared_fatal": true,
+  "exit": 0,
+  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+ },
+ "fork_cost": {
+  "0": {
+   "exit": 0,
+   "forked": true,
+   "seconds_per_fit": 0.05354545333168723
+  },
+  "1500": {
+   "exit": 0,
+   "forked": true,
+   "seconds_per_fit": 0.05327272415161133
+  }
+ },
+ "forks_one_chunk": {
+  "exit": 0,
+  "forked": true,
+  "passes": [
+   "pass: 5 pending, 1 killed, MemAvailable 14331 MB, workers 1, chunk 100"
+  ],
+  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+ },
+ "forks_one_worker": {
+  "exit": 0,
+  "forked": true,
+  "passes": [],
+  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+ },
+ "forks_onecore_mclapply": {
+  "exit": 0,
+  "forked": true,
+  "passes": [],
+  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+ },
+ "forks_several_workers": {
+  "exit": 0,
+  "forked": true,
+  "passes": [],
+  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+ },
+ "kill": {
+  "attempts": 2,
+  "exit": 0,
+  "forked": true,
+  "passes": [
+   "pass: 1 pending, 1 killed, MemAvailable 14406 MB, workers 1, chunk 1"
+  ],
+  "solo_second_attempt_forked": true,
+  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+ },
+ "killed_in_loop": {
+  "attempts_g7": 2,
+  "exit": 0,
+  "forked": true,
+  "passes": [
+   "pass: 5 pending, 1 killed, MemAvailable 14353 MB, workers 1, chunk 1",
+   "pass: 1 pending, 1 killed, MemAvailable 14346 MB, workers 1, chunk 1"
+  ],
+  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+ },
+ "killed_twice": {
+  "exit": 3,
+  "forked": true,
+  "memory_line": true,
+  "names_id": true,
+  "passes": [
+   "pass: 1 pending, 1 killed, MemAvailable 14406 MB, workers 1, chunk 1"
+  ],
+  "table": null
+ },
+ "memory_cow": [
+  {
+   "exit": 0,
+   "heap_mb": 0,
+   "peak_growth": 2.16,
+   "per_worker": 48.133,
+   "private_after_gc": 45.973,
+   "workers_at_6g": 16
+  },
+  {
+   "exit": 0,
+   "heap_mb": 500,
+   "peak_growth": 2.301,
+   "per_worker": 555.262,
+   "private_after_gc": 552.961,
+   "workers_at_6g": 7
+  },
+  {
+   "exit": 0,
+   "heap_mb": 1500,
+   "peak_growth": 2.148,
+   "per_worker": 1613.863,
+   "private_after_gc": 1611.715,
+   "workers_at_6g": 2
+  }
+ ],
+ "memory_plan": {
+  "capped": {
+   "available": 14268,
+   "cap": "3",
+   "factor": 1.25,
+   "granted": 8,
+   "per_worker": "1",
+   "reason": "worker cap",
+   "share": 0.85,
+   "workers": 3
+  },
+  "limited": {
+   "available": 1986,
+   "cap": "none",
+   "factor": 1.25,
+   "granted": 8,
+   "per_worker": "500",
+   "reason": "memory",
+   "share": 0.85,
+   "workers": 2
+  },
+  "override": {
+   "available": 14268,
+   "cap": "none",
+   "factor": 2.0,
+   "granted": 4,
+   "per_worker": "100",
+   "reason": "cores",
+   "share": 0.5,
+   "workers": 4
+  },
+  "override_reason_logged": true,
+  "unlimited": {
+   "available": 14253,
+   "cap": "none",
+   "factor": 1.25,
+   "granted": 8,
+   "per_worker": "100",
+   "reason": "cores",
+   "share": 0.85,
+   "workers": 8
+  },
+  "unlimited_no_cgroup_limit": true
+ },
+ "memory_transient": {
+  "exit": 0,
+  "groups": [
+   {
+    "hwm_end": 61.977,
+    "id": "g000000001",
+    "peak_growth": 1.27,
+    "per_worker": 47.234,
+    "private_after_gc": 45.965,
+    "rss_start": 60.707
+   },
+   {
+    "hwm_end": 861.496,
+    "id": "g000000002",
+    "peak_growth": 800.789,
+    "per_worker": 846.344,
+    "private_after_gc": 45.555,
+    "rss_start": 60.707
+   }
+  ]
+ },
+ "no_progress": {
+  "exit": 3,
+  "forked": true,
+  "message": true,
+  "passes": [
+   "pass: 1 pending, 0 killed, MemAvailable 14393 MB, workers 2, chunk 1"
+  ],
+  "table": null
+ },
+ "no_retry": {
+  "exit": 1,
+  "forked": true,
+  "message": true,
+  "passes": [],
+  "table": null
+ },
+ "old_new": {
+  "new_stream": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8",
+  "old_fitter": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8",
+  "old_stream": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+ },
+ "plain": {
+  "exit": 0,
+  "forked": true,
+  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+ },
+ "preschedule_kill": {
+  "exit": 0,
+  "forked": true,
+  "passes": [
+   "pass: 5 pending, 1 killed, MemAvailable 14433 MB, workers 1, chunk 1"
+  ],
+  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+ },
+ "random_full": {
+  "exit": 0,
+  "table": "486c7e0c36c878947101cef06470c917de8d0952728abcf4d3ae656631481198"
+ },
+ "random_one_core": {
+  "exit": 0,
+  "table": "486c7e0c36c878947101cef06470c917de8d0952728abcf4d3ae656631481198"
+ },
+ "resume_fitter": {
+  "cleared_markers": 2,
+  "exit": 0,
+  "kills_counted": 0,
+  "reused": true,
+  "stale_markers": 2,
+  "stopped_exit": 137,
+  "table": "486c7e0c36c878947101cef06470c917de8d0952728abcf4d3ae656631481198"
+ },
+ "resume_stream": {
+  "cleared_markers": 2,
+  "exit": 0,
+  "kills_counted": 0,
+  "reused": true,
+  "stale_markers": 2,
+  "stopped_exit": 137,
+  "table": "486c7e0c36c878947101cef06470c917de8d0952728abcf4d3ae656631481198"
+ },
+ "run_log": {
+  "MemAvailable": true,
+  "MemTotal": true,
+  "binding": true,
+  "calibration:": true,
+  "cgroup limit": true,
+  "chunk": true,
+  "declared per-worker MB:": true,
+  "factor": true,
+  "granted": true,
+  "parent private MB:": true,
+  "share": true,
+  "worker cap": true,
+  "workers": true
+ },
+ "stream_retry": {
+  "exit": 0,
+  "forked": true,
+  "passes": [
+   "pass: 6 pending, 0 killed, MemAvailable 14406 MB, workers 4, chunk 1",
+   "pass: 1 pending, 1 killed, MemAvailable 14406 MB, workers 2, chunk 1",
+   "pass: 5 pending, 0 killed, MemAvailable 14406 MB, workers 2, chunk 1",
+   "pass: 1 pending, 0 killed, MemAvailable 14406 MB, workers 2, chunk 1"
+  ],
+  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+ },
+ "torn": {
+  "deleted": true,
+  "exit": 0,
+  "first_exit": 0,
+  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+ }
+}
