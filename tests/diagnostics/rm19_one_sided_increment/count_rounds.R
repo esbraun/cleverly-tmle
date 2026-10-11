@@ -8,6 +8,11 @@
 # sources run_drtmle.R unchanged, which reads the same three arguments, fits every draw, stops
 # when a worker returns no result, and writes OUTPUT.csv.  The counts go to
 # OUTPUT-rounds.csv; a draw without exactly one count stops the wrapper.
+#
+# Since RM39 the runner retries a group whose worker was killed.  A retried group would count
+# its rounds twice, so the wrapper sets CLEVERLY_R_NO_RETRY=1, under which the first kill stops
+# the run.  Each fit runs in its own fork, so the per-PID files below hold one draw each.
+Sys.setenv(CLEVERLY_R_NO_RETRY = "1")
 suppressPackageStartupMessages(library(drtmle))
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) != 3) stop("usage: count_rounds.R SAMPLES.csv.gz TRUTH.csv OUTPUT.csv")

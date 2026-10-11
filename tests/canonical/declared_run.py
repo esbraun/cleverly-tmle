@@ -6,13 +6,18 @@ records ``git status``.  A run into the study directory therefore records
 closes that gap.  It writes the artifacts, the manifest and a ``run.log`` into a scratch
 ``--output`` outside the repository, and it copies them into the study directory afterwards.
 
-A **declared run** passes no ``--replicates``.  It takes ``--output`` and ``--jobs`` and refuses
-every other flag.  It refuses to start unless RM18 rule R6 holds (through
+A **declared run** passes no ``--replicates``.  It takes ``--output``, ``--jobs`` and ``--fresh``
+and refuses every other flag.  It refuses to start unless RM18 rule R6 holds (through
 :func:`tests.diagnostics.rm18_shared.refusals`: a clean tree, ``HEAD`` equal to its upstream,
 and ``cleverly`` imported from this tree's ``src``) and every thread variable is 1.  A study
 can add refusals of its own.  The copy happens whenever the driver wrote a manifest, so a gated
 study whose verdict fails still publishes the run, and the run then stops with the driver's
 error.
+
+A declared run keeps its scratch directory and its checkpoints until its PR merges, for audit.
+The driver prints both paths, and the implementer records them in the row's progress file.  A
+crashed declared run resumes from them: run it again with a new empty ``--output``, and
+``run.log`` records what it reused.  ``--fresh`` discards them first.
 
 A **smoke run** passes a ``--replicates`` other than the declared primary budget.  It goes to
 the shared driver unchanged, which then skips the property study.  It refuses an ``--output``
@@ -33,9 +38,9 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from tests.canonical.regenerate import ARTIFACT_NAMES, Reference
+from tests.canonical.regenerate import ARTIFACT_NAMES, RUN_NOTES, Reference
 from tests.canonical.regenerate import main as regenerate
-from tests.diagnostics.rm18_shared import THREAD_VARIABLES, refusals, run_log
+from tests.diagnostics.rm18_shared import THREAD_VARIABLES, note, refusals, run_log
 from tests.parallel import available_cores
 from tests.studies.evidence.registry import ROOT
 
@@ -85,9 +90,14 @@ def publish_run(
     invoked = list(sys.argv)
     sys.argv = ["regenerate", *arguments, "--output", str(output)]
     failure: BaseException | None = None
+    RUN_NOTES.clear()
     try:
         with run_log(output, title, argv=invoked):
-            regenerate(study, properties, here=here, reference=reference)
+            try:
+                regenerate(study, properties, here=here, reference=reference)
+            finally:
+                for line in RUN_NOTES:
+                    note(line)
     except RuntimeError as error:
         if not (output / "manifest.json").exists():
             raise
@@ -121,11 +131,12 @@ def declared(
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--jobs", type=int, default=available_cores())
+    parser.add_argument("--fresh", action="store_true")
     known, unknown = parser.parse_known_args(list(arguments))
     if unknown:
         cited = "" if flag_rule is None else f" ({flag_rule})"
         raise SystemExit(
-            f"refused: a declared run takes --output and --jobs only, not {unknown}{cited}"
+            f"refused: a declared run takes --output, --jobs and --fresh only, not {unknown}{cited}"
         )
     if known.output is None:
         raise SystemExit("refused: a declared run needs a scratch --output outside the repository")
@@ -141,7 +152,12 @@ def declared(
         properties,
         here=here,
         output=output,
-        arguments=("--jobs", str(known.jobs)),
+        arguments=(
+            "--jobs",
+            str(known.jobs),
+            "--keep-cache",
+            *(("--fresh",) if known.fresh else ()),
+        ),
         title=f"{study.STUDY.slug} declared run",
         reference=reference,
     )

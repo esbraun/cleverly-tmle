@@ -78,3 +78,14 @@ def stream_seed(record: StudyRecord, *labels: str | int) -> int:
     entropy = record.seed if record.resampling_seed is None else record.resampling_seed
     sequence = np.random.SeedSequence(entropy=entropy, spawn_key=(int.from_bytes(digest, "big"),))
     return int(sequence.generate_state(1)[0])
+
+
+def reference_seed(record: StudyRecord, runner: str, scenario: str, replicate: int) -> int:
+    """The seed an R reference runner sets before it fits ``(scenario, replicate)``.
+
+    R's ``set.seed`` takes a signed 32-bit integer, and :func:`stream_seed` returns an unsigned
+    one, so about half of its values would be refused.  The remainder modulo 2^31 is a valid R
+    integer in ``[0, 2^31 - 1]``.  The runner's name is a label, so two runners of one study draw
+    from disjoint streams, and ``"*"`` names the seed of a group that spans every scenario.
+    """
+    return stream_seed(record, "reference", runner, scenario, replicate) % 2**31
