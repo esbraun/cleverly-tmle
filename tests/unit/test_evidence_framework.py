@@ -388,15 +388,16 @@ class TestPairing:
             self._rows(),
             ("estimate", "std_error"),
             implementations=("a", "b"),
-            tolerated_drops=1,
         )
         assert paired.dropped == 1
         assert paired.column("estimate", "a").tolist() == [1.0, 3.0]
         assert paired.column("estimate", "b").tolist() == [1.1, 3.3]
 
-    def test_an_undeclared_drop_is_an_error_rather_than_a_shorter_array(self) -> None:
-        with pytest.raises(ValueError, match="incomplete"):
-            paired_wide(self._rows(), ("estimate", "std_error"), implementations=("a", "b"))
+    def test_a_missing_row_reaches_the_pairing_only_as_a_recorded_failure(self) -> None:
+        """The pairing reports a drop; the refusal of an unrecorded one is the schema's (RM39a2)."""
+        rows = self._rows().loc[lambda frame: ~frame["std_error"].isna()]
+        paired = paired_wide(rows, ("estimate",), implementations=("a", "b"))
+        assert paired.dropped == 1 and len(paired) == 2
 
     def test_a_missing_implementation_is_named(self) -> None:
         with pytest.raises(KeyError, match="absent"):

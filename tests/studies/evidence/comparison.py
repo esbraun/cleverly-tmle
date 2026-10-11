@@ -29,6 +29,7 @@ from tests.studies.evidence.inference import (
     upper_bound,
 )
 from tests.studies.evidence.pairing import paired_wide
+from tests.studies.evidence.performance import summarize
 from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.seeds import stream_seed
 
@@ -315,9 +316,15 @@ def equivalence(
         )
         mean_margin = margins.paired_difference * pooled_sd
 
-        cell = summaries.query("scenario == @scenario and estimand == @estimand").set_index(
-            "implementation"
-        )
+        if paired.dropped:
+            # A recorded comparator failure left the reference short.  The descriptive columns
+            # below compare the two implementations, so they read the replications both hold.
+            shared = group.loc[group["replicate"].isin(paired.frame.index)]
+            cell = summarize(shared).set_index("implementation")
+        else:
+            cell = summaries.query("scenario == @scenario and estimand == @estimand").set_index(
+                "implementation"
+            )
         rmse_ratio = float(cell.loc[subject, "rmse"] / cell.loc[reference, "rmse"])
         coverage_difference = float(cell.loc[subject, "coverage"] - cell.loc[reference, "coverage"])
         se_comparable = estimand not in record.incomparable_se
