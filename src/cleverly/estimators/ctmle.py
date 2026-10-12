@@ -280,7 +280,7 @@ from __future__ import annotations
 
 import copy
 import inspect
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final, Literal
 
@@ -323,6 +323,7 @@ __all__ = [
     "CTMLESelection",
     "CTMLEStrategy",
     "LogisticPlugin",
+    "is_per_arm_oat",
     "is_selector_strategy",
     "logistic_plugin",
     "per_arm_design_admits",
@@ -402,6 +403,29 @@ def declares_full_adjustment_only(
     return len(covariate_names) > 0 and sorted(candidates[0]) == sorted(covariate_names)
 
 
+def is_per_arm_oat(estimator: Any) -> bool:
+    """Whether an estimator is the per-arm outcome-adaptive :class:`CTMLE`.
+
+    One predicate for every reader that admits the per-arm design where it refuses the
+    other collaborative strategies: :func:`per_arm_design_admits`, the missing-treatment
+    refusal and the missing-outcome contracts of :class:`~cleverly.estimators.TMLE`.
+
+    Parameters
+    ----------
+    estimator : Any
+        Any estimator. Only ``strategy`` and ``oat_design`` are read.
+
+    Returns
+    -------
+    bool
+        ``True`` when the strategy is ``"oat"`` and the design is ``"per_arm"``.
+    """
+    return (
+        getattr(estimator, "strategy", None) == "oat"
+        and getattr(estimator, "oat_design", None) == "per_arm"
+    )
+
+
 def per_arm_design_admits(estimator: Any, data: CausalData) -> bool:
     """Whether an outcome-adaptive fit is inside the per-arm result and reports inference.
 
@@ -432,8 +456,7 @@ def per_arm_design_admits(estimator: Any, data: CausalData) -> bool:
     """
     return bool(
         OAT_PER_ARM_INFERENTIAL
-        and getattr(estimator, "strategy", None) == "oat"
-        and getattr(estimator, "oat_design", None) == "per_arm"
+        and is_per_arm_oat(estimator)
         and not data.has_missing_outcome
         and not data.has_missing_treatment
         and not data.has_strata
@@ -641,6 +664,17 @@ class CTMLEOutcomeAdaptiveFit:
     treatment_risk_by_arm : dict of str to float or None
         Each arm's binary negative log likelihood under the per-arm design, keyed by the
         arm label. ``None`` under the shared design.
+    strata : tuple of str
+        The labels of the baseline strata each per-arm factor was fitted inside. Empty
+        without baseline strata and under the shared design.
+    factors : tuple of str
+        The factors of the per-arm design, for a generic arm ``a``: the treatment factor,
+        then the outcome observation factor with missing outcomes, then the treatment
+        observation factor with a missing treatment. Empty under the shared design.
+    risk_by_factor : dict of str to float or None
+        Each factor's binary negative log likelihood, summed over the arms and computed on
+        the rows the factor is fitted on, keyed by the entry of ``factors``. ``None`` under
+        the shared design.
     """
 
     strategy: CTMLEStrategy
@@ -648,6 +682,9 @@ class CTMLEOutcomeAdaptiveFit:
     treatment_risk: float
     design: CTMLEOatDesign = "shared"
     treatment_risk_by_arm: dict[str, float] | None = None
+    strata: tuple[str, ...] = ()
+    factors: tuple[str, ...] = ()
+    risk_by_factor: dict[str, float] | None = None
 
     @property
     def treatment_risk_selected(self) -> float:
@@ -667,10 +704,15 @@ class CTMLEOutcomeAdaptiveFit:
         """
         count = len(self.treatment_features)
         if self.design == "per_arm":
-            return (
+            sentence = (
                 f"C-TMLE outcome-adaptive fit used one Qbar feature per arm in {count} "
                 "binary mechanisms"
             )
+            if len(self.factors) > 1:
+                sentence += f", with {len(self.factors)} factors per arm"
+            if self.strata:
+                sentence += f", inside each of {len(self.strata)} baseline strata"
+            return sentence
         return (
             f"C-TMLE outcome-adaptive fit used {count} Qbar features in one categorical mechanism"
         )
@@ -699,6 +741,13 @@ class CTMLEOutcomeAdaptiveFit:
             lines.extend(
                 f"  arm {label}: {value:.6g}" for label, value in self.treatment_risk_by_arm.items()
             )
+        if len(self.factors) > 1 and self.risk_by_factor is not None:
+            lines.append("factors, negative log likelihood summed over arms:")
+            lines.extend(
+                f"  {factor}: {self.risk_by_factor[factor]:.6g}" for factor in self.factors
+            )
+        if self.strata:
+            lines.append(f"fitted inside each baseline stratum: {'; '.join(self.strata)}")
         return "\n".join(lines)
 
 
@@ -875,6 +924,67 @@ class CTMLE(TMLE):
             return False
         return super()._bootstrap_inferential(data)
 
+    def _admits_natural_course_with_missing(self) -> bool:
+        """Whether this fit may target the natural course with missing outcomes.
+
+        The per-arm outcome-adaptive design does, for point estimates: its natural-course
+        observation factor is ``P(Delta = 1 | A, Qbar(A, W))``, read at the realised arm.
+        The selector strategies and the shared design have no such result.
+
+        Returns
+        -------
+        bool
+            ``True`` for ``strategy="oat"`` with ``oat_design="per_arm"``.
+        """
+        return is_per_arm_oat(self)
+
+    def _design_factor_labels(self, data: CausalData) -> tuple[str, str] | None:
+        """The per-arm design's observation factor labels, which condition on ``Qbar(a, W)``.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+
+        Returns
+        -------
+        tuple of str or None
+            The outcome and treatment observation factors of a per-arm outcome-adaptive
+            fit, otherwise the :class:`~cleverly.TMLE` answer.
+        """
+        if not is_per_arm_oat(self):
+            return super()._design_factor_labels(data)
+        labels = {spec.name: spec.label for spec in _per_arm_factor_specs(data)}
+        return (
+            labels.get("outcome_observation", "P(Delta=1|A=a,Qbar(a,W))"),
+            labels.get("treatment_observation", "P(Delta_A=1|Qbar(a,W))"),
+        )
+
+    def _on_arm_indexed_stacked_surface(self, data: CausalData, estimands: tuple[str, ...]) -> bool:
+        """Whether the arm-indexed stacked MAR contract governs this collaborative fit.
+
+        That contract protects the stacked CV-TMLE interval. A per-arm outcome-adaptive fit
+        reports a point estimate only, so it leaves the contract and keeps the general
+        cross-fitting rules and its own design preflight. The selector strategies and the
+        shared design stay on the contract, which refuses them.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+        estimands : tuple of str
+            The resolved estimands.
+
+        Returns
+        -------
+        bool
+            ``False`` for a per-arm outcome-adaptive fit, otherwise the
+            :class:`~cleverly.TMLE` answer.
+        """
+        if is_per_arm_oat(self):
+            return False
+        return super()._on_arm_indexed_stacked_surface(data, estimands)
+
     def __init__(
         self,
         *,
@@ -1016,10 +1126,14 @@ class CTMLE(TMLE):
         """
         if is_selector_strategy(self.strategy):
             self._preflight_selection_folds(data, seed)
+        per_arm = is_per_arm_oat(self)
+        if per_arm and (data.has_strata or data.has_missing_outcome or data.has_missing_treatment):
+            self._preflight_per_arm_design(data, folds, seed)
         # Every collaborative strategy replaces the ordinary treatment mechanism: the
         # selectors fit their candidate path and OAT fits A on the Qbar vector.  Fit only
         # the shared outcome/missingness nuisances here so g(W) is not paid for and thrown
-        # away first.
+        # away first.  The per-arm design fits its own treatment observation factor, and no
+        # reader takes the full-W one, so that learner is skipped as well.
         base = self._fit_nuisances(
             data,
             folds,
@@ -1027,6 +1141,7 @@ class CTMLE(TMLE):
             intermediate_value,
             seed=seed,
             fit_treatment=False,
+            fit_treatment_observation=not per_arm,
         )
         if not is_selector_strategy(self.strategy):
             return self._outcome_adaptive_nuisances(data, base, seed=seed)
@@ -1072,6 +1187,116 @@ class CTMLE(TMLE):
             covariates=data.covariate_names,
         )
         return nuisance, {"ctmle": selection}
+
+    def _preflight_per_arm_design(self, data: CausalData, folds: Folds, seed: int | None) -> None:
+        """Refuse a per-arm design that cannot fit some factor, before any learner.
+
+        The per-arm design fits each factor of :func:`_per_arm_factor_specs` for each arm,
+        inside each baseline stratum, on each training complement of ``folds``. The
+        treatment factor needs a recorded row in arm ``a`` and one outside it. The outcome
+        observation factor needs a recorded row of arm ``a`` with an observed outcome, and
+        the treatment observation factor needs a row with a recorded treatment; a target
+        with one value there fits no learner. The full-``W`` response model that the
+        missingness tilt reads needs a nonrespondent among the recorded rows of each
+        complement. A package classification Super Learner needs two rows of each class it
+        sees. The general preflight asks none of these questions for each stratum and arm,
+        and it does not run for a request of ``ey_obs`` alone.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+        folds : Folds
+            The draw's realized split.
+        seed : int or None
+            The draw's seed, to resolve the treatment learner as the fit does.
+
+        Raises
+        ------
+        ValueError
+            If some stratum, arm, factor and training complement cannot be fitted.
+        """
+        from ..learners.super_learner import SuperLearner
+        from ._strata import refuse_untrainable_stratum_folds
+        from .tmle import _SUPER_LEARNER_INNER_SPLIT_RULE
+
+        treatment = np.asarray(data.treatment, dtype=float)
+        recorded = np.asarray(data.treatment_recorded, dtype=bool)
+        observed = np.asarray(data.observed, dtype=bool)
+
+        def treatment_rows(arm: float) -> list[tuple[BoolArray, str]]:
+            label = repr(data.arm_label(arm))
+            return [
+                (recorded & (treatment == arm), f"no recorded row is in arm {label}"),
+                (recorded & (treatment != arm), f"every recorded row is in arm {label}"),
+            ]
+
+        def observation_rows(arm: float) -> list[tuple[BoolArray, str]]:
+            label = repr(data.arm_label(arm))
+            out = []
+            if data.has_missing_outcome:
+                out.append(
+                    (
+                        recorded & (treatment == arm) & observed,
+                        f"no recorded row of arm {label} has an observed outcome",
+                    )
+                )
+            if data.has_missing_treatment:
+                out.append((recorded, "no row has a recorded treatment"))
+            return out
+
+        refuse_untrainable_stratum_folds(
+            data, folds, family="treatment design", requirements=treatment_rows
+        )
+        refuse_untrainable_stratum_folds(
+            data, folds, family="observation design", requirements=observation_rows
+        )
+        complements = [np.arange(data.n)] if folds.is_single else [train for train, _ in folds]
+        if data.has_missing_outcome:
+            nonrespondent = recorded & ~observed
+            if any(not np.any(nonrespondent[train]) for train in complements):
+                message = (
+                    "no recorded row has a missing outcome, so the missingness model "
+                    "P(Delta = 1 | A, W) that the missingness tilt reads cannot be fitted."
+                )
+                if folds.is_single:
+                    raise ValueError(f"inside the sample: {message}")
+                raise ValueError(
+                    "inside a cross-fitting fold's training complement: "
+                    + message
+                    + " "
+                    + _POST_DRAW_REMEDY.format(remedy="fit with cross_fit=False")
+                )
+        learner = self._resolve_learner(self.treatment_learner, task="classification", seed=seed)
+        if not isinstance(learner, SuperLearner):
+            return
+        if data.strata is None:
+            regions = [("the sample", np.ones(data.n, dtype=bool))]
+        else:
+            regions = [
+                (f"baseline stratum {data.stratum_label(code)}", data.strata == code)
+                for code in range(data.n_strata)
+            ]
+        rule = _SUPER_LEARNER_INNER_SPLIT_RULE.format(role="treatment")
+        for spec in _per_arm_factor_specs(data):
+            for arm in data.arm_codes:
+                target = spec.target(arm)
+                eligible = spec.rows(arm)
+                for where, inside in regions:
+                    for train in complements:
+                        kept = np.zeros(data.n, dtype=bool)
+                        kept[train] = True
+                        values = target[kept & inside & eligible]
+                        classes, counts = np.unique(values, return_counts=True)
+                        if classes.size < 2 or counts.min() >= 2:
+                            continue
+                        raise ValueError(
+                            f"inside {where}: the outcome-adaptive factor {spec.label} of arm "
+                            f"{data.arm_label(arm)!r} has {int(counts.min())} row(s) of one "
+                            f"class in a training complement. {rule} Replace the treatment "
+                            "learner with one that is not a package classification "
+                            "SuperLearner."
+                        )
 
     def _selection_partition(self, data: CausalData, seed: int | None) -> Folds:
         """The split the cross-validated selection risk is scored over.
@@ -1175,6 +1400,13 @@ class CTMLE(TMLE):
         ``oat_design="shared"`` is the construction in ``ctmle3::LF_oat``: one categorical
         mechanism on the vector ``[Qbar(a, W): a in arms]``.
 
+        The per-arm design also fits the observation factors on the same column (see
+        :func:`_per_arm_factor_specs`), and fits every factor inside each baseline stratum.
+        Their product is ``P(C_a = 1 | Qbar(a, W))``, or ``P(C_a = 1 | Qbar(a, W), S)``,
+        for the composite indicator ``C_a = Delta_A Delta 1{A = a}``. The base fit's
+        full-``W`` response model moves to ``tilt_missingness``, which only the
+        missingness tilt reads.
+
         Neither design has a candidate path or a parameter-specific risk. The ordinary
         K-column mean fluctuation targets the returned nuisances later in the shared TMLE
         pipeline. Its columns ``1{A = a} / g_a`` have disjoint supports, so under the
@@ -1186,26 +1418,13 @@ class CTMLE(TMLE):
         arms = data.arm_codes
         per_arm = self.oat_design == "per_arm"
         learner = self._resolve_learner(self.treatment_learner, task="classification", seed=seed)
+        factor_diagnostics: dict[str, Any]
         if base.folds.is_single and per_arm:
-            columns: list[FloatArray] = []
-            diagnostics: list[Any] = []
-            for arm in arms:
-                design = base.outcome.arms[arm][:, None]
-                predictions, arm_diagnostics = cross_fit_predictions(
-                    learner,
-                    design,
-                    (data.treatment == arm).astype(float),
-                    data.weights,
-                    base.folds,
-                    task="classification",
-                    predict_designs={"g": design},
-                    groups=data.cluster,
-                    clip=(0.0, 1.0),
-                    n_jobs=self.n_jobs,
-                )
-                columns.append(predictions["g"])
-                diagnostics.append(arm_diagnostics)
-            propensity_values = np.column_stack(columns)
+            generated = np.column_stack([base.outcome.arms[arm] for arm in arms])
+            every = np.arange(data.n)
+            factors, factor_diagnostics = _fit_per_arm_factors(
+                data, generated, learner, every, every
+            )
         elif base.folds.is_single:
             design = np.column_stack([base.outcome.arms[arm] for arm in arms])
             predictions, diagnostics = cross_fit_predictions(
@@ -1221,23 +1440,37 @@ class CTMLE(TMLE):
                 classes=arms,
                 n_jobs=self.n_jobs,
             )
-            propensity_values = predictions["g"]
+            factors = {"treatment": predictions["g"]}
+            factor_diagnostics = {"treatment": diagnostics}
         else:
-            base, propensity_values, diagnostics = self._cross_fit_outcome_adaptive(
+            base, factors, factor_diagnostics = self._cross_fit_outcome_adaptive(
                 data, base, learner, seed=seed
             )
         risk_by_arm: dict[str, float] | None
+        risk_by_factor: dict[str, float] | None = None
+        specs = _per_arm_factor_specs(data) if per_arm else ()
+        labels = {spec.name: spec.label for spec in specs}
         if per_arm:
-            propensity = Propensity(propensity_values, arms, simplex=False)
-            risk_by_arm = {
-                data.arm_label(arm): _binary_risk(
-                    propensity.arm(arm), (data.treatment == arm).astype(float), data.weights
-                )
-                for arm in arms
+            propensity = Propensity(factors["treatment"], arms, simplex=False)
+            risks = {
+                spec.name: {
+                    data.arm_label(arm): _binary_risk(
+                        factors[spec.name][rows, j],
+                        spec.target(arm)[rows],
+                        data.weights[rows],
+                    )
+                    for j, arm in enumerate(arms)
+                    for rows in (np.flatnonzero(spec.rows(arm)),)
+                }
+                for spec in specs
             }
+            risk_by_arm = risks["treatment"]
             risk = float(sum(risk_by_arm.values()))
+            risk_by_factor = {
+                labels[name]: float(sum(values.values())) for name, values in risks.items()
+            }
         else:
-            propensity = Propensity(propensity_values, arms)
+            propensity = Propensity(factors["treatment"], arms)
             observed_columns = np.array(
                 [propensity.column_for(float(arm)) for arm in data.treatment], dtype=int
             )
@@ -1249,13 +1482,37 @@ class CTMLE(TMLE):
         features = tuple(f"Qbar[{data.arm_label(arm)}]" for arm in arms)
         nuisance_diagnostics = dict(base.diagnostics)
         nuisance_diagnostics.pop("propensity", None)
-        if (per_arm and any(diagnostics)) or (not per_arm and diagnostics):
-            nuisance_diagnostics["propensity"] = diagnostics
+        treatment_diagnostics = factor_diagnostics["treatment"]
+        if (per_arm and any(treatment_diagnostics)) or (not per_arm and treatment_diagnostics):
+            nuisance_diagnostics["propensity"] = treatment_diagnostics
+        observation: dict[str, Any] = {}
+        if per_arm and data.has_missing_outcome:
+            # The targeting reads the design factor. The full-W model stays for the tilt.
+            observation["missingness"] = factors["outcome_observation"]
+            observation["tilt_missingness"] = base.missingness
+            _move_diagnostics(
+                nuisance_diagnostics,
+                "missingness",
+                factor_diagnostics["outcome_observation"],
+            )
+        if per_arm and data.has_missing_treatment:
+            observation["treatment_observation"] = factors["treatment_observation"]
+            _move_diagnostics(
+                nuisance_diagnostics,
+                "treatment_observation",
+                factor_diagnostics["treatment_observation"],
+            )
         nuisance = replace(
             base,
             propensity=propensity,
             treatment_covariates=features,
             diagnostics=nuisance_diagnostics,
+            **observation,
+        )
+        strata = (
+            tuple(data.stratum_label(code) for code in range(data.n_strata))
+            if per_arm and data.has_strata
+            else ()
         )
         return nuisance, {
             "ctmle": CTMLEOutcomeAdaptiveFit(
@@ -1264,6 +1521,9 @@ class CTMLE(TMLE):
                 treatment_risk=risk,
                 design="per_arm" if per_arm else "shared",
                 treatment_risk_by_arm=risk_by_arm,
+                strata=strata,
+                factors=tuple(spec.label for spec in specs),
+                risk_by_factor=risk_by_factor,
             )
         }
 
@@ -1274,7 +1534,7 @@ class CTMLE(TMLE):
         treatment_learner: Learner,
         *,
         seed: int | None,
-    ) -> tuple[NuisanceEstimates, FloatArray, list[Any]]:
+    ) -> tuple[NuisanceEstimates, dict[str, FloatArray], dict[str, Any]]:
         """Cross-fit ``Qbar -> g`` as one fold-local nuisance algorithm.
 
         The first implementation stitched global out-of-fold ``Qbar`` predictions and
@@ -1285,15 +1545,25 @@ class CTMLE(TMLE):
         of fold ``v``'s generated design before ``g_v`` is fitted on ``train_v``.
 
         Under ``oat_design="per_arm"`` fold ``v`` fits ``K`` binary mechanisms on
-        ``train_v``, each regressing ``1{A = a}`` on the column ``Qbar_v(a, W)`` alone.  The
-        nesting is the same.  This is the cross-validated construction of Benkeser, Cai and
-        van der Laan (2020), Appendix D: fold-trained ``Qbar_v`` and ``g_v(. | Qbar_v)``, and
-        one coefficient per arm pooled over the validation rows.
+        ``train_v``, each regressing ``1{A = a}`` on the column ``Qbar_v(a, W)`` alone, and
+        each observation factor on the same column (see :func:`_per_arm_factor_specs`),
+        inside each baseline stratum.  The nesting is the same.  This is the
+        cross-validated construction of Benkeser, Cai and van der Laan (2020), Appendix D:
+        fold-trained ``Qbar_v`` and ``g_v(. | Qbar_v)``, and one coefficient per arm pooled
+        over the validation rows.
 
         The outcome predictions returned in ``base`` are replaced by the validation
         pieces from these very models.  That matters for stochastic learners: the
         outcome regression used to build a clever covariate cannot be a second refit
         that merely has the same learner settings.
+
+        Returns
+        -------
+        tuple
+            The base nuisances with the fold-local outcome predictions, each factor's
+            stitched out-of-fold predictions keyed by factor name (``"treatment"`` alone
+            under the shared design), and each factor's learner diagnostics: per arm under
+            the per-arm design, per fold under the shared design.
         """
         arms = data.arm_codes
         per_arm = self.oat_design == "per_arm"
@@ -1303,7 +1573,6 @@ class CTMLE(TMLE):
         outcome_design = data.treatment_design()
         counterfactual = {arm: data.counterfactual_design(arm) for arm in arms}
         scaled = base.scaler.scale(data.outcome)
-        indicators = {arm: (data.treatment == arm).astype(float) for arm in arms}
         jobs = [(fold, train, test) for fold, (train, test) in enumerate(folds)]
 
         def predict_outcome(model: Learner, design: FloatArray) -> FloatArray:
@@ -1316,9 +1585,9 @@ class CTMLE(TMLE):
             IntArray,
             FloatArray,
             dict[float, FloatArray],
-            FloatArray,
+            dict[str, FloatArray],
             Any,
-            Any,
+            dict[str, Any],
         ]:
             outcome_rows = train[data.observed[train]]
             if outcome_rows.size == 0:
@@ -1345,31 +1614,11 @@ class CTMLE(TMLE):
                 for arm, design in counterfactual.items()
             }
             generated = np.column_stack([by_arm[arm] for arm in arms])
-            treatment_diagnostic: Any
+            fold_factors: dict[str, FloatArray]
+            fold_diagnostics: dict[str, Any]
             if per_arm:
-                columns = []
-                arm_diagnostics = []
-                for j, arm in enumerate(arms):
-                    arm_model = fit_on_rows(
-                        treatment_learner,
-                        generated[:, [j]],
-                        indicators[arm],
-                        data.weights,
-                        train,
-                        "classification",
-                        data.cluster,
-                    )
-                    columns.append(
-                        np.clip(
-                            predict_mean(arm_model, generated[test][:, [j]], "classification"),
-                            0.0,
-                            1.0,
-                        )
-                    )
-                    arm_diagnostics.append(getattr(arm_model, "diagnostics_", None))
-                propensity = np.column_stack(columns)
-                treatment_diagnostic = (
-                    arm_diagnostics if any(item is not None for item in arm_diagnostics) else None
+                fold_factors, fold_diagnostics = _fit_per_arm_factors(
+                    data, generated, treatment_learner, train, test
                 )
             else:
                 treatment_model = fit_on_rows(
@@ -1381,56 +1630,67 @@ class CTMLE(TMLE):
                     "classification",
                     data.cluster,
                 )
-                propensity = np.clip(
-                    predict_probabilities(treatment_model, generated[test], arms), 0.0, 1.0
-                )
-                treatment_diagnostic = getattr(treatment_model, "diagnostics_", None)
+                fold_factors = {
+                    "treatment": np.clip(
+                        predict_probabilities(treatment_model, generated[test], arms), 0.0, 1.0
+                    )
+                }
+                fold_diagnostics = {"treatment": getattr(treatment_model, "diagnostics_", None)}
             return (
                 fold,
                 test,
                 observed[test],
                 {arm: values[test] for arm, values in by_arm.items()},
-                propensity,
+                fold_factors,
                 getattr(outcome_model, "diagnostics_", None),
-                treatment_diagnostic,
+                fold_diagnostics,
             )
 
         observed = np.empty(data.n, dtype=float)
         by_arm = {arm: np.empty(data.n, dtype=float) for arm in arms}
-        propensity = np.empty((data.n, len(arms)), dtype=float)
+        factors: dict[str, FloatArray] = {}
         outcome_diagnostics: list[Any] = []
-        treatment_diagnostics: list[Any] = []
-        for _, test, fold_observed, fold_arms, fold_g, q_diagnostic, g_diagnostic in map_parallel(
-            run_fold, jobs, n_jobs=self.n_jobs
-        ):
+        factor_diagnostics: dict[str, Any] = {}
+        for (
+            _,
+            test,
+            fold_observed,
+            fold_arms,
+            fold_factors,
+            q_diagnostic,
+            fold_diagnostics,
+        ) in map_parallel(run_fold, jobs, n_jobs=self.n_jobs):
             observed[test] = fold_observed
-            propensity[test] = fold_g
+            for name, values in fold_factors.items():
+                if name not in factors:
+                    factors[name] = np.empty((data.n, len(arms)), dtype=float)
+                factors[name][test] = values
             for arm in arms:
                 by_arm[arm][test] = fold_arms[arm]
             if q_diagnostic is not None:
                 outcome_diagnostics.append(q_diagnostic)
-            if g_diagnostic is not None:
-                treatment_diagnostics.append(g_diagnostic)
+            for name, entry in fold_diagnostics.items():
+                if per_arm:
+                    # One list per arm, each holding that arm's fold diagnostics, so the
+                    # per-arm calibration report reads the arm's own learner table.
+                    stored = factor_diagnostics.setdefault(name, [[] for _ in arms])
+                    for j, arm_entries in enumerate(entry):
+                        stored[j].extend(arm_entries)
+                else:
+                    stored = factor_diagnostics.setdefault(name, [])
+                    if entry is not None:
+                        stored.append(entry)
 
-        if per_arm and treatment_diagnostics:
-            # One list per arm, each holding that arm's fold diagnostics, so the per-arm
-            # calibration report reads the arm's own learner table.
-            treatment_diagnostics = [
-                [fold_entry[j] for fold_entry in treatment_diagnostics] for j in range(len(arms))
-            ]
         diagnostics = dict(base.diagnostics)
         diagnostics.pop("outcome", None)
-        diagnostics.pop("propensity", None)
         if outcome_diagnostics:
             diagnostics["outcome"] = outcome_diagnostics
-        if treatment_diagnostics:
-            diagnostics["propensity"] = treatment_diagnostics
         honest_base = replace(
             base,
             outcome=InitialFit(observed, by_arm),
             diagnostics=diagnostics,
         )
-        return honest_base, propensity, treatment_diagnostics
+        return honest_base, factors, factor_diagnostics
 
     def _retarget_detailed(
         self, data: CausalData, nuisance: NuisanceEstimates, **kwargs: Any
@@ -2178,6 +2438,209 @@ class _Selector:
             missingness=missingness,
             diagnostics={},
         )
+
+
+@dataclass(frozen=True)
+class _FactorSpec:
+    """One factor of the per-arm outcome-adaptive design, fitted on ``Qbar(a, W)``.
+
+    Parameters
+    ----------
+    name : str
+        The key of the factor: ``"treatment"``, ``"outcome_observation"`` or
+        ``"treatment_observation"``.
+    label : str
+        The conditional probability the factor estimates, for a generic arm ``a``.
+    target : callable
+        Maps an arm code to the binary target on every row.
+    rows : callable
+        Maps an arm code to the rows the factor is fitted on.
+    constant : bool
+        Whether a target with one value on the fitting rows predicts that value and fits
+        no learner. Only the observation factors take it: a stratum where every row of an
+        arm responds has the observation probability one there.
+    """
+
+    name: str
+    label: str
+    target: Callable[[float], FloatArray]
+    rows: Callable[[float], BoolArray]
+    constant: bool
+
+
+def _per_arm_factor_specs(data: CausalData) -> tuple[_FactorSpec, ...]:
+    """The factors of the per-arm design on ``data``, in the order the product takes them.
+
+    For arm ``a`` with ``q_a = Qbar(a, W)``: the treatment factor
+    ``P(A = a | Delta_A = 1, q_a)`` on the rows with a recorded treatment; with missing
+    outcomes, the outcome observation factor ``P(Delta = 1 | A = a, Delta_A = 1, q_a)`` on
+    the recorded rows of arm ``a``; and with a missing treatment, the treatment observation
+    factor ``P(Delta_A = 1 | q_a)`` on every row. With baseline strata each conditional also
+    holds ``S``. By the chain rule their product is ``P(C_a = 1 | q_a)`` for the composite
+    indicator ``C_a = Delta_A Delta 1{A = a}``, the construction of Benkeser, Cai and van der
+    Laan (2020), Theorem 1, applied to ``C_a``.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data.
+
+    Returns
+    -------
+    tuple of _FactorSpec
+        The treatment factor first, then each observation factor the data needs.
+    """
+    treatment = np.asarray(data.treatment, dtype=float)
+    recorded = np.asarray(data.treatment_recorded, dtype=bool)
+    observed = np.asarray(data.observed, dtype=bool)
+    every = np.ones(data.n, dtype=bool)
+    given = "Delta_A=1," if data.has_missing_treatment else ""
+    stratum = ",S" if data.has_strata else ""
+    specs = [
+        _FactorSpec(
+            "treatment",
+            f"P(A=a|{given}Qbar(a,W){stratum})",
+            lambda arm: (treatment == arm).astype(float),
+            lambda arm: recorded,
+            False,
+        )
+    ]
+    if data.has_missing_outcome:
+        specs.append(
+            _FactorSpec(
+                "outcome_observation",
+                f"P(Delta=1|A=a,{given}Qbar(a,W){stratum})",
+                lambda arm: observed.astype(float),
+                lambda arm: recorded & (treatment == arm),
+                True,
+            )
+        )
+    if data.has_missing_treatment:
+        specs.append(
+            _FactorSpec(
+                "treatment_observation",
+                f"P(Delta_A=1|Qbar(a,W){stratum})",
+                lambda arm: recorded.astype(float),
+                lambda arm: every,
+                True,
+            )
+        )
+    return tuple(specs)
+
+
+def _fit_per_arm_factors(
+    data: CausalData,
+    generated: FloatArray,
+    learner: Learner,
+    train: IntArray,
+    test: IntArray,
+) -> tuple[dict[str, FloatArray], dict[str, list[list[Any]]]]:
+    """Fit each per-arm factor on ``train`` and predict it on ``test``, inside each stratum.
+
+    Each factor of arm ``a`` regresses its target on the one column ``generated[:, a]``,
+    on the rows of ``train`` that the factor is fitted on and that lie in one stratum, and
+    predicts that stratum's rows of ``test``. Without baseline strata the whole sample is
+    one region, and the treatment factor is the shipped per-arm fit bit for bit. A
+    region with no ``test`` row fits nothing. An observation factor whose target takes one
+    value on its positive-weight fitting rows predicts that value and fits no learner.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data.
+    generated : ndarray
+        ``(n, K)``, the outcome model's prediction at each arm on every row.
+    learner : Learner
+        The resolved treatment learner. Every factor, arm and stratum fits a clone.
+    train : ndarray of int
+        The rows the factors may train on: every row in sample, or a fold's training
+        complement.
+    test : ndarray of int
+        The rows to predict.
+
+    Returns
+    -------
+    tuple of dict
+        Each factor's ``(len(test), K)`` predictions, and each factor's learner diagnostics
+        as one list per arm.
+
+    Raises
+    ------
+    ValueError
+        If a stratum and arm hold no row to fit a factor on. The preflight
+        :meth:`CTMLE._preflight_per_arm_design` refuses that case before any learner.
+    """
+    arms = data.arm_codes
+    weights = np.asarray(data.weights, dtype=float)
+    if data.strata is None:
+        regions = [np.ones(data.n, dtype=bool)]
+    else:
+        regions = [data.strata == code for code in range(data.n_strata)]
+    factors: dict[str, FloatArray] = {}
+    diagnostics: dict[str, list[list[Any]]] = {}
+    for spec in _per_arm_factor_specs(data):
+        out = np.empty((test.size, len(arms)), dtype=float)
+        entries: list[list[Any]] = [[] for _ in arms]
+        for j, arm in enumerate(arms):
+            target = spec.target(arm)
+            eligible = spec.rows(arm)
+            column = generated[:, [j]]
+            for inside in regions:
+                at = inside[test]
+                if not at.any():
+                    continue
+                rows = train[eligible[train] & inside[train]]
+                if rows.size == 0:
+                    raise ValueError(
+                        f"no trainable row for the outcome-adaptive factor {spec.label} of arm "
+                        f"{data.arm_label(arm)!r}"
+                    )
+                if spec.constant:
+                    values = np.unique(target[rows[weights[rows] > 0.0]])
+                    if values.size == 1:
+                        out[at, j] = float(values[0])
+                        continue
+                model = fit_on_rows(
+                    learner, column, target, weights, rows, "classification", data.cluster
+                )
+                out[at, j] = np.clip(
+                    predict_mean(model, column[test[at]], "classification"), 0.0, 1.0
+                )
+                entry = getattr(model, "diagnostics_", None)
+                if entry is not None:
+                    entries[j].append(entry)
+        factors[spec.name] = out
+        diagnostics[spec.name] = entries
+    return factors, diagnostics
+
+
+def _move_diagnostics(diagnostics: dict[str, Any], key: str, entries: list[list[Any]]) -> None:
+    """Report a per-arm design factor under ``key`` and keep the full-``W`` model's entry.
+
+    The base fit's entry under ``key`` describes the full-``W`` model, which only the
+    missingness tilt reads after a per-arm fit. It moves to ``"tilt_" + key``. The outcome
+    observation factor has one calibration report, read at the realised arm, so its
+    entries are pooled over the arms. The treatment observation factor has one report per
+    arm, so it keeps one list per arm.
+
+    Parameters
+    ----------
+    diagnostics : dict
+        The nuisance diagnostics, edited in place.
+    key : str
+        ``"missingness"`` or ``"treatment_observation"``.
+    entries : list of list
+        The design factor's learner diagnostics, one list per arm.
+    """
+    full = diagnostics.pop(key, None)
+    if full is not None:
+        diagnostics[f"tilt_{key}"] = full
+    if not any(entries):
+        return
+    if key == "treatment_observation":
+        diagnostics[key] = entries
+    else:
+        diagnostics[key] = [entry for arm_entries in entries for entry in arm_entries]
 
 
 def _binary_risk(predicted: FloatArray, indicator: FloatArray, weights: FloatArray) -> float:

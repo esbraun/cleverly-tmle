@@ -227,14 +227,16 @@ def composite_mechanism(
     and each observation factor below by ``nuisance_bound``.  An absent factor is not
     multiplied.  The order is the treatment factor, then the outcome observation factor,
     then the treatment observation factor.  Without a missing treatment the product is the
-    shipped denominator :math:`g\pi` bit for bit.
+    shipped denominator :math:`g\pi` bit for bit.  The treatment observation factor is
+    ``(n,)``, one column shared by every arm, or ``(n, K)``, one column per arm, as the
+    per-arm outcome-adaptive :class:`~cleverly.CTMLE` fits it on each arm's design.
 
     Parameters
     ----------
     nuisance : NuisanceEstimates
         The fitted factors.  ``propensity`` is the treatment factor, ``missingness`` the
         outcome observation factor and ``treatment_observation`` the treatment observation
-        factor.
+        factor, ``(n,)`` or ``(n, K)``.
     bounds : tuple of float
         The ``g_bounds`` of the treatment factor.
     nuisance_bound : float
@@ -256,7 +258,7 @@ def composite_mechanism(
         values = values * bound(np.asarray(nuisance.missingness, dtype=float), lower, 1.0)
     if nuisance.treatment_observation is not None:
         recorded = bound(np.asarray(nuisance.treatment_observation, dtype=float), lower, 1.0)
-        values = values * recorded.reshape(-1, 1)
+        values = values * (recorded.reshape(-1, 1) if recorded.ndim == 1 else recorded)
     return Propensity(values, nuisance.arms, simplex=False)
 
 
@@ -424,7 +426,8 @@ def _message(data: CausalData, reason: str, remedy: str) -> CapabilityError:
     return CapabilityError(
         f"{data.treatment_name} is missing on {unrecorded} row(s). A missing treatment is "
         "supported for arm means and their contrasts (ey, ate, rr, or) on in-sample TMLE "
-        "and DRTMLE fits, and for regime means and arm-indexed MSM coefficients on in-sample "
+        "and DRTMLE fits and, for point estimates, per-arm outcome-adaptive CTMLE fits, and "
+        "for regime means and arm-indexed MSM coefficients on in-sample "
         "TMLE fits, through the composite indicator Delta_A * Delta * 1{A = a}. "
         f"{reason} {remedy}".rstrip()
     )
@@ -460,14 +463,19 @@ def missing_treatment_refusal(
     name = data.treatment_name
     identification = _IDENTIFICATION.format(A=name)
     method = getattr(estimator, "_assessment_method", None)
-    if method == "collaborative_tmle":
+    from .ctmle import is_per_arm_oat
+
+    per_arm_oat = is_per_arm_oat(estimator)
+    if method == "collaborative_tmle" and not per_arm_oat:
         return _message(
             data,
-            "C-TMLE selects a treatment mechanism by a collaborative criterion, and no "
-            "collaborative score is derived for the composite indicator (roadmap F5).",
-            "Fit TMLE or DRTMLE.",
+            "The C-TMLE selector strategies have no collaborative score for the composite "
+            "indicator (roadmap F5), and the shared outcome-adaptive design "
+            "(oat_design='shared') has no composite construction (roadmap F19).",
+            "Fit TMLE or DRTMLE, or fit CTMLE(strategy='oat', oat_design='per_arm') for point "
+            "estimates.",
         )
-    if method not in ("tmle", "drtmle"):
+    if method not in ("tmle", "drtmle") and not per_arm_oat:
         return _message(data, "This fit is not one of those compositions.", _MEANS_REMEDY)
     if data.known_treatment is not None:
         return CapabilityError(KNOWN_TREATMENT_DELTA_REFUSAL)

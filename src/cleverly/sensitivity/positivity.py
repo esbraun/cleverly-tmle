@@ -1103,12 +1103,13 @@ def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
     has_observation = nuisance.missingness is not None
     has_intermediate = nuisance.intermediate is not None and level is not None
     has_recording = nuisance.treatment_observation is not None
+    outcome_label, treatment_label = _observation_labels(result)
     factors: list[tuple[str, FloatArray, FloatArray]] = []
     if has_recording:
         recorded_raw = np.asarray(nuisance.treatment_observation, dtype=float)
         factors.append(
             (
-                TREATMENT_OBSERVATION,
+                treatment_label,
                 recorded_raw,
                 np.clip(recorded_raw, missingness_bound, 1.0),
             )
@@ -1116,7 +1117,7 @@ def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
     if has_observation:
         factors.append(
             (
-                "P(Delta=1|A,W)",
+                outcome_label,
                 np.asarray(nuisance.missingness, dtype=float),
                 np.asarray(nuisance.bounded_missingness(missingness_bound), dtype=float),
             )
@@ -1746,15 +1747,37 @@ def _moved_factor(result: TMLEResult, mechanism: bool) -> str | None:
     if result.extra.get("missing_data") != "composite":
         return None
     name = result.data.treatment_name
+    design = _design_factors(result)
     if not mechanism:
+        if design:
+            return design[0]
         conditioning = ", Delta_A=1" if result.data.has_missing_treatment else ""
         return f"P({name}=a|W{conditioning})"
+    outcome_label, treatment_label = _observation_labels(result)
     factors = []
     if result.nuisance.missingness is not None:
-        factors.append(f"P(Delta=1|{name}=a,W)")
+        factors.append(outcome_label if design else f"P(Delta=1|{name}=a,W)")
     if result.nuisance.treatment_observation is not None:
-        factors.append("P(Delta_A=1|W)")
+        factors.append(treatment_label)
     return " and ".join(factors)
+
+
+def _design_factors(result: TMLEResult) -> tuple[str, ...]:
+    """The factor labels of a per-arm outcome-adaptive fit, or an empty tuple.
+
+    Such a fit regresses each factor on ``Qbar(a, W)``, not on ``W``, so the report names
+    the factor it fitted. :class:`~cleverly.estimators.ctmle.CTMLEOutcomeAdaptiveFit`
+    lists them, the treatment factor first.
+    """
+    return tuple(getattr(result.ctmle_selection, "factors", ()))
+
+
+def _observation_labels(result: TMLEResult) -> tuple[str, str]:
+    """The labels of the outcome and of the treatment observation factor of a fit."""
+    design = _design_factors(result)
+    outcome = next((f for f in design if f.startswith("P(Delta=1|")), "P(Delta=1|A,W)")
+    treatment = next((f for f in design if f.startswith("P(Delta_A=1|")), TREATMENT_OBSERVATION)
+    return outcome, treatment
 
 
 def _clipped_fraction(result: TMLEResult, pair: tuple[float, float], mechanism: bool) -> float:
