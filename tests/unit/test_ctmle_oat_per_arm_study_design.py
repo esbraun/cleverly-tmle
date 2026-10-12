@@ -91,7 +91,8 @@ def test_the_declared_cells_are_the_published_cells() -> None:
     }
     rates = {("root_n_rate", "empirical_sd"), ("root_n_rate", "reported_se")}
     published = {(family, cell) for family, cells in study.PROPERTY_CELLS.items() for cell in cells}
-    assert declared | derived | rates == published
+    assert derived <= declared, "declared_cells() must list the derived calibration controls"
+    assert declared | rates == published
     assert len(properties.declared_cells()) == len(declared)
 
 
