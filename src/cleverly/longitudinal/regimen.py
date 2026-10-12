@@ -555,12 +555,13 @@ def _describe_node(node: RuleNode) -> str:
     has no such name -- ``__name__`` is ``"<lambda>"``, which names nothing -- so it falls
     back to ``d`` and the plan fingerprint on the config is what tells two of them apart.
     A policy node prints ``q:`` and the name its :class:`~cleverly.interventions.Stochastic`
-    carries.
+    carries.  An odds tilt node prints ``o:`` and the name its
+    :class:`~cleverly.interventions.Incremental` carries.
     """
     if isinstance(node, Stochastic):
         return f"q:{node.name}" if node.name else "q"
     if _is_tilt(node):
-        return f"o:{node.name}"
+        return f"o:{getattr(node, 'name', '')}"
     if _is_mtp(node):
         return f"m:{getattr(node, 'name', '')}"
     if not callable(node):
@@ -1297,6 +1298,38 @@ def declares_tilt(regimens: Any) -> bool:
         if any(_is_tilt(node) for node in ((plan,) if nodes is None else nodes)):
             return True
     return False
+
+
+def tilt_nodes(regimens: Any, n_times: int) -> frozenset[int]:
+    """The nodes, counted from one, that some plan of ``regimens=`` sets by an odds tilt.
+
+    A plan of one :class:`~cleverly.interventions.Incremental` entry tilts every node.  A
+    plan this cannot read contributes no node, and the fit refuses it.
+
+    Parameters
+    ----------
+    regimens : Any
+        The ``regimens=`` argument of a fit or of a longitudinal estimand.
+    n_times : int
+        The number of treatment nodes.
+
+    Returns
+    -------
+    frozenset of int
+        The tilt nodes.
+    """
+    times: set[int] = set()
+    for label, plan in _plans(regimens):
+        try:
+            nodes = _plan_nodes(label, plan)
+        except DataError:
+            continue
+        if nodes is None:
+            if _is_tilt(plan):
+                times.update(range(1, n_times + 1))
+            continue
+        times.update(time for time, node in enumerate(nodes, 1) if _is_tilt(node))
+    return frozenset(times)
 
 
 def tilt_mix_message(label: str, node: str, kind: str) -> str:

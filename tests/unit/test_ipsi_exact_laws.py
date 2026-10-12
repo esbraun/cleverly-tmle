@@ -21,10 +21,12 @@ from typing import Any
 
 import numpy as np
 import pytest
+from sklearn.dummy import DummyClassifier, DummyRegressor
 
 from cleverly.exceptions import CapabilityError, PositivityWarning
 from cleverly.interventions import Incremental, Stochastic
 from cleverly.longitudinal import IPSI, LTMLE, DynamicRegimen
+from cleverly.msm import MSM
 
 from .. import discrete_law_competing as competing
 from .. import discrete_law_longitudinal as binary
@@ -331,6 +333,129 @@ def test_the_weights_move_the_treatment_mechanism() -> None:
         ]
         gaps.append(abs(pi[0] - pi[1]))
     assert max(gaps) > 0.05
+
+
+# ------------------------------------------------------------------ T10 remainder
+
+
+def test_the_taylor_remainder_is_second_order_and_nonzero() -> None:
+    """T10: along a path toward another law the remainder shrinks as the square of the step.
+
+    The remainder over the step squared is the same number at three steps, and that number
+    is not zero.  So the curve is the derivative, and the functional is not linear in the
+    law.
+    """
+    probs = law.TILT_PROBS
+    other = probs * (1.0 + 0.5 * np.sin(np.arange(probs.size)))
+    direction = other / other.sum() - probs
+    function = law.binary_function("ey_regimen[double]", base=probs)
+    slope = float(np.nansum(direction * law.eif(function, probs)))
+    ratios = [
+        (float(function(probs + step * direction)) - float(function(probs)) - step * slope)
+        / step**2
+        for step in (1e-2, 5e-3, 2.5e-3)
+    ]
+    assert abs(ratios[-1]) > 1e-3
+    np.testing.assert_allclose(ratios, ratios[-1], rtol=0.05)
+
+
+def test_a_correct_mechanism_makes_any_regression_exact() -> None:
+    """T10: with the mechanisms exact, a constant regression leaves no error."""
+    wrong = DummyRegressor(strategy="constant", constant=0.3)
+    fit = fit_ipsi(law.tilt_frame(), law.PLANS, outcome_learner=wrong, pseudo_learner=wrong)
+    for name in law.NAMES:
+        assert fit.psi(name) == pytest.approx(law.TILT_TRUTH[name], abs=POINT), name
+
+
+def test_a_correct_regression_does_not_rescue_a_wrong_mechanism() -> None:
+    r"""T10: the tilt is not doubly robust, and a label plan on the same fit is.
+
+    The treatment learner predicts the marginal share, so every tilt node reads a wrong
+    :math:`\pi`.  The label plan's error is zero to ``1e-12`` and each tilt's error
+    exceeds ``1e-3`` (Kennedy 2019, Section 3.3).
+    """
+    plans = {label: law.PLANS[label] for label in ("natural", "half", "double", "always")}
+    fit = fit_ipsi(law.tilt_frame(), plans, treatment_learner=DummyClassifier(strategy="prior"))
+
+    def truth(label: str) -> float:
+        return float(law.functional_binary(law.TILT_PROBS, plans[label], base=law.TILT_PROBS))
+
+    assert fit.psi("ey_regimen[always]") == pytest.approx(truth("always"), abs=POINT)
+    for label in ("half", "double"):
+        assert abs(fit.psi(f"ey_regimen[{label}]") - truth(label)) > 1e-3, label
+
+
+# ------------------------------------------------------------------ T11 working model
+
+MSM_PLANS = {label: law.PLANS[label] for label in ("half", "natural", "double")}
+LOG_DELTA = {"half": np.log(0.5), "natural": 0.0, "double": np.log(2.0)}
+
+
+def _msm(columns: Callable[[str], list[float]], terms: tuple[str, ...]) -> MSM:
+    def build(label: Any, horizon: int, frame: Any) -> np.ndarray:
+        del horizon
+        return np.tile(np.asarray(columns(label), dtype=float), (len(frame), 1))
+
+    return MSM(design=build, terms=terms, link="identity", design_kind="known")
+
+
+def test_the_log_delta_projection_is_the_gateaux_derivative() -> None:
+    """T11: a model linear in ``log(delta)`` is a fixed linear map of the three plan means.
+
+    With uniform weights and a design that reads no covariate, the coefficients are
+    ``(X'X)^{-1} X' psi``.  So the oracle applies that map to the plan functionals, and the
+    complex-step derivative of the map is the curve of each coefficient.
+    """
+    fit = fit_ipsi(
+        law.tilt_frame(),
+        MSM_PLANS,
+        msm=_msm(lambda label: [1.0, LOG_DELTA[label]], ("1", "log_delta")),
+        reference=None,
+    )
+    design = np.array([[1.0, LOG_DELTA[label]] for label in MSM_PLANS])
+    projection = np.linalg.solve(design.T @ design, design.T)
+    plans = [
+        law.binary_function(f"ey_regimen[{label}]", plans=MSM_PLANS, base=law.TILT_PROBS)
+        for label in MSM_PLANS
+    ]
+    rows = law.first_rows(law.TILT_COUNTS)
+    keep = law.TILT_PROBS > 0
+    for term, weights in zip(("1", "log_delta"), projection, strict=True):
+
+        def coefficient(p: Any, weights: np.ndarray = weights) -> Any:
+            return sum(w * plan(p) for w, plan in zip(weights, plans, strict=True))
+
+        name = f"msm_regimen[{term}]"
+        assert fit.psi(name) == pytest.approx(float(coefficient(law.TILT_PROBS)), abs=POINT)
+        np.testing.assert_allclose(
+            fit.influence_curves[name][rows[keep]],
+            law.eif(coefficient, law.TILT_PROBS)[keep],
+            atol=CURVE,
+            rtol=0,
+            err_msg=name,
+        )
+    assert abs(fit.psi("msm_regimen[log_delta]")) > 0.01
+
+
+def test_a_saturated_working_model_is_the_plan_means() -> None:
+    """T11: one indicator per plan returns each plan's mean and its curve."""
+    labels = tuple(MSM_PLANS)
+    fit = fit_ipsi(
+        law.tilt_frame(),
+        MSM_PLANS,
+        msm=_msm(lambda label: [float(label == other) for other in labels], labels),
+        reference=None,
+    )
+    plain = fit_ipsi(law.tilt_frame(), MSM_PLANS)
+    for label in labels:
+        mean = f"ey_regimen[{label}]"
+        assert fit.psi(f"msm_regimen[{label}]") == pytest.approx(plain.psi(mean), abs=POINT)
+        np.testing.assert_allclose(
+            fit.influence_curves[f"msm_regimen[{label}]"],
+            plain.influence_curves[mean],
+            atol=POINT,
+            rtol=0,
+        )
 
 
 # ------------------------------------------------------------------ T14 known mechanism

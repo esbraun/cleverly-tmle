@@ -27,6 +27,7 @@ __all__ = [
     "CrossFitting",
     "DRTMLEMethod",
     "EstimationMethod",
+    "IPSIMethod",
     "Inference",
     "MethodAvailability",
     "ModelSpec",
@@ -1094,6 +1095,87 @@ class SDRMethod(TMLEMethod):
                 getattr(self.targeting, field_name), getattr(defaults, field_name)
             ):
                 raise MethodConfigurationError(SDR_NO_FLUCTUATION.format(name=engine_name))
+        kwargs = super().estimator_kwargs(longitudinal=True)
+        for engine_name in ("alpha", "max_iter", "tol"):
+            del kwargs[engine_name]
+        return kwargs
+
+
+@dataclass(frozen=True)
+class IPSIMethod(TMLEMethod):
+    """Configure Kennedy's estimator of incremental propensity-score interventions.
+
+    The estimator of Kennedy (2019, Algorithm 1), with the dropout weights of Kim, Kennedy
+    and Naimi (2021), fitted by :class:`cleverly.longitudinal.IPSI`.  It averages the
+    influence function at the fitted nuisances and fits no fluctuation, so the fluctuation
+    settings of :class:`Targeting` stay at their defaults.  ``g_bounds`` bounds the
+    cumulative censoring factor.  The tilt factor is never bounded.  A point-treatment
+    functional refuses the method.
+
+    Parameters
+    ----------
+    models : ModelSpec
+        Nuisance learners.  ``pseudo_learner`` fits a real-valued target, and its default is
+        a regression Super Learner with no clip.
+    cross_fitting : CrossFitting
+        Sample-splitting settings.  Above one fold, each fold fits every nuisance on its
+        training rows.
+    targeting : Targeting
+        ``g_bounds`` and ``q_bounds``.  ``submodel_alpha``, ``max_iter`` and ``tol`` are
+        refused, because the estimator fits no fluctuation.
+    inference : Inference
+        Interval and resampling settings.  The bootstrap runs and reports a bootstrap sd,
+        with no percentile inference.
+    runtime : Runtime
+        Seed, run identifier, and parallelism.
+    name : str
+        Stable method name.
+
+    See Also
+    --------
+    SDRMethod : The sequential regression of static, dynamic and known-policy plans.
+    cleverly.longitudinal.IPSI : The engine this configuration is translated for.
+    cleverly.IncrementalEffect : The functional that takes this method.
+
+    Examples
+    --------
+    >>> from cleverly import CrossFitting, IPSIMethod
+    >>> method = IPSIMethod(cross_fitting=CrossFitting(n_folds=5))
+    >>> method.name, method.cross_fitting.n_folds
+    ('ipsi', 5)
+    >>> "alpha" in method.estimator_kwargs(longitudinal=True)
+    False
+    """
+
+    name: str = "ipsi"
+
+    def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
+        """Translate this configuration for the longitudinal IPSI engine.
+
+        Parameters
+        ----------
+        longitudinal : bool
+            Must be true, because the estimator fits a longitudinal panel.
+
+        Returns
+        -------
+        dict of str to Any
+            IPSI engine keyword arguments.
+
+        Raises
+        ------
+        MethodConfigurationError
+            When ``longitudinal`` is false, or when a fluctuation setting differs from its
+            default.
+        """
+        if not longitudinal:
+            raise MethodConfigurationError(IPSI_POINT_REFUSAL)
+        defaults = Targeting()
+        for field_name in ("submodel_alpha", "max_iter", "tol"):
+            if _differs_from_default(
+                getattr(self.targeting, field_name), getattr(defaults, field_name)
+            ):
+                raise MethodConfigurationError(IPSI_NO_FLUCTUATION)
         kwargs = super().estimator_kwargs(longitudinal=True)
         for engine_name in ("alpha", "max_iter", "tol"):
             del kwargs[engine_name]
