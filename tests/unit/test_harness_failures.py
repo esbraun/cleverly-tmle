@@ -301,3 +301,20 @@ def test_the_harness_path_rule_gives_the_driver_path(name: str) -> None:
     output = Path("run") / name
     harness_stem = re.sub(r"(.)\.[^.]+$", r"\1", name)
     assert output.with_name(f"{harness_stem}.failures.csv") == failures_path(output)
+
+
+@pytest.mark.parametrize("runner", COLLECTORS, ids=_label)
+def test_a_prescheduled_map_receives_a_fitter_built_in_the_parent(runner: Path) -> None:
+    """``mclapply`` with ``mc.preschedule = TRUE`` forces its ``FUN`` in each child.
+
+    An inline ``study_fitter(...)`` argument then registers the groups in the children only.
+    ``study_collect`` in the parent finds no groups to retry or assemble, and the first
+    recorded failure stops the run as a killed worker.  The stage probe found this in 15
+    runners (Study queue item 2, 363eb114).
+    """
+    for arguments in _calls(runner.read_text("utf-8"), "parallel::mclapply"):
+        if re.search(r"mc\.preschedule\s*=\s*TRUE", arguments):
+            assert "study_fitter(" not in arguments, (
+                f"{_label(runner)} builds its fitter inside a prescheduled mclapply; assign "
+                f"`fit_group <- study_fitter(...)` before the call"
+            )

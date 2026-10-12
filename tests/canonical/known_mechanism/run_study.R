@@ -94,9 +94,12 @@ groups <- split(samples, interaction(samples$scenario, samples$replicate, drop =
 expected <- length(groups)
 rm(samples)
 invisible(gc())
+# Forced here, in the parent: with `mc.preschedule = TRUE`, `mclapply` would force it in each
+# child, and `study_collect` would then find no registered groups to retry or assemble.
+fit_group <- study_fitter(groups, fit_one)
 results <- parallel::mclapply(
   seq_along(groups),
-  study_fitter(groups, fit_one),
+  fit_group,
   mc.cores = study_cores(groups),
   mc.preschedule = TRUE
 )
