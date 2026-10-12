@@ -26,7 +26,7 @@ basis <- sprintf("%s + I(%s^2) + I(%s^3)", logit_q, logit_q, logit_q)
 
 fit_arm <- function(frame, a) {
   qa <- frame[[sprintf("q%d", a)]]
-  fit <- drtmle::drtmle(
+  fit <- study_stage("drtmle", drtmle::drtmle(
     W = frame[c("W1", "W2", "W3")],
     A = as.numeric(frame$A == a),
     Y = frame$Y,
@@ -44,7 +44,7 @@ fit_arm <- function(frame, a) {
     returnNuisance = TRUE,
     se_cv = "none",
     use_future = FALSE
-  )
+  ))
   if (length(fit$tmle$est) != 2) stop("the recode did not return two levels")
   psi <- fit$tmle$est[[1]]
   se <- sqrt(fit$tmle$cov[1, 1])
@@ -155,9 +155,12 @@ fit_one <- function(frame) {
 
 groups <- split(samples, interaction(samples$scenario, samples$replicate, drop = TRUE))
 cores <- study_cores(groups)
+# Forced here, in the parent: with `mc.preschedule = TRUE`, `mclapply` would force it in each
+# child, and `study_collect` would then find no registered groups to retry or assemble.
+fit_group <- study_fitter(groups, fit_one)
 results <- parallel::mclapply(
   seq_along(groups),
-  study_fitter(groups, fit_one),
+  fit_group,
   mc.cores = cores,
   mc.preschedule = TRUE
 )

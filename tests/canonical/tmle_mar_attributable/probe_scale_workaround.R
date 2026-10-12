@@ -166,9 +166,12 @@ if (nrow(continuous) == 0L) stop(sprintf("the probe replications of %s are missi
 groups <- split(continuous, continuous$replicate)
 rm(continuous)
 cores <- study_cores(groups)
+# Forced here, in the parent: with `mc.preschedule = TRUE`, `mclapply` would force it in each
+# child, and `study_collect` would then find no registered groups to retry or assemble.
+fit_group <- study_fitter(groups, probe_one)
 results <- parallel::mclapply(
   seq_along(groups),
-  study_fitter(groups, probe_one),
+  fit_group,
   mc.cores = cores,
   mc.preschedule = TRUE
 )

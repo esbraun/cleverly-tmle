@@ -45,9 +45,13 @@ def paired_wide(
     columns: Sequence[str],
     *,
     implementations: Sequence[str],
-    tolerated_drops: int = 0,
 ) -> Paired:
-    """Pivot ``columns`` for every implementation at once and align on complete replications."""
+    """Pivot ``columns`` for every implementation at once and align on complete replications.
+
+    A replication one implementation lacks is dropped from the pairing and counted in
+    ``dropped``.  Only a recorded failure can leave one out: ``validate_replicates`` refuses any
+    other missing row and every non-finite value before a pairing is formed (RM39 part a2).
+    """
     wide = group.pivot(index="replicate", columns="implementation", values=list(columns))
     missing = [
         (column, implementation)
@@ -60,12 +64,6 @@ def paired_wide(
     wide = wide.loc[:, [(column, name) for column in columns for name in implementations]]
     complete = wide.replace([np.inf, -np.inf], np.nan).dropna()
     dropped = len(wide) - len(complete)
-    if dropped > tolerated_drops:
-        raise ValueError(
-            f"{dropped} replications are incomplete across {list(columns)} but only "
-            f"{tolerated_drops} are tolerated; a silently shortened pairing changes which "
-            f"replications every paired statistic compares"
-        )
     if len(complete) < 2:
         raise ValueError("fewer than two paired replications survive")
     return Paired(frame=complete, dropped=dropped)

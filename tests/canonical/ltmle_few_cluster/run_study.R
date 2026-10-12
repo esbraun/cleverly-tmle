@@ -32,8 +32,10 @@ t_interval <- function(estimate, standard_error, clusters) {
 
 fit_arm <- function(frame, arm) {
   propensity <- plogis(0.3 * frame$W1 + 0.6 * frame$W2)
+  # RM39a2: an error ltmle raises inside `study_stage` costs one group.  A promoted warning
+  # raises `study_fatal_error`, the class a stage never records (Q-a), so it stays fatal.
   fit <- withCallingHandlers(
-    ltmle(
+    study_stage("ltmle", ltmle(
       data = frame[c("W1", "W2", "A", "Y")],
       Anodes = "A",
       Ynodes = "Y",
@@ -46,12 +48,12 @@ fit_arm <- function(frame, arm) {
       variance.method = "ic",
       id = frame$cluster,
       estimate.time = FALSE
-    ),
+    )),
     warning = function(condition) {
-      stop(sprintf("unexpected ltmle warning: %s", conditionMessage(condition)))
+      study_fatal_error(sprintf("unexpected ltmle warning: %s", conditionMessage(condition)))
     }
   )
-  native <- summary(fit)$treatment
+  native <- study_stage("ltmle", summary(fit))$treatment
   ic <- as.numeric(fit$IC$tmle)
   if (length(ic) != length(unique(frame$cluster))) {
     stop(sprintf("ltmle returned %d IC entries for %d clusters", length(ic), length(unique(frame$cluster))))

@@ -29,6 +29,7 @@ from cleverly.estimators import TMLE
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import mar_arm_indexed_laws as laws
+from tests.studies.evidence import failures as evidence_failures
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
@@ -472,3 +473,14 @@ def scientific_failures(extra_frames: Mapping[str, pd.DataFrame]) -> dict[str, p
     if set(probe["scenario"]) != expected:
         return {"scale-workaround probe coverage": probe}
     return {"scale-workaround probe": probe.loc[~probe["passed"].astype(bool)]}
+
+
+def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    """The probe audits as they stand: the probe refits replication 0 of the samples only.
+
+    A failed main fit removes no probe row, so it changes neither audit.  The probe runs its
+    own ``tmle`` call outside ``study_stage``.  When that call fails as well, the run stops
+    in ``reference_artifacts``, as the hook rule in ``method-benchmarking.md`` states.
+    """
+    del failures
+    return evidence_failures.audits(scientific_failures(artifacts), missing={})

@@ -80,7 +80,10 @@ fit_one <- function(frame) {
   # Arithmetic on the two ife objects uses their joint rowwise EIF. Because both objects
   # retain the same id vector, ife computes the contrast's standard error after aggregation
   # at the cluster level.
-  ate <- list(estimate = one$estimate - zero$estimate, initial = one$initial - zero$initial)
+  ate <- list(
+    estimate = study_stage("ife", one$estimate - zero$estimate),
+    initial = one$initial - zero$initial
+  )
   rbind(
     row_for(replicate, "ey0", zero, nrow(frame)),
     row_for(replicate, "ey1", one, nrow(frame)),

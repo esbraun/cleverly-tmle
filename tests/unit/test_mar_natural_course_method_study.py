@@ -188,6 +188,9 @@ def test_the_probe_artifact_covers_the_reference_rows(tmp_path: Path) -> None:
             "replicate": [0, 0, 1, 1, 2, 2],
         }
     ).to_csv(reference_results, index=False)
+    pd.DataFrame(
+        {"scenario": study.CONTINUOUS_SCENARIO, "replicate": [0, 1, 2], "y": [0.1, 0.2, 0.3]}
+    ).to_csv(tmp_path / "samples.csv.gz", index=False)
 
     def write_full_probe(
         _here: Path, _samples: Path, _truths: Path, path: Path, **_options: object

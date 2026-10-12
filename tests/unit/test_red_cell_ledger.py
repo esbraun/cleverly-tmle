@@ -286,7 +286,9 @@ def test_a_missing_verdict_is_refused(tmp_path: Path) -> None:
     for filename in FRAMES.values():
         pd.read_csv(record.artifact(filename)).to_csv(tmp_path / filename, index=False)
     copy = dataclasses.replace(record, artifacts=tmp_path)
-    assert set(frames(copy)) == set(FRAMES)
+    # The failure accounting is read too, and is empty for a study whose comparator never failed.
+    assert set(frames(copy)) == {*FRAMES, "accounting"}
+    assert frames(copy)["accounting"].empty
     blanked = pd.read_csv(tmp_path / FRAMES["equivalence"])
     blanked["passed"] = blanked["passed"].astype(object)
     blanked.loc[0, "passed"] = None
