@@ -274,10 +274,20 @@ class TestTheWitnessesBind:
         assert np.any(np.diff(np.concatenate([[-1], accepted])) > 1)
 
     def test_w2_the_stop_binds_before_the_end(self, lasso_path: harness.Path) -> None:
+        """The package's rule stops where R stops, with two or more candidates left.
+
+        Read from the rule's own control flow: one round per initial fit, and the index of
+        each candidate's initial fit. A rule without the stop would accept again in the last
+        round, start another round, and fluctuate the later candidates from a new initial fit.
+        """
         r = read(HERE / "glmnet_path.csv")
-        accepted = r.loc[r["accepted"] == 1, "index"].to_numpy() - 1
-        assert lasso_path.stopped
-        assert accepted[-1] < len(r) - 1
+        accepted = tuple(int(i) - 1 for i in r.loc[r["accepted"] == 1, "index"])
+        left = len(r) - 1 - accepted[-1]
+        assert left >= 2, "the fixture must stop with two or more candidates left"
+        assert len(lasso_path.rounds) == len(accepted) + 1
+        assert lasso_path.rounds[-1].size == left
+        after = lasso_path.candidates[accepted[-1] + 1 :]
+        assert {candidate.n_steps for candidate in after} == {len(accepted) + 1}
 
     def test_w3_the_final_step_binds(
         self,

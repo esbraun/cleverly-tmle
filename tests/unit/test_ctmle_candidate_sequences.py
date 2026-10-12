@@ -383,9 +383,35 @@ class TestLasso:
         assert selection.selected_covariates == selection.path[selection.reported]
         assert "final step used candidate" in selection.describe()
 
-    def test_the_first_candidate_is_the_intercept_bit_for_bit(self, frame: Any) -> None:
-        """W4: the short circuit makes the top of the default grid the intercept candidate."""
+    def test_the_first_candidate_is_the_intercept_bit_for_bit(
+        self, frame: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """W4: the short circuit makes the top of the default grid the intercept candidate.
+
+        The risks below agree even when the solver reaches the intercept by coordinate
+        descent, because that fit misses the proportions by about 1e-16 at most, and on this
+        frame by nothing. The analysis fit is therefore checked to be the short-circuit fit
+        itself, a stored ``constant``, and its predictions to be the proportions bit for bit.
+        """
+        analysis: list[Any] = []
+        original = ctmle_module.penalty_path
+
+        def spy(x: Any, *args: Any, **kwargs: Any) -> Any:
+            fits = original(x, *args, **kwargs)
+            if len(x) == len(frame):
+                analysis.append((np.asarray(x), fits[0]))
+            return fits
+
+        monkeypatch.setattr(ctmle_module, "penalty_path", spy)
         lasso = _fit(frame, strategy="lasso")
+        monkeypatch.undo()
+        assert analysis, "the analysis-sample path was not fitted"
+        a = frame["A"].to_numpy()
+        proportions = np.array([np.sum(a == arm) / a.size for arm in (0, 1)])
+        for x, first in analysis:
+            assert first.constant is not None, "the top penalty was solved, not short-circuited"
+            predicted = first.predict_proba(x)
+            assert np.array_equal(predicted, np.broadcast_to(proportions, predicted.shape))
         intercept = _fit(frame, strategy="discrete", candidates=[()])
         selection = lasso.extra["ctmle"]
         reference = intercept.extra["ctmle"]
@@ -795,8 +821,26 @@ def _check_identities(pairs: list[tuple[frozenset[float], frozenset[float]]], ev
         assert not fitted & predicted, "a row reached the model that predicts it"
 
 
+def _check_selection_folds(fitted: list[frozenset[float]], split: np.ndarray) -> None:
+    """Every fit but the analysis-sample one holds out one whole selection fold.
+
+    A fit made inside selection fold ``v`` uses training rows of fold ``v`` only. A fold-``v``
+    validation row that entered it would reach the training-side fluctuation, which scores the
+    candidate, even though the fit never predicts that row.
+    """
+    every = frozenset(float(row) for row in range(split.size))
+    folds = [frozenset(np.flatnonzero(split == v).astype(float).tolist()) for v in set(split)]
+    inside = [ids for ids in fitted if ids != every]
+    assert inside, "no fit was made inside a selection fold"
+    for ids in inside:
+        assert any(not ids & fold for fold in folds), (
+            "a fit inside a selection fold holds a row of every fold: a selection-validation "
+            "row reached it"
+        )
+
+
 class TestRowIdentities:
-    """W7: no selection-validation row reaches a fit that scores it."""
+    """W7: no selection-validation row reaches a fit that scores it, or any fit of its fold."""
 
     @pytest.fixture
     def tagged(self, frame: Any) -> Any:
@@ -804,13 +848,14 @@ class TestRowIdentities:
         tagged["ID"] = np.arange(len(frame), dtype=float)
         return tagged
 
-    def test_learners(self, tagged: Any) -> None:
+    def test_learners(self, tagged: Any, split: np.ndarray) -> None:
         RowSpy.log = []
         _fit(
             tagged,
             strategy="learners",
             treatment_candidates=[RowSpy(column=3)],
             treatment_learner=LogisticRegression(max_iter=1000),
+            selection_split=split,
         )
         pairs = []
         log = RowSpy.log
@@ -819,8 +864,9 @@ class TestRowIdentities:
                 pairs.append((log[index + 1][1], log[index][1]))
         assert len(pairs) >= 1 + 3 * 3
         _check_identities(pairs, set(tagged["ID"].tolist()))
+        _check_selection_folds([ids for kind, ids in log if kind == "fit"], split)
 
-    def test_lasso(self, tagged: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_lasso(self, tagged: Any, split: np.ndarray, monkeypatch: pytest.MonkeyPatch) -> None:
         recorded: list[tuple[frozenset[float], frozenset[float]]] = []
         original = ctmle_module.penalty_path
 
@@ -840,9 +886,10 @@ class TestRowIdentities:
             return [Recorder(fit) for fit in fits]
 
         monkeypatch.setattr(ctmle_module, "penalty_path", spy)
-        _fit(tagged, strategy="lasso", lambdas=SHORT_GRID)
+        _fit(tagged, strategy="lasso", lambdas=SHORT_GRID, selection_split=split)
         assert len(recorded) >= len(SHORT_GRID) * (1 + 3 * 3)
         _check_identities(recorded, set(tagged["ID"].tolist()))
+        _check_selection_folds([fitted for fitted, _ in recorded], split)
 
 
 # ------------------------------------------------------- forced selection (W5)

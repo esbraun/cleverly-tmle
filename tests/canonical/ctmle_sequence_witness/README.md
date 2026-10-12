@@ -81,6 +81,15 @@ The prediction tolerance is `1.8e-7`, so each mutation fails by a factor above 1
 
 The estimate tolerance is `1e-6`.
 
+The mutation controls of the same day found three mutations that only the R fixture, or no
+test, caught. Each named test now fails under its mutation, checked once and then restored.
+
+| mutation | before | test that now fails |
+| --- | --- | --- |
+| stop rule dropped in `_indexed_path` | the R fixture rows only | `test_a_stop_with_two_candidates_left` and `test_w2_the_stop_binds_before_the_end` |
+| selection-validation rows enter the inner-fold candidate fits | no test | `TestRowIdentities::test_lasso` and `TestRowIdentities::test_learners` |
+| lasso short circuit dropped | the solver-level test only | `test_the_first_candidate_is_the_intercept_bit_for_bit` |
+
 These fits gave the same output at the base commit `287a1fb5` and at `1d66d65`:
 
 | strategy or setting | variants |
