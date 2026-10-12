@@ -33,6 +33,7 @@ from .score import DEFAULT_TOLERANCE, ScoreCheck, ScoreCheckRow, score_check
 from .simulation import (
     CoverageStudy,
     EstimandSummary,
+    ReplicationCheckpoint,
     ReplicationFailure,
     ReplicationRecord,
     StudyResult,
@@ -61,6 +62,7 @@ __all__ = [
     "RefutationTest",
     "RelativeGaussianNoise",
     "RepeatSpreadRow",
+    "ReplicationCheckpoint",
     "ReplicationFailure",
     "ReplicationRecord",
     "ScoreCheck",
