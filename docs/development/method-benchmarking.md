@@ -27,7 +27,7 @@ samples; one method does not inherit another's parity or coverage claims.
 - Supply and assert the exact row-to-fold assignment for cross-fitted methods. A common seed or
   fold count is not enough when splitters or dependency versions differ.
 - Preserve native inference scales, including log-scale risk-ratio and odds-ratio intervals.
-- Record each comparator fitting failure, and account for it as
+- Record each fitting failure of either implementation, and account for it as
   [Comparator fitting failures](#comparator-fitting-failures) states. The run fails on a
   missing replication that has no record. Do not replace samples or summarize a shorter run
   than the one declared.
@@ -44,8 +44,10 @@ and non-inferiority margins for the paired comparison rather than a null test of
 
 The R harness (`tests/canonical/study_harness.R`) runs each comparator call inside
 `study_stage`. An error in that call becomes a failure record, and the run continues. The
-driver publishes the records as `failures.csv` and the accounting as `failure-accounting.csv`.
-Both files exist only when a fit failed.
+Python phase fits each `cleverly` replicate through `fit_replicates`
+(`tests/studies/evidence/replication.py`), and a recordable error there also becomes a record.
+The driver publishes both sides' records as `failures.csv` and the accounting as
+`failure-accounting.csv`. Both files exist only when a fit failed.
 
 | rule | statement |
 | --- | --- |
@@ -54,23 +56,29 @@ Both files exist only when a fit failed.
 | raising a bound | Declare a bound before the study runs under it. A study whose run has shown failures may not raise its bound |
 | fallback fit | Do not replace a failed replicate by a fallback fit or a new sample |
 | invalid result | A comparator row with a non-finite value, a non-positive standard error, an inverted interval, or a `covered` flag that disagrees with its interval becomes an `invalid_result` record |
-| worst case | Each verdict leg must pass under its least favourable candidate fill of the lost values. The bias, coverage, and similarity candidates lie inside the surviving range. The RMSE and coverage-difference legs fill the reference at its best case: the estimate at the truth and the interval covering it. The range is an assumption, and the accounting records it |
+| worst case | Each verdict leg must pass under its least favourable candidate fill of the lost values. The bias, coverage, and similarity candidates lie inside the surviving range. The RMSE and coverage-difference legs fill the reference at its best case: the estimate at the truth and the interval covering it. They fill the subject at its worst case: each lost estimate at the surviving estimate farthest from the truth, and each lost interval missing the truth. The calibration leg tries every pair of the two sides' candidate fills. The range is an assumption, and the accounting records it |
 | enumeration | The SE-ratio and calibration candidates are a finite set: edge, mean, and root fills. They are not a proof that no other fill is less favourable |
 | routes | A paired cell passes by equivalence or by superiority. A route survives when each of its legs passes its worst case. A `superior` cell that keeps only equivalence reads `equivalent`. A cell that keeps no route reads `unaccounted` |
 | pairing | A paired cell drops the replicates that either side lost |
-| witness | The accounting reports the subject's mean error on the lost replicates and on the shared ones. The witness is descriptive. No gate reads it |
+| witness | The accounting reports the subject's mean error on the replicates only the reference lost and on the shared ones. It reports the reference's mean error on the replicates only the subject lost and on the shared ones. The witness is descriptive. No gate reads it |
 | hooks | A study hook must define `account_failures`, or its accounting row reads `failures not accountable`, which is red. A probe that refits a replication outside `study_stage` stops the run when that refit fails |
 | calibration | A group that fails during memory calibration is skipped, and calibration takes the next group of its scenario. When 20 groups of one scenario fail, the run stops as systematic |
 | recording off | `CLEVERLY_R_NO_RECORD=1` turns recording off. Every error in a stage then stops the run, as it did before this rule |
-| subject failures | The Python phase records no failure in this release. A missing subject row stops the run |
+| subject failures | The Python phase records a `DataError`, a `LongitudinalError`, a `numpy.linalg.LinAlgError`, a `FloatingPointError`, a `ZeroDivisionError`, an `OverflowError`, and a plain `ValueError` or `RuntimeError` that `numpy`, `scipy`, `sklearn` or `statsmodels` raised (`cleverly.validation._failures`). Any other error stops the run. An error in the draw stops the run |
+| subject rows | A subject row that breaks a row rule of the `invalid result` rule becomes an `invalid_result` record |
+| side bounds | Each implementation's failures count against its own bound. A paired cell is red when either side exceeds its bound |
+| paired input | A study whose reference input does not need the subject's fit still writes the sample of a replicate that the subject lost, so the reference fits it. A study whose reference input comes from the subject's fit writes no such sample. The driver then writes a `paired_input_missing` reference record, which counts against the subject's bound |
+| Python checkpoints | Under the driver, each Python replicate runs in a worker and leaves a checkpoint. A killed worker costs the replicates in flight. Each one runs once more alone, and a second kill stops the run. A `MemoryError` in a worker is a kill |
+| zEpid | The zEpid runner records failures with a copy of the Python rule that adds `zepid` to the libraries. It runs in one container, so the driver's stored reference result is its resume |
+| property phase | The property studies record no failure in this release. An error there stops the run |
 
 The stage covers the comparator call only. These conditions stay fatal and stop the run:
 
 - an error outside a stage, such as a data read or an output write,
 - a `study_fatal_error`, such as a promoted warning,
 - a C stack overflow,
-- the first 20 groups of one scenario all fail, and
-- every group of the run fails.
+- the first 20 groups, or Python replicates, of one scenario all fail, and
+- every group, or every Python replicate, of the run fails.
 
 A memory-exhaustion error ends the worker as a kill. The same run then refits that group with
 half the workers.

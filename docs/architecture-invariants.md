@@ -477,7 +477,9 @@ covariate. The override returns a copy, so a refit never changes the fitted esti
 
 Repeated-sampling studies retain one structured `ReplicationRecord` per estimand and a
 `ReplicationFailure` with replicate index, seed, exception type, and message for every failed
-draw. Summaries are derived from those records through `summarize_replications`; evidence adapters
+fit. `CoverageStudy` records only the errors that `cleverly.validation._failures.recordable`
+accepts, and any other error stops the study. An error in the data-generating process always
+stops it. Summaries are derived from those records through `summarize_replications`; evidence adapters
 must not reimplement bias, root-n bias, coverage, or standard-error calibration. The study alpha
 comes from the returned `ParameterEstimate`, and all successful records must agree on it.
 
