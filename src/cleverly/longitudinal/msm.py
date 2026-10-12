@@ -1107,6 +1107,7 @@ def project_sdr_cells(
     scaler: OutcomeScaler,
     *,
     cause: str | None,
+    estimator: str = "sdr",
 ) -> MSMRegimenFit:
     r"""Project each cell's sequentially doubly robust transform onto the working model.
 
@@ -1142,6 +1143,10 @@ def project_sdr_cells(
         The outcome transformation.
     cause : str or None
         The absorbing cause, on a competing-risk fit.
+    estimator : {"sdr", "ipsi"}
+        The estimator of the cells.  An :class:`~cleverly.longitudinal.IPSI` cell's
+        :math:`\varphi_1` is its uncentered influence function, Kennedy (2019), Algorithm 1,
+        and the projection reads it as it reads a transform.
 
     Returns
     -------
@@ -1166,6 +1171,12 @@ def project_sdr_cells(
         )
     link = str(model.link)
     if not projection.converged and not link_for(link).is_identity:
+        if estimator == "ipsi":
+            raise CapabilityError(
+                f"the working model's {link} projection of the IPSI estimates did not "
+                "converge. A one-step estimate can leave [0, 1], so a "
+                f"{link} link can have no finite solution. Use the identity link"
+            )
         raise CapabilityError(
             f"the working model's {link} projection of the SDR transforms did not converge. "
             "An SDR transform can leave [0, 1] (Díaz et al. 2023, Section 5.3), so a "

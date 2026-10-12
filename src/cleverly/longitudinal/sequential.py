@@ -625,6 +625,10 @@ class RegimenFit:
     #: continuous node is the density ratio :math:`r_t` itself.  Not bounded by
     #: ``g_bounds``.  ``None`` on a plan without such a node.
     node_ratio: FloatArray | None = None
+    #: On an :class:`~cleverly.longitudinal.IPSI` fit, the ``(n,)`` sum over tilt nodes of
+    #: the mechanism term of the influence function (Kennedy 2019, Appendix Lemmas 3 and 4).
+    #: ``None`` on every other fit.
+    mechanism_term: FloatArray | None = None
 
     @property
     def leverage(self) -> FloatArray:

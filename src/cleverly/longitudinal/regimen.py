@@ -44,6 +44,15 @@ and a :class:`Plan` carries it.  At a policy node the plan's ``values`` column h
 :meth:`Plan.masks` keeps the rows whose observed arm has positive policy probability.  A
 policy density that is one-hot on every reachable row is the rule it equals, and
 :func:`resolve_plans` resolves it as that rule.
+
+A node can hold an **odds tilt** of the treatment mechanism, written as an
+:class:`~cleverly.interventions.Incremental` node (Kennedy 2019, Equation (1)).  Its density
+:math:`q_t(1 \\mid H_t) = \\delta_t \\pi_t / (\\delta_t \\pi_t + 1 - \\pi_t)` reads the fitted
+mechanism :math:`\\pi_t`, so :func:`resolve_plans` records only :math:`\\delta_t`, and
+:meth:`Plan.with_tilts` attaches the density once a mechanism is fitted.  At a tilt node the
+plan's ``values`` column holds the observed arm, as at a policy node, and every row with a
+treatment there stays on the plan.  Only :class:`~cleverly.longitudinal.IPSI` fits such a
+plan.
 """
 
 from __future__ import annotations
@@ -64,6 +73,7 @@ from ..interventions.base import (
     check_regime_density,
     refuse_regime_densities,
 )
+from ..interventions.incremental import Incremental
 from ..interventions.policy import (
     POLICY_TYPES,
     check_continuous_policy,
@@ -84,21 +94,32 @@ __all__ = [
     "RegimenSpec",
     "declares_mtp",
     "declares_policy",
+    "declares_tilt",
     "refuse_regimen_rules",
     "resolve_plans",
     "resolve_regimens",
 ]
 
 #: One node of a plan: a categorical label, a rule reading that node's history, a known
-#: policy density over the node's levels, or a modified treatment policy that reads the
-#: unit's own treatment at the node.
+#: policy density over the node's levels, a modified treatment policy that reads the
+#: unit's own treatment at the node, or an odds tilt of the node's treatment mechanism.
 TreatmentLabel: TypeAlias = "str | np.str_ | bool | int | float | np.number"
-RuleNode: TypeAlias = "TreatmentLabel | Callable[[Any], Any] | Stochastic | Policy"
+RuleNode: TypeAlias = "TreatmentLabel | Callable[[Any], Any] | Stochastic | Policy | Incremental"
 
 
 def _is_mtp(node: object) -> bool:
     """Whether a plan node is a modified treatment policy."""
     return isinstance(node, POLICY_TYPES)
+
+
+def _is_tilt(node: object) -> bool:
+    """Whether a plan node is an odds tilt of the treatment mechanism."""
+    return isinstance(node, Incremental)
+
+
+def _is_drawn(node: object) -> bool:
+    """Whether a plan node draws or moves the arm rather than assigning it."""
+    return isinstance(node, Stochastic) or _is_mtp(node) or _is_tilt(node)
 
 
 @dataclass(frozen=True)
@@ -121,7 +142,7 @@ class Regimen:
     def __post_init__(self) -> None:
         if not self.values:
             raise DataError(f"regimen {self.label!r} assigns no treatment at any time point")
-        if any(isinstance(value, Stochastic) or _is_mtp(value) for value in self.values):
+        if any(_is_drawn(value) for value in self.values):
             raise DataError(
                 f"regimen {self.label!r} holds a policy node. Write a plan with a "
                 "policy node as DynamicRegimen(label, plan), or pass it in regimens= as a "
@@ -289,10 +310,31 @@ class DynamicRegimen:
         """
         return isinstance(self.plan[time - 1], Stochastic)
 
+    def is_tilt(self, time: int) -> bool:
+        """Whether ``time``'s arm is drawn from an odds tilt of the treatment mechanism.
+
+        Parameters
+        ----------
+        time : int
+            The treatment node, counted from one.
+
+        Returns
+        -------
+        bool
+            ``True`` when the entry of ``plan`` at ``time`` is an
+            :class:`~cleverly.interventions.Incremental` node.
+        """
+        return _is_tilt(self.plan[time - 1])
+
     @property
     def has_policy(self) -> bool:
         """Whether any node of ``plan`` is a stochastic policy or a modified treatment policy."""
         return any(isinstance(node, Stochastic) or _is_mtp(node) for node in self.plan)
+
+    @property
+    def has_tilt(self) -> bool:
+        """Whether any node of ``plan`` is an odds tilt of the treatment mechanism."""
+        return any(_is_tilt(node) for node in self.plan)
 
     @property
     def has_mtp(self) -> bool:
@@ -353,7 +395,7 @@ class DynamicRegimen:
         columns = []
         for time, node in enumerate(self.plan, start=1):
             reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
-            if isinstance(node, Stochastic) or _is_mtp(node):
+            if _is_drawn(node):
                 arms = data.observed_labels(time)
             elif callable(node):
                 arms = self._evaluate(node, data, time, reachable)
@@ -512,6 +554,8 @@ def _describe_node(node: RuleNode) -> str:
     """
     if isinstance(node, Stochastic):
         return f"q:{node.name}" if node.name else "q"
+    if _is_tilt(node):
+        return f"o:{node.name}"
     if _is_mtp(node):
         return f"m:{getattr(node, 'name', '')}"
     if not callable(node):
@@ -568,12 +612,17 @@ class Plan:
     mtp_numerators : tuple
         Per node, the ratio numerator of a policy node once the mechanism is fitted, and
         ``None`` elsewhere.  Empty until :func:`attach_policy_numerators` sets it.
+    tilt_deltas : tuple
+        Per node, the odds multiplier :math:`\\delta_t` of a tilt node, and ``None``
+        elsewhere.  Empty without a tilt node.  At a tilt node ``values`` holds the observed
+        code, and ``policy`` holds the tilted density once :meth:`with_tilts` attaches it.
 
     Attributes
     ----------
     label : str
     has_policy : bool
     has_mtp : bool
+    has_tilt : bool
     """
 
     regimen: RegimenSpec
@@ -593,10 +642,82 @@ class Plan:
     #: :math:`g^d_t(A_t \mid H_t)` at a categorical node and :math:`r_t = g^d_t / g_t` at a
     #: continuous one.  Empty until :func:`attach_policy_numerators` sets it.
     mtp_numerators: tuple[FloatArray | None, ...] = ()
+    #: Per node, the odds multiplier of a tilt node, and ``None`` elsewhere.  Empty without
+    #: a tilt node.
+    tilt_deltas: tuple[float | None, ...] = ()
 
     @property
     def label(self) -> str:
         return self.regimen.label
+
+    @property
+    def has_tilt(self) -> bool:
+        """Whether any node of this plan is an odds tilt of the treatment mechanism."""
+        return any(delta is not None for delta in self.tilt_deltas)
+
+    def is_tilt_node(self, time: int) -> bool:
+        """Whether node ``time``, counted from one, is an odds tilt.
+
+        Parameters
+        ----------
+        time : int
+            The treatment node, counted from one.
+
+        Returns
+        -------
+        bool
+            ``True`` at a tilt node, whether or not its density is attached.
+        """
+        return bool(self.tilt_deltas) and self.tilt_deltas[time - 1] is not None
+
+    def tilt_delta(self, time: int) -> float:
+        """The odds multiplier of tilt node ``time``.
+
+        Parameters
+        ----------
+        time : int
+            A tilt node, counted from one.
+
+        Returns
+        -------
+        float
+            :math:`\\delta_t`.
+        """
+        delta = self.tilt_deltas[time - 1] if self.tilt_deltas else None
+        if delta is None:
+            raise ValueError(f"node {time} of regimen {self.label!r} is not a tilt node")
+        return float(delta)
+
+    def with_tilts(self, propensity: Mapping[int, FloatArray]) -> Plan:
+        r"""This plan with each tilt node's density, from the mechanism :math:`\pi_t`.
+
+        At a tilt node the density is :math:`(1 - q_t, q_t)` with
+        :math:`q_t = \delta_t \pi_t / (\delta_t \pi_t + 1 - \pi_t)`, Kennedy (2019),
+        Equation (1).  The node then reads as a policy node: the regression holds the
+        current arm as a column, and the node carries :math:`\sum_a q_t(a) m_t(a)`.
+
+        Parameters
+        ----------
+        propensity : mapping of int to FloatArray
+            By tilt node, counted from one, the ``(n,)`` probability of the second level.
+
+        Returns
+        -------
+        Plan
+            The plan with its tilt densities attached.
+        """
+        from dataclasses import replace
+
+        n_times = int(self.values.shape[1])
+        policy = list(self.policy) if self.policy else [None] * n_times
+        for time in range(1, n_times + 1):
+            if not self.is_tilt_node(time):
+                continue
+            pi = np.clip(np.asarray(propensity[time], dtype=float), 0.0, 1.0)
+            delta = self.tilt_delta(time)
+            tilted = delta * pi / (delta * pi + 1.0 - pi)
+            policy[time - 1] = np.column_stack([1.0 - tilted, tilted])
+        return replace(self, policy=tuple(policy))
 
     @property
     def has_mtp(self) -> bool:
@@ -703,7 +824,9 @@ class Plan:
         At a label or rule node it is :math:`1\{A_t = d_t(H_t)\}`, at a stochastic policy
         node :math:`q_t(A_t \mid H_t) > 0`, and at a modified treatment policy node every
         row with a treatment there: the policy reads the unit's own treatment, so no row
-        leaves the plan, and a row whose ratio is zero keeps a zero term.
+        leaves the plan, and a row whose ratio is zero keeps a zero term.  A tilt node also
+        keeps every row with a treatment there: its factor
+        :math:`(\delta_t A_t + 1 - A_t) / (\delta_t \pi_t + 1 - \pi_t)` is positive.
 
         Parameters
         ----------
@@ -717,7 +840,7 @@ class Plan:
         """
         columns = []
         for time in range(1, data.n_times + 1):
-            if self.is_mtp_node(time):
+            if self.is_mtp_node(time) or self.is_tilt_node(time):
                 columns.append(~np.isnan(data.treatment[:, time - 1]))
             else:
                 columns.append(_node_numerator(self, data, time) > 0.0)
@@ -804,6 +927,11 @@ def _node_numerator(plan: Plan, data: LongitudinalData, time: int) -> FloatArray
                 "ratio numerator reads the fitted mechanism; attach it first"
             )
         return np.where(present, numerator, 0.0)
+    if plan.is_tilt_node(time) and not plan.is_policy_node(time):
+        raise ValueError(
+            f"node {time} of regimen {plan.label!r} is an odds tilt, whose density reads the "
+            "fitted mechanism; attach it first with Plan.with_tilts"
+        )
     if plan.is_policy_node(time):
         codes = np.nan_to_num(observed, nan=0.0).astype(np.int64)
         density = plan.policy_at(time)
@@ -849,7 +977,7 @@ def _resolve_plan(regimen: RegimenSpec, data: LongitudinalData, *, collapse: boo
     """One regimen's plan, with its policy densities evaluated and point masses collapsed."""
     refuse_continuous_assignments(regimen, data)
     values = data.encode_assignment(regimen.assignment(data), regimen.label)
-    if not (isinstance(regimen, DynamicRegimen) and regimen.has_policy):
+    if not (isinstance(regimen, DynamicRegimen) and (regimen.has_policy or regimen.has_tilt)):
         return Plan(regimen, values)
     values = np.array(values, dtype=float, copy=True)
     policy: list[FloatArray | None] = []
@@ -857,13 +985,25 @@ def _resolve_plan(regimen: RegimenSpec, data: LongitudinalData, *, collapse: boo
     mtp_nodes: list[int] = []
     targets: list[tuple[FloatArray, ...] | None] = []
     assignments: list[tuple[tuple[float, IntArray], ...] | None] = []
+    deltas: list[float | None] = []
     for time in range(1, data.n_times + 1):
         if data.is_held_node(time):
             # An identity node of a held design: never a policy or MTP node.
             policy.append(None)
             targets.append(None)
             assignments.append(None)
+            deltas.append(None)
             continue
+        if regimen.is_tilt(time):
+            node = regimen.plan[time - 1]
+            assert isinstance(node, Incremental)
+            refuse_multi_arm_tilt_node(data, time)
+            policy.append(None)
+            targets.append(None)
+            assignments.append(None)
+            deltas.append(float(node.delta))
+            continue
+        deltas.append(None)
         if regimen.is_mtp(time):
             carry, target, assigned = _resolve_mtp_node(regimen, data, time)
             policy.append(carry)
@@ -893,6 +1033,32 @@ def _resolve_plan(regimen: RegimenSpec, data: LongitudinalData, *, collapse: boo
         mtp_nodes=tuple(mtp_nodes),
         policy_targets=tuple(targets) if any(t is not None for t in targets) else (),
         mtp_assignments=tuple(assignments) if any(a is not None for a in assignments) else (),
+        tilt_deltas=tuple(deltas) if any(d is not None for d in deltas) else (),
+    )
+
+
+def refuse_multi_arm_tilt_node(data: LongitudinalData, time: int) -> None:
+    """Refuse an odds tilt at a node with other than two treatment levels.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The validated panel.
+    time : int
+        The tilt node, counted from one.
+
+    Raises
+    ------
+    DataError
+        If the node does not have exactly two levels.
+    """
+    from ..interventions.incremental import multi_arm_tilt_message
+
+    levels = list(data.treatment_levels[time - 1])
+    if len(levels) == 2:
+        return
+    raise DataError(
+        multi_arm_tilt_message(f"node {data.treatment_names[time - 1]!r}", len(levels), levels)
     )
 
 
@@ -957,6 +1123,10 @@ def refuse_continuous_assignments(regimen: RegimenSpec, data: LongitudinalData) 
         return
     nodes = regimen.values if isinstance(regimen, Regimen) else regimen.plan
     for time, node in enumerate(nodes, start=1):
+        if data.is_continuous_node(time) and _is_tilt(node):
+            raise CapabilityError(
+                tilt_mix_message(regimen.label, data.treatment_names[time - 1], "a continuous dose")
+            )
         if data.is_continuous_node(time) and not _is_mtp(node):
             raise CapabilityError(
                 f"regimen {regimen.label!r} sets the continuous node "
@@ -1098,6 +1268,55 @@ def declares_policy(regimens: Any) -> bool:
         if any(isinstance(node, Stochastic) for node in ((plan,) if nodes is None else nodes)):
             return True
     return False
+
+
+def declares_tilt(regimens: Any) -> bool:
+    """Whether any plan of a ``regimens=`` argument holds an odds tilt node.
+
+    Parameters
+    ----------
+    regimens : Any
+        The ``regimens=`` argument of a fit or of a longitudinal estimand.
+
+    Returns
+    -------
+    bool
+        ``True`` when some node of some plan is an
+        :class:`~cleverly.interventions.Incremental` node.
+    """
+    for label, plan in _plans(regimens):
+        try:
+            nodes = _plan_nodes(label, plan)
+        except DataError:
+            continue
+        if any(_is_tilt(node) for node in ((plan,) if nodes is None else nodes)):
+            return True
+    return False
+
+
+def tilt_mix_message(label: str, node: str, kind: str) -> str:
+    """The refusal of a tilt plan that also sets a node by a policy :class:`IPSI` cannot fit.
+
+    Parameters
+    ----------
+    label : str
+        The regimen label.
+    node : str
+        The treatment column of the node.
+    kind : str
+        What sets the node, such as ``"a modified treatment policy"``.
+
+    Returns
+    -------
+    str
+        The message.
+    """
+    return (
+        f"regimen {label!r} sets node {node!r} by {kind}. IPSI estimates no density ratio "
+        "for a modified treatment policy or a risk-ratio tilt, so a plan that mixes them "
+        "with an odds tilt has no estimator here. Fit plans of those nodes alone with "
+        "LTMLE or SDR"
+    )
 
 
 def declares_mtp(regimens: Any) -> bool:
@@ -1308,7 +1527,7 @@ def _held_plan(label: str, plan: Any, n_times: int) -> Any:
     if nodes is None or len(nodes) == 1:
         return plan
     static = not isinstance(plan, DynamicRegimen) and not any(
-        callable(node) or isinstance(node, Stochastic) or _is_mtp(node) for node in nodes
+        callable(node) or _is_drawn(node) for node in nodes
     )
     if static and all(_same_label(node, nodes[0]) for node in nodes):
         if len(nodes) != n_times:
@@ -1332,7 +1551,7 @@ def _resolve_one(label: str, plan: Any, n_times: int) -> RegimenSpec:
     """
     kind: FunctionKind | None = plan.rule_kind if isinstance(plan, DynamicRegimen) else None
     nodes = _nodes(label, plan, n_times)
-    if any(callable(node) or isinstance(node, Stochastic) or _is_mtp(node) for node in nodes):
+    if any(callable(node) or _is_drawn(node) for node in nodes):
         return DynamicRegimen(label, nodes, rule_kind=kind)
     return Regimen(label, nodes)
 
@@ -1345,12 +1564,12 @@ def _nodes(label: str, plan: Any, n_times: int) -> tuple[RuleNode, ...]:
         # ``isinstance(..., Sequence)``, which neither registers for.  ``_plan_nodes`` tests
         # for the iteration protocol instead, so the message about rules is not aimed at
         # an array whose diagnosis it gets wrong.
-        if not (callable(plan) or _is_mtp(plan) or isinstance(plan, (Stochastic, *_LABEL_TYPES))):
+        if not (callable(plan) or _is_drawn(plan) or isinstance(plan, _LABEL_TYPES)):
             raise DataError(
                 f"regimen {label!r} must be a treatment label, a rule d_t(H_t), a known "
                 f"policy Stochastic(q, name, density_kind='known'), a modified treatment "
-                f"policy such as Shift(0.5, cap=4.0), or a sequence of {n_times} of these; "
-                f"got {plan!r}"
+                f"policy such as Shift(0.5, cap=4.0), an odds tilt Incremental(2.0), or a "
+                f"sequence of {n_times} of these; got {plan!r}"
             )
         # A rule or a policy gets the broadcast that a scalar arm gets.  So a rule that reads a
         # late-measured covariate is diagnosed at evaluation rather than here: whether
