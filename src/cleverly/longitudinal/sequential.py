@@ -122,6 +122,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
@@ -600,14 +601,26 @@ class RegimenFit:
     #: continuous node is the density ratio :math:`r_t` itself.  Not bounded by
     #: ``g_bounds``.  ``None`` on a plan without such a node.
     node_ratio: FloatArray | None = None
+    #: The targeting record of a fit with ``survival_model="hazard"``, and ``None`` on an
+    #: iterated-mean fit.  Such a fit runs no backward recursion, so :attr:`steps` is empty.
+    #: A one-step fit shares one record between every reported parameter.
+    hazard: Any = None
+    #: ``(n,)`` the hazard fit's inverse mechanism at the horizon node, at the observed level,
+    #: on the rows at risk there and zero elsewhere: :math:`q_r(A) / (g(A) G_t(A))`.  It
+    #: stands in for the final node's clever covariate in :attr:`leverage`.  ``None`` on an
+    #: iterated-mean fit.
+    hazard_clever: FloatArray | None = None
 
     @property
     def leverage(self) -> FloatArray:
         """Final node's clever covariate, weighted: :math:`w_i / \\prod_{s} g_s c_s`.
 
         What one unit can contribute to the estimating equation, which is the product of
-        the two reweightings a fit applies and not either alone.
+        the two reweightings a fit applies and not either alone.  A hazard fit reads
+        :attr:`hazard_clever` in its place.
         """
+        if self.hazard_clever is not None:
+            return np.asarray(self.obs_weights * self.hazard_clever, dtype=float)
         return np.asarray(self.obs_weights * self.steps[-1].clever, dtype=float)
 
     @property
@@ -633,6 +646,8 @@ class RegimenFit:
 
     @property
     def converged(self) -> bool:
+        if self.hazard is not None:
+            return bool(self.hazard.converged)
         return all(step.fluctuation.converged for step in self.steps)
 
 

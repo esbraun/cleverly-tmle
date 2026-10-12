@@ -139,6 +139,15 @@ from ..utils.bounds import (
 from ..utils.phases import PhaseProfile, phase, profile_phases
 from ..utils.text import format_pvalue, format_table
 from .data import LongitudinalData
+from .hazard import (
+    HazardAlgorithm,
+    InitialHazards,
+    fit_hazards,
+    level_plans,
+    refuse_hazard_design,
+    refuse_hazard_settings,
+    target_regimens,
+)
 from .msm import (
     MSMRegimenFit,
     RegimenMSM,
@@ -711,6 +720,16 @@ class LongitudinalConfig:
     #: (:attr:`~cleverly.longitudinal.LongitudinalData.known_mechanisms`), in node order.
     #: Each fits no learner and is not truncated.  Empty on a fit that declares none.
     known_factors: tuple[str, ...] = ()
+    #: How a survival curve is modelled: ``"iterated_mean"`` (one backward recursion per
+    #: horizon) or ``"hazard"`` (targeted cause-specific hazards).
+    survival_model: str = "iterated_mean"
+    #: The hazard targeting algorithm: ``"iterative"`` (per horizon) or ``"one_step"``.
+    targeting: str = "iterative"
+    #: The first step of a one-step walk.  Recorded, and unused, under ``"iterative"``.
+    step_size: float = 1e-3
+    #: Whether each curve's reported levels and band limits were projected onto
+    #: non-decreasing curves.
+    isotonic: bool = False
 
     def describe(self, *, contrast: bool) -> list[str]:
         """Return the settings lines of :meth:`LongitudinalResult.summary`.
@@ -818,6 +837,16 @@ class LongitudinalConfig:
                 else ""
             ),
         ]
+        if len(self.outcome_names) > 1:
+            lines.append(f"survival model: {self.survival_model}")
+            lines.append(
+                f"targeting: {self.targeting}"
+                + (f", step size {self.step_size:g}" if self.targeting == "one_step" else "")
+            )
+            lines.append(
+                "isotonic projection: "
+                + ("each curve's levels and band limits" if self.isotonic else "none")
+            )
         if self.known_factors:
             lines.append(
                 f"known factors (declared, no learner): {', '.join(self.known_factors)}; no "
@@ -2320,6 +2349,78 @@ def _run_recursion(
     }, msm_fits
 
 
+def _run_hazard(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    levels: Sequence[Plan],
+    mechanism: Mechanism,
+    initial: InitialHazards,
+    *,
+    horizons: Sequence[int],
+    g_bounds: tuple[float, float],
+    alpha: float,
+    algorithm: HazardAlgorithm,
+    max_iter: int,
+    tol: float,
+    step_size: float,
+) -> dict[str, RegimenFit]:
+    """Target the initial hazards and file one fit per regimen, cause and horizon.
+
+    The one driver :meth:`LTMLE.fit` and :func:`_refit_bound` share on a hazard fit.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        A survival panel of a held design.
+    plans : sequence of Plan
+        The regimens' plans.
+    levels : sequence of Plan
+        One static plan per treatment level, from
+        :func:`~cleverly.longitudinal.hazard.level_plans`.
+    mechanism : Mechanism
+        The mechanism, evaluated at every regimen and every level.
+    initial : InitialHazards
+        The initial hazards.
+    horizons : sequence of int
+        The reported horizons.
+    g_bounds : tuple of float
+        Truncation applied to each cumulative mechanism probability.
+    alpha : float
+        The probability bound of every hazard.
+    algorithm : {"per_horizon", "one_step"}
+        The targeting algorithm.
+    max_iter : int
+        Outer iterations per horizon of a per-horizon fit.
+    tol : float
+        Relative-score tolerance.
+    step_size : float
+        The first step of a one-step walk.
+
+    Returns
+    -------
+    dict of str to RegimenFit
+        The fits keyed by :func:`_fit_key`.
+    """
+    cumulative = [mechanism.cumulative(data, level, g_bounds) for level in levels]
+    regimen_cumulative = [
+        mechanism.cumulative_with_unbounded(data, plan, g_bounds) for plan in plans
+    ]
+    fits = target_regimens(
+        data,
+        plans,
+        initial,
+        cumulative,
+        regimen_cumulative,
+        horizons=horizons,
+        algorithm=algorithm,
+        alpha=alpha,
+        max_iter=max_iter,
+        tol=tol,
+        step_size=step_size,
+    )
+    return {_fit_key(label, cause, horizon, True): fit for (label, cause, horizon), fit in fits.items()}
+
+
 def _with_node_ratio(fit: RegimenFit, ratio: FloatArray | None) -> RegimenFit:
     """The fit with its plan's raw per-node ratio, kept for a later trim of the policy ratio."""
     return fit if ratio is None else replace(fit, node_ratio=ratio)
@@ -2752,6 +2853,32 @@ class LTMLE:
         nuisances on finite binary laws, at ``n = 1000``.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
+    density_bins : int or None
+        Bins of a continuous node's conditional density; ``None`` grows the count with
+        the sample.
+    ratio : {"density", "classifier"}
+        How a continuous node's policy ratio is estimated.
+    survival_model : {"iterated_mean", "hazard"}
+        How a survival curve is modelled.  ``"iterated_mean"`` runs one backward
+        recursion per horizon, and its curve can decrease.  ``"hazard"`` fits the
+        cause-specific hazard at every node and targets it (Moore and van der Laan 2009;
+        Cai and van der Laan 2020).  It needs one baseline treatment held over every node,
+        categorical, and no covariate after baseline; other designs are refused before any
+        learner.  The outcome learner is then the hazard learner.
+    targeting : {"iterative", "one_step"}
+        The hazard targeting algorithm.  ``"iterative"`` targets each horizon on its own,
+        restarting from the initial hazards.  ``"one_step"`` walks one set of hazards until
+        every horizon's score is solved, so every curve is non-decreasing.  It requires
+        ``survival_model="hazard"``.
+    step_size : float
+        The first step of the one-step walk, halved after any step that raises the score
+        norm.  Accepted and unused under ``targeting="iterative"``.
+    isotonic : bool
+        Whether to project each regimen's and cause's reported levels, and the limits of
+        its simultaneous band, onto a non-decreasing curve over the reported horizons by
+        unit-weight isotonic regression (Westling, van der Laan and Carone 2020).  Every
+        influence curve, standard error and critical value is unchanged.  A curve with no
+        violation is returned bit for bit.
     **refused : Any
         A point-treatment keyword.  Each one raises :class:`TypeError` with the reason
         that a longitudinal fit does not support it.
@@ -2786,6 +2913,10 @@ class LTMLE:
         bootstrap_resampling: Resampling = "auto",
         density_bins: int | None = None,
         ratio: str = "density",
+        survival_model: str = "iterated_mean",
+        targeting: str = "iterative",
+        step_size: float = 1e-3,
+        isotonic: bool = False,
         **refused: Any,
     ) -> None:
         _validate_learner(outcome_learner, "outcome_learner")
@@ -2818,6 +2949,10 @@ class LTMLE:
         self.bootstrap_resampling = bootstrap_resampling
         self.density_bins = density_bins
         self.ratio = ratio
+        self.survival_model = survival_model
+        self.targeting = targeting
+        self.step_size = step_size
+        self.isotonic = isotonic
         refuse_unsupported(refused)
         self._validate_settings()
 
@@ -2867,6 +3002,14 @@ class LTMLE:
                 "model over arms is, and its design is handed "
                 "(regimen_label, horizon, baseline_frame)"
             )
+        refuse_hazard_settings(
+            survival_model=self.survival_model,
+            targeting=self.targeting,
+            step_size=self.step_size,
+            isotonic=self.isotonic,
+            msm=self.msm is not None,
+            pseudo_learner=self.pseudo_learner is not None,
+        )
         if self.msm is not None and self.reference is not None:
             raise ValueError(
                 "msm= and reference= cannot be combined. reference= names the regimen "
@@ -3045,6 +3188,11 @@ class LTMLE:
                         "separates a cause from the regimen and horizon it is reported at. "
                         "Two parameters would then share a name; rename the cause"
                     )
+        # Before any rule is evaluated and before any learner: a hazard fit and a projection
+        # read only the design and the regimen declarations to refuse.
+        refuse_hazard_design(
+            prepared, regimens, survival_model=self.survival_model, isotonic=self.isotonic
+        )
         reference = self._reference(regimens)
         # Every rule is called here and nowhere else, so a mask and the design the
         # mechanism was evaluated at cannot disagree about what the regimen assigned.
@@ -3098,9 +3246,13 @@ class LTMLE:
         horizons = self._horizons(prepared)
         preflight_mechanism_support(prepared, prepared.regimen_masks(prepared.treatment), folds)
         preflight_terminal_outcomes(prepared, plans, horizons, folds)
+        hazard = self.survival_model == "hazard"
+        # A hazard fit reads the censoring factors at every level of the baseline treatment,
+        # so the shared mechanism fit is evaluated at one static plan per level as well.
+        levels = level_plans(prepared) if hazard else ()
         mechanism = fit_mechanism(
             prepared,
-            plans,
+            (*plans, *levels),
             treatment_learner=resolve_learner(
                 self.treatment_learner,
                 task="classification",
@@ -3132,22 +3284,42 @@ class LTMLE:
         model = (
             None if self.msm is None else evaluate_regimen_msm(self.msm, prepared, plans, horizons)
         )
-        fits, msm_fits = _run_recursion(
-            prepared,
-            plans,
-            mechanism,
-            msm=model,
-            horizons=horizons,
-            outcome_learner=outcome_learner,
-            pseudo_learner=pseudo_learner,
-            folds=folds,
-            scaler=scaler,
-            g_bounds=bounds,
-            alpha=self.alpha,
-            max_iter=self.max_iter,
-            tol=self.tol,
-            n_jobs=self.n_jobs,
-        )
+        if hazard:
+            initial = fit_hazards(
+                prepared, levels, learner=outcome_learner, folds=folds, n_jobs=self.n_jobs
+            )
+            fits = _run_hazard(
+                prepared,
+                plans,
+                levels,
+                mechanism,
+                initial,
+                horizons=horizons,
+                g_bounds=bounds,
+                alpha=self.alpha,
+                algorithm="one_step" if self.targeting == "one_step" else "per_horizon",
+                max_iter=self.max_iter,
+                tol=self.tol,
+                step_size=self.step_size,
+            )
+            msm_fits: tuple[MSMRegimenFit, ...] = ()
+        else:
+            fits, msm_fits = _run_recursion(
+                prepared,
+                plans,
+                mechanism,
+                msm=model,
+                horizons=horizons,
+                outcome_learner=outcome_learner,
+                pseudo_learner=pseudo_learner,
+                folds=folds,
+                scaler=scaler,
+                g_bounds=bounds,
+                alpha=self.alpha,
+                max_iter=self.max_iter,
+                tol=self.tol,
+                n_jobs=self.n_jobs,
+            )
 
         self._warn_on_truncation(fits)
 
@@ -3188,6 +3360,10 @@ class LTMLE:
             msm_fingerprint=(
                 None if model is None else fingerprint_array(model.design, model.weights)
             ),
+            survival_model=self.survival_model,
+            targeting=self.targeting,
+            step_size=float(self.step_size),
+            isotonic=self.isotonic,
         )
         status = _inference_status(prepared, folds)
         with phase("influence_curve"):
