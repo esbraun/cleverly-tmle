@@ -3,9 +3,11 @@ r"""Reduced-dimension regressions for doubly-robust nonparametric inference.
 Every interval this package reports is valid when the second-order remainder is
 negligible, which needs *both* nuisances converging fast enough.  ``drtmle``
 (van der Laan 2014; Benkeser, Carone, van der Laan & Gilbert 2017; Benkeser & Hejazi
-2023) buys an interval that stays valid when only one of them is consistent, by
-estimating the first-order part of that remainder with regressions of each nuisance's
-residual on the *other* nuisance, and solving their score equations too.
+2023) estimates the part of that remainder's first-order term that is a function of the
+consistent nuisance, with regressions of each nuisance's residual on the *other* nuisance,
+and solves their score equations too.  With one nuisance wrong, the interval is then valid
+only in the cases ``docs/technical-reference/dr-tmle/theorem.md`` lists ("The conditioning
+terms are linear in one error").
 
 This module fits those regressions and nothing here solves anything: the extra score
 equations, the alternation they need and the influence curve they change live in
@@ -35,9 +37,12 @@ mechanisms defined relative to a *given* :math:`\hat{\bar Q}` and :math:`\hat g`
 Each is univariate: a regression on one column, that column being the other nuisance's
 out-of-fold prediction.  That is the whole construction, and
 :mod:`tests.unit.test_remainder_drtmle` is where the arithmetic it has to satisfy is
-pinned -- what survives a solved score equation is a **product** of the reduced
-regression's error with a primary nuisance error, which is why a univariate rate suffices
-however badly the primary nuisances do.
+pinned.  What survives a solved score equation is a **product** of the reduced
+regression's error with a primary nuisance error only when the consistent nuisance's error
+keeps the level sets of its truth, or on a law where the term vanishes.  Otherwise a term
+linear in that error remains, because the reduction conditions on the estimated nuisance
+and the remainder on the true one as well (``theorem.md``, the conditioning terms;
+``tests/unit/test_conditioning_remainder_drtmle.py``).
 
 Randomized missing-outcome inference uses a different five-regression state, implemented by
 :func:`fit_missing_outcome_reduced`.  It deliberately keeps the treatment and observation

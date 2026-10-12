@@ -667,17 +667,21 @@ def test_bootstrapping_known_probabilities_reads_each_replicates_rows(arms: int)
 
 
 @ARMS
-def test_bootstrapping_the_randomized_route_on_declared_data_is_refused(arms: int) -> None:
+def test_bootstrapping_the_randomized_route_on_declared_data_is_admitted(arms: int) -> None:
     """A guarded fit with ``delta=`` on declared data runs the randomized construction.
 
     The declaration supplies ``g_A`` only.  With a wrong outcome regression the remainder is
-    linear in the observation mechanism's error, and a resample refits the same estimator,
-    so the refusal names the reason and the two remedies before any learner runs.
+    linear in the observation mechanism's error, and the analytic interval carries that limit
+    (``docs/technical-reference/dr-tmle/theorem.md``, "A known treatment mechanism").  A
+    full-refit bootstrap resamples the same estimator, so it rests on the same remainder and
+    is admitted on the same terms, as it is on the route with an estimated ``g_A``.
+    ``_FailIfFit`` is the witness that every replicate divided by the declaration.
     """
-    with pytest.raises(CapabilityError, match="n_bootstrap= is not combined with delta="):
+    result = (
         _estimator(
             guard=("Q", "g"), n_bootstrap=5, estimands=("ate",), treatment_learner=_FailIfFit()
-        ).fit(
+        )
+        .fit(
             _with_arms(_trial(100), arms),
             outcome="Y",
             treatment="A",
@@ -685,16 +689,12 @@ def test_bootstrapping_the_randomized_route_on_declared_data_is_refused(arms: in
             delta="Delta",
             treatment_probabilities=_uniform(100, arms),
         )
-    # The control: the same call without the bootstrap fits.
-    fitted = _estimator(guard=("Q", "g"), estimands=("ate",), treatment_learner=_FailIfFit()).fit(
-        _with_arms(_trial(100), arms),
-        outcome="Y",
-        treatment="A",
-        covariates=["W1", "W2"],
-        delta="Delta",
-        treatment_probabilities=_uniform(100, arms),
+        .single()
     )
-    assert fitted.single().config.treatment_mechanism == "known"
+    assert result.bootstrap is not None
+    assert result.bootstrap.n_failed == 0
+    assert result.config.treatment_mechanism == "known"
+    assert result.extra["missing_data"] == "randomized_missing_outcome"
 
 
 def test_known_probabilities_configure_an_unguarded_plain_tmle() -> None:

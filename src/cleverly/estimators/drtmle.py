@@ -1,4 +1,4 @@
-r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one bad nuisance.
+r"""Doubly-robust nonparametric inference: a TMLE with two extra reduced-regression equations.
 
 .. warning::
 
@@ -8,11 +8,13 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
    (2017), Section 3.1, cite it; the journal version was not read here) -- checked against
    the remainder expansions of Benkeser et al. (2017), Appendices A and B, against
    the Gateaux derivative of the parameter, against exact finite-support laws, and against
-   the remainder identities -- and the interval it reports is valid **conditional on** the
-   caller obtaining
-   adequate primary *and reduced-regression* fits.  Those are method-specific rate conditions on
-   estimated functions; they are not verifiable from a fit's own output, and in particular
-   **numerical score convergence does not verify them**.  The contract is under
+   the remainder identities -- and the interval it reports is valid **conditional on**
+   Theorem 1's conditions.  Those are method-specific rate conditions on estimated functions;
+   they are not verifiable from a fit's own output, and in particular **numerical score
+   convergence does not verify them**.  With one nuisance wrong, adequate fits are not enough:
+   the remainder keeps a conditioning term that is linear in the consistent nuisance's error,
+   and the contract (``theorem.md``, "The conditioning terms are linear in one error") lists
+   the cases where the interval holds.  The contract is under
    ``docs/technical-reference/dr-tmle/``
    in full; three things a caller's numbers depend on are here.
 
@@ -21,25 +23,23 @@ r"""Doubly-robust nonparametric inference: a TMLE whose *interval* survives one 
       a ``psi``, an ``se`` and an interval formatted exactly like a good one, with every
       score green.  ``tests/unit/test_oracle_reductions.py`` is the evidence rather than the
       caveat: with **exact** reductions the estimator recovers the truth despite misspecified
-      primary nuisances, and with **wrong** ones the estimate moves while every score
+      primary nuisances on a law where the estimated nuisances separate every cell.  On a
+      continuous law the exact reduction conditions on less than ``W``, and a conditioning
+      term can remain.  With **wrong** reductions the estimate moves while every score
       equation still passes.  Inspect the reduced fits themselves --
       ``result.extra["drtmle"].diagnostics``, keyed ``"qr"``, ``"gr1"``, ``"gr2"`` on the
       univariate reduction, ``"qr"``, ``"gr1"`` on the bivariate reduction, and
       ``"gamma_a"``, ``"gamma_m"``, ``"r_a"``, ``"r_m"``, ``"e"`` on the missing-outcome one.
-   2. **The interval is demonstrably better than a plain TMLE's, and it is not nominal.**
-      Over 6,000 fits in two independent seed batches, the plain interval covers
-      ``0.532``/``0.472`` against this estimator's ``0.844``/``0.848`` at ``n = 2,400`` in the
-      cell built for it -- a paired ``+0.312`` and ``+0.376``.  **And it reaches ``0.95``
-      nowhere**, the best reading anywhere being ``0.880``.  Two measured quantities account
-      for the shortfall and are one premise measured twice: the second-order remainder
-      Theorem 1 assumes negligible does not vanish at these sizes, and the reported ``se``
-      runs about 10% short of the spread it covers in ``q-drift`` and about 16% *long* in
-      ``g-drift`` -- so the second is **not** a separate defect in the variance estimator.
-      ``sigma^2_n`` is Theorem 1's own ``P_n{D* - D_A - D_Y}^2``, valid to first order
-      exactly when the condition the first quantity fails holds.  The reductions in that
-      study were fitted by ``glm``, so it measures a configuration rather than the theorem's
-      condition.  Use this where you have a reason to think one nuisance is badly estimated;
-      do not treat the interval as settled.
+   2. **With one nuisance wrong, the interval holds only in listed cases.**  An archived
+      study (6,000 fits, two seed batches) measured the plain interval at ``0.532``/``0.472``
+      against this estimator's ``0.844``/``0.848`` at ``n = 2,400``, and ``0.880`` at best.
+      The reported ``se`` ran about 10% short in ``q-drift`` and about 16% *long* in
+      ``g-drift``.  The attribution of that shortfall is withdrawn and under re-examination
+      (RM40 in ``docs/roadmap.md``).  With the outcome regression wrong the interval is
+      valid for a declared known mechanism, and conservative for a correctly specified
+      parametric mechanism.  It is valid where the mechanism estimate keeps the level sets
+      of the truth or where the law makes the term vanish, which no fit can check.  For a
+      data-adaptive learner it is not established.  ``theorem.md`` gives the case table.
    3. **The alternation is not guaranteed to converge, though it mostly does.**
       Equation (10)'s covariate becomes small on exactly the fits anybody wants -- see
       :func:`~cleverly.estimators.targeting.solve_with_reduction` -- so a draw can exit at
@@ -72,8 +72,9 @@ second-order remainder is negligible.  For a plain TMLE, the absolute remainder 
 constant-times-product bound on the nuisance errors under positivity.  That bound explains
 why the *point estimate* is doubly robust; but the interval needs
 :math:`\sqrt n R_2 \to 0`, and with one factor not shrinking :math:`R_2` is first order in
-the other.  So **`TMLE` is doubly robust for consistency and singly robust for inference**,
-and this class closes that second gap.
+the other.  So **`TMLE` is doubly robust for consistency and singly robust for inference**.
+This class removes the part of that remainder that is a function of the consistent nuisance.
+The rest closes only in the cases the contract lists.
 
 It does it by solving two further score equations (van der Laan 2014; Benkeser, Carone,
 van der Laan & Gilbert 2017; Benkeser & Hejazi 2023), built from *reduced-dimension*
@@ -93,14 +94,19 @@ together.
 
 **What this is not.**  It is not a better point estimate.  The extra fluctuations update
 :math:`\hat{\bar Q}`, :math:`\hat g`, or both, so :math:`\hat\Psi` differs from a plain TMLE's in
-finite samples.  The design aims at asymptotic linearity when one primary nuisance is
-inconsistent, so the interval is entitled to be believed under weaker conditions.
+finite samples.  The interval is valid when both nuisances are consistent at the product rates,
+under the reduced regressions' own rate and solve conditions.  With one nuisance inconsistent,
+the extra equations remove the part of the first-order remainder that is a function of the
+consistent nuisance; the rest can stay first order.  The one-wrong interval is valid for a declared
+known mechanism and conservative for a correctly specified parametric mechanism; for a
+data-adaptive learner it is not established.  With the mechanism wrong, it is not established
+even for a correctly specified parametric outcome regression.
 
 **And it is not the efficient one.**  Under misspecification the canonical gradient at
 :math:`P_0` is still :math:`D^*`.  What the three equations leave is
 :math:`D = D^* - D^*_Q - D^*_g`, the *estimator's* asymptotic influence function at the
 nuisance limits, and the estimator is generally **not efficient** there -- so the interval is
-one that stays valid where a plain TMLE's stops being valid, and nothing more than that.
+not a narrower one, and its validity with one wrong nuisance is limited to the listed cases.
 When both nuisances are consistent, the corrections converge to zero and the curve approaches
 the ordinary efficient curve.  At the true nuisance functions, they vanish row by row.  On one
 draw the corrected standard error can be the smaller of the two; that is a fact about the
@@ -144,10 +150,7 @@ from typing import Any, cast
 
 from .._inference_status import InferenceStatus, precedent_status
 from ..data.causal_data import CausalData
-from ..data.known_mechanism import (
-    KNOWN_EVALUATION_REFUSAL,
-    KNOWN_MISSING_OUTCOME_BOOTSTRAP_REFUSAL,
-)
+from ..data.known_mechanism import KNOWN_EVALUATION_REFUSAL
 from ..exceptions import CapabilityError
 from ..learners.crossfit import Folds
 from ..learners.library import _validate_learner
@@ -283,12 +286,14 @@ class ReducedFit:
 
 
 class DRTMLE(TMLE):
-    r"""TMLE with doubly-robust inference, for a discrete point treatment.
+    r"""TMLE with the doubly-robust inference corrections, for a discrete point treatment.
 
     Reports treatment-specific means and reference-arm contrasts -- a different estimator behind
     the same parameters, exactly as :class:`~cleverly.CTMLE` is -- with an influence curve
-    and therefore an interval that stays valid when only one of the two nuisances is
-    consistently estimated.
+    whose interval is valid under Theorem 1's conditions.  With one wrong nuisance it is valid
+    for a known mechanism, conservative for a correctly specified parametric mechanism, and
+    not established for a data-adaptive learner.  With the mechanism wrong, it is not established
+    even for a correctly specified parametric outcome regression.
 
     **Read the module docstring's warning before using this in anger**, and
     ``docs/technical-reference/dr-tmle/`` carries the contract in full.  The curve it
@@ -298,12 +303,10 @@ class DRTMLE(TMLE):
     derivative of the parameter, and agrees with both.  The registered canonical DR-TMLE study
     separately compares its binary complete-data numbers with the pinned R package under the
     paper's nuisance-correctness regimes; that bounded comparison is not the derivation.  A
-    controlled study here **does**
-    demonstrate the interval is better than a plain TMLE's, by a wide and reproduced margin,
-    and also that it does not attain nominal coverage anywhere in that study.  What the
-    module docstring says about what this does and does not buy is not hedging: it is what
-    the evidence establishes, and the interval is offered as valid *conditionally* on
-    nuisance conditions a fit cannot check for itself.
+    controlled archived study measured higher coverage than a plain TMLE's interval, and
+    nominal coverage nowhere; the attribution of that shortfall is withdrawn and under
+    re-examination (RM40).  The interval is offered as valid *conditionally* on nuisance
+    conditions a fit cannot check for itself.
 
     Every :class:`~cleverly.TMLE` keyword is accepted and behaves identically except the
     ones listed under *Notes*, which are refused rather than approximated.
@@ -411,8 +414,9 @@ class DRTMLE(TMLE):
         place of the treatment learner, at every ``delta=`` setting.  The declaration
         supplies the treatment mechanism only: the observation mechanism is still estimated,
         so with a wrong outcome regression the interval of this construction is not
-        established (the remainder is linear in the observation mechanism's error), and a
-        guarded fit refuses ``n_bootstrap=``.  Without either, a
+        established (the remainder is linear in the observation mechanism's error).  The same
+        limit holds with an estimated treatment mechanism, and for ``n_bootstrap=``, which
+        resamples the same estimator.  Without ``randomized=True`` or a declaration, a
         guarded fit with ``delta=`` is observational and takes the composite-indicator
         construction.  A declared missing treatment refuses both, because the randomized
         construction observes the treatment on every row.
@@ -482,7 +486,8 @@ class DRTMLE(TMLE):
     :math:`g_0`, which holds because they are built from ``nuisance.propensity`` and that
     *is* the weighted fit.  ``tests/unit/test_remainder_drtmle.py`` runs the whole expansion
     at two tilted laws and keeps the wrong transport as a test: reductions taken at the
-    sampling law leave a first-order remainder a single guard no longer removes.
+    sampling law leave a first-order remainder a single guard no longer removes on the exact
+    law.
 
     ``repeats=`` is supported and varies exactly one thing here: the *primary* split.  Each
     draw fits its own reduced regressions against its own folds and runs its own
@@ -1165,8 +1170,6 @@ class DRTMLE(TMLE):
                 "(CrossFitting(enabled=False) on DRTMLEMethod)"
             )
         if route == "randomized_missing_outcome" and self.guard:
-            if data.known_treatment is not None and self.n_bootstrap:
-                raise CapabilityError(KNOWN_MISSING_OUTCOME_BOOTSTRAP_REFUSAL)
             if data.is_weighted:
                 raise CapabilityError(
                     "missing-outcome DRTMLE is not certified for a weight-tilted target law; "

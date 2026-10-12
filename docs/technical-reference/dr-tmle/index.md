@@ -8,7 +8,7 @@ special about validating it. The pages beneath it carry the production contract:
 [diagnostics](diagnostics.md) to inspect, and
 [what the validation programme established](validation-programme.md).
 
-## The release claim, in one paragraph
+## The release claim, in brief
 
 **Conditional validity.** The default univariate algorithm computes what Benkeser, Carone, van der
 Laan & Gilbert's Theorem 1 derives. `reduction="bivariate"` computes van der Laan (2014), Theorem
@@ -18,17 +18,26 @@ Gateaux derivative. The exact finite-support laws and the remainder
 identities run at three arms as well as two, in the union-model cells where exactly one correction
 survives.
 
-The reported interval is valid **conditional on** the practitioner obtaining adequate primary and
-reduced-regression fits. Those are rate conditions on estimated functions. They are not verifiable
-from a fit's own output, and **numerical score convergence does not verify them**. Read
+The reported interval is valid **conditional on** Theorem 1's conditions. Those are rate
+conditions on estimated functions. They are not verifiable from a fit's own output, and
+**numerical score convergence does not verify them**. With one nuisance wrong, adequate fits are
+not enough: [the conditioning terms](theorem.md#the-conditioning-terms-are-linear-in-one-error) decide. Read
 [solved scores do not establish nuisance consistency](diagnostics.md#solved-scores-do-not-establish-nuisance-consistency),
 which is the single most important page in this section.
+
+The interval is valid when both nuisances are consistent at the product rates, under DR-TMLE's own reduced-regression
+and solve conditions. With one nuisance inconsistent, the two extra equations remove the part of
+the first-order remainder that is a function of the consistent nuisance. The rest can stay first
+order. The one-wrong interval is valid for a declared known mechanism and conservative for a
+correctly specified parametric mechanism. With the mechanism wrong, the interval is not established, even for a correctly specified parametric outcome regression. With a data-adaptive learner for the consistent
+nuisance it is not established ([the case table](theorem.md#the-conditioning-terms-are-linear-in-one-error)).
 
 What this is *not*: a better point estimate. The extra fluctuations update the outcome
 regression, the mechanism, or both, so `Ψ̂` differs from the ordinary TMLE in finite samples. The
 [DR-TMLE tutorial](../../examples/dr-tmle.ipynb) prints both estimates on one draw. The design does
-not aim at a smaller error for `Ψ̂`. It aims at asymptotic linearity when one primary nuisance is
-inconsistent, so its interval needs weaker conditions.
+not aim at a smaller error for `Ψ̂`. It removes the part of the first-order remainder that is
+a function of the consistent nuisance. The interval is established with one wrong nuisance only
+in the cases [the theorem](theorem.md#the-conditioning-terms-are-linear-in-one-error) lists.
 
 And it is *not* the efficient estimator. Under misspecification the canonical gradient at `P_0` is
 still `D*`. What the three equations leave is `D = D* − D*_Q − D*_g`, the estimator's asymptotic
@@ -38,8 +47,8 @@ efficient curve. At the true nuisance functions, the corrections vanish row by r
 
 ## What this solves
 
-Ordinary TMLE is **doubly robust for consistency and singly robust for inference**, and that
-distinction is the whole of what this variant is for.
+Ordinary TMLE is **doubly robust for consistency and singly robust for inference**. DR-TMLE
+narrows that gap. It closes it only in the cases the theorem lists.
 
 Without outcome missingness, the treatment-specific mean under a binary treatment has the exact
 signed remainder
@@ -67,18 +76,19 @@ $n^{-1/4}$ leave $\sqrt{n}R_2$ bounded away from zero. If one error does not shr
 is first order in the other. The estimator's bias then dominates the $n^{-1/2}$ standard-error
 scale, and coverage decays as the sample grows.
 
-DR-TMLE solves two further score equations, built from reduced-dimension regressions, so that valid
-inference can survive one inconsistent primary nuisance.
+DR-TMLE solves two further score equations, built from reduced-dimension regressions. They remove
+the part of that first-order remainder that is a function of the consistent nuisance. The part
+that is not, `R_{3,n}` or `R̃_{5,n}`, can stay first order.
 
 | your situation | what this method buys | what it costs |
 | --- | --- | --- |
-| you doubt one nuisance and still want an interval | an interval entitled to be believed under weaker conditions | the reduced regressions are refitted inside the alternation, so a fit costs several rounds of several regressions |
-| both nuisances are consistent | nothing you need. The corrections converge to zero and the curve converges to the efficient curve | the extra cost, for no gain. This is the case the variant is not for |
-| you want a narrower interval | this is not that. The union model it stays valid over is larger than the model it is efficient in | the corrected curve is the estimator's own influence function and not the efficient one |
+| you doubt one nuisance and still want an interval | an interval that is valid for a known mechanism and conservative for a correctly specified parametric mechanism. With the mechanism wrong, or with a data-adaptive learner, it is not established | the reduced regressions are refitted inside the alternation, so a fit costs several rounds of several regressions |
+| both nuisances are consistent | nothing you need. The corrections converge to zero and the curve converges to the efficient curve | the extra cost. The corrections add cost and no asymptotic gain here |
+| you want a narrower interval | this is not that | the corrected curve is the estimator's own influence function and not the efficient one |
 | you want `retarget` to be cheap | it is not. A truncation curve on a `DRTMLE` fit costs about a fit per point | a plain `TMLE` handed these nuisances refuses rather than re-solving against arrays it cannot refresh |
 
 `DRTMLE` ships under **conditional validity**. Read
-[the release claim](#the-release-claim-in-one-paragraph) before you rely on it.
+[the release claim](#the-release-claim-in-brief) before you rely on it.
 
 A worked applied analysis is in the [DR-TMLE tutorial](../../examples/dr-tmle.ipynb). It shows why
 one fit cannot display what this variant buys.
@@ -100,8 +110,9 @@ g_{r2}(a \mid w) &= E\!\left[\left.\frac{1_a - \hat g(a\mid W)}{\hat g(a\mid W)}
 $$
 
 On the default construction each one is **univariate however many covariates the fit adjusted
-for**. That fixed dimension is the whole argument: the reduced regressions can be estimated fast
-enough whether or not the primary nuisances can.
+for**. That fixed dimension makes the reduced regressions estimable at a univariate rate. It does
+not control the conditioning term, which conditions on the true nuisance as well
+([the theorem](theorem.md#the-conditioning-terms-are-linear-in-one-error)).
 
 The three equations, in the software paper's numbering, are
 
@@ -128,11 +139,17 @@ The alternation on its own leaves both extra equations solved somewhere the curv
 from, which is harmless on a converged fit and worth percents of a standard error on one that stops
 early. A closing pass re-solves all three at the reductions the fit reports, refitting nothing.
 
-**One guard removes the whole first-order remainder; two over-correct.** Each extra equation
-subtracts a projection of $R_2$. Where both projections are onto all of $\sigma(W)$, either one
-recovers the whole of it, so the pair leaves exactly $-R_2$. That is arithmetic on a finite-support
-law rather than a defect. Asymptotically at most one of the two errors fails to vanish, so at most
-one projection is non-negligible, which is why both are solved by default.
+**On a finite law whose consistent nuisance separates every cell, one guard removes the whole
+first-order remainder; two over-correct.** Each extra equation subtracts a projection of $R_2$.
+Where both projections are onto all of $\sigma(W)$, either one recovers the whole of it, so the
+pair leaves exactly $-R_2$. That is arithmetic on a finite-support law rather than a defect. On a
+continuous law one guard removes the projection on $\sigma(\hat g)$ only, and the conditioning
+term can remain. [The theorem](theorem.md#the-conditioning-terms-are-linear-in-one-error) lists when it vanishes.
+
+Both equations are solved by
+default, because a fit does not know which nuisance is wrong. With one nuisance consistent, the
+correction built from its residual tends to zero ([Appendix C](theorem.md#appendix-c-a-correction-that-is-not-needed-costs-nothing)), so the pair costs nothing
+asymptotically.
 
 Implementation:
 [`estimators/drtmle.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/estimators/drtmle.py),
@@ -198,7 +215,9 @@ witnesses.
 The influence curve's *provenance* is that its form was read off that package. Its *evidence* is
 that it has since been checked against Theorem 1's own appendices at a nonzero $Q_r$, and against a
 perturbation of the law where in each half of the union model the corrected curve is the efficient
-influence function row for row. Agreement between two transcriptions of one source is evidence
+influence function row for row. These exact laws let the consistent nuisance separate every cell,
+so the conditioning term is zero on them. `tests/unit/test_conditioning_remainder_drtmle.py` adds
+a law where it is not. Agreement between two transcriptions of one source is evidence
 about the transcription. This is a
 [standing decision](../../architecture-invariants.md#validation-and-evidence) rather than a gap.
 

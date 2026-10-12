@@ -36,6 +36,9 @@ A new capability still needs its own contract and evidence, even in this queue.
 | priority | item | tier | acceptance |
 | ---: | --- | --- | --- |
 | 0.1 | RM39. Keep a study run alive through a failed replicate | b | the contract in [RM39](#rm39-keep-a-study-run-alive-through-a-failed-replicate), its tests, and passing handoff checks |
+| 0.2 | RM40. Correct the DR-TMLE inference claim when one nuisance is wrong | a | the contract in [RM40](#rm40-correct-the-dr-tmle-inference-claim-when-one-nuisance-is-wrong), its tests, the witness study, and passing handoff checks |
+
+RM39 keeps 0.1 by user decision, although RM40's tier ranks higher.
 
 ### RM39. Keep a study run alive through a failed replicate
 
@@ -113,13 +116,44 @@ limits that case.
 | the phase records only `DataError`, `LongitudinalError`, `numpy.linalg.LinAlgError`, `FloatingPointError`, `ZeroDivisionError`, `OverflowError`, and a plain `ValueError` or `RuntimeError` that `numpy`, `scipy`, `sklearn` or `statsmodels` raised |
 | the Python phase uses the part a1 resume key |
 
+### RM40. Correct the DR-TMLE inference claim when one nuisance is wrong
+
+The DR-TMLE contract stated that the interval stays valid when only one of the two nuisances is
+consistent. Theorem 1 of Benkeser et al. (2017) does not give that claim. Its remainder conditions
+include two conditioning terms, `R_{3,n}` and `R̃_{5,n}`. Each term is linear in the error of the
+consistent nuisance. The paper's sufficient rates do not make either term negligible when the
+other nuisance is wrong.
+
+The proof of Theorem 1 of Díaz and van der Laan (2017) has the same step on the randomized
+missing-outcome route, and the composite route applies Benkeser et al. (2017). A known treatment
+mechanism does not remove the term on the missing-outcome route, because the observation mechanism
+is estimated. The [contract](technical-reference/dr-tmle/theorem.md#the-conditioning-terms-are-linear-in-one-error) now gives the cases for all three routes.
+
+No registered study's verdict can detect the term. The canonical law is symmetric, so the term
+vanishes on it. The missing-data studies give the consistent nuisance as an exact law table. The
+row takes tier a, because the documented interval had no derivation for a data-adaptive learner.
+The status stays `influence_curve` on every route. A fit cannot tell which case it is in, and the
+interval is valid when both nuisances are consistent at the product rates.
+
+| part | PR | acceptance | status |
+| --- | --- | --- | --- |
+| (a) the contract | RM40a | the theorem page states both identities, the case table and the projection derivation. Every DR-TMLE page, docstring, runtime message and notebook claim matches the case table | delivered |
+| (b) the source | RM40a | the Benkeser et al. (2017) entry records the one-wrong claim and the sufficient rates as a source defect, with locators a reviewer read | delivered |
+| (c) the composite and missing-data routes | RM40a | the composite contract carries the correction. The randomized missing-outcome contract carries it too, and the Díaz and van der Laan (2017) entry records the equation (21) proof step as a source defect, with locators a reviewer read. The pages of results that inherit a DR-TMLE interval state the limit | delivered |
+| (d) a nonzero witness | RM40a | an exact-law test ties the true mechanism, splits the tie with the estimate, and shows a nonzero conditioning term that is linear in the split. Controls make it vanish | delivered |
+| (e) the symmetry | RM40a | a test pins that the canonical law is H1 in both branches, and that law L is not | delivered |
+| (f) inference status | RM40a | no status changes. A fit cannot tell which case it is in, and the both-consistent interval is valid | delivered |
+| (g) the archived shortfall | RM40a, RM40b | RM40a withdraws the second-order attribution. RM40b replaces it by a committed probe's outcome, under a bias-only rule fixed before the probe runs | RM40a half delivered |
+| (h) a witness study | RM40b | a registered `reporting` study on a law where neither term vanishes: conservative cells with a correct parametric mechanism, a known-mechanism cell on the same draws, two controls that must fail with a bias of the predicted sign that grows with n, and a missing-outcome control with a known treatment mechanism and a slow observation mechanism | open |
+| (i) the tutorial | RM40b | the DR-TMLE tutorial shows a case the contract establishes, re-executed | open |
+
 Each row takes a tier by the harm that its defect does to a user today. The table gives the tiers,
 from the most harmful. Inside a tier, a row with a wider reach comes first. A row that another row
 depends on comes before that row.
 
 | tier | reason | rows |
 | --- | --- | --- |
-| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | no open row |
+| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM40 |
 | b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | RM39 |
 | c | a correct refusal that arrives late or as the wrong type | no open row |
 | d | a diagnostic or a warning that misleads | no open row |
@@ -1415,7 +1449,7 @@ None supplies a split law or a variance for the clustered C-TMLE search.
 
 Continue pre-fit refusals for ATT, ATC, PAR, PAF, regimes, incremental interventions, shifts, MSMs,
 mediation, and a missing treatment on `CTMLE`, where each variant lacks evidence. Ordinary-TMLE
-implementations do not establish collaborative or doubly robust inference for these compositions.
+implementations do not establish the C-TMLE or DR-TMLE corrections for these compositions.
 An observational missing outcome and a missing treatment on `DRTMLE` ship through the
 [composite indicator](technical-reference/dr-tmle/theorem.md#observational-missing-data-the-composite-indicator).
 On the composite, `evaluation=` and `reduced_crossfit="nested"` stay refused here. Both carry one
@@ -1446,7 +1480,7 @@ the parent. The work has four steps.
 | 1 | a realised-arm composite view in `estimators/composite.py`, with the indicator $\Delta$ and the covariates $(A, W)$, and reduced regressions over $\bar m(A, W)$ and $\pi(A, W)$ |
 | 2 | the DR-TMLE natural-course mean `ey_obs` at each guard and reduction, with Gateaux and remainder witnesses for the corrected curve $D^*-D^*_Q-D^*_g$, and its post-fit readers (correction check, truncation, retarget, nuisance diagnostics) |
 | 3 | PAR and PAF through the shipped `TargetContext.natural_course` hook, with no second spelling |
-| 4 | a registered study with one-wrong and both-wrong coverage cells, paired with `drtmle` 1.1.2 through the constant-treatment form (`A = rep(1, n)`, `W = cbind(A, W)`, `DeltaY = !is.na(Y)`), after a probe confirms that `drtmle` accepts a one-level `A` |
+| 4 | a registered study with one-wrong and both-wrong coverage cells, paired with `drtmle` 1.1.2 through the constant-treatment form (`A = rep(1, n)`, `W = cbind(A, W)`, `DeltaY = !is.na(Y)`), after a probe confirms that `drtmle` accepts a one-level `A`. Its one-wrong cells declare their reading from the [case table](technical-reference/dr-tmle/theorem.md#the-conditioning-terms-are-linear-in-one-error) and use a law where the conditioning term does not vanish, or a known mechanism |
 
 Omitted-variable bounds on a DR-TMLE or C-TMLE fit are refused. A bound on either fit needs an
 estimate of $\nu^2$ that stays valid when the estimator does not assume a consistent treatment

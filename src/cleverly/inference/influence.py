@@ -1409,8 +1409,9 @@ def reduced_corrections(
     **Validity is not efficiency.**  Under misspecification the canonical gradient at
     :math:`P_0` is still :math:`D^*`; what this subtraction leaves is the **estimator's**
     asymptotic influence function at the nuisance limits, and the estimator is generally not
-    efficient there.  So a doubly-robust interval is one entitled to be believed under weaker
-    conditions -- not a narrower one, and not an efficient one.  When both nuisances are
+    efficient there.  So a doubly-robust interval is not a narrower one and not an efficient
+    one.  With one nuisance wrong it is valid only in the cases
+    ``docs/technical-reference/dr-tmle/theorem.md`` lists.  When both nuisances are
     consistent, :math:`Q_r` and the outcome-correction numerator converge to zero and the
     curve approaches the efficient curve.  At the true nuisance functions, both corrections
     vanish row by row.
@@ -1450,9 +1451,11 @@ def reduced_corrections(
         D^* (\bar Q^*, g_0) - D^*_g = D^*(\bar Q_0, g_0),
 
     the second because the :math:`\bar Q^*` in the residual and the one inside
-    :math:`Q_r = \bar Q_0 - \bar Q^*` cancel.  That is what "an interval valid when only one
-    nuisance is consistent" means, written as an identity, and
-    ``tests/unit/test_influence_gateaux_drtmle.py`` checks it against
+    :math:`Q_r = \bar Q_0 - \bar Q^*` cancel.  The identity holds because the consistent
+    nuisance separates every cell of ``tests/discrete_law.py``.  On a continuous law the
+    conditioning term of ``docs/technical-reference/dr-tmle/theorem.md`` can remain
+    (``tests/unit/test_conditioning_remainder_drtmle.py``).
+    ``tests/unit/test_influence_gateaux_drtmle.py`` checks the identity against
     ``tests/discrete_law.py``'s complex-step derivative -- from a real fit as well as from
     longhand, at ``rtol=0``.  A flipped sign misses by ``0.55`` to ``2.8`` against a
     ``1e-12`` window, which was watched rather than argued.
@@ -2156,7 +2159,7 @@ class ICParts(NamedTuple):
     #: ``total`` and
     #: ``shares()`` reading exactly as they did before that variant existed.  It belongs to
     #: neither half above -- it is neither a positivity artefact nor outcome heterogeneity
-    #: but the price of an interval that survives one bad nuisance -- and leaving it out
+    #: but the term the extra score equations remove from the curve -- and leaving it out
     #: would make this decomposition disagree with the curve by the whole of what the
     #: variant does.
     guard: FloatArray | None = None
