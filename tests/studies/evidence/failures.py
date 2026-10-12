@@ -183,6 +183,28 @@ def expand(failures: pd.DataFrame | None, record: StudyRecord) -> pd.DataFrame:
     return frame
 
 
+def induced(subject: pd.DataFrame, *, record: StudyRecord) -> pd.DataFrame:
+    """One ``paired_input_missing`` reference record per subject record.
+
+    A study whose reference input comes from the subject's fit writes no sample for a
+    replicate the subject lost, so the reference loses it too.  Each record names the
+    subject's group in its message and keeps its group id, scenarios, replicates and seed.
+    """
+    if record.reference is None:
+        raise ValueError(f"{record.slug}: no reference to lose a paired input")
+    out = subject.loc[:, list(FAILURE_COLUMNS)].copy()
+    out["implementation"] = record.reference
+    out["attempt"] = 1
+    out["class"] = PAIRED_INPUT_MISSING
+    out["stage"] = "subject fit"
+    out["call"] = ""
+    out["message"] = [
+        f"the subject's fit {group} failed, so this replicate has no reference input"
+        for group in subject["group_id"]
+    ]
+    return out.reset_index(drop=True)
+
+
 def reconcile(rows: pd.DataFrame, failures: pd.DataFrame | None, *, record: StudyRecord) -> None:
     """Refuse a replicate file whose missing rows are not exactly the recorded failures.
 

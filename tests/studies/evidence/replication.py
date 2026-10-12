@@ -29,12 +29,13 @@ import hashlib
 import json
 import os
 import pickle
-from collections.abc import Callable, Hashable, Iterator, Sequence
+from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
 
@@ -58,6 +59,11 @@ SYSTEMATIC_PREFIX = 20
 #: (RM39a2 Q2: memory exhaustion is a kill, never a recorded failure).
 MEMORY_EXIT = 137
 
+#: The prefix length every call uses unless it passes ``_prefix``.  Only
+#: ``tests/canonical/python_phase_identity.py`` changes it, to run the two-call split at two
+#: replicates for every study.
+_PREFIX = SYSTEMATIC_PREFIX
+
 FAILURE_FIELDS = (
     "implementation",
     "group_id",
@@ -79,6 +85,82 @@ _CHECKPOINT_ROOT: contextvars.ContextVar[Path | None] = contextvars.ContextVar(
 _LABELS: contextvars.ContextVar[set[tuple[str, str]] | None] = contextvars.ContextVar(
     "cleverly_replication_labels", default=None
 )
+
+
+@dataclass(frozen=True)
+class PhaseResult:
+    """What a study's ``draw_and_fit`` returns to the regeneration driver.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        The subject's replicate rows, from the fits that succeeded.
+    samples : pandas.DataFrame or None
+        The samples the reference fits, or ``None`` for a study with no reference.
+    truths : pandas.DataFrame or None
+        The truth rows the reference reads, or ``None`` with ``samples``.
+    failures : pandas.DataFrame or None
+        The subject's failure records (:data:`FAILURE_FIELDS`), or ``None`` when none failed.
+    reference_input_from_fit : bool
+        True when a sample is built from the subject's fit, so a failed subject fit leaves its
+        replicate without a sample.  The driver then writes one ``paired_input_missing``
+        reference record per subject record.  False when every sample is written, so the
+        reference fits the replicates the subject lost.
+    """
+
+    rows: pd.DataFrame
+    samples: pd.DataFrame | None = None
+    truths: pd.DataFrame | None = None
+    failures: pd.DataFrame | None = None
+    reference_input_from_fit: bool = False
+
+
+def records(outcomes: Outcomes) -> pd.DataFrame | None:
+    """The failure records of ``outcomes``, or ``None`` when every fit succeeded."""
+    return None if outcomes.failures.empty else outcomes.failures.reset_index(drop=True)
+
+
+def invalid_rows(rows: pd.DataFrame | Sequence[Mapping[str, Any]]) -> str | None:
+    """The first row rule that ``rows`` break, or ``None``.
+
+    The rules of the reference harness's ``study_invalid`` (RM39a2): a finite ``estimate``,
+    ``inference_estimate`` and ``std_error``, a positive ``std_error``, ``ci_lower`` at most
+    ``ci_upper``, and ``covered`` equal to the interval's coverage of ``truth``.  Only the
+    columns present are read.  A missing value breaks a rule.
+    """
+    frame = rows if isinstance(rows, pd.DataFrame) else pd.DataFrame(list(rows))
+    if frame.empty:
+        return None
+    columns = set(frame.columns)
+
+    def number(column: str) -> np.ndarray:
+        return pd.to_numeric(frame[column], errors="coerce").to_numpy(dtype=float)
+
+    def where(broken: np.ndarray) -> str:
+        row = int(np.flatnonzero(broken)[0])
+        estimand = str(frame["estimand"].iloc[row]) if "estimand" in columns else "row"
+        scenario = f" of {frame['scenario'].iloc[row]}" if "scenario" in columns else ""
+        return f"{estimand}{scenario} (row {row + 1})"
+
+    for column in ("estimate", "inference_estimate", "std_error"):
+        if column in columns and not np.isfinite(number(column)).all():
+            return f"non-finite {column} for {where(~np.isfinite(number(column)))}"
+    with np.errstate(invalid="ignore"):
+        if "std_error" in columns:
+            positive = number("std_error") > 0
+            if not positive.all():
+                return f"non-positive std_error for {where(~positive)}"
+        if {"ci_lower", "ci_upper"} <= columns:
+            ordered = number("ci_lower") <= number("ci_upper")
+            if not ordered.all():
+                return f"ci_lower above ci_upper for {where(~ordered)}"
+        if {"covered", "truth", "ci_lower", "ci_upper"} <= columns:
+            truth = number("truth")
+            inside = (number("ci_lower") <= truth) & (truth <= number("ci_upper"))
+            agrees = number("covered") == inside.astype(float)
+            if not agrees.all():
+                return f"covered disagrees with the interval and truth for {where(~agrees)}"
+    return None
 
 
 class SystematicFailure(RuntimeError):
@@ -331,7 +413,7 @@ def fit_replicates(
     validate: Callable[[Any], str | None] | None = None,
     seed_of: Callable[[Any], int | None] | None = None,
     checkpoint: Path | Literal["ambient"] | None = "ambient",
-    _prefix: int = SYSTEMATIC_PREFIX,
+    _prefix: int | None = None,
 ) -> Outcomes:
     """Draw and fit every key, recording each recordable fitting failure.
 
@@ -340,9 +422,10 @@ def fit_replicates(
     value is ``on_failure(key, draw(key))`` (``None`` without it) and a record is kept.
 
     The first ``SYSTEMATIC_PREFIX`` keys of every cell run first.  When each of them failed in
-    one cell, the run stops with :class:`SystematicFailure`.  ``_prefix`` lets the identity
-    check run that split at two replicates; studies never pass it.
+    one cell, the run stops with :class:`SystematicFailure`.  ``_prefix`` lets a test run that
+    split at two replicates; studies never pass it.
     """
+    prefix = _PREFIX if _prefix is None else _prefix
     if not keys:
         raise ValueError(f"{label}: no replicates to fit")
     tasks = [
@@ -375,9 +458,9 @@ def fit_replicates(
     by_cell: dict[str, list[_Task]] = {}
     for task in tasks:
         by_cell.setdefault(task.cell, []).append(task)
-    done = _run(plan, [task for cell in by_cell.values() for task in cell[:_prefix]], n_jobs)
+    done = _run(plan, [task for cell in by_cell.values() for task in cell[:prefix]], n_jobs)
     for cell, members in by_cell.items():
-        head = members[:_prefix]
+        head = members[:prefix]
         records = [done[task.ident][1] for task in head]
         if len(head) == SYSTEMATIC_PREFIX and all(records):
             first = records[0]

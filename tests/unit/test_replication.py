@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import dataclasses
 import os
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from cleverly.exceptions import CapabilityError, DataError, NotFittedError
@@ -309,3 +311,72 @@ class TestTheClassifier:
                 raise RuntimeError("translated") from error
 
         assert not recordable(_raised(translated))
+
+
+_ROW = {
+    "scenario": "law",
+    "estimand": "ate",
+    "truth": 0.0,
+    "estimate": 0.1,
+    "inference_estimate": 0.1,
+    "std_error": 0.1,
+    "ci_lower": -0.2,
+    "ci_upper": 0.4,
+    "covered": 1,
+}
+
+
+class TestRowRules:
+    """``invalid_rows`` applies the reference harness's ``study_invalid`` rules."""
+
+    @pytest.mark.parametrize(
+        ("change", "message"),
+        [
+            ({"estimate": float("nan")}, "non-finite estimate for ate of law (row 2)"),
+            ({"std_error": float("inf")}, "non-finite std_error"),
+            ({"std_error": 0.0}, "non-positive std_error"),
+            ({"ci_lower": 0.5}, "ci_lower above ci_upper"),
+            ({"covered": 0}, "covered disagrees with the interval and truth"),
+        ],
+    )
+    def test_each_rule_names_the_first_broken_row(self, change: dict, message: str) -> None:
+        rows = [_ROW, {**_ROW, **change}]
+        broken = replication.invalid_rows(rows)
+        assert broken is not None and broken.startswith(message)
+        assert replication.invalid_rows(pd.DataFrame(rows)) == broken
+
+    def test_sound_rows_and_absent_columns_break_nothing(self) -> None:
+        assert replication.invalid_rows([_ROW, _ROW]) is None
+        assert replication.invalid_rows([{"estimate": 1.0}]) is None
+        assert replication.invalid_rows([]) is None
+
+
+def test_induced_records_name_the_subject_group() -> None:
+    from tests.studies.evidence import failures
+    from tests.studies.evidence.registry import StudyRecord
+
+    record = StudyRecord(
+        name="x",
+        slug="x",
+        artifacts=Path("."),
+        document="x.md",
+        anchor="x",
+        scenarios={"law": ("ate",)},
+        replicates=10,
+        n=50,
+        seed=1,
+        reference="R ref",
+    )
+    outcomes = _call(KEYS, _singular_on({("a", 4)}), seed_of=lambda key: 7)
+    subject = outcomes.failures.assign(scenarios="law")
+    induced = failures.induced(subject, record=record)
+    assert induced.loc[0, ["implementation", "class", "stage", "seed", "replicates"]].tolist() == [
+        "R ref",
+        failures.PAIRED_INPUT_MISSING,
+        "subject fit",
+        "7",
+        "4",
+    ]
+    assert "test/a/r000000004" in induced.loc[0, "message"]
+    with pytest.raises(ValueError, match="no reference"):
+        failures.induced(subject, record=dataclasses.replace(record, reference=None))
