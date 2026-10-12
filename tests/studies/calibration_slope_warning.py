@@ -35,13 +35,13 @@ from sklearn.linear_model import LogisticRegression
 from cleverly.estimators import TMLE
 from cleverly.exceptions import PositivityWarning
 from cleverly.utils.bounds import logit
-from cleverly.utils.parallel import map_parallel
 from cleverly.validation.nuisance import (
     CALIBRATION_FAMILY_ALPHA,
     _critical_value,
     nuisance_diagnostics,
 )
 from tests.parallel import STUDY_JOBS
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
@@ -403,18 +403,30 @@ def cleverly_rows(
     ]
 
 
-def _replicate(payload: tuple[str, int, int]) -> list[dict[str, Any]]:
-    scenario, index, n = payload
+def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    scenario, index, n = key
+    return draw_scenario(scenario, n, index)
+
+
+def _replicate(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
+) -> list[dict[str, Any]]:
+    scenario, index, _ = key
     seed = replicate_seed(STUDY, scenario, index)
-    frame, truth = draw_scenario(scenario, n, index)
+    frame, truth = drawn
     return cleverly_rows(frame, truth, scenario, index, seed)
 
 
-def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
     """Draw and fit every declared primary replication."""
-    payloads = [
-        ((scenario, index, n),) for scenario in STUDY.scenarios for index in range(replicates)
-    ]
-    outcomes = map_parallel(_replicate, payloads, n_jobs=n_jobs)
-    built = pd.DataFrame([row for records in outcomes for row in records])
-    return built.loc[:, list(REPLICATE_COLUMNS)]
+    outcomes = replication.fit_primary(
+        [(scenario, index, n) for scenario in STUDY.scenarios for index in range(replicates)],
+        _replicate,
+        draw=_draw,
+        rows_at=None,
+        n_jobs=n_jobs,
+        implementation=STUDY.implementation,
+        seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
+    )
+    built = pd.DataFrame([row for records in outcomes.kept for row in records])
+    return replication.result(outcomes, built.loc[:, list(REPLICATE_COLUMNS)])
