@@ -27,6 +27,7 @@ from cleverly.inference.results import linear_functional, ratio_contrast, smooth
 from cleverly.longitudinal import LTMLE
 from tests import discrete_law_competing as competing_law
 from tests import discrete_law_longitudinal as end_law
+from tests import discrete_law_point_survival as point_law
 from tests import discrete_law_survival as survival_law
 from tests.studies import survival_grid_law as grid
 from tests.studies.canonical_ltmle import declared_regimens
@@ -932,3 +933,38 @@ def test_the_ratio_helpers_keep_their_domain_refusals() -> None:
         ratio_contrast(estimates, "c", "b", kind="or", n=4, name="or")
     assert log_odds_ratio_influence is not None
     assert smooth_contrast is not None
+
+
+class TestHazardRmst:
+    """RMST and RMTL read a hazard fit's curve as they read an iterated-mean one (X14)."""
+
+    @pytest.fixture(scope="class")
+    def hazard_fit(self) -> Any:
+        law = point_law.PointLaw("survival", 2)
+        result = LTMLE(
+            {"a0": 0, "a1": 1},
+            n_folds=1,
+            survival_model="hazard",
+            targeting="one_step",
+            step_size=2e-2,
+            outcome_learner=point_law.CellMeans(),
+            treatment_learner=point_law.CellProbabilities(),
+            censoring_learner=point_law.CellMeans(),
+        ).fit(law.frame(), **law.fit_columns())
+        return law, result
+
+    def test_rmst_is_the_enumeration_truth_and_its_curve_the_eif_sum(self, hazard_fit: Any) -> None:
+        law, result = hazard_fit
+        static = point_law.static
+        rows = law.first_row_of()
+        for label, arm in (("a0", 0), ("a1", 1)):
+            risks = {t: law.functional(law.probs, static(arm), t, 1) for t in (1, 2)}
+            truth = grid.enumerate_rmst(grid.event_time_pmf(risks), 3)
+            restricted = result.rmst(label, 3)
+            assert restricted.psi == pytest.approx(truth, abs=1e-12)
+            expected = -(law.eif(static(arm), 1, 1) + law.eif(static(arm), 2, 1))
+            np.testing.assert_allclose(
+                restricted.influence_curve[rows], expected, rtol=1e-10, atol=1e-12
+            )
+            total = restricted.psi + result.rmtl(label, 3).psi
+            assert total == pytest.approx(3.0, abs=1e-12)
