@@ -206,3 +206,17 @@ def test_the_band_is_built_from_the_stacked_curves(banded: Any) -> None:
     }
     independent = simultaneous_bands(shuffled, alpha=0.05, n_replicates=MULTIPLIERS, random_state=0)
     assert abs(independent.critical_value - joint.critical_value) > 1e-3
+
+
+def test_the_static_plans_read_the_earlier_outcome() -> None:
+    """The M3 witness: a static plan's ``h = 2`` mean needs ``Y1`` in the history.
+
+    No plan here reads ``Y1``, so a history without it still fits.  It then converges to
+    :meth:`~tests.discrete_law_repeated.RepeatedLaw.history_free_value`, which misses the
+    truth by at least :data:`~tests.discrete_law_repeated.HISTORY_GAP`.
+    """
+    law = laws.BINARY
+    fit = oracle_fit(law, regimens={"never": 0, "always": 1})
+    for regimen in ("never", "always"):
+        name = f"ey_regimen[{regimen} @ t=2]"
+        assert fit.psi(name) == pytest.approx(law.truth[name], abs=1e-12)
