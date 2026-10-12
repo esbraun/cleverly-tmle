@@ -90,7 +90,7 @@ def test_the_primary_rows_are_cross_fitted() -> None:
         warnings.simplefilter("ignore")
         frame, _ = study.draw_scenario("survival", 2_000, 0)
         result = study.fit("survival", frame)
-        rows = study.draw_and_fit(replicates=2, n=2_000, n_jobs=1)
+        rows = study.draw_and_fit(replicates=2, n=2_000, n_jobs=1).rows
     assert result.folds.n_folds == 5
     for scenario, names in study.ESTIMANDS.items():
         assert set(rows.loc[rows["scenario"] == scenario, "estimand"]) == set(names)

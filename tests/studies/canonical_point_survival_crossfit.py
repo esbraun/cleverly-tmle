@@ -34,13 +34,13 @@ from typing import Any
 import pandas as pd
 
 from cleverly.longitudinal import LTMLE
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import point_survival_common as common
 from tests.studies.canonical_ltmle import regimen_rows
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
 PRIMARY_REPLICATES = 1_600
 PRIMARY_N = 2_000
@@ -177,9 +177,16 @@ def _initials(result: Any, names: tuple[str, ...]) -> dict[str, float]:
     return initial_estimates(result, names)
 
 
-def _replicate(payload: tuple[str, int, int]) -> list[dict[str, Any]]:
-    scenario, replicate, n = payload
-    frame, truth = draw_scenario(scenario, n, replicate)
+def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    scenario, replicate, n = key
+    return draw_scenario(scenario, n, replicate)
+
+
+def _replicate(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
+) -> list[dict[str, Any]]:
+    scenario, replicate, _ = key
+    frame, truth = drawn
     result = fit(scenario, frame)
     return regimen_rows(
         STUDY,
@@ -193,14 +200,19 @@ def _replicate(payload: tuple[str, int, int]) -> list[dict[str, Any]]:
     )
 
 
-def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
     """Every replication's rows; the study has no comparator, so no sample is kept."""
-    payloads = [
-        ((scenario, replicate, n),) for scenario in SCENARIOS for replicate in range(replicates)
-    ]
-    outcomes = map_parallel(_replicate, payloads, n_jobs=n_jobs)
-    rows = pd.DataFrame([row for result in outcomes for row in result])
-    return rows.loc[:, list(REPLICATE_COLUMNS)]
+    outcomes = replication.fit_primary(
+        [(scenario, replicate, n) for scenario in SCENARIOS for replicate in range(replicates)],
+        _replicate,
+        draw=_draw,
+        rows_at=None,
+        n_jobs=n_jobs,
+        implementation=STUDY.implementation,
+        seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
+    )
+    rows = pd.DataFrame([row for result in outcomes.kept for row in result])
+    return replication.result(outcomes, rows.loc[:, list(REPLICATE_COLUMNS)])
 
 
 __all__ = ["STUDY", "TRUTH", "draw_and_fit", "fit"]

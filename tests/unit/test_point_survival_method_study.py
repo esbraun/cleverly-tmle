@@ -203,7 +203,8 @@ def test_the_primary_fit_is_the_paired_construction() -> None:
     """Two replications: estimands, rows and a nonzero targeting step on both scenarios."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        samples, _, rows = study.draw_and_fit(replicates=2, n=2_000, n_jobs=1)
+        phase = study.draw_and_fit(replicates=2, n=2_000, n_jobs=1)
+    samples, rows = phase.samples, phase.rows
     assert set(rows["scenario"]) == {"survival", "competing"}
     for scenario, names in study.ESTIMANDS.items():
         selected = rows.loc[rows["scenario"] == scenario]
