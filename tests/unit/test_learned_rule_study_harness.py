@@ -135,7 +135,8 @@ class TestTheHarness:
 
     def test_a_primary_row_carries_its_own_truth_and_the_harness_columns(self) -> None:
         smoke = law.smoke_record(gated.STUDY)
-        row = law.primary_row(smoke, "misspecified_limit", 0, N)
+        key = ("misspecified_limit", 0, N)
+        row = law.primary_row(smoke, key, law.primary_sample(smoke, key))
         assert row["rule_rows_checked"] == N
         assert row["solver_warnings"] == 0
         assert row["covered"] == int(row["ci_lower"] <= row["truth"] <= row["ci_upper"])
