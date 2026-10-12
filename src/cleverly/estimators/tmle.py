@@ -1684,7 +1684,7 @@ class TMLE:
         estimates = median_estimates(per_repeat)
         cv_detail = self._cv_detail(details, cluster=data.cluster)
         if self.cv_evaluation and cv_detail is None:
-            raise RuntimeError(
+            raise DataError(
                 "cv_evaluation=True needs at least two realised validation folds, but "
                 "the requested split collapsed to one. Use fewer-stratified data, or "
                 "fit without fold-evaluated CV-TMLE."
