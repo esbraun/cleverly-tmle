@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from functools import partial
 from typing import Any
 
 import numpy as np
@@ -12,14 +13,14 @@ from sklearn.dummy import DummyClassifier, DummyRegressor
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
 from cleverly.longitudinal import LTMLE, DynamicRegimen
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_longitudinal as binary_law
 from tests import discrete_law_longitudinal_multivalue as law
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_ltmle import QuasiBinomialGLM, declared_regimens
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
 G_BOUNDS = (1e-8, 1.0)
 N_FOLDS = 5
@@ -311,10 +312,19 @@ def result_rows(
     return rows
 
 
+def _draw(record: StudyRecord, key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    scenario, replicate, n = key
+    return draw_for(record, scenario, n, replicate)
+
+
 def _replicate(
-    record: StudyRecord, cross_fit: bool, scenario: str, replicate: int, n: int
+    record: StudyRecord,
+    cross_fit: bool,
+    key: tuple[str, int, int],
+    drawn: tuple[pd.DataFrame, dict[str, float]],
 ) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
-    frame, truth = draw_for(record, scenario, n, replicate)
+    scenario, replicate, _ = key
+    frame, truth = drawn
     result = fit(frame, cross_fit=cross_fit, configuration="primary")
     sample = frame.copy()
     sample.insert(0, "row", np.arange(len(sample)))
@@ -335,17 +345,26 @@ def draw_and_fit(
     replicates: int,
     n: int,
     n_jobs: int = STUDY_JOBS,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    payloads = [
-        (record, cross_fit, scenario, replicate, n)
-        for scenario in record.scenarios
-        for replicate in range(replicates)
-    ]
-    outcomes = map_parallel(_replicate, payloads, n_jobs=n_jobs)
-    samples = pd.concat([sample for sample, _, _ in outcomes], ignore_index=True)
-    truths = pd.DataFrame([row for _, rows, _ in outcomes for row in rows])
-    estimates = pd.DataFrame([row for _, _, rows in outcomes for row in rows])
-    return samples, truths, estimates.loc[:, list(REPLICATE_COLUMNS)]
+) -> replication.PhaseResult:
+    # Dependent: the sample R reads carries the fold assignment of the cleverly fit.
+    outcomes = replication.fit_primary(
+        [
+            (scenario, replicate, n)
+            for scenario in record.scenarios
+            for replicate in range(replicates)
+        ],
+        partial(_replicate, record, cross_fit),
+        draw=partial(_draw, record),
+        n_jobs=n_jobs,
+        implementation=record.implementation,
+        seed_of=lambda key: replicate_seed(record, key[0], key[1]),
+    )
+    samples = pd.concat([sample for sample, _, _ in outcomes.kept], ignore_index=True)
+    truths = pd.DataFrame([row for _, rows, _ in outcomes.kept for row in rows])
+    estimates = pd.DataFrame([row for _, _, rows in outcomes.kept for row in rows])
+    return replication.result(
+        outcomes, estimates.loc[:, list(REPLICATE_COLUMNS)], samples=samples, truths=truths
+    )
 
 
 def _plan_labels(frame: pd.DataFrame, label: str) -> tuple[np.ndarray, np.ndarray]:
