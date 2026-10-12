@@ -45,6 +45,20 @@ ARMS: dict[str, str] = {
     "three_arm_active": "three-arm law with an arm-specific outcome index and an instrument",
     "binary_weighted": "the two-arm law under the declared known weight 0.5 + 1{W1 > 0}",
     "binary_repeats": "the two-arm law, the median estimate over three cross-fitting splits",
+    "ate_s0": "average treatment effect in baseline stratum S = 0",
+    "ate_s1": "average treatment effect in baseline stratum S = 1",
+    "ate_s2": "average treatment effect in baseline stratum S = 2",
+    "ey_obs_s0": "observed outcome mean in baseline stratum S = 0",
+    "ey_obs_s1": "observed outcome mean in baseline stratum S = 1",
+    "ey_obs_s2": "observed outcome mean in baseline stratum S = 2",
+    "par_s0": "population attributable risk in baseline stratum S = 0",
+    "par_s1": "population attributable risk in baseline stratum S = 1",
+    "par_s2": "population attributable risk in baseline stratum S = 2",
+    "paf_s0": "population attributable fraction in baseline stratum S = 0",
+    "paf_s1": "population attributable fraction in baseline stratum S = 1",
+    "paf_s2": "population attributable fraction in baseline stratum S = 2",
+    "rr": "marginal risk ratio",
+    "or": "marginal odds ratio",
     "att": "average effect on the treated",
     "atc": "average effect on the untreated",
     "ey_ipsi": "incremental mean at odds multiplier 2",
@@ -370,6 +384,10 @@ _TERM = re.compile(
 IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-ctmle-oat-per-arm": "`cleverly` per-arm outcome-adaptive C-TMLE",
     "drtmle-r-oat-per-arm": "R `drtmle` with `adapt_g`, by a binary recode per arm",
+    "drtmle-r-oat-per-arm-strata-missing": (
+        "R `drtmle` with `adapt_g`, by a binary recode per arm, with `DeltaY`, `DeltaA` and"
+        " one fit per stratum"
+    ),
     "cleverly-known-mechanism": "`cleverly` TMLE on a declared known mechanism",
     "tmle-r-known-g": "R `tmle` with the known mechanism as `g1W`",
     "cleverly-known-mechanism-drtmle": "`cleverly` DR-TMLE on a declared known mechanism",
@@ -482,6 +500,18 @@ IMPLEMENTATIONS: dict[str, str] = {
 
 
 SCENARIOS: dict[str, str] = {
+    "strata": (
+        "two arms, three baseline strata, an instrument, complete data, correct outcome regression"
+    ),
+    "missing_outcome": (
+        "two arms, outcomes missing at random given W1, W3 and the arm, correct outcome regression"
+    ),
+    "three_arm_missing": (
+        "three arms, outcomes missing at random given W1, W3 and the arm, correct outcome regression"
+    ),
+    "missing_treatment": (
+        "two arms, treatment unrecorded at random given W3 and the arm, outcomes missing at random"
+    ),
     "binary_active": (
         "two arms, an arm-specific outcome index, an instrument, correct outcome regression"
     ),
@@ -1612,6 +1642,26 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("robustness_contract", "outcome_wrong"): (
         "the outcome regression is misspecified",
         "bias interval must fall entirely outside the margin",
+    ),
+    ("robustness_contract", "natural_course_insample"): (
+        "missing outcomes, in-sample per-arm design, n = 2,250, natural-course estimands",
+        "bias interval inside the equivalence margin, SE ratio inside (0.1, 10)",
+    ),
+    ("robustness_contract", "missing_outcome_crossfit"): (
+        "missing outcomes, five-fold cross-fitted per-arm design, n = 2,000",
+        "bias interval inside the equivalence margin, SE ratio inside (0.1, 10)",
+    ),
+    ("robustness_contract", "strata_missing"): (
+        "three strata with missing outcomes, cross-fitted per-arm design per stratum, n = 3,000",
+        "bias interval inside the equivalence margin, SE ratio inside (0.1, 10)",
+    ),
+    ("robustness_contract", "weighted_strata_missing"): (
+        "the strata law under the declared known weight 0.5 + 1{W1 > 0}, n = 3,000",
+        "bias interval inside the equivalence margin, SE ratio inside (0.1, 10)",
+    ),
+    ("robustness_contract", "strata_missing_outcome_wrong"): (
+        "the strata law with the outcome regression without W1, n = 3,000",
+        "bias interval must fall entirely outside the margin, SE ratio inside (0.1, 10)",
     ),
     ("root_n_and_efficiency", "n_500"): (
         "bias, coverage and SE calibration at n = 500",
