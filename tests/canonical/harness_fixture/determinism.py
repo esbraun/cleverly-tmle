@@ -236,7 +236,7 @@ def write_inputs(work: Path, target: Target, *, jobs: int) -> None:
         return
     folder.mkdir(parents=True, exist_ok=True)
     drawn = target.study.draw_and_fit(replicates=3, n=target.study.PRIMARY_N, n_jobs=jobs)
-    samples, truths, _ = drawn
+    samples, truths = drawn.samples, drawn.truths
     archive = {"method": "gzip", "mtime": 0}
     samples.to_csv(folder / "samples.csv.gz", index=False, lineterminator="\n", compression=archive)
     truths.to_csv(folder / "truth.csv", index=False, lineterminator="\n")
