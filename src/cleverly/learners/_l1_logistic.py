@@ -47,8 +47,10 @@ __all__ = [
     "L1ConvergenceError",
     "L1Fit",
     "L1Logistic",
+    "cv_penalty",
     "default_penalty_grid",
     "kkt_residual",
+    "nearest_neighbour",
     "penalty_path",
 ]
 
@@ -693,6 +695,105 @@ def penalty_path(
             )
         )
     return fits
+
+
+def cv_penalty(
+    x: FloatArray,
+    y: Sequence[Any] | FloatArray,
+    weights: FloatArray | None,
+    lambdas: Sequence[float] | FloatArray,
+    assignment: IntArray,
+    classes: Sequence[Any] | None = None,
+    *,
+    layer: str = "the fit",
+) -> tuple[int, FloatArray]:
+    """Choose a penalty of a grid by the cross-validated weighted deviance.
+
+    Fold ``v`` fits the path of :func:`penalty_path` on the rows outside it and scores the
+    rows inside it. The risk at a penalty is the weighted negative log likelihood of the
+    held-out classes, summed over the folds and divided by the total weight. The chosen
+    penalty is the largest one that attains the smallest risk, as ``cv.glmnet``'s
+    ``lambda.min``.
+
+    Parameters
+    ----------
+    x : ndarray of float
+        The ``(n, p)`` covariates of the rows to split.
+    y : array-like
+        The class of each row.
+    weights : ndarray of float or None
+        The row weights. ``None`` gives each row weight 1.
+    lambdas : sequence of float
+        The grid, strictly decreasing, with 0 allowed only as the last value.
+    assignment : ndarray of int
+        The fold of each row, ``0`` to ``V - 1``.
+    classes : sequence or None
+        The class order. ``None`` uses the sorted classes of ``y``.
+    layer : str
+        The layer named in a non-convergence error. Each fold adds
+        ``penalty cross-validation fold {v}``.
+
+    Returns
+    -------
+    tuple of (int, ndarray of float)
+        The index of the chosen penalty, and the risk at each penalty of the grid.
+
+    Raises
+    ------
+    L1ConvergenceError
+        When a fold's path does not converge at a penalty.
+    """
+    grid = check_penalty_grid(lambdas)
+    matrix = np.asarray(x, dtype=float)
+    labels = np.asarray(y)
+    order = np.unique(labels) if classes is None else np.asarray(classes)
+    codes = np.searchsorted(order, labels).astype(np.int64)
+    w = np.ones(labels.size) if weights is None else np.asarray(weights, dtype=float)
+    folds = np.asarray(assignment, dtype=np.int64)
+    loss = np.zeros(grid.size)
+    for fold in np.unique(folds):
+        held = folds == fold
+        fits = penalty_path(
+            matrix[~held],
+            labels[~held],
+            w[~held],
+            grid,
+            classes=list(order),
+            layer=f"{layer}, penalty cross-validation fold {int(fold)}",
+        )
+        rows = np.flatnonzero(held)
+        for k, fit in enumerate(fits):
+            probability = fit.predict_proba(matrix[rows])[np.arange(rows.size), codes[rows]]
+            loss[k] -= float(np.sum(w[rows] * np.log(np.clip(probability, 1e-300, 1.0))))
+    risk = loss / float(np.sum(w))
+    return int(np.flatnonzero(risk == risk.min())[0]), risk
+
+
+def nearest_neighbour(lambdas: Sequence[float] | FloatArray, index: int) -> int:
+    """The grid value nearest to ``lambdas[index]`` in absolute distance, other than itself.
+
+    The partner rule of Ju, Chambaz and van der Laan (2018), Section 4.2, step 2. A tie
+    goes to the larger penalty. On a log-spaced decreasing grid with 0 appended this is
+    ``index + 1``, and ``len - 2`` at the last value.
+
+    Parameters
+    ----------
+    lambdas : sequence of float
+        The grid, strictly decreasing.
+    index : int
+        The position of the chosen penalty.
+
+    Returns
+    -------
+    int
+        The position of the partner penalty.
+    """
+    grid = check_penalty_grid(lambdas)
+    if grid.size < 2:
+        raise ValueError("the partner rule needs a grid of at least two penalties")
+    distance = np.abs(grid - grid[index])
+    distance[index] = np.inf
+    return int(np.flatnonzero(distance == distance.min())[0])
 
 
 class L1Logistic(ClassifierMixin, BaseEstimator):

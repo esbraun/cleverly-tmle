@@ -594,7 +594,7 @@ class TestConfiguration:
             ({"strategy": "greedy", "treatment_candidates": []}, r"treatment_candidates= only"),
             ({"strategy": "learners"}, r"needs an explicit treatment_candidates="),
             ({"strategy": "lasso", "lambdas": [0.1, 0.2]}, r"strictly decreasing"),
-            ({"strategy": "nope"}, r"'lasso', 'learners' or 'oat'"),
+            ({"strategy": "nope"}, r"'lasso', 'learners', 'derivative' or 'oat'"),
         ],
     )
     def test_value_errors(self, settings: dict[str, Any], pattern: str) -> None:

@@ -322,13 +322,24 @@ from ..inference.delta import log_odds_ratio_influence, log_ratio_influence, wal
 from ..inference.influence import counterfactual_means
 from ..interventions.learned import learned_rule_configuration_refusal
 from ..learners._fitting import Task, predict_mean, predict_probabilities
-from ..learners._l1_logistic import check_penalty_grid, default_penalty_grid, penalty_path
+from ..learners._l1_logistic import (
+    check_penalty_grid,
+    cv_penalty,
+    default_penalty_grid,
+    nearest_neighbour,
+    penalty_path,
+)
 from ..learners.crossfit import _POST_DRAW_REMEDY, Folds, check_integrity, make_folds
 from ..learners.super_learner import resolve_learner
 from ..targets.base import parameter_name
 from ..utils.bounds import OutcomeScaler, resolve_g_bounds
 from ..utils.parallel import map_parallel
 from ..utils.text import format_table
+from ._ctmle_derivative import (
+    DERIVATIVE_ONE_STEP_REFUSAL,
+    DERIVATIVE_TARGET_WEIGHTS_REFUSAL,
+    fitted_update,
+)
 from ._nuisance import NuisanceEstimates, Propensity, cross_fit_predictions, fit_on_rows
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .targeting import build_submodel, solve_submodel
@@ -341,6 +352,7 @@ __all__ = [
     "CTMLE",
     "CTMLE_SELECTOR_STRATEGIES",
     "OAT_PER_ARM_INFERENTIAL",
+    "CTMLEDerivativeFit",
     "CTMLELoss",
     "CTMLEOatDesign",
     "CTMLEOutcomeAdaptiveFit",
@@ -355,7 +367,7 @@ __all__ = [
     "per_arm_design_admits",
 ]
 
-CTMLEStrategy = Literal["greedy", "ordered", "discrete", "lasso", "learners", "oat"]
+CTMLEStrategy = Literal["greedy", "ordered", "discrete", "lasso", "learners", "derivative", "oat"]
 CTMLELoss = Literal["auto", "loglik", "squared"]
 CTMLEPreorder = Literal["logistic", "partial_correlation"]
 CTMLEOatDesign = Literal["per_arm", "shared"]
@@ -904,6 +916,116 @@ class CTMLEOutcomeAdaptiveFit:
 
 
 @dataclass(frozen=True)
+class CTMLEDerivativeFit:
+    """Diagnostics for the C-TMLE0 fit of ``strategy="derivative"``.
+
+    Parameters
+    ----------
+    strategy : str
+        Always ``"derivative"``.
+    source : {"lasso", "learners", "arrays"}
+        Where the mechanism and its partner came from: the L1-penalized logistic
+        mechanism, the two learners of ``treatment_candidates=``, or two declared arrays.
+        A pair of one learner and one array reads ``"learners"``.
+    penalties : tuple of tuple of float
+        One ``(mechanism, partner)`` penalty pair for each training set, in sample one pair.
+        Empty off the lasso source.
+    cv_risk : tuple of ndarray
+        The cross-validated weighted deviance over the grid for each training set. Empty
+        unless the lasso source chose its penalty by cross-validation.
+    epsilon : ndarray
+        The ``2K`` fluctuation coefficients on R's scale, in :attr:`names` order.
+    names : tuple of str
+        ``h0``, ``h1``, ..., then ``dh0``, ``dh1``, ...
+    derivative_score_before : ndarray
+        Per arm, the derivative score at the initial outcome regression, on the normalized
+        scale.
+    derivative_score_after : ndarray
+        The same score at the targeted outcome regression.
+    treatment_risk : float
+        The mean cross-validated deviance at the chosen penalty when the lasso source chose
+        it, otherwise the weighted negative log likelihood of the mechanism's predictions.
+    """
+
+    strategy: CTMLEStrategy
+    source: Literal["lasso", "learners", "arrays"]
+    penalties: tuple[tuple[float, float], ...]
+    cv_risk: tuple[FloatArray, ...]
+    epsilon: FloatArray
+    names: tuple[str, ...]
+    derivative_score_before: FloatArray
+    derivative_score_after: FloatArray
+    treatment_risk: float
+
+    @property
+    def treatment_risk_selected(self) -> float:
+        """The treatment risk, under the shared C-TMLE diagnostic API."""
+        return self.treatment_risk
+
+    @property
+    def treatment_features(self) -> tuple[str, ...]:
+        """No covariate list: the mechanism and its partner read every covariate."""
+        return ()
+
+    def describe(self) -> str:
+        """One sentence naming this fit and where its two mechanisms came from.
+
+        Returns
+        -------
+        str
+            A complete sentence, ready to embed in a report line.
+        """
+        if self.source == "lasso" and len(self.penalties) == 1:
+            ((mechanism, partner),) = self.penalties
+            return (
+                f"C-TMLE derivative fit used the lasso at penalty {mechanism:.3g} with "
+                f"partner {partner:.3g}"
+            )
+        if self.source == "lasso":
+            chosen = [pair[0] for pair in self.penalties]
+            return (
+                f"C-TMLE derivative fit used the lasso at penalties {min(chosen):.3g} to "
+                f"{max(chosen):.3g} over {len(self.penalties)} training sets"
+            )
+        if self.source == "learners":
+            return "C-TMLE derivative fit used two declared learners as mechanism and partner"
+        return "C-TMLE derivative fit used two declared arrays as mechanism and partner"
+
+    def summary(self) -> str:
+        """A printable report of the derivative fit.
+
+        Returns
+        -------
+        str
+            The source, the penalties, the coefficients and the derivative scores.
+        """
+        lines = [
+            "Collaborative TMLE derivative fit (C-TMLE0)",
+            "=" * 43,
+            f"strategy = derivative; source = {self.source}",
+            self.describe(),
+            "",
+            format_table(
+                ["column", "epsilon"],
+                [
+                    [name, f"{value:.6g}"]
+                    for name, value in zip(self.names, self.epsilon, strict=True)
+                ],
+            ),
+            "",
+            "derivative score before / after targeting (normalized): "
+            + "; ".join(
+                f"{before:.3g} / {after:.3g}"
+                for before, after in zip(
+                    self.derivative_score_before, self.derivative_score_after, strict=True
+                )
+            ),
+            f"treatment risk: {self.treatment_risk:.6g}",
+        ]
+        return "\n".join(lines)
+
+
+@dataclass(frozen=True)
 class _Candidate:
     """One element of the candidate sequence: a propensity model and its targeted fit."""
 
@@ -1063,6 +1185,10 @@ class CTMLE(TMLE):
             self.strategy, self.candidates, self.treatment_candidates, data.covariate_names
         ):
             return super()._inference_status(data)
+        if self.strategy == "derivative":
+            # C-TMLE0 selects nothing collaboratively. It is an ordinary TMLE with a larger
+            # fluctuation that still holds every clever covariate.
+            return super()._inference_status(data)
         if is_selector_strategy(self.strategy):
             return "working_mechanism_plugin"
         if per_arm_design_admits(self, data):
@@ -1152,10 +1278,18 @@ class CTMLE(TMLE):
     def _validate_ctmle_settings(self) -> None:
         if self.loss not in ("auto", "loglik", "squared"):
             raise ValueError(f"loss must be 'auto', 'loglik' or 'squared'; got {self.loss!r}")
-        if self.strategy not in ("greedy", "ordered", "discrete", "lasso", "learners", "oat"):
+        if self.strategy not in (
+            "greedy",
+            "ordered",
+            "discrete",
+            "lasso",
+            "learners",
+            "derivative",
+            "oat",
+        ):
             raise ValueError(
-                "strategy must be 'greedy', 'ordered', 'discrete', 'lasso', 'learners' or "
-                f"'oat'; got {self.strategy!r}"
+                "strategy must be 'greedy', 'ordered', 'discrete', 'lasso', 'learners', "
+                f"'derivative' or 'oat'; got {self.strategy!r}"
             )
         if self.preorder not in (None, "logistic", "partial_correlation"):
             raise ValueError(
@@ -1167,13 +1301,31 @@ class CTMLE(TMLE):
             raise ValueError(
                 f"candidates= only applies to strategy='discrete', not {self.strategy!r}"
             )
-        if self.strategy != "lasso" and self.lambdas is not None:
-            raise ValueError(f"lambdas= only applies to strategy='lasso', not {self.strategy!r}")
-        if self.lambdas is not None:
-            check_penalty_grid(self.lambdas)
-        if self.strategy != "learners" and self.treatment_candidates is not None:
+        if self.strategy not in ("lasso", "derivative") and self.lambdas is not None:
             raise ValueError(
-                f"treatment_candidates= only applies to strategy='learners', not {self.strategy!r}"
+                f"lambdas= only applies to strategy='lasso' or 'derivative', not {self.strategy!r}"
+            )
+        if self.lambdas is not None:
+            if self.strategy == "derivative":
+                _check_penalty_pair(self.lambdas)
+            else:
+                check_penalty_grid(self.lambdas)
+        if (
+            self.strategy not in ("learners", "derivative")
+            and self.treatment_candidates is not None
+        ):
+            raise ValueError(
+                "treatment_candidates= only applies to strategy='learners' or 'derivative', "
+                f"not {self.strategy!r}"
+            )
+        if (
+            self.strategy == "derivative"
+            and self.lambdas is not None
+            and self.treatment_candidates is not None
+        ):
+            raise ValueError(
+                "strategy='derivative' takes its two mechanisms from lambdas= or from "
+                "treatment_candidates=, not from both"
             )
         if self.strategy == "learners" and self.treatment_candidates is None:
             raise ValueError(
@@ -1212,22 +1364,40 @@ class CTMLE(TMLE):
                 "that has not been derived. Use targeting_scheme='pooled'."
             )
 
-        if not is_selector_strategy(self.strategy) and self.ctmle_estimand != "ate":
+        if self.strategy == "derivative" and self.ctmle_estimand != "ate":
+            raise ValueError(
+                "ctmle_estimand= does not apply to strategy='derivative': the derivative "
+                "update targets every treatment-specific mean together"
+            )
+        if self.strategy == "oat" and self.ctmle_estimand != "ate":
             raise ValueError(
                 "ctmle_estimand= does not apply to strategy='oat': ctmle3's "
                 "outcome-adaptive construction targets all treatment-specific means together"
             )
         overridden = [] if is_selector_strategy(self.strategy) else self._selector_only_overrides()
+        if overridden and self.strategy == "derivative":
+            raise ValueError(
+                f"{', '.join(f'{name}=' for name in overridden)} configure selector "
+                "strategies and do not apply to strategy='derivative', which fits one "
+                "mechanism and its partner and selects nothing"
+            )
         if overridden:
             raise ValueError(
                 f"{', '.join(f'{name}=' for name in overridden)} configure selector "
                 "strategies and do not apply to strategy='oat', which fits its mechanism on "
                 "the outcome predictions and selects nothing"
             )
+        if self.strategy == "derivative" and self.targeting == "one_step":
+            raise CapabilityError(DERIVATIVE_ONE_STEP_REFUSAL)
+        if self.strategy == "derivative" and self.target_weights:
+            raise CapabilityError(DERIVATIVE_TARGET_WEIGHTS_REFUSAL)
 
     def _validate_treatment_candidates(self) -> None:
         """Refuse a lone array entry, and an arrays entry outside its declared regime."""
         if self.treatment_candidates is None:
+            return
+        if self.strategy == "derivative":
+            self._validate_derivative_entries()
             return
         if isinstance(self.treatment_candidates, (str, bytes)) or not isinstance(
             self.treatment_candidates, Sequence
@@ -1270,6 +1440,52 @@ class CTMLE(TMLE):
                 "cross_fit=False, or pass the learner that produced the arrays."
             )
 
+    def _validate_derivative_entries(self) -> None:
+        """Refuse a ``strategy="derivative"`` pair that is not two usable entries."""
+        entries = self.treatment_candidates
+        if isinstance(entries, (str, bytes)) or not isinstance(entries, Sequence):
+            raise ValueError(
+                "Under strategy='derivative', treatment_candidates= is the pair (mechanism, "
+                "partner): exactly two entries, each an unfitted learner or a full-sample "
+                f"propensity array. Got {type(entries).__name__}"
+            )
+        if len(entries) != 2:
+            raise ValueError(
+                "Under strategy='derivative', treatment_candidates= is the pair (mechanism, "
+                "partner): exactly two entries, each an unfitted learner or a full-sample "
+                f"propensity array. Got {len(entries)} entries"
+            )
+        has_arrays = False
+        for index, entry in enumerate(entries):
+            if isinstance(entry, PropensityArrays):
+                raise CapabilityError(
+                    f"treatment_candidates= entry {index} is a PropensityArrays pair. "
+                    "strategy='derivative' has no selection split, so it reads full-sample "
+                    "predictions only. Pass the full array itself, as R "
+                    "ctmleGeneral(ctmletype=3) takes g1W and g1WPrev."
+                )
+            if entry is None:
+                raise ValueError(
+                    f"treatment_candidates= entry {index} is None; pass a learner or a "
+                    "full-sample propensity array"
+                )
+            if _is_array_like(entry):
+                has_arrays = True
+                continue
+            resolve_learner(entry, task="classification")
+        if has_arrays and self.cross_fit:
+            raise CapabilityError(
+                "A propensity array entry was fitted on the analysis sample, and a "
+                "cross-fitted fit needs one fit for each outer fold. Fit with "
+                "cross_fit=False, or pass the learner that produced the array."
+            )
+        if has_arrays and self.n_bootstrap:
+            raise CapabilityError(
+                "A propensity array entry holds one value for each analysis row, and a "
+                "bootstrap replicate refits the mechanism on resampled rows. Use "
+                "n_bootstrap=0, or pass the learner that produced the array."
+            )
+
     def _validate_selection_split(self) -> None:
         """Refuse a declared selection split beside a setting that redraws or resamples."""
         if self.selection_split is None or not is_selector_strategy(self.strategy):
@@ -1291,6 +1507,11 @@ class CTMLE(TMLE):
     def _has_arrays(self) -> bool:
         return any(
             isinstance(entry, PropensityArrays) for entry in (self.treatment_candidates or ())
+        )
+
+    def _has_derivative_arrays(self) -> bool:
+        return self.strategy == "derivative" and any(
+            _is_array_like(entry) for entry in (self.treatment_candidates or ())
         )
 
     def _selector_only_overrides(self) -> list[str]:
@@ -1345,6 +1566,8 @@ class CTMLE(TMLE):
             seed=seed,
             fit_treatment=False,
         )
+        if self.strategy == "derivative":
+            return self._derivative_nuisances(data, base, config, intermediate_value, seed=seed)
         if not is_selector_strategy(self.strategy):
             return self._outcome_adaptive_nuisances(data, base, seed=seed)
         selector = _Selector(self, data, base, config.g_bounds, intermediate_value, seed=seed)
@@ -1490,6 +1713,138 @@ class CTMLE(TMLE):
                 where="inner fold {fold}",
                 remedy=_SELECTION_SPLIT_REMEDY,
             )
+
+    def _derivative_nuisances(
+        self,
+        data: CausalData,
+        base: NuisanceEstimates,
+        config: TMLEConfig,
+        intermediate_value: float | None,
+        *,
+        seed: int | None,
+    ) -> tuple[NuisanceEstimates, dict[str, Any]]:
+        """Fit the mechanism and its partner, then the C-TMLE0 update.
+
+        Both mechanisms are fitted on exactly the rows the ordinary treatment learner uses:
+        every row in sample, and each outer fold's training rows when cross-fitted, with
+        predictions on that fold. The lasso source with ``lambdas=None`` chooses the
+        mechanism penalty by ``learner_folds``-fold weighted deviance cross-validation over
+        ``glmnet``'s default grid inside each training set. The grid is fixed once on the
+        analysis sample. The partner is the grid neighbour of :func:`nearest_neighbour`.
+        The update is one solve of the ``2K`` columns on every row, pooled over the folds.
+        Its targeted fit is the state the ordinary continuation starts from.
+        """
+        arms = data.arm_codes
+        seed_value = self.random_state if seed is None else seed
+        everything: IntArray = np.arange(data.n)
+        if base.folds.is_single:
+            sets = [(everything, everything, "the analysis sample")]
+        else:
+            sets = [
+                (train, test, f"outer fold {fold}") for fold, (train, test) in enumerate(base.folds)
+            ]
+        penalties: list[tuple[float, float]] = []
+        cv_risks: list[FloatArray] = []
+        chosen_risks: list[float] = []
+        entries = self.treatment_candidates
+        if entries is None:
+            source: Literal["lasso", "learners", "arrays"] = "lasso"
+            mechanism = np.empty((data.n, len(arms)))
+            partner = np.empty((data.n, len(arms)))
+            grid = (
+                default_penalty_grid(data.covariates, data.treatment, data.weights)
+                if self.lambdas is None
+                else None
+            )
+            for train, test, layer in sets:
+                x, a, w = data.covariates[train], data.treatment[train], data.weights[train]
+                if grid is None:
+                    pair = _check_penalty_pair(self.lambdas)
+                else:
+                    inner = make_folds(
+                        train.size,
+                        self.learner_folds,
+                        cluster=None if data.cluster is None else data.cluster[train],
+                        random_state=seed_value,
+                    )
+                    index, risk = cv_penalty(
+                        x, a, w, grid, inner.assignment, classes=arms, layer=layer
+                    )
+                    pair = (float(grid[index]), float(grid[nearest_neighbour(grid, index)]))
+                    cv_risks.append(risk)
+                    chosen_risks.append(float(risk[index]))
+                fits = penalty_path(x, a, w, sorted(pair, reverse=True), classes=arms, layer=layer)
+                by_penalty = {fit.penalty: fit for fit in fits}
+                mechanism[test] = by_penalty[pair[0]].predict_proba(data.covariates[test])
+                partner[test] = by_penalty[pair[1]].predict_proba(data.covariates[test])
+                penalties.append(pair)
+            values = [mechanism, partner]
+        else:
+            values = []
+            kinds = []
+            for index, entry in enumerate(entries):
+                if _is_array_like(entry):
+                    values.append(_derivative_array(index, entry, data))
+                    kinds.append("arrays")
+                    continue
+                learner = resolve_learner(
+                    entry,
+                    task="classification",
+                    n_folds=self.learner_folds,
+                    random_state=seed_value,
+                )
+                predictions, _ = cross_fit_predictions(
+                    learner,
+                    data.covariates,
+                    data.treatment,
+                    data.weights,
+                    base.folds,
+                    task="classification",
+                    predict_designs={"g": data.covariates},
+                    groups=data.cluster,
+                    clip=(0.0, 1.0),
+                    classes=arms,
+                    n_jobs=self.n_jobs,
+                )
+                values.append(predictions["g"])
+                kinds.append("learners")
+            source = "arrays" if kinds == ["arrays", "arrays"] else "learners"
+        propensity = Propensity(np.clip(values[0], 0.0, 1.0), arms)
+        nuisance = replace(
+            base,
+            propensity=propensity,
+            treatment_partner=Propensity(np.clip(values[1], 0.0, 1.0), arms),
+            treatment_covariates=data.covariate_names,
+        )
+        update = fitted_update(
+            data,
+            nuisance,
+            bounds=config.g_bounds,
+            nuisance_bound=self.nuisance_bound,
+            intermediate_value=intermediate_value,
+            spec=self.targeting_spec(),
+        )
+        if chosen_risks:
+            treatment_risk = float(np.mean(chosen_risks))
+        else:
+            columns = np.array([propensity.column_for(float(arm)) for arm in data.treatment])
+            observed = propensity.values[everything, columns]
+            treatment_risk = float(
+                -np.sum(data.weights * np.log(np.clip(observed, _LOSS_EPS, 1.0)))
+                / np.sum(data.weights)
+            )
+        fit = CTMLEDerivativeFit(
+            strategy="derivative",
+            source=source,
+            penalties=tuple(penalties),
+            cv_risk=tuple(cv_risks),
+            epsilon=update.epsilon,
+            names=update.names,
+            derivative_score_before=update.score_before,
+            derivative_score_after=update.score_after,
+            treatment_risk=treatment_risk,
+        )
+        return replace(nuisance, targeting_outcome=update.targeted), {"ctmle": fit}
 
     def _outcome_adaptive_nuisances(
         self, data: CausalData, base: NuisanceEstimates, *, seed: int | None
@@ -1769,6 +2124,24 @@ class CTMLE(TMLE):
         outcome learner and is what calibration and risk diagnostics are about.  The
         replacement is local, so the result continues to expose both states faithfully.
         """
+        if self.strategy == "derivative" and nuisance.treatment_partner is not None:
+            # C-TMLE0 at the requested bounds: the derivative columns are rebuilt from the
+            # initial fit, the mechanism and the partner, so a truncation sweep moves them.
+            bounds = kwargs.get("g_bounds") or resolve_g_bounds(
+                self.g_bounds, self._bounds_n(data), for_att=False
+            )
+            bound = kwargs.get("nuisance_bound")
+            update = fitted_update(
+                data,
+                nuisance,
+                bounds=bounds,
+                nuisance_bound=self.nuisance_bound if bound is None else bound,
+                intermediate_value=kwargs.get("intermediate_value"),
+                spec=self.targeting_spec(),
+                missingness=kwargs.get("missingness"),
+            )
+            working = replace(nuisance, outcome=update.targeted, targeting_outcome=None)
+            return super()._retarget_detailed(data, working, **kwargs)
         initial = nuisance.targeting_outcome
         if initial is None:
             return super()._retarget_detailed(data, nuisance, **kwargs)
@@ -1811,6 +2184,11 @@ class CTMLE(TMLE):
             raise CapabilityError(
                 "a refit adds, replaces or perturbs a column, and the PropensityArrays "
                 "candidates were fitted on the original columns. Pass learners to refit."
+            )
+        if self._has_derivative_arrays():
+            raise CapabilityError(
+                "The refit changes the covariates, and a propensity array entry was fitted "
+                "without that change. Pass learners to refit."
             )
         if self.strategy == "discrete" and self.candidates is not None:
             recorded = set(data.added_covariates)
@@ -1856,7 +2234,14 @@ class CTMLE(TMLE):
                 "between estimands rather than between estimators of one, and the risk "
                 "it minimises would have no fixed target. Use a plain TMLE."
             )
-        if data.cluster is not None:
+        if data.has_strata and self.strategy == "derivative":
+            raise CapabilityError(
+                "strategy='derivative' has no stratified update. Each stratum estimate would "
+                "need its own derivative columns, which neither R ctmle type 3 nor the "
+                "C-TMLE0 sources define. Drop strata=, or fit the ordinary TMLE, which "
+                "reports stratum estimates."
+            )
+        if data.cluster is not None and self.strategy != "derivative":
             reason = (
                 "No reviewed result covers clustered inference for the outcome-adaptive mechanism"
                 if not is_selector_strategy(self.strategy)
@@ -2786,6 +3171,51 @@ def _indexed_path(
     return [candidate for candidate in path if candidate is not None]
 
 
+def _derivative_array(index: int, entry: Any, data: CausalData) -> FloatArray:
+    """A ``strategy="derivative"`` array entry as ``(n, K)`` probabilities, or ``ValueError``."""
+    n, arms = data.n, data.arm_codes
+    k = len(arms)
+    array = np.asarray(entry, dtype=float)
+    shape = array.shape
+    if k == 2 and array.ndim == 1 and array.shape[0] == n:
+        array = np.column_stack([1.0 - array, array])
+    valid = (
+        array.shape == (n, k)
+        and bool(np.all(np.isfinite(array)))
+        and bool(np.all((array >= 0.0) & (array <= 1.0)))
+    )
+    if not valid:
+        labels = [data.arm_label(arm) for arm in arms]
+        raise ValueError(
+            f"treatment_candidates= entry {index}: the array must hold {n} finite "
+            f"probabilities in [0, 1] for each of the {k} arms in arm order {labels}; a "
+            f"vector of P(A = {labels[1]}) is accepted at two arms; got shape {shape}"
+        )
+    return array
+
+
+def _check_penalty_pair(lambdas: Any) -> tuple[float, float]:
+    """The ``strategy="derivative"`` pair as two floats, or ``ValueError``."""
+    try:
+        values = np.asarray(lambdas, dtype=float).reshape(-1)
+    except (TypeError, ValueError):
+        values = np.array([np.nan])
+    valid = (
+        values.size == 2
+        and bool(np.all(np.isfinite(values)))
+        and bool(np.all(values >= 0.0))
+        and values[0] != values[1]
+    )
+    if not valid:
+        raise ValueError(
+            "Under strategy='derivative', lambdas= is the pair (mechanism_penalty, "
+            "partner_penalty): two finite, non-negative and different penalties in any "
+            "order. Omit it to choose the mechanism penalty by cross-validation. Got "
+            f"{lambdas!r}"
+        )
+    return float(values[0]), float(values[1])
+
+
 def _penalty_label(value: float) -> str:
     return "lambda=0" if value == 0.0 else f"lambda={value:.4g}"
 
@@ -2949,6 +3379,12 @@ def _logistic_plugin_refusal(result: TMLEResult) -> str | None:
     if not isinstance(selection, CTMLESelection):
         if isinstance(selection, CTMLEOutcomeAdaptiveFit):
             return "used strategy='oat', which fits no logistic propensity on covariates"
+        if isinstance(selection, CTMLEDerivativeFit):
+            return (
+                "used strategy='derivative', which adds derivative columns to the "
+                "fluctuation. R ctmleGlmnet(ctmletype=3) reports the plain D* variance, which "
+                "std_error gives up to n/(n-1)."
+            )
         return "is not a selector C-TMLE fit (strategy 'greedy', 'ordered' or 'discrete')"
     if selection.strategy == "lasso":
         return (

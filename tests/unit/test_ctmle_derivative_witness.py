@@ -40,6 +40,11 @@ WITNESS = Path(__file__).parents[1] / "canonical" / "ctmle_derivative_witness"
 BOUNDS = (GBOUND, 1.0 - GBOUND)
 SPEC = TargetingSpec(alpha=ALPHA)
 
+pytestmark = pytest.mark.skipif(
+    not (WITNESS / "manifest.json").exists(),
+    reason="the witness outputs are not committed yet; the local thread runs regenerate.py",
+)
+
 
 def _summary() -> pd.DataFrame:
     return pd.read_csv(WITNESS / "summary.csv", float_precision="round_trip").set_index("block")

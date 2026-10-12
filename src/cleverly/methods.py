@@ -594,7 +594,8 @@ class TMLEMethod:
             split_plan=cross.split_plan,
             n_bootstrap=self.inference.n_bootstrap,
             stratify_folds=cross.stratify_by,
-            collaborative=self._collaborative and getattr(self, "strategy", None) != "oat",
+            collaborative=self._collaborative
+            and getattr(self, "strategy", None) not in ("oat", "derivative"),
             option_name="enabled",
         )
         if reason is not None:

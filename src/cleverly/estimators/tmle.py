@@ -767,7 +767,8 @@ class TMLE:
         A hook beside :meth:`_inference_status`, because only the estimator knows which
         construction the bootstrap reruns. The point-treatment fit returns
         :data:`POINT_BOOTSTRAP_INFERENTIAL`. :class:`~cleverly.estimators.CTMLE` returns
-        ``False`` for ``strategy="oat"``.
+        ``False`` for ``strategy="oat"``, and the :class:`~cleverly.TMLE` answer for
+        ``strategy="derivative"``.
 
         Parameters
         ----------
@@ -1079,8 +1080,8 @@ class TMLE:
                 self._assessment_method == "collaborative_tmle"
                 # Only a ``CTMLE`` reports this method, and its constructor sets
                 # ``strategy`` before the base constructor asks this policy. The
-                # outcome-adaptive strategy draws no selector folds.
-                and cast("Any", self).strategy != "oat"
+                # outcome-adaptive and derivative strategies draw no selector folds.
+                and cast("Any", self).strategy not in ("oat", "derivative")
             ),
             option_name="cross_fit",
             learned_rule=self.learned_rule is not None,

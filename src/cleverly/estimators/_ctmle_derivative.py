@@ -21,6 +21,7 @@ move :math:`\bar Q^*` and never enter the curve.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -28,7 +29,11 @@ from .._typing import BoolArray, FloatArray
 from ..exceptions import CapabilityError
 from ..fluctuation.iterative import Fluctuation, InitialFit
 from ..fluctuation.submodel import Submodel, derivative_columns
-from .targeting import TargetingSpec, solve_submodel
+from .targeting import TargetingSpec, build_submodel, solve_submodel
+
+if TYPE_CHECKING:
+    from ..data.causal_data import CausalData
+    from ._nuisance import NuisanceEstimates
 
 __all__ = [
     "DERIVATIVE_ONE_STEP_REFUSAL",
@@ -36,6 +41,7 @@ __all__ = [
     "DerivativeUpdate",
     "derivative_ratio",
     "derivative_update",
+    "fitted_update",
 ]
 
 #: The refusal of ``targeting="one_step"`` under ``strategy="derivative"``.
@@ -220,4 +226,67 @@ def derivative_update(
         scale=scale,
         score_before=before,
         score_after=np.asarray(fluctuation.score)[k:],
+    )
+
+
+def fitted_update(
+    data: CausalData,
+    nuisance: NuisanceEstimates,
+    *,
+    bounds: tuple[float, float],
+    nuisance_bound: float,
+    intermediate_value: float | None,
+    spec: TargetingSpec,
+    missingness: FloatArray | None = None,
+) -> DerivativeUpdate:
+    """Run :func:`derivative_update` from a fit's stored nuisances, at given bounds.
+
+    The fit and every ``retarget`` call this, so a truncation sweep refits the derivative
+    columns at each bound from :attr:`~NuisanceEstimates.outcome`, the mechanism and the
+    stored partner.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data.
+    nuisance : NuisanceEstimates
+        The nuisances, with :attr:`~NuisanceEstimates.treatment_partner` set.
+    bounds : tuple of float
+        The truncation bounds of the mechanism and the partner.
+    nuisance_bound : float
+        The lower bound of the missingness mechanism.
+    intermediate_value : float or None
+        The intermediate level, always ``None`` for a collaborative fit.
+    spec : TargetingSpec
+        The targeting settings.
+    missingness : ndarray or None
+        A missingness mechanism that replaces the fitted one, as the missingness tilt
+        passes.
+
+    Returns
+    -------
+    DerivativeUpdate
+        The update at ``bounds``.
+    """
+    if nuisance.treatment_partner is None:
+        raise ValueError("this fit stores no partner mechanism")
+    base = build_submodel(
+        data,
+        nuisance,
+        "mean",
+        bounds=bounds,
+        nuisance_bound=nuisance_bound,
+        intermediate_value=intermediate_value,
+        missingness_override=missingness,
+    )
+    return derivative_update(
+        nuisance.scaler.scale(data.outcome),
+        nuisance.outcome,
+        base,
+        nuisance.propensity.bounded(bounds),
+        nuisance.treatment_partner.bounded(bounds),
+        data.treatment,
+        data.observed,
+        data.weights,
+        spec,
     )
