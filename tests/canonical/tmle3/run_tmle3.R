@@ -77,32 +77,25 @@ fit_one <- function(frame, scenario, replicate) {
   nodes <- list(W = covariates, A = "A", Y = "Y")
   n <- nrow(data)
   rows <- list()
-  stage <- function(label, expression) {
-    tryCatch(
-      force(expression),
-      error = function(condition) {
-        stop(sprintf("%s: %s", label, conditionMessage(condition)), call. = FALSE)
-      }
-    )
-  }
+  # RM39a2: each tmle3 fit runs inside `study_stage`, so an error tmle3 raises costs one group.
 
-  tsm <- stage("TSM", tmle3(tmle_TSM_all(), data, nodes, learners))
+  tsm <- study_stage("TSM", tmle3(tmle_TSM_all(), data, nodes, learners))
   rows[[length(rows) + 1]] <- extract(
     tsm, c("ey0", "ey1"), scenario, replicate, truth, n
   )
   rows[[length(rows) + 1]] <- extract(
-    stage("ATE", tmle3(tmle_ATE(1, 0), data, nodes, learners)),
+    study_stage("ATE", tmle3(tmle_ATE(1, 0), data, nodes, learners)),
     "ate", scenario, replicate, truth, n
   )
   rows[[length(rows) + 1]] <- extract(
-    stage("ATT", fit_conditional(tmle_ATT(1, 0), data, nodes, learners)),
+    study_stage("ATT", fit_conditional(tmle_ATT(1, 0), data, nodes, learners)),
     "att", scenario, replicate, truth, n
   )
   rows[[length(rows) + 1]] <- extract(
-    stage("ATC", fit_conditional(tmle_ATC(1, 0), data, nodes, learners)),
+    study_stage("ATC", fit_conditional(tmle_ATC(1, 0), data, nodes, learners)),
     "atc", scenario, replicate, truth, n
   )
-  par <- stage("PAR", tmle3(tmle_PAR(0), data, nodes, learners))
+  par <- study_stage("PAR", tmle3(tmle_PAR(0), data, nodes, learners))
   # tmle_PAR always reports these four; the continuous law has no PAF, so its row is
   # dropped below rather than requested differently.
   par_rows <- extract(
@@ -112,11 +105,11 @@ fit_one <- function(frame, scenario, replicate) {
   rows[[length(rows) + 1]] <- par_rows[par_rows$estimand != "ey0", ]
 
   if (scenario == "binary") {
-    rr <- stage("RR", tmle3(tmle_RR(0, 1), data, nodes, learners))
+    rr <- study_stage("RR", tmle3(tmle_RR(0, 1), data, nodes, learners))
     rows[[length(rows) + 1]] <- extract(
       rr, c("ey0", "ey1", "rr"), scenario, replicate, truth, n
     )[3, ]
-    or <- stage("OR", tmle3(tmle_OR(0, 1), data, nodes, learners))
+    or <- study_stage("OR", tmle3(tmle_OR(0, 1), data, nodes, learners))
     rows[[length(rows) + 1]] <- extract(
       or, c("ey0", "ey1", "or"), scenario, replicate, truth, n
     )[3, ]

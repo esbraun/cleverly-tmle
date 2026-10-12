@@ -100,18 +100,11 @@ fit_one <- function(frame) {
   truth <- as.numeric(truths[row, truth_columns])
   names(truth) <- sub("^truth_", "", truth_columns)
   data <- frame[c("V", "W", "A", "Y")]
-  stage <- function(label, expression) {
-    tryCatch(
-      force(expression),
-      error = function(condition) {
-        stop(sprintf("%s: %s", label, conditionMessage(condition)), call. = FALSE)
-      }
-    )
-  }
+  # RM39a2: each tmle3 fit runs inside `study_stage`, so an error tmle3 raises costs one group.
   # Two stages, as tests/canonical/tmle3/run_tmle3.R fits the marginal parameters.
   # ``base_estimate = FALSE``: the marginal clever covariate is the sum of the stratum
   # columns, so fluctuating it as well would make the design collinear.
-  tsm <- stage(
+  tsm <- study_stage(
     "TSM",
     tmle3(tmle_stratified(tmle_TSM_all(), base_estimate = FALSE), data, nodes, learners)
   )
@@ -124,7 +117,7 @@ fit_one <- function(frame) {
     sprintf("ey[%s][V=%d]", ifelse(treated, "1", "0"), stratum_of(tsm_table$param)),
     truth, scenario, replicate
   )
-  ate <- stage(
+  ate <- study_stage(
     "ATE",
     tmle3(tmle_stratified(tmle_ATE(1, 0), base_estimate = FALSE), data, nodes, learners)
   )

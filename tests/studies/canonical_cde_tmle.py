@@ -20,6 +20,7 @@ from tests.conftest import (
 )
 from tests.parallel import STUDY_JOBS
 from tests.studies.cde_study_helpers import efficiency_sd, level_rows, sample_discrete, truths
+from tests.studies.evidence import failures as evidence_failures
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
@@ -262,3 +263,15 @@ def reference_artifacts(
         runner="tmle_cde/probe_native_result2.R",
     )
     return {path.name: pd.read_csv(path)}
+
+
+def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    """The defect probe refits replication 0 on its own, so a failed main fit leaves it whole.
+
+    The probe's ``tmle`` call runs outside ``study_stage``.  When it fails, the run stops in
+    ``reference_artifacts``, as the hook rule in ``method-benchmarking.md`` states.
+    """
+    del failures, artifacts
+    return evidence_failures.audits(
+        {"native second-result probe (replication 0)": pd.DataFrame()}, missing={}
+    )

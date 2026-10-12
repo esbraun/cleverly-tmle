@@ -16,6 +16,9 @@
 # cf_tmle and theta_dr directly, never cf_density_ratios; a policy with probabilities that are
 # multiples of 1 / copies is realised by proportional replication, and the unit-level influence
 # curve is the mean of its copies'.  The shared adapters are sourced and not edited.
+#
+# RM39a2: each lmtp estimation call runs inside `study_stage` (tests/canonical/study_harness.R,
+# which every caller sources); every check stays outside a stage and stays fatal.
 
 source("/fixture/lmtp_policy_adapter.R")
 
@@ -34,6 +37,10 @@ lmtp_held_survival_tmle <- function(
   # data: one row per unit, natural columns.  draws: an n x copies matrix of the shifted
   # treatment of each copy.  ratios: n x K per-node ratios on the unit's own row.  Returns the
   # estimate, the unit-level influence curve and the untargeted plug-in.
+  # RM39a2 (M7): every argument is evaluated here, outside any stage.
+  invisible(list(
+    data, draws, ratios, trt, outcome, cens, baseline, copies, outcome_type, learners_outcome
+  ))
   n <- nrow(data)
   if (!identical(dim(draws), c(n, as.integer(copies)))) stop("the draws are not n x copies")
   if (ncol(ratios) != length(outcome)) stop("one ratio column per event node is required")
@@ -85,7 +92,11 @@ lmtp_held_survival_tmle <- function(
   control <- lmtp::lmtp_control(
     .trim = 1, .learners_outcome_folds = 2, .return_full_fits = TRUE
   )
-  regressions <- lmtp_internal("cf_tmle")(task, replicated, learners_outcome, control, progress)
+  cf_tmle <- lmtp_internal("cf_tmle")
+  theta_dr <- lmtp_internal("theta_dr")
+  regressions <- study_stage(
+    "lmtp tmle", cf_tmle(task, replicated, learners_outcome, control, progress)
+  )
 
   # The untargeted plug-in: the first regression at the copy's shifted treatment, averaged.
   history <- task$vars$history("L", 2)
@@ -94,10 +105,12 @@ lmtp_held_survival_tmle <- function(
   under_shift <- task$natural[at_start, c("..i..lmtp_id", history)]
   under_shift[, first_treatment] <- task$shifted[at_start, first_treatment]
   initial <- rep(NA_real_, nrow(task$natural))
-  initial[at_start] <- predict(regressions$fits[[1]][[1]], under_shift, 1e-05)
+  initial[at_start] <- study_stage(
+    "lmtp estimate", predict(regressions$fits[[1]][[1]], under_shift, 1e-05)
+  )
   if (anyNA(initial)) stop("the initial plug-in did not cover every copy")
 
-  result <- lmtp_internal("theta_dr")(
+  result <- study_stage("lmtp estimate", theta_dr(
     task = task,
     sequential_regressions = list(natural = regressions$natural, shifted = regressions$shifted),
     density_ratios = replicated,
@@ -105,7 +118,7 @@ lmtp_held_survival_tmle <- function(
     fits_r = NULL,
     shift = "held point treatment, supplied shifted values and ratios",
     is_sdr = FALSE
-  )
+  ))
   list(
     estimate = result$estimate@x,
     ic = as.numeric(tapply(result$estimate@eif, unit, mean)),
