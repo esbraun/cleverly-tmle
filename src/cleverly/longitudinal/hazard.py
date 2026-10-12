@@ -765,10 +765,12 @@ def solve_per_horizon(
 ) -> tuple[HazardState, HazardFit]:
     """Target every regimen's and cause's parameter at one horizon (part (a)).
 
-    Each outer iteration fits :math:`\\epsilon \\in \\mathbb R^{RJ}` by Newton steps on the
-    weighted multinomial log-likelihood with :math:`h` held fixed, moves every level's
-    hazards, and rebuilds :math:`h` (Moore and van der Laan 2009, (13)).  It stops when
-    every target's relative score is at most ``tol``, or after ``max_iter`` iterations.
+    Each outer iteration moves every level's hazards along the current clever covariates
+    by :math:`\\epsilon \\in \\mathbb R^{RJ}`, then rebuilds :math:`h`.  The step is a
+    Newton step on the scores themselves (:func:`_secant_step`).  When that step does not
+    reduce the scores, the iteration takes the maximum-likelihood fluctuation with
+    :math:`h` held fixed instead (Moore and van der Laan 2009, (13)).  It stops when every
+    target's relative score is at most ``tol``, or after ``max_iter`` iterations.
 
     Parameters
     ----------
