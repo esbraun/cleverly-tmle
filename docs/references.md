@@ -987,6 +987,16 @@ sizes only the cluster sum is the delta-method variance of the row mean
   the empirical variance of $D^*$, and Section 5.4 reports that those intervals fail to cover
   except at large `n`. The `lasso` strategy lies outside the corollary's conditions: its index is a
   discrete grid, and its stop rule, index rule and final step are the package's own.
+  Section 4.2 (preprint page 17) states the goal of the derivative strategy of `CTMLE`. The first
+  display solves $P_n d_h D^*(\bar{Q}^*, G_{n,\cdot}) = 0$ together with $P_n D^* = 0$. Steps 1 to 3
+  define LASSO-PSEUDO-C-TMLE: the cross-validated penalty, its nearest grid neighbour, and one
+  fluctuation along display (33). Display (33) prints the second direction as $C(G)\,G'$. The goal
+  needs $d_h C(G_h)$, which display (19) gives as $-G'/\ell G^2$. The two directions differ by a
+  row-varying factor. The package fits the derivative of the clever covariate, as R `ctmle` does,
+  and the [C-TMLE0 section](technical-reference/collaborative-tmle.md#c-tmle0-the-derivative-covariate)
+  records this as reading D2. Section 5.3 applies Corollary 4 to the pseudo estimator, but that
+  estimator uses the cross-validated penalty and a finite difference, which Corollary 4 does not
+  cover.
 - Ju, Gruber, Lendle, Chambaz, Franklin, Wyss, Schneeweiss & van der Laan (2019), [*Scalable
   collaborative targeted learning for high-dimensional data*](https://pmc.ncbi.nlm.nih.gov/articles/PMC6086775/),
   *Statistical Methods in Medical Research* 28(2):532-554, DOI 10.1177/0962280217729845,
@@ -1027,6 +1037,13 @@ sizes only the cluster sum is the delta-method variance of the row mean
   steps 13 to 16. That final step fluctuates the selected candidate's initial fit. The `lasso`
   strategy of `CTMLE` follows steps 5 to 12. In the final step it fluctuates the targeted fit, as R
   `ctmleGlmnet` does.
+  The second bullet of Section 4.2, equation (6) (preprint page 8), defines C-TMLE0. It is the TMLE
+  with one extra fluctuation direction, the derivative of the clever covariate in the penalty.
+  Appendix B, Algorithm 2 (preprint pages 23 to 24), states the same steps with a finite
+  difference. Its printed treated-arm term lacks the square that equation (6) carries. The
+  derivative strategy follows equation (6). Its interval rests on the TMLE results of van der Laan
+  and Rubin (2006) and Zheng and van der Laan (2011), because the extra columns leave the
+  efficient influence curve equation solved.
 - Liu (2018), [*Contributions to evolutionary dynamics and causal
   inference*](https://nrs.harvard.edu/urn-3:HUL.InstRepos:41129186), Harvard University
   dissertation. Chapter 2 derives asymptotic laws for C-TMLE coefficients, squared errors,

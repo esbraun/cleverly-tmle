@@ -30,9 +30,28 @@ method comes with a capability reason.
 The collaborative fit above reports no confidence interval, no p-value, and no standard error. The
 `"greedy"` strategy is the default. `"ordered"`, `"discrete"`, `"lasso"`, `"learners"`, and `"oat"`
 refuse the same three accessors. Each estimate keeps `plugin_std_error` and `plugin_interval` as
-a diagnostic. For an interval, use `TMLEMethod`.
+a diagnostic. For an interval, use `TMLEMethod` or `strategy="derivative"`.
 [Collaborative TMLE](../technical-reference/collaborative-tmle.md) gives the reason for each
 strategy.
+
+### C-TMLE0: a derivative covariate with an interval
+
+`strategy="derivative"` fits one TMLE with an extra covariate for each arm. That covariate is the
+derivative of the clever covariate along the lasso penalty. The strategy selects nothing, so it
+reports the TMLE interval. Declare two penalties in `lambdas=`: the mechanism first, then its
+partner. Omit `lambdas=` to choose the mechanism penalty by cross-validation.
+
+```python
+derivative = effect.estimate(
+    method=CollaborativeTMLEMethod(models=parametric, strategy="derivative", lambdas=(0.02, 0.01)),
+    random_state=3,
+)
+print(derivative.extra["ctmle"].describe())
+```
+
+The fit prints the penalty pair and the number of training sets. The default cross-fit has 10. The
+[C-TMLE0 section](../technical-reference/collaborative-tmle.md#c-tmle0-the-derivative-covariate)
+lists the other two sources of the pair and the refusals.
 
 ### A lasso grid that starts at a cross-validated penalty
 
@@ -188,7 +207,7 @@ candidate, before an estimator variant multiplies it again. The examples in this
 
 Keep all rows from one declared cluster in the same fold. A grouped draw does that by permuting the
 distinct cluster labels and cutting them into near-equal parts. Ordinary TMLE, DR-TMLE and
-longitudinal TMLE accept `id=` under cross-fitting. C-TMLE refuses `id=` at every setting.
+longitudinal TMLE accept `id=` under cross-fitting. C-TMLE refuses `id=` at every setting, except `strategy="derivative"`.
 Cross-fitting reduces empirical-process bias. It does not establish positivity, correct
 identification, or nuisance consistency.
 

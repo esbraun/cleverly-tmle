@@ -137,6 +137,20 @@ the fit takes the ordinary TMLE status.
     -- ``LF_oat`` pins ``cv_fold = -1`` -- so non-cross-fitted parity and a cross-fitted
     result would have different sources.
 
+``strategy="derivative"``
+    C-TMLE0 of Ju, Wyss et al. (2019), C-LASSO Section 4.2, equation (6), and R ``ctmle``
+    type 3.  It selects nothing.  One TMLE update adds, for each arm, the column
+    ``h_a (g_a - g+_a) / g_a`` to the clever covariate ``h_a``, where ``g+`` is a partner
+    mechanism and both mechanisms are bounded at ``g_bounds``.  The ``2K`` columns contain
+    the ``K`` clever covariates, so the update solves the efficient influence curve
+    equation, and the fit takes the ordinary TMLE status.  The pair comes from the lasso
+    (``lambdas=None`` chooses the mechanism penalty by ``learner_folds``-fold weighted
+    deviance cross-validation and takes its nearest grid neighbour as the partner, or
+    ``lambdas=(mechanism, partner)``), or from ``treatment_candidates=(mechanism,
+    partner)`` as learners or full-sample arrays.  The interval does not claim the
+    collaborative reading of Ju, Chambaz and van der Laan (2018), Section 5.3, for an
+    inconsistent outcome regression; F18 holds it.
+
 The loss
 --------
 
@@ -975,11 +989,16 @@ class CTMLEDerivativeFit:
         str
             A complete sentence, ready to embed in a report line.
         """
-        if self.source == "lasso" and len(self.penalties) == 1:
-            ((mechanism, partner),) = self.penalties
+        if self.source == "lasso" and len(set(self.penalties)) == 1:
+            mechanism, partner = self.penalties[0]
+            sets = (
+                f" in each of {len(self.penalties)} training sets"
+                if len(self.penalties) > 1
+                else ""
+            )
             return (
                 f"C-TMLE derivative fit used the lasso at penalty {mechanism:.3g} with "
-                f"partner {partner:.3g}"
+                f"partner {partner:.3g}{sets}"
             )
         if self.source == "lasso":
             chosen = [pair[0] for pair in self.penalties]
@@ -1062,15 +1081,17 @@ class CTMLE(TMLE):
     selects nothing, equals the ordinary TMLE, and reports its interval.
     ``strategy="oat"`` withholds the interval on either design, for the reason F19 in the
     roadmap holds: condition (v) of Benkeser, Cai and van der Laan (2020), Theorem 1,
-    fails for an estimated outcome regression.  See the module docstring.
+    fails for an estimated outcome regression.  ``strategy="derivative"`` selects nothing
+    and reports the ordinary TMLE interval.  See the module docstring.
 
     Parameters
     ----------
     strategy:
-        ``"greedy"`` (default), ``"ordered"``, ``"discrete"``, ``"lasso"``, ``"learners"``
-        or ``"oat"``.  The selector strategies fit one shared categorical propensity path
-        and jointly score
-        all components of ``ctmle_estimand``; ``"oat"`` fits treatment on the arm-specific
+        ``"greedy"`` (default), ``"ordered"``, ``"discrete"``, ``"lasso"``, ``"learners"``,
+        ``"derivative"`` or ``"oat"``.  ``"derivative"`` is C-TMLE0: one TMLE update with a
+        derivative column for each arm (see ``lambdas`` and ``treatment_candidates``).
+        The selector strategies fit one shared categorical propensity path and jointly
+        score all components of ``ctmle_estimand``; ``"oat"`` fits treatment on the arm-specific
         outcome predictions without a candidate path (see ``oat_design``).
         ``"oat"`` excludes ``W`` from ``g`` entirely and so gives up
         consistency-when-only-``g``-is-right; see the module docstring.
@@ -1116,13 +1137,18 @@ class CTMLE(TMLE):
         ``lambda_max`` down, then 0.  The grid reads treatment and covariates only, is fixed
         on the analysis sample, and is reused in every fold.  ``treatment_learner`` is not
         used by the lasso candidates; it stays the fallback of the missingness learner.
+        Under ``strategy="derivative"`` it is the pair ``(mechanism, partner)`` of two
+        different non-negative penalties, or ``None`` to cross-validate the mechanism penalty
+        over the default grid and take its nearest grid neighbour as the partner.
     treatment_candidates:
         The declared candidates of ``strategy="learners"``, from the least to the most
         adaptive.  An entry is an unfitted learner, fitted on every covariate on exactly the
         rows a covariate-set candidate uses, or a :class:`PropensityArrays` pair.
         ``treatment_learner`` on every covariate is appended as the last candidate.  An
         empty list selects nothing.  A scikit-learn ``FrozenEstimator`` passes as a learner
-        and is not refit, because ``clone`` returns it unchanged.
+        and is not refit, because ``clone`` returns it unchanged.  Under
+        ``strategy="derivative"`` it is the pair ``(mechanism, partner)``: two unfitted
+        learners, or two arrays of full-sample treatment probabilities.
     selection_split:
         Fold labels ``0`` to ``V - 1``, one for each row, used in place of the random
         selection split, on every selector strategy.  It refuses ``repeats > 1``,

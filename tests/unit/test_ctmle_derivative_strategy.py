@@ -139,6 +139,14 @@ class TestPartnerRule:
         assert len(fit.penalties) == 3 and len(fit.cv_risk) == 3
         assert "over 3 training sets" in fit.describe()
 
+    def test_a_declared_pair_reads_as_one_pair_when_cross_fitted(self, frame: pd.DataFrame) -> None:
+        fit = _fit(frame, lambdas=(0.02, 0.01), cross_fit=True, n_folds=3).extra["ctmle"]
+        assert fit.penalties == ((0.02, 0.01),) * 3
+        assert fit.describe() == (
+            "C-TMLE derivative fit used the lasso at penalty 0.02 with partner 0.01 "
+            "in each of 3 training sets"
+        )
+
 
 class _Spy(ClassifierMixin, BaseEstimator):
     """A logistic learner that records the rows it was fitted on."""

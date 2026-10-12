@@ -93,9 +93,10 @@ Theory: van der Laan and Gruber (2010), Gruber and van der Laan (2010), and Ju e
 | `strategy="ordered"` | both scalable preorders from Ju et al. (2019). `preorder="logistic"` uses one-variable targeting loss and is the default. `preorder="partial_correlation"` conditions the residual-covariate correlation on one-hot treatment indicators rather than on numeric arm codes. Marginal correlation with the outcome is not a published preorder and is not used |
 | `strategy="discrete"` | selection among explicitly supplied candidate covariate sets |
 | `strategy="lasso"` | the L1-penalized logistic mechanism at each penalty of a decreasing grid, then the C-TMLE1 final step. The analogue of R `ctmleGlmnet(ctmletype = 1)`. See [candidate sequences](#candidate-sequences) |
-| `lambdas=` | the penalty grid of `strategy="lasso"`. The default is the `glmnet` rule: `lambda_max`, then 100 log-spaced values down to `lambda_max` times `1e-4` (or `1e-2` when `n < p`), then 0 |
+| `lambdas=` | the penalty grid of `strategy="lasso"`. The default is the `glmnet` rule: `lambda_max`, then 100 log-spaced values down to `lambda_max` times `1e-4` (or `1e-2` when `n < p`), then 0. Under `strategy="derivative"` it is the pair `(mechanism_penalty, partner_penalty)` |
 | `strategy="learners"` | each declared treatment learner in the declared order, then `treatment_learner` on every covariate. The analogue of R `build_gn_seq` with `ctmleGeneral(ctmletype = 1)` |
-| `treatment_candidates=` | the declared entries of `strategy="learners"`, least adaptive first. An entry is an unfitted learner or a `PropensityArrays(full=..., cv=...)` pair |
+| `treatment_candidates=` | the declared entries of `strategy="learners"`, least adaptive first. An entry is an unfitted learner or a `PropensityArrays(full=..., cv=...)` pair. Under `strategy="derivative"` it is the pair `(mechanism, partner)`, each an unfitted learner or a full-sample array |
+| `strategy="derivative"` | C-TMLE0: one fluctuation that adds the derivative of each arm's clever covariate. It selects nothing and takes the ordinary TMLE status. The analogue of R `ctmleGlmnet(ctmletype = 3)` and `ctmleGeneral(ctmletype = 3)`. See [C-TMLE0](#c-tmle0-the-derivative-covariate) |
 | `selection_split=` | fold labels `0` to `V - 1`, one for each row, in place of the random selection split. Valid on every selector strategy |
 | `strategy="oat"` | the outcome-adaptive mechanism, fitted on the arm-specific outcome predictions. It has no candidate path and no parameter-specific selector |
 | `oat_design=` | the design of `strategy="oat"`. `"per_arm"` (the default) fits one binary mechanism per arm on that arm's own prediction. `"shared"` fits the one categorical mechanism of the archived `ctmle3`. See [the per-arm outcome-adaptive design](#the-per-arm-outcome-adaptive-design) |
@@ -109,22 +110,25 @@ Theory: van der Laan and Gruber (2010), Gruber and van der Laan (2010), and Ju e
 `cv_evaluation=True` are refused. Composing collaborative model selection with fold-targeted or
 canonical CV-TMLE changes the estimator and needs a separate derivation.
 
-**Two other refusals reach every collaborative fit.** The first is `id=`: C-TMLE has no clustered
-result. No reviewed result covers clustered inference for the outcome-adaptive mechanism.
-Selector-based fits also lack a result for grouped selection and nested folds or candidate-selection
-variance. The message names two ways out: "Drop id= from fit (PointTreatment(cluster=None)), or use
-the ordinary TMLE (TMLE, or TMLEMethod), which has a clustered result." `available_methods` reports
-`collaborative_tmle` as unavailable with the same reason when the design declares `cluster=`, so a
-study reader sees it before anyone fits. The second is inherited from ordinary TMLE: a cross-fitted
-continuous outcome needs a declared `q_bounds`.
+**Two other refusals reach collaborative fits.** The first is `id=`, on every strategy except
+`"derivative"`: C-TMLE has no clustered result. No reviewed result covers clustered inference for
+the outcome-adaptive mechanism. Selector-based fits also lack a result for grouped selection and
+nested folds or candidate-selection variance. The message names two ways out: "Drop id= from fit
+(PointTreatment(cluster=None)), or use the ordinary TMLE (TMLE, or TMLEMethod), which has a
+clustered result." `strategy="derivative"` selects nothing, and it takes the clustered result of
+the ordinary TMLE. So `available_methods` keeps `collaborative_tmle` on a design that declares
+`cluster=`, and every other strategy refuses `id=` before its first learner. The second refusal
+reaches every strategy, and it is inherited from ordinary TMLE: a cross-fitted continuous outcome
+needs a declared `q_bounds`.
 
 **Retargeting holds the selection fixed.** A sensitivity analysis begins each perturbed targeting
 step from the selected candidate's own targeted regression, not from the initial one. Both the
 iterative and the one-step sweeps are checked to solve the perturbed score. Rerun the fit to redo
-selection.
+selection. A C-TMLE0 fit has no selection. Its retarget rebuilds the derivative columns at the
+requested bounds, as the [C-TMLE0](#c-tmle0-the-derivative-covariate) section states.
 
 **Omitted-variable outputs refuse a collaborative fit.** The robustness value, the bounds, and
-`elements()` raise `CapabilityError` on every strategy. The working mechanism conditions on a
+`elements()` raise `CapabilityError` on every strategy except `"derivative"`. The working mechanism conditions on a
 function $V$ of $W$: the selected set $W_S$ on the selector paths, and the fitted outcome
 regression under `oat`. Where the working mechanism is $P(A \mid V)$ in the limit, the
 representer is $E[\alpha_W \mid A, V]$. That representer averages the full representer $\alpha_W$
@@ -135,7 +139,7 @@ gives the full reason, and
 
 **A simulated common-cause surface reruns selection.** Binary complete-outcome fits accept fixed
 probability weights for this operation. The operation refuses estimated weights. Its clustered
-refusal is now unreachable through C-TMLE, because the fit itself refuses `id=`.
+refusal reaches C-TMLE only through `strategy="derivative"`, the one strategy that admits `id=`.
 
 Each cell keeps the weight with its observed row and refits the complete collaborative estimator.
 Selector strategies use the normalized weights in their nuisance fits, losses, penalties,
@@ -221,6 +225,106 @@ and the final step with R `ctmleGeneral` and `ctmleGlmnet`, on the fixture in
 `tests/canonical/ctmle_sequence_witness/`. The registered study
 [C-TMLE candidate sequences](method-evidence/c-tmle-candidate-sequences.md) compares repeated
 samples with R `ctmle`.
+
+## C-TMLE0: the derivative covariate
+
+`strategy="derivative"` is C-TMLE0. It is an ordinary TMLE whose logistic fluctuation adds one
+column for each arm: the derivative of that arm's clever covariate along a path of treatment
+mechanisms. A finite difference between the fitted mechanism $g$ and a partner mechanism $g^+$
+stands in for the derivative. Nothing is selected collaboratively. The fit has no candidate sequence
+and no selection cross-validation.
+
+| item | content | locator |
+| --- | --- | --- |
+| definition | C-TMLE0 "is exactly the same as the TMLE algorithm, except it updates the estimate by equation 6": $\operatorname{logit} \bar Q^* = \operatorname{logit} \bar Q + \epsilon_1 H_g + \epsilon_2 \tilde H_g$, with $\tilde H$ the derivative of $H$ in the penalty | Ju, Wyss et al. (2019), Section 4.2, equation (6) |
+| algorithm | the initial $\bar Q_n$, the mechanism at the cross-validated penalty, then one targeting step with $H$ and $\tilde H$ | Ju, Wyss et al. (2019), Appendix B, Algorithm 2 |
+| goal equation | $P_n \frac{d}{dh} D^*(\bar Q^*, G_h) = 0$ together with $P_n D^* = 0$ | Ju, Chambaz and van der Laan (2018), Section 4.2 |
+| lasso instance | the mechanism at `lambda.min`, and the partner at the nearest penalty of the grid | Ju, Chambaz and van der Laan (2018), Section 4.2, steps 1 to 3 |
+| R comparator | type 3 bounds `g1W` and `g1WPrev`, builds four columns, and fits one `glm` | R `ctmle` 0.1.2, `R/ctmle_glmnet.R`, lines 133 to 174 |
+
+The package builds the update as the table states.
+
+| part | package behavior |
+| --- | --- |
+| derivative column | $dh_a = h_a r_a$ with $r_a = (g_a - g^+_a)/g_a$. Both mechanisms are bounded at `g_bounds` first. With complete data it is $1\{A = a\}(g_a - g^+_a)/g_a^2$, which is R's `ddH1W` and `ddH0W`, sign included |
+| counterfactual block | arm $a$'s block gets $r_a / (g_a \pi_a)$. The factor $1/\pi_a$ is the chain rule for an in-sample missing outcome |
+| normalization | each $dh_a$ is divided by its root mean square over the rows with $A = a$ and an observed outcome. The fit does not change. `epsilon` is reported on R's scale |
+| solve | one solve of the $2K$ columns on every row, pooled over the outer folds, with the iterative logistic or linear solver |
+| reported curve | $D^*(\bar Q^*, g_n)$ with the bounded $g$ only. The derivative columns move $\bar Q^*$ and never enter the curve |
+| continuation | the ordinary $K$-column fluctuation from $\bar Q^*$. Its gradient is already below `tol`, so its `epsilon` is 0 |
+
+Three sources supply the two mechanisms.
+
+| call | mechanism $g$ | partner $g^+$ | R comparator |
+| --- | --- | --- | --- |
+| `lambdas=None` | the L1 logistic at the penalty that `learner_folds`-fold weighted deviance cross-validation chooses over the default grid, inside each training set | the nearest penalty of the grid in absolute distance. A tie goes to the larger penalty | C-LASSO Algorithm 2. Ju, Chambaz and van der Laan (2018), Section 4.2 |
+| `lambdas=(lam, lam_plus)` | the L1 logistic at `lam` | the L1 logistic at `lam_plus`, larger or smaller | `ctmleGlmnet(ctmletype = 3)` with `glmnet` at the two penalties |
+| `treatment_candidates=(g, plus)` | an unfitted learner, or a full-sample array | the same kinds | `ctmleGeneral(ctmletype = 3, g1W, g1WPrev)` |
+
+The partner is fitted on exactly the rows of the mechanism: every row in sample, and each outer
+fold's training rows when cross-fitted. The grid is fixed once on the analysis sample, and it reads
+the treatment and the covariates only. The fit stores the partner in
+`NuisanceEstimates.treatment_partner`. `CTMLEDerivativeFit` under `result.extra["ctmle"]` records
+the source, the penalty pair of each training set, the cross-validated risk, the $2K$ coefficients,
+and the derivative scores before and after the update.
+
+**The sources disagree in print, and the published derivation governs.** The goal equation
+$P_n \frac{d}{dh} D^* = 0$ resolves each discrepancy.
+
+| # | discrepancy | resolution |
+| --- | --- | --- |
+| D1 | Algorithm 2 prints $A/g\,(g_{\lambda+\delta} - g_\lambda)$, without the square. Equation (6) and R use $A/g^2$ | the square, because $\tilde H = dH/d\lambda$ |
+| D2 | JCvdL equation (33) prints the direction $C(G)\,G'$. The goal equation needs $\frac{d}{dh} C(G_h) = -G'/(lG)^2$. Per arm, (33) spans $A\,G'/G$, which is the D1 form | the derivative of the clever covariate, as R fits it |
+| D3 | equation (6) uses one combined $H$ and one $\tilde H$. R splits each by arm | the per-arm split, $2K$ columns. Its span contains every combined pair |
+| D4 | the partner is $\lambda + \delta$ (C-LASSO), the nearest grid value (JCvdL), $1.05\,\lambda$ interpolated (the `ctmle` README), or any `g1WPrev` (R) | the column enters only through its span, so its sign and scale do not matter. The internal default follows JCvdL step 2 |
+| D5 | Algorithm 2 prints $H$ as a sum of the two arm terms, not the ATE covariate | the per-arm split contains both combined forms |
+
+**The interval rests on the ordinary TMLE result.** C-TMLE0 selects nothing collaboratively, so
+the F18 boundary does not apply. The status is the TMLE status: `influence_curve`, or
+`few_cluster_plugin` as for `TMLE`.
+
+| item | content |
+| --- | --- |
+| base result in sample | van der Laan and Rubin (2006), Sections 1, 3 and 4.2: a fluctuation whose scores span the influence curve, with the expansion, the remainder, the Donsker condition and the $L_2$ conditions |
+| base result cross-fitted | Zheng and van der Laan (2011), Section 2, Theorems 1 and 2: a pooled TMLE with a finite-dimensional fluctuation over out-of-fold nuisances |
+| the efficient influence curve equation | the $2K$ columns contain the $K$ columns $h_a$. A logistic fit with an offset solves every column's score, so $P_n D^*(\bar Q^*, g_n) = 0$ |
+| the expansion | $\psi_n - \psi_0 = (P_n - P_0) D^*(\bar Q^*, g_n) + R_2$, with $R_2 = \sum_a P_0 (g_{0a}\pi_{0a}/(g_{na}\pi_{na}) - 1)(\bar Q_{0a} - \bar Q^*_a)$. It does not depend on how $\bar Q^*$ was built |
+| why the penalty is not an F18 selection | the cross-validated penalty minimizes a treatment deviance. It never reads $Y$ or a targeted fit, as a Super Learner treatment learner does not |
+| conditions | (i) the $h_a$ scores are solved. (ii) $\bar Q_n$ and $g_n$ are consistent, with a product of rates $o_p(n^{-1/2})$. (iii) the Donsker condition in sample, or cross-fitting. (iv) $g_0$ lies inside `g_bounds`. (v) each derivative column is neither zero nor a constant multiple of $h_a$, and the $2K$ solve converges. (vi) iid rows or independent clusters, and fixed weights |
+| what is not claimed | the collaborative claim that the interval holds when $\bar Q_n$ is inconsistent. That claim stays with [F18](../roadmap.md#f18-selector-path-c-tmle-inference) |
+| the sources' own warnings | C-LASSO Section 6.4, Table 3: C-TMLE0 covers 0.920 and 0.872 with $\bar Q$ fitted on 10 or 20 of 40 confounders. Section 6.5.1 names "its under-estimated standard error". JCvdL Section 5.4 names "the apparent failure in estimating well their variance". Each outcome regression there is misspecified, outside condition (ii) |
+
+Under condition (ii) the remainder $R_2$ is a product of the two errors, so the interval does not
+rest on a remainder linear in one nuisance error.
+
+**R `ctmle` type 3 differs in these ways.** The package does not reproduce them.
+
+| R behavior | locator | package behavior |
+| --- | --- | --- |
+| a zero finite difference becomes `1e-10` | `R/ctmle_glmnet.R`, lines 143 and 145 | the row keeps 0. Such a row has both mechanisms clipped at one bound |
+| `fluctuation=` and `family=` are ignored, and the logistic fit always runs | lines 111, 128 and 150 to 153 | `fluctuation="linear"` is honoured |
+| no bound after the update | lines 155 to 162 | predictions shrink at `alpha` |
+| a missing outcome enters as 0 | line 105 | `delta=` declares the missing outcome |
+| `var.psi` divides by $n - 1$ | lines 173 and 174 | `std_error` divides by $n$. Multiply its square by $n/(n-1)$ to compare |
+| `glm` drops an aliased column when `g1W` equals `g1WPrev`, and `est` becomes `NA` | `glm` | the fit refuses |
+
+**Retargeting rebuilds the update.** `retarget(g_bounds=b)` and each `truncation_curve` point
+recompute the derivative columns at `b` from the initial fit, the mechanism, and the stored partner,
+and then run the continuation. So each point is C-TMLE0 at its bound. The omitted-variable bound
+admits a C-TMLE0 fit, because the fit assumes a consistent mechanism as the TMLE does.
+
+**Refusals.** The [refusal reference](scope-and-refusals.md) lists each message. The fit refuses
+`targeting="one_step"`, `target_weights=True`, baseline strata, a zero or collinear derivative
+column, and a $2K$ solve that does not converge. An array entry refuses cross-fitting, the
+bootstrap, and every refit, because it describes one fit on the original rows and columns.
+
+**Evidence.** Three test modules hold the C-TMLE0 checks.
+
+| test module | checks |
+| --- | --- |
+| `tests/unit/test_ctmle_derivative.py` | an independent transcription of R type 3; the solved derivative scores (W1); the move away from the TMLE estimate (W2); span invariance (W3); the counterfactual block (W4); three arms (W5) |
+| `tests/unit/test_ctmle_derivative_strategy.py` | the partner rule and the penalty cross-validation (W6); the row identity (W7); the refusals (W8); the status (W9); the retarget and the save round trip (W10); the omitted-variable and refit paths (W11) |
+| `tests/unit/test_ctmle_derivative_witness.py` | the update on R's own arrays from `tests/canonical/ctmle_derivative_witness/` |
 
 ## Validation issues special to this method
 

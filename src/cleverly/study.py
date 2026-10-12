@@ -3146,18 +3146,17 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         # would tell them. An effect built without a study cannot answer this, and it
         # claims nothing.
         design = getattr(self._study, "design", None)
-        clustered = getattr(design, "cluster", None) is not None
-        # A design that declares its mechanism leaves C-TMLE nothing to select.
+        # A design that declares its mechanism leaves C-TMLE nothing to select. A design that
+        # declares clusters keeps the method: strategy="derivative" (C-TMLE0) selects
+        # nothing and has the ordinary TMLE's clustered result, and every other strategy
+        # refuses id= before its first learner.
         known = getattr(design, "treatment_probabilities", None) is not None
         collaborative_blocker = (
             KNOWN_CTMLE_REFUSAL
             if known
-            else "C-TMLE has no clustered result: the search draws selection and nested folds "
-            "of its own, and no reviewed result covers a grouped draw of them"
-            if clustered
             else blocker or "no collaborative score is evidenced for this functional"
         )
-        collaborative = variants and not clustered and not known
+        collaborative = variants and not known
         return (
             MethodAvailability("tmle", True),
             MethodAvailability(
