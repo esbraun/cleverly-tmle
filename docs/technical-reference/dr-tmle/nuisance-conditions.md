@@ -25,7 +25,9 @@ unmeasured**: a saturated learner recovers them exactly on the exact law, which 
 at one learner on one law and not a rate. An archived study over 6,000 fits measured
 `0.844`/`0.848` coverage against a plain TMLE's `0.532`/`0.472` in the cell built for it. It was
 **nominal nowhere**, the best reading being `0.880`, with the three reductions fitted by `glm`.
-Its attribution is withdrawn and under re-examination in [RM40](../../roadmap.md#rm40-correct-the-dr-tmle-inference-claim-when-one-nuisance-is-wrong).
+A committed probe tested the mechanism error as its cause, under a rule fixed before it ran.
+The shortfall is not attributed. The mechanism error does not account for it
+([the validation programme](validation-programme.md)).
 
 Practical consequences:
 
