@@ -91,23 +91,31 @@ DETERMINISM = ROOT / "tests" / "canonical" / "harness_fixture" / "determinism.cs
 def test_every_rm39a2_judgement_has_its_determinism_witness() -> None:
     """A result-neutral claim about a stage edit names a run that showed it.
 
-    Each ledger row whose judgement cites RM39a2 needs a ``determinism.csv`` row of step
-    ``a2`` for the same source, run on the bytes the row calls ``current``, with the verdict
-    ``identical``.  The local thread's ``determinism.py stage`` writes those rows.
+    Each ledger row whose judgement names a ``Witness:`` needs a ``determinism.csv`` row of
+    step ``a2`` for the same source, run on the bytes the row calls ``current``, with the
+    verdict ``identical``.  Any other a2 verdict for those bytes, from any runner that reads
+    them, refutes the claim.  The local thread's ``determinism.py stage`` writes those rows.
     """
     witnesses = pd.read_csv(DETERMINISM, dtype=str, keep_default_na=False)
     if "source_sha256" not in witnesses.columns:
         witnesses = witnesses.assign(source="", source_sha256="")
-    witnessed = {
-        (row.source, row.source_sha256)
-        for row in witnesses.itertuples(index=False)
-        if row.step == "a2" and row.verdict == "identical"
-    }
-    missing = [
-        f"{row['source'].strip('`')} at {row['current'].strip('`')[:12]}"
+    a2 = [row for row in witnesses.itertuples(index=False) if row.step == "a2"]
+    witnessed = {(row.source, row.source_sha256) for row in a2 if row.verdict == "identical"}
+    refuted = {(row.source, row.source_sha256) for row in a2 if row.verdict != "identical"}
+    claimed = [
+        (row["source"].strip("`"), row["current"].strip("`"))
         for row in pipe_table(REVISIONS, REVISION_COLUMNS)
-        if "RM39a2" in row["judgement"]
-        and (row["source"].strip("`"), row["current"].strip("`")) not in witnessed
+        if "Witness:" in row["judgement"]
+    ]
+    contradicted = [
+        f"{source} at {sha[:12]}" for source, sha in claimed if (source, sha) in refuted
+    ]
+    assert contradicted == [], (
+        f"a2 rows in {DETERMINISM.name} show these result-neutral sources change a result: "
+        f"{contradicted}"
+    )
+    missing = [
+        f"{source} at {sha[:12]}" for source, sha in claimed if (source, sha) not in witnessed
     ]
     assert missing == [], (
         f"{len(missing)} RM39a2 judgements have no identical a2 row in {DETERMINISM.name}; run "
@@ -319,6 +327,17 @@ class TestArtifacts:
             ],
             ignore_index=True,
         )
+        # The hooks read the committed extra artifacts only, so their rows recompute too.
+        extra_frames = {name: pd.read_csv(study.artifact(name)) for name in study.extra_artifacts}
+        hooks = failures.hook_accounting(study.runner(), recorded, extra_frames, record=study)
+        pd.testing.assert_frame_equal(
+            published.loc[published["table"] == "hook"].reset_index(drop=True),
+            hooks.astype(published.dtypes.to_dict(), errors="ignore"),
+            check_exact=False,
+            check_dtype=False,
+            rtol=1e-12,
+            atol=1e-12,
+        )
         tables = published.loc[published["table"] != "hook"].reset_index(drop=True)
         pd.testing.assert_frame_equal(
             tables.loc[:, list(recomputed.columns)],
@@ -447,34 +466,33 @@ class TestPublishedVerdicts:
             for s, e in published[["scenario", "estimand"]].itertuples(index=False)
         ] == published["dropped_replications"].astype(int).tolist()
         gates = failures.cell_gates(_accounting(study), "equivalence")
-        accounted = pd.Series(
+        equivalent = published["paired_similarity"] & published["subject_not_inferior"]
+        own = np.select(
             [
-                gates.get((str(s), str(e)), (True, ""))[0]
-                for s, e in published[["scenario", "estimand"]].itertuples(index=False)
-            ],
-            index=published.index,
-            dtype=bool,
-        )
-        legs = (published["paired_similarity"] & published["subject_not_inferior"]) | published[
-            "coverage_superior"
-        ]
-        assert published["passed"].equals(legs & accounted), (
-            "the published verdict is not an equivalence or superiority conclusion"
-        )
-        expected = np.select(
-            [
-                legs & ~accounted,
                 published["coverage_superior"],
-                published["paired_similarity"] & published["subject_not_inferior"],
+                equivalent,
                 # A cell whose calibration bound is wider than the calibration margin could
                 # not have concluded non-inferiority at any true excess, so its failure is a
                 # statement about the design and is named apart from an unsettled one.
                 ~published["calibration_resolved"],
             ],
-            [failures.UNACCOUNTED, "superior", "equivalent", "underpowered"],
+            ["superior", "equivalent", "underpowered"],
             default="inconclusive",
         )
-        assert published["comparison_conclusion"].tolist() == expected.tolist()
+        expected = [
+            failures.accounted_conclusion(
+                str(conclusion),
+                equivalent=bool(similar),
+                gate=gates.get((str(s), str(e)), (True, failures.WITHIN_BOUND)),
+            )
+            for conclusion, similar, s, e in zip(
+                own, equivalent, published["scenario"], published["estimand"], strict=True
+            )
+        ]
+        assert published["passed"].tolist() == [passed for _, passed in expected], (
+            "the published verdict is not an equivalence or superiority conclusion"
+        )
+        assert published["comparison_conclusion"].tolist() == [c for c, _ in expected]
         assert published["calibration_resolved"].equals(
             ~published["se_comparable"]
             | (

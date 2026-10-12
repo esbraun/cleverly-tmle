@@ -1052,10 +1052,6 @@ def _regenerate(
             "reference-result file for its reference_artifacts hook to read"
         )
     print(f"regenerating {record.name}: {record.replicates} x n={record.n}", flush=True)
-    # A failure file of an earlier run in this directory would outlive a clean run.
-    for name in OPTIONAL_ARTIFACT_NAMES:
-        (out / name).unlink(missing_ok=True)
-
     scratch = context.scratch
     phase = _python_phase(study, arguments, scratch)
     rows = phase.rows
@@ -1099,6 +1095,10 @@ def _regenerate(
     validate_replicates(rows, record=record, failures=recorded)
 
     optional = () if recorded is None else OPTIONAL_ARTIFACT_NAMES
+    # A failure file of an earlier run in this directory would outlive a clean run.  The
+    # removal waits until here because ``--skip-reference`` reads the committed failure file.
+    for name in set(OPTIONAL_ARTIFACT_NAMES) - set(optional):
+        (out / name).unlink(missing_ok=True)
     artifact_names = (*ARTIFACT_NAMES, *record.extra_artifacts, *optional)
     paths = {name: out / name for name in artifact_names}
     write_csv(rows, paths["replicates.csv.gz"], compression={"method": "gzip", "mtime": 0})
@@ -1202,7 +1202,17 @@ def _regenerate(
                     print(f"{name} (gated by failure accounting):\n{frame.to_string(index=False)}")
         else:
             gates.update(hook_gates)
-    gates["failure accounting"] = failures.red(accounting)
+    accounted = failures.red(accounting)
+    if reference is not None and record.accepted_reference_failure:
+        # The declared exception covers the reference's own truth cells, under their
+        # accounting as under their verdict.
+        accounted = accounted.loc[
+            ~(
+                (accounted["table"] == "performance")
+                & (accounted["implementation"] == record.reference)
+            )
+        ]
+    gates["failure accounting"] = accounted
     reported = {
         name: frame for name, frame in gates.items() if frame is not None and not frame.empty
     }

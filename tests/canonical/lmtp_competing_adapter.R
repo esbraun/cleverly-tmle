@@ -29,10 +29,12 @@ if (!exists("lmtp_internal") || !exists("fold_list")) {
 # asserted -- see `check_direct_learner_matches_superlearner` at the foot of this file, which
 # runs once per R process before any study fit.
 lmtp_direct_learner <- function(data, y, learners, outcome_type, id, folds) {
+  # Configuration checks: lmtp calls this inside the fit's stage, so each one raises the
+  # fatal class that a stage passes through rather than records.
   if (!learners %in% c("SL.glm", "SL.mean")) {
-    stop("the direct adapter only supports one SL.glm or SL.mean learner")
+    study_fatal_error("the direct adapter only supports one SL.glm or SL.mean learner")
   }
-  if (folds < 2L) stop("the declared learner-fold count must be at least two")
+  if (folds < 2L) study_fatal_error("the declared learner-fold count must be at least two")
   features <- setdiff(names(data), c(id, y))
   response <- data[[y]]
   binomial_outcome <- outcome_type == "binomial"

@@ -476,9 +476,11 @@ def scientific_failures(extra_frames: Mapping[str, pd.DataFrame]) -> dict[str, p
 
 
 def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
-    """The probe audits as they stand: the probe reads replication 0 of the samples only.
+    """The probe audits as they stand: the probe refits replication 0 of the samples only.
 
-    It does not rerun a reference fit, so a failed fit leaves its rows unchanged.
+    A failed main fit removes no probe row, so it changes neither audit.  The probe runs its
+    own ``tmle`` call outside ``study_stage``.  When that call fails as well, the run stops
+    in ``reference_artifacts``, as the hook rule in ``method-benchmarking.md`` states.
     """
     del failures
     return evidence_failures.audits(scientific_failures(artifacts), missing={})

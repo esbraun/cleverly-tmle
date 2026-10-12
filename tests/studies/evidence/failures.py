@@ -27,8 +27,11 @@ With no failure, nothing here runs and no artifact moves.
 
 from __future__ import annotations
 
+import contextlib
+import csv
+import gzip
 import math
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -104,6 +107,18 @@ WITHIN_BOUND = "within bound"
 BOUND_EXCEEDED = "bound exceeded"
 WORST_CASE_FAILS = "worst case fails"
 NOT_ACCOUNTABLE = "failures not accountable"
+#: Every leg that fails its worst case fails its complete case too: the verdict is red on its
+#: own, and the failures do not decide it.
+COMPLETE_CASE_FAILS = "complete case fails"
+#: A paired cell whose equivalence route survives and whose superiority route does not.
+SUPERIORITY_LOST = "superiority not accounted"
+#: A paired cell whose superiority route survives and whose equivalence route does not.
+EQUIVALENCE_LOST = "equivalence not accounted"
+
+#: The paired legs each passing route needs (``comparison.comparison_verdict``).  The
+#: calibration leg exists only where the standard errors are comparable.
+EQUIVALENCE_ROUTE = ("similarity", "rmse ratio", "coverage difference", "calibration excess")
+SUPERIORITY_ROUTE = ("coverage superiority", "rmse ratio", "calibration excess")
 
 #: Rounding slack on ``bound * replicates``: 0.01 * 300 is 2.9999999999999996 in floating point.
 _FLOOR_SLACK = 1e-9
@@ -466,7 +481,19 @@ def paired_legs(
             )
         ],
     )
-    legs = [similarity, rmse, coverage]
+    # Superiority needs a lower bound strictly above zero, so its leg passes on a positive slack.
+    superiority_complete = float(
+        lower_bound(complete["coverage_difference"], confidence_level=confidence)
+    )
+    superiority_worst = float(lower_bound(best["coverage_difference"], confidence_level=confidence))
+    superiority = Leg(
+        "coverage superiority",
+        superiority_complete,
+        superiority_worst,
+        "reference covered",
+        superiority_worst > 0.0,
+    )
+    legs = [similarity, rmse, coverage, superiority]
 
     if comparable:
         subject_se = subject_values("std_error")
@@ -565,12 +592,84 @@ def _calibration_slack(
 # ---- the accounting -------------------------------------------------------------------------
 
 
+def _complete(leg: Leg) -> bool:
+    """Whether the leg passes on its complete cases; superiority needs a positive bound."""
+    if leg.name == "coverage superiority":
+        return leg.complete_case > 0.0
+    return leg.complete_case >= 0.0
+
+
 def _gate(failed: int, allowance: int, legs: Sequence[Leg]) -> tuple[bool, str]:
+    """A truth cell: red when the failures exceed the bound or a leg fails its worst case.
+
+    The reason separates a leg the failures turned red from one red on its complete cases
+    (plan 4.4), so the ledger does not attribute a complete-case failure to the failures.
+    """
     if failed > allowance:
         return False, BOUND_EXCEEDED
-    if not all(leg.passed for leg in legs):
+    failing = [leg for leg in legs if not leg.passed]
+    if not failing:
+        return True, WITHIN_BOUND
+    if any(_complete(leg) for leg in failing):
         return False, WORST_CASE_FAILS
-    return True, WITHIN_BOUND
+    return False, COMPLETE_CASE_FAILS
+
+
+def _paired_gate(failed: int, allowance: int, legs: Sequence[Leg]) -> tuple[bool, str]:
+    """A paired cell: green when some route that passes on the complete cases survives.
+
+    A route survives when every one of its legs passes its worst case.  The reason names a
+    route that held on the complete cases and did not survive, so that
+    :func:`accounted_conclusion` can withdraw that route's conclusion alone.
+    """
+    if failed > allowance:
+        return False, BOUND_EXCEEDED
+    by_name = {leg.name: leg for leg in legs}
+    routes = {
+        name: [by_name[leg] for leg in route if leg in by_name]
+        for name, route in (("equivalent", EQUIVALENCE_ROUTE), ("superior", SUPERIORITY_ROUTE))
+    }
+    survives = {name: all(leg.passed for leg in route) for name, route in routes.items()}
+    held = {name: all(_complete(leg) for leg in route) for name, route in routes.items()}
+    lost = {name for name in routes if held[name] and not survives[name]}
+    if any(survives.values()):
+        if not lost:
+            return True, WITHIN_BOUND
+        return True, SUPERIORITY_LOST if "superior" in lost else EQUIVALENCE_LOST
+    if any(held.values()):
+        return False, WORST_CASE_FAILS
+    return False, COMPLETE_CASE_FAILS
+
+
+def accounted_conclusion(
+    conclusion: str, *, equivalent: bool, gate: tuple[bool, str]
+) -> tuple[str, bool]:
+    """A paired cell's conclusion and verdict once its failure accounting applies.
+
+    Parameters
+    ----------
+    conclusion : str
+        The conclusion the cell's own legs give, before the accounting.
+    equivalent : bool
+        Whether the cell's own legs also give the equivalence conclusion.
+    gate : tuple of (bool, str)
+        The cell's accounting gate and reason, as :func:`cell_gates` returns them.
+
+    Returns
+    -------
+    tuple of (str, bool)
+        The published conclusion and whether the cell passes.
+    """
+    if conclusion not in ("superior", "equivalent"):
+        return conclusion, False
+    passed, reason = gate
+    if not passed:
+        return UNACCOUNTED, False
+    if conclusion == "superior" and reason == SUPERIORITY_LOST:
+        return ("equivalent", True) if equivalent else (UNACCOUNTED, False)
+    if conclusion == "equivalent" and reason == EQUIVALENCE_LOST:
+        return UNACCOUNTED, False
+    return conclusion, True
 
 
 def _rows(
@@ -584,9 +683,10 @@ def _rows(
     dropped: int,
     legs: Sequence[Leg],
     witness: tuple[float, float] = (math.nan, math.nan),
+    gate: Any = None,
 ) -> list[dict[str, Any]]:
     allowance = allowed(record, implementation)
-    passed, reason = _gate(failed, allowance, legs)
+    passed, reason = (gate or _gate)(failed, allowance, legs)
     bound = Leg("failure bound", float(failed), float(allowance), "", failed <= allowance)
     return [
         {
@@ -661,6 +761,7 @@ def _paired_payload(
         dropped=len(failed),
         legs=legs,
         witness=witness,
+        gate=_paired_gate,
     )
 
 
@@ -724,7 +825,8 @@ def hook_accounting(
 
     A study module may define ``account_failures(failures, extra_frames)``, returning one row per
     audit with the columns ``leg``, ``failed`` (rows the audit counts as failing, a failed
-    group's missing rows included) and ``passed`` (its own threshold applied).  A study with a
+    group's missing rows included), ``passed`` (its own threshold applied) and, optionally,
+    ``own`` (the surviving rows that fail it).  A study with a
     hook and no such function gets one ``failures not accountable`` row, which is red.
     """
     columns = list(ACCOUNTING_COLUMNS)
@@ -761,7 +863,7 @@ def hook_accounting(
             [
                 {
                     **base,
-                    "leg": "/".join(hooks),
+                    "leg": "+".join(hooks),
                     "leg_passed": False,
                     "gate_passed": False,
                     "reason": NOT_ACCOUNTABLE,
@@ -773,6 +875,8 @@ def hook_accounting(
     out = []
     for audit in audits.itertuples(index=False):
         passed = bool(audit.passed)
+        own = int(getattr(audit, "own", 0))
+        reason = WITHIN_BOUND if passed else COMPLETE_CASE_FAILS if own else WORST_CASE_FAILS
         out.append(
             {
                 **base,
@@ -780,7 +884,7 @@ def hook_accounting(
                 "complete_case": float(audit.failed),
                 "leg_passed": passed,
                 "gate_passed": passed,
-                "reason": WITHIN_BOUND if passed else WORST_CASE_FAILS,
+                "reason": reason,
             }
         )
     return pd.DataFrame.from_records(out, columns=columns)
@@ -797,6 +901,8 @@ def audits(gates: Mapping[str, pd.DataFrame], *, missing: Mapping[str, int]) -> 
     ``gates`` is the study's own ``scientific_failures`` output.  ``missing`` names the audits
     a failed fit would have entered, with the count of fits it lost: each one counts as a
     failing row of that audit (decision Q1).  An audit passes when nothing fails it.
+    ``own`` is the count of surviving rows that fail it, which the ledger reads to tell an
+    audit the failures turned red from one red on its own rows.
     """
     unknown = sorted(set(missing) - set(gates))
     if unknown:
@@ -804,27 +910,47 @@ def audits(gates: Mapping[str, pd.DataFrame], *, missing: Mapping[str, int]) -> 
     out = []
     for leg, frame in gates.items():
         failed = len(frame) + int(missing.get(leg, 0))
-        out.append({"leg": leg, "failed": failed, "passed": failed == 0})
-    return pd.DataFrame.from_records(out, columns=["leg", "failed", "passed"])
+        out.append({"leg": leg, "failed": failed, "passed": failed == 0, "own": len(frame)})
+    return pd.DataFrame.from_records(out, columns=["leg", "failed", "passed", "own"])
 
 
-def surviving_samples(samples: Path, reference_results: Path) -> Path:
-    """Write the samples of the replications the reference returned, beside ``samples``.
+@contextlib.contextmanager
+def surviving_samples(samples: Path, reference_results: Path) -> Iterator[Path]:
+    """The samples of the replications the reference returned, for a probe to read.
 
     A probe that reruns the comparator's arithmetic on every reference replication skips the
-    replications whose fit failed (decision Q1).  The validation of the reference rows has
-    already shown that the returned and failed replications together cover the run.  The
-    file sits beside ``samples`` because the container mounts that one directory.  The
-    caller deletes it.
+    replications whose fit failed (decision Q1).  A replication is skipped when its scenario
+    has reference rows and that replication has none; the validation of the reference rows
+    has already shown that the returned and failed replications together cover the run.
+
+    Without a skipped replication this yields ``samples`` itself, so a run with no failure
+    feeds the probe the bytes it always read.  Otherwise it writes the kept lines beside
+    ``samples``, because the container mounts that one directory, and deletes them on exit.
+    The lines are copied as text: a parse and a rewrite would move the last bits of a float.
     """
-    frame = pd.read_csv(samples)
-    returned = pd.read_csv(reference_results, usecols=["scenario", "replicate"]).drop_duplicates()
-    kept = frame.merge(returned, on=["scenario", "replicate"], how="inner")
+    returned = pd.read_csv(reference_results, usecols=["scenario", "replicate"])
+    pairs = {(str(scenario), int(replicate)) for scenario, replicate in returned.itertuples(False)}
+    scenarios = {scenario for scenario, _ in pairs}
+    with gzip.open(samples, "rt", encoding="utf-8", newline="") as handle:
+        lines = handle.read().splitlines(keepends=True)
+    header = next(csv.reader([lines[0]]))
+    at_scenario, at_replicate = header.index("scenario"), header.index("replicate")
+    kept = [lines[0]]
+    for line, fields in zip(lines[1:], csv.reader(lines[1:]), strict=True):
+        scenario, replicate = fields[at_scenario], int(float(fields[at_replicate]))
+        if scenario in scenarios and (scenario, replicate) not in pairs:
+            continue
+        kept.append(line)
+    if len(kept) == len(lines):
+        yield samples
+        return
     path = samples.with_name(f"surviving-{samples.name}")
-    kept.loc[:, list(frame.columns)].to_csv(
-        path, index=False, lineterminator="\n", compression={"method": "gzip", "mtime": 0}
-    )
-    return path
+    with gzip.GzipFile(path, "wb", mtime=0) as handle:
+        handle.write("".join(kept).encode("utf-8"))
+    try:
+        yield path
+    finally:
+        path.unlink(missing_ok=True)
 
 
 def probe_audits(
@@ -838,8 +964,9 @@ def probe_audits(
 ) -> pd.DataFrame:
     """The ``account_failures`` frame of a probe that skips the failed replications.
 
-    The coverage audit passes when every probe path holds one row for each replication
-    ``0, ..., k - 1`` of ``scenarios`` that did not fail, and the failed ones fill the rest.
+    The coverage audit passes when every probe path holds one row for each declared
+    replication ``0, ..., R - 1`` of ``scenarios`` that did not fail, and the failed ones fill
+    the rest.
     The ``audit`` leg counts the probe rows whose ``passed`` is not true.  A failed
     replication has no comparison row, so no published number depends on its scale
     workaround.
@@ -856,12 +983,10 @@ def probe_audits(
     gaps = 0
     for _, rows in paths:
         probed = [int(value) for value in rows["replicate"]]
-        covered = set(probed) | failed
-        count = len(probed) + len(failed)
         if len(set(probed)) != len(probed) or set(probed) & failed:
-            gaps += count
+            gaps += record.replicates
         else:
-            gaps += len(set(range(count)) ^ covered)
+            gaps += len(set(range(record.replicates)) ^ (set(probed) | failed))
     if probe.empty or not set(probe["scenario"]) <= scenarios:
         gaps = max(gaps, 1)
     failing = int((~probe["passed"].fillna(False).astype(bool)).sum()) if len(probe) else 0
@@ -903,17 +1028,22 @@ def correct_performance(performance: pd.DataFrame, accounting: pd.DataFrame) -> 
 
 
 def correct_paired(paired: pd.DataFrame, accounting: pd.DataFrame) -> pd.DataFrame:
-    """``equivalence.csv`` with each accounting-red cell's verdict and conclusion corrected."""
+    """``equivalence.csv`` with each accounted cell's verdict and conclusion corrected."""
     gates = cell_gates(accounting, "equivalence")
     if not gates:
         return paired
     out = paired.copy()
     for index, row in out.iterrows():
         key = (str(row["scenario"]), str(row["estimand"]))
-        if key in gates and not gates[key][0]:
-            if bool(row["passed"]):
-                out.at[index, "comparison_conclusion"] = UNACCOUNTED
-            out.at[index, "passed"] = False
+        if key not in gates:
+            continue
+        conclusion, passed = accounted_conclusion(
+            str(row["comparison_conclusion"]),
+            equivalent=bool(row["paired_similarity"]) and bool(row["subject_not_inferior"]),
+            gate=gates[key],
+        )
+        out.at[index, "comparison_conclusion"] = conclusion
+        out.at[index, "passed"] = passed
     return out
 
 

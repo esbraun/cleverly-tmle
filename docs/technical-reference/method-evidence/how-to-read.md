@@ -57,12 +57,15 @@ Each implementation is judged on its own terms as well as on the pairing. A refe
 is reported against the reference. It does not turn `cleverly`'s row red.
 
 A paired row concludes `equivalent`, `superior`, `inferior`, or `inconclusive`. Equivalence and
-superiority are separate passing routes. A row whose legs pass concludes `unaccounted` when
-its comparator failures fail their accounting. A reporting study can publish a failed scientific
+superiority are separate passing routes. A reporting study can publish a failed scientific
 verdict. It still refuses an unrecorded missing replication, invalid schemas, and broken
 provenance.
 Failure to establish non-inferiority is `inconclusive`, not affirmative evidence of inferiority;
 the `inferior` label is reserved for a future rule with a confidence bound in that direction.
+
+The failure accounting checks each passing route alone. A `superior` row whose superiority does
+not survive its comparator failures concludes `equivalent` when equivalence survives. A row that
+keeps no passing route concludes `unaccounted`.
 
 The harness has negative controls for all of it, in `tests/unit/test_method_evidence.py`. The fast
 tests corrupt bias, coverage, and reported standard errors for each implementation in turn. They

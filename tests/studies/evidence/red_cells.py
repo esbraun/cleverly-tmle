@@ -661,11 +661,16 @@ def red_rows(record: StudyRecord, tables: Mapping[str, pd.DataFrame]) -> list[Re
             continue
         key = (str(row.implementation), str(row.scenario), str(row.estimand))
         gate = truth_gates.get(key, (True, ""))
+        # A cell red on its own legs is red by its truth gate, whatever its accounting says.
+        own = all(
+            bool(getattr(row, leg, True))
+            for leg in ("bias_equivalent", "coverage_valid", "se_calibrated")
+        )
         out.append(
             RedRow(
                 RedKey(record.slug, "truth", "/".join(key)),
                 str(row.implementation),
-                "its truth gate" if gate[0] else f"failure accounting: {gate[1]}",
+                "its truth gate" if gate[0] or not own else f"failure accounting: {gate[1]}",
                 _truth_measured(row) + _failures_measured(accounting, "performance", key),
             )
         )
@@ -675,11 +680,14 @@ def red_rows(record: StudyRecord, tables: Mapping[str, pd.DataFrame]) -> list[Re
         subject_valid = bool(valid.loc[(record.implementation, row.scenario, row.estimand)])
         legs = paired_legs(row, record.margins, subject_valid)
         key = (str(row.scenario), str(row.estimand))
-        accounted, reason = paired_gates.get(key, (True, ""))
-        # The accounting gate is ANDed into the verdict the legs give, as
-        # ``failures.correct_paired`` does when it writes the row.
-        passed = legs.passed and accounted
-        conclusion = failures.UNACCOUNTED if legs.passed and not accounted else legs.conclusion
+        gate = paired_gates.get(key, (True, failures.WITHIN_BOUND))
+        # The accounting applies to the verdict the legs give, as ``failures.correct_paired``
+        # does when it writes the row.
+        conclusion, passed = failures.accounted_conclusion(
+            legs.conclusion,
+            equivalent=legs.similar and legs.rmse and legs.coverage and legs.calibration,
+            gate=gate,
+        )
         if (passed, conclusion) != (bool(row.passed), str(row.comparison_conclusion)):
             raise ValueError(
                 f"{record.slug} commits {row.comparison_conclusion!r} (passed={row.passed}) for "
@@ -689,8 +697,8 @@ def red_rows(record: StudyRecord, tables: Mapping[str, pd.DataFrame]) -> list[Re
         if passed:
             continue
         reasons = list(legs.failed())
-        if not accounted:
-            reasons.append(f"failure accounting: {reason}")
+        if legs.passed:
+            reasons.append(f"failure accounting: {gate[1]}")
         out.append(
             RedRow(
                 RedKey(record.slug, "paired", "/".join(key)),
@@ -724,8 +732,13 @@ def red_rows(record: StudyRecord, tables: Mapping[str, pd.DataFrame]) -> list[Re
                 RedKey(record.slug, "accounting", f"hook/{row.leg}"),
                 str(row.implementation),
                 f"failure accounting: {row.reason}",
-                f"failing rows {render(float(row.complete_case))}, "
-                f"failures {int(row.failed)} of {int(row.requested)}",
+                # A hook with no ``account_failures`` counts no failing row, so the count is NaN.
+                (
+                    f"failing rows {render(float(row.complete_case))}, "
+                    if math.isfinite(float(row.complete_case))
+                    else "failing rows not counted, "
+                )
+                + f"failures {int(row.failed)} of {int(row.requested)}",
             )
         )
     return out

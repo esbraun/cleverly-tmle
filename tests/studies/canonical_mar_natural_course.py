@@ -317,11 +317,8 @@ def reference_artifacts(
     """Run the exact-equality probe of the planted-row scale workaround on every continuous fit."""
     path = output / PROBE_ARTIFACT
     # A failed reference fit leaves its replication out of the probe as well (decision Q1).
-    surviving = evidence_failures.surviving_samples(samples, reference_results)
-    try:
+    with evidence_failures.surviving_samples(samples, reference_results) as surviving:
         reference.run(here, surviving, truths_path, path, cores=cores, runner=PROBE_RUNNER)
-    finally:
-        surviving.unlink(missing_ok=True)
     probe = pd.read_csv(path).sort_values("replicate", ignore_index=True)
     reference_rows = pd.read_csv(reference_results, usecols=["scenario", "replicate"])
     expected = (

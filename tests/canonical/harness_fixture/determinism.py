@@ -504,22 +504,16 @@ _SOURCED = re.compile(r"""source\(["']/fixture/(?P<path>[^"']+)["']\)""")
 
 
 def stage_sources(target: Target) -> list[Path]:
-    """Every ``.R`` file the target's run reads: its ``Reference`` files, what they source,
-    transitively, and the harness when the runner root holds it.
+    """Every ``.R`` file the target's run reads: the runner, what it sources, transitively,
+    and the harness when the runner root holds it.
 
-    A second runner of a study (a probe named in ``extra_files``) reads only itself and what
-    it sources, so its run witnesses only those files.
+    A file the image ships but no run sources (a probe of another target, or a manual smoke
+    in ``extra_files``) is not read, so this run does not witness it.
     """
     found: list[Path] = []
-    pending = (
-        [path for path in target.reference.files(target.here) if path.suffix == ".R"]
-        if is_primary(target)
-        else []
-    )
-    harness = CANONICAL / "study_harness.R"
+    pending = [target.path]
     if target.root == CANONICAL:
-        pending.append(harness)
-    pending.insert(0, target.path)
+        pending.append(CANONICAL / "study_harness.R")
     while pending:
         path = pending.pop(0)
         if path in found or not path.exists():

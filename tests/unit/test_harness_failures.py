@@ -285,3 +285,19 @@ def test_the_failures_file_name_matches_the_driver() -> None:
     """``Path.stem`` strips the last suffix only; the harness regex must do the same."""
     harness = HARNESS.read_text(encoding="utf-8")
     assert 'sub("(.)\\\\.[^.]+$", "\\\\1", basename(output)), ".failures.csv"' in harness
+
+
+@pytest.mark.parametrize(
+    "name", ["reference-results.csv", "a.b.csv", "results.csv.gz", ".hidden", "plain", "x."]
+)
+def test_the_harness_path_rule_gives_the_driver_path(name: str) -> None:
+    """The harness regex, read as Python's ``re``, names the file ``failures_path`` reads.
+
+    The R and Python engines agree on this pattern: one greedy group, a literal dot, and a
+    negated class anchored at the end.  The R side runs in the harness smoke.
+    """
+    from tests.canonical.regenerate import failures_path
+
+    output = Path("run") / name
+    harness_stem = re.sub(r"(.)\.[^.]+$", r"\1", name)
+    assert output.with_name(f"{harness_stem}.failures.csv") == failures_path(output)

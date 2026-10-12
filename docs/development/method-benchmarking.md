@@ -53,10 +53,15 @@ Both files exist only when a fit failed.
 | bound 0 | One failure makes the cell red. Diagnose the red cell, fix a genuine defect, and re-run under a fresh declaration. Otherwise report it |
 | raising a bound | Declare a bound before the study runs under it. A study whose run has shown failures may not raise its bound |
 | fallback fit | Do not replace a failed replicate by a fallback fit or a new sample |
-| worst case | Each verdict leg must pass with the lost values at their least favourable value inside the surviving range. The range is an assumption, and the accounting records it |
+| invalid result | A comparator row with a non-finite value, a non-positive standard error, an inverted interval, or a `covered` flag that disagrees with its interval becomes an `invalid_result` record |
+| worst case | Each verdict leg must pass under its least favourable candidate fill of the lost values. The bias, coverage, and similarity candidates lie inside the surviving range. The RMSE and coverage-difference legs fill the reference at its best case: the estimate at the truth and the interval covering it. The range is an assumption, and the accounting records it |
+| enumeration | The SE-ratio and calibration candidates are a finite set: edge, mean, and root fills. They are not a proof that no other fill is less favourable |
+| routes | A paired cell passes by equivalence or by superiority. A route survives when each of its legs passes its worst case. A `superior` cell that keeps only equivalence reads `equivalent`. A cell that keeps no route reads `unaccounted` |
 | pairing | A paired cell drops the replicates that either side lost |
 | witness | The accounting reports the subject's mean error on the lost replicates and on the shared ones. The witness is descriptive. No gate reads it |
-| hooks | A study hook must define `account_failures`, or its accounting row reads `failures not accountable`, which is red |
+| hooks | A study hook must define `account_failures`, or its accounting row reads `failures not accountable`, which is red. A probe that refits a replication outside `study_stage` stops the run when that refit fails |
+| calibration | A group that fails during memory calibration is skipped, and calibration takes the next group of its scenario. When 20 groups of one scenario fail, the run stops as systematic |
+| recording off | `CLEVERLY_R_NO_RECORD=1` turns recording off. Every error in a stage then stops the run, as it did before this rule |
 | subject failures | The Python phase records no failure in this release. A missing subject row stops the run |
 
 The stage covers the comparator call only. These conditions stay fatal and stop the run:
@@ -67,7 +72,8 @@ The stage covers the comparator call only. These conditions stay fatal and stop 
 - the first 20 groups of one scenario all fail, and
 - every group of the run fails.
 
-A memory-exhaustion error ends the worker as a kill. The resume path then refits that group.
+A memory-exhaustion error ends the worker as a kill. The same run then refits that group with
+half the workers.
 A failure message can carry a container path. The record keeps it as written.
 
 ### Choose the comparator before you write the runner
@@ -267,7 +273,8 @@ replication, invalid schemas, non-finite estimates, or incomplete provenance. Ex
 
 Published studies retain `replicates.csv.gz`, `property-replicates.csv.gz`, `summary.csv`,
 `performance-tests.csv`, `equivalence.csv`, `properties.csv`, and a provenance- and hash-complete
-`manifest.json`. Run a disposable smoke study first, then the declared study without permitting
+`manifest.json`. A run with a recorded comparator failure also retains `failures.csv` and
+`failure-accounting.csv`. Run a disposable smoke study first, then the declared study without permitting
 failed replications. The [red cells](#red-cells) section states what may change after a result.
 
 A regeneration owns its declared core budget. Do not run the Python and R full-core phases concurrently. Do not run the fast tests

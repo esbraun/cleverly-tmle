@@ -320,7 +320,9 @@ def equivalence(
             # A recorded comparator failure left the reference short.  The descriptive columns
             # below compare the two implementations, so they read the replications both hold.
             shared = group.loc[group["replicate"].isin(paired.frame.index)]
-            cell = summarize(shared).set_index("implementation")
+            cell = summarize(shared, truth_varies=record.truth_varies_by_replicate).set_index(
+                "implementation"
+            )
         else:
             cell = summaries.query("scenario == @scenario and estimand == @estimand").set_index(
                 "implementation"

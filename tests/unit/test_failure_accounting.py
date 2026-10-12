@@ -10,6 +10,7 @@ is removed or inverted.
 
 from __future__ import annotations
 
+import gzip
 import math
 from pathlib import Path
 from types import SimpleNamespace
@@ -251,6 +252,7 @@ class TestPairedAccounting:
             "similarity",
             "rmse ratio",
             "coverage difference",
+            "coverage superiority",
             "calibration excess",
         }
         witness = accounting.iloc[0]
@@ -267,12 +269,254 @@ class TestPairedAccounting:
 
     def test_the_similarity_leg_fails_when_the_lost_differences_could_move_it(self) -> None:
         """Mutation control: a margin the survivors clear is not cleared at the vertices."""
-        record = _record(margins=Margins(bootstrap_replicates=400, paired_difference=0.05))
+        record = _record(margins=Margins(bootstrap_replicates=400, paired_difference=0.014))
         lost = tuple(range(10))
         _, accounting, _ = self._paired(record, lost)
         similarity = accounting.loc[accounting["leg"] == "similarity"].iloc[0]
-        assert similarity["worst_case"] < similarity["complete_case"]
+        assert similarity["complete_case"] >= 0 > similarity["worst_case"]
         assert similarity["imputation"].startswith("j=")
+
+
+class TestCandidateSets:
+    """Mutation controls for the fills each leg tries (plan section 9).
+
+    A fill vanishes when the survivors already sit at it, so each test either builds data
+    whose verdict turns on the one fill under test, or captures the arrays a leg evaluates
+    and compares them with the set built here from the survivors alone.
+    """
+
+    LOST = tuple(range(190, 200))
+
+    def _reference(self, record: StudyRecord) -> pd.DataFrame:
+        rows = _rows(record, failed=self.LOST)
+        return rows.loc[rows["implementation"] == REFERENCE].sort_values("replicate")
+
+    def _wide(self, record: StudyRecord) -> pd.DataFrame:
+        rows = _rows(record, failed=self.LOST)
+        return rows.pivot(
+            index="replicate",
+            columns="implementation",
+            values=["estimate", "covered", "inference_estimate", "std_error"],
+        ).sort_index()
+
+    def test_truth_coverage_fails_when_every_lost_replicate_misses(self) -> None:
+        """Only the all-missed fill fails here; a fill that imputes no miss passes."""
+        from tests.studies.evidence.inference import clopper_pearson
+
+        record = _record()
+        group = self._reference(record).copy()
+        k, survivors = len(self.LOST), len(group)
+        floor = record.margins.coverage_floor
+        confidence = record.margins.confidence_level
+
+        def low(covered: int, total: int) -> float:
+            return clopper_pearson(covered, total, confidence_level=confidence).low - floor
+
+        count = next(
+            c for c in range(survivors + 1) if low(c, survivors) >= 0 and low(c, survivors + k) < 0
+        )
+        assert low(count + k, survivors + k) >= 0, "the all-covered fill must pass"
+        group["covered"] = [True] * count + [False] * (survivors - count)
+
+        (_, coverage, _) = failures.truth_legs(group, k, record=record, seed=1)
+        assert coverage.complete_case >= 0 > coverage.worst_case
+        assert coverage.imputation == "j=0 covered"
+        assert coverage.worst_case == pytest.approx(low(count, survivors + k))
+
+    def test_the_se_ratio_band_tries_the_upper_and_every_lower_edge_fill(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        record = _record()
+        group = self._reference(record)
+        k = len(self.LOST)
+        spread = group["inference_estimate"].to_numpy(dtype=float)
+        se = group["std_error"].to_numpy(dtype=float).copy()
+        se[:5] = SPREAD / 2  # SE minimum and maximum differ.
+        group = group.assign(std_error=se)
+        seen: list[bytes] = []
+        real = failures._se_ratio
+
+        def spy(spread_values: np.ndarray, se_values: np.ndarray, **options: object) -> np.ndarray:
+            seen.append(spread_values.tobytes() + b"|" + se_values.tobytes())
+            return real(spread_values, se_values, **options)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(failures, "_se_ratio", spy)
+        failures.truth_legs(group, k, record=record, seed=1)
+
+        def key(values: np.ndarray, std_errors: np.ndarray) -> bytes:
+            return values.tobytes() + b"|" + std_errors.tobytes()
+
+        def tail(value: float, count: int) -> np.ndarray:
+            return np.full(count, value)
+
+        expected = {
+            key(spread, se),
+            key(
+                np.concatenate([spread, tail(spread.mean(), k)]),
+                np.concatenate([se, tail(se.max(), k)]),
+            ),
+        }
+        for j in range(k + 1):
+            values = np.concatenate([spread, tail(spread.min(), j), tail(spread.max(), k - j)])
+            expected.add(key(values, np.concatenate([se, tail(se.min(), k)])))
+        assert set(seen) == expected
+
+    def test_the_rmse_and_coverage_legs_fill_the_reference_at_its_best_case(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The lost reference estimates sit at the truth and the lost intervals cover it."""
+        record = _record()
+        wide = self._wide(record)
+        k = len(self.LOST)
+        captured: list[dict[str, np.ndarray]] = []
+        real = failures.bootstrap
+
+        def spy(data: dict[str, np.ndarray], *args: object, **options: object) -> object:
+            captured.append({name: np.asarray(values) for name, values in data.items()})
+            return real(data, *args, **options)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(failures, "bootstrap", spy)
+        failures.paired_legs(wide, self.LOST, record=record, truth=TRUTH, comparable=False, seed=1)
+        best = next(data for data in captured if len(data["reference_estimate"]) == 200)
+        assert np.all(best["reference_estimate"][-k:] == TRUTH)
+        assert np.all(best["reference_covered"][-k:] == 1.0)
+        survivors = wide.drop(index=list(self.LOST))
+        np.testing.assert_array_equal(
+            best["reference_estimate"][:-k], survivors[("estimate", REFERENCE)].to_numpy(float)
+        )
+        np.testing.assert_array_equal(
+            best["subject_estimate"],
+            np.concatenate(
+                [
+                    survivors[("estimate", SUBJECT)].to_numpy(float),
+                    wide.loc[list(self.LOST), ("estimate", SUBJECT)].to_numpy(float),
+                ]
+            ),
+        )
+
+    def test_the_calibration_leg_tries_every_se_fill_with_every_estimate_set(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Nine SE and estimate pairs per split, the root strictly inside the SE range."""
+        record = _record()
+        wide = self._wide(record).copy()
+        survivors_index = [r for r in wide.index if r not in self.LOST]
+        se = np.linspace(0.05, 0.15, len(survivors_index))
+        wide.loc[survivors_index, ("std_error", REFERENCE)] = se
+        k = len(self.LOST)
+        seen: set[bytes] = set()
+
+        def spy(
+            subject_se: np.ndarray,
+            subject_inference: np.ndarray,
+            reference_se: np.ndarray,
+            reference_inference: np.ndarray,
+            **options: object,
+        ) -> float:
+            seen.add(reference_se.tobytes() + b"|" + reference_inference.tobytes())
+            return 0.0
+
+        monkeypatch.setattr(failures, "_calibration_slack", spy)
+        failures.paired_legs(wide, self.LOST, record=record, truth=TRUTH, comparable=True, seed=1)
+
+        estimates = wide.loc[survivors_index, ("inference_estimate", REFERENCE)].to_numpy(float)
+        sets = [np.concatenate([estimates, np.full(k, estimates.mean())])]
+        sets += [
+            np.concatenate(
+                [estimates, np.full(j, estimates.min()), np.full(k - j, estimates.max())]
+            )
+            for j in range(k + 1)
+        ]
+        expected = {se.tobytes() + b"|" + estimates.tobytes()}
+        roots_inside = 0
+        for values in sets:
+            root = (np.std(values, ddof=1) * (len(se) + k) - se.sum()) / k
+            roots_inside += int(se.min() < root < se.max())
+            for fill in (se.min(), se.max(), min(max(root, se.min()), se.max())):
+                expected.add(
+                    np.concatenate([se, np.full(k, fill)]).tobytes() + b"|" + values.tobytes()
+                )
+        assert roots_inside, "the control needs a root that neither edge fill reproduces"
+        assert seen == expected
+
+
+def _leg(name: str, complete: float, worst: float) -> failures.Leg:
+    strict = name == "coverage superiority"
+    return failures.Leg(name, complete, worst, "", worst > 0 if strict else worst >= 0)
+
+
+def _paired(similarity: tuple[float, float], superiority: tuple[float, float]) -> list:
+    return [
+        _leg("similarity", *similarity),
+        _leg("rmse ratio", 0.1, 0.05),
+        _leg("coverage difference", 0.1, 0.05),
+        _leg("coverage superiority", *superiority),
+        _leg("calibration excess", 0.1, 0.05),
+    ]
+
+
+class TestRoutes:
+    """A paired cell passes by equivalence or by superiority; each route is accounted alone."""
+
+    def test_a_superior_cell_that_loses_superiority_reads_equivalent(self) -> None:
+        gate = failures._paired_gate(1, 5, _paired((0.1, 0.05), (0.02, -0.01)))
+        assert gate == (True, failures.SUPERIORITY_LOST)
+        assert failures.accounted_conclusion("superior", equivalent=True, gate=gate) == (
+            "equivalent",
+            True,
+        )
+        assert failures.accounted_conclusion("superior", equivalent=False, gate=gate) == (
+            failures.UNACCOUNTED,
+            False,
+        )
+        assert failures.accounted_conclusion("equivalent", equivalent=True, gate=gate) == (
+            "equivalent",
+            True,
+        )
+
+    def test_a_superior_cell_that_is_not_similar_is_not_a_false_red(self) -> None:
+        """Similarity never held, so its worst case decides nothing."""
+        gate = failures._paired_gate(1, 5, _paired((-0.1, -0.2), (0.02, 0.01)))
+        assert gate == (True, failures.WITHIN_BOUND)
+        assert failures.accounted_conclusion("superior", equivalent=False, gate=gate) == (
+            "superior",
+            True,
+        )
+
+    def test_an_equivalent_cell_that_loses_equivalence_is_unaccounted(self) -> None:
+        gate = failures._paired_gate(1, 5, _paired((0.1, -0.05), (0.02, 0.01)))
+        assert gate == (True, failures.EQUIVALENCE_LOST)
+        assert failures.accounted_conclusion("equivalent", equivalent=True, gate=gate) == (
+            failures.UNACCOUNTED,
+            False,
+        )
+        assert failures.accounted_conclusion("superior", equivalent=True, gate=gate) == (
+            "superior",
+            True,
+        )
+
+    def test_no_surviving_route_is_red_and_names_whether_the_failures_decided_it(self) -> None:
+        lost = failures._paired_gate(1, 5, _paired((0.1, -0.05), (0.0, -0.01)))
+        assert lost == (False, failures.WORST_CASE_FAILS)
+        assert failures.accounted_conclusion("equivalent", equivalent=True, gate=lost) == (
+            failures.UNACCOUNTED,
+            False,
+        )
+        own = failures._paired_gate(1, 5, _paired((-0.1, -0.2), (-0.01, -0.02)))
+        assert own == (False, failures.COMPLETE_CASE_FAILS)
+        assert failures.accounted_conclusion("inconclusive", equivalent=False, gate=own) == (
+            "inconclusive",
+            False,
+        )
+
+    def test_a_truth_leg_red_on_its_complete_cases_is_not_charged_to_the_failures(self) -> None:
+        record = _record()
+        lost = tuple(range(3))
+        rows = _rows(record, failed=lost, reference_bias=0.6)
+        frame = _truth(record, rows, ";".join(str(value) for value in lost))
+        bias = frame.loc[frame["leg"] == "bias"].iloc[0]
+        assert bias["complete_case"] < 0
+        assert set(frame["reason"]) == {failures.COMPLETE_CASE_FAILS}
 
 
 class TestHooks:
@@ -329,17 +573,43 @@ class TestHooks:
             audit="probe",
         )
         assert gap.set_index("leg")["passed"].to_dict() == {"coverage": False, "probe": True}
+        # The last replication is gone: the probed and failed ones still form 0..k-1.
+        last = failures.probe_audits(
+            probe.iloc[[0, 1]],
+            _failures(("law", "1")),
+            record=record,
+            scenarios=("law",),
+            coverage="coverage",
+            audit="probe",
+        )
+        assert last.set_index("leg")["passed"].to_dict() == {"coverage": False, "probe": True}
 
     def test_the_probe_reads_the_surviving_replications_only(self, tmp_path: Path) -> None:
         samples = tmp_path / "samples.csv.gz"
-        pd.DataFrame({"scenario": "law", "replicate": [0, 0, 1, 1, 2], "y": range(5)}).to_csv(
+        values = [0.1 + 0.2, 1 / 3, 2 / 3, 0.7, 1e-17]
+        pd.DataFrame({"scenario": "law", "replicate": [0, 0, 1, 1, 2], "y": values}).to_csv(
             samples, index=False
         )
         results = tmp_path / "reference.csv"
         pd.DataFrame({"scenario": ["law", "law"], "replicate": [0, 2]}).to_csv(results, index=False)
-        path = failures.surviving_samples(samples, results)
-        assert path.parent == samples.parent
-        assert pd.read_csv(path)["y"].tolist() == [0, 1, 4]
+        with failures.surviving_samples(samples, results) as path:
+            assert path != samples and path.parent == samples.parent
+            kept = gzip.decompress(path.read_bytes()).decode().splitlines()
+            source = gzip.decompress(samples.read_bytes()).decode().splitlines()
+            # The kept lines are the source's own bytes, not a reparse.
+            assert kept == [source[0], source[1], source[2], source[5]]
+        assert not path.exists()
+
+    def test_without_a_failure_the_probe_reads_the_samples_themselves(self, tmp_path: Path) -> None:
+        samples = tmp_path / "samples.csv.gz"
+        pd.DataFrame({"scenario": "law", "replicate": [0, 1], "y": [0.1, 0.2]}).to_csv(
+            samples, index=False
+        )
+        results = tmp_path / "reference.csv"
+        pd.DataFrame({"scenario": ["law", "law"], "replicate": [0, 1]}).to_csv(results, index=False)
+        with failures.surviving_samples(samples, results) as path:
+            assert path == samples
+        assert samples.exists()
 
 
 class TestLedger:
@@ -386,6 +656,20 @@ class TestLedger:
         found = red_cells.findings(rows, {}, {record.slug: "reporting"}, [])
         assert len(found) == len(rows)
         assert all("has no owner" in line for line in found)
+
+    def test_an_unaccountable_hook_row_reaches_the_ledger(self) -> None:
+        """A hook with no ``account_failures`` counts no rows; the ledger still reads it."""
+        record = _record(publication_policy="reporting")
+        study = SimpleNamespace(scientific_failures=lambda frames: {})
+        hook = failures.hook_accounting(study, _failures(("law", "1")), {}, record=record)
+        tables = self._tables(record)
+        accounting = tables["accounting"]
+        tables["accounting"] = pd.concat(
+            [accounting.loc[accounting["table"] != "hook"], hook], ignore_index=True
+        )
+        (row,) = [row for row in red_cells.red_rows(record, tables) if row.key.kind == "accounting"]
+        assert row.fails_by == f"failure accounting: {failures.NOT_ACCOUNTABLE}"
+        assert row.measured == "failing rows not counted, failures 1 of 200"
 
     def test_a_hand_edited_conclusion_is_refused(self) -> None:
         record = _record(bound=0.005, publication_policy="reporting")

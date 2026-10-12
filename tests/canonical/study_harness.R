@@ -97,16 +97,19 @@ study_stage <- function(label, expr) {
     error = function(condition) {
       if (inherits(condition, c("study_fatal_error", "study_fitting_failure"))) stop(condition)
       text <- conditionMessage(condition)
-      if (grepl("cannot allocate|vector memory exhausted|memory exhausted", text)) {
+      if (grepl("cannot allocate|vector memory exhausted|memory exhausted|std::bad_alloc", text)) {
         study_memory_kill(label, text)
       }
       if (grepl("C stack usage", text, fixed = TRUE)) {
         study_fatal_error(sprintf("%s: %s", label, text))
       }
+      # An error raised by `expr` itself carries tryCatch's own frame as its call.
+      call <- conditionCall(condition)
+      if (is.call(call) && identical(call[[1]], quote(doTryCatch))) call <- NULL
       stop(structure(
         class = c("study_fitting_failure", "error", "condition"),
         list(
-          message = text, call = conditionCall(condition),
+          message = text, call = call,
           stage = label, original = paste(class(condition), collapse = "/")
         )
       ))
