@@ -144,6 +144,7 @@ from .hazard import (
     InitialHazards,
     fit_hazards,
     level_plans,
+    project_curves,
     refuse_hazard_design,
     refuse_hazard_settings,
     target_regimens,
@@ -907,6 +908,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         Method identity stamped by the estimator.
     bootstrap : BootstrapResult or None
         The full-refit bootstrap draws, when ``n_bootstrap > 0`` was requested.
+    isotonic_moves : tuple of tuple
+        The levels an ``isotonic=True`` projection moved, as
+        ``(regimen, cause, horizon, before, after)``.
     replay_recipe : object
         Unfitted recursive learner templates and resolved plans for deterministic refits.
         Keyword-only.
@@ -992,6 +996,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: The full-refit bootstrap draws, ``None`` unless ``n_bootstrap > 0``.  A replayed
     #: fit never reruns the bootstrap.
     bootstrap: BootstrapResult | None = None
+    #: ``(regimen, cause, horizon, before, after)`` of every level the isotonic projection
+    #: moved, empty when it moved none or ``isotonic=False``.
+    isotonic_moves: tuple[tuple[str, str | None, int, float, float], ...] = ()
     #: Unfitted state for a complete bound-dependent recursion.
     replay_recipe: _LongitudinalReplayRecipe = field(kw_only=True)
 
@@ -2421,6 +2428,83 @@ def _run_hazard(
     return {_fit_key(label, cause, horizon, True): fit for (label, cause, horizon), fit in fits.items()}
 
 
+def _project_fits(
+    fits: Mapping[str, RegimenFit],
+) -> tuple[dict[str, RegimenFit], tuple[tuple[str, str | None, int, float, float], ...]]:
+    """Project each regimen's and cause's levels onto a non-decreasing curve.
+
+    Unit-weight isotonic regression over the reported horizons, in horizon order
+    (Westling, van der Laan and Carone 2020, Section 2.1).  Only the level moves: the
+    influence curve, and so every standard error, is the fit's own.
+
+    Parameters
+    ----------
+    fits : mapping of str to RegimenFit
+        The fits keyed by :func:`_fit_key`.
+
+    Returns
+    -------
+    tuple
+        The fits with projected levels, and ``(regimen, cause, horizon, before, after)`` of
+        every level the projection moved.
+    """
+    curves: dict[tuple[str, str | None], list[str]] = {}
+    for key, fit in fits.items():
+        curves.setdefault((fit.regimen.label, fit.cause), []).append(key)
+    out = dict(fits)
+    moves: list[tuple[str, str | None, int, float, float]] = []
+    for (label, cause), keys in curves.items():
+        keys = sorted(keys, key=lambda key: fits[key].horizon)
+        values = np.array([fits[key].psi_scaled for key in keys])
+        projected = project_curves(values[None, :])[0]
+        for key, before, after in zip(keys, values, projected, strict=True):
+            if after != before:
+                out[key] = replace(fits[key], psi_scaled=float(after))
+                moves.append((label, cause, fits[key].horizon, float(before), float(after)))
+    return out, tuple(moves)
+
+
+def _project_bands(
+    bands: SimultaneousBands | None,
+    index: Mapping[str, tuple[str, str | None, int]] | None,
+) -> SimultaneousBands | None:
+    """Project the band limits of every level curve, and keep every contrast's band.
+
+    Each curve's lower limits and upper limits are projected by the same unit-weight
+    isotonic regression as its levels (Westling et al. 2020, Section 2.1 and Theorem 1
+    (iv)-(v)): the projected band covers whenever the band it came from covers, and is no
+    wider on average or at its maximum.  A contrast keeps its band as built.
+
+    Parameters
+    ----------
+    bands : SimultaneousBands or None
+        The band built at the unprojected levels.
+    index : mapping or None
+        ``name -> (regimen, cause, horizon)`` of every reported name.
+
+    Returns
+    -------
+    SimultaneousBands or None
+        The band with projected level limits.
+    """
+    if bands is None or index is None:
+        return bands
+    curves: dict[tuple[str, str | None], list[tuple[int, str]]] = {}
+    for name in bands.bands:
+        if name.startswith(CONTRAST_HEAD) or name not in index:
+            continue
+        label, cause, horizon = index[name]
+        curves.setdefault((label, cause), []).append((horizon, name))
+    limits = dict(bands.bands)
+    for members in curves.values():
+        names = [name for _, name in sorted(members)]
+        lower = project_curves(np.array([[bands.bands[name][0] for name in names]]))[0]
+        upper = project_curves(np.array([[bands.bands[name][1] for name in names]]))[0]
+        for name, low, high in zip(names, lower, upper, strict=True):
+            limits[name] = (float(low), float(high))
+    return replace(bands, bands=limits)
+
+
 def _with_node_ratio(fit: RegimenFit, ratio: FloatArray | None) -> RegimenFit:
     """The fit with its plan's raw per-node ratio, kept for a later trim of the policy ratio."""
     return fit if ratio is None else replace(fit, node_ratio=ratio)
@@ -3366,6 +3450,10 @@ class LTMLE:
             isotonic=self.isotonic,
         )
         status = _inference_status(prepared, folds)
+        unprojected = fits
+        moves: tuple[tuple[str, str | None, int, float, float], ...] = ()
+        if self.isotonic:
+            fits, moves = _project_fits(fits)
         with phase("influence_curve"):
             reported = (
                 _estimates(
@@ -3377,7 +3465,21 @@ class LTMLE:
         estimates = reported.estimates
         _warn_parameter_statuses(estimates)
         with phase("inference"):
-            bands = self._bands(estimates, prepared, status)
+            if moves:
+                # The band is built at the unprojected levels, and each curve's limits are
+                # then projected (Westling et al. 2020, Theorem 1 (iv)).  The critical value
+                # reads the influence curves only, so it is the same either way.
+                before = _estimates(
+                    prepared,
+                    unprojected,
+                    scaler,
+                    reference,
+                    alpha_sig=self.alpha_sig,
+                    inference=status,
+                ).estimates
+                bands = _project_bands(self._bands(before, prepared, status), reported.index)
+            else:
+                bands = self._bands(estimates, prepared, status)
         result = LongitudinalResult(
             estimates=estimates,
             fits=fits,
@@ -3391,6 +3493,7 @@ class LTMLE:
             parameter_index=reported.index,
             msm=model,
             msm_fits=msm_fits,
+            isotonic_moves=moves,
             replay_recipe=replay_recipe,
         )
         if self.n_bootstrap:
