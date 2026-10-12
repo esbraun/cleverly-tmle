@@ -1,0 +1,163 @@
+# A pinned adapter for npcausal 0.1.0 at 56a5ac117a29258b67b94874be662a171b5131f7.
+#
+# `npcausal::ipsi` draws its sample splits inside its body (R/ipsi.R line 114) and takes no
+# fold argument.  A paired study needs the exact realized Python assignment, so
+# `ipsi_with_folds` builds a copy of the pinned function whose one change is that statement:
+# `s <- sample(...)` becomes `s <- folds`.  Every other statement of the body is the pinned
+# one, which the adapter checks before a study starts.  Estimation stays in the pinned code.
+# Precedent: `lmtp_crossfit_adapter.R` replaces only `task$folds`.
+#
+# The adapter also holds the saturated learner both sides fit (`SL.cellmeans`), the long design
+# `ipsi` reads, and the inverse of the recycling defect of `return_ifvals = TRUE`.  Every check
+# here stays outside a `study_stage`, so a failed check is fatal rather than one group's
+# failure (RM39a2).
+
+# The statement the copy replaces, as the pinned source writes it.  Compared as a language
+# object, so the check does not depend on how a given R version deparses it.
+IPSI_FOLD_DRAW <- quote(s <- sample(rep(seq_len(nsplits), ceiling(n / nsplits))[seq_len(n)]))
+
+ipsi_with_folds <- function(original = npcausal::ipsi, namespace = asNamespace("npcausal")) {
+  pinned <- body(original)
+  statements <- as.list(pinned)
+  hits <- which(vapply(statements, function(statement) identical(statement, IPSI_FOLD_DRAW), logical(1)))
+  if (length(hits) != 1L) {
+    stop(sprintf("npcausal::ipsi holds the pinned fold draw %d times, not once", length(hits)))
+  }
+  replaced <- statements
+  replaced[[hits]] <- quote(s <- folds)
+  copy <- original
+  formals(copy) <- c(formals(original), alist(folds = ))
+  body(copy) <- as.call(replaced)
+  environment(copy) <- namespace
+  # The whole body, with the one statement restored, is the pinned body.
+  restored <- as.list(body(copy))
+  restored[[hits]] <- IPSI_FOLD_DRAW
+  if (!identical(deparse(as.call(restored)), deparse(pinned))) {
+    stop("the fold-injected copy of npcausal::ipsi differs from the pinned body elsewhere")
+  }
+  copy
+}
+
+# ---------------------------------------------------------------------------- the learner
+
+cell_keys <- function(X) {
+  do.call(paste, c(lapply(names(X), function(name) as.character(X[[name]])), sep = "|"))
+}
+
+# Saturated cell means: the mean of `Y` within each distinct design row.  An unseen row takes
+# the training mean, which is what `tests.discrete_law_longitudinal.CellMeans` returns.  The
+# treatment design carries a `block` column (the node), and `ipsi` fits one pooled treatment
+# model over every node.  There an unseen row takes the training mean of its own block, which is
+# what a per-node `CellMeans` fit returns (`X19-plan.md` 6.1).  `ipsi` hands the same library to
+# the treatment and the outcome fits, so one wrapper serves both, keyed on that column.
+SL.cellmeans <- function(Y, X, newX, family, obsWeights, ...) {
+  if (any(obsWeights != 1)) stop("SL.cellmeans is fitted unweighted in this study")
+  keys <- cell_keys(X)
+  means <- tapply(Y, keys, mean)
+  core <- list(keys = names(means), means = as.numeric(means), default = mean(Y))
+  if ("block" %in% names(X)) {
+    blocks <- tapply(Y, X$block, mean)
+    core$blocks <- setNames(as.numeric(blocks), names(blocks))
+  }
+  fit <- structure(list(object = core), class = "SL.cellmeans")
+  list(pred = predict.SL.cellmeans(fit, newX), fit = fit)
+}
+
+predict.SL.cellmeans <- function(object, newdata, ...) {
+  object <- object$object
+  found <- match(cell_keys(newdata), object$keys)
+  out <- object$means[found]
+  unseen <- is.na(found)
+  if (any(unseen)) {
+    if (!is.null(object$blocks)) {
+      fallback <- object$blocks[as.character(newdata$block[unseen])]
+      if (anyNA(fallback)) stop("a treatment block has no training row")
+      out[unseen] <- fallback
+    } else {
+      out[unseen] <- object$default
+    }
+  }
+  out
+}
+
+# ------------------------------------------------------------------------ the long design
+
+# The history at node t of a wide frame with baseline W, covariates L2..LT and arms A1..AT:
+# W, A1, L2, ..., A_{t-1}, L_t, padded with zeros to the length at the last node.  The cell
+# partition is the one the Python fit's node-t design induces.
+ipsi_history <- function(frame, t, n_times) {
+  columns <- "W"
+  if (t > 1) {
+    for (s in 2:t) columns <- c(columns, paste0("A", s - 1), paste0("L", s))
+  }
+  width <- 2L * n_times - 1L
+  values <- as.matrix(frame[, columns, drop = FALSE])
+  padded <- cbind(values, matrix(0, nrow(frame), width - length(columns)))
+  colnames(padded) <- paste0("h", seq_len(width))
+  padded
+}
+
+ipsi_long <- function(frame, n_times) {
+  n <- nrow(frame)
+  id <- rep(seq_len(n), each = n_times)
+  time <- rep(seq_len(n_times), times = n)
+  pieces <- lapply(seq_len(n_times), function(t) ipsi_history(frame, t, n_times))
+  history <- matrix(0, n * n_times, ncol(pieces[[1]]), dimnames = list(NULL, colnames(pieces[[1]])))
+  arms <- numeric(n * n_times)
+  for (t in seq_len(n_times)) {
+    rows <- which(time == t)
+    history[rows, ] <- pieces[[t]]
+    arms[rows] <- frame[[paste0("A", t)]]
+  }
+  list(
+    y = frame$Y,
+    a = arms,
+    x.trt = data.frame(block = time, history),
+    x.out = data.frame(history),
+    time = time,
+    id = id
+  )
+}
+
+# ------------------------------------------------------------------------- the un-recycle
+
+# `return_ifvals = TRUE` returns `ifvals - est.eff` (R/ipsi.R line 255), and R recycles the
+# length-k vector down the n x k matrix column-major.  Entry (i, j) had
+# `est.eff[((j - 1) * n + i - 1) %% k + 1]` subtracted.  This adds that back and subtracts
+# `est.eff[j]`, which is the centred influence value the published standard error reads.
+ipsi_centred_ifvals <- function(fit) {
+  returned <- as.matrix(fit$ifvals)
+  n <- nrow(returned)
+  k <- ncol(returned)
+  estimates <- fit$res.ptwise$est
+  index <- matrix(((rep(seq_len(k), each = n) - 1) * n + rep(seq_len(n), k) - 1) %% k + 1, n, k)
+  raw <- returned + matrix(estimates[index], n, k)
+  for (j in seq_len(k)) {
+    published <- fit$res.ptwise$se[[j]]
+    if (abs(sd(raw[, j]) - published) > 1e-12 * max(1, published)) {
+      stop("the un-recycled influence values disagree with npcausal's published standard error")
+    }
+  }
+  sweep(raw, 2, estimates)
+}
+
+# One full-grid call per fold assignment.  `print(c(i, j))` of the `sl` path is captured.
+ipsi_fit_grid <- function(frame, deltas, folds, n_times, ipsi_copy) {
+  long <- ipsi_long(frame, n_times)
+  splits <- length(unique(folds))
+  fit <- NULL
+  invisible(capture.output(
+    fit <- ipsi_copy(
+      y = long$y, a = long$a, x.trt = long$x.trt, x.out = long$x.out,
+      time = long$time, id = long$id, delta.seq = deltas, nsplits = splits,
+      progress_bar = FALSE, return_ifvals = TRUE, fit = "sl", sl.lib = "SL.cellmeans",
+      folds = folds
+    )
+  ))
+  list(
+    estimate = fit$res.ptwise$est,
+    sigma = fit$res.ptwise$se,
+    calpha = as.numeric(fit$calpha),
+    ic = ipsi_centred_ifvals(fit)
+  )
+}
