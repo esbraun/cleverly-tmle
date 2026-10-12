@@ -137,7 +137,7 @@ gives what follows for the randomized missing-outcome route.
 | question | answer |
 | --- | --- |
 | the remainder with a wrong outcome regression | linear in the error of `g_A g_Delta`, not a product of two errors. The term sits in the step at equation (21) of the proof in Díaz and van der Laan (2017), Appendix A.1. A known `g_A` does not remove it, because `g_Delta` is estimated |
-| the measured effect | a project probe simulated a known `g_A`, a wrong outcome regression and a slowly converging `g_Delta`. Coverage of `ey[1]` fell to 0.850 at n = 16,000, and the bias grew with n (`reviews/rm40/lra_summary.log`, not a registered study) |
+| the measured effect | a project probe simulated a known `g_A`, a wrong outcome regression and a slowly converging `g_Delta`. Coverage of `ey[1]` fell to 0.850 at n = 16,000, and the bias grew with n (`reviews/rm40/lra_summary.log`, not a registered study). The registered [one-inconsistent-nuisance study](../method-evidence/dr-tmle-one-inconsistent-nuisance.md) repeats the setting on law M at n = 4,000. Its arm-mean bias was −0.53 and −0.54 SD, with coverage 0.920 and 0.926 |
 | when the interval is established | when the outcome regression and `g_Delta` are both consistent |
 | what a declared `g_A` alone gives | no established interval with a wrong outcome regression. This is a gap in the theory, not in the evidence |
 | `n_bootstrap=` | admitted, as on the route with an estimated `g_A`. A full-refit bootstrap resamples the same estimator, so its range rests on the same remainder as the analytic interval and carries the same limit |
@@ -216,8 +216,8 @@ term at equation (21), `O_P(‖ĝ − g_0‖²)`. The difference is linear in `�
 | observation mechanism, with the outcome regression wrong | the interval |
 | --- | --- |
 | the product mechanism `g_A g_Delta` known | established. The package always estimates `g_Delta`, so no fit is in this row |
-| a correctly specified parametric model | the projection argument of [the conditioning terms](#the-conditioning-terms-are-linear-in-one-error) suggests a conservative interval. The page derives it for a complete outcome only. The probe's GLM cell (n = 4,000, R = 150) showed no excess and an arm-0 bias that the term does not explain. RM40 re-checks it |
-| a data-adaptive learner | not established. A non-registered probe found an arm-mean bias that grows with n |
+| a correctly specified parametric model | the projection argument of [the conditioning terms](#the-conditioning-terms-are-linear-in-one-error) suggests a conservative interval. The page derives it for a complete outcome only. A re-check of the probe's GLM cell (n = 4,000, R = 1,000) found no bias: every 99% bias interval contains zero, and the SE ratios are 0.96 to 1.01 (`reviews/rm40/lra_recheck.log`, not a registered study) |
+| a data-adaptive learner | not established. A project probe found an arm-mean bias that grows with n. The law-M control of the registered [one-inconsistent-nuisance study](../method-evidence/dr-tmle-one-inconsistent-nuisance.md) shows the bias at n = 4,000 |
 
 The probe declared `g_A`, fitted a wrong outcome regression, and gave `g_Delta` a constructed slow
 error (`reviews/rm40/lra_summary.log`). The `ey[1]` bias was −0.24, −0.60 and −0.98 SD at
@@ -525,32 +525,33 @@ arms each row applies arm by arm.
 | case | conditioning term | reported interval | evidence |
 | --- | --- | --- | --- |
 | both nuisances consistent at the product rates, plus the reduced-regression and solve conditions | second order | valid (Theorem 1) | the registered both-correct cells of the [canonical](../method-evidence/canonical-dr-tmle.md), [stratified](../method-evidence/stratified-dr-tmle.md) and [multi-arm](../method-evidence/multi-arm-dr-tmle.md) studies |
-| `Q̄` wrong, `g` declared known | second order (its first-order part is zero). Equation (9) moves `g*` along `Q_r/g_0`, a function of `g_0` | valid. The ordinary TMLE interval is valid too | Theorem 1 at `g_n = g_0`, and the registered [known-mechanism DR-TMLE study](../method-evidence/known-mechanism-dr-tmle.md) with a wrong outcome regression |
+| `Q̄` wrong, `g` declared known | second order (its first-order part is zero). Equation (9) moves `g*` along `Q_r/g_0`, a function of `g_0` | valid. The ordinary TMLE interval is valid too | Theorem 1 at `g_n = g_0`, the registered [known-mechanism DR-TMLE study](../method-evidence/known-mechanism-dr-tmle.md) with a wrong outcome regression, and the declared-mechanism cells of the registered [one-inconsistent-nuisance study](../method-evidence/dr-tmle-one-inconsistent-nuisance.md) |
 | `Q̄` wrong, `g_n = φ_n(g_0)` with `φ_n` tending to the identity, or H1 | second order (its first-order part is zero) | valid under the remaining rates | the derivation. The Section 5.1 law of the paper is H1 (`tests/unit/test_drtmle_h1_symmetry.py`) |
-| `Q̄` wrong, `g` a correctly specified fixed-dimension parametric model fitted by maximum likelihood, in sample or cross-fitted | `O_P(n^(−1/2))`, linear in the score | **conservative**: asymptotically linear, with a reported variance too large by `c'I^(−1)c` | the derivation below. A non-registered probe measured an in-sample ATE SE ratio of 1.136 to 1.149 at n = 1,000 to 16,000, with coverage 0.969 to 0.984 |
-| `Q̄` wrong, `g` with a bias of order `r_n ≫ n^(−1/2)` along `F/g_0` | of order `r_n` | **not established** | the identity. In the probe a constructed level-set-breaking error of order `n^(−1/3)` gave an ATE bias of −0.66, −0.84 and −1.22 SD, with coverage 0.928, 0.918 and 0.867, at n = 1,000, 4,000 and 16,000 |
+| `Q̄` wrong, `g` a correctly specified fixed-dimension parametric model fitted by maximum likelihood, in sample or cross-fitted | `O_P(n^(−1/2))`, linear in the score | **conservative**: asymptotically linear, with a reported variance too large by `c'I^(−1)c` | the derivation below, and the registered [one-inconsistent-nuisance study](../method-evidence/dr-tmle-one-inconsistent-nuisance.md): an ATE SE ratio of 1.161 in sample and 1.191 cross-fitted at n = 4,000, with coverage 0.975 and 0.982 |
+| `Q̄` wrong, `g` with a bias of order `r_n ≫ n^(−1/2)` along `F/g_0` | of order `r_n` | **not established** | the identity, and the registered [one-inconsistent-nuisance study](../method-evidence/dr-tmle-one-inconsistent-nuisance.md): a constructed level-set-breaking error of order `n^(−1/3)` gave an ATE bias of −0.65, −0.86 and −1.16 SD, with coverage 0.935, 0.917 and 0.843, at n = 1,000, 4,000 and 16,000 |
 | `g` wrong, `Q̄` a correctly specified parametric model | `O_P(n^(−1/2))` | not established. An extra first-order term of no fixed sign remains, because the target depends on the parameters of `Q̄` | the derivation only |
-| `g` wrong, `Q̄` with a bias along `h` of order larger than `n^(−1/2)` | linear | **not established** | the identity. In the probe a constructed error gave an ATE bias of −0.88, −1.13 and −1.34 SD, with coverage 0.845, 0.752 and 0.680, at the same sizes |
+| `g` wrong, `Q̄` with a bias along `h` of order larger than `n^(−1/2)` | linear | **not established** | the identity, and the registered study: a constructed error gave an ATE bias of −0.88, −1.07 and −1.35 SD, with coverage 0.825, 0.789 and 0.687, at the same sizes |
 
-No fit can tell which row it is in, except a declared known mechanism. The probe is
-`reviews/rm40/drdr_sim.py`, with its numbers in `reviews/rm40/drdr_summary.log`. It is not a
-registered study. The registered [multi-arm study](../method-evidence/multi-arm-dr-tmle.md) has a
+No fit can tell which row it is in, except a declared known mechanism. The registered study
+gates each measured row; its page gives the rules. The earlier project probe,
+`reviews/rm40/drdr_sim.py` with its log `reviews/rm40/drdr_summary.log`, agrees with it. The registered [multi-arm study](../method-evidence/multi-arm-dr-tmle.md) has a
 law that no test pins as H1, and a correctly specified multinomial mechanism. Its SE ratios of 1.00 to 1.04
 do not contradict the conservative row. Its verdicts cannot detect a conservative interval, because
 its coverage rule is a floor.
 
-**No registered study's verdict can detect the term.** The canonical and stratified laws are H1 in
-both branches by symmetry, as `tests/unit/test_drtmle_h1_symmetry.py` pins. The missing-data
-studies give the consistent nuisance as an exact law table, which is H2.
+**One registered study detects the term.** The [one-inconsistent-nuisance study](../method-evidence/dr-tmle-one-inconsistent-nuisance.md) uses law L, which is not H1 in either branch. The verdicts of the
+other studies cannot detect it. The canonical and stratified laws are H1 in both branches by
+symmetry, as `tests/unit/test_drtmle_h1_symmetry.py` pins. The missing-data studies give the
+consistent nuisance as an exact law table, which is H2.
 
 **The routes.** DR-TMLE is the only shipped family that publishes an interval exposed to this
 term. Its status stays `influence_curve` on every route, because a fit cannot tell which case it
 is in, and the interval is valid when both nuisances are consistent at the product rates.
 
-| route | index of the conditioning term | one-wrong interval established when | non-registered evidence |
+| route | index of the conditioning term | one-wrong interval established when | evidence |
 | --- | --- | --- | --- |
-| complete outcome: binary, more arms, strata, fixed weights, clusters, both reductions | `g_n` with the outcome wrong, `Q̄_n` with the mechanism wrong | the case table above | `reviews/rm40/drdr_summary.log` |
-| [randomized missing outcome](#randomized-trials-with-missing-outcomes) | the product `ĝ_A ĝ_Delta` | the product mechanism is known. A known `g_A` alone is not enough | `reviews/rm40/lra_summary.log` |
+| complete outcome: binary, more arms, strata, fixed weights, clusters, both reductions | `g_n` with the outcome wrong, `Q̄_n` with the mechanism wrong | the case table above | the registered [one-inconsistent-nuisance study](../method-evidence/dr-tmle-one-inconsistent-nuisance.md), and the probe log `reviews/rm40/drdr_summary.log` |
+| [randomized missing outcome](#randomized-trials-with-missing-outcomes) | the product `ĝ_A ĝ_Delta` | the product mechanism is known. A known `g_A` alone is not enough | `reviews/rm40/lra_summary.log`, and the law-M control of the registered study: with `g_A` declared and a slow observation mechanism, an arm-mean bias of −0.53 and −0.54 SD |
 | [composite indicator](#observational-missing-data-the-composite-indicator) | the composite mechanism `g_c,a` | the case table above, applied arm by arm to `(W, C_a, C_a Y)` | the complete-outcome probe applies, because this route is the same theorem on a recoded treatment |
 | results computed from a fit on these routes: `variable_importance`, E-values, truncation curves, the full-refit bootstrap | inherited from the fit | as for the fit | none |
 
@@ -581,8 +582,8 @@ Equation (9) moves `g` along `Q_r/g`, a function of `g_n`, so it adds second-ord
 The steps are standard: a linearization of the maximum-likelihood fit, a fixed-dimension stacked
 equation, and an `L_2` projection. The derivation is this repository's. In the probe, the
 in-sample SE ratio after the projection is 0.977 to 0.983 at n = 1,000 to 16,000. The
-cross-fitted cell has an SE ratio of 1.231 and a projected SE ratio of 1.047 at R = 400. No
-registered study measures this case yet.
+cross-fitted cell has an SE ratio of 1.231 and a projected SE ratio of 1.047 at R = 400. In the
+registered study, the projected SE ratio is 0.994 in sample and 1.012 cross-fitted.
 
 ### The bivariate reduction
 
@@ -602,4 +603,4 @@ the first-order remainder that is a function of the consistent nuisance. The res
 The one-wrong interval is valid for a declared known mechanism and
 conservative for a correctly specified parametric mechanism. With the mechanism wrong, the interval is not established, even for a correctly specified parametric outcome regression. It is also valid where the consistent
 estimate keeps the level sets of its truth, or where H1 holds. No fit can check the last two. A
-constructed level-set-breaking error produced a bias that grows with `n`.
+constructed level-set-breaking error produced a bias that grows with `n` in the registered study.

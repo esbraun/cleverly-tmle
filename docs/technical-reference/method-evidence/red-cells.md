@@ -244,6 +244,7 @@ row. A move to `gated` is a separate registry decision.
 | [policies at a held baseline treatment](point-treatment-survival-policies.md) | 60 | 0 |
 | [TMLE on a declared known treatment mechanism](known-treatment-mechanism.md) | 57 | 0 |
 | [DR-TMLE on a declared known treatment mechanism](known-mechanism-dr-tmle.md) | 55 | 0 |
+| [DR-TMLE with one inconsistent nuisance](dr-tmle-one-inconsistent-nuisance.md) | 22 | 0 |
 | [LTMLE on declared known node mechanisms](known-node-mechanisms-ltmle.md) | 20 | 0 |
 | [omitted-variable bound standard error](omitted-variable-bound-standard-error.md) | 14 | 0 |
 | [calibration-slope warning](calibration-slope-warning.md) | 13 | 0 |
