@@ -30,7 +30,7 @@ the parameter under.
 from __future__ import annotations
 
 from ..exceptions import LongitudinalError
-from .data import LongitudinalData
+from .data import LongitudinalData, Repeated
 from .estimator import LTMLE, LongitudinalConfig, LongitudinalResult, ltmle
 from .regimen import (
     DynamicRegimen,
@@ -60,6 +60,7 @@ __all__ = [
     "Regimen",
     "RegimenFit",
     "RegimenSpec",
+    "Repeated",
     "SequentialStep",
     "fit_mechanism",
     "fit_regimen",

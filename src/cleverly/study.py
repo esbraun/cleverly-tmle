@@ -20,7 +20,7 @@ from .inference.multiplier import SimultaneousBands, simultaneous_bands
 from .interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet
 from .interventions.base import InterventionKind, refuse_mixed_interventions
 from .interventions.learned import LearnedRule, refuse_learned_rule_composition
-from .longitudinal import LTMLE, LongitudinalData, LongitudinalResult
+from .longitudinal import LTMLE, LongitudinalData, LongitudinalResult, Repeated
 from .longitudinal.regimen import declares_mtp, declares_policy
 from .methods import (
     CollaborativeTMLEMethod,
@@ -671,12 +671,13 @@ class LongitudinalTreatment:
 
     Parameters
     ----------
-    outcome : str, sequence of str, or mapping of str to sequence of str
-        End-of-study outcome, survival event nodes, or competing-risk event nodes.
+    outcome : str, sequence of str, mapping of str to sequence of str, or Repeated
+        End-of-study outcome, survival event nodes, competing-risk event nodes, or a
+        :class:`~cleverly.longitudinal.Repeated` outcome measured at every node.
     treatment : str or sequence of str
         Treatment nodes in time order.  One column name declares one baseline decision
-        held over every node.  The node count then comes from the survival outcome, else
-        from ``censoring``, else from ``time_varying``, else it is one.
+        held over every node.  The node count then comes from a survival or repeated
+        outcome, else from ``censoring``, else from ``time_varying``, else it is one.
     baseline : sequence of str
         Covariates observed before the first treatment.
     time_varying : sequence of sequence of str or None
@@ -734,7 +735,7 @@ class LongitudinalTreatment:
     ((), ('L2',))
     """
 
-    outcome: str | Sequence[str] | Mapping[str, Sequence[str]]
+    outcome: str | Sequence[str] | Mapping[str, Sequence[str]] | Repeated
     treatment: str | Sequence[str]
     baseline: Sequence[str]
     time_varying: Sequence[Sequence[str]] | None = None
@@ -821,7 +822,7 @@ class LongitudinalTreatment:
         container records them as ``event_names`` plus ``cause_labels``, so composing them
         forward is what makes the three comparable without inspecting arrays.
         """
-        if isinstance(self.outcome, str):
+        if isinstance(self.outcome, (str, Repeated)):
             return (), ()
         if isinstance(self.outcome, Mapping):
             causes = tuple(self.outcome)
@@ -844,6 +845,13 @@ class LongitudinalTreatment:
             if self.time_varying is None
             else tuple(tuple(block) for block in self.time_varying)
         )
+        repeated = self.outcome.columns if isinstance(self.outcome, Repeated) else ()
+        if repeated and len(repeated) == len(blocks):
+            # The container records Y_s as the first covariate of node s + 1.
+            blocks = (
+                blocks[0],
+                *((repeated[node - 1], *blocks[node]) for node in range(1, len(blocks))),
+            )
         expected: tuple[tuple[str, Any, Any], ...] = (
             ("treatment", declared_treatment, tuple(data.treatment_names)),
             ("held treatment", held, data.treatment_held),
@@ -856,6 +864,7 @@ class LongitudinalTreatment:
             ("weights_type", self.weights_type, data.weight_spec.kind),
             ("weights_estimated", self.weights_estimated, data.weight_spec.estimated),
             ("outcome event nodes", events, tuple(data.event_names)),
+            ("repeated outcome nodes", repeated, tuple(data.repeated_names)),
             ("outcome causes", causes, tuple(data.cause_labels)),
             (
                 "continuous_treatment",
