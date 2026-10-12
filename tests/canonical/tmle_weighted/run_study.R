@@ -38,7 +38,7 @@ fit_one <- function(frame) {
     stop(sprintf("invalid treatment nuisance for %s/%s", scenario, replicate))
   }
   qn <- cbind(frame$qn0, frame$qn1)
-  fit <- tmle::tmle(
+  fit <- study_stage("tmle", tmle::tmle(
     Y = frame$Y,
     A = frame$A,
     W = frame[covariates],
@@ -51,7 +51,7 @@ fit_one <- function(frame) {
     gbound = c(0.01, 0.99),
     cvQinit = FALSE,
     verbose = FALSE
-  )
+  ))
   tmle_point_rows(
     fit,
     qn,

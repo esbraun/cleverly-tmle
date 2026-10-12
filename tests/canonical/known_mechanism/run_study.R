@@ -63,7 +63,7 @@ fit_one <- function(frame) {
     stop("a fit group contains more than one pairing key")
   }
   qn <- cbind(frame$qn0, frame$qn1)
-  fit <- tmle::tmle(
+  fit <- study_stage("tmle", tmle::tmle(
     Y = frame$Y,
     A = frame$A,
     W = frame[c("W1", "W2", "W3")],
@@ -75,7 +75,7 @@ fit_one <- function(frame) {
     Qbounds = c(0.001, 0.999),
     cvQinit = FALSE,
     verbose = FALSE
-  )
+  ))
   rows <- tmle_point_rows(
     fit, qn, rep(1, nrow(frame)), truths, scenario, replicate,
     implementation = "tmle-r-known-g"

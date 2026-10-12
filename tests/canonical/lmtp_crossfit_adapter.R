@@ -4,6 +4,10 @@
 # Python assignment, so this function reproduces lmtp_tmle's short orchestration layer and
 # replaces only task$folds.  Estimation remains in lmtp's cf_density_ratios, cf_tmle, and
 # theta_dr functions.  Every internal locator is checked before a study starts.
+#
+# RM39a2: each lmtp estimation call runs inside `study_stage` (tests/canonical/study_harness.R,
+# which every caller sources), so an error lmtp raises costs one group.  Every check of this
+# file stays outside a stage and stays fatal.
 
 lmtp_internal <- function(name) {
   value <- getFromNamespace(name, "lmtp")
@@ -110,6 +114,12 @@ lmtp_tmle_with_folds <- function(
     .return_full_fits = TRUE
   )
 ) {
+  # RM39a2 (M7): evaluate every argument here, outside any stage, so an error in a caller's
+  # argument expression stays fatal rather than being recorded.
+  invisible(list(
+    data, shifted, trt, outcome, baseline, time_vary, cens, id, weights, outcome_type,
+    fold_assignment, learners_outcome, learners_trt, density_ratios, control
+  ))
   if (nrow(data) != length(fold_assignment)) stop("fold assignment has the wrong length")
   if (!is.null(weights)) {
     if (length(weights) != nrow(data)) stop("weights have the wrong length")
@@ -160,18 +170,21 @@ lmtp_tmle_with_folds <- function(
   )
   task$folds <- fold_list(fold_assignment)
   progress <- function(...) invisible(NULL)
+  cf_density_ratios <- lmtp_internal("cf_density_ratios")
+  cf_tmle <- lmtp_internal("cf_tmle")
+  theta_dr <- lmtp_internal("theta_dr")
 
-  density <- lmtp_internal("cf_density_ratios")(
+  density <- study_stage("lmtp density ratios", cf_density_ratios(
     task, learners_trt, FALSE, control, progress
-  )
+  ))
   if (!is.null(density_ratios)) {
     estimated <- density$density_ratios
     check_supplied_density_ratios(density_ratios, estimated)
     density$density_ratios <- density_ratios
   }
-  regressions <- lmtp_internal("cf_tmle")(
+  regressions <- study_stage("lmtp tmle", cf_tmle(
     task, density$density_ratios, learners_outcome, control, progress
-  )
+  ))
   if (!isTRUE(control$.return_full_fits)) {
     stop("the evidence runner requires .return_full_fits=TRUE for its targeting witness")
   }
@@ -218,7 +231,7 @@ lmtp_tmle_with_folds <- function(
         fold, length(regressions$fits[[fold]]), length(task$vars$A)
       ))
     }
-    predicted <- predict(regressions$fits[[fold]][[1]], under_shift, 1e-05)
+    predicted <- study_stage("lmtp estimate", predict(regressions$fits[[fold]][[1]], under_shift, 1e-05))
     if (anyNA(predicted) || any(predicted < 0) || any(predicted > 1)) {
       stop(sprintf("fold %d produced an initial plug-in outside [0, 1]", fold))
     }
@@ -227,7 +240,7 @@ lmtp_tmle_with_folds <- function(
   }
   if (anyNA(initial)) stop("the initial plug-in did not cover every held-out row")
 
-  result <- lmtp_internal("theta_dr")(
+  result <- study_stage("lmtp estimate", theta_dr(
     task = task,
     sequential_regressions = list(
       natural = regressions$natural,
@@ -238,7 +251,7 @@ lmtp_tmle_with_folds <- function(
     fits_r = density$fits,
     shift = "supplied shifted data with exact folds",
     is_sdr = FALSE
-  )
+  ))
   result$initial <- if (outcome_type == "continuous") task$rescale(initial) else initial
   result$fold_assignment <- as.integer(fold_assignment)
   result

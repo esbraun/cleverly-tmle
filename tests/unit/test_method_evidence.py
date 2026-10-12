@@ -85,6 +85,36 @@ def _revisions() -> dict[tuple[str, str], str]:
     return table
 
 
+DETERMINISM = ROOT / "tests" / "canonical" / "harness_fixture" / "determinism.csv"
+
+
+def test_every_rm39a2_judgement_has_its_determinism_witness() -> None:
+    """A result-neutral claim about a stage edit names a run that showed it.
+
+    Each ledger row whose judgement cites RM39a2 needs a ``determinism.csv`` row of step
+    ``a2`` for the same source, run on the bytes the row calls ``current``, with the verdict
+    ``identical``.  The local thread's ``determinism.py stage`` writes those rows.
+    """
+    witnesses = pd.read_csv(DETERMINISM, dtype=str, keep_default_na=False)
+    if "source_sha256" not in witnesses.columns:
+        witnesses = witnesses.assign(source="", source_sha256="")
+    witnessed = {
+        (row.source, row.source_sha256)
+        for row in witnesses.itertuples(index=False)
+        if row.step == "a2" and row.verdict == "identical"
+    }
+    missing = [
+        f"{row['source'].strip('`')} at {row['current'].strip('`')[:12]}"
+        for row in pipe_table(REVISIONS, REVISION_COLUMNS)
+        if "RM39a2" in row["judgement"]
+        and (row["source"].strip("`"), row["current"].strip("`")) not in witnessed
+    ]
+    assert missing == [], (
+        f"{len(missing)} RM39a2 judgements have no identical a2 row in {DETERMINISM.name}; run "
+        f"`python -m tests.canonical.harness_fixture.determinism stage`: {missing}"
+    )
+
+
 def test_no_provenance_revision_outlives_the_manifest_it_explains() -> None:
     """The ledger refuses a stale row, on the terms ``accepted_reference_failure`` already sets.
 

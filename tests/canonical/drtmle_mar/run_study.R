@@ -11,7 +11,7 @@ critical <- qnorm(0.975)
 fit_one <- function(frame) {
   scenario <- frame$scenario[[1]]
   replicate <- frame$replicate[[1]]
-  fit <- drtmle::drtmle(
+  fit <- study_stage("drtmle", drtmle::drtmle(
     Y = frame$Y,
     A = frame$A,
     W = frame["W"],
@@ -33,7 +33,7 @@ fit_one <- function(frame) {
     returnModels = FALSE,
     returnNuisance = TRUE,
     use_future = FALSE
-  )
+  ))
   estimates <- as.numeric(fit$drtmle$est)
   covariance <- fit$drtmle$cov
   psi <- c(estimates[[1]], estimates[[2]], estimates[[2]] - estimates[[1]])

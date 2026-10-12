@@ -58,7 +58,7 @@ plant <- function(y, eligible) {
 }
 
 assert_scale <- function(y, a, q, delta, family, expected) {
-  stage <- tmle:::.initStage1(y, a, q, NULL, delta, expected, alpha, TRUE, family)
+  stage <- study_stage("tmle init", tmle:::.initStage1(y, a, q, NULL, delta, expected, alpha, TRUE, family))
   if (!identical(as.numeric(stage$ab), as.numeric(expected))) {
     stop("tmle did not take the declared outcome scale")
   }
@@ -73,7 +73,7 @@ assert_supplied <- function(fit) {
 }
 
 fit_tmle <- function(y, a, w, delta, q, g1, p, continuous) {
-  tmle::tmle(
+  study_stage("tmle", tmle::tmle(
     Y = y,
     A = a,
     W = w,
@@ -92,7 +92,7 @@ fit_tmle <- function(y, a, w, delta, q, g1, p, continuous) {
     B = 1,
     evalATT = FALSE,
     verbose = FALSE
-  )
+  ))
 }
 
 fit_two_arm <- function(frame, scenario, replicate, continuous) {

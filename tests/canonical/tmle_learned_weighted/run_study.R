@@ -30,7 +30,7 @@ fit_one <- function(frame) {
   if (length(unique(frame$scenario)) != 1L || length(unique(frame$replicate)) != 1L) {
     stop("a fit group contains more than one pairing key")
   }
-  fit <- tmle::tmle(
+  fit <- study_stage("tmle", tmle::tmle(
     Y = frame$Y,
     A = frame$A,
     W = frame[c("W1", "W2")],
@@ -43,7 +43,7 @@ fit_one <- function(frame) {
     cvQinit = FALSE,
     prescreenW.g = FALSE,
     verbose = FALSE
-  )
+  ))
   qn <- fit$Qinit$Q
   if (!is.matrix(qn) || ncol(qn) != 2L || nrow(qn) != nrow(frame)) {
     stop("tmle did not retain an aligned two-arm initial outcome regression")

@@ -29,7 +29,7 @@ fit_one <- function(frame) {
   if (any(unlist(gn) <= tolg)) {
     stop(sprintf("the tolg floor would bind for %s/%s", scenario, replicate))
   }
-  fit <- drtmle::drtmle(
+  fit <- study_stage("drtmle", drtmle::drtmle(
     Y = frame$Y,
     A = frame$A,
     W = frame[c("W1", "W2", "W3")],
@@ -50,7 +50,7 @@ fit_one <- function(frame) {
     returnModels = FALSE,
     returnNuisance = FALSE,
     use_future = FALSE
-  )
+  ))
   estimates <- as.numeric(fit$drtmle$est)
   covariance <- fit$drtmle$cov
   means <- sapply(qn, mean)

@@ -6,6 +6,8 @@ usage::
     python -m tests.canonical.harness_fixture.determinism off-harness --work DIR
     python -m tests.canonical.harness_fixture.determinism probe --work DIR [--studies a,b]
     python -m tests.canonical.harness_fixture.determinism full --work DIR --runners x,y
+    python -m tests.canonical.harness_fixture.determinism stage --work DIR [--base f1840adc]
+    python -m tests.canonical.harness_fixture.determinism stage-probe --work DIR
 
 RM39 makes the harness call ``set.seed`` before each fit.  That is result-neutral for a runner
 whose fits draw no random number, and for such a runner the committed artifacts stay valid.
@@ -26,6 +28,23 @@ This module shows which runners those are, one container at a time, each under 4
     Runs a runner on 3 replicates: its code at ``572501b8`` with the old harness at 1 and at 2
     cores, and its current code with the new harness under two different seeds files.  All four
     outputs must be byte-identical; a difference means seeding moves that study's numbers.
+
+RM39 part a2 adds two steps:
+
+``stage`` (plan 7.2, rev 2 M2)
+    Runs a runner on 3 replicates twice under one seeds file: with every ``.R`` file of its
+    ``Reference`` (the runner, each ``.R`` extra file, everything they source and the harness)
+    as it was at ``--base`` (default ``f1840adc``), and as it is now.  The two outputs must be
+    byte-identical, and the head run must write no failures file.  One row per edited ``.R``
+    file, with step ``a2``, the file's repository path in ``source`` and the sha256 of its
+    head bytes in ``source_sha256``; the verdict is ``identical`` or ``DIFFERS: stop``.
+``stage-probe`` (plan 7.3, rev 2 m14)
+    Runs the head runner three times on 3 replicates under an ``R_PROFILE_USER`` that traces
+    one function so that it raises for the first group only (``CLEVERLY_GROUP_ID``, which the
+    harness sets in each forked child): the comparator's entry function, which must be
+    recorded; ``stats::glm.fit``, which is recorded or absorbed; and a truth file without
+    replicate 0, whose join refusal must stay fatal.  Each outcome is ``recorded``, ``fatal``,
+    ``absorbed`` or ``not reached`` (from the printed hit count).  Rows have step ``a2-probe``.
 
 Every row goes to ``determinism.csv`` beside this file.  The nested-fork flag is a grep of the
 runner and the files it sources (not the harness) for ``mclapply``, ``mcparallel``, ``future``
@@ -59,6 +78,8 @@ CANONICAL = HERE.parent
 ROOT = CANONICAL.parents[1]
 RESULTS = HERE / "determinism.csv"
 BASE = "572501b8"
+#: The commit RM39 part a2 started from: RM39a1 merged (#277).
+STAGE_BASE = "f1840adc"
 COLUMNS = (
     "runner",
     "study",
@@ -73,6 +94,14 @@ COLUMNS = (
     "verdict",
     "date",
     "image",
+    # RM39a2: the edited source a step-a2 row witnesses, and the stage probe's outcome.
+    "source",
+    "source_sha256",
+    "sha_base",
+    "sha_head",
+    "trace",
+    "outcome",
+    "hits",
 )
 IN_PLACE = ("ctmle3_oat/run_ctmle3_oat.R", "ctmle_selector/run_ctmle.R", "drtmle/run_drtmle.R")
 _NESTED = re.compile(r"\bmclapply\b|\bmcparallel\b|\bfuture\b|\bparallel\s*=")
@@ -179,6 +208,12 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _git_show_at(commit: str, path: str) -> bytes | None:
+    """``path`` as it was at ``commit``, or ``None`` when it did not exist there."""
+    shown = subprocess.run(["git", "show", f"{commit}:{path}"], cwd=ROOT, capture_output=True)
+    return shown.stdout if shown.returncode == 0 else None
+
+
 def _git_show(path: str) -> bytes:
     """``path`` as it was at ``572501b8``.
 
@@ -237,8 +272,13 @@ def run(
     seeds: Path | None = None,
     env: dict[str, str] | None = None,
     truths: str = "truth.csv",
+    overrides: dict[str, Path] | None = None,
 ) -> tuple[int, str, Path]:
-    """One container: the runner and harness at ``572501b8`` when ``old``, else current."""
+    """One container: the runner and harness at ``572501b8`` when ``old``, else current.
+
+    ``overrides`` maps a container path to a host file mounted over it read-only, after the
+    other mounts (the ``stage`` step's frozen sources and the probe's R profile).
+    """
     folder = work / target.slug
     reference = target.reference
     variables = {"CLEVERLY_R_CORES": str(cores), "CLEVERLY_REFERENCE_CORES": str(cores)}
@@ -270,8 +310,20 @@ def run(
     else:
         source = frozen(target.path) if old else target.path
         mounts += ["-v", f"{source}:/opt/{Path(target.runner).name}:ro"]
+    if overrides:
+        # An override replaces a mount at the same container path; docker refuses a duplicate.
+        pairs = [mounts[index + 1] for index in range(0, len(mounts), 2)]
+        kept = [
+            pair
+            for pair in pairs
+            if pair.split(":")[-2 if pair.endswith(":ro") else -1] not in overrides
+        ]
+        mounts = [part for pair in kept for part in ("-v", pair)]
+        for inside, host in overrides.items():
+            mounts += ["-v", f"{host}:{inside}:ro"]
     out = folder / output
     out.unlink(missing_ok=True)
+    out.with_name(f"{out.stem}.failures.csv").unlink(missing_ok=True)
     command = [
         "docker",
         "run",
@@ -318,7 +370,10 @@ def image_id(image: str) -> str:
 def record(rows: list[dict[str, Any]]) -> None:
     frame = pd.DataFrame(rows, columns=list(COLUMNS))
     if RESULTS.exists():
-        frame = pd.concat([pd.read_csv(RESULTS, keep_default_na=False), frame], ignore_index=True)
+        held = pd.read_csv(RESULTS, keep_default_na=False, dtype=str)
+        # A file written before a column existed reads that column as empty.
+        held = held.reindex(columns=list(COLUMNS), fill_value="")
+        frame = pd.concat([held, frame], ignore_index=True)
     frame.to_csv(RESULTS, index=False, lineterminator="\n")
 
 
@@ -445,13 +500,285 @@ def full(work: Path, chosen: list[Target]) -> list[dict[str, Any]]:
     return rows
 
 
+_SOURCED = re.compile(r"""source\(["']/fixture/(?P<path>[^"']+)["']\)""")
+
+
+def stage_sources(target: Target) -> list[Path]:
+    """Every ``.R`` file the target's run reads: its ``Reference`` files, what they source,
+    transitively, and the harness when the runner root holds it.
+
+    A second runner of a study (a probe named in ``extra_files``) reads only itself and what
+    it sources, so its run witnesses only those files.
+    """
+    found: list[Path] = []
+    pending = (
+        [path for path in target.reference.files(target.here) if path.suffix == ".R"]
+        if is_primary(target)
+        else []
+    )
+    harness = CANONICAL / "study_harness.R"
+    if target.root == CANONICAL:
+        pending.append(harness)
+    pending.insert(0, target.path)
+    while pending:
+        path = pending.pop(0)
+        if path in found or not path.exists():
+            continue
+        found.append(path)
+        for match in _SOURCED.finditer(path.read_text(encoding="utf-8")):
+            pending.append(target.root / match.group("path"))
+    return found
+
+
+def is_primary(target: Target) -> bool:
+    """Whether the target is its study's ``Reference.runner`` rather than a probe."""
+    return target.runner == target.reference.runner
+
+
+def _frozen(work: Path, commit: str, path: Path) -> Path | None:
+    """``path`` at ``commit`` as a file under ``work``, or ``None`` when it did not exist."""
+    name = path.relative_to(ROOT).as_posix()
+    copy = work / f"_frozen_{commit}" / name.replace("/", "__")
+    if not copy.exists():
+        held = _git_show_at(commit, name)
+        if held is None:
+            return None
+        copy.parent.mkdir(parents=True, exist_ok=True)
+        copy.write_bytes(held)
+    return copy
+
+
+def _container_path(target: Target, path: Path) -> str | None:
+    """Where ``path`` sits in the container: under ``/fixture`` for a mounted runner, at
+    ``/opt/<name>`` for the baked one."""
+    if not target.reference.mount_runner:
+        return f"/opt/{path.name}" if path == target.path else None
+    try:
+        return f"/fixture/{path.relative_to(target.root).as_posix()}"
+    except ValueError:
+        return None
+
+
+def stage(work: Path, chosen: list[Target], base: str) -> list[dict[str, Any]]:
+    """Plan 7.2: the head sources against the ``base`` sources, on the same inputs and seeds."""
+    rows = []
+    for target in chosen:
+        _build(target)
+        samples = cut(work, target, "full3", 3)
+        stem = Path(target.runner).stem
+        seeds = seeds_file(work, target, f"seeds_stage_{stem}")
+        edited: list[Path] = []
+        overrides: dict[str, Path] = {}
+        for path in stage_sources(target):
+            frozen = _frozen(work, base, path)
+            if frozen is not None and frozen.read_bytes() == path.read_bytes():
+                continue
+            edited.append(path)
+            inside = _container_path(target, path)
+            if frozen is not None and inside is not None:
+                overrides[inside] = frozen
+        if not edited:
+            continue
+        hashes = []
+        failures_written = False
+        for name, frozen_sources in (("base", overrides), ("head", {})):
+            code, _, out = run(
+                work,
+                target,
+                samples,
+                f"stage_{name}_{stem}.csv",
+                old=False,
+                cores=2,
+                seeds=seeds,
+                overrides=frozen_sources,
+            )
+            hashes.append(_sha(out) if code == 0 and out.exists() else f"exit {code}")
+            if name == "head":
+                failures_written = out.with_name(f"{out.stem}.failures.csv").exists()
+        identical = hashes[0] == hashes[1] and not hashes[0].startswith("exit")
+        verdict = "identical" if identical and not failures_written else "DIFFERS: stop"
+        if failures_written:
+            verdict = "DIFFERS: stop (the head run recorded a failure)"
+        for path in edited:
+            rows.append(
+                {
+                    "runner": target.label,
+                    "study": target.slug,
+                    "step": "a2",
+                    "groups": "replicates 0-2",
+                    "probe": "",
+                    "nested_fork": nested_fork(target),
+                    "verdict": verdict,
+                    "date": datetime.date.today().isoformat(),
+                    "image": image_id(target.reference.image),
+                    "source": path.relative_to(ROOT).as_posix(),
+                    "source_sha256": _sha(path),
+                    "sha_base": hashes[0],
+                    "sha_head": hashes[1],
+                }
+            )
+            print(rows[-1], flush=True)
+        record(rows[-len(edited) :])  # each runner as it finishes, so a stopped step keeps its rows
+    return rows
+
+
+#: The comparator entry function each runner's fit reaches, found by the first pattern its
+#: source (with everything it sources) matches.  Order matters: an lmtp runner also sources the
+#: ltmle regimen adapter for its arms.
+ENTRY_POINTS = (
+    (re.compile(r"cf_tmle"), "lmtp::cf_tmle"),
+    (re.compile(r"drtmle::drtmle\("), "drtmle::drtmle"),
+    (re.compile(r"ctmleDiscrete\("), "ctmle::ctmleDiscrete"),
+    (re.compile(r"(?<![\w.])tmle3\(|fit_tmle3\("), "tmle3::fit_tmle3"),
+    (re.compile(r"tmle::tmle\("), "tmle::tmle"),
+    (re.compile(r"(?<![\w.])ltmle\(|do\.call\(ltmle"), "ltmle::ltmle"),
+    (re.compile(r"(?<![\w.])ipsi\("), "npcausal::ipsi"),
+    (re.compile(r"do\.call\(survtmle"), "survtmle::survtmle"),
+)
+
+#: The R profile of the stage probe.  ``.First`` runs after the default packages attach; it
+#: traces ``CLEVERLY_PROBE_TRACE`` so that it raises in the probed groups only.  ``glm.fit`` is
+#: traced before any comparator namespace loads, so a package that imports it imports the trace.
+PROBE_PROFILE = """\
+.First <- function() {
+  groups <- strsplit(Sys.getenv("CLEVERLY_PROBE_GROUP"), ",", fixed = TRUE)[[1]]
+  target <- Sys.getenv("CLEVERLY_PROBE_TRACE")
+  parts <- strsplit(target, "::", fixed = TRUE)[[1]]
+  tracer <- bquote({
+    if (Sys.getenv("CLEVERLY_GROUP_ID") %in% .(groups)) {
+      cat(sprintf("stage-probe hit: %s %s\\n", .(target), Sys.getenv("CLEVERLY_GROUP_ID")))
+      stop(sprintf("cleverly stage probe: %s", .(target)))
+    }
+  })
+  suppressMessages(trace(
+    parts[[2]], where = asNamespace(parts[[1]]), tracer = tracer, print = FALSE
+  ))
+  invisible(NULL)
+}
+"""
+
+#: The first group of each id scheme: a fitter's and an in-place runner's, and a stream's.
+PROBE_GROUPS = "g000000001,r000000000"
+
+
+def entry_point(target: Target) -> str | None:
+    source = "\n".join(path.read_text(encoding="utf-8") for path in stage_sources(target))
+    harness = (CANONICAL / "study_harness.R").read_text(encoding="utf-8")
+    source = _BLOCK.sub("", source.replace(harness, ""))
+    for pattern, name in ENTRY_POINTS:
+        if pattern.search(source):
+            return name
+    return None
+
+
+def _outcome(code: int, log: str, out: Path) -> tuple[str, str, int]:
+    """``recorded``, ``fatal``, ``absorbed`` or ``not reached``; the record's class and stage;
+    the printed hit count."""
+    hits = len(re.findall(r"^stage-probe hit: ", log, re.M))
+    failures = out.with_name(f"{out.stem}.failures.csv")
+    if code != 0:
+        index = log.rfind("Error")
+        detail = " ".join(log[index:].split())[:300] if index >= 0 else f"exit {code}"
+        return "fatal", detail, hits
+    if failures.exists():
+        held = pd.read_csv(failures, dtype=str, keep_default_na=False)
+        probed = held.loc[held["group_id"].isin(PROBE_GROUPS.split(","))]
+        if not probed.empty:
+            first = probed.iloc[0]
+            return "recorded", f"class={first['class']} stage={first['stage']}", hits
+        return "recorded elsewhere", f"{len(held)} records, none for the probed group", hits
+    return ("absorbed" if hits else "not reached"), "", hits
+
+
+def stage_probe(work: Path, chosen: list[Target]) -> list[dict[str, Any]]:
+    """Plan 7.3 and rev 2 m14: two traces and the truth cut, per runner, at the head."""
+    profile = work / "stage_probe_profile.R"
+    profile.write_text(PROBE_PROFILE, encoding="utf-8", newline="\n")
+    rows = []
+    for target in chosen:
+        if not is_primary(target):
+            continue  # a probe takes no stage, so every error in it stays fatal (M3)
+        _build(target)
+        samples = cut(work, target, "full3", 3)
+        stem = Path(target.runner).stem
+        seeds = seeds_file(work, target, f"seeds_stage_{stem}")
+        entry = entry_point(target)
+        cases: list[tuple[str, dict[str, str], str]] = []
+        for trace in (entry, "stats::glm.fit"):
+            if trace is None:
+                continue
+            cases.append((trace, {"CLEVERLY_PROBE_TRACE": trace}, "truth.csv"))
+        truth = pd.read_csv(work / target.slug / "truth.csv")
+        cut_name = ""
+        if "replicate" in truth:
+            cut_name = f"truth_without_0_{stem}.csv"
+            truth.loc[truth["replicate"] != 0].to_csv(
+                work / target.slug / cut_name, index=False, lineterminator="\n"
+            )
+            cases.append(("truth cut", {}, cut_name))
+        for trace, extra, truths in cases:
+            env = {"CLEVERLY_PROBE_GROUP": PROBE_GROUPS, **extra}
+            overrides: dict[str, Path] = {}
+            if extra:
+                env["R_PROFILE_USER"] = "/probe/profile.R"
+                overrides["/probe/profile.R"] = profile
+            label = re.sub(r"\W+", "_", trace)
+            code, log, out = run(
+                work,
+                target,
+                samples,
+                f"stage_probe_{label}_{stem}.csv",
+                old=False,
+                cores=2,
+                seeds=seeds,
+                env=env,
+                truths=truths,
+                overrides=overrides,
+            )
+            outcome, detail, hits = _outcome(code, log, out)
+            if trace == "truth cut":
+                joined = bool(re.search(r"truth", detail, re.I))
+                verdict = "fatal" if outcome == "fatal" and joined else "DIFFERS: stop"
+            elif trace == entry:
+                verdict = "recorded" if outcome == "recorded" else "DIFFERS: stop"
+            else:
+                verdict = (
+                    outcome
+                    if outcome in ("recorded", "absorbed", "not reached")
+                    else ("DIFFERS: stop")
+                )
+            rows.append(
+                {
+                    "runner": target.label,
+                    "study": target.slug,
+                    "step": "a2-probe",
+                    "groups": PROBE_GROUPS,
+                    "probe": detail,
+                    "nested_fork": nested_fork(target),
+                    "verdict": verdict,
+                    "date": datetime.date.today().isoformat(),
+                    "image": image_id(target.reference.image),
+                    "trace": trace,
+                    "outcome": outcome,
+                    "hits": hits,
+                }
+            )
+            print(rows[-1], flush=True)
+            record(rows[-1:])
+    return rows
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("step", choices=("inputs", "off-harness", "probe", "full", "list"))
+    parser.add_argument(
+        "step",
+        choices=("inputs", "off-harness", "probe", "full", "stage", "stage-probe", "list"),
+    )
     parser.add_argument("--work", type=Path, required=True)
     parser.add_argument("--studies", default="", help="comma-separated study slugs")
     parser.add_argument("--runners", default="", help="comma-separated runner labels")
     parser.add_argument("--jobs", type=int, default=2)
+    parser.add_argument("--base", default=STAGE_BASE, help="the commit the stage step freezes")
     arguments = parser.parse_args()
     chosen = targets()
     if arguments.studies:
@@ -469,6 +796,12 @@ def main() -> None:
         for target in chosen:
             write_inputs(arguments.work, target, jobs=arguments.jobs)
             print(f"inputs for {target.slug}", flush=True)
+        return
+    if arguments.step == "stage":
+        stage(arguments.work, chosen, arguments.base)
+        return
+    if arguments.step == "stage-probe":
+        stage_probe(arguments.work, chosen)
         return
     step = {"off-harness": off_harness, "probe": probe, "full": full}[arguments.step]
     step(arguments.work, chosen)

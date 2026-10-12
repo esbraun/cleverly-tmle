@@ -13,7 +13,7 @@ fit_one <- function(frame) {
   replicate <- frame$replicate[[1]]
   qn <- cbind(frame$qn0, frame$qn1)
   pin <- cbind(frame$pin0, frame$pin1)
-  fit <- tmle::tmle(
+  fit <- study_stage("tmle", tmle::tmle(
     Y = frame$Y,
     A = frame$A,
     W = frame["W"],
@@ -27,7 +27,7 @@ fit_one <- function(frame) {
     gbound = c(0.01, 0.99),
     cvQinit = FALSE,
     verbose = FALSE
-  )
+  ))
   values <- list(
     ey0 = fit$estimates$EY0,
     ey1 = fit$estimates$EY1,

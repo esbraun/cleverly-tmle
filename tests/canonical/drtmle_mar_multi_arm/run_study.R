@@ -18,7 +18,7 @@ fit_one <- function(frame) {
   truth <- rows$truth
   names(truth) <- rows$estimand
   # cvFolds = 1 fits in-sample, so no fold vector is installed.
-  fit <- drtmle::drtmle(
+  fit <- study_stage("drtmle", drtmle::drtmle(
     Y = frame$Y,
     A = frame$A_code,
     W = frame["W"],
@@ -40,7 +40,7 @@ fit_one <- function(frame) {
     returnModels = FALSE,
     returnNuisance = TRUE,
     use_future = FALSE
-  )
+  ))
   means <- as.numeric(fit$drtmle$est)
   covariance <- fit$drtmle$cov
   initial <- c(mean(frame$qn0), mean(frame$qn1), mean(frame$qn2))

@@ -26,15 +26,8 @@ learners <- list(A = sl3::Lrnr_glm$new(), Y = sl3::Lrnr_glm$new())
 
 fit_one <- function(frame) {
   replicate <- frame$replicate[[1]]
-  stage <- function(label, expression) {
-    tryCatch(
-      force(expression),
-      error = function(condition) {
-        call <- paste(deparse(conditionCall(condition)), collapse = " ")
-        stop(sprintf("%s at %s: %s", label, call, conditionMessage(condition)), call. = FALSE)
-      }
-    )
-  }
+  # RM39a2: each tmle3 call runs inside `study_stage`, so an error tmle3 raises costs one group;
+  # the record carries the stage label and the failing call.
   data <- frame[c("W", "A", "Y")]
   # This tmle3 release simplifies a one-column W node to a vector, while Param_MSM indexes
   # that node by the V column name.  A deterministic second baseline column keeps the node a
@@ -43,16 +36,16 @@ fit_one <- function(frame) {
   data <- data[c("W", "W_squared", "A", "Y")]
   nodes <- list(W = "W_squared", V = "W", A = "A", Y = "Y")
   spec <- tmle3_Spec_MSM$new(msm = "A + V", weight = weight, weight_ub = NULL)
-  task <- stage("task", spec$make_tmle_task(data, nodes))
-  initial <- stage("initial likelihood", spec$make_initial_likelihood(task, learners))
-  updater <- tmle3_Update$new(cvtmle = FALSE, convergence_type = "sample_size")
-  targeted <- Targeted_Likelihood$new(initial, updater)
-  parameter <- stage("targeted parameter", spec$make_params(task, targeted))
+  task <- study_stage("task", spec$make_tmle_task(data, nodes))
+  initial <- study_stage("initial likelihood", spec$make_initial_likelihood(task, learners))
+  updater <- study_stage("updater", tmle3_Update$new(cvtmle = FALSE, convergence_type = "sample_size"))
+  targeted <- study_stage("targeted likelihood", Targeted_Likelihood$new(initial, updater))
+  parameter <- study_stage("targeted parameter", spec$make_params(task, targeted))
   updater$tmle_params <- parameter
-  stage("targeting", fit_tmle3(task, targeted, parameter, updater))
+  study_stage("targeting", fit_tmle3(task, targeted, parameter, updater))
 
-  targeted_values <- stage("targeted estimates", parameter$estimates(task))
-  initial_parameter <- stage("initial parameter", suppressWarnings(Param_MSM$new(
+  targeted_values <- study_stage("targeted estimates", parameter$estimates(task))
+  initial_parameter <- study_stage("initial parameter", suppressWarnings(Param_MSM$new(
     initial,
     "W",
     strata_name = "V",
@@ -61,7 +54,7 @@ fit_one <- function(frame) {
     weight_ub = NULL,
     treatment_values = c(0, 1)
   )))
-  initial_values <- stage("initial estimates", initial_parameter$estimates(task))
+  initial_values <- study_stage("initial estimates", initial_parameter$estimates(task))
 
   transform_beta <- function(beta) {
     arm0 <- unname(beta[[1]])

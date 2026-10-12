@@ -41,7 +41,7 @@ fit_one <- function(frame) {
   # A is NA where the treatment is unrecorded, so drtmle's default DeltaA = !is.na(A)
   # holds the treatment observation indicator. gn is the oracle composite
   # P(A = a, DeltaA = 1, DeltaY = 1 | W), so estimateG is skipped. cvFolds = 1 fits in-sample.
-  fit <- drtmle::drtmle(
+  fit <- study_stage("drtmle", drtmle::drtmle(
     Y = frame$Y,
     A = frame$A_code,
     W = frame["W"],
@@ -63,7 +63,7 @@ fit_one <- function(frame) {
     returnModels = FALSE,
     returnNuisance = TRUE,
     use_future = FALSE
-  )
+  ))
   initial <- vapply(qn, mean, numeric(1))
   out <- multi_arm_rows_from_moments(
     as.numeric(fit$drtmle$est), fit$drtmle$cov, initial, labels, internal,

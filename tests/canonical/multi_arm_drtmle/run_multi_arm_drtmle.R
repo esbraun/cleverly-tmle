@@ -19,7 +19,8 @@ install_folds <- function(folds) {
   namespace <- asNamespace("drtmle")
   original <- get("make_validRows", envir = namespace)
   utils::assignInNamespace("make_validRows", function(cvFolds, n, ...) {
-    stopifnot(n == length(folds))
+    # Runs inside drtmle's stage, so a broken fold contract raises the fatal class (RM39a2).
+    if (n != length(folds)) study_fatal_error(sprintf("the fold patch got n = %s for %s folds", n, length(folds)))
     original(folds, n = n, ...)
   }, ns = "drtmle")
   function() utils::assignInNamespace("make_validRows", original, ns = "drtmle")
@@ -35,7 +36,7 @@ fit_one <- function(frame) {
   folds <- as.integer(frame$fold)
   restore <- install_folds(folds)
   on.exit(restore(), add = TRUE)
-  fit <- drtmle::drtmle(
+  fit <- study_stage("drtmle", drtmle::drtmle(
     Y = frame$Y,
     A = frame$A_code,
     W = frame[c("W1", "W2", "W3")],
@@ -56,7 +57,7 @@ fit_one <- function(frame) {
     returnModels = FALSE,
     returnNuisance = TRUE,
     use_future = FALSE
-  )
+  ))
   scores <- unlist(fit$nuisance_drtmle$meanIC)
   if (any(!is.finite(scores))) stop("the R correction score is non-finite")
   means <- as.numeric(fit$drtmle$est)

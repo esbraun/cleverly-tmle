@@ -47,6 +47,8 @@ IMAGE = "cleverly-tmle3-reference:ed72f8a"
 CONTEXT = CANONICAL / "tmle3"
 #: The harness every recorded manifest hashes, as a git blob of the commit RM39 started from.
 OLD_HARNESS = "572501b8:tests/canonical/study_harness.R"
+#: The harness RM39 part a1 merged (#277): RM39a2 must write its bytes when nothing fails.
+A1_HARNESS = "f1840adc:tests/canonical/study_harness.R"
 
 #: The files whose bytes the evidence describes.  The fast tier gates each one.
 INPUTS = (
@@ -58,6 +60,8 @@ INPUTS = (
 )
 
 REPLICATES = 12
+#: The systematic cases need more than 20 groups of one scenario.
+WIDE_REPLICATES = 24
 SCENARIOS = ("a", "b")
 
 
@@ -65,33 +69,38 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def write_inputs(work: Path) -> None:
-    """Twelve replicates of two scenarios, three rows each, and one seed per group."""
+def write_samples(work: Path, prefix: str, replicates: int) -> None:
+    """``replicates`` replicates of two scenarios, three rows each, and one seed per group."""
     rows = [
         {"scenario": scenario, "replicate": replicate, "y": replicate * 10 + row + offset}
-        for replicate in range(REPLICATES)
+        for replicate in range(replicates)
         for scenario, offset in zip(SCENARIOS, (0.0, 0.5), strict=True)
         for row in range(3)
     ]
     pd.DataFrame(rows).to_csv(
-        work / "samples.csv.gz",
+        work / f"{prefix}samples.csv.gz",
         index=False,
         lineterminator="\n",
         compression={"method": "gzip", "mtime": 0},
     )
+    seeds = [
+        {"scenario": scenario, "replicate": replicate, "seed": 1000 + 7 * replicate + index}
+        for replicate in range(replicates)
+        for index, scenario in enumerate((*SCENARIOS, "*"))
+    ]
+    pd.DataFrame(seeds).to_csv(work / f"{prefix}seeds.csv", index=False, lineterminator="\n")
+
+
+def write_inputs(work: Path) -> None:
+    """The fixture's samples, its wide variant, the truth file and both old harnesses."""
+    write_samples(work, "", REPLICATES)
+    write_samples(work, "wide_", WIDE_REPLICATES)
     pd.DataFrame({"scenario": ["a"], "replicate": [0], "truth": [0.0]}).to_csv(
         work / "truth.csv", index=False, lineterminator="\n"
     )
-    seeds = [
-        {"scenario": scenario, "replicate": replicate, "seed": 1000 + 7 * replicate + index}
-        for replicate in range(REPLICATES)
-        for index, scenario in enumerate((*SCENARIOS, "*"))
-    ]
-    pd.DataFrame(seeds).to_csv(work / "seeds.csv", index=False, lineterminator="\n")
-    old = subprocess.run(
-        ["git", "show", OLD_HARNESS], cwd=ROOT, capture_output=True, check=True
-    ).stdout
-    (work / "old_harness.R").write_bytes(old)
+    for blob, name in ((OLD_HARNESS, "old_harness.R"), (A1_HARNESS, "a1_harness.R")):
+        old = subprocess.run(["git", "show", blob], cwd=ROOT, capture_output=True, check=True)
+        (work / name).write_bytes(old.stdout)
 
 
 @dataclass
@@ -105,6 +114,8 @@ class Outcome:
     checkpoints: list[str]
     seconds: float
     calibration: dict[str, Any] = field(default_factory=dict)
+    #: The run's ``out_<name>.failures.csv``, or ``None`` when the harness wrote none.
+    failures: pd.DataFrame | None = None
 
     @property
     def forked(self) -> bool:
@@ -125,31 +136,42 @@ class Smoke:
         *,
         runner: str = "fixture_runner.R",
         env: Mapping[str, str] | None = None,
-        old_harness: bool = False,
+        old_harness: bool | str = False,
         memory: str = "2g",
         cpus: int = 2,
         keep: bool = False,
+        samples: str = "",
+        stale_failures: bool = False,
     ) -> Outcome:
-        """One container.  ``keep`` resumes from the case's checkpoints and log."""
+        """One container.  ``keep`` resumes from the case's checkpoints and log.
+
+        ``old_harness`` mounts ``old_harness.R`` (``True``) or the named file of the work
+        directory over the harness.  ``samples`` is the input prefix (``""`` or ``"wide_"``).
+        ``stale_failures`` leaves a failures file from an earlier run beside the output.
+        """
         checkpoint = self.work / f"ckpt_{name}"
         output = self.work / f"out_{name}.csv"
+        failures = self.work / f"out_{name}.failures.csv"
         fits = self.work / f"fits_{name}.csv"
         if not keep:
-            for path in (output, fits):
+            for path in (output, fits, failures):
                 path.unlink(missing_ok=True)
             if checkpoint.exists():
                 for child in checkpoint.iterdir():
                     child.unlink()
+        if stale_failures:
+            failures.write_text("group_id\nstale\n", encoding="utf-8")
         variables = {
             "CLEVERLY_R_CORES": "2",
             "CLEVERLY_CHECKPOINT": f"/work/{checkpoint.name}",
-            "CLEVERLY_R_SEEDS": "/work/seeds.csv",
+            "CLEVERLY_R_SEEDS": f"/work/{samples}seeds.csv",
             "CLEVERLY_FIXTURE_LOG": f"/work/{fits.name}",
             **(env or {}),
         }
         mounts = ["-v", f"{self.work}:/work", "-v", f"{CANONICAL}:/fixture:ro"]
         if old_harness:
-            mounts += ["-v", f"{self.work / 'old_harness.R'}:/fixture/study_harness.R:ro"]
+            harness = "old_harness.R" if old_harness is True else old_harness
+            mounts += ["-v", f"{self.work / harness}:/fixture/study_harness.R:ro"]
         command = [
             "docker",
             "run",
@@ -165,7 +187,7 @@ class Smoke:
             "Rscript",
             IMAGE,
             f"/fixture/harness_fixture/{runner}",
-            "/work/samples.csv.gz",
+            f"/work/{samples}samples.csv.gz",
             "/work/truth.csv",
             f"/work/{output.name}",
         ]
@@ -194,6 +216,9 @@ class Smoke:
             else [],
             seconds=seconds,
             calibration=calibration,
+            failures=pd.read_csv(failures, dtype=str, keep_default_na=False)
+            if failures.exists()
+            else None,
         )
 
     def rscript(self, expression: str, *, memory: str | None, env: Mapping[str, str]) -> str:
@@ -275,6 +300,7 @@ def run_cases(smoke: Smoke) -> tuple[dict[str, Any], dict[str, Path]]:
     assert plain.code == 0 and plain.table is not None, plain.log
     tables["plain"] = plain.table
     facts["plain"] = {"exit": plain.code, "table": table_sha(plain), "forked": plain.forked}
+    facts["plain_failures_file"] = plain.failures is not None
     facts["run_log"] = {
         label: label in plain.log
         for label in (
@@ -437,9 +463,192 @@ def run_cases(smoke: Smoke) -> tuple[dict[str, Any], dict[str, Path]]:
         "new_stream": table_sha(new_stream),
     }
 
+    facts.update(failure_cases(smoke, facts))
     facts.update(memory_cases(smoke))
     facts.update(driver_cases(smoke))
     return facts, tables
+
+
+def records(outcome: Outcome) -> list[dict[str, str]]:
+    """The failure records a run wrote, as strings, in file order."""
+    return [] if outcome.failures is None else outcome.failures.to_dict("records")
+
+
+def replicates_of(outcome: Outcome) -> list[int]:
+    """The replicates the run's published table holds."""
+    if outcome.table is None:
+        return []
+    return sorted({int(value) for value in pd.read_csv(outcome.table)["replicate"]})
+
+
+def failure_cases(smoke: Smoke, facts: dict[str, Any]) -> dict[str, Any]:
+    """RM39a2 (plan 7.1 and rev 2 M8): the comparator stage and its failure records."""
+    found: dict[str, Any] = {}
+
+    def case(name: str, **options: Any) -> Outcome:
+        outcome = smoke.run(name, **options)
+        found[name] = {
+            "exit": outcome.code,
+            "table": table_sha(outcome),
+            "replicates": replicates_of(outcome),
+            "records": records(outcome),
+            "columns": [] if outcome.failures is None else list(outcome.failures.columns),
+            "passes": outcome.passes(),
+        }
+        return outcome
+
+    def error(group: str, kind: str = "stop", **extra: str) -> dict[str, str]:
+        return {
+            "CLEVERLY_FIXTURE_STAGE_ERROR": group,
+            "CLEVERLY_FIXTURE_STAGE_KIND": kind,
+            **extra,
+        }
+
+    future = smoke.rscript(
+        'cat("future installed:", requireNamespace("future", quietly = TRUE))', memory=None, env={}
+    )
+    found["future_installed"] = "future installed: TRUE" in future
+
+    recorded = case("stage_recorded", env=error("g000000005"))
+    found["stage_recorded"]["log_names_group"] = (
+        "recorded fitting_failure for group g000000005" in recorded.log
+    )
+    case("stage_future", env=error("g000000005", "future"))
+    for name, kind, text in (
+        ("stage_outside_resignal", "outside", "re-signalled outside the stage"),
+        ("stage_fatal_class", "fatal", "fixture stage error in g000000005"),
+        ("stage_ltmle_shape", "ltmle", "promoted warning: fixture stage error in g000000005"),
+        ("stage_cstack", "cstack", "C stack usage"),
+    ):
+        outcome = case(name, env=error("g000000005", kind))
+        found[name]["message"] = text in outcome.log
+        found[name]["fatal_written"] = "_fatal" in outcome.checkpoints
+    runner_stop = case(
+        "stage_runner_stop", env={"CLEVERLY_FIXTURE_ERROR": "g000000005", **error("g000000003")}
+    )
+    found["stage_runner_stop"]["message"] = "fixture error in g000000005" in runner_stop.log
+    case("stage_argument_error", env=error("g000000005", "argument"))
+    case("stage_noscenario", env=error("g000000003", CLEVERLY_FIXTURE_SHAPE="noscenario"))
+    case("stage_preschedule", env=error("g000000005", CLEVERLY_FIXTURE_MODE="preschedule"))
+    case("stage_onecore", env=error("g000000005", CLEVERLY_FIXTURE_MODE="onecore"))
+    case(
+        "stage_second_attempt",
+        env=error("g000000005", CLEVERLY_FIXTURE_KILL="g000000005"),
+    )
+    case("stage_inplace", env=error("g000000005", CLEVERLY_FIXTURE_MODE="inplace"))
+    case("inplace_clean", env={"CLEVERLY_FIXTURE_MODE": "inplace"})
+    case("stage_stream", env=error("r000000002", CLEVERLY_FIXTURE_MODE="stream"))
+
+    stopped = smoke.run(
+        "stage_stream_resume",
+        env=error("r000000002", CLEVERLY_FIXTURE_MODE="stream", CLEVERLY_HARNESS_STOP_AFTER="8"),
+    )
+    resumed = smoke.run("stage_stream_resume", env={"CLEVERLY_FIXTURE_MODE": "stream"}, keep=True)
+    fitted = resumed.fits.loc[resumed.fits["id"] == "r000000002"]
+    found["stage_stream_resume"] = {
+        "stopped_exit": stopped.code,
+        "exit": resumed.code,
+        "table": table_sha(resumed),
+        "records": records(resumed),
+        "attempts_r2": len(fitted),
+        "reused": bool(re.search(r"resumed: reused [1-9]", resumed.log)),
+    }
+
+    first = smoke.run("resume_with_failure", env=error("g000000005"))
+    again = smoke.run("resume_with_failure", keep=True)
+    found["resume_with_failure"] = {
+        "first_exit": first.code,
+        "exit": again.code,
+        "table": table_sha(again),
+        "records": records(again),
+        "attempts_g5": int((again.fits["id"] == "g000000005").sum()),
+        "reused_all": f"resumed: reused {REPLICATES} groups" in again.log,
+    }
+
+    invalid = case(
+        "invalid_rows",
+        env={
+            "CLEVERLY_FIXTURE_INVALID": ",".join(
+                (
+                    "nonfinite:g000000002",
+                    "nonpositive:g000000004",
+                    "inverted:g000000006",
+                    "na_endpoint:g000000008",
+                    "coverage:g000000010",
+                )
+            )
+        },
+    )
+    found["invalid_rows"]["messages"] = [row["message"] for row in records(invalid)]
+
+    systematic = case(
+        "systematic",
+        samples="wide_",
+        env=error("scenario:a", CLEVERLY_FIXTURE_SHAPE="scenario"),
+    )
+    found["systematic"]["message"] = (
+        "systematic: the first 20 groups of a failed" in systematic.log
+        and "fixture stage error in g000000001" in systematic.log
+    )
+    spanning = case(
+        "systematic_stream", samples="wide_", env=error("all", CLEVERLY_FIXTURE_MODE="stream")
+    )
+    found["systematic_stream"]["message"] = (
+        "systematic: the first 20 groups of the run failed" in spanning.log
+    )
+    every = case("every_group_failed", env=error("all"))
+    found["every_group_failed"]["message"] = "every group failed; first:" in every.log
+
+    calibration = smoke.run(
+        "calibration_failure",
+        env={
+            "CLEVERLY_HARNESS_CALIBRATE": "1",
+            "CLEVERLY_R_CALIBRATION": "/work/cal_failure.json",
+            **error("g000000001"),
+        },
+    )
+    found["calibration_failure"] = {
+        "exit": calibration.code,
+        "groups": [group["id"] for group in calibration.calibration.get("groups", [])],
+        "logged": "calibration group g000000001 failed in fixture fit" in calibration.log,
+    }
+    calibration_stop = smoke.run(
+        "calibration_systematic",
+        samples="wide_",
+        env={
+            "CLEVERLY_HARNESS_CALIBRATE": "1",
+            "CLEVERLY_R_CALIBRATION": "/work/cal_systematic.json",
+            "CLEVERLY_FIXTURE_SHAPE": "scenario",
+            **error("scenario:a"),
+        },
+    )
+    found["calibration_systematic"] = {
+        "exit": calibration_stop.code,
+        "message": "systematic: the first 20 groups of a failed in calibration"
+        in calibration_stop.log,
+    }
+
+    memory = case("memory_kill", env=error("g000000003", "memory"))
+    found["memory_kill"]["killed_logged"] = "memory exhausted in fixture fit" in memory.log
+    found["memory_kill"]["attempts"] = int((memory.fits["id"] == "g000000003").sum())
+
+    stale = case("stale_failures", stale_failures=True)
+    found["stale_failures"]["deleted"] = stale.failures is None
+
+    a1 = smoke.run("a1_plain", old_harness="a1_harness.R", env={"CLEVERLY_FIXTURE_LOG": ""})
+    a1_stream = smoke.run(
+        "a1_stream",
+        old_harness="a1_harness.R",
+        env={"CLEVERLY_FIXTURE_LOG": "", "CLEVERLY_FIXTURE_MODE": "stream"},
+    )
+    found["no_failure_bytes"] = {
+        "a1_fitter": table_sha(a1),
+        "a1_stream": table_sha(a1_stream),
+        "plain": facts["plain"]["table"],
+        "new_stream": facts["old_new"]["new_stream"],
+        "no_failures_file": facts.get("plain_failures_file") is False,
+    }
+    return found
 
 
 def memory_cases(smoke: Smoke) -> dict[str, Any]:
