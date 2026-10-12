@@ -50,7 +50,6 @@ from typing import Any
 import pandas as pd
 
 from cleverly.longitudinal import LTMLE
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import clustered_longitudinal_laws as law
 from tests.studies.canonical_clustered_tmle import IFE_SHA256, IFE_VERSION
@@ -68,13 +67,14 @@ from tests.studies.canonical_ltmle_crossfit import (
     REGIMENS,
 )
 from tests.studies.canonical_ltmle_crossfit import REFERENCE_METADATA as LMTP_METADATA
+from tests.studies.evidence import replication
 from tests.studies.evidence.constructions import (
     POOLED_LONGITUDINAL_CROSS_FIT,
     TRAINING_FOLD_FLUCTUATION,
 )
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
 PRIMARY_REPLICATES = 1_600
 #: Rows per cluster and clusters per draw of every scenario but the unequal one.
@@ -247,11 +247,16 @@ def cleverly_rows(
     return _rows_from_result(fit_cleverly(frame), truth, scenario, replicate)
 
 
+def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    scenario, replicate, n = key
+    return draw_scenario(scenario, n, replicate)
+
+
 def _replicate(
-    payload: tuple[str, int, int],
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
 ) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
-    scenario, replicate, n = payload
-    frame, truth = draw_scenario(scenario, n, replicate)
+    scenario, replicate, _ = key
+    frame, truth = drawn
     result = fit_cleverly(frame)
     sample = frame.copy()
     sample.insert(0, "fold", result.folds.assignment)
@@ -264,13 +269,20 @@ def _replicate(
     return sample, truths, _rows_from_result(result, truth, scenario, replicate)
 
 
-def draw_and_fit(
-    *, replicates: int, n: int, n_jobs: int = STUDY_JOBS
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
     """Draw, fit, and keep each sample and its realized grouped folds for R ``lmtp``."""
-    payloads = [((SCENARIO, replicate, n),) for replicate in range(replicates)]
-    outcomes = map_parallel(_replicate, payloads, n_jobs=n_jobs)
-    samples = pd.concat([sample for sample, _, _ in outcomes], ignore_index=True)
-    truths = pd.DataFrame([row for _, rows, _ in outcomes for row in rows])
-    estimates = pd.DataFrame([row for _, _, rows in outcomes for row in rows])
-    return samples, truths, estimates.loc[:, list(REPLICATE_COLUMNS)]
+    # Dependent: the sample R reads carries the grouped fold assignment of the cleverly fit.
+    outcomes = replication.fit_primary(
+        [(SCENARIO, replicate, n) for replicate in range(replicates)],
+        _replicate,
+        draw=_draw,
+        n_jobs=n_jobs,
+        implementation=STUDY.implementation,
+        seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
+    )
+    samples = pd.concat([sample for sample, _, _ in outcomes.kept], ignore_index=True)
+    truths = pd.DataFrame([row for _, rows, _ in outcomes.kept for row in rows])
+    estimates = pd.DataFrame([row for _, _, rows in outcomes.kept for row in rows])
+    return replication.result(
+        outcomes, estimates.loc[:, list(REPLICATE_COLUMNS)], samples=samples, truths=truths
+    )
