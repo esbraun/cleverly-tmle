@@ -51,6 +51,15 @@ OUTPUTS = (
 SOURCES = ("witness.R",)
 
 
+def read(path: Path) -> pd.DataFrame:
+    """One CSV, parsed with correct rounding.
+
+    The default pandas parser can miss a 17-digit value by about ``1e-13`` relative, so an
+    exact comparison with a value the package computes would fail on the parse alone.
+    """
+    return pd.read_csv(path, float_precision="round_trip")
+
+
 def read_facts(directory: Path) -> dict[str, str]:
     """``facts.csv`` as a mapping of strings."""
     facts = pd.read_csv(directory / "facts.csv", dtype=str, keep_default_na=False)
@@ -59,7 +68,7 @@ def read_facts(directory: Path) -> dict[str, str]:
 
 def matrix(directory: Path, name: str) -> np.ndarray:
     """One wide R output as an ``(n, K)`` array."""
-    return pd.read_csv(directory / name).to_numpy(dtype=float)
+    return read(directory / name).to_numpy(dtype=float)
 
 
 def _screen_path(chooser: Any, columns: np.ndarray) -> tuple[str | None, harness.Path]:
@@ -101,7 +110,7 @@ def confirm(frame: pd.DataFrame, outputs: Path) -> str | None:
     reason, path = _screen_path(chooser, internal)
     if reason is not None:
         return f"on R's internal arrays, {reason}"
-    general = pd.read_csv(outputs / "general_path.csv")
+    general = read(outputs / "general_path.csv")
     columns = np.column_stack([internal, matrix(outputs, "g_glm.csv")])
     accepted = tuple(int(i) - 1 for i in general.loc[general["accepted"] == 1, "index"])
     distance = harness.separated(columns, accepted)
@@ -112,7 +121,7 @@ def confirm(frame: pd.DataFrame, outputs: Path) -> str | None:
     selected = int(facts["glmnet_best_k"]) - 1
     if selected >= count - 1:
         return "R selects the last penalty"
-    lasso = pd.read_csv(outputs / "glmnet_path.csv")
+    lasso = read(outputs / "glmnet_path.csv")
     final_estimate = float(facts["glmnet_est"])
     move = abs(final_estimate - float(lasso["est"].iloc[selected]))
     if move <= FINAL_MOVE:

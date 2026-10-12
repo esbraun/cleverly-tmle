@@ -25,6 +25,7 @@ from tests.canonical.ctmle_sequence_witness.regenerate import (
     OUTPUTS,
     SOURCES,
     matrix,
+    read,
     read_facts,
 )
 
@@ -43,12 +44,12 @@ def manifest() -> dict[str, Any]:
 
 @pytest.fixture(scope="module")
 def inputs() -> pd.DataFrame:
-    return pd.read_csv(HERE / "inputs.csv")
+    return read(HERE / "inputs.csv")
 
 
 @pytest.fixture(scope="module")
 def grid() -> np.ndarray:
-    return pd.read_csv(HERE / "grid.csv")["lambda"].to_numpy(float)
+    return read(HERE / "grid.csv")["lambda"].to_numpy(float)
 
 
 @pytest.fixture(scope="module")
@@ -81,7 +82,17 @@ class TestTheFixture:
         self, manifest: dict[str, Any], inputs: pd.DataFrame, grid: np.ndarray
     ) -> None:
         frame, drawn = harness.draw_inputs(int(manifest["seed"]))
-        pd.testing.assert_frame_equal(frame.reset_index(drop=True), inputs, check_dtype=False)
+        frame = frame.reset_index(drop=True)
+        # The draw and the grid are exact. ``Q0W`` and ``Q1W`` are a refit, so they agree to
+        # the rounding of the machine's linear algebra only.
+        fitted = ["Q0W", "Q1W"]
+        pd.testing.assert_frame_equal(
+            frame.drop(columns=fitted),
+            inputs.drop(columns=fitted),
+            check_dtype=False,
+            check_exact=True,
+        )
+        np.testing.assert_allclose(frame[fitted], inputs[fitted], rtol=0.0, atol=1e-12)
         np.testing.assert_array_equal(drawn, grid)
 
     def test_the_initial_fit_is_interior(self, inputs: pd.DataFrame) -> None:
@@ -128,7 +139,7 @@ class TestTheSolver:
         assert max(fit.kkt for fit in fits) <= l1.KKT_TOLERANCE
         # (b) The package residual reads glmnet's coefficients as near-optimal on the
         # same objective.
-        coefficients = pd.read_csv(HERE / f"coef_{name}.csv")
+        coefficients = read(HERE / f"coef_{name}.csv")
         residuals = [
             l1.kkt_residual(x, a, w, _glmnet_fit(row, x, w)) for _, row in coefficients.iterrows()
         ]
@@ -144,7 +155,7 @@ class TestTheSolver:
         a3 = inputs["A3"].to_numpy()
         fits = l1.penalty_path(x, a3, None, grid)
         assert max(fit.kkt for fit in fits) <= l1.KKT_TOLERANCE
-        r = pd.read_csv(HERE / "g_multinomial.csv")
+        r = read(HERE / "g_multinomial.csv")
         classes = np.unique(a3)
         package = np.concatenate([fit.predict_proba(x) for fit in fits], axis=1)
         reference = np.column_stack(
@@ -182,7 +193,7 @@ class TestCtmleGeneral:
     @pytest.fixture(scope="class")
     def compared(self, chooser: Any, internal: np.ndarray) -> tuple[harness.Path, pd.DataFrame]:
         columns = np.column_stack([internal, matrix(HERE, "g_glm.csv")])
-        return harness.indexed_path(chooser, columns), pd.read_csv(HERE / "general_path.csv")
+        return harness.indexed_path(chooser, columns), read(HERE / "general_path.csv")
 
     def test_the_accepted_indices_are_exact(self, compared: Any) -> None:
         path, r = compared
@@ -196,15 +207,15 @@ class TestCtmleGeneral:
 
 
 class TestCtmleGlmnet:
-    def test_the_accepted_penalties_are_exact(
-        self, lasso_path: harness.Path, grid: np.ndarray
-    ) -> None:
-        r = pd.read_csv(HERE / "glmnet_path.csv")
-        mine = tuple(float(grid[i]) for i in lasso_path.accepted)
-        assert mine == tuple(float(v) for v in r.loc[r["accepted"] == 1, "lambda"])
+    def test_the_accepted_penalties_are_exact(self, lasso_path: harness.Path) -> None:
+        # R marks acceptance at full precision (``grid %in% candidates$lambdas``), but
+        # ``write.csv`` prints the ``lambda`` column to 15 digits. The test compares the
+        # positions R marks; the printed penalty identifies each row only.
+        r = read(HERE / "glmnet_path.csv")
+        assert lasso_path.accepted == tuple(int(i) - 1 for i in r.loc[r["accepted"] == 1, "index"])
 
     def test_estimates_and_losses(self, lasso_path: harness.Path, inputs: pd.DataFrame) -> None:
-        r = pd.read_csv(HERE / "glmnet_path.csv")
+        r = read(HERE / "glmnet_path.csv")
         y = inputs["Y"].to_numpy(float)
         np.testing.assert_allclose(
             lasso_path.estimates, r["est"], rtol=0.0, atol=harness.GLM_TOLERANCE
@@ -231,13 +242,13 @@ class TestTheWitnessesBind:
     """W1 to W3 on R's own path: each fails when its component is removed."""
 
     def test_w1_two_acceptances_and_a_jump(self) -> None:
-        r = pd.read_csv(HERE / "glmnet_path.csv")
+        r = read(HERE / "glmnet_path.csv")
         accepted = r.loc[r["accepted"] == 1, "index"].to_numpy() - 1
         assert accepted.size >= 2
         assert np.any(np.diff(np.concatenate([[-1], accepted])) > 1)
 
     def test_w2_the_stop_binds_before_the_end(self, lasso_path: harness.Path) -> None:
-        r = pd.read_csv(HERE / "glmnet_path.csv")
+        r = read(HERE / "glmnet_path.csv")
         accepted = r.loc[r["accepted"] == 1, "index"].to_numpy() - 1
         assert lasso_path.stopped
         assert accepted[-1] < len(r) - 1
@@ -249,7 +260,7 @@ class TestTheWitnessesBind:
         internal: np.ndarray,
         facts: dict[str, str],
     ) -> None:
-        r = pd.read_csv(HERE / "glmnet_path.csv")
+        r = read(HERE / "glmnet_path.csv")
         selected = int(facts["glmnet_best_k"]) - 1
         assert abs(float(facts["glmnet_est"]) - float(r["est"].iloc[selected])) > FINAL_MOVE
         final, _ = harness.final_step(

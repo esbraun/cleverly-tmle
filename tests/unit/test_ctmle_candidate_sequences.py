@@ -40,6 +40,7 @@ from cleverly.estimators.ctmle import _indexed_path
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError
 from cleverly.learners import _l1_logistic as l1
+from cleverly.learners.crossfit import make_folds
 from tests.conftest import FAST_KWARGS
 from tests.unit.test_ctmle import FULL_CANDIDATE_CASES, FullCandidateCase, _full_candidate_frame
 
@@ -295,6 +296,21 @@ class TestTheSolver:
         with pytest.raises(l1.L1ConvergenceError, match=r"penalty 0 did not converge in outer"):
             l1.penalty_path(x, a, None, l1.default_penalty_grid(x, a), layer="outer fold 1")
         assert len(l1.penalty_path(x, a, None, [0.1, 0.01])) == 2
+
+    def test_the_unpenalized_end_converges_where_the_objective_is_flat(self) -> None:
+        """The X30 sample: the full Newton step raises the objective by ulps only.
+
+        Before the fix, the line search took a shrunken step that tied the objective, and
+        the fit stopped at a residual of ``1.14e-10``. The stall depends on rounding, so on
+        another machine this sample can converge with or without the fix.
+        """
+        rng = np.random.default_rng(20263110)
+        w = rng.standard_normal((2000, 4))
+        p1 = 1.0 / (1.0 + np.exp(-(w @ np.array([0.6, 0.5, -0.4, 0.0]))))
+        a = (rng.uniform(size=(2000, 1)) > np.column_stack([1.0 - p1, np.ones(2000)])).sum(axis=1)
+        train = make_folds(2000, 10, random_state=10).assignment != 9
+        fit = l1.penalty_path(w[train], a[train], None, [0.0])[0]
+        assert fit.kkt <= l1.KKT_TOLERANCE
 
     @pytest.mark.parametrize(
         "grid", [[], [0.1, 0.2], [0.1, 0.1], [0.1, -0.1], [0.0, 0.1], [np.inf, 0.1], [0.1, np.nan]]
