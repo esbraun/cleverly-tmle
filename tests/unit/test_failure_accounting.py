@@ -847,6 +847,160 @@ class TestHooks:
         assert samples.exists()
 
 
+class TestSubjectHooks:
+    """The hook, probe and claims reads split each side's failures (RM39b M1)."""
+
+    def _study(self, record: StudyRecord, gates: dict[str, pd.DataFrame]) -> SimpleNamespace:
+        subject, reference = record.implementation, str(record.reference)
+        return SimpleNamespace(
+            scientific_failures=lambda frames: gates,
+            account_failures=lambda lost, frames: failures.audits(
+                gates,
+                missing={
+                    "score audit": failures.missing_fits(lost, record, subject)
+                    + failures.missing_fits(lost, record, reference),
+                    "solver": failures.missing_fits(lost, record, subject),
+                },
+            ),
+        )
+
+    def test_a_hook_row_names_the_side_and_its_bound(self) -> None:
+        record = _record(failure_bound={REFERENCE: 0.05, SUBJECT: 0.01})
+        study = self._study(record, {"score audit": pd.DataFrame(), "solver": pd.DataFrame()})
+        subject_only = failures.hook_accounting(
+            study, _failures(("law", "1"), implementation=SUBJECT), {}, record=record
+        )
+        assert set(subject_only["implementation"]) == {SUBJECT}
+        assert set(subject_only["allowed"]) == {2}
+        assert subject_only.set_index("leg")["gate_passed"].to_dict() == {
+            "score audit": False,
+            "solver": False,
+        }
+        both = failures.hook_accounting(
+            study,
+            _joined(_failures(("law", "1"), implementation=SUBJECT), _failures(("law", "1;3"))),
+            {},
+            record=record,
+        )
+        assert set(both["implementation"]) == {f"{SUBJECT}+{REFERENCE}"}
+        assert both["allowed"].isna().all()
+        row = both.set_index("leg").loc["score audit"]
+        assert (row["subject_failed"], row["reference_failed"], row["complete_case"]) == (1, 2, 3.0)
+
+    def test_an_induced_reference_record_is_the_subjects_on_the_hook_row(self) -> None:
+        record = _record(failure_bound={REFERENCE: 0.05, SUBJECT: 0.05})
+        study = self._study(record, {"score audit": pd.DataFrame(), "solver": pd.DataFrame()})
+        frame = failures.hook_accounting(
+            study,
+            _joined(
+                _failures(("law", "4"), implementation=SUBJECT),
+                _failures(("law", "4"), kind=failures.PAIRED_INPUT_MISSING),
+            ),
+            {},
+            record=record,
+        )
+        assert set(frame["implementation"]) == {SUBJECT}
+        # Both fits are missing, so the shared-bar audit counts two.
+        assert frame.set_index("leg")["complete_case"].to_dict() == {
+            "score audit": 2.0,
+            "solver": 1.0,
+        }
+
+    def test_a_probe_keeps_a_replication_only_the_subject_lost(self) -> None:
+        record = _record(replicates=4)
+        probe = pd.DataFrame({"scenario": "law", "replicate": [0, 1, 2, 3], "passed": True})
+        audits = failures.probe_audits(
+            probe,
+            _failures(("law", "1"), implementation=SUBJECT),
+            record=record,
+            scenarios=("law",),
+            coverage="coverage",
+            audit="probe",
+        )
+        assert audits["passed"].all()
+        # Mutation control: read as the reference's, the same record is a probe overlap.
+        overlap = failures.probe_audits(
+            probe,
+            _failures(("law", "1")),
+            record=record,
+            scenarios=("law",),
+            coverage="coverage",
+            audit="probe",
+        )
+        assert overlap.set_index("leg")["passed"].to_dict() == {"coverage": False, "probe": True}
+
+    def test_an_unwritten_sample_is_counted_for_the_probe(self) -> None:
+        record = _record(scenarios={"law": ("ate",), "other": ("ate",)})
+        recorded = _joined(
+            _failures(("law", "0;5"), implementation=SUBJECT),
+            _failures(("law", "0;5"), kind=failures.PAIRED_INPUT_MISSING),
+            _failures(("other", "0")),
+        )
+        assert (
+            failures.unwritten_samples(recorded, record, scenarios=("law",), replicates=(0,)) == 1
+        )
+        # A reference fit failure leaves its sample written.
+        assert (
+            failures.unwritten_samples(recorded, record, scenarios=("other",), replicates=(0,)) == 0
+        )
+        assert failures.unwritten_samples(None, record, scenarios=("law",), replicates=(0,)) == 0
+
+    def test_the_claims_count_each_side_and_the_score_audit_pairs_around_both(
+        self, tmp_path: Path
+    ) -> None:
+        record = _record(
+            replicates=4, extra_artifacts=(claims.FIT_DIAGNOSTICS_FILE,), artifacts=tmp_path
+        )
+        diagnostics = pd.DataFrame(
+            {
+                "implementation": [SUBJECT] * 3 + [REFERENCE] * 3,
+                "scenario": "law",
+                "replicate": [0, 2, 3, 0, 1, 3],
+                "score_passed": True,
+            }
+        )
+        diagnostics.to_csv(record.artifact(claims.FIT_DIAGNOSTICS_FILE), index=False)
+        recorded = _joined(_failures(("law", "1"), implementation=SUBJECT), _failures(("law", "2")))
+        data = {claims.FIT_DIAGNOSTICS: diagnostics, claims.FAILURES: recorded}
+        aggregates = claims._aggregates(record)
+        assert aggregates["subject_failures"](data) == 1.0
+        assert aggregates["reference_failures"](data) == 1.0
+        assert claims._score_audit_aggregates(record)["score_audited_fits"](data) == 3.0
+        # Mutation control: without the subject's record the pairing does not close.
+        alone = {**data, claims.FAILURES: _failures(("law", "2"))}
+        with pytest.raises(ValueError, match="not paired"):
+            claims._score_audit_aggregates(record)["score_audited_fits"](alone)
+
+    def test_a_subject_failure_reaches_the_ledger_with_an_owner_row(self) -> None:
+        record = _record(failure_bound={REFERENCE: 0.05}, publication_policy="reporting")
+        lost = (4, 9)
+        rows = _rows(record, subject_failed=lost)
+        recorded = _failures(("law", "4;9"), implementation=SUBJECT)
+        summaries = summarize(rows, truth_varies=False)
+        performance = independent_performance_tests(rows, record=record, n_jobs=1)
+        accounting = failures.truth_accounting(rows, recorded, record=record, n_jobs=1)
+        performance = failures.correct_performance(performance, accounting)
+        paired = equivalence(rows, summaries, performance, record=record, n_jobs=1)
+        paired_accounting = failures.paired_accounting(rows, recorded, record=record, n_jobs=1)
+        tables = {
+            "performance": performance,
+            "equivalence": failures.correct_paired(paired, paired_accounting),
+            "properties": pd.DataFrame(
+                columns=["property", "cell", "role", "passed", "property_passed"]
+            ),
+            "accounting": pd.concat([accounting, paired_accounting], ignore_index=True),
+        }
+        red = red_cells.red_rows(record, tables)
+        kinds = {row.key.kind: row for row in red}
+        # The subject declared no bound, so its truth cell and the paired cell are red.
+        assert kinds["truth"].role == SUBJECT
+        assert kinds["truth"].fails_by == f"failure accounting: {failures.BOUND_EXCEEDED}"
+        assert kinds["paired"].fails_by.startswith(failures.UNACCOUNTED)
+        found = red_cells.findings(red, {}, {record.slug: "reporting"}, [])
+        assert len(found) == len(red)
+        assert all("has no owner" in line for line in found)
+
+
 class TestLedger:
     def _tables(self, record: StudyRecord) -> dict[str, pd.DataFrame]:
         rows = _rows(record, failed=(4, 9))

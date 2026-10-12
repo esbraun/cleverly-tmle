@@ -476,11 +476,20 @@ def scientific_failures(extra_frames: Mapping[str, pd.DataFrame]) -> dict[str, p
 
 
 def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
-    """The probe audits as they stand: the probe refits replication 0 of the samples only.
+    """The probe audits: the probe refits replication 0 of the samples only.
 
-    A failed main fit removes no probe row, so it changes neither audit.  The probe runs its
-    own ``tmle`` call outside ``study_stage``.  When that call fails as well, the run stops
-    in ``reference_artifacts``, as the hook rule in ``method-benchmarking.md`` states.
+    A failed reference fit removes no probe row, so it changes neither audit.  A failed
+    subject fit at replication 0 leaves that sample unwritten when the reference input comes
+    from the subject's fit, so the probe loses its input: that counts as a coverage gap.  The
+    probe runs its own ``tmle`` call outside ``study_stage``.  When that call fails as well,
+    the run stops in ``reference_artifacts``, as the hook rule in ``method-benchmarking.md``
+    states.
     """
-    del failures
-    return evidence_failures.audits(scientific_failures(artifacts), missing={})
+    gates = scientific_failures(artifacts)
+    coverage = "scale-workaround probe coverage"
+    gates.setdefault(coverage, artifacts[PROBE_ARTIFACT].iloc[:0])
+    continuous = [law.scenario for law in laws.LAWS.values() if law.continuous]
+    gap = evidence_failures.unwritten_samples(
+        failures, STUDY, scenarios=continuous, replicates=(0,)
+    )
+    return evidence_failures.audits(gates, missing={coverage: gap})

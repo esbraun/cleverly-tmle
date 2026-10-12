@@ -393,15 +393,17 @@ def scientific_failures(
 def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
     """The audits with each recorded failure counted as a failing row (decision Q1).
 
-    A reference fit that failed has no fit-diagnostics row, so the shared-bar score audit
-    counts it as failing.  The solver audit reads the subject only, which records no failure
-    in a2.
+    A fit that failed has no fit-diagnostics row.  The shared-bar score audit counts each
+    side's lost fits as failing, and the solver audit counts the subject's.
     """
+    subject, reference = STUDY.implementation, str(STUDY.reference)
+    lost = {
+        side: evidence_failures.missing_fits(failures, STUDY, side) for side in (subject, reference)
+    }
     return evidence_failures.audits(
         scientific_failures(artifacts),
         missing={
-            "score audit (both implementations, shared bar)": evidence_failures.missing_fits(
-                failures, STUDY
-            )
+            "score audit (both implementations, shared bar)": lost[subject] + lost[reference],
+            "solver health (subject only)": lost[subject],
         },
     )

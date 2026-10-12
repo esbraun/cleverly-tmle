@@ -1028,6 +1028,11 @@ def hook_accounting(
     group's missing rows included), ``passed`` (its own threshold applied) and, optionally,
     ``own`` (the surviving rows that fail it).  A study with a
     hook and no such function gets one ``failures not accountable`` row, which is red.
+
+    ``implementation`` names the sides whose own records the rows count, joined by ``+``, and
+    ``subject_failed`` and ``reference_failed`` count each side's lost replications.  A
+    ``paired_input_missing`` record is the subject's.  ``bound`` and ``allowed`` are the named
+    side's, or ``NaN`` when both sides failed, because each side has its own bound.
     """
     columns = list(ACCOUNTING_COLUMNS)
     if failures is None or failures.empty:
@@ -1039,24 +1044,38 @@ def hook_accounting(
     ]
     if not hooks:
         return pd.DataFrame(columns=columns)
-    implementation = str(record.reference)
+    own = _own(failures, record)
+    counts = {
+        side: len(
+            own.loc[own["implementation"] == side, ["scenario", "replicate"]].drop_duplicates()
+        )
+        for side in record.implementations
+    }
+    sides = [side for side in record.implementations if counts[side]]
+    if not sides:
+        raise ValueError(f"{record.slug}: failure records that name no declared implementation")
     failed = missing_fits(failures, record)
+    (single,) = sides if len(sides) == 1 else (None,)
     base = {
         "table": "hook",
-        "implementation": implementation,
+        "implementation": "+".join(sides),
         "scenario": "",
         "estimand": "",
         "requested": record.replicates,
         "failed": failed,
         "rate": math.nan,
-        "bound": float(record.failure_bound.get(implementation, 0.0)),
-        "allowed": allowed(record, implementation),
+        "bound": math.nan if single is None else float(record.failure_bound.get(single, 0.0)),
+        "allowed": math.nan if single is None else allowed(record, single),
         "dropped_replications": failed,
         "complete_case": math.nan,
         "worst_case": math.nan,
         "imputation": "",
         "witness_failed_error": math.nan,
         "witness_succeeded_error": math.nan,
+        "subject_failed": counts[record.implementation],
+        "reference_failed": counts[record.reference] if record.reference is not None else 0,
+        "witness_reference_error_on_subject_failed": math.nan,
+        "witness_reference_error_on_shared": math.nan,
     }
     if not hasattr(study, "account_failures"):
         return pd.DataFrame.from_records(
@@ -1090,9 +1109,43 @@ def hook_accounting(
     return pd.DataFrame.from_records(out, columns=columns)
 
 
-def missing_fits(failures: pd.DataFrame | None, record: StudyRecord) -> int:
-    """The (scenario, replicate) fits the failure records left without a row."""
-    return len(expand(failures, record)[["scenario", "replicate"]].drop_duplicates())
+def missing_fits(
+    failures: pd.DataFrame | None, record: StudyRecord, implementation: str | None = None
+) -> int:
+    """The (scenario, replicate) fits the failure records left without a row.
+
+    With ``implementation``, the fits that implementation lost, a ``paired_input_missing``
+    record included.  Without it, a replication that either side lost counts once.
+    """
+    lost = expand(failures, record)
+    if implementation is not None:
+        lost = lost.loc[lost["implementation"] == implementation]
+    return len(lost[["scenario", "replicate"]].drop_duplicates())
+
+
+def unwritten_samples(
+    failures: pd.DataFrame | None,
+    record: StudyRecord,
+    *,
+    scenarios: Iterable[str],
+    replicates: Iterable[int],
+) -> int:
+    """The (scenario, replicate) samples that a failed subject fit left unwritten.
+
+    A study whose reference input comes from the subject's fit writes no sample for a
+    replicate the subject lost, and its driver writes a ``paired_input_missing`` record in
+    its place.  A probe that refits named replicates of the samples loses each one counted
+    here.
+    """
+    lost = expand(
+        None if failures is None else failures.loc[failures["class"] == PAIRED_INPUT_MISSING],
+        record,
+    )
+    chosen = lost.loc[
+        lost["scenario"].isin(set(scenarios))
+        & lost["replicate"].astype(int).isin({int(value) for value in replicates})
+    ]
+    return len(chosen[["scenario", "replicate"]].drop_duplicates())
 
 
 def audits(gates: Mapping[str, pd.DataFrame], *, missing: Mapping[str, int]) -> pd.DataFrame:
@@ -1165,16 +1218,20 @@ def probe_audits(
     """The ``account_failures`` frame of a probe that skips the failed replications.
 
     The coverage audit passes when every probe path holds one row for each declared
-    replication ``0, ..., R - 1`` of ``scenarios`` that did not fail, and the failed ones fill
-    the rest.
+    replication ``0, ..., R - 1`` of ``scenarios`` that the reference did not lose, and the
+    lost ones fill the rest.  The probe reruns the reference's arithmetic, so a replication
+    the subject alone lost stays in it.
     The ``audit`` leg counts the probe rows whose ``passed`` is not true.  A failed
     replication has no comparison row, so no published number depends on its scale
     workaround.
     """
     scenarios = set(scenarios)
+    lost = expand(failures, record)
     failed = {
         int(replicate)
-        for scenario, replicate in expand(failures, record)[["scenario", "replicate"]]
+        for scenario, replicate in lost.loc[lost["implementation"] == record.reference][
+            ["scenario", "replicate"]
+        ]
         .drop_duplicates()
         .itertuples(index=False)
         if scenario in scenarios

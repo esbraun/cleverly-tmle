@@ -1997,6 +1997,7 @@ _FAMILY = {
     "mean_oracle_se": "harness",
     # ``failures.csv``: zero for a study whose comparator never failed.
     "reference_failures": "failures",
+    "subject_failures": "failures",
     "failure_rate": "failures",
     "mechanism_": "fit_diagnostics",
 }

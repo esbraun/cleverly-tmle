@@ -153,11 +153,17 @@ def _aggregates(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.Data
         ),
         "replicates": lambda data: float(record.replicates),
         # The comparator fits a recorded failure left without a row, zero for a study with no
-        # ``failures.csv``, and their share of the comparator's scenario fits.
-        "reference_failures": lambda data: float(failures.missing_fits(data.get(FAILURES), record)),
+        # ``failures.csv``, and their share of the comparator's scenario fits.  The subject's
+        # lost fits are counted apart, because each side has its own bound.
+        "reference_failures": lambda data: float(
+            failures.missing_fits(data.get(FAILURES), record, str(record.reference))
+        ),
         "failure_rate": lambda data: (
-            float(failures.missing_fits(data.get(FAILURES), record))
+            float(failures.missing_fits(data.get(FAILURES), record, str(record.reference)))
             / float(record.replicates * len(record.scenarios))
+        ),
+        "subject_failures": lambda data: float(
+            failures.missing_fits(data.get(FAILURES), record, subject)
         ),
         "n": lambda data: float(record.n),
         "independent_tests_total": lambda data: count(data["performance"]),
@@ -260,14 +266,25 @@ def _score_audit_aggregates(
             reference_keys = set(
                 reference_rows.loc[:, ["scenario", "replicate"]].itertuples(False, None)
             )
-            # A recorded reference failure leaves its fit without a row (RM39a2).
+            # A recorded failure leaves its side's fit without a row (RM39a2, RM39b).
             failed = failures.expand(data.get(FAILURES), record)
-            failed_keys = set(
-                failed.loc[failed["implementation"] == record.reference, ["scenario", "replicate"]]
-                .astype({"replicate": int})
-                .itertuples(False, None)
-            )
-            if subject_keys != reference_keys | failed_keys or reference_keys & failed_keys:
+
+            def failed_keys(implementation: str) -> set[tuple[str, int]]:
+                return set(
+                    failed.loc[
+                        failed["implementation"] == implementation, ["scenario", "replicate"]
+                    ]
+                    .astype({"replicate": int})
+                    .itertuples(False, None)
+                )
+
+            subject_failed = failed_keys(record.implementation)
+            reference_failed = failed_keys(str(record.reference))
+            if (
+                subject_keys | subject_failed != reference_keys | reference_failed
+                or subject_keys & subject_failed
+                or reference_keys & reference_failed
+            ):
                 raise ValueError(
                     "the subject and reference score audits are not paired on scenario and "
                     "replicate"
@@ -543,12 +560,16 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
     # reporting the same number establishes only that they agree.
     for estimand, deviation in sorted(record.efficiency_bounds.items()):
         declared[f"bound:{estimand}_standard_error"] = float(deviation) / math.sqrt(record.n)
-    # The comparator's declared fitting-failure bound, and the failed fits it allows per cell.
-    if record.reference is not None and record.reference in record.failure_bound:
-        declared["margin:reference_failure_bound"] = float(record.failure_bound[record.reference])
-        declared["margin:reference_failures_allowed"] = float(
-            failures.allowed(record, record.reference)
-        )
+    # Each side's declared fitting-failure bound, and the failed fits it allows per cell.
+    for side, implementation in (
+        ("reference", record.reference),
+        ("subject", record.implementation),
+    ):
+        if implementation is not None and implementation in record.failure_bound:
+            declared[f"margin:{side}_failure_bound"] = float(record.failure_bound[implementation])
+            declared[f"margin:{side}_failures_allowed"] = float(
+                failures.allowed(record, implementation)
+            )
     return declared
 
 

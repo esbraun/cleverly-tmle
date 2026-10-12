@@ -348,10 +348,17 @@ def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
 
 
 def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
-    """``fit-exits.csv`` reads the subject only, so a reference failure leaves it whole."""
-    del failures
+    """``fit-exits.csv`` reads the subject only, so each subject fit it lost counts as failing.
+
+    A reference failure leaves it whole.
+    """
     return evidence_failures.audits(
-        {"fit exits (subject only)": artifacts["fit-exits.csv"].iloc[:0]}, missing={}
+        {"fit exits (subject only)": artifacts["fit-exits.csv"].iloc[:0]},
+        missing={
+            "fit exits (subject only)": evidence_failures.missing_fits(
+                failures, STUDY, STUDY.implementation
+            )
+        },
     )
 
 
