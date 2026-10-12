@@ -63,7 +63,7 @@ def draw_inputs(seed: int) -> tuple[pd.DataFrame, np.ndarray]:
     only, and ``W5`` and ``W6`` are noise. ``Q`` is main terms, and the outcome law has a
     ``W2 * W3`` term. ``A3`` and ``w`` serve the multinomial and the
     weighted solver rows only. ``Q0W`` and ``Q1W`` are the package's own initial fit, so the
-    test refits them bit for bit.
+    test refits them to the rounding of the machine's linear algebra.
 
     Parameters
     ----------

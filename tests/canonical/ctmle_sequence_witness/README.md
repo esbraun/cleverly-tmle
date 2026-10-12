@@ -27,7 +27,7 @@ calls `glmnet.control(fdev = 0, devmax = 1)`, the same adapter setting as the re
 | `facts.csv` `lambda_max`, `lambda_max_weighted` | the first value of the default path | `default_penalty_grid()[0]` at a relative `1e-10` |
 | `g_internal.csv`, `g_glm.csv` | R's own arrays: the default path read with `predict(s = grid)`, and the `glm` propensity | the inputs of the next two rows |
 | `general_path.csv` | `ctmleGeneral(ctmletype = 1, gn_candidates = G, gn_candidates_cv = G, PEN = FALSE)` with `G = cbind(g_internal, g_glm)` | `_indexed_path` on `G`: the accepted indices are exact; estimates and losses agree to `1e-6` |
-| `glmnet_path.csv`, `g_final_cols.csv` | `ctmleGlmnet(ctmletype = 1, lambdas = grid, folds = fold, PEN = FALSE)`, and the explicit-lambda fit of its final step at R's `best_k` | `_indexed_path` on `g_internal`: the accepted penalties are exact; estimates and losses agree to `1e-6`; the final step on `g_final_cols` gives R's estimate to `1e-6` |
+| `glmnet_path.csv`, `g_final_cols.csv` | `ctmleGlmnet(ctmletype = 1, lambdas = grid, folds = fold, PEN = FALSE)`, and the explicit-lambda fit of its final step at R's `best_k` | `_indexed_path` on `g_internal`: the accepted positions are exact; estimates and losses agree to `1e-6`; the final step on `g_final_cols` gives R's estimate to `1e-6` |
 
 Each prediction tolerance is ten times the self-gap that `witness.R` measures against a run at
 `thresh = 1e-16` and a higher `maxit`. `manifest.json` records each tolerance under
@@ -66,3 +66,9 @@ python -m tests.canonical.ctmle_sequence_witness.regenerate
 
 `tests/unit/test_ctmle_sequence_witness.py` checks the file hashes, redraws the inputs from the
 seed, and runs the comparisons.
+
+## Precision of the R outputs
+
+R's `write.csv` prints 15 significant digits. The tests read every CSV with the
+`round_trip` parser. They compare the positions that R marks as accepted, not the printed
+penalties. The 15-digit rounding is far inside each stated tolerance.
