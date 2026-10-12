@@ -305,6 +305,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_ctmle_oat import STUDY as CANONICAL_CTMLE_OAT
     from tests.studies.canonical_ctmle_oat_per_arm import STUDY as CTMLE_OAT_PER_ARM
     from tests.studies.canonical_ctmle_selector import STUDY as CANONICAL_CTMLE_SELECTOR
+    from tests.studies.canonical_ctmle_sequences import STUDY as CANONICAL_CTMLE_SEQUENCES
     from tests.studies.canonical_cvtmle import STUDY as CANONICAL_CVTMLE
     from tests.studies.canonical_deterministic_regimes import (
         STUDY as CANONICAL_DETERMINISTIC_REGIMES,
@@ -415,6 +416,7 @@ def registered() -> tuple[StudyRecord, ...]:
         REPEATED_CROSSFIT_TMLE,
         CANONICAL_CTMLE_SELECTOR,
         CANONICAL_MULTI_ARM_CTMLE_SELECTOR,
+        CANONICAL_CTMLE_SEQUENCES,
         CANONICAL_CTMLE_OAT,
         CANONICAL_MULTI_ARM_CTMLE_OAT,
         CANONICAL_DRTMLE,
