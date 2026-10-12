@@ -41,6 +41,10 @@ penalty, fit `LogisticRegressionCV` with an L1 penalty on standardized covariate
 `C` with `lambda = 1 / (C n)`. Use the `saga` solver. The `liblinear` solver penalizes the
 intercept, and the lasso candidates do not.
 
+`l1_ratios=(1.0,)` selects the L1 penalty in scikit-learn 1.8 and later. `cleverly` requires
+scikit-learn 1.8 or later. Earlier releases ignore `l1_ratios` without `penalty="elasticnet"` and
+fit an L2 penalty. `use_legacy_attributes=False` makes `C_` one number.
+
 ```python
 import numpy as np
 from sklearn.linear_model import LogisticRegressionCV
@@ -48,10 +52,15 @@ from sklearn.preprocessing import StandardScaler
 
 scaled = StandardScaler().fit_transform(frame[["W1", "W2", "W3"]])
 search = LogisticRegressionCV(
-    Cs=10, l1_ratios=(1.0,), solver="saga", scoring="neg_log_loss", max_iter=5000
+    Cs=10,
+    l1_ratios=(1.0,),
+    solver="saga",
+    scoring="neg_log_loss",
+    max_iter=5000,
+    use_legacy_attributes=False,
 )
 search.fit(scaled, frame["A"])
-start = 1.0 / (float(np.ravel(search.C_)[0]) * len(frame))
+start = 1.0 / (search.C_ * len(frame))
 lambdas = start * np.geomspace(1.0, 0.01, 6)
 lasso = effect.estimate(
     method=CollaborativeTMLEMethod(models=parametric, strategy="lasso", lambdas=lambdas),
@@ -61,7 +70,8 @@ lasso = effect.estimate(
 
 `StandardScaler` divides by the population standard deviation, as the lasso candidates do.
 `tests/unit/test_ctmle_candidate_sequences.py::TestConfiguration::test_the_public_lambda_cv_recipe`
-runs this recipe.
+runs this recipe. It also checks that the search sets some coefficients to exactly 0, which an L2
+search never does.
 
 Both variants are named here with a parametric learner on purpose. Neither fits a fixed number of
 nuisance models: collaborative TMLE fits one per candidate along its selection path, and DR-TMLE

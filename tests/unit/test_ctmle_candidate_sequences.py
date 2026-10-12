@@ -728,23 +728,40 @@ class TestConfiguration:
         with pytest.raises(CapabilityError):
             _ = restored["ate"].std_error
 
-    def test_the_public_lambda_cv_recipe(self, frame: Any) -> None:
-        """The docs recipe for a grid that starts at a cross-validated penalty."""
+    @staticmethod
+    def _lambda_cv_search(frame: Any, l1_ratio: float) -> Any:
         x = frame[["W1", "W2", "W3"]].to_numpy(float)
         a = frame["A"].to_numpy(int)
-        scaler = StandardScaler().fit(x)
-        cv = LogisticRegressionCV(
+        return LogisticRegressionCV(
             Cs=10,
-            l1_ratios=(1.0,),
+            l1_ratios=(l1_ratio,),
             solver="saga",
             scoring="neg_log_loss",
             max_iter=5000,
+            use_legacy_attributes=False,
             random_state=0,
-        ).fit(scaler.transform(x), a)
-        start = 1.0 / (float(np.ravel(cv.C_)[0]) * len(a))
+        ).fit(StandardScaler().fit_transform(x), a)
+
+    @staticmethod
+    def _zero_slopes(search: Any) -> int:
+        """Exact zeros among the slopes of every fold and penalty; the intercept is last."""
+        return int(np.sum(np.asarray(search.coefs_paths_)[..., :-1] == 0.0))
+
+    def test_the_public_lambda_cv_recipe(self, frame: Any) -> None:
+        """The docs recipe for a grid that starts at a cross-validated penalty.
+
+        The search must be an L1 search: at its strongest penalties the slopes are exactly 0.
+        """
+        search = self._lambda_cv_search(frame, 1.0)
+        assert self._zero_slopes(search) > 0
+        start = 1.0 / (search.C_ * len(frame))
         grid = start * np.geomspace(1.0, 0.01, 6)
         result = _fit(frame, strategy="lasso", lambdas=grid)
         assert len(result.extra["ctmle"].path) == 6
+
+    def test_the_sparsity_check_rejects_an_l2_search(self, frame: Any) -> None:
+        """The control: an L2 search, which the recipe gave on scikit-learn before 1.8."""
+        assert self._zero_slopes(self._lambda_cv_search(frame, 0.0)) == 0
 
 
 # ---------------------------------------------------------- row identities (W7)
