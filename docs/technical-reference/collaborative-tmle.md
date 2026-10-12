@@ -93,10 +93,10 @@ Theory: van der Laan and Gruber (2010), Gruber and van der Laan (2010), and Ju e
 | `strategy="ordered"` | both scalable preorders from Ju et al. (2019). `preorder="logistic"` uses one-variable targeting loss and is the default. `preorder="partial_correlation"` conditions the residual-covariate correlation on one-hot treatment indicators rather than on numeric arm codes. Marginal correlation with the outcome is not a published preorder and is not used |
 | `strategy="discrete"` | selection among explicitly supplied candidate covariate sets |
 | `strategy="lasso"` | the L1-penalized logistic mechanism at each penalty of a decreasing grid, then the C-TMLE1 final step. The analogue of R `ctmleGlmnet(ctmletype = 1)`. See [candidate sequences](#candidate-sequences) |
-| `lambdas=` | the penalty grid of `strategy="lasso"`. The default is the `glmnet` rule: `lambda_max`, then 100 log-spaced values down to `lambda_max` times `1e-4` (or `1e-2` when `n < p`), then 0 |
+| `lambdas=` | the penalty grid of `strategy="lasso"`, with two or more penalties. The default is the `glmnet` rule: 100 log-spaced values from `lambda_max` down to `lambda_max` times `1e-4` (or `1e-2` when `n < p`), then 0 |
 | `strategy="learners"` | each declared treatment learner in the declared order, then `treatment_learner` on every covariate. The analogue of R `build_gn_seq` with `ctmleGeneral(ctmletype = 1)` |
 | `treatment_candidates=` | the declared entries of `strategy="learners"`, least adaptive first. An entry is an unfitted learner or a `PropensityArrays(full=..., cv=...)` pair |
-| `selection_split=` | fold labels `0` to `V - 1`, one for each row, in place of the random selection split. Valid on every selector strategy |
+| `selection_split=` | fold labels `0` to `V - 1`, one for each row, in place of the random selection split. Valid on every selector strategy. `selection_folds=` must equal `V` |
 | `strategy="oat"` | the outcome-adaptive mechanism, fitted on the arm-specific outcome predictions. It has no candidate path and no parameter-specific selector |
 | `oat_design=` | the design of `strategy="oat"`. `"per_arm"` (the default) fits one binary mechanism per arm on that arm's own prediction. `"shared"` fits the one categorical mechanism of the archived `ctmle3`. See [the per-arm outcome-adaptive design](#the-per-arm-outcome-adaptive-design) |
 | `candidates=`, `ordering=` | supply the candidate sets or the preorder explicitly. A refit that adds a covariate, such as the `random_common_cause` refutation, places it after the declared ordering. Independent noise has no prior relevance, so it ranks last |
@@ -173,8 +173,13 @@ The final step of Ju, Wyss et al. (2019), Algorithm 1, fluctuates the selected c
 coordinate descent with a Newton polish on the active set, warm-started along the grid. Its
 Karush-Kuhn-Tucker residual is at most `1e-10` at every penalty. When the residual is larger, the
 fit raises `L1ConvergenceError`, and the message names the layer and the penalty. The usual cause
-is separation at penalty 0. A grid that ends above 0 avoids it. The first default candidate is the
-intercept-only mechanism exactly, and the last is the unpenalized main-terms logistic fit.
+is separation at penalty 0. A grid that ends above 0 avoids it.
+
+**The ends of the default grid hold on the analysis sample.** There, the first
+default candidate is the intercept-only mechanism exactly, and the last is the unpenalized
+main-terms logistic fit. The grid is fixed on the analysis sample. The training rows of a
+selection fold or an outer fold have their own `lambda_max`, so there the first candidate can
+have a nonzero coefficient.
 
 **A `PropensityArrays` pair is the `ctmleGeneral` input.** `full` holds the predictions of a fit on
 every row. `cv` holds out-of-fold predictions under the split that `selection_split=` declares. The
@@ -208,6 +213,7 @@ requires. A fit does not refuse when it does not.
 | the next accepted column is found by a squared distance below `1e-5` | `R/functions_general.R`, line 209 | candidates are matched by index |
 | `calc_varIC(ICg = TRUE)` reads only the first covariate column | `R/functions_general.R`, line 198 | not used |
 | type 1 has no branch for a selected last penalty | `R/ctmle_glmnet.R`, line 270 | the selected candidate is reported |
+| the construction criterion adds `var(D*)` whatever `PEN` is | `R/functions_glmnet.R`, lines 172 to 177; `R/functions_general.R`, lines 65 to 72 | the construction adds the penalty only when `penalty=True` |
 | the construction penalty carries the factor `n_train / n` inside each fold | `R/functions_glmnet.R`, line 172 | no factor |
 
 Under `lasso`, `treatment_learner` remains the fallback for a missingness mechanism, and the lasso

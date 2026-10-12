@@ -329,7 +329,13 @@ from ..targets.base import parameter_name
 from ..utils.bounds import OutcomeScaler, resolve_g_bounds
 from ..utils.parallel import map_parallel
 from ..utils.text import format_table
-from ._nuisance import NuisanceEstimates, Propensity, cross_fit_predictions, fit_on_rows
+from ._nuisance import (
+    _SIMPLEX_TOLERANCE,
+    NuisanceEstimates,
+    Propensity,
+    cross_fit_predictions,
+    fit_on_rows,
+)
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .targeting import build_submodel, solve_submodel
 from .tmle import TMLE
@@ -464,8 +470,9 @@ class PropensityArrays:
     Parameters
     ----------
     full : array-like
-        ``n`` rows of probabilities over the arms, in arm order, fitted on every row. At
-        two arms a vector of ``P(A = arm 1)`` is accepted.
+        ``n`` rows of probabilities over the arms, in arm order, fitted on every row. Each
+        row sums to 1 within ``1e-9``, the tolerance of every
+        propensity on the simplex. At two arms a vector of ``P(A = arm 1)`` is accepted.
     cv : array-like
         The same shape, each row predicted by a fit that held out that row's selection
         fold.
@@ -517,6 +524,17 @@ class PropensityArrays:
                 f"P(A = {labels[1]}) is accepted at two arms; got shapes {shapes[0]} and "
                 f"{shapes[1]}"
             )
+        for name, array in zip(("full", "cv"), out, strict=True):
+            gap = float(np.max(np.abs(np.sum(array, axis=1) - 1.0)))
+            if gap > _SIMPLEX_TOLERANCE:
+                raise ValueError(
+                    f"PropensityArrays entry {index}: each row of {name} must sum to 1 over "
+                    f"the {k} arms, and the largest gap from 1 is {gap:.3g}, above "
+                    f"{_SIMPLEX_TOLERANCE:g}. A row that does not sum to 1 is not a "
+                    "probability distribution, so the clever covariate would weight the arms "
+                    f"wrongly. Pass predict_proba output in arm order {list(labels)}, or "
+                    "divide each row by its sum"
+                )
         return out[0], out[1]
 
 
@@ -944,67 +962,70 @@ class CTMLE(TMLE):
 
     Parameters
     ----------
-    strategy:
+    strategy : {"greedy", "ordered", "discrete", "lasso", "learners", "oat"}, default="greedy"
         ``"greedy"`` (default), ``"ordered"``, ``"discrete"``, ``"lasso"``, ``"learners"``
         or ``"oat"``.  The selector strategies fit one shared categorical propensity path
-        and jointly score
-        all components of ``ctmle_estimand``; ``"oat"`` fits treatment on the arm-specific
-        outcome predictions without a candidate path (see ``oat_design``).
+        and jointly score all components of ``ctmle_estimand``; ``"oat"`` fits treatment on
+        the arm-specific outcome predictions without a candidate path (see ``oat_design``).
         ``"oat"`` excludes ``W`` from ``g`` entirely and so gives up
         consistency-when-only-``g``-is-right; see the module docstring.
-    ordering:
+    ordering : sequence of str or None, default=None
         Explicit covariate order for ``strategy="ordered"``.  When omitted, ``preorder``
         determines the published data-adaptive ordering.  A refit that adds a covariate,
         such as ``random_common_cause``, places it after the declared ordering.
-    preorder:
+    preorder : {"logistic", "partial_correlation"} or None, default=None
         ``"logistic"`` (default) or ``"partial_correlation"`` for Algorithms 2 and 3
         of Ju et al. (2019).  Ignored when an explicit ``ordering=`` is supplied.
-    candidates:
+    candidates : sequence of sequence of str or None, default=None
         Explicit candidate covariate sets for ``strategy="discrete"``.
-    selection_folds:
+    selection_folds : int, default=5
         Folds used to cross-validate the candidate sequence.  Separate from
-        ``n_folds``, which cross-fits the nuisance models.
-    selection_inner_folds:
+        ``n_folds``, which cross-fits the nuisance models.  With ``selection_split``, it
+        must equal the split's fold count.
+    selection_inner_folds : int, default=2
         Inner folds used to make selection-training predictions out of fold. Two is the
         default because every selection fold also needs a full-training fit for its
         validation rows; increasing it improves the inner cross-fit at a linear fit-cost.
-    loss:
+    loss : {"auto", "loglik", "squared"}, default="auto"
         ``"auto"`` (default) uses the squared-error loss for a continuous outcome and
         the quasi-binomial log-likelihood for a binary one, as R's ``ctmle`` does.
-    penalty:
+    penalty : bool, default=True
         Add the variance/bias penalty to the selection loss.  Leave it on unless you
         specifically want the unpenalized log-likelihood selector.
-    ctmle_estimand:
+    ctmle_estimand : str, default="ate"
         Which estimand the selection is *for*.  A collaborative selection is
         parameter-specific -- the loss involves that estimand's influence curve --
         so unlike a plain TMLE, one fit cannot serve every estimand equally. At ``K``
         arms, ``ate``, ``rr`` and ``or`` jointly optimize the ``K - 1`` contrasts against
         ``reference=`` and ``ey`` jointly optimizes all ``K`` means. Must be requested.
-    oat_design:
+    oat_design : {"per_arm", "shared"} or None, default=None
         The treatment design of ``strategy="oat"``.  ``"per_arm"`` (the default under
         ``"oat"``) fits one binary mechanism per arm, ``P(A = a | Qbar(a, W))``, on that
         arm's own outcome prediction.  ``"shared"`` fits one categorical mechanism on the
         vector ``[Qbar(a, W): a in arms]``, as ``ctmle3::LF_oat`` does.  Neither design
         reports inference; see the module docstring.  ``None`` resolves to
         ``"per_arm"`` under ``"oat"``, and any other value raises under a selector strategy.
-    lambdas:
-        The penalty grid of ``strategy="lasso"``: finite, non-negative and strictly
-        decreasing, with 0 allowed only as the last value.  A user grid gets no automatic
-        0.  ``None`` uses ``glmnet``'s default grid, 100 log-spaced values from
-        ``lambda_max`` down, then 0.  The grid reads treatment and covariates only, is fixed
+    lambdas : sequence of float or None, default=None
+        The penalty grid of ``strategy="lasso"``: two or more finite, non-negative,
+        strictly decreasing penalties, with 0 allowed only as the last value.  A user grid
+        gets no automatic 0.  ``None`` uses ``glmnet``'s default grid, 100 log-spaced values
+        from ``lambda_max`` down, then 0.  The grid reads treatment and covariates only, is fixed
         on the analysis sample, and is reused in every fold.  ``treatment_learner`` is not
         used by the lasso candidates; it stays the fallback of the missingness learner.
-    treatment_candidates:
+    treatment_candidates : sequence or None, default=None
         The declared candidates of ``strategy="learners"``, from the least to the most
         adaptive.  An entry is an unfitted learner, fitted on every covariate on exactly the
         rows a covariate-set candidate uses, or a :class:`PropensityArrays` pair.
         ``treatment_learner`` on every covariate is appended as the last candidate.  An
         empty list selects nothing.  A scikit-learn ``FrozenEstimator`` passes as a learner
         and is not refit, because ``clone`` returns it unchanged.
-    selection_split:
+    selection_split : sequence of int or None, default=None
         Fold labels ``0`` to ``V - 1``, one for each row, used in place of the random
-        selection split, on every selector strategy.  It refuses ``repeats > 1``,
-        ``n_bootstrap > 0`` and a non-default ``selection_folds``.
+        selection split, on every selector strategy.  ``selection_folds`` must equal ``V``.
+        It refuses ``repeats > 1`` and ``n_bootstrap > 0``.
+    **kwargs : Any
+        The keyword arguments of :class:`~cleverly.TMLE`: the learners, the fold policy,
+        the bounds and the targeting controls.
 
     Notes
     -----
@@ -1170,7 +1191,14 @@ class CTMLE(TMLE):
         if self.strategy != "lasso" and self.lambdas is not None:
             raise ValueError(f"lambdas= only applies to strategy='lasso', not {self.strategy!r}")
         if self.lambdas is not None:
-            check_penalty_grid(self.lambdas)
+            grid = check_penalty_grid(self.lambdas)
+            if grid.size < 2:
+                raise ValueError(
+                    "strategy='lasso' needs lambdas= with at least two penalties; got "
+                    f"{grid.tolist()!r}. One penalty gives one candidate, so the fit selects "
+                    "nothing. Pass a strictly decreasing sequence of two or more penalties, "
+                    "or lambdas=None for the default grid"
+                )
         if self.strategy != "learners" and self.treatment_candidates is not None:
             raise ValueError(
                 f"treatment_candidates= only applies to strategy='learners', not {self.strategy!r}"
@@ -1284,9 +1312,13 @@ class CTMLE(TMLE):
                 "selection_split= labels the analysis rows, and a bootstrap resample changes "
                 "the rows. Use n_bootstrap=0 with a declared split."
             )
-        default = inspect.signature(CTMLE.__init__).parameters["selection_folds"].default
-        if self.selection_folds != default:
-            raise ValueError("selection_split= replaces selection_folds=; pass one of them")
+        declared = _declared_fold_count(self.selection_split)
+        if declared is not None and declared != self.selection_folds:
+            raise ValueError(
+                f"selection_split= declares {declared} folds, and selection_folds= is "
+                f"{self.selection_folds}. The two must agree, so that the fit records the "
+                f"number of folds it used. Pass selection_folds={declared} with this split"
+            )
 
     def _has_arrays(self) -> bool:
         return any(
@@ -2818,6 +2850,21 @@ def _binary_risk(predicted: FloatArray, indicator: FloatArray, weights: FloatArr
     return float(-np.sum(weights * (indicator * np.log(g) + (1.0 - indicator) * np.log1p(-g))))
 
 
+def _declared_fold_count(labels: Sequence[int]) -> int | None:
+    """The fold count ``V`` that integer labels declare, or ``None`` when they are malformed.
+
+    A malformed split is refused at fit time by :func:`_declared_split`, which also knows ``n``.
+    """
+    try:
+        values = np.asarray(labels, dtype=float).reshape(-1)
+    except (TypeError, ValueError):
+        return None
+    if values.size == 0 or not bool(np.all(np.isfinite(values) & (values % 1 == 0))):
+        return None
+    count = int(values.max()) + 1
+    return count if count >= 2 else None
+
+
 def _declared_split(labels: Sequence[int], n: int) -> Folds:
     """The ``selection_split=`` labels as a split, or ``ValueError`` when they are malformed."""
     try:
@@ -2949,12 +2996,15 @@ def _logistic_plugin_refusal(result: TMLEResult) -> str | None:
     if not isinstance(selection, CTMLESelection):
         if isinstance(selection, CTMLEOutcomeAdaptiveFit):
             return "used strategy='oat', which fits no logistic propensity on covariates"
-        return "is not a selector C-TMLE fit (strategy 'greedy', 'ordered' or 'discrete')"
+        return (
+            "is not a selector C-TMLE fit (strategy 'greedy', 'ordered', 'discrete', 'lasso' "
+            "or 'learners')"
+        )
     if selection.strategy == "lasso":
         return (
             "used strategy='lasso', which fits an L1-penalized logistic path rather than one "
             "logistic model on a covariate set. R ctmleGlmnet type 1 reports the plain D* "
-            "variance, which plugin_std_error gives up to n/(n-1)."
+            "variance, var(D*) / n. plugin_std_error squared is the same variance."
         )
     if selection.strategy == "learners":
         return (

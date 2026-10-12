@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from cleverly.inference import influence_variance
 from cleverly.learners import _l1_logistic as l1
 from tests.canonical.ctmle_sequence_witness import harness
 from tests.canonical.ctmle_sequence_witness.regenerate import (
@@ -236,6 +237,31 @@ class TestCtmleGlmnet:
             chooser, lasso_path, internal, matrix(HERE, "g_final_cols.csv"), selected
         )
         assert estimate == pytest.approx(float(facts["glmnet_est"]), abs=harness.GLM_TOLERANCE)
+
+    def test_the_plugin_variance_is_r_var_psi(
+        self,
+        chooser: Any,
+        lasso_path: harness.Path,
+        internal: np.ndarray,
+        facts: dict[str, str],
+    ) -> None:
+        """``plugin_std_error`` squared equals ``var.psi`` of the type-1 final step.
+
+        Both sides divide ``var(D*)`` with the ``n - 1`` denominator by ``n``
+        (``ctmle_glmnet.R``, line 316, and :func:`~cleverly.inference.influence_variance`).
+        The measured relative gap is about ``2e-8``. A factor ``n / (n - 1)`` on either side
+        would move the ratio by ``1e-3``, far outside the ``glm`` tolerance.
+        """
+        selected = int(facts["glmnet_best_k"]) - 1
+        _, candidate = harness.final_candidate(
+            chooser, lasso_path, internal, matrix(HERE, "g_final_cols.csv"), selected
+        )
+        curve = chooser.influence(candidate.targeted, candidate.submodel, chooser.all_rows)
+        variance = influence_variance(curve)
+        expected = float(facts["glmnet_var_psi"])
+        assert variance == pytest.approx(expected, rel=harness.GLM_TOLERANCE)
+        n = len(curve)
+        assert variance * n / (n - 1) != pytest.approx(expected, rel=harness.GLM_TOLERANCE)
 
 
 class TestTheWitnessesBind:

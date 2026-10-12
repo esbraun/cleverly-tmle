@@ -259,7 +259,7 @@ def indexed_path(chooser: Any, columns: np.ndarray) -> Path:
 def final_step(
     chooser: Any, path: Path, internal: np.ndarray, final_columns: np.ndarray, selected: int
 ) -> tuple[int, float]:
-    """The package's C-TMLE1 final step on R's explicit-lambda columns.
+    """The package's C-TMLE1 final step on R's explicit-lambda columns, as its ATE.
 
     Parameters
     ----------
@@ -279,6 +279,33 @@ def final_step(
     tuple of (int, float)
         The final index, from 0, and its ATE.
     """
+    index, candidate = final_candidate(chooser, path, internal, final_columns, selected)
+    return index, ate(candidate.targeted)
+
+
+def final_candidate(
+    chooser: Any, path: Path, internal: np.ndarray, final_columns: np.ndarray, selected: int
+) -> tuple[int, Any]:
+    """The package's C-TMLE1 final step on R's explicit-lambda columns.
+
+    Parameters
+    ----------
+    chooser : Any
+        The analysis-sample ``_Selector``.
+    path : Path
+        The package path on R's internal arrays.
+    internal : ndarray of float
+        R's internal arrays, the candidates of ``path``.
+    final_columns : ndarray of float
+        R's explicit-lambda columns for each penalty below the selected one.
+    selected : int
+        The selected index, from 0.
+
+    Returns
+    -------
+    tuple of (int, Any)
+        The final index, from 0, and its candidate.
+    """
     count = internal.shape[1]
     if final_columns.shape[1] != count - selected - 1:
         raise ValueError("one final column is needed for each penalty below the selected one")
@@ -288,8 +315,7 @@ def final_step(
     outcome = chooser.final_step(path.candidates, selected)
     if outcome is None:
         raise ValueError("the selected index is the last; R's type-1 final step errors there")
-    index, candidate = outcome
-    return index, ate(candidate.targeted)
+    return outcome
 
 
 def separated(columns: np.ndarray, accepted: Sequence[int]) -> float:
