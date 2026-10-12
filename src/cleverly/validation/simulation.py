@@ -147,7 +147,7 @@ ReplicationOutcome = tuple[ReplicationRecord, ...] | ReplicationFailure
 
 
 @runtime_checkable
-class ReplicationCheckpoint(Protocol):
+class ReplicationCheckpoint(Protocol):  # numpydoc ignore=PR01
     """Storage that lets an interrupted :class:`CoverageStudy` resume.
 
     :meth:`CoverageStudy.run` calls ``load`` for every replication before it fits any, and
