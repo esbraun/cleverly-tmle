@@ -346,7 +346,8 @@ class Mechanism:
         Keeping the raw prefix is not optional diagnostic bookkeeping: without it a
         result cannot distinguish a naturally small path probability from one replaced
         by the configured floor.  :meth:`cumulative` retains its historical bounded-only
-        interface and delegates here.
+        interface and delegates here.  An odds tilt node's factor is never bounded, so the
+        product leaves it out.
         """
         lower, upper = bounds
         running = np.ones(data.n)
@@ -355,7 +356,8 @@ class Mechanism:
         for time in range(1, data.n_times + 1):
             treatment = self.treatment[time - 1][plan.label]
             censoring = self.censoring[time - 1][plan.label]
-            running = running * treatment
+            if not plan.is_tilt_node(time):
+                running = running * treatment
             if data.censoring_names:
                 running = running * censoring
             raw_columns.append(running)
@@ -625,9 +627,10 @@ class RegimenFit:
     #: continuous node is the density ratio :math:`r_t` itself.  Not bounded by
     #: ``g_bounds``.  ``None`` on a plan without such a node.
     node_ratio: FloatArray | None = None
-    #: On an :class:`~cleverly.longitudinal.IPSI` fit, the ``(n,)`` sum over tilt nodes of
-    #: the mechanism term of the influence function (Kennedy 2019, Appendix Lemmas 3 and 4).
-    #: ``None`` on every other fit.
+    #: On an :class:`~cleverly.longitudinal.IPSI` fit, the ``(n, T)`` mechanism term of the
+    #: influence function at each node (Kennedy 2019, Appendix Lemmas 3 and 4): zero at a
+    #: node that is not a tilt or whose treatment mechanism is declared.  The uncentered
+    #: influence function adds the row sum.  ``None`` on every other fit.
     mechanism_term: FloatArray | None = None
 
     @property

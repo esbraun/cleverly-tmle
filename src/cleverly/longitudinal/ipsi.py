@@ -58,7 +58,7 @@ import numpy as np
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..learners.crossfit import Folds
 from ..learners.super_learner import SuperLearnerDiagnostics
-from ..utils.bounds import OutcomeScaler, bound
+from ..utils.bounds import OutcomeScaler
 from ..utils.parallel import map_parallel
 from ..utils.phases import PhaseProfile, collect_phases, merge_worker_phases, phase, profiling
 from .data import LongitudinalData, RegimenMasks
@@ -179,16 +179,13 @@ def _weights(
     g_bounds: tuple[float, float],
 ) -> _Weights:
     """:math:`W_t` for ``t = 0 .. horizon``, zero off the rows that follow through ``t``."""
-    lower, upper = g_bounds
+    raw, bounded = mechanism.cumulative_with_unbounded(data, plan, g_bounds)
     numerator = np.ones(data.n)
-    factor = np.ones(data.n)
     tilt = np.ones(data.n)
     weights = [np.ones(data.n)]
-    raw = []
-    bounded_columns = []
     paths = []
     binding = []
-    for time in range(1, data.n_times + 1):
+    for time in range(1, horizon + 1):
         if plan.is_tilt_node(time):
             delta = plan.tilt_delta(time)
             pi = np.clip(np.asarray(propensity[time], dtype=float), 0.0, 1.0)
@@ -196,22 +193,15 @@ def _weights(
             tilt = tilt * (delta * arm + 1.0 - arm) / (delta * pi + 1.0 - pi)
         else:
             numerator = numerator * _node_numerator(plan, data, time)
-            factor = factor * np.asarray(mechanism.treatment[time - 1][plan.label], dtype=float)
-        if data.censoring_names:
-            factor = factor * np.asarray(mechanism.censoring[time - 1][plan.label], dtype=float)
-        limited = bound(factor, lower, upper)
-        raw.append(factor)
-        bounded_columns.append(limited)
-        if time > horizon:
-            continue
         following = masks.following(time)
+        limited = bounded[:, time - 1]
         weights.append(np.where(following, numerator * tilt / limited, 0.0))
         paths.append(int(np.count_nonzero(following)))
-        binding.append(int(np.count_nonzero(following & (limited != factor))))
+        binding.append(int(np.count_nonzero(following & (limited != raw[:, time - 1]))))
     return _Weights(
         weights=tuple(weights),
-        raw=np.column_stack(raw),
-        bounded=np.column_stack(bounded_columns),
+        raw=raw,
+        bounded=bounded,
         paths=tuple(paths),
         binding=tuple(binding),
     )
@@ -237,7 +227,10 @@ class _Node:
 
 @dataclass(frozen=True)
 class _Run:
-    """One cell's recursion with one fold's nuisances: its nodes and :math:`\\varphi`."""
+    """One cell's recursion with one fold's nuisances: its nodes and :math:`\\varphi`.
+
+    ``mechanism_term`` is ``(n, T)``: column ``t - 1`` holds node ``t``'s mechanism term.
+    """
 
     nodes: tuple[_Node, ...]
     phi: FloatArray
@@ -322,13 +315,13 @@ def _recursion(
     nodes.reverse()
     with phase("influence_curve"):
         phi = np.array(nodes[0].value, dtype=float, copy=True)
-        mechanism_term = np.zeros(data.n)
+        mechanism_term = np.zeros((data.n, data.n_times))
         for node in nodes:
             residual = np.where(node.weight != 0.0, node.target - node.observed, 0.0)
             phi = phi + node.weight * residual
             if node.mechanism_term is not None:
-                mechanism_term = mechanism_term + node.mechanism_term
-        phi = phi + mechanism_term
+                mechanism_term[:, node.time - 1] = node.mechanism_term
+        phi = phi + mechanism_term.sum(axis=1)
     return _Run(nodes=tuple(nodes), phi=phi, mechanism_term=mechanism_term)
 
 
@@ -489,7 +482,7 @@ def _finish(
 ) -> RegimenFit:
     """Stitch one cell's folds; its estimate, the mean of :math:`\\varphi`, and its curve."""
     phi = np.full(data.n, np.nan)
-    mechanism_term = np.zeros(data.n)
+    mechanism_term = np.zeros((data.n, data.n_times))
     for cell_run, rows in parts:
         phi[rows] = cell_run.phi
         mechanism_term[rows] = cell_run.mechanism_term

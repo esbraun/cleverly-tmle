@@ -337,6 +337,11 @@ class DynamicRegimen:
         return any(_is_tilt(node) for node in self.plan)
 
     @property
+    def has_rule(self) -> bool:
+        """Whether any node of ``plan`` is a rule :math:`d_t(H_t)`."""
+        return any(callable(node) and not _is_drawn(node) for node in self.plan)
+
+    @property
     def has_mtp(self) -> bool:
         """Whether any node of ``plan`` is a modified treatment policy."""
         return any(_is_mtp(node) for node in self.plan)

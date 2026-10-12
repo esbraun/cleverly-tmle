@@ -882,8 +882,19 @@ class LongitudinalConfig:
                 )
                 lines.insert(3, f"causes reported: {', '.join(self.causes)}")
         dynamic = {
-            regimen.label for regimen in self.regimens if isinstance(regimen, DynamicRegimen)
+            regimen.label
+            for regimen in self.regimens
+            if isinstance(regimen, DynamicRegimen)
+            and (regimen.has_rule or regimen.has_policy or not regimen.has_tilt)
         }
+        if any(
+            isinstance(regimen, DynamicRegimen) and regimen.has_tilt for regimen in self.regimens
+        ):
+            lines.append(
+                "  an 'o' node is an odds tilt: each unit draws its arm from "
+                "q_t = delta*pi_t/(delta*pi_t + 1 - pi_t), with pi_t the treatment mechanism "
+                "(Kennedy 2019, Equation (1)); every unit at risk is in the plan"
+            )
         if dynamic:
             # Worth a line rather than leaving "d" to be guessed at, because it changes
             # how the follower counts below should be read: a static regimen's followers
@@ -2300,9 +2311,15 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             if fit.horizon != deepest:
                 continue
             truncated, truncated_time = self._max_truncated(fit)
+            # An odds tilt keeps every unit at risk, so the count is of units observed.
+            kept = (
+                "stayed under observation throughout"
+                if isinstance(fit.regimen, DynamicRegimen) and fit.regimen.has_tilt
+                else "followed it throughout"
+            )
             lines.append(
                 f"  {fit.regimen.label}: {fit.steps[-1].n_trained} of {self.n} units "
-                f"followed it throughout; max weight {fit.max_weight:.1f}, "
+                f"{kept}; max weight {fit.max_weight:.1f}, "
                 f"effective n {fit.effective_n:.0f}; max truncated share "
                 f"{truncated:.1%} at t={truncated_time}"
             )

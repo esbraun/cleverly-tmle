@@ -106,7 +106,7 @@ def test_the_engine_is_the_longhand_recursion(
         first.pseudo_outcome[observed], longhand.target[observed], atol=EXACT, rtol=0
     )
     np.testing.assert_allclose(
-        fit.fits[label].mechanism_term, longhand.mechanism_term, atol=EXACT, rtol=0
+        fit.fits[label].mechanism_term.sum(axis=1), longhand.mechanism_term, atol=EXACT, rtol=0
     )
 
 
@@ -116,8 +116,8 @@ def test_the_mechanism_term_moves_the_cross_fitted_estimate(frame: Any) -> None:
     Measured on this sample: ``7.3e-4`` under ``natural`` and ``1.7e-3`` under ``per_node``.
     """
     fit = _fit(frame, PLANS, 5)
-    assert abs(float(np.mean(fit.fits["per_node"].mechanism_term))) > 1e-3
-    assert abs(float(np.mean(fit.fits["natural"].mechanism_term))) > CAUGHT
+    assert abs(float(np.mean(fit.fits["per_node"].mechanism_term.sum(axis=1)))) > 1e-3
+    assert abs(float(np.mean(fit.fits["natural"].mechanism_term.sum(axis=1)))) > CAUGHT
 
 
 def test_the_stitched_target_is_a_different_estimate(frame: Any) -> None:
