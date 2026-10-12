@@ -39,12 +39,12 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression
 
 from cleverly.estimators import TMLE
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import stratified_law as law
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 from tests.studies.point_study_helpers import primary_rows
 
 TMLE3_COMMIT = "ed72f8a20e64c914ab25ffe015d865f7a9963d27"
@@ -255,11 +255,17 @@ def cleverly_rows(
     )
 
 
-def _replicate(
-    payload: tuple[int, int],
+def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    scenario, replicate, n = key
+    return draw_scenario(scenario, n, replicate)
+
+
+def _reference_input(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
 ) -> tuple[pd.DataFrame, dict[str, Any], list[dict[str, Any]]]:
-    replicate, n = payload
-    frame, truth = draw_scenario(SCENARIO, n, replicate)
+    """The replicate's sample and truth row, which need no fit, and no subject rows."""
+    _, replicate, _ = key
+    frame, truth = drawn
     sample = frame.copy()
     sample.insert(0, "replicate", replicate)
     sample.insert(0, "scenario", SCENARIO)
@@ -268,18 +274,32 @@ def _replicate(
         "replicate": replicate,
         **{f"truth_{name}": float(truth[name]) for name in ESTIMANDS},
     }
+    return sample, truth_row, []
+
+
+def _replicate(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
+) -> tuple[pd.DataFrame, dict[str, Any], list[dict[str, Any]]]:
+    _, replicate, _ = key
+    frame, truth = drawn
+    sample, truth_row, _ = _reference_input(key, drawn)
     return sample, truth_row, cleverly_rows(frame, truth, SCENARIO, replicate)
 
 
-def draw_and_fit(
-    *, replicates: int, n: int, n_jobs: int = STUDY_JOBS
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
     """Draw every primary replication, fit the subject, and pack the reference inputs."""
-    payloads = [((replicate, n),) for replicate in range(replicates)]
-    outcomes = map_parallel(_replicate, payloads, n_jobs=n_jobs)
-    samples = pd.concat([sample for sample, _, _ in outcomes], ignore_index=True)
-    truths = pd.DataFrame([truth for _, truth, _ in outcomes])
-    rows = pd.DataFrame([row for _, _, fitted in outcomes for row in fitted]).loc[
+    outcomes = replication.fit_primary(
+        [(SCENARIO, replicate, n) for replicate in range(replicates)],
+        _replicate,
+        draw=_draw,
+        reference_input=_reference_input,
+        n_jobs=n_jobs,
+        implementation=STUDY.implementation,
+        seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
+    )
+    samples = pd.concat([sample for sample, _, _ in outcomes.kept], ignore_index=True)
+    truths = pd.DataFrame([truth for _, truth, _ in outcomes.kept])
+    rows = pd.DataFrame([row for _, _, fitted in outcomes.kept for row in fitted]).loc[
         :, list(REPLICATE_COLUMNS)
     ]
-    return samples, truths, rows
+    return replication.result(outcomes, rows, samples=samples, truths=truths)
