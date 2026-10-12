@@ -83,7 +83,13 @@ from .._inference_status import (
     supplies_inference,
 )
 from .._typing import BoolArray, CumulativeGBounds, FloatArray, Learner
-from ..exceptions import CapabilityError, DataWarning, LongitudinalError, PositivityWarning
+from ..exceptions import (
+    CapabilityError,
+    DataWarning,
+    LongitudinalError,
+    ParameterSpaceWarning,
+    PositivityWarning,
+)
 from ..inference.bootstrap import BootstrapResult, Resampling, run_bootstrap
 from ..inference.cluster import (
     cluster_inference_status,
@@ -126,6 +132,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 from ..learners.crossfit import Folds, _fresh_seed, check_integrity, random_partition
 from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearner, resolve_learner
+from ..methods import SDR_NO_FLUCTUATION
 from ..msm import MSM, refuse_msm_functions
 from ..protocol import ProtocolDetail, protocol_summary_lines
 from ..provenance import Provenance, fingerprint_array
@@ -191,12 +198,72 @@ LONGITUDINAL_REPLAY_FITTED_BOUND_MISMATCH = "longitudinal_replay_fitted_bound_mi
 LONGITUDINAL_REPLAY_REGIMEN_DECLARATION = "longitudinal_replay_regimen_declaration"
 LONGITUDINAL_REPLAY_MSM_DECLARATION = "longitudinal_replay_msm_declaration"
 
-#: The :class:`LTMLE` settings that :class:`SDR` refuses, and the one sentence it says.
+#: The :class:`LTMLE` settings that :class:`SDR` refuses with :data:`SDR_NO_FLUCTUATION`.
 SDR_REFUSED_SETTINGS: tuple[str, ...] = ("alpha", "max_iter", "tol")
-SDR_NO_FLUCTUATION = (
-    "the SDR estimator fits no fluctuation, so it has no logistic shrink, iteration limit or "
-    "score tolerance. LTMLE takes {name}="
-)
+
+
+def refuse_sdr_scale(name: str, value: float, scale: str) -> None:
+    """Refuse a log or odds functional of an SDR level outside that scale's domain.
+
+    Parameters
+    ----------
+    name : str
+        The level's parameter name.
+    value : float
+        The level on the scale the functional reads.
+    scale : {"log", "odds", "logit"}
+        The scale of the functional.
+
+    Raises
+    ------
+    CapabilityError
+        When ``value`` is at or below 0 on the log scale, or outside ``(0, 1)`` on the
+        odds or logit scale.
+    """
+    cause = (
+        "An SDR estimate is an average of transformed outcomes and can leave the outcome "
+        "range (Díaz et al. 2023, Section 5.3); "
+    )
+    if scale == "log":
+        if value > 0.0:
+            return
+        raise CapabilityError(
+            f"{name} is {value:.4g}, at or below 0. {cause}the log scale needs a positive "
+            "level. Report the difference scale"
+        )
+    if 0.0 < value < 1.0:
+        return
+    raise CapabilityError(
+        f"{name} is {value:.4g}, outside (0, 1). {cause}the {scale} scale needs a level in "
+        "(0, 1). Report the difference scale"
+    )
+
+
+def _warn_parameter_space(
+    estimates: Mapping[str, ParameterEstimate], data: LongitudinalData, scaler: OutcomeScaler
+) -> None:
+    """Warn once when an SDR level leaves the range of the outcome it averages.
+
+    The range is ``[0, 1]`` on a binary or survival outcome, and ``[q_lo, q_hi]`` on a
+    continuous one, declared or derived.
+    """
+    low, high = (0.0, 1.0) if data.family == "binomial" else (scaler.lower, scaler.upper)
+    outside = [
+        f"{name} = {estimate.psi:.4g}"
+        for name, estimate in estimates.items()
+        if estimate.scale == "level" and not low <= estimate.psi <= high
+    ]
+    if not outside:
+        return
+    warnings.warn(
+        f"{'; '.join(outside)}: outside the outcome range [{low:.4g}, {high:.4g}]. An SDR "
+        "estimate is an average of transformed outcomes and can leave that range (Díaz et al. "
+        "2023, Section 5.3). It is reported as computed, with no truncation. A ratio or odds "
+        "functional of such a level is refused",
+        ParameterSpaceWarning,
+        stacklevel=3,
+    )
+
 
 #: Match the point-treatment estimator's warning threshold.  The exact share remains
 #: available in ``diagnostics()`` below this value; the warning is only the interruption.
@@ -836,7 +903,11 @@ class LongitudinalConfig:
             # Both factors enter the product before its prefix is bounded, as in ltmle's
             # CalcCumG.  Saying "mechanism at every node" used to conceal the order.
             f"g_bounds: fixed [{self.g_bounds[0]:.4g}, {self.g_bounds[1]:.4g}] on each "
-            "cumulative treatment-and-censoring probability"
+            + (
+                "partial path treatment-and-censoring probability"
+                if self.estimator == "sdr"
+                else "cumulative treatment-and-censoring probability"
+            )
             + (
                 " (package default; R ltmle-compatible heuristic -- inspect truncation diagnostics)"
                 if self.g_bounds == DEFAULT_LTMLE_G_BOUNDS
@@ -903,11 +974,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         Method identity stamped by the estimator.
     bootstrap : BootstrapResult or None
         The full-refit bootstrap draws, when ``n_bootstrap > 0`` was requested.
-    replay_recipe : object
-        Unfitted recursive learner templates and resolved plans for deterministic refits.
-        Keyword-only.
     fold_mechanisms : tuple of FoldMechanism
         Each outer fold's own mechanism on a cross-fitted SDR fit, empty otherwise.
+        Keyword-only.
+    replay_recipe : object
+        Unfitted recursive learner templates and resolved plans for deterministic refits.
         Keyword-only.
 
     Attributes
@@ -991,11 +1062,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: The full-refit bootstrap draws, ``None`` unless ``n_bootstrap > 0``.  A replayed
     #: fit never reruns the bootstrap.
     bootstrap: BootstrapResult | None = None
-    #: Unfitted state for a complete bound-dependent recursion.
-    replay_recipe: _LongitudinalReplayRecipe = field(kw_only=True)
     #: Each outer fold's own mechanism, fitted on its training rows, on a cross-fitted SDR
     #: fit.  Empty otherwise.  A truncation replay reuses them.
     fold_mechanisms: tuple[FoldMechanism, ...] = field(default=(), kw_only=True)
+    #: Unfitted state for a complete bound-dependent recursion.
+    replay_recipe: _LongitudinalReplayRecipe = field(kw_only=True)
 
     #: Which family of assessment declarations applies to this result.  See
     #: :attr:`~cleverly.estimators.TMLEResult.assessment_family`; the method identity is
@@ -1253,6 +1324,14 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 raise ValueError(SURVIVAL_VIEW_COMPETING_REFUSAL)
         if kind == "or" and not survival:
             refuse_odds_ratio(self.config.family)
+        if self.config.estimator == "sdr":
+            for level in (numerator, denominator):
+                value = self[level].psi
+                refuse_sdr_scale(
+                    level,
+                    1.0 - value if view == "survival" else value,
+                    "odds" if kind == "or" else "log",
+                )
         derived = ratio_contrast(
             self.estimates,
             numerator,
@@ -2139,7 +2218,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             )
         facts.extend(self.provenance.describe())
         lines = [
-            f"Longitudinal TMLE ({self.data.n_times} time points, n = {self.n})",
+            f"Longitudinal {'SDR' if self.config.estimator == 'sdr' else 'TMLE'} "
+            f"({self.data.n_times} time points, n = {self.n})",
             "",
             table,
             # The refusal's own reason, as ``TMLEResult.summary`` prints it.
@@ -3230,6 +3310,8 @@ class _SequentialEstimator:
             )
         estimates = reported.estimates
         _warn_parameter_statuses(estimates)
+        if self._estimator == "sdr" and model is None:
+            _warn_parameter_space(estimates, prepared, scaler)
         with phase("inference"):
             bands = self._bands(estimates, prepared, status)
         result = LongitudinalResult(

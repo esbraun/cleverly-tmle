@@ -16,6 +16,8 @@ __all__ = [
     "DEFAULT_LONGITUDINAL_G_BOUNDS",
     "DEFAULT_LONGITUDINAL_MULTIPLIER",
     "DEFAULT_POINT_MULTIPLIER",
+    "SDR_NO_FLUCTUATION",
+    "SDR_POINT_REFUSAL",
     "SHORTCUTS",
     "CollaborativeTMLEMethod",
     "CrossFitting",
@@ -25,6 +27,7 @@ __all__ = [
     "MethodAvailability",
     "ModelSpec",
     "Runtime",
+    "SDRMethod",
     "TMLEMethod",
     "Targeting",
 ]
@@ -38,6 +41,17 @@ __all__ = [
 DEFAULT_POINT_MULTIPLIER = 1000
 DEFAULT_LONGITUDINAL_MULTIPLIER = 2000
 DEFAULT_LONGITUDINAL_G_BOUNDS = (0.01, 1.0)
+
+#: Why the SDR estimator refuses a fluctuation setting, by its engine name.
+SDR_NO_FLUCTUATION = (
+    "the SDR estimator fits no fluctuation, so it has no logistic shrink, iteration limit or "
+    "score tolerance. LTMLE takes {name}="
+)
+#: Why a point-treatment functional refuses ``method="sdr"`` (R4).
+SDR_POINT_REFUSAL = (
+    "the SDR estimator is the sequential regression of a longitudinal fit; a "
+    "point-treatment functional fits tmle, drtmle or collaborative_tmle"
+)
 
 
 @dataclass(frozen=True)
@@ -970,3 +984,87 @@ class DRTMLEMethod(TMLEMethod):
             "evaluation": self.evaluation,
             "randomized": self.randomized,
         }
+
+
+@dataclass(frozen=True)
+class SDRMethod(TMLEMethod):
+    """Configure the sequentially doubly robust longitudinal estimator.
+
+    The estimator of Díaz, Williams, Hoffman and Schenck (2023, Section 5.3), fitted by
+    :class:`cleverly.longitudinal.SDR`.  It runs the sequential regression of a longitudinal
+    fit and fits no fluctuation, so the fluctuation settings of :class:`Targeting` stay at
+    their defaults.  ``g_bounds`` bounds each partial path probability.  A point-treatment
+    functional refuses the method.
+
+    Parameters
+    ----------
+    models : ModelSpec
+        Nuisance learners.  ``pseudo_learner`` fits a real-valued target, and its default is
+        a regression Super Learner with no clip.
+    cross_fitting : CrossFitting
+        Sample-splitting settings.  Above one fold, each fold fits every nuisance on its
+        training rows.
+    targeting : Targeting
+        ``g_bounds`` and ``q_bounds``.  ``submodel_alpha``, ``max_iter`` and ``tol`` are
+        refused, because the estimator fits no fluctuation.
+    inference : Inference
+        Interval and resampling settings.  The bootstrap runs and reports a bootstrap sd,
+        with no percentile inference.
+    runtime : Runtime
+        Seed, run identifier, and parallelism.
+    name : str
+        Stable method name.
+
+    See Also
+    --------
+    TMLEMethod : The targeted estimator of the same longitudinal parameters.
+    cleverly.longitudinal.SDR : The engine this configuration is translated for.
+    cleverly.LongitudinalTreatment : The design whose functionals take this method.
+
+    Examples
+    --------
+    >>> from cleverly import CrossFitting, SDRMethod
+    >>> method = SDRMethod(cross_fitting=CrossFitting(n_folds=5))
+    >>> method.name, method.cross_fitting.n_folds
+    ('sdr', 5)
+    >>> "alpha" in method.estimator_kwargs(longitudinal=True)
+    False
+    """
+
+    name: str = "sdr"
+
+    def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
+        """Translate this configuration for the longitudinal SDR engine.
+
+        Parameters
+        ----------
+        longitudinal : bool
+            Must be true, because the estimator is a longitudinal sequential regression.
+
+        Returns
+        -------
+        dict of str to Any
+            SDR engine keyword arguments.
+
+        Raises
+        ------
+        MethodConfigurationError
+            When ``longitudinal`` is false, or when a fluctuation setting differs from its
+            default.
+        """
+        if not longitudinal:
+            raise MethodConfigurationError(SDR_POINT_REFUSAL)
+        defaults = Targeting()
+        for field_name, engine_name in (
+            ("submodel_alpha", "alpha"),
+            ("max_iter", "max_iter"),
+            ("tol", "tol"),
+        ):
+            if _differs_from_default(
+                getattr(self.targeting, field_name), getattr(defaults, field_name)
+            ):
+                raise MethodConfigurationError(SDR_NO_FLUCTUATION.format(name=engine_name))
+        kwargs = super().estimator_kwargs(longitudinal=True)
+        for engine_name in ("alpha", "max_iter", "tol"):
+            del kwargs[engine_name]
+        return kwargs

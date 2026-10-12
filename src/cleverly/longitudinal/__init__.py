@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from ..exceptions import LongitudinalError
 from .data import LongitudinalData
-from .estimator import LTMLE, LongitudinalConfig, LongitudinalResult, ltmle
+from .estimator import LTMLE, SDR, LongitudinalConfig, LongitudinalResult, ltmle, sdr
 from .regimen import (
     DynamicRegimen,
     Plan,
@@ -50,6 +50,7 @@ from .sequential import (
 
 __all__ = [
     "LTMLE",
+    "SDR",
     "DynamicRegimen",
     "LongitudinalConfig",
     "LongitudinalData",
@@ -66,4 +67,5 @@ __all__ = [
     "ltmle",
     "resolve_plans",
     "resolve_regimens",
+    "sdr",
 ]

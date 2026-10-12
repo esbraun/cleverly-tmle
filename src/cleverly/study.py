@@ -20,14 +20,16 @@ from .inference.multiplier import SimultaneousBands, simultaneous_bands
 from .interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet
 from .interventions.base import InterventionKind, refuse_mixed_interventions
 from .interventions.learned import LearnedRule, refuse_learned_rule_composition
-from .longitudinal import LTMLE, LongitudinalData, LongitudinalResult
+from .longitudinal import LTMLE, SDR, LongitudinalData, LongitudinalResult
 from .longitudinal.regimen import declares_mtp, declares_policy
 from .methods import (
+    SDR_POINT_REFUSAL,
     CollaborativeTMLEMethod,
     DRTMLEMethod,
     EstimationMethod,
     MethodAvailability,
     Runtime,
+    SDRMethod,
     TMLEMethod,
 )
 from .msm import MSM, MSMSet, refuse_continuous_msm_mechanisms
@@ -3172,6 +3174,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 if variants
                 else blocker or "no reduced-dimension correction is evidenced for this functional",
             ),
+            MethodAvailability("sdr", not point, SDR_POINT_REFUSAL if point else None),
             MethodAvailability(
                 "riesz_tmle",
                 False,
@@ -3322,6 +3325,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 "tmle": TMLEMethod,
                 "collaborative_tmle": CollaborativeTMLEMethod,
                 "drtmle": DRTMLEMethod,
+                "sdr": SDRMethod,
             }
             return constructors[method]().with_overrides(**overrides)
         if not isinstance(method, EstimationMethod):
@@ -3505,7 +3509,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
     def _estimate_longitudinal(self, method: EstimationMethod) -> LongitudinalResult:
         assert self._study is not None and isinstance(self._study.data, LongitudinalData)
         functional = self.functional
-        estimator = LTMLE(
+        engine = SDR if isinstance(method, SDRMethod) else LTMLE
+        estimator = engine(
             functional.interventions,
             reference=functional.reference,
             horizons=functional.horizons,
