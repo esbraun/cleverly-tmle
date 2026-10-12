@@ -153,8 +153,12 @@ def test_the_committed_grid_is_the_rule_s_output() -> None:
     """``lambdas.csv`` is written in the declaration step; before it, there is nothing to read."""
     if not study.LAMBDAS_FILE.exists():
         pytest.skip("lambdas.csv is written and committed in the declaration step")
-    committed = pd.read_csv(study.LAMBDAS_FILE)["lambda"].to_numpy(dtype=float)
-    np.testing.assert_allclose(committed, study.primary_grid(), rtol=1e-15, atol=0.0)
+    # The default pandas parser can miss a 17-digit value by about 1e-13. The tolerance is
+    # a few ulps: the rule's lambda_max is a sum whose rounding differs between machines.
+    committed = pd.read_csv(study.LAMBDAS_FILE, float_precision="round_trip")
+    np.testing.assert_allclose(
+        committed["lambda"].to_numpy(dtype=float), study.primary_grid(), rtol=1e-15, atol=0.0
+    )
 
 
 def test_the_study_imports_without_its_declaration_inputs() -> None:

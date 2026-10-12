@@ -71,6 +71,8 @@ _MAX_OUTER = 500
 _MAX_SWEEPS = 10_000
 _MAX_POLISH = 100
 _MAX_ROUNDS = 50
+#: A relative objective rise that rounding alone explains: 64 ulps of 1.
+_ROUNDING = 64 * float(np.finfo(float).eps)
 
 
 class L1ConvergenceError(CapabilityError):
@@ -539,6 +541,26 @@ def _bounded(intercept: FloatArray, coef: FloatArray) -> bool:
     return bool(np.isfinite(largest) and largest <= _SEPARATION_BOUND)
 
 
+def _moved(
+    problem: _Problem,
+    intercept: FloatArray,
+    coef: FloatArray,
+    active: list[tuple[int, int]],
+    step: FloatArray,
+) -> tuple[FloatArray, FloatArray]:
+    """The unpenalized fit moved by ``step`` in the free intercepts and ``active``."""
+    n_free = 1 if problem.binary else problem.n_classes - 1
+    trial_intercept = intercept.copy()
+    if problem.binary:
+        trial_intercept[1] += step[0]
+    else:
+        trial_intercept[1:] += step[:n_free]
+    trial_coef = coef.copy()
+    for position, (j, k) in enumerate(active):
+        trial_coef[j, k] += step[n_free + position]
+    return trial_intercept, trial_coef
+
+
 def _mle(problem: _Problem) -> tuple[FloatArray, FloatArray, bool]:
     """The unpenalized fit by Newton: binomial, or reference-coded multinomial."""
     intercept, coef = problem.null_start()
@@ -557,23 +579,26 @@ def _mle(problem: _Problem) -> tuple[FloatArray, FloatArray, bool]:
         if float(np.max(np.abs(gradient))) < 1e-15:
             return intercept, coef, _bounded(intercept, coef)
         step = -np.linalg.lstsq(hessian, gradient, rcond=None)[0]
-        n_free = 1 if problem.binary else problem.n_classes - 1
+        scale = max(1.0, abs(current))
+        trial_intercept, trial_coef = _moved(problem, intercept, coef, active, step)
+        value = problem.objective(trial_intercept, trial_coef, 0.0)
+        # Near the optimum the objective is flat to rounding: the full Newton step can raise
+        # it by a few ulps while it still cuts the gradient. The full step is kept there when
+        # it lowers the KKT residual, the quantity the convergence test reads. A shrunken
+        # step would only tie the objective and leave the residual where it is.
+        flat = value <= current + _ROUNDING * scale and problem.kkt(
+            trial_intercept, trial_coef, 0.0
+        ) < problem.kkt(intercept, coef, 0.0)
         size = 1.0
-        while size > 1e-12:
-            trial_intercept = intercept.copy()
-            if problem.binary:
-                trial_intercept[1] += size * step[0]
-            else:
-                trial_intercept[1:] += size * step[:n_free]
-            trial_coef = coef.copy()
-            for position, (j, k) in enumerate(active):
-                trial_coef[j, k] += size * step[n_free + position]
+        while not flat and size > 1e-12:
+            trial_intercept, trial_coef = _moved(problem, intercept, coef, active, size * step)
             value = problem.objective(trial_intercept, trial_coef, 0.0)
-            if value <= current + 1e-16 * max(1.0, abs(current)):
+            if value <= current + 1e-16 * scale:
                 break
             size *= 0.5
         else:
-            break
+            if not flat:
+                break
         intercept, coef = trial_intercept, trial_coef
         if not np.all(np.isfinite(coef)) or float(np.max(np.abs(coef), initial=0.0)) > 1e8:
             return intercept, coef, False

@@ -366,7 +366,7 @@ def study_lambdas() -> tuple[float, ...]:
     """
     if not LAMBDAS_FILE.exists():
         raise _missing(LAMBDAS_FILE, "the declared penalty grid")
-    table = pd.read_csv(LAMBDAS_FILE)
+    table = pd.read_csv(LAMBDAS_FILE, float_precision="round_trip")
     if list(table.columns) != ["entry", "lambda"] or len(table) != GRID_SIZE:
         raise ValueError(f"lambdas.csv must hold columns entry, lambda and {GRID_SIZE} rows")
     if not np.array_equal(table["entry"], np.arange(1, GRID_SIZE + 1)):
