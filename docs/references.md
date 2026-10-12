@@ -1649,6 +1649,13 @@ sizes only the cluster sum is the delta-method variance of the row mean
   effect modification by covariates as future work. That is a conditional curve, and a fixed
   finite partition is not one. The locators refer to arXiv v3. The published version's
   locators were not read.
+- Kim, Kennedy & Naimi (2021), [*Incremental intervention effects in studies with dropout and
+  many timepoints*](https://arxiv.org/abs/1907.04004), arXiv:1907.04004v3. Section 2 places each
+  repeated outcome before the next node's covariates and treatment, in time order. The package
+  cites it as context for the repeated-outcome curve of `LTMLE`, which rests on the end-of-study
+  results of Bang & Robins (2005) and van der Laan & Gruber (2012). The published version's
+  locators were not read. [X32b](roadmap.md#x32b-repeated-outcomes-for-sdr-and-ipsi) reads them
+  before `IPSI` cites the paper.
 - de Aguas (2026), [*Interpolated Stochastic Interventions Based on Propensity Scores, Target
   Policies and Treatment-Specific Costs*](https://arxiv.org/html/2511.11353),
   arXiv:2511.11353v3. The preprint constructs scalar-parameter categorical propensity policies

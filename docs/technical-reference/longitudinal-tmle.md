@@ -207,6 +207,64 @@ only happen at the last node reproduces the end-of-study fit **bit for bit**. A 
 single cause reproduces a single-event survival fit **bit for bit**. Stitelman, De Gruttola and van
 der Laan (2012) is the survival implementation reference.
 
+### Repeated outcomes
+
+A repeated outcome is measured at every node and is not absorbing. A unit with $Y_1 = 1$ can have
+$Y_2 = 0$. Declare it with `outcome=Repeated(["Y1", "Y2", "Y3"])`. The node order is
+
+$$
+W,\; L_1, A_1, C_1, Y_1,\; L_2, A_2, C_2, Y_2,\; \ldots,\; L_T, A_T, C_T, Y_T.
+$$
+
+The parameter is the curve of means $E[Y_h^d]$, one for each plan $d$ and horizon $h$. A fit
+reports `ey_regimen[d @ t=h]` and `ate_regimen[d vs ref @ t=h]`.
+
+The construction is a reduction to the end-of-study fit. The container puts $Y_s$ first in the
+covariate block of node $s + 1$, before the covariate screen. Each later treatment, censoring and
+outcome regression can then read it. At horizon $h$ the fit seeds the recursion with the observed
+$Y_h$ and runs the end-of-study recursion over nodes $1, \ldots, h$. That fit is the end-of-study
+fit of the panel truncated after $h$, with $Y_h$ as its outcome. The base for each horizon is the
+end-of-study derivation of Bang and Robins (2005) and van der Laan and Gruber (2012). Kim, Kennedy
+and Naimi (2021, arXiv v3 preprint) discuss the repeated-outcome setting. This implementation does
+not rely on that preprint.
+
+| item | value |
+| --- | --- |
+| history at node $t$ | $W, L_1, Y_1, L_2, \ldots, Y_{t-1}, L_t$ and the earlier treatments |
+| seed at horizon $h$ | the scaled $Y_h$ on the rows uncensored through $h$ |
+| missing $Y_t$ on a row uncensored through $t$ | refused. Encode it as $C_t = 0$ |
+| outcome scale | one scale over the observed values of every node, so a continuous curve has one scale |
+| family | resolved over the observed values of every node |
+| influence curve at $(d, h)$ | the end-of-study influence curve of the truncated panel |
+| joint band | the multiplier band over the stacked curves of every reported $(d, h)$ |
+| working model, `msm=` | a design over $(d, h)$ cells. Each cell seeds its own $Y_h$ |
+| full-refit bootstrap | a diagnostic. No result licenses its coverage on this outcome |
+
+The remainder at each horizon is the end-of-study product remainder. The stack over horizons adds
+no remainder term. The interval at $(d, h)$ is therefore the end-of-study interval of the truncated
+panel, under the same inference statuses.
+
+| composition | status |
+| --- | --- |
+| static, dynamic and known stochastic plans, modified treatment policies | fits. A rule may read $Y_{t-1}$ |
+| cross-fitting, clusters, weights, a held treatment, known mechanisms | fits |
+| `msm=` over $(d, h)$ cells | fits |
+| `SDR` and `IPSI` | refused before any learner, until [X32b](../roadmap.md#x32b-repeated-outcomes-for-sdr-and-ipsi) |
+| competing causes | not declarable. A cause mapping declares an absorbing outcome |
+| `rmst()`, `rmtl()`, `incidence_total()`, `ratio(view="survival")` | refused. A mean of a repeated outcome is not a cumulative risk |
+| `curve()` | `scale="mean"`, the default for this outcome. `"risk"` and `"survival"` are refused |
+
+This construction does not cover a recurrent-event count process or truncation by death. If death
+is encoded as censoring, the parameter is the mean in a population where death is prevented.
+
+`tests/unit/test_repeated_outcome.py` checks the reduction at every horizon for 13 compositions:
+the estimate, the influence curve, every node regression and the cumulative mechanism, at
+`rtol=1e-12`. `tests/unit/test_influence_gateaux_repeated.py` checks the influence curve against
+the complex-step Gateaux derivative of the g-formula on two exact laws in
+`tests/discrete_law_repeated.py`. One law is binary. The other has three values per node. Ten
+mutation controls fail these tests, among them the absorbing seed $\max_{s \le h} Y_s$, a history
+without $Y_{s}$, and one seed at $Y_T$ for every horizon.
+
 ### Known stochastic policies
 
 A plan node can hold a known policy density instead of a label or a rule. The unit then draws its
@@ -532,7 +590,7 @@ applies to every outcome and pseudo-outcome node, on both layouts.
 | a pseudo-outcome that holds one value inside $(0, 1)$, such as an intercept-only regression carried back | not read by this rule. The learner fits it and the fluctuation moves it, so a fit that ran before the rule keeps its numbers |
 
 A node's term of the influence curve is identically zero when the node reads a constant. The
-true hazard there can still be positive, so the plug-in standard error leaves that node's variance
+true outcome variance there can still be positive, so the plug-in standard error leaves that node's variance
 out. A risk of zero would report a standard error of zero, and a contrast against it would carry
 the other arm's variance only. Each parameter whose recursion reads such a node therefore takes
 the `constant_node_plugin` status

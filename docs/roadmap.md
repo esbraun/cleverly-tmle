@@ -190,6 +190,7 @@ Priorities 2 to 5 follow the beta.
 | 1.17 | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
 | 1.18 | Continuous vector components at a node | published support; pending source read | shipped longitudinal modified treatment policies | [X31](#x31-continuous-vector-components-at-a-node) |
 | 1.19 | Plug-in omitted-variable limits with a declared parametric mechanism | [published support; stacked-equation extension](technical-reference/natural-extension-verdicts.md) | the shipped plug-in bound | [X26](#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism) |
+| 1.20 | Repeated outcomes for SDR and IPSI | per-horizon reduction to shipped estimators | X4 and X19, and the shipped `LTMLE` repeated outcome | [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi) |
 | 2.1 | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
 | 2.2 | Efficient known-score ATT and ATC | published support; pending source read | the shipped known treatment mechanism | [X35](#x35-efficient-known-score-att-and-atc) |
 | 3.1 | Natural and interventional mediation effects | published support; pending source read | target-specific identification and evidence | [X5](#x5-natural-and-interventional-mediation-effects) |
@@ -799,6 +800,29 @@ Acceptance:
 - a mutation control that drops one component's ratio;
 - a registered study against the pinned `lmtp` 1.5.4, with the ratio supplied to both sides.
 
+### X32b. Repeated outcomes for SDR and IPSI
+
+`LTMLE` fits a repeated outcome, declared with `outcome=Repeated([...])`. Each horizon is the
+end-of-study fit of the panel truncated after it
+([repeated outcomes](technical-reference/longitudinal-tmle.md#repeated-outcomes)). `LTMLE.fit`
+refuses a repeated outcome for any other estimator kind, before any learner. So `SDR` (X4) and
+`IPSI` (X19) refuse it when they ship.
+
+| part | what to add | evidence |
+| --- | --- | --- |
+| (a) `SDR` | the per-horizon reduction of the sequentially doubly robust fit | the reduction test of `tests/unit/test_repeated_outcome.py` for `SDR`, and exact-law Gateaux witnesses |
+| (b) `IPSI` | the per-horizon reduction of the incremental-intervention fit | the same, for `IPSI` |
+
+Kim, Kennedy and Naimi (2021, arXiv v3 preprint) discuss incremental interventions with a repeated
+outcome. Read its published version before part (b) cites it.
+
+Acceptance:
+
+- `tests/unit/test_repeated_outcome_subclasses.py` passes with each estimator fitting rather than
+  refusing;
+- a mutation control that seeds every horizon at $Y_T$ fails the reduction test;
+- a registered study per estimator, or a row in `longitudinal-repeated-outcome` for each.
+
 ### P1. EP learner
 
 Van der Laan, Carone and Luedtke (2024), arXiv:2402.01972, govern this item. After first-hand
@@ -1164,7 +1188,9 @@ sample-data operation.
 ### F3. Additional longitudinal estimands
 
 Competing-event interventions and other longitudinal estimands wait for their own identification
-assumptions, influence functions, targeting construction, and inference conditions. Add accepted
+assumptions, influence functions, targeting construction, and inference conditions. The mean of a repeated outcome
+at each horizon ships for `LTMLE`. [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi) owns it for
+`SDR` and `IPSI`. Add accepted
 targets in both directions to the oracle registry and evidence gates rather than treating them as
 options on an existing cause-specific estimand.
 
