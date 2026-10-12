@@ -762,11 +762,12 @@ class CollaborativeTMLEMethod(TMLEMethod):
         Seed, run identifier, and parallelism.
     name : str
         Stable method name.
-    strategy : {"greedy", "ordered", "discrete", "oat"}, default="greedy"
-        Collaborative search strategy. ``"greedy"``, ``"ordered"`` and ``"discrete"``
-        report no confidence interval, no p-value and no standard error, with one
-        exception that the Notes state. F18 in the roadmap holds the reason. ``"oat"``
-        reports no interval on either design, for the reason F19 holds.
+    strategy : {"greedy", "ordered", "discrete", "lasso", "learners", "oat"}, default="greedy"
+        Collaborative search strategy. ``"greedy"``, ``"ordered"``, ``"discrete"``,
+        ``"lasso"`` and ``"learners"`` report no confidence interval, no p-value and no
+        standard error, with two exceptions that the Notes state. F18 in the roadmap holds
+        the reason. ``"oat"`` reports no interval on either design, for the reason F19
+        holds.
     preorder : {"logistic", "partial_correlation"} or None, default=None
         Preordering rule for candidate covariates.
     ordering : tuple of str or None, default=None
@@ -787,6 +788,16 @@ class CollaborativeTMLEMethod(TMLEMethod):
         The treatment design of ``strategy="oat"``. ``None`` resolves to ``"per_arm"``.
         ``"shared"`` fits the one categorical mechanism of ``ctmle3``. Neither reports an
         interval, for the reason F19 in the roadmap holds.
+    lambdas : tuple of float or None, default=None
+        The penalty grid of ``strategy="lasso"``, strictly decreasing, with 0 allowed only
+        as the last value. ``None`` uses ``glmnet``'s default grid with 0 appended.
+    treatment_candidates : tuple or None, default=None
+        The declared candidates of ``strategy="learners"``, from the least to the most
+        adaptive: unfitted learners, or :class:`~cleverly.estimators.PropensityArrays`
+        pairs. ``treatment_learner`` on every covariate is appended as the last candidate.
+    selection_split : tuple of int or None, default=None
+        Fold labels ``0`` to ``V - 1``, one for each row, used in place of the random
+        selection split.
 
     See Also
     --------
@@ -798,14 +809,15 @@ class CollaborativeTMLEMethod(TMLEMethod):
     Notes
     -----
     The default ``"greedy"`` strategy selects a working treatment mechanism, and so do
-    ``"ordered"`` and ``"discrete"``. No result shows that the reported curve is the
-    estimator's influence curve at that mechanism. Their estimates therefore raise
-    :class:`~cleverly.exceptions.CapabilityError` from ``std_error``, ``ci`` and
-    ``pvalue``. Each estimate keeps ``plugin_std_error`` and ``plugin_interval`` as a
+    ``"ordered"``, ``"discrete"``, ``"lasso"`` and ``"learners"``. No result shows that the
+    reported curve is the estimator's influence curve at that mechanism. Their estimates
+    therefore raise :class:`~cleverly.exceptions.CapabilityError` from ``std_error``, ``ci``
+    and ``pvalue``. Each estimate keeps ``plugin_std_error`` and ``plugin_interval`` as a
     diagnostic, which is not a confidence statement. For an interval, use
-    :class:`TMLEMethod`. The exception is a ``"discrete"`` fit whose one declared
-    candidate is the full adjustment set. It selects nothing, equals the ordinary TMLE,
-    and reports the ordinary interval.
+    :class:`TMLEMethod`. There are two exceptions. A ``"discrete"`` fit whose one declared
+    candidate is the full adjustment set, and a ``"learners"`` fit with an empty
+    ``treatment_candidates`` list, select nothing, equal the ordinary TMLE, and report the
+    ordinary interval.
 
     ``strategy="oat"`` selects nothing, and it keeps the diagnostic only on either design:
     condition (v) of Benkeser, Cai and van der Laan (2020), Theorem 1, fails for an
@@ -838,7 +850,23 @@ class CollaborativeTMLEMethod(TMLEMethod):
     penalty: bool = True
     selection_estimand: str = "ate"
     oat_design: str | None = None
+    lambdas: tuple[float, ...] | None = None
+    treatment_candidates: tuple[Any, ...] | None = None
+    selection_split: tuple[int, ...] | None = None
     name: str = "collaborative_tmle"
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        from .estimators.ctmle import PropensityArrays, _is_array_like
+
+        for name in ("lambdas", "treatment_candidates", "selection_split"):
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, tuple):
+                object.__setattr__(self, name, tuple(value))
+        # A lone array entry passes through, so the engine names the ctmleGeneral pair.
+        for index, entry in enumerate(self.treatment_candidates or ()):
+            if not isinstance(entry, PropensityArrays) and not _is_array_like(entry):
+                _validate_learner(entry, f"treatment_candidates[{index}]")
 
     def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
         """Translate this configuration for the point-treatment CTMLE engine.
@@ -867,6 +895,9 @@ class CollaborativeTMLEMethod(TMLEMethod):
             "penalty": self.penalty,
             "ctmle_estimand": self.selection_estimand,
             "oat_design": self.oat_design,
+            "lambdas": self.lambdas,
+            "treatment_candidates": self.treatment_candidates,
+            "selection_split": self.selection_split,
         }
 
 

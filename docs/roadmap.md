@@ -182,7 +182,7 @@ Priorities 2 to 5 follow the beta.
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
 | 1.11 | Per-arm outcome-adaptive C-TMLE with baseline strata and missing data | [natural extension of Theorem 1](technical-reference/natural-extension-verdicts.md) | the shipped per-arm `strategy="oat"` design | [X29](#x29-per-arm-outcome-adaptive-c-tmle-with-baseline-strata-and-missing-data) |
-| 1.12 | C-TMLE candidate sequences | published support; pending source read | shipped selector paths | [X16](#x16-c-tmle-candidate-sequences) |
+| 1.12 | C-TMLE0: one fluctuation with a derivative clever covariate | published support; pending source read | the shipped `lasso` and `learners` C-TMLE paths | [X30](#x30-c-tmle0-one-fluctuation-with-a-derivative-clever-covariate) |
 | 1.13 | Sequential doubly robust longitudinal estimation | published support; pending source read | implemented longitudinal targets | [X4](#x4-sequential-doubly-robust-longitudinal-estimation) |
 | 1.14 | Hazard-based and monotone survival curves | published support; pending source read | the shipped point-treatment survival design | [X14](#x14-hazard-based-and-monotone-survival-curves) |
 | 1.15 | Incremental interventions over time | source audit | shipped longitudinal modified treatment policies | [X19](#x19-incremental-interventions-over-time) |
@@ -226,7 +226,7 @@ the current boundary, and the refusal that keeps it.
 | Longitudinal sensitivity-bound estimation | sample estimation of the bound functionals, a specialized algorithm, and sampling inference | no sensitivity bound on a longitudinal fit | [F16](#f16-longitudinal-sensitivity-bound-estimation) |
 | Additional longitudinal estimands | target-specific identification, influence function, targeting construction, and inference conditions | existing end-of-study, survival, competing-risk, and MSM targets only | [F3](#f3-additional-longitudinal-estimands) |
 | Other refused C-TMLE and DR-TMLE compositions | composition-specific score, reduced regressions, correction, remainder, and rate conditions. An observational missing outcome and a missing treatment on `DRTMLE` ship through the [composite indicator](technical-reference/dr-tmle/theorem.md#observational-missing-data-the-composite-indicator). On the composite, `evaluation=` and `reduced_crossfit="nested"` stay refused | named pre-fit refusals. `DRTMLE` refuses `NaturalCourseMean`, PAR and PAF with missing outcomes, because no DR-TMLE natural-course mean ships. A `DRTMLE` fit with a non-empty `guard` and estimated weights reports its point estimate under the `estimated_weight_plugin` status, and no interval | [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
-| Selector-path C-TMLE inference | an influence function and covariance after the shipped data-adaptive stopping-index selection | point estimates and path diagnostics only. The greedy, ordered, and discrete paths refuse `ci`, `pvalue`, and `std_error`, except a `discrete` fit whose one declared candidate is the full adjustment set, and report a named working-mechanism plug-in diagnostic | [F18](#f18-selector-path-c-tmle-inference) |
+| Selector-path C-TMLE inference | an influence function and covariance after the shipped data-adaptive stopping-index selection | point estimates and path diagnostics only. The greedy, ordered, discrete, lasso, and learners paths refuse `ci`, `pvalue`, and `std_error`, except a `discrete` fit whose one declared candidate is the full adjustment set and a `learners` fit with an empty declared list, and report a named working-mechanism plug-in diagnostic | [F18](#f18-selector-path-c-tmle-inference) |
 | Outcome-adaptive C-TMLE generated-design inference | the generated-design term $c^\top \mathrm{IF}_\beta$ of the per-arm design, a vector result for the shared multinomial design, and uniformity for both designs | point estimates only. Every `strategy="oat"` fit, of either design, refuses `ci`, `pvalue`, and `std_error` under the `generated_design_plugin` status, and reports a named generated-design plug-in diagnostic. The per-arm study measured that diagnostic 8 to 24 percent too small ([the applied revert](technical-reference/collaborative-tmle.md#the-applied-revert)) | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | Other missing-outcome CV-TMLE variants | a direct interval result for fold-specific targeting and for the fixed-repeat median and split-dispersion report after CV-TMLE targeting | the package supports the ordinary natural-course estimator, the stacked natural-course estimator for a binary outcome, the stacked arm-indexed means and contrasts, and their stacked PAR and PAF for a binary outcome. Each stacked estimator uses one repeat and pooled targeting. Shift, incremental, regime, MSM, and controlled-direct-effect targets refuse a cross-fitted fit with missing outcomes before any learner | [F21](#f21-other-missing-outcome-cv-tmle-variants) |
 | Grouped cross-fitting beyond point-treatment TMLE | a split law and a cluster-robust variance for the C-TMLE selection folds and the candidate the search stops at | whole-cluster outer folds for cross-fitted point-treatment TMLE and DR-TMLE, at equal or unequal cluster sizes, with the [clustered interval rules](technical-reference/inference.md#clusters). Cross-fitted longitudinal TMLE draws whole-cluster folds too ([longitudinal clusters](technical-reference/longitudinal-tmle.md#clusters)). C-TMLE refuses `id=` | [F22](#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
@@ -236,6 +236,7 @@ the current boundary, and the refusal that keeps it.
 | Learned-policy value outside the published conditions | an interval for the fold-average learned-rule value without a limiting rule, and results for the refused compositions | `LearnedRuleValue` fits the fold-evaluated CV-TMLE of [learned rules](technical-reference/point-treatment-tmle.md#learned-rules) under the limiting-rule condition. Its boundary study measures under-coverage at an exceptional law. The other F27 requests refuse before any learner | [F27](#f27-learned-policy-value-outside-the-published-conditions) |
 | Inference at a boundary node estimate | an interval for a longitudinal TMLE parameter when a node regression reads a constant 0 or 1, such as a hazard estimated as zero at a grid node with no event, with its coverage | the point estimate stands. The parameter, and every contrast and restricted mean that reads it, take the `constant_node_plugin` status and report a plug-in diagnostic only. The band leaves them out | [F31](#f31-inference-at-a-boundary-node-estimate) |
 | Finite-sample limits of clustered intervals | a small-sample correction or reference for the cluster-summed TMLE curve, at few clusters, at unequal cluster sizes, and for the fold-evaluated variance at few clusters per fold. An interval at 4 to 9 clusters (4 to 19 for `LTMLE`), which no registered study measures, and a fold-evaluated degrees-of-freedom rule at 40 clusters or more | `few_cluster_plugin` below 10 positive-mass clusters, and below 20 for `LTMLE`, the smallest counts the registered study measures. $t_{J-2}$ from 10 (20 for `LTMLE`) to 39. Fold-evaluated fits need 2 clusters per fold. The registered evidence uses parametric nuisance learners | [F28](#f28-finite-sample-limits-of-clustered-intervals) |
+| The `ctmleGlmnet` type-2 path | a published algorithm that defines the type-2 candidate sequence and its fluctuation | `strategy="lasso"` runs the C-TMLE1 construction only, and no keyword selects a type-2 path | [F29](#f29-the-ctmleglmnet-type-2-path) |
 
 ## Eligibility
 
@@ -438,27 +439,25 @@ Acceptance:
   recode of [the per-arm study](technical-reference/collaborative-tmle.md#the-per-arm-outcome-adaptive-design);
 - the `generated_design_plugin` reason and the refusal table name what still withholds.
 
-### X16. C-TMLE candidate sequences
+### X30. C-TMLE0: one fluctuation with a derivative clever covariate
 
-The shipped `CTMLE` builds candidates from covariate sets: the greedy, ordered and discrete paths.
-The pinned `ctmle` 0.1.2 builds two other kinds of sequence.
+R `ctmle` 0.1.2 ships a third type in `ctmleGlmnet` and `ctmleGeneral`: `ctmletype = 3`. It fits
+one TMLE whose submodel adds the derivative columns $1\{A=a\}(g_a - g_a^+)/g_a^2$. The derivative
+is a finite difference between two declared mechanisms, `g1W` and `g1WPrev`. The type has no
+candidate sequence and no cross-validation.
 
-| part | what to add | published source | comparator |
-| --- | --- | --- | --- |
-| (a) a lasso path | candidates indexed by the penalty of an L1 propensity fit, with the C-TMLE selection over the penalty | Ju, Wyss, Franklin, Schneeweiss, Häggström and van der Laan (2019), *SMMR* 28(4) | `ctmleGlmnet` |
-| (b) declared propensity candidates | an ordered sequence of propensity estimates that a user supplies, with the same selection | Ju, Gruber et al. (2019), *SMMR* 28(2); van der Laan and Gruber (2010) for the general template | `ctmleGeneral` and `build_gn_seq` |
-
-Both parts report point estimates and path diagnostics. Both take the `working_mechanism_plugin`
-status, because [F18](#f18-selector-path-c-tmle-inference) holds selector-path inference. The
-contract for part (b) states whether a supplied candidate may be fitted on the analysis sample,
-and which folds its predictions must respect.
+| item | content |
+| --- | --- |
+| published algorithm | Ju, Wyss et al. (2019), *SMMR* 28(4), Appendix B, Algorithm 2; Ju, Chambaz and van der Laan (2018), Section 4.2, LASSO-PSEUDO-C-TMLE |
+| comparator | `ctmleGlmnet` and `ctmleGeneral` with `ctmletype = 3` (`R/ctmle_glmnet.R`, lines 115 to 201; `R/ctmle_general.R`, lines 168 to 252) |
+| work | a `2K`-column submodel for every estimand, arm count, weight and missing-outcome composition, and an input contract for the second mechanism |
+| status | the plug-in diagnostic only, under [F18](#f18-selector-path-c-tmle-inference) |
 
 Acceptance:
 
-- an exact-law witness that each path reaches the full model at its end;
-- a mutation control on the path order;
-- a registered study against the pinned `ctmle` that reuses the selector study's laws and reports
-  the point and the plug-in diagnostic.
+- an exact-law witness with a nonzero derivative step, and a mutation control that drops the
+  derivative columns;
+- a fixture against R `ctmle` type 3 in the pattern of `tests/canonical/ctmle_sequence_witness/`.
 
 ### X4. Sequential doubly robust longitudinal estimation
 
@@ -543,6 +542,7 @@ theory. Each option keeps every default fit bit-identical, and each changes a fi
 | (f) per-arm outcome fit | fit the outcome regression separately in each arm | a nuisance choice for `TMLE` and `DRTMLE` | `drtmle` `stratify` |
 | (g) early stop on a C-TMLE path | stop the greedy search after a declared number of steps without a risk improvement | a cheaper path. The fit keeps its `working_mechanism_plugin` status | `ctmle` `patience` |
 | (h) hazard and outcome bounds | bound each node's regression into a declared interval before the logistic fluctuation | a fit on a declared range of the hazard or the iterated mean | `survtmle` `bounds` |
+| (i) separate treatment covariates | fit the treatment mechanism on a declared subset of the adjustment set | a smaller propensity model. A strict subset changes the remainder, so the item states its interval contract before it ships | `ctmle` `Wg` |
 
 At a continuous modified-treatment-policy node of `LTMLE`, the ratio that part (d) trims is the
 node's density ratio, which the fit stores as `RegimenFit.node_ratio`.
@@ -1177,12 +1177,18 @@ machinery are not sufficient.
 
 ### F18. Selector-path C-TMLE inference
 
-The greedy, ordered and discrete paths report point estimates and path diagnostics. They refuse
-`ci`, `pvalue` and `std_error` under the `working_mechanism_plugin` status. They report the
+The greedy, ordered, discrete, lasso and learners paths report point estimates and path
+diagnostics. They refuse `ci`, `pvalue` and `std_error` under the `working_mechanism_plugin`
+status. They report the
 ordinary curve at the selected candidate as `plugin_std_error` and `plugin_interval`. That curve
 does not establish conditional or unconditional coverage after selection. F18 reopens inference
 when a published result supplies the influence function and covariance after the shipped
 selection.
+
+A result that reopens a selector path, including `lasso` and `learners`, must bound the
+adaptive-mechanism term, or Ju et al. (2018)'s $\Delta(P_1)$, without conditioning on the pair
+$(\bar Q_n, \bar Q_0)$, or must show that the term is a product. A term that is linear in
+$g_n - g_0$ when $\bar Q$ is wrong does not qualify.
 
 F18 is not a natural extension under the [Eligibility](#eligibility) rule. The selector is a
 data-adaptive selection step, which the rule names as one with no established argument. No
@@ -1207,7 +1213,7 @@ gives each locator.
 | source | what it gives | what it lacks for F18 |
 | --- | --- | --- |
 | van der Laan and Gruber (2010), Section 4 | an abstract adaptive-mechanism contribution under fixed-limit and regularity assumptions. Section 4.3 leaves cross-validation over-selection open | the curve after the shipped stopping-index selection |
-| Ju et al. (2018), Lemma 2 | a continuous-path contribution that is zero in one correct-outcome, product-rate regime | a discrete stopping index |
+| Ju et al. (2018), Lemma 2 | a continuous-path contribution that is zero in one correct-outcome, product-rate regime. Corollary 4 gives the LASSO-C-TMLE expansion, whose extra term Lemma 2 makes zero under a consistent outcome regression and product rate. The paper gives no estimator of it otherwise. The shipped lasso path lies outside its conditions | a discrete stopping index |
 | Ju, Gruber et al. (2019), *SMMR* 28(2); Ju, Wyss et al. (2019), *SMMR* 28(4); Ju, Schwab and van der Laan (2019), *SMMR* 28(6) | ordinary EIF intervals. The last reports standard errors smaller than the sampling spread | a post-selection theorem |
 | Cui and Tchetgen Tchetgen (2024), arXiv:1911.02029v6, Theorems 5.1 and 5.2 | an oracle inequality and selector consistency. Section 6 calls a Wald interval at the selected learners "completely blind to the model selection step" | a limit law |
 | Liu (2018), Harvard dissertation, Chapter 2 | asymptotic laws for C-TMLE coefficients and risks, with known candidates, known outcome variance and a known covariate law, for one binary treatment-specific mean | learned nuisances, the discrete stopping rule and joint targets |
@@ -1257,7 +1263,8 @@ result could therefore confirm the current curve or require a different one.
 - [Red-cell owners](#red-cell-owners) names the cells of the
   [point-treatment](technical-reference/method-evidence/selector-based-point-treatment-c-tmle.md)
   and [multi-arm](technical-reference/method-evidence/selector-based-multi-arm-c-tmle.md) selector
-  studies that must pass.
+  studies, and of the [candidate-sequence](technical-reference/method-evidence/c-tmle-candidate-sequences.md)
+  study's `selector_necessity` family, that must pass.
 
 ### F19. Outcome-adaptive C-TMLE generated-design inference
 
@@ -1562,6 +1569,21 @@ freedom.
 | a fold-evaluated point at informative unequal sizes with few clusters per fold | a fold-evaluated point construction whose bias at 2 to 6 clusters per fold stays inside 0.25 empirical standard deviations, such as a cluster-size-weighted fold average whose fluctuation uses the same weights, with its own registered study. The stacked report is the remedy today. The few-cluster study reads a bias of 0.61, 0.43 and 0.32 at 2, 4 and 6 clusters per fold, where the stacked fit reads 0.14, 0.10 and 0.06. The equal $1/V$ fold average causes it (`tests/unit/test_fold_evaluated_ratio_bias.py`) |
 | a calibrated cross-fitted `DRTMLE` cluster variance at 10 to 30 clusters | a cluster variance for the cross-fitted `DRTMLE` curve whose SE ratio stays inside the calibration band, or a redesigned IID control, with a registered study. The few-cluster study reads cluster-robust SE ratios of 1.19, 1.14 and 1.12 at 10, 20 and 30 equal clusters. The IID SE is 23% to 28% below the cluster-robust SE, and the IID SE ratio upper endpoint reaches the 0.80 ceiling at four cells |
 | complex nuisance learners at about 20 clusters | none for parametric learners. Wang, Park, Small and Li (2024), Remark 3, caution against complex working models at $m = 20$. The registered few-cluster evidence uses parametric nuisance learners only |
+
+
+### F29. The `ctmleGlmnet` type-2 path
+
+R `ctmle` 0.1.2 accepts `ctmletype = 2` in `ctmleGlmnet`. No published source defines it. Its
+documentation reads "See more details in !!!" (`R/ctmle_glmnet.R`, lines 11 and 12), and Ju, Wyss
+et al. (2019) describe only C-TMLE1 and C-TMLE0. The code is not consistent with itself.
+
+| place | what it does |
+| --- | --- |
+| construction (`R/functions_glmnet.R`, lines 151 to 155) | the finite difference reads the previous remaining penalty, or the current penalty plus an absolute 0.005 |
+| evaluation (`R/functions_glmnet.R`, lines 36 to 40) | the finite difference reads the previous grid penalty |
+| `ctmleGeneral` type 2 (`R/functions_general.R`, lines 34 to 36) | errors, because `eps_try` is undefined |
+
+F29 reopens when a published algorithm defines the type-2 sequence and its fluctuation.
 
 ### F31. Inference at a boundary node estimate
 
