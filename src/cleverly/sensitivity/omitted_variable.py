@@ -95,7 +95,7 @@ from scipy import optimize
 from .._inference_status import InferenceStatus, supplies_inference
 from .._typing import FloatArray
 from ..assessment import SENSITIVITY_ROUTES
-from ..estimators.ctmle import CTMLESelection, declares_full_adjustment_only
+from ..estimators.ctmle import CTMLESelection, declares_no_selection
 from ..estimators.direct_effect import declares_intermediate
 from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, DataError, refuse_inference, repeats_refusal
@@ -194,7 +194,8 @@ _DRTMLE_BOUND_REFUSAL = (
 _CTMLE_BOUND_REFUSAL = (
     "the omitted-variable bound has no nu^2 estimate for a 'collaborative_tmle' fit. The "
     "working mechanism conditions on a function V of W: the selected adjustment set W_S "
-    "on the greedy, ordered and discrete paths, and the fitted outcome regression under "
+    "on the greedy, ordered and discrete paths, the selected candidate mechanism on the "
+    "lasso and learners paths, and the fitted outcome regression under "
     "'oat'. Where the working mechanism is P(A | V) in the limit, the representer is "
     "E[alpha_W | A, V], whose second moment cannot exceed the second moment of alpha_W, "
     "while sigma^2 still comes from a regression on every "
@@ -202,15 +203,15 @@ _CTMLE_BOUND_REFUSAL = (
     "and the collaborative robustness value is optimistic by construction. " + _NO_NU2_DERIVATION
 )
 
-#: The same refusal for the one collaborative fit that selects nothing. Its mechanism is
-#: fitted on every covariate, so the argument above does not apply to it, and the
+#: The same refusal for the two collaborative fits that select nothing. Their mechanism
+#: is fitted on every covariate, so the argument above does not apply to them, and the
 #: sentence names the scope rule instead.
 _CTMLE_FULL_CANDIDATE_BOUND_REFUSAL = (
-    "the omitted-variable bound is not offered on a 'collaborative_tmle' fit. This "
-    "strategy='discrete' fit declares one candidate, equal to the full adjustment set, so "
-    "it selects nothing and equals the ordinary TMLE fit. The bound reads the fitted method "
-    "and has no collaborative route. Fit the ordinary TMLE (TMLE, or TMLEMethod) on the "
-    "same data for the bound."
+    "the omitted-variable bound is not offered on a 'collaborative_tmle' fit. This fit "
+    "selects nothing: a strategy='discrete' fit that declares one candidate, equal to the "
+    "full adjustment set, or a strategy='learners' fit that declares no candidate, equals "
+    "the ordinary TMLE fit. The bound reads the fitted method and has no collaborative "
+    "route. Fit the ordinary TMLE (TMLE, or TMLEMethod) on the same data for the bound."
 )
 
 #: The clause the two well-posed mechanism refusals share: each functional is linear in
@@ -340,13 +341,19 @@ def _refuse_guarded_mechanism(result: Any) -> str | None:
 def _refuse_selected_mechanism(result: Any) -> str | None:
     """Refuse a collaborative fit, whose representer comes from a selected working g.
 
-    The fit that declares one full candidate selects nothing, and its sentence says so.
+    The fits that select nothing have their own sentence. The selection records the
+    declared ``"discrete"`` list as its path, and a ``"learners"`` path is the declared list
+    followed by the terminal candidate, so the path without its last entry stands for the
+    declared ``"learners"`` list.
     """
     if result.fitted_method != "collaborative_tmle":
         return None
     selection = result.extra.get("ctmle")
-    if isinstance(selection, CTMLESelection) and declares_full_adjustment_only(
-        selection.strategy, selection.path, selection.covariates
+    if isinstance(selection, CTMLESelection) and declares_no_selection(
+        selection.strategy,
+        selection.path,
+        selection.path[:-1] if selection.strategy == "learners" else None,
+        selection.covariates,
     ):
         return _CTMLE_FULL_CANDIDATE_BOUND_REFUSAL
     return _CTMLE_BOUND_REFUSAL
