@@ -20,12 +20,12 @@ from cleverly import (
     Targeting,
     TMLEMethod,
 )
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_mar as mar
 from tests.parallel import STUDY_JOBS
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 from tests.studies.missing_outcome_study_helpers import (
     FailTreatment,
     efficiency_sd,
@@ -269,11 +269,16 @@ def reference_sample(
     return sample
 
 
+def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    scenario, replicate, n = key
+    return draw_scenario(scenario, n, replicate)
+
+
 def _replicate(
-    payload: tuple[str, int, int],
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
 ) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
-    scenario, replicate, n = payload
-    frame, truth = draw_scenario(scenario, n, replicate)
+    scenario, replicate, _ = key
+    frame, truth = drawn
     result = fit_cleverly(frame)
     sample = reference_sample(frame, result, scenario=scenario, replicate=replicate)
     truth_rows = [
@@ -283,15 +288,19 @@ def _replicate(
     return sample, truth_rows, cleverly_rows(frame, truth, scenario, replicate, result=result)
 
 
-def draw_and_fit(
-    *, replicates: int, n: int, n_jobs: int = STUDY_JOBS
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    outcomes = map_parallel(
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
+    # Dependent: the reference reads the subject fit's stitched predictions and its folds.
+    outcomes = replication.fit_primary(
+        [(SCENARIO, replicate, n) for replicate in range(replicates)],
         _replicate,
-        [((SCENARIO, replicate, n),) for replicate in range(replicates)],
+        draw=_draw,
         n_jobs=n_jobs,
+        implementation=STUDY.implementation,
+        seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
     )
-    samples = pd.concat([sample for sample, _, _ in outcomes], ignore_index=True)
-    truth_rows = pd.DataFrame([row for _, rows, _ in outcomes for row in rows])
-    estimates = pd.DataFrame([row for _, _, rows in outcomes for row in rows])
-    return samples, truth_rows, estimates.loc[:, list(REPLICATE_COLUMNS)]
+    samples = pd.concat([sample for sample, _, _ in outcomes.kept], ignore_index=True)
+    truth_rows = pd.DataFrame([row for _, rows, _ in outcomes.kept for row in rows])
+    estimates = pd.DataFrame([row for _, _, rows in outcomes.kept for row in rows])
+    return replication.result(
+        outcomes, estimates.loc[:, list(REPLICATE_COLUMNS)], samples=samples, truths=truth_rows
+    )

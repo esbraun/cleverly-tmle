@@ -292,7 +292,8 @@ def test_the_reference_under_reports_the_marginal_log_odds_ratio_standard_error(
 
 
 def test_primary_rows_preserve_native_ratio_inference_and_r_inputs() -> None:
-    samples, truths, estimates = study.draw_and_fit(replicates=1, n=600, n_jobs=1)
+    phase = study.draw_and_fit(replicates=1, n=600, n_jobs=1)
+    samples, truths, estimates = phase.samples, phase.truths, phase.rows
     assert {"qn0", "qn1", "gn1", "obs_weight"}.issubset(samples)
     assert set(truths["estimand"]) == set(study.ESTIMANDS)
     by_name = estimates.set_index("estimand")
