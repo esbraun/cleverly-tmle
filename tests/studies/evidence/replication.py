@@ -213,12 +213,22 @@ class Outcomes:
         default_factory=lambda: pd.DataFrame(columns=list(FAILURE_FIELDS))
     )
     reused: int = 0
+    substituted: bool = False
 
     @property
     def values(self) -> list[Any]:
         """The fit values of the keys that succeeded, in key order."""
         failed = set(self.failed)
         return [value for index, value in enumerate(self.fitted) if index not in failed]
+
+    @property
+    def kept(self) -> list[Any]:
+        """``fitted`` when an ``on_failure`` value stands in for each failed key, else ``values``.
+
+        A study builds its samples, truths and rows from these.  A failed key then keeps its
+        sample when the study can build it without the fit, and loses it otherwise.
+        """
+        return self.fitted if self.substituted else self.values
 
 
 def _digest(parts: Sequence[Any]) -> str:
@@ -312,12 +322,23 @@ def _fit(plan: _Plan, task: _Task) -> _Outcome:
             failure_call(error),
             f"{type(error).__name__}: {error}",
         )
-        return (None if plan.on_failure is None else plan.on_failure(task.key, drawn)), record
+        return _substitute(plan, task), record
     broken = None if plan.validate is None else plan.validate(value)
     if broken is not None:
         record = _record(plan, task, INVALID_RESULT, ROW_STAGE, "", broken)
-        return (None if plan.on_failure is None else plan.on_failure(task.key, drawn)), record
+        return _substitute(plan, task), record
     return value, None
+
+
+def _substitute(plan: _Plan, task: _Task) -> Any:
+    """The ``on_failure`` value of a failed key, from a fresh draw.
+
+    The failed fit may have changed the drawn objects in place, and the draw is a function of
+    the key alone, so the key is drawn again.
+    """
+    if plan.on_failure is None:
+        return None
+    return plan.on_failure(task.key, None if plan.draw is None else plan.draw(task.key))
 
 
 def _work(plan: _Plan, task: _Task) -> _Outcome:
@@ -482,4 +503,76 @@ def fit_replicates(
         failed=[index for index, _ in records],
         failures=pd.DataFrame([record for _, record in records], columns=list(FAILURE_FIELDS)),
         reused=reused,
+        substituted=on_failure is not None,
     )
+
+
+def fit_primary(
+    keys: Sequence[Sequence[Any]],
+    fit_one: Callable[[Any, Any], Any],
+    *,
+    draw: Callable[[Any], Any],
+    n_jobs: int,
+    implementation: str,
+    reference_input: Callable[[Any, Any], Any] | None = None,
+    rows_at: int | None = 2,
+    seed_of: Callable[[Any], int | None] | None = None,
+    cell_of: Callable[[Any], str] | None = None,
+    replicate_of: Callable[[Any], int] | None = None,
+) -> Outcomes:
+    """:func:`fit_replicates` for a study's primary loop, with the defaults most studies share.
+
+    A key is ``(scenario, replicate, ...)`` unless ``cell_of`` and ``replicate_of`` say
+    otherwise.  ``fit_one`` returns the study's value for one key; ``rows_at`` is the position
+    of the subject's rows in it (``None`` when the value is the rows).  The rows are checked by
+    :func:`invalid_rows`.  ``reference_input`` builds a failed key's value without the fit, so
+    the reference still fits that replicate.  A study whose reference input needs the fit
+    passes none.
+    """
+    return fit_replicates(
+        keys,
+        fit_one,
+        draw=draw,
+        on_failure=reference_input,
+        validate=_RowCheck(rows_at),
+        n_jobs=n_jobs,
+        label="primary",
+        implementation=implementation,
+        cell_of=cell_of or _first,
+        replicate_of=replicate_of or _second,
+        seed_of=seed_of,
+    )
+
+
+def result(
+    outcomes: Outcomes,
+    rows: pd.DataFrame,
+    *,
+    samples: pd.DataFrame | None = None,
+    truths: pd.DataFrame | None = None,
+) -> PhaseResult:
+    """The :class:`PhaseResult` of a primary loop whose frames were built from ``outcomes.kept``."""
+    return PhaseResult(
+        rows=rows,
+        samples=samples,
+        truths=truths,
+        failures=records(outcomes),
+        reference_input_from_fit=samples is not None and not outcomes.substituted,
+    )
+
+
+def _first(key: Sequence[Any]) -> str:
+    return str(key[0])
+
+
+def _second(key: Sequence[Any]) -> int:
+    return int(key[1])
+
+
+@dataclass(frozen=True)
+class _RowCheck:
+    rows_at: int | None
+
+    def __call__(self, value: Any) -> str | None:
+        rows = value if self.rows_at is None else value[self.rows_at]
+        return invalid_rows(rows)
