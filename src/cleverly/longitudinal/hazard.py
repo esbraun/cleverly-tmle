@@ -81,12 +81,12 @@ from .regimen import Plan
 from .sequential import RegimenFit
 
 __all__ = [
+    "SIGMA_FLOOR",
+    "HazardAlgorithm",
     "HazardFit",
     "HazardInputs",
     "HazardState",
     "InitialHazards",
-    "SIGMA_FLOOR",
-    "HazardAlgorithm",
     "fit_hazards",
     "hazard_inputs",
     "project_curves",
@@ -419,10 +419,7 @@ def event_indicators(data: LongitudinalData) -> tuple[BoolArray, FloatArray]:
     free[:, 1:] = ~data.event
     uncensored = np.cumprod(data.uncensored, axis=1).astype(bool)
     at_risk = uncensored & free[:, :-1]
-    if data.cause_event is None:
-        cumulative = data.event[:, :, None]
-    else:
-        cumulative = data.cause_event
+    cumulative = data.event[:, :, None] if data.cause_event is None else data.cause_event
     previous = np.concatenate(
         [np.zeros((n, 1, cumulative.shape[2]), dtype=bool), cumulative[:, :-1]], axis=1
     )
@@ -725,9 +722,7 @@ def loglik(state: HazardState, inputs: HazardInputs) -> float:
     return float(np.sum(inputs.weights[:, None] * np.where(inputs.at_risk, terms, 0.0)))
 
 
-def _clever_observed(
-    state: HazardState, inputs: HazardInputs, horizon: int
-) -> FloatArray:
+def _clever_observed(state: HazardState, inputs: HazardInputs, horizon: int) -> FloatArray:
     """``(R * J, n, T, J)`` :math:`h^m_l(k, A, W)` at the observed level, for one horizon."""
     obs = _observed(state, inputs)
     inverse = inputs.inverse_observed()
@@ -809,8 +804,7 @@ def solve_per_horizon(
     while trace[-1] > tol and iterations < max_iter:
         size = inputs.n_regimens * inputs.n_causes
         basis = [
-            direction(state, inputs, horizons, np.eye(size)[m].reshape(shape))
-            for m in range(size)
+            direction(state, inputs, horizons, np.eye(size)[m].reshape(shape)) for m in range(size)
         ]
         moved = _secant_step(state, inputs, horizons, basis, score, scale)
         if moved is None:
@@ -856,7 +850,7 @@ def _secant_step(
     score: FloatArray,
     scale: FloatArray,
 ) -> HazardState | None:
-    """One Newton step on every target's score along the current clever covariates.
+    r"""One Newton step on every target's score along the current clever covariates.
 
     The fluctuation moves the logits by :math:`\sum_m \epsilon_m h^m`, with :math:`h`
     taken at the current hazards.  The Jacobian of the scores in :math:`\epsilon` is read
@@ -887,9 +881,7 @@ def _secant_step(
     return None
 
 
-def _newton(
-    state: HazardState, inputs: HazardInputs, clever: FloatArray, tol: float
-) -> FloatArray:
+def _newton(state: HazardState, inputs: HazardInputs, clever: FloatArray, tol: float) -> FloatArray:
     """Fit the fluctuation coefficients with :math:`h` held fixed, from zero."""
     rows, levels = inputs.rows, inputs.observed
     base = state.logits[rows, :, levels]
@@ -905,9 +897,7 @@ def _newton(
         denom = 1.0 + expo.sum(axis=-1)
         lam = expo / denom[..., None]
         none = 1.0 / denom
-        terms = (inputs.events * np.log(lam)).sum(-1) + (1.0 - inputs.events.sum(-1)) * np.log(
-            none
-        )
+        terms = (inputs.events * np.log(lam)).sum(-1) + (1.0 - inputs.events.sum(-1)) * np.log(none)
         value = float(np.sum(np.where(mask, w * terms, 0.0)))
         residual = np.where(mask[..., None], inputs.events - lam, 0.0)
         gradient = np.einsum("mnkl,nkl->m", clever, w[..., None] * residual) / n
@@ -1070,7 +1060,7 @@ def target_regimens(
     plans: Sequence[Plan],
     initial: InitialHazards,
     cumulative: Sequence[FloatArray],
-    regimen_cumulative: Sequence[tuple[FloatArray, FloatArray]],
+    observed_cumulative: tuple[FloatArray, FloatArray],
     *,
     horizons: Sequence[int],
     algorithm: HazardAlgorithm,
@@ -1091,8 +1081,9 @@ def target_regimens(
         The initial hazards from :func:`fit_hazards`.
     cumulative : sequence of FloatArray
         One ``(n, T)`` bounded :math:`g G_k` per treatment level.
-    regimen_cumulative : sequence of tuple
-        The unbounded and bounded cumulative mechanism of each regimen, for the diagnostics.
+    observed_cumulative : tuple of FloatArray
+        The unbounded and bounded ``(n, T)`` :math:`g G_k` at each unit's observed level,
+        for the diagnostics.
     horizons : sequence of int
         The reported horizons, counted from one.
     algorithm : {"per_horizon", "one_step"}
@@ -1121,10 +1112,8 @@ def target_regimens(
         targets = tuple(
             (plan.label, cause, t) for plan in plans for cause in causes for t in horizons
         )
-        shared = walk_curve(
-            start, inputs, horizons, targets, step_size=step_size, tol=tol
-        )
-        reports = {t: shared for t in horizons}
+        shared = walk_curve(start, inputs, horizons, targets, step_size=step_size, tol=tol)
+        reports = dict.fromkeys(horizons, shared)
     else:
         for t in horizons:
             targets = tuple((plan.label, cause, t) for plan in plans for cause in causes)
@@ -1141,7 +1130,8 @@ def target_regimens(
                     computed[id(state)] = influence(state, inputs, horizons)
                 levels, curves = computed[id(state)]
                 h = horizons.index(t)
-                unbounded, bounded = regimen_cumulative[r]
+                clever = np.where(inputs.at_risk, q[r][:, None] * inverse, 0.0)
+                clever[:, t:] = 0.0
                 out[(plan.label, cause, t)] = RegimenFit(
                     regimen=plan.regimen,
                     psi_scaled=float(levels[r, j, h]),
@@ -1149,15 +1139,13 @@ def target_regimens(
                     horizon=t,
                     cause=cause,
                     steps=(),
-                    cumulative_unbounded=unbounded,
-                    cumulative=bounded,
+                    cumulative_unbounded=observed_cumulative[0],
+                    cumulative=observed_cumulative[1],
                     assignment=np.asarray(plan.values),
                     obs_weights=np.asarray(data.weights, dtype=float),
                     policy=plan.policy,
                     hazard=record,
-                    hazard_clever=np.where(
-                        inputs.at_risk[:, t - 1], q[r] * inverse[:, t - 1], 0.0
-                    ),
+                    hazard_clever=clever,
                 )
     return out
 

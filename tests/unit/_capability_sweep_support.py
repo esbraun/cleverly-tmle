@@ -27,7 +27,14 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
-from cleverly import CausalStudy, LongitudinalTreatment, RegimeMean, SplitPlan
+from cleverly import (
+    CausalStudy,
+    LongitudinalTreatment,
+    RegimeContrast,
+    RegimeMean,
+    SplitPlan,
+    TimeToEvent,
+)
 from cleverly.assessment import (
     AssessmentStatus,
     DiagnosticsFacade,
@@ -43,6 +50,7 @@ from cleverly.datasets import (
     make_missing_outcome,
     make_missing_outcome_binary,
     make_multi_arm,
+    make_point_survival,
     make_shift_dose,
 )
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
@@ -684,6 +692,39 @@ def fit_ltmle() -> Any:
     )
 
 
+def _fit_point_survival(**settings: Any) -> Any:
+    """A two-arm survival curve fit on ``make_point_survival(600, 3)``, in sample."""
+    frame, _ = make_point_survival(n=600, seed=3, n_times=4)
+    study = CausalStudy(
+        frame,
+        design=TimeToEvent(time="time", event="event", treatment="A", baseline=["W1", "W2"]),
+    )
+    return study.identify(RegimeContrast(regimens={"a1": 1, "a0": 0}, reference="a0")).estimate(
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=0),
+        treatment_learner=LogisticRegression(max_iter=1000, random_state=0),
+        censoring_learner=LogisticRegression(max_iter=1000, random_state=0),
+        random_state=5,
+        simultaneous=False,
+        **IN_SAMPLE,
+        **settings,
+    )
+
+
+def fit_hazard() -> Any:
+    """The per-horizon hazard fit of the X14 survival curve."""
+    return _fit_point_survival(survival_model="hazard")
+
+
+def fit_hazard_one_step() -> Any:
+    """The one-step whole-curve hazard fit."""
+    return _fit_point_survival(survival_model="hazard", targeting="one_step")
+
+
+def fit_isotonic() -> Any:
+    """The iterated-mean fit with its curve projected."""
+    return _fit_point_survival(isotonic=True, pseudo_learner=LinearRegression())
+
+
 # ------------------------------------------------------------------------- the kinds
 
 
@@ -814,6 +855,9 @@ KINDS: dict[str, Kind] = {
         reconfigured_ctmle_clustered, *_READ, "truncation_curve", refits=False
     ),
     "ltmle": _kind(fit_ltmle, *_READ, "truncation_curve"),
+    "ltmle_hazard": _kind(fit_hazard, *_READ, "truncation_curve"),
+    "ltmle_hazard_one_step": _kind(fit_hazard_one_step, *_READ, "truncation_curve"),
+    "ltmle_isotonic": _kind(fit_isotonic, *_READ, "truncation_curve"),
 }
 
 

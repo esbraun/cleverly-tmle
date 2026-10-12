@@ -122,7 +122,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 
@@ -545,6 +545,19 @@ class SequentialStep:
         return self.targeted if self.marginal is None else self.marginal
 
 
+class ScoredNode(NamedTuple):
+    """One node whose score a fit solved, as the diagnostics read it."""
+
+    #: The one-based node.
+    time: int
+    #: The rows at risk at the node.
+    at_risk: BoolArray
+    #: The rows the node's score sums over.
+    trained_on: BoolArray
+    #: ``(n,)`` the clever covariate, zero off ``trained_on``.
+    clever: FloatArray
+
+
 @dataclass(frozen=True)
 class RegimenFit:
     """The estimate under one regimen, with the pieces that produced it."""
@@ -605,23 +618,48 @@ class RegimenFit:
     #: iterated-mean fit.  Such a fit runs no backward recursion, so :attr:`steps` is empty.
     #: A one-step fit shares one record between every reported parameter.
     hazard: Any = None
-    #: ``(n,)`` the hazard fit's inverse mechanism at the horizon node, at the observed level,
-    #: on the rows at risk there and zero elsewhere: :math:`q_r(A) / (g(A) G_t(A))`.  It
-    #: stands in for the final node's clever covariate in :attr:`leverage`.  ``None`` on an
-    #: iterated-mean fit.
+    #: ``(n, T)`` the hazard fit's clever weight at each node, at the observed level:
+    #: :math:`q_r(A) / (g(A) G_k(A))` on the rows at risk at a node up to the horizon, and
+    #: zero elsewhere.  It stands in for each node's clever covariate in
+    #: :attr:`scored_nodes` and :attr:`leverage`.  ``None`` on an iterated-mean fit.
+    #:
+    #: On a hazard fit :attr:`cumulative` and :attr:`cumulative_unbounded` hold
+    #: :math:`g(A) G_k(A)` at the observed level, which is the mechanism the fit divides by.
     hazard_clever: FloatArray | None = None
+
+    @property
+    def scored_nodes(self) -> tuple[ScoredNode, ...]:
+        """Every node whose score the targeting solved, in time order.
+
+        A node of an iterated-mean fit is one :class:`SequentialStep`.  A hazard fit
+        solves one score per target that sums over the nodes up to the horizon.  Its rows
+        at a node are the rows at risk there whose observed level the regimen puts mass
+        on, which are the rows with a nonzero clever weight.
+        """
+        if self.hazard_clever is None:
+            return tuple(
+                ScoredNode(step.time, step.at_risk, step.trained_on, step.clever)
+                for step in self.steps
+            )
+        return tuple(
+            ScoredNode(
+                time,
+                self.hazard_clever[:, time - 1] != 0.0,
+                self.hazard_clever[:, time - 1] != 0.0,
+                self.hazard_clever[:, time - 1],
+            )
+            for time in range(1, self.horizon + 1)
+        )
 
     @property
     def leverage(self) -> FloatArray:
         """Final node's clever covariate, weighted: :math:`w_i / \\prod_{s} g_s c_s`.
 
         What one unit can contribute to the estimating equation, which is the product of
-        the two reweightings a fit applies and not either alone.  A hazard fit reads
-        :attr:`hazard_clever` in its place.
+        the two reweightings a fit applies and not either alone.  A hazard fit reads its
+        clever weight at the horizon.
         """
-        if self.hazard_clever is not None:
-            return np.asarray(self.obs_weights * self.hazard_clever, dtype=float)
-        return np.asarray(self.obs_weights * self.steps[-1].clever, dtype=float)
+        return np.asarray(self.obs_weights * self.scored_nodes[-1].clever, dtype=float)
 
     @property
     def max_weight(self) -> float:
