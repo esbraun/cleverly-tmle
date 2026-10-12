@@ -56,6 +56,45 @@ The screen runs on the package's own solver arrays first. Only a seed that passe
 R outputs must then pass the screen again on R's arrays, and the conditions on R's selection.
 `manifest.json` records every rejected seed and its reason under `search`.
 
+## Discrimination record
+
+The X16 implementation review measured these controls on 2026-10-12, at commit `1d66d65`. Each
+mutation was applied once, by hand or by a monkeypatch, and then removed. The record shows that
+the witnesses discriminate. No test reruns these mutations.
+
+| solver mutation | largest gap from R's `g_tight.csv` |
+| --- | --- |
+| none (baseline) | `1.83e-8` |
+| sample standard deviation in the standardization | `3.2e-4` |
+| weights not normalized to mean 1 | `0.125` |
+| no standardization | `0.035` |
+| every penalty times 1.01 | `6.4e-3` |
+
+The prediction tolerance is `1.8e-7`, so each mutation fails by a factor above 1,000.
+
+| rule mutation, on the `ctmleGlmnet` fixture | result |
+| --- | --- |
+| none (baseline) | final index 15, estimate gap `4.3e-9` |
+| penalized loss in the final step | final index 6, estimate gap `5.7e-3` |
+| final step fluctuated from the initial fit | final index 19, estimate gap `9.9e-4` |
+| stop rule dropped | largest path estimate gap `1.5e-4`, against `1.3e-8` at baseline |
+
+The estimate tolerance is `1e-6`.
+
+These fits gave the same output at the base commit `287a1fb5` and at `1d66d65`:
+
+| strategy or setting | variants |
+| --- | --- |
+| `greedy`, `ordered`, `discrete` | in sample and cross-fitted |
+| `discrete` with the full adjustment set | the admitted fit |
+| `penalty=False`, `fluctuation="linear"`, `ctmle_estimand="ey"`, `repeats` | one fit each |
+| `greedy` at three arms, `oat`, observation weights | one fit each |
+
+| timing | result |
+| --- | --- |
+| one default-grid penalty path | 0.2 s |
+| one default-grid `lasso` fit, `n = 2000`, `p = 10`, five selection folds | 7.3 s |
+
 ## Regenerate
 
 Run from the repository root with Docker running:
