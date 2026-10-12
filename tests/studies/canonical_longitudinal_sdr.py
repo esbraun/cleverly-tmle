@@ -183,10 +183,13 @@ CALIBRATION_LABELS = (
     "policy_mix",
     "mtp_up",
     "msm_identity",
-    "weighted",
-    "clustered",
-    "clustered_few",
+    "selection_weighted",
 )
+#: The labels of ``clustered_calibration``: 200 clusters of 10 and 20 clusters of 100.
+CLUSTERED_LABELS = ("clusters_200", "clusters_20")
+#: The positive arm of ``clustered_calibration``.  Its GLM outcome regressions are not the
+#: law's, so the name claims only the known ratio.
+CLUSTERED_POSITIVE = "known_ratio"
 #: The joint label of the band cell.
 BAND_LABEL = "six_regimens"
 #: The patterns of ``sequential_double_robustness`` and their sizes (``X4-plan.md`` 6.8).
@@ -207,6 +210,11 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
         for label in CALIBRATION_LABELS
         for cell in ("correctly_specified", "shrunken_se_control", "noise_control")
     ),
+    "clustered_calibration": tuple(
+        f"{label}__{cell}"
+        for label in CLUSTERED_LABELS
+        for cell in (CLUSTERED_POSITIVE, "shrunken_se_control", "noise_control")
+    ),
     "type_i_error": ("static__sharp_null",),
     "power": ("static__alternative",),
     "crossfit_overfitting": ("cross_fitted_sdr", "in_sample_control"),
@@ -214,9 +222,7 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
         f"{BAND_LABEL}__simultaneous_band",
         f"{BAND_LABEL}__pointwise_joint_control",
     ),
-}
-#: Cells that are published without a verdict (``X4-plan.md`` 3.5 and 6.11).
-DIAGNOSTIC_CELLS: dict[str, tuple[str, ...]] = {
+    # Published without a verdict (``X4-plan.md`` 3.5 and 6.11).
     "construction_diagnostic": ("stitched_cross_fit", "estimated_flexible_mechanism"),
     "sdr_tmle_agreement": ("static",),
 }
@@ -238,6 +244,23 @@ STUDY = StudyRecord(
     modules=(
         "tests/studies/canonical_longitudinal_sdr.py",
         "tests/studies/longitudinal_sdr_properties.py",
+        "tests/discrete_law_longitudinal_mtp.py",
+        "tests/longitudinal_mtp.py",
+        "tests/studies/canonical_crossfit_longitudinal_msm.py",
+        "tests/studies/canonical_longitudinal_msm.py",
+        "tests/studies/canonical_ltmle_competing.py",
+        "tests/studies/canonical_ltmle_crossfit.py",
+        "tests/studies/canonical_ltmle_survival_crossfit.py",
+        "tests/studies/clustered_longitudinal_laws.py",
+        "tests/studies/crossfit_longitudinal_msm_properties.py",
+        "tests/studies/longitudinal_msm_properties.py",
+        "tests/studies/longitudinal_mtp_properties.py",
+        "tests/studies/ltmle_competing_properties.py",
+        "tests/studies/ltmle_crossfit_properties.py",
+        "tests/studies/ltmle_properties.py",
+        "tests/studies/ltmle_survival_crossfit_properties.py",
+        "tests/studies/stochastic_categorical_ltmle_properties.py",
+        "tests/studies/weighted_longitudinal_properties_common.py",
         "tests/studies/canonical_longitudinal_mtp.py",
         "tests/studies/canonical_ltmle_survival.py",
         "tests/studies/canonical_stochastic_categorical_ltmle.py",

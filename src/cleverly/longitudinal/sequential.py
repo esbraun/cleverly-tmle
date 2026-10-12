@@ -142,7 +142,12 @@ from ..interventions.policy import (
     policy_branches,
 )
 from ..learners.crossfit import Folds
-from ..learners.density import ConditionalDensity, fit_conditional_density
+from ..learners.density import (
+    ConditionalDensity,
+    bin_edges,
+    default_density_bins,
+    fit_conditional_density,
+)
 from ..learners.density_ratio import classifier_ratio
 from ..learners.super_learner import SuperLearnerDiagnostics
 from ..utils.bounds import OutcomeScaler, bound
@@ -1323,6 +1328,14 @@ def _continuous_node_ratios(
     frame = lazy_frame(lambda: data.policy_frame(time))
     density: ConditionalDensity | None = None
     if ratio == "density":
+        edges = None
+        if not np.array_equal(fit_at, at_risk):
+            # One outer training fold's own density (``fit_rows=``).  Its bin edges are the
+            # out-of-fold fit's, read from every row at risk, so at the fold's held-out rows
+            # it is the model the out-of-fold mechanism uses there.
+            grid_values = dose[at_risk]
+            bins = default_density_bins(grid_values.size) if density_bins is None else density_bins
+            edges = bin_edges(grid_values, bins).tolist()
         density, _ = fit_conditional_density(
             treatment_learner,
             history,
@@ -1330,6 +1343,7 @@ def _continuous_node_ratios(
             data.weights,
             folds,
             n_bins=density_bins,
+            edges=edges,
             groups=data.cluster,
             n_jobs=n_jobs,
             fit_mask=fit_at,

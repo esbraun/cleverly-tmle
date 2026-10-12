@@ -24,6 +24,7 @@ import numpy as np
 import pytest
 from sklearn.base import BaseEstimator
 
+from cleverly.learners.density import bin_edges
 from cleverly.longitudinal import SDR
 from cleverly.longitudinal import estimator as estimator_module
 from cleverly.longitudinal.regimen import attach_policy_numerators
@@ -32,6 +33,7 @@ from cleverly.longitudinal.sequential import fit_mechanism
 
 from .. import discrete_law_longitudinal as law
 from ..longitudinal_sdr import COLUMNS, longhand_sdr, sample
+from ..studies import longitudinal_mtp_common as mtp_common
 from ..studies.canonical_ltmle import declared_regimens
 
 #: The floor below which two exactly computed numbers count as equal.
@@ -134,6 +136,48 @@ def test_each_fold_fits_its_mechanism_on_its_training_rows(frame: Any) -> None:
         expected = np.array([treated[rows & (w == value)].mean() for value in w])
         reported = fit.fold_mechanisms[fold].mechanism.treatment[0]["always"]
         np.testing.assert_allclose(reported, expected, atol=1e-15, rtol=0)
+
+
+def test_a_fold_density_is_the_out_of_fold_density_at_its_held_out_rows() -> None:
+    """A continuous node's fold density reads the out-of-fold bin edges.
+
+    The witness is the oracle hazard of ``longitudinal-mtp``, which answers for the
+    whole-sample edges.  A fold density binned on its training rows alone handed it other
+    bins, and its policy ratios lost about half their correlation with the truth.
+    """
+    sample = mtp_common.sample_continuous(400, 11)
+    bins = 12
+    edges = tuple(
+        tuple(bin_edges(sample[column].to_numpy(dtype=float), bins)) for column in ("A1", "A2")
+    )
+    outcome, pseudo, hazard = mtp_common.continuous_learners("both_correct", edges)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fit = SDR(
+            {"natural": mtp_common.NATURAL, "up": mtp_common.UP},
+            reference="natural",
+            outcome_learner=outcome,
+            pseudo_learner=pseudo,
+            treatment_learner=hazard,
+            density_bins=bins,
+            n_folds=3,
+            g_bounds=(1e-8, 1.0),
+            simultaneous=False,
+            random_state=0,
+        ).fit(
+            sample,
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W"],
+            time_varying=[[], ["L2"]],
+            continuous_treatment=["A1", "A2"],
+        )
+    pooled = fit.mechanism.policy_numerators["up"]
+    for fold, (_, held) in enumerate(fit.folds):
+        own = fit.fold_mechanisms[fold].mechanism.policy_numerators["up"]
+        for node in (1, 2):
+            np.testing.assert_array_equal(own[node][held], pooled[node][held])
+            assert np.max(np.abs(own[node] - pooled[node])) == 0.0
 
 
 def test_an_in_sample_fit_keeps_no_fold_mechanism(fitted: tuple[int, Any]) -> None:

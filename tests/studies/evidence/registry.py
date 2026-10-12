@@ -322,6 +322,7 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_longitudinal_msm import STUDY as CANONICAL_LONGITUDINAL_MSM
     from tests.studies.canonical_longitudinal_mtp import STUDY as LONGITUDINAL_MTP
+    from tests.studies.canonical_longitudinal_sdr import STUDY as LONGITUDINAL_SDR
     from tests.studies.canonical_ltmle import STUDY as CANONICAL_LTMLE
     from tests.studies.canonical_ltmle_competing import STUDY as CANONICAL_LTMLE_COMPETING
     from tests.studies.canonical_ltmle_competing_crossfit import (
@@ -441,6 +442,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_CATEGORICAL_LTMLE,
         STOCHASTIC_CATEGORICAL_LTMLE,
         LONGITUDINAL_MTP,
+        LONGITUDINAL_SDR,
         CANONICAL_LONGITUDINAL_MSM,
         CROSSFIT_LONGITUDINAL_MSM,
         CANONICAL_LTMLE_CROSSFIT,
