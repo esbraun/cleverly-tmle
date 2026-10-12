@@ -1,7 +1,8 @@
 r"""``DRTMLE`` as an estimator: what it reports, what it refuses, and what it must not move.
 
-The statistical claim -- that the interval stays valid when one nuisance is inconsistent --
-is a coverage statement and belongs in the nightly tier.  What is checkable here is
+The statistical claim -- that the interval is valid under Theorem 1's conditions, and with
+one nuisance inconsistent only in the cases ``docs/technical-reference/dr-tmle/theorem.md``
+lists -- is a coverage statement and belongs in the nightly tier.  What is checkable here is
 everything around it: that all three score equations are solved and reported, that the
 *point* estimate is a plain TMLE's, that the reported nuisances are the ones that were
 fitted, and that every combination the derivation does not cover is refused by name rather
@@ -243,6 +244,7 @@ class TestWhatItReports:
         assert corrected.corrected and not plain.corrected
         assert "efficient" not in corrected.summary().lower().split("validity is not")[0]
         assert "Validity is not efficiency" in corrected.summary()
+        assert "With one wrong nuisance the interval holds only in the cases" in corrected.summary()
         assert "solved the estimated efficient score equation" in plain.summary()
 
     def test_the_alternation_terminated_on_its_own(self, fit) -> None:
@@ -338,8 +340,8 @@ class TestThePointEstimateIsAPlainTMLEs:
     r"""The extra equations move the *variance*, and they move it by design.
 
     All three empirical means are driven to zero, so no extra term can move
-    :math:`\hat\Psi`; what the reductions buy is an influence curve entitled to be believed
-    when only one nuisance is consistent.  Saying so in a test is the cheapest way to stop a
+    :math:`\hat\Psi`; what the reductions change is the influence curve, whose interval is
+    valid with one nuisance inconsistent only in the cases the contract lists.  Saying so in a test is the cheapest way to stop a
     reader taking the interval's change for an improvement in the estimate.
     """
 
@@ -760,7 +762,7 @@ class TestASingleGuardSubtractsOnlyTheCorrectionItSolvedFor:
         """Derived from the rows, so it cannot go on claiming a term the curve dropped."""
         summary = single_guard.diagnostics.score_equations().summary()
 
-        assert "D = D* - D*_Q," in summary
+        assert "D = D* - D*_Q." in summary
         assert "D*_g" not in summary.split("Validity is not efficiency")[1]
 
     def test_it_survives_a_round_trip(self, single_guard, tmp_path) -> None:

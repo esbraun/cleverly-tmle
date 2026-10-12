@@ -357,6 +357,12 @@ same initial nuisance predictions isolates the corrected construction; it does n
 two projects' learner wrappers. The study measures finite-sample behavior at its declared sizes
 and cannot verify the theorem's unobservable second-order remainder condition for a future fit. The [default-band study](default-simultaneous-bands.md) measures the default band of this study's subject fit.
 
+The paper law is H1 in both branches by symmetry. Its main-effects GLM limits have no covariate
+coefficients, so neither conditioning term of [the theorem](../dr-tmle/theorem.md#the-conditioning-terms-are-linear-in-one-error) can arise on it.
+`tests/unit/test_drtmle_h1_symmetry.py` pins this. The one-correct cells therefore measure
+second-order terms only. Their readings and the contraction slopes near `-1` stand. No cell here
+can detect a one-wrong failure with a data-adaptive learner.
+
 The contraction family fits three points, so it establishes a direction rather than an exponent.
 Both positive slope intervals now exclude zero. The outcome-correct interval still covers `-1` and
 `-1/2` together, so it does not identify that remainder's order.

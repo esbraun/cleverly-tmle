@@ -81,7 +81,7 @@ class TestAnEstimatedWeightDRTMLEReportsNoInterval:
         check = result.score_verdict
         assert check.passed
         text = check.summary()
-        assert "entitled to be believed" not in text
+        assert "With one wrong nuisance it holds only" not in text
         assert "verifies its score equations, not an interval" in text
         assert RECORD.reason in text
 

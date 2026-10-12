@@ -80,6 +80,10 @@ RESULTS = HERE / "determinism.csv"
 BASE = "572501b8"
 #: The commit RM39 part a2 started from: RM39a1 merged (#277).
 STAGE_BASE = "f1840adc"
+#: The main commit a2 merged before it landed.  A runner that main added after ``STAGE_BASE``
+#: (X17's ``run_drtmle_oat_per_arm.R``) is frozen here instead, so its base run is the
+#: published file rather than the head.  Every other ``.R`` file is the same at both commits.
+STAGE_ADDED_BASE = "287a1fb5"
 COLUMNS = (
     "runner",
     "study",
@@ -564,12 +568,14 @@ def stage(work: Path, chosen: list[Target], base: str) -> list[dict[str, Any]]:
         edited: list[Path] = []
         overrides: dict[str, Path] = {}
         for path in stage_sources(target):
-            frozen = _frozen(work, base, path)
-            if frozen is not None and frozen.read_bytes() == path.read_bytes():
+            frozen = _frozen(work, base, path) or _frozen(work, STAGE_ADDED_BASE, path)
+            if frozen is None:
+                raise RuntimeError(f"{path} exists at neither {base} nor {STAGE_ADDED_BASE}")
+            if frozen.read_bytes() == path.read_bytes():
                 continue
             edited.append(path)
             inside = _container_path(target, path)
-            if frozen is not None and inside is not None:
+            if inside is not None:
                 overrides[inside] = frozen
         if not edited:
             continue

@@ -47,7 +47,6 @@ __all__ = [
     "CONTINUOUS_REFUSAL",
     "KNOWN_CTMLE_REFUSAL",
     "KNOWN_EVALUATION_REFUSAL",
-    "KNOWN_MISSING_OUTCOME_BOOTSTRAP_REFUSAL",
     "KNOWN_POLICY_CLASSIFIER_REFUSAL",
     "KNOWN_SCREEN_REFUSAL",
     "KNOWN_TREATMENT_DELTA_REFUSAL",
@@ -104,20 +103,6 @@ KNOWN_EVALUATION_REFUSAL = (
     "known treatment mechanism. Declare the same treatment_probabilities columns on an "
     "evaluation frame, pass a CausalData evaluation companion that declares its own "
     "treatment_probabilities, or drop evaluation=."
-)
-
-#: A guarded ``DRTMLE`` with ``delta=`` on declared data runs the randomized missing-outcome
-#: construction.  Its interval rests on a remainder that is linear in the observation
-#: mechanism's error when the outcome regression is wrong, and a full-refit bootstrap
-#: resamples the same estimator, so its range carries the same bias.
-KNOWN_MISSING_OUTCOME_BOOTSTRAP_REFUSAL = (
-    "n_bootstrap= is not combined with delta= on data that declares its treatment mechanism. "
-    "The declaration supplies the treatment mechanism only; the observation mechanism is "
-    "still estimated, and with a wrong outcome regression the remainder of the randomized "
-    "missing-outcome construction is linear in its error (Diaz and van der Laan 2017, the "
-    "step at equation (21) of Appendix A.1). A full-refit bootstrap resamples the same "
-    "estimator, so its range would carry that bias. Drop n_bootstrap=, or fit guard=() for "
-    "the ordinary missing-outcome TMLE, whose remainder is a product."
 )
 
 

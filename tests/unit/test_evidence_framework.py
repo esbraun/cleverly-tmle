@@ -694,10 +694,6 @@ class TestReplicationAccounting:
 
 class TestScoreAuditAccounting:
     @staticmethod
-    def _record() -> StudyRecord:
-        return _seed_record(reference="reference", extra_artifacts=(claims.FIT_DIAGNOSTICS_FILE,))
-
-    @staticmethod
     def _data() -> dict[str, pd.DataFrame]:
         return {
             claims.FIT_DIAGNOSTICS: pd.DataFrame(
@@ -710,22 +706,34 @@ class TestScoreAuditAccounting:
             )
         }
 
-    def test_one_count_describes_two_paired_score_audits(self) -> None:
-        record = self._record()
+    @classmethod
+    def _record(cls, directory: Path) -> StudyRecord:
+        """A record whose committed ``fit-diagnostics.csv`` is :meth:`_data`'s audit."""
+        cls._data()[claims.FIT_DIAGNOSTICS].to_csv(
+            directory / claims.FIT_DIAGNOSTICS_FILE, index=False
+        )
+        return _seed_record(
+            artifacts=directory,
+            reference="reference",
+            extra_artifacts=(claims.FIT_DIAGNOSTICS_FILE,),
+        )
+
+    def test_one_count_describes_two_paired_score_audits(self, tmp_path: Path) -> None:
+        record = self._record(tmp_path)
         data = self._data()
         assert claims.value(record, "score_audited_fits", data) == 2
         assert claims.value(record, "subject_score_failures", data) == 1
         assert claims.value(record, "reference_score_failures", data) == 1
 
-    def test_a_missing_reference_audit_row_is_refused(self) -> None:
-        record = self._record()
+    def test_a_missing_reference_audit_row_is_refused(self, tmp_path: Path) -> None:
+        record = self._record(tmp_path)
         data = self._data()
         data[claims.FIT_DIAGNOSTICS] = data[claims.FIT_DIAGNOSTICS].drop(index=3)
         with pytest.raises(ValueError, match="not paired"):
             claims.value(record, "score_audited_fits", data)
 
-    def test_a_duplicate_audit_key_is_refused(self) -> None:
-        record = self._record()
+    def test_a_duplicate_audit_key_is_refused(self, tmp_path: Path) -> None:
+        record = self._record(tmp_path)
         data = self._data()
         duplicate = data[claims.FIT_DIAGNOSTICS].iloc[[0]]
         data[claims.FIT_DIAGNOSTICS] = pd.concat(
@@ -733,6 +741,69 @@ class TestScoreAuditAccounting:
         )
         with pytest.raises(ValueError, match="duplicate score-audit"):
             claims.value(record, "subject_score_failures", data)
+
+
+class TestMechanismDiagnostics:
+    """The per-arm OAT study writes ``fit-diagnostics.csv`` with mechanism columns, not a score
+    audit.  The header decides which aggregates a study gains, so neither vocabulary reads a
+    file of the other schema."""
+
+    @staticmethod
+    def _data() -> dict[str, pd.DataFrame]:
+        return {
+            claims.FIT_DIAGNOSTICS: pd.DataFrame(
+                {
+                    "scenario": ["z0", "z0", "z1", "z1"],
+                    "replicate": [0, 1, 0, 1],
+                    "rows_at_bound": [0.0, 2.0, 0.0, 0.0],
+                    "gn_max_abs_diff": [1e-9, 5e-3, 3e-8, 2e-9],
+                }
+            )
+        }
+
+    @classmethod
+    def _record(cls, directory: Path) -> StudyRecord:
+        cls._data()[claims.FIT_DIAGNOSTICS].to_csv(
+            directory / claims.FIT_DIAGNOSTICS_FILE, index=False
+        )
+        return _seed_record(
+            artifacts=directory,
+            reference="reference",
+            extra_artifacts=(claims.FIT_DIAGNOSTICS_FILE,),
+        )
+
+    def test_the_mechanism_counts_read_the_committed_columns(self, tmp_path: Path) -> None:
+        record = self._record(tmp_path)
+        data = self._data()
+        assert claims.value(record, "mechanism_fits_with_rows_at_bound", data) == 1
+        assert claims.value(record, "mechanism_max_rows_at_bound", data) == 2
+        assert claims.value(record, "mechanism_max_gap", data) == 5e-3
+        # The replication at a bound is the one with the large gap; off the bound, 3e-8.
+        assert claims.value(record, "mechanism_max_gap_off_bound", data) == 3e-8
+
+    def test_neither_schema_gains_the_other_vocabulary(self, tmp_path: Path) -> None:
+        mechanism = set(claims.quantities(self._record(tmp_path)))
+        audit_directory = tmp_path / "audit"
+        audit_directory.mkdir()
+        audit = set(claims.quantities(TestScoreAuditAccounting._record(audit_directory)))
+        assert "score_audited_fits" in audit
+        assert "mechanism_max_gap" in mechanism
+        assert not {name for name in mechanism if "score" in name}
+        assert not {name for name in audit if name.startswith("mechanism_")}
+
+
+class TestOptionalReferenceArtifacts:
+    def test_a_design_gap_row_is_quoted_by_reference(self, tmp_path: Path) -> None:
+        pd.DataFrame(
+            {"scenario": ["z0", "z1"], "estimand": ["ate", "ate"], "mean_design_gap": [0.5, 0.25]}
+        ).to_csv(tmp_path / claims.DESIGN_GAP_FILE, index=False)
+        record = _seed_record(artifacts=tmp_path, extra_artifacts=(claims.DESIGN_GAP_FILE,))
+        data = {claims.DESIGN_GAP: pd.read_csv(tmp_path / claims.DESIGN_GAP_FILE)}
+        assert claims.value(record, "design_gap[z1/ate]:mean_design_gap", data) == 0.25
+
+    def test_a_study_without_the_file_cannot_quote_it(self) -> None:
+        with pytest.raises(KeyError, match="does not publish"):
+            claims.value(_seed_record(), "design_gap[z1/ate]:mean_design_gap", {})
 
 
 class TestPrintedValues:

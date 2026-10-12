@@ -1087,6 +1087,31 @@ sizes only the cluster sum is the delta-method variance of the row mean
   (2011), combined with its own appendix proof. The
   [natural-extension verdicts](technical-reference/natural-extension-verdicts.md) use this locator
   for part (k).
+  The X17 row (2026-10-07) read preprint v1 first-hand for the per-arm design. The Remark on page
+  10 states the ATE route: "repeating the entire procedure but switching the labeling of the
+  treatment". The proof on pages 30-31 splits the remainder into $R_{21}$ to $R_{24}$, and
+  $R_{24}$ is the generated-regressor term that conditions (ii), (iii), (v) and (vi) make second
+  order. Condition (v), on page 33, bounds a derivative of $P(A = 1 \mid \bar Q_n, \bar Q_0)$ in
+  $\bar Q_0$. Page 33 calls it "a technical condition" that is sufficient and not necessary. It
+  fails for a root-$n$ outcome regression on a continuous $W$, so $R_{24}$ is first order, and the
+  per-arm study measured the resulting deficit. Section 4.1, page 12, reports that "the estimated standard errors of CTMLE had poor
+  performance, often underestimating the true variability of the estimator". The Discussion,
+  pages 17-18, calls the estimator "an irregular estimator" and notes "the poor behavior of the
+  confidence intervals in both simulations". The published article was not reachable from this
+  environment during X17. The RM5 audit above read it, but it recorded no page locators. So the
+  [per-arm contract](technical-reference/collaborative-tmle.md#the-per-arm-outcome-adaptive-design)
+  cites the preprint locators and says so. The preprint also names "Appendix 17" on page 3 and "Appendix XXX"
+  on page 12, both placeholders, and its Appendix D cites "condition (iv) of Appendix E" for a
+  condition that Appendix F states.
+  The paired comparator of the per-arm study is R `drtmle` 1.1.2 at `538a3a2` by a binary recode:
+  for each arm `a`, `A = as.numeric(A == a)` with `a_0 = c(1, 0)`, `adapt_g = TRUE` and
+  `Qn = list(Qbar(a, W), Qbar(a, W))`. That call enters the two-level `glm_g` branch of
+  `estimate_g` in `R/estimate.R`, whose design names the columns `Q1W` and `Q0W`, so level 1 is
+  $P(A = a \mid \bar Q(a, W))$. With `a_0` equal to every level, `drtmle` fits a sequential
+  conditional-binary chain over the levels instead (`R/estimate.R`, lines 337-371). `drtmle`
+  returns no TMLE influence curve: `ic_drtmle` belongs to its own drtmle stage. The runner
+  therefore rebuilds each arm's TMLE regression on its one-dimensional submodel at the reported
+  estimate, and it refuses a fit unless that curve reproduces `tmle$cov[1, 1]` to `1e-8`.
 - van der Vaart, Dudoit & van der Laan (2006), [*Oracle inequalities for multi-fold cross
   validation*](https://doi.org/10.1524/stnd.2006.24.3.351), *Statistics & Decisions*
   24(3):351-371, DOI 10.1524/stnd.2006.24.3.351. The paper bounds the risk of a cross-validation
@@ -1355,9 +1380,10 @@ sizes only the cluster sum is the delta-method variance of the row mean
 - C-TMLE inference source audit (RM5, 2026-09-11): no reviewed source derives the exact
   asymptotic law of the shipped selector or the full multi-arm outcome-adaptive construction. The
   binary scalar outcome-adaptive construction has a positive theorem after the fold-nesting
-  correction described below. The shipped binary vector is a finite-dimensional extension whose
-  exact scalar expansions are not stated in the paper. The contracts carry those separate
-  verdicts.
+  correction described below. The shared design is a finite-dimensional extension whose exact
+  scalar expansions are not stated in the paper. The per-arm design reduces to the paper's scalar
+  construction arm by arm, and its interval is withheld because condition (v) fails. The
+  contracts carry those separate verdicts.
 
   The selector path has outer nuisance, selection, and inner selection-training folds. Its
   pointwise and simultaneous intervals use a plug-in curve that treats the selected candidate as
@@ -1943,10 +1969,11 @@ rather than a comparison target.
   page or section locator of its own. The later univariate result remains the default.
 - Benkeser, Carone, van der Laan & Gilbert (2016), *Doubly-robust Nonparametric Inference on the
   Average Treatment Effect*, U.C. Berkeley Division of Biostatistics Working Paper Series, paper
-  356. Read first-hand. §3.1 and equation (2) are p. 9; §3.2, Theorem 1 and the recursive algorithm
-  are pp. 10–11; appendix A is pp. 19–20, appendix B p. 21, appendix C pp. 21–22. Theorem 1, pp.
-  10–11, states nuisance-limit, score, convergence and remainder conditions for asymptotic
-  linearity. It is not an unconditional guarantee.
+  356. Read first-hand by the RM19 review. RM40 did not read this version. §3.1 and equation (2)
+  are p. 9; §3.2, Theorem 1 and the recursive algorithm are pp. 10–11; appendix A is pp. 19–20,
+  appendix B p. 21, appendix C pp. 21–22. Theorem 1, pp. 10–11, states nuisance-limit, score,
+  convergence and remainder conditions for asymptotic linearity. It is not an unconditional
+  guarantee.
 - Benkeser, Carone, van der Laan & Gilbert (2017),
   [*Doubly robust nonparametric inference on the average treatment effect*](https://pmc.ncbi.nlm.nih.gov/articles/PMC5793673/),
   *Biometrika* 104(4):863–880. The **published** version of the above, and authoritative wherever
@@ -1963,6 +1990,25 @@ rather than a comparison target.
   Theorem 1 applies as stated to $(W, C_a, C_a Y)$ with the binary treatment
   $C_a = \Delta_A \Delta 1\{A = a\}$. The paper mentions no missing data and records no caveat
   about coarsening.
+
+  **Source defect: the one-wrong inference claim.** Section 3.2, in the paragraph after Step 8,
+  states: "Thus, valid statistical inference is preserved when one nuisance parameter is
+  inconsistently estimated". Section 6, first paragraph, states that "it is possible to
+  theoretically guarantee doubly robust inference under mild conditions". The conditions are those
+  of Appendices A and B.
+
+  | locator | content | what RM40 found |
+  | --- | --- | --- |
+  | Appendix A, the display that defines $R_{3n}$ and $R_{4n}$, and the rate list after it | $\bar Q_{0n,r}$ conditions on $(g_n(W), g_0(W))$. The rates on $\bar Q_{0n,r} - \bar Q_{n,r}$, $\bar Q_{n,r} - \bar Q_{0,r}$ and $g_n - g_0$ are $o_P(n^{-1/4})$, "for example" | $R_{3n}$ is linear in $g_n - g_0$ when $\bar Q$ is wrong. The first rate holds then only when $g$ is known, when its error keeps the level sets of $g_0$, or when the law makes the term vanish (H1) |
+  | Appendix B, the display of $\tilde R_{5n}$ and the rate list after it | $g_{1,0n,r}$ and $g_{2,0n,r}$ condition on $(\bar Q_n(W), \bar Q_0(W))$ | $\tilde R_{5n}$ is linear in $\bar Q_n - \bar Q_0$ when $g$ is wrong, with the same three exceptions |
+  | Appendix A, the display that defines $\bar Q_{0n,r}$ | the conditioning omits $A = 1$ under "some abuse of notation" | the first equality of the display that precedes it needs $A = 1$. The [contract](technical-reference/dr-tmle/theorem.md#the-remainder-terms-and-the-rate-conditions) prints it |
+
+  Each implication in the appendices is correct. Its premise fails in the generic one-wrong case,
+  and no fit can check the cases where it holds, except a declared known mechanism. The
+  [contract](technical-reference/dr-tmle/theorem.md#the-conditioning-terms-are-linear-in-one-error) gives both identities and the case table. The Section 5.1 law is symmetric, so
+  both terms vanish on it ([derivation](technical-reference/dr-tmle/theorem.md#the-conditioning-terms-are-linear-in-one-error), pinned by `tests/unit/test_drtmle_h1_symmetry.py`).
+  Its simulation cannot show the defect. RM40 read both appendices, Section 3.2 and Section 6 in
+  PMC5793673, formula images included.
 - Benkeser & Hejazi (2023), [*Doubly-Robust Inference in R using
   `drtmle`*](https://doi.org/10.1353/obs.2023.0017), *Observational Studies* 9(2):43–78, DOI
   10.1353/obs.2023.0017. Read first-hand. Multi-level treatments are §4.6, pp. 66–67;
@@ -1990,8 +2036,21 @@ rather than a comparison target.
   | Steps 1–5, pages 18–20 | the algorithm. Step 3 fits `epsilon_A` by "a logistic regression model of A on Z_A with no intercept and an offset term equal to logit g_A(W) using all observations" |
   | Equations (11)–(13), page 19 | the three correction equations |
   | Theorem 2, page 20 | the asymptotic linearity result for one arm indicator |
+  | Appendix A.1, equations (14) to (19), page 26; equations (20) and (21), page 27; the bound on (21), page 28 | the proof of Theorem 1, and the step this entry records as a defect |
+  | Appendix A.2, Lemma 1, page 29; Lemma 2, page 30 | the asymptotic linearity of the drift, and the kernel rates of the reductions |
   | page 25 | a referee's composite `T = AM` reduction, rejected as "unsatisfactory because it ignores intrinsic properties of the variables A and M" |
   | page 26 | removing Condition 2 by cross-validation "would follow from trivial extensions" of Zheng and van der Laan (2011) |
+
+  **Source defect: the step at equation (21).** The proof of Theorem 1, in Appendix A.1, defines
+  $\hat e_0 = E[Y - m_1 \mid A = 1, M = 1, g_0(W), \hat g(W)]$ and replaces it by
+  $e_0 = E[Y - m_1 \mid A = 1, M = 1, g_0(W)]$. Page 28 calls the difference, equation (21),
+  $O_P(\lVert \hat g - g_0 \rVert^2)$. The difference is linear in $\hat g - g_0$ when the error
+  of $\hat g$ breaks the level sets of $g_0$. Lemma 1 and Theorem 2 inherit the step.
+
+  Lemma 2 bounds the fitted reductions against their limits, which is a different comparison, and is not
+  affected. RM40's audit and the RM40 implementation read Appendix A.1, equations (14) to (21),
+  Lemma 1 and Lemma 2 in the arXiv v1 manuscript. They did not compare the journal version. The
+  [contract](technical-reference/dr-tmle/theorem.md#randomized-trials-with-missing-outcomes) states the consequence for this route.
 
   The package applies Theorem 2 to each arm indicator and stacks the arm estimators above two
   arms. The [multi-arm contract](technical-reference/dr-tmle/theorem.md#more-than-two-arms) gives

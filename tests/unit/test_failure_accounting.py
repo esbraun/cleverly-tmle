@@ -679,8 +679,10 @@ class TestLedger:
             red_cells.red_rows(record, tables)
 
 
-def test_the_score_audit_pairs_around_a_recorded_reference_failure() -> None:
-    record = _record(replicates=3, extra_artifacts=(claims.FIT_DIAGNOSTICS_FILE,))
+def test_the_score_audit_pairs_around_a_recorded_reference_failure(tmp_path: Path) -> None:
+    record = _record(
+        replicates=3, extra_artifacts=(claims.FIT_DIAGNOSTICS_FILE,), artifacts=tmp_path
+    )
     diagnostics = pd.DataFrame(
         {
             "implementation": [SUBJECT] * 3 + [REFERENCE] * 2,
@@ -689,6 +691,8 @@ def test_the_score_audit_pairs_around_a_recorded_reference_failure() -> None:
             "score_passed": True,
         }
     )
+    # The aggregates choose the score audit from the committed file's header.
+    diagnostics.to_csv(record.artifact(claims.FIT_DIAGNOSTICS_FILE), index=False)
     data = {claims.FIT_DIAGNOSTICS: diagnostics, claims.FAILURES: _failures(("law", "1"))}
     audit = claims._score_audit_aggregates(record)
     assert audit["score_audited_fits"](data) == 3.0

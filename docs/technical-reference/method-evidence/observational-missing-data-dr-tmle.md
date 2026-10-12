@@ -250,6 +250,9 @@ and control power 1.0 at 2,400 replications.
   No scenario reaches that floor.
 - No instrument here can detect a violation of the treatment condition, $Y(a)$ independent of
   $\Delta_A$ given $(A, W)$.
+- The drift cells give the consistent nuisance as its exact law table, so the conditioning terms of
+  [the theorem](../dr-tmle/theorem.md#the-conditioning-terms-are-linear-in-one-error) are zero by construction. The cells measure the targeting, not one-wrong
+  inference with an estimated nuisance.
 
 ## Reproduction
 

@@ -1154,15 +1154,22 @@ class TestNegativeControls:
 
     @pytest.fixture
     def cell(self, study: StudyRecord, rows: pd.DataFrame) -> pd.DataFrame:
-        scenario = next(iter(study.scenarios))
         performance = pd.read_csv(study.artifact("performance-tests.csv"))
-        valid = set(
-            performance.loc[
-                (performance["implementation"] == study.implementation) & performance["passed"],
-                "estimand",
-            ]
+        subject = performance.loc[
+            (performance["implementation"] == study.implementation) & performance["passed"]
+        ]
+        valid = set(zip(subject["scenario"], subject["estimand"], strict=True))
+        # The first subject-valid cell of any scenario, so a study whose first scenario is red
+        # throughout still hosts the mutations.
+        scenario, estimand = next(
+            (
+                (scenario, name)
+                for scenario, names in study.scenarios.items()
+                for name in names
+                if (scenario, name) in valid
+            ),
+            (None, None),
         )
-        estimand = next((name for name in study.scenarios[scenario] if name in valid), None)
         if estimand is None:
             pytest.skip("study publishes no subject-valid primary cell for this mutation")
         return rows.loc[(rows["scenario"] == scenario) & (rows["estimand"] == estimand)].copy()
@@ -1991,6 +1998,7 @@ _FAMILY = {
     # ``failures.csv``: zero for a study whose comparator never failed.
     "reference_failures": "failures",
     "failure_rate": "failures",
+    "mechanism_": "fit_diagnostics",
 }
 
 

@@ -68,7 +68,7 @@ B_{A,n} = P_n D_A(Q̄*_{n,r}, g*_n)                       = o_p(n^(−1/2))
 B_{Y,n} = P_n D_Y(Q̄*_n, g*_{1,n,r}, g*_{2,n,r})         = o_p(n^(−1/2))
 ```
 
-**and** suppose the appendix second-order terms satisfy `R_{Q,n} = o_p(n^(−1/2))` and
+**and** suppose the appendix remainder terms satisfy `R_{Q,n} = o_p(n^(−1/2))` and
 `R_{g,n} = o_p(n^(−1/2))`. **Then** the targeted plug-in is asymptotically linear with influence
 function `D^{*,#}`, and `√n(ψ̂ − ψ_0) ⇝ N(0, σ²)` with
 
@@ -76,8 +76,11 @@ function `D^{*,#}`, and `√n(ψ̂ − ψ_0) ⇝ N(0, σ²)` with
 σ̂²_n = P_n [ D*(Q*_n, g*_n) − D_A − D_Y ]²
 ```
 
-Three things to read off it:
+Four things to read off it:
 
+- the remainder conditions do not follow from the union condition and the rates.
+  [The conditioning terms](#the-conditioning-terms-are-linear-in-one-error) shows why. With one
+  nuisance wrong, the interval is established only in the cases that section lists;
 - the score conditions are `o_p(n^(−1/2))`, **not** exact zeros. This implementation's exact-zero
   ambition is stricter than the theorem, and its numerical stopping rule is not obviously either;
 - the conditions are on the **targeted** collection, including the starred *reduced* nuisances,
@@ -99,6 +102,9 @@ Data can declare its treatment mechanism with `treatment_probabilities=` (the
 [point-treatment contract](../point-treatment-tmle.md#known-treatment-mechanism) gives the forms).
 A complete-data fit is then Theorem 1 at the degenerate estimator `g_n ≡ g_0`. The branch
 `g = g_0` of the theorem's hypothesis holds by declaration, and `R_{g,n}` is trivial at `g_0`.
+This is a case where the interval with a wrong outcome regression is established
+([the conditioning terms](#the-conditioning-terms-are-linear-in-one-error)). The ordinary TMLE
+interval is valid here too.
 
 | guard | what the fit does with the declared `g_0` |
 | --- | --- |
@@ -131,10 +137,10 @@ gives what follows for the randomized missing-outcome route.
 | question | answer |
 | --- | --- |
 | the remainder with a wrong outcome regression | linear in the error of `g_A g_Delta`, not a product of two errors. The term sits in the step at equation (21) of the proof in Díaz and van der Laan (2017), Appendix A.1. A known `g_A` does not remove it, because `g_Delta` is estimated |
-| the measured effect | a project audit simulated a known `g_A`, a wrong outcome regression and a slowly converging `g_Delta`. Coverage fell to 0.85 at n = 16,000, and the bias grew with n |
+| the measured effect | a project probe simulated a known `g_A`, a wrong outcome regression and a slowly converging `g_Delta`. Coverage of `ey[1]` fell to 0.850 at n = 16,000, and the bias grew with n (`reviews/rm40/lra_summary.log`, not a registered study) |
 | when the interval is established | when the outcome regression and `g_Delta` are both consistent |
-| what a declared `g_A` alone gives | no established interval. This is a gap in the theory, not in the evidence |
-| `n_bootstrap=` | refused on a guarded fit. A full-refit bootstrap resamples the same estimator, so its range would carry the same bias |
+| what a declared `g_A` alone gives | no established interval with a wrong outcome regression. This is a gap in the theory, not in the evidence |
+| `n_bootstrap=` | admitted, as on the route with an estimated `g_A`. A full-refit bootstrap resamples the same estimator, so its range rests on the same remainder as the analytic interval and carries the same limit |
 
 ## Randomized trials with missing outcomes
 
@@ -199,6 +205,29 @@ mechanism ([a known treatment mechanism](#a-known-treatment-mechanism)) supplies
 treatment learner. An observational missing outcome and a missing treatment take the construction
 of [the composite indicator](#observational-missing-data-the-composite-indicator) instead.
 
+**With a wrong outcome regression the theorem does not establish the interval in general.** The
+proof of Theorem 1 is in Appendix A.1 of Díaz and van der Laan (2017). It conditions a residual
+mean on the pair `(g_0, ĝ)`. It then replaces that mean by one given `g_0` alone, and calls the difference, the
+term at equation (21), `O_P(‖ĝ − g_0‖²)`. The difference is linear in `ĝ − g_0` when the error of
+`ĝ` breaks the level sets of `g_0`. Lemma 1 and Theorem 2 inherit the step. Here
+`g = g_A g_Delta`, so the term has the same structure as `R_{3,n}` of
+[the conditioning terms](#the-conditioning-terms-are-linear-in-one-error).
+
+| observation mechanism, with the outcome regression wrong | the interval |
+| --- | --- |
+| the product mechanism `g_A g_Delta` known | established. The package always estimates `g_Delta`, so no fit is in this row |
+| a correctly specified parametric model | the projection argument of [the conditioning terms](#the-conditioning-terms-are-linear-in-one-error) suggests a conservative interval. The page derives it for a complete outcome only. The probe's GLM cell (n = 4,000, R = 150) showed no excess and an arm-0 bias that the term does not explain. RM40 re-checks it |
+| a data-adaptive learner | not established. A non-registered probe found an arm-mean bias that grows with n |
+
+The probe declared `g_A`, fitted a wrong outcome regression, and gave `g_Delta` a constructed slow
+error (`reviews/rm40/lra_summary.log`). The `ey[1]` bias was −0.24, −0.60 and −0.98 SD at
+n = 1,000, 4,000 and 16,000. Its SE ratio stayed between 0.88 and 1.10. A known `g_A` alone is not
+enough.
+
+The `ate` bias cancelled on
+that law, because the errors of both arms moved the same way. The mirror branch, where `r̂_{A,0}` and `r̂_{M,0}` condition on `(m_1, m̂)`, has the same
+structure. No probe measured it.
+
 ### More than two arms
 
 Díaz and van der Laan (2017) state their result for one arm indicator. Above two arms, the fit
@@ -208,10 +237,10 @@ argument in five parts. Page numbers are those of the arXiv v1 author manuscript
 
 | part | content |
 | --- | --- |
-| base result | Theorem 2 (p. 20) under Condition 2 (Donsker, p. 13) and Condition 3 (p. 15). It gives `n^(1/2)(psi_dtmle − psi_0) → N(0, Var D_dr)` with `D_dr` of Theorem 1 (p. 16), for one indicator `A` and the target `E(Y_1)`. Section 2.1 (p. 6) applies it to "four such indicators" in its application |
+| base result | Theorem 2 (p. 20) under Condition 2 (Donsker, p. 13) and Condition 3 (p. 15). It gives `n^(1/2)(psi_dtmle − psi_0) → N(0, Var D_dr)` with `D_dr` of Theorem 1 (p. 16), for one indicator `A` and the target `E(Y_1)`. Section 2.1 (p. 6) applies it to "four such indicators" in its application. With a wrong outcome regression the result holds only in the cases [above](#randomized-trials-with-missing-outcomes), because the proof's step at equation (21) is linear in `ĝ − g_0` |
 | steps | indicator reduction: arm `a` uses `(W, 1(A=a), Delta, Delta Y)` and its own `g_A(a|W)` and `g_Delta(a,W)`. Fixed-dimension stack: the `K` arm estimators are asymptotically linear on the same rows, so their joint covariance is `P_0[D_a D_b]`. Linearity gives each `ate`, and the delta method gives `rr` and `or` on the log scale. The simultaneous band is the multiplier band over the stacked curves |
 | objection search | p. 25 rejects a composite `T = AM` reduction. The armwise construction keeps `g_A` and `g_Delta` apart, so the objection does not apply. p. 26 discusses cross-fitting, not arms. No source records the indicator reduction or the stack as open |
-| conditions | Assumptions 1 to 4 (pp. 6-7) at every arm, with positivity `g_A(a|W) g_Delta(a,W) > 0`. Randomization by design: `randomized=True`, or a declared known mechanism, which can depend on `W`. A declared mechanism supplies `g_A` only, so it does not establish the interval when the outcome regression is wrong ([a known treatment mechanism](#a-known-treatment-mechanism)). Conditions 2 and 3 for every arm, hence `cross_fit=False`. Every arm's four score equations solved to `o_P(n^(−1/2))` |
+| conditions | Assumptions 1 to 4 (pp. 6-7) at every arm, with positivity `g_A(a|W) g_Delta(a,W) > 0`. Randomization by design: `randomized=True`, or a declared known mechanism, which can depend on `W`. A declared mechanism supplies `g_A` only, so it does not establish the interval when the outcome regression is wrong ([a known treatment mechanism](#a-known-treatment-mechanism)). Conditions 2 and 3 for every arm, hence `cross_fit=False`. With a wrong outcome regression, Condition 3's rates do not make the equation (21) term negligible ([above](#randomized-trials-with-missing-outcomes)). Every arm's four score equations solved to `o_P(n^(−1/2))` |
 | evidence | the exact-law checks, nonzero witnesses, mutation controls and independent reference of `tests/unit/test_drtmle_missing_multi_arm.py`, and the registered [multi-arm missing-outcome study](../method-evidence/randomized-multi-arm-missing-outcome-dr-tmle.md) |
 
 **No fluctuation parameter is shared across arms above two arms.** This condition is what lets
@@ -268,7 +297,7 @@ the fit records it under `result.extra["missing_data"]`.
 
 | part | content |
 | --- | --- |
-| base result | Benkeser, Carone, van der Laan and Gilbert (2017), Section 3.2, Theorem 1: on `O = (W, A, Y)` with a binary `A`, the estimator that solves the targeting equation and the equations of the reduced regressions is asymptotically linear with curve `D* − D*_Q − D*_g` when either `Qbar` or `g` is consistent |
+| base result | Benkeser, Carone, van der Laan and Gilbert (2017), Section 3.2, Theorem 1: on `O = (W, A, Y)` with a binary `A`, the estimator that solves the targeting equation and the equations of the reduced regressions is asymptotically linear with curve `D* − D*_Q − D*_g` under the theorem's score and remainder conditions. Both nuisances consistent meet them. With one nuisance wrong, [the conditioning terms](#the-conditioning-terms-are-linear-in-one-error) limit the claim to the cases listed there, applied to `(W, C_a, C_a Y)` with the composite mechanism `g_c,a` |
 | steps | indicator reduction: Theorem 1 applies as stated to `O'_a = (W, C_a, C_a Y)`, with the binary treatment `C_a`, the mechanism `g_c,a` and the regression `E(Y | C_a=1, W)`. Identification: `E{Y(a)} = E[E{Y | A=a, Delta_A=1, Delta=1, W}]` under the conditions below. Fixed-dimension stack: the `K` arm estimators are asymptotically linear on the same rows, with joint covariance `P_0[D_a D_b]`. Linearity gives `ate`, and the delta method gives `rr` and `or` on the log scale. Fixed weights tilt the law and clusters are the unit, as in both parents |
 | objection search | Benkeser et al. (2017) mention no missing data and no caveat about coarsening. Díaz and van der Laan (2017, p. 25) reject a composite `T = AM` for a randomized trial, because it discards known design information. On an observational law nothing about the treatment mechanism is known, so the composite discards nothing. R `drtmle` 1.1.2 implements this construction (`R/drtmle.R` lines 207-209, `R/fluctuate.R` lines 28, 98 and 169-172, `R/estimate.R` lines 116-200) |
 | conditions | the four conditions below; Theorem 1's conditions for each arm on `O'_a`, which include the Donsker condition, hence `cross_fit=False`; the solved equations of every arm at `o_P(n^(−1/2))`. The loop stops on the largest score over the arms, which is stricter than the per-arm requirement |
@@ -382,13 +411,16 @@ purpose.
 The mechanism-misspecification branch, appendix B:
 
 ```text
-R̃_{5,n} = P_0[ { (A/g_{1,0n,r})·g_{2,0n,r} − (A/g_{1,0,r})·g_{2,0,r} } · (Y − Q̄_n) ]
-R̃_{6,n} = P_0[ { (A/g_{1,0,r})·g_{2,0,r}   − (A/g_{1,n,r})·g_{2,n,r} } · (Y − Q̄_n) ]
+R̃_{5,n} = P_0[ { (A/g_{1,0n,r})·g_{2,0n,r} − (A/g_{1,0,r})·g_{2,0,r} } · (Q̄_0 − Q̄_n) ]
+R̃_{6,n} = P_0[ { (A/g_{1,0,r})·g_{2,0,r}   − (A/g_{1,n,r})·g_{2,n,r} } · (Q̄_0 − Q̄_n) ]
 M̃_{2,n} = (P_n − P_0)[ D_Y(Q̄_n, g_{1,n,r}, g_{2,n,r}) − D_Y(Q̄_0, g_{1,0,r}, g_{2,0,r}) ]
 R_{g,n} = R̃_{5,n} + R̃_{6,n} + M̃_{2,n}
 ```
 
-and the outcome-misspecification branch, appendix A, `R_{Q,n} = R_{3,n} + R_{4,n} + M_{1,n}`:
+The published displays carry the factor `(Q̄_0 − Q̄_n)`. The leading `A` makes
+`(Y − Q̄_n)` give the same `P_0` value, because `E_0[A(Y − Q̄_n) | W] = E_0[A(Q̄_0 − Q̄_n) | W]`.
+
+The outcome-misspecification branch, appendix A, `R_{Q,n} = R_{3,n} + R_{4,n} + M_{1,n}`:
 
 ```text
 R_{3,n} = P_0[ { (Q̄_{0n,r} − Q̄_{0,r}) / g_0 } · (g_0 − g_n) ]
@@ -396,13 +428,15 @@ R_{4,n} = P_0[ { Q̄_{0,r}/g_0 − Q̄_{n,r}/g_n }  · (g_0 − g_n) ]
 M_{1,n} = (P_n − P_0)[ D_A(Q̄_{n,r}, g_n) − D_A(Q̄_{0,r}, g_0) ]
 ```
 
-with `Q̄_{0n,r}(w) := E_0{Y − Q̄(W) | g_n(W) = g_n(w), g_0(W) = g_0(w)}` evaluated at the
+with `Q̄_{0n,r}(w) := E_0{Y − Q̄(W) | A = 1, g_n(W) = g_n(w), g_0(W) = g_0(w)}` evaluated at the
 *estimated* propensity as well as the true one, which is what makes `R_{3,n}` an approximation
-error rather than a fitted one. Appendix A also carries `R*_n = R_{1,n} + R_{2,n}`, the part that
-is second order whichever nuisance is right.
+error rather than a fitted one. The published display omits `A = 1` under the paper's "abuse of
+notation". The first equality of the same display needs it, because it rewrites
+`P_0{(A/g_0²)(Y − Q̄)(g_n − g_0)}` as `P_0{(Q̄_{0n,r}/g_0)(g_n − g_0)}`. Appendix A also carries
+`R*_n = R_{1,n} + R_{2,n}`, the part that is second order whichever nuisance is right.
 
-**The paper's rate conditions are illustrative, not necessary.** It states that it *generally
-suffices* that, for `R_{g,n}`:
+**The paper states these rates as sufficient conditions.** It states that it *generally suffices*
+that, for `R_{g,n}`:
 
 ```text
 ‖Q̄_n − Q̄_0‖_2 = o_p(n^(−1/4))
@@ -414,7 +448,158 @@ and for `R_{Q,n}`, in the same "if, for example" form, `o_p(n^(−1/4))` on the 
 approximation error `‖Q̄_{0n,r} − Q̄_{n,r}‖_2`, on its fitted error `‖Q̄_{n,r} − Q̄_{0,r}‖_2`, and on
 the primary propensity's error `‖g_n − g_0‖_2`. Both appendices add an empirical-process pair in
 one shape: a `P_0`-Donsker class containing the *estimated* curve, plus `L_2(P_0)` convergence of
-the estimated curve to its limit.
+the estimated curve to its limit. The next subsection shows that two of these rates need not hold
+when one nuisance is wrong.
 
-**These are the conditions the release claim is conditional on**, and they are conditions on
-estimated functions that no fit can check for itself.
+**These are conditions on estimated functions that no fit can check for itself.**
+
+### The conditioning terms are linear in one error
+
+`R_{3,n}` and `R̃_{5,n}` are not products of two errors. Each one is linear in the error of the
+consistent nuisance. The rates above make neither term negligible when the other nuisance is wrong.
+The tables below state when each term vanishes.
+
+The notation is for arm 1. Arm 0 replaces `g` by `1 − g` throughout. `Q̄` and `ḡ` are the limits of
+`Q̄_n` and `g_n`. Write `Q̄_{0,r} = E_0[Y − Q̄ | A = 1, g_0(W)]` and `F = Q̄_0 − Q̄ − Q̄_{0,r}`.
+
+**The outcome branch.** On a level set of `(g_n, g_0)` the probability `P(A = 1 | W) = g_0` is
+constant. Conditioning on `A = 1` therefore leaves the law of `W` unchanged there, and
+`Q̄_{0n,r} = E_0[Q̄_0 − Q̄_n | g_n, g_0]`. The factor `(g_0 − g_n)/g_0` is a function of
+`(g_n, g_0)`. The tower rule gives, with no approximation,
+
+```text
+R_{3,n} = P_0[ (Q̄_0 − Q̄_n − Q̄_{0,r})/g_0 · (g_0 − g_n) ]
+```
+
+The first factor tends to `F`. `F` is zero only when `Q̄_0 − Q̄` is a function of `g_0`. So
+`R_{3,n}` is linear in `g_n − g_0`.
+
+The paper's own premise for `R_{4,n}` is that the fitted
+reduction converges to `Q̄_{0,r}`. Under that premise `R_{3,n}` is the first-order leftover of the
+estimator. The paper puts `o_P(n^(−1/4))` on `‖Q̄_{0n,r} − Q̄_{n,r}‖_2`. For an error of `g_n` that
+breaks the level sets of `g_0`, that norm stays of order one. The implication is correct, and its
+premise fails in the generic one-wrong case.
+
+**Only the bias of the error moves the centre of the estimate.** The stochastic part of `g_n − g_0` has mean
+zero. It changes the variance, as [the projection](#a-parametric-mechanism-makes-the-interval-conservative)
+shows. A first-order bias needs a bias of `g_n` of order `r_n ≫ n^(−1/2)` along `F/g_0`.
+
+**Finite support.** On a law with discrete covariates, an estimate can break a tie of `g_0`. The
+exact reduction `E[· | g_n]` can then recover the whole residual, so that `R_{4,n} = −R_{3,n}` and
+the leftover vanishes. The tables below are for laws where the conditional mean given `g` is
+continuous in `g`.
+
+**The mechanism branch.** Appendix B states the exact step
+`P_0{(Q̄_n − Q̄_0)(g − g_0)/g} = −P_0{g_{2,0n,r}(Q̄_n − Q̄_0)}`. There `g_{1,0n,r}` and `g_{2,0n,r}`
+condition on `(Q̄_n(W), Q̄_0(W))`. After equation (10) the leftover reduces to
+`P_0[h·(Q̄_0 − Q̄_n)]`, with
+
+```text
+r = (g_0 − ḡ)/ḡ,    h = r − g_0·E[r | Q̄_0]/E[g_0 | Q̄_0],    E[h | Q̄_0] = 0
+```
+
+It is linear in `Q̄_n − Q̄_0`.
+
+**When the term adds no first-order bias.** The table is for the univariate reduction. The first three rows make the term `o_P(n^(−1/2))`. Negligible bias leaves a stochastic part of order `n^(−1/2)`. Its effect on the interval is derived only for a parametric index, where it makes the interval conservative.
+
+| condition | outcome branch (`Q̄` wrong) | mechanism branch (`g` wrong) | checkable from a fit |
+| --- | --- | --- | --- |
+| both nuisances consistent at the product rates | the first factor shrinks too | the same | no. This is the ordinary TMLE rate condition |
+| H2: the consistent estimate keeps the level sets of its truth | `g_n = g_0`, or `g_n = φ_n(g_0)` with `φ_n` tending to the identity | `Q̄_n = φ_n(Q̄_0)` | yes for a declared known mechanism. Otherwise no |
+| H1 | `Q̄_0 − Q̄` is a function of `g_0` | `1/ḡ − 1/g_0` is a function of `Q̄_0`, which is `h ≡ 0` | no |
+| negligible bias | the bias of `g_n` along `F/g_0` is `o(n^(−1/2))` | the bias of `Q̄_n` along `h` is `o(n^(−1/2))` | no |
+
+For arm 0, the outcome-branch H1 is: `Q̄_0(0, ·) − Q̄(0, ·)` is a function of `g_0`. The
+mechanism-branch H1 is: `1/(1 − ḡ) − 1/(1 − g_0)` is a function of `Q̄_0(0, ·)`. A limit `ḡ` that
+is constant on the level sets of `Q̄_0` need not meet it.
+
+**Law L** has `W1, W2 ~ N(0, 1)`, `g_0 = expit(0.6 W1 + 0.3 W2)` and `Q̄_0 = expit(−0.2 + 0.5 A − W1 + 2 W2)`. `tests/unit/test_drtmle_h1_symmetry.py` pins a constant `ḡ` on law L for which `L_2(h)` is 0.305.
+
+`g_n = φ_n(g_0)`, with `φ_n` tending to the identity, is a one-wrong case where the DR-TMLE interval holds and
+the plain TMLE interval does not. The plain TMLE leftover there is
+`P_0[(g_0 − g_n)/g_n · E(Q̄_0 − Q̄ | g_0)]`, which is first order. Equation (9) removes it.
+
+**The case table.** The rows are for the univariate reduction and a binary treatment. Above two
+arms each row applies arm by arm.
+
+| case | conditioning term | reported interval | evidence |
+| --- | --- | --- | --- |
+| both nuisances consistent at the product rates, plus the reduced-regression and solve conditions | second order | valid (Theorem 1) | the registered both-correct cells of the [canonical](../method-evidence/canonical-dr-tmle.md), [stratified](../method-evidence/stratified-dr-tmle.md) and [multi-arm](../method-evidence/multi-arm-dr-tmle.md) studies |
+| `Q̄` wrong, `g` declared known | second order (its first-order part is zero). Equation (9) moves `g*` along `Q_r/g_0`, a function of `g_0` | valid. The ordinary TMLE interval is valid too | Theorem 1 at `g_n = g_0`, and the registered [known-mechanism DR-TMLE study](../method-evidence/known-mechanism-dr-tmle.md) with a wrong outcome regression |
+| `Q̄` wrong, `g_n = φ_n(g_0)` with `φ_n` tending to the identity, or H1 | second order (its first-order part is zero) | valid under the remaining rates | the derivation. The Section 5.1 law of the paper is H1 (`tests/unit/test_drtmle_h1_symmetry.py`) |
+| `Q̄` wrong, `g` a correctly specified fixed-dimension parametric model fitted by maximum likelihood, in sample or cross-fitted | `O_P(n^(−1/2))`, linear in the score | **conservative**: asymptotically linear, with a reported variance too large by `c'I^(−1)c` | the derivation below. A non-registered probe measured an in-sample ATE SE ratio of 1.136 to 1.149 at n = 1,000 to 16,000, with coverage 0.969 to 0.984 |
+| `Q̄` wrong, `g` with a bias of order `r_n ≫ n^(−1/2)` along `F/g_0` | of order `r_n` | **not established** | the identity. In the probe a constructed level-set-breaking error of order `n^(−1/3)` gave an ATE bias of −0.66, −0.84 and −1.22 SD, with coverage 0.928, 0.918 and 0.867, at n = 1,000, 4,000 and 16,000 |
+| `g` wrong, `Q̄` a correctly specified parametric model | `O_P(n^(−1/2))` | not established. An extra first-order term of no fixed sign remains, because the target depends on the parameters of `Q̄` | the derivation only |
+| `g` wrong, `Q̄` with a bias along `h` of order larger than `n^(−1/2)` | linear | **not established** | the identity. In the probe a constructed error gave an ATE bias of −0.88, −1.13 and −1.34 SD, with coverage 0.845, 0.752 and 0.680, at the same sizes |
+
+No fit can tell which row it is in, except a declared known mechanism. The probe is
+`reviews/rm40/drdr_sim.py`, with its numbers in `reviews/rm40/drdr_summary.log`. It is not a
+registered study. The registered [multi-arm study](../method-evidence/multi-arm-dr-tmle.md) has a
+law that no test pins as H1, and a correctly specified multinomial mechanism. Its SE ratios of 1.00 to 1.04
+do not contradict the conservative row. Its verdicts cannot detect a conservative interval, because
+its coverage rule is a floor.
+
+**No registered study's verdict can detect the term.** The canonical and stratified laws are H1 in
+both branches by symmetry, as `tests/unit/test_drtmle_h1_symmetry.py` pins. The missing-data
+studies give the consistent nuisance as an exact law table, which is H2.
+
+**The routes.** DR-TMLE is the only shipped family that publishes an interval exposed to this
+term. Its status stays `influence_curve` on every route, because a fit cannot tell which case it
+is in, and the interval is valid when both nuisances are consistent at the product rates.
+
+| route | index of the conditioning term | one-wrong interval established when | non-registered evidence |
+| --- | --- | --- | --- |
+| complete outcome: binary, more arms, strata, fixed weights, clusters, both reductions | `g_n` with the outcome wrong, `Q̄_n` with the mechanism wrong | the case table above | `reviews/rm40/drdr_summary.log` |
+| [randomized missing outcome](#randomized-trials-with-missing-outcomes) | the product `ĝ_A ĝ_Delta` | the product mechanism is known. A known `g_A` alone is not enough | `reviews/rm40/lra_summary.log` |
+| [composite indicator](#observational-missing-data-the-composite-indicator) | the composite mechanism `g_c,a` | the case table above, applied arm by arm to `(W, C_a, C_a Y)` | the complete-outcome probe applies, because this route is the same theorem on a recoded treatment |
+| results computed from a fit on these routes: `variable_importance`, E-values, truncation curves, the full-refit bootstrap | inherited from the fit | as for the fit | none |
+
+### A parametric mechanism makes the interval conservative
+
+Take a logistic maximum-likelihood fit of `g` with the design `X`. Then
+`g_n − g_0 ≈ g_0(1 − g_0)X'(β_n − β_0)` and `β_n − β_0 ≈ I^(−1)P_n S`, with the score
+`S = X(A − g_0)`. So `R_{3,n} ≈ −c'I^(−1)P_n S`, with `c = P_0[F(1 − g_0)X]`. In the outcome-wrong
+branch `D_Y` tends to zero, because `g_{2,0,r} = 0` at `g = g_0`. Then:
+
+```text
+Cov(D*, S)   = P_0[(1 − g_0)(Q̄_0 − Q̄)X]
+Cov(D_A, S)  = P_0[Q̄_{0,r}(1 − g_0)X]
+Cov(D^{*,#}, S) = c
+```
+
+The estimator's curve is therefore `D^{*,#} − c'I^(−1)S`. That is the `L_2` residual of `D^{*,#}`
+after its projection on the score span. Its variance is `Var(D^{*,#}) − c'I^(−1)c`, and the
+reported variance is `Var(D^{*,#})`. Arm 0 flips both signs, so the ATE curve is again a residual.
+Equation (9) moves `g` along `Q_r/g`, a function of `g_n`, so it adds second-order terms only.
+
+| fact | reason |
+| --- | --- |
+| the conservative case does not need a consistent reduction | `D* − D_A(Q_r)` has mean zero at every `g` in the model, for any fixed limit `Q_r` |
+| cross-fitting gives the same projection | the fold scores average to the full-sample score: `(1/V) Σ_v P_{n,−v} S = P_n S` |
+| the simultaneous band is conservative too | the reported covariance exceeds the true one by a positive semidefinite matrix. A symmetric convex set then has at least its nominal Gaussian probability (Anderson's inequality) |
+
+The steps are standard: a linearization of the maximum-likelihood fit, a fixed-dimension stacked
+equation, and an `L_2` projection. The derivation is this repository's. In the probe, the
+in-sample SE ratio after the projection is 0.977 to 0.983 at n = 1,000 to 16,000. The
+cross-fitted cell has an SE ratio of 1.231 and a projected SE ratio of 1.047 at R = 400. No
+registered study measures this case yet.
+
+### The bivariate reduction
+
+The bivariate reduction keeps `Q_r`, so its outcome branch is the one above. Its mechanism branch
+has the same linear structure. Appendix A, in the display of `R_{5n}` for that construction, gives
+`R_{5n} = −P_0{(g_{0n,r} − g_{0,r})/g · (Q̄_n − Q̄_0)}`, with `g_{0n,r} = E_0[A | Q̄_n, Q̄_0, g]`.
+That conditioning set includes `g`, so its H1 condition differs from the one above. The H1 column
+above is for the univariate reduction only.
+
+### The release claim
+
+The interval is valid when both nuisances are consistent at the product rates, under DR-TMLE's own reduced-regression
+and solve conditions. With one nuisance inconsistent, the two extra equations remove the part of
+the first-order remainder that is a function of the consistent nuisance. The rest, `R_{3,n}` or
+`R̃_{5,n}`, can stay first order.
+
+The one-wrong interval is valid for a declared known mechanism and
+conservative for a correctly specified parametric mechanism. With the mechanism wrong, the interval is not established, even for a correctly specified parametric outcome regression. It is also valid where the consistent
+estimate keeps the level sets of its truth, or where H1 holds. No fit can check the last two. A
+constructed level-set-breaking error produced a bias that grows with `n`.

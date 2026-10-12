@@ -30,8 +30,10 @@ identically zero:
     ============  ==================  =======  ================  =====================
 
 In each, with the reductions **saturated**, the corrected curve collapses to the
-*efficient* influence function at the true nuisances -- which is exactly what "an interval
-valid when only one nuisance is consistent" means, and which
+*efficient* influence function at the true nuisances.  That holds on a law where the
+consistent nuisance separates every cell, as here; on a continuous law the conditioning term
+of ``docs/technical-reference/dr-tmle/theorem.md`` can remain
+(:mod:`tests.unit.test_conditioning_remainder_drtmle`).  The efficient curve is what
 :func:`tests.discrete_law.eif` supplies by complex-step differentiation of the
 identification formula, with no library code anywhere in the derivation.  The algebra, for
 ``q_right``, is one line and is the whole reason this comparison is not a tautology:

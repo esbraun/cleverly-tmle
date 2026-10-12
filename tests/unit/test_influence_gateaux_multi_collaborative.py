@@ -210,6 +210,9 @@ def oat_fit() -> Any:
     return (
         CTMLE(
             strategy="oat",
+            # The shared design: on this injective law its curve is the EIF. The per-arm
+            # design's curve is checked in tests/unit/test_outcome_adaptive_per_arm.py.
+            oat_design="shared",
             outcome_learner=law.OracleMultiOutcome(),
             treatment_learner=SaturatedCategorical(),
             estimands=("ey", "ate"),

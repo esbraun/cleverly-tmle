@@ -1,7 +1,8 @@
 r"""The doubly-robust influence curve: :math:`D = D^* - D^*_Q - D^*_g`.
 
-The variance is the whole of what this variant buys, so the curve is the one part of it
-that can be wrong in a way nothing else here would notice.  Two facts shape how it has to
+The variance is the whole of what this variant buys, and the interval it buys is valid in
+the cases the contract lists.  So the curve is the one part of it that can be wrong in a way
+nothing else here would notice.  Two facts shape how it has to
 be checked.
 
 **The point estimate cannot see it.**  All three empirical means are driven to zero by the

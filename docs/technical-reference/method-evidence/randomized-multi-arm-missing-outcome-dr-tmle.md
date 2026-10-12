@@ -164,6 +164,9 @@ oracle band covers as the package band does.
   five-reduction construction.
 - The study excludes observational assignment, weights, clusters, missing treatment, MNAR
   outcomes, cross-fitting, and other DR-TMLE compositions.
+- The drift cells give the consistent nuisance as its exact law table, so the conditioning terms of
+  [the theorem](../dr-tmle/theorem.md#the-conditioning-terms-are-linear-in-one-error) are zero by construction. The cells measure the targeting, not one-wrong
+  inference with an estimated nuisance.
 
 ## Reproduction
 
