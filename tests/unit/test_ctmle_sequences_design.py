@@ -109,6 +109,61 @@ def test_the_multi_arm_law_reports_its_truncation_share() -> None:
     assert share == 0.0
 
 
+#: The sample size at which a candidate's limit bias is read, and the factor by which index 0
+#: must clear the standardized-bias margin at the necessity cells' size.  At this seed index 0
+#: lies about 4.6 standard deviations from the truth, and index 1 about 0.08.
+BIAS_N = 200_000
+BIAS_FACTOR = 4.0
+
+
+def _standardized_bias(columns: tuple[int, ...]) -> float:
+    """The TMLE bias at one declared candidate, in standard deviations at the cell's ``n``.
+
+    The candidate is the propensity of a selector stuck at that index: the fit fluctuates the
+    cell's own outcome learner once along it.  The standard deviation at the cell's ``n`` is
+    the plug-in standard error at :data:`BIAS_N`, rescaled by the square root of the sizes.
+    """
+    from sklearn.dummy import DummyRegressor
+
+    from cleverly.estimators import TMLE
+    from tests.studies import bounded_cv_laws
+
+    law = bounded_cv_laws.instrument_dgp()
+    (cell,) = [
+        cell for cell in properties.declared_cells() if cell.cell == "learners_collaborative"
+    ]
+    assert cell.dgp.name == law.name and cell.outcome_learner is DummyRegressor
+    frame, _ = law.sample(BIAS_N, seed=20261616, backend="pandas")
+    estimate = (
+        TMLE(
+            outcome_learner=DummyRegressor(),
+            treatment_learner=properties._main_terms(columns),
+            cross_fit=False,
+            estimands=("ate",),
+            g_bounds=study.G_BOUNDS,
+            q_bounds=bounded_cv_laws.Q_BOUNDS,
+            random_state=0,
+        )
+        .fit(frame, outcome="Y", treatment="A", covariates=list(law.covariate_names))
+        .single()["ate"]
+    )
+    sd_at_cell = estimate.std_error * np.sqrt(BIAS_N / cell.n)
+    return (estimate.psi - law.truth()["ate"]) / sd_at_cell
+
+
+def test_the_first_declared_learner_is_biased_on_the_necessity_law() -> None:
+    """A nonzero witness: a selector that never leaves index 0 fails ``learners_collaborative``.
+
+    Index 0 reads the instrument alone and omits the confounder, so its bias lies far outside
+    the standardized-bias margin.  The control: index 1, the confounder alone, lies inside it,
+    so the witness measures the omitted confounder and not the outcome learner.
+    """
+    margin = study.STUDY.margins.standardized_bias
+    first, second = properties.LEARNER_COLUMNS
+    assert abs(_standardized_bias(first)) > BIAS_FACTOR * margin
+    assert abs(_standardized_bias(second)) < margin
+
+
 def test_the_declared_cells_and_seeds() -> None:
     cells = properties.declared_cells()
     declared = {(cell.property, cell.cell) for cell in cells}
@@ -168,3 +223,41 @@ def test_the_study_imports_without_its_declaration_inputs() -> None:
         pytest.skip("lambdas.csv is committed")
     with pytest.raises(FileNotFoundError, match=r"lambdas\.csv"):
         study.study_lambdas()
+
+
+def test_the_r_runner_writes_the_columns_the_study_reads() -> None:
+    """The R row's extra columns are :data:`REFERENCE_COLUMNS`, the fold path minima included."""
+    from tests.canonical import runner_source
+    from tests.studies.evidence.schema import REPLICATE_COLUMNS
+    from tests.unit.test_canonical_runner_parity import published_keys
+
+    runner = study.ARTIFACTS / "run_ctmle_sequences.R"
+    keys = published_keys(runner_source(runner))
+    assert keys[len(REPLICATE_COLUMNS) :] == study.REFERENCE_COLUMNS
+    assert len(study.FOLD_PATH_COLUMNS) == study.SELECTION_FOLDS
+
+
+def test_r_selection_keeps_every_path_minimum() -> None:
+    """``r-selection.csv`` carries the full-sample minimum and one minimum per fold."""
+    rows = pd.DataFrame(
+        [
+            {
+                "implementation": study.REFERENCE,
+                "scenario": scenario,
+                "replicate": 0,
+                "best_k": 21,
+                "n_candidates": 3,
+                "adapter_used": int(scenario == "binary_lasso"),
+                "path_min_lambda": 1e-5 if scenario == "binary_lasso" else np.nan,
+                **{
+                    column: (1e-5 + index * 1e-7) if scenario == "binary_lasso" else np.nan
+                    for index, column in enumerate(study.FOLD_PATH_COLUMNS)
+                },
+            }
+            for scenario in ("binary_lasso", "binary_learners")
+        ]
+    )
+    selection = study.selection_rows(rows)
+    assert list(selection.columns) == ["scenario", "replicate", *study.REFERENCE_COLUMNS]
+    lasso = selection.loc[selection["scenario"] == "binary_lasso"].iloc[0]
+    assert lasso["path_min_lambda_fold_5"] == pytest.approx(1e-5 + 4e-7, rel=0, abs=1e-18)

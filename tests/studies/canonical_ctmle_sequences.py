@@ -30,10 +30,10 @@ replicate from the seed R sets before that replicate, and the result is committe
 and one :class:`~cleverly.estimators.PropensityArrays` pair for each of
 :func:`learner_lambdas`.  The private :class:`~cleverly.learners._l1_logistic.L1Logistic`
 computes each pair: ``full`` on every row, and ``cv`` out of fold on ``folds_R``.  The terminal
-is the main-terms logistic regression.  The declared differences: the package refits the
-outcome inside each selection fold and R does not; R refits ``epsilon`` on every row inside
-each fold (quirk 2); and the package refits its terminal under the split, while R reads the
-``cv`` column of ``SL.glm``.
+is the main-terms logistic regression.  The declared differences specific to this scenario:
+the package refits its terminal under the split, while R reads the ``cv`` column of
+``SL.glm``.  ``CONFIGURATION["declared_differences"]`` lists the differences both scenarios
+share.
 
 **The inference columns** of both implementations are the plain ``D*`` variance.  The package
 reports its plug-in diagnostic through :func:`~tests.studies.evidence.schema.reported_inference`.
@@ -123,23 +123,37 @@ PROPERTY_CELLS = {
 }
 
 #: The owner of each kind of red row, declared before the run.  F18 owns the inference the
-#: selector paths withhold.  ``X16-sequence-reading`` is a standing-record owner: it reads a red
-#: paired row, or a red positive double-robustness cell, against quirks 2, 4 and 8 of the X16
-#: plan and against the adapter rate in ``r-selection.csv``, before any other reading.
+#: selector paths withhold: every coverage or standard-error-ratio red, of the truth rows and of
+#: the positive double-robustness cells alike.  ``X16-sequence-reading`` is a standing-record
+#: owner: it reads a red paired row, or a positive double-robustness cell red on its bias,
+#: against quirks 2, 4 and 8 of the X16 plan, the always-penalized R construction, the adapter
+#: rate and the path minima in ``r-selection.csv``, before any other reading.
 RED_CELL_OWNERS: Mapping[str, str] = {
     "truth/coverage": "F18",
     "truth/se_ratio": "F18",
     "property/selector_necessity": "F18",
     "paired": "X16-sequence-reading",
-    "property/double_robustness/positive": "X16-sequence-reading",
+    "property/double_robustness/positive/bias": "X16-sequence-reading",
+    "property/double_robustness/positive/coverage": "F18",
+    "property/double_robustness/positive/se_ratio": "F18",
 }
 
 #: The side artefacts: one row per R fit, and one descriptive paired comparison.
 SELECTION_FILE = "r-selection.csv"
 SELECTION_SUMMARY_FILE = "r-selection-summary.csv"
+#: The minimum of the default ``glmnet`` path on the training rows of R's cross-validation
+#: fold ``v``, the rows outside the package's selection fold ``v - 1``.  ``predict(s = 0)``
+#: clamps to it while the construction inside that fold scores its tries.
+FOLD_PATH_COLUMNS = tuple(f"path_min_lambda_fold_{v}" for v in range(1, SELECTION_FOLDS + 1))
 #: The columns the R runner writes after the published fourteen, read by
 #: :func:`extra_artifacts` before the driver drops them.
-REFERENCE_COLUMNS = ("best_k", "n_candidates", "adapter_used", "path_min_lambda")
+REFERENCE_COLUMNS = (
+    "best_k",
+    "n_candidates",
+    "adapter_used",
+    "path_min_lambda",
+    *FOLD_PATH_COLUMNS,
+)
 #: The confidence level of the descriptive paired interval.
 SUMMARY_CONFIDENCE = 0.99
 
@@ -240,10 +254,20 @@ CONFIGURATION = {
     ),
     "declared_differences": (
         "the package refits the outcome inside each selection fold; R refits epsilon on every "
-        "row inside each fold (quirk 2) and refits glmnet on every row (quirk 3); R clamps "
-        "the penalty 0 to the path minimum in its construction and cross-validation (quirk 4); "
-        "for binary_learners the package refits its terminal under the split, while R reads "
-        "SL.glm's cv column"
+        "row inside each fold (quirk 2) and refits glmnet on every row in its evaluation "
+        "(quirk 3); R clamps the penalty 0 to the minimum of the path it reads, the training "
+        "rows' path while a construction scores its tries and the full-sample path elsewhere "
+        "(quirk 4, recorded per fold in r-selection.csv); R's construction criterion always "
+        "adds var(D*), whatever PEN is, so with PEN = FALSE R's construction is penalized and "
+        "the package's (penalty=False) is not, and R's stop can bind where the package's "
+        "cannot; inside each cross-validation fold R scales that construction penalty by "
+        "n_train / n (quirk 8); for binary_learners the package refits its terminal under the "
+        "split, while R reads SL.glm's cv column"
+    ),
+    "expected_adapter_rate": (
+        "at least one third of the binary_lasso replicates: the package selects the penalty 0 "
+        "in 67 of 200 fits on binary_lasso replicates 800 to 999, which the run does not use, "
+        "and quirk 2 moves R's selection toward later indices"
     ),
     "inference": (
         "package: plug-in D* diagnostic (plugin_std_error); R: var.psi of the type-1 final "

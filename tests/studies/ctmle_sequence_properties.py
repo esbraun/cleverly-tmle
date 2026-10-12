@@ -12,8 +12,12 @@ penalties follow the primary grid's rule (:func:`~tests.studies.canonical_ctmle_
 on the cell's own law and size, so each candidate is a distinct mechanism there too.
 
 The declared candidates of every learners cell are :data:`LEARNER_COLUMNS`: a main-terms
-logistic regression on ``W1``, then on ``W1`` and ``W2``.  ``treatment_learner`` is the
-terminal: the main-terms logistic regression on every covariate.
+logistic regression on ``W2``, then on ``W1``.  ``treatment_learner`` is the terminal: the
+main-terms logistic regression on every covariate.  On the instrument law of the
+selector-necessity cells, ``W2`` is the instrument and ``W1`` the confounder, so index 0
+leaves the confounding in place.  ``learners_collaborative`` passes only when the selector
+steps past index 0.  ``tests/unit/test_ctmle_sequences_design.py`` checks that index 0 is
+biased on that law and that index 1 is not.
 
 **The outcome-correct law** (:func:`outcome_correct_dgp`) is the bounded linear law of
 :func:`~tests.studies.bounded_cv_laws.linear_dgp` with the propensity of
@@ -69,9 +73,11 @@ PROPERTY_GRID_SIZE = 12
 #: The smallest main-terms logistic KL gap the outcome-correct law's propensity may have.
 MINIMUM_PROJECTION_KL = 0.01
 
-#: The covariate columns, by position, of each declared learners candidate, least adaptive
-#: first.  Positions rather than names, because a candidate learner reads the covariate matrix.
-LEARNER_COLUMNS = ((0,), (0, 1))
+#: The covariate columns, by position, of each declared learners candidate, in the declared
+#: order.  Positions rather than names, because a candidate learner reads the covariate matrix.
+#: Index 0 reads the instrument ``W2`` alone, so on the instrument law it omits the confounder
+#: ``W1`` and is biased: a selector that never leaves index 0 fails the necessity cell.
+LEARNER_COLUMNS = ((1,), (0,))
 
 #: Replication budgets.  1,200 for double robustness and the multi-arm pair, 800 for the
 #: selector-necessity triple, as declared before the run.
