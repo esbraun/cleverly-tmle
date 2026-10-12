@@ -145,11 +145,18 @@ fit_arm <- function(data, arm, replicate) {
   epsilons <- updater$epsilons
   nonzero <- sum(vapply(epsilons, function(e) any(unlist(e) != 0), logical(1)))
   solved <- max(abs(scores)) <= 1 / n
+  # The epsilon travel, against maxit * delta_epsilon, and the gap between the SE read off the
+  # per-unit influence curve and the one tmle3's summary reports (plan 3.4, A2).
+  travel <- sum(vapply(epsilons, function(e) sqrt(sum(unlist(e)^2)), numeric(1)))
+  summary_se <- as.numeric(fitted$summary$se)
+  ic_se <- sqrt(colSums(ic^2)) / n
+  se_gap <- if (length(summary_se) == length(ic_se)) max(abs(summary_se - ic_se)) else NA_real_
   message(sprintf(
     paste0("tmle3-survival replicate=%d arm=%d steps=%d nonzero_steps=%d printed_errors=%d ",
-           "max_abs_score=%.17g bound=%.17g solved=%s maxit_bound=%s"),
+           "max_abs_score=%.17g bound=%.17g solved=%s maxit_bound=%s travel=%.17g ",
+           "max_se_gap=%.17g"),
     replicate, arm, updater$steps, nonzero, errors, max(abs(scores)), 1 / n, solved,
-    updater$steps >= maxit
+    updater$steps >= maxit, travel, se_gap
   ))
   if (nonzero == 0 && !solved) {
     stop(sprintf("arm %d took no nonzero step and left the score unsolved (%.3g > 1/n)",
