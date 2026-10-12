@@ -28,10 +28,40 @@ Call `effect.available_methods()` before fitting when method availability matter
 method comes with a capability reason.
 
 The collaborative fit above reports no confidence interval, no p-value, and no standard error. The
-`"greedy"` strategy is the default. `"ordered"`, `"discrete"`, and `"oat"` refuse the same three
-accessors. Each estimate keeps `plugin_std_error` and `plugin_interval` as a diagnostic. For an
-interval, use `TMLEMethod`. [Collaborative TMLE](../technical-reference/collaborative-tmle.md)
-gives the reason for each strategy.
+`"greedy"` strategy is the default. `"ordered"`, `"discrete"`, `"lasso"`, `"learners"`, and `"oat"`
+refuse the same three accessors. Each estimate keeps `plugin_std_error` and `plugin_interval` as
+a diagnostic. For an interval, use `TMLEMethod`.
+[Collaborative TMLE](../technical-reference/collaborative-tmle.md) gives the reason for each
+strategy.
+
+### A lasso grid that starts at a cross-validated penalty
+
+`strategy="lasso"` takes its penalties from `lambdas=`. To start the grid at a cross-validated
+penalty, fit `LogisticRegressionCV` with an L1 penalty on standardized covariates. Then convert its
+`C` with `lambda = 1 / (C n)`. Use the `saga` solver. The `liblinear` solver penalizes the
+intercept, and the lasso candidates do not.
+
+```python
+import numpy as np
+from sklearn.linear_model import LogisticRegressionCV
+from sklearn.preprocessing import StandardScaler
+
+scaled = StandardScaler().fit_transform(frame[["W1", "W2", "W3"]])
+search = LogisticRegressionCV(
+    Cs=10, l1_ratios=(1.0,), solver="saga", scoring="neg_log_loss", max_iter=5000
+)
+search.fit(scaled, frame["A"])
+start = 1.0 / (float(np.ravel(search.C_)[0]) * len(frame))
+lambdas = start * np.geomspace(1.0, 0.01, 6)
+lasso = effect.estimate(
+    method=CollaborativeTMLEMethod(models=parametric, strategy="lasso", lambdas=lambdas),
+    random_state=3,
+)
+```
+
+`StandardScaler` divides by the population standard deviation, as the lasso candidates do.
+`tests/unit/test_ctmle_candidate_sequences.py::TestConfiguration::test_the_public_lambda_cv_recipe`
+runs this recipe.
 
 Both variants are named here with a parametric learner on purpose. Neither fits a fixed number of
 nuisance models: collaborative TMLE fits one per candidate along its selection path, and DR-TMLE

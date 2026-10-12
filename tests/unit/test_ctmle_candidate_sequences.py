@@ -639,7 +639,12 @@ class TestConfiguration:
         a = frame["A"].to_numpy(int)
         scaler = StandardScaler().fit(x)
         cv = LogisticRegressionCV(
-            Cs=10, l1_ratios=(1.0,), solver="saga", max_iter=5000, random_state=0
+            Cs=10,
+            l1_ratios=(1.0,),
+            solver="saga",
+            scoring="neg_log_loss",
+            max_iter=5000,
+            random_state=0,
         ).fit(scaler.transform(x), a)
         start = 1.0 / (float(np.ravel(cv.C_)[0]) * len(a))
         grid = start * np.geomspace(1.0, 0.01, 6)
