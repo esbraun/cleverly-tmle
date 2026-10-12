@@ -418,7 +418,7 @@ def test_m14_a_metric_re_estimated_at_every_step_fails_the_trace(
     result = _fit(ONE, "one_step")
     record = next(iter(result.fits.values())).hazard
     inputs = _inputs(result)
-    start = HazardState.from_hazards(result.initial_hazards.hazards, inputs.bounds)
+    start = HazardState.from_hazards(result.initial_hazards.hazards, inputs.bounds, inputs.empty)
     _, curves = hazard_module.influence(start, inputs, (1, 2))
     initial = np.maximum(np.mean(curves**2, axis=-1), hazard_module.SIGMA_FLOOR).reshape(-1)
     assert not np.array_equal(record.sigma, initial)

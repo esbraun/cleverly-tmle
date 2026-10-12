@@ -137,7 +137,9 @@ def _internals(result: Any) -> tuple[Any, HazardState]:
         for level in recipe.hazard.levels
     ]
     inputs = hazard_inputs(result.data, recipe.plans, cumulative, alpha=recipe.alpha)
-    return inputs, HazardState.from_hazards(result.initial_hazards.hazards, inputs.bounds)
+    return inputs, HazardState.from_hazards(
+        result.initial_hazards.hazards, inputs.bounds, inputs.empty
+    )
 
 
 @functools.cache

@@ -626,6 +626,11 @@ class RegimenFit:
     #: On a hazard fit :attr:`cumulative` and :attr:`cumulative_unbounded` hold
     #: :math:`g(A) G_k(A)` at the observed level, which is the mechanism the fit divides by.
     hazard_clever: FloatArray | None = None
+    #: The one-based nodes up to the horizon at which a hazard fit holds a cell constant:
+    #: the rows at risk with a level the regimen reads hold no event of a cause there, or
+    #: all hold an event.  :func:`constant_nodes` reports them.  Empty on an iterated-mean
+    #: fit.
+    hazard_constant_nodes: tuple[int, ...] = ()
 
     @property
     def scored_nodes(self) -> tuple[ScoredNode, ...]:
@@ -2006,8 +2011,11 @@ def constant_nodes(fit: RegimenFit) -> tuple[int, ...]:
     Returns
     -------
     tuple of int
-        The one-based nodes, in time order.
+        The one-based nodes, in time order.  A hazard fit reports
+        :attr:`RegimenFit.hazard_constant_nodes`.
     """
+    if fit.hazard_clever is not None:
+        return fit.hazard_constant_nodes
     return tuple(
         step.time
         for step in fit.steps

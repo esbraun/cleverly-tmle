@@ -69,6 +69,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 import numpy as np
+from scipy.special import xlogy
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..estimators._nuisance import cross_fit_predictions
@@ -162,6 +163,12 @@ class HazardInputs:
     alpha : float
         The probability bound; each softmax logit is clipped into
         ``[logit(1 - alpha), logit(alpha)]``.
+    empty : BoolArray
+        ``(T, L, J)`` cells whose rows at risk with that observed level, of positive weight,
+        exist and hold no event of that cause.  The hazard there is held at zero.
+    full : BoolArray
+        ``(T, L)`` cells whose rows at risk with that observed level, of positive weight,
+        exist and all hold an event.
     """
 
     at_risk: BoolArray
@@ -171,6 +178,8 @@ class HazardInputs:
     q: FloatArray
     weights: FloatArray
     alpha: float
+    empty: BoolArray
+    full: BoolArray
 
     @property
     def n(self) -> int:
@@ -210,6 +219,17 @@ class HazardInputs:
         """``(n, T)`` the inverse mechanism at the observed level."""
         return np.asarray(self.inverse[self.rows, :, self.observed], dtype=float)
 
+    def constant_nodes(self, regimen: int, horizon: int) -> tuple[int, ...]:
+        """The nodes up to ``horizon`` with an empty or full cell at a level ``regimen`` reads.
+
+        A regimen reads a level when it puts mass on that level for some unit.  The
+        influence curve term of such a cell is identically zero, which is the case
+        :func:`~cleverly.longitudinal.sequential.constant_nodes` reports.
+        """
+        read = np.any(self.q[regimen] > 0.0, axis=0)
+        flagged = (self.empty.any(axis=2) | self.full)[:horizon][:, read].any(axis=1)
+        return tuple(int(k) + 1 for k in np.flatnonzero(flagged))
+
 
 @dataclass(frozen=True)
 class HazardState:
@@ -242,18 +262,36 @@ class HazardState:
         object.__setattr__(self, "incidence", incidence)
 
     @classmethod
-    def from_hazards(cls, hazards: FloatArray, bounds: tuple[float, float]) -> HazardState:
-        """The state of ``(n, T, L, J)`` hazards, with each logit clipped into ``bounds``."""
+    def from_hazards(
+        cls,
+        hazards: FloatArray,
+        bounds: tuple[float, float],
+        empty: BoolArray | None = None,
+    ) -> HazardState:
+        """The state of ``(n, T, L, J)`` hazards, with each logit clipped into ``bounds``.
+
+        A cell of ``empty``, ``(T, L, J)``, holds the hazard at exactly zero for every unit,
+        its logit at :math:`-\\infty`.  No fluctuation moves it.
+        """
         lam = np.asarray(hazards, dtype=float)
         none = 1.0 - lam.sum(axis=-1)
         with np.errstate(divide="ignore", invalid="ignore"):
             eta = np.log(lam) - np.log(none)[..., None]
-        eta = np.nan_to_num(eta, nan=bounds[0], posinf=bounds[1], neginf=bounds[0])
-        return cls(np.clip(eta, *bounds))
+        eta = np.clip(
+            np.nan_to_num(eta, nan=bounds[0], posinf=bounds[1], neginf=bounds[0]), *bounds
+        )
+        if empty is not None:
+            eta = np.where(np.asarray(empty, dtype=bool)[None], -np.inf, eta)
+        return cls(eta)
 
     def moved(self, delta: FloatArray, bounds: tuple[float, float]) -> HazardState:
-        """The state after adding ``delta`` to every logit, then clipping."""
-        return HazardState(np.clip(self.logits + delta, *bounds))
+        """The state after adding ``delta`` to every logit, then clipping.
+
+        A logit at :math:`-\\infty`, a hazard held at zero, stays there.
+        """
+        return HazardState(
+            np.where(np.isneginf(self.logits), -np.inf, np.clip(self.logits + delta, *bounds))
+        )
 
     def levels(self, q: FloatArray, weights: FloatArray) -> FloatArray:
         """``(R, J, T)`` plug-in incidence of every regimen and cause at every node.
@@ -533,14 +571,26 @@ def hazard_inputs(
     at_risk, events = event_indicators(data)
     inverse = np.stack([1.0 / np.asarray(c, dtype=float) for c in cumulative], axis=2)
     observed = np.asarray(np.nan_to_num(data.treatment[:, 0], nan=0.0), dtype=np.int64)
+    weights = np.asarray(data.weights, dtype=float)
+    n_levels = inverse.shape[2]
+    # (n, T, L): the rows at risk of positive weight, by observed level.
+    followers = (at_risk & (weights > 0.0)[:, None])[:, :, None] & (
+        observed[:, None, None] == np.arange(n_levels)[None, None, :]
+    )
+    present = followers.any(axis=0)
+    happened = events > 0.0
+    with_event = np.einsum("nkl,nkj->klj", followers, happened)
+    without_event = np.einsum("nkl,nk->kl", followers, ~happened.any(axis=-1))
     return HazardInputs(
         at_risk=at_risk,
         events=events,
         observed=observed,
         inverse=inverse,
         q=regimen_weights(data, plans),
-        weights=np.asarray(data.weights, dtype=float),
+        weights=weights,
         alpha=alpha,
+        empty=present[:, :, None] & (with_event == 0),
+        full=present & (without_event == 0),
     )
 
 
@@ -716,10 +766,11 @@ def loglik(state: HazardState, inputs: HazardInputs) -> float:
     rows, levels = inputs.rows, inputs.observed
     hazards = state.hazards[rows, :, levels]
     none = 1.0 - hazards.sum(axis=-1)
-    terms = (inputs.events * np.log(hazards)).sum(axis=-1) + (
-        1.0 - inputs.events.sum(axis=-1)
-    ) * np.log(none)
-    return float(np.sum(inputs.weights[:, None] * np.where(inputs.at_risk, terms, 0.0)))
+    terms = xlogy(inputs.events, hazards).sum(axis=-1) + xlogy(
+        1.0 - inputs.events.sum(axis=-1), none
+    )
+    counted = inputs.at_risk & (inputs.weights != 0.0)[:, None]
+    return float(np.sum(np.where(counted, inputs.weights[:, None] * terms, 0.0)))
 
 
 def _clever_observed(state: HazardState, inputs: HazardInputs, horizon: int) -> FloatArray:
@@ -745,6 +796,7 @@ def _classify(
         return "max_iter_reached"
     low, high = inputs.bounds
     eta = state.logits[inputs.rows, :, inputs.observed][inputs.at_risk]
+    eta = eta[np.isfinite(eta)]
     if eta.size and np.mean((eta <= low) | (eta >= high)) > 0.01:
         return "bounds_pinned"
     return "line_search_exhausted"
@@ -887,6 +939,7 @@ def _newton(state: HazardState, inputs: HazardInputs, clever: FloatArray, tol: f
     """Fit the fluctuation coefficients with :math:`h` held fixed, from zero."""
     rows, levels = inputs.rows, inputs.observed
     base = state.logits[rows, :, levels]
+    held = np.isneginf(base)
     low, high = inputs.bounds
     w = inputs.weights[:, None]
     mask = inputs.at_risk
@@ -894,13 +947,13 @@ def _newton(state: HazardState, inputs: HazardInputs, clever: FloatArray, tol: f
     epsilon = np.zeros(clever.shape[0])
 
     def evaluate(eps: FloatArray) -> tuple[float, FloatArray, FloatArray]:
-        eta = np.clip(base + np.tensordot(eps, clever, axes=1), low, high)
+        eta = np.where(held, -np.inf, np.clip(base + np.tensordot(eps, clever, axes=1), low, high))
         expo = np.exp(eta)
         denom = 1.0 + expo.sum(axis=-1)
         lam = expo / denom[..., None]
         none = 1.0 / denom
-        terms = (inputs.events * np.log(lam)).sum(-1) + (1.0 - inputs.events.sum(-1)) * np.log(none)
-        value = float(np.sum(np.where(mask, w * terms, 0.0)))
+        terms = xlogy(inputs.events, lam).sum(-1) + xlogy(1.0 - inputs.events.sum(-1), none)
+        value = float(np.sum(np.where(mask & (w != 0.0), w * terms, 0.0)))
         residual = np.where(mask[..., None], inputs.events - lam, 0.0)
         gradient = np.einsum("mnkl,nkl->m", clever, w[..., None] * residual) / n
         mean = np.einsum("mnkl,nkl->mnk", clever, lam)
@@ -1106,7 +1159,7 @@ def target_regimens(
         ``(regimen, cause, horizon)``, regimen-outer, then cause, then horizon.
     """
     inputs = hazard_inputs(data, plans, cumulative, alpha=alpha)
-    start = HazardState.from_hazards(initial.hazards, inputs.bounds)
+    start = HazardState.from_hazards(initial.hazards, inputs.bounds, inputs.empty)
     causes: tuple[str | None, ...] = data.cause_labels or (None,)
     horizons = tuple(horizons)
     reports: dict[int, tuple[HazardState, HazardFit]] = {}
@@ -1148,6 +1201,7 @@ def target_regimens(
                     policy=plan.policy,
                     hazard=record,
                     hazard_clever=clever,
+                    hazard_constant_nodes=inputs.constant_nodes(r, t),
                 )
     return out
 
