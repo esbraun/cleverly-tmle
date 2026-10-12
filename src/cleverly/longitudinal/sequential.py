@@ -156,7 +156,7 @@ from ..utils.phases import (
 )
 from .data import LongitudinalData, RegimenMasks
 from .ratio_trim import RatioTrim
-from .regimen import Plan, Regimen, RegimenSpec
+from .regimen import DynamicRegimen, Plan, Regimen, RegimenSpec
 
 __all__ = [
     "FoldRecursionCell",
@@ -1580,6 +1580,8 @@ def outcome_design(
     FloatArray
         The design matrix, one row per unit.
     """
+    if data.markov_order is not None:
+        return _window_outcome_design(data, plan, time, arm)
     history = data.covariate_history(time)
     if not plan.has_policy:
         return history
@@ -1587,21 +1589,62 @@ def outcome_design(
     for node in range(1, time + 1):
         if not plan.is_policy_node(node):
             continue
-        current = node == time and arm is not None
-        if data.is_continuous_node(node):
-            # A dose enters as itself.  At the current node a prediction sets it to the dose
-            # one branch of the policy assigns, d_e(A_t, H_t), per row.
-            targets = plan.carry_targets(node)
-            dose = (
-                targets[int(arm)]  # type: ignore[arg-type]
-                if current and targets is not None
-                else np.nan_to_num(plan.values[:, node - 1], nan=0.0)
-            )
-            blocks.append(np.asarray(dose, dtype=float).reshape(-1, 1))
-            continue
-        codes = np.full(data.n, float(arm)) if current else plan.values[:, node - 1]  # type: ignore[arg-type]
-        blocks.append(arm_indicators(codes, len(data.treatment_levels[node - 1])))
+        blocks.append(_policy_block(data, plan, node, time, arm))
     return np.hstack(blocks)
+
+
+def _window_outcome_design(
+    data: LongitudinalData, plan: Plan, time: int, arm: int | None
+) -> FloatArray:
+    """The outcome regression's design at node ``time`` under a Markov order.
+
+    It holds ``W`` and the covariates of the window nodes ``[t-k, t]``.  A policy node in the
+    window adds the block :func:`outcome_design` gives it.  A rule node in the window adds a
+    drop-first block of its assigned arm, because its arm is a function of the full history,
+    and the window's covariates do not determine it.  A static node adds no block, because
+    its arm is one constant among the rows that remain on the plan.  The arms of nodes before
+    the window are dropped, as the restriction states.
+    """
+    blocks = [data.window_covariates(time)]
+    for node in range(data.window_start(time), time + 1):
+        if data.is_held_node(node):
+            continue
+        if plan.is_policy_node(node):
+            blocks.append(_policy_block(data, plan, node, time, arm))
+        elif _is_rule_node(plan, node):
+            codes = np.nan_to_num(plan.values[:, node - 1], nan=0.0)
+            blocks.append(arm_indicators(codes, len(data.treatment_levels[node - 1])))
+    return np.hstack(blocks)
+
+
+def _is_rule_node(plan: Plan, node: int) -> bool:
+    """Whether ``plan`` assigns node ``node`` by a rule of the history.
+
+    A dynamic regimen's rule node is one.  So is a policy node whose density was one-hot on
+    every reachable row, because it was resolved as the rule it equals.
+    """
+    if node in plan.point_mass_nodes:
+        return True
+    return isinstance(plan.regimen, DynamicRegimen) and plan.regimen.is_rule(node)
+
+
+def _policy_block(
+    data: LongitudinalData, plan: Plan, node: int, time: int, arm: int | None
+) -> FloatArray:
+    """The outcome design's block for policy node ``node`` at regression node ``time``."""
+    current = node == time and arm is not None
+    if data.is_continuous_node(node):
+        # A dose enters as itself.  At the current node a prediction sets it to the dose
+        # one branch of the policy assigns, d_e(A_t, H_t), per row.
+        targets = plan.carry_targets(node)
+        dose = (
+            targets[int(arm)]  # type: ignore[arg-type]
+            if current and targets is not None
+            else np.nan_to_num(plan.values[:, node - 1], nan=0.0)
+        )
+        return np.asarray(dose, dtype=float).reshape(-1, 1)
+    codes = np.full(data.n, float(arm)) if current else plan.values[:, node - 1]  # type: ignore[arg-type]
+    return arm_indicators(codes, len(data.treatment_levels[node - 1]))
 
 
 def _carried(policy: FloatArray, by_arm: FloatArray) -> FloatArray:

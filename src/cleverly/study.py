@@ -21,6 +21,7 @@ from .interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet
 from .interventions.base import InterventionKind, refuse_mixed_interventions
 from .interventions.learned import LearnedRule, refuse_learned_rule_composition
 from .longitudinal import LTMLE, LongitudinalData, LongitudinalResult
+from .longitudinal.data import check_markov_order
 from .longitudinal.regimen import declares_mtp, declares_policy
 from .methods import (
     CollaborativeTMLEMethod,
@@ -703,6 +704,10 @@ class LongitudinalTreatment:
     censoring_probabilities : mapping or None
         The known retention probabilities: each censoring column mapped to the column of
         ``P(C_t = 1 | observed past)``.  A declared node fits no censoring learner.
+    markov_order : int or None
+        A statistical-model restriction of order ``k``.  Every nuisance model at node ``t``
+        reads the baseline covariates and the last ``k + 1`` nodes only.  The estimand does
+        not change.  ``None`` uses the full history.
 
     See Also
     --------
@@ -747,8 +752,10 @@ class LongitudinalTreatment:
     continuous_treatment: Sequence[str] = ()
     treatment_probabilities: Any = None
     censoring_probabilities: Any = None
+    markov_order: int | None = None
 
     def __post_init__(self) -> None:
+        check_markov_order(self.markov_order)
         object.__setattr__(self, "continuous_treatment", tuple(self.continuous_treatment))
         if self.treatment_probabilities is not None:
             object.__setattr__(
@@ -788,9 +795,11 @@ class LongitudinalTreatment:
             Validated time-ordered representation.
         """
         if isinstance(data, LongitudinalData):
+            if self.markov_order is not None and data.markov_order is None:
+                data = data.with_markov_order(self.markov_order)
             self._check_prepared(data)
             return data
-        return LongitudinalData.from_frame(
+        prepared = LongitudinalData.from_frame(
             data,
             outcome=self.outcome,
             treatment=self.treatment,
@@ -812,6 +821,9 @@ class LongitudinalTreatment:
                 None if self.censoring_probabilities is None else dict(self.censoring_probabilities)
             ),
         )
+        if self.markov_order is None:
+            return prepared
+        return prepared.with_markov_order(self.markov_order)
 
     def _outcome_roles(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
         """The event nodes and cause labels this outcome declaration implies.
@@ -847,6 +859,7 @@ class LongitudinalTreatment:
         expected: tuple[tuple[str, Any, Any], ...] = (
             ("treatment", declared_treatment, tuple(data.treatment_names)),
             ("held treatment", held, data.treatment_held),
+            ("markov_order", self.markov_order, data.markov_order),
             ("time grid", None, data.time_grid),
             ("baseline", tuple(self.baseline), tuple(data.baseline_names)),
             ("time_varying", blocks, tuple(data.time_varying_names)),

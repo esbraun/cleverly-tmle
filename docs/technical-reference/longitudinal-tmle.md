@@ -725,6 +725,7 @@ sums no risk curve.
 | `alpha_sig=`, `simultaneous=`, `n_multiplier=`, `multiplier_kind=` | interval level, and the simultaneous bands across the reported regimens |
 | `n_bootstrap=`, `bootstrap_resampling=` | the full-refit bootstrap. [The bootstrap contract](#the-full-refit-bootstrap) states what each replicate resamples and refits |
 | `ratio_trim=` | trims the per-node density ratios at a declared quantile, as `lmtp` does. A fit whose trim moves a ratio reports no interval. [Ratio trimming](#ratio-trimming) states the rule |
+| `LongitudinalTreatment(markov_order=k)` | restricts every nuisance design to `W` and a window of the last nodes. The estimand does not change. [Markov order](#markov-order) states the windows |
 
 ### Ratio trimming
 
@@ -766,6 +767,42 @@ two-node SMART law with declared mechanisms. Mutation controls that trim the cum
 drop the zeros from the quantile, trim per fold, drop the censoring factor, or zero an entry by
 "followed through $t$" each fail it. With every factor known the untrimmed fit returns the
 truth, and the trimmed fit moves away from it.
+
+### Markov order
+
+`LongitudinalTreatment(markov_order=k)` declares a statistical-model restriction of order $k$.
+Each nuisance model at node $t$ reads `W` and a window of the last nodes. The estimand stays
+$E[Y^d]$. Identification still needs consistency, sequential exchangeability and positivity given
+the full history.
+
+| design | full history | window under order $k$ |
+| --- | --- | --- |
+| treatment and censoring mechanism | $W, L_1..L_t, A_1..A_{t-1}$, plus $A_t$ for censoring | $W, L_{t-k}..L_t, A_{t-k-1}..A_{t-1}$, plus $A_t$ for censoring |
+| outcome regression, static node | $W, L_1..L_t$ | $W, L_{t-k}..L_t$ |
+| outcome regression, rule node | $W, L_1..L_t$ | adds the assigned arm of each rule node in $[t-k, t]$ |
+| outcome regression, policy node | the policy blocks of nodes $1..t$ | the policy blocks of nodes in $[t-k, t]$ |
+| rule and policy frames | $W, L_1..L_t$, and the earlier arms for a policy | unchanged |
+
+A static node adds no block, because its arm is one constant among the rows that follow the plan.
+A rule node in the window adds its arm. The rule reads the full history, so the window's
+covariates do not determine the arm. Indices below 1 are dropped.
+
+When the restriction is false, the nuisance fits converge to projections on the window. The fit
+then stays consistent only if the restriction holds for one nuisance family. The interval needs
+both families right. The restriction text that a fit records is `markov_restriction(k)` in
+`cleverly.longitudinal.data`.
+
+| condition | refusal |
+| --- | --- |
+| `markov_order` is not a non-negative integer | `ValueError` |
+| $k \ge T - 1$, so the window keeps every earlier node | `DataError` |
+| one baseline treatment and no time-varying covariate | `CapabilityError` |
+
+`tests/unit/test_longitudinal_markov_order.py` holds the evidence. It checks each design's columns
+against the source columns for $T = 4$ and $k \in \{0, 1, 2\}$. On a three-node law whose
+nuisances read the order-1 window, order 1 returns the truth and order 0 does not. On a law whose
+mechanisms read the order-0 window, order 0 returns the truth through the mechanisms. A window one
+node short and a dropped rule block each fail an exact-law check.
 
 ### Cross-fitting the recursion
 
