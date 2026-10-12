@@ -11,6 +11,7 @@ import pandas as pd
 
 from tests.parallel import STUDY_JOBS
 from tests.studies import weighted_longitudinal_common as common
+from tests.studies.evidence import failures as evidence_failures
 from tests.studies.evidence.constructions import (
     POOLED_LONGITUDINAL_CROSS_FIT,
     TRAINING_FOLD_FLUCTUATION,
@@ -189,3 +190,15 @@ def reference_artifacts(
     if not (result["std_error"] > 0.0).all():
         raise RuntimeError("lmtp diagnostic inference contains non-positive standard errors")
     return {"reference-inference.csv.gz": result}
+
+
+def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    """The inference conventions read the surviving reference rows, and they gate nothing.
+
+    ``reference_artifacts`` refuses a non-finite or non-positive value on any surviving row,
+    so a run that reaches this function has no failing row to count.
+    """
+    del failures, artifacts
+    return evidence_failures.audits(
+        {"weighted inference conventions (surviving rows)": pd.DataFrame()}, missing={}
+    )
