@@ -842,7 +842,9 @@ def _claim_scratch(scratch: Path, key: Mapping[str, Any], *, fresh: bool) -> Non
             for path in scratch.glob(pattern):
                 path.unlink()
         shutil.rmtree(scratch / CHECKPOINTS, ignore_errors=True)
-    elif (cached or checkpointed) and (not stamp.exists() or stamp.read_text(encoding="utf-8") != text):
+    elif (cached or checkpointed) and (
+        not stamp.exists() or stamp.read_text(encoding="utf-8") != text
+    ):
         raise RuntimeError(
             f"refused: {scratch} holds a run under another resume key; pass --fresh to "
             f"discard it, or choose another --cache"
