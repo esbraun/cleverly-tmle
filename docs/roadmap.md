@@ -42,8 +42,8 @@ RM39 keeps 0.1 by user decision, although RM40's tier ranks higher.
 
 ### RM39. Keep a study run alive through a failed replicate
 
-Status: part a1 (resilience) is delivered. Parts a2 (failure recording and accounting) and b (the
-Python phase) are open. The section leaves this file when a2 and b merge.
+Status: parts a1 (resilience) and a2 (failure recording and accounting) are delivered. Part b
+(the Python phase) is open. The section leaves this file when b merges.
 
 A registered study with a comparator runs in two phases. The Python phase fits `cleverly`. The
 reference phase fits the pinned comparator, usually R in its container. Before RM39, one failed
@@ -90,17 +90,19 @@ hash of `study_harness.R` and of the three runners outside the harness.
 
 #### Part a2: failure recording and accounting
 
-| acceptance |
-| --- |
-| a runner wraps its comparator-fit call, and only that call, in `study_stage`. An error inside the stage is a failure: the run records it and continues. Every other error is fatal |
-| a failure record holds the group, its scenarios and replicates, the attempt, the class, the stage, the call, the message and the seed |
-| when each of the first 20 groups fails, the run stops with the class `systematic` and the first message |
-| `StudyRecord.failure_bound` declares a bound for each implementation before the run. The bound is between 0 and 0.05, and the default is 0 |
-| `failures.csv` publishes each record, and `failure-accounting.csv` publishes the count and rate of each cell. Each file exists only when a failure exists. The published schema does not change |
-| a cell is red when its failures exceed the bound times the replicate count, rounded down, or when a worst-case leg fails. The [red-cell rule](development/method-benchmarking.md#red-cells) routes it |
-| a rate takes every split of the failed replicates. A bias statistic keeps its complete-case scale. A spread statistic also takes the survivor mean. A failed reference replicate in a non-inferiority leg takes the reference's best case |
-| a paired statistic reads only the replicates where both implementations succeeded, and it reports the dropped replicates |
-| an informative-failure witness reports the error of the surviving implementation on the failed replicates. It is a report, not the gate |
+| acceptance | status |
+| --- | --- |
+| a runner wraps its comparator-fit call, and only that call, in `study_stage`. An error inside the stage is a failure: the run records it and continues. Every other error is fatal | delivered |
+| a failure record holds the group, its scenarios and replicates, the attempt, the class, the stage, the call, the message and the seed | delivered |
+| when each of the first 20 groups fails, the run stops with the class `systematic` and the first message | delivered |
+| `StudyRecord.failure_bound` declares a bound for each implementation before the run. The bound is between 0 and 0.05, and the default is 0 | delivered |
+| `failures.csv` publishes each record, and `failure-accounting.csv` publishes the count and rate of each cell. Each file exists only when a failure exists. The published schema does not change | delivered |
+| a cell is red when its failures exceed the bound times the replicate count, rounded down, or when a worst-case leg fails. The [red-cell rule](development/method-benchmarking.md#red-cells) routes it | delivered |
+| a rate takes every split of the failed replicates. A bias statistic keeps its complete-case scale. A spread statistic also takes the survivor mean. A failed reference replicate in a non-inferiority leg takes the reference's best case | delivered |
+| a paired statistic reads only the replicates where both implementations succeeded, and it reports the dropped replicates | delivered |
+| an informative-failure witness reports the error of the surviving implementation on the failed replicates. It is a report, not the gate | delivered |
+| a study hook defines `account_failures`, or its accounting row reads `failures not accountable` and is red | delivered |
+| property cells, efficiency ratios, spread slopes, simultaneous coverage and the negative-control union read Python-phase rows only, so no a2 failure reaches them | moved to part b |
 
 The design treats a failure conservatively. It does not rely on a test that failures are
 independent of the outcome, because that test cannot see the missing outcome. The range-bounded

@@ -27,7 +27,8 @@ COPIES = (
 BEGIN = "# ---- RM39 shared resilience functions: begin ----"
 END = "# ---- RM39 shared resilience functions: end ----"
 
-#: The functions of plan section 3.1, plus calibration's driver (M16).  Each must be in the block.
+#: The functions of plan section 3.1, plus calibration's driver (M16), plus RM39a2's.  Each must be
+#: in the block.
 SHARED = (
     "study_env",
     "study_memory",
@@ -47,6 +48,21 @@ SHARED = (
     "study_startup",
     "study_retry",
     "study_assemble",
+    # RM39 part a2: the comparator stage, the failure records and the systematic stop.
+    "study_record_state",
+    "study_recording",
+    "study_fatal_error",
+    "study_memory_kill",
+    "study_stage",
+    "study_invalid",
+    "study_failure_row",
+    "study_prefixes",
+    "study_failure_path",
+    "study_failures",
+    "study_systematic",
+    "study_accounted",
+    "study_write_failures",
+    "study_finish",
 )
 
 _DEFINITION = re.compile(r"^(?P<name>[A-Za-z_][A-Za-z0-9_.]*) <- ", re.M)

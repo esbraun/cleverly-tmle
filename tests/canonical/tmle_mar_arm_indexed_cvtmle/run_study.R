@@ -58,7 +58,7 @@ plant <- function(y, eligible) {
 }
 
 assert_scale <- function(y, a, q, delta, family, expected) {
-  stage <- tmle:::.initStage1(y, a, q, NULL, delta, expected, alpha, TRUE, family)
+  stage <- study_stage("tmle init", tmle:::.initStage1(y, a, q, NULL, delta, expected, alpha, TRUE, family))
   if (!identical(as.numeric(stage$ab), as.numeric(expected))) {
     stop("tmle did not take the declared outcome scale")
   }
@@ -73,7 +73,7 @@ assert_supplied <- function(fit) {
 }
 
 fit_tmle <- function(y, a, w, delta, q, g1, p, continuous) {
-  tmle::tmle(
+  study_stage("tmle", tmle::tmle(
     Y = y,
     A = a,
     W = w,
@@ -92,7 +92,7 @@ fit_tmle <- function(y, a, w, delta, q, g1, p, continuous) {
     B = 1,
     evalATT = FALSE,
     verbose = FALSE
-  )
+  ))
 }
 
 fit_two_arm <- function(frame, scenario, replicate, continuous) {
@@ -242,9 +242,12 @@ fit_one <- function(frame) {
 groups <- split(samples, interaction(samples$scenario, samples$replicate, drop = TRUE))
 rm(samples)
 cores <- study_cores(groups)
+# Forced here, in the parent: with `mc.preschedule = TRUE`, `mclapply` would force it in each
+# child, and `study_collect` would then find no registered groups to retry or assemble.
+fit_group <- study_fitter(groups, fit_one)
 results <- parallel::mclapply(
   seq_along(groups),
-  study_fitter(groups, fit_one),
+  fit_group,
   mc.cores = cores,
   mc.preschedule = TRUE
 )

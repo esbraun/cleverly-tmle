@@ -45,7 +45,7 @@ fit_delta <- function(frame, design, delta, seed) {
   # single-split path selects no training rows at this commit.
   set.seed(seed)
   n <- nrow(frame)
-  fit <- ipsi(
+  fit <- study_stage("ipsi", ipsi(
     y = frame$Y,
     a = frame$A,
     x.trt = design,
@@ -58,7 +58,7 @@ fit_delta <- function(frame, design, delta, seed) {
     return_ifvals = TRUE,
     fit = "sl",
     sl.lib = c("SL.glm.interaction")
-  )
+  ))
   influence <- as.numeric(fit$ifvals[, 1])
   if (abs(sd(influence) - fit$res.ptwise$se[[1]]) > 1e-9 * max(1, fit$res.ptwise$se[[1]])) {
     stop("npcausal influence values disagree with its own published standard error")

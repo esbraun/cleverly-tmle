@@ -1,18 +1,29 @@
 {
+ "calibration_failure": {
+  "exit": 0,
+  "groups": [
+   "g000000002"
+  ],
+  "logged": true
+ },
+ "calibration_systematic": {
+  "exit": 1,
+  "message": true
+ },
  "concurrency_halves": {
   "exit": 0,
   "forked": true,
   "passes": [
-   "pass: 1 pending, 1 killed, MemAvailable 14395 MB, workers 2, chunk 1"
+   "pass: 1 pending, 1 killed, MemAvailable 14681 MB, workers 2, chunk 1"
   ],
-  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+  "table": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
  },
  "container_kill_1": {
   "cap_passed": true,
   "complete": true,
   "killed_logged": true,
   "stopped_twice": false,
-  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+  "table": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
  },
  "container_kill_2": {
   "cap_passed": true,
@@ -33,65 +44,187 @@
  "error_fatal_resume": {
   "cleared_fatal": true,
   "exit": 0,
-  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+  "table": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
+ },
+ "every_group_failed": {
+  "columns": [],
+  "exit": 1,
+  "message": true,
+  "passes": [],
+  "records": [],
+  "replicates": [],
+  "table": null
  },
  "fork_cost": {
   "0": {
    "exit": 0,
    "forked": true,
-   "seconds_per_fit": 0.05354545333168723
+   "seconds_per_fit": 0.04536364295265891
   },
   "1500": {
    "exit": 0,
    "forked": true,
-   "seconds_per_fit": 0.05327272415161133
+   "seconds_per_fit": 0.05990908362648704
   }
  },
  "forks_one_chunk": {
   "exit": 0,
   "forked": true,
   "passes": [
-   "pass: 5 pending, 1 killed, MemAvailable 14331 MB, workers 1, chunk 100"
+   "pass: 5 pending, 1 killed, MemAvailable 14778 MB, workers 1, chunk 100"
   ],
-  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+  "table": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
  },
  "forks_one_worker": {
   "exit": 0,
   "forked": true,
   "passes": [],
-  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+  "table": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
  },
  "forks_onecore_mclapply": {
   "exit": 0,
   "forked": true,
   "passes": [],
-  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+  "table": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
  },
  "forks_several_workers": {
   "exit": 0,
   "forked": true,
   "passes": [],
-  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+  "table": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
+ },
+ "future_installed": true,
+ "inplace_clean": {
+  "columns": [],
+  "exit": 0,
+  "passes": [
+   "pass: 12 pending, 0 killed, MemAvailable 14377 MB, workers 2, chunk 1"
+  ],
+  "records": [],
+  "replicates": [
+   0,
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7,
+   8,
+   9,
+   10,
+   11
+  ],
+  "table": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
+ },
+ "invalid_rows": {
+  "columns": [
+   "group_id",
+   "scenarios",
+   "replicates",
+   "attempt",
+   "class",
+   "stage",
+   "call",
+   "message",
+   "seed"
+  ],
+  "exit": 0,
+  "messages": [
+   "non-finite inference_estimate for mean of a (row 1)",
+   "non-positive std_error for mean of a (row 1)",
+   "ci_lower above ci_upper for mean of a (row 1)",
+   "ci_lower above ci_upper for mean of a (row 1)",
+   "covered disagrees with the interval and truth for mean of a (row 1)"
+  ],
+  "passes": [],
+  "records": [
+   {
+    "attempt": "1",
+    "call": "none",
+    "class": "invalid_result",
+    "group_id": "g000000002",
+    "message": "non-finite inference_estimate for mean of a (row 1)",
+    "replicates": "1",
+    "scenarios": "a;b",
+    "seed": "1009",
+    "stage": "row check"
+   },
+   {
+    "attempt": "1",
+    "call": "none",
+    "class": "invalid_result",
+    "group_id": "g000000004",
+    "message": "non-positive std_error for mean of a (row 1)",
+    "replicates": "3",
+    "scenarios": "a;b",
+    "seed": "1023",
+    "stage": "row check"
+   },
+   {
+    "attempt": "1",
+    "call": "none",
+    "class": "invalid_result",
+    "group_id": "g000000006",
+    "message": "ci_lower above ci_upper for mean of a (row 1)",
+    "replicates": "5",
+    "scenarios": "a;b",
+    "seed": "1037",
+    "stage": "row check"
+   },
+   {
+    "attempt": "1",
+    "call": "none",
+    "class": "invalid_result",
+    "group_id": "g000000008",
+    "message": "ci_lower above ci_upper for mean of a (row 1)",
+    "replicates": "7",
+    "scenarios": "a;b",
+    "seed": "1051",
+    "stage": "row check"
+   },
+   {
+    "attempt": "1",
+    "call": "none",
+    "class": "invalid_result",
+    "group_id": "g000000010",
+    "message": "covered disagrees with the interval and truth for mean of a (row 1)",
+    "replicates": "9",
+    "scenarios": "a;b",
+    "seed": "1065",
+    "stage": "row check"
+   }
+  ],
+  "replicates": [
+   0,
+   2,
+   4,
+   6,
+   8,
+   10,
+   11
+  ],
+  "table": "0ff5c40451be6eeaea9fa28f7345eb4932eedf6173794ef796e0c431f618855c"
  },
  "kill": {
   "attempts": 2,
   "exit": 0,
   "forked": true,
   "passes": [
-   "pass: 1 pending, 1 killed, MemAvailable 14406 MB, workers 1, chunk 1"
+   "pass: 1 pending, 1 killed, MemAvailable 14723 MB, workers 1, chunk 1"
   ],
   "solo_second_attempt_forked": true,
-  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+  "table": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
  },
  "killed_in_loop": {
   "attempts_g7": 2,
   "exit": 0,
   "forked": true,
   "passes": [
-   "pass: 5 pending, 1 killed, MemAvailable 14353 MB, workers 1, chunk 1",
-   "pass: 1 pending, 1 killed, MemAvailable 14346 MB, workers 1, chunk 1"
+   "pass: 5 pending, 1 killed, MemAvailable 14729 MB, workers 1, chunk 1",
+   "pass: 1 pending, 1 killed, MemAvailable 14683 MB, workers 1, chunk 1"
   ],
-  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+  "table": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
  },
  "killed_twice": {
   "exit": 3,
@@ -99,7 +232,7 @@
   "memory_line": true,
   "names_id": true,
   "passes": [
-   "pass: 1 pending, 1 killed, MemAvailable 14406 MB, workers 1, chunk 1"
+   "pass: 1 pending, 1 killed, MemAvailable 14658 MB, workers 1, chunk 1"
   ],
   "table": null
  },
@@ -108,30 +241,55 @@
    "exit": 0,
    "heap_mb": 0,
    "peak_growth": 2.16,
-   "per_worker": 48.133,
-   "private_after_gc": 45.973,
+   "per_worker": 48.117,
+   "private_after_gc": 45.957,
    "workers_at_6g": 16
   },
   {
    "exit": 0,
    "heap_mb": 500,
-   "peak_growth": 2.301,
-   "per_worker": 555.262,
-   "private_after_gc": 552.961,
+   "peak_growth": 2.219,
+   "per_worker": 561.551,
+   "private_after_gc": 559.332,
    "workers_at_6g": 7
   },
   {
    "exit": 0,
    "heap_mb": 1500,
-   "peak_growth": 2.148,
-   "per_worker": 1613.863,
-   "private_after_gc": 1611.715,
+   "peak_growth": 2.152,
+   "per_worker": 1614.738,
+   "private_after_gc": 1612.586,
    "workers_at_6g": 2
   }
  ],
+ "memory_kill": {
+  "attempts": 2,
+  "columns": [],
+  "exit": 0,
+  "killed_logged": true,
+  "passes": [
+   "pass: 1 pending, 1 killed, MemAvailable 14248 MB, workers 1, chunk 1"
+  ],
+  "records": [],
+  "replicates": [
+   0,
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7,
+   8,
+   9,
+   10,
+   11
+  ],
+  "table": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
+ },
  "memory_plan": {
   "capped": {
-   "available": 14268,
+   "available": 14224,
    "cap": "3",
    "factor": 1.25,
    "granted": 8,
@@ -151,7 +309,7 @@
    "workers": 2
   },
   "override": {
-   "available": 14268,
+   "available": 14233,
    "cap": "none",
    "factor": 2.0,
    "granted": 4,
@@ -162,7 +320,7 @@
   },
   "override_reason_logged": true,
   "unlimited": {
-   "available": 14253,
+   "available": 14221,
    "cap": "none",
    "factor": 1.25,
    "granted": 8,
@@ -177,29 +335,36 @@
   "exit": 0,
   "groups": [
    {
-    "hwm_end": 61.977,
+    "hwm_end": 62.102,
     "id": "g000000001",
-    "peak_growth": 1.27,
-    "per_worker": 47.234,
-    "private_after_gc": 45.965,
-    "rss_start": 60.707
+    "peak_growth": 1.266,
+    "per_worker": 47.27,
+    "private_after_gc": 46.004,
+    "rss_start": 60.836
    },
    {
-    "hwm_end": 861.496,
+    "hwm_end": 861.559,
     "id": "g000000002",
-    "peak_growth": 800.789,
-    "per_worker": 846.344,
-    "private_after_gc": 45.555,
-    "rss_start": 60.707
+    "peak_growth": 800.723,
+    "per_worker": 846.359,
+    "private_after_gc": 45.637,
+    "rss_start": 60.836
    }
   ]
+ },
+ "no_failure_bytes": {
+  "a1_fitter": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5",
+  "a1_stream": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5",
+  "new_stream": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5",
+  "no_failures_file": true,
+  "plain": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
  },
  "no_progress": {
   "exit": 3,
   "forked": true,
   "message": true,
   "passes": [
-   "pass: 1 pending, 0 killed, MemAvailable 14393 MB, workers 2, chunk 1"
+   "pass: 1 pending, 0 killed, MemAvailable 14616 MB, workers 2, chunk 1"
   ],
   "table": null
  },
@@ -211,30 +376,31 @@
   "table": null
  },
  "old_new": {
-  "new_stream": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8",
-  "old_fitter": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8",
-  "old_stream": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+  "new_stream": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5",
+  "old_fitter": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5",
+  "old_stream": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
  },
  "plain": {
   "exit": 0,
   "forked": true,
-  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+  "table": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
  },
+ "plain_failures_file": false,
  "preschedule_kill": {
   "exit": 0,
   "forked": true,
   "passes": [
-   "pass: 5 pending, 1 killed, MemAvailable 14433 MB, workers 1, chunk 1"
+   "pass: 5 pending, 1 killed, MemAvailable 14762 MB, workers 1, chunk 1"
   ],
-  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+  "table": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
  },
  "random_full": {
   "exit": 0,
-  "table": "486c7e0c36c878947101cef06470c917de8d0952728abcf4d3ae656631481198"
+  "table": "83d2d6221c5cf171a742102b7fc4bb7e4ed7c3838eb3fa2361f82abd148feb11"
  },
  "random_one_core": {
   "exit": 0,
-  "table": "486c7e0c36c878947101cef06470c917de8d0952728abcf4d3ae656631481198"
+  "table": "83d2d6221c5cf171a742102b7fc4bb7e4ed7c3838eb3fa2361f82abd148feb11"
  },
  "resume_fitter": {
   "cleared_markers": 2,
@@ -243,7 +409,7 @@
   "reused": true,
   "stale_markers": 2,
   "stopped_exit": 137,
-  "table": "486c7e0c36c878947101cef06470c917de8d0952728abcf4d3ae656631481198"
+  "table": "83d2d6221c5cf171a742102b7fc4bb7e4ed7c3838eb3fa2361f82abd148feb11"
  },
  "resume_stream": {
   "cleared_markers": 2,
@@ -252,7 +418,27 @@
   "reused": true,
   "stale_markers": 2,
   "stopped_exit": 137,
-  "table": "486c7e0c36c878947101cef06470c917de8d0952728abcf4d3ae656631481198"
+  "table": "83d2d6221c5cf171a742102b7fc4bb7e4ed7c3838eb3fa2361f82abd148feb11"
+ },
+ "resume_with_failure": {
+  "attempts_g5": 1,
+  "exit": 0,
+  "first_exit": 0,
+  "records": [
+   {
+    "attempt": "1",
+    "call": "none",
+    "class": "fitting_failure",
+    "group_id": "g000000005",
+    "message": "fixture stage error in g000000005",
+    "replicates": "4",
+    "scenarios": "a;b",
+    "seed": "1030",
+    "stage": "fixture fit"
+   }
+  ],
+  "reused_all": true,
+  "table": "6adcc25894358555e6ea70508479a40013bff3694e13b68fd072b9f3eb453c45"
  },
  "run_log": {
   "MemAvailable": true,
@@ -269,21 +455,522 @@
   "worker cap": true,
   "workers": true
  },
+ "stage_argument_error": {
+  "columns": [
+   "group_id",
+   "scenarios",
+   "replicates",
+   "attempt",
+   "class",
+   "stage",
+   "call",
+   "message",
+   "seed"
+  ],
+  "exit": 0,
+  "passes": [],
+  "records": [
+   {
+    "attempt": "1",
+    "call": "get(family, mode = \"function\", envir = parent.frame())",
+    "class": "fitting_failure",
+    "group_id": "g000000005",
+    "message": "object 'nonsense' of mode 'function' was not found",
+    "replicates": "4",
+    "scenarios": "a;b",
+    "seed": "1030",
+    "stage": "fixture fit"
+   }
+  ],
+  "replicates": [
+   0,
+   1,
+   2,
+   3,
+   5,
+   6,
+   7,
+   8,
+   9,
+   10,
+   11
+  ],
+  "table": "6adcc25894358555e6ea70508479a40013bff3694e13b68fd072b9f3eb453c45"
+ },
+ "stage_cstack": {
+  "columns": [],
+  "exit": 1,
+  "fatal_written": true,
+  "message": true,
+  "passes": [],
+  "records": [],
+  "replicates": [],
+  "table": null
+ },
+ "stage_fatal_class": {
+  "columns": [],
+  "exit": 1,
+  "fatal_written": true,
+  "message": true,
+  "passes": [],
+  "records": [],
+  "replicates": [],
+  "table": null
+ },
+ "stage_future": {
+  "columns": [
+   "group_id",
+   "scenarios",
+   "replicates",
+   "attempt",
+   "class",
+   "stage",
+   "call",
+   "message",
+   "seed"
+  ],
+  "exit": 0,
+  "passes": [],
+  "records": [
+   {
+    "attempt": "1",
+    "call": "eval(quote({",
+    "class": "fitting_failure",
+    "group_id": "g000000005",
+    "message": "fixture stage error in g000000005",
+    "replicates": "4",
+    "scenarios": "a;b",
+    "seed": "1030",
+    "stage": "fixture fit"
+   }
+  ],
+  "replicates": [
+   0,
+   1,
+   2,
+   3,
+   5,
+   6,
+   7,
+   8,
+   9,
+   10,
+   11
+  ],
+  "table": "6adcc25894358555e6ea70508479a40013bff3694e13b68fd072b9f3eb453c45"
+ },
+ "stage_inplace": {
+  "columns": [
+   "group_id",
+   "scenarios",
+   "replicates",
+   "attempt",
+   "class",
+   "stage",
+   "call",
+   "message",
+   "seed"
+  ],
+  "exit": 0,
+  "passes": [
+   "pass: 12 pending, 0 killed, MemAvailable 14372 MB, workers 2, chunk 1"
+  ],
+  "records": [
+   {
+    "attempt": "1",
+    "call": "none",
+    "class": "fitting_failure",
+    "group_id": "g000000005",
+    "message": "fixture stage error in g000000005",
+    "replicates": "4",
+    "scenarios": "a;b",
+    "seed": "1030",
+    "stage": "fixture fit"
+   }
+  ],
+  "replicates": [
+   0,
+   1,
+   2,
+   3,
+   5,
+   6,
+   7,
+   8,
+   9,
+   10,
+   11
+  ],
+  "table": "6adcc25894358555e6ea70508479a40013bff3694e13b68fd072b9f3eb453c45"
+ },
+ "stage_ltmle_shape": {
+  "columns": [],
+  "exit": 1,
+  "fatal_written": true,
+  "message": true,
+  "passes": [],
+  "records": [],
+  "replicates": [],
+  "table": null
+ },
+ "stage_noscenario": {
+  "columns": [
+   "group_id",
+   "scenarios",
+   "replicates",
+   "attempt",
+   "class",
+   "stage",
+   "call",
+   "message",
+   "seed"
+  ],
+  "exit": 0,
+  "passes": [],
+  "records": [
+   {
+    "attempt": "1",
+    "call": "none",
+    "class": "fitting_failure",
+    "group_id": "g000000003",
+    "message": "fixture stage error in g000000003",
+    "replicates": "2",
+    "scenarios": "*",
+    "seed": "1016",
+    "stage": "fixture fit"
+   }
+  ],
+  "replicates": [
+   0,
+   1,
+   3,
+   4,
+   5,
+   6,
+   7,
+   8,
+   9,
+   10,
+   11
+  ],
+  "table": "5c275fa3bc4979ccd9af540c31fc1fbebcb1c3b1b273df2833964ae3b6d5948b"
+ },
+ "stage_onecore": {
+  "columns": [
+   "group_id",
+   "scenarios",
+   "replicates",
+   "attempt",
+   "class",
+   "stage",
+   "call",
+   "message",
+   "seed"
+  ],
+  "exit": 0,
+  "passes": [],
+  "records": [
+   {
+    "attempt": "1",
+    "call": "none",
+    "class": "fitting_failure",
+    "group_id": "g000000005",
+    "message": "fixture stage error in g000000005",
+    "replicates": "4",
+    "scenarios": "a;b",
+    "seed": "1030",
+    "stage": "fixture fit"
+   }
+  ],
+  "replicates": [
+   0,
+   1,
+   2,
+   3,
+   5,
+   6,
+   7,
+   8,
+   9,
+   10,
+   11
+  ],
+  "table": "6adcc25894358555e6ea70508479a40013bff3694e13b68fd072b9f3eb453c45"
+ },
+ "stage_outside_resignal": {
+  "columns": [],
+  "exit": 1,
+  "fatal_written": true,
+  "message": true,
+  "passes": [],
+  "records": [],
+  "replicates": [],
+  "table": null
+ },
+ "stage_preschedule": {
+  "columns": [
+   "group_id",
+   "scenarios",
+   "replicates",
+   "attempt",
+   "class",
+   "stage",
+   "call",
+   "message",
+   "seed"
+  ],
+  "exit": 0,
+  "passes": [],
+  "records": [
+   {
+    "attempt": "1",
+    "call": "none",
+    "class": "fitting_failure",
+    "group_id": "g000000005",
+    "message": "fixture stage error in g000000005",
+    "replicates": "4",
+    "scenarios": "a;b",
+    "seed": "1030",
+    "stage": "fixture fit"
+   }
+  ],
+  "replicates": [
+   0,
+   1,
+   2,
+   3,
+   5,
+   6,
+   7,
+   8,
+   9,
+   10,
+   11
+  ],
+  "table": "6adcc25894358555e6ea70508479a40013bff3694e13b68fd072b9f3eb453c45"
+ },
+ "stage_recorded": {
+  "columns": [
+   "group_id",
+   "scenarios",
+   "replicates",
+   "attempt",
+   "class",
+   "stage",
+   "call",
+   "message",
+   "seed"
+  ],
+  "exit": 0,
+  "log_names_group": true,
+  "passes": [],
+  "records": [
+   {
+    "attempt": "1",
+    "call": "none",
+    "class": "fitting_failure",
+    "group_id": "g000000005",
+    "message": "fixture stage error in g000000005",
+    "replicates": "4",
+    "scenarios": "a;b",
+    "seed": "1030",
+    "stage": "fixture fit"
+   }
+  ],
+  "replicates": [
+   0,
+   1,
+   2,
+   3,
+   5,
+   6,
+   7,
+   8,
+   9,
+   10,
+   11
+  ],
+  "table": "6adcc25894358555e6ea70508479a40013bff3694e13b68fd072b9f3eb453c45"
+ },
+ "stage_runner_stop": {
+  "columns": [],
+  "exit": 1,
+  "message": true,
+  "passes": [],
+  "records": [],
+  "replicates": [],
+  "table": null
+ },
+ "stage_second_attempt": {
+  "columns": [
+   "group_id",
+   "scenarios",
+   "replicates",
+   "attempt",
+   "class",
+   "stage",
+   "call",
+   "message",
+   "seed"
+  ],
+  "exit": 0,
+  "passes": [
+   "pass: 1 pending, 1 killed, MemAvailable 14372 MB, workers 1, chunk 1"
+  ],
+  "records": [
+   {
+    "attempt": "2",
+    "call": "none",
+    "class": "fitting_failure",
+    "group_id": "g000000005",
+    "message": "fixture stage error in g000000005",
+    "replicates": "4",
+    "scenarios": "a;b",
+    "seed": "1030",
+    "stage": "fixture fit"
+   }
+  ],
+  "replicates": [
+   0,
+   1,
+   2,
+   3,
+   5,
+   6,
+   7,
+   8,
+   9,
+   10,
+   11
+  ],
+  "table": "6adcc25894358555e6ea70508479a40013bff3694e13b68fd072b9f3eb453c45"
+ },
+ "stage_stream": {
+  "columns": [
+   "group_id",
+   "scenarios",
+   "replicates",
+   "attempt",
+   "class",
+   "stage",
+   "call",
+   "message",
+   "seed"
+  ],
+  "exit": 0,
+  "passes": [
+   "pass: 6 pending, 0 killed, MemAvailable 14410 MB, workers 2, chunk 1",
+   "pass: 5 pending, 0 killed, MemAvailable 14405 MB, workers 2, chunk 1",
+   "pass: 1 pending, 0 killed, MemAvailable 14405 MB, workers 2, chunk 1"
+  ],
+  "records": [
+   {
+    "attempt": "1",
+    "call": "none",
+    "class": "fitting_failure",
+    "group_id": "r000000002",
+    "message": "fixture stage error in r000000002",
+    "replicates": "2",
+    "scenarios": "a;b",
+    "seed": "1016",
+    "stage": "fixture fit"
+   }
+  ],
+  "replicates": [
+   0,
+   1,
+   3,
+   4,
+   5,
+   6,
+   7,
+   8,
+   9,
+   10,
+   11
+  ],
+  "table": "5c275fa3bc4979ccd9af540c31fc1fbebcb1c3b1b273df2833964ae3b6d5948b"
+ },
+ "stage_stream_resume": {
+  "attempts_r2": 1,
+  "exit": 0,
+  "records": [
+   {
+    "attempt": "1",
+    "call": "none",
+    "class": "fitting_failure",
+    "group_id": "r000000002",
+    "message": "fixture stage error in r000000002",
+    "replicates": "2",
+    "scenarios": "a;b",
+    "seed": "1016",
+    "stage": "fixture fit"
+   }
+  ],
+  "reused": true,
+  "stopped_exit": 137,
+  "table": "5c275fa3bc4979ccd9af540c31fc1fbebcb1c3b1b273df2833964ae3b6d5948b"
+ },
+ "stale_failures": {
+  "columns": [],
+  "deleted": true,
+  "exit": 0,
+  "passes": [],
+  "records": [],
+  "replicates": [
+   0,
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7,
+   8,
+   9,
+   10,
+   11
+  ],
+  "table": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
+ },
  "stream_retry": {
   "exit": 0,
   "forked": true,
   "passes": [
-   "pass: 6 pending, 0 killed, MemAvailable 14406 MB, workers 4, chunk 1",
-   "pass: 1 pending, 1 killed, MemAvailable 14406 MB, workers 2, chunk 1",
-   "pass: 5 pending, 0 killed, MemAvailable 14406 MB, workers 2, chunk 1",
-   "pass: 1 pending, 0 killed, MemAvailable 14406 MB, workers 2, chunk 1"
+   "pass: 6 pending, 0 killed, MemAvailable 14525 MB, workers 4, chunk 1",
+   "pass: 1 pending, 1 killed, MemAvailable 14509 MB, workers 2, chunk 1",
+   "pass: 5 pending, 0 killed, MemAvailable 14509 MB, workers 2, chunk 1",
+   "pass: 1 pending, 0 killed, MemAvailable 14509 MB, workers 2, chunk 1"
   ],
-  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+  "table": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
+ },
+ "systematic": {
+  "columns": [],
+  "exit": 1,
+  "message": true,
+  "passes": [],
+  "records": [],
+  "replicates": [],
+  "table": null
+ },
+ "systematic_stream": {
+  "columns": [],
+  "exit": 1,
+  "message": true,
+  "passes": [
+   "pass: 6 pending, 0 killed, MemAvailable 14411 MB, workers 2, chunk 1",
+   "pass: 7 pending, 0 killed, MemAvailable 14411 MB, workers 2, chunk 1",
+   "pass: 6 pending, 0 killed, MemAvailable 14397 MB, workers 2, chunk 1",
+   "pass: 4 pending, 0 killed, MemAvailable 14397 MB, workers 2, chunk 1"
+  ],
+  "records": [],
+  "replicates": [],
+  "table": null
  },
  "torn": {
   "deleted": true,
   "exit": 0,
   "first_exit": 0,
-  "table": "4cbf02ffcbb20bc2cc9121aa58a1fcbe2b063242f40b1b74867e1da9c82d64d8"
+  "table": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
  }
 }

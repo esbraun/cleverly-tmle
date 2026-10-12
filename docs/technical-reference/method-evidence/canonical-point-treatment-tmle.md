@@ -229,6 +229,7 @@ carry every row the tables above publish.
 
 R uses its public specifications except for ATT and ATC. The public ATT convenience path fails to
 converge on a small fraction of bounded-continuous samples, so both use the constrained path the
-pinned package's own tests exercise. That path is fixed for all replications. The R side aborts on
-any failed replication rather than dropping it, and the property study refuses to summarize a run
-that lost one.
+pinned package's own tests exercise. That path is fixed for all replications. The R harness
+records a failed replication, and the study declares no failure bound. One failure therefore
+makes its cells red ([comparator fitting failures](../../development/method-benchmarking.md#comparator-fitting-failures)).
+The property study refuses to summarize a run that lost one.

@@ -27,10 +27,10 @@ fit_one <- function(frame) {
   names(truth) <- sub("^truth_", "", truth_columns)
   data <- frame[c("W1", "W2", "W3", "A_code", "Y")]
   names(data)[names(data) == "A_code"] <- "A"
-  fit <- tmle3(
+  fit <- study_stage("tmle3", tmle3(
     tmle_oat_TSM_all(), data,
     list(W = c("W1", "W2", "W3"), A = "A", Y = "Y"), learners
-  )
+  ))
   multi_arm_rows_from_tmle(
     fit, labels, truth, "ctmle3-multi-arm-oat", scenario, replicate, nrow(frame)
   )

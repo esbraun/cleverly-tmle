@@ -35,7 +35,7 @@ fit_plan <- function(frame, scenario, label) {
     C2 = BinaryToCensoring(is.uncensored = ifelse(is.na(frame$C2), 0, frame$C2)),
     Y = frame$Y
   )
-  targeted <- ltmle(
+  targeted <- study_stage("ltmle", ltmle(
     data = data,
     Anodes = c("A1", "A2"),
     Cnodes = c("C1", "C2"),
@@ -49,7 +49,7 @@ fit_plan <- function(frame, scenario, label) {
     SL.library = "glm",
     stratify = TRUE,
     variance.method = "ic"
-  )
+  ))
   if (any(abs(targeted$cum.g - targeted$cum.g.unbounded) > 1e-12, na.rm = TRUE)) {
     stop(sprintf("%s activated a cumulative g bound", label))
   }
