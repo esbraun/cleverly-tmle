@@ -24,7 +24,9 @@
 # CLEVERLY_FIXTURE_HEAP_MB  the parent holds about this many MB in small objects
 # CLEVERLY_FIXTURE_TRANSIENT_MB  <scenario>:<m>: a fit of that scenario allocates m MB and
 #                           frees it before it returns
-# CLEVERLY_FIXTURE_LOG      a file each fit appends "id,pid,parent,time" to
+# CLEVERLY_FIXTURE_LOG      a path prefix; each fit appends "id,pid,parent,time" to <prefix>.<pid>.
+#                           One file per process: concurrent appends to one file on a Windows bind
+#                           mount can lose a line
 # CLEVERLY_FIXTURE_SLEEP    seconds each fit sleeps, so a kill can land while others run
 #
 # RM39a2 controls.  None is read unless set, so the fixture still runs under the old harnesses.
@@ -170,7 +172,7 @@ fit_one <- function(frame) {
   log <- fixture_env("CLEVERLY_FIXTURE_LOG")
   if (nzchar(log)) {
     cat(sprintf("%s,%d,%d,%.3f\n", id, Sys.getpid(), get0("study_parent_pid", ifnotfound = -1L),
-        as.numeric(Sys.time())), file = log, append = TRUE)
+        as.numeric(Sys.time())), file = sprintf("%s.%d", log, Sys.getpid()), append = TRUE)
   }
   pause <- fixture_number("CLEVERLY_FIXTURE_SLEEP", 0)
   if (pause > 0) Sys.sleep(pause)

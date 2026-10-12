@@ -154,7 +154,7 @@ class Smoke:
         failures = self.work / f"out_{name}.failures.csv"
         fits = self.work / f"fits_{name}.csv"
         if not keep:
-            for path in (output, fits, failures):
+            for path in (output, failures, *self.work.glob(f"{fits.name}.*")):
                 path.unlink(missing_ok=True)
             if checkpoint.exists():
                 for child in checkpoint.iterdir():
@@ -197,9 +197,16 @@ class Smoke:
         log = completed.stdout + completed.stderr
         print(f"{name}: exit {completed.returncode} in {seconds:.1f}s", flush=True)
         columns = ["id", "pid", "parent", "time"]
+        # One log per process (see `CLEVERLY_FIXTURE_LOG` in the runner), ordered by fit time.
+        parts = [
+            pd.read_csv(path, header=None, names=columns)
+            for path in sorted(self.work.glob(f"{fits.name}.*"))
+        ]
         table = (
-            pd.read_csv(fits, header=None, names=columns)
-            if fits.exists()
+            pd.concat(parts, ignore_index=True).sort_values(
+                "time", kind="stable", ignore_index=True
+            )
+            if parts
             else pd.DataFrame(columns=columns)
         )
         calibration: dict[str, Any] = {}
