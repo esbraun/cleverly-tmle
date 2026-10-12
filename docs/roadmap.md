@@ -183,7 +183,6 @@ Priorities 2 to 5 follow the beta.
 | ---: | --- | --- | --- | --- |
 | 1.11 | Per-arm outcome-adaptive C-TMLE with baseline strata and missing data | [natural extension of Theorem 1](technical-reference/natural-extension-verdicts.md) | the shipped per-arm `strategy="oat"` design | [X29](#x29-per-arm-outcome-adaptive-c-tmle-with-baseline-strata-and-missing-data) |
 | 1.12 | C-TMLE candidate sequences | published support; pending source read | shipped selector paths | [X16](#x16-c-tmle-candidate-sequences) |
-| 1.13 | Sequential doubly robust longitudinal estimation | published support; pending source read | implemented longitudinal targets | [X4](#x4-sequential-doubly-robust-longitudinal-estimation) |
 | 1.14 | Hazard-based and monotone survival curves | published support; pending source read | the shipped point-treatment survival design | [X14](#x14-hazard-based-and-monotone-survival-curves) |
 | 1.15 | Incremental interventions over time | source audit | shipped longitudinal modified treatment policies | [X19](#x19-incremental-interventions-over-time) |
 | 1.16 | Targeting and fitting options | no new theory; each option keeps its default bit-identical | none | [X22](#x22-targeting-and-fitting-options) |
@@ -460,20 +459,6 @@ Acceptance:
 - a registered study against the pinned `ctmle` that reuses the selector study's laws and reports
   the point and the plug-in diagnostic.
 
-### X4. Sequential doubly robust longitudinal estimation
-
-`lmtp_sdr` implements the sequentially doubly robust estimator of Díaz, Williams, Hoffman and
-Schenck (2023). That estimator is consistent when either the outcome regression or the treatment
-mechanism is consistent at each time point. It is a second estimator over registered longitudinal
-targets, so it adds no estimand. The comparator is the pinned R `lmtp` 1.5.4 that the longitudinal
-rows already use, and no new container is needed.
-
-Theorem 4 of the same article certifies a fold-local recursion for the SDR estimator. Theorem 3
-certifies the pooled fluctuation that the cross-fitted TMLE runs. Read the rate conditions that
-the SDR interval claims first, because they differ from the sequential regression conditions.
-The SDR estimator also covers the continuous-dose modified treatment policies, and its study covers
-one of them.
-
 ### X14. Hazard-based and monotone survival curves
 
 The shipped survival fit targets each horizon in its own backward pass, so the reported curve is
@@ -538,8 +523,8 @@ theory. Each option keeps every default fit bit-identical, and each changes a fi
 | (a) best iterate | report the targeting iterate with the smallest score norm over the loop | a fit that stops at `max_iter` reports its best iterate, and its record says which one | `tmle3` `use_best` |
 | (b) stopping rule | choose the score threshold: the shipped variance-scaled rule, or a threshold of $1/n$ | the two rules that `tmle3` names `scaled_var` and `sample_size` | `tmle3` `convergence_type` |
 | (c) step bound | bound the fluctuation step in each iteration | a damped update for a fit whose first step overshoots | `tmle3` `constrain_step` and `delta_epsilon` |
-| (d) quantile trimming | trim the cumulative density ratio at a declared quantile, beside the shipped bound `g_bounds` | the trimming rule of `lmtp`. The fit records the trimmed share, as it records truncation now | `lmtp` `.trim` |
-| (e) Markov order | restrict each node's nuisance history to the last `k` nodes | an assumption about the data. The identification summary states it | `lmtp` `k` |
+| (d) quantile trimming | trim the cumulative density ratio at a declared quantile, beside the shipped bound `g_bounds` | the trimming rule of `lmtp`. The fit records the trimmed share, as it records truncation now. `SDR` reads the same per-node ratio | `lmtp` `.trim` |
+| (e) Markov order | restrict each node's nuisance history to the last `k` nodes | an assumption about the data. The identification summary states it. `SDR` reads the same per-node ratio and regressions | `lmtp` `k` |
 | (f) per-arm outcome fit | fit the outcome regression separately in each arm | a nuisance choice for `TMLE` and `DRTMLE` | `drtmle` `stratify` |
 | (g) early stop on a C-TMLE path | stop the greedy search after a declared number of steps without a risk improvement | a cheaper path. The fit keeps its `working_mechanism_plugin` status | `ctmle` `patience` |
 | (h) hazard and outcome bounds | bound each node's regression into a declared interval before the logistic fluctuation | a fit on a declared range of the hazard or the iterated mean | `survtmle` `bounds` |

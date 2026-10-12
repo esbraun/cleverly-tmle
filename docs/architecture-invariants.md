@@ -541,8 +541,19 @@ So no pooled coefficient returns to a fold regression, and the per-regimen fit d
 out-of-fold mechanism alone. `n_folds=1` keeps the canonical single-fold recursion, which carries
 each targeted prediction back. `tests/unit/test_pooled_longitudinal_targeting.py` holds the
 longhand checks and the mutations. *Reconsider when* a published result certifies a fold-local
-update for this plug-in estimator, or when the sequential doubly robust estimator ships under
-[X4](roadmap.md#x4-sequential-doubly-robust-longitudinal-estimation).
+update for this plug-in estimator.
+
+The sequentially doubly robust estimator `SDR` shares plan resolution, masks, designs and the
+mechanism fit with LTMLE. Its node regressions fit the Equation (4) transforms of Díaz, Williams,
+Hoffman and Schenck (2023), composed with the node's event. It fits no fluctuation and clips no
+regression. `g_bounds` bounds each partial path probability, and the estimate is the mean of
+$\varphi_1$.
+
+Both estimators use fold-measurable nuisances. A cross-fitted SDR fold builds its
+training transforms from its own regressions and its own mechanism fit at its training rows. The
+estimate is the mean of $\varphi_1$ over every row. `tests/unit/test_sdr_construction.py` holds
+the longhand and the two rejected constructions. *Reconsider when* a published result certifies
+the stitched transform of Section 5.3, Step 2, or the recombined ratio that `lmtp` reads.
 
 Longitudinal MSMs are projections over regimen/horizon cells. Their fluctuation is pooled and the
 backward recursion proceeds in lockstep over nodes; the horizon belongs in the design and each

@@ -280,6 +280,48 @@ changes the treatment after baseline is refused, because the design holds one de
 [One baseline treatment held over the nodes](../technical-reference/longitudinal-tmle.md#one-baseline-treatment-held-over-the-nodes)
 gives the contract and its evidence.
 
+## Fit the sequentially doubly robust estimator
+
+Pass `method="sdr"` to `estimate()` to fit the sequentially doubly robust estimator. It reports
+the same parameters as the default method. It stays consistent when, at each node, either the
+mechanism or the regression of the node's transform is consistent.
+
+```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
+from cleverly.datasets import make_longitudinal
+
+frame, _ = make_longitudinal(n=300, seed=0)
+study = CausalStudy(
+    frame,
+    design=LongitudinalTreatment(
+        outcome="Y",
+        treatment=("A1", "A2"),
+        baseline=("W1", "W2"),
+        time_varying=((), ("L2",)),
+        censoring=("C1", "C2"),
+    ),
+)
+result = study.identify(RegimeContrast({"always": 1, "never": 0}, reference="never")).estimate(
+    method="sdr",
+    outcome_learner=LogisticRegression(),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(),
+    censoring_learner=LogisticRegression(),
+    n_folds=2,
+    random_state=0,
+    simultaneous=False,
+)
+print(result.summary())
+```
+
+Give `pseudo_learner` a learner of a real-valued target. A transform can leave $[0, 1]$, so a
+level can leave the outcome range too. The fit then warns with `ParameterSpaceWarning`, and
+`ratio()` refuses a scale that is undefined at that level.
+[The sequentially doubly robust estimator](../technical-reference/longitudinal-tmle.md#the-sequentially-doubly-robust-estimator)
+states the contract and what differs from the default method.
+
 ## Longitudinal MSM projections
 
 `MSMProjection` can project regimen-specific longitudinal means onto a declared working model. The

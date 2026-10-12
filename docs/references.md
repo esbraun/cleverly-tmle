@@ -705,7 +705,7 @@ previous reader had is not a citation; a page number is.
 
   | locator | content |
   | --- | --- |
-  | Section 5.3, Step 2, page 854 | fits each pseudo-outcome regression "using only data points" that belong to one training fold |
+  | Section 5.3, Step 2, page 854 | computes each row's transform with the nuisances of the fold that holds the row out, then fits each fold's regression "using only data points" in that fold's training rows |
   | Section 5.3, Step 3, page 854 | defines the estimate as an average of influence-function values, and not as a plug-in of a targeted regression |
   | Lemma 4, page 854 | gives "$2\tau$-multiply robust consistency of SDR estimator" |
   | Theorem 4, page 854 | gives weak convergence at the nonparametric efficiency bound |
@@ -717,9 +717,28 @@ previous reader had is not a citation; a page number is.
   the TMLE.
 
   Theorem 3 certifies the pooled fluctuation that the shipped cross-fitted longitudinal TMLE runs.
-  Theorem 4 certifies a fold-local recursion, and it covers the SDR estimator rather than the
-  shipped one. [X4](roadmap.md#x4-sequential-doubly-robust-longitudinal-estimation) plans
-  `lmtp_sdr`, and no SDR path ships today.
+  Theorem 4 covers the SDR estimator, and the supplement prints no proof of it. Step 2 is a
+  stitched transform: a training row's transform reads the folds that hold that row out, so the
+  transform is not fixed given the fold's training rows. Section 5.4 states that cross-fitting
+  keeps the independences that the proofs of Theorems 3 and 4 need, and the proof of Theorem 3
+  (supplement Section 6) conditions on a fit fixed given its training rows. The shipped
+  [`SDR`](technical-reference/longitudinal-tmle.md#the-sequentially-doubly-robust-estimator)
+  therefore runs a training-fold recursion, which is fold-measurable. With ratios that do not
+  depend on the fold, it equals `lmtp::cf_sdr`.
+- Luedtke, Sofrygin, van der Laan & Carone (2017), [*Sequential double robustness in
+  right-censored longitudinal models*](https://arxiv.org/abs/1705.02459), arXiv:1705.02459 v2,
+  dated 2018-05-17. Read first-hand for the SDR plan. Section 2, Definitions 1 to 3, separates
+  double robustness from sequential double robustness. Section 3 and Algorithm 2 give the
+  doubly robust unbiased transformation, and state that a transform does not necessarily obey the
+  outcome bounds. Condition DC of Section 4 is the Donsker-type condition that an in-sample
+  `SDR` fit rests on.
+- Rotnitzky, Robins & Babino (2017), [*On the multiply robust estimation of the mean of the
+  g-functional*](https://arxiv.org/abs/1705.08582), arXiv:1705.08582 v1. Read first-hand for the
+  SDR plan. Section 4.7.1, Lemma 2, writes the bias as a sum of terms, each zero if either
+  nuisance at its node is right. Section 5, Algorithm 6, builds every nuisance and the multiply
+  robust outcome inside the training sample. The paragraph after Equation (72) calls the rate of
+  that construction a conjecture, because of dependence within the training sample. Section 7.5
+  proposes multi-layer cross-fitting. The `SDR` contract assumes the rate, as Theorem 4 does.
 
   The cross-fitted longitudinal MSM projection runs Steps 1 to 4 for every regimen and horizon
   cell at once. Its stacked fluctuation solves the projected equations rather than each cell's own

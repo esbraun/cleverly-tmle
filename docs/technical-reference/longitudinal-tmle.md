@@ -719,7 +719,7 @@ sums no risk curve.
 | `reference=` | which regimen the contrasts are taken against. It is part of the estimand rather than a display setting |
 | `horizons=` | which time points a survival fit reports cumulative risk at. `None` reports the whole curve. Name the horizons you will report: the cost is $T(T+1)/2$ regressions per regimen rather than $T$ |
 | `msm=` | a working model over the regimen and horizon cells, in sample or cross-fitted. See [MSM projections](msm-projections.md) |
-| four learner slots | `outcome_learner`, `pseudo_learner`, `treatment_learner`, `censoring_learner`. The pseudo learner fits the intermediate regressions, whose outcome is a bounded prediction rather than the outcome itself |
+| four learner slots | `outcome_learner`, `pseudo_learner`, `treatment_learner`, `censoring_learner`. The pseudo learner fits the intermediate regressions. Under `LTMLE` their outcome is a bounded prediction. Under [`SDR`](#the-sequentially-doubly-robust-estimator) it is a transform that can leave $[0, 1]$, so the pseudo learner must fit a real-valued target |
 | `n_folds=`, `learner_folds=` | one outer split serves every node and regimen. The split is unstratified: `random_partition` draws it from the row count and the seed, and it balances no treatment node. Each fold fits the mechanism and an untargeted backward regression sequence on its training rows. One pooled fluctuation per node then targets the out-of-fold predictions, as [cross-fitting the recursion](#cross-fitting-the-recursion) states. The mechanism keeps the out-of-fold probabilities only, so its memory does not grow with $K$ |
 | `g_bounds=`, `q_bounds=`, `alpha=` | cumulative truncation, outcome scaling, and the logistic shrink. Above one fold, a continuous outcome must declare `q_bounds` |
 | `alpha_sig=`, `simultaneous=`, `n_multiplier=`, `multiplier_kind=` | interval level, and the simultaneous bands across the reported regimens |
@@ -903,6 +903,129 @@ $t$ reference at 20 and 30 clusters, and all 8 scored cells pass.
 | no bootstrap licence | the `cluster_cross_fit` kind has no study cell |
 | the `lmtp` pair at equal sizes only | `ife` aggregates cluster means, which equal cluster sums at equal sizes only |
 | 4 to 19 clusters | the fit takes `"few_cluster_plugin"` and reports no interval. No cross-fitted study measures that range: a probe of 2,000 draws at 10 clusters found 3 and 8 draws that admit no fit, and the harness refuses a cell that loses a replication. [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) owns it |
+
+## The sequentially doubly robust estimator
+
+`SDR` estimates the same parameters as `LTMLE` with the sequentially doubly robust estimator of
+Díaz, Williams, Hoffman and Schenck (2023), Section 5.3. It fits no fluctuation. Each node's
+regression fits a transformed outcome, and the estimate is the mean of the first transform. The
+estimator is consistent when, at each node, either the mechanism ratio or the regression of the
+transform is consistent (Lemma 4). That property is sequential double robustness.
+
+LTMLE does not have it. In `tests/unit/test_sdr_double_robustness.py`, node 1's mechanism and
+node 2's regression are both wrong. SDR is exact on that law, and LTMLE is not.
+
+```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+from cleverly.datasets import make_longitudinal
+from cleverly.longitudinal import SDR
+
+frame, _ = make_longitudinal(n=300, seed=0)
+result = SDR(
+    {"always": 1, "never": 0},
+    reference="never",
+    outcome_learner=LogisticRegression(),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(),
+    censoring_learner=LogisticRegression(),
+    n_folds=1,
+    simultaneous=False,
+).fit(
+    frame,
+    outcome="Y",
+    treatment=["A1", "A2"],
+    baseline=["W1", "W2"],
+    time_varying=[[], ["L2"]],
+    censoring=["C1", "C2"],
+)
+print(result.summary())
+```
+
+`sdr()` is the one-call form, and `CausalStudy(...).estimate(method="sdr")` routes a
+longitudinal functional to the same engine. A point-treatment functional refuses
+`method="sdr"`.
+
+### The transform
+
+Write $\pi_t$ for the intervention density at the observed arm. It is 1 at a label or rule node,
+$q_t$ at a [known stochastic policy](#known-stochastic-policies) node, and the policy numerator at
+a [modified treatment policy](#modified-treatment-policies-at-a-node) node. Write $p_t = g_t c_t$
+for the treatment and censoring mechanism at the observed arm on the plan. Write $\check m_t$ for
+the node regression. The transformed outcome is Equation (4) of the paper:
+
+$$
+\varphi_t = v_t + \sum_{s=t}^{h} W_{t,s} \bigl(Z_s - \check m_s(A_s, H_s)\bigr),
+\qquad
+W_{t,s} = \frac{\prod_{k=t}^{s} \pi_k}{\operatorname{bound}\bigl(\prod_{k=t}^{s} p_k\bigr)}.
+$$
+
+| term | definition |
+| --- | --- |
+| $v_t$ | the value node $t$ carries: the regression at the plan's arm, or the policy-weighted mean of the per-arm regressions at a policy node |
+| $Z_s$ | $v_{s+1}$ composed with the event at node $s$, as the shipped pseudo-outcome composes it. $v_{h+1}$ is the scaled outcome, or 0 at a survival horizon |
+| $W_{t,s}$ | the weight of the path from node $t$ to node $s$, on the rows that follow the plan through $s$, and 0 elsewhere |
+| node-$t$ regression target | $\varphi_{t+1}$ composed with the node's event for $t < h$, and the outcome at the horizon |
+| estimate | the weighted mean of $\varphi_1$ |
+| influence curve | $w(\varphi_1 - \hat\psi)$. The standard error is the empirical standard deviation of this curve, the sentence below Theorem 4 |
+
+`_recursion` in
+[`longitudinal/sdr.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/longitudinal/sdr.py)
+implements the table. `tests/unit/test_sdr_construction.py` compares it with an independent numpy
+recursion to `1e-12`, in sample and at five folds.
+
+### Contract
+
+| item | contract |
+| --- | --- |
+| base result | Díaz, Williams, Hoffman and Schenck (2023), *Journal of the American Statistical Association* 118(542). Equation (4) defines $\varphi_t$. Theorem 2 gives the efficient influence function $\varphi_1 - \theta$. Section 5.3, journal page 854, gives the estimator, Lemma 3, Lemma 4 and Theorem 4 |
+| rate condition | $\sum_t \lVert \hat r_t - r_t \rVert\, \lVert \check m_t - \tilde m_t \rVert = o_P(n^{-1/2})$, Theorem 4. Here $\tilde m_t$ is the regression of the estimated transform, not of the true one |
+| efficiency | the variance reaches the bound only when every nuisance is consistent, and when $\lVert \varphi_1(\hat\eta) - \varphi_1(\eta) \rVert = o_P(1)$ |
+| exact or known ratios | the remainder is 0 for any outcome learner. With the fold-measurable construction below and a GLM regression that converges to a fixed limit, the estimate is asymptotically normal with variance $\operatorname{Var} \varphi_1(r, \bar m)$ |
+| bounded ratios | $P\{r_t < c\} = P\{\hat r_t < c\} = 1$ for some $c$. `g_bounds` gives the second |
+| consistency without a rate | Lemma 4: at each node, the ratio is consistent or $\lVert \check m_t - \tilde m_t \rVert \to 0$. Lemma 4 gives no interval |
+| in sample | `n_folds=1` rests on Donsker-type conditions (Luedtke et al. 2017, condition DC), not on Theorem 4, as for LTMLE |
+| no interval claimed | multiply robust intervals. Page 854 states that neither SDR nor TMLE gives them |
+
+### Cross-fitting
+
+Section 5.3, Step 2 composes a training row's transform from the folds that hold that row out.
+`lmtp` reads a training row's ratio from the out-of-fold mechanism. Neither transform is fixed
+given the fold's training rows. The proof of Theorem 3 (supplement Section 6) conditions on that
+fixed fit. Section 5.4 states that cross-fitting keeps the independences that the proofs of
+Theorems 3 and 4 need. `SDR` therefore ships the training-fold recursion.
+
+| part of the fit | rows | what the fit does |
+| --- | --- | --- |
+| fold mechanism | the training rows of fold $k$ | fit the treatment and censoring mechanism, and read it at every row |
+| fold recursion | the training followers of fold $k$ | run the recursion of the transform table, with the fold's own regressions and its own mechanism in each training row's transform |
+| held-out transform | the held-out rows of fold $k$ | compute $\varphi_1$ from fold $k$'s regressions and mechanism |
+| estimate | every row | average the stitched $\varphi_1$ |
+
+With ratios that do not depend on the fold, such as a known mechanism, the construction equals
+`lmtp::cf_sdr`. Rotnitzky, Robins and Babino (2017), Section 5.2.1, leave the rate of an
+in-fold transform's regression open. Theorem 4 assumes that rate, as the LTMLE contract assumes
+its own. `tests/unit/test_sdr_construction.py` carries two mutation controls. The stitched Step 2
+moves the estimate by more than `1e-4`, and so does a training row that reads the out-of-fold
+mechanism.
+
+### Choices that differ from LTMLE
+
+| choice | `SDR` | reason |
+| --- | --- | --- |
+| fluctuation | none. `alpha=`, `max_iter=` and `tol=` raise `TypeError` | the transform replaces the targeting step |
+| regression clip | none. The default `pseudo_learner` is `SuperLearner(task="regression", clip=None)` | a transform can leave $[0, 1]$, and `lmtp` predicts it unbounded. A clipping pseudo learner is accepted and moves the estimate away from `lmtp_sdr` (`tests/unit/test_sdr_bounds_and_clipping.py`) |
+| `g_bounds=` | bounds each partial path probability $\prod_{k=t}^{s} p_k$ | at $t = 1$ this is the cumulative product that LTMLE divides by, bit for bit. Where a bound binds, the bounded weight is a misspecified ratio on that path, and no SDR property is claimed there. `diagnostics.support()` reports the binding share per node |
+| a level outside the outcome range | reported as computed, with `ParameterSpaceWarning` | an average of transforms can leave $[0, 1]$, or $[q_\text{lo}, q_\text{hi}]$ on a continuous outcome (page 854) |
+| `ratio()` of such a level | `CapabilityError` on the log scale for a level at or below 0, and on the odds scale outside $(0, 1)$ | the scale is undefined there. The difference scale stays available |
+| `msm=` | the identity link always. A logit or log link when its projection converges, and `CapabilityError` otherwise | a transform mean outside the link's range has no finite solution |
+| full-refit bootstrap | runs, and reports `bootstrap sd` with no percentile inference | no registered study measures it |
+| score equations | `diagnostics.score_equations()` is `not_applicable` | no node fits a fluctuation |
+
+Clusters, observation weights, survival, competing risks, known policies, modified treatment
+policies, contrasts, simultaneous bands and the truncation replay behave as they do for LTMLE.
+Each composition reuses the step that the LTMLE contract states. `tests/unit/test_sdr_e2e.py`
+runs each one end to end.
 
 ## Validation issues special to this method
 
