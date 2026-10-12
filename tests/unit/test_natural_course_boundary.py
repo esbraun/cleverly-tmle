@@ -195,6 +195,53 @@ def test_estimator_variants_refuse_before_nuisance_fitting(
     assert NeverFit.calls == 0
 
 
+@pytest.mark.parametrize(
+    ("estimands", "ctmle_estimand"),
+    [
+        pytest.param(("ey_obs", "ey0", "ey1", "ate"), "ate", id="joint-ate"),
+        pytest.param(("ey_obs", "ey0", "paf"), "ey0", id="joint-ey0"),
+    ],
+)
+def test_a_selector_strategy_refuses_before_nuisance_fitting(
+    estimands: tuple[str, ...], ctmle_estimand: str
+) -> None:
+    """The greedy selector reaches the method clause, with its selection estimand requested."""
+    estimator = CTMLE(
+        strategy="greedy",
+        estimands=estimands,
+        ctmle_estimand=ctmle_estimand,
+        cross_fit=False,
+        **never_fit_learners(),
+    )
+    with pytest.raises(CapabilityError) as caught:
+        estimator.fit(_frame(), outcome="Y", treatment="A", covariates=("W",), delta="Delta")
+    assert str(caught.value) == SUBJECT + VARIANT_REASON
+    assert NeverFit.calls == 0
+
+
+@pytest.mark.parametrize("estimands", REQUESTS)
+def test_the_per_arm_design_runs_in_sample(estimands: tuple[str, ...]) -> None:
+    """The per-arm outcome-adaptive CTMLE passes the method clause and reports points."""
+    from sklearn.linear_model import LogisticRegression
+
+    result = (
+        CTMLE(
+            strategy="oat",
+            estimands=estimands,
+            cross_fit=False,
+            outcome_learner=LogisticRegression(),
+            treatment_learner=LogisticRegression(),
+            missingness_learner=LogisticRegression(),
+            random_state=0,
+        )
+        .fit(_frame(), outcome="Y", treatment="A", covariates=("W",), delta="Delta")
+        .single()
+    )
+    assert result.inference_status == "generated_design_plugin"
+    for name in estimands:
+        assert np.isfinite(result[name].psi), name
+
+
 #: The in-sample TMLE and the stacked CV-TMLE share every data-axis refusal. Each one
 #: builds its learners from :func:`never_fit_learners`, so a refusal that let any learner
 #: fit first fails on the assertion in the learner or on its call count.

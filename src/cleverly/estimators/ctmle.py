@@ -737,7 +737,10 @@ class CTMLEOutcomeAdaptiveFit:
             The design, the features and the treatment negative log likelihood.
         """
         features = ", ".join(self.treatment_features)
-        if self.design == "per_arm":
+        if self.design == "per_arm" and (len(self.factors) > 1 or self.strata):
+            inside = ", inside each baseline stratum" if self.strata else ""
+            model = f"per_arm; each factor below ~ Qbar(a, W){inside}, one set per arm"
+        elif self.design == "per_arm":
             model = "per_arm; treatment model = 1{A = a} ~ Qbar(a, W), one per arm"
         else:
             model = "shared; treatment model = A ~ [Qbar(a, W)]"
@@ -752,7 +755,7 @@ class CTMLEOutcomeAdaptiveFit:
             lines.extend(
                 f"  arm {label}: {value:.6g}" for label, value in self.treatment_risk_by_arm.items()
             )
-        if len(self.factors) > 1 and self.risk_by_factor is not None:
+        if (len(self.factors) > 1 or self.strata) and self.risk_by_factor is not None:
             lines.append("factors, negative log likelihood summed over arms:")
             lines.extend(
                 f"  {factor}: {self.risk_by_factor[factor]:.6g}" for factor in self.factors
@@ -1138,8 +1141,6 @@ class CTMLE(TMLE):
         if is_selector_strategy(self.strategy):
             self._preflight_selection_folds(data, seed)
         per_arm = is_per_arm_oat(self)
-        if per_arm and (data.has_strata or data.has_missing_outcome or data.has_missing_treatment):
-            self._preflight_per_arm_design(data, folds, seed)
         # Every collaborative strategy replaces the ordinary treatment mechanism: the
         # selectors fit their candidate path and OAT fits A on the Qbar vector.  Fit only
         # the shared outcome/missingness nuisances here so g(W) is not paid for and thrown
@@ -1199,17 +1200,49 @@ class CTMLE(TMLE):
         )
         return nuisance, {"ctmle": selection}
 
+    def _repeat_draws(
+        self, data: CausalData, estimands: tuple[str, ...]
+    ) -> tuple[tuple[Folds, int], ...]:
+        """Realize every outer draw, then check each one against the per-arm design.
+
+        :meth:`~cleverly.TMLE._repeat_draws` checks what every draw owes the ordinary
+        nuisances. A per-arm outcome-adaptive fit with baseline strata or missing data also
+        checks each draw with :meth:`_preflight_per_arm_design` here. The check therefore
+        runs on every draw before the first learner of any draw, and a later draw cannot
+        refuse after an earlier draw has fitted its learners.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+        estimands : tuple of str
+            The resolved estimands.
+
+        Returns
+        -------
+        tuple of tuple
+            One ``(folds, seed)`` pair per draw.
+        """
+        draws = super()._repeat_draws(data, estimands)
+        if is_per_arm_oat(self) and (
+            data.has_strata or data.has_missing_outcome or data.has_missing_treatment
+        ):
+            for folds, seed in draws:
+                self._preflight_per_arm_design(data, folds, seed)
+        return draws
+
     def _preflight_per_arm_design(self, data: CausalData, folds: Folds, seed: int | None) -> None:
         """Refuse a per-arm design that cannot fit some factor, before any learner.
 
         The per-arm design fits each factor of :func:`_per_arm_factor_specs` for each arm,
         inside each baseline stratum, on each training complement of ``folds``. The
         treatment factor needs a recorded row in arm ``a`` and one outside it. The outcome
-        observation factor needs a recorded row of arm ``a`` with an observed outcome, and
-        the treatment observation factor needs a row with a recorded treatment; a target
-        with one value there fits no learner. The full-``W`` response model that the
-        missingness tilt reads needs a nonrespondent among the recorded rows of each
-        complement. A package classification Super Learner needs two rows of each class it
+        observation factor needs a recorded row of arm ``a`` with an observed outcome. The
+        treatment observation factor needs a row with a recorded treatment, which the
+        treatment factor's requirement already implies, so it has no check of its own. A
+        target with one value on its rows fits no learner. The full-``W`` response model
+        that the missingness tilt reads needs a nonrespondent among the recorded rows of
+        each complement. A package classification Super Learner needs two rows of each class it
         sees. The general preflight asks none of these questions for each stratum and arm,
         and it does not run for a request of ``ey_obs`` alone.
 
@@ -1243,18 +1276,18 @@ class CTMLE(TMLE):
             ]
 
         def observation_rows(arm: float) -> list[tuple[BoolArray, str]]:
+            # The treatment observation factor fits on every row and takes a constant
+            # target, so it needs only some row in the region. The treatment design above
+            # already requires a recorded row there, so it has no requirement of its own.
+            if not data.has_missing_outcome:
+                return []
             label = repr(data.arm_label(arm))
-            out = []
-            if data.has_missing_outcome:
-                out.append(
-                    (
-                        recorded & (treatment == arm) & observed,
-                        f"no recorded row of arm {label} has an observed outcome",
-                    )
+            return [
+                (
+                    recorded & (treatment == arm) & observed,
+                    f"no recorded row of arm {label} has an observed outcome",
                 )
-            if data.has_missing_treatment:
-                out.append((recorded, "no row has a recorded treatment"))
-            return out
+            ]
 
         refuse_untrainable_stratum_folds(
             data, folds, family="treatment design", requirements=treatment_rows

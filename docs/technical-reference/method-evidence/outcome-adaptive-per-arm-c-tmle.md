@@ -252,7 +252,7 @@ defines the factors and the routes. The table gives the state of the evidence.
 
 | evidence | state |
 | --- | --- |
-| Fast tier | `tests/unit/test_outcome_adaptive_per_arm_extensions.py` checks the factor product, the routes, the refusals and a deliberate-mutation control for each factor |
+| Fast tier | `tests/unit/test_outcome_adaptive_per_arm_extensions.py` checks the factor product on an exact law, the longhands, the solved scores, the identity of the missing-outcome route and the composite route, the refusals, and a deliberate-mutation control for each factor |
 | Registered study | `ctmle-oat-per-arm-strata-missing` is designed, and its full run is queued. The study registers when its artifacts land |
 | Inference | Every fit withholds `ci`, `pvalue` and `std_error`, as above. The study will read `plugin_std_error` and `plugin_interval`, as the per-arm study above does |
 

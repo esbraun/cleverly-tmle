@@ -412,12 +412,15 @@ For arm $a$, with $q_a = \bar Q_n(a, W)$, the fit regresses each factor on the o
 | treatment | $1\{A = a\}$ on $q_a$ | the rows with a recorded treatment |
 | outcome observation, with `delta=` | $\Delta$ on $q_a$ | the recorded rows of arm $a$ |
 
-With `strata=`, the fit fits each factor inside each stratum. By the chain rule, the product is
-$P(C_a = 1 \mid q_a)$, or $P(C_a = 1 \mid q_a, S)$, for $C_a = \Delta_A \Delta 1\{A = a\}$.
-This is the composite indicator of
+With `strata=`, the fit regresses each factor inside each stratum. By the chain rule, the
+product is $P(C_a = 1 \mid q_a)$, or $P(C_a = 1 \mid q_a, S)$, for
+$C_a = \Delta_A \Delta 1\{A = a\}$. This is the composite indicator of
 [the DR-TMLE missing-data construction](dr-tmle/theorem.md), regressed on the design and not on
 $W$. A factor whose target has one value on its rows predicts that value and fits no learner. The
 fit uses the treatment learner for every factor.
+
+The positivity report names the design as the condition of the product row, for example
+`P(A=a,Delta=1|Qbar(a,W))`. With strata, the condition is `Qbar(a,W),S`.
 
 | item | content |
 | --- | --- |
@@ -430,5 +433,5 @@ fit uses the treatment learner for every factor.
 | natural course with a missing outcome | the construction with $\Delta$ as the treatment and the design $(A, \bar Q_n(A, W))$. The fit reads the outcome observation factor at the realised arm. `par` follows by linearity, and `paf` by the delta method on the stack with the arm means. With strata, the stratum step applies on top |
 | identification | $Y(a) \perp A \mid W$; $Y(a) \perp \Delta_A \mid A, W$; $Y \perp \Delta \mid A, \Delta_A = 1, W$; $W$ recorded on every row; positivity $P(C_a = 1 \mid W) > 0$ almost surely, per stratum with strata. The design bounds do not imply positivity |
 | the missingness tilt | `missingness_tilt` and `tipping_gamma` read the full-covariate model $P(\Delta = 1 \mid A, W)$, which the fit stores as `nuisance.tilt_missingness`. No targeting step reads it |
-| refused | a cross-fitted fit with a missing treatment, as for every estimator ([F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants)); `ey_obs`, `par` and `paf` with a missing treatment, which are not identified; a stratum or a training complement in which a factor has no row to fit. The selector strategies and the shared design keep their refusals |
-| evidence | `tests/unit/test_outcome_adaptive_per_arm_extensions.py`: in-sample and cross-fitted longhands of the factors and the targeting to `1e-8`, each stratum point against a fit on the stratum's rows, the marginal mixture, the natural course, an exact law on which the oracle $\bar Q$ gives the truth, fold-local nesting, fixed weights against duplicated rows, the tilt, and 11 mutation controls. The registered study `ctmle-oat-per-arm-strata-missing` is designed and waits in the study queue. It lands with its artifacts |
+| refused | a cross-fitted fit with a missing treatment, as for every estimator ([F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants)); `ey_obs`, `par` and `paf` with a missing treatment, which are not identified; a stratum or a training complement in which a factor has no row to fit; with `delta=`, a training complement with no nonrespondent among its recorded rows, because the full-covariate response model of the tilt needs one; and, when the treatment learner is a package classification `SuperLearner`, a factor target with fewer than two rows of a class in a training complement. Each refusal reads the data and every drawn split before any learner. The selector strategies and the shared design keep their refusals |
+| evidence | `tests/unit/test_outcome_adaptive_per_arm_extensions.py`: in-sample and cross-fitted longhands of the factors and the targeting to `1e-8`, a longhand of `target_weights=True`, each stratum point against a fit on the stratum's rows, the marginal mixture and its mass term, the solved scores, the natural course, the route identity, an exact law on which the factor product is the cell share of $C_a = 1$ and the oracle $\bar Q$ gives the truth, fold-local nesting, fixed weights against duplicated rows, the tilt, the status matrix, and 14 mutation controls. `tests/unit/test_capability_row_sweep.py` sweeps the capability rows of a per-arm fit with missing outcomes. The registered study `ctmle-oat-per-arm-strata-missing` is designed and waits in the study queue. It lands with its artifacts |
