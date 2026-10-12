@@ -533,10 +533,11 @@ arms each row applies arm by arm.
 | `g` wrong, `Q̄` with a bias along `h` of order larger than `n^(−1/2)` | linear | **not established** | the identity, and the registered study: a constructed error gave an ATE bias of −0.88, −1.07 and −1.35 SD, with coverage 0.825, 0.789 and 0.687, at the same sizes |
 
 No fit can tell which row it is in, except a declared known mechanism. The registered study
-gates each measured row; its page gives the rules. The earlier project probe,
-`reviews/rm40/drdr_sim.py` with its log `reviews/rm40/drdr_summary.log`, agrees with it. The registered [multi-arm study](../method-evidence/multi-arm-dr-tmle.md) has a
-law that no test pins as H1, and a correctly specified multinomial mechanism. Its SE ratios of 1.00 to 1.04
-do not contradict the conservative row. Its verdicts cannot detect a conservative interval, because
+publishes a verdict for each measured row, and its page gives the rules. The earlier project
+probe, `reviews/rm40/drdr_sim.py` with its log `reviews/rm40/drdr_summary.log`, agrees with it.
+The registered [multi-arm study](../method-evidence/multi-arm-dr-tmle.md) has a law that no test
+pins as H1, and a correctly specified multinomial mechanism. Its SE ratios of 1.00 to 1.04 do not
+contradict the conservative row. Its verdicts cannot detect a conservative interval, because
 its coverage rule is a floor.
 
 **One registered study detects the term.** The [one-inconsistent-nuisance study](../method-evidence/dr-tmle-one-inconsistent-nuisance.md) uses law L, which is not H1 in either branch. The verdicts of the

@@ -40,6 +40,9 @@ A new capability still needs its own contract and evidence, even in this queue.
 | priority | item | tier | acceptance |
 | ---: | --- | --- | --- |
 | 0.1 | RM39. Keep a study run alive through a failed replicate | b | the contract in [RM39](#rm39-keep-a-study-run-alive-through-a-failed-replicate), its tests, and passing handoff checks |
+| 0.2 | RM41. Find the DR-TMLE bias with an in-sample flexible mechanism | a | the contract in [RM41](#rm41-find-the-dr-tmle-bias-with-an-in-sample-flexible-mechanism), its tests, and passing handoff checks |
+
+RM39 keeps 0.1 by user decision, although RM41's tier ranks higher.
 
 ### RM39. Keep a study run alive through a failed replicate
 
@@ -117,13 +120,39 @@ limits that case.
 | the phase records only `DataError`, `LongitudinalError`, `numpy.linalg.LinAlgError`, `FloatingPointError`, `ZeroDivisionError`, `OverflowError`, and a plain `ValueError` or `RuntimeError` that `numpy`, `scipy`, `sklearn` or `statsmodels` raised |
 | the Python phase uses the part a1 resume key |
 
+### RM41. Find the DR-TMLE bias with an in-sample flexible mechanism
+
+Status: open. A plan is needed.
+
+The RM40 witness study measured constructed nuisance errors only. Its pre-declaration probe,
+`reviews/rm40/hgb_diagnosis.py`, fitted the mechanism in sample with gradient boosting and fitted
+a wrong outcome regression on law L. The table gives the result from `reviews/rm40/hgb_diagnosis.log`.
+
+| fit | ATE bias in SD at n = 1,000, 4,000, 16,000 | ATE coverage at n = 1,000, 4,000, 16,000 |
+| --- | --- | --- |
+| `DRTMLE`, wrong outcome regression | −1.35, −2.37, −2.54 | 0.66, 0.38, 0.41 |
+| `DRTMLE`, correct outcome regression | −0.00, +0.05, −0.06 | 0.84, 0.94, 0.95 |
+| plain TMLE, the same mechanism and wrong outcome regression | −0.08, +0.25, +0.33 | 0.96, 0.97, 0.98 |
+
+The case table calls a data-adaptive mechanism "not established", so no contract claims this
+interval. The conditioning-term proxy predicts −0.75 to −0.93 SD, so the term does not explain the
+bias. The probe's exact split puts it in the own-row term of the outcome targeting step. The row
+takes tier a, because the interval is anti-conservative and worse than plain TMLE with the same
+learners.
+
+| acceptance |
+| --- |
+| a committed diagnosis names the cause and states whether it is a defect of the code or of the method |
+| a defect of the code is fixed, with a test that fails before the fix |
+| a property of the method is stated on the [theorem page](technical-reference/dr-tmle/theorem.md), with the measured numbers |
+
 Each row takes a tier by the harm that its defect does to a user today. The table gives the tiers,
 from the most harmful. Inside a tier, a row with a wider reach comes first. A row that another row
 depends on comes before that row.
 
 | tier | reason | rows |
 | --- | --- | --- |
-| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | no open row |
+| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM41 |
 | b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | RM39 |
 | c | a correct refusal that arrives late or as the wrong type | no open row |
 | d | a diagnostic or a warning that misleads | no open row |

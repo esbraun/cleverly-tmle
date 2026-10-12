@@ -38,8 +38,8 @@ justified against the theorem.
 The reported `se` runs about 10% short of the spread it covers in one drift cell, and about 16%
 *long* in the other. The programme attributed the shortfall to a second-order remainder that does
 not vanish at these sizes. A committed probe, `reviews/rm40/drift_attribution.py`, tested that
-reading under a rule fixed before it ran. The shortfall is not attributed. The mechanism error does
-not account for it.
+reading under a rule fixed before it ran. The shortfall is not attributed. The conditioning term of the
+inconsistent nuisance, evaluated at the mean fit, does not account for it.
 
 | cell | predicted root-n bias | archived root-n bias | probe outcome |
 | --- | --- | --- | --- |
@@ -48,8 +48,9 @@ not account for it.
 
 The `g-drift` mechanism learner converges to an additive approximation of `g_0`, so that cell is
 not inside Theorem 1's union condition. The probe measures that error as 0.002 in the L2 norm.
-The probe log also reports a sensitivity row that the rule does not score. It keeps the random
-part of the mechanism fit in the reduced regression and predicts +1.70 for `g-drift`.
+The probe log also reports a sensitivity row that the rule does not score. It averages the term
+over the fits, so it includes the random part of the mechanism fit. It predicts +1.70 for
+`g-drift`, about half of the archived +3.33. The rule would read that row as inconclusive.
 
 That is why the release claim is conditional validity, and why the conditions are stated on this
 page rather than assumed away.

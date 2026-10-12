@@ -47,11 +47,8 @@ sign by quadrature (`tests/unit/test_drtmle_one_wrong_design.py`).
 | law L, declared mechanism, outcome regression on A and W1 (wrong), n = 4,000 | `ey1` | counterfactual mean under treatment | `cleverly` DR-TMLE with guards Q and g and the univariate reduction | -0.000244 to 0.000655 | 0.9505 | 1.0195 | pass |
 <!-- /generated -->
 
-The accuracy table reads the primary scenario, `q_wrong_g_known`, the valid case. The study has no
-external comparator, so it has no agreement table.
-
-<!-- generated: agreement -->
-<!-- /generated -->
+The accuracy table reads the primary scenario, `q_wrong_g_known`, the valid case.
+No canonical implementation is compared, so the page has no agreement table.
 
 ## Rules
 
@@ -134,8 +131,8 @@ the conditioning term evaluated on the fit's own rows, over the empirical SD. On
 has the sign of the measured bias and the same order. On law M it is -0.90 and -0.83 SD against a
 measured -0.53 and -0.54. The arms of the controls are reported, not gated.
 
-Some fits stop at the alternation's outer cap and stay in their cells, as declared. The mirror
-ladder has the most: 132, 106 and 63 of 1,000 fits at n = 1,000, 4,000 and 16,000. The C and V
+Some fits do not converge and stay in their cells, as declared. Most of them stall, and a few
+reach the alternation's outer cap. The mirror ladder has the most: 132, 106 and 63 of 1,000 fits at n = 1,000, 4,000 and 16,000. The C and V
 cells have at most 4 of 4,000.
 
 ## Measured values
@@ -188,7 +185,7 @@ from the committed results and checked at the precision printed.
 | `properties[one_wrong_inference/mar_q_wrong_pi_slow__ey1__first_order]:standardized_bias` | -0.5378 | law M arm-1 bias in SD |
 | `properties[one_wrong_inference/mar_q_wrong_pi_slow__ey0__first_order]:coverage` | 0.9200 | its arm-0 coverage |
 | `properties[one_wrong_inference/mar_q_wrong_pi_slow__ey1__first_order]:coverage` | 0.9260 | its arm-1 coverage |
-| `properties[one_wrong_reported/q_slow_g_wrong_n1000__ey0__reported]:nonconverged_fits` | 132 | mirror fits at the outer cap, n = 1,000 |
+| `properties[one_wrong_reported/q_slow_g_wrong_n1000__ey0__reported]:nonconverged_fits` | 132 | mirror fits that did not converge, n = 1,000 |
 | `properties[one_wrong_reported/q_slow_g_wrong_n4000__ey0__reported]:nonconverged_fits` | 106 | the same, n = 4,000 |
 | `properties[one_wrong_reported/q_slow_g_wrong_n16000__ey0__reported]:nonconverged_fits` | 63 | the same, n = 16,000 |
 | `margin:confidence_level` | 0.9900 | confidence level of every Monte Carlo interval |
@@ -199,6 +196,21 @@ from the committed results and checked at the precision printed.
 | `margin:se_ratio_sanity_lower` | 0.8000 | SE-ratio screen, lower limit |
 | `margin:se_ratio_sanity_upper` | 1.2000 | SE-ratio screen, upper limit |
 | `margin:calibration_se_ratio_upper` | 1.0700 | the line that a C cell's SE-ratio interval must clear |
+| `margin:calibration_coverage_lower` | 0.9200 | calibration-cell coverage band, lower limit. No rule of this study reads it |
+| `margin:calibration_coverage_upper` | 0.9800 | calibration-cell coverage band, upper limit. No rule of this study reads it |
+| `margin:calibration_noninferiority` | 0.0500 | largest external-comparison calibration excess bound. This study has no comparator |
+| `margin:calibration_se_ratio_lower` | 0.9300 | calibration-cell SE-ratio band, lower limit. Rule C reads the upper limit only |
+| `margin:coverage_noninferiority` | -0.0250 | smallest external-comparison coverage difference bound. This study has no comparator |
+| `margin:excluded_slope` | -0.2500 | slower rate a root-n interval must exclude. No rule of this study reads it |
+| `margin:minimum_power` | 0.8000 | rejection lower bound a power cell must clear. No rule of this study reads it |
+| `margin:nominal_coverage` | 0.9500 | nominal coverage those intervals claim |
+| `margin:over_coverage_ceiling` | 0.9900 | above this, coverage is conservative rather than invalid |
+| `margin:paired_difference` | 0.1500 | paired similarity margin, in pooled empirical standard deviations |
+| `margin:rmse_noninferiority` | 1.1000 | largest external-comparison RMSE ratio bound. This study has no comparator |
+| `margin:root_n_slope` | -0.5000 | contraction rate root-n asymptotics predict. No rule of this study reads it |
+| `margin:root_n_slope_lower` | -0.6250 | accepted root-n slope band, lower limit. No rule of this study reads it |
+| `margin:root_n_slope_upper` | -0.3750 | accepted root-n slope band, upper limit. No rule of this study reads it |
+| `margin:type_i_ceiling` | 0.1000 | the rate a positive cell must bound and a control must exceed. No rule of this study reads it |
 
 ## Limitations
 
@@ -206,7 +218,7 @@ from the committed results and checked at the precision printed.
 | --- | --- |
 | a binary outcome and two Gaussian covariates | the study does not measure other outcome types or covariate laws |
 | the univariate reduction with `guard=("Q", "g")` | the bivariate reduction and other guards have no witness here |
-| GLM and polynomial learners with constructed offsets | no off-the-shelf flexible learner is measured. An in-sample gradient-boosting mechanism has an open defect row |
+| GLM and polynomial learners with constructed offsets | no off-the-shelf flexible learner is measured. An in-sample gradient-boosting mechanism with a wrong outcome regression gave an ATE bias of −2.37 SD and coverage 0.38 at n = 4,000 (`reviews/rm40/hgb_diagnosis.log`). [RM41](../../roadmap.md#rm41-find-the-dr-tmle-bias-with-an-in-sample-flexible-mechanism) owns it |
 | no strata, clusters, weights or more arms | those routes inherit the case table without a witness |
 
 ## Reproduction

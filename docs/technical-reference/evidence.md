@@ -117,7 +117,7 @@ states when its interval holds. The table gives its instruments and what each on
 | instrument | what it checks | what it cannot see |
 | --- | --- | --- |
 | `tests/unit/test_conditioning_remainder_drtmle.py` | on an exact law, a tie-splitting mechanism estimate gives a nonzero conditioning term that is linear in the split. Controls make it vanish | the size of the term at a fitted nuisance |
-| the registered [one-inconsistent-nuisance study](method-evidence/dr-tmle-one-inconsistent-nuisance.md) | valid intervals on a declared mechanism, conservative intervals with a correctly specified parametric mechanism, and a bias of the predicted sign that grows with n for a slow nuisance error, on two laws where neither term vanishes | a flexible learner, the bivariate reduction, strata, clusters, weights and more arms |
+| the registered [one-inconsistent-nuisance study](method-evidence/dr-tmle-one-inconsistent-nuisance.md) | valid intervals on a declared mechanism, conservative intervals with a correctly specified parametric mechanism, and a bias of the predicted sign that grows with n for a slow nuisance error, on law L, and a bias of the predicted sign on law M. Neither term vanishes on either law | a flexible learner, the bivariate reduction, strata, clusters, weights and more arms |
 
 A `discrete` C-TMLE fit with one declared candidate, equal to the full adjustment set, is the
 ordinary TMLE. The `TMLE` studies are its evidence, and
