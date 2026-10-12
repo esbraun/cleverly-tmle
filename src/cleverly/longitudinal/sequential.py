@@ -155,6 +155,7 @@ from ..utils.phases import (
     profiling,
 )
 from .data import LongitudinalData, RegimenMasks
+from .ratio_trim import RatioTrim
 from .regimen import Plan, Regimen, RegimenSpec
 
 __all__ = [
@@ -307,6 +308,10 @@ class Mechanism:
     known_treatment_nodes: tuple[int, ...] = ()
     #: The censoring nodes, counted from one, whose factor is a declared retention probability.
     known_censoring_nodes: tuple[int, ...] = ()
+    #: By plan label, the trimmed per-node density ratios of a fit with ``ratio_trim=``
+    #: (:mod:`cleverly.longitudinal.ratio_trim`).  Empty without a trim, and then every
+    #: cumulative product is the shipped one.
+    ratio_trims: dict[str, RatioTrim] = field(default_factory=dict)
 
     def cumulative(
         self, data: LongitudinalData, plan: Plan, bounds: tuple[float, float]
@@ -342,7 +347,27 @@ class Mechanism:
         result cannot distinguish a naturally small path probability from one replaced
         by the configured floor.  :meth:`cumulative` retains its historical bounded-only
         interface and delegates here.
+
+        On a plan with a ratio trim (:attr:`ratio_trims`) the raw prefix is the cumulative
+        mechanism the trimmed ratio implies, :meth:`RatioTrim.implied_cumulative`, and the
+        bound applies to it.  On a row whose ratios were never trimmed it is the raw prefix.
         """
+        raw, bounded = self._cumulative_with_unbounded(data, plan, bounds)
+        trim = self.ratio_trims.get(plan.label)
+        if trim is None:
+            return raw, bounded
+        density = plan.intervention_density(data)
+        implied = trim.implied_cumulative(np.cumprod(density, axis=1), raw)
+        lower, upper = bounds
+        return implied, bound(implied, lower, upper)
+
+    def _cumulative_with_unbounded(
+        self,
+        data: LongitudinalData,
+        plan: Plan,
+        bounds: tuple[float, float],
+    ) -> tuple[FloatArray, FloatArray]:
+        """The shipped raw and bounded cumulative products, before any ratio trim."""
         lower, upper = bounds
         running = np.ones(data.n)
         raw_columns = []
@@ -600,6 +625,20 @@ class RegimenFit:
     #: continuous node is the density ratio :math:`r_t` itself.  Not bounded by
     #: ``g_bounds``.  ``None`` on a plan without such a node.
     node_ratio: FloatArray | None = None
+    #: The plan's trimmed per-node density ratios on a fit with ``ratio_trim=``, and
+    #: ``None`` without a trim.  :attr:`cumulative_unbounded` is then the cumulative
+    #: mechanism the trimmed ratio implies.
+    ratio_trim: RatioTrim | None = None
+
+    @property
+    def trim_threshold(self) -> float | None:
+        """``Q_q``, the value the per-node ratios were trimmed at, or ``None`` without a trim."""
+        return None if self.ratio_trim is None else self.ratio_trim.threshold
+
+    @property
+    def trimmed_share(self) -> float:
+        """The share of the positive per-node ratios that the trim moved; zero without one."""
+        return 0.0 if self.ratio_trim is None else self.ratio_trim.trimmed_share
 
     @property
     def leverage(self) -> FloatArray:

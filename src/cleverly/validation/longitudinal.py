@@ -115,6 +115,7 @@ class LongitudinalStageRow:
     share_truncated: float
     epsilon: tuple[float, ...]
     converged: bool
+    share_trimmed: float | None = None
 
 
 @dataclass(frozen=True)
@@ -164,6 +165,10 @@ class LongitudinalDiagnostics:
     counts the rows whose *denominator* the bounds replaced, because ``g_bounds`` bounds the
     cumulative mechanism and not the ratio.  A truncated row therefore need not carry a large
     ratio.
+
+    ``share_trimmed`` is present on a fit with ``ratio_trim=``, as ``cause`` is present on a
+    competing-risk fit only.  It is the share of the node's ``trained_on`` rows whose node
+    ratio the trim moved (:mod:`cleverly.longitudinal.ratio_trim`).
     """
 
     rows: tuple[LongitudinalStageRow, ...]
@@ -190,6 +195,11 @@ class LongitudinalDiagnostics:
             "max_weight": [row.max_weight for row in self.rows],
             "effective_n": [row.effective_n for row in self.rows],
             "share_truncated": [row.share_truncated for row in self.rows],
+            **(
+                {"share_trimmed": [row.share_trimmed for row in self.rows]}
+                if any(row.share_trimmed is not None for row in self.rows)
+                else {}
+            ),
         }
         for position, name in enumerate(self.epsilon_names):
             payload[name] = [row.epsilon[position] for row in self.rows]
@@ -470,6 +480,15 @@ def _policy_shares(density: FloatArray, levels: Sequence[object], categorical: b
     )
 
 
+def _share_trimmed(fit: Any, step: Any) -> float | None:
+    """The share of the node's scored rows whose node ratio the trim moved, or ``None``."""
+    trim = fit.ratio_trim
+    if trim is None:
+        return None
+    moved = trim.trimmed[step.trained_on, step.time - 1]
+    return float(np.mean(moved)) if moved.size else float("nan")
+
+
 def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
     """One row per node: how heavy the weights got and how much the bounds moved.
 
@@ -533,6 +552,7 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
                     share_truncated=float(np.mean(raw != bounded)) if raw.size else float("nan"),
                     epsilon=tuple(float(value) for value in step.fluctuation.epsilon),
                     converged=bool(step.fluctuation.converged),
+                    share_trimmed=_share_trimmed(fit, step),
                 )
             )
     return LongitudinalDiagnostics(

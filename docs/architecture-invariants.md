@@ -532,6 +532,13 @@ node's treatment factor in the cumulative product is the density ratio. `g_bound
 bounds only the censoring and categorical factors. The fit attaches the ratio to the plan after
 the mechanism fit. A frozen plan carries it, so a replay reads the same ratio.
 
+A ratio trim (`ratio_trim=`) enters before `g_bounds`, through the cumulative mechanism it
+implies. The fit trims each regimen's per-node ratio matrix once, over the pooled out-of-fold
+matrix, and attaches the trim to the mechanism. Every reader of the cumulative product then reads
+`num / bound(num / R~)`, a truncation replay included. On a row whose ratios the trim never
+moved, that value is the untrimmed one, so a trim never changes a row it does not move.
+`tests/unit/test_longitudinal_ratio_trim.py` pins the composition at an upper bound below one.
+
 A cross-fitted per-regimen fit targets after its folds, not inside them. Each fold runs an
 untargeted backward regression sequence on its training rows. One pooled fluctuation per node then
 targets the out-of-fold predictions over every follower, with the out-of-fold cumulative mechanism

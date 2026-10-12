@@ -30,6 +30,7 @@ __all__ = [
     "NO_SIMULTANEOUS_BANDS",
     "NO_T_REFERENCE_BANDS",
     "PARAMETER_STATUSES",
+    "TRIMMED_RATIO_STATUS",
     "T_REFERENCE_BOOTSTRAP_NOTE",
     "T_REFERENCE_NOTE",
     "InferenceStatus",
@@ -48,6 +49,7 @@ InferenceStatus = Literal[
     "working_mechanism_plugin",
     "generated_design_plugin",
     "estimated_weight_plugin",
+    "trimmed_ratio_plugin",
     "few_cluster_plugin",
     "constant_node_plugin",
 ]
@@ -259,6 +261,33 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             diagnostic_noun="fixed-weight plug-in diagnostic",
             reopened_by="F5",
         ),
+        "trimmed_ratio_plugin": StatusRecord(
+            reason=(
+                "A longitudinal fit that trims its per-node density ratios at a declared "
+                "quantile (ratio_trim=) reports no confidence interval, no p-value and no "
+                "standard error. The trim binds on a fixed share of the ratios at every "
+                "sample size, so the remainder keeps a term of the size of the "
+                "outcome-regression error, and no result read here gives an interval for the "
+                "trimmed fit. The point estimate stands. The plug-in standard error of the "
+                "efficient influence curve at the trimmed ratios remains as a diagnostic "
+                "under plugin_std_error and plugin_interval; it is the standard error lmtp "
+                "reports. F30 in docs/roadmap.md reopens this when a paper supplies that "
+                "result. ratio_trim=None fits the untrimmed estimator, whose interval the "
+                "shipped evidence covers."
+            ),
+            assessment_note=(
+                "the reported curve is a trimmed-ratio diagnostic: no confidence interval or "
+                "p-value is available for a fit that trims its ratios, and F30 in the roadmap "
+                "is the condition that reopens it"
+            ),
+            summary_label="trimmed-ratio se",
+            bootstrap_note=(
+                "a diagnostic; the bootstrap repeats the trim on each resample, and no result "
+                "validates its coverage for a trimmed fit"
+            ),
+            diagnostic_noun="trimmed-ratio plug-in diagnostic",
+            reopened_by="F30",
+        ),
         "few_cluster_plugin": StatusRecord(
             reason=(
                 "A clustered fit reports no confidence interval, no p-value and no standard "
@@ -321,6 +350,10 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
     }
 )
 
+
+#: The status of a longitudinal fit whose ``ratio_trim=`` moved a positive per-node ratio.
+#: The estimator stamps it by name, so the name lives here once.
+TRIMMED_RATIO_STATUS: Final = "trimmed_ratio_plugin"
 
 #: The status of a longitudinal parameter whose recursion read a node regression as a
 #: constant 0 or 1. The estimator stamps it by name, so the name lives here once.

@@ -11,6 +11,7 @@ from .inference.bootstrap import Resampling
 from .inference.multiplier import MultiplierKind
 from .learners.crossfit import SplitPlan, _cross_fit_policy_refusal
 from .learners.library import _validate_learner
+from .longitudinal.ratio_trim import check_ratio_trim
 
 __all__ = [
     "DEFAULT_LONGITUDINAL_G_BOUNDS",
@@ -242,6 +243,11 @@ class Targeting:
         Maximum targeting iterations.
     tol : float, default=1e-10
         Score-equation convergence tolerance.
+    ratio_trim : float or None, default=None
+        A longitudinal fit's per-node density ratios are trimmed at this quantile of all of
+        them, as ``lmtp_control(.trim=)`` does. A fit whose trim moves a ratio reports its
+        point estimate with the ``"trimmed_ratio_plugin"`` status and no interval. ``None``
+        trims nothing. A point-treatment fit refuses it.
 
     See Also
     --------
@@ -271,6 +277,10 @@ class Targeting:
     step_size: float = 1e-3
     max_iter: int = 20
     tol: float = 1e-10
+    ratio_trim: float | None = None
+
+    def __post_init__(self) -> None:
+        check_ratio_trim(self.ratio_trim)
 
 
 @dataclass(frozen=True)
@@ -472,6 +482,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "step_size": "step_size",
         "max_iter": "max_iter",
         "tol": "tol",
+        "ratio_trim": "ratio_trim",
     },
     "inference": {
         "alpha": "alpha",
@@ -511,6 +522,21 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("targeting", "nuisance_bound", "nuisance_bound"),
     ("targeting", "target_weights", "target_weights"),
     ("targeting", "step_size", "step_size"),
+)
+
+
+#: Longitudinal-engine settings with no point-treatment implementation, as
+#: ``(group, field, public name)``. A point-treatment translation refuses each one that differs
+#: from its default, ``ratio_trim`` with its own message first.
+_POINT_LONGITUDINAL_ONLY: tuple[tuple[str, str, str], ...] = (
+    ("targeting", "ratio_trim", "ratio_trim"),
+)
+
+#: The refusal of ``ratio_trim=`` on a point-treatment fit, which names the bound it has.
+_POINT_RATIO_TRIM = (
+    "ratio_trim= trims the per-node density ratios of a longitudinal fit, as lmtp's .trim "
+    "does. A point-treatment fit bounds its mechanism with g_bounds=. Declare the point "
+    "treatment as a one-node LongitudinalTreatment to trim its ratio"
 )
 
 
@@ -714,7 +740,24 @@ class TMLEMethod:
                 common["g_bounds"] = DEFAULT_LONGITUDINAL_G_BOUNDS
             if common["n_multiplier"] == "auto":
                 common["n_multiplier"] = DEFAULT_LONGITUDINAL_MULTIPLIER
+            common["ratio_trim"] = targeting.ratio_trim
             return common
+        if targeting.ratio_trim is not None:
+            raise MethodConfigurationError(_POINT_RATIO_TRIM)
+        defaults = TMLEMethod()
+        refused = [
+            public_name
+            for group_name, field_name, public_name in _POINT_LONGITUDINAL_ONLY
+            if _differs_from_default(
+                getattr(getattr(self, group_name), field_name),
+                getattr(getattr(defaults, group_name), field_name),
+            )
+        ]
+        if refused:
+            raise MethodConfigurationError(
+                f"point-treatment TMLE cannot apply longitudinal option(s): {refused}. "
+                "Remove them or use a LongitudinalTreatment design."
+            )
         if common["n_multiplier"] == "auto":
             common["n_multiplier"] = DEFAULT_POINT_MULTIPLIER
         common.update(

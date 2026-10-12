@@ -235,6 +235,7 @@ the current boundary, and the refusal that keeps it.
 | Time-respecting cross-fitting | dependence and split-specific TMLE inference for blocked-temporal or rolling-origin folds | iid and grouped cross-fitting only | [F7](#f7-time-respecting-cross-fitting) |
 | Learned-policy value outside the published conditions | an interval for the fold-average learned-rule value without a limiting rule, and results for the refused compositions | `LearnedRuleValue` fits the fold-evaluated CV-TMLE of [learned rules](technical-reference/point-treatment-tmle.md#learned-rules) under the limiting-rule condition. Its boundary study measures under-coverage at an exceptional law. The other F27 requests refuse before any learner | [F27](#f27-learned-policy-value-outside-the-published-conditions) |
 | Inference at a boundary node estimate | an interval for a longitudinal TMLE parameter when a node regression reads a constant 0 or 1, such as a hazard estimated as zero at a grid node with no event, with its coverage | the point estimate stands. The parameter, and every contrast and restricted mean that reads it, take the `constant_node_plugin` status and report a plug-in diagnostic only. The band leaves them out | [F31](#f31-inference-at-a-boundary-node-estimate) |
+| Inference after quantile ratio trimming | an interval for a longitudinal TMLE whose per-node density ratios are trimmed at a fixed quantile, or a trim level that tends to 1 at stated rates, with its coverage | `LTMLE(ratio_trim=q)` reports the point estimate. A fit whose trim moves a positive ratio takes the `trimmed_ratio_plugin` status and reports the plug-in diagnostic only. `ratio_trim=None` keeps the untrimmed fit and its interval | [F30](#f30-inference-after-quantile-ratio-trimming) |
 | Finite-sample limits of clustered intervals | a small-sample correction or reference for the cluster-summed TMLE curve, at few clusters, at unequal cluster sizes, and for the fold-evaluated variance at few clusters per fold. An interval at 4 to 9 clusters (4 to 19 for `LTMLE`), which no registered study measures, and a fold-evaluated degrees-of-freedom rule at 40 clusters or more | `few_cluster_plugin` below 10 positive-mass clusters, and below 20 for `LTMLE`, the smallest counts the registered study measures. $t_{J-2}$ from 10 (20 for `LTMLE`) to 39. Fold-evaluated fits need 2 clusters per fold. The registered evidence uses parametric nuisance learners | [F28](#f28-finite-sample-limits-of-clustered-intervals) |
 
 ## Eligibility
@@ -1562,6 +1563,19 @@ freedom.
 | a fold-evaluated point at informative unequal sizes with few clusters per fold | a fold-evaluated point construction whose bias at 2 to 6 clusters per fold stays inside 0.25 empirical standard deviations, such as a cluster-size-weighted fold average whose fluctuation uses the same weights, with its own registered study. The stacked report is the remedy today. The few-cluster study reads a bias of 0.61, 0.43 and 0.32 at 2, 4 and 6 clusters per fold, where the stacked fit reads 0.14, 0.10 and 0.06. The equal $1/V$ fold average causes it (`tests/unit/test_fold_evaluated_ratio_bias.py`) |
 | a calibrated cross-fitted `DRTMLE` cluster variance at 10 to 30 clusters | a cluster variance for the cross-fitted `DRTMLE` curve whose SE ratio stays inside the calibration band, or a redesigned IID control, with a registered study. The few-cluster study reads cluster-robust SE ratios of 1.19, 1.14 and 1.12 at 10, 20 and 30 equal clusters. The IID SE is 23% to 28% below the cluster-robust SE, and the IID SE ratio upper endpoint reaches the 0.80 ceiling at four cells |
 | complex nuisance learners at about 20 clusters | none for parametric learners. Wang, Park, Small and Li (2024), Remark 3, caution against complex working models at $m = 20$. The registered few-cluster evidence uses parametric nuisance learners only |
+
+### F30. Inference after quantile ratio trimming
+
+`LTMLE(ratio_trim=q)` trims the per-node density ratios at the type-7 quantile `q` of all of
+them, as `lmtp` does with `lmtp_control(.trim=)`. The trim binds on a fixed share of the
+ratios at every sample size. The trimmed fit therefore converges to a value that differs from
+the parameter by a term of the size of the outcome-regression error, and the remainder is not
+second order. No source read here gives an interval result for a trimmed fit.
+
+| request | missing published result |
+| --- | --- |
+| an interval for a fit with a fixed trim quantile | the limit law of the trimmed estimator and the bias term it carries, with a coverage result |
+| an interval for a trim that relaxes with `n` | a trim level that tends to 1, with the rate at which the trimmed share vanishes and the conditions under which the bias is negligible |
 
 ### F31. Inference at a boundary node estimate
 

@@ -104,6 +104,7 @@ Every other status is a non-inferential status.
 | `"working_mechanism_plugin"` | a `CTMLE` fit with `strategy="greedy"`, `"ordered"`, or `"discrete"`. A `discrete` fit with one declared candidate, equal to the full adjustment set, takes the TMLE status instead. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `working-mechanism se` | [F18](../roadmap.md#f18-selector-path-c-tmle-inference) |
 | `"generated_design_plugin"` | every `CTMLE` fit with `strategy="oat"`, of either `oat_design=`, including a fit with `delta=` and a fit that requests one arm mean. [Collaborative TMLE](collaborative-tmle.md#the-applied-revert) gives the reason | raise `CapabilityError` with the reason of the status | `generated-design se` | [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | `"estimated_weight_plugin"` | a `DRTMLE` fit with a non-empty `guard` and varying weights declared estimated (`weights_estimated=True`). A fit with `guard=()` keeps `"influence_curve"`. Constant weights fit the unweighted estimator, so they keep it too. [DR-TMLE supported estimands](dr-tmle/supported-estimands.md#refused-by-name) gives the reason | raise `CapabilityError` with the reason of the status | `fixed-weight se` | [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
+| `"trimmed_ratio_plugin"` | an `LTMLE` fit with `ratio_trim=` whose trim moves a positive per-node density ratio of any regimen. A trim that moves no ratio keeps the fit status. [Ratio trimming](longitudinal-tmle.md#ratio-trimming) gives the reason | raise `CapabilityError` with the reason of the status | `trimmed-ratio se` | [F30](../roadmap.md#f30-inference-after-quantile-ratio-trimming) |
 | `"few_cluster_plugin"` | a `TMLE` or `DRTMLE` fit with `id=` and fewer than 10 clusters with positive weight mass in the fit or one reported baseline stratum, or an `LTMLE` fit with fewer than 20. The `LTMLE` floor applies in sample and under cross-fitting. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `normal-reference se` | [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) |
 | `"constant_node_plugin"` | an `LTMLE` parameter whose recursion read a node regression as a constant 0 or 1, such as a horizon at a grid node with no event among the regimen's followers at risk, and every contrast or restricted mean that reads it. The simultaneous band leaves it out. The other parameters of the fit keep their status. [A node with no event](longitudinal-tmle.md#a-node-with-no-event) gives the reason | raise `CapabilityError` with the reason of the status | `constant-node se` | [F31](../roadmap.md#f31-inference-at-a-boundary-node-estimate) |
 
@@ -117,9 +118,10 @@ E-value row each read that table. `tests/unit/test_inference_status_registry.py`
 table, the `InferenceStatus` type, and the rows above list the same statuses.
 
 A fit has one fit status. `TMLEResult.inference_status` and `LongitudinalResult.inference_status`
-return it. The estimator decides the fit status from its configuration and the prepared data. It
-reads no fitted quantity. When more than one non-inferential status applies, the fit takes the
-first one in the table above. The rows are in that order.
+return it. The estimator decides the fit status from its configuration and the prepared data. The
+one fitted quantity it reads is the trimmed share of a `ratio_trim=` fit. When more than one
+non-inferential status applies, the fit takes the first one in the table above. The rows are in
+that order.
 
 A parameter status can sit beside the fit status on some estimates. `"constant_node_plugin"` is
 the one parameter status. `LTMLE` stamps it on a parameter whose recursion read a constant node

@@ -724,6 +724,48 @@ sums no risk curve.
 | `g_bounds=`, `q_bounds=`, `alpha=` | cumulative truncation, outcome scaling, and the logistic shrink. Above one fold, a continuous outcome must declare `q_bounds` |
 | `alpha_sig=`, `simultaneous=`, `n_multiplier=`, `multiplier_kind=` | interval level, and the simultaneous bands across the reported regimens |
 | `n_bootstrap=`, `bootstrap_resampling=` | the full-refit bootstrap. [The bootstrap contract](#the-full-refit-bootstrap) states what each replicate resamples and refits |
+| `ratio_trim=` | trims the per-node density ratios at a declared quantile, as `lmtp` does. A fit whose trim moves a ratio reports no interval. [Ratio trimming](#ratio-trimming) states the rule |
+
+### Ratio trimming
+
+`LTMLE(ratio_trim=q)` applies the trimming rule of `lmtp` 1.5.4, `lmtp_control(.trim=q)`. The
+fit builds one matrix of per-node ratios for each regimen. It trims that matrix at one quantile
+and then multiplies the trimmed ratios. `Targeting(ratio_trim=q)` reaches the same option through
+a `CausalStudy`.
+
+| step | rule | `lmtp` source |
+| --- | --- | --- |
+| entry | $r_t(i) = \pi_t(A_t \mid H_t)\,1\{C_t = 1\} / \{g_t(A_t \mid H_t)\,c_t\}$ at the observed arm and history, from the unbounded mechanism | `density_ratios.R:55-61` |
+| zero pattern | an entry is zero when the unit is not at risk at node $t$, is censored at $t$, or has zero intervention density at $t$. Node $t$ alone decides it. A unit that leaves a static plan at node 1 and takes the plan's arm at node 2 has a positive entry at node 2 | `density_ratios.R:55-61` (`followed`) |
+| threshold | $Q_q$, the type-7 quantile of all $n \times T$ entries, zeros included. A cross-fitted fit trims the pooled out-of-fold matrix once | `utils.R:41-42`, `density_ratios.R:21` |
+| trimmed ratio | $\tilde R_t = \prod_{s \le t} \min(r_s, Q_q)$ | `eif.R:8-15` |
+| composition with `g_bounds` | the clever covariate is $\mathrm{num}_t / \mathrm{bound}(\mathrm{num}_t / \tilde R_t)$, with $\mathrm{num}_t$ the running product of $\pi_s$. On a row whose ratios the trim never moved, this is the untrimmed clever covariate for every bound pair | not in `lmtp`, which has no bound |
+
+The trim changes the fitted estimator, not the estimand. A trim that binds keeps a fixed share of
+the ratios at every sample size. The remainder therefore keeps a term of the size of the
+outcome-regression error. No source read here gives an interval for the trimmed fit.
+
+A fit whose trim moves a positive ratio of any regimen takes the `"trimmed_ratio_plugin"` status.
+It reports the point estimate and the plug-in diagnostic, which is the standard error `lmtp`
+reports. [F30](../roadmap.md#f30-inference-after-quantile-ratio-trimming) owns the interval.
+
+| record | where |
+| --- | --- |
+| the threshold $Q_q$ | `RegimenFit.trim_threshold` |
+| the share of positive entries the trim moved | `RegimenFit.trimmed_share` |
+| the entries, the trimmed product and the trimmed cells | `RegimenFit.ratio_trim` |
+| the share of each node's scored rows whose node ratio the trim moved | the `share_trimmed` column of `res.diagnostics.support().to_frame()`, present on a trimmed fit |
+
+A quantile outside $(0, 1)$ raises `ValueError`. A quantile at which $Q_q = 0$ would set every
+ratio to zero, so the fit raises `DataError` and names the share of zero entries. A
+point-treatment fit refuses `ratio_trim=` and names `g_bounds=`.
+
+`tests/unit/test_longitudinal_ratio_trim.py` holds the evidence. It checks every entry, the
+threshold, the trimmed product and every clever covariate against a hand construction on the
+two-node SMART law with declared mechanisms. Mutation controls that trim the cumulative ratio,
+drop the zeros from the quantile, trim per fold, drop the censoring factor, or zero an entry by
+"followed through $t$" each fail it. With every factor known the untrimmed fit returns the
+truth, and the trimmed fit moves away from it.
 
 ### Cross-fitting the recursion
 

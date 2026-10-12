@@ -77,6 +77,7 @@ from .._inference_status import (
     NO_T_REFERENCE_BANDS,
     PARAMETER_STATUSES,
     T_REFERENCE_NOTE,
+    TRIMMED_RATIO_STATUS,
     InferenceStatus,
     precedent_status,
     status_record,
@@ -146,6 +147,7 @@ from .msm import (
     fit_regimens_msm,
     refuse_evaluated_msm_functions,
 )
+from .ratio_trim import check_ratio_trim, trim_ratios
 from .regimen import (
     DynamicRegimen,
     Plan,
@@ -2298,6 +2300,7 @@ def _run_recursion(
             _fit_key(plan.label, cause, horizon, data.is_survival): _with_node_ratio(
                 fit_regimen(data, plan, mechanism, horizon=horizon, cause=cause, **recursion),
                 ratios[plan.label],
+                mechanism,
             )
             # Regimen-outer, then cause, then horizon, so the report reads down one curve
             # at a time rather than across the regimens at each time.
@@ -2313,16 +2316,19 @@ def _run_recursion(
     )
     return {
         _fit_key(fit.regimen.label, fit.cause, fit.horizon, data.is_survival): _with_node_ratio(
-            fit, ratios[fit.regimen.label]
+            fit, ratios[fit.regimen.label], mechanism
         )
         for msm_fit in msm_fits
         for fit in msm_fit.fits
     }, msm_fits
 
 
-def _with_node_ratio(fit: RegimenFit, ratio: FloatArray | None) -> RegimenFit:
-    """The fit with its plan's raw per-node ratio, kept for a later trim of the policy ratio."""
-    return fit if ratio is None else replace(fit, node_ratio=ratio)
+def _with_node_ratio(fit: RegimenFit, ratio: FloatArray | None, mechanism: Mechanism) -> RegimenFit:
+    """The fit with its plan's raw per-node ratio and, under ``ratio_trim=``, its trim."""
+    trim = mechanism.ratio_trims.get(fit.regimen.label)
+    if ratio is None and trim is None:
+        return fit
+    return replace(fit, node_ratio=ratio, ratio_trim=trim)
 
 
 @dataclass(frozen=True)
@@ -2367,8 +2373,9 @@ def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
     (``few-cluster-cross-fitted-ltmle``).
 
     The targeting pools every follower, so the curve is centred at the pooled estimate and
-    the folds do not enter the status or the degrees of freedom.  A fit can take
-    ``"few_cluster_plugin"`` only. ``LTMLE.fit`` and the
+    the folds do not enter the status or the degrees of freedom.  This status can be
+    ``"few_cluster_plugin"`` only, and :func:`_trimmed_status` adds the trimmed-ratio status
+    of a ``ratio_trim=`` fit. ``LTMLE.fit`` and the
     truncation-curve replay ``_refit_bound`` pass the status to :func:`_estimates` or
     :func:`_msm_estimates`, which also set the Student t reference of an inferential fit
     with fewer than :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters.
@@ -2391,6 +2398,31 @@ def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
         weights=data.weights if data.is_weighted else None,
         minimum=MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
     )
+
+
+def _trimmed_status(inference: InferenceStatus, mechanism: Mechanism) -> InferenceStatus:
+    """The fit status after a ratio trim: the trimmed-ratio status when the trim bound.
+
+    A fit with ``ratio_trim=`` whose trim moved a positive per-node ratio of any plan takes
+    :data:`~cleverly._inference_status.TRIMMED_RATIO_STATUS`, unless an earlier status in the
+    table applies.  The trimmed share is the one fitted quantity a fit status reads.
+    ``LTMLE.fit`` and the truncation-curve replay both apply it, to the same mechanism.
+
+    Parameters
+    ----------
+    inference : str
+        The status of :func:`_inference_status`.
+    mechanism : Mechanism
+        The fitted mechanism, with its trims attached.
+
+    Returns
+    -------
+    str
+        ``inference``, or the trimmed-ratio status by precedence.
+    """
+    if any(trim.trimmed_share > 0.0 for trim in mechanism.ratio_trims.values()):
+        return precedent_status((inference, TRIMMED_RATIO_STATUS))
+    return inference
 
 
 def _reference_df(data: LongitudinalData, inference: InferenceStatus) -> int | None:
@@ -2786,6 +2818,7 @@ class LTMLE:
         bootstrap_resampling: Resampling = "auto",
         density_bins: int | None = None,
         ratio: str = "density",
+        ratio_trim: float | None = None,
         **refused: Any,
     ) -> None:
         _validate_learner(outcome_learner, "outcome_learner")
@@ -2818,6 +2851,7 @@ class LTMLE:
         self.bootstrap_resampling = bootstrap_resampling
         self.density_bins = density_bins
         self.ratio = ratio
+        self.ratio_trim = ratio_trim
         refuse_unsupported(refused)
         self._validate_settings()
 
@@ -2858,6 +2892,7 @@ class LTMLE:
                 "continuous node's policy ratio is estimated: a binned conditional density, or "
                 "a stacked classification (Diaz et al. 2023, Section 5.4)"
             )
+        check_ratio_trim(self.ratio_trim)
         if self.density_bins is not None and self.density_bins < 3:
             raise ValueError(f"density_bins must be at least 3; got {self.density_bins}")
         if self.msm is not None and not isinstance(self.msm, MSM):
@@ -3125,6 +3160,13 @@ class LTMLE:
         plans = attach_policy_numerators(plans, mechanism.policy_numerators)
         if any(plan.has_mtp for plan in plans):
             replay_recipe = replace(replay_recipe, plans=_frozen_plans(plans))
+        if self.ratio_trim is not None:
+            # One trim per plan over the pooled out-of-fold ratios, attached to the mechanism
+            # so that every reader of the cumulative product, a truncation replay included,
+            # divides by the same trimmed ratio.
+            mechanism = replace(
+                mechanism, ratio_trims=trim_ratios(prepared, plans, mechanism, self.ratio_trim)
+            )
 
         # One projection per cause -- a cause is a different estimand, not a further column
         # of the design -- over a grid whose cells cross the regimens with the horizons.
@@ -3189,7 +3231,7 @@ class LTMLE:
                 None if model is None else fingerprint_array(model.design, model.weights)
             ),
         )
-        status = _inference_status(prepared, folds)
+        status = _trimmed_status(_inference_status(prepared, folds), mechanism)
         with phase("influence_curve"):
             reported = (
                 _estimates(
@@ -3722,7 +3764,7 @@ def _refit_bound(
     )
     # The status the fit stamped, recomputed from the same data and folds, so the replay at
     # the fitted bound equals the fit in every field ``_fitted_replay_matches`` compares.
-    status = _inference_status(result.data, result.folds)
+    status = _trimmed_status(_inference_status(result.data, result.folds), result.mechanism)
     if result.msm is None:
         reference = next(
             plan.regimen for plan in recipe.plans if plan.label == result.config.reference
