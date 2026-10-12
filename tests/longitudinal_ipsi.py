@@ -22,6 +22,11 @@ nuisance                   design                      rows
 
 ``construction="stitched"`` builds the node-1 target from the out-of-fold node-2 fit at
 every row instead (mutation M9).
+
+The module also holds the estimator side of :mod:`tests.discrete_law_longitudinal_ipsi`:
+:func:`regimens` turns the oracle's plans into what :class:`~cleverly.longitudinal.IPSI` is
+handed, and :func:`known_treatment` states a two-node law's treatment mechanism as the
+array a fit declares.  The oracle itself imports nothing from ``cleverly``.
 """
 
 from __future__ import annotations
@@ -33,6 +38,10 @@ import numpy as np
 import pandas as pd
 from sklearn.base import clone
 
+from cleverly.interventions import Incremental, Stochastic
+
+from . import discrete_law_longitudinal_ipsi as law
+
 COLUMNS: dict[str, Any] = {
     "outcome": "Y",
     "treatment": ["A1", "A2"],
@@ -40,6 +49,45 @@ COLUMNS: dict[str, Any] = {
     "time_varying": [[], ["L2"]],
     "censoring": ["C1", "C2"],
 }
+
+
+def _policy_density(frame: Any) -> np.ndarray:
+    w = np.asarray(frame["W"], dtype=int)
+    a1 = np.asarray(frame["A1"], dtype=float).astype(int)
+    l2 = np.asarray(frame["L2"], dtype=int)
+    p = law.POLICY2[w, a1, l2]
+    return np.column_stack([1.0 - p, p])
+
+
+def node(entry: tuple[str, float], position: int, label: str) -> Any:
+    """The estimator side of one oracle node."""
+    kind, value = entry
+    if kind == "tilt":
+        return Incremental(value)
+    if kind == "arm":
+        return int(value)
+    return Stochastic(_policy_density, f"{label}{position}", density_kind="known")
+
+
+def regimens(plans: dict[str, tuple[tuple[str, float], ...]]) -> dict[str, Any]:
+    """``regimens=`` for an :class:`~cleverly.longitudinal.IPSI` fit of the oracle's ``plans``."""
+    return {
+        label: tuple(node(entry, position, label) for position, entry in enumerate(plan, 1))
+        for label, plan in plans.items()
+    }
+
+
+def known_treatment(frame: pd.DataFrame, tables: dict[str, np.ndarray]) -> np.ndarray:
+    """A two-node law's treatment mechanism as the ``(n, 2)`` array a fit declares.
+
+    Node 2 is declared on the rows observed there and is ``nan`` on a row censored at node 1.
+    """
+    w = frame["W"].to_numpy(dtype=int)
+    a1 = frame["A1"].to_numpy(dtype=int)
+    observed = frame["C1"].to_numpy(dtype=float) == 1.0
+    l2 = np.nan_to_num(frame["L2"].to_numpy(dtype=float)).astype(int)
+    second = np.where(observed, tables["G2"][w, a1, l2], np.nan)
+    return np.column_stack([tables["G1"][w], second])
 
 
 @dataclass(frozen=True)

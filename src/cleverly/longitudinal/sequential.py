@@ -1019,7 +1019,8 @@ def preflight_known_mechanisms(
     contradicts it.  A regimen that the declared design cannot identify is refused: see
     :func:`_refuse_unidentified_regimens`.  And the running product of the declared factors
     on every row that follows a plan must lie inside ``bounds``: truncating a known product
-    moves the estimate with no variance reason.  With estimated factors beside declared
+    moves the estimate with no variance reason.  An odds tilt node's factor is never bounded,
+    so it is not part of that product.  With estimated factors beside declared
     ones, the product is over the declared factors alone, and the estimated factors keep
     the shipped truncation.
 
@@ -1091,7 +1092,8 @@ def preflight_known_mechanisms(
         running = np.ones(data.n)
         for time in range(1, data.n_times + 1):
             declared = None if data.is_held_node(time) else known.treatment_at(time)
-            if declared is not None:
+            # An odds tilt's factor is never bounded, so it stays out of the product.
+            if declared is not None and not plan.is_tilt_node(time):
                 filled = _filled_matrix(declared)
                 running = running * filled[np.arange(data.n), plan.arm(time).astype(np.int64)]
             retention = known.censoring_at(time) if data.censoring_names else None
@@ -1123,6 +1125,7 @@ def _refuse_unidentified_regimens(data: LongitudinalData, plans: Sequence[Plan])
     node                           refused when, on a row at risk under the plan
     =============================  ==========================================================
     label or rule                  the declared probability of the assigned arm is 0
+    odds tilt                      never: the tilt gives an arm of probability 0 no mass
     stochastic policy              the policy puts mass on an arm whose declared value is 0
     modified treatment policy      the policy sends a unit to a level whose declared value
                                    is 0
@@ -1157,7 +1160,8 @@ def _refuse_unidentified_regimens(data: LongitudinalData, plans: Sequence[Plan])
         for time in range(1, data.n_times + 1):
             at_risk = masks.at_risk(time)
             declared = None if data.is_held_node(time) else known.treatment_at(time)
-            if declared is not None:
+            # An odds tilt puts no mass on an arm the mechanism gives probability 0.
+            if declared is not None and not plan.is_tilt_node(time):
                 filled = _filled_matrix(declared)
                 if plan.is_mtp_node(time):
                     branches = plan.mtp_assignments[time - 1]

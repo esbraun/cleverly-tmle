@@ -13,24 +13,25 @@ A tilt node multiplies the odds of treatment by :math:`\delta_t`:
 
 where :math:`\pi_t` is the treatment mechanism *of the law being evaluated*.  The functional
 reads :math:`\pi_t` off the perturbed cell masses, so the Gateaux derivative contains the
-mechanism term at every tilt node without being told about it.  With ``known=True`` the
-functional reads :math:`\pi_t` off the unperturbed law instead.  That is the model with a
-known treatment mechanism, whose influence function has no mechanism term.
+mechanism term at every tilt node without being told about it.  A node named in ``known``
+reads :math:`\pi_t` off the unperturbed law instead.  That is the model with a known
+treatment mechanism at that node, whose influence function has no mechanism term there.
 
 Dropout is prevented in every plan: the functional conditions on ``C_t = 1`` at each node.
 
 The laws:
 
-* :mod:`tests.discrete_law_longitudinal`, the two-node censored end-of-study law.  Its plans
-  are :data:`PLANS`, and :func:`functional_binary` is the oracle.
+* :mod:`tests.discrete_law_longitudinal`, the two-node censored end-of-study law, and
+  :data:`TILT_TABLES`, a censored law on the same support whose mechanism terms are large.
+  :func:`functional_binary` is the oracle of both, and :data:`PLANS` are their plans.
 * :mod:`tests.discrete_law_survival` and :mod:`tests.discrete_law_competing`, by
-  :func:`functional_survival` and :func:`functional_competing`.
-* The three-node law of :func:`three_node_frame`, with a nonzero tilt at every node.
-* The no-positivity law of :func:`positivity_frame`, with one cell at :math:`\pi = 1/32`.
+  :func:`functional_event`.
+* The three-node law of :func:`three_frame`, with a tilt at every node.
+* The no-positivity law of :func:`positivity_frame`: one treatment cell at
+  :math:`\pi = 1/32`, one at 0 and one at 1.
 
-A plan is a tuple with one entry per node.  A float entry is an odds tilt with that
-:math:`\delta`.  An ``int`` entry is a static arm.  Every plan here is a constant of the
-module, so no comparison ever touches the perturbed masses.
+A plan is a tuple with one entry per node: :func:`tilt` or :func:`arm`.  Every plan here is
+a constant of the module, so no comparison ever touches the perturbed masses.
 """
 
 from __future__ import annotations
@@ -61,10 +62,18 @@ def arm(a: int) -> Node:
     return ("arm", float(a))
 
 
+#: A known stochastic policy at node 2, ``q_2(1 | W, A1, L2)`` indexed ``[w, a1, l2]``.  It is
+#: a constant of the module, so the complex step does not move it.
+POLICY2 = np.array([[[0.25, 0.75], [0.5, 0.25]], [[0.75, 0.5], [0.25, 0.75]]])
+
+#: The node-2 entry that draws from :data:`POLICY2`.
+POLICY: Node = ("policy", 0.0)
+
+
 #: The plans of the two-node law, by the label the estimator side gives them.  They cover
 #: constant tilts, a per-node tilt, a tilt then a static node, a static node then a tilt
 #: (the M16 witness: the label factor enters :math:`W_{t-1}` at a tilt node), and a static
-#: plan beside them.
+#: plan beside them.  ``tilt_then_policy`` holds a known stochastic policy beside a tilt.
 PLANS: dict[str, tuple[Node, Node]] = {
     "natural": (tilt(1.0), tilt(1.0)),
     "half": (tilt(0.5), tilt(0.5)),
@@ -73,7 +82,8 @@ PLANS: dict[str, tuple[Node, Node]] = {
     "per_node": (tilt(2.0), tilt(0.5)),
     "tilt_then_never": (tilt(2.0), arm(0)),
     "always_then_tilt": (arm(1), tilt(3.0)),
-    "never": (arm(0), arm(0)),
+    "tilt_then_policy": (tilt(0.5), POLICY),
+    "always": (arm(1), arm(1)),
 }
 REFERENCE = "natural"
 
@@ -147,7 +157,10 @@ def functional_binary(
                 for a2 in (0, 1):
                     if _binary_mass(base, w=w, a1=a1, c1=1, l2=l2, a2=a2, c2=1) == 0:
                         continue
-                    q2 = _q(plan[1], pi2, a2)
+                    if plan[1] == POLICY:
+                        q2 = POLICY2[w, a1, l2] if a2 == 1 else 1.0 - POLICY2[w, a1, l2]
+                    else:
+                        q2 = _q(plan[1], pi2, a2)
                     uncensored = _binary_mass(p, w=w, a1=a1, c1=1, l2=l2, a2=a2, c2=1)
                     events = _binary_mass(p, w=w, a1=a1, c1=1, l2=l2, a2=a2, c2=1, y=1)
                     share = _binary_mass(p, w=w) / total
@@ -314,23 +327,23 @@ _BASE_TABLES = {
 #: margin.  These tables came from a hill climb over the quarter grid (outcome entries may
 #: be 0 or 1).  It maximised the smaller of each node's mechanism share at
 #: :math:`\delta \in \{0.5, 2\}` and ten times the separation of the constant and per-node
-#: plans.  :func:`tilt_witnesses` states the result.
+#: plans.  ``tests/unit/test_ipsi_exact_laws.py`` asserts the result.
 TILT_TABLES: dict[str, np.ndarray] = {
     "P_W": np.array([0.5, 0.5]),
-    "G1": np.array([0.5, 0.25]),
-    "C1": np.array([[0.75, 0.75], [0.5, 0.75]]),
-    "P_L2": np.array([[0.75, 0.25], [0.75, 0.25]]),
-    "G2": np.array([[[0.5, 0.75], [0.25, 0.5]], [[0.25, 0.25], [0.75, 0.5]]]),
+    "G1": np.array([0.25, 0.25]),
+    "C1": np.array([[0.75, 0.75], [0.75, 0.75]]),
+    "P_L2": np.array([[0.75, 0.25], [0.75, 0.5]]),
+    "G2": np.array([[[0.5, 0.25], [0.75, 0.25]], [[0.25, 0.25], [0.75, 0.25]]]),
     "C2": np.array(
         [
-            [[[0.75, 0.75], [0.25, 0.5]], [[0.5, 0.25], [0.75, 0.75]]],
-            [[[0.5, 0.5], [0.5, 0.25]], [[0.25, 0.5], [0.5, 0.5]]],
+            [[[0.75, 0.75], [0.75, 0.75]], [[0.5, 0.25], [0.75, 0.75]]],
+            [[[0.5, 0.75], [0.75, 0.25]], [[0.75, 0.5], [0.5, 0.75]]],
         ]
     ),
     "Q": np.array(
         [
-            [[[0.0, 0.75], [0.0, 0.0]], [[1.0, 1.0], [0.0, 0.75]]],
-            [[[0.0, 0.0], [0.0, 1.0]], [[1.0, 1.0], [1.0, 1.0]]],
+            [[[0.0, 0.75], [0.0, 0.25]], [[0.75, 1.0], [1.0, 0.75]]],
+            [[[0.0, 0.5], [0.0, 1.0]], [[0.25, 1.0], [1.0, 0.5]]],
         ]
     ),
 }
@@ -502,29 +515,29 @@ def competing_names(reference: str = REFERENCE) -> tuple[str, ...]:
 # [0.25, 0.75], and the outcome conditional is a multiple of 1/4 in [0, 1], so ``2 * 4**6``
 # rows realise the law exactly.  The tables came from a hill climb over the quarter grid.
 # It maximised the smallest of each node's mechanism share at delta 0.5 and 2, and ten times
-# the separation of the constant plans.  :func:`three_witnesses` states the result.
+# the separation of the constant plans.  ``tests/unit/test_ipsi_exact_laws.py`` asserts the result.
 
 THREE_N = 2 * 4**6
 #: ``P(A1 = 1 | W)``.
-THREE_G1 = np.array([0.75, 0.25])
+THREE_G1 = np.array([0.75, 0.5])
 #: ``P(L2 = 1 | W, A1)``.
-THREE_L2 = np.array([[0.75, 0.75], [0.75, 0.25]])
+THREE_L2 = np.array([[0.75, 0.5], [0.5, 0.75]])
 #: ``P(A2 = 1 | W, A1, L2)``.
-THREE_G2 = np.array([[[0.25, 0.75], [0.5, 0.75]], [[0.75, 0.75], [0.25, 0.25]]])
+THREE_G2 = np.array([[[0.5, 0.25], [0.5, 0.75]], [[0.75, 0.75], [0.5, 0.25]]])
 #: ``P(L3 = 1 | W, L2, A2)``.
-THREE_L3 = np.array([[[0.75, 0.75], [0.25, 0.5]], [[0.75, 0.5], [0.75, 0.75]]])
+THREE_L3 = np.array([[[0.75, 0.75], [0.75, 0.75]], [[0.75, 0.75], [0.75, 0.75]]])
 #: ``P(A3 = 1 | W, A2, L3)``.
-THREE_G3 = np.array([[[0.75, 0.75], [0.75, 0.75]], [[0.75, 0.25], [0.5, 0.75]]])
+THREE_G3 = np.array([[[0.75, 0.25], [0.75, 0.75]], [[0.75, 0.25], [0.5, 0.75]]])
 #: ``P(Y = 1 | W, A1, A2, L3, A3)``.
 THREE_Q = np.array(
     [
         [
-            [[[0.5, 0.0], [0.0, 0.25]], [[1.0, 0.0], [0.0, 0.0]]],
+            [[[0.25, 0.75], [0.0, 0.25]], [[0.5, 0.0], [0.0, 0.75]]],
             [[[1.0, 0.5], [0.5, 0.25]], [[0.75, 1.0], [0.75, 1.0]]],
         ],
         [
-            [[[0.25, 0.75], [0.25, 0.0]], [[1.0, 1.0], [1.0, 1.0]]],
-            [[[1.0, 0.0], [0.25, 1.0]], [[0.75, 0.25], [0.0, 0.0]]],
+            [[[0.0, 1.0], [0.25, 0.0]], [[1.0, 0.75], [0.75, 1.0]]],
+            [[[0.5, 0.0], [0.25, 1.0]], [[0.0, 0.25], [0.5, 0.0]]],
         ],
     ]
 )
@@ -624,20 +637,20 @@ def three_frame() -> pd.DataFrame:
 
 
 def mechanism_share(
-    function: Callable[..., Callable[[Any], Any]], name: str, probs: Any, node: int
+    full: Callable[[Any], Any], held: Callable[[Any], Any], probs: np.ndarray
 ) -> float:
-    """The share of the influence function's variance that node ``node``'s mechanism term holds.
+    """The share of the influence function's variance that one node's mechanism term holds.
 
-    The mechanism term at a node is the difference between the influence function and the
-    influence function with that node's :math:`\\pi_t` held at the law.  Both come from the
-    complex step alone.
+    ``full`` is the functional, and ``held`` is the functional with one node's
+    :math:`\\pi_t` held at the law.  The difference of their influence functions is that
+    node's mechanism term.  Both come from the complex step alone.
     """
-    full = eif(function(name), probs)
-    held = eif(function(name, known=(node,)), probs)
+    whole = eif(full, probs)
+    fixed = eif(held, probs)
     keep = probs > 0
-    term = full[keep] - held[keep]
+    term = whole[keep] - fixed[keep]
     weights = probs[keep]
-    centred = full[keep] - np.average(full[keep], weights=weights)
+    centred = whole[keep] - np.average(whole[keep], weights=weights)
     return float(np.average(term**2, weights=weights) / np.average(centred**2, weights=weights))
 
 
