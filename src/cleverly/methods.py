@@ -11,6 +11,7 @@ from .inference.bootstrap import Resampling
 from .inference.multiplier import MultiplierKind
 from .learners.crossfit import SplitPlan, _cross_fit_policy_refusal
 from .learners.library import _validate_learner
+from .longitudinal.pooled_hazards import check_hazard_pooling
 from .longitudinal.ratio_trim import check_ratio_trim
 
 __all__ = [
@@ -90,6 +91,11 @@ class ModelSpec:
         Absolute correlation threshold used by screening.
     min_retain : int or None
         Minimum number of covariates retained by screening.
+    hazard_pooling : {"node", "pooled"}
+        How a longitudinal fit estimates its censoring mechanism.  ``"node"`` fits one model
+        per node.  ``"pooled"`` fits one model over every at-risk unit and node, with the
+        node's grid time as a column, as ``survtmle`` does.  It needs one baseline treatment
+        and no time-varying covariate.
 
     See Also
     --------
@@ -116,8 +122,10 @@ class ModelSpec:
     screen_treatment: bool = False
     screen_threshold: float = 0.1
     min_retain: int | None = None
+    hazard_pooling: str = "node"
 
     def __post_init__(self) -> None:
+        check_hazard_pooling(self.hazard_pooling)
         for name in (
             "outcome_learner",
             "treatment_learner",
@@ -460,6 +468,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "screen_treatment": "screen_treatment",
         "screen_threshold": "screen_threshold",
         "min_retain": "min_retain",
+        "hazard_pooling": "hazard_pooling",
     },
     "cross_fitting": {
         "cross_fit": "enabled",
@@ -530,6 +539,7 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
 #: from its default, ``ratio_trim`` with its own message first.
 _POINT_LONGITUDINAL_ONLY: tuple[tuple[str, str, str], ...] = (
     ("targeting", "ratio_trim", "ratio_trim"),
+    ("models", "hazard_pooling", "hazard_pooling"),
 )
 
 #: The refusal of ``ratio_trim=`` on a point-treatment fit, which names the bound it has.
@@ -741,6 +751,7 @@ class TMLEMethod:
             if common["n_multiplier"] == "auto":
                 common["n_multiplier"] = DEFAULT_LONGITUDINAL_MULTIPLIER
             common["ratio_trim"] = targeting.ratio_trim
+            common["hazard_pooling"] = models.hazard_pooling
             return common
         if targeting.ratio_trim is not None:
             raise MethodConfigurationError(_POINT_RATIO_TRIM)

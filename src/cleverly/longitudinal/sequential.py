@@ -155,6 +155,7 @@ from ..utils.phases import (
     profiling,
 )
 from .data import LongitudinalData, RegimenMasks
+from .pooled_hazards import PooledCensoring, fit_pooled_censoring
 from .ratio_trim import RatioTrim
 from .regimen import DynamicRegimen, Plan, Regimen, RegimenSpec
 
@@ -814,6 +815,7 @@ def fit_mechanism(
     n_jobs: int = 1,
     density_bins: int | None = None,
     ratio: str = "density",
+    hazard_pooling: str = "node",
 ) -> Mechanism:
     """Fit the treatment and censoring mechanisms at every node, out of fold.
 
@@ -843,6 +845,9 @@ def fit_mechanism(
     probability fills ``censoring[t]`` for every plan and ``censoring_observed[t]``.  Values
     on rows that are not at risk are never read; :func:`preflight_known_mechanisms` checks
     the rows that are.
+
+    With ``hazard_pooling="pooled"`` one censoring model serves every node whose retention
+    is not declared known (:func:`~cleverly.longitudinal.pooled_hazards.fit_pooled_censoring`).
     """
     treatment: list[dict[str, FloatArray]] = []
     censoring: list[dict[str, FloatArray]] = []
@@ -864,6 +869,11 @@ def fit_mechanism(
     with phase("mask_construction"):
         fit_masks = data.regimen_masks(data.treatment)
     preflight_mechanism_support(data, fit_masks, folds)
+    pooled = (
+        _pooled_censoring(data, plans, fit_masks, censoring_learner, folds, n_jobs)
+        if hazard_pooling == "pooled" and data.censoring_names
+        else None
+    )
     for time in range(1, data.n_times + 1):
         at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
         arm = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
@@ -932,6 +942,13 @@ def fit_mechanism(
             censoring_diagnostics.append(())
             known_censoring_nodes.append(time)
             continue
+        if pooled is not None:
+            censoring.append(pooled.by_plan[time])
+            censoring_observed.append(pooled.observed[time])
+            censoring_diagnostics.append(pooled.diagnostics)
+            if pooled.constant_folds:
+                no_censoring_folds[time] = pooled.constant_folds
+            continue
         stayed = np.where(at_risk, data.uncensored[:, time - 1].astype(float), 0.0)
         # No eligible unit was censored at this node, so the retention factor is exactly
         # one and the learner has a constant target, which a standard classifier refuses.
@@ -986,6 +1003,31 @@ def fit_mechanism(
         tuple(known_treatment_nodes),
         tuple(known_censoring_nodes),
     )
+
+
+def _pooled_censoring(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    fit_masks: RegimenMasks,
+    learner: Learner,
+    folds: Folds,
+    n_jobs: int,
+) -> PooledCensoring:
+    """The pooled censoring fit over the nodes whose retention is not declared known."""
+    known = data.known_mechanisms
+    nodes = tuple(
+        time
+        for time in range(1, data.n_times + 1)
+        if known is None or known.censoring_at(time) is None
+    )
+    at_risk = {
+        time: fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
+        for time in nodes
+    }
+    with phase("mechanism_fit"):
+        return fit_pooled_censoring(
+            data, plans, nodes, at_risk, learner=learner, folds=folds, n_jobs=n_jobs
+        )
 
 
 def _filled_matrix(values: FloatArray | None) -> FloatArray:

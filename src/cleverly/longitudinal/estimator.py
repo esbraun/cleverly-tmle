@@ -147,6 +147,7 @@ from .msm import (
     fit_regimens_msm,
     refuse_evaluated_msm_functions,
 )
+from .pooled_hazards import check_hazard_pooling, refuse_pooled_designs
 from .ratio_trim import check_ratio_trim, trim_ratios
 from .regimen import (
     DynamicRegimen,
@@ -2819,6 +2820,7 @@ class LTMLE:
         density_bins: int | None = None,
         ratio: str = "density",
         ratio_trim: float | None = None,
+        hazard_pooling: str = "node",
         **refused: Any,
     ) -> None:
         _validate_learner(outcome_learner, "outcome_learner")
@@ -2852,6 +2854,7 @@ class LTMLE:
         self.density_bins = density_bins
         self.ratio = ratio
         self.ratio_trim = ratio_trim
+        self.hazard_pooling = hazard_pooling
         refuse_unsupported(refused)
         self._validate_settings()
 
@@ -2893,6 +2896,7 @@ class LTMLE:
                 "a stacked classification (Diaz et al. 2023, Section 5.4)"
             )
         check_ratio_trim(self.ratio_trim)
+        check_hazard_pooling(self.hazard_pooling)
         if self.density_bins is not None and self.density_bins < 3:
             raise ValueError(f"density_bins must be at least 3; got {self.density_bins}")
         if self.msm is not None and not isinstance(self.msm, MSM):
@@ -3131,6 +3135,8 @@ class LTMLE:
         )
 
         horizons = self._horizons(prepared)
+        if self.hazard_pooling == "pooled":
+            refuse_pooled_designs(prepared)
         preflight_mechanism_support(prepared, prepared.regimen_masks(prepared.treatment), folds)
         preflight_terminal_outcomes(prepared, plans, horizons, folds)
         mechanism = fit_mechanism(
@@ -3153,6 +3159,7 @@ class LTMLE:
             n_jobs=self.n_jobs,
             density_bins=self.density_bins,
             ratio=self.ratio,
+            hazard_pooling=self.hazard_pooling,
         )
         # A modified treatment policy's ratio numerator reads the fitted mechanism, so it is
         # attached to its plan here, once, from the out-of-fold fit.  The replay recipe holds
