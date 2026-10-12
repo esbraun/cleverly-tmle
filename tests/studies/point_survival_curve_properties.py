@@ -172,6 +172,8 @@ TRUTHS: dict[str, dict[str, float]] = {
     "policy_t3": THREE_ARM_TRUTH,
     "weighted_t5": x13.TRUTHS["weighted_t5"],
     "weighted_t5_per_horizon": x13.TRUTHS["weighted_t5"],
+    # Read by ``point-survival-curve-crossfit``, which reuses :func:`fit_set_rows`.
+    "survival_t5_per_horizon": x13.TRUTHS["survival_t5"],
     "isotonic_t2": dict(mnode.TRUTH),
     "clustered_t5": x13.TRUTHS["clustered_t5"],
     "clustered_t5_per_horizon": x13.TRUTHS["clustered_t5"],
@@ -183,6 +185,7 @@ ESTIMAND = {
     "policy_t3": common.contrast_name("policy", "arm0", 3),
     "weighted_t5": x13.ESTIMAND["weighted_t5"],
     "weighted_t5_per_horizon": x13.ESTIMAND["weighted_t5"],
+    "survival_t5_per_horizon": x13.ESTIMAND["survival_t5"],
     "isotonic_t2": ISOTONIC_ESTIMAND,
     "clustered_t5": x13.ESTIMAND["clustered_t5"],
     "clustered_t5_per_horizon": x13.ESTIMAND["clustered_t5"],
