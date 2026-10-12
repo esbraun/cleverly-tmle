@@ -460,6 +460,13 @@ def missing_treatment_refusal(
     name = data.treatment_name
     identification = _IDENTIFICATION.format(A=name)
     method = getattr(estimator, "_assessment_method", None)
+    if method == "collaborative_tmle" and getattr(estimator, "strategy", None) == "derivative":
+        return _message(
+            data,
+            "strategy='derivative' builds its derivative columns from the treatment mechanism "
+            "and a partner mechanism, and no partner is defined for the composite indicator.",
+            "Fit TMLE or DRTMLE.",
+        )
     if method == "collaborative_tmle":
         return _message(
             data,

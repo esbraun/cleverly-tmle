@@ -705,7 +705,7 @@ rows.
 
 | composition | error | reason |
 | --- | --- | --- |
-| `CTMLE`, or `CollaborativeTMLEMethod` on a declaring design | `CapabilityError` | C-TMLE selects the mechanism, and the declaration leaves nothing to select |
+| `CTMLE`, or `CollaborativeTMLEMethod` on a declaring design | `CapabilityError` | C-TMLE selects or fits the mechanism, and the declaration leaves nothing to select or fit |
 | a continuous treatment | `CapabilityError` | the declaration gives arm probabilities, and a dose has a conditional density |
 | `policies=` with `ratio="classifier"` | `CapabilityError` | the classifier learns the ratio that the declaration fixes. Pass `ratio="density"` |
 | `treatment_delta=` | `CapabilityError` | a missing treatment needs $P(A=a\mid\Delta_A=1,W)$, which equals the design mechanism only when recording is independent of treatment given $W$ |

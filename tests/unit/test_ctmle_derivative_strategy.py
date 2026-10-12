@@ -37,6 +37,7 @@ from cleverly.learners._l1_logistic import (
     cv_penalty,
     default_penalty_grid,
     nearest_neighbour,
+    penalty_path,
 )
 from cleverly.learners.crossfit import make_folds
 from cleverly.sensitivity.omitted_variable import benchmark, omitted_variable_bounds
@@ -187,6 +188,46 @@ def test_w7_the_mechanism_and_the_partner_see_the_same_training_rows(
     assert result.extra["ctmle"].source == "learners"
 
 
+def test_w7_the_lasso_pair_is_fitted_on_each_training_set_alone(frame: pd.DataFrame) -> None:
+    """Each outer fold's lasso pair is the path on its training rows, read on its test rows."""
+    pair = (0.02, 0.01)
+    result = _fit(frame, lambdas=pair, cross_fit=True, n_folds=3)
+    x = frame[COVARIATES].to_numpy()
+    a = frame["A"].to_numpy()
+    nuisance = result.nuisance
+    for train, test in nuisance.folds:
+        fits = penalty_path(x[train], a[train], None, sorted(pair, reverse=True), layer="test")
+        by_penalty = {fit.penalty: fit for fit in fits}
+        np.testing.assert_array_equal(
+            nuisance.propensity.values[test], by_penalty[pair[0]].predict_proba(x[test])
+        )
+        np.testing.assert_array_equal(
+            nuisance.treatment_partner.values[test], by_penalty[pair[1]].predict_proba(x[test])
+        )
+
+
+def test_the_penalty_cross_validation_keeps_each_cluster_in_one_fold() -> None:
+    clustered = CLUSTERED.sample(400, 5)
+    result = (
+        CTMLE(**_settings(lambdas=None, learner_folds=4))
+        .fit(clustered, outcome="Y", treatment="A", covariates=COVARIATES, id="cluster")
+        .single()
+    )
+    x = clustered[COVARIATES].to_numpy()
+    a = clustered["A"].to_numpy()
+    cluster = clustered["cluster"].to_numpy()
+    grid = default_penalty_grid(x, a, np.ones(len(clustered)))
+    seed = result.repeats[0].seed
+    grouped = make_folds(len(clustered), 4, cluster=cluster, random_state=seed).assignment
+    plain = make_folds(len(clustered), 4, random_state=seed).assignment
+    # The grouped folds keep every cluster whole, and the row-level folds do not.
+    assert all(np.unique(grouped[cluster == c]).size == 1 for c in np.unique(cluster))
+    assert not all(np.unique(plain[cluster == c]).size == 1 for c in np.unique(cluster))
+    index, risk = cv_penalty(x, a, None, grid, grouped, classes=[0.0, 1.0], layer="test")
+    np.testing.assert_array_equal(result.extra["ctmle"].cv_risk[0], risk)
+    assert result.extra["ctmle"].penalties == ((grid[index], grid[nearest_neighbour(grid, index)]),)
+
+
 class TestRefusals:
     @pytest.mark.parametrize(
         ("settings", "error", "pattern"),
@@ -249,6 +290,7 @@ class TestRefusals:
                 "a bootstrap replicate refits",
             ),
             ({"targeting": "one_step"}, CapabilityError, "targeting='one_step' walks"),
+            ({"screen_treatment": True}, CapabilityError, "screen_treatment=True does not"),
             ({"target_weights": True}, CapabilityError, "keeps only one of the two scores"),
             (
                 {"selection_folds": 3},
@@ -496,7 +538,7 @@ class TestReuse:
 def test_both_mechanisms_are_bounded_before_the_ratio(frame: pd.DataFrame) -> None:
     # The mechanism is clipped at both bounds on some rows, and the partner crosses a bound
     # on rows where the mechanism does not. Each bound changes the derivative columns there.
-    from cleverly.estimators._ctmle_derivative import derivative_update
+    from cleverly.estimators._ctmle_derivative import derivative_update, fitted_update
     from cleverly.estimators.targeting import TargetingSpec
     from cleverly.fluctuation.submodel import mean_submodel
 
@@ -524,5 +566,13 @@ def test_both_mechanisms_are_bounded_before_the_ratio(frame: pd.DataFrame) -> No
         np.ones(len(frame)),
         TargetingSpec(alpha=result.estimator.alpha, tol=result.estimator.tol),
     )
-    np.testing.assert_allclose(nuisance.targeting_outcome.observed, expected.targeted.observed)
+    rebuilt = fitted_update(
+        result.data,
+        nuisance,
+        bounds=bounds,
+        nuisance_bound=result.estimator.nuisance_bound,
+        intermediate_value=None,
+        spec=result.estimator.targeting_spec(),
+    )
+    np.testing.assert_allclose(rebuilt.targeted.observed, expected.targeted.observed)
     np.testing.assert_allclose(result.extra["ctmle"].epsilon, expected.epsilon, rtol=1e-10)

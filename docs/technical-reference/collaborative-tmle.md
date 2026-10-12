@@ -314,7 +314,7 @@ and then run the continuation. So each point is C-TMLE0 at its bound. The omitte
 admits a C-TMLE0 fit, because the fit assumes a consistent mechanism as the TMLE does.
 
 **Refusals.** The [refusal reference](scope-and-refusals.md) lists each message. The fit refuses
-`targeting="one_step"`, `target_weights=True`, baseline strata, a zero or collinear derivative
+`targeting="one_step"`, `target_weights=True`, `screen_treatment=True`, baseline strata, a zero or collinear derivative
 column, and a $2K$ solve that does not converge. An array entry refuses cross-fitting, the
 bootstrap, and every refit, because it describes one fit on the original rows and columns.
 
@@ -324,7 +324,7 @@ bootstrap, and every refit, because it describes one fit on the original rows an
 | --- | --- |
 | `tests/unit/test_ctmle_derivative.py` | an independent transcription of R type 3; the solved derivative scores (W1); the move away from the TMLE estimate (W2); span invariance (W3); the counterfactual block (W4); three arms (W5) |
 | `tests/unit/test_ctmle_derivative_strategy.py` | the partner rule and the penalty cross-validation (W6); the row identity (W7); the refusals (W8); the status (W9); the retarget and the save round trip (W10); the omitted-variable and refit paths (W11) |
-| `tests/unit/test_ctmle_derivative_witness.py` | the update on R's own arrays from `tests/canonical/ctmle_derivative_witness/` |
+| `tests/unit/test_ctmle_derivative_witness.py` | the update on R's own arrays from `tests/canonical/ctmle_derivative_witness/`. The R outputs are not committed yet, so these tests skip |
 
 ## Validation issues special to this method
 

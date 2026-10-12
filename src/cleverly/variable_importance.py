@@ -234,8 +234,8 @@ def variable_importance(
         # Each candidate becomes the treatment, and a declared propensity array describes
         # the treatment it was fitted for.
         raise CapabilityError(
-            "The refit changes the covariates, and a propensity array entry was fitted "
-            "without that change. Pass learners to refit."
+            "The refit changes the data (the covariates, the treatment or the rows), and a "
+            "propensity array entry was fitted without that change. Pass learners to refit."
         )
     # Every candidate's data is prepared, and its status asked, before the first fit.
     # This procedure ends in a Benjamini--Hochberg adjustment of one p-value per

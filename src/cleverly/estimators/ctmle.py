@@ -1162,9 +1162,10 @@ class CTMLE(TMLE):
     :class:`~cleverly.TMLE`.
 
     ``screen_treatment`` is redundant here and does not apply to the candidate
-    propensity models.  It is a *static* marginal pre-screen for exactly the problem
-    this class solves collaboratively, and running both would mean the covariate a
-    correlation filter rejected never reaches the search that might have wanted it.
+    propensity models, and ``strategy="derivative"`` refuses it.  It is a *static* marginal
+    pre-screen for exactly the problem this class solves collaboratively, and running both
+    would mean the covariate a correlation filter rejected never reaches the search that
+    might have wanted it.
     """
 
     _assessment_method = "collaborative_tmle"
@@ -1417,6 +1418,13 @@ class CTMLE(TMLE):
             raise CapabilityError(DERIVATIVE_ONE_STEP_REFUSAL)
         if self.strategy == "derivative" and self.target_weights:
             raise CapabilityError(DERIVATIVE_TARGET_WEIGHTS_REFUSAL)
+        if self.strategy == "derivative" and self.screen_treatment:
+            raise CapabilityError(
+                "screen_treatment=True does not apply to strategy='derivative': the lasso "
+                "pair, the declared learners and the arrays each fit the mechanism and its "
+                "partner on every covariate, and a screen would apply to neither. Drop "
+                "screen_treatment, or fit TMLE (TMLE, or TMLEMethod) with a screened mechanism."
+            )
 
     def _validate_treatment_candidates(self) -> None:
         """Refuse a lone array entry, and an arrays entry outside its declared regime."""
@@ -1870,7 +1878,9 @@ class CTMLE(TMLE):
             derivative_score_after=update.score_after,
             treatment_risk=treatment_risk,
         )
-        return replace(nuisance, targeting_outcome=update.targeted), {"ctmle": fit}
+        # The fit record needs this solve.  ``targeting_outcome`` stays empty: the retarget
+        # rebuilds the update at its own bounds, so a stored ``Q*`` would never be read.
+        return nuisance, {"ctmle": fit}
 
     def _outcome_adaptive_nuisances(
         self, data: CausalData, base: NuisanceEstimates, *, seed: int | None
@@ -2213,8 +2223,8 @@ class CTMLE(TMLE):
             )
         if self._has_derivative_arrays():
             raise CapabilityError(
-                "The refit changes the covariates, and a propensity array entry was fitted "
-                "without that change. Pass learners to refit."
+                "The refit changes the data (the covariates, the treatment or the rows), and a "
+                "propensity array entry was fitted without that change. Pass learners to refit."
             )
         if self.strategy == "discrete" and self.candidates is not None:
             recorded = set(data.added_covariates)
