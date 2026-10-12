@@ -151,6 +151,8 @@ categorized API tables.
    cleverly.validation.StudyResult
    cleverly.validation.ReplicationRecord
    cleverly.validation.ReplicationFailure
+   cleverly.validation.ReplicationCheckpoint
+   cleverly.validation.DirectoryCheckpoint
    cleverly.validation.score_check
    cleverly.validation.nuisance_diagnostics
    cleverly.validation.refute

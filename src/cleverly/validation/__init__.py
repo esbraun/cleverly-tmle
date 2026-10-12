@@ -32,6 +32,7 @@ from .refute import (
 from .score import DEFAULT_TOLERANCE, ScoreCheck, ScoreCheckRow, score_check
 from .simulation import (
     CoverageStudy,
+    DirectoryCheckpoint,
     EstimandSummary,
     ReplicationCheckpoint,
     ReplicationFailure,
@@ -50,6 +51,7 @@ __all__ = [
     "CorrectionCheck",
     "CorrectionRow",
     "CoverageStudy",
+    "DirectoryCheckpoint",
     "EmpiricalInclusionRule",
     "EmpiricalRefitRecord",
     "EstimandSummary",

@@ -29,9 +29,12 @@ estimator configuration is trustworthy for your problem before you rely on it.
 
 from __future__ import annotations
 
+import os
+import pickle
 from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 import numpy as np
@@ -149,21 +152,13 @@ class ReplicationCheckpoint(Protocol):
 
     :meth:`CoverageStudy.run` calls ``load`` for every replication before it fits any, and
     fits only those that return ``None``.  It calls ``save`` in the worker process as soon as
-    a replication finishes, so a stopped study loses only the fits in flight.  An
-    implementation must therefore be picklable when ``n_jobs`` is not 1.
+    a replication finishes, so a stopped study loses only the fits in flight.  When
+    ``n_jobs`` is not 1, ``save`` therefore runs in another process: an implementation must be
+    picklable and must store outside the process, as :class:`DirectoryCheckpoint` does.
 
-    Examples
+    See Also
     --------
-    >>> from cleverly.validation import ReplicationCheckpoint
-    >>> class InMemory:
-    ...     def __init__(self):
-    ...         self.outcomes = {}
-    ...     def load(self, replicate):
-    ...         return self.outcomes.get(replicate)
-    ...     def save(self, replicate, outcome):
-    ...         self.outcomes[replicate] = outcome
-    >>> isinstance(InMemory(), ReplicationCheckpoint)
-    True
+    DirectoryCheckpoint : The implementation that keeps one file per replication.
     """
 
     def load(self, replicate: int) -> ReplicationOutcome | None:
@@ -192,6 +187,92 @@ class ReplicationCheckpoint(Protocol):
             What the replication returned.
         """
         ...
+
+
+@dataclass(frozen=True)
+class DirectoryCheckpoint:
+    """Keep each finished replication of a :class:`CoverageStudy` as a file in a directory.
+
+    One file per replication, written under a temporary name and then renamed, so a study
+    stopped mid-write never reads a partial file.  The directory belongs to one study: a
+    second study with other seeds is refused when it loads.
+
+    Parameters
+    ----------
+    directory : str or os.PathLike
+        Where the files go.  It is created when missing.
+
+    See Also
+    --------
+    ReplicationCheckpoint : The protocol this class implements.
+
+    Examples
+    --------
+    >>> import tempfile
+    >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+    >>> from cleverly.datasets import nonlinear_dgp
+    >>> from cleverly.estimators import TMLE
+    >>> from cleverly.validation import CoverageStudy, DirectoryCheckpoint
+    >>> def study(directory):
+    ...     return CoverageStudy(
+    ...         dgp=nonlinear_dgp(),
+    ...         estimator=lambda: TMLE(
+    ...             outcome_learner=LinearRegression(),
+    ...             treatment_learner=LogisticRegression(),
+    ...             cross_fit=False,
+    ...         ),
+    ...         n=200,
+    ...         n_replicates=3,
+    ...         seed=0,
+    ...         checkpoint=DirectoryCheckpoint(directory),
+    ...     )
+    >>> with tempfile.TemporaryDirectory() as directory:
+    ...     first = study(directory).run()
+    ...     resumed = study(directory).run()
+    >>> resumed.replications == first.replications
+    True
+    """
+
+    directory: str | os.PathLike[str]
+
+    def _path(self, replicate: int) -> Path:
+        return Path(self.directory) / f"replication-{replicate:09d}.pkl"
+
+    def load(self, replicate: int) -> ReplicationOutcome | None:
+        """Return the stored outcome of ``replicate``, or ``None`` when there is none.
+
+        Parameters
+        ----------
+        replicate : int
+            Index of the replication.
+
+        Returns
+        -------
+        tuple of ReplicationRecord, ReplicationFailure or None
+            The stored outcome, or ``None``.
+        """
+        path = self._path(replicate)
+        if not path.exists():
+            return None
+        with path.open("rb") as handle:
+            return cast("ReplicationOutcome", pickle.load(handle))
+
+    def save(self, replicate: int, outcome: ReplicationOutcome) -> None:
+        """Store the outcome of ``replicate``.
+
+        Parameters
+        ----------
+        replicate : int
+            Index of the replication.
+        outcome : tuple of ReplicationRecord or ReplicationFailure
+            What the replication returned.
+        """
+        path = self._path(replicate)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(f".{os.getpid()}.tmp")
+        with temporary.open("wb") as handle:
+            pickle.dump(outcome, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(temporary, path)
 
 
 @dataclass(frozen=True)
