@@ -14,7 +14,7 @@
   "exit": 0,
   "forked": true,
   "passes": [
-   "pass: 1 pending, 1 killed, MemAvailable 14572 MB, workers 2, chunk 1"
+   "pass: 1 pending, 1 killed, MemAvailable 14681 MB, workers 2, chunk 1"
   ],
   "table": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
  },
@@ -59,19 +59,19 @@
   "0": {
    "exit": 0,
    "forked": true,
-   "seconds_per_fit": 0.05118181488730691
+   "seconds_per_fit": 0.04536364295265891
   },
   "1500": {
    "exit": 0,
    "forked": true,
-   "seconds_per_fit": 0.061181827024980026
+   "seconds_per_fit": 0.05990908362648704
   }
  },
  "forks_one_chunk": {
   "exit": 0,
   "forked": true,
   "passes": [
-   "pass: 5 pending, 1 killed, MemAvailable 14796 MB, workers 1, chunk 100"
+   "pass: 5 pending, 1 killed, MemAvailable 14778 MB, workers 1, chunk 100"
   ],
   "table": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
  },
@@ -98,7 +98,7 @@
   "columns": [],
   "exit": 0,
   "passes": [
-   "pass: 12 pending, 0 killed, MemAvailable 14408 MB, workers 2, chunk 1"
+   "pass: 12 pending, 0 killed, MemAvailable 14377 MB, workers 2, chunk 1"
   ],
   "records": [],
   "replicates": [
@@ -211,7 +211,7 @@
   "exit": 0,
   "forked": true,
   "passes": [
-   "pass: 1 pending, 1 killed, MemAvailable 14706 MB, workers 1, chunk 1"
+   "pass: 1 pending, 1 killed, MemAvailable 14723 MB, workers 1, chunk 1"
   ],
   "solo_second_attempt_forked": true,
   "table": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
@@ -221,8 +221,8 @@
   "exit": 0,
   "forked": true,
   "passes": [
-   "pass: 5 pending, 1 killed, MemAvailable 14603 MB, workers 1, chunk 1",
-   "pass: 1 pending, 1 killed, MemAvailable 14602 MB, workers 1, chunk 1"
+   "pass: 5 pending, 1 killed, MemAvailable 14729 MB, workers 1, chunk 1",
+   "pass: 1 pending, 1 killed, MemAvailable 14683 MB, workers 1, chunk 1"
   ],
   "table": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
  },
@@ -232,7 +232,7 @@
   "memory_line": true,
   "names_id": true,
   "passes": [
-   "pass: 1 pending, 1 killed, MemAvailable 14602 MB, workers 1, chunk 1"
+   "pass: 1 pending, 1 killed, MemAvailable 14658 MB, workers 1, chunk 1"
   ],
   "table": null
  },
@@ -240,25 +240,25 @@
   {
    "exit": 0,
    "heap_mb": 0,
-   "peak_growth": 2.0,
-   "per_worker": 47.957,
+   "peak_growth": 2.16,
+   "per_worker": 48.117,
    "private_after_gc": 45.957,
    "workers_at_6g": 16
   },
   {
    "exit": 0,
    "heap_mb": 500,
-   "peak_growth": 2.207,
-   "per_worker": 561.52,
-   "private_after_gc": 559.312,
+   "peak_growth": 2.219,
+   "per_worker": 561.551,
+   "private_after_gc": 559.332,
    "workers_at_6g": 7
   },
   {
    "exit": 0,
    "heap_mb": 1500,
-   "peak_growth": 2.488,
-   "per_worker": 1615.066,
-   "private_after_gc": 1612.578,
+   "peak_growth": 2.152,
+   "per_worker": 1614.738,
+   "private_after_gc": 1612.586,
    "workers_at_6g": 2
   }
  ],
@@ -268,7 +268,7 @@
   "exit": 0,
   "killed_logged": true,
   "passes": [
-   "pass: 1 pending, 1 killed, MemAvailable 14306 MB, workers 1, chunk 1"
+   "pass: 1 pending, 1 killed, MemAvailable 14248 MB, workers 1, chunk 1"
   ],
   "records": [],
   "replicates": [
@@ -289,7 +289,7 @@
  },
  "memory_plan": {
   "capped": {
-   "available": 14128,
+   "available": 14224,
    "cap": "3",
    "factor": 1.25,
    "granted": 8,
@@ -309,7 +309,7 @@
    "workers": 2
   },
   "override": {
-   "available": 14120,
+   "available": 14233,
    "cap": "none",
    "factor": 2.0,
    "granted": 4,
@@ -320,7 +320,7 @@
   },
   "override_reason_logged": true,
   "unlimited": {
-   "available": 14128,
+   "available": 14221,
    "cap": "none",
    "factor": 1.25,
    "granted": 8,
@@ -335,20 +335,20 @@
   "exit": 0,
   "groups": [
    {
-    "hwm_end": 62.113,
+    "hwm_end": 62.102,
     "id": "g000000001",
-    "peak_growth": 1.523,
-    "per_worker": 47.543,
-    "private_after_gc": 46.02,
-    "rss_start": 60.59
+    "peak_growth": 1.266,
+    "per_worker": 47.27,
+    "private_after_gc": 46.004,
+    "rss_start": 60.836
    },
    {
-    "hwm_end": 861.609,
+    "hwm_end": 861.559,
     "id": "g000000002",
-    "peak_growth": 801.02,
-    "per_worker": 846.672,
-    "private_after_gc": 45.652,
-    "rss_start": 60.59
+    "peak_growth": 800.723,
+    "per_worker": 846.359,
+    "private_after_gc": 45.637,
+    "rss_start": 60.836
    }
   ]
  },
@@ -364,7 +364,7 @@
   "forked": true,
   "message": true,
   "passes": [
-   "pass: 1 pending, 0 killed, MemAvailable 14578 MB, workers 2, chunk 1"
+   "pass: 1 pending, 0 killed, MemAvailable 14616 MB, workers 2, chunk 1"
   ],
   "table": null
  },
@@ -390,7 +390,7 @@
   "exit": 0,
   "forked": true,
   "passes": [
-   "pass: 5 pending, 1 killed, MemAvailable 14683 MB, workers 1, chunk 1"
+   "pass: 5 pending, 1 killed, MemAvailable 14762 MB, workers 1, chunk 1"
   ],
   "table": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
  },
@@ -573,7 +573,7 @@
   ],
   "exit": 0,
   "passes": [
-   "pass: 12 pending, 0 killed, MemAvailable 14445 MB, workers 2, chunk 1"
+   "pass: 12 pending, 0 killed, MemAvailable 14372 MB, workers 2, chunk 1"
   ],
   "records": [
    {
@@ -815,7 +815,7 @@
   ],
   "exit": 0,
   "passes": [
-   "pass: 1 pending, 1 killed, MemAvailable 14490 MB, workers 1, chunk 1"
+   "pass: 1 pending, 1 killed, MemAvailable 14372 MB, workers 1, chunk 1"
   ],
   "records": [
    {
@@ -859,9 +859,9 @@
   ],
   "exit": 0,
   "passes": [
-   "pass: 6 pending, 0 killed, MemAvailable 14381 MB, workers 2, chunk 1",
-   "pass: 5 pending, 0 killed, MemAvailable 14373 MB, workers 2, chunk 1",
-   "pass: 1 pending, 0 killed, MemAvailable 14376 MB, workers 2, chunk 1"
+   "pass: 6 pending, 0 killed, MemAvailable 14410 MB, workers 2, chunk 1",
+   "pass: 5 pending, 0 killed, MemAvailable 14405 MB, workers 2, chunk 1",
+   "pass: 1 pending, 0 killed, MemAvailable 14405 MB, workers 2, chunk 1"
   ],
   "records": [
    {
@@ -892,7 +892,7 @@
   "table": "5c275fa3bc4979ccd9af540c31fc1fbebcb1c3b1b273df2833964ae3b6d5948b"
  },
  "stage_stream_resume": {
-  "attempts_r2": 0,
+  "attempts_r2": 1,
   "exit": 0,
   "records": [
    {
@@ -937,10 +937,10 @@
   "exit": 0,
   "forked": true,
   "passes": [
-   "pass: 6 pending, 0 killed, MemAvailable 14520 MB, workers 4, chunk 1",
-   "pass: 1 pending, 1 killed, MemAvailable 14520 MB, workers 2, chunk 1",
-   "pass: 5 pending, 0 killed, MemAvailable 14520 MB, workers 2, chunk 1",
-   "pass: 1 pending, 0 killed, MemAvailable 14512 MB, workers 2, chunk 1"
+   "pass: 6 pending, 0 killed, MemAvailable 14525 MB, workers 4, chunk 1",
+   "pass: 1 pending, 1 killed, MemAvailable 14509 MB, workers 2, chunk 1",
+   "pass: 5 pending, 0 killed, MemAvailable 14509 MB, workers 2, chunk 1",
+   "pass: 1 pending, 0 killed, MemAvailable 14509 MB, workers 2, chunk 1"
   ],
   "table": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5"
  },
@@ -958,10 +958,10 @@
   "exit": 1,
   "message": true,
   "passes": [
-   "pass: 6 pending, 0 killed, MemAvailable 14316 MB, workers 2, chunk 1",
-   "pass: 7 pending, 0 killed, MemAvailable 14316 MB, workers 2, chunk 1",
-   "pass: 6 pending, 0 killed, MemAvailable 14317 MB, workers 2, chunk 1",
-   "pass: 4 pending, 0 killed, MemAvailable 14317 MB, workers 2, chunk 1"
+   "pass: 6 pending, 0 killed, MemAvailable 14411 MB, workers 2, chunk 1",
+   "pass: 7 pending, 0 killed, MemAvailable 14411 MB, workers 2, chunk 1",
+   "pass: 6 pending, 0 killed, MemAvailable 14397 MB, workers 2, chunk 1",
+   "pass: 4 pending, 0 killed, MemAvailable 14397 MB, workers 2, chunk 1"
   ],
   "records": [],
   "replicates": [],

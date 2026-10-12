@@ -1,16 +1,16 @@
 {
  "date": "2026-10-11",
- "image": "sha256:c160bb23f1a7672bdbeed92fe2ca7ebc334f58c08d5ac5c0eaf59dc36fced72d",
+ "image": "sha256:1eda983155381b3581982913b30a8f38e7aab193296d5f356b59f556470994be",
  "inputs": {
   "tests/canonical/harness_fixture/fixture_random_runner.R": "68beadec0214381a6f0a9298fc582508b94c50128bfc542cda01aac9336adecb",
-  "tests/canonical/harness_fixture/fixture_runner.R": "3165f464a579a5212a8483387d0b819134083e7ca21cd56e130d961cf7e14946",
-  "tests/canonical/harness_fixture/smoke.py": "f24e65927ac5e8a4f8a919d2de284ee4a18f791f08a0c4eb5f696154e70b72f5",
+  "tests/canonical/harness_fixture/fixture_runner.R": "444ff06b90eaff4e8bd336e3347dd632bd5ee91d0b745b5f1dbc5ea39c41f6e9",
+  "tests/canonical/harness_fixture/smoke.py": "863689824ae9f06ecef1bb0947bd4f6dfc94559a77a97f31ba5543583d46265c",
   "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
   "tests/canonical/tmle3/Dockerfile": "9b9847818b6551450c0259bbeb6eb806ca5b2fc415d9805266f912f05abd1335"
  },
  "outputs": {
   "smoke/plain.csv": "78993e379ba04aa6e2f7ee994cdd91e0b6f7b0de992a4f019f20e7a532e3fee5",
   "smoke/random.csv": "83d2d6221c5cf171a742102b7fc4bb7e4ed7c3838eb3fa2361f82abd148feb11",
-  "smoke/results.json": "9154d1ff325bf54bbfee376529fb0c28299131649465285669015993d24e1ff7"
+  "smoke/results.json": "7ea432aacfa9b4da6b0d559a55e007ae2206947aa0d877caeb7e74dc788ab740"
  }
 }
