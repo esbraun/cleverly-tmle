@@ -20,13 +20,13 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly.data import CausalData
 from cleverly.estimators import DRTMLE
 from cleverly.learners.crossfit import Folds, check_integrity, random_partition
-from cleverly.utils.parallel import map_parallel
 from cleverly.validation.score import DEFAULT_TOLERANCE, score_threshold
 from tests.parallel import STUDY_JOBS
 from tests.studies import multi_arm_common
 from tests.studies.evidence import failures as evidence_failures
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
-from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
 DRTMLE_COMMIT = "538a3a264c1ca984b6d88978ca7f96165f43152c"
 R_BASE_IMAGE = (
@@ -296,11 +296,16 @@ def cleverly_rows(
     return multi_arm_common.cleverly_rows(STUDY, fit_cleverly, frame, truth, scenario, replicate)
 
 
+def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    scenario, replicate, n = key
+    return draw_scenario(scenario, n, replicate)
+
+
 def _replicate(
-    payload: tuple[str, int, int],
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
 ) -> tuple[pd.DataFrame, dict[str, Any], list[dict[str, Any]]]:
-    scenario, replicate, n = payload
-    frame, truth = draw_scenario(scenario, n, replicate)
+    scenario, replicate, n = key
+    frame, truth = drawn
     result = fit_cleverly(frame, scenario)
     sample = frame.copy()
     sample["A_code"] = pd.Categorical(sample["A"], categories=multi_arm_common.LABELS).codes
@@ -337,15 +342,20 @@ def _replicate(
     return sample, truth_row, rows
 
 
-def draw_and_fit(
-    *, replicates: int, n: int, n_jobs: int = STUDY_JOBS
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    payloads = [((SCENARIO, replicate, n),) for replicate in range(replicates)]
-    outcomes = map_parallel(_replicate, payloads, n_jobs=n_jobs)
-    samples = pd.concat([sample for sample, _, _ in outcomes], ignore_index=True)
-    truths = pd.DataFrame([truth for _, truth, _ in outcomes])
-    rows = pd.DataFrame([row for _, _, fitted in outcomes for row in fitted])
-    return samples, truths, rows
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
+    # No reference input: the reference reads the fit's nuisances (each sample's qn and gn).
+    outcomes = replication.fit_primary(
+        [(SCENARIO, replicate, n) for replicate in range(replicates)],
+        _replicate,
+        draw=_draw,
+        n_jobs=n_jobs,
+        implementation=STUDY.implementation,
+        seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
+    )
+    samples = pd.concat([sample for sample, _, _ in outcomes.kept], ignore_index=True)
+    truths = pd.DataFrame([truth for _, truth, _ in outcomes.kept])
+    rows = pd.DataFrame([row for _, _, fitted in outcomes.kept for row in fitted])
+    return replication.result(outcomes, rows, samples=samples, truths=truths)
 
 
 def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
