@@ -12,6 +12,10 @@ in P_D, where node 1's mechanism and node 2's regression are both wrong.  The co
 SDR with both nuisances wrong at node 2, which no robustness covers.  The measured values,
 on the law as written, are 0.0221 for LTMLE's ``never`` error in P_D and -0.0311 for its
 ATE error, and -0.0154 for the control's ``never`` error.
+
+The working model inherits the property: the identity projection of the transforms over all
+six regimens, on the non-saturated design ``(intercept), intensity, W``, is exact in every
+pattern.  ``W`` is baseline, so the conditional form of the paper's Equation (6) applies.
 """
 
 from __future__ import annotations
@@ -35,6 +39,7 @@ from ..longitudinal_sdr import (
     NodeLearner,
 )
 from ..studies.canonical_ltmle import declared_regimens
+from . import test_influence_gateaux_longitudinal_msm as msm_tests
 
 EXACT_FLOOR = 1e-12
 NAMES = ("ey_regimen[never]", "ey_regimen[always]", "ate_regimen[always vs never]")
@@ -127,3 +132,22 @@ def test_the_control_with_both_wrong_at_one_node_is_biased() -> None:
     errors = _errors(_fit(SDR, CONTROL))
     assert abs(errors["ey_regimen[never]"]) >= 0.01
     assert abs(errors["ey_regimen[always]"]) >= 0.01
+
+
+@pytest.mark.parametrize("pattern", sorted(PATTERNS))
+def test_the_working_model_projection_is_exact_in_every_pattern(pattern: str) -> None:
+    """M11's witness: a projection of the carried values is wrong where node 1's ``m`` is."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fit = SDR(
+            declared_regimens(law.REGIMEN_SPEC),
+            msm=msm_tests.declared("identity"),
+            n_folds=1,
+            g_bounds=(1e-8, 1.0),
+            simultaneous=False,
+            **_learners(*PATTERNS[pattern]),
+        ).fit(law.frame(), **COLUMNS)
+    for name in law.MSM_NAMES["identity"]:
+        reported = name.replace("msm_regimen_identity[", "msm_regimen[")
+        error = fit[reported].psi - law.MSM_TRUTH[name]
+        assert abs(error) < 1e-11, (pattern, name, error)
