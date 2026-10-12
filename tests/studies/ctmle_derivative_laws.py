@@ -130,7 +130,7 @@ class DerivativeLaw:
             )
         else:
             for a in range(1, self.k):
-                out[f"ate[{a}-0]"] = float(means[a] - means[0])
+                out[f"ate[{float(a)!r} vs 0.0]"] = float(means[a] - means[0])
         return out
 
     def sample(self, n: int, seed: int) -> pd.DataFrame:
