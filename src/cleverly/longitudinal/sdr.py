@@ -24,17 +24,22 @@ regression at the horizon to the outcome itself.  The estimate is the weighted m
 :math:`\varphi_1`, and the curve is :math:`w(\varphi_1 - \hat\psi)`.
 
 ``g_bounds`` bounds each partial path probability :math:`\prod_{k=t}^{s} p_k`.  At
-:math:`t = 1` that is the bounded cumulative product a targeted fit divides by, bit for bit.
+:math:`t = 1` that is the bounded cumulative product a targeted fit divides by, equal to
+rounding (the factors multiply in another order).
 Where no bound binds, :math:`W_{t,s}` is a product of per-node ratios and Equation (4),
 Lemmas 3 and 4 and Theorem 4 of the paper apply.  Where one binds, the bounded weight acts as
-a misspecified ratio on that path.  The share of such paths is recorded per node.
+a misspecified ratio on that path.  The share of such paths is recorded per node, over the
+paths the estimate reads: a cross-fitted fit counts each fold's held-out rows.
 
 **Cross-fitting is the training-fold recursion.**  Fold :math:`k` fits every nuisance on its
 training rows: the mechanism (``fit_mechanism(fit_rows=...)``), and the backward recursion
 with its own outcome fits and its own mechanism in every training row's transform.  Its
 held-out rows take :math:`\varphi_1` from fold :math:`k`'s models.  So each fold's transform
 is fixed given its training rows, which is the conditional-independence step of the proof of
-the paper's Theorem 3 (supplement Section 6).  The printed Step 2 of Section 5.3 composes a
+the paper's Theorem 3 (supplement Section 6).  One exception: a continuous node's fold density
+bins on the out-of-fold fit's edges, which are quantiles of the dose over every row at risk.
+Those quantiles read the held-out doses, so the fold's transform depends on them through the
+edges alone.  The printed Step 2 of Section 5.3 composes a
 training row's transform from the folds that hold it out, and ``lmtp`` reads a training row's
 ratio from the out-of-fold mechanism.  Neither is fixed given the training rows.  With
 fold-free ratios (known, or declared), the training-fold recursion equals ``lmtp::cf_sdr``.
@@ -121,7 +126,8 @@ class _Node:
     clever: FloatArray
     diagnostics: tuple[SuperLearnerDiagnostics, ...]
     constant: bool
-    binding: tuple[int, int]
+    #: Per row, the followed ``(row, s)`` paths from this node and those the bounds moved.
+    binding: tuple[IntArray, IntArray]
 
 
 def node_factors(data: LongitudinalData, plan: Plan, mechanism: Mechanism) -> FloatArray:
@@ -161,8 +167,8 @@ def partial_weights(
     start: int,
     stop: int,
     bounds: tuple[float, float],
-) -> tuple[list[FloatArray], int, int]:
-    r"""The weights :math:`W_{t,s}` for ``s = start .. stop``, and the binding count.
+) -> tuple[list[FloatArray], IntArray, IntArray]:
+    r"""The weights :math:`W_{t,s}` for ``s = start .. stop``, and the binding counts per row.
 
     Parameters
     ----------
@@ -182,23 +188,23 @@ def partial_weights(
     Returns
     -------
     tuple
-        One ``(n,)`` weight per ``s`` in order, the number of followed ``(row, s)`` paths,
-        and the number of those whose partial product the bounds moved.
+        One ``(n,)`` weight per ``s`` in order; per row, the number of followed
+        ``(row, s)`` paths, and the number of those whose partial product the bounds moved.
     """
     lower, upper = bounds
     running_numerator = np.ones(numerator.shape[0])
     running_factor = np.ones(numerator.shape[0])
     weights = []
-    paths = 0
-    binding = 0
+    paths = np.zeros(numerator.shape[0], dtype=np.intp)
+    binding = np.zeros(numerator.shape[0], dtype=np.intp)
     for node in range(start, stop + 1):
         running_numerator = running_numerator * numerator[:, node - 1]
         running_factor = running_factor * factors[:, node - 1]
         bounded = bound(running_factor, lower, upper)
         following = masks.following(node)
         weights.append(np.where(following, running_numerator / bounded, 0.0))
-        paths += int(np.count_nonzero(following))
-        binding += int(np.count_nonzero(following & (bounded != running_factor)))
+        paths += following
+        binding += following & (bounded != running_factor)
     return weights, paths, binding
 
 
@@ -314,7 +320,7 @@ def _slice(node: _Node, rows: IntArray) -> _Node:
         clever=node.clever[rows],
         diagnostics=node.diagnostics,
         constant=node.constant,
-        binding=node.binding,
+        binding=(node.binding[0][rows], node.binding[1][rows]),
     )
 
 
@@ -586,8 +592,9 @@ def _merge(
             diagnostics.extend(node.diagnostics)
             if node.constant:
                 constant_folds.append(fold + 1)
-            paths += node.binding[0]
-            binding += node.binding[1]
+            # The held-out rows only: those are the paths the estimate reads.
+            paths += int(node.binding[0].sum())
+            binding += int(node.binding[1].sum())
         stitched.append(
             _Stitched(
                 node=_Node(
@@ -598,7 +605,10 @@ def _merge(
                     clever=clever,
                     diagnostics=tuple(diagnostics),
                     constant=bool(constant_folds),
-                    binding=(paths, binding),
+                    binding=(
+                        np.array([paths], dtype=np.intp),
+                        np.array([binding], dtype=np.intp),
+                    ),
                     **arrays,
                 ),
                 constant_folds=tuple(constant_folds) if len(parts) > 1 else (),

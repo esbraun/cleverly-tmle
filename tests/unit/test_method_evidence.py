@@ -643,6 +643,25 @@ class TestPublishedVerdicts:
                     f"{row.cell} publishes passed={row.passed} against its calibration endpoint"
                 )
 
+        separate = published.loc[
+            published["property"].isin({"clustered_calibration", "weighted_calibration"})
+        ]
+        low, high = study.margins.calibration_se_ratio
+        for row in separate.itertuples():
+            if row.role == "control":
+                expected = row.se_ratio_ci_upper < low
+            else:
+                expected = (
+                    low <= row.se_ratio_ci_lower <= row.se_ratio_ci_upper <= high
+                    and study.margins.calibration_coverage[0]
+                    <= row.coverage_ci_lower
+                    <= row.coverage_ci_upper
+                    <= study.margins.calibration_coverage[1]
+                )
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its calibration endpoint"
+            )
+
         # The band answers to the two-sided calibration coverage band, and its pointwise
         # control must establish joint coverage below nominal, so the band does work.
         joint = published.loc[published["property"] == "simultaneous_coverage"]
@@ -983,6 +1002,14 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         "robustness_contract",
         "generated_design",
         "interval_calibration",
+        # Calibration families with no efficiency claim: the positive arm answers to the
+        # SE-ratio and coverage bands, each control to an SE-ratio interval below the band.
+        # Checked row by row below.
+        "clustered_calibration",
+        "weighted_calibration",
+        # Two-size absolute-bias bounds, exact-ratio patterns and two bias-floor controls,
+        # all on the union-model SE screen; recomputed from the rows by the summary test.
+        "sequential_double_robustness",
         "natural_course_identity",
         # The composite TMLE's cells: bias inside the margin, a coverage floor and an SE band.
         "ordinary_targeting",
@@ -1015,7 +1042,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
     {
         property_verdicts.FOLD_POLICY_FAMILY,
         "cluster_aggregation_rule",
+        "construction_diagnostic",
         "in_sample_agreement",
+        "sdr_tmle_agreement",
         "variance_direction",
     }
 )

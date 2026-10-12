@@ -47,6 +47,7 @@ from tests.canonical.longitudinal_sdr import gates
 from tests.longitudinal_sdr import COLUMNS
 from tests.studies import canonical_longitudinal_sdr as study
 from tests.studies import longitudinal_sdr_properties as properties
+from tests.studies import weighted_longitudinal_properties_common as weighted
 from tests.studies.canonical_ltmle import declared_regimens
 from tests.studies.default_band_properties import MINIMUM_CONTROL_POWER, control_power
 from tests.studies.evidence.constructions import SDR_TRAINING_FOLD_RECURSION
@@ -78,7 +79,8 @@ DESIGN_PROBE = {
     "policy_mix": (400, 0.987, 0.950, 1.022),
     "mtp_up": (120, 0.957, 0.925, 1.065),
     "msm_identity": (400, 1.014, 0.950, 1.006),
-    "selection_weighted": (400, 0.985, 0.918, 1.043),
+    "msm_logit": (400, 1.049, 0.960, 0.980),
+    "selection_weighted": (1_500, 0.964, 0.933, 1.080),
     "clusters_200": (400, 1.016, 0.950, 1.727),
     "clusters_20": (400, 1.043, 0.958, 3.590),
 }
@@ -102,9 +104,10 @@ FIT_SET_SIZES = {
             "policy",
             "mtp",
             "msm",
-            "weighted",
+            "msm_logit",
         )
     },
+    ("weighted_calibration", "selection_weighted"): (2_000, 4_000),
     ("clustered_calibration", "clusters_200"): (2_000, 4_000),
     ("clustered_calibration", "clusters_20"): (2_000, 4_000),
     ("type_i_error", "sharp_null"): (4_000, 800),
@@ -131,10 +134,17 @@ def test_the_declared_numbers() -> None:
     assert properties.EFFICIENCY_RATIO_BAND == (0.90, 1.10)
     assert properties.SHRUNKEN_SE_FACTOR == 0.70
     assert (properties.SDR_TOLERANCE, properties.CONTROL_FLOOR) == (0.01, 3.0)
-    assert properties.NOISE_SD == {"clusters_200": 1.75, "clusters_20": 3.6}
+    assert {
+        "clusters_200": 1.75,
+        "clusters_20": 3.6,
+        "selection_weighted": weighted.EFFICIENCY_SD["static"],
+    } == properties.NOISE_SD
     assert set(properties.CALIBRATION_ESTIMANDS) == set(study.CALIBRATION_LABELS)
     assert set(properties.EFFICIENCY_SD) == set(study.CALIBRATION_LABELS)
-    assert tuple(properties.NOISE_SD) == tuple(properties.CLUSTER_LAYOUT) == study.CLUSTERED_LABELS
+    assert tuple(properties.CLUSTER_LAYOUT) == study.CLUSTERED_LABELS
+    assert set(properties.NOISE_SD) == {
+        label for labels, _ in study.SEPARATE_CALIBRATION.values() for label in labels
+    }
 
 
 def test_the_declared_cells_are_the_cells_a_run_publishes() -> None:
@@ -288,3 +298,38 @@ def test_the_runner_transcribes_the_python_designs() -> None:
     assert f"copies = {study.POLICY_COPIES}L" in text
     assert 'baseline = c("W1", "W2")' in text
     assert 'learners = "SL.cellmeans"' in text
+
+
+def test_the_declared_red_cell_route_holds_on_the_committed_rows() -> None:
+    """The rows the study docstring says block the merge, read from the committed artifacts.
+
+    The study publishes under ``reporting``, because a margins row of the GLM pairing may be
+    re-registered after a diagnosis (``X4-plan.md`` 6.2).  The harness reads one policy per
+    study, so this test states the rows that stay blocking: every truth row of ``cleverly``,
+    every G1 row of the declared run, and every G1 and G2 row of the pre-declaration gates.
+    """
+    import pandas as pd
+
+    record = study.STUDY
+    gates_file = record.artifact("gates.csv")
+    if not gates_file.exists():
+        pytest.skip("the pairing gates have not run")
+    gate_rows = pd.read_csv(gates_file)
+    assert set(gate_rows["gate"]) >= {"G1", "G2"}
+    assert gate_rows["passes"].all(), gate_rows.loc[~gate_rows["passes"]].to_string()
+    if not record.artifact("performance-tests.csv").exists():
+        pytest.skip("the declared run has not committed its artifacts")
+    performance = pd.read_csv(record.artifact("performance-tests.csv"))
+    subject = performance.loc[performance["implementation"] == record.implementation]
+    assert not subject.empty
+    assert subject["passed"].all(), subject.loc[~subject["passed"]].to_string()
+    equivalence = pd.read_csv(record.artifact("equivalence.csv"))
+    exact = {(scenario, name) for scenario, names in study.EXACT_ROWS.items() for name in names}
+    g1 = equivalence.loc[
+        [
+            (scenario, name) in exact
+            for scenario, name in zip(equivalence["scenario"], equivalence["estimand"], strict=True)
+        ]
+    ]
+    assert len(g1) == len(exact)
+    assert g1["passed"].all(), g1.loc[~g1["passed"]].to_string()
