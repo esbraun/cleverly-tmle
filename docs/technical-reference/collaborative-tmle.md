@@ -324,7 +324,7 @@ bootstrap, and every refit, because it describes one fit on the original rows an
 | --- | --- |
 | `tests/unit/test_ctmle_derivative.py` | an independent transcription of R type 3; the solved derivative scores (W1); the move away from the TMLE estimate (W2); span invariance (W3); the counterfactual block (W4); three arms (W5) |
 | `tests/unit/test_ctmle_derivative_strategy.py` | the partner rule and the penalty cross-validation (W6); the row identity (W7); the refusals (W8); the status (W9); the retarget and the save round trip (W10); the omitted-variable and refit paths (W11) |
-| `tests/unit/test_ctmle_derivative_witness.py` | the update on R's own arrays from `tests/canonical/ctmle_derivative_witness/`. The R outputs are not committed yet, so these tests skip |
+| `tests/unit/test_ctmle_derivative_witness.py` | the update on R's own arrays from `tests/canonical/ctmle_derivative_witness/`, four blocks. The coefficients match R to a relative 1e-6. The targeted fits, the curve, the estimate and `var.psi` match to 1e-6. Block B fails with an unbounded partner, and block C fails with an unbounded mechanism |
 
 ## Validation issues special to this method
 

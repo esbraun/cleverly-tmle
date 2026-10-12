@@ -22,6 +22,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from scipy.special import expit
 
 from cleverly.estimators._ctmle_derivative import DerivativeUpdate, derivative_update
 from cleverly.estimators.targeting import TargetingSpec
@@ -63,8 +64,10 @@ def _seam(rows: pd.DataFrame) -> tuple[DerivativeUpdate, InitialFit, np.ndarray]
     a = rows["A"].to_numpy(dtype=float)
     mechanism = _mechanism(rows["g1W"].to_numpy())
     partner = _mechanism(rows["g1WPrev"].to_numpy())
+    # R records the initial fit after qlogis(); the seam reads the [0, 1] scale.
     initial = InitialFit(
-        rows["QAW"].to_numpy(), {0.0: rows["Q0W"].to_numpy(), 1.0: rows["Q1W"].to_numpy()}
+        expit(rows["QAW"].to_numpy()),
+        {0.0: expit(rows["Q0W"].to_numpy()), 1.0: expit(rows["Q1W"].to_numpy())},
     )
     base = mean_submodel(a, mechanism, arms=(0.0, 1.0))
     n = len(rows)
@@ -89,7 +92,10 @@ def test_the_manifest_records_the_committed_bytes() -> None:
     for name in ("inputs.csv", "penalties.csv", "witness.R", *OUTPUTS):
         assert manifest["sha256"][name] == _sha256(WITNESS / name), name
     assert manifest["versions"]["ctmle_version"] == "0.1.2"
-    assert manifest["versions"]["bound_source"] == "tmle"
+    # ctmle defines its own ``bound`` (R/bound.R lines 10-14 at 18de559), which masks
+    # tmle::bound.  Both clip to ``[min(bounds), max(bounds)]``.  witness.R's comment names
+    # tmle::bound; its bytes are kept because they are the bytes that ran.
+    assert manifest["versions"]["bound_source"] == "ctmle"
 
 
 @pytest.mark.parametrize("block", BLOCKS)
