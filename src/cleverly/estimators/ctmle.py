@@ -83,6 +83,15 @@ selected, the estimator is the ordinary TMLE, and the fit takes the ordinary TML
     ``"shared"`` is ``ctmle3::LF_oat``: one categorical mechanism on the vector
     ``[Qbar(a, W): a in arms]``.
 
+    The per-arm design also covers baseline strata and missing data, for point estimates.
+    With missing outcomes it fits ``P(Delta = 1 | A = a, Qbar(a, W))`` on the same column,
+    and with a missing treatment (in sample) ``P(Delta_A = 1 | Qbar(a, W))`` as well, so
+    the product of the factors is ``P(C_a = 1 | Qbar(a, W))`` for the composite indicator
+    ``C_a = Delta_A Delta 1{A = a}``.  With baseline strata every factor is fitted inside
+    each stratum.  The natural-course mean reads the observation factor at the realised
+    arm.  The missingness tilt keeps the full-covariate model ``P(Delta = 1 | A, W)``, held
+    in ``tilt_missingness``.
+
     **It also trades away one leg of double robustness, and that is the reason to reach
     for it deliberately rather than as a default.**  The three selector strategies choose
     a *subset of the analyst's covariates*, so the full model is always in the candidate
@@ -452,7 +461,9 @@ def per_arm_design_admits(estimator: Any, data: CausalData) -> bool:
     bool
         ``True`` when the strategy is ``"oat"``, the design is ``"per_arm"``, every outcome
         and treatment is observed, the fit declares no baseline strata, and
-        :data:`OAT_PER_ARM_INFERENTIAL` is ``True``.
+        :data:`OAT_PER_ARM_INFERENTIAL` is ``True``.  The per-arm design with strata or
+        missing data is excluded even with the flag set, because no study measured its
+        curve.
     """
     return bool(
         OAT_PER_ARM_INFERENTIAL

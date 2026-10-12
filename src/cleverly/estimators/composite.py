@@ -22,6 +22,13 @@ fit stacks the :math:`K` per-arm estimators, with no fluctuation parameter share
 arms.  ``docs/technical-reference/dr-tmle/theorem.md`` states the contract and the
 conditions.
 
+The per-arm outcome-adaptive :class:`~cleverly.CTMLE` (``strategy="oat"``,
+``oat_design="per_arm"``) fits each factor on the one column ``Qbar_n(a, W)`` instead of on
+:math:`W`, the construction of Benkeser, Cai and van der Laan (2020), Theorem 1, applied to
+:math:`C_a`.  Its treatment observation factor then depends on the arm, so it travels as an
+``(n, K)`` array, one column per arm.  The ``(n,)`` form stays for TMLE and DR-TMLE.  That
+fit reports point estimates only.
+
 **The view** (:func:`composite_view`) is a copy of the data whose treatment holds the arm
 code where :math:`\Delta_A \Delta = 1` and ``NaN`` elsewhere, and whose observation
 indicator is :math:`\Delta_A \Delta`.  Every indicator downstream is
@@ -106,6 +113,10 @@ def missing_data_route(estimator: Any, data: CausalData) -> MissingDataRoute:
     :class:`~cleverly.TMLE` with ``delta=`` on data that declares a known mechanism takes
     ``"missing_outcome"``, the ordinary missing-outcome TMLE, which divides by the
     declaration.
+
+    A :class:`~cleverly.CTMLE` has no ``guard``.  Its per-arm outcome-adaptive fit takes
+    ``"missing_outcome"`` with ``delta=`` alone and ``"composite"`` with a missing
+    treatment, with each factor fitted on ``Qbar_n(a, W)``.
 
     Parameters
     ----------
