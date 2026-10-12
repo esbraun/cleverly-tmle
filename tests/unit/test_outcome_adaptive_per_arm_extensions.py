@@ -850,9 +850,9 @@ class TestTheRefusals:
         frame = extended_frame(BINARY_ACTIVE, 300, 102, delta=True)
         message = _refusal(frame, cross_fit=True, oat_design="shared")
         assert (
-            "C-TMLE selector strategies and the shared outcome-adaptive design "
-            "(oat_design='shared') have no audited selection and inference result with "
-            "cross-fitted arm-indexed missing outcomes. Use the ordinary TMLE (TMLE, or "
+            "the selector strategies and the shared outcome-adaptive design "
+            "(oat_design='shared') of C-TMLE (CTMLE, or CollaborativeTMLEMethod) have no "
+            "audited selection and inference result with cross-fitted arm-indexed missing outcomes. Use the ordinary TMLE (TMLE, or "
             "TMLEMethod), or CTMLE(strategy='oat', oat_design='per_arm') for point estimates"
         ) in message
 
