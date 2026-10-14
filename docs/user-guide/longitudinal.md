@@ -226,6 +226,49 @@ design is licensed as inference only after its cells are green. Until then the s
 `bootstrap sd` and a percentile range, a diagnostic. `ratio` and `rmst` carry the bootstrap of
 their inputs.
 
+## Repeated outcomes
+
+A repeated outcome is measured at every node and can return to zero. Declare it with
+`Repeated([...])` as the `outcome`. The fit reports the mean of the outcome at every horizon.
+
+```python
+from cleverly import RegimeContrast, Repeated
+from cleverly.datasets import make_longitudinal_repeated
+
+frame, truth = make_longitudinal_repeated(n=1_500, seed=7)
+study = CausalStudy(
+    frame,
+    design=LongitudinalTreatment(
+        outcome=Repeated(["Y1", "Y2", "Y3"]),
+        treatment=("A1", "A2", "A3"),
+        baseline=("W",),
+        time_varying=((), ("L2",), ("L3",)),
+        censoring=("C1", "C2", "C3"),
+    ),
+)
+means = study.estimate(
+    RegimeContrast({"never": 0, "always": 1}, reference="never"),
+    outcome_learner=LogisticRegression(max_iter=1000),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+)
+print(means.curve(scale="mean")[["estimand", "psi", "ci_lower", "ci_upper"]])
+```
+
+| item | value |
+| --- | --- |
+| result keys | `ey_regimen[d @ t=h]` and `ate_regimen[d vs ref @ t=h]` at every horizon `h` |
+| `curve(scale="mean")` | one row for each reported key and horizon. It is the only scale |
+| survival view | not available. A repeated outcome has no absorbing event |
+| missing `Y_t` on an uncensored row | refused. Encode the loss as `C_t = 0` |
+| `SDR` and `IPSI` | refused before any learner |
+
+`truth` holds the exact mean at each horizon, under the names the fit reports. The generator sets
+every node to binary, so the fit can check its curve against `truth`.
+[Repeated outcomes](../technical-reference/longitudinal-tmle.md#repeated-outcomes) gives the
+estimator, its conditions, and its evidence. The study `longitudinal-repeated-outcome` is declared
+and has not run, so no validation result stands behind this estimator yet.
+
 ## Competing risks
 
 A mapping from cause labels to absorbing outcome sequences declares competing risks. Cause,
