@@ -120,15 +120,15 @@ is the authoritative inventory, and it names the evidence for each row.
 
 ## Roadmap
 
-- Extend sensitivity and validation with source-backed refutations and longitudinal analyses.
-- Add optional DoWhy identification and graph validation while the core package stays standalone.
-- Add EP learning for conditional average treatment effects and conditional relative risks.
-- Extend current methods through persistence, design, splitting, and new evidenced estimands.
-- Build the nested Riesz engine and expand its catalog one evidenced target at a time.
+- Make the first beta answer sequential-decision questions: offer sequences, engagement-dependent
+  rules, repeated price changes, and randomized offers.
+- Add a long-panel adapter, sequential g-computation and IPW baselines, and two applied tutorials.
+- Add an experimental status and a reason code on each refusal.
+- After the beta, add EP learning and the nested Riesz engine where an analysis needs them.
 
 These are accepted directions, not implemented release claims. The
-[roadmap](https://github.com/esbraun/cleverly-tmle/blob/main/docs/roadmap.md) gives their binding
-order. It keeps work without published theory in a separate future grid.
+[roadmap](https://github.com/esbraun/cleverly-tmle/blob/main/docs/roadmap.md) orders them by
+milestone. It keeps work that needs new fundamental theory in a separate future grid.
 
 ## Method configuration
 

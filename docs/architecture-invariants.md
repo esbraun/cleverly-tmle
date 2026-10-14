@@ -9,21 +9,43 @@ document in the same change. Superseded rationale belongs in Git history.
 
 ## Validation and evidence
 
-Validate a derivation independently. Cross-language comparison against a canonical implementation
-is a bounded secondary check and never the acceptance criterion: implementations descended from
-one source share transcription errors, while derivative, exact-law, remainder, mutation, and score
-checks fail against distinct error classes. The
+Validate a derivation independently where an independent check can reach it. A comparison against
+a canonical implementation is acceptance evidence for the claims it covers, and the documentation
+labels each such claim as comparator-backed.
+
+A comparison does not reach every error class.
+Implementations descended from one source share transcription errors, while derivative, exact-law,
+remainder, mutation, and score checks fail against distinct error classes. So a changed
+mathematical term that the comparison does not reach still needs an independent check. The
 [evidence manifest](technical-reference/evidence.md) records which instrument covers which
-estimand, in both directions. The `LTMLE` fixture is the scoped exception,
-because it pins cumulative-bound placement and a nonzero finite-sample targeting path that exact
-laws at `epsilon=0` cannot see. *Reconsider when* another named blind spot is demonstrated, the
-compared implementations target the same estimand, and the comparison has predetermined pass/fail
-actions.
+estimand, in both directions. The `LTMLE` fixture is an example of a comparison that reaches a
+blind spot: it pins cumulative-bound placement and a nonzero finite-sample targeting path that
+exact laws at `epsilon=0` cannot see. *Reconsider when* the project owner changes the acceptance
+policy in [Theory and comparators](#theory-and-comparators).
 
 Keep feature selection separate from statistical certification. Evaluating a configuration on the
 draws that selected it makes the reported result selection-dependent, so a study that selects must
 certify on draws that did not do the selecting. *Reconsider when* a study performs no
 data-dependent selection, or uses disjoint selection and certification cohorts.
+
+### Theory and comparators
+
+This rule is the repository standard for every method, extension, validation study, and release
+decision. Other documents link here and do not restate it. Assess theory and comparator
+availability separately.
+
+| question | rule |
+| --- | --- |
+| No comparator exists, exact or related | This does not block implementation, study registration, or release. Use established theory or a documented reasonable extension, and validate each supported claim independently |
+| A comparator exists | Use it where it is informative. Its agreement is acceptance evidence for the claims it covers. Label each such claim as comparator-backed, and state what the comparison establishes and what differences remain |
+| Fundamental theory is missing | This blocks the affected claim when the gap needs a new identification, regularity, or asymptotic argument. Scope the block to that method, configuration, or inference claim |
+| A comparator and missing theory | A comparator cannot replace missing fundamental theory. The absence of a comparator does not create a theoretical gap |
+
+A study without a comparator records that absence and names the independent evidence that replaces
+it. Do not invent a reference implementation, and do not claim parity to fill an evidence table.
+The independent evidence still checks the target, each changed mathematical term, and each claimed
+statistical property. The [roadmap's eligibility rules](roadmap.md#eligibility) apply this
+standard to method entry. *Reconsider when* the project owner changes the acceptance policy.
 
 ## Dataframes and labels
 

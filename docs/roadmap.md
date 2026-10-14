@@ -6,8 +6,10 @@ capabilities belong in the [user guide](user-guide/index.md), scientific contrac
 [evidence manifest](technical-reference/evidence.md), and cross-module standing decisions in the
 [architecture invariants](architecture-invariants.md).
 
-The main grid is one binding sequence. Complete lower numbers before higher numbers. Items with no
-published theory do not enter this sequence.
+The main grid orders open work by beta milestone. Complete a milestone's dependencies before its
+rows. An item enters the grid through one of the acceptance routes in [Eligibility](#eligibility).
+An item that needs a new identification, regularity, or asymptotic argument stays in the future
+investigations grid.
 
 `cleverly` is alpha, and it keeps no backward compatibility. `cleverly.load` warns with
 `VersionMismatchWarning` when a different version saved the artifact, and it does not migrate the
@@ -33,7 +35,7 @@ resolve a shipped refusal. Examples are wrong numbers, intervals that no claimed
 capability rows that do not match their calls, late refusals, and shipped outputs that no
 registered study measures. The queue also holds a defect of the validation harness that can lose
 or invalidate a registered study run. Deliver the rows in priority order, and complete every row
-before main-roadmap priority 1.
+before the first beta release.
 
 A new capability still needs its own contract and evidence, even in this queue.
 
@@ -145,9 +147,9 @@ depends on comes before that row.
 | f | an investigation, a declared design that moves no verdict, or a shipped output that no registered study measures | no open row |
 | g | a published method needed to resolve a shipped refusal | no open row |
 
-A priority below 1 is a remediation priority, so it does not collide with a main-roadmap priority.
-The first decimal digit names a delivery group, and the second digit orders the rows inside it.
-This project reassigns priorities when it re-triages the queue. The IDs and their anchors never
+A remediation row carries a priority below 1. The first decimal digit names a delivery group, and
+the second digit orders the rows inside it. A main-roadmap row carries a milestone instead. This
+project reassigns priorities and milestones when it re-triages the queue. The IDs and their anchors never
 change, so a commit names a row by its ID. A new row takes the next number that the history of this
 file has not used.
 
@@ -158,38 +160,136 @@ Each red verdict stays red under a `reporting` policy, so no verdict is hidden a
 
 ## Main roadmap
 
-Priority 1 is the beta parity group. It closes the estimator gaps against the pinned comparators
-`ctmle` 0.1.2, `ctmle3` 0.1.0, `tmle3` 0.2.0, `drtmle` 1.1.2 and `lmtp` 1.5.4, and against the
-survival packages `survtmle`, `concrete` and MOSS. Complete priority 1 before the beta release.
-Priorities 2 to 5 follow the beta.
+### Beta objective
 
-| priority | item | readiness | dependency | details |
-| ---: | --- | --- | --- | --- |
-| 1.11 | C-TMLE candidate sequences | published support; pending source read | shipped selector paths | [X16](#x16-c-tmle-candidate-sequences) |
-| 1.12 | Hazard-based and monotone survival curves | published support; pending source read | the shipped point-treatment survival design | [X14](#x14-hazard-based-and-monotone-survival-curves) |
-| 1.13 | Repeated-outcome curves | published support for the incremental case; a fixed-dimension stack for static and dynamic plans | the shipped `IPSI` estimator | [X32](#x32-repeated-outcome-curves) |
-| 1.14 | Targeting and fitting options | no new theory; each option keeps its default bit-identical | none | [X22](#x22-targeting-and-fitting-options) |
-| 1.15 | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
-| 1.16 | Continuous vector components at a node | published support; pending source read | shipped longitudinal modified treatment policies | [X31](#x31-continuous-vector-components-at-a-node) |
-| 1.17 | Plug-in omitted-variable limits with a declared parametric mechanism | [published support; stacked-equation extension](technical-reference/natural-extension-verdicts.md) | the shipped plug-in bound | [X26](#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism) |
-| 2.1 | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
-| 2.2 | Efficient known-score ATT and ATC | published support; pending source read | the shipped known treatment mechanism | [X35](#x35-efficient-known-score-att-and-atc) |
-| 3.1 | Natural and interventional mediation effects | published support; pending source read | target-specific identification and evidence | [X5](#x5-natural-and-interventional-mediation-effects) |
-| 3.2 | Continuous-time survival and competing risks | published support; pending source read | continuous-time intensity and targeting contracts; X14 | [X6](#x6-continuous-time-survival-and-competing-risks) |
-| 3.3 | Two-phase and outcome-dependent sampling | published support; pending source read | observed-data likelihood and influence correction | [X7](#x7-two-phase-and-outcome-dependent-sampling) |
-| 3.4 | Omitted-variable bounds on the other linear functionals | published support; pending source read | the shipped arm-axis bound | [X9](#x9-omitted-variable-bounds-on-the-other-linear-functionals) |
-| 3.5 | Continuous-dose MSM with a second mechanism | source audit | implemented continuous-dose MSM targeting, missing-outcome arm targeting, and controlled-direct-effect targeting | [X10](#x10-continuous-dose-msm-with-a-second-mechanism) |
-| 3.6 | Learned-policy follow-ups | published support for parts (g) and (h); published support; pending source read for parts (a), (b), (e) and (f); source audit for parts (c) and (d) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
-| 3.7 | Fold-evaluated CV-TMLE with baseline strata | [published support; finite-partition extension](technical-reference/natural-extension-verdicts.md) | the shipped fold-evaluated estimate and the shipped stratified fluctuation | [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata) |
-| 4 | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts | [P1](#p1-ep-learner) |
-| 5.1 | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
-| 5.2 | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
+The first beta makes `cleverly` a practical Python package for the effects of decisions made over
+time. One documented workflow answers each question in the table below.
+
+| question | required analysis |
+| --- | --- |
+| What happens if customers receive different sequences of offers? | static categorical regimen means and contrasts |
+| What happens if the next offer depends on engagement? | prespecified dynamic categorical policies |
+| What happens if prices are reduced at several decision times? | longitudinal continuous modified treatment policies |
+| What happens if an offer is randomized with a specified probability? | known stochastic treatment policies |
+| How sensitive is the result to modeling and weak support? | several estimators, support reports, and descriptive stability checks |
+
+The workflow stays `CausalStudy -> identify -> estimate -> assess`. Methods and policies attach to
+the causal question, not to a separate API for each implementation. Prespecified policies come
+first. Policy learning follows after honest evaluation is available.
+
+This section is the plan for future work. The package already ships much of each milestone, and
+the [user guide](user-guide/index.md) and [technical reference](technical-reference/index.md)
+describe that work. LTMLE and `SDR` already fit static, dynamic, categorical, known stochastic, and
+modified treatment policies, including continuous treatment nodes. The package also ships
+clustered and cross-fitted longitudinal TMLE with the pooled update, the cross-fitted longitudinal
+MSM, simultaneous bands over declared policies, and the full-refit bootstrap. The rows below hold the open work only.
+
+### Milestones
+
+The milestones order work by dependency and release role. Documentation, interface prototypes, and
+comparator preparation can proceed while an affected estimator is under repair. The milestones set
+scope, not dates.
+
+| milestone | deliverable | dependency | release role |
+| --- | --- | --- | --- |
+| B0 | the acceptance policy, the status and refusal contract, and accurate refusals | none | the foundation for each beta claim |
+| B1 | the trajectory contract, the panel adapter, and evidence over longer horizons | B0 | a reliable sequential core |
+| B2 | validated continuous longitudinal modified treatment policies | B1 | required for the pricing beta |
+| B3 | sequential baselines and the two applied tutorials | B1; B2 for the continuous examples | completes the first beta |
+| B4 | incremental policies, repeated-outcome curves, and their extensions | the relevant B1 to B3 engine | the prioritized beta expansion |
+| BP | the beta parity group: C-TMLE, survival, and omitted-variable rows that are already in progress | their own dependencies | required for the first beta |
+| B5 | honest learned-policy evaluation and selected production extensions | a stable evaluation engine | later beta releases |
+
+The first beta needs B0 to B3 and BP. It does not need every estimator to support every policy,
+outcome, weighting, or dependence combination. It needs a usable path for each promised question,
+and honest boundaries for the rest. The release process sets the beta version. This roadmap does
+not change the package version.
+
+| milestone | item | readiness | dependency | details |
+| --- | --- | --- | --- | --- |
+| B0 | Acceptance status and refusal reasons | no new theory | none | [RM42](#rm42-acceptance-status-and-refusal-reasons) |
+| B0 | Review of the inherited hard stops | no new theory | the Eligibility rule | [RM43](#rm43-review-of-the-inherited-hard-stops) |
+| B1 | Long-panel adapter and policy history | no new theory | the shipped trajectory representation | [X38](#x38-long-panel-adapter-and-policy-history) |
+| B1 | Longitudinal evidence over three to five decisions | published support | the shipped `LTMLE` and `SDR` | [X39](#x39-longitudinal-evidence-over-three-to-five-decisions) |
+| B1 | Targeting and fitting options | no new theory; each option keeps its default bit-identical | none | [X22](#x22-targeting-and-fitting-options) |
+| B2 | Continuous vector components at a node | published support; pending source read | shipped longitudinal modified treatment policies | [X31](#x31-continuous-vector-components-at-a-node) |
+| B2 | Continuous-policy validation and support checks | published support | shipped longitudinal modified treatment policies | [X40](#x40-continuous-policy-validation-and-support-checks) |
+| B3 | Sequential g-computation and IPW baselines | published support; pending source read | X38 | [X41](#x41-sequential-g-computation-and-ipw-baselines) |
+| B3 | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
+| B3 | Applied tutorials for offers and pricing | no new theory | X38, X40, X41 | [X42](#x42-applied-tutorials-for-offers-and-pricing) |
+| B4 | Repeated-outcome curves | published support for the incremental case; a fixed-dimension stack for static and dynamic plans | the shipped `IPSI` estimator | [X32](#x32-repeated-outcome-curves) |
+| B4 | Categorical incremental policies | bounded extension candidate; source audit | the shipped binary `IPSI` estimator | [X43](#x43-categorical-incremental-policies) |
+| BP | C-TMLE candidate sequences | published support; pending source read | shipped selector paths | [X16](#x16-c-tmle-candidate-sequences) |
+| BP | Hazard-based and monotone survival curves | published support; pending source read | the shipped point-treatment survival design | [X14](#x14-hazard-based-and-monotone-survival-curves) |
+| BP | Plug-in omitted-variable limits with a declared parametric mechanism | [published support; stacked-equation extension](technical-reference/natural-extension-verdicts.md) | the shipped plug-in bound | [X26](#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism) |
+| B5 | Learned-policy follow-ups | published support for parts (g) and (h); published support; pending source read for parts (a), (b), (e), (f) and (i); source audit for parts (c) and (d) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
+| B5 | Structural dynamic treatment effects | source audit | X41 | [X44](#x44-structural-dynamic-treatment-effects) |
+| B5 | Parametric forward-simulation g-formula | source audit | X41 | [X45](#x45-parametric-forward-simulation-g-formula) |
+| after beta | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
+| after beta | Efficient known-score ATT and ATC | published support; pending source read | the shipped known treatment mechanism | [X35](#x35-efficient-known-score-att-and-atc) |
+| after beta | Natural and interventional mediation effects | published support; pending source read | target-specific identification and evidence | [X5](#x5-natural-and-interventional-mediation-effects) |
+| after beta | Continuous-time survival and competing risks | published support; pending source read | continuous-time intensity and targeting contracts; X14 | [X6](#x6-continuous-time-survival-and-competing-risks) |
+| after beta | Two-phase and outcome-dependent sampling | published support; pending source read | observed-data likelihood and influence correction | [X7](#x7-two-phase-and-outcome-dependent-sampling) |
+| after beta | Omitted-variable bounds on the other linear functionals | published support; pending source read | the shipped arm-axis bound | [X9](#x9-omitted-variable-bounds-on-the-other-linear-functionals) |
+| after beta | Continuous-dose MSM with a second mechanism | source audit | implemented continuous-dose MSM targeting, missing-outcome arm targeting, and controlled-direct-effect targeting | [X10](#x10-continuous-dose-msm-with-a-second-mechanism) |
+| after beta | Fold-evaluated CV-TMLE with baseline strata | [published support; finite-partition extension](technical-reference/natural-extension-verdicts.md) | the shipped fold-evaluated estimate and the shipped stratified fluctuation | [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata) |
+| after beta | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts; a concrete analysis need | [P1](#p1-ep-learner) |
+| after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
+| after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
+
+Rows in progress keep their order within a milestone. The BP rows close estimator gaps against the
+pinned comparators `ctmle` 0.1.2, `ctmle3` 0.1.0, `tmle3` 0.2.0, `drtmle` 1.1.2 and `lmtp` 1.5.4,
+and against the survival packages `survtmle`, `concrete` and MOSS.
+X2 moves forward only if a pilot analysis needs survey weights. P1, R1, and R2 move forward only
+when they reduce a concrete implementation burden of a beta row.
+
+### Validate the claim that a release makes
+
+Each released configuration has a support row and an evidence status that matches its output.
+Declare the supported configuration cells first, then choose the studies that cover them. Reuse
+existing evidence for unchanged components, and add checks for each changed construction.
+
+| check | purpose |
+| --- | --- |
+| an exact finite-law or analytic continuous-law calculation | verifies the intended functional independently of the estimator |
+| influence-function derivative and remainder checks | verify the changed derivative terms and the stated robustness conditions |
+| nonzero updates and deliberate mutations | detect mistakes that vanish under oracle nuisances |
+| acceptable comparator runs | establish parity where appropriate, or give informative component and statistical comparisons with documented differences |
+| end-to-end learned-nuisance studies | evaluate the user pipeline, not only supplied oracle predictions |
+| repeated sampling | measures bias, coverage, SE calibration, and behavior under weak support |
+| executable applied examples | verify the public workflow, messages, assumptions, and result persistence |
+
+When no comparator exists, the functional, derivative, mutation, and statistical checks carry the
+claim, as [Theory and comparators](architecture-invariants.md#theory-and-comparators) states.
+Record comparator commits, dependencies, learner settings, supplied predictions, trimming, and
+variance conventions. Numerical parity and statistical performance are separate claims. When a
+study compares oracle mechanisms, add learned-mechanism evidence before a production-readiness
+claim. Keep historical results and preset margins, and publish failed or inconclusive results
+under the [red-cell rule](development/method-benchmarking.md#red-cells).
+
+The first beta is ready when each statement below holds:
+
+- B0 is adopted, and any known incorrect output or uncertainty is fixed or outside the supported
+  claims;
+- categorical `LTMLE` and `SDR` configurations, with paired effects and censoring where
+  validated, carry evidence over three to five decisions;
+- continuous longitudinal modified treatment policies pass their support checks and carry
+  explicit support and identification assumptions;
+- known stochastic binary and finite-category policies carry their audited evidence;
+- sequential g-computation and IPW are available over a declared subset, with correctly scoped
+  uncertainty;
+- both applied tutorials run through the public API and explain method choice and causal
+  assumptions;
+- the BP rows are delivered; and
+- the code, documentation, distribution, and affected-study checks of the release process pass.
 
 ## Future investigations
 
-These items are hard stops. Move one into the main roadmap only after a published paper supplies
-the missing result, or after the [Eligibility](#eligibility) rule qualifies it as a natural
-extension. Package code and a related estimator do not remove the stop. Each row names
+These items are hard stops for the claim that each row names. Move one into the main roadmap when
+published theory supplies the missing result, or when the [Eligibility](#eligibility) rule
+qualifies it through another acceptance route. A missing comparator never keeps an item here, and
+a comparator alone never removes a stop. [RM43](#rm43-review-of-the-inherited-hard-stops) reviews
+each row under the current rule. Each row names
 the current boundary, and the refusal that keeps it.
 
 | investigation | missing published result | current boundary | details |
@@ -221,25 +321,39 @@ the current boundary, and the refusal that keeps it.
 
 ## Eligibility
 
-`cleverly` implements established statistical methods; it does not use a package feature as the
-place to invent one. A scientific feature enters implementation only when a published derivation
-covers the estimand and requested inference regime. A new estimator or composition requires an
-identified parameter, its influence function, the targeting or estimating equations, and the
-remainder and rate conditions needed for the claimed interval. If one is absent, the item is to
-locate published theory, not create it here.
+`cleverly` accepts established methods and defensible extensions of established theory. A method
+enters implementation through published support, an acceptable comparison with an existing
+implementation, or a bounded extension. An extension needs a written statement of its target,
+assumptions, estimating equations, and inference. It does not need a separate published theorem
+for each composition. When the remaining work is a bounded adaptation of known results, implement
+it.
 
-One exception applies, and this project applies it generously. A natural extension of a
-published derivation can close the gap. Such an extension needs no new fundamental proof. It must
-satisfy every condition in the table below.
+Theory and comparators are separate questions.
+[Theory and comparators](architecture-invariants.md#theory-and-comparators) is the repository
+standard for both. The absence of a comparator, exact or related, never blocks an item. Missing
+fundamental theory blocks the affected claim when a reasonable extension of established results
+cannot supply it. Defer that method, configuration, or inference claim, and keep every unrelated
+supported capability. Parity and related comparisons do not excuse a known defect or a misleading
+uncertainty estimate.
+
+### Three acceptance routes
+
+| route | sufficient justification | required evidence |
+| --- | --- | --- |
+| established method | a published method covers the target and the proposed estimator | an assumption map, implementation checks, and scoped statistical validation |
+| acceptable implementation comparison | a credible reference gives informative evidence for an established method or a defensible extension | the documented target and algorithm differences, a reproducible reference, justified comparison metrics, and independent checks of each claim the comparison does not cover |
+| bounded extension | existing results extend through routine finite-dimensional or algebraic arguments | a short derivation of the changed terms, explicit assumptions, and tests that expose the change |
+
+A bounded extension satisfies every condition in the table below.
 
 | condition | what it requires |
 | --- | --- |
 | a published base | the extension starts from one published result, and it cites that result's exact locator |
 | an established argument | each step reuses the base result's own argument, or a standard result. The next table lists the standard results |
-| no new fundamental proof | no step needs a new kind of limit theorem, and no source records a step as open or as a defect |
+| no new fundamental argument | no step needs a new identification, regularity, or asymptotic argument, and no source records a step as open or as a defect |
 | inherited conditions | the remainder and rate conditions carry over from the base result, and the contract states each one |
 | a written record | the item's contract states the base result, each step, and the argument that carries it |
-| its own evidence | the extension has a registered study, and each step that can vanish at the truth has a nonzero witness |
+| its own evidence | each step that can vanish at the truth has a nonzero witness. An interval or another repeated-sampling claim also needs a registered study |
 
 Each step below counts as an established argument. A step of this kind needs no further source.
 
@@ -251,31 +365,82 @@ Each step below counts as an established argument. A step of this kind needs no 
 | the chain rule for influence functions | a composition of differentiable functionals, including a known weight or a known design |
 | an indicator reduction | a binary-treatment result applied to $1\{A = a\}$ for one arm, or to a composite indicator such as $\Delta \cdot 1\{A = a\}$, when identification holds for that indicator |
 | a finite partition | a marginal result applied inside each of a fixed number of baseline strata, then stacked |
+| a finite categorical sum | a result for one category applied to each of a fixed number of categories and summed with known weights, such as a known stochastic policy over a finite level set |
+| a fixed full-rank projection | a fixed, full-rank working model projected over jointly asymptotically linear estimates, such as an MSM over declared policies |
 | a cluster as the unit | an iid result applied to independent clusters as the sampling units, with cluster-summed curves |
 | a stacked estimating equation | a smooth finite-dimensional nuisance whose score is stacked with the target equation, as Saul and Hudgens (2020) describe |
 
-Apply the conditions to reach a verdict, not to find a reason to wait. When every step is in the
-table above, the burden falls on an objection: a source that records the step as open or as a
-defect, or a required limit theorem of a new kind. Without such an objection, the extension
-qualifies. The registered study and the nonzero witnesses then carry the evidence. A reading that
+Each adaptation explains why its assumptions and its remainder still apply. Apply the conditions
+to reach a verdict, not to find a reason to wait. When every step is in the table above, the
+burden falls on an objection: a source that records the step as open or as a defect, or a required
+argument of a new kind. Without such an objection, the extension qualifies. A reading that
 rejected an extension before this rule is open to a new reading under it.
 
 An extension that fails one condition is new theory. It stays in the future investigations grid.
-Three examples fail. A data-adaptive selection step has no established argument. A fold-local
-update replaces a pooled one, and upstream `lmtp` commit `9996b04` records its training-fold update
-as a bug. A growing target dimension needs a new kind of limit theorem.
+These examples fail:
 
-A canonical public implementation is valuable provenance for control flow, data layout, and named
-conventions, but it is not acceptance evidence by itself. Where code and paper disagree, the
-published derivation governs and the discrepancy becomes a nonzero regression or mutation test.
+| example | why it fails |
+| --- | --- |
+| inference after a data-adaptive selection step, such as an adaptively selected policy | no established argument carries the selection |
+| a fold-local update in place of a pooled one | upstream `lmtp` commit `9996b04` records its training-fold update as a bug |
+| a growing target dimension | it needs a limit theorem of a new kind |
+| arbitrary dependence between units | no independent-unit or independent-cluster argument applies |
+| a point intervention on an unrestricted continuous dose | the target is not pathwise differentiable, so regular root-n inference does not carry over |
+| an estimated intervention law with no derivative term | the law adds a derivative term to the influence function, and parity cannot justify its omission |
 
-The readiness labels rate published-method support, not programming effort:
+When a proposed algorithm needs new fundamental work, use an existing covered estimator of the same
+target where one exists.
+
+### Comparisons
+
+An exact comparator is useful when one exists. Neither an exact nor a related comparator is an
+eligibility requirement or a universal release gate. Do not defer a capability only because no
+library implements the identical target, algorithm, fold construction, or composition. Use the
+strongest feasible comparison and state its scope. A comparison is acceptance evidence for the claims it covers.
+The evidence page labels each such claim as comparator-backed.
+
+| comparison | appropriate use | claim it supports |
+| --- | --- | --- |
+| matching implementation | the same target, and an aligned algorithm and settings | numerical parity within declared tolerances |
+| different estimator of a shared target | TMLE, SDR, IPW, or g-computation under aligned causal assumptions | target recovery, and comparative bias, coverage, efficiency, or stability |
+| related target or component | an overlapping binary case, a categorical reduction, a density-ratio component, or a projection | evidence for the shared component or reduction. Checks of the extension supplement it |
+
+Differences in learners, targeting, trimming, normalization, or finite-sample construction can be
+acceptable. Document their consequences, and choose metrics that suit the comparison. Agreement on
+a related target does not establish the full target. Validate the uncovered part through a written
+adaptation and independent calculations or studies. Reject a comparison whose differences make
+the claimed conclusion uninformative.
+
+A comparator's bug remains a bug when `cleverly` reproduces
+it. Where code and paper disagree, the published derivation governs, and the discrepancy becomes a
+nonzero regression or mutation test.
+
+Record the comparator's source revision when one is available. That record identifies what ran.
+It does not require an exact comparator method.
+
+### Classify the analysis and its inference
+
+| status | meaning | public behavior |
+| --- | --- | --- |
+| supported | an acceptance route and its scoped evidence are complete | normal availability, with stated assumptions and coverage limits |
+| experimental | the target is justified, but an algorithm or inference extension has unresolved evidence | explicit opt-in. Each estimate and interval carries the label, and an unsupported interval is withheld |
+| unavailable | the implementation is absent, the request is invalid, or a known defect makes the claimed analysis unreliable | a refusal before fitting where possible, which names the reason and an available alternative |
+
+A supported point estimate does not make its confidence interval supported. Track support by the
+combination of target, estimator, outcome, weighting, splitting, and inference. A configuration that
+passed does not certify another configuration of the same method. The `experimental` status does
+not exist in the package yet. [RM42](#rm42-acceptance-status-and-refusal-reasons) owns it.
+
+The readiness labels rate method support, not programming effort:
 
 - **published support**: a paper derives the method and inference claim;
+- **bounded extension**: a published base and the standard steps above carry the method and
+  inference claim;
 - **source audit**: a published paper appears to cover it, but the exact construction must be
   matched and discrepancies resolved before implementation;
-- **waiting on published theory**: related methods exist, but not the requested composition or
-  inference claim; it belongs only in the future investigations grid; and
+- **waiting on published theory**: related methods exist, but the requested composition or
+  inference claim needs a new identification, regularity, or asymptotic argument that no bounded
+  extension supplies; it belongs only in the future investigations grid; and
 - **pending source read**: the governing result is identified but has not been read first-hand
   into this package's contract.
 
@@ -383,6 +548,218 @@ owners do the same for the stratified DR-TMLE study.
 
 The sections below give one contract for each open item. Their physical order does not override
 the main grid.
+
+### RM42. Acceptance status and refusal reasons
+
+The [Eligibility](#eligibility) rule classifies each analysis as supported, experimental, or
+unavailable. The package has no `experimental` status today. Its refusals are typed errors with
+prose reasons and no structured reason. This row implements both contracts.
+
+| part | what it delivers |
+| --- | --- |
+| (a) the experimental status | an explicit opt-in for a configuration whose target is justified but whose algorithm or inference extension has unresolved evidence. Each estimate and interval carries the label. An unsupported interval is withheld, as the existing `*_plugin` statuses withhold one |
+| (b) refusal reasons | a reason code on each refusal, drawn from the table below, with the failed condition and an available alternative in the message |
+| (c) configuration support rows | a support row for each combination of target, estimator, outcome, weighting, splitting, and inference, whose status matches the output |
+| (d) persistence | the status, the reason, the policy definitions, the folds, and the inference assumptions survive `result.save()` and `cleverly.load()` |
+| (e) comparator-backed rows | a validation-grid representation for a study whose acceptance rests on a comparison, labelled comparator-backed, and for a study with no comparator, which records the independent evidence instead |
+
+| reason | meaning | handling |
+| --- | --- | --- |
+| invalid declaration or data | the requested analysis cannot run on the declared sample or design | keep the validation, and state the failed condition |
+| different estimand | the requested option changes the causal question | name both questions, and never substitute one silently |
+| implementation gap | a valid method has no implementation yet | name the roadmap item and the available alternatives |
+| inference gap | the estimate exists, but the requested uncertainty calculation is incomplete | offer the supported inference, or explicit experimental estimation where defensible |
+| API redirection | the feature exists through another argument or object | point to a working call. This reason does not count as a missing capability |
+
+Part (e) keeps the checks of the target, of each changed mathematical term, and of each claimed
+statistical property. It changes no committed study result.
+
+Each inherited refusal keeps its intervention-specific support checks, the estimator-specific
+requirements for policy followers, the invalid-event checks, and the identification declarations.
+A test can detect an observed support failure and check a declared support restriction. It cannot
+establish population positivity or the absence of unmeasured confounding. Remove any wording that
+calls a stochastic or continuous policy an inherently inappropriate question.
+
+Acceptance:
+
+- a pre-fit test for each reason code, which pins the code, the message, and the alternative;
+- a test that an experimental fit carries its label through the summary, the tables, and a
+  save-and-load round trip, and withholds an unsupported interval;
+- a test that each support row matches the status that the fit reports.
+
+### RM43. Review of the inherited hard stops
+
+The [future investigations](#future-investigations) grid holds items that an earlier rule required
+a published derivation for. The [Eligibility](#eligibility) rule now admits three acceptance routes,
+and it never treats a missing comparator as a gap. Review each grid row under those routes. Record
+for each row the base result, each step, and the verdict:
+
+| verdict | action |
+| --- | --- |
+| established method or bounded extension | move the row into the main roadmap, with a contract and its evidence |
+| acceptable implementation comparison | move the row, and name the comparison and the claims it does not cover |
+| new identification, regularity, or asymptotic argument needed | keep the row, and scope its stop to the unsupported method, configuration, or inference claim |
+
+Do not treat an API gap, a finite-category adaptation, or a standard projection as fundamental
+research by default. Keep a research queue for new identification, interference,
+adaptive-optimum inference, and arbitrary-dependence results. Each move updates the refusal that
+the row names.
+
+Acceptance: a written verdict for every grid row, and a pre-fit test for each refusal that changes.
+
+### X38. Long-panel adapter and policy history
+
+`LongitudinalData.from_frame` reads one wide row per unit. Customer data usually arrives as one row
+per customer and decision time. This row adds a validated long-panel adapter, and it fixes the
+history that each policy can read.
+
+1. Accept a long panel with customer ID, decision time, covariate, treatment, censoring, and
+   outcome roles.
+2. Convert the panel into the existing trajectory representation. Preserve temporal order and the
+   original treatment labels.
+3. Define which history each policy sees, including prior assigned actions where the policy
+   semantics support them.
+4. Refuse a rule that reads future values, final outcomes, or observed actions that contradict the
+   evaluated policy.
+5. Carry the policy definitions through result persistence.
+
+One customer trajectory is one observation for the inference model. Repeated time rows within that
+trajectory do not add independent observations. Customers who depend on each other within one
+account or store use the shipped cluster contract with `id=`. Calendar validation and general
+time-series dependence stay with [F7](#f7-time-respecting-cross-fitting).
+
+Acceptance:
+
+- a round-trip test from a long panel to the trajectory representation and back, with irregular
+  censoring and unsorted input;
+- refusal tests for duplicate rows, a gap in decision time, and a rule that reads the future;
+- equality of an `LTMLE` fit on the adapted panel and on the equivalent wide frame.
+
+### X39. Longitudinal evidence over three to five decisions
+
+Most registered end-of-study longitudinal studies use two treatment nodes, and the categorical
+studies cover deterministic plans without censoring. This row adds laws with three to five decisions, with
+censoring and realistic support loss, for `LTMLE` and `SDR`.
+
+The studies reproduce the existing binary and categorical targets, exercise a nonzero targeting
+update, and include leakage and covariance controls for the paired policy contrasts. Each page
+states the conditions for consistency apart from the conditions for valid intervals.
+
+Use R `ltmle`
+for the overlapping ordinary regimen and MSM cases, and pinned `lmtp` for the `SDR` and
+cross-fitted cases. Upstream `lmtp` commit `9996b04` changes training-fold targeting to
+validation-fold targeting. Audit that commit as a comparator option. Do not assume that it equals
+the published pooled targeting of Díaz et al. (2023), and pin the source commit, not only the
+`1.5.4` version string.
+
+Acceptance: a registered study for each estimator, with the controls above and a pre-queue design
+review.
+
+### X40. Continuous-policy validation and support checks
+
+`LTMLE` and `SDR` fit modified treatment policies at a continuous node through `Shift`, `Scale`,
+`Piecewise`, and `ModifiedPolicy`. The support report is a diagnostic, and the classifier route
+reports no unsupported mass. This row adds the pre-fit checks and the evidence that a pricing
+analysis needs. Díaz et al. (2023), *Journal of the American Statistical Association*, give the
+identification, density-ratio estimation, TMLE, and SDR. The 2025 erratum of Williams and Díaz in
+*Observational Studies* corrects the identification assumptions.
+
+| part | what it delivers |
+| --- | --- |
+| (a) transformed-law support | a pre-fit check that the transformed law stays in the declared support, and a refusal that names the node and the unsupported mass |
+| (b) map structure | a piecewise-invertible, support-preserving map first. A map such as `max(floor, 0.95 * price)` creates an atom that a continuous observed law does not have, so it needs an explicit mixed-law contract |
+| (c) classifier ratio | an audit of the classification prior correction, and paired natural and transformed rows kept in the same fold |
+| (d) assumptions | the corrected identification assumptions in the causal metadata. The MTP effect and its stochastic-intervention representation are separate interpretations, each with its own stated assumptions |
+| (e) data-tuned maps | a training-only construction for an estimated support boundary or a data-tuned modification, with declared target semantics |
+| (f) outcomes | bounded binary and continuous outcomes first. A revenue outcome declares its support, and the package does not winsorize it silently |
+
+A policy that reads the counterfactual natural treatment history needs an audit first. A fixed
+continuous path, such as prices of exactly $10, $12, and $11, is a different target. It does not
+inherit regular root-n inference. Offer an observed categorical grid, a supported stochastic price
+distribution, or a separately labelled model-based analysis. Never replace the requested path with
+a shift silently.
+
+Acceptance: means and contrasts under analytic continuous laws with nonbinding and binding policy
+boundaries; identity policies, non-unit Jacobians, several inverse branches, ratio normalization,
+and wrong-ratio controls; learned-ratio studies beside oracle-ratio parity, with price-feedback
+confounding and several follow-up lengths.
+
+### X41. Sequential g-computation and IPW baselines
+
+`cleverly` has no longitudinal plug-in or inverse-probability-weighted estimator. This row adds
+sequential g-computation and IPW over the targets that `LTMLE` supports: static, dynamic, and
+known stochastic policies. They let a user compare model reliance and weight instability, and they
+verify policy semantics independently.
+
+Declare the IPW normalization, the treatment and censoring weights, and the uncertainty from
+nuisance estimation. Do not copy the TMLE uncertainty into either baseline without justification.
+Do not describe longitudinal g-computation as one regression on every treatment and confounder.
+Use `stremr` for the overlapping known stochastic binary cases, and audit its category-valued
+policy support before a multi-arm parity claim. For finite-category extensions, combine the
+established stochastic intervention argument with exact enumeration and independent influence
+function checks.
+
+Acceptance:
+
+- exact-law witnesses for both baselines, including a three-arm witness with nonzero mass on the
+  third arm;
+- a deterministic-policy reduction to the shipped regimen targets;
+- a registered study with a declared interval rule for each baseline, or a points-only status
+  where no interval contract applies.
+
+### X42. Applied tutorials for offers and pricing
+
+Publish two tutorials that run through the public API.
+
+| tutorial | required content |
+| --- | --- |
+| sequential customer offers | categorical and dynamic rules, randomized offers, treatment-confounder feedback, censoring, and paired policy comparisons |
+| sequential pricing | continuous modified treatment policies, support boundaries, price-induced engagement changes, and contrasts against a declared reference policy |
+
+Each tutorial states time zero, eligibility, treatment versions, available history, confounders,
+outcome horizon, and interference assumptions. Use synthetic laws with known truth, and a held-out
+applied pilot where data access permits. Explain when TMLE, `SDR`, g-computation, or IPW is
+appropriate, and why their answers can differ. Keep the stagewise support and truncation
+diagnostics, and label a truncation curve as a descriptive estimator change.
+
+Acceptance: both notebooks execute in the documentation build.
+
+### X43. Categorical incremental policies
+
+`IPSI` fits Kennedy's odds-multiplier target at binary nodes, and its odds tilt names two arms. A
+categorical incremental policy is a candidate bounded extension, starting from the binary case that
+Kennedy (2019) covers directly. A propensity-dependent policy changes with the observed treatment
+law, so its influence function carries a derivative term that a known stochastic policy does not
+have. Do not substitute the risk-ratio policy of `lmtp`.
+
+Use the pinned `npcausal` runner where it covers the odds-based target. Audit `imtp` as an
+exploratory reference. Its README declares work-in-progress status and shows a point-treatment
+case, so verify its longitudinal support before choosing it as a comparator.
+
+Acceptance: a written derivation of the changed terms under the [Eligibility](#eligibility)
+conditions, identity and treatment-score witnesses, a dropout control, and a registered study.
+
+### X44. Structural dynamic treatment effects
+
+EconML's `DynamicDML` estimates sequential treatment effects under structural assumptions that
+differ from general policy-value estimation. Lewis and Syrgkanis (2021), *NeurIPS*, give the
+targets and the assumptions. Assess it as a separate optional method or integration. Compare a
+shared target only where the structural model makes the targets equal, and do not treat a
+structural coefficient as an unrestricted policy value.
+
+Acceptance: a written map of the targets and the assumptions, and the decision whether to ship.
+
+### X45. Parametric forward-simulation g-formula
+
+The NICE Monte Carlo g-formula models and simulates covariate trajectories. It differs from
+backward sequential regression. McGrath et al. (2020), *Patterns*, describe `gfoRmula`, and
+`pygformula` implements it in Python.
+
+Keep it as an optional integration. Compare a shared target
+under correctly specified laws, and account for the simulation error. A model-based fixed
+continuous path states its model reliance and its extrapolation assumptions.
+
+Acceptance: a registered study on a shared target, with the Monte Carlo error declared.
 
 ### X16. C-TMLE candidate sequences
 
@@ -669,8 +1046,8 @@ stays in [F21](#f21-other-missing-outcome-cv-tmle-variants).
 
 The [learned-rule contract](technical-reference/point-treatment-tmle.md#learned-rules) estimates one target by one
 construction. Each part below is a published follow-up outside that contract. For parts (a) to
-(e) and (h), the refusal of the request cites the part. No request reaches parts (f) and
-(g). Each part needs its own contract, witnesses and registered study
+(e) and (h), the refusal of the request cites the part. No request reaches parts (f), (g) and
+(i). Each part needs its own contract, witnesses and registered study
 before it ships, as the learned-rule value did.
 
 | part | the request that the contract refuses | published source | readiness |
@@ -683,6 +1060,7 @@ before it ships, as the learned-rule value did.
 | (f) the value of the optimal rule | no request reaches it | van der Laan and Luedtke (2015), Section 7.2, last paragraph; Luedtke and van der Laan (2016), *Annals of Statistics* | published support; pending source read |
 | (g) blip and weighted-classification rule learners | no request reaches it, because the contract has one rule learner | Luedtke and van der Laan (2016), *International Journal of Biostatistics*, Sections 4.1 to 4.3, read first-hand in the author manuscript | published support |
 | (h) fold-specific targeting | `targeting_scheme="fold"` | Montoya, van der Laan, Skeem and Petersen (2023), *International Journal of Biostatistics* 19(1):239–259, Section 3.2, Step 2(c), and Section 4.2, read first-hand in the publisher's version | published support |
+| (i) honest evaluation of an externally learned rule | a rule learned on separate training data and frozen before evaluation | the evaluation contract of a known rule, with a declared training and evaluation split. Inference targets the learned rule conditional on the training data, not a population optimum. A report that selects the best of several estimated policies states that the selection changes the meaning of the reported value | published support; pending source read |
 
 Part (h) is not the training-fold update that the [Eligibility](#eligibility) section names as new
 theory. Montoya and co-authors fit the update on the validation rows, and the package already ships
