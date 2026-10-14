@@ -17,10 +17,10 @@ migrate it. Do not add compatibility code for an earlier release. The "Compatibi
 The [roadmap](../roadmap.md) is the single planning contract. It orders open work by beta
 milestone. It keeps work that needs new fundamental theory in a separate future grid. Read its
 [eligibility rule](../roadmap.md#eligibility) before you propose a new method. `cleverly`
-accepts established methods and defensible extensions of established theory.
+accepts established methods and natural extensions of established theory.
 
 The eligibility rule names three acceptance routes: an established method, an acceptable
-implementation comparison, and a bounded extension. A missing comparator never blocks a method,
+implementation comparison, and a natural extension. A missing comparator never blocks a method,
 as [theory and comparators](../architecture-invariants.md#theory-and-comparators) states.
 
 ## Set up your environment

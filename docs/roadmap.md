@@ -179,10 +179,13 @@ first. Policy learning follows after honest evaluation is available.
 
 This section is the plan for future work. The package already ships much of each milestone, and
 the [user guide](user-guide/index.md) and [technical reference](technical-reference/index.md)
-describe that work. LTMLE and `SDR` already fit static, dynamic, categorical, known stochastic, and
+describe that work.
+
+LTMLE and `SDR` already fit static, dynamic, categorical, known stochastic, and
 modified treatment policies, including continuous treatment nodes. The package also ships
-clustered and cross-fitted longitudinal TMLE with the pooled update, the cross-fitted longitudinal
-MSM, simultaneous bands over declared policies, and the full-refit bootstrap. The rows below hold the open work only.
+clustered and cross-fitted longitudinal TMLE with the pooled update. It ships the cross-fitted
+longitudinal MSM, simultaneous bands over declared policies, and the full-refit bootstrap. The
+cross-fitted and cluster bootstrap kinds stay diagnostic. The rows below hold the open work only.
 
 ### Milestones
 
@@ -196,8 +199,8 @@ scope, not dates.
 | B1 | the trajectory contract, the panel adapter, and evidence over longer horizons | B0 | a reliable sequential core |
 | B2 | validated continuous longitudinal modified treatment policies | B1 | required for the pricing beta |
 | B3 | sequential baselines and the two applied tutorials | B1; B2 for the continuous examples | completes the first beta |
-| B4 | incremental policies, repeated-outcome curves, and their extensions | the relevant B1 to B3 engine | the prioritized beta expansion |
-| BP | the beta parity group: C-TMLE, survival, and omitted-variable rows that are already in progress | their own dependencies | required for the first beta |
+| B4 | categorical incremental policies and repeated longitudinal cross-fitting | the relevant B1 to B3 engine | the prioritized beta expansion |
+| BP | the beta parity group: the former priority-1 rows that this reorganization does not place in B0 to B4 | their own dependencies | required for the first beta |
 | B5 | honest learned-policy evaluation and selected production extensions | a stable evaluation engine | later beta releases |
 
 The first beta needs B0 to B3 and BP. It does not need every estimator to support every policy,
@@ -214,15 +217,16 @@ not change the package version.
 | B1 | Targeting and fitting options | no new theory; each option keeps its default bit-identical | none | [X22](#x22-targeting-and-fitting-options) |
 | B2 | Continuous vector components at a node | published support; pending source read | shipped longitudinal modified treatment policies | [X31](#x31-continuous-vector-components-at-a-node) |
 | B2 | Continuous-policy validation and support checks | published support | shipped longitudinal modified treatment policies | [X40](#x40-continuous-policy-validation-and-support-checks) |
-| B3 | Sequential g-computation and IPW baselines | published support; pending source read | X38 | [X41](#x41-sequential-g-computation-and-ipw-baselines) |
-| B3 | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
+| B3 | Sequential g-computation and IPW baselines | published support; pending source read | the shipped `LTMLE` plan resolution | [X41](#x41-sequential-g-computation-and-ipw-baselines) |
 | B3 | Applied tutorials for offers and pricing | no new theory | X38, X40, X41 | [X42](#x42-applied-tutorials-for-offers-and-pricing) |
-| B4 | Repeated-outcome curves | published support for the incremental case; a fixed-dimension stack for static and dynamic plans | the shipped `IPSI` estimator | [X32](#x32-repeated-outcome-curves) |
-| B4 | Categorical incremental policies | bounded extension candidate; source audit | the shipped binary `IPSI` estimator | [X43](#x43-categorical-incremental-policies) |
+| B4 | Categorical incremental policies | natural extension candidate; source audit | the shipped binary `IPSI` estimator | [X43](#x43-categorical-incremental-policies) |
+| B4 | Repeated cross-fitting for longitudinal fits | published support; pending source read | the shipped point-treatment repeats and trajectory-level splits | [X46](#x46-repeated-cross-fitting-for-longitudinal-fits) |
+| BP | Repeated-outcome curves | published support for the incremental case; a fixed-dimension stack for static and dynamic plans | the shipped `IPSI` estimator | [X32](#x32-repeated-outcome-curves) |
+| BP | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
 | BP | C-TMLE candidate sequences | published support; pending source read | shipped selector paths | [X16](#x16-c-tmle-candidate-sequences) |
 | BP | Hazard-based and monotone survival curves | published support; pending source read | the shipped point-treatment survival design | [X14](#x14-hazard-based-and-monotone-survival-curves) |
 | BP | Plug-in omitted-variable limits with a declared parametric mechanism | [published support; stacked-equation extension](technical-reference/natural-extension-verdicts.md) | the shipped plug-in bound | [X26](#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism) |
-| B5 | Learned-policy follow-ups | published support for parts (g) and (h); published support; pending source read for parts (a), (b), (e), (f) and (i); source audit for parts (c) and (d) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
+| B5 | Learned-policy follow-ups | published support for parts (g) and (h); published support; pending source read for parts (a), (b), (e) and (f); source audit for parts (c) and (d) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
 | B5 | Structural dynamic treatment effects | source audit | X41 | [X44](#x44-structural-dynamic-treatment-effects) |
 | B5 | Parametric forward-simulation g-formula | source audit | X41 | [X45](#x45-parametric-forward-simulation-g-formula) |
 | after beta | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
@@ -238,8 +242,8 @@ not change the package version.
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
 
 Rows in progress keep their order within a milestone. The BP rows close estimator gaps against the
-pinned comparators `ctmle` 0.1.2, `ctmle3` 0.1.0, `tmle3` 0.2.0, `drtmle` 1.1.2 and `lmtp` 1.5.4,
-and against the survival packages `survtmle`, `concrete` and MOSS.
+pinned comparators `ctmle` 0.1.2, `ctmle3` 0.1.0, `tmle3` 0.2.0, `drtmle` 1.1.2 and `lmtp` 1.5.4.
+They also close gaps against the survival packages `survtmle`, `concrete` and MOSS.
 X2 moves forward only if a pilot analysis needs survey weights. P1, R1, and R2 move forward only
 when they reduce a concrete implementation burden of a beta row.
 
@@ -269,13 +273,15 @@ under the [red-cell rule](development/method-benchmarking.md#red-cells).
 
 The first beta is ready when each statement below holds:
 
+- the remediation queue is empty;
 - B0 is adopted, and any known incorrect output or uncertainty is fixed or outside the supported
   claims;
 - categorical `LTMLE` and `SDR` configurations, with paired effects and censoring where
   validated, carry evidence over three to five decisions;
 - continuous longitudinal modified treatment policies pass their support checks and carry
   explicit support and identification assumptions;
-- known stochastic binary and finite-category policies carry their audited evidence;
+- known stochastic binary and finite-category policies carry evidence over three to five
+  decisions ([X39](#x39-longitudinal-evidence-over-three-to-five-decisions));
 - sequential g-computation and IPW are available over a declared subset, with correctly scoped
   uncertainty;
 - both applied tutorials run through the public API and explain method choice and causal
@@ -287,12 +293,12 @@ The first beta is ready when each statement below holds:
 
 These items are hard stops for the claim that each row names. Move one into the main roadmap when
 published theory supplies the missing result, or when the [Eligibility](#eligibility) rule
-qualifies it through another acceptance route. A missing comparator never keeps an item here, and
-a comparator alone never removes a stop. [RM43](#rm43-review-of-the-inherited-hard-stops) reviews
+qualifies it as a natural extension. A missing comparator never keeps an item here, and a
+comparator never removes a stop. [RM43](#rm43-review-of-the-inherited-hard-stops) reviews
 each row under the current rule. Each row names
 the current boundary, and the refusal that keeps it.
 
-| investigation | missing published result | current boundary | details |
+| investigation | missing result | current boundary | details |
 | --- | --- | --- | --- |
 | Multi-arm simulated-confounding stress surface | a contrast-specific, label-invariant category-valued latent perturbation law and its interpretation | binary flips and continuous linear dose perturbations only | [F8](#f8-multi-arm-simulated-confounding-stress-surface) |
 | Clustered simulated-confounding stress surface | a source-backed choice of row-level, cluster-level, or mixed latent perturbation and its interpretation | row-level iid perturbations on unclustered fits only | [F9](#f9-clustered-simulated-confounding-stress-surface) |
@@ -321,17 +327,19 @@ the current boundary, and the refusal that keeps it.
 
 ## Eligibility
 
-`cleverly` accepts established methods and defensible extensions of established theory. A method
-enters implementation through published support, an acceptable comparison with an existing
-implementation, or a bounded extension. An extension needs a written statement of its target,
+`cleverly` accepts established methods and natural extensions of established theory. Published
+support or a natural extension supplies the theory. An acceptable comparison with an existing
+implementation can then supply acceptance evidence for the claims it covers.
+
+A natural extension
+is a bounded adaptation of known results. It needs a written statement of its target,
 assumptions, estimating equations, and inference. It does not need a separate published theorem
-for each composition. When the remaining work is a bounded adaptation of known results, implement
-it.
+for each composition. When the remaining work is such an adaptation, implement it.
 
 Theory and comparators are separate questions.
 [Theory and comparators](architecture-invariants.md#theory-and-comparators) is the repository
 standard for both. The absence of a comparator, exact or related, never blocks an item. Missing
-fundamental theory blocks the affected claim when a reasonable extension of established results
+fundamental theory blocks the affected claim when a natural extension of established results
 cannot supply it. Defer that method, configuration, or inference claim, and keep every unrelated
 supported capability. Parity and related comparisons do not excuse a known defect or a misleading
 uncertainty estimate.
@@ -341,10 +349,12 @@ uncertainty estimate.
 | route | sufficient justification | required evidence |
 | --- | --- | --- |
 | established method | a published method covers the target and the proposed estimator | an assumption map, implementation checks, and scoped statistical validation |
-| acceptable implementation comparison | a credible reference gives informative evidence for an established method or a defensible extension | the documented target and algorithm differences, a reproducible reference, justified comparison metrics, and independent checks of each claim the comparison does not cover |
-| bounded extension | existing results extend through routine finite-dimensional or algebraic arguments | a short derivation of the changed terms, explicit assumptions, and tests that expose the change |
+| acceptable implementation comparison | a credible reference gives informative evidence for a method that the first or the third route already covers in theory | the documented target and algorithm differences, a reproducible reference, justified comparison metrics, and independent checks of each claim the comparison does not cover |
+| natural extension | existing results extend through routine finite-dimensional or algebraic arguments | a short derivation of the changed terms, explicit assumptions, and tests that expose the change |
 
-A bounded extension satisfies every condition in the table below.
+A natural extension satisfies every condition in the table below. The
+[natural-extension verdicts](technical-reference/natural-extension-verdicts.md) record earlier
+readings under this rule.
 
 | condition | what it requires |
 | --- | --- |
@@ -365,8 +375,8 @@ Each step below counts as an established argument. A step of this kind needs no 
 | the chain rule for influence functions | a composition of differentiable functionals, including a known weight or a known design |
 | an indicator reduction | a binary-treatment result applied to $1\{A = a\}$ for one arm, or to a composite indicator such as $\Delta \cdot 1\{A = a\}$, when identification holds for that indicator |
 | a finite partition | a marginal result applied inside each of a fixed number of baseline strata, then stacked |
-| a finite categorical sum | a result for one category applied to each of a fixed number of categories and summed with known weights, such as a known stochastic policy over a finite level set |
-| a fixed full-rank projection | a fixed, full-rank working model projected over jointly asymptotically linear estimates, such as an MSM over declared policies |
+| a finite categorical sum | a result for one category applied to each of a fixed number of categories, and summed with known weights that do not depend on the law. At one node, the weights can be known functions of the history at that node, such as a known stochastic policy. Over several nodes the step applies inside each node of the sequential regression, and the chain rule carries the composition |
+| a fixed full-rank projection | a fixed working model, with known projection weights, projected over a fixed finite set of jointly asymptotically linear estimates, such as an MSM over declared policies. The derivative of the projection equation is nonsingular at the truth. Estimated projection weights add a derivative term and are outside this step |
 | a cluster as the unit | an iid result applied to independent clusters as the sampling units, with cluster-summed curves |
 | a stacked estimating equation | a smooth finite-dimensional nuisance whose score is stacked with the target equation, as Saul and Hudgens (2020) describe |
 
@@ -382,11 +392,14 @@ These examples fail:
 | example | why it fails |
 | --- | --- |
 | inference after a data-adaptive selection step, such as an adaptively selected policy | no established argument carries the selection |
-| a fold-local update in place of a pooled one | upstream `lmtp` commit `9996b04` records its training-fold update as a bug |
+| a fluctuation fitted on each fold's training rows in place of a pooled one | the update reuses the rows that fit the initial nuisances, so the held-out influence function is not mean zero. Upstream `lmtp` commit `9996b04` records this as a bug |
 | a growing target dimension | it needs a limit theorem of a new kind |
 | arbitrary dependence between units | no independent-unit or independent-cluster argument applies |
-| a point intervention on an unrestricted continuous dose | the target is not pathwise differentiable, so regular root-n inference does not carry over |
-| an estimated intervention law with no derivative term | the law adds a derivative term to the influence function, and parity cannot justify its omission |
+| the mean outcome when every unit takes one fixed value of a continuous treatment, in a nonparametric model | the target is not pathwise differentiable, so regular root-n inference does not carry over |
+
+No route accepts an influence function that omits a required term. An intervention law that
+depends on the observed law, such as a propensity tilt, adds a derivative term. A comparator that
+omits the term cannot justify its omission.
 
 When a proposed algorithm needs new fundamental work, use an existing covered estimator of the same
 target where one exists.
@@ -396,8 +409,9 @@ target where one exists.
 An exact comparator is useful when one exists. Neither an exact nor a related comparator is an
 eligibility requirement or a universal release gate. Do not defer a capability only because no
 library implements the identical target, algorithm, fold construction, or composition. Use the
-strongest feasible comparison and state its scope. A comparison is acceptance evidence for the claims it covers.
-The evidence page labels each such claim as comparator-backed.
+strongest feasible comparison and state its scope. A comparison is acceptance evidence for the
+claims it covers. [RM42](#rm42-acceptance-status-and-refusal-reasons) part (e) adds the
+comparator-backed label to the evidence pages.
 
 | comparison | appropriate use | claim it supports |
 | --- | --- | --- |
@@ -411,8 +425,7 @@ a related target does not establish the full target. Validate the uncovered part
 adaptation and independent calculations or studies. Reject a comparison whose differences make
 the claimed conclusion uninformative.
 
-A comparator's bug remains a bug when `cleverly` reproduces
-it. Where code and paper disagree, the published derivation governs, and the discrepancy becomes a
+A comparator's bug remains a bug when `cleverly` reproduces it. Where code and paper disagree, the published derivation governs, and the discrepancy becomes a
 nonzero regression or mutation test.
 
 Record the comparator's source revision when one is available. That record identifies what ran.
@@ -434,8 +447,9 @@ not exist in the package yet. [RM42](#rm42-acceptance-status-and-refusal-reasons
 The readiness labels rate method support, not programming effort:
 
 - **published support**: a paper derives the method and inference claim;
-- **bounded extension**: a published base and the standard steps above carry the method and
+- **natural extension**: a published base and the standard steps above carry the method and
   inference claim;
+- **no new theory**: the item reuses shipped estimators and adds no statistical claim;
 - **source audit**: a published paper appears to cover it, but the exact construction must be
   matched and discrepancies resolved before implementation;
 - **waiting on published theory**: related methods exist, but the requested composition or
@@ -557,11 +571,11 @@ prose reasons and no structured reason. This row implements both contracts.
 
 | part | what it delivers |
 | --- | --- |
-| (a) the experimental status | an explicit opt-in for a configuration whose target is justified but whose algorithm or inference extension has unresolved evidence. Each estimate and interval carries the label. An unsupported interval is withheld, as the existing `*_plugin` statuses withhold one |
+| (a) the experimental status | an explicit opt-in for a configuration whose target is justified but whose algorithm or inference extension has unresolved evidence. It is a new record in `cleverly._inference_status` beside the `*_plugin` statuses, not a second status field. Each estimate and interval carries the label, and an unsupported interval is withheld |
 | (b) refusal reasons | a reason code on each refusal, drawn from the table below, with the failed condition and an available alternative in the message |
 | (c) configuration support rows | a support row for each combination of target, estimator, outcome, weighting, splitting, and inference, whose status matches the output |
 | (d) persistence | the status, the reason, the policy definitions, the folds, and the inference assumptions survive `result.save()` and `cleverly.load()` |
-| (e) comparator-backed rows | a validation-grid representation for a study whose acceptance rests on a comparison, labelled comparator-backed, and for a study with no comparator, which records the independent evidence instead |
+| (e) comparator-backed rows | the comparator-backed label on each evidence page claim that rests on a comparison, and a validation-grid row for a comparator-backed study with no property cells. Comparator-free studies already carry rows with a zero-row equivalence artifact |
 
 | reason | meaning | handling |
 | --- | --- | --- |
@@ -577,8 +591,8 @@ statistical property. It changes no committed study result.
 Each inherited refusal keeps its intervention-specific support checks, the estimator-specific
 requirements for policy followers, the invalid-event checks, and the identification declarations.
 A test can detect an observed support failure and check a declared support restriction. It cannot
-establish population positivity or the absence of unmeasured confounding. Remove any wording that
-calls a stochastic or continuous policy an inherently inappropriate question.
+establish population positivity or the absence of unmeasured confounding. A new refusal does not
+call a stochastic or continuous policy an inappropriate question.
 
 Acceptance:
 
@@ -596,14 +610,15 @@ for each row the base result, each step, and the verdict:
 
 | verdict | action |
 | --- | --- |
-| established method or bounded extension | move the row into the main roadmap, with a contract and its evidence |
-| acceptable implementation comparison | move the row, and name the comparison and the claims it does not cover |
+| established method or natural extension | move the row into the main roadmap, with a contract and its evidence |
+| established theory or a natural extension, with a comparison that covers part of the evidence | move the row, name the comparison, and name the claims that need independent checks |
 | new identification, regularity, or asymptotic argument needed | keep the row, and scope its stop to the unsupported method, configuration, or inference claim |
 
 Do not treat an API gap, a finite-category adaptation, or a standard projection as fundamental
 research by default. Keep a research queue for new identification, interference,
 adaptive-optimum inference, and arbitrary-dependence results. Each move updates the refusal that
-the row names.
+the row names. The owner's plan places F13 and F16 in later beta work. Each lacks a time-indexed
+latent law today, so they stay in the grid until this review reads them.
 
 Acceptance: a written verdict for every grid row, and a pre-fit test for each refusal that changes.
 
@@ -617,10 +632,9 @@ history that each policy can read.
    outcome roles.
 2. Convert the panel into the existing trajectory representation. Preserve temporal order and the
    original treatment labels.
-3. Define which history each policy sees, including prior assigned actions where the policy
-   semantics support them.
-4. Refuse a rule that reads future values, final outcomes, or observed actions that contradict the
-   evaluated policy.
+3. Map the panel's columns onto the shipped history frames. A rule reads `history_frame`, and a
+   policy density reads `policy_frame`, which adds the earlier treatments.
+4. Refuse a panel column that would let a rule read future values or final outcomes.
 5. Carry the policy definitions through result persistence.
 
 One customer trajectory is one observation for the inference model. Repeated time rows within that
@@ -637,20 +651,20 @@ Acceptance:
 
 ### X39. Longitudinal evidence over three to five decisions
 
-Most registered end-of-study longitudinal studies use two treatment nodes, and the categorical
-studies cover deterministic plans without censoring. This row adds laws with three to five decisions, with
+Every registered end-of-study longitudinal study uses two treatment nodes. The ordinary and
+cross-fitted categorical studies use complete outcomes, and the known-policy study uses one
+two-node, three-level law. This row adds laws with three to five decisions, with
 censoring and realistic support loss, for `LTMLE` and `SDR`.
 
 The studies reproduce the existing binary and categorical targets, exercise a nonzero targeting
 update, and include leakage and covariance controls for the paired policy contrasts. Each page
 states the conditions for consistency apart from the conditions for valid intervals.
 
-Use R `ltmle`
-for the overlapping ordinary regimen and MSM cases, and pinned `lmtp` for the `SDR` and
-cross-fitted cases. Upstream `lmtp` commit `9996b04` changes training-fold targeting to
-validation-fold targeting. Audit that commit as a comparator option. Do not assume that it equals
-the published pooled targeting of Díaz et al. (2023), and pin the source commit, not only the
-`1.5.4` version string.
+Use R `ltmle` for the overlapping ordinary regimen and MSM cases, and `lmtp` for the `SDR` cases.
+The cross-fit studies pin `lmtp` at `f04a2b4`, which fits the fluctuation on training rows.
+Upstream `9996b04` fits it on validation rows. Neither runs the pooled update, so label the
+cross-fitted `LTMLE` comparison as a different estimator of a shared target. Audit `9996b04` as a
+second comparator option.
 
 Acceptance: a registered study for each estimator, with the controls above and a pre-queue design
 review.
@@ -658,19 +672,20 @@ review.
 ### X40. Continuous-policy validation and support checks
 
 `LTMLE` and `SDR` fit modified treatment policies at a continuous node through `Shift`, `Scale`,
-`Piecewise`, and `ModifiedPolicy`. The support report is a diagnostic, and the classifier route
-reports no unsupported mass. This row adds the pre-fit checks and the evidence that a pricing
-analysis needs. Díaz et al. (2023), *Journal of the American Statistical Association*, give the
+`Piecewise`, and `ModifiedPolicy`. `check_continuous_policy` already refuses a map without a
+density ratio before any learner. The support report is a diagnostic, and the classifier route
+reports no unsupported mass. This row adds a declared-support check and the evidence that a
+pricing analysis needs. Díaz et al. (2023), *Journal of the American Statistical Association*, give the
 identification, density-ratio estimation, TMLE, and SDR. The 2025 erratum of Williams and Díaz in
 *Observational Studies* corrects the identification assumptions.
 
 | part | what it delivers |
 | --- | --- |
-| (a) transformed-law support | a pre-fit check that the transformed law stays in the declared support, and a refusal that names the node and the unsupported mass |
-| (b) map structure | a piecewise-invertible, support-preserving map first. A map such as `max(floor, 0.95 * price)` creates an atom that a continuous observed law does not have, so it needs an explicit mixed-law contract |
-| (c) classifier ratio | an audit of the classification prior correction, and paired natural and transformed rows kept in the same fold |
+| (a) transformed-law support | a declared conditional support at each node, and a pre-fit refusal that names the node and the count of rows whose assigned dose falls outside it. The post-fit support report keeps the estimated unsupported mass |
+| (b) map structure | `check_continuous_policy` already refuses a map that sends an interval to one dose, such as `max(floor, 0.95 * price)`. This part adds an explicit mixed-law contract for such a map, or records that it stays refused |
+| (c) classifier ratio | the classifier route already splits by unit and balances the two copies (`cleverly.learners.density_ratio`). This part adds a mutation control that splits the copies across folds, and a witness with unequal copy weights |
 | (d) assumptions | the corrected identification assumptions in the causal metadata. The MTP effect and its stochastic-intervention representation are separate interpretations, each with its own stated assumptions |
-| (e) data-tuned maps | a training-only construction for an estimated support boundary or a data-tuned modification, with declared target semantics |
+| (e) data-tuned maps | an estimated support boundary or a data-tuned modification, built on training rows only. The contract states the target: the average of the fold-specific parameters, as the learned-rule value does, or the population parameter with the derivative term of the estimated map |
 | (f) outcomes | bounded binary and continuous outcomes first. A revenue outcome declares its support, and the package does not winsorize it silently |
 
 A policy that reads the counterfactual natural treatment history needs an audit first. A fixed
@@ -679,10 +694,14 @@ inherit regular root-n inference. Offer an observed categorical grid, a supporte
 distribution, or a separately labelled model-based analysis. Never replace the requested path with
 a shift silently.
 
-Acceptance: means and contrasts under analytic continuous laws with nonbinding and binding policy
-boundaries; identity policies, non-unit Jacobians, several inverse branches, ratio normalization,
-and wrong-ratio controls; learned-ratio studies beside oracle-ratio parity, with price-feedback
-confounding and several follow-up lengths.
+Acceptance:
+
+- means and contrasts under analytic continuous laws, with nonbinding and binding policy
+  boundaries;
+- identity policies, non-unit Jacobians, several inverse branches, ratio normalization, and
+  wrong-ratio controls;
+- learned-ratio studies beside oracle-ratio parity, with price-feedback confounding and several
+  follow-up lengths.
 
 ### X41. Sequential g-computation and IPW baselines
 
@@ -692,10 +711,17 @@ known stochastic policies. They let a user compare model reliance and weight ins
 verify policy semantics independently.
 
 Declare the IPW normalization, the treatment and censoring weights, and the uncertainty from
-nuisance estimation. Do not copy the TMLE uncertainty into either baseline without justification.
+nuisance estimation. An interval needs parametric nuisance models, with the stacked estimating
+equation or the bootstrap. With a data-adaptive learner, each baseline reports a point estimate
+only, under a status that withholds the interval.
+
+Do not copy the TMLE uncertainty into either
+baseline without justification.
 Do not describe longitudinal g-computation as one regression on every treatment and confounder.
-Use `stremr` for the overlapping known stochastic binary cases, and audit its category-valued
-policy support before a multi-arm parity claim. For finite-category extensions, combine the
+`stremr` fits static, dynamic, and stochastic regimes with categorical exposures from long-form
+input ([comparator survey](development/method-benchmarking.md#choose-the-comparator-before-you-write-the-runner)).
+After X38, use it for the overlapping cases, and audit its category-valued policy support before
+a multi-arm parity claim. For finite-category extensions, combine the
 established stochastic intervention argument with exact enumeration and independent influence
 function checks.
 
@@ -727,14 +753,16 @@ Acceptance: both notebooks execute in the documentation build.
 ### X43. Categorical incremental policies
 
 `IPSI` fits Kennedy's odds-multiplier target at binary nodes, and its odds tilt names two arms. A
-categorical incremental policy is a candidate bounded extension, starting from the binary case that
+categorical incremental policy is a candidate natural extension, starting from the binary case that
 Kennedy (2019) covers directly. A propensity-dependent policy changes with the observed treatment
 law, so its influence function carries a derivative term that a known stochastic policy does not
 have. Do not substitute the risk-ratio policy of `lmtp`.
 
-Use the pinned `npcausal` runner where it covers the odds-based target. Audit `imtp` as an
-exploratory reference. Its README declares work-in-progress status and shows a point-treatment
-case, so verify its longitudinal support before choosing it as a comparator.
+Use the pinned `npcausal` runner where it covers the odds-based target. `imtp` 0.1.0 at `d4b5204`
+omits the derivative term from its influence curve
+([comparator survey](development/method-benchmarking.md#choose-the-comparator-before-you-write-the-runner)),
+so it can witness a point estimate only. Re-audit a later `imtp` release, including its
+longitudinal support, before using it as a comparator.
 
 Acceptance: a written derivation of the changed terms under the [Eligibility](#eligibility)
 conditions, identity and treatment-score witnesses, a dropout control, and a registered study.
@@ -760,6 +788,22 @@ under correctly specified laws, and account for the simulation error. A model-ba
 continuous path states its model reliance and its extrapolation assumptions.
 
 Acceptance: a registered study on a shared target, with the Monte Carlo error declared.
+
+### X46. Repeated cross-fitting for longitudinal fits
+
+Point-treatment fits repeat the fold draw and report the median over draws, with the
+split-adjusted median variance of Chernozhukov et al. (2018), Definition 3.3 and equation (3.14).
+The [repeated cross-fitting study](technical-reference/method-evidence/repeated-cross-fitting.md)
+validates that report. Longitudinal fits take `n_folds` only. This row extends trajectory-level
+split provenance to repeated fold draws for `LTMLE` and `SDR`, and applies the same fixed-repeat
+rule.
+
+The median does not inherit an ordinary influence function. The contract states the fixed-repeat
+rule that carries the variance, and it keeps the joint covariance of paired policy contrasts
+within each draw.
+
+Acceptance: a witness that each draw reproduces a single-draw fit, a mutation control that reuses
+one draw, and a registered study of the median and its variance.
 
 ### X16. C-TMLE candidate sequences
 
@@ -1046,8 +1090,8 @@ stays in [F21](#f21-other-missing-outcome-cv-tmle-variants).
 
 The [learned-rule contract](technical-reference/point-treatment-tmle.md#learned-rules) estimates one target by one
 construction. Each part below is a published follow-up outside that contract. For parts (a) to
-(e) and (h), the refusal of the request cites the part. No request reaches parts (f), (g) and
-(i). Each part needs its own contract, witnesses and registered study
+(e) and (h), the refusal of the request cites the part. No request reaches parts (f) and
+(g). Each part needs its own contract, witnesses and registered study
 before it ships, as the learned-rule value did.
 
 | part | the request that the contract refuses | published source | readiness |
@@ -1060,7 +1104,12 @@ before it ships, as the learned-rule value did.
 | (f) the value of the optimal rule | no request reaches it | van der Laan and Luedtke (2015), Section 7.2, last paragraph; Luedtke and van der Laan (2016), *Annals of Statistics* | published support; pending source read |
 | (g) blip and weighted-classification rule learners | no request reaches it, because the contract has one rule learner | Luedtke and van der Laan (2016), *International Journal of Biostatistics*, Sections 4.1 to 4.3, read first-hand in the author manuscript | published support |
 | (h) fold-specific targeting | `targeting_scheme="fold"` | Montoya, van der Laan, Skeem and Petersen (2023), *International Journal of Biostatistics* 19(1):239–259, Section 3.2, Step 2(c), and Section 4.2, read first-hand in the publisher's version | published support |
-| (i) honest evaluation of an externally learned rule | a rule learned on separate training data and frozen before evaluation | the evaluation contract of a known rule, with a declared training and evaluation split. Inference targets the learned rule conditional on the training data, not a population optimum. A report that selects the best of several estimated policies states that the selection changes the meaning of the reported value | published support; pending source read |
+
+A rule learned on separate training data and frozen before evaluation is a known rule.
+`Rule(..., rule_kind="known")` and `DynamicRegimen(..., rule_kind="known")` evaluate it, and the
+interval targets that rule conditional on the training data. A report that selects the best of
+several estimated rules changes the meaning of the reported value
+([F27](#f27-learned-policy-value-outside-the-published-conditions)).
 
 Part (h) is not the training-fold update that the [Eligibility](#eligibility) section names as new
 theory. Montoya and co-authors fit the update on the validation rows, and the package already ships

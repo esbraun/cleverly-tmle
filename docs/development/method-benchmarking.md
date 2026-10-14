@@ -10,10 +10,11 @@ checks. Use this strategy when adding or changing a method-level row in the
 
 Record the identified parameter, estimator construction, governing source, supported
 compositions, and inference rule before choosing a comparator. Agreement with an R package is
-acceptance evidence for the claims the comparison covers. Label each such claim as
-comparator-backed on the evidence page, as
-[Theory and comparators](../architecture-invariants.md#theory-and-comparators) requires. Agreement
-does not prove that the parameter, influence curve, or theorem is correct.
+acceptance evidence for the claims the comparison covers, as
+[Theory and comparators](../architecture-invariants.md#theory-and-comparators) states.
+[RM42](../roadmap.md#rm42-acceptance-status-and-refusal-reasons) part (e) adds the comparator-backed
+label to the evidence pages. Agreement does not prove that the parameter, influence curve, or
+theorem is correct.
 
 Give materially different estimators separate evidence rows. Ordinary TMLE, stacked CV-TMLE,
 fold-evaluated CV-TMLE, and fold-specific extensions may share a limit while differing in finite
@@ -435,10 +436,10 @@ artifacts, or provenance conventions for each comparison.
    weights, clustering, missing outcomes, and a flexible learner are each such a composition.
 
 If a registered study has no canonical comparator, its cross-implementation cell says so and its
-row rests on the other two columns. A comparison is acceptance evidence for the claims it covers,
-and the page labels those claims as comparator-backed. Today the validation grid lists only a
-study with property cells. [RM42](../roadmap.md#rm42-acceptance-status-and-refusal-reasons) owns
-the grid change that lets a comparator-backed study carry a row.
+row rests on the other two columns. A comparison is acceptance evidence for the claims it covers.
+Today the validation grid lists only a study with property cells.
+[RM42](../roadmap.md#rm42-acceptance-status-and-refusal-reasons) part (e) owns the label and the
+grid row for a comparator-backed study.
 
 A study with no property cells can still register as a reporting study. It declares
 `publication_policy="reporting"` and an empty `property_cells`. It keeps its own page, with no

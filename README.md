@@ -120,8 +120,8 @@ is the authoritative inventory, and it names the evidence for each row.
 
 ## Roadmap
 
-- Make the first beta answer sequential-decision questions: offer sequences, engagement-dependent
-  rules, repeated price changes, and randomized offers.
+- Validate sequential-decision analyses over three to five decisions, and add pre-fit support
+  checks for price policies.
 - Add a long-panel adapter, sequential g-computation and IPW baselines, and two applied tutorials.
 - Add an experimental status and a reason code on each refusal.
 - After the beta, add EP learning and the nested Riesz engine where an analysis needs them.
