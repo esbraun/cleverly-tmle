@@ -24,13 +24,14 @@ at n = 8,000 measured a standardized bias of +0.24 and -0.21 on the two contrast
 SE 0.05).  The one-fold fits are therefore the reported family ``in_sample_fit`` of the
 properties module, and they state no verdict.
 
-**Size.**  :data:`PRIMARY_N` is 24,000, not the plan's 2,000.  At 2,000 the fallback-read
-bound of :mod:`tests.studies.longitudinal_incremental_common` exceeds 0.1 standard errors on
-law ``D`` at five folds (``X19-plan.md`` 6.2 raises a cell's size until the bound holds).  The
-five-fold contrasts also carry a second-order bias of order 1/n.  Probes of 400 draws of law
-``C`` measured a standardized bias of 0.44 at 2,000, 0.22 at 8,000 and 0.05 at 32,000 (Monte
-Carlo SE 0.05), against the primary rows' gate of 0.25.  The size matches
-:mod:`tests.studies.canonical_longitudinal_incremental`.
+**Size** (declared before any run).  :data:`PRIMARY_N` is 80,000, not the plan's 2,000.  The
+five-fold contrasts carry a second-order bias of order 1/n.  The sizing probe
+(``tests/diagnostics/x19_sizing/``) measured a standardized bias of 0.31 at n = 8,000 on the
+dropout contrasts.  The size follows the rule of
+:mod:`tests.studies.canonical_longitudinal_incremental`: every primary row passes the bias rule
+with probability at least 0.95 at the projected bias
+(``tests/unit/test_longitudinal_incremental_design.py``).  The fallback-read bound holds far
+below this size.
 
 **Properties.** :mod:`tests.studies.longitudinal_incremental_dropout_properties` declares every
 family.
@@ -59,7 +60,7 @@ from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
 
 PRIMARY_REPLICATES = 1_000
-PRIMARY_N = 24_000
+PRIMARY_N = 80_000
 SEED = 20261242
 RESAMPLING_SEED = 2026124201
 

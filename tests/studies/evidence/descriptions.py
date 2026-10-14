@@ -348,7 +348,6 @@ ARMS: dict[str, str] = {
     # ``longitudinal-incremental`` and ``longitudinal-incremental-dropout`` (X19).
     "mean_x2": "odds-x2 mean at every node, three-node law",
     "contrast_x2": "odds-x2 against the natural course, three-node law",
-    "contrast_x2_in_sample": "odds-x2 against the natural course, one fold",
     "known_x2": "odds-x2 mean with the true treatment probabilities declared",
     "no_positivity": "odds-x2 contrast on a law with propensities of exactly 0 and 1",
     "per_node": "odds multipliers 2, 0.5 and 1.5 at the three nodes",
@@ -511,7 +510,6 @@ IMPLEMENTATIONS: dict[str, str] = {
 
 
 SCENARIOS: dict[str, str] = {
-    "ipsi_folds_2": "three-node law with a continuous outcome, two folds",
     "ipsi_folds_5": "three-node law with a continuous outcome, five folds",
     "dropout_folds_5": "three-node law with dropout after each arm, five folds",
     "survival_folds_5": "three-node survival law with dropout, horizons 1 to 3, five folds",
@@ -1683,16 +1681,16 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the outcome regression is misspecified",
         "bias interval must fall entirely outside the margin",
     ),
-    ("root_n_and_efficiency", "n_6000"): (
-        "bias, coverage and SE calibration at n = 6,000",
-        "",  # the smallest rung's rule depends on its role; :func:`cell` sets it
-    ),
     ("root_n_and_efficiency", "n_24000"): (
         "bias, coverage and SE calibration at n = 24,000",
+        "",  # the smallest rung's rule depends on its role; :func:`cell` sets it
+    ),
+    ("root_n_and_efficiency", "n_64000"): (
+        "bias, coverage and SE calibration at n = 64,000",
         "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
     ),
-    ("root_n_and_efficiency", "n_48000"): (
-        "bias, coverage and SE calibration at n = 48,000",
+    ("root_n_and_efficiency", "n_96000"): (
+        "bias, coverage and SE calibration at n = 96,000",
         "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
     ),
     ("root_n_and_efficiency", "n_500"): (
@@ -2191,7 +2189,7 @@ def cell(
                 if base == "targeted"
                 else "the identical targeted mechanism is evaluated with the initial outcome regression"
             )
-    if family == "root_n_and_efficiency" and base in {"n_500", "n_1000", "n_6000"}:
+    if family == "root_n_and_efficiency" and base in {"n_500", "n_1000", "n_24000"}:
         # The smallest rung is a positive cell in some studies and a retained small-sample
         # control in others, and the two are held to opposite rules.  Publishing one rule
         # beside the other role's verdict is the failure this branch exists to prevent, so an

@@ -1,7 +1,7 @@
 r"""Property families of ``longitudinal-incremental-dropout`` (S2).
 
 Every fit is :class:`~cleverly.longitudinal.IPSI` with five folds and saturated cell means at
-every slot, at n = 8,000 with 1,000 replications, on a law of
+every slot, at n = 16,000 with 2,000 replications, on a law of
 :mod:`tests.discrete_law_longitudinal_incremental`.  ``x2`` is the plan that doubles the odds
 of treatment at every node, and ``contrast_x2`` is its contrast with the natural course.
 
@@ -11,9 +11,9 @@ family                        cells
 ``interval_calibration``      five labels (below), each with the two derived controls
 ``simultaneous_coverage``     the band over the risks of three plans at horizons 1 to 3 and
                               their six contrasts on law ``D``, and its pointwise control
-``clustered_inference``       ``ey_regimen[odds x2]`` on law ``Ck`` in 800 clusters of 10: the
-                              cluster-robust standard error, and the standard error that
-                              treats each unit as independent (control)
+``clustered_inference``       ``ey_regimen[odds x2]`` on law ``Ck`` in 800 clusters of 10,
+                              1,000 replications: the cluster-robust standard error, and the
+                              standard error that treats each unit as independent (control)
 ``censoring_complete_case``   ``ey_regimen[odds x2]`` on law ``C`` fitted to the rows that never
                               drop out, without a censoring model (reported, no verdict)
 ``in_sample_fit``             ``dropout_contrast_x2`` and ``survival_contrast_x2_h3`` fitted with
@@ -95,8 +95,12 @@ from tests.studies.evidence.simultaneous import FAMILY as JOINT
 from tests.studies.evidence.simultaneous import joint_coverage_rows, joint_property_cells
 
 N_FOLDS = 5
-N = 8_000
-REPLICATES = 1_000
+N = 16_000
+REPLICATES = 2_000
+#: The clustered cell keeps its first size: its rules read the SE ratio of a curve that sums
+#: whole clusters, and the sizing probe's bias does not reach them.
+CLUSTER_N = 8_000
+CLUSTER_REPLICATES = 1_000
 CLUSTER_SIZE = 10
 EFFICIENCY_RATIO_BAND = (0.90, 1.10)
 SHRUNKEN_SE_FACTOR = 0.70
@@ -126,7 +130,7 @@ def weight(values: Mapping[str, float]) -> float:
 
     Both are observed on every row.  The weight moves the first-node mechanism (the M18
     witness) and the outcome distribution, so the weighted truth differs from the unweighted
-    one by 3.9 standard errors at n = 8,000 (design test).
+    one by 5.5 standard errors at n = 16,000 (design test).
     """
     return 1.0 + values["A1"] + 0.5 * values["W"]
 
@@ -256,7 +260,7 @@ class DeclaredLaw:
 FIT_SETS: tuple[tuple[str, str, int, int], ...] = (
     ("interval_calibration", "law_c", N, REPLICATES),
     ("interval_calibration", "law_dc", N, REPLICATES),
-    ("clustered_inference", "law_ck", N, REPLICATES),
+    ("clustered_inference", "law_ck", CLUSTER_N, CLUSTER_REPLICATES),
 )
 
 
@@ -272,7 +276,17 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     """
     cells: list[PropertyCell] = []
 
-    def add(family: str, cell: str, role: str, stream: str, estimand: str, seed: int) -> None:
+    def add(
+        family: str,
+        cell: str,
+        role: str,
+        stream: str,
+        estimand: str,
+        seed: int,
+        *,
+        n: int = N,
+        replicates: int = REPLICATES,
+    ) -> None:
         cells.append(
             PropertyCell(
                 property=family,
@@ -280,8 +294,8 @@ def declared_cells() -> tuple[PropertyCell, ...]:
                 dgp=DeclaredLaw(stream),
                 outcome_learner=lambda: None,
                 treatment_learner=lambda: None,
-                n=N,
-                replicates=REPLICATES,
+                n=n,
+                replicates=replicates,
                 seed=seed,
                 role=role,
                 estimand=estimand,
@@ -310,6 +324,8 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             "law_ck",
             MEAN_X2,
             _seed("clustered_inference", "law_ck", 0),
+            n=CLUSTER_N,
+            replicates=CLUSTER_REPLICATES,
         )
     add(
         "censoring_complete_case",

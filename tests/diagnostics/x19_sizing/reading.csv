@@ -1,0 +1,46 @@
+set,cell,n,replicates,standardized_bias,mcse,se_ratio,coverage
+s1:ipsi_folds_2,ate_regimen[odds x0.5 vs natural course],8000,600,-0.347275,0.0408248,0.970636,0.931667
+s1:ipsi_folds_2,ate_regimen[odds x2 vs natural course],8000,600,0.299487,0.0408248,0.967301,0.941667
+s1:ipsi_folds_2,ey_regimen[natural course],8000,600,0.0146517,0.0408248,0.994921,0.945
+s1:ipsi_folds_2,ey_regimen[odds x0.5],8000,600,-0.124129,0.0408248,1.01864,0.963333
+s1:ipsi_folds_2,ey_regimen[odds x2],8000,600,0.134774,0.0408248,0.975663,0.945
+s1:ipsi_folds_5,ate_regimen[odds x0.5 vs natural course],8000,600,-0.253267,0.0408248,0.97297,0.936667
+s1:ipsi_folds_5,ate_regimen[odds x2 vs natural course],8000,600,0.266441,0.0408248,0.947092,0.935
+s1:ipsi_folds_5,ey_regimen[natural course],8000,600,0.025982,0.0408248,1.01044,0.963333
+s1:ipsi_folds_5,ey_regimen[odds x0.5],8000,600,-0.074345,0.0408248,1.01533,0.958333
+s1:ipsi_folds_5,ey_regimen[odds x2],8000,600,0.135746,0.0408248,0.986138,0.943333
+s1:law_a,interval_calibration/contrast_x2__correctly_specified,8000,600,0.202973,0.0408248,0.968824,0.928333
+s1:law_a,interval_calibration/contrast_x2_in_sample__correctly_specified,8000,600,-0.177477,0.0408248,0.963987,0.94
+s1:law_a,interval_calibration/known_x2__correctly_specified,8000,600,0.010376,0.0408248,0.972135,0.931667
+s1:law_a,interval_calibration/mean_x2__correctly_specified,8000,600,0.0736709,0.0408248,0.979863,0.94
+s1:law_a,mechanism_term_necessity/contrast_x2__full_eif,8000,600,0.202973,0.0408248,0.968824,0.928333
+s1:law_a,mechanism_term_necessity/contrast_x2__mechanism_term_dropped,8000,600,0.202973,0.0408248,0.953849,0.925
+s1:law_a_mixed,interval_calibration/per_node__correctly_specified,8000,600,0.00229242,0.0408248,0.984716,0.945
+s1:law_a_mixed,interval_calibration/tilt_then_static__correctly_specified,8000,600,0.00179581,0.0408248,0.97237,0.93
+s1:law_ax,interval_calibration/no_positivity__correctly_specified,8000,600,0.0547639,0.0408248,0.987575,0.945
+s2:dropout_folds_5,ate_regimen[odds x0.5 vs natural course],8000,400,-0.309029,0.05,0.973604,0.92
+s2:dropout_folds_5,ate_regimen[odds x2 vs natural course],8000,400,0.279193,0.05,0.991359,0.9325
+s2:dropout_folds_5,ey_regimen[natural course],8000,400,0.0014623,0.05,0.978367,0.945
+s2:dropout_folds_5,ey_regimen[odds x0.5],8000,400,-0.11725,0.05,0.980167,0.945
+s2:dropout_folds_5,ey_regimen[odds x2],8000,400,0.114512,0.05,0.991763,0.9575
+s2:law_c,censoring_complete_case/mean_x2__complete_case,8000,400,2.52073,0.05,0.99987,0.285
+s2:law_c,in_sample_fit/dropout_contrast_x2__one_fold,8000,400,-0.191779,0.05,1.03064,0.94
+s2:law_c,interval_calibration/dropout_contrast_x2__correctly_specified,8000,400,0.230154,0.05,1.03671,0.96
+s2:law_c,interval_calibration/msm_log_delta__correctly_specified,8000,400,0.247323,0.05,1.02352,0.9425
+s2:law_c,interval_calibration/weighted_contrast_x0_5__correctly_specified,8000,400,-0.228383,0.05,1.02268,0.9375
+s2:law_dc,interval_calibration/competing_contrast_x2_h3__correctly_specified,8000,400,-0.022733,0.05,0.881656,0.9625
+s2:survival_folds_5,ate_regimen[odds x0.5 vs natural course @ t=1],8000,400,-0.0197091,0.05,0.957167,0.93
+s2:survival_folds_5,ate_regimen[odds x0.5 vs natural course @ t=2],8000,400,0.0855054,0.05,0.986249,0.9475
+s2:survival_folds_5,ate_regimen[odds x0.5 vs natural course @ t=3],8000,400,0.0771191,0.05,1.03507,0.9575
+s2:survival_folds_5,ate_regimen[odds x2 vs natural course @ t=1],8000,400,0.0217188,0.05,0.957883,0.9275
+s2:survival_folds_5,ate_regimen[odds x2 vs natural course @ t=2],8000,400,-0.0926556,0.05,0.96618,0.93
+s2:survival_folds_5,ate_regimen[odds x2 vs natural course @ t=3],8000,400,-0.102745,0.05,1.037,0.955
+s2:survival_folds_5,risk_regimen[natural course @ t=1],8000,400,0.00470865,0.05,0.941971,0.94
+s2:survival_folds_5,risk_regimen[natural course @ t=2],8000,400,0.00464821,0.05,1.01299,0.96
+s2:survival_folds_5,risk_regimen[natural course @ t=3],8000,400,0.0186821,0.05,0.904582,0.9425
+s2:survival_folds_5,risk_regimen[odds x0.5 @ t=1],8000,400,-0.000386419,0.05,0.934345,0.9375
+s2:survival_folds_5,risk_regimen[odds x0.5 @ t=2],8000,400,0.0347933,0.05,1.01676,0.9425
+s2:survival_folds_5,risk_regimen[odds x0.5 @ t=3],8000,400,0.04596,0.05,0.918024,0.9425
+s2:survival_folds_5,risk_regimen[odds x2 @ t=1],8000,400,0.0118467,0.05,0.955646,0.9325
+s2:survival_folds_5,risk_regimen[odds x2 @ t=2],8000,400,-0.034242,0.05,1.00281,0.955
+s2:survival_folds_5,risk_regimen[odds x2 @ t=3],8000,400,-0.025265,0.05,0.938674,0.9375

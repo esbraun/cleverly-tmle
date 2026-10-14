@@ -1,6 +1,6 @@
 """The pre-declaration pairing gates of ``longitudinal-incremental`` (``X19-plan.md`` 3.4 and 6.1).
 
-**G1.**  Three replicates of each primary scenario at the declared ``n`` (two and five folds),
+**G1.**  Three replicates of the primary scenario at the declared ``n`` (five folds),
 plus one forced replicate per fold count: a small sample of law ``A`` whose cross-fitted
 treatment fit meets a ``(node, history)`` cell that a training fold lacks
 (:data:`FORCED_N`, :data:`FORCED_SEED`).  That replicate exercises the fallback both sides

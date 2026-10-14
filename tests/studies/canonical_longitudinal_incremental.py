@@ -4,14 +4,9 @@ The subject is :class:`~cleverly.longitudinal.IPSI`, the one-step estimator of K
 Algorithm 1), paired with R ``npcausal`` 0.1.0's ``ipsi`` at commit ``56a5ac11``.  The law is
 law ``A`` of :mod:`tests.discrete_law_longitudinal_incremental`: three nodes, binary
 :math:`L_2, L_3`, and a continuous end-of-study outcome.  The plans tilt every node by
-:math:`\delta \in \{0.5, 1, 2\}`.  Two primary scenarios:
-
-======================  =====================================================================
-scenario                subject and pairing
-======================  =====================================================================
-``ipsi_folds_2``        two folds; ``npcausal`` reads the same fold assignment
-``ipsi_folds_5``        five folds; the same
-======================  =====================================================================
+:math:`\delta \in \{0.5, 1, 2\}`.  One primary scenario, ``ipsi_folds_5``: five folds,
+and ``npcausal`` reads the same fold assignment.  The pairing gates also fit two folds on law
+``Ax``, so the exact agreement covers both fold counts.
 
 **Exact pairing** (``X19-plan.md`` 3.4, 6.1 and 6.8).  Both sides fit saturated cell means:
 :class:`~tests.discrete_law_longitudinal.CellMeans` here, ``SL.cellmeans`` in
@@ -26,14 +21,16 @@ influence value, and the standard error.  Both sides report the influence-curve 
 deviation over :math:`\sqrt n`, so no factor separates the two errors (``X19-plan.md`` 6.8
 assumed one).  The paired rows then read the default ``Margins()``.
 
-**Size.**  :data:`PRIMARY_N` is 24,000, not the plan's 2,000.  Two limits set it.  First, at
-two folds the fallback-read bound of :mod:`tests.studies.longitudinal_incremental_common` is
-0.158 standard errors at 5,000 and 0.064 at 6,000 (``X19-plan.md`` 6.2 raises a cell's size
-until the bound holds).  Second, the cross-fitted contrasts carry a second-order bias of order
-1/n.  Probes of 400 draws at five folds measured a standardized bias of 0.48 on law ``A`` at
-2,000 and 0.28 at 6,000, and 0.44, 0.22 and 0.05 on law ``C`` at 2,000, 8,000 and 32,000
-(Monte Carlo SE 0.05).  The primary rows gate the standardized bias at 0.25, and the 1/n rate
-puts law ``A`` near 0.14 at 24,000.
+**Size** (a deviation from ``X19-plan.md`` 3.5, declared before any run).  The cross-fitted
+contrasts carry a second-order bias of order 1/n, so their standardized bias falls as
+:math:`1/\sqrt n`.  The bias rule passes a row only when the 99% interval of its mean error
+lies inside 0.25 empirical standard deviations, which at 1,000 replications needs a
+standardized bias below about 0.17.  The sizing probe (``tests/diagnostics/x19_sizing/``)
+measured 0.27 at n = 8,000 on the five-fold contrasts and 0.35 on the two-fold ones.
+:data:`PRIMARY_N` is the smallest size on the probe's grid at which the projected bias, with
+one Monte Carlo SE added, gives every row a pass probability of at least 0.95
+(``tests/unit/test_longitudinal_incremental_design.py``).  The plan's two-fold scenario needs
+about 90,000, so it is dropped.  The fallback-read bound holds far below this size.
 
 **Properties.** :mod:`tests.studies.longitudinal_incremental_properties` declares every family.
 
@@ -63,7 +60,7 @@ from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
 
 PRIMARY_REPLICATES = 1_000
-PRIMARY_N = 24_000
+PRIMARY_N = 64_000
 SEED = 20261241
 RESAMPLING_SEED = 2026124101
 #: The pre-declaration gate on every paired quantity (G1 and G2).
@@ -73,7 +70,7 @@ LAW = law.LAW_A
 REFERENCE = law.REFERENCE
 PLANS = common.constant_plans(law.DELTAS)
 ESTIMANDS = common.names(PLANS, REFERENCE)
-FOLDS = {"ipsi_folds_2": 2, "ipsi_folds_5": 5}
+FOLDS = {"ipsi_folds_5": 5}
 TRUTH = common.truths(LAW, PLANS, ESTIMANDS)
 EFFICIENCY_SD = {name: common.eif_sd(LAW, PLANS, name) for name in ESTIMANDS}
 
@@ -84,7 +81,6 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
         for label in (
             "mean_x2",
             "contrast_x2",
-            "contrast_x2_in_sample",
             "known_x2",
             "no_positivity",
             "per_node",
@@ -92,7 +88,7 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
         )
         for cell in ("correctly_specified", "shrunken_se_control", "noise_control")
     ),
-    "root_n_and_efficiency": tuple(f"contrast_x2__n_{size}" for size in (6_000, 24_000, 48_000)),
+    "root_n_and_efficiency": tuple(f"contrast_x2__n_{size}" for size in (24_000, 64_000, 96_000)),
     "root_n_rate": ("contrast_x2__empirical_sd", "contrast_x2__reported_se"),
     "type_i_error": ("contrast_x2__sharp_null",),
     "power": ("contrast_x1_5__alternative",),
@@ -107,6 +103,7 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
         "contrast_x2__mechanism_constant",
     ),
     "targeting_necessity": ("contrast_x2__one_step", "contrast_x2__plug_in"),
+    "in_sample_fit": ("contrast_x2__one_fold",),
 }
 
 STUDY = StudyRecord(

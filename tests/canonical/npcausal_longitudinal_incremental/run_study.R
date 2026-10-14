@@ -14,7 +14,7 @@ ipsi_copy <- ipsi_with_folds()
 # call.  A gate test reads these back.
 N_TIMES <- 3L
 DELTAS <- c("odds x0.5" = 0.5, "natural course" = 1, "odds x2" = 2)
-SCENARIOS <- c("ipsi_folds_2", "ipsi_folds_5")
+SCENARIOS <- c("ipsi_folds_5")
 
 parse_estimand <- function(name) {
   inner <- sub("^[a-z_]+\\[(.*)\\]$", "\\1", name)

@@ -5,17 +5,22 @@ Every number here was fixed before any registered run.
 * Every truth is a finite sum on an exact law.  Law ``C`` is law ``A`` with dropout at random
   given the history, so every plan value of ``C`` with dropout prevented is the value on ``A``.
 * The fallback-read bias bound is below 0.1 standard errors in every declared positive cell
-  (``X19-plan.md`` 6.2).  The cells whose bound failed at the plan's size were raised: the S1
-  primary scenarios to n = 6,000 and the S1 ``single_robustness`` pair to 6,000 and 24,000.
-* Both primary studies run at n = 24,000.  The five-fold contrasts carry a second-order bias of
-  order 1/n, measured at 0.22 standardized at n = 8,000 on law ``C`` against the 0.25 gate.
+  (``X19-plan.md`` 6.2).  It raised the S1 ``single_robustness`` pair to 6,000 and 24,000.
+* The sizing rule.  The five-fold contrasts carry a second-order bias of order 1/n, and the
+  SE ratio sits a little below one at moderate n.  The sizing probe
+  (``tests/diagnostics/x19_sizing/``) measured both for every gated cell at n = 8,000.
+  Projected to the declared size (bias as :math:`1/\\sqrt n` after adding one Monte Carlo
+  SE, SE-ratio deficit as 1/n), every primary row and positive root-n rung passes its bias rule
+  with probability at least 0.95, and every calibration cell passes with probability at least
+  0.90.  The rule sets n = 64,000 (S1), 80,000 (S2), 32,000 (S1 calibration) and 16,000
+  (S2 calibration).  It drops the two-fold S1 scenario, which needs about 90,000.
 * The power cell has exact-law power 0.882 at n = 4,000 (:data:`POWER_SCALE`).
 * The band cells' pointwise controls clear the RM36 control-power rule at ``p0 + 0.005``, with
   ``p0`` from the exact efficient influence functions: 0.811 for S1 and 0.695 for S2.
 * The mechanism-term control's exact SD ratio is 0.78, below the calibration band.
-* The S2 witnesses: the informative weight moves the truth by 3.9 standard errors and the
+* The S2 witnesses: the informative weight moves the truth by 5.5 standard errors and the
   first-node propensity by more than 0.05; the independent-unit SE of the clustered cell has
-  exact ratio 0.60 and coverage 0.76; the complete-case limit sits 2.5 standard errors from
+  exact ratio 0.60 and coverage 0.76; the complete-case limit sits 3.6 standard errors from
   the truth.
 * The ``npcausal`` runner's plan grid is the Python one.
 
@@ -35,8 +40,10 @@ import warnings
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import pytest
 from scipy.stats import norm
+from scipy.stats import t as student
 
 from tests import discrete_law_longitudinal_incremental as law
 from tests.studies import canonical_longitudinal_incremental as s1
@@ -44,6 +51,7 @@ from tests.studies import canonical_longitudinal_incremental_dropout as s2
 from tests.studies import longitudinal_incremental_common as common
 from tests.studies import longitudinal_incremental_dropout_properties as p2
 from tests.studies import longitudinal_incremental_properties as p1
+from tests.studies.canonical_full_refit_bootstrap import calibration_pass_probability
 from tests.studies.default_band_properties import (
     MINIMUM_CONTROL_POWER,
     control_power,
@@ -61,15 +69,15 @@ def test_the_declared_numbers() -> None:
     for record in (s1.STUDY, s2.STUDY):
         assert record.publication_policy == "gated"
         assert record.margins == Margins()
-    assert (s1.PRIMARY_N, s1.PRIMARY_REPLICATES) == (24_000, 1_000)
-    assert (s2.PRIMARY_N, s2.PRIMARY_REPLICATES) == (24_000, 1_000)
+    assert (s1.PRIMARY_N, s1.PRIMARY_REPLICATES) == (64_000, 1_000)
+    assert (s2.PRIMARY_N, s2.PRIMARY_REPLICATES) == (80_000, 1_000)
     assert (s1.SEED, s1.RESAMPLING_SEED, s2.SEED, s2.RESAMPLING_SEED) == (
         20261241,
         2026124101,
         20261242,
         2026124201,
     )
-    assert s1.FOLDS == {"ipsi_folds_2": 2, "ipsi_folds_5": 5}
+    assert s1.FOLDS == {"ipsi_folds_5": 5}
     assert {scenario: folds for scenario, (_, _, folds) in s2.SCENARIOS.items()} == {
         "dropout_folds_5": 5,
         "survival_folds_5": 5,
@@ -78,7 +86,10 @@ def test_the_declared_numbers() -> None:
     assert s1.STUDY.reference == "npcausal" and s2.STUDY.reference is None
     assert p1.REQUIREMENT_SIZES == (6_000, 24_000)
     assert p1.EFFICIENCY_RATIO_BAND == p2.EFFICIENCY_RATIO_BAND == (0.90, 1.10)
-    assert (p2.N, p2.REPLICATES, p2.CLUSTER_SIZE) == (8_000, 1_000, 10)
+    assert (p1.CALIBRATION_N, p1.CALIBRATION_REPLICATES) == (32_000, 2_000)
+    assert (p1.RATE_SIZES, p1.RATE_REPLICATES) == ((24_000, 64_000, 96_000), 1_000)
+    assert (p2.N, p2.REPLICATES, p2.CLUSTER_SIZE) == (16_000, 2_000, 10)
+    assert (p2.CLUSTER_N, p2.CLUSTER_REPLICATES) == (8_000, 1_000)
 
 
 def test_the_studies_draw_from_their_own_seeds() -> None:
@@ -127,7 +138,6 @@ POSITIVE_CELLS = (
     ),
     ("mean_x2", law.LAW_A, s1.PLANS, (p1.MEAN_X2,), p1.CALIBRATION_N, 5, {}),
     ("contrast_x2", law.LAW_A, s1.PLANS, (p1.CONTRAST_X2,), p1.CALIBRATION_N, 5, {}),
-    ("contrast_x2_in_sample", law.LAW_A, s1.PLANS, (p1.CONTRAST_X2,), p1.CALIBRATION_N, 1, {}),
     ("known_x2", law.LAW_A, s1.PLANS, (p1.MEAN_X2,), p1.CALIBRATION_N, 5, {"known": (1, 2, 3)}),
     ("no_positivity", law.LAW_AX, p1.AX_PLANS, (p1.CONTRAST_X2,), p1.CALIBRATION_N, 5, {}),
     (
@@ -163,7 +173,7 @@ POSITIVE_CELLS = (
         5,
         {"weights": p2.WEIGHTS},
     ),
-    ("clustered", law.LAW_CK.marginal, s2.PLANS, (p2.MEAN_X2,), p2.N, 5, {}),
+    ("clustered", law.LAW_CK.marginal, s2.PLANS, (p2.MEAN_X2,), p2.CLUSTER_N, 5, {}),
 )
 
 
@@ -223,6 +233,127 @@ def test_the_bound_binds_where_the_sizes_were_raised() -> None:
     assert common.fallback_bound(law.LAW_A, s1.PLANS, (p1.CONTRAST_X2,), n=2_000, n_folds=5) > 0.1
     survival = s2.ESTIMANDS["survival_folds_5"]
     assert common.fallback_bound(law.LAW_D, s2.PLANS, survival, n=2_000, n_folds=5) > 0.1
+
+
+# ------------------------------------------------------------------- the sizing rule
+
+#: The sizing probe's reading: each gated cell at n = 8,000 on fresh draws.
+READING = pd.read_csv(ROOT / "tests" / "diagnostics" / "x19_sizing" / "reading.csv")
+PRIMARY_PASS = 0.95
+CALIBRATION_PASS = 0.90
+X2 = "ate_regimen[odds x2 vs natural course]"
+
+
+def probe(cell_set: str, cell: str) -> Any:
+    (row,) = READING[(READING["set"] == cell_set) & (READING["cell"] == cell)].itertuples()
+    return row
+
+
+def projected(row: Any, n: int) -> tuple[float, float]:
+    """The standardized bias and the SE ratio at ``n``, from the probe at ``row.n``.
+
+    The bias is second order, so its standardized value falls as :math:`1/\\sqrt n`; one Monte
+    Carlo SE is added first.  The SE-ratio deficit, the cost of estimating the nuisances, falls
+    as :math:`1/n`.  A ratio above one is not projected.
+    """
+    bias = (abs(row.standardized_bias) + row.mcse) * np.sqrt(row.n / n)
+    ratio = 1.0 - (1.0 - min(row.se_ratio, 1.0)) * row.n / n
+    return float(bias), float(ratio)
+
+
+def bias_pass_probability(bias: float, replicates: int) -> float:
+    """The chance the 99% Student interval of the mean error lies inside the bias margin."""
+    margins = Margins()
+    half = float(student.ppf(0.5 + margins.confidence_level / 2.0, replicates - 1))
+    spread = 1.0 / np.sqrt(replicates)
+    room = margins.standardized_bias - half * spread
+    return float(norm.cdf((room - bias) / spread) - norm.cdf((-room - bias) / spread))
+
+
+def calibrated_pass_probability(row: Any, n: int, replicates: int) -> float:
+    bias, ratio = projected(row, n)
+    critical = float(norm.ppf(0.975)) * ratio
+    coverage = float(norm.cdf(critical - bias) - norm.cdf(-critical - bias))
+    margins = Margins()
+    return calibration_pass_probability(
+        replicates,
+        true_se_ratio=ratio,
+        coverage=coverage,
+        confidence_level=margins.confidence_level,
+        se_band=margins.calibration_se_ratio,
+        coverage_band=margins.calibration_coverage,
+    )
+
+
+PRIMARY_ROWS = (
+    *(("s1:ipsi_folds_5", name, s1.PRIMARY_N, s1.PRIMARY_REPLICATES) for name in s1.ESTIMANDS),
+    *(
+        (f"s2:{scenario}", name, s2.PRIMARY_N, s2.PRIMARY_REPLICATES)
+        for scenario, names in s2.ESTIMANDS.items()
+        for name in names
+    ),
+)
+
+
+@pytest.mark.parametrize(("cell_set", "cell", "n", "replicates"), PRIMARY_ROWS)
+def test_every_primary_row_is_sized_for_its_bias(
+    cell_set: str, cell: str, n: int, replicates: int
+) -> None:
+    bias, _ = projected(probe(cell_set, cell), n)
+    assert bias_pass_probability(bias, replicates) >= PRIMARY_PASS
+
+
+def test_the_sizing_rule_binds() -> None:
+    """The witness: at the earlier sizes, or at two folds, a primary row is likely red."""
+    worst = probe("s1:ipsi_folds_5", "ate_regimen[odds x0.5 vs natural course]")
+    assert bias_pass_probability(projected(worst, 24_000)[0], 1_000) < 0.5
+    two_folds = probe("s1:ipsi_folds_2", "ate_regimen[odds x0.5 vs natural course]")
+    assert bias_pass_probability(projected(two_folds, s1.PRIMARY_N)[0], 1_000) < PRIMARY_PASS
+    contrast = probe("s1:law_a", "interval_calibration/contrast_x2__correctly_specified")
+    assert calibrated_pass_probability(contrast, 4_000, 2_000) < 0.5
+
+
+@pytest.mark.parametrize("size", [size for size in p1.RATE_SIZES if size != min(p1.RATE_SIZES)])
+def test_every_positive_rung_is_sized_for_its_bias(size: int) -> None:
+    bias, _ = projected(probe("s1:ipsi_folds_5", X2), size)
+    assert bias_pass_probability(bias, p1.RATE_REPLICATES) >= PRIMARY_PASS
+
+
+CALIBRATION_CELLS = (
+    *(
+        (
+            f"s1:{p1.CALIBRATION_STREAM[label]}",
+            f"interval_calibration/{label}__correctly_specified",
+            p1.CALIBRATION_N,
+            p1.CALIBRATION_REPLICATES,
+        )
+        for label in p1.CALIBRATION_LABELS
+    ),
+    *(
+        (
+            f"s2:{stream}",
+            f"interval_calibration/{label}__correctly_specified",
+            p2.N,
+            p2.REPLICATES,
+        )
+        for stream, label in (
+            ("law_c", "dropout_contrast_x2"),
+            ("law_c", "msm_log_delta"),
+            ("law_c", "weighted_contrast_x0_5"),
+            ("law_dc", "competing_contrast_x2_h3"),
+        )
+    ),
+    # The survival label reads the band fit, which is the survival scenario's fit.
+    ("s2:survival_folds_5", "ate_regimen[odds x2 vs natural course @ t=3]", p2.N, p2.REPLICATES),
+)
+
+
+@pytest.mark.parametrize(("cell_set", "cell", "n", "replicates"), CALIBRATION_CELLS)
+def test_every_calibration_cell_is_sized_for_its_pass_probability(
+    cell_set: str, cell: str, n: int, replicates: int
+) -> None:
+    probability = calibrated_pass_probability(probe(cell_set, cell), n, replicates)
+    assert probability >= CALIBRATION_PASS, probability
 
 
 # ------------------------------------------------------------------- sized cells
@@ -295,7 +426,7 @@ def test_the_weight_is_informative() -> None:
     weighted = p2.TRUTH["weighted_contrast_x0_5"]
     plain = common.truth(law.LAW_C, s2.PLANS, p2.CONTRAST_X0_5)
     error = p2.EFFICIENCY_SD["weighted_contrast_x0_5"] / np.sqrt(p2.N)
-    assert abs(weighted - plain) / error == pytest.approx(3.9, abs=0.05)
+    assert abs(weighted - plain) / error == pytest.approx(5.46, abs=0.05)
     probs = law.LAW_C.probs
     first = law.LAW_C.axis_of("treatment", 1)
     axes = tuple(range(first + 1, probs.ndim))
@@ -329,7 +460,7 @@ def test_the_independent_unit_error_under_covers_the_clustered_law() -> None:
 def test_the_complete_case_limit_misses_the_truth() -> None:
     error = common.eif_sd(law.LAW_C, s2.PLANS, p2.MEAN_X2) / np.sqrt(p2.N)
     gap = (p2.COMPLETE_CASE_LIMIT - p2.COMPLETE_CASE_TRUTH) / error
-    assert gap == pytest.approx(2.5, abs=0.05)
+    assert gap == pytest.approx(3.58, abs=0.05)
 
 
 def test_the_survival_and_competing_targets_are_risks() -> None:
