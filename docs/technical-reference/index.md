@@ -65,6 +65,7 @@ cv-tmle
 collaborative-tmle
 dr-tmle/index
 longitudinal-tmle
+sequential-baselines
 msm-projections
 scope-and-refusals
 natural-extension-verdicts

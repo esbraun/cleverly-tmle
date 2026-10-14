@@ -216,8 +216,7 @@ not change the package version.
 | B1 | Targeting and fitting options | no new theory; each option keeps its default bit-identical | none | [X22](#x22-targeting-and-fitting-options) |
 | B2 | Continuous vector components at a node | published support; pending source read | shipped longitudinal modified treatment policies | [X31](#x31-continuous-vector-components-at-a-node) |
 | B2 | Continuous-policy validation and support checks | published support | shipped longitudinal modified treatment policies | [X40](#x40-continuous-policy-validation-and-support-checks) |
-| B3 | Sequential g-computation and IPW baselines | published support; pending source read | the shipped `LTMLE` plan resolution | [X41](#x41-sequential-g-computation-and-ipw-baselines) |
-| B3 | Applied tutorials for offers and pricing | no new theory | X40, X41 | [X42](#x42-applied-tutorials-for-offers-and-pricing) |
+| B3 | Applied tutorials for offers and pricing | no new theory | X40; the shipped `SequentialGComputation` and `SequentialIPW` | [X42](#x42-applied-tutorials-for-offers-and-pricing) |
 | B4 | Categorical incremental policies | natural extension candidate; source audit | the shipped binary `IPSI` estimator | [X43](#x43-categorical-incremental-policies) |
 | B4 | Repeated cross-fitting for longitudinal fits | published support; pending source read | the shipped point-treatment repeats and trajectory-level splits | [X46](#x46-repeated-cross-fitting-for-longitudinal-fits) |
 | BP | Repeated-outcome curves | published support for the incremental case; a fixed-dimension stack for static and dynamic plans | the shipped `IPSI` estimator | [X32](#x32-repeated-outcome-curves) |
@@ -226,8 +225,8 @@ not change the package version.
 | BP | Hazard-based and monotone survival curves | published support; pending source read | the shipped point-treatment survival design | [X14](#x14-hazard-based-and-monotone-survival-curves) |
 | BP | Plug-in omitted-variable limits with a declared parametric mechanism | [published support; stacked-equation extension](technical-reference/natural-extension-verdicts.md) | the shipped plug-in bound | [X26](#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism) |
 | B5 | Learned-policy follow-ups | published support for parts (g) and (h); published support; pending source read for parts (a), (b), (e) and (f); source audit for parts (c) and (d) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
-| B5 | Structural dynamic treatment effects | source audit | X41 | [X44](#x44-structural-dynamic-treatment-effects) |
-| B5 | Parametric forward-simulation g-formula | source audit | X41 | [X45](#x45-parametric-forward-simulation-g-formula) |
+| B5 | Structural dynamic treatment effects | source audit | the shipped `SequentialGComputation` and `SequentialIPW` | [X44](#x44-structural-dynamic-treatment-effects) |
+| B5 | Parametric forward-simulation g-formula | source audit | the shipped `SequentialGComputation` | [X45](#x45-parametric-forward-simulation-g-formula) |
 | after beta | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
 | after beta | Efficient known-score ATT and ATC | published support; pending source read | the shipped known treatment mechanism | [X35](#x35-efficient-known-score-att-and-atc) |
 | after beta | Natural and interventional mediation effects | published support; pending source read | target-specific identification and evidence | [X5](#x5-natural-and-interventional-mediation-effects) |
@@ -675,36 +674,6 @@ Acceptance:
   wrong-ratio controls;
 - learned-ratio studies beside oracle-ratio parity, with price-feedback confounding and several
   follow-up lengths.
-
-### X41. Sequential g-computation and IPW baselines
-
-`cleverly` has no longitudinal plug-in or inverse-probability-weighted estimator. This row adds
-sequential g-computation and IPW over the targets that `LTMLE` supports: static, dynamic, and
-known stochastic policies. They let a user compare model reliance and weight instability, and they
-verify policy semantics independently.
-
-Declare the IPW normalization, the treatment and censoring weights, and the uncertainty from
-nuisance estimation. An interval needs parametric nuisance models, with the stacked estimating
-equation or the bootstrap. With a data-adaptive learner, each baseline reports a point estimate
-only, under a status that withholds the interval.
-
-Do not copy the TMLE uncertainty into either
-baseline without justification.
-Do not describe longitudinal g-computation as one regression on every treatment and confounder.
-`stremr` fits static, dynamic, and stochastic regimes with categorical exposures from long-form
-input ([comparator survey](development/method-benchmarking.md#choose-the-comparator-before-you-write-the-runner)).
-Its long-form input matches `LongitudinalData.from_long_panel`. Use it for the overlapping cases, and audit its category-valued policy support before
-a multi-arm parity claim. For finite-category extensions, combine the
-established stochastic intervention argument with exact enumeration and independent influence
-function checks.
-
-Acceptance:
-
-- exact-law witnesses for both baselines, including a three-arm witness with nonzero mass on the
-  third arm;
-- a deterministic-policy reduction to the shipped regimen targets;
-- a registered study with a declared interval rule for each baseline, or a points-only status
-  where no interval contract applies.
 
 ### X42. Applied tutorials for offers and pricing
 

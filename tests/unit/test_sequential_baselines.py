@@ -273,7 +273,7 @@ def test_w3_the_policy_path_on_a_point_mass_is_the_regimen(
 
 
 def _draw_binary(n: int, seed: int, *, weighted: bool = True) -> pd.DataFrame:
-    """Law of ``reviews/x41/toy_curves.py``: continuous W and L2, binary nodes, censoring."""
+    """A toy law: continuous W and L2, binary nodes, censoring."""
     rng = np.random.default_rng(seed)
     w = rng.normal(size=n)
     a1 = rng.binomial(1, _expit(0.3 + 0.5 * w))

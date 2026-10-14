@@ -24,6 +24,9 @@ treatment plan followed at every node, by iterating a regression backward throug
 Reach for [point-treatment TMLE](point-treatment-tmle.md) when the exposure is measured once.
 Reach for [`IPSI`](#incremental-interventions-over-time) when the plan multiplies each node's odds of
 treatment.
+Reach for [`SequentialGComputation` and `SequentialIPW`](sequential-baselines.md) for the
+plug-in and weighting baselines of the same target. Their intervals hold only under correctly
+specified `GLM` models.
 Collaborative TMLE and DR-TMLE have no longitudinal derivation, and `available_methods()` says so
 before any model is fitted.
 
