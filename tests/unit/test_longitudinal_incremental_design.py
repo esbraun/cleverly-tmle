@@ -5,7 +5,7 @@ Every number here was fixed before any registered run.
 * Every truth is a finite sum on an exact law.  Law ``C`` is law ``A`` with dropout at random
   given the history, so every plan value of ``C`` with dropout prevented is the value on ``A``.
 * The fallback-read bias bound is below 0.1 standard errors in every declared positive cell
-  (``X19-plan.md`` 6.2).  It raised the S1 ``single_robustness`` pair to 6,000 and 24,000.
+  (``X19-plan.md`` 6.2).
 * The sizing rule.  The five-fold contrasts carry a second-order bias of order 1/n, and the
   SE ratio sits a little below one at moderate n.  The sizing probe
   (``tests/diagnostics/x19_sizing/``) measured both for every gated cell at n = 8,000.
@@ -100,7 +100,7 @@ def test_the_declared_numbers() -> None:
     }
     assert s1.PAIRING_GATE == 1e-10
     assert s1.STUDY.reference == "npcausal" and s2.STUDY.reference is None
-    assert p1.REQUIREMENT_SIZES == (6_000, 24_000)
+    assert p1.REQUIREMENT_SIZES == (48_000, 96_000)
     assert p1.EFFICIENCY_RATIO_BAND == p2.EFFICIENCY_RATIO_BAND == (0.90, 1.10)
     assert (p1.CALIBRATION_N, p1.CALIBRATION_REPLICATES) == (48_000, 3_000)
     assert (p1.RATE_SIZES, p1.RATE_REPLICATES) == ((24_000, 64_000, 96_000), 1_000)
@@ -488,17 +488,35 @@ def test_the_rate_cells_are_sized_at_their_declared_sizes() -> None:
     assert robust.covered - control.covered > CLUSTERED_COVERAGE_GAIN + 0.1
 
 
+#: The sizes the ``single_robustness`` probe read (``tests/diagnostics/x19_sizing``).
+REQUIREMENT_PROBE_SIZES = (6_000, 24_000)
+
+
+def _requirement_probe(size: int, cell: str) -> Any:
+    return probe(f"s1:outcome_linear__n_{size}", cell)
+
+
 def test_the_single_robustness_pair_is_sized_at_its_declared_sizes() -> None:
-    """Both sizes pass bias equivalence together, from the probe at the declared sizes."""
+    """Both sizes pass bias equivalence together, at the larger of the two projections.
+
+    The remainder is second order, so the bias is projected as the other gated cells are.  The
+    probe reads 0.20 at n = 6,000 and 0.11 at 24,000, so 24,000 would fail.
+    """
     probability = 1.0
     for size in p1.REQUIREMENT_SIZES:
-        row = probe(
-            f"s1:outcome_linear__n_{size}",
-            f"single_robustness/contrast_x2__mechanism_correct__n_{size}",
+        bias = max(
+            projected(
+                _requirement_probe(
+                    probed, f"single_robustness/contrast_x2__mechanism_correct__n_{probed}"
+                ),
+                size,
+            )[0]
+            for probed in REQUIREMENT_PROBE_SIZES
         )
-        bias = abs(row.standardized_bias) + row.mcse
         probability *= bias_pass_probability(bias, p1.REQUIREMENT_REPLICATES)
     assert probability >= PRIMARY_PASS
+    probed = _requirement_probe(24_000, "single_robustness/contrast_x2__mechanism_correct__n_24000")
+    assert bias_pass_probability(projected(probed, 24_000)[0], 1_000) < PRIMARY_PASS
 
 
 def test_the_robustness_fits_exercise_the_mechanism_term() -> None:
@@ -506,21 +524,17 @@ def test_the_robustness_fits_exercise_the_mechanism_term() -> None:
 
     A constant regression makes every plan's regression the same mean, so the plug-in
     contrast is exactly zero and the mechanism term vanishes.  The linear one is
-    misspecified, so the targeting control has a bias to show.
+    misspecified, so the targeting control has a bias to show.  The probe reads the pair at
+    n = 24,000.  The plug-in's bias is a fixed misspecification, so its displacement in
+    standard deviations grows as :math:`\\sqrt n` to the declared size.
     """
-    size = p1.REQUIREMENT_SIZES[1]
-    one_step = probe(f"s1:outcome_linear__n_{size}", "targeting_necessity/contrast_x2__one_step")
-    plug_in = probe(f"s1:outcome_linear__n_{size}", "targeting_necessity/contrast_x2__plug_in")
-    spread = one_step.bias_se * np.sqrt(one_step.replicates)
-    displacement = abs(plug_in.bias - one_step.bias) / spread
-    assert displacement - 2.0 * one_step.mcse >= p1.TARGETING_DISPLACEMENT
+    one_step = _requirement_probe(24_000, "targeting_necessity/contrast_x2__one_step")
+    plug_in = _requirement_probe(24_000, "targeting_necessity/contrast_x2__plug_in")
     assert plug_in.bias_se > 0.0
-    assert (
-        bias_pass_probability(
-            abs(one_step.standardized_bias) + one_step.mcse, p1.REQUIREMENT_REPLICATES
-        )
-        >= PRIMARY_PASS
-    )
+    spread = one_step.bias_se * np.sqrt(one_step.replicates)
+    displacement = (abs(plug_in.bias - one_step.bias) - 2.0 * plug_in.bias_se) / spread
+    assert displacement >= p1.TARGETING_DISPLACEMENT
+    assert displacement * np.sqrt(p1.REQUIREMENT_SIZES[1] / 24_000) >= 3 * p1.TARGETING_DISPLACEMENT
 
 
 def test_the_power_cell_is_sized_on_the_exact_law() -> None:

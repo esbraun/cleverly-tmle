@@ -2335,13 +2335,13 @@ CELLS.update(
             "removed from the curve",
             "the SE-ratio interval must fall below the calibration band",
         ),
-        ("single_robustness", "mechanism_correct__n_6000"): (
-            "cell-mean treatment mechanism and linear outcome regressions, at n = 6,000",
-            "bias inside the margin at n = 6,000 and at n = 24,000",
+        ("single_robustness", "mechanism_correct__n_48000"): (
+            "cell-mean treatment mechanism and linear outcome regressions, at n = 48,000",
+            "bias inside the margin at n = 48,000 and at n = 96,000",
         ),
-        ("single_robustness", "mechanism_correct__n_24000"): (
-            "cell-mean treatment mechanism and linear outcome regressions, at n = 24,000",
-            "bias inside the margin at n = 6,000 and at n = 24,000",
+        ("single_robustness", "mechanism_correct__n_96000"): (
+            "cell-mean treatment mechanism and linear outcome regressions, at n = 96,000",
+            "bias inside the margin at n = 48,000 and at n = 96,000",
         ),
         ("single_robustness", "mechanism_constant"): (
             "constant treatment mechanism and cell-mean outcome regressions, beside the "

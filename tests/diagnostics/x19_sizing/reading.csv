@@ -12,19 +12,19 @@ s1:ipsi_folds_5,ate_regimen[odds x2 vs natural course],8000,600,0.266441,0.04082
 s1:ipsi_folds_5,ey_regimen[natural course],8000,600,0.025982,0.0408248,1.01044,0.963333,,,0.000682921,0.00107306
 s1:ipsi_folds_5,ey_regimen[odds x0.5],8000,600,-0.074345,0.0408248,1.01533,0.958333,,,-0.00190256,0.00104475
 s1:ipsi_folds_5,ey_regimen[odds x2],8000,600,0.135746,0.0408248,0.986138,0.943333,,,0.00362844,0.00109123
-s1:law_a,interval_calibration/contrast_x2__correctly_specified,8000,600,0.202973,0.0408248,0.968824,0.928333,,,0.00219637,0.000441765
-s1:law_a,interval_calibration/contrast_x2_in_sample__correctly_specified,8000,600,-0.177477,0.0408248,0.963987,0.94,,,-0.00192332,0.000442419
-s1:law_a,interval_calibration/known_x2__correctly_specified,8000,600,0.010376,0.0408248,0.972135,0.931667,,,0.000192162,0.000756071
-s1:law_a,interval_calibration/mean_x2__correctly_specified,8000,600,0.0736709,0.0408248,0.979863,0.94,,,0.00198165,0.00109813
-s1:law_a,mechanism_term_necessity/contrast_x2__full_eif,8000,600,0.202973,0.0408248,0.968824,0.928333,,,0.00219637,0.000441765
-s1:law_a,mechanism_term_necessity/contrast_x2__mechanism_term_dropped,8000,600,0.202973,0.0408248,0.953849,0.925,,,0.00219637,0.000441765
+s1:law_a,interval_calibration/contrast_x2__correctly_specified,8000,600,0.202973,0.0408248,0.968824,0.928333,0.928333,1,0.00219637,0.000441765
+s1:law_a,interval_calibration/contrast_x2_in_sample__correctly_specified,8000,600,-0.177477,0.0408248,0.963987,0.94,0.94,1,-0.00192332,0.000442419
+s1:law_a,interval_calibration/known_x2__correctly_specified,8000,600,0.010376,0.0408248,0.972135,0.931667,0.931667,1,0.000192162,0.000756071
+s1:law_a,interval_calibration/mean_x2__correctly_specified,8000,600,0.0736709,0.0408248,0.979863,0.94,0.94,1,0.00198165,0.00109813
+s1:law_a,mechanism_term_necessity/contrast_x2__full_eif,8000,600,0.202973,0.0408248,0.968824,0.928333,0.928333,1,0.00219637,0.000441765
+s1:law_a,mechanism_term_necessity/contrast_x2__mechanism_term_dropped,8000,600,0.202973,0.0408248,0.75852,0.86,0.86,1,0.00219637,0.000441765
 s1:law_a_mixed,interval_calibration/per_node__correctly_specified,8000,600,0.00229242,0.0408248,0.984716,0.945,,,6.79075e-05,0.00120934
 s1:law_a_mixed,interval_calibration/tilt_then_static__correctly_specified,8000,600,0.00179581,0.0408248,0.97237,0.93,,,4.45161e-05,0.001012
 s1:law_ax,interval_calibration/no_positivity__correctly_specified,8000,600,0.0547639,0.0408248,0.987575,0.945,,,0.000222418,0.000165806
-s1:outcome_constant__n_24000,single_robustness/contrast_x2__mechanism_correct__n_24000,24000,1000,0.00804208,0.0316228,1.44741,0.994,0.994,1,4.76851e-05,0.000187506
-s1:outcome_constant__n_24000,targeting_necessity/contrast_x2__one_step,24000,1000,0.00804208,0.0316228,1.44741,0.994,0.994,1,4.76851e-05,0.000187506
-s1:outcome_constant__n_24000,targeting_necessity/contrast_x2__plug_in,24000,1000,-9.16841e+14,0.0316228,7.91519e+12,0,0,0,-0.994121,3.46162e-17
-s1:outcome_constant__n_6000,single_robustness/contrast_x2__mechanism_correct__n_6000,6000,1000,0.00254318,0.0316228,1.41665,0.995,0.995,1,3.09008e-05,0.000384231
+s1:outcome_linear__n_24000,single_robustness/contrast_x2__mechanism_correct__n_24000,24000,1000,0.106441,0.0316228,1.01729,0.955,0.955,1,0.00063072,0.000187383
+s1:outcome_linear__n_24000,targeting_necessity/contrast_x2__one_step,24000,1000,0.106441,0.0316228,1.01729,0.955,0.955,1,0.00063072,0.000187383
+s1:outcome_linear__n_24000,targeting_necessity/contrast_x2__plug_in,24000,1000,-0.367447,0.0316228,1.04814,0.949,0.949,1,-0.00211325,0.000181867
+s1:outcome_linear__n_6000,single_robustness/contrast_x2__mechanism_correct__n_6000,6000,1000,0.200392,0.0316228,0.99531,0.938,0.938,1,0.00243829,0.000384774
 s1:sharp_null,type_i_error/contrast_x2__sharp_null,4000,1000,0.0416983,0.0316228,1.00366,0.954,0.954,0.046,0.000421152,0.000319389
 s2:band,interval_calibration/survival_contrast_x2_h3__correctly_specified,16000,1000,-0.0443509,0.0316228,0.983446,0.949,0.949,0.991,-9.73239e-05,6.93932e-05
 s2:band,interval_calibration/survival_contrast_x2_h3_in_sample__correctly_specified,16000,1000,-0.0285449,0.0316228,0.98249,0.954,0.954,0.991,-6.24027e-05,6.91313e-05

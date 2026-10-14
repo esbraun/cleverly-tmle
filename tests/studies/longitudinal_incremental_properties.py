@@ -24,8 +24,8 @@ family                          cells, replications and size
                                 curve without the mechanism term, on the outcome's own scale
                                 (control)
 ``single_robustness``           linear (misspecified) regressions and the mechanism right at
-                                n = 6,000 and 24,000 (positive); the mechanism constant and the
-                                regressions right at n = 6,000 (no verdict); 1,000 each
+                                n = 48,000 and 96,000 (positive); the mechanism constant and the
+                                regressions right at n = 48,000 (no verdict); 1,000 each
 ``targeting_necessity``         the n = 24,000 draws of ``single_robustness``: the one-step
                                 estimate, and the plug-in mean of the first-node regression
                                 (control)
@@ -65,7 +65,9 @@ n = 24,000.  The study keeps 48,000, which cuts the projected bias by a factor o
 power cell's rejection rate
 reads 0.855 at n = 4,000 against an exact-law power of 0.882.  One Monte Carlo SE below that
 rate, it clears the power rule with probability 0.84 at 1,000 replications and 0.995 at 2,000,
-so the null and power cells run 2,000 each.
+so the null and power cells run 2,000 each.  The ``single_robustness`` probe reads
+standardized biases of 0.20 at n = 6,000 and 0.11 at 24,000, so 24,000 would fail.  Projected
+to 48,000 and 96,000, the pair passes with probability at least 0.95.
 
 **Rules.**  ``interval_calibration``, ``root_n_and_efficiency``, ``root_n_rate``,
 ``type_i_error``, ``power`` and ``simultaneous_coverage`` read the shared verdicts.
@@ -133,7 +135,7 @@ NULL_N = 4_000
 BAND_REPLICATES = 2_000
 BAND_N = 5_000
 REQUIREMENT_REPLICATES = 1_000
-REQUIREMENT_SIZES = (6_000, 24_000)
+REQUIREMENT_SIZES = (48_000, 96_000)
 EFFICIENCY_RATIO_BAND = (0.90, 1.10)
 SHRUNKEN_SE_FACTOR = 0.70
 TARGETING_DISPLACEMENT = 0.25

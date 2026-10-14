@@ -109,8 +109,8 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     ),
     "mechanism_term_necessity": ("contrast_x2__full_eif", "contrast_x2__mechanism_term_dropped"),
     "single_robustness": (
-        "contrast_x2__mechanism_correct__n_6000",
-        "contrast_x2__mechanism_correct__n_24000",
+        "contrast_x2__mechanism_correct__n_48000",
+        "contrast_x2__mechanism_correct__n_96000",
         "contrast_x2__mechanism_constant",
     ),
     "targeting_necessity": ("contrast_x2__one_step", "contrast_x2__plug_in"),

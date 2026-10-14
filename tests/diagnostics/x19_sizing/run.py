@@ -55,6 +55,9 @@ HERE = Path(__file__).resolve().parent
 N = 8_000
 COMPETING_N = p2.COMPETING_N
 SEED_BASE = 9_700_000
+#: The sizes the ``single_robustness`` probe read.  The declared sizes are larger; the design
+#: test projects these readings to them.
+REQUIREMENT_PROBE_SIZES = (6_000, 24_000)
 
 #: ``set: (index, study, kind, key, n, replicates)``: a primary scenario or a property fit set.
 #: The index fixes the seed stream.
@@ -81,7 +84,7 @@ SETS: dict[str, tuple[int, str, str, str, int, int]] = {
             size,
             1_000,
         )
-        for index, size in enumerate(p1.REQUIREMENT_SIZES, start=12)
+        for index, size in enumerate(REQUIREMENT_PROBE_SIZES, start=12)
     },
     "s1:band": (14, "s1", "band", p1.BAND_LABEL, p1.BAND_N, 1_000),
     "s2:band": (15, "s2", "band", p2.BAND_LABEL, p2.N, 1_000),
@@ -123,6 +126,12 @@ def _fit(name: str, replicate: int) -> list[dict[str, Any]]:
         properties._seed = lambda *_: seed  # type: ignore[attr-defined]
         if kind == "band":
             rows = properties._band_rows((replicate, 1))
+        elif kind == "fit_set" and key.startswith("outcome_linear"):
+            # The probe sizes are not declared, so the fit set is named here; the targeting
+            # rows ride the larger probe size.
+            p1.REQUIREMENT_SIZES = REQUIREMENT_PROBE_SIZES
+            payload = ("single_robustness", key, "outcome_linear", replicate, n, 1, "requirement")
+            rows = p1._fit_set_rows(payload)
         elif kind == "fit_set":
             (family, label, configuration, _, _, law_name) = next(
                 entry for entry in p1.FIT_SETS if entry[1] == key
