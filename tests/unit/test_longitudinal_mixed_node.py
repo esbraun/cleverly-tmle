@@ -19,6 +19,7 @@ of plan section 10.6 and the refusals follow.  The mutation controls are in
 from __future__ import annotations
 
 import ast
+import contextlib
 import warnings
 from functools import cache
 from itertools import pairwise
@@ -866,3 +867,63 @@ def test_a_restricted_mechanism_trains_a_mixed_node_on_its_fold_rows(ratio: str)
     if ratio == "density":
         for key, density in restricted.densities.items():
             np.testing.assert_array_equal(density.edges, everyone.densities[key].edges)
+
+
+# ------------------------------------------------------------------ SDR (review MEDIUM-2)
+
+
+def _sdr_fit(ratio: str, *, copies: int = 1, monkeypatch: Any = None) -> Any:
+    """SDR at both mixed nodes of the exact law, with ``copies`` copies of the frame.
+
+    With two copies, fold ``k`` holds copy ``k``, so each training complement is one exact
+    copy of the law: the training-fold mechanism (``fit_rows``) and the out-of-fold
+    predictions are then exact too.
+    """
+    from cleverly.learners import Folds
+
+    frame = pd.concat([law.mixed_frame("end")] * copies, ignore_index=True)
+    configuration = settings(ratio=ratio, n_folds=copies)
+    configuration.pop("simultaneous")
+    if copies > 1:
+        size = len(frame) // copies
+        assignment = np.repeat(np.arange(copies), size)
+        monkeypatch.setattr(SDR, "_folds", lambda self, data: Folds(assignment, copies))
+    exact = mtp.exact_bins() if ratio == "density" else contextlib.nullcontext()
+    with warnings.catch_warnings(), exact:
+        warnings.simplefilter("ignore")
+        return SDR(mtp.mixed_regimens(LABELS), reference=LABELS[0], **configuration).fit(
+            frame, **COLUMNS
+        )
+
+
+def sdr_deviation(result: Any, copies: int = 1) -> float:
+    """The largest error of an SDR mean, or of its curve on any copy of the exact frame."""
+    size = len(law.mixed_frame("end"))
+    rows = law.mixed_first_row_of("end")
+    worst = 0.0
+    for name, label, horizon in names(LABELS):
+        worst = max(worst, abs(result.psi(name) - law.mixed_truth(label, "end", horizon)))
+        eif = law.mixed_eif(label, "end", horizon)
+        for copy in range(copies):
+            curve = result.influence_curves[name][copy * size + rows]
+            worst = max(worst, float(np.max(np.abs(curve - eif))))
+    return worst
+
+
+@pytest.mark.parametrize("ratio", ["classifier", "density"])
+def test_sdr_at_both_mixed_nodes_equals_the_g_formula_and_its_gateaux_derivative(
+    ratio: str,
+) -> None:
+    """SDR reads the same mixed-node ratio as LTMLE, on both routes, in sample."""
+    result = _sdr_fit(ratio)
+    assert [result.data.node_kind(time) for time in (1, 2)] == ["mixed", "mixed"]
+    assert sdr_deviation(result) < EXACT
+
+
+@pytest.mark.parametrize("ratio", ["classifier", "density"])
+def test_cross_fitted_sdr_at_mixed_nodes_is_exact_when_each_fold_is_the_law(
+    ratio: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two folds, each one exact copy: the training-fold recursion reads ``fit_rows``."""
+    result = _sdr_fit(ratio, copies=2, monkeypatch=monkeypatch)
+    assert sdr_deviation(result, copies=2) < EXACT

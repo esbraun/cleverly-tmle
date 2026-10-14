@@ -18,6 +18,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from cleverly.interventions import joint_density
 from cleverly.interventions import policy as policy_module
 from cleverly.longitudinal import LTMLE, sequential
 from cleverly.longitudinal import data as data_module
@@ -26,7 +27,16 @@ from cleverly.longitudinal.data import LongitudinalData
 from .. import discrete_law_longitudinal_mtp as law
 from .. import longitudinal_mtp as mtp
 from ._source_mutation import mutate
-from .test_longitudinal_mixed_node import COLUMNS, EXACT, LABELS, deviation, fit, settings
+from .test_longitudinal_mixed_node import (
+    COLUMNS,
+    EXACT,
+    LABELS,
+    _sdr_fit,
+    deviation,
+    fit,
+    sdr_deviation,
+    settings,
+)
 
 pytestmark = pytest.mark.xdist_group("longitudinal_mixed_node_mutations")
 
@@ -217,3 +227,31 @@ def test_w8_a_misspecified_fit_targets_and_solves_its_score(folds: int) -> None:
         assert all(step.fluctuation.converged for step in steps), label
         curve = result.influence_curves[f"ey_regimen[{label}]"]
         assert abs(float(np.mean(curve))) < 1e-10, label
+
+
+# ------------------------------------------------------------------ SDR (review MEDIUM-2)
+
+
+@pytest.mark.parametrize("copies", [1, 2])
+def test_m1_sdr_a_classifier_without_the_flag_is_caught(
+    monkeypatch: pytest.MonkeyPatch, copies: int
+) -> None:
+    """The SDR witness sees the classifier route's mixed ratio, in sample and cross-fitted."""
+    mutate(monkeypatch, sequential, sequential, "_mixed_node_ratios", _both("[:, 1:]"))
+    result = _sdr_fit("classifier", copies=copies, monkeypatch=monkeypatch)
+    assert sdr_deviation(result, copies) > CAUGHT
+
+
+@pytest.mark.parametrize("copies", [1, 2])
+def test_m11_sdr_the_preimage_sum_cut_to_the_value_cell_is_caught(
+    monkeypatch: pytest.MonkeyPatch, copies: int
+) -> None:
+    """The SDR witness sees the density route's sum over candidate cells."""
+    edit = (
+        "hit = valid & np.all(image == target_codes, axis=1)",
+        "hit = valid & np.all(image == target_codes, axis=1) "
+        "& np.all(cell_codes == target_codes, axis=1)",
+    )
+    mutate(monkeypatch, joint_density, joint_density, "_enumerate", [edit])
+    result = _sdr_fit("density", copies=copies, monkeypatch=monkeypatch)
+    assert sdr_deviation(result, copies) > CAUGHT
