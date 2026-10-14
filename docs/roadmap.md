@@ -422,6 +422,11 @@ strongest feasible comparison and state its scope. A comparison is acceptance ev
 claims it covers. [RM42](#rm42-acceptance-status-and-refusal-reasons) part (e) adds the
 comparator-backed label to the evidence pages.
 
+A planned comparator run that has not finished does not block a method either. The method ships
+when its Python studies pass with their expected properties. Until the run finishes, the evidence
+names the property studies and labels the comparator run as pending. A later change registers the
+comparator results and fixes each defect that they show.
+
 | comparison | appropriate use | claim it supports |
 | --- | --- | --- |
 | matching implementation | the same target, and an aligned algorithm and settings | numerical parity within declared tolerances |
