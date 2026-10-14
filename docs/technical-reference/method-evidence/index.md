@@ -88,6 +88,7 @@ cross-fitted-point-treatment-survival
 point-treatment-survival-policies
 known-treatment-mechanism
 known-mechanism-dr-tmle
+dr-tmle-one-inconsistent-nuisance
 known-node-mechanisms-ltmle
 omitted-variable-bound-standard-error
 calibration-slope-warning

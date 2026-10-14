@@ -17,9 +17,13 @@ section of `CLAUDE.md` states the rule.
 This file lists open work only. A delivered row leaves the file. Code comments and evidence pages
 still name delivered rows, RM8 to RM33, by their IDs.
 [The roadmap at commit `4ce96cda`](https://github.com/esbraun/cleverly-tmle/blob/4ce96cda2bda93ba9233026977e3ff63ea3e0003/docs/roadmap.md)
-holds the record of each one. The natural-extension review left the file when it was
+holds the record of each one.
+
+The natural-extension review left the file when it was
 complete. [The roadmap at commit `6a55f038`](https://github.com/esbraun/cleverly-tmle/blob/6a55f0388b703765eab79c78efec82474e67ab8e/docs/roadmap.md#x18-natural-extension-reviews)
 holds its questions, and the [natural-extension verdicts](technical-reference/natural-extension-verdicts.md) hold its answers.
+[The roadmap at commit `287a1fb5`](https://github.com/esbraun/cleverly-tmle/blob/287a1fb5385ad2cc0faa75e05672a3233012c236/docs/roadmap.md#rm40-correct-the-dr-tmle-inference-claim-when-one-nuisance-is-wrong)
+holds the record of RM40, the DR-TMLE one-wrong inference correction.
 
 ## Remediation
 
@@ -36,9 +40,9 @@ A new capability still needs its own contract and evidence, even in this queue.
 | priority | item | tier | acceptance |
 | ---: | --- | --- | --- |
 | 0.1 | RM39. Keep a study run alive through a failed replicate | b | the contract in [RM39](#rm39-keep-a-study-run-alive-through-a-failed-replicate), its tests, and passing handoff checks |
-| 0.2 | RM40. Correct the DR-TMLE inference claim when one nuisance is wrong | a | the contract in [RM40](#rm40-correct-the-dr-tmle-inference-claim-when-one-nuisance-is-wrong), its tests, the witness study, and passing handoff checks |
+| 0.2 | RM41. Find the DR-TMLE bias with an in-sample flexible mechanism | a | the contract in [RM41](#rm41-find-the-dr-tmle-bias-with-an-in-sample-flexible-mechanism), its tests, and passing handoff checks |
 
-RM39 keeps 0.1 by user decision, although RM40's tier ranks higher.
+RM39 keeps 0.1 by user decision, although RM41's tier ranks higher.
 
 ### RM39. Keep a study run alive through a failed replicate
 
@@ -118,36 +122,31 @@ limits that case.
 | the phase records only `DataError`, `LongitudinalError`, `numpy.linalg.LinAlgError`, `FloatingPointError`, `ZeroDivisionError`, `OverflowError`, and a plain `ValueError` or `RuntimeError` that `numpy`, `scipy`, `sklearn` or `statsmodels` raised |
 | the Python phase uses the part a1 resume key |
 
-### RM40. Correct the DR-TMLE inference claim when one nuisance is wrong
+### RM41. Find the DR-TMLE bias with an in-sample flexible mechanism
 
-The DR-TMLE contract stated that the interval stays valid when only one of the two nuisances is
-consistent. Theorem 1 of Benkeser et al. (2017) does not give that claim. Its remainder conditions
-include two conditioning terms, `R_{3,n}` and `R̃_{5,n}`. Each term is linear in the error of the
-consistent nuisance. The paper's sufficient rates do not make either term negligible when the
-other nuisance is wrong.
+Status: open. A plan is needed.
 
-The proof of Theorem 1 of Díaz and van der Laan (2017) has the same step on the randomized
-missing-outcome route, and the composite route applies Benkeser et al. (2017). A known treatment
-mechanism does not remove the term on the missing-outcome route, because the observation mechanism
-is estimated. The [contract](technical-reference/dr-tmle/theorem.md#the-conditioning-terms-are-linear-in-one-error) now gives the cases for all three routes.
+The RM40 witness study measured constructed nuisance errors only. Its pre-declaration probe,
+`reviews/rm40/hgb_diagnosis.py`, fitted the mechanism in sample with gradient boosting and fitted
+a wrong outcome regression on law L. The table gives the result from `reviews/rm40/hgb_diagnosis.log`.
 
-No registered study's verdict can detect the term. The canonical law is symmetric, so the term
-vanishes on it. The missing-data studies give the consistent nuisance as an exact law table. The
-row takes tier a, because the documented interval had no derivation for a data-adaptive learner.
-The status stays `influence_curve` on every route. A fit cannot tell which case it is in, and the
-interval is valid when both nuisances are consistent at the product rates.
+| fit | ATE bias in SD at n = 1,000, 4,000, 16,000 | ATE coverage at n = 1,000, 4,000, 16,000 |
+| --- | --- | --- |
+| `DRTMLE`, wrong outcome regression | −1.35, −2.37, −2.54 | 0.66, 0.38, 0.41 |
+| `DRTMLE`, correct outcome regression | −0.00, +0.05, −0.06 | 0.84, 0.94, 0.95 |
+| plain TMLE, the same mechanism and wrong outcome regression | −0.08, +0.25, +0.33 | 0.96, 0.97, 0.98 |
 
-| part | PR | acceptance | status |
-| --- | --- | --- | --- |
-| (a) the contract | RM40a | the theorem page states both identities, the case table and the projection derivation. Every DR-TMLE page, docstring, runtime message and notebook claim matches the case table | delivered |
-| (b) the source | RM40a | the Benkeser et al. (2017) entry records the one-wrong claim and the sufficient rates as a source defect, with locators a reviewer read | delivered |
-| (c) the composite and missing-data routes | RM40a | the composite contract carries the correction. The randomized missing-outcome contract carries it too, and the Díaz and van der Laan (2017) entry records the equation (21) proof step as a source defect, with locators a reviewer read. The pages of results that inherit a DR-TMLE interval state the limit | delivered |
-| (d) a nonzero witness | RM40a | an exact-law test ties the true mechanism, splits the tie with the estimate, and shows a nonzero conditioning term that is linear in the split. Controls make it vanish | delivered |
-| (e) the symmetry | RM40a | a test pins that the canonical law is H1 in both branches, and that law L is not | delivered |
-| (f) inference status | RM40a | no status changes. A fit cannot tell which case it is in, and the both-consistent interval is valid | delivered |
-| (g) the archived shortfall | RM40a, RM40b | RM40a withdraws the second-order attribution. RM40b replaces it by a committed probe's outcome, under a bias-only rule fixed before the probe runs | RM40a half delivered |
-| (h) a witness study | RM40b | a registered `reporting` study on a law where neither term vanishes: conservative cells with a correct parametric mechanism, a known-mechanism cell on the same draws, two controls that must fail with a bias of the predicted sign that grows with n, and a missing-outcome control with a known treatment mechanism and a slow observation mechanism | open |
-| (i) the tutorial | RM40b | the DR-TMLE tutorial shows a case the contract establishes, re-executed | open |
+The case table calls a data-adaptive mechanism "not established", so no contract claims this
+interval. The conditioning-term proxy predicts −0.75 to −0.93 SD, so the term does not explain the
+bias. The probe's exact split puts it in the own-row term of the outcome targeting step. The row
+takes tier a, because the interval is anti-conservative and worse than plain TMLE with the same
+learners.
+
+| acceptance |
+| --- |
+| a committed diagnosis names the cause and states whether it is a defect of the code or of the method |
+| a defect of the code is fixed, with a test that fails before the fix |
+| a property of the method is stated on the [theorem page](technical-reference/dr-tmle/theorem.md), with the measured numbers |
 
 Each row takes a tier by the harm that its defect does to a user today. The table gives the tiers,
 from the most harmful. Inside a tier, a row with a wider reach comes first. A row that another row
@@ -155,7 +154,7 @@ depends on comes before that row.
 
 | tier | reason | rows |
 | --- | --- | --- |
-| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM40 |
+| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM41 |
 | b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | RM39 |
 | c | a correct refusal that arrives late or as the wrong type | no open row |
 | d | a diagnostic or a warning that misleads | no open row |
