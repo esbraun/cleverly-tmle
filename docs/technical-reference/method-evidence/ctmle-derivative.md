@@ -1,6 +1,6 @@
-# CTMLE derivative
+# C-TMLE0 derivative covariate
 
-This study validates `CTMLE(strategy="derivative")`, which is C-TMLE0. One TMLE update adds, for
+This study validates C-TMLE0, `CTMLE(strategy="derivative")`. One TMLE update adds, for
 each arm, the derivative of the clever covariate along the lasso penalty. The canonical comparison
 uses R [`ctmle`](https://github.com/jucheng1992/ctmle) 0.1.2 at pinned commit
 [`18de559`](https://github.com/jucheng1992/ctmle/tree/18de559f47dc1286617350a0668391e80e1dbf7c),
