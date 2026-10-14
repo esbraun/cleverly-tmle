@@ -480,6 +480,16 @@ def _dose_gated(k: int) -> int:
     return _index(f, min(d + 1, 2) if f == 1 else d)
 
 
+def _flag_reads_dose(k: int) -> int:
+    """W18: the flag goes to one where the **natural** dose is at least one; the dose rises.
+
+    The categorical map reads a dose that the policy moves, so its preimage indicator is
+    evaluated at the preimage of the dose.
+    """
+    f, d = MIXED_CELLS[k]
+    return _index(1 if d >= 1 else f, min(d + 1, 2))
+
+
 def _mixed_map(assign: Callable[[int], int]) -> tuple[tuple[int, ...], ...]:
     return tuple(tuple(assign(k) for k in range(6)) for _ in range(2))
 
@@ -491,6 +501,7 @@ MIXED_POLICIES: dict[str, Branches] = {
     "flag gated": ((1.0, _mixed_map(_flag_gated)),),
     "flag gated (shifted flag)": ((1.0, _mixed_map(_flag_gated_shifted)),),
     "dose gated": ((1.0, _mixed_map(_dose_gated)),),
+    "flag reads dose": ((1.0, _mixed_map(_flag_reads_dose)),),
     "random": ((0.25, _mixed_map(_up)), (0.75, _mixed_map(lambda k: k))),
     # The static intervention that sets every unit to ``(f, d) = (1, 2)``: its mean is
     # ``E[Y(1, 2)]``, the ``ey`` of that tuple level on an all-categorical reading.

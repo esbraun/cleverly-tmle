@@ -607,6 +607,12 @@ def _dose_gated(k: int) -> int:
     return _index_of(f, min(d + 1, 2) if f == 1 else d)
 
 
+def _flag_reads_dose(k: int) -> int:
+    """W18: the flag goes to one where the **natural** dose is at least one; the dose rises."""
+    f, d = MIXED_CELLS[k]
+    return _index_of(1 if d >= 1 else f, min(d + 1, 2))
+
+
 def _node_pair(assign: Any) -> tuple[Branches, Branches]:
     return (
         ((1.0, _mixed1(lambda w, k: assign(k))),),
@@ -621,6 +627,7 @@ MIXED_PLANS: dict[str, tuple[Branches, Branches]] = {
     "flag gated": _node_pair(_flag_gated),
     "flag gated (shifted flag)": _node_pair(_flag_gated_shifted),
     "dose gated": _node_pair(_dose_gated),
+    "flag reads dose": _node_pair(_flag_reads_dose),
     "random": (
         ((0.25, _mixed1(lambda w, k: _up(k))), (0.75, _mixed1(lambda w, k: k))),
         ((0.25, _mixed2(lambda w, k1, l2, k: _up(k))), (0.75, _mixed2(lambda w, k1, l2, k: k))),

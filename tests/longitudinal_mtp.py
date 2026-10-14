@@ -177,6 +177,15 @@ def _set_flag(a: Any, h: Any) -> np.ndarray:
     return np.ones(len(a))
 
 
+def _flag_if_dosed(dose: str) -> Any:
+    """A flag map that reads the natural dose: one where the dose is at least one."""
+
+    def assign(a: Any, h: Any) -> np.ndarray:
+        return np.where(np.asarray(h[dose], dtype=float) >= 1.0, 1, np.asarray(a))
+
+    return assign
+
+
 def _flagged_boundary(flag: str) -> Any:
     def boundary(h: Any) -> np.ndarray:
         return np.where(np.asarray(h[flag], dtype=float) == 1.0, MIXED_TOP - 0.5, -INF)
@@ -215,6 +224,26 @@ def _joint(label: str, time: int) -> JointPolicy:
         )
     if label == "dose gated":
         return JointPolicy(label, components={dose: _up_if_flagged(flag)}, policy_kind="known")
+    if label == "flag set, dose up":
+        # W17: the truth is the "flag gated (shifted flag)" plan, with the top dose held by
+        # the cap, an identity piece that the joint density reads explicitly.
+        return JointPolicy(
+            label,
+            components={
+                flag: ModifiedPolicy("flag", apply=_set_flag, policy_kind="known"),
+                dose: up,
+            },
+            policy_kind="known",
+        )
+    if label == "flag reads dose":
+        return JointPolicy(
+            label,
+            components={
+                flag: ModifiedPolicy("flag", apply=_flag_if_dosed(dose), policy_kind="known"),
+                dose: up,
+            },
+            policy_kind="known",
+        )
     if label == "random":
         return JointPolicy(
             label,
