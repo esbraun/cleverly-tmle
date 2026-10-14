@@ -11,9 +11,14 @@ if (is.na(fixture_dir)) fixture_dir <- "."
 
 long <- fread(file.path(fixture_dir, "long.csv"))
 long[, `:=`(A.set1 = 1L, A.set0 = 0L)]
+# stratifyQ_by_rule fits the node-t regression on the rows that follow the rule at t alone, so
+# the node-2 rows mix both first arms.  Interacting every covariate with Aprev splits that fit
+# into one fit per first arm.  The arm that follows the plan is cleverly's node-2 fit.
+interactions <- c("WxAprev", "LxAprev", "LprevxAprev")
+long[, `:=`(WxAprev = W * Aprev, LxAprev = L * Aprev, LprevxAprev = Lprev * Aprev)]
 data <- importData(
   long,
-  ID = "ID", t = "t", covars = c("W", "L", "Lprev", "Aprev"),
+  ID = "ID", t = "t", covars = c("W", "L", "Lprev", "Aprev", interactions),
   CENS = "C", TRT = "A", OUTCOME = "Y"
 )
 # One treatment model per time, on the history that cleverly's design holds at that node.
@@ -23,9 +28,12 @@ data <- fitPropensity(
   gform_TRT = "A ~ W + L + Lprev + Aprev",
   stratify_TRT = list(A = c("t == 0L", "t == 1L"))
 )
-# The outcome regressions read the covariates and no arm column, as cleverly's outcome design
-# does at a label node.  Each is fitted on the followers of the plan (stratifyQ_by_rule).
-qforms <- rep.int("Qkplus1 ~ W + L + Lprev", 2)
+# The outcome regressions read the covariates and no current arm column, as cleverly's outcome
+# design does at a label node.  Each is fitted on the rows that follow the plan at its node.
+qforms <- c(
+  "Qkplus1 ~ W + L + Lprev",
+  paste("Qkplus1 ~ W + L + Lprev + Aprev +", paste(interactions, collapse = " + "))
+)
 
 rows <- list()
 for (plan in c("always", "never")) {
@@ -37,15 +45,21 @@ for (plan in c("always", "never")) {
     data, tvals = c(0, 1), intervened_TRT = column, Qforms = qforms,
     stratifyQ_by_rule = TRUE
   )$estimates
-  for (time in c(0, 1)) {
+  # Base indexing: inside a data.table `[`, a bare `time` names the column, not the loop index.
+  at <- function(table, column, node) {
+    value <- table[[column]][table[["time"]] == node]
+    stopifnot(length(value) == 1L)
+    value
+  }
+  for (node in c(0, 1)) {
     rows[[length(rows) + 1]] <- data.frame(
       plan = plan,
-      horizon = time + 1,
+      horizon = node + 1,
       estimator = c("survNPMSM", "directIPW", "GCOMP"),
       risk = c(
-        1 - hazard[time == hazard$time, ][["St.NPMSM"]],
-        1 - direct[time == direct$time, ][["St.directIPW"]],
-        1 - plug_in[time == plug_in$time, ][["St.GCOMP"]]
+        1 - at(hazard, "St.NPMSM", node),
+        1 - at(direct, "St.directIPW", node),
+        1 - at(plug_in, "St.GCOMP", node)
       ),
       max_weight = max(weights[["cum.IPAW"]])
     )

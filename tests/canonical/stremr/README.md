@@ -31,13 +31,20 @@ later, so the image installs `origami` from the CRAN snapshot of the base image.
 | `stremr` estimator | cleverly | relation |
 | --- | --- | --- |
 | `survNPMSM` | `SequentialIPW(normalization="hajek")` | the same estimator |
-| `fit_GCOMP`, `stratifyQ_by_rule=TRUE` | `SequentialGComputation` | the same estimator |
+| `fit_GCOMP`, `stratifyQ_by_rule=TRUE`, node-2 `Qform` interacted with `Aprev` | `SequentialGComputation` | the same estimator |
 | `directIPW` | none | a different estimator of the same risk |
 
 `stremr` orders a row as `L, C, A, Y`, and cleverly orders a node as `A, C, Y`. The two packages
 therefore factor a censoring node differently, and their weights differ when a unit can leave.
 The panel has no censoring, so the factorizations agree. A censored comparison would compare two
 different estimators of one target.
+
+`stratifyQ_by_rule=TRUE` fits the node-`t` regression on the rows that follow the plan at `t`
+only. At node 2 those rows hold both first arms. cleverly fits node 2 on the units that followed
+the plan at both nodes. The node-2 `Qform` therefore interacts every covariate with `Aprev`. The
+fit then splits into one fit for each first arm, and the plan's arm is cleverly's fit. Without
+the interactions, the 2026-10-14 run gave a horizon-2 risk of 0.2188 for always treat, against
+0.2222 for cleverly. A numpy fit on the rows that follow the plan at node 2 only reproduces 0.2188.
 
 The treatment models are fitted per time on the history of cleverly's design. `Lprev` and
 `Aprev` carry that history. They are 0 at the first time, where both fits drop them as aliased.

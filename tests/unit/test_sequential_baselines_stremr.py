@@ -6,7 +6,7 @@
 | ``stremr`` estimator | cleverly | relation |
 | --- | --- | --- |
 | ``survNPMSM`` | ``SequentialIPW(normalization="hajek")`` | the same estimator: IPW hazards, then their product |
-| ``fit_GCOMP`` with ``stratifyQ_by_rule=TRUE`` | ``SequentialGComputation`` | the same estimator |
+| ``fit_GCOMP`` with ``stratifyQ_by_rule=TRUE`` and an ``Aprev``-interacted node-2 ``Qform`` | ``SequentialGComputation`` | the same estimator |
 | ``directIPW`` | none | a different estimator of the same risk. Its denominator at horizon 2 also counts the units that failed at horizon 1. It equals the Hajek risk at horizon 1 |
 
 Without censoring the two packages factor the mechanism the same way, so the shared estimators
