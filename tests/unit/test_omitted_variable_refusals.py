@@ -498,7 +498,8 @@ class TestTheRuleTableIsOrderedAndEveryRuleIsReachable:
         refusal = rules["longitudinal"](Elsewhere())
         assert refusal.condition == (
             "no longitudinal sensitivity derivation is registered: the bound needs a "
-            "per-period latent law that identifies the bias of a sequential g-formula target."
+            "per-period latent law that identifies the bias of a sequential g-formula target "
+            "(docs/roadmap.md F16 tracks this stop)."
         )
         assert refusal.reason is RefusalReason.IMPLEMENTATION_GAP
         assert refusal.roadmap == "F16"

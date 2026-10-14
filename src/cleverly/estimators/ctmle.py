@@ -492,7 +492,7 @@ _DISCRETE_TREATMENT_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
     "CTMLE strategies require a discrete treatment. strategy='oat' fits its mechanism on "
     "one Qbar prediction per arm, and a continuous dose has no finite arm vector.",
-    alternative="Fit TMLE(policies=...) on the continuous dose.",
+    alternative="Fit TMLE on the continuous dose.",
 )
 
 #: Why CTMLE refuses ``policies=``.  Checked before the continuous-dose refusal, because a
@@ -1871,7 +1871,7 @@ class CTMLE(TMLE):
                 "incremental intervention each candidate g defines a different "
                 "parameter: Psi(delta) is built out of g. The search would be selecting "
                 "between estimands rather than between estimators of one, and the risk "
-                "it minimises would have no fixed target.",
+                "it minimises would have no fixed target. docs/roadmap.md F5 tracks this stop.",
                 reason=RefusalReason.DIFFERENT_ESTIMAND,
                 alternative="Use a plain TMLE.",
                 roadmap="F5",

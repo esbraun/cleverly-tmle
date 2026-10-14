@@ -1019,7 +1019,7 @@ the inference request. It never reads a fitted array. One passed study does not 
 fit.
 
 The corrected status, the covariance and the method declaration survive `result.save()`,
-`cleverly.load()`, contrasts and summaries. [RM42](#rm42-acceptance-status-and-refusal-reasons)
+`cleverly.load()`, contrasts and summaries. [RM42](#rm42-experimental-status-and-support-rows)
 part (c) supplies the support rows. `plugin_std_error`, `plugin_interval` and the bootstrap spread
 stay diagnostics. Ordinary TMLE stays the inference alternative under its own assumptions.
 

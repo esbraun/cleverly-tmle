@@ -176,7 +176,8 @@ _AXIS_NOUNS: dict[str, str] = {
 _LONGITUDINAL_BOUND_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
     "no longitudinal sensitivity derivation is registered: the bound needs a per-period "
-    "latent law that identifies the bias of a sequential g-formula target.",
+    "latent law that identifies the bias of a sequential g-formula target "
+    "(docs/roadmap.md F16 tracks this stop).",
     alternative=NO_ALTERNATIVE,
     roadmap="F16",
 )

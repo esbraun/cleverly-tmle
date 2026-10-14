@@ -1000,7 +1000,8 @@ class TMLE:
                 "are: a regime assigns a distribution over the arms from W alone, a "
                 "shift moves the dose the unit actually received, and an incremental "
                 "intervention tilts the odds of the mechanism that was already there. "
-                "One fluctuation cannot solve their score equations at once.",
+                "One fluctuation cannot solve their score equations at once. "
+                "docs/roadmap.md X57 tracks the joint fit of several axes.",
                 reason=RefusalReason.IMPLEMENTATION_GAP,
                 alternative="Fit them separately.",
                 roadmap="X57",
@@ -1036,7 +1037,7 @@ class TMLE:
                 f"{other} replaces what those means are; one fluctuation cannot solve "
                 "both. A working model over declared regimes is a coherent estimand and "
                 "is not implemented: its design would have to be indexed by regime "
-                "rather than by arm.",
+                "rather than by arm. docs/roadmap.md X57 tracks this stop.",
                 reason=RefusalReason.IMPLEMENTATION_GAP,
                 alternative=(
                     "Fit them in separate fits."

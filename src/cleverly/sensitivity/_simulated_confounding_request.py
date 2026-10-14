@@ -1036,8 +1036,8 @@ def _calibration_refusal(data: Any, names: tuple[str, ...]) -> Refusal | None:
             return Refusal(
                 RefusalReason.IMPLEMENTATION_GAP,
                 f"simulated_confounding cannot calibrate categorical covariate {name!r}; "
-                "zeroing one encoded column does not define a logical-covariate benchmark. "
-                "docs/roadmap.md X47 tracks a block calibration of the whole covariate.",
+                "zeroing one encoded column does not define a logical-covariate benchmark "
+                "(docs/roadmap.md X47 tracks a block calibration of the whole covariate).",
                 alternative="Name numeric benchmark covariates only.",
                 roadmap="X47",
             )

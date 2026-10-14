@@ -196,8 +196,8 @@ GUARD_INDEPENDENT: dict[str, tuple[Callable[[], Any], str]] = {
             delta="Delta",
             strata=["S"],
         ),
-        "does not establish its cross-validated extension (docs/roadmap.md F21); "
-        "pass cross_fit=False",
+        "does not establish its cross-validated extension. F21 in docs/roadmap.md tracks "
+        "this. Pass cross_fit=False",
     ),
 }
 
@@ -461,7 +461,7 @@ MOVED: dict[str, tuple[Callable[[], Any], str]] = {
     ),
     "CTMLE incremental= citation": (
         lambda: _plain_fit(CTMLE(incremental=[Incremental(2.0)], **spies())),
-        "Use a plain TMLE. docs/roadmap.md F5 tracks this stop.",
+        "docs/roadmap.md F5 tracks this stop. Use a plain TMLE.",
     ),
     "CTMLE continuous dose": (
         lambda: _dose_fit(CTMLE(msm=MSM.linear(doses=DOSES), density_bins=6, **spies())),

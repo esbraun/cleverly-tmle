@@ -402,7 +402,7 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
             AssessmentStatus.UNAVAILABLE,
             "no longitudinal sensitivity derivation is registered for an E-value: the "
             "bounding factor needs a per-period latent law for a sequential g-formula "
-            "target.",
+            "target (docs/roadmap.md F16 tracks this stop).",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=NO_ALTERNATIVE,
             roadmap="F16",
