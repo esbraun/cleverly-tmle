@@ -108,8 +108,9 @@ class TestTheRefusals:
         ],
     )
     def test_two_counterfactual_axes_together_are_refused(self, kwargs: dict, match: str) -> None:
-        with pytest.raises(CapabilityError, match=match):
+        with pytest.raises(CapabilityError, match=match) as caught:
             TMLE(**FAST_KWARGS, incremental=TILTS, **kwargs)
+        assert "docs/roadmap.md X57 tracks the joint fit of several axes" in str(caught.value)
 
     def test_a_working_model_over_tilts_is_refused(self) -> None:
         from cleverly.msm import MSM

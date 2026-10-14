@@ -464,9 +464,12 @@ _REPEATED_BANDS_REASON = (
 
 #: Whether the in-sample point-treatment full-refit bootstrap's percentile interval is
 #: published as inference.  The registered study ``full-refit-bootstrap-and-derived-contrasts``
-#: measured it on in-sample fits only (``boot_ate_point_tmle``).  A cross-fitted fit's
-#: bootstrap prints as a diagnostic whatever this flag says, as the cross-fitted
-#: longitudinal kinds do, because no study measures it and no source covers it (roadmap F2).
+#: measured it on in-sample ``TMLE`` fits with correctly specified nuisances only
+#: (``boot_ate_point_tmle``).  A cross-fitted fit's bootstrap prints as a diagnostic whatever
+#: this flag says, as the cross-fitted longitudinal kinds do, because no study measures it and
+#: no source covers it (roadmap F2).  Every ``DRTMLE`` and ``CTMLE`` fit prints it as a
+#: diagnostic too, because the study measured neither estimator.  An in-sample ``TMLE`` fit
+#: with a data-adaptive learner keeps the interval, and roadmap F2 holds that gap.
 #: A red ``boot_ate_point_tmle`` cell sets this to ``False``, so the in-sample interval then
 #: publishes as a diagnostic too.
 POINT_BOOTSTRAP_INFERENTIAL = True
@@ -774,7 +777,8 @@ class TMLE:
         in-sample fits only, and no source covers the bootstrap with cross-fitted nuisances.
         The longitudinal rule is the same
         (:data:`~cleverly.longitudinal.estimator.LICENSED_BOOTSTRAP_DESIGNS`).
-        :class:`~cleverly.estimators.CTMLE` returns ``False`` for ``strategy="oat"``.
+        :class:`~cleverly.DRTMLE` and :class:`~cleverly.CTMLE` return ``False`` on every fit,
+        because the registered study measured the ordinary point-treatment ``TMLE`` only.
 
         Parameters
         ----------
@@ -2835,8 +2839,8 @@ class TMLE:
                 "incremental= and intermediate= are not combined. A point-treatment fit "
                 "has one treatment node, and a controlled direct effect under a tilt "
                 "needs a tilt node and a label node. Fit it as a two-node plan: "
-                "IPSI(regimens=[DynamicRegimen('tilt, Z=z', (Incremental(delta), z))]) on "
-                "LongitudinalData with treatment=[A, Z]. "
+                "IPSI(regimens=[DynamicRegimen('tilt, Z=z', (Incremental(delta), z))]), "
+                "fitted on the frame with treatment=[A, Z]. "
                 "docs/roadmap.md X57 tracks the redirection."
             )
 

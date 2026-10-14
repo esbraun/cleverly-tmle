@@ -668,9 +668,13 @@ class TestTheCollaborativeRefusals:
             outcome_learner=CountingLinear(),
             treatment_learner=CountingLogistic(max_iter=1000),
         )
-        with pytest.raises(CapabilityError, match="C-TMLE has no clustered result"):
+        with pytest.raises(CapabilityError, match="C-TMLE has no clustered result") as caught:
             estimator.fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"], id="cid")
         assert Counting.calls == 0, f"{Counting.calls} learner fit(s) ran before the refusal"
+        assert (
+            "X51 tracks the point estimate with a cluster as the unit, and docs/roadmap.md F22"
+            in " ".join(str(caught.value).split())
+        )
 
     def test_oat_cluster_refusal_names_its_own_missing_result(self) -> None:
         frame = clustered_frame(n_clusters=20, size=5)

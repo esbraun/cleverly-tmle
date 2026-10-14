@@ -944,6 +944,12 @@ class TestThePluginLimitsRefuse:
         bound = omitted_variable_bounds(plain_fit, "ate", nu2_estimator="plugin")
         _assert_the_limits_refuse(bound, "plugin", _PLUGIN_LIMITS_REFUSAL)
 
+    def test_the_refusal_names_the_doubly_robust_alternative(self) -> None:
+        assert (
+            "nu2_estimator='doubly_robust' gives the limits for any mechanism learner at the "
+            "rates of that Theorem 4." in _PLUGIN_LIMITS_REFUSAL
+        )
+
     @pytest.mark.parametrize("estimand", ["ate", "att", "atc"])
     def test_the_doubly_robust_bound_reports_finite_limits(
         self, exact_fit: Any, estimand: str

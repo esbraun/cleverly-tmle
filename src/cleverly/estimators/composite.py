@@ -422,11 +422,13 @@ _DROP_REMEDY = (
     "completely at random."
 )
 #: Why a learned rule stays refused: its value is identified under the composite conditions,
-#: but it is cross-fitted, and the cross-fitted composite construction is open (roadmap X53).
+#: but no source read gives a cross-fitted learned-rule fit with a missing treatment (roadmap
+#: F27), as for missing outcomes.
 _LEARNED_RULE_REASON = (
     "A learned-rule value is identified under the composite conditions, but no composite "
     "derivation for a rule learned from the fit is written here, and the value is "
-    "cross-fitted. The cross-fitted composite construction is open (roadmap X53)."
+    "cross-fitted. No source read here gives a cross-fitted learned-rule fit with a missing "
+    "treatment (roadmap F27)."
 )
 #: Targets that read the treatment law of every row.
 _UNIDENTIFIED_TARGETS = ("att", "atc", "ey_obs", "par", "paf")
@@ -500,12 +502,20 @@ def missing_treatment_refusal(
             "P(A = a, Delta_A = 1, Delta = 1 | W) from the data.",
         )
     if getattr(estimator, "cross_fit", False):
-        open_row = "F21" if method == "drtmle" else "X53"
+        if per_arm_oat:
+            reason = (
+                "The composite construction uses the in-sample (Donsker) theorem. The "
+                "cross-fitted outcome-adaptive construction has no theorem (roadmap F19), so "
+                "only an in-sample per-arm fit gives its point estimates."
+            )
+        else:
+            open_row = "F21" if method == "drtmle" else "X53"
+            reason = (
+                "The composite construction uses the in-sample (Donsker) theorem. The "
+                f"cross-fitted composite construction is open (roadmap {open_row})."
+            )
         return _message(
-            data,
-            "The composite construction uses the in-sample (Donsker) theorem. The "
-            f"cross-fitted composite construction is open (roadmap {open_row}).",
-            "Pass cross_fit=False (CrossFitting(enabled=False) on a method).",
+            data, reason, "Pass cross_fit=False (CrossFitting(enabled=False) on a method)."
         )
     if data.has_intermediate:
         return _message(

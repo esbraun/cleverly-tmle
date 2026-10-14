@@ -316,7 +316,7 @@ _X53_SENTENCE = (
 class TestTheSuggestedShiftNamesTheFitThatRunsIt:
     """Row 12. The natural course is suggested with the fit that can estimate it."""
 
-    def test_a_cross_fitted_fit_with_delta_names_f21_and_the_in_sample_fit(self) -> None:
+    def test_a_cross_fitted_fit_with_delta_names_x53_and_the_in_sample_fit(self) -> None:
         with pytest.raises(DataError) as raised:
             _dose_fit(_dose_frame(), cross_fit=True, missing=True)
         assert str(raised.value).endswith(_X53_SENTENCE)

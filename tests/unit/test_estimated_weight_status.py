@@ -1,8 +1,6 @@
 """A guarded DR-TMLE fit with weights declared estimated withholds its interval.
 
-The argument that an interval conditions on the weights concerns the efficient influence
-curve. No result read here gives the reduced-dimension regressions of an estimated weight,
-so ``DRTMLE`` with a non-empty ``guard`` and ``weights_estimated=True`` takes the
+No result read here gives the reduced-dimension regressions of an estimated weight, so ``DRTMLE`` with a non-empty ``guard`` and ``weights_estimated=True`` takes the
 ``"estimated_weight_plugin"`` status, and X50 in the roadmap holds the reopen route. The
 flag changes no number, so a status and not a refusal records what it declares.
 
@@ -10,7 +8,8 @@ The fit is the RM20 probe: ``make_binary_outcome(n=500, seed=3)`` with weights d
 uniform on [0.5, 2]. Three controls keep their interval on the same frame and weights: the
 weights declared fixed, ``guard=()``, which fits the ordinary TMLE, and the ordinary TMLE
 itself. Two mutations must fail: a DR-TMLE hook that is the ordinary one, and a hook that
-ignores the guard.
+ignores the guard. A per-arm outcome-adaptive ``CTMLE`` fit with estimated weights takes
+``"generated_design_plugin"``, so the status text names F19 for it and X50 for ``DRTMLE``.
 """
 
 from __future__ import annotations
@@ -23,7 +22,7 @@ import pytest
 
 from cleverly._inference_status import NON_INFERENTIAL
 from cleverly.datasets import make_binary_outcome
-from cleverly.estimators import DRTMLE, TMLE
+from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.exceptions import WeightingWarning
 from tests.conftest import linear_in_sample
 from tests.unit._inference_status_support import (
@@ -197,3 +196,25 @@ class TestASavedResultLoadsAsSaved:
     @pytest.mark.parametrize("route", ROUTES)
     def test_a_saved_result_keeps_its_status(self, result: Any, route: str) -> None:
         assert_round_trips(result, STATUS, route)
+
+
+class TestAPerArmCTMLEFitTakesTheGeneratedDesignStatus:
+    """The per-arm C-TMLE half of the status text cannot be reached on a shipped fit.
+
+    :data:`~cleverly.estimators.ctmle.OAT_PER_ARM_INFERENTIAL` is ``False``, so every
+    ``"oat"`` fit takes ``"generated_design_plugin"`` before the weight declaration is read.
+    F19 holds that interval, and X50 reopens the status for ``DRTMLE`` only.
+    """
+
+    def test_estimated_weights_report_the_generated_design_status(self, frame: Any) -> None:
+        result = fit(frame, estimator=CTMLE, strategy="oat", oat_design="per_arm")
+        assert result.data.declares_estimated_weights
+        assert result.inference_status == "generated_design_plugin"
+        assert NON_INFERENTIAL["generated_design_plugin"].reopened_by == "F19"
+
+    def test_the_status_text_names_each_row_for_its_estimator(self) -> None:
+        assert RECORD.reopened_by == "X50"
+        assert "X50 in docs/roadmap.md reopens this for DRTMLE" in RECORD.reason
+        assert "generated_design_plugin status while OAT_PER_ARM_INFERENTIAL" in RECORD.reason
+        assert "F19 in docs/roadmap.md holds its interval" in RECORD.reason
+        assert RECORD.assessment_note.endswith("reopens it for DRTMLE")

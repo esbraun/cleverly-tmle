@@ -233,25 +233,25 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
         ),
         "estimated_weight_plugin": StatusRecord(
             reason=(
-                "A DR-TMLE fit with a guard, or a per-arm outcome-adaptive C-TMLE fit "
-                "(strategy='oat', oat_design='per_arm'), with weights declared estimated "
+                "A DR-TMLE fit with a guard and weights declared estimated "
                 "(weights_estimated=True) reports no confidence interval, no p-value and no "
-                "standard error. The argument that an interval conditions on the weights "
-                "concerns the efficient influence curve. The DR-TMLE fit adds "
-                "reduced-dimension regressions of the weighted law. The per-arm C-TMLE curve "
-                "is the curve of Benkeser, Cai and van der Laan (2020), Theorem 1, and not "
-                "the efficient one. No result read here gives the contribution of the weight "
-                "estimate to either curve. The point estimate stands. The plug-in standard "
-                "error of that curve remains as a diagnostic under plugin_std_error and "
+                "standard error. The DR-TMLE fit adds reduced-dimension regressions of the "
+                "weighted law, and no result read here gives the contribution of the weight "
+                "estimate to its curve. The point estimate stands. The plug-in standard error "
+                "of that curve remains as a diagnostic under plugin_std_error and "
                 "plugin_interval. X50 in docs/roadmap.md reopens this for DRTMLE: the "
                 "conditional reading of the weights does not use efficiency, so it covers the "
-                "fixed-weight DR-TMLE curve. The ordinary TMLE (DRTMLE with guard=(), or "
-                "TMLE) keeps an interval that conditions on the weights."
+                "fixed-weight DR-TMLE curve. A per-arm outcome-adaptive C-TMLE fit "
+                "(strategy='oat', oat_design='per_arm') with estimated weights takes the "
+                "generated_design_plugin status while OAT_PER_ARM_INFERENTIAL is False, and "
+                "F19 in docs/roadmap.md holds its interval. "
+                "The ordinary TMLE (DRTMLE with guard=(), or TMLE) keeps an interval that "
+                "conditions on the weights."
             ),
             assessment_note=(
                 "the reported curve is a fixed-weight diagnostic: no confidence interval or "
                 "p-value is available for this fit, and X50 in the roadmap is the condition "
-                "that reopens it"
+                "that reopens it for DRTMLE"
             ),
             summary_label="fixed-weight se",
             bootstrap_note=(

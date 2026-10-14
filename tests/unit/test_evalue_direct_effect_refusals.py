@@ -199,6 +199,8 @@ def assert_refused(result: Any, estimand: str | None) -> None:
     assert not row.available
     assert row.status is AssessmentStatus.UNAVAILABLE
     assert row.reason == _DIRECT_EFFECT_REFUSAL
+    assert "one bounding factor per arm" in row.reason
+    assert "docs/roadmap.md X49 tracks the E-value of their product" in row.reason
     assert row.requires_arguments == ()
     assert raised(lambda: evalue_module.evalue(replace(result), estimand)) == (
         _DIRECT_EFFECT_REFUSAL

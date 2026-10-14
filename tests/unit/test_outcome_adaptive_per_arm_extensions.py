@@ -1112,7 +1112,9 @@ class TestTheRefusals:
         frame = extended_frame(BINARY_ACTIVE, 300, 101, delta=True, treatment_delta=True)
         message = _refusal(frame, cross_fit=True)
         assert "in-sample" in message
-        assert "roadmap X53" in message
+        assert "cross-fitted outcome-adaptive construction has no theorem (roadmap F19)" in message
+        assert "only an in-sample per-arm fit gives its point estimates" in message
+        assert "X53" not in message
 
     def test_the_natural_course_with_a_missing_treatment(self) -> None:
         frame = extended_frame(BINARY_ACTIVE, 300, 101, delta=True, treatment_delta=True)

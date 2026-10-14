@@ -318,6 +318,8 @@ def test_every_roadmap_item_a_refusal_cites_exists() -> None:
 
     # The negative control.  A rule table read through the wrong attribute, or a citation
     # reworded past ``ROADMAP_CITATION``, would make the assertion below vacuously true.
+    # The floor is five: the rules cite X47, X48, F12, F13 and F15, because RM43 moved the
+    # F8, F9, F10 and F11 citations into the one row X47.
     assert len(cited) >= 5, f"only {sorted(cited)} matched; check ROADMAP_CITATION"
     missing = sorted(item for item in cited if item not in ROADMAP_ITEMS)
     assert not missing, (

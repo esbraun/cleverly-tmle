@@ -168,8 +168,11 @@ class TestDeclaringTheAxis:
 
 class TestTheRefusals:
     def test_shifts_and_interventions_together_are_refused(self) -> None:
-        with pytest.raises(CapabilityError, match="cannot solve their score equations at once"):
+        with pytest.raises(
+            CapabilityError, match="cannot solve their score equations at once"
+        ) as caught:
             estimator(policies=SHIFTS, interventions=[Static(0), Static(1)])
+        assert "docs/roadmap.md X57 tracks the joint fit of several axes" in str(caught.value)
 
     def test_a_shift_off_the_levels_of_an_arm_coded_treatment_is_refused(self) -> None:
         # A shift of 0.5 maps the levels 0 and 1 to 0.5 and 1.5, which are not levels: the

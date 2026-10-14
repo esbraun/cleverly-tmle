@@ -203,7 +203,7 @@ Neither design reports inference, because condition (v) of the theorem fails for
 estimated outcome regression. See ``docs/roadmap.md F18`` for the selector path and
 ``docs/roadmap.md F19`` for both outcome-adaptive designs. ``n_bootstrap=`` reruns the
 adaptive construction, but no reviewed theorem validates that bootstrap for a selector path or
-for either outcome-adaptive design.
+for either outcome-adaptive design, so every C-TMLE fit prints the bootstrap as a diagnostic.
 
 Fixed probability weights replace the empirical law by its normalized weighted version.
 The same row mass reaches nuisance fits, targeting, selector loss, influence-curve penalty,
@@ -948,24 +948,26 @@ class CTMLE(TMLE):
     def _bootstrap_inferential(self, data: CausalData) -> bool:
         """Whether the full-refit bootstrap interval is published as inference.
 
-        ``False`` on every ``"oat"`` fit. Theorem 1 of Benkeser, Cai and van der Laan (2020)
-        gives the influence curve of a superefficient estimator, and it does not cover the
-        bootstrap of that estimator. Every other strategy takes the :class:`~cleverly.TMLE`
-        answer.
+        ``False`` on every fit, for every strategy. On an ``"oat"`` fit, Theorem 1 of Benkeser,
+        Cai and van der Laan (2020) gives the influence curve of a superefficient estimator,
+        and it does not cover the bootstrap of that estimator. On a selector strategy, no
+        reviewed theorem covers the bootstrap of a selected path (roadmap F18). The registered
+        study ``full-refit-bootstrap-and-derived-contrasts`` measured the ordinary
+        point-treatment :class:`~cleverly.TMLE` only. The percentile range prints as a
+        diagnostic.
 
         Parameters
         ----------
         data : CausalData
-            The prepared data.
+            The prepared data. It is not read.
 
         Returns
         -------
         bool
-            ``False`` for ``strategy="oat"``, otherwise the :class:`~cleverly.TMLE` answer.
+            ``False``.
         """
-        if self.strategy == "oat":
-            return False
-        return super()._bootstrap_inferential(data)
+        del data
+        return False
 
     def _admits_natural_course_with_missing(self) -> bool:
         """Whether this fit may target the natural course with missing outcomes.
@@ -1854,7 +1856,8 @@ class CTMLE(TMLE):
                 "incremental intervention each candidate g defines a different "
                 "parameter: Psi(delta) is built out of g. The search would be selecting "
                 "between estimands rather than between estimators of one, and the risk "
-                "it minimises would have no fixed target. Use a plain TMLE."
+                "it minimises would have no fixed target. Use a plain TMLE. "
+                "docs/roadmap.md F5 tracks this stop."
             )
         if data.cluster is not None:
             reason = (

@@ -459,6 +459,10 @@ MOVED: dict[str, tuple[Callable[[], Any], str]] = {
         lambda: _plain_fit(CTMLE(incremental=[Incremental(2.0)], **spies())),
         "CTMLE and incremental= are not combined",
     ),
+    "CTMLE incremental= citation": (
+        lambda: _plain_fit(CTMLE(incremental=[Incremental(2.0)], **spies())),
+        "Use a plain TMLE. docs/roadmap.md F5 tracks this stop.",
+    ),
     "CTMLE continuous dose": (
         lambda: _dose_fit(CTMLE(msm=MSM.linear(doses=DOSES), density_bins=6, **spies())),
         "CTMLE strategies require a discrete treatment",
@@ -501,6 +505,18 @@ MOVED: dict[str, tuple[Callable[[], Any], str]] = {
     "DRTMLE incremental=": (
         lambda: DRTMLE(incremental=[Incremental(2.0)]),
         "DRTMLE and incremental= are not combined",
+    ),
+    "DRTMLE incremental= citation": (
+        lambda: DRTMLE(incremental=[Incremental(2.0)]),
+        "(docs/roadmap.md F5). Fit a plain TMLE",
+    ),
+    "TMLE msm= beside interventions=": (
+        lambda: TMLE(msm=MSM.linear(), interventions=(Static(1), Static(0))),
+        "msm= and interventions= cannot be combined",
+    ),
+    "TMLE msm= beside interventions= citation": (
+        lambda: TMLE(msm=MSM.linear(), interventions=(Static(1), Static(0))),
+        "docs/roadmap.md X57 tracks this stop.",
     ),
     "CTMLE policies= on a binary treatment": (
         lambda: _plain_fit(CTMLE(policies=[Shift(1.0, cap=None)], **spies())),
@@ -704,7 +720,10 @@ MISSING_TREATMENT_ROWS: dict[str, tuple[Callable[[], Any], tuple[str, ...]]] = {
     ),
     "learned_rule": (
         lambda: _fit_missing_treatment(TMLE(**_never(learned_rule=LearnedRule()))),
-        ("no composite derivation for a rule learned from the fit", "roadmap X53"),
+        (
+            "no composite derivation for a rule learned from the fit",
+            "cross-fitted learned-rule fit with a missing treatment (roadmap F27)",
+        ),
     ),
     "intermediate": (
         lambda: _fit_missing_treatment(TMLE(**_never()), intermediate="Z"),
