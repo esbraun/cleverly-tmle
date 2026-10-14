@@ -20,12 +20,19 @@
 # | `own_ext_or` | `own_ext` with `Q_r` replaced by its population version at the estimated index: |
 # | | the weighted cubic least-squares fit of `Q̄_0 - Q̄_n` on `g_n` over the evaluation draw |
 # | `own_ext_g0` | `own_ext` with `Q_r` regressed on the true `g_0` instead of `g_n` |
+# | `dr_ext`, `dr_ext_bk` | `cleverly.DRTMLE` in sample at `own_ext`'s mechanism (a prefit learner), both orders |
+# | `pop_ext`, `pop_ext_g0`, `pop_ext_tmle` | `population_drtmle`: the limit of `own_ext`, `own_ext_g0` and |
+# | | `own_ext_tmle` at that draw's `g_n` and `Q̄_n`, on the first 60,000 evaluation rows |
 #
-# `own_drtmle` transcribes the recursion of Benkeser et al. (2017, Section 3.2) for one arm. It
-# takes an initial outcome step along `1/g`. Each round fits `Q_r` on `g`, tilts `g` along `Q_r/g`,
-# fits `g_{r,1}` and `g_{r,2}` on `Q̄`, and tilts `Q̄` along `(1/g, g_{r,2}/g_{r,1})`. It stops when
-# the three empirical means are below 1e-9, or after 500 rounds. The mechanism stays in `g_bounds`
-# after each tilt. It shares no code with `cleverly`. Its fits count only below `SOLVED`.
+# `own_drtmle` is an independent solver of equations (8) to (10) of Benkeser et al. (2017) for one
+# arm. It shares no code with `cleverly`, and its route differs from both of `cleverly`'s orders:
+# after one initial outcome step along `1/g`, each round fits `Q_r` on `g`, tilts `g` along `Q_r/g`,
+# fits `g_{r,1}` and `g_{r,2}` on `Q̄`, and tilts `Q̄` along `(1/g, g_{r,2}/g_{r,1})` in one joint
+# step. It tilts each arm's mechanism separately, keeps it in `g_bounds` after each tilt, bounds
+# `g_{r,1}` below only, and has no closing pass. It stops when the three empirical means are below
+# 1e-9, or after 500 rounds. Its fits count only below `SOLVED`; `analyze` also prints a robust
+# reading over all of them. `population_drtmle` runs the same route with `Y` replaced by
+# `Q̄_0(a, W)` and `1{A = a}` by `g_0(a|W)`, so it gives the limit at a fixed `g_n` and `Q̄_n` (at most 200 rounds).
 #
 # Weight means: for the in-sample HGB, `mean(1{A=a}/g_n - 1)` on its own training rows and on a
 # 200,000-row evaluation draw. Both are zero in mean at `g_0`.
@@ -33,10 +40,10 @@
 # Seeds: replicate `rep` at size `n` draws with `41_000_011 + 7919 * n + rep`; the independent
 # mechanism draw adds 500_000; the evaluation draw uses 41_777_001.
 #
-# Usage: `python reviews/rm41/probe.py run <n> <R> --procs 4` for (n, R) = (1000, 200),
-# (4000, 200) and (16000, 100), then `python reviews/rm41/probe.py analyze > reviews/rm41/probe.log`.
+# Usage: `python reviews/rm41/probe.py run <n> 200 --procs 4` for n = 1000, 4000 and 16000, then
+# `python reviews/rm41/probe.py analyze > reviews/rm41/probe.log`.
 # The run CSVs go to `reviews/rm41/_probe/` and are not committed.
-"""RM41 round-1 probe: separate a code defect from a property of DR-TMLE under an HGB mechanism."""
+"""RM41 probe: separate a code defect from a property of DR-TMLE under an HGB mechanism."""
 
 from __future__ import annotations
 
@@ -56,6 +63,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from scipy.special import expit, logit
+from sklearn.base import BaseEstimator, ClassifierMixin
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "rm40"))
@@ -71,6 +79,8 @@ LO, HI = sim.G_BOUNDS
 ESTIMANDS = ("ey[1]", "ey[0]", "ate")
 #: an `own_drtmle` fit counts only when every score it solves is below this
 SOLVED = 1e-8
+#: evaluation rows used by the population-limit cells
+POP_N = 60_000
 
 
 def script_sha() -> str:
@@ -212,6 +222,75 @@ def oracle_qr(model: Any, beta: np.ndarray, arm: float) -> Any:
     return lambda g: _poly(g) @ coef
 
 
+_PREFIT: dict[str, Any] = {}
+
+
+class PrefitMechanism(BaseEstimator, ClassifierMixin):
+    """A treatment learner whose `fit` keeps the HGB in `_PREFIT["model"]`, fitted elsewhere."""
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> "PrefitMechanism":
+        self.classes_ = np.array([0.0, 1.0])
+        return self
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        return _PREFIT["model"].predict_proba(np.asarray(X, dtype=float))
+
+
+def _wtilt(y: np.ndarray, offset: np.ndarray, cov: np.ndarray, w: np.ndarray) -> np.ndarray:
+    """Weighted logistic MLE of the coefficients of `cov` with a fixed offset; `y` may be fractional."""
+    eps = np.zeros(cov.shape[1])
+    for _ in range(200):
+        p = expit(offset + cov @ eps)
+        h = (cov * (w * p * (1 - p))[:, None]).T @ cov + 1e-12 * np.eye(cov.shape[1])
+        step = np.linalg.solve(h, cov.T @ (w * (y - p)))
+        eps += step
+        if np.max(np.abs(step)) < 1e-12:
+            break
+    return eps
+
+
+def population_drtmle(
+    q0a: np.ndarray,
+    g0a: np.ndarray,
+    qn: np.ndarray,
+    gn: np.ndarray,
+    qr_index: np.ndarray | None = None,
+    corrections: tuple[str, ...] = ("g", "Q"),
+) -> tuple[float, float]:
+    """`own_drtmle`'s population limit at fixed `Q̄_n` and `g_n` over evaluation rows W.
+
+    Every score and reduced regression replaces `Y` by `Q̄_0(a, W)` and `1{A = a}` by `g_0(a|W)`, so
+    no row sees its own treatment or outcome. Returns (psi - psi_0 on these rows, worst score).
+    """
+    q = np.clip(qn, 1e-6, 1 - 1e-6)
+    g = np.clip(gn, LO, HI)
+    e = _wtilt(q0a, logit(q), (1 / g)[:, None], g0a)
+    q = expit(logit(q) + e[0] / g)
+    worst = np.inf
+    for _ in range(200):
+        idx = g if qr_index is None else qr_index
+        qr = _poly(idx) @ _ls(idx, q0a - q, g0a)
+        if "g" in corrections:
+            e = _wtilt(g0a, logit(g), (qr / g)[:, None], np.ones_like(g))
+            g = np.clip(expit(logit(g) + e[0] * qr / g), LO, HI)
+        gr1 = np.clip(expit(_poly(q) @ _logistic_poly(q, g0a)), LO, 1.0)
+        gr2 = _poly(q) @ _ls(q, (g0a - g) / g)
+        h = np.column_stack([1 / g, gr2 / gr1]) if "Q" in corrections else (1 / g)[:, None]
+        e = _wtilt(q0a, logit(q), h, g0a)
+        q = np.clip(expit(logit(q) + h @ e), 1e-9, 1 - 1e-9)
+        idx = g if qr_index is None else qr_index
+        qr = _poly(idx) @ _ls(idx, q0a - q, g0a)
+        sc = [np.mean(g0a / g * (q0a - q))]
+        if "Q" in corrections:
+            sc.append(np.mean(g0a * gr2 / gr1 * (q0a - q)))
+        if "g" in corrections:
+            sc.append(np.mean(qr / g * (g0a - g)))
+        worst = float(np.max(np.abs(sc)))
+        if worst < 1e-9:
+            break
+    return float(np.mean(q) - np.mean(q0a)), worst
+
+
 def _combine(per_arm: dict[float, float]) -> dict[str, float]:
     return {"ey[1]": per_arm[1.0], "ey[0]": per_arm[0.0], "ate": per_arm[1.0] - per_arm[0.0]}
 
@@ -308,6 +387,40 @@ def one(payload: tuple[int, int]) -> list[dict[str, Any]]:
             worst = max(worst, s)
         record(cell, per, {"score": worst})
 
+    # cleverly at the same independent mechanism: paired with own_ext
+    _PREFIT["model"] = model_ext
+    for cell, order in (("dr_ext", "drtmle"), ("dr_ext_bk", "benkeser")):
+        try:
+            res = DRTMLE(
+                cross_fit=False, **{**common, "treatment_learner": PrefitMechanism()}, **dr_extra,
+                update_order=order,
+            ).fit(d, outcome="Y", treatment="A", covariates=["W1", "W2"]).single()
+        except Exception as exc:  # noqa: BLE001
+            rows.append({"n": n, "rep": rep, "cell": cell, "estimand": "error", "error": repr(exc)[:300]})
+            continue
+        for name in ESTIMANDS:
+            rows.append({"n": n, "rep": rep, "cell": cell, "estimand": name,
+                         "psi": float(res.estimates[name].psi), "truth": _S["truth"][name]})
+
+    # the population limit at the independent mechanism and this draw's outcome GLM
+    w_ev = _S["w"][:POP_N]
+    g_ev = np.clip(model_ext.predict_proba(w_ev)[:, 1], LO, HI)
+    g0_ev = _S["g0"][:POP_N]
+    for cell, kw in (("pop_ext", {}), ("pop_ext_g0", {"qr_index": "g0"}), ("pop_ext_tmle", {"corrections": ()})):
+        per, worst = {}, 0.0
+        for arm in (1.0, 0.0):
+            g0a = g0_ev if arm == 1.0 else 1.0 - g0_ev
+            k = dict(kw)
+            if k.get("qr_index") == "g0":
+                k["qr_index"] = g0a
+            b, s = population_drtmle(
+                _S["q0"][arm][:POP_N], g0a, _glm_q(beta, arm, w_ev[:, 0]),
+                g_ev if arm == 1.0 else 1.0 - g_ev, **k,
+            )
+            per[arm] = b + (_S["truth"]["ey[1]"] if arm == 1.0 else _S["truth"]["ey[0]"])
+            worst = max(worst, s)
+        record(cell, per, {"score": worst})
+
     for r in rows:
         if r["estimand"] == "error":
             continue
@@ -318,6 +431,15 @@ def one(payload: tuple[int, int]) -> list[dict[str, Any]]:
     return rows
 
 
+def _head() -> str:
+    import subprocess
+
+    import cleverly
+
+    head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=HERE).stdout.strip()
+    return f"{head} {Path(cleverly.__file__).parent}"
+
+
 def run(n: int, reps: int, procs: int) -> None:
     OUT.mkdir(exist_ok=True)
     sha = script_sha()
@@ -326,9 +448,25 @@ def run(n: int, reps: int, procs: int) -> None:
         rows = [r for chunk in pool.imap(one, [(n, i) for i in range(reps)], chunksize=2) for r in chunk]
     frame = pd.DataFrame(rows)
     frame["sha256"] = sha
+    frame["head"] = _head()
     frame["wall"] = time.time() - t0
     frame.to_csv(OUT / f"n{n}.csv", index=False)
     print(f"n={n} R={reps} done in {time.time() - t0:.0f}s", flush=True)
+
+
+def _sd(frame: pd.DataFrame, cell: str, n: int) -> float:
+    g = frame.loc[(frame["cell"] == cell) & (frame["n"] == n) & (frame["estimand"] == "ate")]
+    return float(g["psi"].std(ddof=1))
+
+
+def _paired(frame: pd.DataFrame, a: str, b: str, unit: str) -> None:
+    """Per-replicate `a - b` on the ATE, over the replicates kept in both, in SDs of `unit`."""
+    for n, g in frame.loc[frame["estimand"] == "ate"].groupby("n"):
+        x = g.loc[g["cell"] == a].set_index("rep")["psi"]
+        y = g.loc[g["cell"] == b].set_index("rep")["psi"]
+        d = (x - y).dropna() / _sd(frame, unit, n)
+        print(f"  {a:>13s} - {b:13s} n={n:6d}: pairs {d.size:3d}; mean {d.mean():+.3f} (mcse "
+              f"{d.std(ddof=1) / np.sqrt(d.size):.3f}); SD {d.std(ddof=1):.3f}; mean |d| {d.abs().mean():.3f}")
 
 
 def analyze() -> None:
@@ -336,32 +474,66 @@ def analyze() -> None:
     print(f"sha256 {sha}  reviews/rm41/probe.py")
     frame = pd.concat([pd.read_csv(p) for p in sorted(OUT.glob("n*.csv"))], ignore_index=True)
     print(f"run CSVs written by this script: {set(frame['sha256'].dropna()) == {sha}}")
+    print(f"commit and cleverly path of the run: {sorted(set(frame['head'].dropna()))}")
     errors = frame.loc[frame["estimand"] == "error"]
     print(f"errors: {len(errors)}" + ("" if errors.empty else f"; first: {errors['error'].iloc[0]}"))
     frame = frame.loc[frame["estimand"] != "error"].copy()
     print(f"max |g_n gap| between cleverly's in-sample mechanism and the refit: {frame['gap'].max():.2e}")
+    tm = frame.loc[frame["cell"].isin(["tmle_in", "own_in_tmle"])].pivot_table(
+        index=["n", "rep", "estimand"], columns="cell", values="psi"
+    )
+    print(f"max |own_in_tmle - tmle_in| over {len(tm)} estimates: {(tm['own_in_tmle'] - tm['tmle_in']).abs().max():.1e}")
+    pop = frame["cell"].str.startswith("pop")
+    print(f"population-limit fits with a worst score above 1e-6: {int((frame.loc[pop, 'score'] > 1e-6).sum() / 3)} "
+          f"of {int(pop.sum() / 3)} (largest {frame.loc[pop, 'score'].max():.1e}); all are kept")
     own = frame["cell"].str.startswith("own")
+    print()
+    print("Robust reading over all replicates of each own_drtmle cell (ATE): median error / SD(dr_in), and IQR.")
+    for (cell, n), g in frame.loc[own & (frame["estimand"] == "ate")].groupby(["cell", "n"]):
+        e = (g["psi"] - g["truth"]) / _sd(frame, "dr_in", n)
+        q1, q3 = e.quantile([0.25, 0.75])
+        print(f"  {cell:13s} n={n:6d}: R {len(e)}; median {e.median():+.3f}; IQR [{q1:+.3f}, {q3:+.3f}]")
     solved = ~own | (frame["score"] < SOLVED)
     print(f"own_drtmle fits kept (every score below {SOLVED:g}): {int(solved[own].sum() / 3)} of {int(own.sum() / 3)}")
     frame = frame.loc[solved]
     print()
     print("bias/SD: mean(psi - truth) / SD(psi) over the kept fits of the cell; mcse 1/sqrt(R).")
-    print("rn_bias: sqrt(n) * mean(psi - truth).")
-    print(f"{'cell':13s} {'n':>6s} {'est':6s} {'R':>4s} {'bias/SD':>8s} {'mcse':>6s} {'rn_bias':>8s} {'cover':>6s}")
+    print("rn_bias: sqrt(n) * mean(psi - truth). cover: interval coverage, with its mcse.")
+    print("pop_* cells are population limits: their SD is not a sampling SD, so they are read below.")
+    print(f"{'cell':13s} {'n':>6s} {'est':6s} {'R':>4s} {'bias/SD':>8s} {'mcse':>6s} {'rn_bias':>8s} {'cover':>6s} {'mcse':>6s}")
     for (cell, n, name), g in frame.groupby(["cell", "n", "estimand"], sort=True):
+        if cell.startswith("pop"):
+            continue
         r = len(g)
         err = g["psi"] - g["truth"]
         sd = float(g["psi"].std(ddof=1))
         cov = float(g["covered"].mean()) if "covered" in g and g["covered"].notna().any() else np.nan
+        cmc = np.sqrt(cov * (1 - cov) / r) if np.isfinite(cov) else np.nan
         print(f"{cell:13s} {n:6d} {name:6s} {r:4d} {float(err.mean()) / sd:+8.3f} {1 / np.sqrt(r):6.3f} "
-              f"{np.sqrt(n) * float(err.mean()):+8.3f} {cov:6.3f}")
+              f"{np.sqrt(n) * float(err.mean()):+8.3f} {cov:6.3f} {cmc:6.3f}")
     print()
-    print("own_in against dr_in, per replicate, on the kept fits (difference / SD of dr_in):")
-    for n, g in frame.loc[frame["estimand"] == "ate"].groupby("n"):
-        a = g.loc[g["cell"] == "dr_in"].set_index("rep")["psi"]
-        b = g.loc[g["cell"] == "own_in"].set_index("rep")["psi"]
-        d = ((b - a).dropna()) / a.std(ddof=1)
-        print(f"n={n:6d}: pairs {d.size}; mean {d.mean():+.3f}; SD {d.std(ddof=1):.3f}; max |d| {d.abs().max():.3f}")
+    print("Population limits at the independent mechanism (ATE): mean(psi_lim - psi_0) / SD(own_ext), with")
+    print("the mcse of that mean, beside the observed own_ext cells on the same replicates.")
+    for n in sorted(frame["n"].unique()):
+        unit = _sd(frame, "own_ext", n)
+        parts = []
+        for cell in ("pop_ext", "pop_ext_g0", "pop_ext_tmle", "own_ext", "own_ext_g0", "own_ext_tmle"):
+            g = frame.loc[(frame["cell"] == cell) & (frame["n"] == n) & (frame["estimand"] == "ate")]
+            e = (g["psi"] - g["truth"]) / unit
+            parts.append(f"{cell} {e.mean():+.3f} ({e.std(ddof=1) / np.sqrt(len(e)):.3f})")
+        print(f"  n={n:6d}: " + "; ".join(parts))
+    print()
+    print("Paired differences on the ATE (same draw, same initial fits).")
+    print("cleverly against own_drtmle at one independent mechanism, in SDs of own_ext:")
+    for a, b in (("dr_ext", "own_ext"), ("dr_ext_bk", "own_ext"), ("dr_ext", "dr_ext_bk")):
+        _paired(frame, a, b, "own_ext")
+    print("cleverly against own_drtmle in sample, and cleverly's two orders, in SDs of dr_in:")
+    for a, b in (("own_in", "dr_in"), ("dr_in_bk", "dr_in")):
+        _paired(frame, a, b, "dr_in")
+    print("own-row term (in sample minus independent mechanism) and index effect (g_n minus g_0), in SDs of dr_in:")
+    for a, b in (("own_in", "own_ext"), ("own_in_g0", "own_ext_g0"), ("own_in_tmle", "own_ext_tmle"),
+                 ("own_in", "own_in_g0"), ("own_ext", "own_ext_g0")):
+        _paired(frame, a, b, "dr_in")
     _weights(frame)
 
 
