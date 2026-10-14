@@ -838,8 +838,13 @@ class TestPublishedVerdicts:
             )
 
         single = published.loc[published["property"] == "single_robustness"]
-        positive = single.loc[single["role"] == "positive"].sort_values("n")
+        positive = single.loc[single["role"] == "positive"]
         if not positive.empty:
+            # A study with no rows of the family may publish no ``n`` column at all (the
+            # learned-rule boundary study publishes no property rows), but the two-size rule
+            # reads ``n``, so a study that does publish the family has to carry it.
+            assert "n" in positive, f"{study.slug}: single_robustness rows carry no n column"
+            positive = positive.sort_values("n")
             small, large = positive["absolute_bias_bound"].iloc[[0, -1]]
             tolerance = study.properties().ABSOLUTE_BIAS_TOLERANCE
             expected = bool(large < tolerance and large < small)
@@ -2325,11 +2330,10 @@ class TestThePublishedTestTables:
     def test_a_study_without_property_cells_is_a_reporting_study_off_the_grid(
         self, study: StudyRecord
     ) -> None:
-        """A study with no property cell is not a validation row, so the grid does not list it.
+        """A study with no property cell has no grid row until RM42 part (e) adds one.
 
-        ``method-benchmarking.md`` states the rule: matching another implementation, or a
-        coverage reading alone, is not evidence that a method is right.  Such a study still
-        registers, publishes its verdicts under ``reporting`` and carries its own page.
+        Such a study still registers, publishes its verdicts under ``reporting`` and carries its
+        own page.
         """
         if study.property_cells:
             pytest.skip("study declares property cells")

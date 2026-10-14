@@ -43,6 +43,9 @@ objects, or `CausalStudy` objects, and not for the public API.
   fails when that component is wrong.
 - Refuse unsupported but well-posed compositions explicitly and explain what is missing. Do not
   silently return a convenient approximation to a different estimand.
+- Apply [Theory and comparators](docs/architecture-invariants.md#theory-and-comparators). A missing
+  comparator never blocks a method, a study, or a release. Missing fundamental theory blocks only
+  the claim it affects. A comparator never replaces missing theory.
 
 ## Tests and tooling
 

@@ -28,9 +28,14 @@ which is the single most important page in this section.
 The interval is valid when both nuisances are consistent at the product rates, under DR-TMLE's own reduced-regression
 and solve conditions. With one nuisance inconsistent, the two extra equations remove the part of
 the first-order remainder that is a function of the consistent nuisance. The rest can stay first
-order. The one-wrong interval is valid for a declared known mechanism and conservative for a
+order.
+
+The one-wrong interval is valid for a declared known mechanism and conservative for a
 correctly specified parametric mechanism. With the mechanism wrong, the interval is not established, even for a correctly specified parametric outcome regression. With a data-adaptive learner for the consistent
 nuisance it is not established ([the case table](theorem.md#the-conditioning-terms-are-linear-in-one-error)).
+On law L, one gradient-boosting mechanism with a wrong outcome regression gave a bias of +1.5 to
++2.0 SD cross-fitted and −1.2 to −2.5 SD in sample
+([a data-adaptive mechanism](theorem.md#a-data-adaptive-mechanism)).
 
 What this is *not*: a better point estimate. The extra fluctuations update the outcome
 regression, the mechanism, or both, so `Ψ̂` differs from the ordinary TMLE in finite samples. The
@@ -82,7 +87,7 @@ that is not, `R_{3,n}` or `R̃_{5,n}`, can stay first order.
 
 | your situation | what this method buys | what it costs |
 | --- | --- | --- |
-| you doubt one nuisance and still want an interval | an interval that is valid for a known mechanism and conservative for a correctly specified parametric mechanism. With the mechanism wrong, or with a data-adaptive learner, it is not established | the reduced regressions are refitted inside the alternation, so a fit costs several rounds of several regressions |
+| you doubt one nuisance and still want an interval | an interval that is valid for a known mechanism and conservative for a correctly specified parametric mechanism. With the mechanism wrong, or with a data-adaptive learner, it is not established. On one test law, a [gradient-boosting mechanism](theorem.md#a-data-adaptive-mechanism) gave an absolute bias of 1.2 to 2.5 SD | the reduced regressions are refitted inside the alternation, so a fit costs several rounds of several regressions |
 | both nuisances are consistent | nothing you need. The corrections converge to zero and the curve converges to the efficient curve | the extra cost. The corrections add cost and no asymptotic gain here |
 | you want a narrower interval | this is not that | the corrected curve is the estimator's own influence function and not the efficient one |
 | you want `retarget` to be cheap | it is not. A truncation curve on a `DRTMLE` fit costs about a fit per point | a plain `TMLE` handed these nuisances refuses rather than re-solving against arrays it cannot refresh |
@@ -211,15 +216,15 @@ theorem-backed. The fixture is now a pair of fits, and the second is asserted to
 pre-existing column inactive, so a bound-active verdict there can come only from the two new
 witnesses.
 
-**Numerical agreement with the canonical R package is not acceptance evidence, and never will be.**
+**Agreement with the canonical R package does not check the influence curve's form.**
 The influence curve's *provenance* is that its form was read off that package. Its *evidence* is
 that it has since been checked against Theorem 1's own appendices at a nonzero $Q_r$, and against a
 perturbation of the law where in each half of the union model the corrected curve is the efficient
 influence function row for row. These exact laws let the consistent nuisance separate every cell,
 so the conditioning term is zero on them. `tests/unit/test_conditioning_remainder_drtmle.py` adds
 a law where it is not. Agreement between two transcriptions of one source is evidence
-about the transcription. This is a
-[standing decision](../../architecture-invariants.md#validation-and-evidence) rather than a gap.
+about the transcription. A changed term keeps its independent check, as the
+[validation invariant](../../architecture-invariants.md#validation-and-evidence) states.
 
 **Solved scores do not establish nuisance consistency.** `score_check` used to sign a doubly-robust
 fit off with one verdict over three rows, two of which are the corrections. It now branches on

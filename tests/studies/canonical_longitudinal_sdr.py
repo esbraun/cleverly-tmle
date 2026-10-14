@@ -90,7 +90,6 @@ from cleverly.longitudinal.regimen import (
     resolve_regimens,
 )
 from cleverly.longitudinal.sdr import node_factors, partial_weights
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_longitudinal_multivalue as multivalue
 from tests import discrete_law_longitudinal_policy as policy_law
 from tests.parallel import STUDY_JOBS
@@ -106,10 +105,11 @@ from tests.studies.canonical_categorical_ltmle import (
 )
 from tests.studies.canonical_ltmle import KnownLongitudinalMechanism
 from tests.studies.categorical_longitudinal_common import KnownCategoricalMechanism
+from tests.studies.evidence import replication
 from tests.studies.evidence.constructions import SDR_TRAINING_FOLD_RECURSION
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 from tests.studies.fractional_glm import QuasiBinomialGLM
 from tests.studies.oracle_density_bins import oracle_bins
 
@@ -580,10 +580,16 @@ def binding_share(result: Any) -> float:
     return max(step.bound_binding for fit in result.fits.values() for step in fit.steps)
 
 
+def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    scenario, replicate, n = key
+    return draw_scenario(scenario, n, replicate)
+
+
 def _replicate(
-    scenario: str, replicate: int, n: int
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
 ) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
-    frame, truth = draw_scenario(scenario, n, replicate)
+    scenario, replicate, _ = key
+    frame, truth = drawn
     result = fit(frame, scenario)
     if binding_share(result) > 0.0:
         raise AssertionError(f"{scenario} replicate {replicate}: a g_bounds bound binds")
@@ -601,16 +607,25 @@ def _replicate(
     return sample, truths, result_rows(result, truth, scenario, replicate)
 
 
-def draw_and_fit(
-    *, replicates: int, n: int, n_jobs: int = STUDY_JOBS
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
     # Replicate-major, so every scenario of one replicate is contiguous in the sample archive
-    # and the comparator's runner reads them as one group.
-    payloads = [
-        (scenario, replicate, n) for replicate in range(replicates) for scenario in STUDY.scenarios
-    ]
-    outcomes = map_parallel(_replicate, payloads, n_jobs=n_jobs)
-    samples = pd.concat([sample for sample, _, _ in outcomes], ignore_index=True)
-    truths = pd.DataFrame([row for _, rows, _ in outcomes for row in rows])
-    estimates = pd.DataFrame([row for _, _, rows in outcomes for row in rows])
-    return samples, truths, estimates.loc[:, list(REPLICATE_COLUMNS)]
+    # and the comparator's runner reads them as one group.  Dependent: the sample carries the
+    # fold assignment and the pairing columns of the cleverly fit.
+    outcomes = replication.fit_primary(
+        [
+            (scenario, replicate, n)
+            for replicate in range(replicates)
+            for scenario in STUDY.scenarios
+        ],
+        _replicate,
+        draw=_draw,
+        n_jobs=n_jobs,
+        implementation=STUDY.implementation,
+        seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
+    )
+    samples = pd.concat([sample for sample, _, _ in outcomes.kept], ignore_index=True)
+    truths = pd.DataFrame([row for _, rows, _ in outcomes.kept for row in rows])
+    estimates = pd.DataFrame([row for _, _, rows in outcomes.kept for row in rows])
+    return replication.result(
+        outcomes, estimates.loc[:, list(REPLICATE_COLUMNS)], samples=samples, truths=truths
+    )
