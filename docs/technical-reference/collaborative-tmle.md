@@ -396,9 +396,12 @@ reported curve, with the true $g_0$, on the binary law. Its `reading.txt` gives 
 | per-arm, $\bar Q_n$ pinned to the truth | 0.997, 0.938 | 0.988, 0.950 |
 
 The term needs the full mechanism $g_0$ and the influence function of the outcome learner. The
-per-arm design exists to avoid the first, and no source read here gives it for a flexible
-learner. [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) holds it.
-The point estimate stands, so the per-arm design stays the default.
+per-arm design exists to avoid the first, and no source read here gives it for a flexible learner.
+[F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) holds it.
+[X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) plans a
+corrected interval for a regular parametric outcome model. Until it ships, and outside its support
+predicate afterward, a per-arm fit withholds its interval. The point estimate stands, so the per-arm
+design stays the default.
 
 ### Baseline strata and missing data in the per-arm design
 
