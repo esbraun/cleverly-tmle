@@ -2,8 +2,9 @@
 
 Each label names one estimand on one law.  Every fit is ``LTMLE`` with
 ``survival_model="hazard"`` and ``targeting="one_step"``, except where the table says otherwise.
-The learners of every positive cell are the saturated cell fits, which are correct on these
-finite laws.  Every efficiency bound is exact.
+The learners of every positive cell are correct: :func:`~tests.studies.
+point_survival_hazard_properties.learners` gives the hazard learner, additive on a one-cause law
+and saturated on a two-cause law.  Every efficiency bound is exact.
 
 ================================  =========================================================
 family                            cells, replications and size
@@ -18,12 +19,12 @@ family                            cells, replications and size
                                   per horizon; ``isotonic_t2`` (``risk_regimen[always @
                                   t=2]`` of the law with a treatment at two nodes, fitted
                                   with ``survival_model="iterated_mean"`` and
-                                  ``isotonic=True``).  1,600 each except the first; n = 2,000
+                                  ``isotonic=True``).  4,800 each except the first; n = 2,000
 ``isotonic_projection``           ``isotonic_t2__moved``: per replication, how far the
                                   projection moved the level.  A diagnostic: its rejection
                                   rate is the binding share, and it states no verdict
 ``clustered_inference``           ``clustered_t5`` (the arm-0 risk at visit 5, 25 clusters of
-                                  80), one step and per horizon; 1,600 each
+                                  80), one step and per horizon; 4,800 each
 ``double_robustness``             ``survival_t5`` in four nuisance configurations; 1,200
 ``targeting_necessity``           ``survival_t5``: the targeted estimate and the plug-in of
                                   the same fit, with a wrong hazard; 1,200
@@ -105,15 +106,15 @@ RATE_SIZES = (1_000, 2_000, 8_000)
 CALIBRATION_N = 2_000
 CALIBRATION_REPLICATES = {
     "survival_t5": 9_600,
-    "competing_t4": 1_600,
-    "three_arm": 1_600,
-    "weighted_t5": 1_600,
-    "weighted_t5_per_horizon": 1_600,
-    "isotonic_t2": 1_600,
+    "competing_t4": 4_800,
+    "three_arm": 4_800,
+    "weighted_t5": 4_800,
+    "weighted_t5_per_horizon": 4_800,
+    "isotonic_t2": 4_800,
 }
 CLUSTER_N = 2_000
 CLUSTER_SIZE = x13.CLUSTER_SIZE
-CLUSTER_REPLICATES = 1_600
+CLUSTER_REPLICATES = 4_800
 CLUSTER_LABELS = ("clustered_t5", "clustered_t5_per_horizon")
 #: The labels that carry the two derived calibration controls.
 CONTROLLED_LABELS = ("survival_t5",)
@@ -292,7 +293,7 @@ def fit_label(
         survival_model="hazard",
         random_state=0,
         **_settings(targeting),
-        **learners(configuration),
+        **learners(configuration, causes=scenario.causes),
     ).fit(data)
 
 

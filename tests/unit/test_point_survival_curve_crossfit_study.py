@@ -22,8 +22,8 @@ pytestmark = pytest.mark.xdist_group("point_survival_curve_crossfit_design")
 
 FIT_SET_SIZES = {
     ("interval_calibration", "survival_t5"): (2_000, 9_600),
-    ("interval_calibration", "survival_t5_per_horizon"): (2_000, 1_600),
-    ("interval_calibration", "competing_t4"): (2_000, 1_600),
+    ("interval_calibration", "survival_t5_per_horizon"): (2_000, 4_800),
+    ("interval_calibration", "competing_t4"): (2_000, 4_800),
     ("double_robustness", "both_correct"): (2_000, 1_200),
     ("double_robustness", "outcome_correct"): (2_000, 1_200),
     ("double_robustness", "mechanism_correct"): (2_000, 1_200),

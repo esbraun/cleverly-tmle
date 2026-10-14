@@ -10,9 +10,10 @@ z <- qnorm(0.975)
 
 # The reported visits of each scenario and the label of each event code.  Transcribed from
 # tests/studies/canonical_point_survival.py; a gate test reads these vectors back.
-# survtmle's exported defaults, passed explicitly: tol = 1 / sqrt(n) and maxIter = 10.  The
-# gate test reads these lines back too.
-max_iter <- 10
+# survtmle's exported default tol = 1 / sqrt(n) stops before the first fluctuation on these
+# laws, so the runner passes tol = 1 / n and maxIter = 100.  The gate test reads these lines
+# back too.
+max_iter <- 100
 gtol <- 1e-3
 reported <- list(survival = c(1, 3, 5), competing = c(2, 4))
 causes <- list(survival = c("1" = ""), competing = c("1" = "relapse", "2" = "death"))
@@ -124,7 +125,7 @@ fit_scenario <- function(frame) {
   n <- nrow(frame)
   adjust <- frame[c("W1", "W2")]
   rows <- list()
-  tol <- 1 / sqrt(n)
+  tol <- 1 / n
   for (t0 in reported[[scenario]]) {
     check_estimation_rows(frame, t0)
     arguments <- list(

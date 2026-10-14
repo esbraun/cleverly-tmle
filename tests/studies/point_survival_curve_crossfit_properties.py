@@ -2,15 +2,15 @@
 
 Every fit is ``LTMLE`` with ``survival_model="hazard"`` and ``n_folds=5``, and every fit set reuses
 the replicate rows of :func:`tests.studies.point_survival_curve_properties.fit_set_rows` on this
-study's own streams.  The learners of every positive cell are the saturated cell fits, which are
-correct on these finite laws.  Every efficiency bound is exact.
+study's own streams.  The learners of every positive cell are correct, as in that module.
+Every efficiency bound is exact.
 
 ================================  =========================================================
 family                            cells, replications and size
 ================================  =========================================================
 ``interval_calibration``          ``survival_t5`` one step (9,600, with the shrunken-SE and
-                                  noise controls); ``survival_t5_per_horizon`` (1,600);
-                                  ``competing_t4`` one step (1,600); n = 2,000
+                                  noise controls); ``survival_t5_per_horizon`` (4,800);
+                                  ``competing_t4`` one step (4,800); n = 2,000
 ``double_robustness``             ``survival_t5`` one step in four nuisance configurations;
                                   1,200 at n = 2,000
 ``simultaneous_coverage``         from the ``survival_t5`` calibration fits: the band over
@@ -51,8 +51,8 @@ DOUBLE_ROBUST_N = 2_000
 CALIBRATION_N = 2_000
 CALIBRATION_REPLICATES = {
     "survival_t5": 9_600,
-    "survival_t5_per_horizon": 1_600,
-    "competing_t4": 1_600,
+    "survival_t5_per_horizon": 4_800,
+    "competing_t4": 4_800,
 }
 CONTROLLED_LABELS = ("survival_t5",)
 CONFIGURATIONS = base.CONFIGURATIONS

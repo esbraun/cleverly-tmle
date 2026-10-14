@@ -33,19 +33,20 @@ from tests.studies.evidence.registry import ROOT, Margins, registered
 pytestmark = pytest.mark.xdist_group("point_survival_curve_design")
 
 CANONICAL = ROOT / "tests" / "canonical" / "tmle3_survival"
-#: A record, not a check: each control's standardized bias and its Monte Carlo SE.
+#: A record, not a check: each control's bias over the efficiency-bound SE, and its Monte
+#: Carlo SE.  The verdict reads the bias over the cell's empirical SD instead.
 CONTROL_LIMITS = {"both_wrong": (1.379, 0.146), "untargeted": (5.774, 0.0)}
 #: The exact-law power of the power cell.
 DESIGN_POWER = 0.9999315907366597
 FIT_SET_SIZES = {
     ("interval_calibration", "survival_t5"): (2_000, 9_600),
-    ("interval_calibration", "competing_t4"): (2_000, 1_600),
-    ("interval_calibration", "three_arm"): (2_000, 1_600),
-    ("interval_calibration", "weighted_t5"): (2_000, 1_600),
-    ("interval_calibration", "weighted_t5_per_horizon"): (2_000, 1_600),
-    ("interval_calibration", "isotonic_t2"): (2_000, 1_600),
-    ("clustered_inference", "clustered_t5"): (2_000, 1_600),
-    ("clustered_inference", "clustered_t5_per_horizon"): (2_000, 1_600),
+    ("interval_calibration", "competing_t4"): (2_000, 4_800),
+    ("interval_calibration", "three_arm"): (2_000, 4_800),
+    ("interval_calibration", "weighted_t5"): (2_000, 4_800),
+    ("interval_calibration", "weighted_t5_per_horizon"): (2_000, 4_800),
+    ("interval_calibration", "isotonic_t2"): (2_000, 4_800),
+    ("clustered_inference", "clustered_t5"): (2_000, 4_800),
+    ("clustered_inference", "clustered_t5_per_horizon"): (2_000, 4_800),
     ("double_robustness", "both_correct"): (2_000, 1_200),
     ("double_robustness", "outcome_correct"): (2_000, 1_200),
     ("double_robustness", "mechanism_correct"): (2_000, 1_200),

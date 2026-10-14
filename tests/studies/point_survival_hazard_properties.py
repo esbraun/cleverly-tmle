@@ -2,16 +2,20 @@
 
 Each label names one estimand on one law of :mod:`tests.studies.point_survival_common`, as in
 :mod:`tests.studies.point_survival_properties`.  Every fit is ``LTMLE`` with
-``survival_model="hazard"`` and ``targeting="iterative"``.  The learners of every positive cell
-are the saturated cell fits, which are correct on these finite laws.  Every efficiency bound is
-exact (:func:`~tests.studies.point_survival_common.efficiency_sd`).
+``survival_model="hazard"`` and ``targeting="iterative"``.  The correct mechanism learners are
+the saturated cell fits.  The correct hazard learner is :class:`AdditiveLogistic` on a one-cause
+law and the saturated cell fit on a two-cause law (:func:`learners`).  A saturated hazard fitted
+in sample is the maximum-likelihood estimate on these finite laws, so its initial score is zero
+and targeting does not move it.  The additive learner is correct and not saturated, so targeting
+moves every one-cause fit.  Every efficiency bound is exact
+(:func:`~tests.studies.point_survival_common.efficiency_sd`).
 
 ==============================  ===========================================================
 family                          cells, replications and size
 ==============================  ===========================================================
 ``interval_calibration``        ``survival_t5`` (the visit-5 difference; 9,600, with the
                                 shrunken-SE and noise controls) and ``competing_t4`` (the
-                                death incidence difference at visit 4; 1,600); n = 2,000
+                                death incidence difference at visit 4; 4,800); n = 2,000
 ``double_robustness``           ``survival_t5`` in four nuisance configurations; 1,200 at
                                 n = 2,000.  ``outcome_correct`` is the correct hazard with a
                                 wrong mechanism
@@ -27,7 +31,8 @@ family                          cells, replications and size
 
 The wrong hazard learner is :class:`~tests.studies.point_survival_properties.InterceptOnly`,
 which predicts one hazard per node for both arms, so its plug-in contrast is zero in every
-sample.  The failure rule is the registry's: a replication that raises is never redrawn, and the
+sample.  The ``untargeted`` control therefore cannot fail.  The necessity verdict rests on the
+targeted arm and on its displacement from the plug-in.  The failure rule is the registry's: a replication that raises is never redrawn, and the
 shared harness refuses a cell that lost one.
 """
 
@@ -39,6 +44,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
+from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import OneHotEncoder
 
 from cleverly.longitudinal import LTMLE
 from cleverly.utils.parallel import map_parallel
@@ -81,7 +90,7 @@ NECESSITY_N = 2_000
 RATE_REPLICATES = 800
 RATE_SIZES = (1_000, 2_000, 8_000)
 CALIBRATION_N = 2_000
-CALIBRATION_REPLICATES = {"survival_t5": 9_600, "competing_t4": 1_600}
+CALIBRATION_REPLICATES = {"survival_t5": 9_600, "competing_t4": 4_800}
 CALIBRATION_LABELS = tuple(CALIBRATION_REPLICATES)
 #: The labels that carry the two derived calibration controls.
 CONTROLLED_LABELS = ("survival_t5",)
@@ -101,12 +110,44 @@ CONFIGURATIONS = ("both_correct", "outcome_correct", "mechanism_correct", "both_
 EFFICIENCY_SD = {label: POINT_EFFICIENCY_SD[label] for label in CALIBRATION_LABELS}
 
 
-def learners(configuration: str = "both_correct") -> dict[str, Any]:
-    """The cell learners of one nuisance configuration.  No pseudo-outcome is fitted."""
+class AdditiveLogistic(BaseEstimator, ClassifierMixin):
+    """An unpenalized logistic regression on one indicator per level of every design column.
+
+    The all-cause hazard of a one-cause law here is
+    :math:`\\operatorname{expit}(\\alpha_k + \\beta_A + 0.35 W_1 + 0.15 W_2)` at each node,
+    which this learner contains, so it is correct.  It has no interaction, so it is not
+    saturated, and its initial score is not zero: targeting moves every fit.
+    """
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> AdditiveLogistic:
+        self.model_ = make_pipeline(
+            OneHotEncoder(drop="first", handle_unknown="ignore", sparse_output=False),
+            LogisticRegression(C=np.inf, max_iter=1000),
+        )
+        self.model_.fit(
+            np.round(np.asarray(X, dtype=float), 9),
+            np.asarray(y, dtype=float).reshape(-1),
+            logisticregression__sample_weight=sample_weight,
+        )
+        self.classes_ = self.model_.classes_
+        return self
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        return np.asarray(self.model_.predict_proba(np.round(np.asarray(X, dtype=float), 9)))
+
+
+def learners(configuration: str = "both_correct", *, causes: int = 1) -> dict[str, Any]:
+    """The learners of one nuisance configuration.  No pseudo-outcome is fitted.
+
+    The correct hazard learner of a one-cause law is :class:`AdditiveLogistic`.  A cause-
+    specific hazard of a two-cause law is a product of two logistic terms, so there the correct
+    hazard learner is the saturated :class:`~tests.studies.point_survival_common.CellMeans`.
+    """
     hazard_correct = configuration in {"both_correct", "outcome_correct"}
     mechanism_correct = configuration in {"both_correct", "mechanism_correct"}
+    correct_hazard = AdditiveLogistic() if causes == 1 else common.CellMeans()
     return {
-        "outcome_learner": common.CellMeans() if hazard_correct else InterceptOnly(),
+        "outcome_learner": correct_hazard if hazard_correct else InterceptOnly(),
         "treatment_learner": (
             common.CellProbabilities() if mechanism_correct else MarginalProbabilities()
         ),
@@ -135,7 +176,7 @@ def fit_label(
         max_iter=study.MAX_ITER,
         tol=study.TOL,
         random_state=0,
-        **learners(configuration),
+        **learners(configuration, causes=scenario.causes),
     ).fit(scenario.container(frame))
 
 

@@ -20,8 +20,10 @@ on the X13 image:
   A later cause regresses on the rows with no event of an earlier cause at the visit on both
   sides (``survtmle``'s ``hazards_estimate.R``).
 
-``survtmle`` runs at its exported defaults, passed explicitly: ``tol = 1 / sqrt(n)`` and
-``maxIter = 10``, with ``gtol = 1e-3``.  The initial plug-in is a second call with
+``survtmle`` runs with ``tol = 1 / n`` and ``maxIter = 100``, with ``gtol = 1e-3``.  Its
+exported default ``tol = 1 / sqrt(n)`` is 0.022 at n = 2,000, and the initial
+``max |meanIC|`` of the declared learners is at most 0.0096 on these laws, so at the default
+the targeting loop never runs.  At ``1 / n`` it runs in 87 to 100 percent of fits.  The initial plug-in is a second call with
 ``tol = Inf``, whose targeting loop never runs.  The runner counts the "Fluctuation
 convergence failure" warnings per replicate and records the final ``meanIC``.
 
@@ -87,7 +89,7 @@ MAX_ITER = 100
 TOL = 1e-10
 
 #: ``survtmle``'s exported defaults, which the runner passes explicitly.
-SURVTMLE_MAX_ITER = 10
+SURVTMLE_MAX_ITER = 100
 SURVTMLE_GTOL = 1e-3
 
 
@@ -179,14 +181,14 @@ REFERENCE_METADATA = {
     "survtmle_tarball_sha256": SURVTMLE_TARBALL_SHA256,
     "r_base_image": R_BASE_IMAGE,
     "reference_construction": (
-        "survtmle(method='hazard') per horizon t0 with tol=1/sqrt(n), maxIter=10 and gtol=1e-3 "
-        "passed explicitly; glm.trt='W1 + W2'; glm.ftime and glm.ctime with one intercept and "
+        "survtmle(method='hazard') per horizon t0 with tol=1/n, maxIter=100 and gtol=1e-3; "
+        "glm.trt='W1 + W2'; glm.ftime and glm.ctime with one intercept and "
         "three slopes per visit and no shared term; the initial estimate is a second call with "
         "tol=Inf"
     ),
     "pairing": (
         "read under the default margins; survtmle fluctuates one cause at a time and stops at "
-        "max |meanIC| <= 1/sqrt(n)"
+        "max |meanIC| <= 1/n"
     ),
 }
 

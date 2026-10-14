@@ -35,13 +35,14 @@ from tests.studies.evidence.registry import ROOT, Margins, registered
 pytestmark = pytest.mark.xdist_group("point_survival_hazard_design")
 
 RUNNER = ROOT / "tests" / "canonical" / "point_survival_hazard_runner.R"
-#: A record, not a check: each control's standardized bias and its Monte Carlo SE.
+#: A record, not a check: each control's bias over the efficiency-bound SE, and its Monte
+#: Carlo SE.  The verdict reads the bias over the cell's empirical SD instead.
 CONTROL_LIMITS = {"both_wrong": (1.377, 0.146), "untargeted": (5.774, 0.0)}
 #: The exact-law power of the power cell.
 DESIGN_POWER = 0.9999315907366597
 FIT_SET_SIZES = {
     ("interval_calibration", "survival_t5"): (2_000, 9_600),
-    ("interval_calibration", "competing_t4"): (2_000, 1_600),
+    ("interval_calibration", "competing_t4"): (2_000, 4_800),
     ("double_robustness", "both_correct"): (2_000, 1_200),
     ("double_robustness", "outcome_correct"): (2_000, 1_200),
     ("double_robustness", "mechanism_correct"): (2_000, 1_200),
@@ -151,7 +152,7 @@ def test_the_runner_transcribes_the_python_design() -> None:
     assert f'reference <- "{REFERENCE}"' in text
     assert f"max_iter <- {study.SURVTMLE_MAX_ITER}" in text
     assert "gtol <- 1e-3" in text and study.SURVTMLE_GTOL == 1e-3
-    assert "tol <- 1 / sqrt(n)" in text
+    assert "tol <- 1 / n" in text
     assert 'method = "hazard"' in text
     assert "list(tol = Inf)" in text
     assert "suppressWarnings" not in text
@@ -186,3 +187,17 @@ def test_a_pinned_bound_matches_the_spread_of_a_large_hazard_fit() -> None:
         result = properties.fit_label("survival_t5", frame)
     curve = result[properties.ESTIMAND["survival_t5"]].influence_curve
     assert float(np.std(curve)) == pytest.approx(properties.EFFICIENCY_SD["survival_t5"], rel=0.05)
+
+
+def test_the_correct_one_cause_hazard_learner_leaves_targeting_work_to_do() -> None:
+    """A saturated hazard fitted in sample has a zero initial score; the additive one does not.
+
+    The calibration cells are evidence for targeting only if targeting moves their fits.
+    """
+    frame = properties.draw("survival_t5", 2_000, 99_000_123)
+    result = properties.fit_label("survival_t5", frame)
+    records = {id(fit.hazard): fit.hazard for fit in result.fits.values()}
+    assert all(record.converged for record in records.values())
+    assert max(float(np.max(np.abs(r.score_initial))) for r in records.values()) > 1e-4
+    saturated = properties.learners("both_correct", causes=2)["outcome_learner"]
+    assert type(saturated).__name__ == "CellMeans"
