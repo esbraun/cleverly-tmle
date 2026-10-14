@@ -649,6 +649,7 @@ def _observed_dose(result: Any) -> np.ndarray:
     return np.asarray(result.data.treatment_components, dtype=float)[:, 0]
 
 
+@pytest.mark.usefixtures("exact_grid_law")
 @pytest.mark.parametrize("ratio", ["classifier", "density"])
 def test_h1_every_reader_of_a_vector_result_equals_its_scalar_reading(
     ratio: str, tmp_path: Path

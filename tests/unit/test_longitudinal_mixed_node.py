@@ -261,6 +261,9 @@ def _four_node_fit(labels: tuple[str, ...]) -> Any:
     return fit(labels, regimens={label: plans[label] for label in labels}, columns=columns)
 
 
+# The four-node fit reads the grid dose as a scalar continuous node, which R-b4 of X40
+# refuses on an exact grid law; the fixture turns that refusal off.
+@pytest.mark.usefixtures("exact_grid_law")
 def test_w10_an_identity_flag_map_equals_the_four_node_fit() -> None:
     """Two consecutive nodes read the intervened flag, and a joint policy the natural one.
 

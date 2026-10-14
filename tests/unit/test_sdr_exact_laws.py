@@ -41,6 +41,10 @@ from . import test_influence_gateaux_longitudinal_policy as policy_tests
 from . import test_influence_gateaux_survival as survival_tests
 from . import test_weighted_estimand_longitudinal as weighted_tests
 
+# The exact grid laws have recorded point masses at every dose, which R-b4 of X40 refuses;
+# the fixture turns that refusal off and leaves the ratio code as shipped.
+pytestmark = pytest.mark.usefixtures("exact_grid_law")
+
 #: The window every comparison below is held to.  The LTMLE modules hold the same laws to
 #: between ``1e-14`` and ``1e-10``; SDR adds one residual sum per node and no solve.
 POINT = 1e-12
