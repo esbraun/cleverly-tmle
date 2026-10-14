@@ -8,6 +8,8 @@ reads a committed artifact.
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -78,7 +80,7 @@ def test_the_record_is_registered_with_its_own_seeds() -> None:
     assert record.seed not in taken
     assert record.resampling_seed not in taken
     assert record.seed != record.resampling_seed
-    assert (record.replicates, record.n) == (1_600, 2_000)
+    assert (record.replicates, record.n) == (3_200, 2_000)
     assert record.publication_policy == "gated"
     assert record.artifacts.name == "ltmle_repeated"
 
@@ -248,17 +250,19 @@ def test_the_known_mechanisms_read_the_declared_history_design() -> None:
     censoring = study.KnownRepeatedMechanism("censoring").fit(None, None)
     filled = frame.fillna(0.0)
     w = filled["W"].to_numpy()
+    zeros = np.zeros(len(frame))
     for time in (1, 2, 3):
-        y_prev = filled[f"Y{time - 1}"].to_numpy() if time > 1 else np.zeros(len(frame))
-        a_prev = filled[f"A{time - 1}"].to_numpy() if time > 1 else np.zeros(len(frame))
-        l_t = filled[f"L{time}"].to_numpy() if time > 1 else np.zeros(len(frame))
+        y_prev = filled[f"Y{time - 1}"].to_numpy() if time > 1 else zeros
+        y_prev2 = filled[f"Y{time - 2}"].to_numpy() if time > 2 else zeros
+        a_prev = filled[f"A{time - 1}"].to_numpy() if time > 1 else zeros
+        l_t = filled[f"L{time}"].to_numpy() if time > 1 else zeros
         a_t = filled[f"A{time}"].to_numpy()
         history = data.history_design(time)
         assert history.shape[1] == {1: 1, 2: 4, 3: 7}[time]
-        expected_g = np.asarray(law.BINARY.treatment(time, w, l_t, y_prev, a_prev))
+        expected_g = np.asarray(law.BINARY.treatment(time, w, l_t, y_prev, a_prev, y_prev2))
         current = data.history_design(time, include_current=True)
         assert current.shape[1] == {1: 2, 2: 5, 3: 8}[time]
-        expected_c = np.asarray(law.BINARY.stay(time, w, l_t, y_prev, a_t))
+        expected_c = np.asarray(law.BINARY.stay(time, w, l_t, y_prev, a_t, y_prev2))
         at_risk = frame[f"A{time}"].notna().to_numpy()
         np.testing.assert_allclose(
             treatment.predict_proba(history)[at_risk, 1], expected_g[at_risk], atol=1e-12
@@ -272,7 +276,9 @@ def test_a_column_swap_moves_the_known_mechanisms() -> None:
     """The deliberate mutation: the width check alone cannot see a permuted design."""
     frame, _ = make_longitudinal_repeated(n=800, seed=12, backend="pandas")
     data = _data(frame)
-    for kind, include in (("treatment", False), ("censoring", True)):
+    # The censoring probabilities sit near 0.97 and read ``L_t`` and ``Y_{t-1}`` with small
+    # weights, so a swap moves them by 0.012 at least.  The floor sits below that move.
+    for kind, include, floor in (("treatment", False, 0.1), ("censoring", True, 0.005)):
         model = study.KnownRepeatedMechanism(kind).fit(None, None)
         for time in (2, 3):
             design = data.history_design(time, include_current=include)
@@ -281,7 +287,100 @@ def test_a_column_swap_moves_the_known_mechanisms() -> None:
             swapped = design.copy()
             swapped[:, [outcome, outcome + 1]] = swapped[:, [outcome + 1, outcome]]
             moved = np.abs(model.predict_proba(design)[:, 1] - model.predict_proba(swapped)[:, 1])
-            assert float(np.max(moved)) > 0.1, (kind, time)
+            assert float(np.max(moved)) > floor, (kind, time)
+
+
+def test_swapping_the_two_outcomes_moves_the_node_three_mechanisms() -> None:
+    """A nonzero witness for the second-order term: ``Y1`` and ``Y2`` carry different weights."""
+    frame, _ = make_longitudinal_repeated(n=800, seed=15, backend="pandas")
+    data = _data(frame)
+    for kind, include, floor in (("treatment", False, 0.1), ("censoring", True, 0.02)):
+        model = study.KnownRepeatedMechanism(kind).fit(None, None)
+        design = data.history_design(3, include_current=include)
+        swapped = design.copy()
+        swapped[:, [1, 3]] = swapped[:, [3, 1]]  # Y1 <-> Y2
+        moved = np.abs(model.predict_proba(design)[:, 1] - model.predict_proba(swapped)[:, 1])
+        assert float(np.max(moved)) > floor, kind
+        # At node 2 the second-order term reads the zero node, so the term is absent there.
+        assert data.history_design(2, include_current=include).shape[1] < design.shape[1]
+
+
+ADAPTER = Path(__file__).parents[1] / "canonical" / "ltmle_repeated_adapter.R"
+
+#: The R variable each term of a ``plogis`` line multiplies, and the generator term it restates.
+_ADAPTER_TERMS = {
+    None: "intercept",
+    "w": "w",
+    "l": "l",
+    "y": "y",
+    "y2": "y2",
+    "abar_prev": "a",
+    "abar_now": "a",
+}
+PLOGIS_LINE = r"^\s*p_[ac] <- plogis\((.*)\)\s*$"
+_ADAPTER_ASSIGNMENTS = (
+    'l <- fill(sprintf("L%d", t))',
+    'y <- fill(sprintf("Y%d", t - 1))',
+    'y2 <- if (t >= 3) fill(sprintf("Y%d", t - 2)) else 0',
+)
+
+
+def _adapter_tables(text: str) -> list[dict[str, float]]:
+    """The coefficient table of each ``plogis`` line of the R adapter, in file order."""
+    expressions = re.findall(PLOGIS_LINE, text, flags=re.MULTILINE)
+    tables = []
+    for expression in expressions:
+        expression = re.sub(r"abar\[,\s*t\s*-\s*1\s*\]", "abar_prev", expression)
+        expression = re.sub(r"abar\[,\s*(?:t|1)\s*\]", "abar_now", expression)
+        table: dict[str, float] = {}
+        for sign, number, name in re.findall(
+            r"([+-]?)\s*(\d+(?:\.\d+)?)(?:\s*\*\s*(\w+))?", expression
+        ):
+            key = _ADAPTER_TERMS[name or None]
+            assert key not in table, (key, expression)
+            table[key] = float(f"{sign}{number}")
+        tables.append(table)
+    return tables
+
+
+def _adapter_restates_the_generator(text: str) -> bool:
+    """Whether the four ``plogis`` lines and the three history reads match the generator."""
+    declared = [_REPEATED_A1, _REPEATED_C1, _REPEATED_A, _REPEATED_C]
+    return _adapter_tables(text) == declared and all(line in text for line in _ADAPTER_ASSIGNMENTS)
+
+
+def test_the_r_adapter_restates_the_generator_coefficients() -> None:
+    """The R copy of the mechanisms is checked before any run, and a changed literal fails it."""
+    text = ADAPTER.read_text()
+    assert len(_adapter_tables(text)) == 4
+    assert _adapter_restates_the_generator(text)
+
+
+def test_a_changed_adapter_literal_fails_the_transcription_guard() -> None:
+    """The deliberate mutation: each literal of each ``plogis`` line, changed alone, is caught."""
+    text = ADAPTER.read_text()
+    spans = []
+    for line in re.finditer(PLOGIS_LINE, text, flags=re.MULTILINE):
+        for match in re.finditer(r"(?<![\w.])\d+(?:\.\d+)?(?!\s*\])", line.group(1)):
+            spans.append((line.start(1) + match.start(), line.start(1) + match.end()))
+    # A1: 2, C1: 3, A: 6 and C: 5 literals.
+    assert len(spans) == 16
+    for start, end in spans:
+        mutated = text[:start] + f"{float(text[start:end]) + 0.1:.1f}" + text[end:]
+        assert not _adapter_restates_the_generator(mutated), text[start - 12 : end + 6]
+    # A dropped term and a wrong history column are caught as well.
+    assert not _adapter_restates_the_generator(text.replace(" + 1.6 * y2", ""))
+    assert not _adapter_restates_the_generator(text.replace('Y%d", t - 2', 'Y%d", t - 1'))
+
+
+def test_the_subject_publishes_no_plug_in() -> None:
+    """A single-fold fit exposes no untargeted plug-in, so the column is ``nan`` for every cell."""
+    frame, truth = make_longitudinal_repeated(n=study.PRIMARY_N, seed=16, backend="pandas")
+    rows = pd.DataFrame(study.cleverly_rows(frame, truth, study.SCENARIO, 0))
+    assert set(rows["estimand"]) == set(study.ESTIMANDS)
+    assert rows["initial_estimate"].isna().all()
+    # The estimates themselves are finite, so the column is absent by design and not by failure.
+    assert np.isfinite(rows["estimate"].to_numpy(dtype=float)).all()
 
 
 def test_the_rule_duplicates_always_at_the_first_node() -> None:
@@ -592,7 +691,7 @@ def test_the_rule_reads_only_the_earlier_outcome() -> None:
 
 def test_the_primary_phase_returns_the_driver_contract() -> None:
     """The regeneration driver refuses anything but a ``PhaseResult`` (Study queue item 11)."""
-    result = study.draw_and_fit(replicates=1, n=400, n_jobs=1)
+    result = study.draw_and_fit(replicates=1, n=study.PRIMARY_N, n_jobs=1)
     assert isinstance(result, replication.PhaseResult)
     assert result.failures is None
     assert set(result.rows["estimand"]) == set(study.ESTIMANDS)

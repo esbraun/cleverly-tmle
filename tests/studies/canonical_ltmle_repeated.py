@@ -20,23 +20,66 @@ Declared before any run
 * Both sides receive the generating mechanisms (:class:`KnownRepeatedMechanism` here, a
   numeric ``gform`` in R) and ``g_bounds = G_BOUNDS``.  Both fit in sample (``n_folds = 1``)
   at ``n = 2,000``.
+* The law has depth two.  ``W`` takes three values, and ``A_t``, ``C_t`` and ``Y_t`` read
+  ``Y_{t-2}``.  The mechanisms therefore have three design widths, and
+  :class:`KnownRepeatedMechanism` builds each index from the generator's coefficient tables
+  by column name.
 * ``PRIMARY_REPLICATES`` comes from the design rule in
-  ``tests/unit/test_ltmle_repeated_method_study.py``: the smallest multiple of 400 at which a
-  cell whose true standardized bias equals the paired-difference margin, 0.15, passes the
-  bias gate with probability at least 0.90.  The rule gives 1,600.
+  ``tests/unit/test_ltmle_repeated_method_study.py``: the smallest multiple of 400 such that
+  (a) a cell whose true standardized bias equals the paired-difference margin, 0.15, passes
+  the bias gate with probability at least 0.90, (b) the coverage-floor gate passes with
+  probability at least 0.99 per cell at coverage 0.93, and (c) the product of the pass
+  probabilities over the 26 coverage tests (13 cells for each implementation) is at least
+  0.95 when each cell sits at the one-sided 80% lower bound of its pilot coverage.  The rule
+  and the pilot that sized it are recorded in ``PRIMARY_PILOT`` below.
+* The cleverly rows publish ``initial_estimate = nan``.  A single-fold fit exposes no
+  untargeted plug-in: ``steps[0].initial`` is the first node's regression of the already
+  targeted chain, a different quantity from the R column.  R keeps ``initial = gcomp``, the
+  sequential regression with no fluctuation, and the parity rule in
+  ``tests/unit/test_ltmle_repeated_method_study.py`` reads R's targeting move as its
+  denominator.
 * The paired comparison reads the registered :class:`Margins` defaults.
 * Publication policy ``gated``.  The registry takes one policy per study, and the declared
   reading gates the paired cells and the positive property cells.  A red cell is routed by
   the rule in ``ltmle_repeated_properties``.  A red cell is diagnosed and fixed before a
   fresh declaration on fresh seeds.  No red cell is deferred.
-* :data:`SEED` and :data:`RESAMPLING_SEED` belong to the second declaration.  The first
-  declaration ran at 5728c3ce on ``20263201``.  Its rows informed the revisions that
-  ``ltmle_repeated_properties`` records, so no published row reads its draws.
+
+Declaration history
+-------------------
+
+* First declaration (5728c3ce, seed ``20263201``).  Its rows informed the revisions that
+  ``ltmle_repeated_properties`` records.
+* Second declaration (seed ``20263202``).  It re-sized the calibration arms and the N1
+  control.  A third run of the same declaration (52cb8596) added the ``gcomp`` initial
+  estimate on the R side.  Every gate was green.
+* Fourth declaration (:data:`SEED`, ``20263204``).  A design review of the third run found
+  seven defects, which the redesign fixes before any new draw:
+
+  1. The paired gate cannot tell a plug-in from a targeted fit, because the untargeted
+     sequential regression is nearly unbiased on that law.  The study now carries a
+     ``targeting_necessity`` family and a parity rule on R's own targeting move.
+  2. The law was first-order Markov, so no check read the history of ``Q`` beyond one node.
+     The law now has depth two, and ``full_history_necessity`` separates a full-history
+     regression from a Markov one.
+  3. Binary ``W`` saturated the first-node regression, so the first fluctuation was zero.
+     ``W`` takes three values.
+  4. The primary coverage gate passed with probability about 0.56 at 1,600 replications,
+     because the rule's followers were rare and the weights large.  Positivity is raised
+     and the sizing rule includes coverage.
+  5. The 28 calibration cells passed jointly with probability about 0.93, and the continuous
+     arm was never piloted at ``n = 8,000``.  The sizing rule is the family-wise product
+     and every arm is piloted.
+  6. The reversed-rule and both-wrong controls did not read their own limits.  Both now
+     read an exact limit, and every contrast is at least 2.5 influence-curve spreads from
+     zero at the primary ``n``.
+  7. The page made false statements about the initial estimates, the unread margins, and
+     positivity.  They are corrected with this declaration.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+import math
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
@@ -45,6 +88,7 @@ from scipy.special import expit
 from sklearn.base import BaseEstimator
 
 from cleverly.datasets import REPEATED_RULE_LABEL, make_longitudinal_repeated
+from cleverly.datasets.longitudinal import _REPEATED_A, _REPEATED_A1, _REPEATED_C, _REPEATED_C1
 from cleverly.longitudinal import LTMLE, DynamicRegimen, Repeated
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_ltmle import (
@@ -61,10 +105,10 @@ from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
-PRIMARY_REPLICATES = 1_600
+PRIMARY_REPLICATES = 3_200
 PRIMARY_N = 2_000
-SEED = 20263202
-RESAMPLING_SEED = 2026320201
+SEED = 20263204
+RESAMPLING_SEED = 2026320401
 SCENARIO = "censored_repeated_outcome"
 HORIZONS = (1, 2, 3)
 TIMES = 3
@@ -243,7 +287,8 @@ REFERENCE_METADATA = {
     "r_base_image": R_BASE_IMAGE,
     "reference_construction": (
         "ltmle per horizon on the prefix through Y_h, survivalOutcome=FALSE, main-terms Qform, "
-        "numeric gform; the initial estimate is a second call with gcomp=TRUE"
+        "numeric gform; the initial estimate is a second call with gcomp=TRUE. The cleverly "
+        "rows publish no initial estimate"
     ),
 }
 
@@ -267,6 +312,22 @@ CONFIGURATION = {
 }
 
 
+#: Each known-mechanism design, by ``(kind, width)``: the generator's coefficient table, the
+#: column of the design that supplies each of the table's terms, and the terms that read a
+#: node before the first (zero by construction, so no column holds them).  The columns are
+#: the layout :meth:`~cleverly.longitudinal.LongitudinalData.history_design` builds.
+_MECHANISM_DESIGNS: dict[
+    tuple[str, int], tuple[dict[str, float], dict[str, int], frozenset[str]]
+] = {
+    ("treatment", 1): (_REPEATED_A1, {"w": 0}, frozenset()),
+    ("treatment", 4): (_REPEATED_A, {"w": 0, "y": 1, "l": 2, "a": 3}, frozenset({"y2"})),
+    ("treatment", 7): (_REPEATED_A, {"w": 0, "y2": 1, "y": 3, "l": 4, "a": 6}, frozenset()),
+    ("censoring", 2): (_REPEATED_C1, {"w": 0, "a": 1}, frozenset()),
+    ("censoring", 5): (_REPEATED_C, {"y": 1, "l": 2, "a": 4}, frozenset({"y2"})),
+    ("censoring", 8): (_REPEATED_C, {"y2": 1, "y": 3, "l": 4, "a": 7}, frozenset()),
+}
+
+
 class KnownRepeatedMechanism(BaseEstimator):
     """The generating treatment or censoring probabilities, keyed by design width.
 
@@ -283,9 +344,13 @@ class KnownRepeatedMechanism(BaseEstimator):
     3      ``[W, Y1, L2, Y2, L3, A1, A2]``      ``[W, Y1, L2, Y2, L3, A1, A2, A3]``
     =====  ===================================  =====================================
 
-    A width this does not recognise raises.  A permutation within a width would not, so
-    ``tests/unit/test_ltmle_repeated_method_study.py`` checks every node against the
-    generating probabilities and checks that a column swap moves them.
+    The index at each width is the generator's own coefficient table
+    (``_REPEATED_A1``, ``_REPEATED_A``, ``_REPEATED_C1``, ``_REPEATED_C``) applied to the
+    column that table's term names.  At node 3 the previous outcome ``y`` is ``Y2`` and the
+    second-order outcome ``y2`` is ``Y1``.  At node 2 the second-order term reads ``Y_0 = 0``
+    and contributes nothing.  A width this does not recognise raises.  A permutation within a
+    width would not, so ``tests/unit/test_ltmle_repeated_method_study.py`` checks every node
+    against the generating probabilities and checks that a column swap moves them.
     """
 
     def __init__(self, kind: str) -> None:
@@ -298,22 +363,20 @@ class KnownRepeatedMechanism(BaseEstimator):
 
     def predict_proba(self, X: Any) -> np.ndarray:
         matrix = np.asarray(X, dtype=float)
-        width = matrix.shape[1]
-        column = matrix.T
-        if self.kind == "treatment" and width == 1:
-            index = -0.2 + 0.6 * column[0]
-        elif self.kind == "treatment" and width == 4:
-            index = -0.2 + 0.4 * column[0] + 0.5 * column[2] - 1.4 * column[1] + 0.6 * column[3]
-        elif self.kind == "treatment" and width == 7:
-            index = -0.2 + 0.4 * column[0] + 0.5 * column[4] - 1.4 * column[3] + 0.6 * column[6]
-        elif self.kind == "censoring" and width == 2:
-            index = 2.0 + 0.3 * column[0] - 0.3 * column[1]
-        elif self.kind == "censoring" and width == 5:
-            index = 2.2 + 0.3 * column[2] - 1.0 * column[1] + 0.2 * column[4]
-        elif self.kind == "censoring" and width == 8:
-            index = 2.2 + 0.3 * column[4] - 1.0 * column[3] + 0.2 * column[7]
-        else:  # pragma: no cover - a changed longitudinal design is a study-contract failure
+        key = (self.kind, matrix.shape[1])
+        if (
+            key not in _MECHANISM_DESIGNS
+        ):  # pragma: no cover - a changed design is a contract failure
             raise ValueError(f"unexpected {self.kind} mechanism design {matrix.shape}")
+        table, columns, zero_terms = _MECHANISM_DESIGNS[key]
+        read = set(table) - {"intercept"}
+        if (
+            read != set(columns) | zero_terms
+        ):  # pragma: no cover - a changed table is a contract failure
+            raise ValueError(f"{key} does not cover the terms {sorted(read)}")
+        index = np.full(len(matrix), table["intercept"])
+        for term, column in columns.items():
+            index = index + table[term] * matrix[:, column]
         probability = expit(index)
         return np.column_stack([1.0 - probability, probability])
 
@@ -355,31 +418,6 @@ def fit_cleverly(frame: pd.DataFrame) -> Any:
     ).fit(frame, **COLUMNS)
 
 
-def horizon_initials(
-    result: Any, mean_names: Sequence[str], contrast_names: Sequence[str]
-) -> dict[str, float]:
-    """The untargeted plug-in behind each mean at a horizon, and each contrast of two.
-
-    ``fits[f"{label} @ t={h}"].steps[0].initial`` is the first node's regression of the
-    already targeted second node.  W is binary, so that regression is saturated in W and its
-    fluctuation is zero: the value equals the targeted estimate.  The R side publishes a
-    second call with ``gcomp = TRUE`` instead (``ltmle_repeated_adapter.R``).  No verdict
-    reads either initial column.
-    """
-    means: dict[str, float] = {}
-    for name in mean_names:
-        inner = name[len("ey_regimen[") : -1]
-        label, horizon = inner.rsplit(" @ t=", 1)
-        means[name] = float(np.mean(result.fits[f"{label} @ t={int(horizon)}"].steps[0].initial))
-    for name in contrast_names:
-        comparison, horizon = name[len("ate_regimen[") : -1].rsplit(" @ t=", 1)
-        left, right = comparison.split(" vs ")
-        means[name] = (
-            means[f"ey_regimen[{left} @ t={horizon}]"] - means[f"ey_regimen[{right} @ t={horizon}]"]
-        )
-    return means
-
-
 def cleverly_rows(
     frame: pd.DataFrame,
     truth: Mapping[str, float],
@@ -389,11 +427,13 @@ def cleverly_rows(
     if scenario != SCENARIO:
         raise KeyError(scenario)
     result = fit_cleverly(frame)
+    # No initial estimate: a single-fold fit exposes no untargeted plug-in (see the module
+    # docstring), so the column is ``nan`` for the subject, as in the point-treatment studies.
     return regimen_rows(
         STUDY,
         result,
         truth,
-        horizon_initials(result, MEAN_NAMES, CONTRAST_NAMES),
+        dict.fromkeys(ESTIMANDS, math.nan),
         ESTIMANDS,
         scenario,
         replicate,

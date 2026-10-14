@@ -1,12 +1,14 @@
 # The repeated-outcome law's plans and mechanisms, for the R `ltmle` side of
 # `longitudinal-repeated-outcome`.
 #
-# The law is `cleverly.datasets.make_longitudinal_repeated`: W, then at each of three nodes
-# L_t (from t = 2), A_t, C_t and a binary Y_t that is not absorbing.  The coefficients below
-# restate `_REPEATED_*` in `src/cleverly/datasets/longitudinal.py`.  The Python side checks its
-# own copy, `KnownRepeatedMechanism`, against the generator at every node, and a paired run
-# whose two copies disagreed would publish a cleverly-ltmle displacement far outside the
-# margin.
+# The law is `cleverly.datasets.make_longitudinal_repeated`: W on {0, 1, 2}, then at each of
+# three nodes L_t (from t = 2), A_t, C_t and a binary Y_t that is not absorbing.  A_t and C_t
+# read Y_{t-1} and Y_{t-2}.  The coefficients below restate `_REPEATED_A1`, `_REPEATED_A`,
+# `_REPEATED_C1` and `_REPEATED_C` in `src/cleverly/datasets/longitudinal.py`.  Two checks
+# guard the transcription before any run.  `KnownRepeatedMechanism`, the Python copy, is
+# compared with the generator at every node.  This file is parsed by
+# `test_the_r_adapter_restates_the_generator_coefficients`, which compares every literal of
+# the four `plogis` lines with the generator's tables.
 #
 # `ltmle_regimen_adapter.R` serves the two-time-point laws with W1 and W2.  Its plans, its
 # mechanism and its initial-estimate design are all specific to that law, and three published
@@ -51,13 +53,15 @@ repeated_mechanism <- function(frame, abar, horizon) {
   columns <- list()
   for (t in seq_len(horizon)) {
     if (t == 1) {
-      p_a <- plogis(-0.2 + 0.6 * w)
-      p_c <- plogis(2.0 + 0.3 * w - 0.3 * abar[, 1])
+      p_a <- plogis(0.2 + 0.2 * w)
+      p_c <- plogis(2.4 + 0.2 * w - 0.3 * abar[, 1])
     } else {
       l <- fill(sprintf("L%d", t))
       y <- fill(sprintf("Y%d", t - 1))
-      p_a <- plogis(-0.2 + 0.4 * w + 0.5 * l - 1.4 * y + 0.6 * abar[, t - 1])
-      p_c <- plogis(2.2 + 0.3 * l - 1.0 * y + 0.2 * abar[, t])
+      # Y_{t-2} is Y_0 = 0 at t = 2, so the term vanishes there by construction.
+      y2 <- if (t >= 3) fill(sprintf("Y%d", t - 2)) else 0
+      p_a <- plogis(-1.2 + 0.2 * w + 0.5 * l - 0.2 * y + 0.7 * abar[, t - 1] + 1.6 * y2)
+      p_c <- plogis(3.6 + 0.3 * l - 0.2 * y + 0.3 * abar[, t] - 1.4 * y2)
     }
     columns[[length(columns) + 1]] <- p_a
     columns[[length(columns) + 1]] <- p_c
