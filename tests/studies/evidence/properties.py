@@ -296,16 +296,48 @@ def coverage_gain_interval(
     """Resampling interval for the coverage a positive cell buys over its paired control.
 
     Paired on ``replicate``, because the two cells are run on the same draws precisely so
-    this difference is not two independent rates subtracted.  Shared rather than owned by
+    this difference is not two independent rates subtracted.  :func:`paired` reads the
+    replications both cells kept.  Shared rather than owned by
     one study family: two of them now make a claim about a pair of cells, and a statistic
     written twice is a statistic that can be changed once.
     """
-    paired = positive[["replicate", "covered"]].merge(
+    positive, control = paired(positive, control)
+    paired_rows = positive[["replicate", "covered"]].merge(
         control[["replicate", "covered"]], on="replicate", suffixes=("_positive", "_control")
     )
-    differences = paired["covered_positive"].to_numpy(dtype=float) - paired[
+    differences = paired_rows["covered_positive"].to_numpy(dtype=float) - paired_rows[
         "covered_control"
     ].to_numpy(dtype=float)
+    interval = mean_difference_interval(
+        differences, replicates=replicates, confidence_level=confidence_level, seed=seed
+    )
+    return interval.low, interval.high
+
+
+def mean_difference_interval(
+    differences: np.ndarray, *, replicates: int, confidence_level: float, seed: int
+) -> Interval:
+    """The percentile-bootstrap interval of the mean of paired differences.
+
+    The statistic behind :func:`coverage_gain_interval`, kept apart so the failure accounting
+    can evaluate it on imputed differences with the verdict's own seed.
+
+    Parameters
+    ----------
+    differences : numpy.ndarray
+        One paired difference per replication, in the order the pair was merged.
+    replicates : int
+        Bootstrap replicates.
+    confidence_level : float
+        Two-sided level of the interval.
+    seed : int
+        The resampling seed.
+
+    Returns
+    -------
+    Interval
+        The interval of the mean difference.
+    """
     rng = np.random.default_rng(seed)
     means = np.concatenate(
         [
@@ -313,8 +345,7 @@ def coverage_gain_interval(
             for block in bootstrap_draw_blocks(differences, replicates=replicates, rng=rng)
         ]
     )
-    interval = percentile_interval(means, confidence_level=confidence_level)
-    return interval.low, interval.high
+    return percentile_interval(means, confidence_level=confidence_level)
 
 
 def replicate_row(
@@ -447,16 +478,22 @@ def paired_displacement(
 
     Refuses arms that are not aligned on ``replicate`` rather than subtracting two means that
     came off different draws, which is the whole reason the two arms are emitted from one
-    replication.
+    replication.  Arms that a recorded failure shortened read the replications both kept
+    (:func:`paired`).
     """
+    selected = [
+        rows.loc[(rows["property"] == family) & (rows["cell"] == cell)] for cell in (left, right)
+    ]
+    try:
+        kept = paired(*selected)
+    except ValueError as error:
+        raise ValueError(
+            f"the {family} arms {left} and {right} are not paired on replication: {error}"
+        ) from error
     arms = {
-        name: rows.loc[(rows["property"] == family) & (rows["cell"] == cell)].sort_values(
-            "replicate"
-        )
-        for name, cell in (("left", left), ("right", right))
+        name: arm.sort_values("replicate")
+        for name, arm in zip(("left", "right"), kept, strict=True)
     }
-    if not np.array_equal(arms["left"]["replicate"], arms["right"]["replicate"]):
-        raise ValueError(f"the {family} arms {left} and {right} are not paired on replication")
     if truth_varies:
         values = {
             name: pd.Series(spread_values(arm, truth_varies=True)) for name, arm in arms.items()
@@ -468,63 +505,137 @@ def paired_displacement(
     return abs(moved) / spread
 
 
-def require_complete(rows: pd.DataFrame) -> None:
-    """Refuse a property table that lost replications.
+def _count(value: Any, *, field: str, name: str) -> int:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{name} has a non-integer {field}: {value!r}") from error
+    if not np.isfinite(numeric) or not numeric.is_integer() or numeric < 0:
+        raise ValueError(f"{name} has a non-integer {field}: {value!r}")
+    return int(numeric)
+
+
+def _accounted_cell(group: pd.DataFrame, name: str) -> tuple[int, int]:
+    """One cell's ``(requested, failed)``, refused unless its stamp explains every gap."""
+    counts = []
+    for column, label in (
+        ("requested_replicates", "requested replication count"),
+        ("failed_replicates", "failed replication count"),
+    ):
+        values = group[column].unique()
+        if len(values) != 1:
+            raise ValueError(
+                f"{name} has inconsistent {label.split()[0]} replication counts: "
+                f"{sorted(int(value) for value in values)}"
+            )
+        counts.append(_count(values[0], field=label, name=name))
+    requested, failed = counts
+    if len(group) + failed != requested:
+        raise ValueError(
+            f"{name} has {len(group)} of {requested} replications and {failed} recorded "
+            f"failures; a cell whose gap its failure records do not explain cannot be "
+            f"summarised"
+        )
+    if failed and len(group) < 2:
+        raise ValueError(
+            f"{name} kept {len(group)} of {requested} replications; a cell that lost "
+            f"replications needs two survivors for a spread"
+        )
+    ids = group["replicate"].to_numpy()
+    as_float = ids.astype(float)
+    whole = np.isfinite(as_float).all() and bool(np.all(as_float == np.round(as_float)))
+    if (
+        not whole
+        or len(np.unique(as_float)) != len(ids)
+        or (len(ids) and (as_float.min() < 0 or as_float.max() > requested - 1))
+    ):
+        raise ValueError(
+            f"{name} has duplicate or missing replicate ids; expected each of "
+            f"0..{requested - 1} at most once"
+        )
+    return requested, failed
+
+
+def require_accounted(rows: pd.DataFrame) -> None:
+    """Refuse a property table whose lost replications its failure records do not explain.
 
     Every verdict below standardizes by a spread or a rate estimated from these rows, so a
-    cell that lost replications is not merely noisier -- for a bias claim it is *easier*,
-    because the interval it has to sit inside is estimated from the same shrunken sample.
+    cell that silently lost replications is not merely noisier -- for a bias claim it is
+    *easier*, because the interval it has to sit inside is estimated from the same shrunken
+    sample.  A cell may be short only by its stamped ``failed_replicates``, which the
+    regeneration driver writes from the failure records (RM39 part b2).  Per cell, the
+    requested and failed counts are each one integer, the replicate ids are unique and in
+    range, and ``replicates + failed == requested``.  A cell that lost replications keeps at
+    least two.  The failure accounting then judges the complete-case verdict
+    (:mod:`tests.studies.evidence.property_failures`).
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        The replication rows, with ``property``, ``cell``, ``replicate``,
+        ``requested_replicates`` and ``failed_replicates``.
+
+    Raises
+    ------
+    ValueError
+        When a cell breaks any of the rules above.
     """
-
-    def count(value: Any, *, field: str, property_name: str, cell: str) -> int:
-        try:
-            numeric = float(value)
-        except (TypeError, ValueError) as error:
-            raise ValueError(
-                f"{property_name}/{cell} has a non-integer {field}: {value!r}"
-            ) from error
-        if not np.isfinite(numeric) or not numeric.is_integer() or numeric < 0:
-            raise ValueError(f"{property_name}/{cell} has a non-integer {field}: {value!r}")
-        return int(numeric)
-
     for (property_name, cell), group in rows.groupby(["property", "cell"], sort=True):
-        requested_values = group["requested_replicates"].unique()
-        if len(requested_values) != 1:
-            raise ValueError(
-                f"{property_name}/{cell} has inconsistent requested replication counts: "
-                f"{sorted(int(value) for value in requested_values)}"
+        _accounted_cell(group, f"{property_name}/{cell}")
+
+
+def paired(left: pd.DataFrame, right: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """The replications two arms of a paired statistic both kept, each in its own order.
+
+    Arms that carry ``requested_replicates`` and ``failed_replicates`` are each checked by
+    :func:`require_accounted` and must request the same budget.  A recorded failure may then
+    cost the two arms different replications, and the pair reads the ones both kept.  Arms
+    without those columns must hold the same replication ids exactly once.  A misalignment
+    that no stamp explains is refused either way.
+
+    Parameters
+    ----------
+    left : pandas.DataFrame
+        One arm's rows, with a ``replicate`` column.
+    right : pandas.DataFrame
+        The other arm's rows, with a ``replicate`` column.
+
+    Returns
+    -------
+    tuple of pandas.DataFrame
+        ``left`` and ``right`` restricted to the shared replications, rows in their own order.
+
+    Raises
+    ------
+    ValueError
+        When the arms are not paired on replication.
+    """
+    stamps = {"requested_replicates", "failed_replicates"}
+    if stamps <= set(left.columns) and stamps <= set(right.columns):
+        budgets = []
+        for name, arm in (("left", left), ("right", right)):
+            if arm.empty:
+                raise ValueError(f"the {name} arm holds no replication to pair")
+            label = (
+                f"{arm['property'].iloc[0]}/{arm['cell'].iloc[0]}"
+                if {"property", "cell"} <= set(arm.columns)
+                else f"the {name} arm"
             )
-        failed_values = group["failed_replicates"].unique()
-        if len(failed_values) != 1:
+            budgets.append(_accounted_cell(arm, label)[0])
+        if budgets[0] != budgets[1]:
             raise ValueError(
-                f"{property_name}/{cell} has inconsistent failed replication counts: "
-                f"{sorted(int(value) for value in failed_values)}"
+                f"the two arms are not paired on replication: they request {budgets[0]} and "
+                f"{budgets[1]} replications"
             )
-        requested = count(
-            requested_values[0],
-            field="requested replication count",
-            property_name=str(property_name),
-            cell=str(cell),
+        shared = np.intersect1d(left["replicate"].to_numpy(), right["replicate"].to_numpy())
+        return (
+            left.loc[left["replicate"].isin(shared)],
+            right.loc[right["replicate"].isin(shared)],
         )
-        failed = count(
-            failed_values[0],
-            field="failed replication count",
-            property_name=str(property_name),
-            cell=str(cell),
-        )
-        if failed or len(group) != requested:
-            raise ValueError(
-                f"{property_name}/{cell} has {len(group)} of {requested} replications "
-                f"({failed} fits failed); a study that lost replications cannot be summarised "
-                f"as though it had not"
-            )
-        replicate_ids = np.sort(group["replicate"].to_numpy())
-        expected_ids = np.arange(requested)
-        if not np.array_equal(replicate_ids, expected_ids):
-            raise ValueError(
-                f"{property_name}/{cell} has duplicate or missing replicate ids; expected "
-                f"0..{requested - 1} exactly once"
-            )
+    ids = [np.sort(arm["replicate"].to_numpy()) for arm in (left, right)]
+    if not np.array_equal(ids[0], ids[1]) or len(np.unique(ids[0])) != len(ids[0]):
+        raise ValueError("the two arms are not paired on replication")
+    return left, right
 
 
 def error_summary(
@@ -579,7 +690,7 @@ def summarize_cells(
     the spread, the SE ratio and the RMSE read each row's error, ``truth`` publishes the mean
     truth, and ``truth_min`` and ``truth_max`` follow it.
     """
-    require_complete(rows)
+    require_accounted(rows)
     records: list[dict[str, Any]] = []
     for (property_name, cell), group in rows.groupby(["property", "cell"], sort=True):
         estimates = group["estimate"].to_numpy(dtype=float)
@@ -786,8 +897,10 @@ def se_ratio_deficit_interval(
     is not.
 
     Negative values mean ``subject`` reports a smaller standard error, relative to its own
-    spread, than ``reference`` does.
+    spread, than ``reference`` does.  Cells that a recorded failure shortened read the
+    replications both kept (:func:`paired`).
     """
+    subject, reference = paired(subject, reference)
     merged = subject[["replicate", "estimate", "std_error"]].merge(
         reference[["replicate", "estimate", "std_error"]],
         on="replicate",
@@ -828,7 +941,8 @@ def paired_spread_ratio_interval(
     """Bootstrap one ratio of paired across-replication standard deviations.
 
     The two inputs must contain each replication exactly once and must have identical
-    replication keys. The bootstrap samples paired rows with one shared index matrix. This
+    replication keys, or carry failure stamps that explain the replications one of them lost
+    (:func:`paired`). The bootstrap samples paired rows with one shared index matrix. This
     preserves any dependence between the two estimates instead of resampling two marginal
     spreads independently.
 
@@ -843,6 +957,7 @@ def paired_spread_ratio_interval(
         if frame["replicate"].duplicated().any():
             raise ValueError(f"the {label} contains duplicate replication keys")
 
+    numerator, denominator = paired(numerator, denominator)
     ordered_numerator = numerator.sort_values("replicate")
     ordered_denominator = denominator.sort_values("replicate")
     numerator_keys = ordered_numerator["replicate"].to_numpy()

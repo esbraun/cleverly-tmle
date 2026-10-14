@@ -28,7 +28,7 @@ from cleverly.estimators import CTMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import bounded_cv_laws, canonical_properties
 from tests.studies.canonical_ctmle_selector import G_BOUNDS, STRATIFY_FOLDS, STUDY
-from tests.studies.evidence.properties import PropertyBatch, PropertyCell
+from tests.studies.evidence.properties import PropertyBatch, PropertyCell, paired
 from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
 
 SELECTOR_RMSE_RATIO = 0.50
@@ -177,10 +177,14 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     # declared mechanism.  Same published value either way today; one of them is a coincidence.
     summary, rates = apply_shared_verdicts(rows, STUDY, extra_columns=("rmse_ratio",))
     necessity = rows.loc[rows["property"] == "selector_necessity"]
-    collaborative = necessity.loc[necessity["cell"] == "collaborative"].sort_values("replicate")
-    control = necessity.loc[necessity["cell"] == "empty_control"].sort_values("replicate")
-    if not np.array_equal(collaborative["replicate"], control["replicate"]):
-        raise ValueError("selector-necessity cells are not paired on replication")
+    # The replications both arms kept: a recorded failure may cost the arms different ones.
+    collaborative, control = (
+        arm.sort_values("replicate")
+        for arm in paired(
+            necessity.loc[necessity["cell"] == "collaborative"],
+            necessity.loc[necessity["cell"] == "empty_control"],
+        )
+    )
     collaborative_error = collaborative["estimate"].to_numpy() - collaborative["truth"].to_numpy()
     control_error = control["estimate"].to_numpy() - control["truth"].to_numpy()
     ratio = float(np.sqrt(np.mean(collaborative_error**2) / np.mean(control_error**2)))

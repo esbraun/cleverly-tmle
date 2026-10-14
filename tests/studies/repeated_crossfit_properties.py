@@ -27,7 +27,7 @@ from tests.studies.evidence.properties import (
     PropertyCell,
     paired_spread_ratio_interval,
     replicate_row,
-    require_complete,
+    require_accounted,
 )
 from tests.studies.evidence.property_verdicts import finish
 from tests.studies.evidence.seeds import stream_seed
@@ -198,7 +198,7 @@ def generate_repeat_stability_rows(
 
 def _summarize_repeat_stability(rows: pd.DataFrame, columns: pd.Index) -> pd.DataFrame:
     """Build fixed-sample stability rows without population-sampling endpoints."""
-    require_complete(rows)
+    require_accounted(rows)
     repeated = rows.loc[rows["cell"] == "three_repeats"]
     control = rows.loc[rows["cell"] == "one_repeat_control"]
     result = paired_spread_ratio_interval(

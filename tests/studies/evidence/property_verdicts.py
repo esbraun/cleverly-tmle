@@ -28,7 +28,7 @@ from tests.studies.evidence.properties import (
     paired_displacement,
     rate,
     ratio_intervals,
-    require_complete,
+    require_accounted,
     se_ratio_interval,
     spread_values,
     summarize_cells,
@@ -440,7 +440,8 @@ def fitted_rate_row(
     Parameters
     ----------
     rows : pandas.DataFrame
-        The ladder's replication rows, already restricted to this cell's arm.
+        The ladder's replication rows, already restricted to this cell's arm.  The row's
+        ``failed_replicates`` is the sum of the rungs' stamped failures.
     record : StudyRecord
         Supplies the resampling budget, the confidence level and the seed stream.
     columns : Any
@@ -487,7 +488,10 @@ def fitted_rate_row(
             # are the largest and the sum, which read as one big cell; this is what the
             # published table shows instead.
             "rate_sizes": ";".join(f"{size:,}" for size in sizes),
-            "failed_replicates": 0,
+            # The rungs' recorded failures, which the driver stamps on their rows (RM39 b2).
+            "failed_replicates": int(
+                rows.groupby("cell", sort=True)["failed_replicates"].first().sum()
+            ),
             "slope": fitted.slope,
             "slope_ci_lower": fitted.interval.low,
             "slope_ci_upper": fitted.interval.high,
@@ -615,17 +619,19 @@ def _at_verdict_budget(rows: pd.DataFrame, verdict_replicates: int | None) -> pd
     A rung's coverage verdict is a one-sided exact interval against a fixed floor.  A rung
     whose budget was raised to resolve the fitted slope would also change its coverage gate
     with replications that claim never declared.  This returns the frame the *verdicts* are
-    computed from: the first ``verdict_replicates`` replications of every cell of
+    computed from: the replications ``0 .. verdict_replicates - 1`` of every cell of
     :data:`CONTRACTION_FAMILY`, ordered by ``replicate``, and every other family untouched.
     The slope is fitted from the full rows because its larger budget was declared for that
     purpose.
 
-    ``requested_replicates`` is rewritten to the truncated budget, because the published
-    ``replicates`` column and
-    :func:`~tests.studies.evidence.properties.require_complete` both read it, and a summary
-    that attributed a verdict to a budget it did not use would be the defect this function
-    exists to prevent.  The full ladder is checked for completeness first, so a rung that
-    lost replications still fails rather than being hidden by the truncation.
+    A rung keeps the ids below the budget and never refills a lost one from a later id, so a
+    lost replicate cannot change which replications the verdict reads.  ``requested_replicates``
+    is rewritten to the truncated budget and ``failed_replicates`` to the ids below it that the
+    rung lost, because the published ``replicates`` column and
+    :func:`~tests.studies.evidence.properties.require_accounted` both read them.  A loss at an
+    id at or above the budget therefore leaves the rung's verdict at no failures; the slope
+    row counts it.  The full ladder is checked first, so a rung whose gap its failure records
+    do not explain still fails rather than being hidden by the truncation.
     """
     if verdict_replicates is None:
         return rows
@@ -637,16 +643,18 @@ def _at_verdict_budget(rows: pd.DataFrame, verdict_replicates: int | None) -> pd
             f"verdict_replicates={verdict_replicates} was declared, but these rows publish no "
             f"{CONTRACTION_FAMILY} family whose verdicts it could be read at"
         )
-    require_complete(rows.loc[ladder])
+    require_accounted(rows.loc[ladder])
     rungs = []
     for cell, group in rows.loc[ladder].groupby("cell", sort=True):
-        if len(group) < verdict_replicates:
+        requested = int(group["requested_replicates"].iloc[0])
+        if requested < verdict_replicates:
             raise ValueError(
-                f"{CONTRACTION_FAMILY}/{cell} ran {len(group)} replications, fewer than the "
-                f"{verdict_replicates} its own verdict is declared to be read at"
+                f"{CONTRACTION_FAMILY}/{cell} requested {requested} replications, fewer than "
+                f"the {verdict_replicates} its own verdict is declared to be read at"
             )
-        rung = group.sort_values("replicate").head(verdict_replicates).copy()
+        rung = group.loc[group["replicate"] < verdict_replicates].sort_values("replicate").copy()
         rung["requested_replicates"] = verdict_replicates
+        rung["failed_replicates"] = verdict_replicates - len(rung)
         rungs.append(rung)
     return pd.concat([rows.loc[~ladder], *rungs], ignore_index=True)
 
@@ -839,11 +847,18 @@ def calibration_controls(
     An empty selection is a refusal, not an empty frame.  A caller whose suffix does not match
     its cells would otherwise derive zero controls in silence, and a study that publishes no
     control reads exactly like a study whose controls all passed.
+
+    The noise is drawn for the whole requested range and indexed by replicate, so a base
+    replicate that a recorded failure removed changes no other ``noise_control`` row (RM39
+    b2, F2).  ``Generator.normal`` fills its output in order, so with no failure the noise is
+    the one a draw sized to the rows gave.  The base rows of each label must hold unique,
+    ascending ids inside the requested range.
     """
     source = rows.loc[
         (rows["property"] == "interval_calibration")
         & rows["cell"].str.endswith(f"__{positive_suffix}")
     ]
+    scale = {label: efficiency_bounds[label] / np.sqrt(calibration_n) for label in labels}
     controls: list[pd.DataFrame] = []
     for label in labels:
         base = source.loc[source["cell"] == f"{label}__{positive_suffix}"].copy()
@@ -861,11 +876,32 @@ def calibration_controls(
         rng = np.random.default_rng(stream_seed(record, "efficiency_noise", label))
         noisy["cell"] = f"{label}__noise_control"
         noisy["role"] = "control"
-        noisy["estimate"] += rng.normal(
-            scale=efficiency_bounds[label] / np.sqrt(calibration_n), size=len(noisy)
-        )
+        noisy["estimate"] += rng.normal(scale=scale[label], size=_noise_size(base, label))[
+            base["replicate"].to_numpy().astype(np.int64)
+        ]
         controls.append(_recompute_interval_columns(noisy, critical))
     return pd.concat(controls, ignore_index=True)
+
+
+def _noise_size(base: pd.DataFrame, label: str) -> int:
+    """The requested range a label's noise is drawn over, after checking its replicate ids."""
+    requested = base["requested_replicates"].unique()
+    if len(requested) != 1:
+        raise ValueError(f"{label} has inconsistent requested replication counts")
+    size = int(requested[0])
+    ids = base["replicate"].to_numpy()
+    if (
+        len(ids) == 0
+        or np.any(np.diff(ids) <= 0)
+        or int(ids[0]) < 0
+        or int(ids[-1]) >= size
+        or not np.all(ids == np.round(ids))
+    ):
+        raise ValueError(
+            f"{label} calibration rows need unique, ascending replicate ids inside "
+            f"0..{size - 1} to index the noise by replicate"
+        )
+    return size
 
 
 def _recompute_interval_columns(rows: pd.DataFrame, critical: float) -> pd.DataFrame:
