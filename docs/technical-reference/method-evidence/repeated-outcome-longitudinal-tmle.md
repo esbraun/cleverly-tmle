@@ -3,14 +3,18 @@
 This study validates `LTMLE` with `outcome=Repeated(["Y1", "Y2", "Y3"])`. A repeated outcome is
 measured at every node and is not absorbing. The parameter is the mean $E[Y_h^d]$ for each plan $d$
 and horizon $h$. The section [repeated outcomes](../longitudinal-tmle.md#repeated-outcomes) states
-the estimator and its exact-law evidence. The canonical comparison uses R
+the estimator and its exact-law evidence. The declared comparator is R
 [`ltmle`](https://www.jstatsoft.org/article/view/v081i01) 1.3-0 with `survivalOutcome = FALSE`.
+
+Its runs are pending as TRACKER Study queue item 14(c). This page holds Python property evidence, with comparator runs pending.
 
 The study reports each unique parameter once. The dynamic plan equals the always-treated plan at the
 first node, so its mean and contrast at $t = 1$ duplicate those of `always`. A fast test checks that
 identity. The duplicates are not cells of this study.
 
 ## What was compared
+
+The R column states the declared design of the pending comparator runs.
 
 | setting | `cleverly` | R `ltmle` |
 | --- | --- | --- |
@@ -62,8 +66,9 @@ followers have a cumulative product below 0.05.
 
 ## Agreement with the canonical implementation
 
-<!-- generated: agreement -->
-<!-- /generated -->
+Python property evidence, with comparator runs pending. The R `ltmle` 1.3-0 runs have not run on
+the declared draws, so this study publishes no paired verdict. The change that registers them adds
+the paired verdicts and the parity gate `test_cleverly_reproduces_r_targeting_move_in_every_cell`.
 
 ## Theory properties
 
@@ -265,7 +270,8 @@ the committed results and checked at the precision printed.
 | limit | what it means for use |
 | --- | --- |
 | one law with three nodes and a binary outcome | the continuous outcome has one calibration arm, and the rate in $n$ is not measured |
-| the paired comparison fixes the mechanisms | the paired margins alone cannot separate an untargeted plug-in from the targeted fit, because the plug-in is nearly unbiased on this law. The `targeting_necessity` family and the parity gate carry that claim. The gate is `test_cleverly_reproduces_r_targeting_move_in_every_cell`. In each cell the root-mean-square difference from R must stay below 1% of R's root-mean-square targeting move. No replication may differ from R by more than 1% of R's mean standard error. The comparison does not claim parity for learned treatment or censoring models |
+| the comparator runs are pending | the `targeting_necessity` family carries the claim that targeting moves the estimate. The pending parity gate `test_cleverly_reproduces_r_targeting_move_in_every_cell` adds a check against R. In each cell the root-mean-square difference from R must stay below 1% of R's root-mean-square targeting move. No replication may differ from R by more than 1% of R's mean standard error |
+| the declared comparison fixes the mechanisms | the paired margins alone cannot separate an untargeted plug-in from the targeted fit, because the plug-in is nearly unbiased on this law. The comparison does not claim parity for learned treatment or censoring models |
 | the in-sample interval is mildly anticonservative at $n$ = 2,000 | the `small_sample_calibration` cells report the shortfall and no rule gates them. The gated calibration cells draw $n$ = 8,000. The primary cells draw $n$ = 3,000 and answer to the coverage floor |
 | the cross-fitted learners are one GLM and one shallow booster | the study does not cover a larger learner library or a different fold count |
 | the absorbing, history-free and Markov controls read exact limits of this law | they show that the repeated reading, the earlier outcomes and the depth of the outcome regression matter here. They do not bound the difference on another law |
@@ -281,8 +287,7 @@ positivity, and conditionally independent censoring.
 The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle_repeated/README.md)
 gives the regeneration commands. The
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle_repeated/manifest.json)
-records the pinned R package, source commit, image digest, formulas, seeds and artifact hashes.
-The [replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle_repeated/replicates.csv.gz),
-[paired verdicts](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle_repeated/equivalence.csv)
+records the pending comparator, the declared R sources, the seeds and the artifact hashes.
+The [replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle_repeated/replicates.csv.gz)
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle_repeated/properties.csv)
 carry every published row.

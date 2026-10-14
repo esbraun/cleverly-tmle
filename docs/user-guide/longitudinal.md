@@ -452,7 +452,7 @@ takes three values and every later node is binary. The fit can therefore check i
 [Repeated outcomes](../technical-reference/longitudinal-tmle.md#repeated-outcomes) gives the
 estimator, its conditions, and its evidence. The
 [repeated-outcome study](../technical-reference/method-evidence/repeated-outcome-longitudinal-tmle.md)
-compares the estimator with R `ltmle` 1.3-0 and checks its intervals against exact truths.
+checks its intervals against exact truths. Its comparison with R `ltmle` 1.3-0 is pending.
 
 ## Competing risks
 
