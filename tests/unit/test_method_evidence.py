@@ -35,11 +35,13 @@ from tests.studies.evidence.document import (
     ACCURACY_COLUMNS,
     AGREEMENT_COLUMNS,
     GENERATED,
+    PENDING_LABEL,
     PROPERTY_COLUMNS,
     _section,
     render,
 )
 from tests.studies.evidence.inference import clopper_pearson, student_interval
+from tests.studies.evidence.manifest import comparator_findings
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.properties import TRUTH_ABSOLUTE_FLOOR
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
@@ -246,6 +248,18 @@ class TestArtifacts:
             carried_rows_sha256(raw, positions)
             == manifest["composite"]["carried_property_rows_sha256"]
         )
+
+    def test_the_manifest_and_the_rows_agree_with_the_comparator_state(
+        self, study: StudyRecord
+    ) -> None:
+        """A pending comparator is asserted, never skipped: no reference row and no paired row."""
+        manifest = json.loads(study.artifact("manifest.json").read_text(encoding="utf-8"))
+        rows = pd.read_csv(study.artifact("replicates.csv.gz"), usecols=["implementation"])
+        paired = pd.read_csv(study.artifact("equivalence.csv"))
+        found = comparator_findings(
+            study, manifest, rows["implementation"].astype(str).unique(), len(paired)
+        )
+        assert found == [], f"{study.slug}: {found}"
 
     def test_the_manifest_hashes_every_published_result(self, study: StudyRecord) -> None:
         manifest = json.loads(study.artifact("manifest.json").read_text(encoding="utf-8"))
@@ -2061,6 +2075,16 @@ class TestTheMethodEvidenceGrid:
         reference = json.loads(study.artifact("manifest.json").read_text(encoding="utf-8"))[
             "generated_with"
         ].get("reference")
+        if study.comparator_state == "pending":
+            assert reference is None, "a pending comparator has no reference provenance"
+            assert PENDING_LABEL in cell, f"{study.slug}'s cell must carry {PENDING_LABEL!r}"
+            assert str(study.pending_reference) in cell, (
+                f"{study.slug}'s cell must name the pending comparator {study.pending_reference}"
+            )
+            assert "none claimed" not in cell.casefold(), (
+                f"{study.slug} declares a pending comparator; its cell must not read as none"
+            )
+            return
         if study.reference is None:
             assert reference is None, "the record claims no comparator but the manifest names one"
             assert "none claimed" in cell.casefold(), (
@@ -2326,6 +2350,16 @@ class TestThePublishedTestTables:
         assert _OPEN.format(name="agreement") not in section, (
             f"{study.slug} has no comparator but its section carries an agreement block"
         )
+        if study.comparator_state == "pending":
+            assert PENDING_LABEL in section, (
+                f"{study.slug}'s section must say {PENDING_LABEL!r} while its comparator runs "
+                f"are pending"
+            )
+            cell = _grid()[study.name]["`cleverly` vs canonical"]
+            assert "0/0" in cell and PENDING_LABEL in cell, (
+                f"{study.slug}'s paired cell must read 0/0 with {PENDING_LABEL!r}"
+            )
+            return
         assert "no canonical implementation is compared" in section.casefold(), (
             f"{study.slug} must say in its own section that no comparator is claimed"
         )

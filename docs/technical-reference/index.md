@@ -44,7 +44,9 @@ parity is acceptance evidence for the claims it covers. It is never the derivati
 never a required gate.
 
 The [natural-extension verdicts](natural-extension-verdicts.md) record which refused compositions
-qualify for implementation as natural extensions, and the roadmap row that owns each one.
+qualify for implementation as natural extensions, and the roadmap row that owns each one. The
+[hard-stop review](hard-stop-review.md) records the verdict on each inherited hard stop of the
+roadmap, and the row that now owns each part.
 
 ## How to read the evidence column
 
@@ -69,5 +71,6 @@ longitudinal-tmle
 msm-projections
 scope-and-refusals
 natural-extension-verdicts
+hard-stop-review
 ../references
 ```
