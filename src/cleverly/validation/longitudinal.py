@@ -58,6 +58,7 @@ __all__ = [
     "LongitudinalScoreDiagnostics",
     "LongitudinalScoreRow",
     "LongitudinalStageRow",
+    "SDRNodeRow",
 ]
 
 
@@ -115,6 +116,64 @@ class LongitudinalStageRow:
     share_truncated: float
     epsilon: tuple[float, ...]
     converged: bool
+    #: On an SDR fit, the node's transform diagnostics; ``None`` on a TMLE fit.
+    sdr: SDRNodeRow | None = None
+    #: On an IPSI fit, the node's tilt diagnostics; ``None`` on every other fit.
+    ipsi: IPSINodeRow | None = None
+
+
+@dataclass(frozen=True)
+class SDRNodeRow:
+    """How far one SDR node's regression left the outcome range.
+
+    Parameters
+    ----------
+    target_outside : float
+        The share of the node's regression targets, on its followers, outside ``[0, 1]``.
+    target_min : float
+        The smallest regression target on the followers.
+    target_max : float
+        The largest regression target on the followers.
+    prediction_outside : float
+        The share of the node's predictions at the observed arm, on the rows at risk,
+        outside ``[0, 1]``.
+    bound_binding : float
+        The share of the ``(row, t, s)`` paths where ``g_bounds`` moved a partial path
+        probability.
+    """
+
+    target_outside: float
+    target_min: float
+    target_max: float
+    prediction_outside: float
+    bound_binding: float
+
+
+@dataclass(frozen=True)
+class IPSINodeRow:
+    """The tilt diagnostics of one node of an IPSI fit.
+
+    Parameters
+    ----------
+    tilt_factor_min : float
+        The smallest node factor :math:`(\\delta A + 1 - A)/(\\delta\\pi + 1 - \\pi)` on the
+        rows at risk, ``nan`` off a tilt node.  It lies in
+        :math:`[\\min(\\delta, 1/\\delta), \\max(\\delta, 1/\\delta)]` by construction.
+    tilt_factor_max : float
+        The largest node factor on the rows at risk, ``nan`` off a tilt node.
+    mechanism_share : float
+        The variance of the node's mechanism term over the variance of the influence
+        curve.  It is 0 off a tilt node and at a declared treatment mechanism.
+    propensity_degenerate : float
+        The share of the rows at risk whose mechanism :math:`\\hat\\pi_t` is exactly 0 or 1,
+        ``nan`` off a tilt node.  A tilt needs no positivity, so this is reported and not
+        warned.
+    """
+
+    tilt_factor_min: float
+    tilt_factor_max: float
+    mechanism_share: float
+    propensity_degenerate: float
 
 
 @dataclass(frozen=True)
@@ -164,6 +223,21 @@ class LongitudinalDiagnostics:
     counts the rows whose *denominator* the bounds replaced, because ``g_bounds`` bounds the
     cumulative mechanism and not the ratio.  A truncated row therefore need not carry a large
     ratio.
+
+    **On an SDR fit** the targeting columns ``epsilon`` and ``converged`` are absent,
+    because the estimator fits no fluctuation.  Five columns take their place.
+    ``target_outside``, ``target_min`` and ``target_max`` describe the node's regression
+    targets on its followers.  ``prediction_outside`` is the share of the node's predictions
+    at the observed arm outside ``[0, 1]``.  ``bound_binding`` is the share of partial
+    paths whose probability ``g_bounds`` moved.
+
+    **On an IPSI fit** the five SDR columns describe the node regressions as well.  An
+    odds-tilt node reports ``node_kind`` ``"tilt"``, and its assignment columns report the
+    mean tilted probability :math:`q_t` over the units at risk.  Four columns follow.
+    ``tilt_factor_min`` and ``tilt_factor_max`` give the range of the node's tilt factor,
+    which ``g_bounds`` never bounds.  ``mechanism_share`` is the share of the influence
+    curve's variance held by the node's mechanism term.  ``propensity_degenerate`` is the
+    share of the rows at risk with a fitted mechanism of exactly 0 or 1.
     """
 
     rows: tuple[LongitudinalStageRow, ...]
@@ -182,7 +256,7 @@ class LongitudinalDiagnostics:
             "time": [row.time for row in self.rows],
             **(
                 {"node_kind": [row.node_kind for row in self.rows]}
-                if any(row.node_kind == "policy" for row in self.rows)
+                if any(row.node_kind in ("policy", "tilt") for row in self.rows)
                 else {}
             ),
             "n_followed": [row.n_followed for row in self.rows],
@@ -191,6 +265,24 @@ class LongitudinalDiagnostics:
             "effective_n": [row.effective_n for row in self.rows],
             "share_truncated": [row.share_truncated for row in self.rows],
         }
+        if self.rows and all(row.sdr is not None for row in self.rows):
+            for name in (
+                "target_outside",
+                "target_min",
+                "target_max",
+                "prediction_outside",
+                "bound_binding",
+            ):
+                payload[name] = [getattr(row.sdr, name) for row in self.rows]
+            if all(row.ipsi is not None for row in self.rows):
+                for name in (
+                    "tilt_factor_min",
+                    "tilt_factor_max",
+                    "mechanism_share",
+                    "propensity_degenerate",
+                ):
+                    payload[name] = [getattr(row.ipsi, name) for row in self.rows]
+            return emit_frame(payload, data, backend=self.backend)
         for position, name in enumerate(self.epsilon_names):
             payload[name] = [row.epsilon[position] for row in self.rows]
         payload["converged"] = [row.converged for row in self.rows]
@@ -441,7 +533,7 @@ def _assigned_shares(assigned: FloatArray, levels: Sequence[object]) -> str:
 
 
 def _node_kind(fit: Any, time: int) -> str:
-    """``"mtp"``, ``"policy"``, ``"rule"`` or ``"label"``: what decided the arm at ``time``.
+    """``"mtp"``, ``"tilt"``, ``"policy"``, ``"rule"`` or ``"label"``: what decided the arm.
 
     A modified treatment policy reads the unit's own treatment, and reports ``"mtp"``.  A
     policy node whose density was one-hot on every reachable row was resolved as a rule,
@@ -450,6 +542,8 @@ def _node_kind(fit: Any, time: int) -> str:
     regimen = fit.regimen
     if hasattr(regimen, "is_mtp") and regimen.is_mtp(time):
         return "mtp"
+    if hasattr(regimen, "is_tilt") and regimen.is_tilt(time):
+        return "tilt"
     if fit.policy and fit.policy[time - 1] is not None:
         return "policy"
     regimen = fit.regimen
@@ -510,7 +604,7 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
                     else float("nan")
                 )
                 assignment = f"mean ratio={ratio:.3g}" if categorical else ratio
-            elif kind == "policy":
+            elif kind in ("policy", "tilt"):
                 density = fit.policy[step.time - 1][step.at_risk]
                 assignment = _policy_shares(density, levels, categorical)
             elif categorical:
@@ -531,8 +625,14 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
                     max_weight=float(np.max(weights)) if weights.size else float("nan"),
                     effective_n=effective_sample_size(weights, on_degenerate=0.0),
                     share_truncated=float(np.mean(raw != bounded)) if raw.size else float("nan"),
-                    epsilon=tuple(float(value) for value in step.fluctuation.epsilon),
-                    converged=bool(step.fluctuation.converged),
+                    epsilon=(
+                        ()
+                        if step.fluctuation is None
+                        else tuple(float(value) for value in step.fluctuation.epsilon)
+                    ),
+                    converged=step.fluctuation is None or bool(step.fluctuation.converged),
+                    sdr=_sdr_node_row(step),
+                    ipsi=_ipsi_node_row(result, fit, step),
                 )
             )
     return LongitudinalDiagnostics(
@@ -543,6 +643,54 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
         result.data.is_competing,
         result.data.backend,
     )
+
+
+def _sdr_node_row(step: Any) -> SDRNodeRow | None:
+    """The transform diagnostics of one SDR node, or ``None`` on a targeted node."""
+    if step.fluctuation is not None or step.regression_target is None:
+        return None
+    target = step.regression_target[step.trained_on]
+    predicted = step.initial[step.at_risk]
+    return SDRNodeRow(
+        target_outside=_share_outside(target),
+        target_min=float(np.min(target)) if target.size else float("nan"),
+        target_max=float(np.max(target)) if target.size else float("nan"),
+        prediction_outside=_share_outside(predicted),
+        bound_binding=float("nan") if step.bound_binding is None else float(step.bound_binding),
+    )
+
+
+def _ipsi_node_row(result: Any, fit: Any, step: Any) -> IPSINodeRow | None:
+    """The tilt diagnostics of one IPSI node, or ``None`` on any other fit."""
+    if fit.mechanism_term is None:
+        return None
+    curve = np.var(fit.influence_curve_scaled)
+    term = np.asarray(result.data.weights, dtype=float) * fit.mechanism_term[:, step.time - 1]
+    share = float(np.var(term) / curve) if curve > 0.0 else float("nan")
+    regimen = fit.regimen
+    if not (hasattr(regimen, "is_tilt") and regimen.is_tilt(step.time)):
+        return IPSINodeRow(float("nan"), float("nan"), share, float("nan"))
+    delta = float(regimen.plan[step.time - 1].delta)
+    q = np.asarray(fit.policy[step.time - 1], dtype=float)[step.at_risk, 1]
+    # The plan's tilt density inverts to the mechanism: pi = q / (delta (1 - q) + q).
+    pi = q / (delta * (1.0 - q) + q)
+    arm = np.nan_to_num(result.data.node_codes(step.time)[step.at_risk], nan=0.0)
+    factor = (delta * arm + 1.0 - arm) / (delta * pi + 1.0 - pi)
+    if not factor.size:
+        return IPSINodeRow(float("nan"), float("nan"), share, float("nan"))
+    return IPSINodeRow(
+        tilt_factor_min=float(np.min(factor)),
+        tilt_factor_max=float(np.max(factor)),
+        mechanism_share=share,
+        propensity_degenerate=float(np.mean((q == 0.0) | (q == 1.0))),
+    )
+
+
+def _share_outside(values: FloatArray) -> float:
+    """The share of ``values`` outside ``[0, 1]``, ``nan`` on an empty array."""
+    if not values.size:
+        return float("nan")
+    return float(np.mean((values < 0.0) | (values > 1.0)))
 
 
 def _msm_node_contributions(

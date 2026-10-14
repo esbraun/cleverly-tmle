@@ -24,6 +24,7 @@ import contextlib
 import warnings
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
+from functools import partial
 from typing import Any, Literal
 
 import numpy as np
@@ -42,7 +43,7 @@ from cleverly.exceptions import ConvergenceWarning as CleverlyConvergenceWarning
 from cleverly.interventions import LearnedRule
 from cleverly.interventions.base import RegimeSet
 from cleverly.learners._fitting import predict_mean
-from cleverly.utils.parallel import map_parallel
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS, reported_inference
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
@@ -393,8 +394,11 @@ def measured(
 ) -> tuple[Any, Truth, int]:
     """Fit one sample, run its harness, and count the solver warnings of both.
 
-    Rule L4 stops the run on a raise, on a non-finite estimate or standard error, and on a
-    harness mismatch.  Each of those raises here, so the replication is never replaced.
+    Rule L4 stops the run on a non-finite estimate or standard error and on a harness mismatch.
+    Each of those raises a ``RuntimeError`` here, which the primary phase does not record, so
+    the run stops.  RM39b supersedes L4 for a recordable fitting error from ``cleverly`` or a
+    numerical library: the primary phase records it as one lost replication, which the failure
+    bound counts, and never replaces the replication.
     """
     with solver_warning_count() as count:
         result = fit(frame, learner, fold_seed, mutation=mutation)
@@ -408,11 +412,19 @@ def measured(
 # ------------------------------------------------------------------ the primary rows
 
 
-def primary_row(record: StudyRecord, scenario: str, replicate: int, n: int) -> dict[str, Any]:
-    """One primary replication: the sample and fold seeds of ``record``, the fit, its truth."""
+def primary_sample(record: StudyRecord, key: tuple[str, int, int]) -> pd.DataFrame:
+    """The sample of primary replication ``key``, drawn from the sample seed of ``record``."""
+    scenario, replicate, n = key
     sample_seed = replicate_seed(record, scenario, replicate)
+    return draw(scenario, n, sample_seed)
+
+
+def primary_row(
+    record: StudyRecord, key: tuple[str, int, int], frame: pd.DataFrame
+) -> dict[str, Any]:
+    """One primary replication: the fold seed of ``record``, the fit of ``frame``, its truth."""
+    scenario, replicate, n = key
     fold_seed = stream_seed(record, "fold_partition", "primary", scenario, replicate)
-    frame = draw(scenario, n, sample_seed)
     result, truth, solver_warnings = measured(frame, outcome_learner(), scenario, fold_seed)
     estimate = result.estimates[ESTIMAND]
     std_error, low, high = reported_inference(estimate)
@@ -437,20 +449,31 @@ def primary_row(record: StudyRecord, scenario: str, replicate: int, n: int) -> d
     }
 
 
-def _primary(payload: tuple[StudyRecord, str, int, int]) -> dict[str, Any]:
-    record, scenario, replicate, n = payload
-    return primary_row(record, scenario, replicate, n)
+def _primary(
+    record: StudyRecord, key: tuple[str, int, int], frame: pd.DataFrame
+) -> list[dict[str, Any]]:
+    return [primary_row(record, key, frame)]
 
 
-def draw_and_fit(record: StudyRecord, *, replicates: int, n: int, n_jobs: int) -> pd.DataFrame:
+def draw_and_fit(
+    record: StudyRecord, *, replicates: int, n: int, n_jobs: int
+) -> replication.PhaseResult:
     """Every primary replication of ``record``, with the harness columns after the schema."""
-    payloads = [
-        ((record, scenario, replicate, n),)
-        for scenario in record.scenarios
-        for replicate in range(replicates)
-    ]
-    rows = pd.DataFrame(map_parallel(_primary, payloads, n_jobs=n_jobs))
-    return rows.loc[:, [*REPLICATE_COLUMNS, *HARNESS_COLUMNS]]
+    outcomes = replication.fit_primary(
+        [
+            (scenario, replicate, n)
+            for scenario in record.scenarios
+            for replicate in range(replicates)
+        ],
+        partial(_primary, record),
+        draw=partial(primary_sample, record),
+        rows_at=None,
+        n_jobs=n_jobs,
+        implementation=record.implementation,
+        seed_of=lambda key: replicate_seed(record, key[0], key[1]),
+    )
+    rows = pd.DataFrame([row for fitted in outcomes.kept for row in fitted])
+    return replication.result(outcomes, rows.loc[:, [*REPLICATE_COLUMNS, *HARNESS_COLUMNS]])
 
 
 def harness_artifact(rows: pd.DataFrame) -> pd.DataFrame:

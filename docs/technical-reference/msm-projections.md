@@ -157,6 +157,26 @@ the projection is taken over. Both multiply the node's loss weight, and only the
 multiplies the finished influence curve row by row. The projection is solved on the **raw** outcome
 scale, because a coefficient vector has no single scale to map back with.
 
+**Under `SDR`, the projection solves one estimating equation over the transforms.** The
+[sequentially doubly robust estimator](longitudinal-tmle.md#the-sequentially-doubly-robust-estimator)
+fits no fluctuation. Each regimen and horizon cell $c$ has its own first transform
+$\varphi_{1,c}$, and `project_sdr_cells` solves the working model's equation over the stacked
+cells. The coefficient curve is
+
+$$
+M^{-1} \sum_c h \, \frac{dm}{d\eta} \, x(c, V) \bigl(\varphi_{1,c} - m(c, V; \beta)\bigr),
+$$
+
+with $x$ the design, $V$ the baseline covariates, and $M$ the derivative of the equation in
+$\beta$. The conditional form of Lemma 1 of Díaz, Williams, Hoffman and Schenck (2023) at $H_1$
+makes each cell's transform unbiased given $V$. No published result states this composition, and
+the [natural-extension verdicts](natural-extension-verdicts.md) record its steps. The identity link
+always has a solution. A transform can leave $[0, 1]$, so a logit or log projection can have no
+finite solution. The fit raises `CapabilityError` when that projection does not converge.
+`tests/unit/test_sdr_exact_laws.py` checks the four families on the exact law, and
+`tests/unit/test_sdr_double_robustness.py` checks the identity projection in every robustness
+pattern.
+
 ## Variations
 
 | option | what it does |

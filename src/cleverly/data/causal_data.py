@@ -1715,7 +1715,9 @@ def _treatment_recorded(
                 "treatment observation indicator. Declare one (1 = treatment recorded) with "
                 f"{MISSING_TREATMENT_DECLARATION} to analyze a treatment missing at random. "
                 "That declaration is supported for arm means and contrasts on in-sample "
-                "TMLE and DRTMLE fits, and for regime means and arm MSMs on in-sample TMLE fits."
+                "TMLE and DRTMLE fits, for their point estimates on the in-sample per-arm "
+                "outcome-adaptive CTMLE (strategy='oat', oat_design='per_arm'), and for "
+                "regime means and arm MSMs on in-sample TMLE fits."
             )
         return None
     if treatment_kind != "discrete":

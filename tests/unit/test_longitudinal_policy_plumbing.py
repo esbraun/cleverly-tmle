@@ -209,7 +209,7 @@ def test_r7_an_undeclared_policy_names_the_node_case() -> None:
     assert _UNDECLARED_DENSITY in str(caught.value)
 
 
-def test_r8_an_estimated_policy_names_x19() -> None:
+def test_r8_an_estimated_policy_names_ipsi() -> None:
     node = Stochastic(_uniform, "q1", density_kind="known")
     plan = DynamicRegimen("p", (node, "low"))
     object.__setattr__(node, "density_kind", "estimated")
@@ -217,8 +217,8 @@ def test_r8_an_estimated_policy_names_x19() -> None:
         _fit_refused(plan)
     assert _ESTIMATED_DENSITY in str(caught.value)
     assert str(caught.value).endswith(
-        "A tilt of the mechanism at each node of a longitudinal fit is not fitted yet; "
-        "docs/roadmap.md X19 tracks it."
+        "For an odds tilt of the mechanism at each node of a longitudinal fit, put "
+        "Incremental nodes in IPSI(regimens=...) from cleverly.longitudinal."
     )
 
 

@@ -1,9 +1,10 @@
 """Recorded comparator failures, and the accounting that decides whether a cell survives them.
 
-RM39 part a2.  An error that a comparator raises inside the runner's declared comparator-fit
-stage (``study_stage`` in ``tests/canonical/study_harness.R``) costs one group, not the run.  The
-harness writes a failure record in place of the group's checkpoint, and the driver publishes the
-records as ``failures.csv``.  This module turns those records into a verdict.
+RM39 parts a2 and b.  An error that a comparator raises inside the runner's declared
+comparator-fit stage (``study_stage`` in ``tests/canonical/study_harness.R``) costs one group, not
+the run.  A recorded ``cleverly`` fit failure in the Python phase costs one replicate
+(``tests/studies/evidence/replication.py``).  The driver publishes both sides' records as
+``failures.csv``.  This module turns those records into a verdict.
 
 A failed replicate is a missing value whose outcome nobody saw, so the accounting does not ask
 whether the failures look independent of the result.  A test of that cannot see the missing
@@ -15,12 +16,15 @@ value.  It asks two questions of every cell that lost a replicate instead:
   unfavourable candidate set?
 
 A cell fails when either answer is no.  The candidate sets are the rules of RM39-plan section
-4.5 (B2, M1, m13) for the legs a reference failure can reach: the reference's own truth row and
-the paired row.  Rates take every split of the failed replicates.  A bias or a paired difference
-takes every split between the surviving minimum and maximum, with the margin's scale held at its
-complete-case value.  A reference in a non-inferiority leg takes its best case.  The calibration
-excess takes the attainable range of the reference's SE ratio.  Range-bounded imputation assumes
-a failed value lies inside the surviving range; the bound limits that blind spot.
+4.5 (B2, M1, m13) and RM39b-plan sections 7 and 14: each implementation's own truth row and the paired
+row.  Rates take every split of the failed replicates.  A bias or a paired difference takes every
+split between the surviving minimum and maximum, with the margin's scale held at its
+complete-case value.  In a non-inferiority leg the reference takes its best case and the subject
+its worst.  The calibration excess takes the product of the two sides' attainable SE-ratio
+ranges.  Range-bounded imputation assumes a failed value lies inside the surviving range; the
+bound limits that blind spot.  A reference record of class ``paired_input_missing`` costs the
+reference a replicate whose input the subject's failed fit never built, so it counts against the
+subject's bound.
 
 With no failure, nothing here runs and no artifact moves.
 """
@@ -31,7 +35,7 @@ import contextlib
 import csv
 import gzip
 import math
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -97,7 +101,16 @@ ACCOUNTING_COLUMNS = (
     "reason",
     "witness_failed_error",
     "witness_succeeded_error",
+    "subject_failed",
+    "reference_failed",
+    "witness_reference_error_on_subject_failed",
+    "witness_reference_error_on_shared",
 )
+
+#: The class of a reference record the driver writes for a replicate the reference never saw,
+#: because its input is built from the subject's fit and that fit failed (RM39b B1).  It costs
+#: the reference's cells the replicate, but it counts against the subject's bound.
+PAIRED_INPUT_MISSING = "paired_input_missing"
 
 #: The conclusion an otherwise passing paired row takes when its failures are not accounted for.
 UNACCOUNTED = "unaccounted"
@@ -170,6 +183,28 @@ def expand(failures: pd.DataFrame | None, record: StudyRecord) -> pd.DataFrame:
     return frame
 
 
+def induced(subject: pd.DataFrame, *, record: StudyRecord) -> pd.DataFrame:
+    """One ``paired_input_missing`` reference record per subject record.
+
+    A study whose reference input comes from the subject's fit writes no sample for a
+    replicate the subject lost, so the reference loses it too.  Each record names the
+    subject's group in its message and keeps its group id, scenarios, replicates and seed.
+    """
+    if record.reference is None:
+        raise ValueError(f"{record.slug}: no reference to lose a paired input")
+    out = subject.loc[:, list(FAILURE_COLUMNS)].copy()
+    out["implementation"] = record.reference
+    out["attempt"] = 1
+    out["class"] = PAIRED_INPUT_MISSING
+    out["stage"] = "subject fit"
+    out["call"] = ""
+    out["message"] = [
+        f"the subject's fit {group} failed, so this replicate has no reference input"
+        for group in subject["group_id"]
+    ]
+    return out.reset_index(drop=True)
+
+
 def reconcile(rows: pd.DataFrame, failures: pd.DataFrame | None, *, record: StudyRecord) -> None:
     """Refuse a replicate file whose missing rows are not exactly the recorded failures.
 
@@ -178,12 +213,6 @@ def reconcile(rows: pd.DataFrame, failures: pd.DataFrame | None, *, record: Stud
     with no survivor is refused, because nothing can be accounted for on an empty cell.
     """
     lost = expand(failures, record)
-    subject = lost.loc[lost["implementation"] == record.implementation]
-    if not subject.empty:
-        raise ValueError(
-            f"{record.slug}: {record.implementation} has recorded failures; Python-phase failures "
-            f"arrive with RM39b"
-        )
     unknown = set(lost["implementation"]) - set(record.implementations)
     if unknown:
         raise ValueError(f"{record.slug}: failures of undeclared implementations {sorted(unknown)}")
@@ -270,7 +299,7 @@ def _se_ratio(
 
 
 def truth_legs(group: pd.DataFrame, k: int, *, record: StudyRecord, seed: int) -> list[Leg]:
-    """The reference's own truth row under its failures (m13: the subject rules, at extremes)."""
+    """One implementation's own truth row under its lost replicates (m13: the rules, at extremes)."""
     margins = record.margins
     estimand = str(group["estimand"].iloc[0])
     inference = group["inference_estimate"].to_numpy(dtype=float)
@@ -359,19 +388,29 @@ def paired_legs(
     truth: float,
     comparable: bool,
     seed: int,
-) -> tuple[list[Leg], tuple[float, float]]:
-    """The paired row's legs under the reference's failures, and the informative witness.
+    subject_failed: Sequence[int] = (),
+) -> tuple[list[Leg], tuple[float, float, float, float]]:
+    """The paired row's legs under both sides' failures, and the informative witnesses.
 
-    ``wide`` holds every replicate of the subject (index = replicate) and the reference's
-    surviving values, ``NaN`` where it failed.  The RMSE, coverage and calibration candidates
-    keep the subject's real rows and impute only the reference; the similarity leg imputes the
-    paired difference.
+    ``wide`` holds one row per replicate (index = replicate) and each side's surviving values,
+    ``NaN`` where that side failed.  ``failed`` lists the reference's failed replicates and
+    ``subject_failed`` the subject's; a replicate may be in both.  The similarity leg imputes
+    the paired difference over their union.  The RMSE, coverage and calibration candidates keep
+    each side's real values where it survived and fill the rest: the reference at its best
+    case, the subject at its worst.  The calibration excess takes the product of the two
+    sides' candidate sets.  With no subject failure, every candidate is the RM39a2 one.
+
+    The witnesses are the subject's mean error on the replicates only the reference lost and on
+    the replicates both kept, then the reference's on the replicates only the subject lost and
+    on those both kept.
     """
     margins = record.margins
     subject, reference = record.implementation, str(record.reference)
     confidence = margins.confidence_level
     replicates = margins.bootstrap_replicates
-    lost = wide.index.isin(list(failed))
+    reference_lost = wide.index.isin(list(failed))
+    subject_lost = wide.index.isin(list(subject_failed))
+    lost = reference_lost | subject_lost
     both = wide.loc[~lost]
     k = int(lost.sum())
 
@@ -401,32 +440,51 @@ def paired_legs(
         ((f"j={j} at min", similarity_slack(vertex(difference, k, j))) for j in range(k + 1)),
     )
 
-    # Subject real, reference ordered so that the failed replicates come last.
+    # Every replicate, with the ones either side lost last, so the rows stay paired by position.
     order = np.concatenate([np.flatnonzero(~lost), np.flatnonzero(lost)])
+    masks = {subject: subject_lost[order], reference: reference_lost[order]}
+    k_side = {name: int(mask.sum()) for name, mask in masks.items()}
 
-    def subject_values(name: str) -> np.ndarray:
-        return column(wide, name, subject)[order]
+    def full(name: str, implementation: str) -> np.ndarray:
+        return column(wide, name, implementation)[order]
 
-    def reference_survivors(name: str) -> np.ndarray:
-        return column(both, name, reference)
+    def survivors(name: str, implementation: str) -> np.ndarray:
+        return full(name, implementation)[~masks[implementation]]
 
-    # RMSE ratio and coverage difference: the reference's best case.
-    best = bootstrap(
+    def fill(name: str, implementation: str, values: Any) -> np.ndarray:
+        out = full(name, implementation).copy()
+        out[masks[implementation]] = values
+        return out
+
+    # The subject's worst RMSE: every failed estimate at the surviving one farthest from the
+    # truth.  The ratio rises in each subject squared error, so no range-bounded fill is worse.
+    subject_estimates = survivors("estimate", subject)
+    farthest = float(subject_estimates[np.argmax(np.abs(subject_estimates - truth))])
+    rmse_parts, coverage_parts = [], []
+    if k_side[subject]:
+        rmse_parts.append("subject estimate at farthest")
+        coverage_parts.append("subject missed")
+    if k_side[reference]:
+        rmse_parts.append("reference estimate = truth")
+        coverage_parts.append("reference covered")
+    rmse_label, coverage_label = "; ".join(rmse_parts), "; ".join(coverage_parts)
+    statistics = {
+        "rmse_ratio": lambda draw: np.sqrt(
+            np.mean((draw["subject_estimate"] - truth) ** 2, axis=1)
+            / np.mean((draw["reference_estimate"] - truth) ** 2, axis=1)
+        ),
+        "coverage_difference": lambda draw: np.mean(
+            draw["subject_covered"] - draw["reference_covered"], axis=1
+        ),
+    }
+    worst = bootstrap(
         {
-            "subject_estimate": subject_values("estimate"),
-            "reference_estimate": filled(reference_survivors("estimate"), k, truth),
-            "subject_covered": subject_values("covered"),
-            "reference_covered": filled(reference_survivors("covered"), k, 1.0),
+            "subject_estimate": fill("estimate", subject, farthest),
+            "reference_estimate": fill("estimate", reference, truth),
+            "subject_covered": fill("covered", subject, 0.0),
+            "reference_covered": fill("covered", reference, 1.0),
         },
-        {
-            "rmse_ratio": lambda draw: np.sqrt(
-                np.mean((draw["subject_estimate"] - truth) ** 2, axis=1)
-                / np.mean((draw["reference_estimate"] - truth) ** 2, axis=1)
-            ),
-            "coverage_difference": lambda draw: np.mean(
-                draw["subject_covered"] - draw["reference_covered"], axis=1
-            ),
-        },
+        statistics,
         replicates=replicates,
         seed=seed,
     )
@@ -437,15 +495,7 @@ def paired_legs(
             "subject_covered": column(both, "covered", subject),
             "reference_covered": column(both, "covered", reference),
         },
-        {
-            "rmse_ratio": lambda draw: np.sqrt(
-                np.mean((draw["subject_estimate"] - truth) ** 2, axis=1)
-                / np.mean((draw["reference_estimate"] - truth) ** 2, axis=1)
-            ),
-            "coverage_difference": lambda draw: np.mean(
-                draw["subject_covered"] - draw["reference_covered"], axis=1
-            ),
-        },
+        statistics,
         replicates=replicates,
         seed=seed,
     )
@@ -457,10 +507,10 @@ def paired_legs(
         ),
         [
             (
-                "reference estimate = truth",
+                rmse_label,
                 float(
                     margins.rmse_noninferiority
-                    - upper_bound(best["rmse_ratio"], confidence_level=confidence)
+                    - upper_bound(worst["rmse_ratio"], confidence_level=confidence)
                 ),
             )
         ],
@@ -473,9 +523,9 @@ def paired_legs(
         ),
         [
             (
-                "reference covered",
+                coverage_label,
                 float(
-                    lower_bound(best["coverage_difference"], confidence_level=confidence)
+                    lower_bound(worst["coverage_difference"], confidence_level=confidence)
                     - margins.coverage_noninferiority
                 ),
             )
@@ -485,71 +535,152 @@ def paired_legs(
     superiority_complete = float(
         lower_bound(complete["coverage_difference"], confidence_level=confidence)
     )
-    superiority_worst = float(lower_bound(best["coverage_difference"], confidence_level=confidence))
+    superiority_worst = float(
+        lower_bound(worst["coverage_difference"], confidence_level=confidence)
+    )
     superiority = Leg(
         "coverage superiority",
         superiority_complete,
         superiority_worst,
-        "reference covered",
+        coverage_label,
         superiority_worst > 0.0,
     )
     legs = [similarity, rmse, coverage, superiority]
 
     if comparable:
-        subject_se = subject_values("std_error")
-        subject_inference = subject_values("inference_estimate")
-        survivors_se = reference_survivors("std_error")
-        survivors_inference = reference_survivors("inference_estimate")
-
-        estimate_sets = [
-            ("estimates at mean", filled(survivors_inference, k, np.mean(survivors_inference)))
-        ]
-        estimate_sets += [
-            (f"estimates j={j} at min", vertex(survivors_inference, k, j)) for j in range(k + 1)
-        ]
-        low_se, high_se = float(np.min(survivors_se)), float(np.max(survivors_se))
-        candidates: list[tuple[str, float]] = []
-        for label, inference_values in estimate_sets:
-            spread = float(np.std(inference_values, ddof=1))
-            # The common failed SE that puts the reference's full-sample ratio at 1, or the
-            # closest attainable value inside the surviving range.
-            root = (spread * (len(survivors_se) + k) - float(np.sum(survivors_se))) / k
-            for se_label, value in (
-                ("SE at min", low_se),
-                ("SE at max", high_se),
-                ("SE at root", min(max(root, low_se), high_se)),
-            ):
-                candidates.append(
+        legs.append(
+            _worst(
+                "calibration excess",
+                _calibration_slack(
+                    column(both, "std_error", subject),
+                    column(both, "inference_estimate", subject),
+                    column(both, "std_error", reference),
+                    column(both, "inference_estimate", reference),
+                    record=record,
+                    seed=seed,
+                ),
+                [
                     (
-                        f"{se_label}, {label}",
+                        "; ".join(part for part in (subject_label, reference_label) if part),
                         _calibration_slack(
                             subject_se,
                             subject_inference,
-                            filled(survivors_se, k, value),
-                            inference_values,
+                            reference_se,
+                            reference_inference,
                             record=record,
                             seed=seed,
                         ),
                     )
-                )
-        both_se = column(both, "std_error", reference)
-        both_inference = column(both, "inference_estimate", reference)
-        complete_calibration = _calibration_slack(
-            column(both, "std_error", subject),
-            column(both, "inference_estimate", subject),
-            both_se,
-            both_inference,
-            record=record,
-            seed=seed,
+                    for subject_label, subject_se, subject_inference in _subject_calibration(
+                        survivors, fill, subject, k_side[subject]
+                    )
+                    for reference_label, reference_se, reference_inference in (
+                        _reference_calibration(survivors, fill, reference, k_side[reference])
+                    )
+                ],
+            )
         )
-        legs.append(_worst("calibration excess", complete_calibration, candidates))
 
-    errors = column(wide, "estimate", subject) - truth
+    subject_errors = full("estimate", subject) - truth
+    reference_errors = full("estimate", reference) - truth
+    only_reference = masks[reference] & ~masks[subject]
+    only_subject = masks[subject] & ~masks[reference]
+    kept = ~(masks[subject] | masks[reference])
+
+    def mean_of(values: np.ndarray, where: np.ndarray) -> float:
+        return float(np.mean(values[where])) if where.any() else math.nan
+
     witness = (
-        float(np.mean(errors[lost])) if k else math.nan,
-        float(np.mean(errors[~lost])),
+        mean_of(subject_errors, only_reference),
+        mean_of(subject_errors, kept),
+        mean_of(reference_errors, only_subject),
+        mean_of(reference_errors, kept),
     )
     return legs, witness
+
+
+_Fill = Callable[[str, str, Any], np.ndarray]
+
+
+def _subject_calibration(
+    survivors: Callable[[str, str], np.ndarray], fill: _Fill, subject: str, k: int
+) -> list[tuple[str, np.ndarray, np.ndarray]]:
+    """The subject's (label, SEs, inference estimates) candidates for the calibration excess.
+
+    The subject's excess grows as its SE ratio leaves 1 in either direction, so the candidates
+    are the two edges of the RM39a2 truth-row SE-ratio rule: the failed SEs at the survivor
+    maximum with the estimates at the survivor mean, and at the survivor minimum with the
+    estimates at each vertex split.
+    """
+    if not k:
+        return [("", fill("std_error", subject, []), fill("inference_estimate", subject, []))]
+    se = survivors("std_error", subject)
+    inference = survivors("inference_estimate", subject)
+    out = [
+        (
+            "subject SE at max, estimates at mean",
+            fill("std_error", subject, float(np.max(se))),
+            fill("inference_estimate", subject, float(np.mean(inference))),
+        )
+    ]
+    out += [
+        (
+            f"subject SE at min, estimates j={j} at min",
+            fill("std_error", subject, float(np.min(se))),
+            fill(
+                "inference_estimate",
+                subject,
+                np.concatenate([np.full(j, np.min(inference)), np.full(k - j, np.max(inference))]),
+            ),
+        )
+        for j in range(k + 1)
+    ]
+    return out
+
+
+def _reference_calibration(
+    survivors: Callable[[str, str], np.ndarray], fill: _Fill, reference: str, k: int
+) -> list[tuple[str, np.ndarray, np.ndarray]]:
+    """The reference's candidates for the calibration excess (RM39a2 B2).
+
+    Its inference estimates at the survivor mean or at each vertex split, crossed with a
+    common failed SE at the survivor minimum, the maximum, or the root that puts its
+    full-sample SE ratio at 1, clipped to the surviving range.
+    """
+    if not k:
+        return [("", fill("std_error", reference, []), fill("inference_estimate", reference, []))]
+    se = survivors("std_error", reference)
+    inference = survivors("inference_estimate", reference)
+    estimate_sets = [
+        ("estimates at mean", fill("inference_estimate", reference, float(np.mean(inference))))
+    ]
+    estimate_sets += [
+        (
+            f"estimates j={j} at min",
+            fill(
+                "inference_estimate",
+                reference,
+                np.concatenate([np.full(j, np.min(inference)), np.full(k - j, np.max(inference))]),
+            ),
+        )
+        for j in range(k + 1)
+    ]
+    low_se, high_se = float(np.min(se)), float(np.max(se))
+    out = []
+    for label, inference_values in estimate_sets:
+        spread = float(np.std(inference_values, ddof=1))
+        # The common failed SE that puts the reference's full-sample ratio at 1, or the
+        # closest attainable value inside the surviving range.
+        root = (spread * (len(se) + k) - float(np.sum(se))) / k
+        for se_label, value in (
+            ("SE at min", low_se),
+            ("SE at max", high_se),
+            ("SE at root", min(max(root, low_se), high_se)),
+        ):
+            out.append(
+                (f"{se_label}, {label}", fill("std_error", reference, value), inference_values)
+            )
+    return out
 
 
 def _calibration_slack(
@@ -682,12 +813,28 @@ def _rows(
     failed: int,
     dropped: int,
     legs: Sequence[Leg],
-    witness: tuple[float, float] = (math.nan, math.nan),
+    counted: Mapping[str, int],
+    witness: tuple[float, ...] = (math.nan, math.nan, math.nan, math.nan),
     gate: Any = None,
 ) -> list[dict[str, Any]]:
-    allowance = allowed(record, implementation)
-    passed, reason = (gate or _gate)(failed, allowance, legs)
-    bound = Leg("failure bound", float(failed), float(allowance), "", failed <= allowance)
+    """One row per leg of a cell, after one ``failure bound`` leg per side that failed.
+
+    ``counted`` maps each implementation to the failures its own bound counts.  The reference's
+    bound leg is always written, as in RM39a2; the subject's only when the subject failed.  The
+    cell's gate is red when any side exceeds its bound.
+    """
+    bounds = []
+    # The row's own implementation first, so its leg reads as the RM39a2 bound.
+    for side, count in sorted(counted.items(), key=lambda item: item[0] != implementation):
+        if side != implementation and not count:
+            continue
+        allowance = allowed(record, side)
+        name = "failure bound" if side == implementation else f"{_side(record, side)} failure bound"
+        bounds.append(Leg(name, float(count), float(allowance), "", count <= allowance))
+    over = int(not all(leg.passed for leg in bounds))
+    passed, reason = (gate or _gate)(over, 0, legs)
+    subject = int(counted.get(record.implementation, 0))
+    reference = int(counted.get(str(record.reference), 0)) if record.reference else 0
     return [
         {
             "table": table,
@@ -698,7 +845,7 @@ def _rows(
             "failed": failed,
             "rate": failed / record.replicates,
             "bound": float(record.failure_bound.get(implementation, 0.0)),
-            "allowed": allowance,
+            "allowed": allowed(record, implementation),
             "dropped_replications": dropped,
             "leg": leg.name,
             "complete_case": leg.complete_case,
@@ -709,15 +856,39 @@ def _rows(
             "reason": reason,
             "witness_failed_error": witness[0],
             "witness_succeeded_error": witness[1],
+            "subject_failed": subject,
+            "reference_failed": reference,
+            "witness_reference_error_on_subject_failed": witness[2],
+            "witness_reference_error_on_shared": witness[3],
         }
-        for leg in (bound, *legs)
+        for leg in (*bounds, *legs)
     ]
 
 
+def _side(record: StudyRecord, implementation: str) -> str:
+    return "subject" if implementation == record.implementation else "reference"
+
+
+def _own(failures: pd.DataFrame | None, record: StudyRecord) -> pd.DataFrame:
+    """The expansion of the records each implementation's own bound counts.
+
+    A ``paired_input_missing`` record costs the reference a replicate the subject's failure
+    took, so it counts against the subject: it is relabelled to the subject here.
+    """
+    if failures is None or failures.empty:
+        return expand(failures, record)
+    relabelled = failures.copy()
+    induced = relabelled["class"] == PAIRED_INPUT_MISSING
+    relabelled.loc[induced, "implementation"] = record.implementation
+    lost = expand(relabelled.loc[~induced], record)
+    induced_lost = expand(relabelled.loc[induced], record)
+    return pd.concat([lost, induced_lost], ignore_index=True).drop_duplicates(ignore_index=True)
+
+
 def _truth_payload(
-    payload: tuple[StudyRecord, pd.DataFrame, tuple[str, str, str], int, int],
+    payload: tuple[StudyRecord, pd.DataFrame, tuple[str, str, str], int, int, int],
 ) -> list[dict[str, Any]]:
-    record, group, key, k, seed = payload
+    record, group, key, k, own, seed = payload
     implementation, scenario, estimand = key
     legs = truth_legs(group, k, record=record, seed=seed)
     return _rows(
@@ -729,13 +900,22 @@ def _truth_payload(
         failed=k,
         dropped=k,
         legs=legs,
+        counted={implementation: own},
     )
 
 
 def _paired_payload(
-    payload: tuple[StudyRecord, pd.DataFrame, tuple[str, str], tuple[int, ...], int],
+    payload: tuple[
+        StudyRecord,
+        pd.DataFrame,
+        tuple[str, str],
+        tuple[int, ...],
+        tuple[int, ...],
+        Mapping[str, int],
+        int,
+    ],
 ) -> list[dict[str, Any]]:
-    record, group, key, failed, seed = payload
+    record, group, key, reference_failed, subject_failed, counted, seed = payload
     scenario, estimand = key
     reference = str(record.reference)
     wide = group.pivot(
@@ -743,23 +923,28 @@ def _paired_payload(
         columns="implementation",
         values=["estimate", "covered", "inference_estimate", "std_error"],
     ).sort_index()
+    replicates = pd.Index(range(record.replicates), name="replicate")
+    wide = wide.reindex(replicates)
     legs, witness = paired_legs(
         wide,
-        failed,
+        reference_failed,
         record=record,
         truth=float(group["truth"].iloc[0]),
         comparable=estimand not in record.incomparable_se,
         seed=seed,
+        subject_failed=subject_failed,
     )
+    union = len(set(reference_failed) | set(subject_failed))
     return _rows(
         table="equivalence",
         implementation=reference,
         scenario=scenario,
         estimand=estimand,
         record=record,
-        failed=len(failed),
-        dropped=len(failed),
+        failed=union,
+        dropped=union,
         legs=legs,
+        counted=counted,
         witness=witness,
         gate=_paired_gate,
     )
@@ -772,11 +957,17 @@ def truth_accounting(
     record: StudyRecord,
     n_jobs: int = STUDY_JOBS,
 ) -> pd.DataFrame:
-    """The accounting rows of every truth cell that lost a replicate."""
+    """The accounting rows of every truth cell that lost a replicate.
+
+    The legs take every replicate the cell lost.  The bound counts the cell's own failures:
+    a reference cell's ``paired_input_missing`` replicates count against the subject.
+    """
     lost = expand(failures, record)
     if lost.empty:
         return pd.DataFrame(columns=list(ACCOUNTING_COLUMNS))
-    counts = lost.groupby(["implementation", "scenario", "estimand"], sort=True).size()
+    keys = ["implementation", "scenario", "estimand"]
+    counts = lost.groupby(keys, sort=True).size()
+    own = _own(failures, record).groupby(keys, sort=True).size()
     payloads = []
     for key, k in counts.items():
         implementation, scenario, estimand = (str(part) for part in key)
@@ -786,9 +977,23 @@ def truth_accounting(
             & (rows["estimand"] == estimand)
         ].sort_values("replicate")
         seed = stream_seed(record, "failure-accounting", "performance", *key)
-        payloads.append(((record, group, (implementation, scenario, estimand), int(k), seed),))
+        counted = int(own.get(key, 0))
+        payloads.append(
+            ((record, group, (implementation, scenario, estimand), int(k), counted, seed),)
+        )
     out = [row for rows_ in map_parallel(_truth_payload, payloads, n_jobs=n_jobs) for row in rows_]
     return pd.DataFrame.from_records(out, columns=list(ACCOUNTING_COLUMNS))
+
+
+def _replicates(
+    frame: pd.DataFrame, implementation: str, scenario: str, estimand: str
+) -> tuple[int, ...]:
+    chosen = frame.loc[
+        (frame["implementation"] == implementation)
+        & (frame["scenario"] == scenario)
+        & (frame["estimand"] == estimand)
+    ]
+    return tuple(sorted(int(value) for value in chosen["replicate"]))
 
 
 def paired_accounting(
@@ -798,18 +1003,35 @@ def paired_accounting(
     record: StudyRecord,
     n_jobs: int = STUDY_JOBS,
 ) -> pd.DataFrame:
-    """The accounting rows of every paired cell whose reference lost a replicate."""
+    """The accounting rows of every paired cell where either side lost a replicate."""
     lost = expand(failures, record)
     if lost.empty or record.reference is None:
         return pd.DataFrame(columns=list(ACCOUNTING_COLUMNS))
-    lost = lost.loc[lost["implementation"] == record.reference]
+    subject, reference = record.implementation, str(record.reference)
+    own = _own(failures, record)
     payloads = []
     for key, group in lost.groupby(["scenario", "estimand"], sort=True):
         scenario, estimand = str(key[0]), str(key[1])
+
         cell = rows.loc[(rows["scenario"] == scenario) & (rows["estimand"] == estimand)]
-        failed = tuple(sorted(int(value) for value in group["replicate"]))
+        counted = {
+            subject: len(_replicates(own, subject, scenario, estimand)),
+            reference: len(_replicates(own, reference, scenario, estimand)),
+        }
         seed = stream_seed(record, "failure-accounting", "equivalence", scenario, estimand)
-        payloads.append(((record, cell, (scenario, estimand), failed, seed),))
+        payloads.append(
+            (
+                (
+                    record,
+                    cell,
+                    (scenario, estimand),
+                    _replicates(group, reference, scenario, estimand),
+                    _replicates(group, subject, scenario, estimand),
+                    counted,
+                    seed,
+                ),
+            )
+        )
     out = [row for rows_ in map_parallel(_paired_payload, payloads, n_jobs=n_jobs) for row in rows_]
     return pd.DataFrame.from_records(out, columns=list(ACCOUNTING_COLUMNS))
 
@@ -828,6 +1050,11 @@ def hook_accounting(
     group's missing rows included), ``passed`` (its own threshold applied) and, optionally,
     ``own`` (the surviving rows that fail it).  A study with a
     hook and no such function gets one ``failures not accountable`` row, which is red.
+
+    ``implementation`` names the sides whose own records the rows count, joined by ``+``, and
+    ``subject_failed`` and ``reference_failed`` count each side's lost replications.  A
+    ``paired_input_missing`` record is the subject's.  ``bound`` and ``allowed`` are the named
+    side's, or ``NaN`` when both sides failed, because each side has its own bound.
     """
     columns = list(ACCOUNTING_COLUMNS)
     if failures is None or failures.empty:
@@ -839,24 +1066,38 @@ def hook_accounting(
     ]
     if not hooks:
         return pd.DataFrame(columns=columns)
-    implementation = str(record.reference)
+    own = _own(failures, record)
+    counts = {
+        side: len(
+            own.loc[own["implementation"] == side, ["scenario", "replicate"]].drop_duplicates()
+        )
+        for side in record.implementations
+    }
+    sides = [side for side in record.implementations if counts[side]]
+    if not sides:
+        raise ValueError(f"{record.slug}: failure records that name no declared implementation")
     failed = missing_fits(failures, record)
+    (single,) = sides if len(sides) == 1 else (None,)
     base = {
         "table": "hook",
-        "implementation": implementation,
+        "implementation": "+".join(sides),
         "scenario": "",
         "estimand": "",
         "requested": record.replicates,
         "failed": failed,
         "rate": math.nan,
-        "bound": float(record.failure_bound.get(implementation, 0.0)),
-        "allowed": allowed(record, implementation),
+        "bound": math.nan if single is None else float(record.failure_bound.get(single, 0.0)),
+        "allowed": math.nan if single is None else allowed(record, single),
         "dropped_replications": failed,
         "complete_case": math.nan,
         "worst_case": math.nan,
         "imputation": "",
         "witness_failed_error": math.nan,
         "witness_succeeded_error": math.nan,
+        "subject_failed": counts[record.implementation],
+        "reference_failed": counts[record.reference] if record.reference is not None else 0,
+        "witness_reference_error_on_subject_failed": math.nan,
+        "witness_reference_error_on_shared": math.nan,
     }
     if not hasattr(study, "account_failures"):
         return pd.DataFrame.from_records(
@@ -890,9 +1131,18 @@ def hook_accounting(
     return pd.DataFrame.from_records(out, columns=columns)
 
 
-def missing_fits(failures: pd.DataFrame | None, record: StudyRecord) -> int:
-    """The (scenario, replicate) fits the failure records left without a row."""
-    return len(expand(failures, record)[["scenario", "replicate"]].drop_duplicates())
+def missing_fits(
+    failures: pd.DataFrame | None, record: StudyRecord, implementation: str | None = None
+) -> int:
+    """The (scenario, replicate) fits the failure records left without a row.
+
+    With ``implementation``, the fits that implementation lost, a ``paired_input_missing``
+    record included.  Without it, a replication that either side lost counts once.
+    """
+    lost = expand(failures, record)
+    if implementation is not None:
+        lost = lost.loc[lost["implementation"] == implementation]
+    return len(lost[["scenario", "replicate"]].drop_duplicates())
 
 
 def audits(gates: Mapping[str, pd.DataFrame], *, missing: Mapping[str, int]) -> pd.DataFrame:
@@ -965,16 +1215,20 @@ def probe_audits(
     """The ``account_failures`` frame of a probe that skips the failed replications.
 
     The coverage audit passes when every probe path holds one row for each declared
-    replication ``0, ..., R - 1`` of ``scenarios`` that did not fail, and the failed ones fill
-    the rest.
+    replication ``0, ..., R - 1`` of ``scenarios`` that the reference did not lose, and the
+    lost ones fill the rest.  The probe reruns the reference's arithmetic, so a replication
+    the subject alone lost stays in it.
     The ``audit`` leg counts the probe rows whose ``passed`` is not true.  A failed
     replication has no comparison row, so no published number depends on its scale
     workaround.
     """
     scenarios = set(scenarios)
+    lost = expand(failures, record)
     failed = {
         int(replicate)
-        for scenario, replicate in expand(failures, record)[["scenario", "replicate"]]
+        for scenario, replicate in lost.loc[lost["implementation"] == record.reference][
+            ["scenario", "replicate"]
+        ]
         .drop_duplicates()
         .itertuples(index=False)
         if scenario in scenarios

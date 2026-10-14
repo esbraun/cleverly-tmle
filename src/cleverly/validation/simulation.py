@@ -29,10 +29,13 @@ estimator configuration is trustworthy for your problem before you rely on it.
 
 from __future__ import annotations
 
+import os
+import pickle
 from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 import numpy as np
 
@@ -49,6 +52,7 @@ from ..estimators.direct_effect import check_level
 from ..inference.influence import spread_name
 from ..utils.parallel import map_parallel
 from ..utils.text import format_table
+from ._failures import failure_call, recordable
 from ._seeds import sample_seed_streams, validate_sample_seeds
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -116,7 +120,7 @@ class ReplicationRecord:
 
 @dataclass(frozen=True)
 class ReplicationFailure:
-    """A failed draw retained with enough context to diagnose the study.
+    """A replication whose fit failed numerically, kept so the study can be diagnosed.
 
     Parameters
     ----------
@@ -128,12 +132,149 @@ class ReplicationFailure:
         Exception class raised.
     message : str
         Its message.
+    call : str
+        ``module:function`` of the frame that raised it.
     """
 
     replicate: int
     seed: int
     error_type: str
     message: str
+    call: str = ""
+
+
+ReplicationOutcome = tuple[ReplicationRecord, ...] | ReplicationFailure
+
+
+@runtime_checkable
+class ReplicationCheckpoint(Protocol):  # numpydoc ignore=PR01
+    """Storage that lets an interrupted :class:`CoverageStudy` resume.
+
+    :meth:`CoverageStudy.run` calls ``load`` for every replication before it fits any, and
+    fits only those that return ``None``.  It calls ``save`` in the worker process as soon as
+    a replication finishes, so a stopped study loses only the fits in flight.  When
+    ``n_jobs`` is not 1, ``save`` therefore runs in another process: an implementation must be
+    picklable and must store outside the process, as :class:`DirectoryCheckpoint` does.
+
+    See Also
+    --------
+    DirectoryCheckpoint : The implementation that keeps one file per replication.
+    """
+
+    def load(self, replicate: int) -> ReplicationOutcome | None:
+        """Return the stored outcome of ``replicate``, or ``None`` when there is none.
+
+        Parameters
+        ----------
+        replicate : int
+            Index of the replication.
+
+        Returns
+        -------
+        tuple of ReplicationRecord, ReplicationFailure or None
+            The stored outcome, or ``None``.
+        """
+        ...
+
+    def save(self, replicate: int, outcome: ReplicationOutcome) -> None:
+        """Store the outcome of ``replicate``.
+
+        Parameters
+        ----------
+        replicate : int
+            Index of the replication.
+        outcome : tuple of ReplicationRecord or ReplicationFailure
+            What the replication returned.
+        """
+        ...
+
+
+@dataclass(frozen=True)
+class DirectoryCheckpoint:
+    """Keep each finished replication of a :class:`CoverageStudy` as a file in a directory.
+
+    One file per replication, written under a temporary name and then renamed, so a study
+    stopped mid-write never reads a partial file.  The directory belongs to one study.  The
+    load compares each stored seed with the study's seed and refuses a mismatch.  It compares
+    nothing else, so a study with the same seed and another ``n``, data-generating process or
+    estimator reads the stored results.  Give each configuration its own directory.
+
+    Parameters
+    ----------
+    directory : str or os.PathLike
+        Where the files go.  It is created when missing.
+
+    See Also
+    --------
+    ReplicationCheckpoint : The protocol this class implements.
+
+    Examples
+    --------
+    >>> import tempfile
+    >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+    >>> from cleverly.datasets import nonlinear_dgp
+    >>> from cleverly.estimators import TMLE
+    >>> from cleverly.validation import CoverageStudy, DirectoryCheckpoint
+    >>> def study(directory):
+    ...     return CoverageStudy(
+    ...         dgp=nonlinear_dgp(),
+    ...         estimator=lambda: TMLE(
+    ...             outcome_learner=LinearRegression(),
+    ...             treatment_learner=LogisticRegression(),
+    ...             cross_fit=False,
+    ...         ),
+    ...         n=200,
+    ...         n_replicates=3,
+    ...         seed=0,
+    ...         checkpoint=DirectoryCheckpoint(directory),
+    ...     )
+    >>> with tempfile.TemporaryDirectory() as directory:
+    ...     first = study(directory).run()
+    ...     resumed = study(directory).run()
+    >>> resumed.replications == first.replications
+    True
+    """
+
+    directory: str | os.PathLike[str]
+
+    def _path(self, replicate: int) -> Path:
+        return Path(self.directory) / f"replication-{replicate:09d}.pkl"
+
+    def load(self, replicate: int) -> ReplicationOutcome | None:
+        """Return the stored outcome of ``replicate``, or ``None`` when there is none.
+
+        Parameters
+        ----------
+        replicate : int
+            Index of the replication.
+
+        Returns
+        -------
+        tuple of ReplicationRecord, ReplicationFailure or None
+            The stored outcome, or ``None``.
+        """
+        path = self._path(replicate)
+        if not path.exists():
+            return None
+        with path.open("rb") as handle:
+            return cast("ReplicationOutcome", pickle.load(handle))
+
+    def save(self, replicate: int, outcome: ReplicationOutcome) -> None:
+        """Store the outcome of ``replicate``.
+
+        Parameters
+        ----------
+        replicate : int
+            Index of the replication.
+        outcome : tuple of ReplicationRecord or ReplicationFailure
+            What the replication returned.
+        """
+        path = self._path(replicate)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(f".{os.getpid()}.tmp")
+        with temporary.open("wb") as handle:
+            pickle.dump(outcome, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(temporary, path)
 
 
 @dataclass(frozen=True)
@@ -565,6 +706,21 @@ class CoverageStudy:
 
     label : str
         Name of the study, used in its reports.
+    checkpoint : ReplicationCheckpoint or None
+        Storage for finished replications.  With one, :meth:`run` reuses every stored
+        outcome and fits only the rest, so a stopped study resumes where it stopped.
+
+    Notes
+    -----
+    A replication whose fit raises a numerical or fitting error is recorded as a
+    :class:`ReplicationFailure` and the study continues.  These are recorded:
+    :class:`~cleverly.exceptions.DataError`, :class:`~cleverly.exceptions.LongitudinalError`,
+    ``numpy.linalg.LinAlgError``, ``FloatingPointError``, ``ZeroDivisionError``,
+    ``OverflowError``, and a plain ``ValueError`` or ``RuntimeError`` that ``numpy``, ``scipy``,
+    ``scikit-learn`` or ``statsmodels`` raised.  Every other exception stops the study,
+    including :class:`~cleverly.exceptions.CapabilityError`,
+    :class:`~cleverly.exceptions.MethodConfigurationError` and programming errors such as
+    ``TypeError``.  An error while drawing a sample always stops the study.
 
     Examples
     --------
@@ -601,6 +757,7 @@ class CoverageStudy:
         truth_key: str = "population",
         intermediate_value: float | None = None,
         label: str | None = None,
+        checkpoint: ReplicationCheckpoint | None = None,
     ) -> None:
         if n_replicates < 2:
             raise ValueError(f"n_replicates must be at least 2; got {n_replicates}")
@@ -638,6 +795,7 @@ class CoverageStudy:
         self.truth_key = truth_key
         self.intermediate_value = intermediate_value
         self.label = str(label or getattr(dgp, "name", getattr(dgp, "__name__", "study")))
+        self.checkpoint = checkpoint
 
     def _draw(self, seed: int) -> tuple[Any, dict[str, float]]:
         from ..datasets.synthetic import DGP as DGPClass
@@ -685,8 +843,9 @@ class CoverageStudy:
     ) -> tuple[ReplicationRecord, ...] | ReplicationFailure:
         """Fit one declared replication from an explicit sample seed.
 
-        A fresh estimator is created for every call. Failures remain explicit records;
-        this method does not aggregate a sampling distribution or change the study budget.
+        A fresh estimator is created for every call. A recordable fitting failure (see the
+        class notes) returns an explicit record; any other exception propagates. This method
+        does not aggregate a sampling distribution or change the study budget.
 
         Parameters
         ----------
@@ -709,8 +868,10 @@ class CoverageStudy:
         ):
             raise ValueError("replicate_index must be an integer within the declared budget")
         seed = validate_sample_seeds((seed,), 1)[0]
+        # The draw stays outside the handler: an error there is a defect of the process,
+        # not a fit that broke down on one sample.
+        frame, truth = self._draw(int(seed))
         try:
-            frame, truth = self._draw(int(seed))
             with warnings.catch_warnings():
                 # Individual replications routinely trip positivity warnings; the
                 # aggregate coverage is the diagnostic here, not the per-fit warnings.
@@ -760,12 +921,22 @@ class CoverageStudy:
                 )
             return tuple(out)
         except Exception as error:
+            if not recordable(error):
+                raise
             return ReplicationFailure(
                 replicate=replicate_index,
                 seed=int(seed),
                 error_type=type(error).__name__,
                 message=str(error),
+                call=failure_call(error),
             )
+
+    def _checkpointed(self, replicate_index: int, seed: int) -> ReplicationOutcome:
+        """One replication, stored in the checkpoint as soon as it finishes."""
+        outcome = self.run_replication(replicate_index, seed)
+        if self.checkpoint is not None:
+            self.checkpoint.save(replicate_index, outcome)
+        return outcome
 
     def run(self) -> StudyResult:
         """Execute the study.
@@ -783,7 +954,33 @@ class CoverageStudy:
         else:
             seeds = validate_sample_seeds(self.sample_seeds, self.n_replicates)
 
-        outcomes = map_parallel(self.run_replication, list(enumerate(seeds)), n_jobs=self.n_jobs)
+        stored: dict[int, ReplicationOutcome] = {}
+        if self.checkpoint is not None:
+            for index, seed in enumerate(seeds):
+                outcome = self.checkpoint.load(index)
+                if outcome is None:
+                    continue
+                if isinstance(outcome, ReplicationFailure):
+                    kept: int | None = outcome.seed
+                else:
+                    kept = outcome[0].seed if outcome else None
+                if kept is not None and kept != int(seed):
+                    raise RuntimeError(
+                        f"the checkpoint holds replication {index} under seed {kept}, but "
+                        f"this study draws it from seed {seed}"
+                    )
+                stored[index] = outcome
+        missing = [(index, seed) for index, seed in enumerate(seeds) if index not in stored]
+        fitted = dict(
+            zip(
+                (index for index, _ in missing),
+                map_parallel(self._checkpointed, missing, n_jobs=self.n_jobs),
+                strict=True,
+            )
+        )
+        outcomes = [
+            stored[index] if index in stored else fitted[index] for index in range(len(seeds))
+        ]
         failures = tuple(outcome for outcome in outcomes if isinstance(outcome, ReplicationFailure))
         records = tuple(
             record

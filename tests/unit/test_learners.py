@@ -1003,7 +1003,7 @@ class TestSuperLearner:
                 raise RuntimeError("boom")
 
         x, y, _ = sample
-        with pytest.warns(UserWarning), pytest.raises(RuntimeError, match="every learner"):
+        with pytest.warns(UserWarning), pytest.raises(DataError, match="every learner"):
             SuperLearner(library=[("bad", Exploding())], n_folds=3).fit(x, y)
 
     def test_predicting_before_fitting_is_refused(self, sample) -> None:

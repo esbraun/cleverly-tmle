@@ -175,8 +175,8 @@ _POLICY_DECLARATION = FunctionDeclaration(
     ),
     estimated=(
         "A policy fitted to the analysis sample makes the estimand data-dependent; Díaz et "
-        "al. (2023) Theorem 2 assumes d does not depend on P. A policy that tilts the "
-        "fitted mechanism is docs/roadmap.md X19"
+        "al. (2023) Theorem 2 assumes d does not depend on P. For an odds tilt of the fitted "
+        "mechanism, put Incremental nodes in IPSI(regimens=...) from cleverly.longitudinal"
     ),
 )
 

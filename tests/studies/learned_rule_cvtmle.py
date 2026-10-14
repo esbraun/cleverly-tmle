@@ -24,6 +24,7 @@ import pandas as pd
 
 from tests.parallel import STUDY_JOBS
 from tests.studies import _learned_rule_law as law
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.seeds import draw_replicate
 
@@ -143,7 +144,7 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
 
 def draw_and_fit(
     *, replicates: int, n: int, n_jobs: int = STUDY_JOBS, record: StudyRecord = STUDY
-) -> pd.DataFrame:
+) -> replication.PhaseResult:
     """Draw and fit every primary replication of ``record``, with its harness columns.
 
     ``record`` is the declared one, or the throwaway record of a smoke run (rule L9).

@@ -114,9 +114,34 @@ def refuse_multi_arm_tilt(data: CausalData) -> None:
     if data.n_arms == 2:
         return
     raise DataError(
+        multi_arm_tilt_message(data.treatment_name, data.n_arms, list(data.treatment_levels))
+    )
+
+
+def multi_arm_tilt_message(subject: str, n_levels: int, levels: list[Any]) -> str:
+    """The refusal of an odds tilt on a treatment with other than two arms.
+
+    One string for the point treatment and for a node of a longitudinal fit, so the two
+    refusals cannot drift apart.
+
+    Parameters
+    ----------
+    subject : str
+        The treatment the tilt names: a column at a point fit, ``node 'A2'`` over time.
+    n_levels : int
+        The number of levels the treatment has.
+    levels : list
+        The levels.
+
+    Returns
+    -------
+    str
+        The message.
+    """
+    return (
         f"an incremental propensity-score intervention tilts the *odds* of treatment, "
-        f"which names two arms; {data.treatment_name} has {data.n_arms} "
-        f"({list(data.treatment_levels)}). Kennedy's binary odds multiplier alone does not "
+        f"which names two arms; {subject} has {n_levels} "
+        f"({levels}). Kennedy's binary odds multiplier alone does not "
         "select a multinomial policy. This API has no declared multi-arm tilt; one odds "
         "per contrast or a cost-based reference policy defines a different intervention "
         "with its own influence function."

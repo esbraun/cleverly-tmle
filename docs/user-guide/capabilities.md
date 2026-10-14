@@ -3,10 +3,11 @@
 ## Shipped analysis families
 
 The [technical implementation matrix](../technical-reference/index.md) is the authoritative
-reader-facing inventory. In brief, the package supports point and longitudinal TMLE, arm and
-regimen contrasts, modified treatment policies, incremental interventions, MSM projections, controlled
+reader-facing inventory. In brief, the package supports point and longitudinal TMLE, the sequentially doubly
+robust longitudinal estimator, arm and regimen contrasts, modified treatment policies, incremental interventions, MSM projections, controlled
 direct effects, C-TMLE, DR-TMLE, cross-fitting, influence-curve inference, sensitivity analysis,
-and post-fit diagnostics in the combinations documented there.
+and post-fit diagnostics in the combinations documented there. The longitudinal
+family also includes Kennedy's incremental estimator `IPSI`.
 
 ## Why a request can be refused
 

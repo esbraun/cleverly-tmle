@@ -88,6 +88,12 @@ def _revisions() -> dict[tuple[str, str], str]:
 DETERMINISM = ROOT / "tests" / "canonical" / "harness_fixture" / "determinism.csv"
 
 
+def _witness_step(judgement: str) -> str:
+    """The determinism step a judgement's last ``Witness:`` names, ``a2`` by default."""
+    steps = re.findall(r"Witness: the `([^`]+)` rows", judgement)
+    return steps[-1] if steps else "a2"
+
+
 def test_every_rm39a2_judgement_has_its_determinism_witness() -> None:
     """A result-neutral claim about a stage edit names a run that showed it.
 
@@ -99,23 +105,30 @@ def test_every_rm39a2_judgement_has_its_determinism_witness() -> None:
     witnesses = pd.read_csv(DETERMINISM, dtype=str, keep_default_na=False)
     if "source_sha256" not in witnesses.columns:
         witnesses = witnesses.assign(source="", source_sha256="")
-    a2 = [row for row in witnesses.itertuples(index=False) if row.step == "a2"]
-    witnessed = {(row.source, row.source_sha256) for row in a2 if row.verdict == "identical"}
-    refuted = {(row.source, row.source_sha256) for row in a2 if row.verdict != "identical"}
+    # A judgement names its step ("Witness: the `b1` rows"); RM39a2's rows are step a2.
+    staged = [row for row in witnesses.itertuples(index=False) if row.step in {"a2", "b1"}]
+    witnessed = {
+        (row.step, row.source, row.source_sha256) for row in staged if row.verdict == "identical"
+    }
+    refuted = {
+        (row.step, row.source, row.source_sha256) for row in staged if row.verdict != "identical"
+    }
     claimed = [
-        (row["source"].strip("`"), row["current"].strip("`"))
+        (_witness_step(row["judgement"]), row["source"].strip("`"), row["current"].strip("`"))
         for row in pipe_table(REVISIONS, REVISION_COLUMNS)
         if "Witness:" in row["judgement"]
     ]
     contradicted = [
-        f"{source} at {sha[:12]}" for source, sha in claimed if (source, sha) in refuted
+        f"{source} at {sha[:12]}" for step, source, sha in claimed if (step, source, sha) in refuted
     ]
     assert contradicted == [], (
         f"a2 rows in {DETERMINISM.name} show these result-neutral sources change a result: "
         f"{contradicted}"
     )
     missing = [
-        f"{source} at {sha[:12]}" for source, sha in claimed if (source, sha) not in witnessed
+        f"{source} at {sha[:12]} ({step})"
+        for step, source, sha in claimed
+        if (step, source, sha) not in witnessed
     ]
     assert missing == [], (
         f"{len(missing)} RM39a2 judgements have no identical a2 row in {DETERMINISM.name}; run "
@@ -742,6 +755,27 @@ class TestPublishedVerdicts:
                 f"{row.cell} publishes passed={row.passed} against its own coverage floor"
             )
 
+        mechanism_term = published.loc[published["property"] == "mechanism_term_necessity"]
+        for row in mechanism_term.itertuples():
+            if row.role == "control":
+                expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
+            else:
+                low, high = study.properties().EFFICIENCY_RATIO_BAND
+                expected = low <= row.se_ratio_ci_lower <= row.se_ratio_ci_upper <= high
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own SE-ratio endpoint"
+            )
+
+        single = published.loc[published["property"] == "single_robustness"]
+        positive = single.loc[single["role"] == "positive"].sort_values("n")
+        if not positive.empty:
+            small, large = positive["absolute_bias_bound"].iloc[[0, -1]]
+            tolerance = study.properties().ABSOLUTE_BIAS_TOLERANCE
+            expected = bool(large < tolerance and large < small)
+            assert [bool(value) for value in positive["passed"]] == [expected] * len(positive), (
+                f"{study.slug}: a single_robustness row's verdict is not the two-size rule"
+            )
+
         # Unconditional over every study with calibration cells.  Guarding this block on the
         # presence of the efficiency columns left a study that publishes no exact ratio with
         # *no* reader of its calibration verdicts at all.
@@ -804,6 +838,25 @@ class TestPublishedVerdicts:
                 assert bool(row.passed) is bool(expected), (
                     f"{row.cell} publishes passed={row.passed} against its calibration endpoint"
                 )
+
+        separate = published.loc[
+            published["property"].isin({"clustered_calibration", "weighted_calibration"})
+        ]
+        low, high = study.margins.calibration_se_ratio
+        for row in separate.itertuples():
+            if row.role == "control":
+                expected = row.se_ratio_ci_upper < low
+            else:
+                expected = (
+                    low <= row.se_ratio_ci_lower <= row.se_ratio_ci_upper <= high
+                    and study.margins.calibration_coverage[0]
+                    <= row.coverage_ci_lower
+                    <= row.coverage_ci_upper
+                    <= study.margins.calibration_coverage[1]
+                )
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its calibration endpoint"
+            )
 
         # The band answers to the two-sided calibration coverage band, and its pointwise
         # control must establish joint coverage below nominal, so the band does work.
@@ -1145,6 +1198,14 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         "robustness_contract",
         "generated_design",
         "interval_calibration",
+        # Calibration families with no efficiency claim: the positive arm answers to the
+        # SE-ratio and coverage bands, each control to an SE-ratio interval below the band.
+        # Checked row by row below.
+        "clustered_calibration",
+        "weighted_calibration",
+        # Two-size absolute-bias bounds, exact-ratio patterns and two bias-floor controls,
+        # all on the union-model SE screen; recomputed from the rows by the summary test.
+        "sequential_double_robustness",
         "natural_course_identity",
         # The composite TMLE's cells: bias inside the margin, a coverage floor and an SE band.
         "ordinary_targeting",
@@ -1164,6 +1225,12 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         "treatment_score_necessity",
         "type_i_error",
         property_verdicts.WARNING_RATE_FAMILY,
+        # The full curve answers to the efficiency band and the curve without the mechanism
+        # term to an SE ratio below the calibration band.  Checked row by row below.
+        "mechanism_term_necessity",
+        # Absolute bias at two sizes (the ``X4-plan.md`` 6.8 rule), beside a diagnostic cell.
+        # Checked row by row below.
+        "single_robustness",
         # Four rules keyed by the cell's last segment: a conservative SE ratio, accuracy, a
         # one-sided bias control and a growth control.  Checked row by row below.
         property_verdicts.ONE_WRONG_FAMILY,
@@ -1180,8 +1247,12 @@ DIAGNOSTIC_PROPERTIES = frozenset(
     {
         property_verdicts.FOLD_POLICY_FAMILY,
         "cluster_aggregation_rule",
+        "construction_diagnostic",
         "in_sample_agreement",
+        "sdr_tmle_agreement",
         "variance_direction",
+        "censoring_complete_case",
+        "in_sample_fit",
         "one_wrong_reported",
     }
 )
@@ -2035,6 +2106,7 @@ _FAMILY = {
     "mean_oracle_se": "harness",
     # ``failures.csv``: zero for a study whose comparator never failed.
     "reference_failures": "failures",
+    "subject_failures": "failures",
     "failure_rate": "failures",
     "mechanism_": "fit_diagnostics",
 }

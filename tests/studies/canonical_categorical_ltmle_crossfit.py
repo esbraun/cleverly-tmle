@@ -8,6 +8,7 @@ import pandas as pd
 
 from tests.parallel import STUDY_JOBS
 from tests.studies import categorical_longitudinal_common as common
+from tests.studies.evidence import replication
 from tests.studies.evidence.constructions import (
     POOLED_LONGITUDINAL_CROSS_FIT,
     TRAINING_FOLD_FLUCTUATION,
@@ -111,7 +112,5 @@ def cleverly_rows(
     return common.result_rows(STUDY, fit_cleverly(frame), truth, scenario, replicate)
 
 
-def draw_and_fit(
-    *, replicates: int, n: int, n_jobs: int = STUDY_JOBS
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
     return common.draw_and_fit(STUDY, cross_fit=True, replicates=replicates, n=n, n_jobs=n_jobs)

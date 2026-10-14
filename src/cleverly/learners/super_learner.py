@@ -30,6 +30,7 @@ from scipy import optimize
 from sklearn.base import BaseEstimator
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
+from ..exceptions import DataError
 from ..utils.parallel import map_parallel
 from ._fitting import Task, as_target, clone_learner, fit_learner, infer_task, predict_mean
 from .crossfit import Folds, make_folds
@@ -254,7 +255,9 @@ class SuperLearner(BaseEstimator):
                 stacklevel=2,
             )
         if not usable.any():
-            raise RuntimeError("every learner in the library failed to fit")
+            # The data decided it: each learner raised on this sample.  A repeated-sampling
+            # study records a ``DataError`` as one failed replicate rather than a stopped run.
+            raise DataError("every learner in the library failed to fit")
 
         kept_names = [name for name, ok in zip(names, usable, strict=True) if ok]
         kept_predictions = cv_predictions[:, usable]

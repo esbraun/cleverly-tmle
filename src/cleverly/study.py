@@ -20,14 +20,20 @@ from .inference.multiplier import SimultaneousBands, simultaneous_bands
 from .interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet
 from .interventions.base import InterventionKind, refuse_mixed_interventions
 from .interventions.learned import LearnedRule, refuse_learned_rule_composition
-from .longitudinal import LTMLE, LongitudinalData, LongitudinalResult
-from .longitudinal.regimen import declares_mtp, declares_policy
+from .longitudinal import IPSI, LTMLE, SDR, LongitudinalData, LongitudinalResult
+from .longitudinal.regimen import declares_mtp, declares_policy, declares_tilt, tilt_nodes
 from .methods import (
+    IPSI_POINT_REFUSAL,
+    LTMLE_TILT_REFUSAL,
+    SDR_POINT_REFUSAL,
+    SDR_TILT_REFUSAL,
     CollaborativeTMLEMethod,
     DRTMLEMethod,
     EstimationMethod,
+    IPSIMethod,
     MethodAvailability,
     Runtime,
+    SDRMethod,
     TMLEMethod,
 )
 from .msm import MSM, MSMSet, refuse_continuous_msm_mechanisms
@@ -418,8 +424,9 @@ class PointTreatment:
     treatment_missingness : str or None
         Treatment-observation indicator. One means the treatment is recorded. It declares
         a treatment missing at random. The composite indicator identifies the arm means and
-        their contrasts on in-sample TMLE and DRTMLE fits, and regime means and arm MSMs on
-        in-sample TMLE fits.
+        their contrasts on in-sample TMLE and DRTMLE fits, and their point estimates on the
+        in-sample per-arm outcome-adaptive CTMLE. It also identifies regime means and arm
+        MSMs on in-sample TMLE fits.
     treatment_probabilities : mapping of level to str, or None
         The known treatment mechanism of a randomized design: each treatment level mapped to
         the column that holds ``P(A = level | W)``.  Every method then divides by these
@@ -2700,6 +2707,31 @@ _LONGITUDINAL_MTP_IDENTIFICATION = Identification(
 )
 
 
+#: The identification of a regimen set with an odds tilt node.  Kennedy (2019), Theorem 1:
+#: under consistency and exchangeability (Assumptions 1 and 2) the tilt is identified with
+#: no treatment positivity at its nodes.  Under dropout, Kim, Kennedy and Naimi (2021) add
+#: missingness at random (Assumption A2-M) and positivity of remaining under observation
+#: (Assumption A3).  A label, rule or policy node beside a tilt keeps its own positivity.
+_LONGITUDINAL_TILT_IDENTIFICATION = Identification(
+    assumptions=(
+        *_LONGITUDINAL_IDENTIFICATION.assumptions[:3],
+        "no treatment positivity at a tilt node: the tilt keeps each arm's support "
+        "(Kennedy 2019, Theorem 1). A label, rule or policy node needs positivity wherever "
+        "its plan puts mass",
+        "dropout is missing at random given the recorded history, and each unit at risk "
+        "remains under observation with positive probability (Kim, Kennedy & Naimi 2021, "
+        "Assumptions A2-M and A3)",
+    ),
+    required_nuisances=_LONGITUDINAL_IDENTIFICATION.required_nuisances,
+    dr_condition=(
+        "not doubly robust: at each tilt node the remainder holds the product of the "
+        "treatment-mechanism error with the sum of the outcome-regression and "
+        "treatment-mechanism errors (Kennedy 2019, Section 3.3 and Theorem 3)"
+    ),
+    references=("Kennedy (2019)", "Kim, Kennedy & Naimi (2021)"),
+)
+
+
 @dataclass(frozen=True)
 class ExplicitAdjustmentProvider:
     """Identify effects from declared adjustment sets or sequential histories.
@@ -2872,11 +2904,16 @@ class ExplicitAdjustmentProvider:
                 "regimen has no supported path. Van der Laan and Luedtke (2015) give one at "
                 "two time points, and X11 (b) in docs/roadmap.md holds it"
             )
-        if not isinstance(estimand, (RegimeMean, RegimeContrast, MSMProjection)):
+        if isinstance(estimand, (IncrementalMean, IncrementalEffect)):
+            regimens: Any = _longitudinal_tilts(estimand)
+            horizons = None
+        elif isinstance(estimand, (RegimeMean, RegimeContrast, MSMProjection)):
+            regimens = estimand.regimens
+            horizons = estimand.horizons
+        else:
             raise CapabilityError(
                 f"{type(estimand).__name__} is not a longitudinal regimen functional"
             )
-        regimens = estimand.regimens
         if regimens is None:
             raise DataError("a longitudinal estimand must declare regimens")
         target = "msm_regimen" if isinstance(estimand, MSMProjection) else estimand.name
@@ -2897,7 +2934,7 @@ class ExplicitAdjustmentProvider:
             axis="regimen" if target != "msm_regimen" else "msm",
             reference=getattr(estimand, "reference", None),
             interventions=regimens,
-            horizons=None if estimand.horizons is None else tuple(estimand.horizons),
+            horizons=None if horizons is None else tuple(horizons),
             msm=estimand.model if isinstance(estimand, MSMProjection) else None,
             longitudinal=True,
             history=history,
@@ -2906,7 +2943,9 @@ class ExplicitAdjustmentProvider:
             estimand=estimand,
             functional=functional,
             identification=(
-                _LONGITUDINAL_MTP_IDENTIFICATION
+                _LONGITUDINAL_TILT_IDENTIFICATION
+                if declares_tilt(regimens)
+                else _LONGITUDINAL_MTP_IDENTIFICATION
                 if declares_mtp(regimens)
                 else _LONGITUDINAL_POLICY_IDENTIFICATION
                 if declares_policy(regimens)
@@ -2915,6 +2954,30 @@ class ExplicitAdjustmentProvider:
             provider=self,
             _study=study,
         )
+
+
+def _longitudinal_tilts(estimand: IncrementalMean | IncrementalEffect) -> dict[str, Incremental]:
+    """The plans of an incremental estimand on a longitudinal design, one per tilt.
+
+    Each tilt sets every node, under its own ``name``, as ``IPSI([...])`` reads a sequence.
+    """
+    holder = f"{type(estimand).__name__}.interventions"
+    items = estimand.interventions
+    if isinstance(items, (Mapping, Iterator, str, bytes)) or not isinstance(items, Iterable):
+        raise DataError(
+            f"{holder} must be a sequence of Incremental, such as a tuple. It received "
+            f"{type(items).__name__}"
+        )
+    items = tuple(items)
+    refuse_mixed_interventions(items, kind="incremental", holder=holder)
+    names = [item.name for item in items]
+    repeated = sorted({name for name in names if names.count(name) > 1})
+    if repeated:
+        raise DataError(
+            f"two tilts share the name {repeated[0]!r}; a name labels a parameter, so give "
+            "each Incremental its own name="
+        )
+    return {item.name: item for item in items}
 
 
 class CausalStudy:
@@ -3188,8 +3251,9 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             else blocker or "no collaborative score is evidenced for this functional"
         )
         collaborative = variants and not clustered and not known
+        tmle, tmle_reason, sdr, sdr_reason, ipsi, ipsi_reason = self._sequential_methods()
         return (
-            MethodAvailability("tmle", True),
+            MethodAvailability("tmle", tmle, tmle_reason),
             MethodAvailability(
                 "collaborative_tmle",
                 collaborative,
@@ -3202,6 +3266,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 if variants
                 else blocker or "no reduced-dimension correction is evidenced for this functional",
             ),
+            MethodAvailability("sdr", sdr, sdr_reason),
+            MethodAvailability("ipsi", ipsi, ipsi_reason),
             MethodAvailability(
                 "riesz_tmle",
                 False,
@@ -3212,6 +3278,33 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 False,
                 "EP requires a conditional-contrast estimand and its distinct result family",
             ),
+        )
+
+    def _sequential_methods(self) -> tuple[bool, str | None, bool, str | None, bool, str | None]:
+        """Whether ``tmle``, ``sdr`` and ``ipsi`` fit this functional, each with its reason.
+
+        An odds tilt reads the treatment mechanism.  ``LTMLE`` fits it only as a known
+        policy, when every tilt node's mechanism is declared (R1), and ``SDR`` never fits it
+        (R2).  ``IPSI`` fits every longitudinal plan set, with or without a tilt node.
+        """
+        if not self.functional.longitudinal:
+            return True, None, False, SDR_POINT_REFUSAL, False, IPSI_POINT_REFUSAL
+        regimens = self.functional.interventions
+        if not declares_tilt(regimens):
+            return True, None, True, None, True, None
+        data = getattr(self._study, "data", None)
+        known = getattr(data, "known_mechanisms", None)
+        n_times = getattr(data, "n_times", 0)
+        declared = known is not None and all(
+            known.treatment_at(time) is not None for time in tilt_nodes(regimens, n_times)
+        )
+        return (
+            declared,
+            None if declared else LTMLE_TILT_REFUSAL,
+            False,
+            SDR_TILT_REFUSAL,
+            True,
+            None,
         )
 
     def summary(self, *, protocol: ProtocolDetail = "full") -> str:
@@ -3352,6 +3445,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 "tmle": TMLEMethod,
                 "collaborative_tmle": CollaborativeTMLEMethod,
                 "drtmle": DRTMLEMethod,
+                "sdr": SDRMethod,
+                "ipsi": IPSIMethod,
             }
             return constructors[method]().with_overrides(**overrides)
         if not isinstance(method, EstimationMethod):
@@ -3543,7 +3638,14 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         ]
         if mixed:
             raise CapabilityError(_study_mixed_node_refusal(mixed[0]))
-        estimator = LTMLE(
+        engine = (
+            SDR
+            if isinstance(method, SDRMethod)
+            else IPSI
+            if isinstance(method, IPSIMethod)
+            else LTMLE
+        )
+        estimator = engine(
             functional.interventions,
             reference=functional.reference,
             horizons=functional.horizons,
@@ -3554,6 +3656,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         prefixes = {
             "ey_regime": ("ey_regimen[", "risk_regimen[", "cif_regimen["),
             "ate_regime": ("ate_regimen[", "risk_difference["),
+            "ey_ipsi": ("ey_regimen[", "risk_regimen[", "cif_regimen["),
+            "ate_ipsi": ("ate_regimen[", "risk_difference["),
             "msm_regimen": ("msm_regimen[",),
         }[functional.target]
         estimates = {

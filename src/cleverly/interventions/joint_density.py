@@ -76,6 +76,8 @@ from ..learners.crossfit import Folds
 from ..learners.density import (
     ConditionalDensity,
     DensityDiagnostics,
+    bin_edges,
+    default_density_bins,
     fit_conditional_density,
     preflight_conditional_densities,
 )
@@ -841,6 +843,7 @@ def evaluate_joint_density(
     n_bins: int | None = None,
     groups: IntArray | None = None,
     n_jobs: int = 1,
+    fit_rows: BoolArray | None = None,
 ) -> JointDensityParts:
     """Fit a vector node's law by the chain rule and evaluate each branch's induced density.
 
@@ -869,6 +872,12 @@ def evaluate_joint_density(
         Cluster codes.
     n_jobs : int
         Parallel workers across the folds.
+    fit_rows : ndarray or None
+        ``(n,)`` the rows every learner trains on, a subset of ``layout.rows``: one outer
+        training fold of a cross-fitted recursion.  The observed cells and every dose's bin
+        edges are still read from ``layout.rows``, so at the fold's held-out rows each
+        factor is the model the out-of-fold mechanism uses there.  ``None`` trains on
+        ``layout.rows``.
 
     Returns
     -------
@@ -882,7 +891,15 @@ def evaluate_joint_density(
     names = layout.names
     cells = layout.cells()
     rows = layout.rows
+    train = rows if fit_rows is None else rows & np.asarray(fit_rows, dtype=bool)
     natural_doses = layout.natural[:, doses]
+    # A restricted fit reads its bin edges from every row at risk, as the scalar node does.
+    dose_edges: list[list[float] | None] = [None] * len(doses)
+    if not np.array_equal(train, rows):
+        for k in range(len(doses)):
+            grid_values = natural_doses[rows, k]
+            bins = default_density_bins(grid_values.size) if n_bins is None else n_bins
+            dose_edges[k] = bin_edges(grid_values, bins, name=names[doses[k]]).tolist()
     observed_range = [
         (float(np.min(natural_doses[rows, k])), float(np.max(natural_doses[rows, k])))
         for k in range(len(doses))
@@ -942,7 +959,7 @@ def evaluate_joint_density(
             folds,
             task="classification",
             predict_designs={"cells": layout.conditioning},
-            fit_mask=rows,
+            fit_mask=train,
             groups=groups,
             clip=(0.0, 1.0),
             classes=classes,
@@ -963,9 +980,10 @@ def evaluate_joint_density(
             weights,
             folds,
             n_bins=n_bins,
+            edges=dose_edges[position],
             groups=groups,
             n_jobs=n_jobs,
-            fit_mask=rows,
+            fit_mask=train,
             name=names[index],
             retained=retained,
             predict_designs={

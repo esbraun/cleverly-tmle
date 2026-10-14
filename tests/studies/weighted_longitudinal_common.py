@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from functools import partial
 from typing import Any
 
 import numpy as np
@@ -15,7 +16,6 @@ from cleverly.datasets import (
     rule_arm_at_node_two,
 )
 from cleverly.longitudinal import LTMLE, DynamicRegimen
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_ltmle import (
     KnownLongitudinalMechanism,
@@ -23,9 +23,10 @@ from tests.studies.canonical_ltmle import (
     regimen_initials,
     regimen_rows,
 )
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
 ORDINARY_PRIMARY_REPLICATES = 3_200
 CROSSFIT_PRIMARY_REPLICATES = 800
@@ -147,23 +148,15 @@ def rows_from_result(
     )
 
 
-def replicate(
-    record: StudyRecord,
-    payload: tuple[str, int, int],
-    *,
-    cross_fit: bool,
-) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
-    scenario, replicate_index, n = payload
-    frame, truth = draw_scenario(record, scenario, n, replicate_index)
-    result = fit_cleverly(frame, cross_fit=cross_fit)
-    sample = frame.copy()
-    if cross_fit:
-        sample.insert(0, "fold", result.folds.assignment)
-    else:
-        sample.insert(0, "row", np.arange(len(sample)))
-    sample.insert(0, "replicate", replicate_index)
-    sample.insert(0, "scenario", scenario)
-    truths = [
+def _draw(record: StudyRecord, key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    scenario, replicate_index, n = key
+    return draw_scenario(record, scenario, n, replicate_index)
+
+
+def _truth_rows(
+    scenario: str, replicate_index: int, truth: Mapping[str, float]
+) -> list[dict[str, Any]]:
+    return [
         {
             "scenario": scenario,
             "replicate": replicate_index,
@@ -172,15 +165,41 @@ def replicate(
         }
         for name, value in truth.items()
     ]
-    return sample, truths, rows_from_result(record, result, truth, scenario, replicate_index)
 
 
-def _replicate_dispatch(
+def _reference_input(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
+) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
+    """The ordinary replicate's sample and truth rows, which need no fit, and no subject rows."""
+    scenario, replicate_index, _ = key
+    frame, truth = drawn
+    sample = frame.copy()
+    sample.insert(0, "row", np.arange(len(sample)))
+    sample.insert(0, "replicate", replicate_index)
+    sample.insert(0, "scenario", scenario)
+    return sample, _truth_rows(scenario, replicate_index, truth), []
+
+
+def replicate(
     record: StudyRecord,
-    payload: tuple[str, int, int],
+    key: tuple[str, int, int],
+    drawn: tuple[pd.DataFrame, dict[str, float]],
+    *,
     cross_fit: bool,
 ) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
-    return replicate(record, payload, cross_fit=cross_fit)
+    scenario, replicate_index, _ = key
+    frame, truth = drawn
+    if not cross_fit:
+        sample, truths, _ = _reference_input(key, drawn)
+        result = fit_cleverly(frame, cross_fit=False)
+        return sample, truths, rows_from_result(record, result, truth, scenario, replicate_index)
+    result = fit_cleverly(frame, cross_fit=True)
+    sample = frame.copy()
+    sample.insert(0, "fold", result.folds.assignment)
+    sample.insert(0, "replicate", replicate_index)
+    sample.insert(0, "scenario", scenario)
+    truths = _truth_rows(scenario, replicate_index, truth)
+    return sample, truths, rows_from_result(record, result, truth, scenario, replicate_index)
 
 
 def draw_and_fit(
@@ -190,10 +209,21 @@ def draw_and_fit(
     n: int,
     cross_fit: bool,
     n_jobs: int = STUDY_JOBS,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    payloads = [(record, (SCENARIO, index, n), cross_fit) for index in range(replicates)]
-    outcomes = map_parallel(_replicate_dispatch, payloads, n_jobs=n_jobs)
-    samples = pd.concat([sample for sample, _, _ in outcomes], ignore_index=True)
-    truths = pd.DataFrame([row for _, rows, _ in outcomes for row in rows])
-    estimates = pd.DataFrame([row for _, _, rows in outcomes for row in rows])
-    return samples, truths, estimates.loc[:, list(REPLICATE_COLUMNS)]
+) -> replication.PhaseResult:
+    outcomes = replication.fit_primary(
+        [(SCENARIO, index, n) for index in range(replicates)],
+        partial(replicate, record, cross_fit=cross_fit),
+        draw=partial(_draw, record),
+        # The ordinary study is independent.  The cross-fitted study is dependent: the sample
+        # R reads carries the fold assignment of the cleverly fit.
+        reference_input=None if cross_fit else _reference_input,
+        n_jobs=n_jobs,
+        implementation=record.implementation,
+        seed_of=lambda key: replicate_seed(record, key[0], key[1]),
+    )
+    samples = pd.concat([sample for sample, _, _ in outcomes.kept], ignore_index=True)
+    truths = pd.DataFrame([row for _, rows, _ in outcomes.kept for row in rows])
+    estimates = pd.DataFrame([row for _, _, rows in outcomes.kept for row in rows])
+    return replication.result(
+        outcomes, estimates.loc[:, list(REPLICATE_COLUMNS)], samples=samples, truths=truths
+    )

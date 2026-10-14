@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
+from functools import partial
 from typing import Any
 
 import numpy as np
@@ -19,11 +20,11 @@ from sklearn.base import BaseEstimator
 from cleverly._typing import EstimandName
 from cleverly.datasets import MultiArmDGP, multi_arm_dgp
 from cleverly.utils.bounds import expit
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS, reported_inference
-from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
 LABELS = ("high", "low", "medium")
 REFERENCE = "high"
@@ -196,6 +197,51 @@ def cleverly_rows(
     )
 
 
+def _draw(record: StudyRecord, key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    scenario, index, size = key
+    return draw_for(record, scenario, size, index)
+
+
+def _reference_input(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
+) -> tuple[pd.DataFrame, dict[str, Any], list[dict[str, Any]]]:
+    """The replicate's sample and truth row, which need no fit, and no subject rows."""
+    scenario, index, _ = key
+    frame, truth = drawn
+    sample = frame.copy()
+    sample["A_code"] = pd.Categorical(sample["A"], categories=LABELS).codes
+    sample.insert(0, "replicate", index)
+    sample.insert(0, "scenario", scenario)
+    truth_row = {
+        "scenario": scenario,
+        "replicate": index,
+        **{f"truth_{name}": value for name, value in truth.items()},
+    }
+    return sample, truth_row, []
+
+
+def _replicate(
+    record: StudyRecord,
+    fitter: Callable[[pd.DataFrame, str], Any],
+    key: tuple[str, int, int],
+    drawn: tuple[pd.DataFrame, dict[str, float]],
+) -> tuple[pd.DataFrame, dict[str, Any], list[dict[str, Any]]]:
+    scenario, index, size = key
+    frame, truth = drawn
+    sample, truth_row, _ = _reference_input(key, drawn)
+    result = fitter(frame, scenario)
+    rows = rows_from_result(
+        result,
+        truth,
+        implementation=record.implementation,
+        scenario=scenario,
+        replicate=index,
+        n=size,
+        estimands=record.scenarios[scenario],
+    )
+    return sample, truth_row, rows
+
+
 def draw_and_fit(
     record: StudyRecord,
     fitter: Callable[[pd.DataFrame, str], Any],
@@ -204,49 +250,32 @@ def draw_and_fit(
     n: int,
     n_jobs: int = STUDY_JOBS,
     include_samples: bool = True,
-) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Run a method-specific fitter while sharing sampling, packing, and row conversion."""
+) -> replication.PhaseResult:
+    """Run a method-specific fitter while sharing sampling, packing, and row conversion.
 
-    def replicate(
-        payload: tuple[str, int, int],
-    ) -> tuple[pd.DataFrame, dict[str, Any], list[dict[str, Any]]]:
-        scenario, index, size = payload
-        frame, truth = draw_for(record, scenario, size, index)
-        result = fitter(frame, scenario)
-        sample = frame.copy()
-        sample["A_code"] = pd.Categorical(sample["A"], categories=LABELS).codes
-        sample.insert(0, "replicate", index)
-        sample.insert(0, "scenario", scenario)
-        truth_row = {
-            "scenario": scenario,
-            "replicate": index,
-            **{f"truth_{name}": value for name, value in truth.items()},
-        }
-        rows = rows_from_result(
-            result,
-            truth,
-            implementation=record.implementation,
-            scenario=scenario,
-            replicate=index,
-            n=size,
-            estimands=record.scenarios[scenario],
-        )
-        return sample, truth_row, rows
-
-    payloads = [
-        ((scenario, replicate, n),)
-        for scenario in record.scenarios
-        for replicate in range(replicates)
-    ]
-    outcomes = map_parallel(replicate, payloads, n_jobs=n_jobs)
-    rows = pd.DataFrame([row for _, _, fitted in outcomes for row in fitted]).loc[
+    With ``include_samples`` false the study has no reference, and only the rows return.
+    """
+    outcomes = replication.fit_primary(
+        [
+            (scenario, replicate, n)
+            for scenario in record.scenarios
+            for replicate in range(replicates)
+        ],
+        partial(_replicate, record, fitter),
+        draw=partial(_draw, record),
+        reference_input=_reference_input if include_samples else None,
+        n_jobs=n_jobs,
+        implementation=record.implementation,
+        seed_of=lambda key: replicate_seed(record, key[0], key[1]),
+    )
+    rows = pd.DataFrame([row for _, _, fitted in outcomes.kept for row in fitted]).loc[
         :, list(REPLICATE_COLUMNS)
     ]
     if not include_samples:
-        return rows
-    samples = pd.concat([sample for sample, _, _ in outcomes], ignore_index=True)
-    truths = pd.DataFrame([truth for _, truth, _ in outcomes])
-    return samples, truths, rows
+        return replication.result(outcomes, rows)
+    samples = pd.concat([sample for sample, _, _ in outcomes.kept], ignore_index=True)
+    truths = pd.DataFrame([truth for _, truth, _ in outcomes.kept])
+    return replication.result(outcomes, rows, samples=samples, truths=truths)
 
 
 class OracleMultiTreatment(BaseEstimator):

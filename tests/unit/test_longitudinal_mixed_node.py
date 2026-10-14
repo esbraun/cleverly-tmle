@@ -31,6 +31,7 @@ import pytest
 
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import (
+    Incremental,
     JointPolicy,
     ModifiedPolicy,
     Piece,
@@ -40,7 +41,7 @@ from cleverly.interventions import (
     Shift,
 )
 from cleverly.interventions.policy import VECTOR_DENSITY_ROW
-from cleverly.longitudinal import LTMLE, DynamicRegimen, LongitudinalData
+from cleverly.longitudinal import IPSI, LTMLE, SDR, DynamicRegimen, LongitudinalData
 
 from .. import discrete_law_longitudinal as binary_law
 from .. import discrete_law_longitudinal_mtp as law
@@ -518,6 +519,7 @@ _DISPATCHING: dict[tuple[str, str], str] = {
     ("longitudinal/data.py", "LongitudinalData.history_design"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.encode_assignment"): "mixed branch first",
     ("longitudinal/regimen.py", "_resolve_mtp_node"): "mixed branch first",
+    ("longitudinal/sdr.py", "node_factors"): "fitted factors",
     ("longitudinal/sequential.py", "Mechanism.cumulative_with_unbounded"): "fitted factors",
     ("longitudinal/sequential.py", "outcome_design"): "mixed branch first",
     ("longitudinal/sequential.py", "node_ratios"): "fitted factors",
@@ -630,6 +632,39 @@ def test_a_whole_node_declaration_at_a_mixed_node(node: Any) -> None:
     regimens = {"p": DynamicRegimen("p", (node, _joint("natural", 2)), rule_kind="known")}
     with pytest.raises(CapabilityError, match="takes a JointPolicy, one policy per component"):
         _refused(regimens)
+
+
+@pytest.mark.parametrize("engine", [LTMLE, SDR, IPSI], ids=["ltmle", "sdr", "ipsi"])
+@pytest.mark.parametrize("whole_plan", [False, True], ids=["node", "plan"])
+def test_an_odds_tilt_at_a_mixed_node(engine: Any, whole_plan: bool) -> None:
+    """An odds tilt multiplies the odds of one categorical node; a mixed node is not one.
+
+    The refusal precedes every learner, on every engine that reads a tilt, for a tilt
+    declared at the node and for a one-entry plan that tilts every node.
+    """
+    tilt = Incremental(2.0)
+    regimens = {
+        "p": tilt
+        if whole_plan
+        else DynamicRegimen("p", (tilt, _joint("natural", 2)), rule_kind="known")
+    }
+    learners = {
+        "outcome_learner": NeverFit(),
+        "pseudo_learner": NeverFit(),
+        "treatment_learner": NeverFit(),
+        "censoring_learner": NeverFit(),
+    }
+    options = settings(**learners)
+    if engine is not LTMLE:
+        options.pop("simultaneous")
+    with (
+        pytest.raises(CapabilityError, match="is not one categorical node") as refusal,
+        warnings.catch_warnings(),
+    ):
+        warnings.simplefilter("ignore")
+        engine(regimens, **options).fit(law.mixed_frame(), **COLUMNS)
+    assert "inside a JointPolicy" in str(refusal.value)
+    assert "'F1+D1'" in str(refusal.value)
 
 
 def test_a_static_regimen_at_a_mixed_node() -> None:
@@ -796,3 +831,78 @@ def test_a_joint_policy_on_a_categorical_vector_node_is_its_tuple_map() -> None:
     }
     result = vector_fit(labels, reading="vector", regimens=regimens)
     assert vector_deviation(result, labels) < EXACT
+
+
+# ------------------------------------------------------------------ one training fold
+
+
+def _fold_mechanism(data: LongitudinalData, ratio: str, rows: Any = None) -> Any:
+    from cleverly.learners import Folds
+    from cleverly.longitudinal.regimen import resolve_plans, resolve_regimens
+    from cleverly.longitudinal.sequential import fit_mechanism
+
+    spec = {
+        label: DynamicRegimen(label, (_joint(label, 1), _joint(label, 2)), rule_kind="known")
+        for label in ("dose up", "flag gated")
+    }
+    plans = resolve_plans(resolve_regimens(spec, data.n_times), data)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return fit_mechanism(
+            data,
+            plans,
+            treatment_learner=multivalue.CellProbabilities(),
+            censoring_learner=binary_law.CellMeans(),
+            folds=Folds.single(data.n),
+            ratio=ratio,
+            density_bins=4,
+            fit_rows=rows,
+        )
+
+
+@pytest.mark.parametrize("ratio", ["classifier", "density"])
+def test_a_restricted_mechanism_trains_a_mixed_node_on_its_fold_rows(ratio: str) -> None:
+    """``fit_rows`` reaches every learner of a mixed node, as it does at a scalar node.
+
+    The witness is the same fit on the training rows alone.  The saturated learners make
+    each prediction a function of the training rows only, so the restricted fit equals the
+    subset fit at those rows: the ratio numerator and the bounded treatment factor, on both
+    routes.  The density route's bin edges are read from every row at risk, as at a scalar
+    node, so they equal the unrestricted fit's; on this dose grid the subset's are the same.
+    """
+    data = LongitudinalData.from_frame(law.mixed_sample(900, 11), **COLUMNS)
+    rows = np.arange(data.n) % 3 != 0
+    restricted = _fold_mechanism(data, ratio, rows)
+    alone = _fold_mechanism(data.subset(np.flatnonzero(rows)), ratio)
+    everyone = _fold_mechanism(data, ratio)
+    moved = 0.0
+    for label in ("dose up", "flag gated"):
+        for time in (1, 2):
+            np.testing.assert_allclose(
+                restricted.policy_numerators[label][time][rows],
+                alone.policy_numerators[label][time],
+                rtol=0,
+                atol=EXACT,
+            )
+            np.testing.assert_allclose(
+                restricted.treatment[time - 1][label][rows],
+                alone.treatment[time - 1][label],
+                rtol=0,
+                atol=EXACT,
+            )
+            moved = max(
+                moved,
+                float(
+                    np.max(
+                        np.abs(
+                            restricted.policy_numerators[label][time]
+                            - everyone.policy_numerators[label][time]
+                        )
+                    )
+                ),
+            )
+    # Nondegeneracy: the restriction moves the fit.
+    assert moved > 1e-4
+    if ratio == "density":
+        for key, density in restricted.densities.items():
+            np.testing.assert_array_equal(density.edges, everyone.densities[key].edges)
