@@ -10,12 +10,12 @@ import pandas as pd
 
 from cleverly._typing import EstimandName
 from cleverly.estimators import TMLE
-from cleverly.utils.parallel import map_parallel
 from tests.conftest import OracleOutcome, OracleTreatment
 from tests.parallel import STUDY_JOBS
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 from tests.studies.point_study_helpers import initial_estimates, primary_rows
 from tests.studies.weighted_point_common import (
     OBSERVATION_WEIGHTS,
@@ -226,11 +226,17 @@ def cleverly_rows(
     )
 
 
-def _replicate(
-    payload: tuple[str, int, int],
+def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    scenario, replicate, n = key
+    return draw_scenario(scenario, n, replicate)
+
+
+def _reference_input(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
 ) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
-    scenario, replicate, n = payload
-    frame, truth = draw_scenario(scenario, n, replicate)
+    """The replicate's sample with the exact nuisances and weights, and its truth rows; no fit."""
+    scenario, replicate, _ = key
+    frame, truth = drawn
     levels = np.rint(frame["W"].to_numpy(dtype=float)).astype(int)
     sample = frame.copy()
     sample["qn0"] = Q[levels, 0]
@@ -243,19 +249,32 @@ def _replicate(
         {"scenario": scenario, "replicate": replicate, "estimand": name, "truth": value}
         for name, value in truth.items()
     ]
+    return sample, truth_rows, []
+
+
+def _replicate(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
+) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
+    scenario, replicate, _ = key
+    frame, truth = drawn
+    sample, truth_rows, _ = _reference_input(key, drawn)
     return sample, truth_rows, cleverly_rows(frame, truth, scenario, replicate)
 
 
-def draw_and_fit(
-    *, replicates: int, n: int, n_jobs: int = STUDY_JOBS
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
     """Draw, fit, and retain the exact nuisances and weights used by the R comparator."""
-    outcomes = map_parallel(
+    outcomes = replication.fit_primary(
+        [(SCENARIO, replicate, n) for replicate in range(replicates)],
         _replicate,
-        [((SCENARIO, replicate, n),) for replicate in range(replicates)],
+        draw=_draw,
+        reference_input=_reference_input,
         n_jobs=n_jobs,
+        implementation=STUDY.implementation,
+        seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
     )
-    samples = pd.concat([sample for sample, _, _ in outcomes], ignore_index=True)
-    truths = pd.DataFrame([row for _, rows, _ in outcomes for row in rows])
-    estimates = pd.DataFrame([row for _, _, rows in outcomes for row in rows])
-    return samples, truths, estimates.loc[:, list(REPLICATE_COLUMNS)]
+    samples = pd.concat([sample for sample, _, _ in outcomes.kept], ignore_index=True)
+    truths = pd.DataFrame([row for _, rows, _ in outcomes.kept for row in rows])
+    estimates = pd.DataFrame([row for _, _, rows in outcomes.kept for row in rows])
+    return replication.result(
+        outcomes, estimates.loc[:, list(REPLICATE_COLUMNS)], samples=samples, truths=truths
+    )

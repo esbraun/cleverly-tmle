@@ -46,8 +46,9 @@ RM39 keeps 0.1 by user decision, although RM41's tier ranks higher.
 
 ### RM39. Keep a study run alive through a failed replicate
 
-Status: parts a1 (resilience) and a2 (failure recording and accounting) are delivered. Part b
-(the Python phase) is open. The section leaves this file when b merges.
+Status: parts a1 (resilience), a2 (failure recording and accounting) and b1 (the primary
+Python phase) are delivered. Part b2 (the property phase) is open. The section leaves this file
+when b2 merges.
 
 A registered study with a comparator runs in two phases. The Python phase fits `cleverly`. The
 reference phase fits the pinned comparator, usually R in its container. Before RM39, one failed
@@ -106,21 +107,32 @@ hash of `study_harness.R` and of the three runners outside the harness.
 | a paired statistic reads only the replicates where both implementations succeeded, and it reports the dropped replicates | delivered |
 | an informative-failure witness reports the error of the surviving implementation on the failed replicates. It is a report, not the gate | delivered |
 | a study hook defines `account_failures`, or its accounting row reads `failures not accountable` and is red | delivered |
-| property cells, efficiency ratios, spread slopes, simultaneous coverage and the negative-control union read Python-phase rows only, so no a2 failure reaches them | moved to part b |
+| property cells, efficiency ratios, spread slopes, simultaneous coverage and the negative-control union read Python-phase rows only, so no a2 failure reaches them | moved to part b2 |
 
 The design treats a failure conservatively. It does not rely on a test that failures are
 independent of the outcome, because that test cannot see the missing outcome. The range-bounded
 worst case can miss a failure whose value falls outside the observed range. A small declared bound
 limits that case.
 
-#### Part b: the Python phase
+#### Part b1: the primary Python phase
+
+| acceptance | status |
+| --- | --- |
+| `fit_replicates` gives every primary `draw_and_fit` loop the isolation, the records and the checkpoints of parts a1 and a2. With no failure, each study's Python phase writes the bytes it wrote before | delivered |
+| these exceptions stop the phase: `CapabilityError`, `MethodConfigurationError`, `KeyboardInterrupt`, `SystemExit`, `MemoryError`, `TypeError`, `AttributeError`, `NameError`, `ImportError` and `AssertionError`. An error in the draw also stops it | delivered |
+| the phase records only `DataError`, `LongitudinalError`, `numpy.linalg.LinAlgError`, `FloatingPointError`, `ZeroDivisionError`, `OverflowError`, and a plain `ValueError` or `RuntimeError` that `numpy`, `scipy`, `sklearn` or `statsmodels` raised | delivered |
+| a subject row that breaks a row rule is an `invalid_result` record | delivered |
+| the accounting fills a lost subject value at its worst case, counts each side against its own bound, and charges a `paired_input_missing` reference loss to the subject | delivered |
+| the Python phase checkpoints each replicate under the part a1 resume key. A killed worker costs the replicates in flight, and a second kill of one replicate stops the run | delivered |
+| `CoverageStudy` records the same classes and accepts a `ReplicationCheckpoint` | delivered |
+| the zEpid runner records failures, stops on the systematic prefix and when every group failed, and resumes from the driver's stored reference result. It keeps one container | delivered |
+
+#### Part b2: the property phase
 
 | acceptance |
 | --- |
-| `fit_replicates` gives the Python phase, the property studies and the zEpid comparator the isolation, the records and the checkpoints of parts a1 and a2 |
-| these exceptions stop the phase: `CapabilityError`, `MethodConfigurationError`, `KeyboardInterrupt`, `SystemExit`, `MemoryError`, `TypeError`, `AttributeError`, `NameError`, `ImportError` and `AssertionError` |
-| the phase records only `DataError`, `LongitudinalError`, `numpy.linalg.LinAlgError`, `FloatingPointError`, `ZeroDivisionError`, `OverflowError`, and a plain `ValueError` or `RuntimeError` that `numpy`, `scipy`, `sklearn` or `statsmodels` raised |
-| the Python phase uses the part a1 resume key |
+| `fit_replicates` gives the property studies the records and the checkpoints of part b1 |
+| property cells, efficiency ratios, spread slopes, simultaneous coverage and the negative-control union account for their lost replicates |
 
 ### RM41. Find the DR-TMLE bias with an in-sample flexible mechanism
 

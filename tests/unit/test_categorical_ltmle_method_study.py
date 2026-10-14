@@ -128,7 +128,10 @@ def test_a_held_out_outcome_cannot_enter_its_categorical_recursion() -> None:
 
 def test_serialized_folds_are_the_fitted_assignments_for_both_constructions() -> None:
     """The R payload carries the fitted fold instead of reconstructing it from a seed."""
-    ordinary_sample, _, _ = common._replicate(ordinary.STUDY, False, common.SCENARIO, 0, 500)
+    key = (common.SCENARIO, 0, 500)
+    ordinary_sample, _, _ = common._replicate(
+        ordinary.STUDY, False, key, common._draw(ordinary.STUDY, key)
+    )
     assert set(ordinary_sample["fold"]) == {0}
 
     frame = pd.concat([law.frame()] * common.N_FOLDS, ignore_index=True)
@@ -140,7 +143,10 @@ def test_serialized_folds_are_the_fitted_assignments_for_both_constructions() ->
         ),
         patch("cleverly.longitudinal.estimator.random_partition", return_value=planted),
     ):
-        sample, truths, _ = common._replicate(crossfit.STUDY, True, common.SCENARIO, 0, len(frame))
+        key = (common.SCENARIO, 0, len(frame))
+        sample, truths, _ = common._replicate(
+            crossfit.STUDY, True, key, common._draw(crossfit.STUDY, key)
+        )
     np.testing.assert_array_equal(sample["fold"].to_numpy(), planted.assignment)
     assert {row["estimand"] for row in truths} == set(truth)
 
