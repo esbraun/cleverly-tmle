@@ -5,29 +5,22 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly",
-      "cleverly_version": "0.1.2",
-      "cleverly_commit": "531076892c5632e07cb3a7c32eabc0d71d33dc9c",
-      "cleverly_worktree_clean": true,
-      "python": "3.13.7",
+      "cleverly_version": "0.1.3",
+      "cleverly_commit": "45dd3e5d1f130a7545c729c5f24ea33dedbac3ae",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.16",
       "numpy": "2.5.4",
       "scipy": "1.18.1",
       "pandas": "3.0.6",
       "scikit_learn": "1.9.1"
     },
-    "reference": {
-      "implementation": "ltmle",
-      "ltmle_version": "1.3-0",
-      "ltmle_source_commit": "338c029dae9692ef20714125773da7037688993b",
-      "ltmle_tarball_sha256": "fb31d0dd6ab81687b81f3279b414c21e91c655e10aac12f73fc6723efd848aad",
-      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
-      "reference_construction": "ltmle per horizon on the prefix through Y_h, survivalOutcome=FALSE, main-terms Qform, numeric gform; the initial estimate is a second call with gcomp=TRUE"
-    }
+    "reference": null
   },
   "configuration": {
-    "replicates": 1600,
-    "n": 2000,
-    "seed": 20263202,
-    "resampling_seed": 2026320201,
+    "replicates": 2400,
+    "n": 3000,
+    "seed": 20263204,
+    "resampling_seed": 2026320401,
     "publication_policy": "gated",
     "scenarios": {
       "censored_repeated_outcome": [
@@ -58,6 +51,7 @@
       1e-08,
       1.0
     ],
+    "probability_bound": 0.9999,
     "horizons": [
       1,
       2,
@@ -100,34 +94,47 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_ltmle_repeated.py": "143f218505dc90f187d09f87953d51f14d9cb67bb54b43fc0ce38eae28023e7d",
-    "tests/studies/ltmle_repeated_properties.py": "5af1104a9906ba6cc014e5d5b9fa74fe925834e024b27742039433b051a76bdd",
-    "tests/studies/ltmle_repeated_law.py": "0e6fc13a64d0beb34e213e161b5d5a54ded0dd1f3e2f215401f954727feba0a5",
+    "tests/studies/canonical_ltmle_repeated.py": "fc71775b0b95663b08b5805cdee25afe7150ada1c19efed675c3e57865a8f798",
+    "tests/studies/ltmle_repeated_properties.py": "104f7b5529c7b706331733d3856bf8f550795494004d92224739a1d2d590aaa2",
+    "tests/studies/ltmle_repeated_law.py": "0a47bca289540fa4924f3914607dfbb239738843a0eb62dd8d0117a012e82caa",
     "tests/studies/canonical_ltmle.py": "3f15ff47823c8ff791fca05d12511f53786e4d89ad7bac4f954e5d735656ad6c",
     "tests/discrete_law_longitudinal.py": "39c27bffaafbd8f3aabfe7a5524db21764f7628cb591ceef9efe1af30807e4ad",
     "tests/studies/fractional_glm.py": "0d1658ccdcde01e0066be685c92c13b8615951913ff9005b1e90871dc7797b44",
-    "src/cleverly/datasets/longitudinal.py": "e76d77ffefeb6437a233df0f4e24b6aa592b7ca4991c4cbb7c4bd6789c4f8b46",
+    "src/cleverly/datasets/longitudinal.py": "0da84c77c274c906645ee028a5d055c9eb16b18e93b63aaef5425f1e2cd7c950",
     "tests/studies/evidence/comparison.py": "cda1befd03a8b7509c8e1310bd911501dc2fd11c91b64451ba2b19476b689d6b",
     "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
     "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
     "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
-    "tests/studies/evidence/property_verdicts.py": "29b34bcdf54a0e59210901a55afce93a559ec33732c20d65562ce1f1ab655f31",
+    "tests/studies/evidence/property_verdicts.py": "14e0e3daaea0a8fde5cedca2e5b3002ca50ac6f82b2355e7573853b57c5e8287",
     "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
     "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
     "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15"
   },
-  "reference_sha256": {
-    "tests/canonical/ltmle/Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
-    "tests/canonical/ltmle_repeated/run_study.R": "528e895165158afca0cdf4a59146b2f6d50bf0c3123b38c6088007af9e53a215",
-    "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
-    "tests/canonical/ltmle_repeated_adapter.R": "2e252d6918ae86e128fab4f62a3b183b19c1ff0c518e7dc6f275b8956e2c89d0"
-  },
+  "reference_sha256": {},
   "sha256": {
-    "replicates.csv.gz": "9749404416f7a73027116b043fab845dc2ee2185ec183122143c617fcbeb642e",
-    "summary.csv": "d9e7a42d6ae4a895bb44ee5e00bd26762d36d832d24db35739544b676ba4a83f",
-    "equivalence.csv": "f5535183107c0aba0952aa248e7467104a556f7e119f45de3fedeb5afd298a4b",
-    "performance-tests.csv": "f3d7f679ebd475a7c948593ccaac0facb6abdf9a6792edd0868799b9600fc720",
-    "property-replicates.csv.gz": "978a7f30f96ddd66190e5cd6f8d34aa1cfcb288edf68de591ffcff02b3080533",
-    "properties.csv": "692e86ea6674372c5ca9eb1ea43741fdc8ef04b3941629a631506d98ee9aa471"
+    "replicates.csv.gz": "0347edde7dbe3b5b54932258ab458af8e9deef14389bce74e91a1c6ca1728e09",
+    "summary.csv": "7a7ca91b73c64db87a9f7c6ab12d3142b05e131dc57ea63caa5c6dea37c81f76",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "ad9268c8f7316d2d9874d5cd68185b8e9185680e2e2e930e064d668b6f39afee",
+    "property-replicates.csv.gz": "c01574c471a0e8f2e38c2e290c9106974c08d49a196b32399519dd8d413067e8",
+    "properties.csv": "bc5a9ea2b98d95ffc978a2d4e58d4a8ed925e4cd0c0d91ae11986a9f59a98a07"
+  },
+  "comparator": {
+    "status": "pending",
+    "implementation": "ltmle",
+    "reason": "the R ltmle 1.3-0 paired runs at n = 3,000 run on the owner's machine as TRACKER Study queue item 14(c); the X32a follow-up change registers them",
+    "metadata": {
+      "ltmle_version": "1.3-0",
+      "ltmle_source_commit": "338c029dae9692ef20714125773da7037688993b",
+      "ltmle_tarball_sha256": "fb31d0dd6ab81687b81f3279b414c21e91c655e10aac12f73fc6723efd848aad",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_construction": "ltmle per horizon on the prefix through Y_h, survivalOutcome=FALSE, main-terms Qform, numeric gform; the initial estimate is a second call with gcomp=TRUE. The cleverly rows publish no initial estimate"
+    },
+    "declared_sources_sha256": {
+      "tests/canonical/ltmle/Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
+      "tests/canonical/ltmle_repeated/run_study.R": "528e895165158afca0cdf4a59146b2f6d50bf0c3123b38c6088007af9e53a215",
+      "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
+      "tests/canonical/ltmle_repeated_adapter.R": "10c6e6cafc9d01a0d93026b5869618d52f7c61c7a5b1207598a20816328149a0"
+    }
   }
 }
