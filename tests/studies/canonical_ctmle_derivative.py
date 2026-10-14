@@ -75,9 +75,10 @@ from cleverly.estimators import CTMLE
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import ctmle_derivative_laws as laws
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 from tests.studies.point_study_helpers import primary_rows
 
 CTMLE_COMMIT = "18de559f47dc1286617350a0668391e80e1dbf7c"
@@ -364,15 +365,17 @@ def initials(result: Any) -> dict[str, float]:
     return {"ate": float(np.mean(arms[codes[1]]) - np.mean(arms[codes[0]]))}
 
 
-def _replicate(
-    payload: tuple[str, int, int],
+def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    scenario, replicate, n = key
+    return draw_scenario(scenario, n, replicate)
+
+
+def _reference_input(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
 ) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
-    scenario, replicate, n = payload
-    frame, truth = draw_scenario(scenario, n, replicate)
-    result = fit_cleverly(frame, scenario)
-    plain = paired_tmle(result)["ate"]
-    fit = result.extra["ctmle"]
-    ((mechanism, partner),) = fit.penalties
+    """The replicate's sample and truth rows, which need no fit, and no subject rows."""
+    scenario, replicate, _ = key
+    frame, truth = drawn
     sample = frame.loc[:, [*laws.COVARIATES, "A", "Y"]].copy()
     sample.insert(0, "replicate", replicate)
     sample.insert(0, "scenario", scenario)
@@ -380,6 +383,19 @@ def _replicate(
         {"scenario": scenario, "replicate": replicate, "estimand": name, "truth": value}
         for name, value in truth.items()
     ]
+    return sample, truth_rows, []
+
+
+def _replicate(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
+) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
+    scenario, replicate, _ = key
+    frame, truth = drawn
+    result = fit_cleverly(frame, scenario)
+    plain = paired_tmle(result)["ate"]
+    fit = result.extra["ctmle"]
+    ((mechanism, partner),) = fit.penalties
+    sample, truth_rows, _ = _reference_input(key, drawn)
     rows = primary_rows(
         result=result,
         truth=truth,
@@ -412,22 +428,29 @@ EXTRA_COLUMNS = (
 REFERENCE_COLUMNS = ("mechanism_penalty", "partner_penalty")
 
 
-def draw_and_fit(
-    *, replicates: int, n: int, n_jobs: int = STUDY_JOBS
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    outcomes = map_parallel(
-        _replicate,
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
+    outcomes = replication.fit_primary(
         [
-            ((scenario, replicate, n),)
+            (scenario, replicate, n)
             for scenario in SCENARIO_ESTIMANDS
             for replicate in range(replicates)
         ],
+        _replicate,
+        draw=_draw,
+        reference_input=_reference_input,
         n_jobs=n_jobs,
+        implementation=STUDY.implementation,
+        seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
     )
-    samples = pd.concat([sample for sample, _, _ in outcomes], ignore_index=True)
-    truths = pd.DataFrame([row for _, rows, _ in outcomes for row in rows])
-    estimates = pd.DataFrame([row for _, _, rows in outcomes for row in rows])
-    return samples, truths, estimates.loc[:, [*REPLICATE_COLUMNS, *EXTRA_COLUMNS]]
+    samples = pd.concat([sample for sample, _, _ in outcomes.kept], ignore_index=True)
+    truths = pd.DataFrame([row for _, rows, _ in outcomes.kept for row in rows])
+    estimates = pd.DataFrame([row for _, _, rows in outcomes.kept for row in rows])
+    return replication.result(
+        outcomes,
+        estimates.loc[:, [*REPLICATE_COLUMNS, *EXTRA_COLUMNS]],
+        samples=samples,
+        truths=truths,
+    )
 
 
 def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:

@@ -41,10 +41,10 @@ invisible(glmnet.control(fdev = 0, devmax = 1))
 
 mechanism_pair <- function(W, A, scenario) {
   if (scenario %in% c("binary_declared_pair", "binary_constant_q")) {
-    fit <- glmnet(
+    fit <- study_stage("mechanism glmnet", glmnet(
       W, factor(A), family = "binomial", lambda = sort(c(lam, lam_plus), decreasing = TRUE),
       thresh = 1e-14, maxit = 1e7
-    )
+    ))
     return(list(
       g1W = as.vector(predict(fit, newx = W, s = lam, type = "response")),
       g1WPrev = as.vector(predict(fit, newx = W, s = lam_plus, type = "response")),
@@ -52,7 +52,9 @@ mechanism_pair <- function(W, A, scenario) {
       partner = lam_plus
     ))
   }
-  cv <- cv.glmnet(W, factor(A), family = "binomial", nfolds = 10, nlambda = 100)
+  cv <- study_stage(
+    "mechanism cv.glmnet", cv.glmnet(W, factor(A), family = "binomial", nfolds = 10, nlambda = 100)
+  )
   chosen <- cv$lambda.min
   list(
     g1W = as.vector(predict(cv, newx = W, s = chosen, type = "response")),
@@ -74,7 +76,9 @@ fit_one <- function(frame) {
   if (scenario == "binary_constant_q") {
     q0 <- q1 <- rep(mean(frame$Y), nrow(frame))
   } else {
-    q_fit <- glm(Y ~ A + W1 + W2 + W3 + W4, data = frame, family = binomial())
+    q_fit <- study_stage(
+      "initial glm", glm(Y ~ A + W1 + W2 + W3 + W4, data = frame, family = binomial())
+    )
     q0 <- predict(q_fit, transform(frame, A = 0), type = "response")
     q1 <- predict(q_fit, transform(frame, A = 1), type = "response")
   }
@@ -82,11 +86,11 @@ fit_one <- function(frame) {
   if (any(pair$g1W == pair$g1WPrev)) {
     stop("the mechanism equals its partner on a row, and ctmle would replace the difference")
   }
-  fit <- ctmleGlmnet(
+  fit <- study_stage("ctmleGlmnet", ctmleGlmnet(
     Y = frame$Y, A = A, W = data.frame(W), Q = cbind(q0, q1), ctmletype = 3,
     g1W = pair$g1W, g1WPrev = pair$g1WPrev, alpha = alpha, family = "binomial",
     gbound = gbound
-  )
+  ))
   estimate <- as.numeric(fit$est)
   if (!is.finite(estimate)) stop("ctmleGlmnet returned a non-finite estimate")
   std_error <- sqrt(as.numeric(fit$var.psi))
