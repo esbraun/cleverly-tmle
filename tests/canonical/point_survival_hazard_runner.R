@@ -69,7 +69,8 @@ ic_column <- function(fitted, code, arm, frame, t0) {
   }
   ic <- fitted$ic[[column]]
   # The column is the curve of the incidence, not of the survival: it rises with an observed
-  # cause-j event by t0 in arm z.  A negated curve fails this check.
+  # cause-j event by t0 in arm z.  A negated, cause-swapped or permuted curve fails this check;
+  # an arm swap does not, and the paired SE rows catch it.
   observed <- as.numeric(frame$A == arm & frame$event == as.numeric(code) & frame$time <= t0)
   if (!(stats::cov(ic, observed) > 0)) {
     stop(sprintf("influence column %s does not rise with an observed event; its sign is wrong",

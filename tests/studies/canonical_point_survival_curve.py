@@ -35,6 +35,9 @@ rows that include the failure row; ``tmle3`` takes ridge-penalized steps of at m
 ``delta_epsilon`` in norm and stops at :math:`1/n`, and this package walks the universal least
 favorable submodel at ``step_size = 1e-3`` and stops at a relative score of ``1e-10``; and the
 two repairs above.
+The censoring convention makes this package's SE grow against ``tmle3``'s with the visit, by
+about 2 percent at visit 5 in the A2 smoke.  A paired row at a late visit can therefore read
+``superior`` on coverage rather than ``equivalent``; both pass.
 
 **The scenario.**  ``survival`` (five integer visits; both arms' risks and their difference at
 every visit), at n = 2,000 with 1,600 replications.  The property cells are in

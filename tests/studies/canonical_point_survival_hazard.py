@@ -23,15 +23,18 @@ on the X13 image:
 ``survtmle`` runs with ``tol = 1 / n`` and ``maxIter = 100``, with ``gtol = 1e-3``.  Its
 exported default ``tol = 1 / sqrt(n)`` is 0.022 at n = 2,000, and the initial
 ``max |meanIC|`` of the declared learners is at most 0.0096 on these laws, so at the default
-the targeting loop never runs.  At ``1 / n`` it runs in 87 to 100 percent of fits.  The initial plug-in is a second call with
-``tol = Inf``, whose targeting loop never runs.  The runner counts the "Fluctuation
+the targeting loop never runs.  At ``1 / n`` it runs in 87 to 100 percent of fits.  The
+initial plug-in is a second call with ``tol = Inf``, whose targeting loop never runs.  The runner counts the "Fluctuation
 convergence failure" warnings per replicate and records the final ``meanIC``.
 
 Declared unmatched settings: ``survtmle`` fluctuates one cause at a time with a logistic
 submodel scaled by :math:`1 - \\lambda_{\\neg j}`, and this package fluctuates every cause
 jointly in the multinomial logistic submodel; ``gtol = 1e-3``; the ``l_j``/``u_j`` bound
 machinery, inactive at ``bounds = NULL``; and the stopping rule (``survtmle`` stops at
-``max |meanIC| <= tol``, this package at a relative score of ``1e-10``).
+``max |meanIC| <= tol``, this package at a relative score of ``1e-10``).  A ``survtmle`` fit
+that reaches ``maxIter`` with ``max |meanIC| > 1/n`` stays in the paired rows.  The A2 smoke
+had 4 such fits in 105, with a residual of at most three times ``tol``, which moved one
+estimate by 0.10 SD.  The run log records each one as ``converged=FALSE``.
 
 **The scenarios.**  ``survival`` (five integer visits; both arms' risks and their difference at
 visits 1, 3 and 5) and ``competing`` (four visits, two causes; the incidences and their
@@ -88,7 +91,8 @@ ALGORITHM = "iterative"
 MAX_ITER = 100
 TOL = 1e-10
 
-#: ``survtmle``'s exported defaults, which the runner passes explicitly.
+#: The ``survtmle`` settings the runner passes.  ``maxIter = 100`` is ``hazard_tmle``'s default;
+#: ``survtmle()`` exports 10.  ``gtol = 1e-3`` is the exported default.
 SURVTMLE_MAX_ITER = 100
 SURVTMLE_GTOL = 1e-3
 
@@ -188,7 +192,8 @@ REFERENCE_METADATA = {
     ),
     "pairing": (
         "read under the default margins; survtmle fluctuates one cause at a time and stops at "
-        "max |meanIC| <= 1/n"
+        "max |meanIC| <= 1/n or at maxIter = 100; a fit stopped at maxIter above 1/n stays "
+        "in the paired rows"
     ),
 }
 
