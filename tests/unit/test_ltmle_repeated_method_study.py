@@ -1298,6 +1298,8 @@ PARITY_RMS_BOUND = 0.01
 PARITY_MAX_SE_FRACTION = 0.01
 #: R's targeting step must exist in every cell: its root-mean-square size is at least this.
 PARITY_MIN_MOVE = 1e-7
+#: The R implementation's name in the rows, while its runs are pending and after they land.
+R_IMPLEMENTATION = study.STUDY.reference or study.STUDY.pending_reference
 
 
 def _rms(values: pd.Series) -> float:
@@ -1342,7 +1344,7 @@ def _paired_rows(path: Path, replicates: int | None = None) -> pd.DataFrame:
     rows = pd.read_csv(path)
     key = ["scenario", "replicate", "estimand"]
     subject = rows[rows["implementation"] == study.STUDY.implementation].set_index(key)
-    reference = rows[rows["implementation"] == study.STUDY.reference].set_index(key)
+    reference = rows[rows["implementation"] == R_IMPLEMENTATION].set_index(key)
     stale = []
     if set(rows["n"]) != {study.PRIMARY_N}:
         stale.append(f"n is {sorted(set(rows['n']))}, declared {study.PRIMARY_N}")
@@ -1403,7 +1405,18 @@ if __name__ == "__main__":
 
 
 def test_cleverly_reproduces_r_targeting_move_in_every_cell() -> None:
-    """The parity gate on the committed paired rows, in all 13 primary cells."""
+    """The parity gate on the committed paired rows, in all 13 primary cells.
+
+    While the R runs are pending, the committed rows hold the declared cleverly rows and no R
+    row, and the gate waits for the change that registers them.
+    """
+    if study.STUDY.comparator_state == "pending":
+        rows = pd.read_csv(study.STUDY.artifact("replicates.csv.gz"))
+        assert set(rows["implementation"]) == {study.STUDY.implementation}
+        assert set(rows["n"]) == {study.PRIMARY_N}
+        assert len(rows) == len(study.ESTIMANDS) * study.PRIMARY_REPLICATES
+        assert rows["initial_estimate"].isna().all()
+        return
     paired = _committed_paired_rows()
     assert set(paired["estimand"]) == set(study.ESTIMANDS)
     assert _parity_findings(paired) == []
@@ -1465,7 +1478,7 @@ def _run_file(paired: pd.DataFrame, path: Path) -> Path:
         }
     )
     reference = subject.assign(
-        implementation=study.STUDY.reference,
+        implementation=R_IMPLEMENTATION,
         estimate=paired["r_estimate"],
         initial_estimate=paired["r_initial"],
     )

@@ -299,7 +299,13 @@ STUDY = StudyRecord(
     resampling_seed=RESAMPLING_SEED,
     margins=Margins(),
     implementation="cleverly",
-    reference="ltmle",
+    # The R ltmle 1.3-0 comparator runs on the owner's machine (TRACKER Study queue item 14(c))
+    # and does not block the merge; its change moves this name to ``reference``.
+    pending_reference="ltmle",
+    pending_reason=(
+        "the R ltmle 1.3-0 paired runs at n = 3,000 run on the owner's machine as TRACKER "
+        "Study queue item 14(c); the X32a follow-up change registers them"
+    ),
     modules=(
         "tests/studies/canonical_ltmle_repeated.py",
         "tests/studies/ltmle_repeated_properties.py",
