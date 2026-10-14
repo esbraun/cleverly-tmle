@@ -1416,3 +1416,53 @@ def test_parallel_workers_each_count_a_copy_of_the_designs(
         assert cost.shipped > 0
         assert cost.peak(2) == cost.held + 2 * cost.shipped + 2 * cost.rows
         assert cost.peak(1) == cost.held + cost.rows
+
+
+# ------------------------------------------------------------------ coverage (review LOW-2)
+
+
+def on_grid_d1(h: Any) -> np.ndarray:
+    """3 where the natural dose 1 is a grid dose, else 1.5: a gap off the grid."""
+    d1 = np.asarray(h["D1"], dtype=float)
+    return np.where(np.isin(d1, geo.DOSES), 3.0, 1.5)
+
+
+GAP_OFF_THE_GRID = JointPolicy(
+    "gap off the grid",
+    components={
+        "D1": Shift(0.5, cap=None),
+        "D2": ModifiedPolicy(
+            "gap", pieces=(Piece(-INF, on_grid_d1), Piece(3.0, INF)), policy_kind="known"
+        ),
+    },
+    policy_kind="known",
+)
+
+
+def test_a_piece_gap_a_counterfactual_frame_reaches_is_refused() -> None:
+    """Dose 2's pieces partition its range at every observed dose 1, and not off the grid.
+
+    Dose 1's shift reads dose 2's density at ``beta_1 = b_1 - 0.5``, which is off the grid,
+    and there ``[1.5, 3)`` holds no piece while dose 2 takes the value 2.  Without the check
+    the fit returned, with that mass dropped from the induced density.
+    """
+    with pytest.raises(DataError, match=r"no piece holds the observed dose 2 on \d+ frame"):
+        _fit_geo_policy(GAP_OFF_THE_GRID)
+
+
+def test_the_same_pieces_without_the_gap_fit() -> None:
+    """Closing the gap with a third identity piece fits: the check reads the gap alone."""
+    closed = JointPolicy(
+        "closed",
+        components={
+            "D1": Shift(0.5, cap=None),
+            "D2": ModifiedPolicy(
+                "closed",
+                pieces=(Piece(-INF, on_grid_d1), Piece(on_grid_d1, 3.0), Piece(3.0, INF)),
+                policy_kind="known",
+            ),
+        },
+        policy_kind="known",
+    )
+    result = _fit_geo_policy(closed)
+    assert np.isfinite(result.psi("ey_policy[closed]"))

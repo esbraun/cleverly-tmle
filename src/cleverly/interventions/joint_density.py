@@ -753,6 +753,56 @@ def _check_preimages(
             )
 
 
+#: The most observed values of a dose that the coverage check reads at each frame.
+_COVERAGE_POINTS = 64
+
+
+def _coverage_points(values: FloatArray) -> FloatArray:
+    """Observed values of a dose at which every frame's pieces must partition the range.
+
+    Every distinct observed value up to :data:`_COVERAGE_POINTS` of them, else that many
+    observed quantiles.  Each is a value the natural dose takes, so a piece set that leaves
+    one uncovered drops observed mass from the induced density.
+    """
+    distinct = np.unique(values[np.isfinite(values)])
+    if distinct.size <= _COVERAGE_POINTS:
+        return distinct
+    levels = np.linspace(0.0, 1.0, _COVERAGE_POINTS)
+    return np.unique(np.quantile(distinct, levels, method="inverted_cdf"))
+
+
+def _check_coverage(
+    name: str,
+    pieces: Sequence[ExplicitPiece],
+    points: FloatArray,
+    frame: FrameSource,
+    rows: BoolArray,
+    where: str,
+) -> None:
+    """Every observed value of the dose lies in exactly one piece on each counterfactual frame.
+
+    :func:`_check_preimages` sees the values the formula counts, so it finds an overlap
+    but not a gap: a natural value in no piece is never a preimage, and its mass silently
+    leaves the induced density.  This asks the same partition question at the observed
+    values of the dose, on the frames the formula reads.
+    """
+    for point in points:
+        values = np.full(rows.size, float(point))
+        count = np.zeros(rows.size, dtype=np.int64)
+        for piece in pieces:
+            count += piece.member(values, frame).astype(np.int64)
+        wrong = rows & (count != 1)
+        if wrong.any():
+            covered = "no piece" if int(count[np.flatnonzero(wrong)[0]]) == 0 else "two pieces"
+            raise DataError(
+                f"policy {name!r} at {where}: {covered} holds the observed dose {float(point):g} "
+                f"on {int(wrong.sum())} frame(s) that hold a candidate categorical cell or the "
+                "preimages of the earlier doses. The density ratio would drop or double that "
+                "mass. Declare pieces that partition the dose range at every value of the "
+                "components they read, as Assumption 4 of Díaz et al. (2023) requires"
+            )
+
+
 def _enumerate(
     layout: NodeLayout,
     branch: JointBranch,
@@ -760,6 +810,7 @@ def _enumerate(
     cells: Sequence[tuple[int, ...]],
     requests: _Requests,
     observed_range: Sequence[tuple[float, float]],
+    coverage: Sequence[FloatArray] = (),
 ) -> list[_Term]:
     """The terms of the induced density of one branch at one value of the node.
 
@@ -820,6 +871,9 @@ def _enumerate(
                 if isinstance(policy, ModifiedPolicy) and checked.any():
                     here = f"component {names[index]!r} of {where}"
                     _check_preimages(branch.name, pieces[index], preimages, frame, checked, here)
+                    if coverage:
+                        points = coverage[layout.doses.index(index)]
+                        _check_coverage(branch.name, pieces[index], points, frame, checked, here)
                     assert policy.pieces is not None and not isinstance(policy.pieces, Mapping)
                     _check_monotone(
                         branch.name,
@@ -979,12 +1033,13 @@ def evaluate_joint_density(
         (float(np.min(natural_doses[rows, k])), float(np.max(natural_doses[rows, k])))
         for k in range(len(doses))
     ]
+    coverage = [_coverage_points(natural_doses[rows, k]) for k in range(len(doses))]
     requests = _Requests(layout, [{} for _ in doses], [{} for _ in doses])
     induced_terms: dict[tuple[int, int], list[_Term]] = {}
     for e, evaluation in enumerate(evaluations):
         for b in evaluation.branches:
             induced_terms[(e, b)] = _enumerate(
-                layout, branches[b], evaluation.values, cells, requests, observed_range
+                layout, branches[b], evaluation.values, cells, requests, observed_range, coverage
             )
     observed_factors: list[tuple[tuple[int, Hashable, int], ...]] = []
     targets = np.zeros((n, len(evaluations)), dtype=np.int64)
