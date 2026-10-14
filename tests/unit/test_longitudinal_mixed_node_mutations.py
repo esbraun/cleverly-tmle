@@ -207,7 +207,7 @@ def _misspecified(folds: int) -> Any:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         result = LTMLE(mtp.mixed_regimens(labels), reference="natural", **configuration).fit(
-            law.mixed_sample(900, 11), **COLUMNS
+            law.mixed_wide_sample(900, 11), **COLUMNS
         )
     return result, labels[1:]
 
@@ -219,6 +219,10 @@ def test_w8_a_misspecified_fit_targets_and_solves_its_score(folds: int) -> None:
     The treatment learner is logistic.  A saturated classifier fitted out of fold on 900
     rows meets cells that hold the assigned block only, and its ratio is then the odds
     guard, which is a learner failure and not a property of the node.
+
+    The sample is :func:`~tests.discrete_law_longitudinal_mtp.mixed_wide_sample`.  Its
+    smallest coefficient over both fold counts and both routes is 0.031, more than ten
+    times the ``1e-3`` threshold.
     """
     result, labels = _misspecified(folds)
     for label in labels:

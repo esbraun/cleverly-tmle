@@ -556,7 +556,7 @@ def test_w8_density_a_longitudinal_fit_targets_and_solves_its_score(folds: int) 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         result = LTMLE(mtp.mixed_regimens(labels), reference="natural", **configuration).fit(
-            long_law.mixed_sample(900, 11), **long_tests.COLUMNS
+            long_law.mixed_wide_sample(900, 11), **long_tests.COLUMNS
         )
     for label in labels[1:]:
         steps = result.fits[label].steps

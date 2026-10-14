@@ -561,6 +561,25 @@ def mixed_sample(n: int, seed: int) -> pd.DataFrame:
     )
 
 
+def _wide_q(d1: Any, d2: Any) -> Any:
+    """``E[Y | ...]`` of :func:`mixed_wide_sample`: ``0.05 + 0.9 (d_1 d_2 / 4)^2``, from 0.05 to 0.95."""
+    return 0.05 + 0.9 * (np.asarray(d1) * np.asarray(d2) / 4.0) ** 2
+
+
+def mixed_wide_sample(n: int, seed: int) -> pd.DataFrame:
+    """Draw ``n`` rows of the mixed law with an outcome that a dose policy moves widely.
+
+    The covariates and both treatment nodes are :func:`mixed_sample`'s.  The outcome is
+    redrawn from :func:`_wide_q`, which reads only the doses and is convex in their product.
+    "dose up" moves the mean of a row at doses ``(1, 1)`` from 0.11 to 0.95.  A main-terms
+    outcome regression misses the product, so each W8 fluctuation stays away from zero.
+    """
+    frame = mixed_sample(n, seed)
+    rng = np.random.default_rng((seed, 8))
+    mean = _wide_q(frame["D1"].to_numpy(), frame["D2"].to_numpy())
+    return frame.assign(Y=(rng.random(n) < mean).astype(float))
+
+
 def mixed_first_row_of(design: str = "end") -> np.ndarray:
     """Index of the first row of each support point of one reading of the mixed law."""
     return np.concatenate([[0], np.cumsum(MIXED_COUNTS[design])[:-1]]).astype(int)
