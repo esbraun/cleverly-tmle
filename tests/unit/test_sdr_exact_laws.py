@@ -185,7 +185,9 @@ def _mtp_case() -> Any:
 
 
 @pytest.fixture(scope="module", params=sorted(CASES))
-def case(request: Any) -> tuple[str, Any, list[tuple[str, float, np.ndarray, np.ndarray]]]:
+def case(
+    request: Any, exact_grid_law_module: None
+) -> tuple[str, Any, list[tuple[str, float, np.ndarray, np.ndarray]]]:
     fit, expected = CASES[request.param]()
     return request.param, fit, expected
 

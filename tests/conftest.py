@@ -875,3 +875,13 @@ def exact_grid_law(monkeypatch: pytest.MonkeyPatch) -> None:
     import cleverly.interventions.policy as policy_module
 
     monkeypatch.setattr(policy_module, "_ATOM_CHECK", False)
+
+
+@pytest.fixture(scope="module")
+def exact_grid_law_module() -> Any:
+    """:func:`exact_grid_law` for a module-scoped fixture that fits a grid law."""
+    import cleverly.interventions.policy as policy_module
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(policy_module, "_ATOM_CHECK", False)
+        yield

@@ -135,6 +135,8 @@ _ROW_FIELDS: tuple[str, ...] = (
     "component_values",
 )
 _SHARED_FIELDS: tuple[str, ...] = (
+    "dose_supports",
+    "dose_atoms",
     "baseline_names",
     "treatment_names",
     "treatment_levels",
