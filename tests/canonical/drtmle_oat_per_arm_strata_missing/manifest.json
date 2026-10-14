@@ -120,7 +120,8 @@
       "rmse_ratio_noninferiority_margin": 1.1,
       "coverage_difference_noninferiority_margin": -0.025,
       "calibration_excess_noninferiority_margin": 0.05
-    }
+    },
+    "property_summary_revision": "properties.csv was summarized again from the committed property-replicates.csv.gz, with no new fit, after the rerun: the summary now multiplies the log-scale plugin_std_error of each rr and or row by its estimate (the delta method), so each SE ratio compares a standard error and an empirical SD of psi. The rerun's first summary compared the log-scale standard error with the SD of psi (missing_outcome_crossfit SE ratio 0.559 for rr and 0.322 for or). No verdict changed. study_module_sha256 records the modules of the run that fitted the replicates"
   },
   "study_module_sha256": {
     "tests/studies/canonical_ctmle_oat_per_arm_strata_missing.py": "1aeaf31c130b4a708fef55f1857aef1ab183e7526f2ce12e8909f9527dbd8e1c",
@@ -150,7 +151,7 @@
     "equivalence.csv": "de708edef48d2f6db3f872e5753b8ee551d3618142976f060284165a5e0c2530",
     "performance-tests.csv": "b35b6fb4d7ca660315218b2e1775cb8016e1fc8480e63a7f779d5db3714fc47e",
     "property-replicates.csv.gz": "80f0b2251b3b8a3141ede096e60ad810887f20a8c4a18d6a42e994303f4e179a",
-    "properties.csv": "8f9adb9d76440990e6730a3c57e81314bf929d8c81d5dacf27f8cde763cf94a2",
+    "properties.csv": "c7ad671042afdc8e99d54855d3aae89c1707b6860bac9855b66ab283345b00f6",
     "design-gap.csv": "bf742db43a422dbcf4ed431e408cc54b87a9cd34d2710ae6496a4e3f9d9be48a",
     "fit-diagnostics.csv": "832e6a312a25ba7cdff2c320e8cff2de693c1496d5e08cee1cf7fb0442a9253d"
   }

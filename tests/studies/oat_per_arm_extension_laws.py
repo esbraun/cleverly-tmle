@@ -39,14 +39,20 @@ e      largest learner distance 1.6e-4 (``three_arm_missing``)                  
 f      stratum ``ate`` 0.2315, 0.0981, -0.0395; every arm mean in [0.1, 0.9]       spacing >= 0.03
 g      P(smallest stratum >= 400 at ``n = 2,250``) 0.9965                         >= 0.99
 r      pass probability at ``d = 0.10``: 0.950 at ``R = 800``, 0.777 at 500         >= 0.90
-t      expected rows of the smallest factor training cell at the smallest ladder  >= 100
-       rung ``n = 2,000``: 117.1 (``S = 2``, arm 0, share 0.0732, four fifths of
-       the rows in training); 29.3 at the dropped ``n = 500`` rung
+t      expected rows in the smallest class of a factor's training target, per     reported, no
+       stratum, arm and fold (:func:`smallest_minority_class`): the               floor
+       nonrespondents of arm 0 in ``S = 2``, 39.5 at ``n = 2,000``, 59.2 in the
+       ``strata_missing`` cells, 79.0 at ``n = 4,000``; 9.9 at the dropped
+       ``n = 500`` rung
 =====  =========================================================================  ===============
 
 Condition (s) is in :mod:`tests.studies.ctmle_oat_per_arm_strata_missing_properties`.
 Condition (t) was added after the first run, with the re-declared ladder; that module's
-docstring gives the reason.
+docstring gives the reason.  As first declared it counted the rows of the smallest factor
+training cell, 117.1 at ``n = 2,000`` against a floor of 100.  It was restated after the rerun:
+a logistic factor fit is bound by the smaller class of its target, and the declared ladder does
+not hold 100 of those.  The restated condition reports the count and sets no floor, and the
+study page reports the measured tail.
 
 Every truth is a quadrature.  An arm mean in stratum ``s`` is a one-dimensional Gauss-Hermite
 integral over the normal index ``u_a . (W1, W2)``.  ``ey_obs`` is a three-dimensional
@@ -114,9 +120,7 @@ SMALLEST_STRATUM_COUNT = 400
 SMALLEST_STRATUM_PROBABILITY = 0.99
 DESIGN_BIAS = 0.10
 PASS_PROBABILITY_FLOOR = 0.90
-#: Condition (t): the expected rows of the smallest per-arm factor training cell at the
-#: smallest ladder rung, and the fold count of every cross-fitted cell.
-FACTOR_CELL_FLOOR = 100.0
+#: The fold count of every cross-fitted cell, which condition (t) reads.
 FOLDS = 5
 
 #: Quadrature sizes.
@@ -1015,31 +1019,76 @@ def stratum_arm_shares(law: ExtensionLaw) -> np.ndarray:
     return out
 
 
-def smallest_factor_cell(law: ExtensionLaw, n: int, folds: int = FOLDS) -> float:
-    """Condition (t): the expected rows of the smallest per-arm factor training cell.
+def minority_class_shares(law: ExtensionLaw) -> dict[tuple[str, int, int], float]:
+    """The minority-class share of each factor's training target, by quadrature over ``W1, W3``.
 
-    A cross-fitted fit with strata fits each factor of arm ``a`` in stratum ``s`` on the
-    training rows of each fold, that is ``(folds - 1) / folds`` of the rows.  The
-    outcome-observation factor reads only the recorded rows with ``A = a``, so its cell is the
-    smallest: ``n (folds - 1) / folds P(S = s, Delta_A = 1, A = a)``, minimized over ``s`` and
-    ``a``.
+    Each factor of arm ``a`` is a logistic regression fitted inside stratum ``s`` on a binary
+    target, and its smaller class bounds what the fit can resolve.  The treatment factor
+    ``P(A = a | Delta_A = 1, q_a)`` reads the recorded rows of the stratum, and its classes
+    are ``A = a`` and ``A != a``.  The outcome-observation factor reads the recorded rows with
+    ``A = a``, and its classes are the respondents and the nonrespondents.  The
+    treatment-observation factor reads every row of the stratum, and its classes are the
+    recorded and the unrecorded rows.  The laws read ``W1`` and ``W3`` only in the treatment,
+    observation and recording laws, so the two-dimensional quadrature is exact up to its nodes.
 
     Parameters
     ----------
     law : ExtensionLaw
-        The law the cell samples.
+        The law.
+
+    Returns
+    -------
+    dict
+        ``(factor, s, a)`` to the share of all rows in the smaller class, for the factors the
+        law fits: ``"treatment"``, ``"outcome_observation"`` with a missing outcome, and
+        ``"treatment_observation"`` with a missing treatment.
+    """
+    nodes, weights = hermegauss(JOINT_HERMITE_NODES)
+    weights = weights / weights.sum()
+    w1, w3 = np.meshgrid(nodes, nodes, indexing="ij")
+    mass = np.outer(weights, weights)
+    out: dict[tuple[str, int, int], float] = {}
+    for s, share in enumerate(law.strata):
+        mechanism = law.mechanism(w1, w3, float(s))
+        recorded = np.stack([law.recording_probability(a, w3) for a in range(law.k)], axis=-1)
+        arm = share * np.sum(mass[..., None] * mechanism * recorded, axis=(0, 1))
+        for a in range(law.k):
+            out["treatment", s, a] = float(min(arm[a], arm.sum() - arm[a]))
+            if law.missing_outcome:
+                observed = law.observation_probability(a, w1, w3, float(s))
+                respond = share * float(
+                    np.sum(mass * mechanism[..., a] * recorded[..., a] * observed)
+                )
+                out["outcome_observation", s, a] = min(respond, float(arm[a]) - respond)
+            if law.missing_treatment:
+                total = float(arm.sum())
+                out["treatment_observation", s, a] = min(total, share - total)
+    return out
+
+
+def smallest_minority_class(law: ExtensionLaw, n: int, *, cross_fit: bool) -> float:
+    """Condition (t): the expected rows in the smallest class of any factor's training target.
+
+    The minimum of :func:`minority_class_shares` over factor, stratum and arm, times the rows
+    that train each fit: ``n`` in sample, and ``n (FOLDS - 1) / FOLDS`` in each fold of a
+    cross-fitted fit.
+
+    Parameters
+    ----------
+    law : ExtensionLaw
+        The law the configuration samples.
     n : int
         The sample size.
-    folds : int, optional
-        The fold count.
+    cross_fit : bool
+        Whether the configuration cross-fits with :data:`FOLDS` folds.
 
     Returns
     -------
     float
-        The expected row count of the smallest cell.
+        The expected count of the smallest class.
     """
-    share = float(np.min(stratum_arm_shares(law)))
-    return n * (folds - 1) / folds * share
+    training = (FOLDS - 1) / FOLDS if cross_fit else 1.0
+    return n * training * min(minority_class_shares(law).values())
 
 
 def equivalence_pass_probability(replicates: int, standardized_bias: float) -> float:

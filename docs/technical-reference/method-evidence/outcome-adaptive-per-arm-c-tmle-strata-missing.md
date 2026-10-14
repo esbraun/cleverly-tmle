@@ -21,8 +21,9 @@ standard-error columns below measure `plugin_interval` and `plugin_std_error` as
 Their pass labels do not authorize `ci`, `pvalue` or `std_error`.
 
 [F19](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) owns the red truth
-rows. The `root_n_and_efficiency` ladder was re-declared after the first run, and the rerun of
-the property phase is queued. [The re-declared ladder](#the-re-declared-ladder) gives the reason.
+rows and the three red rungs of the `root_n_and_efficiency` ladder. The study re-declared the
+ladder after the first run, and a rerun of the property phase measured it.
+[The re-declared ladder](#the-re-declared-ladder) gives the reason.
 
 ## What was compared
 
@@ -152,6 +153,19 @@ quadrature.
 | three arms, outcomes missing at random given W1, W3 and the arm, correct outcome regression | `rr[2 vs 0]` | marginal risk ratio, 2 versus 0, reported on the log scale | -0.000013 | 0.000855 | 1.0000 | 0 | 0.000069 vs 0.0500 | equivalent |
 <!-- /generated -->
 
+The paired margin of 0.15 empirical SDs cannot detect the design change of this study. The
+shipped construction differs from this design by 0.024 to 0.079 empirical SDs on average. The
+file `design-gap.csv` reports these gaps for the `strata` and `missing_outcome` laws. Each gap is
+inside the margin. The RMSE ratio of the two designs is 0.996 to 1.005 on those rows. Thus the
+RMSE ratio carries no verdict here.
+
+`test_the_pairing_reads_the_design_change` in
+`tests/unit/test_ctmle_oat_per_arm_strata_missing_study_design.py` reads the gap itself. On
+every paired row, the mean of $|\hat\psi_{\text{cleverly}} - \hat\psi_{\text{drtmle}}|$ must be
+at most 0.005 empirical SDs. The largest measured value is 0.0008, for `ey0[S=2]` on the
+`strata` law. The smallest `mean_design_gap` in `design-gap.csv` is 0.024. Thus the shipped
+design would fail this check on every reported row.
+
 ## Theory properties
 
 <!-- generated: properties -->
@@ -175,7 +189,7 @@ quadrature.
 | `robustness_contract` | `ey_obs_s0__strata_missing` | positive | observed outcome mean in baseline stratum S = 0: three strata with missing outcomes, cross-fitted per-arm design per stratum, n = 3,000 | bias interval inside the equivalence margin, SE ratio inside (0.1, 10), SE ratio must remain between 0.1 and 10.0 | bias -0.0012 to 0.0014, margin 0.0036, SE ratio 0.9926 | pass |
 | `robustness_contract` | `ey_obs_s1__strata_missing` | positive | observed outcome mean in baseline stratum S = 1: three strata with missing outcomes, cross-fitted per-arm design per stratum, n = 3,000 | bias interval inside the equivalence margin, SE ratio inside (0.1, 10), SE ratio must remain between 0.1 and 10.0 | bias -0.0015 to 0.0019, margin 0.0046, SE ratio 1.0114 | pass |
 | `robustness_contract` | `ey_obs_s2__strata_missing` | positive | observed outcome mean in baseline stratum S = 2: three strata with missing outcomes, cross-fitted per-arm design per stratum, n = 3,000 | bias interval inside the equivalence margin, SE ratio inside (0.1, 10), SE ratio must remain between 0.1 and 10.0 | bias -0.0025 to 0.0018, margin 0.0059, SE ratio 1.0225 | pass |
-| `robustness_contract` | `or__missing_outcome_crossfit` | positive | marginal odds ratio: missing outcomes, five-fold cross-fitted per-arm design, n = 2,000 | bias interval inside the equivalence margin, SE ratio inside (0.1, 10), SE ratio must remain between 0.1 and 10.0 | bias 0.0037 to 0.0606, margin 0.0780, SE ratio 0.3219 | pass |
+| `robustness_contract` | `or__missing_outcome_crossfit` | positive | marginal odds ratio: missing outcomes, five-fold cross-fitted per-arm design, n = 2,000 | bias interval inside the equivalence margin, SE ratio inside (0.1, 10), SE ratio must remain between 0.1 and 10.0 | bias 0.0037 to 0.0606, margin 0.0780, SE ratio 0.8489 | pass |
 | `robustness_contract` | `paf__missing_outcome_crossfit` | positive | population attributable fraction: missing outcomes, five-fold cross-fitted per-arm design, n = 2,000 | bias interval inside the equivalence margin, SE ratio inside (0.1, 10), SE ratio must remain between 0.1 and 10.0 | bias -0.0014 to 0.0041, margin 0.0075, SE ratio 0.7722 | pass |
 | `robustness_contract` | `paf__natural_course_insample` | positive | population attributable fraction: missing outcomes, in-sample per-arm design, n = 2,250, natural-course estimands | bias interval inside the equivalence margin, SE ratio inside (0.1, 10), SE ratio must remain between 0.1 and 10.0 | bias -0.0031 to 0.0020, margin 0.0069, SE ratio 0.7832 | pass |
 | `robustness_contract` | `paf__strata_missing` | positive | population attributable fraction: three strata with missing outcomes, cross-fitted per-arm design per stratum, n = 3,000 | bias interval inside the equivalence margin, SE ratio inside (0.1, 10), SE ratio must remain between 0.1 and 10.0 | bias -0.0025 to 0.0020, margin 0.0061, SE ratio 0.9121 | pass |
@@ -188,7 +202,12 @@ quadrature.
 | `robustness_contract` | `par_s0__strata_missing` | positive | population attributable risk in baseline stratum S = 0: three strata with missing outcomes, cross-fitted per-arm design per stratum, n = 3,000 | bias interval inside the equivalence margin, SE ratio inside (0.1, 10), SE ratio must remain between 0.1 and 10.0 | bias -0.0016 to 0.0014, margin 0.0041, SE ratio 0.8909 | pass |
 | `robustness_contract` | `par_s1__strata_missing` | positive | population attributable risk in baseline stratum S = 1: three strata with missing outcomes, cross-fitted per-arm design per stratum, n = 3,000 | bias interval inside the equivalence margin, SE ratio inside (0.1, 10), SE ratio must remain between 0.1 and 10.0 | bias -0.0018 to 0.0026, margin 0.0060, SE ratio 0.9166 | pass |
 | `robustness_contract` | `par_s2__strata_missing` | positive | population attributable risk in baseline stratum S = 2: three strata with missing outcomes, cross-fitted per-arm design per stratum, n = 3,000 | bias interval inside the equivalence margin, SE ratio inside (0.1, 10), SE ratio must remain between 0.1 and 10.0 | bias -0.0043 to 0.0019, margin 0.0085, SE ratio 1.0132 | pass |
-| `robustness_contract` | `rr__missing_outcome_crossfit` | positive | marginal risk ratio: missing outcomes, five-fold cross-fitted per-arm design, n = 2,000 | bias interval inside the equivalence margin, SE ratio inside (0.1, 10), SE ratio must remain between 0.1 and 10.0 | bias -0.0014 to 0.0138, margin 0.0208, SE ratio 0.5586 | pass |
+| `robustness_contract` | `rr__missing_outcome_crossfit` | positive | marginal risk ratio: missing outcomes, five-fold cross-fitted per-arm design, n = 2,000 | bias interval inside the equivalence margin, SE ratio inside (0.1, 10), SE ratio must remain between 0.1 and 10.0 | bias -0.0014 to 0.0138, margin 0.0208, SE ratio 0.8567 | pass |
+| `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000923, coverage 0.8963 to 0.9460, SE ratio 0.9292 | **fail** |
+| `root_n_and_efficiency` | `n_4000` | positive | bias, coverage and SE calibration at n = 4,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000466, coverage 0.8992 to 0.9481, SE ratio 0.8955 | **fail** |
+| `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000447, coverage 0.8949 to 0.9449, SE ratio 0.8812 | **fail** |
+| `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5636 to -0.4362 | pass |
+| `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5700 to -0.5183 | pass |
 <!-- /generated -->
 
 The `robustness_contract` cells measure the bias of the point estimate. Each positive cell passes
@@ -196,9 +215,43 @@ when its bias interval is inside the equivalence margin. The control fits an out
 $W_1$ and passes when its bias is outside the margin. The `root_n_and_efficiency` ladder fits the
 `strata` law with a missing outcome and five folds, and reads the marginal ATE.
 
-The table does not show the ladder or the `root_n_rate` rows. The rerun of the property phase
-publishes them for the rungs n = 2,000, 4,000 and 8,000. The rerun draws each robustness cell from
-the same seeds, so its rows do not change.
+The three rungs are n = 2,000, 4,000 and 8,000. Each rung has an equivalent bias, and each
+coverage interval reaches below the 0.90 floor. The `root_n_rate` rows read the slopes of the
+log empirical SD and of the log mean standard error on log n. Both slopes are inside the root-n
+band.
+
+Each `rr` and `or` row records the standard error of $\log \hat\psi$. The summary multiplies it
+by $\hat\psi$, the delta-method standard error of $\hat\psi$, before it compares it with the
+empirical SD of $\hat\psi$. The first summary of the rerun did not, and it published SE ratios of
+0.559 for `rr` and 0.322 for `or`. The current `properties.csv` was summarized again from the
+committed `property-replicates.csv.gz`, with no new fit. No verdict changed.
+`test_the_ratio_cells_compare_one_scale` checks both readings.
+
+A mean SE ratio is sensitive to a few fits with a large standard error. The table gives the
+median beside the mean for the ladder and for the cells that have a tail fit. A tail fit has a
+standard error above twice the empirical SD of its cell. `se_ratio_spread` in
+`tests/studies/ctmle_oat_per_arm_strata_missing_properties.py` computes the table from
+`property-replicates.csv.gz`, and `test_the_tail_fits_are_rare` checks it.
+
+| cell | mean SE ratio | median SE ratio | tail fits of 800 |
+| --- | --- | --- | --- |
+| `n_2000` | 0.929 | 0.898 | 3 |
+| `n_4000` | 0.896 | 0.893 | 0 |
+| `n_8000` | 0.881 | 0.880 | 0 |
+| `ate__strata_missing` | 0.945 | 0.925 | 2 |
+| `ate_s2__strata_missing` | 0.999 | 0.946 | 2 |
+| `ey_obs__strata_missing` | 1.017 | 1.011 | 2 |
+| `ey_obs_s2__strata_missing` | 1.023 | 1.006 | 2 |
+| `par__strata_missing` | 0.907 | 0.877 | 1 |
+| `par_s2__strata_missing` | 1.013 | 0.948 | 2 |
+| `paf__strata_missing` | 0.912 | 0.885 | 1 |
+| `paf_s2__strata_missing` | 1.011 | 0.950 | 2 |
+| `ate_s2__weighted_strata_missing` | 1.016 | 0.997 | 1 |
+| `ate__strata_missing_outcome_wrong` | 0.969 | 0.907 | 5 |
+
+In the `strata_missing` cells, the two tail fits are replications 271 and 605. They lift the
+mean SE ratio of each $S = 2$ cell about 5% above its median. No other cell and no primary row has
+a tail fit.
 
 ## Measured values
 
@@ -254,21 +307,29 @@ the committed results and checked at the precision printed.
 The study declared its reading rule before the run, in `READING_RULE` of
 `tests/studies/canonical_ctmle_oat_per_arm_strata_missing.py`. A red row goes to F19 when its bias
 is equivalent and its SE ratio is below 1. The upper end of its 99% SE-ratio interval must also be
-below 1.07. Every other red row is a defect suspect.
+below 1.07. For a ladder rung, a bootstrap interval of the SE ratio gives that upper end. Every
+other red row is a defect suspect.
+
+A floor was added to the rule after the run. A routed row must also have a point SE ratio of 0.70
+or more. A shorter standard error is a defect suspect, because it is too short for the
+generated-design term to explain. The lowest routed row is `ey[1]` on the `three_arm_missing` law,
+at 0.736 for both implementations. Thus the floor changes no routing of this run.
 
 | red rows | count | reading | owner |
 | --- | --- | --- | --- |
 | truth rows of both implementations | 42 | short diagnostic standard error, equivalent bias. Both implementations read the same rows alike | F19 |
+| `root_n_and_efficiency` rungs | 3 | coverage interval reaches below 0.90, equivalent bias, SE ratios 0.929, 0.896 and 0.881, bootstrap upper ends 1.0065, 0.952 and 0.940 | F19 |
 
-No paired row, `robustness_contract` cell or control is red, and no replication failed. The
-rerun of the property phase gives the reading of each ladder rung and of the `root_n_rate` rows.
+No paired row, `robustness_contract` cell or control is red, and no replication failed. Both
+`root_n_rate` rows pass. The empirical SD contracts at a slope of -0.499, and the mean standard
+error at -0.537.
 
 ## The re-declared ladder
 
 The first run declared the ladder at n = 500, 2,000 and 8,000. The `n_500` rung measured the
 stability of the factor learner in small cells and not the rate. After the run, the study dropped
 that rung and re-declared the ladder at n = 2,000, 4,000 and 8,000. The rerun of the property
-phase replaces the first run's property artifacts. The first run is commit `ae53bbb`.
+phase replaced the first run's property artifacts. The first run is commit `ae53bbb`.
 
 The table gives what the `n_500` rung measured in the first run.
 
@@ -300,16 +361,40 @@ In a small cell the unpenalized cubic factor learner extrapolates. One or two ob
 get a very small design, and their term $C_a / G\, (Y - \bar Q^*)$ dominates the plug-in
 variance. The point estimate does not change, so its bias stays inside the margin.
 
-The re-declaration adds condition (t). At the smallest rung, the smallest factor training cell
-must hold 100 rows or more in expectation. That cell is arm 0 in the stratum $S = 2$, with a share
-of 0.0732 of the rows. Four fifths of the rows train each fold. It holds 117.1 rows at
-n = 2,000.
+The re-declaration added condition (t). As declared, it required the smallest factor training
+cell to hold 100 rows or more in expectation at the smallest rung. That cell is arm 0 in the
+stratum $S = 2$, with a share of 0.0732 of the rows. Four fifths of the rows train each fold, so
+the cell holds 117.1 rows at n = 2,000.
+
+The row count is not the quantity that limits a factor fit. Each factor is a logistic regression
+on a binary target, and its smaller class limits it. On the strata law the smaller class is the
+nonrespondents of arm 0 in $S = 2$. After the rerun, the study restated condition (t) as the
+expected size of the smallest class for each stratum, arm, fold and factor. The restated
+condition sets no floor, because the declared ladder does not hold 100 such rows.
+`smallest_minority_class` in `tests/studies/oat_per_arm_extension_laws.py` computes the count by
+quadrature.
+
+| configuration | n | rows that train each fit | smallest class | expected count | tail fits of 800 |
+| --- | --- | --- | --- | --- | --- |
+| dropped `n_500` rung of the first run | 500 | four fifths | nonrespondents, arm 0, $S = 2$ | 9.9 | 40 |
+| `n_2000` | 2,000 | four fifths | nonrespondents, arm 0, $S = 2$ | 39.5 | 3 |
+| `strata_missing` cells | 3,000 | four fifths | nonrespondents, arm 0, $S = 2$ | 59.2 | 2 |
+| `n_4000` | 4,000 | four fifths | nonrespondents, arm 0, $S = 2$ | 79.0 | 0 |
+| `missing_outcome_crossfit` | 2,000 | four fifths | nonrespondents, arm 1 | 107.0 | 0 |
+| primary `missing_treatment` | 2,250 | all | nonrespondents, arm 1 | 110.5 | 0 |
+| primary `three_arm_missing` | 2,250 | all | nonrespondents, arm 0 | 116.4 | 0 |
+| primary `missing_outcome` and `natural_course_insample` | 2,250 | all | nonrespondents, arm 1 | 150.5 | 0 |
+| `n_8000` | 8,000 | four fifths | nonrespondents, arm 0, $S = 2$ | 157.9 | 0 |
+| primary `strata` | 2,250 | all | arm 0 in $S = 2$ | 164.7 | 0 |
+
+The weighted and the outcome-wrong cells sample the strata law at n = 3,000, so their count is
+59.2 too. They hold 1 and 5 tail fits. The measured consequence of a small class is a rare tail
+fit. It moves the mean SE ratio of a cell and not its bias.
+`test_condition_t_the_smallest_minority_class_of_each_configuration` checks each count.
 
 Condition (r) does not read n, so each rung keeps 800 replications, with a pass
-probability of 0.950. The primary laws, the pairing, the robustness cells, the seeds and the
-reading rule do not change. `tests/studies/ctmle_oat_per_arm_strata_missing_properties.py`
-records the change, and `tests/unit/test_ctmle_oat_per_arm_strata_missing_study_design.py`
-checks condition (t).
+probability of 0.950. The primary laws, the pairing, the robustness cells and the seeds do not
+change. `tests/studies/ctmle_oat_per_arm_strata_missing_properties.py` records the change.
 
 ## Limitations
 
@@ -317,7 +402,8 @@ checks condition (t).
 | --- | --- |
 | No cell measures published inference | Every `oat` fit withholds `ci`, `pvalue` and `std_error`. The `std_error`, `ci_lower`, `ci_upper` and `covered` columns read `plugin_std_error` and `plugin_interval` |
 | The diagnostic standard error is too small on the primary laws | The primary SE ratios run from `min_se_ratio_ci_lower` to `max_se_ratio_ci_upper`. The truth rows of both implementations are red alike, and F19 owns them. R `drtmle` reports the same standard errors, so the pairing cannot detect the gap |
-| The diagnostic standard error is heavy-tailed in small factor cells | The ladder starts at n = 2,000 by condition (t). In the first run, at n = 500, a factor fitted on about 29 rows of a stratum, arm and fold cell extrapolated, and the mean standard error was 1.575 times the empirical SD. [The re-declared ladder](#the-re-declared-ladder) gives the measurement |
+| The diagnostic standard error is heavy-tailed in small factor cells | In the first run, at n = 500, the smallest class of a factor target held about 10 rows, and the mean standard error was 1.575 times the empirical SD. The ladder now starts at n = 2,000, where that class holds 39.5 rows and 3 of 800 fits have a tail. [The re-declared ladder](#the-re-declared-ladder) gives the measurement |
+| The paired strata law has complete data | The `strata` primary samples `strata_complete`, so R `drtmle` never meets a stratum-local observation factor. Only the fast tier, `tests/unit/test_outcome_adaptive_per_arm_extensions.py`, checks that factor against a longhand. The `strata_missing` property cells measure its bias, unpaired |
 | The points are paired, not the intervals | All 31 paired rows are equivalent, with `max_margin_utilization` of the margin used |
 | The designs agree only off the bounds | Where no factor row sits at a bound, the two designs agree to `mechanism_max_gap_off_bound`. In `mechanism_fits_with_rows_at_bound` fits some rows sit at a bound, and the gap reaches `mechanism_max_gap`. The rows at a bound are reported, not gated |
 | Parametric laws with a binary outcome | Each law has a normal index for each arm and one instrument. A continuous outcome and more than three arms have fast-tier evidence only |

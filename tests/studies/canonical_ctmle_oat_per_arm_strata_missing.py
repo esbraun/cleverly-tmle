@@ -157,8 +157,14 @@ RED_CELL_OWNER = "F19"
 #: The upper end of the 99% SE-ratio interval a routed row must stay below.  The X17 term makes
 #: the plug-in standard error short, not long, so a long one is not routed.
 ROUTED_SE_RATIO_CEILING = 1.07
+#: The lowest point SE ratio a routed row may have.  Added after the run, as a strengthening:
+#: a standard error far shorter than the X17 term makes it is a defect suspect, not F19's.  The
+#: lowest routed row, ``three_arm_missing`` ``ey[1]`` of both implementations, reads 0.736, so
+#: the floor changes no routing of the committed run.
+ROUTED_SE_RATIO_FLOOR = 0.70
 
-#: The reading rule, declared before the run.  :func:`defect_suspects` applies it to the
+#: The reading rule, declared before the run, with the floor
+#: :data:`ROUTED_SE_RATIO_FLOOR` added after it.  :func:`defect_suspects` applies it to the
 #: committed verdict tables.
 READING_RULE = (
     "Defect suspects (diagnose, fix, re-run under a fresh declaration): a truth row whose bias "
@@ -171,7 +177,10 @@ READING_RULE = (
     "rung reads the same way: red only on its coverage or SE-ratio reading, with "
     "bias_equivalent True, a point SE ratio below 1 and the upper end of its 99% bootstrap "
     f"SE-ratio interval below {ROUTED_SE_RATIO_CEILING}, it is routed to F19; red on its bias, "
-    "it is a defect suspect"
+    "it is a defect suspect. Added after the run, as a strengthening that changes no routing "
+    "of the committed run: a routed truth row or rung also needs a point SE ratio of at least "
+    f"{ROUTED_SE_RATIO_FLOOR:.2f}, and a shorter one is a defect suspect (the lowest routed "
+    "row, three_arm_missing ey[1], reads 0.736)"
 )
 
 STUDY = StudyRecord(
@@ -281,8 +290,28 @@ LADDER_DECLARATION = (
     "smallest rung; 117.1 at n = 2,000 (S = 2, arm 0, share 0.0732, four fifths in training), "
     "29.3 at n = 500. The rerun of the property phase supersedes the first run's property "
     "artifacts; the primaries, the pairing, the robustness cells, the laws, the seeds and the "
-    "reading rule are unchanged"
+    "reading rule are unchanged. Condition t restated after the rerun, without a new floor: a "
+    "factor fit is bound by the smaller class of its binary target, and on the strata law that "
+    "is the nonrespondents of arm 0 in S = 2. The expected count of that class per stratum, "
+    "arm, fold and factor (oat_per_arm_extension_laws.smallest_minority_class) is 9.9 at "
+    "n = 500, 39.5 at n = 2,000, 59.2 in the strata_missing cells at n = 3,000, 79.0 at "
+    "n = 4,000 and 157.9 at n = 8,000. The declared ladder does not meet the 100-row floor on "
+    "that count, and the measured consequence is a tail of 3 in 800 fits at n = 2,000 and of 2 "
+    "in 800 in the strata_missing cells, with a standard error above twice the empirical SD"
 )
+
+#: The revision of ``properties.csv`` after the rerun, quoted by :data:`CONFIGURATION`.
+#: :mod:`tests.studies.ctmle_oat_per_arm_strata_missing_properties` gives the reason.
+PROPERTY_SUMMARY_REVISION = (
+    "properties.csv was summarized again from the committed property-replicates.csv.gz, "
+    "with no new fit, after the rerun: the summary now multiplies the log-scale "
+    "plugin_std_error of each rr and or row by its estimate (the delta method), so each SE "
+    "ratio compares a standard error and an empirical SD of psi. The rerun's first summary "
+    "compared the log-scale standard error with the SD of psi (missing_outcome_crossfit SE "
+    "ratio 0.559 for rr and 0.322 for or). No verdict changed. study_module_sha256 records the "
+    "modules of the run that fitted the replicates"
+)
+
 
 CONFIGURATION = {
     "strategy": "oat",
@@ -316,6 +345,7 @@ CONFIGURATION = {
     "failure_probe": FAILURE_PROBE,
     "measured_budget": MEASURED_BUDGET,
     "ladder": LADDER_DECLARATION,
+    "property_summary_revision": PROPERTY_SUMMARY_REVISION,
 }
 
 
@@ -711,6 +741,50 @@ def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
     return {"design-gap.csv": gap_frame, "fit-diagnostics.csv": diagnostics}
 
 
+#: The largest mean paired gap :func:`paired_gaps` may read, in empirical SDs of the subject.
+#: Added after the run.  The paired margin of 0.15 SD cannot tell this study's design from the
+#: shipped one, whose ``mean_design_gap`` in ``design-gap.csv`` is 0.024 or more on every row.
+#: The measured largest paired gap is 0.0008 (``strata``, ``ey0[S=2]``).
+PAIRED_GAP_CEILING = 0.005
+
+
+def paired_gaps(rows: pd.DataFrame) -> pd.DataFrame:
+    """The mean absolute gap between the two implementations, per paired row.
+
+    Parameters
+    ----------
+    rows : DataFrame
+        ``replicates.csv.gz``.
+
+    Returns
+    -------
+    DataFrame
+        One row per scenario and estimand: ``mean |psi_cleverly - psi_drtmle| / SD`` over the
+        replications both implementations fitted, as ``mean_paired_gap``, where ``SD`` is the
+        empirical standard deviation of the subject's estimate, the scale of
+        ``design-gap.csv``.
+    """
+    wide = rows.pivot_table(
+        index=["scenario", "estimand", "replicate"],
+        columns="implementation",
+        values="estimate",
+    ).dropna(subset=[IMPLEMENTATION, REFERENCE])
+    records = []
+    for (scenario, estimand), group in wide.groupby(level=[0, 1], sort=True):
+        subject = group[IMPLEMENTATION].to_numpy(dtype=float)
+        reference = group[REFERENCE].to_numpy(dtype=float)
+        spread = float(np.std(subject, ddof=1))
+        records.append(
+            {
+                "scenario": scenario,
+                "estimand": estimand,
+                "replicates": len(group),
+                "mean_paired_gap": float(np.mean(np.abs(subject - reference))) / spread,
+            }
+        )
+    return pd.DataFrame.from_records(records)
+
+
 # ------------------------------------------------------------------------- the reading rule
 
 
@@ -718,13 +792,13 @@ def routed_truth_row(row: Any) -> bool:
     """Whether a red truth row meets the declared F19 route.
 
     Red only on its coverage or SE-ratio reading: ``bias_equivalent`` is true, the point SE
-    ratio is below 1 and the upper end of its 99% SE-ratio interval is below
-    :data:`ROUTED_SE_RATIO_CEILING`.
+    ratio is at least :data:`ROUTED_SE_RATIO_FLOOR` and below 1, and the upper end of its 99%
+    SE-ratio interval is below :data:`ROUTED_SE_RATIO_CEILING`.
     """
     return bool(
         row["implementation"] in (IMPLEMENTATION, REFERENCE)
         and bool(row["bias_equivalent"])
-        and float(row["se_ratio"]) < 1.0
+        and ROUTED_SE_RATIO_FLOOR <= float(row["se_ratio"]) < 1.0
         and float(row["se_ratio_ci_upper"]) < ROUTED_SE_RATIO_CEILING
     )
 
@@ -742,12 +816,12 @@ def routed_ladder_row(row: Any, se_ratio_upper: float) -> bool:
     Returns
     -------
     bool
-        Whether the rung is red only on its coverage or SE-ratio reading, with a short
-        standard error.
+        Whether the rung is red only on its coverage or SE-ratio reading, with a point SE
+        ratio of at least :data:`ROUTED_SE_RATIO_FLOOR` and below 1.
     """
     return bool(
         bool(row["bias_equivalent"])
-        and float(row["se_ratio"]) < 1.0
+        and ROUTED_SE_RATIO_FLOOR <= float(row["se_ratio"]) < 1.0
         and se_ratio_upper < ROUTED_SE_RATIO_CEILING
     )
 

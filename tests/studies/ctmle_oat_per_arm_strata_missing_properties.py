@@ -35,6 +35,19 @@ draws come from ``stream_seed(STUDY, "property_sample", family, configuration, r
 A replication that raises is not redrawn: its rows are absent, every row of the configuration
 records the failed count, and the shared summary refuses the cell.
 
+**The scale of a ratio's standard error.**  Each row records the fit's
+``plugin_std_error`` as :func:`~tests.studies.evidence.properties.replicate_row` reads it.  For
+``rr`` and ``or`` that is the standard error of ``log psi``, because the package builds a ratio's
+interval on the log scale, while ``estimate`` is ``psi``.  :func:`summarize_properties` puts the
+two on one scale before the shared summary: it multiplies a ratio row's standard error by its
+estimate, the delta-method standard error of ``psi``.  The SE ratio of a ratio cell then
+compares ``mean(psi_n SE(log psi_n))`` with the empirical SD of ``psi_n``.  The first summary
+of the rerun omitted this step and published SE ratios of 0.559 (``rr``) and 0.322 (``or``)
+for ``missing_outcome_crossfit``.  ``properties.csv`` was summarized again from the committed
+``property-replicates.csv.gz`` without a new fit;
+:data:`~tests.studies.canonical_ctmle_oat_per_arm_strata_missing.PROPERTY_SUMMARY_REVISION`
+records it.
+
 Positive cells pass on ``bias_equivalent`` with an SE ratio inside ``UNION_MODEL_SE_BAND``
 (:func:`~tests.studies.evidence.property_verdicts.robustness_verdicts`).  The control passes on
 ``bias_discriminated``.  The ladder's rungs answer to the shared ``root_n_and_efficiency`` rule,
@@ -65,15 +78,24 @@ none at ``n = 8,000``.  The rung therefore measured learner instability in small
 outside the regime the consistency claim addresses, and not the rate.
 
 The ladder is re-declared at ``n = 2,000, 4,000, 8,000`` with condition (t) of
-:mod:`tests.studies.oat_per_arm_extension_laws`: the smallest factor training cell holds
-:data:`~tests.studies.oat_per_arm_extension_laws.FACTOR_CELL_FLOOR` rows or more in
-expectation at the smallest rung (117.1 at ``n = 2,000``).  Condition (r) does not read ``n``,
-so each rung keeps ``R = 800`` (0.950).  ``n_2000`` and ``n_8000`` keep their configuration
-names, so their streams and rows are those of the first run; ``n_4000`` is new.  The primary
-scenarios, the pairing, the robustness cells, the laws, the seeds and the reading rule are
-unchanged.  The rerun of the property phase supersedes the first run's property artifacts.
-The ``n = 500`` result stays on the record here and on the study page as the reason for the
-change.
+:mod:`tests.studies.oat_per_arm_extension_laws`.  Condition (r) does not read ``n``, so each
+rung keeps ``R = 800`` (0.950).  ``n_2000`` and ``n_8000`` keep their configuration names, so
+their streams and rows are those of the first run; ``n_4000`` is new.  The primary scenarios,
+the pairing, the robustness cells, the laws, the seeds and the reading rule are unchanged.  The
+rerun of the property phase supersedes the first run's property artifacts.  The ``n = 500``
+result stays on the record here and on the study page as the reason for the change.
+
+**Condition (t), restated after the rerun.**  As declared, condition (t) required the smallest
+factor training cell to hold 100 rows or more in expectation at the smallest rung, and it held
+117.1 at ``n = 2,000``.  That count is not the binding one.  A logistic factor fit is bound by
+the smaller class of its target, and on the strata law that class is the nonrespondents of
+arm 0 in ``S = 2``.  :func:`~tests.studies.oat_per_arm_extension_laws.smallest_minority_class`
+gives its expected count per stratum, arm, fold and factor: 9.9 at the dropped ``n = 500``,
+39.5 at ``n = 2,000``, 59.2 in the ``strata_missing`` cells at ``n = 3,000``, 79.0 at
+``n = 4,000`` and 157.9 at ``n = 8,000``.  The restated condition sets no floor, because the
+declared ladder does not hold 100.  :func:`se_ratio_spread` reads the measured consequence: a
+tail of 3 in 800 fits at ``n = 2,000`` and none above it, and 2 in 800 in the
+``strata_missing`` cells, which lift the ``S = 2`` mean SE ratio about 5% above its median.
 """
 
 from __future__ import annotations
@@ -85,6 +107,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from cleverly.targets import TARGETS, parameter_stem
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import oat_per_arm_extension_laws as laws
@@ -340,8 +363,54 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     )
 
 
+def ratio_cells() -> frozenset[str]:
+    """The cells whose estimand the package reports on the log scale (``scale == "ratio"``)."""
+    return frozenset(
+        cell
+        for configuration in CONFIGURATIONS
+        for estimand, cell in zip(configuration.estimands, configuration.cells, strict=True)
+        if TARGETS[parameter_stem(estimand)].scale == "ratio"
+    )
+
+
+def on_estimate_scale(rows: pd.DataFrame) -> pd.DataFrame:
+    """The rows with each ratio row's standard error on the scale of its estimate.
+
+    A ratio row records the standard error of ``log psi``.  The delta method gives
+    ``psi SE(log psi)`` as the standard error of ``psi``, the scale of ``estimate`` and of the
+    empirical SD that the shared summary compares it with.
+
+    Parameters
+    ----------
+    rows : DataFrame
+        :data:`~tests.studies.evidence.properties.REPLICATE_COLUMNS` rows, as committed.
+
+    Returns
+    -------
+    DataFrame
+        A copy, with ``std_error`` multiplied by ``estimate`` on each row of
+        :func:`ratio_cells`.
+    """
+    out = rows.copy()
+    ratio = out["cell"].isin(ratio_cells())
+    out.loc[ratio, "std_error"] = out.loc[ratio, "std_error"] * out.loc[ratio, "estimate"]
+    return out
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    summary, rates = apply_shared_verdicts(rows, STUDY)
+    """The published property table, from the committed replicate rows.
+
+    Parameters
+    ----------
+    rows : DataFrame
+        :data:`~tests.studies.evidence.properties.REPLICATE_COLUMNS` rows, as committed.
+
+    Returns
+    -------
+    DataFrame
+        One row per cell, with its verdict, after :func:`on_estimate_scale`.
+    """
+    summary, rates = apply_shared_verdicts(on_estimate_scale(rows), STUDY)
     robustness_verdicts(summary, family="robustness_contract")
     return finish(summary, rates)
 
@@ -365,6 +434,44 @@ def ladder_se_ratio_upper(rows: pd.DataFrame) -> dict[str, float]:
         )
         out[str(cell)] = float(interval.high)
     return out
+
+
+#: A replication whose standard error exceeds this many empirical SDs of its cell is a tail
+#: fit in :func:`se_ratio_spread`.  The first run's ``n_500`` rung held 40 such fits.
+TAIL_MULTIPLE = 2.0
+
+
+def se_ratio_spread(rows: pd.DataFrame) -> pd.DataFrame:
+    """The mean and median SE ratio of each cell, and its tail fits.
+
+    Parameters
+    ----------
+    rows : DataFrame
+        :data:`~tests.studies.evidence.properties.REPLICATE_COLUMNS` rows, as committed.  Each
+        ratio row is put on the scale of its estimate by :func:`on_estimate_scale` first.
+
+    Returns
+    -------
+    DataFrame
+        One row per cell: ``mean_se_ratio`` (the mean standard error over the empirical SD, as
+        ``properties.csv`` publishes it), ``median_se_ratio`` (the median standard error over
+        the empirical SD), and ``tail_fits``, the replications whose standard error exceeds
+        :data:`TAIL_MULTIPLE` empirical SDs.
+    """
+    records = []
+    for (family, cell), group in on_estimate_scale(rows).groupby(["property", "cell"], sort=True):
+        spread = float(np.std(group["estimate"].to_numpy(dtype=float), ddof=1))
+        errors = group["std_error"].to_numpy(dtype=float)
+        records.append(
+            {
+                "property": family,
+                "cell": cell,
+                "mean_se_ratio": float(np.mean(errors)) / spread,
+                "median_se_ratio": float(np.median(errors)) / spread,
+                "tail_fits": int(np.sum(errors > TAIL_MULTIPLE * spread)),
+            }
+        )
+    return pd.DataFrame.from_records(records)
 
 
 def configuration_truths() -> dict[str, dict[str, float]]:
