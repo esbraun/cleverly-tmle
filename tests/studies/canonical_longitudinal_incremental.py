@@ -129,7 +129,11 @@ STUDY = StudyRecord(
     resampling_seed=RESAMPLING_SEED,
     margins=Margins(),
     implementation="cleverly-ipsi",
-    reference="npcausal",
+    pending_reference="npcausal",
+    pending_reason=(
+        "the npcausal R phase runs on the local study queue (TRACKER item 9a) and registers "
+        "in a later change; the owner's rule merges the method on its Python evidence"
+    ),
     efficiency_bounds=EFFICIENCY_SD,
     modules=(
         "tests/studies/canonical_longitudinal_incremental.py",
