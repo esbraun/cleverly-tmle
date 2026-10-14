@@ -66,16 +66,22 @@ repeated_mechanism <- function(frame, abar, horizon) {
 }
 
 repeated_ltmle_fit <- function(arguments, frame, label) {
-  # One `ltmle` call and what the study reads back, with the warning policy and the
+  # One `ltmle` call and what the study reads back, with the warning policy, the stage and the
   # cumulative-bound check of `regimen_ltmle_fit`.  The initial estimate is the first block's
   # regression, whose design here is `~ W`.
+  #
+  # A rank-deficient stratified regression warns "prediction from rank-deficient fit" and stays
+  # fatal: its predictions off the fitted rows are not unique, so the paired comparison would
+  # read an arbitrary R value.  At n = 400 one smoke replicate hits it (the rule's third node,
+  # about 18 followers).  At the declared n = 2,000 none of the 1,600 primary draws does
+  # (X32a Study queue item 11).
   targeted <- withCallingHandlers(
-    do.call(ltmle, arguments),
+    study_stage("ltmle", do.call(ltmle, arguments)),
     warning = function(condition) {
       if (grepl("Cnodes|censoring", conditionMessage(condition), ignore.case = TRUE)) {
         invokeRestart("muffleWarning")
       }
-      stop(sprintf("unexpected ltmle warning: %s", conditionMessage(condition)))
+      study_fatal_error(sprintf("unexpected ltmle warning: %s", conditionMessage(condition)))
     }
   )
   if (any(abs(targeted$cum.g - targeted$cum.g.unbounded) > 1e-12, na.rm = TRUE)) {

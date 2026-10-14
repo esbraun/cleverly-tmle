@@ -19,11 +19,13 @@ the rule, and two negative controls.
 The study is declared and not yet run. The directory holds no artifacts until the declared
 run.
 
-Run a disposable smoke study from the repository root:
+Run a disposable smoke study from the repository root. It uses the declared sample size. At
+`n = 400`, a stratified regression at the rule's third node can be rank deficient, and the R
+side then stops on purpose.
 
 ```powershell
 uv run python -m tests.canonical.ltmle_repeated.regenerate `
-  --replicates 12 --n 400 --skip-properties --allow-failures `
+  --replicates 8 --n 2000 --skip-properties --allow-failures `
   --output .tmp/ltmle-repeated-smoke
 ```
 
