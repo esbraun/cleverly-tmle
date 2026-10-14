@@ -484,12 +484,41 @@ _DISPATCHING: dict[tuple[str, str], str] = {
 }
 
 
+#: The functions that index ``.treatment_levels[...]``, each with why it cannot read a
+#: mixed node's entry.  The entry raises ``CapabilityError`` on any read, so a reader missed
+#: here fails closed; the list makes each one a reviewed decision (review LOW-6).
+_LEVEL_READERS: dict[tuple[str, str], str] = {
+    ("data/causal_data.py", "CausalData.arm_label"): "point CausalData; refuses a vector first",
+    ("longitudinal/data.py", "LongitudinalData._declare_known"): "a mixed node is refused first",
+    ("longitudinal/data.py", "LongitudinalData.encode_assignment"): "mixed branch first",
+    ("longitudinal/data.py", "LongitudinalData.history_design"): "mixed branch first",
+    ("longitudinal/data.py", "LongitudinalData.observed_labels"): "mixed branch first",
+    ("longitudinal/data.py", "LongitudinalData.policy_frame"): "mixed branch first",
+    ("longitudinal/regimen.py", "DynamicRegimen.policy_density"): "categorical policy node",
+    ("longitudinal/regimen.py", "_categorical_carry"): "categorical policy node",
+    ("longitudinal/regimen.py", "_resolve_mtp_node"): "mixed branch first",
+    ("longitudinal/regimen.py", "refuse_multi_arm_tilt_node"): "a tilt at a mixed node is refused",
+    ("longitudinal/sequential.py", "_categorical_node"): "categorical node",
+    ("longitudinal/sequential.py", "_check_policy_arm_support"): "categorical node guard",
+    ("longitudinal/sequential.py", "_rule_hint"): "a rule at a mixed node is refused",
+    ("longitudinal/sequential.py", "outcome_design"): "mixed branch first",
+    ("longitudinal/sequential.py", "preflight_mechanism_support"): "categorical branch",
+    ("study.py", "BackdoorMeanContrast.expression"): "a point design's own levels",
+    ("study.py", "BackdoorMeanContrast.reference_arm"): "a point design's own levels",
+    ("study.py", "BackdoorMeanContrast.selected_arm"): "a point design's own levels",
+    ("validation/longitudinal.py", "_longitudinal_stagewise"): "skips a mixed node",
+}
+
+
 class _Readers(ast.NodeVisitor):
     """Record each function of ``module`` that reads ``.treatment[...]`` or calls the check."""
 
-    def __init__(self, module: str, found: set[tuple[str, str]]) -> None:
+    def __init__(
+        self, module: str, found: set[tuple[str, str]], attribute: str = "treatment"
+    ) -> None:
         self.module = module
         self.found = found
+        self.attribute = attribute
         self.stack: list[str] = []
 
     def visit_FunctionDef(self, node: Any) -> None:
@@ -501,22 +530,26 @@ class _Readers(ast.NodeVisitor):
     visit_ClassDef = visit_FunctionDef
 
     def visit_Subscript(self, node: ast.Subscript) -> None:
-        if isinstance(node.value, ast.Attribute) and node.value.attr == "treatment":
+        if isinstance(node.value, ast.Attribute) and node.value.attr == self.attribute:
             self.found.add((self.module, ".".join(self.stack)))
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
-        if isinstance(node.func, ast.Attribute) and node.func.attr == "is_continuous_node":
+        if (
+            self.attribute == "treatment"
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "is_continuous_node"
+        ):
             self.found.add((self.module, ".".join(self.stack)))
         self.generic_visit(node)
 
 
-def _one_column_reads() -> set[tuple[str, str]]:
+def _one_column_reads(attribute: str = "treatment") -> set[tuple[str, str]]:
     root = Path(__file__).resolve().parents[2] / "src" / "cleverly"
     found: set[tuple[str, str]] = set()
     for path in sorted(root.rglob("*.py")):
         module = path.relative_to(root).as_posix()
-        _Readers(module, found).visit(ast.parse(path.read_text(encoding="utf-8")))
+        _Readers(module, found, attribute).visit(ast.parse(path.read_text(encoding="utf-8")))
     return found
 
 
@@ -529,6 +562,56 @@ def test_every_one_column_treatment_read_sits_in_a_dispatching_function() -> Non
     found = _one_column_reads()
     assert found - set(_DISPATCHING) == set(), "unreviewed one-column treatment readers"
     assert set(_DISPATCHING) - found == set(), "stale entries in the allow-list"
+
+
+def test_every_level_set_read_sits_in_a_reviewed_function() -> None:
+    """A new reader of ``.treatment_levels[...]`` must be reviewed here (review LOW-6)."""
+    found = _one_column_reads("treatment_levels")
+    assert found - set(_LEVEL_READERS) == set(), "unreviewed treatment_levels readers"
+    assert set(_LEVEL_READERS) - found == set(), "stale entries in the allow-list"
+
+
+def test_a_mixed_node_has_no_level_set_to_read() -> None:
+    """Every read of a mixed node's ``treatment_levels`` entry refuses (review LOW-6).
+
+    It held ``()``, so a reader that skipped the node-kind check read zero levels and went
+    on.  The entry pickles, compares and prints.
+    """
+    import pickle
+
+    data = _exact_fit().data
+    entry = data.treatment_levels[0]
+    for read in (len, list, bool, lambda levels: levels[0], lambda levels: 0 in levels):
+        with pytest.raises(CapabilityError, match="read node_kind"):
+            read(entry)
+    assert pickle.loads(pickle.dumps(data)).treatment_levels == data.treatment_levels
+    assert "mixed node" in repr(entry)
+
+
+def test_every_reader_of_a_mixed_node_result_returns_or_refuses() -> None:
+    """No public member of a mixed-node result fails with an unplanned error.
+
+    A member returns, or raises ``CapabilityError`` or the ``ValueError`` of a request the
+    parameter axis does not carry.  The sweep found the stagewise report reading a mixed
+    node's level set, and ``benchmark()`` reading an arm attribute the panel lacks.
+    """
+    result = _exact_fit()
+    subjects = {"result": result, "diagnostics": result.diagnostics}
+    subjects["sensitivity"] = result.sensitivity
+    for where, subject in subjects.items():
+        for name in sorted(dir(type(subject))):
+            if name.startswith("_") or name == "save":
+                continue
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    value = getattr(subject, name)
+                    if callable(value) and not isinstance(value, type):
+                        value()
+            except (CapabilityError, ValueError):
+                continue
+            except TypeError as error:
+                assert "argument" in str(error), f"{where}.{name}: {error}"
 
 
 # ------------------------------------------------------------------ refusals

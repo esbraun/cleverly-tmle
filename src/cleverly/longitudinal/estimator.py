@@ -3842,7 +3842,14 @@ class _SequentialEstimator:
                 data.weights,
                 *data.time_varying,
                 np.asarray(
-                    [repr(level) for levels in data.treatment_levels for level in levels],
+                    [
+                        repr(level)
+                        for time, levels in enumerate(data.treatment_levels, start=1)
+                        # A mixed node has no levels; _component_fingerprint digests its
+                        # components' labels.
+                        if data.node_kind(time) != "mixed"
+                        for level in levels
+                    ],
                     dtype=str,
                 ),
                 *_component_fingerprint(data),
