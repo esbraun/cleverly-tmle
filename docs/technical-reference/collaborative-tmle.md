@@ -225,8 +225,9 @@ the solver residual, the path ends, the row-identity audits, the refusals, and f
 `tests/unit/test_ctmle_sequence_witness.py` compares the solver with `glmnet`, and the construction
 and the final step with R `ctmleGeneral` and `ctmleGlmnet`, on the fixture in
 `tests/canonical/ctmle_sequence_witness/`. The registered study
-[C-TMLE candidate sequences](method-evidence/c-tmle-candidate-sequences.md) compares repeated
-samples with R `ctmle`.
+[C-TMLE candidate sequences](method-evidence/c-tmle-candidate-sequences.md) replays R `ctmle`'s
+construction and final step on R's own arrays over repeated samples. Its paired selected
+estimates are descriptive, because R's cross-validation leaks (quirk 2).
 
 ## Validation issues special to this method
 
