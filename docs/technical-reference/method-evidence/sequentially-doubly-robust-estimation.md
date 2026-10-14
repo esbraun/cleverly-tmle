@@ -182,15 +182,15 @@ The `sdr_mtp` rows and `ey_regimen[mix]` are exact pairs, and their largest esti
 | `root_n_and_efficiency` | `static__n_8000` | positive | static plan: bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.0011, coverage 0.9214 to 0.9665, SE ratio 1.0002 | pass |
 | `root_n_rate` | `static__empirical_sd` | positive | static plan: log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5565 to -0.4633 | pass |
 | `root_n_rate` | `static__reported_se` | positive | static plan: the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.5221 to -0.5150 | pass |
-| `sdr_tmle_agreement` | `static` | diagnostic | |SDR - LTMLE| / SE of SDR for always against never, on the calibration draws | reported only | mean absolute difference / SE 0.0087 | reported |
-| `sequential_double_robustness` | `P_A__n_2000` | positive | both outcome regressions are correct and both mechanisms are wrong, at n = 2,000 | |bias| + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio inside the union-model band | |bias| + 2 MCSE 0.0069, SE ratio 0.7200, coverage 0.8420 | pass |
-| `sequential_double_robustness` | `P_A__n_8000` | positive | both outcome regressions are correct and both mechanisms are wrong, at n = 8,000 | |bias| + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio inside the union-model band | |bias| + 2 MCSE 0.0023, SE ratio 0.7498, coverage 0.8730 | pass |
-| `sequential_double_robustness` | `P_B__n_2000` | positive | node 1 outcome regression wrong, node 2 mechanism wrong, at n = 2,000 | |bias| + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio inside the union-model band | |bias| + 2 MCSE 0.0073, SE ratio 0.6910, coverage 0.8160 | pass |
-| `sequential_double_robustness` | `P_B__n_8000` | positive | node 1 outcome regression wrong, node 2 mechanism wrong, at n = 8,000 | |bias| + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio inside the union-model band | |bias| + 2 MCSE 0.0023, SE ratio 0.6722, coverage 0.8260 | pass |
+| `sdr_tmle_agreement` | `static` | diagnostic | the absolute difference of SDR and LTMLE over the SE of SDR, for always against never, on the calibration draws | reported only | mean absolute difference / SE 0.0087 | reported |
+| `sequential_double_robustness` | `P_A__n_2000` | positive | both outcome regressions are correct and both mechanisms are wrong, at n = 2,000 | absolute bias + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio inside the union-model band | absolute bias + 2 MCSE 0.0069, SE ratio 0.7200, coverage 0.8420 | pass |
+| `sequential_double_robustness` | `P_A__n_8000` | positive | both outcome regressions are correct and both mechanisms are wrong, at n = 8,000 | absolute bias + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio inside the union-model band | absolute bias + 2 MCSE 0.0023, SE ratio 0.7498, coverage 0.8730 | pass |
+| `sequential_double_robustness` | `P_B__n_2000` | positive | node 1 outcome regression wrong, node 2 mechanism wrong, at n = 2,000 | absolute bias + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio inside the union-model band | absolute bias + 2 MCSE 0.0073, SE ratio 0.6910, coverage 0.8160 | pass |
+| `sequential_double_robustness` | `P_B__n_8000` | positive | node 1 outcome regression wrong, node 2 mechanism wrong, at n = 8,000 | absolute bias + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio inside the union-model band | absolute bias + 2 MCSE 0.0023, SE ratio 0.6722, coverage 0.8260 | pass |
 | `sequential_double_robustness` | `P_C__n_2000` | positive | both mechanisms are correct and both outcome regressions are wrong, at n = 2,000 | bias inside the margin, SE ratio inside the union-model band, coverage clears the floor | bias -0.0064 to 0.0074, margin 0.0210, coverage 0.9100 to 0.9518, SE ratio 0.9868 | pass |
 | `sequential_double_robustness` | `P_C__n_8000` | positive | both mechanisms are correct and both outcome regressions are wrong, at n = 8,000 | bias inside the margin, SE ratio inside the union-model band, coverage clears the floor | bias -0.0014 to 0.0053, margin 0.0103, coverage 0.9307 to 0.9669, SE ratio 1.0106 | pass |
-| `sequential_double_robustness` | `P_D__n_2000` | positive | node 1 mechanism wrong, node 2 outcome regression wrong, the pattern LTMLE misses, at n = 2,000 | |bias| + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio inside the union-model band | |bias| + 2 MCSE 0.0083, SE ratio 0.6023, coverage 0.7620 | pass |
-| `sequential_double_robustness` | `P_D__n_8000` | positive | node 1 mechanism wrong, node 2 outcome regression wrong, the pattern LTMLE misses, at n = 8,000 | |bias| + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio inside the union-model band | |bias| + 2 MCSE 0.0036, SE ratio 0.5927, coverage 0.7650 | pass |
+| `sequential_double_robustness` | `P_D__n_2000` | positive | node 1 mechanism wrong, node 2 outcome regression wrong, the pattern LTMLE misses, at n = 2,000 | absolute bias + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio inside the union-model band | absolute bias + 2 MCSE 0.0083, SE ratio 0.6023, coverage 0.7620 | pass |
+| `sequential_double_robustness` | `P_D__n_8000` | positive | node 1 mechanism wrong, node 2 outcome regression wrong, the pattern LTMLE misses, at n = 8,000 | absolute bias + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio inside the union-model band | absolute bias + 2 MCSE 0.0036, SE ratio 0.5927, coverage 0.7650 | pass |
 | `sequential_double_robustness` | `both_correct__n_2000` | positive | every outcome regression and mechanism is correct, at n = 2,000 | bias inside the margin, SE ratio inside the union-model band, coverage clears the floor | bias 0.000011 to 0.0112, margin 0.0172, coverage 0.8853 to 0.9327, SE ratio 0.9459 | **fail** |
 | `sequential_double_robustness` | `both_correct__n_8000` | positive | every outcome regression and mechanism is correct, at n = 8,000 | bias inside the margin, SE ratio inside the union-model band, coverage clears the floor | bias -0.0018 to 0.0033, margin 0.0077, coverage 0.9295 to 0.9661, SE ratio 0.9994 | pass |
 | `sequential_double_robustness` | `ltmle_P_D_control` | control | LTMLE in pattern P_D, where its recursion needs the node 2 outcome regression | bias interval at least 3 empirical standard deviations from zero, SE ratio inside the union-model band | bias 0.2158 to 0.2235, empirical SD 0.0468, SE ratio 1.0199 | pass |
@@ -266,6 +266,20 @@ the committed results and checked at the precision printed.
 | `min_coverage` | 0.9340 | lowest primary coverage |
 | `max_margin_utilization` | 0.0829 | largest paired similarity-margin share |
 | `margin:confidence_level` | 0.9900 | Monte Carlo confidence level |
+| `margin:alpha` | 0.0500 | test size |
+| `margin:bootstrap_replicates` | 10000 | bootstrap replications |
+| `margin:nominal_coverage` | 0.9500 | nominal interval coverage |
+| `margin:over_coverage_ceiling` | 0.9900 | descriptive overcoverage threshold |
+| `margin:se_ratio_sanity_lower` | 0.8000 | primary SE-ratio lower screen |
+| `margin:se_ratio_sanity_upper` | 1.2000 | primary SE-ratio upper screen |
+| `margin:coverage_noninferiority` | -0.0250 | coverage-difference noninferiority bound |
+| `margin:rmse_noninferiority` | 1.1000 | RMSE-ratio noninferiority bound |
+| `margin:calibration_noninferiority` | 0.0500 | calibration-excess noninferiority bound |
+| `margin:root_n_slope` | -0.5000 | expected root-n slope |
+| `margin:root_n_slope_lower` | -0.6250 | root-n slope lower bound |
+| `margin:root_n_slope_upper` | -0.3750 | root-n slope upper bound |
+| `margin:excluded_slope` | -0.2500 | slower rate the interval must exclude |
+| `margin:overfit_coverage_gain` | 0.1500 | minimum paired coverage gain |
 | `margin:standardized_bias` | 0.2500 | standardized-bias margin |
 | `margin:coverage_floor` | 0.9000 | primary coverage floor |
 | `margin:calibration_se_ratio_lower` | 0.9300 | calibration SE-ratio lower bound |

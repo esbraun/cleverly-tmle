@@ -468,7 +468,7 @@ def measured(row: Any) -> str:
                 f"SE ratio {render(float(row.se_ratio))}"
             )
         return (
-            f"|bias| + 2 MCSE {render(float(row.absolute_bias_bound))}, "
+            f"absolute bias + 2 MCSE {render(float(row.absolute_bias_bound))}, "
             f"SE ratio {render(float(row.se_ratio))}, coverage {float(row.coverage):.4f}"
         )
     if family == "construction_diagnostic":
