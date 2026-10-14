@@ -11,24 +11,25 @@ scenarios, 1,000 replications at n = 2,000 each:
 scenario                                    subject and pairing
 ==========================================  ===================================================
 ``point_vector_mixed``                      the point law, ``TMLE``, ``A = (F, D)``.  Plans
-                                            ``natural``, ``dose up`` and ``flag scaled``.  The
-                                            ratio is the oracle induced density's
+                                            ``natural course``, ``dose up`` and ``flag
+                                            scaled``.  The ratio is the oracle induced density's
                                             (``PolicySet.policy_ratio``), supplied to ``lmtp``
                                             with both shifted components.  Margin-read
 ``point_vector_categorical``                the categorical law, ``TMLE``, ``A = (A1, A2)``,
-                                            both binary.  Plans ``natural``, ``a2 off`` and
-                                            ``a1 on``.  The ratio is the discrete formula on the
+                                            both binary.  Plans ``natural course``, ``a2 off``
+                                            and ``a1 on``.  The ratio is the discrete formula on the
                                             exact joint probabilities, supplied.  Margin-read
 ``longitudinal_vector_mixed``               the two-node law, ``LTMLE``, nodes ``(F1, D1)`` and
                                             ``(F2, D2)``, one fold.  The point plans at both
                                             nodes.  Each node's ratio (``node_ratio``) and
                                             shifted components are supplied.  Exact
 ``longitudinal_vector_ordered_classifier``  the ordered law as one ``LTMLE`` node
-                                            ``(F, D1, D2)``.  Plans ``natural``, ``ordered`` and
-                                            ``full``.  Neither ratio is supplied: each side
-                                            fits its own stacked main-terms logistic
-                                            classifier.  Margin-read unless the parity check
-                                            passes (below)
+                                            ``(F, D1, D2)``.  Plans ``natural course``,
+                                            ``ordered`` and ``full``.  Neither ratio is
+                                            supplied: each side fits its own stacked classifier,
+                                            the correctly specified logistic regression on the
+                                            plan's log ratio, one plan per fit.  Read by the
+                                            parity rule (below)
 ==========================================  ===================================================
 
 **Learners.**  Each density-route fit reads the oracle: :class:`~tests.studies.vector_mtp_common.
@@ -39,6 +40,17 @@ probabilities.  The outcome regressions are the correctly specified logistic mod
 plus the squared dose (point), the squared second-node dose (two-node final regression), the
 squared doses (ordered), and the saturated joint levels (categorical).  The two-node first
 regression is least squares on ``[W, F1, D1]`` (``SL.glm``'s Gaussian fit on the same columns).
+The unsupplied pair's classifier is
+:class:`~tests.studies.vector_mtp_common.OracleLogOdds`: an unpenalized logistic regression of
+the stack label on one feature, the plan's true log ratio, which the learner computes from each
+stacked row's own columns.  It is the correctly specified model of the stacked odds.  A
+main-terms classifier is misspecified for a ratio that jumps at the knee and at the caps (60
+draws: SE ratios 0.68 and 0.74, coverage 0.85 and 0.87), so it would publish a known-invalid
+interval.  The pair fits ``(natural course, ordered)`` and ``(natural course, full)``
+separately (:data:`CLASSIFIER_PLANS`), each with its own one-feature learner, because one
+learner serves every regimen of a fit.  The reference's mean is read off the ``ordered`` fit,
+and each contrast off its own fit.  Under ``natural course`` the two stacked copies are equal,
+so either learner fits ``u = 1/2`` and the ratio 1.
 
 **The comparator.**  ``tests/canonical/lmtp_vector_adapter.R`` defines ``lmtp_vector_tmle``,
 which builds an ``LmtpTask`` whose treatment nodes are vectors (``trt = list(c("F", "D"))``
@@ -49,9 +61,15 @@ supplied ratio ``ratio__<plan>__<node>``, ``.trim = 1`` and ``k = Inf``.  It nev
 gives ``lmtp`` the same outcome designs: ``SL.glm`` with the squared doses, and with the
 product ``A1 * A2`` on the categorical law, so its design spans the three joint-level
 indicators this package fits.  Every categorical component stays a binary numeric column.  The
-ordered classifier scenario calls ``lmtp_tmle_with_folds`` of the shared cross-fit adapter with
-``learners_trt = "SL.glm"`` and no supplied ratio, so ``cf_density_ratios`` fits ``lmtp``'s own
-stacked classifier.
+ordered classifier scenario calls ``lmtp_vector_classifier_tmle`` on the same vector task.  It
+calls ``cf_density_ratios`` with ``mtp = TRUE``: with ``mtp = FALSE`` ``lmtp`` 1.5.4 multiplies
+each ratio by the indicator that no component moved (``R/density_ratios.R:58-61``), which is
+zero on every row a plan moves.  Its learner is ``SL.logratio.<plan>``
+(``tests/canonical/vector_mtp_logratio.R``), the R twin of ``OracleLogOdds``, one plan per fit
+as above.  It then calls ``cf_tmle``, the plug-in and ``theta_dr`` with the classifier fits,
+with the ``1e-5`` prediction screen of ``lmtp_vector_tmle``.  Both sides refuse a fit whose
+classifier probability reaches 0.999 (:func:`screen_classifier`), where ``lmtp`` clips the
+ratio's denominator and this package does not.
 
 **Pairing reading, declared before any run.**
 
@@ -62,14 +80,27 @@ stacked classifier.
 * ``point_vector_mixed`` and ``point_vector_categorical`` are read under the default margins.
   ``TMLE`` with ``policies=`` targets with the covariate submodel over the observed and policy
   values, and ``lmtp`` with the ratio-weighted intercept, as in ``policy-point-mtp``.
-* ``longitudinal_vector_ordered_classifier`` is read under the default margins.  The two stacked
-  classifiers fit one model on one design, but ``lmtp``'s stacking (its row weights and the
-  ratio's clip at ``pred / (1 - min(pred, 0.999))``) could not be read from the source here.
+* ``longitudinal_vector_ordered_classifier`` is read by the parity rule.  The two sides fit
+  one model on one design, and the remaining construction is ``lmtp``'s stacking: its row
+  grouping, its prediction bound and its ratio ``pred / (1 - min(pred, 0.999))``.
   ``tests/canonical/vector_mtp_parity.R`` with ``tests/canonical/vector_mtp_parity.py`` fits
-  both on three draws and compares the ratios.  The local thread runs it before the declared
-  run.  If every ratio agrees below ``1e-6`` the scenario becomes an exactness witness under
-  :data:`SMOKE_GATE` by a declaration amendment before the run, and otherwise it stays
-  margin-read.
+  both on three draws and compares every ratio, and checks the R transcription of the log ratio
+  on a grid at ``rtol = 1e-12``.  It also requires that the fraction of rows with a positive
+  ``lmtp`` ratio equal the package's, a witness that fails under ``mtp = FALSE``.  The local
+  thread runs it before the declared run.  Three outcomes are declared now:
+
+  =====================================================  =====================================
+  parity reading                                         consequence
+  =====================================================  =====================================
+  every ratio gap below :data:`SMOKE_GATE`               exactness witness under
+                                                         :data:`SMOKE_GATE`, by a declaration
+                                                         amendment before the run
+  every relative gap below ``PARITY_TOLERANCE``          margin-read, only after the cause is
+  (``1e-4``), with a diagnosed and named numerical       diagnosed, named and recorded in the
+  cause such as the IRLS stopping rule                   amendment
+  any other reading, a failed transcription or a         the declaration is blocked until the
+  failed witness                                         cause is found and fixed
+  =====================================================  =====================================
 
 **Linear remainder.**  Every interval this study publishes is a Wald interval on the
 efficient influence function.  No interval is exposed to a non-linear remainder of the policy
@@ -86,52 +117,73 @@ checked against the closed form without the flag-moving term, to the binning (me
 **Properties.**  :mod:`tests.studies.vector_mtp_properties` declares every family, its sizes
 and the design numbers behind them.
 
-**Red-cell reading, declared before any run.**  Publication policy is ``gated``.  Every red
-cell is diagnosed first, by the rule of ``docs/development/method-benchmarking.md``.  A genuine
-problem (an algorithm defect, an inconsistent estimator, or a test or design bug) is fixed, and
-the study re-runs under a fresh declaration that states the change.  A red
+**Red-cell reading, declared before any run.**  Publication policy is ``reporting``, and the
+declared reading below is the merge gate, as in ``longitudinal-mtp``.  The fast tier then gates
+the artifacts' integrity, and the pull-request review gates the reading.  Every red cell is
+diagnosed first, by the rule of ``docs/development/method-benchmarking.md``.  A genuine problem
+(an algorithm defect, an inconsistent estimator, or a test or design bug) blocks the merge.  It
+is fixed, and the study re-runs under a fresh declaration that states the change.  A red
 ``interval_calibration`` positive is read as a finite-sample red only if all three hold:
 
 1. its SE-ratio 99% interval contains 1,
 2. its coverage interval is consistent with 0.95, and
 3. the diagnosis finds no defect.
 
-Such a cell moves to ``reporting`` with the owner row ``vector-mtp-calibration``.
+Such a cell is published red with the owner row ``vector-mtp-calibration``, and it does not
+block the merge.  Any other red calibration positive is a defect suspect and blocks the merge.
+This holds for every truth row of ``longitudinal_vector_ordered_classifier`` too: its
+classifier is correctly specified, so no exception is declared for it.  A red paired row of a
+margin-read scenario is read as the construction difference above and gets the owner row
+``vector-mtp-pairing``.  A red exactness-witness row or a red primary truth row blocks the
+merge and gets a diagnosis.  A red double-robustness or necessity row is a defect suspect and
+blocks the merge until its diagnosis ends.  If the diagnosis finds no defect, the row is
+published red with the owner row ``vector-mtp-robustness``.  A replication that
+raises is never redrawn.  No change may make a test less meaningful or easier to pass.
 
-The ``longitudinal_vector_ordered_classifier`` truth rows are a declared exception.  Its
-main-terms classifier, the one both sides fit, is misspecified for the induced ratio, which
-jumps at the knee 3 and at the caps.  With a misspecified ratio the outcome regression keeps
-the estimate consistent, but the influence-curve standard error is no longer valid.  On 60
-pre-declaration draws at n = 2,000 the contrasts read a mean error of -0.14 and -0.06 empirical
-SDs, SE ratios of 0.68 and 0.74, and coverage of 0.85 and 0.87.  A red coverage or SE row of
-this scenario is therefore read as that limit and goes to ``vector-mtp-pairing``, and a red
-bias row of it is a defect suspect.  Any other red
-calibration positive is a defect suspect and blocks the merge.  A red paired row of a margin-read
-scenario is read as the construction difference above and goes to the owner row
-``vector-mtp-pairing`` under ``reporting``.  A red exactness-witness row, or a red primary truth
-row, blocks the merge and gets a diagnosis.  A replication that raises is never redrawn.  No
-change may make a test less meaningful or easier to pass.
+**Page limits, declared before any run.**  The study has no size ladder.  The oracle bins grow
+as ``n^(2/3)`` (:func:`~tests.studies.oracle_density_bins.oracle_bins`), and the
+``longitudinal-mtp`` ladder carries the binned ratio's rate, so this study claims behaviour at
+n = 2,000 only.  The classifier route is read with the correctly specified one-feature
+classifier, so the study says nothing about a learned classifier's rate.  Of the density
+route's terms, the necessity pairs see the preimage sum, the Jacobian and the flag map's read
+of the natural ``D1``.  The ``D2`` density's and the ``D2`` map's reads of the natural ``D1``
+move the outcome-wrong positives by 0.42 and -0.19 SD only, so the fast tier
+(``tests/unit/test_vector_density_mutations.py``) is their witness.
 
 **Budget.**  Measured on this container (4 cores, one BLAS thread per worker, four workers) by
-the design probe that ``tests/unit/test_vector_mtp_design.py`` records.  Each figure is the mean
-seconds of one fit under that load, times the declared replications.
+the design probes that ``tests/unit/test_vector_mtp_design.py`` records.  Each figure is the
+mean seconds of one fit under that load, times the declared replications.
 
-==============================  ==========================  ==========  =====================
-phase                           fits                        CPU-hours   peak RSS per worker
-==============================  ==========================  ==========  =====================
-Python primary                  4 scenarios x 1,000         about 3     0.27 GiB
-``lmtp`` reference              4 scenarios x 1,000         not         the sibling
-                                                            measured    containers' figure
-``interval_calibration``        6 x 2,400 (38.5 s a set)    25.7        0.27 GiB
-``double_robustness``           6 x 1,000 (122 s a set)     33.9        0.27 GiB
-``preimage_necessity``          2 x 1,000 (21.2 s a pair)   5.9         0.27 GiB
-==============================  ==========================  ==========  =====================
+==============================  ==============================  ==========  =================
+phase                           fits                            CPU-hours   peak RSS a worker
+==============================  ==============================  ==========  =================
+Python primary                  4 scenarios x 1,000 (7.7 s a    2.1         0.28 GiB
+                                replication)
+``lmtp`` reference              4 scenarios x 1,000             not         see below
+                                                                measured
+``interval_calibration``        point density 24,000 x 3.1 s;   69.4        0.28 GiB
+                                two-node density 9,600 x 5.9 s;
+                                ordered density 19,200 x 6.0 s;
+                                classifiers 3 x 10,000 x 0.1
+                                to 0.2 s
+``double_robustness``           12 cells x 2,000 (78.1 s a set  43.4        0.28 GiB
+                                of 12)
+three necessity families        3 pairs x 1,000 (10.5, 11.7     9.4         0.28 GiB
+                                and 11.6 s a pair)
+==============================  ==============================  ==========  =================
 
-The point fit of the ordered law under ``full`` (33 s) is the largest single cost.  The
-property phase reserves :func:`~tests.studies.vector_mtp_properties.fit_bytes` (0.5 GiB) per
-worker, so :func:`~tests.parallel.memory_capped_workers` admits 12 workers on a 16 GiB host.
-The declared run is ``--jobs 12 --reference-jobs 3``: about 6 hours of wall time for the Python
-phases at 12 workers, plus the reference phase.
+The Python phases take about 124 CPU-hours.  The property phase reserves
+:func:`~tests.studies.vector_mtp_properties.fit_bytes` (0.5 GiB) per worker, so
+:func:`~tests.parallel.memory_capped_workers` admits 12 workers on a 16 GiB host.  At 12
+workers the Python phases take about 10.5 hours of wall time.  The declared run is
+``--jobs 12 --reference-jobs 3``.
+
+No ``R`` with ``lmtp`` runs in this container, so the reference phase is measured by the R smoke
+before the declared run.  Each replication makes 13 ``lmtp`` calls.  Each of the other three
+scenarios fits its three regimens.  The unsupplied pair fits ``natural course`` and ``ordered``
+with ``SL.logratio.ordered``, and ``natural course`` and ``full`` with ``SL.logratio.full``.
+The smoke runs 20 replications at ``--reference-jobs J`` in wall time ``W`` seconds.  The
+reference phase then needs about ``1000 W J / 20 / 3600`` CPU-hours.
 """
 
 from __future__ import annotations
@@ -173,7 +225,7 @@ RESAMPLING_SEED = 2026310101
 SMOKE_GATE = 1e-6
 #: Bounds wide enough that no cumulative probability of these laws reaches them.
 G_BOUNDS = (0.001, 1.0)
-REFERENCE = "natural"
+REFERENCE = "natural course"
 
 POINT_MIXED = "point_vector_mixed"
 POINT_CATEGORICAL = "point_vector_categorical"
@@ -249,6 +301,7 @@ ROBUSTNESS_LABELS = (
     "longitudinal_vector_density",
     "longitudinal_vector_ordered_density",
 )
+ROBUSTNESS_CONFIGURATIONS = ("both_correct", "outcome_correct", "outcome_wrong", "both_wrong")
 PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     "interval_calibration": tuple(
         f"{label}__{cell}"
@@ -258,11 +311,19 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     "double_robustness": tuple(
         f"{label}__{configuration}"
         for label in ROBUSTNESS_LABELS
-        for configuration in ("outcome_wrong", "both_wrong")
+        for configuration in ROBUSTNESS_CONFIGURATIONS
     ),
     "preimage_necessity": (
         "flag_scaled__declared_preimage",
         "flag_scaled__preimage_cut_control",
+    ),
+    "jacobian_necessity": (
+        "ordered_full__declared_jacobian",
+        "ordered_full__jacobian_drop_control",
+    ),
+    "image_necessity": (
+        "ordered_crossed__declared_image",
+        "ordered_crossed__shifted_read_control",
     ),
 }
 
@@ -302,12 +363,13 @@ STUDY = StudyRecord(
         "tests/canonical/lmtp_crossfit_adapter.R",
         "tests/canonical/lmtp_policy_adapter.R",
         "tests/canonical/lmtp_vector_adapter.R",
+        "tests/canonical/vector_mtp_logratio.R",
         "tests/canonical/vector_mtp_runner.R",
     ),
     runner_module="tests.studies.canonical_vector_mtp",
     properties_module="tests.studies.vector_mtp_properties",
     property_cells=PROPERTY_CELLS,
-    publication_policy="gated",
+    publication_policy="reporting",
 )
 
 REFERENCE_METADATA = {
@@ -319,14 +381,20 @@ REFERENCE_METADATA = {
         "lmtp cf_tmle and theta_dr on an LmtpTask with vector treatment nodes, every shifted "
         "component and the per-node ratio this package computed written beside the replicate "
         "data (no lmtp density ratio fitted); the ordered classifier scenario fits lmtp's own "
-        "stacked SL.glm classifier through cf_density_ratios"
+        "stacked classifier through cf_density_ratios with mtp = TRUE, one plan per fit, each "
+        "an unpenalized glm on that plan's log ratio computed inside the learner "
+        "(SL.logratio.<plan>)"
     ),
     "reference_adapter": "tests/canonical/lmtp_vector_adapter.R",
+    "reference_learners": "tests/canonical/vector_mtp_logratio.R",
     "pairing": {
         LONG_MIXED: "exact under SMOKE_GATE",
         POINT_MIXED: "default margins: the point fluctuations differ by construction",
         POINT_CATEGORICAL: "default margins: the point fluctuations differ by construction",
-        ORDERED_CLASSIFIER: "default margins unless the stacked-classifier parity check passes",
+        ORDERED_CLASSIFIER: (
+            "exact under SMOKE_GATE if the parity check passes; margin-read only for a "
+            "diagnosed, named numerical cause below PARITY_TOLERANCE; otherwise blocked"
+        ),
     },
 }
 
@@ -344,7 +412,10 @@ CONFIGURATION = {
         POINT_MIXED: "Oracle (flag probability and pooled-hazard bins)",
         POINT_CATEGORICAL: "OracleCells (exact joint probabilities)",
         LONG_MIXED: "Oracle (flag probability and pooled-hazard bins)",
-        ORDERED_CLASSIFIER: "StackedGLM (main-terms logistic on the stacked rows)",
+        ORDERED_CLASSIFIER: (
+            "OracleLogOdds per plan: an unpenalized logistic regression of the stack label on "
+            "the plan's true log ratio, computed inside the learner from each stacked row"
+        ),
     },
     "plans": {scenario: list(labels) for scenario, labels in LABELS.items()},
     "reference": REFERENCE,
@@ -420,8 +491,7 @@ def learners(
 
     ``outcome`` is ``"correct"`` or ``"wrong"`` (the prior, and the mean at the first node).
     ``mechanism`` is ``"oracle"``, ``"marginal"`` (the misspecified oracle), ``"log_odds"``
-    (:class:`~tests.studies.vector_mtp_common.OracleLogOdds` of ``label``), ``"stacked"``
-    (:class:`~tests.studies.vector_mtp_common.StackedGLM`) or ``"cells"``
+    (:class:`~tests.studies.vector_mtp_common.OracleLogOdds` of ``label``) or ``"cells"``
     (:class:`OracleCells`).  ``pseudo`` is ``"least_squares"`` (the comparator's ``SL.glm``)
     or ``"rich"`` (:class:`~tests.studies.vector_mtp_common.RichPseudo`).
     """
@@ -436,8 +506,6 @@ def learners(
         g: Any = common.Oracle(law, edges_of(frame, law), marginal=mechanism == "marginal")
     elif mechanism == "log_odds":
         g = common.OracleLogOdds(law, label)
-    elif mechanism == "stacked":
-        g = common.StackedGLM()
     elif mechanism == "cells":
         g = OracleCells()
     else:
@@ -550,8 +618,68 @@ def fit(frame: pd.DataFrame, scenario: str) -> Any:
     if scenario == LONG_MIXED:
         return fit_longitudinal(frame, law, labels)
     if scenario == ORDERED_CLASSIFIER:
-        return fit_longitudinal(frame, law, labels, ratio="classifier", mechanism="stacked")
+        return PlanFits(
+            {
+                plan: screen_classifier(
+                    fit_longitudinal(
+                        frame,
+                        law,
+                        (REFERENCE, plan),
+                        ratio="classifier",
+                        mechanism="log_odds",
+                        label=plan,
+                    )
+                )
+                for plan in CLASSIFIER_PLANS
+            }
+        )
     raise KeyError(scenario)
+
+
+#: The plans of the unsupplied pair.  Each is fitted with the reference in its own ``LTMLE``
+#: fit, with :class:`~tests.studies.vector_mtp_common.OracleLogOdds` on that plan's log ratio.
+#: The reference's mean is read off the first plan's fit, and each contrast off its own fit.
+CLASSIFIER_PLANS = ("ordered", "full")
+#: The ratio at which a fitted classifier probability reaches ``lmtp``'s clip at 0.999.
+CLASSIFIER_RATIO_SCREEN = 0.999 / (1.0 - 0.999)
+
+
+def screen_classifier(result: Any) -> Any:
+    """Refuse a fit whose classifier probability reaches 0.999 at any row.
+
+    ``lmtp`` reads ``pred / (1 - min(pred, 0.999))`` and this package ``u / (1 - u)`` below
+    ``1 - 1e-12``, so the two ratios agree only below 0.999.  The closed-form ratio's largest
+    value over 2,000,000 draws is 35.0 (``u = 0.972``).  The largest fitted ratio over the
+    1,000-draw design probe of the pair is 49.4 (``u = 0.980``).  The screen sits at 999, so it
+    must never bind.
+    """
+    for label, fitted in result.fits.items():
+        if fitted.node_ratio is not None and np.max(fitted.node_ratio) >= CLASSIFIER_RATIO_SCREEN:
+            raise RuntimeError(f"a fitted classifier probability of {label!r} reached 0.999")
+    return result
+
+
+class PlanFits:
+    """The unsupplied pair's fits, one per plan, read as one result.
+
+    Parameters
+    ----------
+    by_plan : dict
+        Each plan of :data:`CLASSIFIER_PLANS` mapped to its ``LTMLE`` result over
+        ``(natural course, plan)``.
+    """
+
+    def __init__(self, by_plan: dict[str, Any]) -> None:
+        self.by_plan = by_plan
+        first = by_plan[CLASSIFIER_PLANS[0]]
+        self.data = first.data
+        self.fits = {REFERENCE: first.fits[REFERENCE]} | {
+            plan: result.fits[plan] for plan, result in by_plan.items()
+        }
+
+    def __getitem__(self, name: str) -> Any:
+        plan = name[name.index("[") + 1 :].split(" vs ")[0].rstrip("]")
+        return self.by_plan[CLASSIFIER_PLANS[0] if plan == REFERENCE else plan][name]
 
 
 # ---------------------------------------------------------------------------- rows

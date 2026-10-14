@@ -55,7 +55,7 @@ map written in numpy, which the truths and the closed-form ratios read.
 ==================  ====================================================================
 plan                map
 ==================  ====================================================================
-``natural``         every component keeps its natural value
+``natural course``  every component keeps its natural value, at every node
 ``dose up``         ``Shift(0.5, cap=5.5)`` on the dose (``P`` and both nodes of ``L``)
 ``flag scaled``     the flag goes to 1, and the dose is multiplied by 1.25 (cap 5.5) where
                     the **natural** flag is 1 (``P`` and both nodes of ``L``): a flag move,
@@ -64,7 +64,15 @@ plan                map
                     the natural ``D1`` is at most 3 (``O``): an ordered read
 ``full``            the flag goes to 1 where the natural ``D1`` is at least 3, ``D1`` is
                     multiplied by 1.25 (cap 5.5) where the natural flag is 1, and ``D2`` as in
-                    ``ordered`` (``O``): every term of the induced density at once
+                    ``ordered`` (``O``): a flag move, a many-to-one preimage, a non-unit
+                    Jacobian and an ordered read at once.  The flag map's read of ``D1`` is
+                    not observable under this plan: ``D1`` moves only where the natural flag
+                    is 1, and the flag map sends those rows to 1 whichever ``D1`` it reads
+``crossed``         the flag goes to 1 where the natural ``D1`` is at least 3, and ``D1`` is
+                    multiplied by 1.25 (cap 5.5) where the natural flag is **0** (``O``).  A
+                    natural ``(0, D1)`` with ``2.4 <= D1 < 3`` keeps flag 0 and moves to
+                    ``D1' >= 3``, so the flag map's read of the natural ``D1`` (not ``D1'``)
+                    is observable (``image_necessity``)
 ``a2 off``          ``A2`` goes to 0 where ``A1`` is 1 (``C``)
 ``a1 on``           ``A1`` goes to 1 (``C``), many-to-one
 ==================  ====================================================================
@@ -102,7 +110,7 @@ import pandas as pd
 from scipy.special import expit
 from scipy.stats import norm
 from sklearn.base import BaseEstimator
-from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.linear_model import LinearRegression
 
 from cleverly.interventions import JointPolicy, ModifiedPolicy, Piece, Scale, Shift
 from cleverly.longitudinal import DynamicRegimen
@@ -119,10 +127,10 @@ SHIFT_HELD = CAP - STEP
 #: A scaled dose is held at its natural value above this.
 SCALE_HELD = CAP / FACTOR
 
-POINT_LABELS = ("natural", "dose up", "flag scaled")
-LONG_LABELS = ("natural", "dose up", "flag scaled")
-ORDERED_LABELS = ("natural", "ordered", "full")
-CATEGORICAL_LABELS = ("natural", "a2 off", "a1 on")
+POINT_LABELS = ("natural course", "dose up", "flag scaled")
+LONG_LABELS = ("natural course", "dose up", "flag scaled")
+ORDERED_LABELS = ("natural course", "ordered", "full")
+CATEGORICAL_LABELS = ("natural course", "a2 off", "a1 on")
 
 #: Gauss-Legendre order per segment of a dose integral, and over ``W1``.
 ORDER = 96
@@ -241,7 +249,7 @@ def flag_dose_map(label: str, f: Any, d: Any) -> tuple[np.ndarray, np.ndarray]:
     """One flag-and-dose node's plan in numpy: ``(F', D')`` from the natural ``(F, D)``."""
     f = np.asarray(f, dtype=float)
     d = np.asarray(d, dtype=float)
-    if label == "natural":
+    if label == "natural course":
         return f, d
     if label == "dose up":
         return f, shift_up(d)
@@ -276,7 +284,7 @@ def flag_dose_ratio(
 
     observed = np.where(f == 1.0, g(1.0, b), g(0.0, b))
     safe = np.where(observed > 0.0, observed, 1.0)
-    if label == "natural":
+    if label == "natural course":
         return np.ones_like(b)
     if label == "dose up":
         moved = np.where(
@@ -379,24 +387,45 @@ def ordered_map(label: str, f: Any, d1: Any, d2: Any) -> tuple[np.ndarray, np.nd
     f = np.asarray(f, dtype=float)
     d1 = np.asarray(d1, dtype=float)
     d2 = np.asarray(d2, dtype=float)
-    if label == "natural":
+    if label == "natural course":
         return f, d1, d2
     if label == "ordered":
         return f, scale_up(d1), _d2_up(d2, d1)
     if label == "full":
         flag = np.where(d1 >= KNEE, 1.0, f)
         return flag, np.where(f == 1.0, scale_up(d1), d1), _d2_up(d2, d1)
+    if label == "crossed":
+        flag = np.where(d1 >= KNEE, 1.0, f)
+        return flag, np.where(f == 0.0, scale_up(d1), d1), d2
     raise KeyError(label)
 
 
-def ordered_ratio(label: str, f: Any, b1: Any, b2: Any, w1: Any, w2: Any) -> np.ndarray:
+#: The deliberate defects :func:`ordered_ratio` can apply, for the necessity controls and
+#: the design test's exact-law shifts.  ``"jacobian"`` drops the inverse derivative of the
+#: ``D1`` map (``jacobian_necessity``).  ``"image"`` evaluates the flag map at the observed
+#: ``D1'`` instead of the preimage's natural ``D1`` (``image_necessity``).
+ORDERED_DEFECTS = ("jacobian", "image")
+
+
+def ordered_ratio(
+    label: str,
+    f: Any,
+    b1: Any,
+    b2: Any,
+    w1: Any,
+    w2: Any,
+    *,
+    defect: str | None = None,
+) -> np.ndarray:
     """The induced density ratio of an ordered-law plan at the observed ``(f, b1, b2)``.
 
     A sum over the candidate natural flag ``c``, the pieces of the ``D1`` map in cell ``c``,
     and the pieces of the ``D2`` map at the preimage ``beta1`` of ``D1``, of the preimage
     density times the inverse derivatives, kept where the flag map sends ``(c, beta1)`` to the
-    observed flag.
+    observed flag.  ``defect`` names one of :data:`ORDERED_DEFECTS`, or ``None``.
     """
+    if defect is not None and defect not in ORDERED_DEFECTS:
+        raise ValueError(f"unknown defect {defect!r}")
     f = np.asarray(f, dtype=float)
     b1 = np.asarray(b1, dtype=float)
     b2 = np.asarray(b2, dtype=float)
@@ -410,24 +439,39 @@ def ordered_ratio(label: str, f: Any, b1: Any, b2: Any, w1: Any, w2: Any) -> np.
         )
 
     observed = np.where(f == 1.0, g(1.0, b1, b2), g(0.0, b1, b2))
-    if label == "natural":
+    if label == "natural course":
         return np.ones_like(b1)
     reached = np.zeros_like(b1)
     for c in (0.0, 1.0):
-        scaled = label == "ordered" or (label == "full" and c == 1.0)
+        scaled = (
+            label == "ordered"
+            or (label == "full" and c == 1.0)
+            or (label == "crossed" and c == 0.0)
+        )
+        slope = 1.0 if defect == "jacobian" else 1.0 / FACTOR
         pieces1 = (
-            ((b1 / FACTOR, 1.0 / FACTOR, b1 <= CAP), (b1, 1.0, b1 > SCALE_HELD))
+            ((b1 / FACTOR, slope, b1 <= CAP), (b1, 1.0, b1 > SCALE_HELD))
             if scaled
             else ((b1, 1.0, np.ones_like(b1, dtype=bool)),)
         )
         for beta1, jacobian, valid1 in pieces1:
-            image = np.where(beta1 >= KNEE, 1.0, c) if label == "full" else np.full_like(b1, c)
+            read = b1 if defect == "image" else beta1
+            image = (
+                np.where(read >= KNEE, 1.0, c)
+                if label in {"full", "crossed"}
+                else np.full_like(b1, c)
+            )
             hit = valid1 & (image == f)
             small = beta1 <= KNEE
+            moves2 = label != "crossed"
             pieces2 = (
-                (b2 - STEP, small & (b2 <= CAP)),
-                (b2, small & (b2 > SHIFT_HELD)),
-                (b2, ~small),
+                (
+                    (b2 - STEP, small & (b2 <= CAP)),
+                    (b2, small & (b2 > SHIFT_HELD)),
+                    (b2, ~small),
+                )
+                if moves2
+                else ((b2, np.ones_like(b2, dtype=bool)),)
             )
             for beta2, valid2 in pieces2:
                 reached = reached + np.where(hit & valid2, g(c, beta1, beta2) * jacobian, 0.0)
@@ -667,7 +711,7 @@ def sample_categorical(n: int, seed: int) -> pd.DataFrame:
 def categorical_map(label: str, a1: Any, a2: Any) -> tuple[np.ndarray, np.ndarray]:
     a1 = np.asarray(a1, dtype=float)
     a2 = np.asarray(a2, dtype=float)
-    if label == "natural":
+    if label == "natural course":
         return a1, a2
     if label == "a2 off":
         return a1, np.where(a1 == 1.0, 0.0, a2)
@@ -755,7 +799,9 @@ def contrast_sd(law: str, label: str, *, draws: int = BOUND_DRAWS, chunk: int = 
     curve = np.empty(draws)
     for start in range(0, draws, chunk):
         part = frame.iloc[start : start + chunk]
-        curve[start : start + len(part)] = EIFS[law](label, part) - EIFS[law]("natural", part)
+        curve[start : start + len(part)] = EIFS[law](label, part) - EIFS[law](
+            "natural course", part
+        )
     return float(np.std(curve))
 
 
@@ -800,9 +846,9 @@ def _unit_slope(b: Any, h: Any) -> np.ndarray:
     return np.ones(len(b))
 
 
-def _flag_gate(h: Any, *, flag: str) -> np.ndarray:
-    """The scaled piece ends at 4.4 where the natural flag is one, and is empty elsewhere."""
-    return np.where(np.asarray(h[flag], dtype=float) == 1.0, SCALE_HELD, -np.inf)
+def _flag_gate(h: Any, *, flag: str, level: float = 1.0) -> np.ndarray:
+    """The scaled piece ends at 4.4 where the natural flag is ``level``, and is empty elsewhere."""
+    return np.where(np.asarray(h[flag], dtype=float) == level, SCALE_HELD, -np.inf)
 
 
 def _knee_gate(h: Any, *, dose: str) -> np.ndarray:
@@ -810,10 +856,10 @@ def _knee_gate(h: Any, *, dose: str) -> np.ndarray:
     return np.where(np.asarray(h[dose], dtype=float) <= KNEE, SHIFT_HELD, -np.inf)
 
 
-def _gated_scale(flag: str) -> ModifiedPolicy:
-    gate = partial(_flag_gate, flag=flag)
+def _gated_scale(flag: str, level: float = 1.0) -> ModifiedPolicy:
+    gate = partial(_flag_gate, flag=flag, level=level)
     return ModifiedPolicy(
-        f"scale where {flag} is 1",
+        f"scale where {flag} is {level:g}",
         pieces=(
             Piece(-np.inf, gate, _scale_map, _scale_inverse, _scale_slope, closed="right"),
             Piece(gate, np.inf, closed="right"),
@@ -836,7 +882,7 @@ def _gated_shift(dose: str) -> ModifiedPolicy:
 
 def flag_dose_policy(label: str, flag: str, dose: str) -> JointPolicy:
     """A flag-and-dose node's plan as a joint policy over the columns ``flag`` and ``dose``."""
-    if label == "natural":
+    if label == "natural course":
         return JointPolicy(label, components={}, policy_kind="known")
     if label == "dose up":
         return JointPolicy(label, components={dose: Shift(STEP, cap=CAP)}, policy_kind="known")
@@ -867,7 +913,7 @@ def long_regimens(labels: tuple[str, ...] = LONG_LABELS) -> dict[str, DynamicReg
 
 def ordered_policy(label: str) -> JointPolicy:
     """An ordered-law plan over ``F, D1, D2``, with ``D2`` reading the natural ``D1``."""
-    if label == "natural":
+    if label == "natural course":
         return JointPolicy(label, components={}, policy_kind="known")
     if label == "ordered":
         return JointPolicy(
@@ -891,6 +937,20 @@ def ordered_policy(label: str) -> JointPolicy:
             order=("D1", "D2"),
             policy_kind="known",
         )
+    if label == "crossed":
+        return JointPolicy(
+            label,
+            components={
+                "F": ModifiedPolicy(
+                    "flag on where D1 is large",
+                    apply=partial(_flag_if_knee, dose="D1"),
+                    policy_kind="known",
+                ),
+                "D1": _gated_scale("F", level=0.0),
+            },
+            order=("D1", "D2"),
+            policy_kind="known",
+        )
     raise KeyError(label)
 
 
@@ -903,7 +963,7 @@ def ordered_regimens(labels: tuple[str, ...] = ORDERED_LABELS) -> dict[str, Dyna
 
 
 def categorical_policy(label: str) -> JointPolicy:
-    if label == "natural":
+    if label == "natural course":
         return JointPolicy(label, components={}, policy_kind="known")
     if label == "a2 off":
         return JointPolicy(
@@ -1107,13 +1167,22 @@ class Oracle(BaseEstimator):
         return OracleDoseHazard(self.law, self.edges, self.marginal).predict_proba(x)
 
 
+#: The smallest ratio the log-ratio feature reads, so a zero ratio is a finite feature.
+RATIO_FLOOR = 1e-13
+
+
 class OracleLogOdds(BaseEstimator):
     r"""The correctly specified classifier of the stacked ratio route, on one oracle feature.
 
     The stacked classification of Section 5.4 of Díaz et al. (2023) has the odds
     :math:`g^d(a \mid h) / g(a \mid h)`.  This learner fits an unpenalized logistic regression
-    on the one feature :math:`\log r(a, h)`, the true log ratio of ``label``, so the true odds
-    are the model at ``(0, 1)``.  The design is the component block followed by the history.
+    on the one feature :math:`\log r(a, h)`, the true log ratio of ``label`` clipped below at
+    ``log(1e-13)``, so the true odds are the model at ``(0, 1)``.  The fit is IRLS to
+    convergence (:class:`~tests.studies.fractional_glm.QuasiBinomialGLM`), the score equations
+    R ``glm`` solves.  The feature is computed from each stacked row's own columns, so the copy
+    of a unit with label 1 reads the plan's value and the copy with label 0 the natural one.
+    ``tests/canonical/vector_mtp_logratio.R`` is its R twin on the ordered law, which the
+    comparator's classifier reads.  The design is the component block followed by the history.
 
     ==========  =====  ====================================
     law         width  design
@@ -1164,13 +1233,13 @@ class OracleLogOdds(BaseEstimator):
 
     def _feature(self, X: Any) -> np.ndarray:
         ratio = self._ratio(np.asarray(X, dtype=float))
-        return np.log(np.clip(ratio, 1e-13, None)).reshape(-1, 1)
+        return np.log(np.clip(ratio, RATIO_FLOOR, None)).reshape(-1, 1)
 
     def fit(self, X: Any, y: Any, sample_weight: Any = None) -> OracleLogOdds:
-        self.model_ = LogisticRegression(penalty=None, max_iter=1000).fit(
-            self._feature(X), np.asarray(y), sample_weight=sample_weight
+        self.model_ = QuasiBinomialGLM().fit(
+            self._feature(X), np.asarray(y, dtype=float), sample_weight=sample_weight
         )
-        self.classes_ = self.model_.classes_
+        self.classes_ = np.array([0.0, 1.0])
         return self
 
     def predict_proba(self, X: Any) -> np.ndarray:
@@ -1251,23 +1320,3 @@ class RichPseudo(BaseEstimator):
 
     def predict(self, X: Any) -> np.ndarray:
         return np.asarray(self.model_.predict(self._design(X)), dtype=float)
-
-
-class StackedGLM(BaseEstimator):
-    """The unpenalized main-terms logistic GLM of the unsupplied classifier pair.
-
-    ``lmtp``'s ``SL.glm`` fits ``glm(..., family = binomial())`` on the stacked rows by IRLS to
-    R's relative deviance tolerance.  :class:`~tests.studies.fractional_glm.QuasiBinomialGLM`
-    runs the same score equations to the same tolerance, so the two sides fit one model.
-    """
-
-    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> StackedGLM:
-        self.model_ = QuasiBinomialGLM().fit(
-            np.asarray(X, dtype=float), np.asarray(y, dtype=float), sample_weight=sample_weight
-        )
-        self.classes_ = np.array([0.0, 1.0])
-        return self
-
-    def predict_proba(self, X: Any) -> np.ndarray:
-        p = np.clip(np.asarray(self.model_.predict(np.asarray(X, dtype=float))), 0.0, 1.0)
-        return np.column_stack([1.0 - p, p])
