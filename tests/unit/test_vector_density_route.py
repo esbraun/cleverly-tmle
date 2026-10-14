@@ -41,7 +41,7 @@ import tests.discrete_law_vector_density as geo
 from cleverly.data import CausalData
 from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import DataError, LongitudinalError, PositivityWarning
+from cleverly.exceptions import CapabilityError, DataError, LongitudinalError, PositivityWarning
 from cleverly.interventions import (
     JointPolicy,
     ModifiedPolicy,
@@ -1466,3 +1466,38 @@ def test_the_same_pieces_without_the_gap_fit() -> None:
     )
     result = _fit_geo_policy(closed)
     assert np.isfinite(result.psi("ey_policy[closed]"))
+
+
+# ------------------------------------------------------------------ monotonicity (review LOW-5)
+
+
+def double_on_grid(a: Any, h: Any) -> np.ndarray:
+    """Doubles dose 2 where dose 1 is a grid dose, and is flat off the grid."""
+    on = np.isin(np.asarray(h["D1"], dtype=float), geo.DOSES)
+    return np.where(on, 2.0 * np.asarray(a, dtype=float), 3.0)
+
+
+def test_a_map_flat_only_on_a_counterfactual_frame_names_the_conservative_reading() -> None:
+    """The monotonicity check reads counterfactual frames over the observed dose range.
+
+    Dose 1's shift reads dose 2's map at ``beta_1`` off the grid, where the map is flat.
+    The refusal says which frames it read and that the reading is conservative.
+    """
+    policy = JointPolicy(
+        "flat off the grid",
+        components={
+            "D1": Shift(0.5, cap=None),
+            "D2": ModifiedPolicy(
+                "flat",
+                pieces=(Piece(-INF, 6.0, double_on_grid, halve, half_slope), Piece(6.0, INF)),
+                policy_kind="known",
+            ),
+        },
+        policy_kind="known",
+    )
+    with pytest.raises(CapabilityError) as caught:
+        _fit_geo_policy(policy)
+    message = str(caught.value)
+    assert "is not strictly monotone there" in message
+    assert "preimages of the earlier doses" in message
+    assert "the check is conservative there" in message

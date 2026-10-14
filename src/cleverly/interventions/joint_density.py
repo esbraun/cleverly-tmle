@@ -753,6 +753,15 @@ def _check_preimages(
             )
 
 
+#: How the declaration checks read a counterfactual frame, appended to their refusals.
+_COUNTERFACTUAL_FRAMES = (
+    ". The check reads each frame the density ratio evaluates, which holds a candidate "
+    "categorical cell or the preimages of the earlier doses, over the observed range of the "
+    "dose, because the estimated density can be positive anywhere in that range before any "
+    "learner runs. A map that is monotone only on a narrower true support of the dose on "
+    "such a frame is refused: the check is conservative there"
+)
+
 #: The most observed values of a dose that the coverage check reads at each frame.
 _COVERAGE_POINTS = 64
 
@@ -882,6 +891,7 @@ def _enumerate(
                         frame,
                         checked,
                         here,
+                        note=_COUNTERFACTUAL_FRAMES,
                     )
             paths = grown
         for betas, valid, jacobian in paths:

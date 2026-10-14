@@ -1498,9 +1498,19 @@ def _check_partition(
 
 
 def _check_monotone(
-    name: str, branch: _PieceBranch, a: FloatArray, frame: FrameSource, rows: BoolArray, where: str
+    name: str,
+    branch: _PieceBranch,
+    a: FloatArray,
+    frame: FrameSource,
+    rows: BoolArray,
+    where: str,
+    note: str = "",
 ) -> None:
-    """Each map is strictly monotone on its piece, and its inverse inverts it."""
+    """Each map is strictly monotone on its piece, and its inverse inverts it.
+
+    The grid spans the piece inside the observed range of ``a`` on every row's frame.
+    ``note`` ends each refusal, for a caller whose frames are not the observed ones.
+    """
     if not rows.any():
         return
     low_observed, high_observed = float(a[rows].min()), float(a[rows].max())
@@ -1531,7 +1541,7 @@ def _check_monotone(
                 "is not strictly monotone there. That parameter is not pathwise "
                 "differentiable (Díaz et al. 2023, Section 4, journal page 850), so no root-n "
                 "interval exists. Collapse the dose into categories and declare the policy on "
-                "a categorical node, or use a piecewise shift that moves every dose"
+                "a categorical node, or use a piecewise shift that moves every dose" + note
             )
         for point, image in zip(grid, mapped, strict=True):
             with np.errstate(all="ignore"):
@@ -1544,7 +1554,7 @@ def _check_monotone(
                 raise DataError(
                     f"policy {name!r} at {where}: inverse(apply(a)) differs from a by "
                     f"{float(gap[row]):.3g} at a = {float(point[row]):g} on piece {index}. "
-                    "The density ratio reads the inverse, so it must be exact on every piece"
+                    "The density ratio reads the inverse, so it must be exact on every piece" + note
                 )
             flat_slope = usable & ~(np.isfinite(slope) & (slope != 0.0))
             if flat_slope.any():
@@ -1552,7 +1562,7 @@ def _check_monotone(
                 raise DataError(
                     f"policy {name!r} at {where}: the derivative of the inverse is "
                     f"{float(slope[row])!r} at b = {float(image[row]):g} on piece {index}. "
-                    "It must be finite and nonzero, since the density ratio multiplies by it"
+                    "It must be finite and nonzero, since the density ratio multiplies by it" + note
                 )
             # The declared derivative of the inverse is 1 / d'(a) at b = d(a).  A central
             # difference of the declared map at the same point checks its value, which the
@@ -1571,7 +1581,7 @@ def _check_monotone(
                     f"{float(slope[row]):.6g} at b = {float(image[row]):g} on piece {index}, "
                     f"but 1 / d'(a) from the declared map is {float(expected[row]):.6g} at "
                     f"a = {float(point[row]):g}. The density ratio multiplies by this value, "
-                    "so declare the derivative of the inverse map"
+                    "so declare the derivative of the inverse map" + note
                 )
 
 
