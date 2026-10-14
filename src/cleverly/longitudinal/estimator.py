@@ -169,10 +169,12 @@ from .regimen import (
     Regimen,
     RegimenSpec,
     attach_policy_numerators,
+    declares_tuned,
     describe_plan,
     refuse_regimen_rules,
     resolve_plans,
     resolve_regimens,
+    resolve_tuned_plans,
     tilt_mix_message,
 )
 from .sdr import FoldMechanism, SDRCell, fit_cells_sdr, fit_fold_mechanisms
@@ -3345,7 +3347,24 @@ class _SequentialEstimator:
         )
         # Every rule is called here and nowhere else, so a mask and the design the
         # mechanism was evaluated at cannot disagree about what the regimen assigned.
-        plans = resolve_plans(regimens, prepared)
+        tuned_folds: Folds | None = None
+        if declares_tuned(regimens):
+            # A tuned cap is fitted before any learner, on each outer fold's training rows as
+            # well as on every row at risk, so the split is drawn first (X40 part (e)).
+            tuned_folds = self._folds(prepared)
+            plans = resolve_tuned_plans(regimens, prepared, tuned_folds)
+            # A fold-average plan reports under its own label; a reference that is one is
+            # read under that label too.
+            for declared, plan in zip(regimens, plans, strict=True):
+                if plan.fold_average and declared.label == reference.label:
+                    reference = plan.regimen
+            regimens = tuple(
+                plan.regimen if plan.fold_average else declared
+                for declared, plan in zip(regimens, plans, strict=True)
+            )
+            self._refuse_fold_average_compositions(plans)
+        else:
+            plans = resolve_plans(regimens, prepared)
         # An odds tilt node reads the mechanism, so each estimator decides here, before any
         # learner, whether it fits one.
         plans = self._resolve_tilts(prepared, plans)
@@ -3357,7 +3376,7 @@ class _SequentialEstimator:
             # The refusal ``run_bootstrap`` would raise after the fit, raised before any
             # learner.
             raise ValueError("resampling='cluster' requires the data to carry cluster ids")
-        folds = self._folds(prepared)
+        folds = self._folds(prepared) if tuned_folds is None else tuned_folds
         # Checked at the call site rather than inside ``_folds``, so that a subclass that
         # draws its own split is held to the same rule: a cluster split across folds puts a
         # unit's own cluster in the training fold of the rows it predicts.  A no-op without
@@ -3887,6 +3906,30 @@ class _SequentialEstimator:
             f"reference={self.reference!r} is not one of the declared regimens "
             f"{[regimen.label for regimen in regimens]}"
         )
+
+    def _refuse_fold_average_compositions(self, plans: Sequence[Plan]) -> None:
+        """Refuse a fold-average target with a working model or the full-refit bootstrap.
+
+        Each outer fold's map is fitted on that fold's training rows, so the target depends
+        on the split (X40 plan section 2.4).  A working model would project
+        split-dependent targets, and each bootstrap resample refits every fold's map.
+        """
+        if not any(plan.fold_average for plan in plans):
+            return
+        if self.msm is not None:
+            raise CapabilityError(
+                "target='fold_average' is not combined with msm=: each fold's map is fitted "
+                "on that fold's training rows, so a working model would project targets that "
+                "depend on the split. Fit the fold-average target without msm=, or tune the "
+                "map with a finite-dimensional tuner and declare target='population'"
+            )
+        if self.n_bootstrap:
+            raise CapabilityError(
+                "target='fold_average' refuses the full-refit bootstrap (n_bootstrap=0). Each "
+                "resample refits every fold's map, so each draw has a different target. The "
+                "fit reports the fold-average variance of Hubbard, Kherad-Pajouh and van der "
+                "Laan (2016), Theorem 1"
+            )
 
     def _refuse_unbounded_cross_fitted_scale(self, data: LongitudinalData) -> None:
         """Refuse a cross-fitted continuous outcome without a declared ``q_bounds``.

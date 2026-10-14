@@ -59,7 +59,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, TypeAlias
+from functools import partial
+from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
 import numpy as np
 
@@ -78,6 +79,8 @@ from ..interventions.policy import (
     POLICY_TYPES,
     JointComponent,
     JointPolicy,
+    Scale,
+    Shift,
     check_continuous_policy,
     describe_policy,
     discrete_assignments,
@@ -86,7 +89,20 @@ from ..interventions.policy import (
     lazy_frame,
     policy_branches,
     refuse_policy_declarations,
+    resolve_tuned_policy,
+    tuned_cap_parts,
+    tuned_policy,
 )
+from ..interventions.tuning import (
+    FOLD_AVERAGE_ONE_FOLD,
+    DoseQuantile,
+    FittedTuner,
+    SupportBoundary,
+    fit_tuner,
+    refuse_outcome_tuners,
+    tuner_influence,
+)
+from ..learners.crossfit import Folds
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle avoidance, types only
     from ..interventions.policy import Policy
@@ -103,6 +119,7 @@ __all__ = [
     "refuse_regimen_rules",
     "resolve_plans",
     "resolve_regimens",
+    "resolve_tuned_plans",
 ]
 
 #: One node of a plan: a categorical label, a rule reading that node's history, a known
@@ -657,6 +674,17 @@ class Plan:
     #: Per node, the odds multiplier of a tilt node, and ``None`` elsewhere.  Empty without
     #: a tilt node.
     tilt_deltas: tuple[float | None, ...] = ()
+    #: The tuned nodes of a plan whose caps a fit read from the treatment law (X40 part
+    #: (e)), in time order.  Empty on every other plan.
+    tuning: tuple[NodeTuning, ...] = ()
+    #: Per outer fold, the plan at the tuners fitted on that fold's training rows.  Empty
+    #: in sample and on a plan with no tuned node.
+    fold_plans: tuple[Plan, ...] = ()
+    #: The outer split the fold plans belong to, or ``None``.
+    folds: Folds | None = None
+    #: Whether the plan's target is the fold average: then row ``i``'s targets are those of
+    #: the fold that holds row ``i`` out, and each fold is targeted on its own rows.
+    fold_average: bool = False
 
     @property
     def label(self) -> str:
@@ -1047,6 +1075,262 @@ def _resolve_plan(regimen: RegimenSpec, data: LongitudinalData, *, collapse: boo
         policy_targets=tuple(targets) if any(t is not None for t in targets) else (),
         mtp_assignments=tuple(assignments) if any(a is not None for a in assignments) else (),
         tilt_deltas=tuple(deltas) if any(d is not None for d in deltas) else (),
+    )
+
+
+@dataclass(frozen=True)
+class NodeTuning:
+    """One tuned node of a plan: the tuner fitted on the at-risk rows, and its curve parts.
+
+    Parameters
+    ----------
+    time : int
+        The node, counted from one.
+    policy : object
+        The declared tuned :class:`~cleverly.interventions.Shift` or
+        :class:`~cleverly.interventions.Scale`.
+    fitted : FittedTuner
+        The tuner fitted on every row at risk at the node: :math:`\\theta_n`.
+    fold_fits : tuple of FittedTuner
+        Per outer fold, the tuner fitted on that fold's training rows at risk.  Empty in
+        sample.
+    influence : FloatArray or None
+        ``(n, p)`` the tuner's influence function on the population target, ``None`` on the
+        fold-average target.
+    boundary : FloatArray
+        ``(n,)`` :math:`c_t(H_t)` at :math:`\\theta_n`.
+    edge : FloatArray
+        ``(n,)`` :math:`e_t(H_t)`, the last dose the cap lets move.
+    gradient : FloatArray
+        ``(n, p)`` :math:`\\partial c_t / \\partial\\theta_t`.
+    slope : float
+        :math:`|e_t'|`.
+    at_risk : BoolArray
+        ``(n,)`` the rows at risk at the node.
+    """
+
+    time: int
+    policy: Any
+    fitted: FittedTuner
+    fold_fits: tuple[FittedTuner, ...]
+    influence: FloatArray | None
+    boundary: FloatArray
+    edge: FloatArray
+    gradient: FloatArray
+    slope: float
+    at_risk: BoolArray
+
+
+#: What a fold-average plan appends to its regimen's label in every reported name.
+FOLD_AVERAGE_SUFFIX = ", fold average"
+
+
+def declares_tuned(regimens: Sequence[RegimenSpec]) -> bool:
+    """Whether any regimen holds a map whose cap is a tuner.
+
+    Parameters
+    ----------
+    regimens : sequence of Regimen or DynamicRegimen
+        The resolved regimens.
+
+    Returns
+    -------
+    bool
+        ``True`` when some node is a tuned :class:`~cleverly.interventions.Shift` or
+        :class:`~cleverly.interventions.Scale`.
+    """
+    return any(
+        isinstance(regimen, DynamicRegimen) and any(tuned_policy(node) for node in regimen.plan)
+        for regimen in regimens
+    )
+
+
+def _regimen_target(regimen: DynamicRegimen) -> str | None:
+    targets = {
+        str(node.target)
+        for node in regimen.plan
+        if isinstance(node, (Shift, Scale)) and tuned_policy(node)
+    }
+    if len(targets) > 1:
+        raise CapabilityError(
+            f"regimen {regimen.label!r} declares the targets {sorted(targets)} on its tuned "
+            "maps. One regimen is one parameter, so its tuned maps declare one target"
+        )
+    return next(iter(targets)) if targets else None
+
+
+def resolve_tuned_plans(
+    regimens: Sequence[RegimenSpec],
+    data: LongitudinalData,
+    folds: Folds,
+) -> tuple[Plan, ...]:
+    """Resolve every regimen, fitting each tuned cap before any learner (X40 part (e)).
+
+    A regimen without a tuned node is :func:`resolve_plans` exactly.  At a tuned node the
+    tuner is fitted on the rows at risk at the node, on their observed doses and policy
+    frame.  ``target="population"`` resolves the plan at that fit, :math:`\\theta_n`, and
+    records the tuner's influence function.  On a cross-fitted fit each outer fold also
+    gets the plan at its training rows' fit, :math:`\\theta^{(-k)}`, which that fold's
+    untargeted recursion and its classifier read (plan section 2.5, M3).
+    ``target="fold_average"`` resolves one plan per outer fold, at its training rows' fit,
+    and the returned plan holds, at row ``i``, the doses of the fold that holds ``i`` out.
+    Each fold plan runs the declared-support and atom checks over every row, since a fold's
+    training rows take its map in their pseudo-outcomes.
+
+    Parameters
+    ----------
+    regimens : sequence of Regimen or DynamicRegimen
+        The resolved regimens, in report order.
+    data : LongitudinalData
+        The validated panel.
+    folds : Folds
+        The outer split.
+
+    Returns
+    -------
+    tuple of Plan
+        One per regimen, in the order given.
+
+    Raises
+    ------
+    CapabilityError
+        R-e3 for a tuner that reads an outcome column, R-e4 for the fold-average target on
+        one fold, and a tuned cap at a node that does not hold one dose.
+    """
+    plans = []
+    for regimen in regimens:
+        if not (
+            isinstance(regimen, DynamicRegimen) and any(tuned_policy(node) for node in regimen.plan)
+        ):
+            plans.append(_resolve_plan(regimen, data, collapse=True))
+            continue
+        plans.append(_resolve_tuned_plan(regimen, data, folds))
+    return tuple(plans)
+
+
+def _outcome_columns(data: LongitudinalData) -> tuple[str, ...]:
+    names = [data.outcome_name] if getattr(data, "outcome_name", None) else []
+    names.extend(getattr(data, "event_names", None) or ())
+    return tuple(str(name) for name in names if name)
+
+
+def _resolve_tuned_plan(regimen: DynamicRegimen, data: LongitudinalData, folds: Folds) -> Plan:
+    from dataclasses import replace
+
+    target = _regimen_target(regimen)
+    if target == "fold_average":
+        # The fold-average target is a different parameter from the population one, so its
+        # report names it (X40 plan section 2.4): ``ey_regimen[<label>, fold average]``.
+        regimen = replace(regimen, label=f"{regimen.label}{FOLD_AVERAGE_SUFFIX}")
+    tuned_nodes = [
+        (time, node, cast(DoseQuantile | SupportBoundary, node.cap))
+        for time, node in enumerate(regimen.plan, start=1)
+        if isinstance(node, (Shift, Scale)) and tuned_policy(node)
+    ]
+    refuse_outcome_tuners(
+        [(node.name, tuner) for _, node, tuner in tuned_nodes], _outcome_columns(data)
+    )
+    if target == "fold_average" and folds.is_single:
+        raise CapabilityError(FOLD_AVERAGE_ONE_FOLD)
+    for time, node, _ in tuned_nodes:
+        if data.node_kind(time) != "continuous":
+            raise CapabilityError(
+                f"regimen {regimen.label!r} tunes the cap of {node.name!r} at the node "
+                f"{data.decision_name(time)!r}, which is not one continuous dose. A tuned cap "
+                "reads a quantile of the dose law, which has a density only at a continuous "
+                "node"
+            )
+    weights = data.weights
+    tunings: list[NodeTuning] = []
+    in_sample: dict[int, RuleNode] = {}
+    by_fold: list[dict[int, RuleNode]] = [
+        {} for _ in range(0 if folds.is_single else folds.n_folds)
+    ]
+    for time, node, tuner in tuned_nodes:
+        reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
+        doses = np.nan_to_num(data.node_codes(time), nan=0.0)
+        frame = lazy_frame(partial(data.policy_frame, time))
+        fitted = fit_tuner(tuner, doses, frame, reachable, weights)
+        fold_fits: list[FittedTuner] = []
+        if not folds.is_single:
+            for k, (train, _) in enumerate(folds):
+                rows = np.zeros(data.n, dtype=bool)
+                rows[train] = True
+                fold_fit = fit_tuner(tuner, doses, frame, reachable & rows, weights)
+                fold_fits.append(fold_fit)
+                by_fold[k][time] = resolve_tuned_policy(node, fold_fit)
+        in_sample[time] = resolve_tuned_policy(node, fitted)
+        influence = (
+            tuner_influence(fitted, doses, frame, reachable, weights)
+            if target == "population"
+            else None
+        )
+        boundary, edge, gradient, slope = tuned_cap_parts(node, fitted, frame(), data.n)
+        tunings.append(
+            NodeTuning(
+                time=time,
+                policy=node,
+                fitted=fitted,
+                fold_fits=tuple(fold_fits),
+                influence=influence,
+                boundary=boundary,
+                edge=edge,
+                gradient=gradient,
+                slope=slope,
+                at_risk=reachable,
+            )
+        )
+
+    def at(resolved: Mapping[int, RuleNode]) -> DynamicRegimen:
+        plan = tuple(resolved.get(time, node) for time, node in enumerate(regimen.plan, start=1))
+        return replace(regimen, plan=plan)
+
+    fold_plans = tuple(_resolve_plan(at(nodes), data, collapse=True) for nodes in by_fold)
+    if target == "population":
+        main = _resolve_plan(at(in_sample), data, collapse=True)
+        return replace(
+            main,
+            tuning=tuple(tunings),
+            fold_plans=fold_plans,
+            folds=None if folds.is_single else folds,
+        )
+    return _stitched_plan(regimen, fold_plans, folds, tuple(tunings))
+
+
+def _stitched_plan(
+    regimen: DynamicRegimen,
+    fold_plans: tuple[Plan, ...],
+    folds: Folds,
+    tunings: tuple[NodeTuning, ...],
+) -> Plan:
+    """The fold-average plan: at row ``i``, the doses of the fold that holds ``i`` out."""
+    from dataclasses import replace
+
+    first = fold_plans[0]
+    owner = np.asarray(folds.assignment)
+    targets: list[tuple[FloatArray, ...] | None] = []
+    for time in range(1, int(first.values.shape[1]) + 1):
+        branches = first.carry_targets(time)
+        if branches is None:
+            targets.append(None)
+            continue
+        stitched = []
+        for index in range(len(branches)):
+            column = np.array(branches[index], dtype=float, copy=True)
+            for k, plan in enumerate(fold_plans):
+                own = plan.carry_targets(time)
+                assert own is not None
+                column[owner == k] = np.asarray(own[index])[owner == k]
+            stitched.append(column)
+        targets.append(tuple(stitched))
+    return replace(
+        first,
+        regimen=regimen,
+        policy_targets=tuple(targets),
+        tuning=tunings,
+        fold_plans=fold_plans,
+        folds=folds,
+        fold_average=True,
     )
 
 
