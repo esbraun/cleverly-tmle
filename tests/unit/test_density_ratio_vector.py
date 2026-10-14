@@ -186,5 +186,7 @@ def test_a_joint_policy_refuses_what_a_component_cannot_hold() -> None:
 
 def test_a_joint_policy_has_no_scalar_branches() -> None:
     joint = JointPolicy("j", components={"D1": Shift(1.0, cap=2.0)}, policy_kind="known")
-    with pytest.raises(CapabilityError, match="applies at a vector node of a longitudinal fit"):
+    with pytest.raises(
+        CapabilityError, match="applies at a vector node of a longitudinal fit, or at a point"
+    ):
         policy_branches(joint)

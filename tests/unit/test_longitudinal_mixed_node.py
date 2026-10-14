@@ -762,7 +762,9 @@ def test_a_joint_policy_on_a_point_treatment_is_refused() -> None:
         )
     joint = JointPolicy("j", components={"D1": Shift(1.0, cap=2.0)}, policy_kind="known")
     with (
-        pytest.raises(CapabilityError, match="applies at a vector node of a longitudinal fit"),
+        pytest.raises(
+            CapabilityError, match="applies at a vector node of a longitudinal fit, or at a point"
+        ),
         warnings.catch_warnings(),
     ):
         warnings.simplefilter("ignore")

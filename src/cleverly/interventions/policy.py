@@ -1223,8 +1223,9 @@ def policy_branches(policy: object) -> tuple[tuple[float, _Branch], ...]:
     if isinstance(policy, JointPolicy):
         raise CapabilityError(
             f"policy {policy.name!r} is a JointPolicy, which declares one policy per component "
-            "of a vector treatment node. This route reads a treatment of one column. A "
-            "JointPolicy applies at a vector node of a longitudinal fit"
+            "of a vector treatment. This route reads a treatment of one column. A "
+            "JointPolicy applies at a vector node of a longitudinal fit, or at a point "
+            "treatment=[...] of several columns"
         )
     raise DataError(
         f"{policy!r} is not a modified treatment policy. Declare Shift, Scale, Piecewise, "
