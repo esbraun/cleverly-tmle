@@ -101,17 +101,17 @@ def test_clipping_the_node_regression_moves_the_estimate() -> None:
 
 def test_the_default_pseudo_learner_is_unclipped() -> None:
     """SDR's default regresses unbounded; LTMLE's default keeps its ``[0, 1]`` clip."""
-    sdr = SDR({"always": 1})._pseudo_learner()
+    sdr = SDR({"always": 1})._pseudo_learner(None)
     assert isinstance(sdr, SuperLearner)
     assert sdr.task == "regression"
     assert sdr.clip is None
-    assert LTMLE({"always": 1})._pseudo_learner().clip == (0.0, 1.0)
+    assert LTMLE({"always": 1})._pseudo_learner(None).clip == (0.0, 1.0)
 
 
 def test_an_outcome_learner_still_stands_in_for_the_pseudo_learner() -> None:
     """The fallback order is LTMLE's: ``outcome_learner`` before the default library."""
     outcome = DummyRegressor()
-    assert SDR({"always": 1}, outcome_learner=outcome)._pseudo_learner() is outcome
+    assert SDR({"always": 1}, outcome_learner=outcome)._pseudo_learner(None) is outcome
 
 
 # ------------------------------------------------------------------ T7

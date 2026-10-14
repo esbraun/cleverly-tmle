@@ -24,6 +24,7 @@ categorized API tables.
    cleverly.CausalResult
    cleverly.estimators.TMLEResult
    cleverly.longitudinal.LongitudinalResult
+   cleverly.longitudinal.LongitudinalRepeat
    cleverly.fluctuation.Fluctuation
    cleverly.fluctuation.FoldFluctuation
    cleverly.ParameterKey

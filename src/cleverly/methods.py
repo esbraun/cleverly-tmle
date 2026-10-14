@@ -186,8 +186,8 @@ class CrossFitting:
     learner_folds : int, default=5
         Inner folds used by ensemble learners.
     repeats : int, default=1
-        Independent outer-fold assignments to combine by their median. A value above one
-        requires ``enabled=True``.
+        Independent outer-fold assignments to combine by their median, on a point-treatment
+        or a longitudinal design. A value above one requires ``enabled=True``.
     stratify_by : {"none", "treatment", "treatment+outcome"}, default="none"
         Fold-stratification policy. ``"none"`` draws folds that read neither the
         treatment nor the outcome, and it is the only value a fit that draws a split
@@ -537,7 +537,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
 #: Point-engine settings with no longitudinal implementation. The public names are kept beside
 #: their normalized fields so an error names the declaration the caller wrote. ``cross_fit`` is
 #: deliberately absent: the longitudinal translation supports it by resolving ``False`` to
-#: ``n_folds=1``. All 18 settings below must either acquire a longitudinal derivation or remain
+#: ``n_folds=1``. All 15 settings below must either acquire a longitudinal derivation or remain
 #: explicit refusals; dropping one from the translation is never a supported interpretation.
 _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("models", "missingness_learner", "missingness_learner"),
@@ -546,7 +546,6 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("models", "screen_treatment", "screen_treatment"),
     ("models", "screen_threshold", "screen_threshold"),
     ("models", "min_retain", "min_retain"),
-    ("cross_fitting", "repeats", "repeats"),
     ("cross_fitting", "stratify_by", "stratify_folds"),
     ("cross_fitting", "targeting_scheme", "targeting_scheme"),
     ("cross_fitting", "fold_evaluation", "cv_evaluation"),
@@ -751,6 +750,7 @@ class TMLEMethod:
                     "censoring_learner": models.censoring_learner,
                     "n_bootstrap": inference.n_bootstrap,
                     "bootstrap_resampling": inference.bootstrap_resampling,
+                    "repeats": cross.repeats,
                 }
             )
             # Longitudinal cumulative bounds have a fixed-pair contract. ``auto`` is a

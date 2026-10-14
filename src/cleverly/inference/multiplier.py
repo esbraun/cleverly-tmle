@@ -135,7 +135,7 @@ from .._inference_status import FEW_CLUSTER_THRESHOLD
 from .._typing import BoolArray, FloatArray, IntArray
 from ..exceptions import CapabilityError, refuse_inference
 from .cluster import cluster_sums
-from .influence import ParameterEstimate
+from .influence import ParameterEstimate, with_precedent_status
 
 #: Why no band covers an estimate with a Student t reference.
 T_REFERENCE_BAND_REFUSAL = (
@@ -145,7 +145,12 @@ T_REFERENCE_BAND_REFUSAL = (
     "intervals, which use the t reference."
 )
 
-__all__ = ["SimultaneousBands", "multiplier_critical_value", "simultaneous_bands"]
+__all__ = [
+    "SimultaneousBands",
+    "median_bands",
+    "multiplier_critical_value",
+    "simultaneous_bands",
+]
 
 MultiplierKind = Literal["rademacher", "mammen", "normal"]
 
@@ -186,6 +191,9 @@ class SimultaneousBands:
         Multiplier draws behind the critical value.
     kind : str
         Distribution the multiplier weights were drawn from.
+    draw_critical_values : tuple of float
+        On a repeated longitudinal fit, the critical value of each draw of the
+        cross-fitting split, whose median is :attr:`critical_value`. Empty otherwise.
     """
 
     critical_value: float
@@ -193,6 +201,7 @@ class SimultaneousBands:
     alpha: float
     n_replicates: int
     kind: str
+    draw_critical_values: tuple[float, ...] = ()
 
     @property
     def pointwise_critical_value(self) -> float:
@@ -454,6 +463,34 @@ def simultaneous_bands(
         (:attr:`~cleverly.inference.ParameterEstimate.reference_df`), because no source
         gives a t-calibrated band.
     """
+    items = _checked_items(estimates)
+    n = items[0][1].n
+    ic = np.column_stack([estimate.influence_curve for _, estimate in items])
+    se = np.array([estimate.std_error for _, estimate in items])
+    critical = multiplier_critical_value(
+        ic,
+        se,
+        n=n,
+        cluster=cluster,
+        alpha=alpha,
+        n_replicates=n_replicates,
+        kind=kind,
+        random_state=random_state,
+    )
+    bands = _band_endpoints(items, critical)
+    return SimultaneousBands(
+        critical_value=critical,
+        bands=bands,
+        alpha=alpha,
+        n_replicates=n_replicates,
+        kind=kind,
+    )
+
+
+def _checked_items(
+    estimates: Mapping[str, ParameterEstimate] | Sequence[ParameterEstimate],
+) -> list[tuple[str, ParameterEstimate]]:
+    """The ``(name, estimate)`` pairs of a band, after the refusals of ``simultaneous_bands``."""
     items = (
         list(estimates.items())
         if isinstance(estimates, Mapping)
@@ -481,21 +518,13 @@ def simultaneous_bands(
     lengths = {estimate.influence_curve.shape[0] for _, estimate in items}
     if len(lengths) != 1:
         raise ValueError(f"influence curves have inconsistent lengths: {lengths}")
+    return items
 
-    n = items[0][1].n
-    ic = np.column_stack([estimate.influence_curve for _, estimate in items])
-    se = np.array([estimate.std_error for _, estimate in items])
-    critical = multiplier_critical_value(
-        ic,
-        se,
-        n=n,
-        cluster=cluster,
-        alpha=alpha,
-        n_replicates=n_replicates,
-        kind=kind,
-        random_state=random_state,
-    )
 
+def _band_endpoints(
+    items: Sequence[tuple[str, ParameterEstimate]], critical: float
+) -> dict[str, tuple[float, float]]:
+    """Each estimate's band, ``critical`` standard errors either side on its inference scale."""
     bands: dict[str, tuple[float, float]] = {}
     for name, estimate in items:
         half_width = critical * estimate.std_error
@@ -518,10 +547,85 @@ def simultaneous_bands(
             )
         else:
             bands[name] = (estimate.psi - half_width, estimate.psi + half_width)
+    return bands
+
+
+def median_bands(
+    per_draw: Sequence[Mapping[str, ParameterEstimate]],
+    combined: Mapping[str, ParameterEstimate],
+    *,
+    alpha: float = 0.05,
+    n_replicates: int = 1000,
+    kind: MultiplierKind = "rademacher",
+    random_state: int | None = None,
+    cluster: IntArray | None = None,
+) -> SimultaneousBands:
+    r"""Joint bands of a repeated fit: the median critical value around the median estimates.
+
+    Each draw :math:`r` of the cross-fitting split gives its own multiplier critical value
+    :math:`c_r`, from that draw's influence curves and standard errors and the one
+    ``random_state``.  The band of estimand :math:`j` is
+    :math:`\tilde\psi_j \pm \tilde c\,\tilde\sigma_j` on its inference scale, with
+    :math:`\tilde c = \operatorname{median}_r c_r` and :math:`\tilde\psi_j`,
+    :math:`\tilde\sigma_j` the split-adjusted estimate and standard error of ``combined``.
+    It maps back to the reported scale as :func:`simultaneous_bands` maps a band.  Each
+    draw is first stamped with the precedent of the draws' statuses, so an estimand that
+    withholds inference in any draw is refused here as it is there.
+
+    Parameters
+    ----------
+    per_draw : sequence of mappings
+        Each draw's estimates.  Every name of ``combined`` must be present in every draw.
+    combined : mapping of str to ParameterEstimate
+        The median-combined estimates to band, in band order.
+    alpha : float
+        Joint significance level.
+    n_replicates : int
+        Multiplier draws behind each critical value.
+    kind : {"rademacher", "mammen", "normal"}, default="rademacher"
+        Distribution of the multiplier weights.
+    random_state : int or None
+        Seed for those draws, the same for every draw of the split.
+    cluster : ndarray or None
+        ``(n,)`` cluster codes. Weights are drawn per cluster when given.
+
+    Returns
+    -------
+    SimultaneousBands
+        The bands, with :attr:`SimultaneousBands.draw_critical_values` holding each
+        :math:`c_r`.
+
+    Raises
+    ------
+    ValueError
+        As :func:`simultaneous_bands` raises, for the combined or for a draw's estimates.
+    CapabilityError
+        As :func:`simultaneous_bands` raises.
+    """
+    items = _checked_items(combined)
+    names = [name for name, _ in items]
+    stamped = with_precedent_status([{name: draw[name] for name in names} for draw in per_draw])
+    critical_values: list[float] = []
+    for draw in stamped:
+        draw_items = _checked_items(draw)
+        critical_values.append(
+            multiplier_critical_value(
+                np.column_stack([estimate.influence_curve for _, estimate in draw_items]),
+                np.array([estimate.std_error for _, estimate in draw_items]),
+                n=draw_items[0][1].n,
+                cluster=cluster,
+                alpha=alpha,
+                n_replicates=n_replicates,
+                kind=kind,
+                random_state=random_state,
+            )
+        )
+    critical = float(np.median(critical_values))
     return SimultaneousBands(
         critical_value=critical,
-        bands=bands,
+        bands=_band_endpoints(items, critical),
         alpha=alpha,
         n_replicates=n_replicates,
         kind=kind,
+        draw_critical_values=tuple(critical_values),
     )

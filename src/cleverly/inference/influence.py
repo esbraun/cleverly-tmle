@@ -61,6 +61,7 @@ import numpy as np
 from .._inference_status import (
     T_REFERENCE_BOOTSTRAP_NOTE,
     InferenceStatus,
+    precedent_status,
     status_record,
     supplies_inference,
 )
@@ -1133,20 +1134,96 @@ def make_estimate(
     )
 
 
+def _median_adjusted_variance(points: FloatArray, variances: Sequence[float]) -> float:
+    r"""The split-adjusted variance of one coordinate over repeated draws.
+
+    :math:`\operatorname{median}_r\{\widehat\sigma_r^2 + (t_r - \tilde t)^2\}`, with
+    :math:`t_r` the draws' values on the inference scale and :math:`\tilde t` their median
+    (Chernozhukov et al. 2018, equation 3.14, for one coordinate).  :func:`median_estimates`
+    and the one-name route of
+    :func:`~cleverly.inference.results.median_covariance` both call it, so a one-name
+    covariance equals the reported variance bit for bit.
+
+    Parameters
+    ----------
+    points : ndarray
+        The draws' values on the inference scale.
+    variances : sequence of float
+        The draws' variances on the same scale.
+
+    Returns
+    -------
+    float
+        The median of the adjusted variances.
+    """
+    median_point = float(np.median(points))
+    return float(
+        np.median(
+            [
+                variance + (point - median_point) ** 2
+                for variance, point in zip(variances, points, strict=True)
+            ]
+        )
+    )
+
+
+def with_precedent_status(
+    per_repeat: Sequence[Mapping[str, ParameterEstimate]],
+) -> list[dict[str, ParameterEstimate]]:
+    """Copies of the draws, each estimate re-stamped with the precedent of its draws.
+
+    A longitudinal parameter can take a parameter status in one draw and not in another,
+    because a node regression can read a constant target in one draw's training rows only.
+    :func:`median_estimates` refuses such a mix.  This function stamps every draw's estimate
+    of a name with :func:`~cleverly._inference_status.precedent_status` over that name's
+    draws, so a parameter that withholds inference in any draw withholds it in the median.
+    A re-stamped estimate that supplies no inference loses its Student t reference, as
+    :func:`make_estimate` drops it.  The inputs are not changed.
+
+    Parameters
+    ----------
+    per_repeat : sequence of mappings
+        One estimate mapping per draw.
+
+    Returns
+    -------
+    list of dict
+        One re-stamped estimate mapping per draw, in the input order.
+    """
+    out = [dict(report) for report in per_repeat]
+    names = {name for report in per_repeat for name in report}
+    for name in names:
+        statuses = {report[name].inference for report in per_repeat if name in report}
+        if len(statuses) < 2:
+            continue
+        stamp = precedent_status(statuses)
+        for report in out:
+            if name in report and report[name].inference != stamp:
+                estimate = report[name]
+                report[name] = replace(
+                    estimate,
+                    inference=stamp,
+                    reference_df=estimate.reference_df if supplies_inference(stamp) else None,
+                )
+    return out
+
+
 def median_estimates(
     per_repeat: Sequence[Mapping[str, ParameterEstimate]],
 ) -> dict[str, ParameterEstimate]:
     r"""Combine repeated cross-fitting estimates by their median.
 
     Each entry is one complete draw of the cross-fitting split. The point estimate is
-    the median over draws. Ratios use the log scale, which is also their inference scale.
-    The variance follows Chernozhukov et al. (2018, equation 3.14) and zEpid's repeated
-    cross-fit TMLE implementation:
+    the median over draws on each estimate's inference scale: the log scale for a ratio,
+    the transform's scale for an estimate with a ``transform``, and the reported scale
+    otherwise. A transformed estimate reports ``transform.inverse`` of that median and keeps
+    its transform. The variance follows Chernozhukov et al. (2018, equation 3.14) and zEpid's
+    repeated cross-fit TMLE implementation, on the same scale:
 
     .. math::
 
         \widetilde\sigma^2 = \operatorname{median}_r\left\{
-        \widehat\sigma_r^2 + (\widehat\psi_r - \widetilde\psi)^2\right\}.
+        \widehat\sigma_r^2 + (\widehat t_r - \widetilde t)^2\right\}.
 
     This rule includes within-draw uncertainty and between-draw displacement. For an odd
     repeat count, the reported marginal influence curve comes from the draw at the median
@@ -1163,6 +1240,12 @@ def median_estimates(
     -------
     dict
         Median-combined estimates for names present in every draw.
+
+    Raises
+    ------
+    ValueError
+        When the draws of one name declare different covariance rules, inference statuses
+        or transforms.
     """
     if not per_repeat:
         raise ValueError("median_estimates needs at least one repeat")
@@ -1199,20 +1282,35 @@ def median_estimates(
                 "repeats; a median over draws is inferential output or it is not, and "
                 "combining the two would report one draw's refusal under another's name"
             )
+        transforms = {None if part.transform is None else part.transform.name for part in parts}
+        if len(transforms) != 1:
+            shown = sorted(str(value) for value in transforms)
+            raise ValueError(
+                f"{name} declares different transforms {shown} across repeats; a median "
+                "over draws needs one inference scale"
+            )
+        transform = parts[0].transform
         scale = parts[0].scale
-        if scale == "ratio":
+        log_psi: float | None = None
+        if transform is not None:
+            # The transform's scale is the inference scale, so the median and the
+            # displacement are taken there and the reported value is mapped back.
+            points = np.asarray([part.inference_value for part in parts], dtype=float)
+            median_point = float(np.median(points))
+            psi = float(transform.inverse(median_point))
+            log_psi = parts[0].log_psi if scale == "ratio" else None
+        elif scale == "ratio":
             # ``points`` and ``median_point`` are on the reporting scale, which for a
             # ratio is the log scale.  The displacement term below reads them, so a ratio
             # gets its between-draw spread in log units and not in ratio units.
             points = np.asarray([part.log_psi for part in parts], dtype=float)
             median_point = float(np.median(points))
-            log_psi: float | None = median_point
+            log_psi = median_point
             psi = float(np.exp(median_point))
         else:
             points = np.asarray([part.psi for part in parts], dtype=float)
             median_point = float(np.median(points))
             psi = median_point
-            log_psi = None
 
         order = np.argsort(points, kind="stable")
         middle = len(parts) // 2
@@ -1221,14 +1319,7 @@ def median_estimates(
             [np.asarray(parts[int(index)].influence_curve, dtype=float) for index in central],
             axis=0,
         )
-        variance = float(
-            np.median(
-                [
-                    part.variance + (point - median_point) ** 2
-                    for part, point in zip(parts, points, strict=True)
-                ]
-            )
-        )
+        variance = _median_adjusted_variance(points, [part.variance for part in parts])
         out[name] = ParameterEstimate(
             name=name,
             psi=psi,
@@ -1243,6 +1334,7 @@ def median_estimates(
             # declaration. The declared rule still decides how covariance reads the curve.
             covariance_rule=parts[0].covariance_rule,
             inference=parts[0].inference,
+            transform=transform,
             reference_df=minimum_reference_df(parts),
         )
     return out

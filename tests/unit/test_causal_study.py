@@ -1127,7 +1127,6 @@ def test_the_interval_level_and_the_submodel_bound_are_reachable_separately() ->
         {"screen_treatment": True},
         {"screen_threshold": 0.2},
         {"min_retain": 2},
-        {"repeats": 2},
         {"stratify_folds": "outcome"},
         {"targeting_scheme": "foldwise"},
         {"cv_evaluation": True},
@@ -1144,8 +1143,9 @@ def test_every_point_only_option_is_refused_by_longitudinal_translation(
 ) -> None:
     """A normalized declaration must reach the engine or fail before construction.
 
-    These are the 16 point-only fields in the shared configuration. ``n_bootstrap`` and
-    ``bootstrap_resampling`` reach ``LTMLE`` and are not in the list. Pinning the whole list prevents a future field from disappearing just because
+    These are the point-only fields in the shared configuration, except ``split_plan``.
+    ``n_bootstrap``, ``bootstrap_resampling`` and ``repeats`` reach ``LTMLE`` and are not in
+    the list. Pinning the whole list prevents a future field from disappearing just because
     the two engine signatures differ.
 
     ``stratify_folds`` is refused earlier than the rest: :class:`CrossFitting` now checks
@@ -1163,6 +1163,11 @@ def test_every_point_only_option_is_refused_by_longitudinal_translation(
 def test_cross_fit_false_keeps_its_supported_longitudinal_meaning() -> None:
     method = TMLEMethod().with_overrides(cross_fit=False)
     assert method.estimator_kwargs(longitudinal=True)["n_folds"] == 1
+
+
+def test_repeats_reaches_the_longitudinal_engine() -> None:
+    method = TMLEMethod().with_overrides(repeats=3)
+    assert method.estimator_kwargs(longitudinal=True)["repeats"] == 3
 
 
 @pytest.mark.parametrize("method", [CollaborativeTMLEMethod(), DRTMLEMethod()])
@@ -1186,8 +1191,8 @@ def test_a_longitudinal_option_refuses_before_engine_construction(monkeypatch) -
     )
     effect = study.identify(RegimeMean({"always": 1}))
     monkeypatch.setattr("cleverly.study.LTMLE", _MustNotConstruct)
-    with pytest.raises(MethodConfigurationError, match="repeats"):
-        effect.estimate(repeats=2)
+    with pytest.raises(MethodConfigurationError, match="min_retain"):
+        effect.estimate(min_retain=2)
 
 
 def test_estimation_options_cannot_reassign_study_roles() -> None:

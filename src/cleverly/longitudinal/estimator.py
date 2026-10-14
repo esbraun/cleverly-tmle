@@ -83,6 +83,7 @@ from .._inference_status import (
     supplies_inference,
 )
 from .._typing import BoolArray, CumulativeGBounds, FloatArray, Learner
+from ..data.weighting import REPORTED_DRAW
 from ..exceptions import (
     CapabilityError,
     DataError,
@@ -106,31 +107,46 @@ from ..inference.influence import (
     bootstrap_line,
     has_t_reference,
     make_estimate,
+    median_estimates,
     reference_label,
     spread_name,
+    with_precedent_status,
 )
-from ..inference.multiplier import SimultaneousBands, simultaneous_bands
+from ..inference.multiplier import SimultaneousBands, median_bands, simultaneous_bands
 from ..inference.results import (
     RatioKind,
+    _named_draw,
     attach_bootstrap,
+    check_transform_scale,
     estimate_covariance,
     estimate_curves,
     inference_status,
     linear_function,
     linear_functional,
+    median_covariance,
+    median_derived,
     ratio_contrast,
     ratio_function,
     refuse_odds_ratio,
+    repeat_spread,
     reported_status,
     select_estimates,
     smooth_contrast,
     sole_estimate,
+    split_noise_lines,
     with_derived_bootstrap,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..assessment import AssessmentReport
-from ..learners.crossfit import Folds, _fresh_seed, check_integrity, random_partition
+from ..learners.crossfit import (
+    CrossFitPlan,
+    Folds,
+    SplitPlan,
+    _fresh_seed,
+    check_integrity,
+    random_partition,
+)
 from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearner, resolve_learner
 from ..methods import (
@@ -142,7 +158,7 @@ from ..methods import (
 )
 from ..msm import MSM, refuse_msm_functions
 from ..protocol import ProtocolDetail, protocol_summary_lines
-from ..provenance import Provenance, fingerprint_array
+from ..provenance import Provenance, fingerprint_array, fold_fingerprint
 from ..provenance import build as provenance_build
 from ..targets.base import parameter_name
 from ..utils.bounds import (
@@ -151,7 +167,7 @@ from ..utils.bounds import (
     resolve_cumulative_g_bounds,
 )
 from ..utils.phases import PhaseProfile, phase, profile_phases
-from ..utils.text import format_pvalue, format_table
+from ..utils.text import format_draw, format_pvalue, format_table
 from .data import LongitudinalData
 from .ipsi import IPSICell, fit_cells_ipsi
 from .msm import (
@@ -227,7 +243,14 @@ _RANGE_CAUSE: dict[str, str] = {
 }
 
 
-def refuse_sdr_scale(name: str, value: float, scale: str, *, estimator: str = "sdr") -> None:
+def refuse_sdr_scale(
+    name: str,
+    value: float,
+    scale: str,
+    *,
+    estimator: str = "sdr",
+    draw: tuple[int, int] | None = None,
+) -> None:
     """Refuse a log or odds functional of a one-step level outside that scale's domain.
 
     Parameters
@@ -240,6 +263,9 @@ def refuse_sdr_scale(name: str, value: float, scale: str, *, estimator: str = "s
         The scale of the functional.
     estimator : {"sdr", "ipsi"}
         The estimator of the level, which the message names.
+    draw : tuple of int or None, default=None
+        ``(r, R)`` when ``value`` is draw ``r`` of a fit that combines ``R`` draws of the
+        cross-fitting split.  The message then names the draw.
 
     Raises
     ------
@@ -248,18 +274,25 @@ def refuse_sdr_scale(name: str, value: float, scale: str, *, estimator: str = "s
         odds or logit scale.
     """
     cause = _RANGE_CAUSE[estimator] + "; "
+    where = "" if draw is None else f" in draw {draw[0]} of {draw[1]}"
+    every = (
+        ""
+        if draw is None
+        else " in every draw, because a repeated fit combines the ratio per draw on the "
+        f"{'log' if scale == 'log' else scale} scale"
+    )
     if scale == "log":
         if value > 0.0:
             return
         raise CapabilityError(
-            f"{name} is {value:.4g}, at or below 0. {cause}the log scale needs a positive "
-            "level. Report the difference scale"
+            f"{name} is {value:.4g}{where}, at or below 0. {cause}the log scale needs a "
+            f"positive level{every}. Report the difference scale"
         )
     if 0.0 < value < 1.0:
         return
     raise CapabilityError(
-        f"{name} is {value:.4g}, outside (0, 1). {cause}the {scale} scale needs a level in "
-        "(0, 1). Report the difference scale"
+        f"{name} is {value:.4g}{where}, outside (0, 1). {cause}the {scale} scale needs a "
+        f"level in (0, 1){every}. Report the difference scale"
     )
 
 
@@ -827,6 +860,13 @@ class LongitudinalConfig:
     #: ``"tmle"`` for :class:`LTMLE`, ``"sdr"`` for :class:`SDR`, ``"ipsi"`` for
     #: :class:`IPSI`.
     estimator: str = "tmle"
+    #: How many independent draws of the cross-fitting split the fit combined by their
+    #: median.  ``1`` is an ordinary fit.
+    repeats: int = 1
+    #: The seed of every multiplier draw behind the simultaneous band.  ``random_state``
+    #: when that is an integer, a fresh seed recorded here when ``random_state=None`` and
+    #: ``repeats > 1``, and ``None`` otherwise.
+    multiplier_seed: int | None = None
 
     def describe(self, *, contrast: bool) -> list[str]:
         """Return the settings lines of :meth:`LongitudinalResult.summary`.
@@ -949,7 +989,8 @@ class LongitudinalConfig:
             # for, which the reported variance does not account for.
             "cross-fitting: none -- nuisances fitted in sample"
             if self.n_folds <= 1
-            else f"cross-fitting: {self.n_folds} fold(s)",
+            else f"cross-fitting: {self.n_folds} fold(s)"
+            + (f", median over {self.repeats} draws" if self.repeats > 1 else ""),
             # Both factors enter the product before its prefix is bounded, as in ltmle's
             # CalcCumG.  Saying "mechanism at every node" used to conceal the order.
             f"g_bounds: fixed [{self.g_bounds[0]:.4g}, {self.g_bounds[1]:.4g}] on each "
@@ -977,7 +1018,48 @@ class LongitudinalConfig:
         lines.append(f"confidence level: {(1 - self.alpha_sig) * 100:g}%")
         if self.random_state is not None:
             lines.append(f"random_state: {self.random_state}")
+        elif self.multiplier_seed is not None:
+            lines.append(f"multiplier seed: {self.multiplier_seed} (drawn, random_state=None)")
         return lines
+
+
+@dataclass(frozen=True)
+class LongitudinalRepeat:
+    """One draw of the cross-fitting split of a longitudinal fit, and what it produced.
+
+    A fit with ``repeats=R`` holds ``R`` of these in :attr:`LongitudinalResult.repeats`.
+    Each is the complete single-draw fit at its own fold assignment and seed, so draw ``r``
+    equals a fit with ``repeats=1`` at ``random_state=seed``.
+
+    Parameters
+    ----------
+    folds : Folds
+        The realized outer-fold assignment of the draw.
+    seed : int or None
+        The seed of the draw's split.  On a fit with ``repeats > 1`` every learner of the
+        draw receives it too.  ``None`` only on an in-sample fit.
+    fits : dict of str to RegimenFit
+        The draw's sequential fits by regimen, cause and horizon.
+    mechanism : Mechanism
+        The draw's fitted treatment and observation mechanisms.
+    estimates : dict of str to ParameterEstimate
+        Every estimate the draw reports, with its influence curve and its own status.
+    replay_recipe : object
+        The draw's unfitted learner templates and resolved plans, for a truncation replay.
+    msm_fits : tuple of MSMRegimenFit
+        The draw's projection fits by cause, empty without a working model.
+    fold_mechanisms : tuple of FoldMechanism
+        The draw's per-fold mechanisms on a cross-fitted SDR or IPSI fit, empty otherwise.
+    """
+
+    folds: Folds
+    seed: int | None
+    fits: dict[str, RegimenFit]
+    mechanism: Mechanism
+    estimates: dict[str, ParameterEstimate]
+    replay_recipe: _LongitudinalReplayRecipe
+    msm_fits: tuple[MSMRegimenFit, ...] = ()
+    fold_mechanisms: tuple[FoldMechanism, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -994,20 +1076,15 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         Estimates keyed by stable parameter alias. Each declares the fit status, which
         :attr:`inference_status` returns, or a parameter status such as
         ``"constant_node_plugin"``.
-    fits : dict of str to RegimenFit
-        Sequential fits by regimen, cause, and horizon.
     data : LongitudinalData
         Validated time-ordered study data.
     config : LongitudinalConfig
         Normalized sequential-estimator configuration.
     scaler : OutcomeScaler
         Transformation between observed and targeting scales.
-    mechanism : Mechanism
-        Fitted treatment and observation mechanisms.
-    folds : Folds
-        Realized outer-fold assignment.
     provenance : Provenance
-        Runtime, dependency, and data fingerprints.
+        Runtime, dependency, and data fingerprints.  The fold fingerprint covers every
+        draw of the split, in order.
     simultaneous : SimultaneousBands or None
         Joint confidence bands. ``None`` on a fit whose status supplies no inference.
     parameter_index : dict or None
@@ -1015,8 +1092,6 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     msm : RegimenMSM or None
         Evaluated working model. Its ``functions_kind`` records whether the source design
         and projection weights passed their declaration checks.
-    msm_fits : tuple of MSMRegimenFit
-        Projection fits by cause.
     identified_effect : IdentifiedEffect or None
         Causal question and identifying assumptions.
     method : EstimationMethod or None
@@ -1027,11 +1102,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         Method identity stamped by the estimator.
     bootstrap : BootstrapResult or None
         The full-refit bootstrap draws, when ``n_bootstrap > 0`` was requested.
-    fold_mechanisms : tuple of FoldMechanism
-        Each outer fold's own mechanism on a cross-fitted SDR fit, empty otherwise.
-        Keyword-only.
-    replay_recipe : object
-        Unfitted recursive learner templates and resolved plans for deterministic refits.
+    repeats : tuple of LongitudinalRepeat
+        One complete fit per draw of the cross-fitting split, in fit order.  One draw on
+        an ordinary fit.  With two or more, :attr:`estimates` holds their median, and
+        :meth:`contrast`, :meth:`ratio`, :meth:`rmst`, :meth:`rmtl`,
+        :meth:`incidence_total` and :meth:`covariance` compute in every draw and combine.
         Keyword-only.
 
     Attributes
@@ -1041,6 +1116,14 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         constructed result owns its own cache. Persistence restores the mapping without
         the constructor.
     inference_status : str
+    fits : dict of str to RegimenFit
+    mechanism : Mechanism
+    folds : Folds
+    msm_fits : tuple of MSMRegimenFit
+    fold_mechanisms : tuple of FoldMechanism
+    replay_recipe : object
+    n_repeats : int
+    split_plan : SplitPlan
 
     See Also
     --------
@@ -1083,12 +1166,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     """
 
     estimates: dict[str, ParameterEstimate]
-    fits: dict[str, RegimenFit]
     data: LongitudinalData
     config: LongitudinalConfig
     scaler: OutcomeScaler
-    mechanism: Mechanism
-    folds: Folds
     provenance: Provenance
     simultaneous: SimultaneousBands | None = None
     #: ``name -> (regimen, cause, horizon)`` for every reported parameter, composed when
@@ -1097,8 +1177,6 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     parameter_index: dict[str, tuple[str, str | None, int]] | None = None
     #: The working model this fit projected onto, ``None`` if it declared none.
     msm: RegimenMSM | None = None
-    #: One per cause, in the order the causes are reported.
-    msm_fits: tuple[MSMRegimenFit, ...] = ()
     #: Causal-workflow metadata, present on every result created through CausalStudy.
     identified_effect: Any = None
     method: Any = None
@@ -1115,16 +1193,100 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: The full-refit bootstrap draws, ``None`` unless ``n_bootstrap > 0``.  A replayed
     #: fit never reruns the bootstrap.
     bootstrap: BootstrapResult | None = None
-    #: Each outer fold's own mechanism, fitted on its training rows, on a cross-fitted SDR
-    #: fit.  Empty otherwise.  A truncation replay reuses them.
-    fold_mechanisms: tuple[FoldMechanism, ...] = field(default=(), kw_only=True)
-    #: Unfitted state for a complete bound-dependent recursion.
-    replay_recipe: _LongitudinalReplayRecipe = field(kw_only=True)
+    #: One complete single-draw fit per draw of the cross-fitting split.
+    repeats: tuple[LongitudinalRepeat, ...] = field(kw_only=True)
 
     #: Which family of assessment declarations applies to this result.  See
     #: :attr:`~cleverly.estimators.TMLEResult.assessment_family`; the method identity is
     #: :attr:`fitted_method`.
     assessment_family: ClassVar[str] = "longitudinal"
+
+    # --------------------------------------------------------------- repeats
+
+    @property
+    def fits(self) -> dict[str, RegimenFit]:
+        """The first draw's sequential fits by regimen, cause, and horizon.
+
+        On a repeated fit this is draw 1 of ``R`` and nothing else: it describes one fitted
+        recursion, and no reported number is computed from it alone.  :attr:`repeats`
+        holds every draw.
+        """
+        return self.repeats[0].fits
+
+    @property
+    def mechanism(self) -> Mechanism:
+        """The first draw's fitted treatment and observation mechanisms."""
+        return self.repeats[0].mechanism
+
+    @property
+    def folds(self) -> Folds:
+        """The first draw's realized outer-fold assignment."""
+        return self.repeats[0].folds
+
+    @property
+    def msm_fits(self) -> tuple[MSMRegimenFit, ...]:
+        """The first draw's projection fits by cause, empty without a working model."""
+        return self.repeats[0].msm_fits
+
+    @property
+    def fold_mechanisms(self) -> tuple[FoldMechanism, ...]:
+        """The first draw's per-fold mechanisms on a cross-fitted SDR or IPSI fit."""
+        return self.repeats[0].fold_mechanisms
+
+    @property
+    def replay_recipe(self) -> _LongitudinalReplayRecipe:
+        """The first draw's unfitted templates and resolved plans."""
+        return self.repeats[0].replay_recipe
+
+    @property
+    def n_repeats(self) -> int:
+        """How many draws of the cross-fitting split this fit combined."""
+        return len(self.repeats)
+
+    @property
+    def split_plan(self) -> SplitPlan:
+        """The fold assignment of every draw, bound to the rows that produced it.
+
+        Its :attr:`~cleverly.SplitPlan.fingerprint` equals
+        ``provenance.fold_fingerprint``.  A longitudinal fit records the plan and accepts
+        none back.
+        """
+        return SplitPlan.from_folds(
+            (repeat.folds for repeat in self.repeats),
+            source_fingerprint=self.provenance.data_fingerprint,
+        )
+
+    def repeat_spread(self) -> dict[str, float]:
+        """Split spread of each estimate across the cross-fitting draws.
+
+        A diagnostic and not a standard error, read as
+        :meth:`cleverly.estimators.TMLEResult.repeat_spread` is read: the standard deviation
+        of the draws' estimates on the inference scale, the log scale for a ratio.  A draw
+        that is not finite, or a ratio draw that is not positive, gives ``nan``.
+
+        Returns
+        -------
+        dict of str to float
+            The standard deviation across the draws, per reported estimand.
+
+        Raises
+        ------
+        ValueError
+            On a fit with one draw.
+        """
+        return repeat_spread(
+            self.estimates,
+            [
+                {name: estimate.psi for name, estimate in repeat.estimates.items()}
+                for repeat in self.repeats
+            ],
+        )
+
+    def _draw_estimates(self) -> list[dict[str, ParameterEstimate]]:
+        """Each draw's estimates of the names this result reports."""
+        return [
+            {name: repeat.estimates[name] for name in self.estimates} for repeat in self.repeats
+        ]
 
     # ------------------------------------------------------------- mapping API
 
@@ -1187,11 +1349,27 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
     @property
     def influence_curves(self) -> dict[str, FloatArray]:
-        """Return influence curves by parameter alias."""
+        """Return influence curves by parameter alias.
+
+        The curves of :attr:`estimates`.  On a fit with ``repeats > 1`` each is the curve of
+        the draw at the median point, or the mean of the two central draws' curves at an
+        even draw count.  It serves marginal diagnostics.  The reported variance is the
+        split-adjusted median rule and is not that curve's empirical variance.
+        """
         return estimate_curves(self.estimates)
 
     def covariance(self, names: Sequence[str] | None = None) -> FloatArray:
         """Return joint covariance for selected estimates.
+
+        On a fit with one draw it is the covariance of the reported curves.  On a fit with
+        ``repeats > 1`` it is the matrix rule of Chernozhukov et al. (2018, equation 3.14)
+        for the selected vector, on the estimates' inference scales: each draw's covariance
+        plus the outer product of its displacement from the coordinatewise median, and the
+        draw whose matrix has the median operator norm.  At an even draw count it is the
+        mean of the two matrices with the central operator norms.  That matrix depends on
+        the selection, so an entry can differ between two selections and from the reported
+        variance.  A one-name selection is the reported variance exactly.  The reported
+        intervals, contrasts and bands read the per-name rule, not this matrix.
 
         Parameters
         ----------
@@ -1202,9 +1380,12 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         -------
         ndarray
             Covariance matrix at the independent observation or cluster level. On a fit
-            whose status supplies no inference, it is the plug-in covariance of the
-            reported curves, a diagnostic.
+            whose status supplies no inference, or a selection with a name that supplies
+            none, it is the plug-in covariance of the reported curves, a diagnostic.
         """
+        if self.n_repeats > 1:
+            chosen = select_estimates(self.estimates, names)
+            return median_covariance(self._draw_estimates(), chosen, cluster=self.data.cluster)
         return estimate_covariance(self.estimates, names, cluster=self.data.cluster)
 
     def contrast(
@@ -1241,8 +1422,37 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         ParameterEstimate
             Derived estimate. It inherits the inference status of the selected
             estimates, so on a fit that supplies no inference it reports the same
-            diagnostic and no interval.
+            diagnostic and no interval.  On a fit with ``repeats > 1`` it is computed in
+            every draw from that draw's estimates and combined by the median rule on its
+            inference scale (the transform's scale with ``transform=``), with the status
+            the draws' precedence gives.  It is not the function of the median estimates.
+
+        Raises
+        ------
+        ValueError
+            When a draw's value has no finite value or slope under ``transform``, or the
+            delta method refuses in a draw.  The message names the draw.
         """
+        if self.n_repeats > 1:
+            check_transform_scale(scale, transform)
+            select_estimates(self.estimates, names)
+
+            def per_draw(estimates: Mapping[str, ParameterEstimate]) -> ParameterEstimate:
+                return smooth_contrast(
+                    estimates,
+                    function,
+                    names,
+                    n=self.n,
+                    cluster=self.data.cluster,
+                    alpha=self.config.alpha_sig,
+                    name=name,
+                    scale=scale,
+                    gradient=gradient,
+                )
+
+            return median_derived(
+                self._draw_estimates(), per_draw, transform=transform, cluster=self.data.cluster
+            )
         derived = smooth_contrast(
             self.estimates,
             function,
@@ -1378,14 +1588,36 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         if kind == "or" and not survival:
             refuse_odds_ratio(self.config.family)
         if self.config.estimator in _RANGE_CAUSE:
-            for level in (numerator, denominator):
-                value = self[level].psi
-                refuse_sdr_scale(
-                    level,
-                    1.0 - value if view == "survival" else value,
-                    "odds" if kind == "or" else "log",
-                    estimator=self.config.estimator,
+            # Each draw's level on a repeated fit, because the ratio is formed per draw:
+            # a positive median says nothing about the draw whose level is not.
+            for index, repeat in enumerate(self.repeats, start=1):
+                for level in (numerator, denominator):
+                    value = (self if self.n_repeats == 1 else repeat.estimates)[level].psi
+                    refuse_sdr_scale(
+                        level,
+                        1.0 - value if view == "survival" else value,
+                        "odds" if kind == "or" else "log",
+                        estimator=self.config.estimator,
+                        draw=None if self.n_repeats == 1 else (index, self.n_repeats),
+                    )
+        label = name or self._ratio_name(numerator, denominator, kind, view)
+        if self.n_repeats > 1:
+            select_estimates(self.estimates, (numerator, denominator))
+
+            def per_draw(estimates: Mapping[str, ParameterEstimate]) -> ParameterEstimate:
+                return ratio_contrast(
+                    estimates,
+                    numerator,
+                    denominator,
+                    kind=kind,
+                    complement=view == "survival",
+                    n=self.n,
+                    cluster=self.data.cluster,
+                    alpha=self.config.alpha_sig,
+                    name=label,
                 )
+
+            return median_derived(self._draw_estimates(), per_draw, cluster=self.data.cluster)
         derived = ratio_contrast(
             self.estimates,
             numerator,
@@ -1395,7 +1627,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             n=self.n,
             cluster=self.data.cluster,
             alpha=self.config.alpha_sig,
-            name=name or self._ratio_name(numerator, denominator, kind, view),
+            name=label,
         )
         return with_derived_bootstrap(
             derived,
@@ -1566,6 +1798,37 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             constant = 0.0
             label = f"{regimen} vs {versus}"
             scale = "difference"
+        return self._linear(
+            weights,
+            constant=constant,
+            name=name or parameter_name("rmst_regimen", arm=_index(label, None, node, True)),
+            scale=scale,
+        )
+
+    def _linear(
+        self,
+        weights: Mapping[str, float],
+        *,
+        constant: float = 0.0,
+        name: str,
+        scale: Scale,
+    ) -> ParameterEstimate:
+        """A constant plus a weighted sum of the estimates, per draw on a repeated fit."""
+        if self.n_repeats > 1:
+
+            def per_draw(estimates: Mapping[str, ParameterEstimate]) -> ParameterEstimate:
+                return linear_functional(
+                    estimates,
+                    weights,
+                    constant=constant,
+                    n=self.n,
+                    cluster=self.data.cluster,
+                    alpha=self.config.alpha_sig,
+                    name=name,
+                    scale=scale,
+                )
+
+            return median_derived(self._draw_estimates(), per_draw, cluster=self.data.cluster)
         derived = linear_functional(
             self.estimates,
             weights,
@@ -1573,7 +1836,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             n=self.n,
             cluster=self.data.cluster,
             alpha=self.config.alpha_sig,
-            name=name or parameter_name("rmst_regimen", arm=_index(label, None, node, True)),
+            name=name,
             scale=scale,
         )
         return with_derived_bootstrap(
@@ -1685,21 +1948,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 weights[other] = weights.get(other, 0.0) - spacing
             label = f"{regimen} vs {versus}"
             scale = "difference"
-        derived = linear_functional(
-            self.estimates,
+        return self._linear(
             weights,
-            n=self.n,
-            cluster=self.data.cluster,
-            alpha=self.config.alpha_sig,
             name=name or parameter_name("rmtl_regimen", arm=_index(label, chosen, node, True)),
             scale=scale,
-        )
-        return with_derived_bootstrap(
-            derived,
-            self.estimates,
-            self.bootstrap,
-            tuple(weights),
-            linear_function(tuple(weights.values())),
         )
 
     def _names(self, names: Sequence[str] | None) -> tuple[str, ...]:
@@ -1709,8 +1961,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
     @property
     def converged(self) -> bool:
-        """Whether every node's targeting step reached its tolerance."""
-        return all(fit.converged for fit in self.fits.values())
+        """Whether every node's targeting step reached its tolerance, in every draw."""
+        return all(fit.converged for repeat in self.repeats for fit in repeat.fits.values())
 
     @property
     def diagnostics(self) -> Any:
@@ -1830,6 +2082,22 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                     f"cif_regimen[{_index(regimen.label, cause, horizon, True)}]"
                     for cause in self.config.causes
                 ]
+                if self.n_repeats > 1:
+                    # The sum in every draw, combined by the median rule: the total of the
+                    # median incidences is not a median of anything.
+                    combined = self._linear(
+                        dict.fromkeys(names, 1.0), name="incidence_total", scale="level"
+                    )
+                    totals.append(
+                        (
+                            regimen.label,
+                            self._time_of(int(horizon)),
+                            combined.psi,
+                            combined.plugin_std_error,
+                            combined.inference,
+                        )
+                    )
+                    continue
                 total = float(sum(self[name].psi for name in names))
                 curve = np.sum(
                     np.column_stack([self[name].influence_curve for name in names]), axis=1
@@ -2305,9 +2573,20 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 if t_reference and self.data.cluster is not None
                 else []
             ),
+            *(
+                split_noise_lines(self.estimates, self.repeat_spread(), self.n_repeats, status)
+                if self.n_repeats > 1
+                else []
+            ),
             "",
             *(f"  {line}" for line in facts),
         ]
+        if self.n_repeats > 1:
+            # The leverage below reads one fitted recursion, so it says which.
+            lines.append(
+                f"  leverage of {format_draw(REPORTED_DRAW, self.n_repeats)} "
+                "(every draw is in result.repeats):"
+            )
         # One line per regimen, from the fit that runs to the last node: "throughout"
         # means through the study, and a horizon-k fit stops at k, where the same
         # sentence would be false.  Per-horizon leverage is what diagnostics() is for.
@@ -2356,7 +2635,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 if estimate.bootstrap is not None:
                     lines.append(f"    {name}  {bootstrap_line(estimate)}")
         if not self.converged:
-            lines.append("  warning: at least one node's targeting step did not converge")
+            lines.append(
+                "  warning: at least one node's targeting step did not converge"
+                + (" in at least one draw" if self.n_repeats > 1 else "")
+            )
         return "\n".join(lines)
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
@@ -3016,6 +3298,7 @@ class _SequentialEstimator:
         bootstrap_resampling: Resampling = "auto",
         density_bins: int | None = None,
         ratio: str = "density",
+        repeats: int = 1,
         **refused: Any,
     ) -> None:
         _validate_learner(outcome_learner, "outcome_learner")
@@ -3045,6 +3328,7 @@ class _SequentialEstimator:
         self.bootstrap_resampling = bootstrap_resampling
         self.density_bins = density_bins
         self.ratio = ratio
+        self.repeats = repeats
         refuse_unsupported(refused, where=type(self).__name__)
         self._validate_settings()
 
@@ -3070,6 +3354,29 @@ class _SequentialEstimator:
             raise ValueError(f"n_folds must be at least 1; got {self.n_folds}")
         if self.n_bootstrap and self.n_bootstrap < 2:
             raise ValueError(f"n_bootstrap must be 0 or at least 2; got {self.n_bootstrap}")
+        if (
+            isinstance(self.repeats, bool)
+            or not isinstance(self.repeats, (int, np.integer))
+            or self.repeats < 1
+        ):
+            raise ValueError(
+                f"repeats must be an integer of at least 1; got {self.repeats!r}. It is how "
+                "many independent draws of the cross-fitting split the fit combines by their "
+                "median."
+            )
+        if self.repeats > 1 and self.n_folds <= 1:
+            raise ValueError(
+                "repeats above 1 needs n_folds of 2 or more. One fold fits every nuisance on "
+                "every row, so there is no split to draw again. Set n_folds to 2 or more, or "
+                "set repeats=1."
+            )
+        if self.repeats > 1 and self.n_bootstrap:
+            raise ValueError(
+                "n_bootstrap is not combined with repeats above 1. No registered study "
+                "measures a bootstrap of the median over fold draws, and each replicate would "
+                "refit R complete draws. Fit with repeats=1 for the bootstrap, or with "
+                "n_bootstrap=0 for the split-adjusted median interval."
+            )
         if self.bootstrap_resampling not in ("auto", "iid", "cluster"):
             raise ValueError("resampling must be 'auto', 'iid', or 'cluster'")
         if self.ratio not in ("density", "classifier"):
@@ -3142,13 +3449,13 @@ class _SequentialEstimator:
         """The fluctuation settings the recursion and the replay recipe take."""
         return {"alpha": None, "max_iter": None, "tol": None}
 
-    def _pseudo_learner(self) -> Learner:
-        """The learner of every node before the horizon."""
+    def _pseudo_learner(self, seed: int | None) -> Learner:
+        """The learner of every node before the horizon, resolved at ``seed``."""
         return resolve_learner(
             self.pseudo_learner,
             task="regression",
             n_folds=self.learner_folds,
-            random_state=self.random_state,
+            random_state=seed,
             fallback=self.outcome_learner,
         )
 
@@ -3335,111 +3642,59 @@ class _SequentialEstimator:
             # The refusal ``run_bootstrap`` would raise after the fit, raised before any
             # learner.
             raise ValueError("resampling='cluster' requires the data to carry cluster ids")
-        folds = self._folds(prepared)
-        # Checked at the call site rather than inside ``_folds``, so that a subclass that
-        # draws its own split is held to the same rule: a cluster split across folds puts a
-        # unit's own cluster in the training fold of the rows it predicts.  A no-op without
-        # clusters.
-        check_integrity(folds, cluster=prepared.cluster)
+        # One seed for every multiplier draw, fixed before any fold draw.
+        multiplier_seed = self._multiplier_seed()
+        draws = self._draws(prepared)
         scaler = self._scaler(prepared)
         # A cumulative path probability is not a point-treatment propensity.  There is no
         # automatic rule here: the constructor default is the visible fixed R ``ltmle``
         # heuristic, and every other accepted value is an explicit scalar or pair.
         bounds = resolve_cumulative_g_bounds(self.g_bounds)
-
-        outcome_task = "classification" if prepared.family == "binomial" else "regression"
-        outcome_learner = resolve_learner(
-            self.outcome_learner,
-            task=outcome_task,  # type: ignore[arg-type]
-            n_folds=self.learner_folds,
-            random_state=self.random_state,
-        )
-        pseudo_learner = self._pseudo_learner()
-        # Build this record before the first backward pass. It holds only cloneable
-        # unfitted templates and the already-resolved plan matrices, never a fitted Q.
-        targeting = self._targeting()
-        replay_recipe = _replay_recipe(
-            plans,
-            outcome_learner,
-            pseudo_learner,
-            **targeting,
-            n_jobs=self.n_jobs,
-            estimator=self._estimator,
-        )
-
         horizons = self._horizons(prepared)
-        preflight_mechanism_support(prepared, prepared.regimen_masks(prepared.treatment), folds)
-        preflight_terminal_outcomes(prepared, plans, horizons, folds)
-        treatment_learner = resolve_learner(
-            self.treatment_learner,
-            task="classification",
-            n_folds=self.learner_folds,
-            random_state=self.random_state,
-        )
-        censoring_learner = resolve_learner(
-            self.censoring_learner,
-            task="classification",
-            n_folds=self.learner_folds,
-            random_state=self.random_state,
-            fallback=self.treatment_learner,
-        )
-        mechanism = fit_mechanism(
-            prepared,
-            plans,
-            treatment_learner=treatment_learner,
-            censoring_learner=censoring_learner,
-            folds=folds,
-            n_jobs=self.n_jobs,
-            density_bins=self.density_bins,
-            ratio=self.ratio,
-        )
-        # A modified treatment policy's ratio numerator reads the fitted mechanism, so it is
-        # attached to its plan here, once, from the out-of-fold fit.  The replay recipe holds
-        # the attached plans, because a truncation replay reuses this mechanism.
-        resolved = plans
-        plans = attach_policy_numerators(plans, mechanism.policy_numerators)
-        if any(plan.has_mtp for plan in plans):
-            replay_recipe = replace(replay_recipe, plans=_frozen_plans(plans))
-        # A cross-fitted SDR fold reads its own mechanism at its training rows, so each
-        # fold fits one on those rows alone (the training-fold recursion).  The out-of-fold
-        # mechanism above is what the result reports and what a held-out row divides by.
-        fold_mechanisms: tuple[FoldMechanism, ...] = ()
-        if self._estimator in ("sdr", "ipsi") and not folds.is_single:
-            fold_mechanisms = fit_fold_mechanisms(
-                prepared,
-                resolved,
-                treatment_learner=treatment_learner,
-                censoring_learner=censoring_learner,
-                folds=folds,
-                density_bins=self.density_bins,
-                ratio=self.ratio,
-                n_jobs=self.n_jobs,
-            )
-
+        # Every draw is realized and preflighted before the first learner of any draw, so a
+        # split that cannot be fitted is refused before any fitting time is spent.
+        masks = prepared.regimen_masks(prepared.treatment)
+        for index, (folds, _) in enumerate(draws, start=1):
+            try:
+                preflight_mechanism_support(prepared, masks, folds)
+                preflight_terminal_outcomes(prepared, plans, horizons, folds)
+            except Exception as error:
+                if len(draws) == 1:
+                    raise
+                raise _named_draw(error, index, len(draws)) from error
         # One projection per cause -- a cause is a different estimand, not a further column
         # of the design -- over a grid whose cells cross the regimens with the horizons.
-        # Evaluated here because the design is a closure and the driver below takes arrays.
+        # Evaluated here because the design is a closure and the driver takes arrays.  It
+        # reads the plans' labels and the horizons only, so one evaluation serves every draw.
         model = (
             None if self.msm is None else evaluate_regimen_msm(self.msm, prepared, plans, horizons)
         )
-        fits, msm_fits = _run_recursion(
-            prepared,
-            plans,
-            mechanism,
-            msm=model,
-            horizons=horizons,
-            outcome_learner=outcome_learner,
-            pseudo_learner=pseudo_learner,
-            folds=folds,
-            scaler=scaler,
-            g_bounds=bounds,
-            **targeting,
-            n_jobs=self.n_jobs,
-            estimator=self._estimator,
-            fold_mechanisms=fold_mechanisms,
-        )
+        status = _inference_status(prepared, draws[0][0])
+        repeated = len(draws) > 1
+        outcomes = [
+            self._fit_draw(
+                prepared,
+                plans,
+                folds,
+                seed,
+                # At one draw the learners keep ``random_state``, unchanged.  Each draw of a
+                # repeated fit hands its own seed to every learner, so a Super Learner's
+                # inner folds redraw with the outer split.
+                learner_seed=seed if repeated else self.random_state,
+                scaler=scaler,
+                bounds=bounds,
+                horizons=horizons,
+                model=model,
+                reference=reference,
+                status=status,
+            )
+            for folds, seed in draws
+        ]
+        repeats = tuple(outcome[0] for outcome in outcomes)
+        parameter_index = outcomes[0][1]
+        plans = outcomes[0][2]
 
-        self._warn_on_truncation(fits)
+        self._warn_on_truncation([repeat.fits for repeat in repeats])
 
         config = LongitudinalConfig(
             family=prepared.family,
@@ -3449,7 +3704,7 @@ class _SequentialEstimator:
             causes=prepared.cause_labels,
             regimens=regimens,
             reference=reference.label,
-            n_folds=folds.n_folds,
+            n_folds=repeats[0].folds.n_folds,
             g_bounds=bounds,
             q_bounds=self.q_bounds,
             alpha_sig=self.alpha_sig,
@@ -3480,38 +3735,33 @@ class _SequentialEstimator:
             msm_fingerprint=(
                 None if model is None else fingerprint_array(model.design, model.weights)
             ),
+            repeats=len(repeats),
+            multiplier_seed=multiplier_seed,
         )
-        status = _inference_status(prepared, folds)
-        with phase("influence_curve"):
-            reported = (
-                _estimates(
-                    prepared, fits, scaler, reference, alpha_sig=self.alpha_sig, inference=status
-                )
-                if model is None
-                else _msm_estimates(prepared, msm_fits, alpha_sig=self.alpha_sig, inference=status)
-            )
-        estimates = reported.estimates
+        # Each parameter takes the precedent of its draws' statuses before the median, so
+        # a parameter that withholds inference in any draw withholds it in the report.  The
+        # stored draws keep their own statuses.
+        estimates = (
+            repeats[0].estimates
+            if not repeated
+            else median_estimates(with_precedent_status([r.estimates for r in repeats]))
+        )
         _warn_parameter_statuses(estimates)
         if self._estimator in _RANGE_CAUSE and model is None:
             _warn_parameter_space(estimates, prepared, scaler, estimator=self._estimator)
         with phase("inference"):
-            bands = self._bands(estimates, prepared, status)
+            bands = self._bands(estimates, prepared, status, repeats, multiplier_seed)
         result = LongitudinalResult(
             estimates=estimates,
-            fits=fits,
             data=prepared,
             config=config,
             scaler=scaler,
-            mechanism=mechanism,
-            folds=folds,
-            provenance=self._provenance(prepared, folds),
+            provenance=self._provenance(prepared, [repeat.folds for repeat in repeats]),
             simultaneous=bands,
-            parameter_index=reported.index,
+            parameter_index=parameter_index,
             msm=model,
-            msm_fits=msm_fits,
-            replay_recipe=replay_recipe,
-            fold_mechanisms=fold_mechanisms,
             fitted_method=self._estimator,
+            repeats=repeats,
         )
         if self.n_bootstrap:
             # Spawned from ``random_state`` inside ``run_bootstrap``, so the stream draws
@@ -3527,7 +3777,7 @@ class _SequentialEstimator:
             # No registered study measures the SDR bootstrap, so its draws report a
             # bootstrap sd and no percentile inference.
             kind = (
-                bootstrap_design_kind(prepared, folds, regimens, model)
+                bootstrap_design_kind(prepared, repeats[0].folds, regimens, model)
                 if self._estimator == "tmle"
                 else None
             )
@@ -3535,6 +3785,134 @@ class _SequentialEstimator:
                 result, bootstrap, inferential=kind in LICENSED_BOOTSTRAP_DESIGNS
             )
         return result
+
+    def _fit_draw(
+        self,
+        prepared: LongitudinalData,
+        plans: tuple[Plan, ...],
+        folds: Folds,
+        seed: int | None,
+        *,
+        learner_seed: int | None,
+        scaler: OutcomeScaler,
+        bounds: tuple[float, float],
+        horizons: tuple[int, ...],
+        model: RegimenMSM | None,
+        reference: RegimenSpec,
+        status: InferenceStatus,
+    ) -> tuple[LongitudinalRepeat, dict[str, tuple[str, str | None, int]] | None, tuple[Plan, ...]]:
+        """One complete single-draw fit at one fold assignment.
+
+        Every learner is resolved at ``learner_seed``.  The draw fits its own mechanism, its
+        own training-fold mechanisms on a cross-fitted SDR or IPSI fit, its own recursion
+        and its own estimates, so each in-fit contrast is formed inside the draw.
+
+        Returns
+        -------
+        tuple
+            The draw, the parameter index, and the plans with any policy numerator
+            attached.
+        """
+        outcome_task = "classification" if prepared.family == "binomial" else "regression"
+        outcome_learner = resolve_learner(
+            self.outcome_learner,
+            task=outcome_task,  # type: ignore[arg-type]
+            n_folds=self.learner_folds,
+            random_state=learner_seed,
+        )
+        pseudo_learner = self._pseudo_learner(learner_seed)
+        # Build this record before the first backward pass. It holds only cloneable
+        # unfitted templates and the already-resolved plan matrices, never a fitted Q.
+        targeting = self._targeting()
+        replay_recipe = _replay_recipe(
+            plans,
+            outcome_learner,
+            pseudo_learner,
+            **targeting,
+            n_jobs=self.n_jobs,
+            estimator=self._estimator,
+        )
+        treatment_learner = resolve_learner(
+            self.treatment_learner,
+            task="classification",
+            n_folds=self.learner_folds,
+            random_state=learner_seed,
+        )
+        censoring_learner = resolve_learner(
+            self.censoring_learner,
+            task="classification",
+            n_folds=self.learner_folds,
+            random_state=learner_seed,
+            fallback=self.treatment_learner,
+        )
+        mechanism = fit_mechanism(
+            prepared,
+            plans,
+            treatment_learner=treatment_learner,
+            censoring_learner=censoring_learner,
+            folds=folds,
+            n_jobs=self.n_jobs,
+            density_bins=self.density_bins,
+            ratio=self.ratio,
+        )
+        # A modified treatment policy's ratio numerator reads the fitted mechanism, so it is
+        # attached to its plan here, once per draw, from that draw's out-of-fold fit.  The
+        # replay recipe holds the attached plans, because a truncation replay reuses this
+        # mechanism.
+        resolved = plans
+        plans = attach_policy_numerators(plans, mechanism.policy_numerators)
+        if any(plan.has_mtp for plan in plans):
+            replay_recipe = replace(replay_recipe, plans=_frozen_plans(plans))
+        # A cross-fitted SDR fold reads its own mechanism at its training rows, so each
+        # fold fits one on those rows alone (the training-fold recursion).  The out-of-fold
+        # mechanism above is what the result reports and what a held-out row divides by.
+        fold_mechanisms: tuple[FoldMechanism, ...] = ()
+        if self._estimator in ("sdr", "ipsi") and not folds.is_single:
+            fold_mechanisms = fit_fold_mechanisms(
+                prepared,
+                resolved,
+                treatment_learner=treatment_learner,
+                censoring_learner=censoring_learner,
+                folds=folds,
+                density_bins=self.density_bins,
+                ratio=self.ratio,
+                n_jobs=self.n_jobs,
+            )
+        fits, msm_fits = _run_recursion(
+            prepared,
+            plans,
+            mechanism,
+            msm=model,
+            horizons=horizons,
+            outcome_learner=outcome_learner,
+            pseudo_learner=pseudo_learner,
+            folds=folds,
+            scaler=scaler,
+            g_bounds=bounds,
+            **targeting,
+            n_jobs=self.n_jobs,
+            estimator=self._estimator,
+            fold_mechanisms=fold_mechanisms,
+        )
+        with phase("influence_curve"):
+            reported = (
+                _estimates(
+                    prepared, fits, scaler, reference, alpha_sig=self.alpha_sig, inference=status
+                )
+                if model is None
+                else _msm_estimates(prepared, msm_fits, alpha_sig=self.alpha_sig, inference=status)
+            )
+        draw = LongitudinalRepeat(
+            folds=folds,
+            seed=seed,
+            fits=fits,
+            mechanism=mechanism,
+            estimates=reported.estimates,
+            replay_recipe=replay_recipe,
+            msm_fits=msm_fits,
+            fold_mechanisms=fold_mechanisms,
+        )
+        return draw, reported.index, plans
 
     def _replicate_estimator(self) -> _SequentialEstimator:
         """This estimator's settings for one bootstrap replicate.
@@ -3694,27 +4072,32 @@ class _SequentialEstimator:
         return tuple(sorted(wanted))
 
     @staticmethod
-    def _warn_on_truncation(fits: Mapping[str, RegimenFit]) -> None:
+    def _warn_on_truncation(draws: Sequence[Mapping[str, RegimenFit]]) -> None:
         """Warn once with every regimen/node whose scored rows are materially clipped.
 
         Of the out-of-fold mechanism, for the reason
         :meth:`LongitudinalResult._max_truncated` gives: this says how much of the mechanism
-        the fit divided by the bounds moved.
+        the fit divided by the bounds moved.  On a repeated fit the share is the largest
+        over the draws, and the warning names the draws that exceeded it.
         """
         found: dict[tuple[str, int], tuple[float, bool]] = {}
-        for fit in fits.values():
-            for step in fit.steps:
-                bounded = fit.cumulative[:, step.time - 1][step.trained_on]
-                clipped = _clipped_prefix(
-                    fit.cumulative_unbounded, fit.cumulative, step.time, step.trained_on
-                )
-                if not clipped.size:
-                    continue
-                share = float(np.mean(clipped))
-                constant = bool(share == 1.0 and np.unique(bounded).size == 1)
-                key = (fit.regimen.label, step.time)
-                previous = found.get(key, (0.0, False))
-                found[key] = max(previous[0], share), previous[1] or constant
+        exceeded: dict[tuple[str, int], set[int]] = {}
+        for index, fits in enumerate(draws, start=1):
+            for fit in fits.values():
+                for step in fit.steps:
+                    bounded = fit.cumulative[:, step.time - 1][step.trained_on]
+                    clipped = _clipped_prefix(
+                        fit.cumulative_unbounded, fit.cumulative, step.time, step.trained_on
+                    )
+                    if not clipped.size:
+                        continue
+                    share = float(np.mean(clipped))
+                    constant = bool(share == 1.0 and np.unique(bounded).size == 1)
+                    key = (fit.regimen.label, step.time)
+                    previous = found.get(key, (0.0, False))
+                    found[key] = max(previous[0], share), previous[1] or constant
+                    if share > _TRUNCATION_WARN_FRACTION:
+                        exceeded.setdefault(key, set()).add(index)
 
         affected = [
             (label, time, share, constant)
@@ -3723,8 +4106,17 @@ class _SequentialEstimator:
         ]
         if not affected:
             return
+        total = len(draws)
+
+        def where(label: str, time: int) -> str:
+            if total == 1:
+                return ""
+            listed = ", ".join(str(index) for index in sorted(exceeded[(label, time)]))
+            return f" in draw(s) {listed} of {total}"
+
         details = "; ".join(
             f"{label} at t={time}: {share:.1%}"
+            + where(label, time)
             + (
                 " (the bounded cumulative probability, and hence the clever covariate, "
                 "is constant on scored rows)"
@@ -3751,6 +4143,8 @@ class _SequentialEstimator:
         estimates: Mapping[str, ParameterEstimate],
         data: LongitudinalData,
         status: InferenceStatus,
+        repeats: Sequence[LongitudinalRepeat] = (),
+        multiplier_seed: int | None = None,
     ) -> SimultaneousBands | None:
         """Joint bands over the reported parameters, when there is more than one.
 
@@ -3765,6 +4159,10 @@ class _SequentialEstimator:
         because ``simultaneous`` defaults to ``True``: a raise would stop every default fit
         with few clusters.  :meth:`LongitudinalResult.summary` states the omission.
         ``status`` is the one the fit stamped on ``estimates``.
+
+        On a repeated fit the band is :func:`~cleverly.inference.multiplier.median_bands`:
+        the median of the draws' critical values around the split-adjusted estimates, with
+        the one ``multiplier_seed`` in every draw.
         """
         if not supplies_inference(status):
             return None
@@ -3779,6 +4177,16 @@ class _SequentialEstimator:
         # Student t reference builds none either, and the summary says so.
         if has_t_reference(estimates):
             return None
+        if len(repeats) > 1:
+            return median_bands(
+                [repeat.estimates for repeat in repeats],
+                estimates,
+                alpha=self.alpha_sig,
+                n_replicates=self.n_multiplier,
+                kind=self.multiplier_kind,  # type: ignore[arg-type]
+                random_state=multiplier_seed,
+                cluster=data.cluster,
+            )
         return simultaneous_bands(
             estimates,
             alpha=self.alpha_sig,
@@ -3804,7 +4212,7 @@ class _SequentialEstimator:
         observed = data.outcome[data.uncensored_through(data.n_times)]
         return OutcomeScaler.from_outcome(observed, self.q_bounds)
 
-    def _provenance(self, data: LongitudinalData, folds: Folds) -> Provenance:
+    def _provenance(self, data: LongitudinalData, folds: Sequence[Folds]) -> Provenance:
         """The same record a point-treatment fit carries, over the longitudinal nodes.
 
         The data fingerprint covers every node rather than three arrays, so two fits
@@ -3837,7 +4245,9 @@ class _SequentialEstimator:
                     dtype=str,
                 ),
             ),
-            fold_fingerprint=fingerprint_array(folds.assignment),
+            # Every draw in fit order.  One ``int64`` draw digests as
+            # ``fingerprint_array(folds.assignment)`` did.
+            fold_fingerprint=fold_fingerprint(draw.assignment for draw in folds),
             random_state=self.random_state,
             run_id=self.run_id,
         )
@@ -3879,8 +4289,55 @@ class _SequentialEstimator:
                 "(CrossFitting(enabled=False), or n_folds=1 on the engine)."
             )
 
-    def _folds(self, data: LongitudinalData) -> Folds:
-        """One unstratified draw of the outer split, or the in-sample single fold.
+    def _multiplier_seed(self) -> int | None:
+        """The seed of every multiplier draw of the fit.
+
+        ``random_state`` when it is an integer.  A repeated fit under
+        ``random_state=None`` draws one fresh seed here, before any fold draw, and records
+        it on :attr:`LongitudinalConfig.multiplier_seed`, so every draw's critical value and
+        a narrowed band read the same multipliers.  ``None`` at one draw, unchanged.
+        """
+        if self.random_state is not None:
+            return int(self.random_state)
+        return _fresh_seed() if self.repeats > 1 else None
+
+    def _draws(self, data: LongitudinalData) -> list[tuple[Folds, int | None]]:
+        """Every draw of the outer split and its seed, each checked for cluster integrity.
+
+        One draw takes ``random_state``, or a fresh seed under ``None``, as an ordinary fit
+        always has.  ``repeats=R`` takes the seeds of
+        ``CrossFitPlan(random_state=..., repeats=R).seeds()``, spawned from
+        ``random_state``, and replaces each ``None`` with a fresh seed.  The integrity
+        check is made here rather than inside :meth:`_folds`, so that a subclass that draws
+        its own split is held to the same rule: a cluster split across folds puts a unit's
+        own cluster in the training fold of the rows it predicts.  A no-op without
+        clusters.
+        """
+        if self.n_folds <= 1:
+            single = Folds.single(data.n)
+            check_integrity(single, cluster=data.cluster)
+            return [(single, None)]
+        if self.repeats == 1:
+            seeds: list[int] = [
+                _fresh_seed() if self.random_state is None else int(self.random_state)
+            ]
+        else:
+            planned = CrossFitPlan(
+                n_folds=self.n_folds,
+                learner_folds=self.learner_folds,
+                random_state=self.random_state,
+                repeats=self.repeats,
+            ).seeds()
+            seeds = [_fresh_seed() if seed is None else int(seed) for seed in planned]
+        draws: list[tuple[Folds, int | None]] = []
+        for seed in seeds:
+            folds = self._folds(data, seed)
+            check_integrity(folds, cluster=data.cluster)
+            draws.append((folds, seed))
+        return draws
+
+    def _folds(self, data: LongitudinalData, seed: int | None = None) -> Folds:
+        """One unstratified draw of the outer split at ``seed``, or the in-sample single fold.
 
         The split reads ``n``, the seed and, with ``id=``, the cluster labels, and nothing
         else.  With ``id=`` the draw is grouped: every cluster lands whole in one fold, so a
@@ -3897,7 +4354,7 @@ class _SequentialEstimator:
             data.n,
             self.n_folds,
             cluster=data.cluster,
-            seed=_fresh_seed() if self.random_state is None else int(self.random_state),
+            seed=_fresh_seed() if seed is None else seed,
         )
 
 
@@ -4016,6 +4473,16 @@ class LTMLE(_SequentialEstimator):
         nuisances on finite binary laws, at ``n = 1000``.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
+    repeats : int
+        How many independent draws of the outer split the fit combines, at least 1.  Each
+        draw is a complete fit at its own fold assignment and seed, spawned from
+        ``random_state`` as :meth:`cleverly.learners.CrossFitPlan.seeds` spawns them, and
+        every learner of that draw takes that seed.  The report is the median of the draws
+        on each estimate's inference scale, with the split-adjusted variance of
+        Chernozhukov et al. (2018, Definition 3.3 and equation 3.14), and
+        :attr:`LongitudinalResult.repeats` holds every draw.  Above 1 it needs
+        ``n_folds`` of 2 or more and ``n_bootstrap=0``.  At 1 the fit is unchanged, and
+        the learners keep ``random_state``.
     **refused : Any
         A point-treatment keyword.  Each one raises :class:`TypeError` with the reason
         that a longitudinal fit does not support it.
@@ -4052,6 +4519,7 @@ class LTMLE(_SequentialEstimator):
         bootstrap_resampling: Resampling = "auto",
         density_bins: int | None = None,
         ratio: str = "density",
+        repeats: int = 1,
         **refused: Any,
     ) -> None:
         self.alpha = alpha
@@ -4081,6 +4549,7 @@ class LTMLE(_SequentialEstimator):
             bootstrap_resampling=bootstrap_resampling,
             density_bins=density_bins,
             ratio=ratio,
+            repeats=repeats,
             **refused,
         )
 
@@ -4178,6 +4647,9 @@ class SDR(_SequentialEstimator):
         The bin count of a continuous node's conditional density, as for :class:`LTMLE`.
     ratio : {"density", "classifier"}
         How a continuous node's policy ratio is estimated, as for :class:`LTMLE`.
+    repeats : int
+        How many independent draws of the outer split the fit combines by their median,
+        as for :class:`LTMLE`.
     **refused : Any
         ``alpha``, ``max_iter`` and ``tol``, which raise :class:`TypeError` because the
         estimator fits no fluctuation, and each point-treatment keyword that
@@ -4242,6 +4714,7 @@ class SDR(_SequentialEstimator):
         bootstrap_resampling: Resampling = "auto",
         density_bins: int | None = None,
         ratio: str = "density",
+        repeats: int = 1,
         **refused: Any,
     ) -> None:
         named = [name for name in SDR_REFUSED_SETTINGS if name in refused]
@@ -4271,6 +4744,7 @@ class SDR(_SequentialEstimator):
             bootstrap_resampling=bootstrap_resampling,
             density_bins=density_bins,
             ratio=ratio,
+            repeats=repeats,
             **refused,
         )
 
@@ -4298,7 +4772,7 @@ class SDR(_SequentialEstimator):
             raise CapabilityError(SDR_TILT_REFUSAL)
         return plans
 
-    def _pseudo_learner(self) -> Learner:
+    def _pseudo_learner(self, seed: int | None) -> Learner:
         """The learner of every node before the horizon, unclipped by default.
 
         A transform leaves ``[0, 1]``, and ``lmtp`` regresses it as it is.  So the default
@@ -4310,10 +4784,10 @@ class SDR(_SequentialEstimator):
                 task="regression",
                 n_folds=self.learner_folds,
                 clip=None,
-                random_state=self.random_state,
+                random_state=seed,
                 n_jobs=1,
             )
-        return super()._pseudo_learner()
+        return super()._pseudo_learner(seed)
 
 
 #: The settings :class:`IPSI` refuses with :data:`~cleverly.methods.IPSI_NO_FLUCTUATION`.
@@ -4399,6 +4873,9 @@ class IPSI(_SequentialEstimator):
         IPSI bootstrap, so the draws report a bootstrap sd and no percentile inference.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
+    repeats : int
+        How many independent draws of the outer split the fit combines by their median,
+        as for :class:`LTMLE`.
     **refused : Any
         ``alpha``, ``max_iter``, ``tol``, ``targeting`` and ``fluctuation``, which raise
         :class:`TypeError` because the estimator fits no fluctuation, and each
@@ -4462,6 +4939,7 @@ class IPSI(_SequentialEstimator):
         n_jobs: int = 1,
         n_bootstrap: int = 0,
         bootstrap_resampling: Resampling = "auto",
+        repeats: int = 1,
         **refused: Any,
     ) -> None:
         if any(name in refused for name in IPSI_REFUSED_SETTINGS):
@@ -4488,6 +4966,7 @@ class IPSI(_SequentialEstimator):
             n_jobs=n_jobs,
             n_bootstrap=n_bootstrap,
             bootstrap_resampling=bootstrap_resampling,
+            repeats=repeats,
             **refused,
         )
 
@@ -4564,17 +5043,17 @@ class IPSI(_SequentialEstimator):
                 )
         return plans
 
-    def _pseudo_learner(self) -> Learner:
+    def _pseudo_learner(self, seed: int | None) -> Learner:
         """The learner of every node before the horizon, unclipped by default."""
         if self.pseudo_learner is None and self.outcome_learner is None:
             return SuperLearner(
                 task="regression",
                 n_folds=self.learner_folds,
                 clip=None,
-                random_state=self.random_state,
+                random_state=seed,
                 n_jobs=1,
             )
-        return super()._pseudo_learner()
+        return super()._pseudo_learner(seed)
 
 
 def _tilt_shorthand(regimens: Any) -> Any:
@@ -4674,17 +5153,18 @@ def bootstrap_design_kind(
 
 def _refit_bound(
     result: LongitudinalResult,
-    recipe: _LongitudinalReplayRecipe,
+    draw: LongitudinalRepeat,
     bounds: tuple[float, float],
 ) -> _BoundReplay:
-    """Repeat every bound-dependent regression and targeting update.
+    """Repeat every bound-dependent regression and targeting update of one draw.
 
     Parameters
     ----------
     result : LongitudinalResult
-        The fit being replayed. Its mechanism, folds, prepared data and scaler are reused.
-    recipe : object
-        The unfitted templates and resolved plans the fit retained.
+        The fit being replayed. Its prepared data and scaler are reused.
+    draw : LongitudinalRepeat
+        The draw being replayed. Its mechanism, folds, fold mechanisms and replay recipe
+        are reused.
     bounds : tuple of float
         The cumulative bound pair this replay runs under.
 
@@ -4704,17 +5184,18 @@ def _refit_bound(
 
     refuse_regimen_rules(result.config.regimens)
     refuse_evaluated_msm_functions(result.msm)
+    recipe = draw.replay_recipe
     if recipe.outcome_learner is None or recipe.pseudo_learner is None:
         _refuse_replay(LONGITUDINAL_REPLAY_LEARNER_UNCLONABLE)
     fits, msm_fits = _run_recursion(
         result.data,
         recipe.plans,
-        result.mechanism,
+        draw.mechanism,
         msm=result.msm,
         horizons=result.config.horizons,
         outcome_learner=clone(recipe.outcome_learner),
         pseudo_learner=clone(recipe.pseudo_learner),
-        folds=result.folds,
+        folds=draw.folds,
         scaler=result.scaler,
         g_bounds=bounds,
         alpha=recipe.alpha,
@@ -4722,11 +5203,11 @@ def _refit_bound(
         tol=recipe.tol,
         n_jobs=recipe.n_jobs,
         estimator=recipe.estimator,
-        fold_mechanisms=result.fold_mechanisms,
+        fold_mechanisms=draw.fold_mechanisms,
     )
     # The status the fit stamped, recomputed from the same data and folds, so the replay at
     # the fitted bound equals the fit in every field ``_fitted_replay_matches`` compares.
-    status = _inference_status(result.data, result.folds)
+    status = _inference_status(result.data, draw.folds)
     if result.msm is None:
         reference = next(
             plan.regimen for plan in recipe.plans if plan.label == result.config.reference
@@ -4784,13 +5265,17 @@ def _exact_replay_equal(left: Any, right: Any) -> bool:
         return left is right
 
 
-def _fitted_replay_matches(result: LongitudinalResult, replay: _BoundReplay) -> bool:
-    """Whether replay reproduced every retained bound-dependent fitted artifact.
+def _fitted_replay_matches(
+    result: LongitudinalResult, draw: LongitudinalRepeat, replay: _BoundReplay
+) -> bool:
+    """Whether replay reproduced every retained bound-dependent fitted artifact of a draw.
 
     Parameters
     ----------
     result : LongitudinalResult
         The fit being replayed.
+    draw : LongitudinalRepeat
+        The draw the replay ran.
     replay : object
         The replay run at the fit's own bounds.
 
@@ -4802,13 +5287,15 @@ def _fitted_replay_matches(result: LongitudinalResult, replay: _BoundReplay) -> 
 
     # A replay never reruns the bootstrap, so the summaries are stripped on both sides.
     # ``_exact_replay_equal`` recurses into every dataclass field and would otherwise
-    # refuse every bootstrapped fit.
-    fitted = {name: replace(e, bootstrap=None) for name, e in result.estimates.items()}
+    # refuse every bootstrapped fit.  The draw's own estimates of the reported names: on a
+    # one-draw fit they are the reported estimates.
+    reported = result.estimates if result.n_repeats == 1 else draw.estimates
+    fitted = {name: replace(reported[name], bootstrap=None) for name in result.estimates}
     replayed = {name: replace(e, bootstrap=None) for name, e in replay.estimates.items()}
     return (
         _exact_replay_equal(fitted, replayed)
-        and _exact_replay_equal(result.fits, replay.fits)
-        and _exact_replay_equal(result.msm_fits, replay.msm_fits)
+        and _exact_replay_equal(draw.fits, replay.fits)
+        and _exact_replay_equal(draw.msm_fits, replay.msm_fits)
     )
 
 
@@ -4931,9 +5418,11 @@ def longitudinal_truncation_curve(
     """
     refuse_regimen_rules(result.config.regimens)
     refuse_evaluated_msm_functions(result.msm)
-    recipe = result.replay_recipe
-    if recipe.omissions:
-        _refuse_replay(*recipe.omissions)
+    omissions = tuple(
+        dict.fromkeys(item for draw in result.repeats for item in draw.replay_recipe.omissions)
+    )
+    if omissions:
+        _refuse_replay(*omissions)
     # Resolved first and deduplicated after, so that ``0.2`` and ``(0.2, 1.0)`` are the one
     # bound pair they denote rather than two replays of it.  A replay is a complete backward
     # recursion per regimen, cause and horizon, so a duplicate entry is minutes of work for
@@ -4976,26 +5465,45 @@ def longitudinal_truncation_curve(
     fitted_bounds = result.config.g_bounds
     # A point estimate can agree while a stochastic Q recursion differs underneath it.
     # Prove the retained recipe reconstructs the fit before reporting *any* requested
-    # bound, including grids that deliberately omit the fitted pair.
-    fitted_replay = _refit_bound(result, recipe, fitted_bounds)
-    if not _fitted_replay_matches(result, fitted_replay):
-        _refuse_replay(LONGITUDINAL_REPLAY_FITTED_BOUND_MISMATCH)
+    # bound, including grids that deliberately omit the fitted pair.  On a repeated fit
+    # every draw is replayed and checked, and each bound reports the median of the draws.
+    fitted_replays = []
+    for draw in result.repeats:
+        replay = _refit_bound(result, draw, fitted_bounds)
+        if not _fitted_replay_matches(result, draw, replay):
+            _refuse_replay(LONGITUDINAL_REPLAY_FITTED_BOUND_MISMATCH)
+        fitted_replays.append(replay)
     rows: list[dict[str, Any]] = []
     for lower, upper in grid:
-        replay = (
-            fitted_replay
+        replays = (
+            fitted_replays
             if (lower, upper) == fitted_bounds
-            else _refit_bound(result, recipe, (lower, upper))
+            else [_refit_bound(result, draw, (lower, upper)) for draw in result.repeats]
         )
-        # Once per bound rather than once per estimand: the masks are a property of the
-        # mechanism and the bound, and every estimand at this bound reads the same ones.
-        consumed = _consumed_prefixes(result.data, result.mechanism, recipe.plans, (lower, upper))
-        for name in reported:
-            truncated, evaluated = _score_cell_truncation_counts(
-                replay.contributors[name], consumed
+        if len(replays) == 1:
+            estimates = replays[0].estimates
+        else:
+            estimates = median_estimates(
+                with_precedent_status([replay.estimates for replay in replays])
             )
+        counts: dict[str, tuple[int, int]] = dict.fromkeys(reported, (0, 0))
+        for draw, replay in zip(result.repeats, replays, strict=True):
+            # Once per bound and draw rather than once per estimand: the masks are a
+            # property of the draw's mechanism and the bound, and every estimand at this
+            # bound reads the same ones.
+            consumed = _consumed_prefixes(
+                result.data, draw.mechanism, draw.replay_recipe.plans, (lower, upper)
+            )
+            for name in reported:
+                truncated, evaluated = _score_cell_truncation_counts(
+                    replay.contributors[name], consumed
+                )
+                previous = counts[name]
+                counts[name] = (previous[0] + truncated, previous[1] + evaluated)
+        for name in reported:
+            truncated, evaluated = counts[name]
             fitted = float(result.estimates[name].psi)
-            estimate = float(replay.estimates[name].psi)
+            estimate = float(estimates[name].psi)
             rows.append(
                 {
                     "lower_bound": lower,

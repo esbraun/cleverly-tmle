@@ -439,7 +439,10 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         cost="expensive",
         requires_arguments=("bounds",),
         requires_replay="refit_nuisances",
-        interpretation="estimate stability across declared mechanism bounds",
+        interpretation=(
+            "estimate stability across declared mechanism bounds; on a repeated fit, the "
+            "median over draws at each bound"
+        ),
     ),
     _capability(
         "refute",
@@ -1198,7 +1201,10 @@ def replayability(result: Any) -> Replayability:
         from .longitudinal.msm import refuse_evaluated_msm_functions
         from .longitudinal.regimen import refuse_regimen_rules
 
-        missing = list(result.replay_recipe.omissions)
+        # Every draw of a repeated fit is replayed, so a reason any draw carries applies.
+        missing = list(
+            dict.fromkeys(item for draw in result.repeats for item in draw.replay_recipe.omissions)
+        )
         # These are the same guards the replay runs. A modified result may retain every
         # learner template and evaluated array yet lack the declarations needed to use
         # them as a new fitted result.
@@ -3022,6 +3028,21 @@ def _nuisance_item(
                     flagged[estimate.inference] = flagged.get(estimate.inference, 0) + 1
             for flagged_status, count in flagged.items():
                 detail += f"; {count} parameter(s): {status_record(flagged_status).assessment_note}"
+        if report.n_repeats > 1:
+            detail += f"; the rows describe {format_draw(report.reported_repeat, report.n_repeats)}"
+            finite_spread = [
+                row for row in report.repeat_spread if np.isfinite(row.ratio_to_standard_error)
+            ]
+            if finite_spread:
+                largest = max(finite_spread, key=lambda row: row.ratio_to_standard_error)
+                ratio_name = spread_name(
+                    "sd/se", "influence_curve" if _result is None else _result.inference_status
+                )
+                detail += (
+                    f"; split spread for {len(report.repeat_spread)} parameter(s) across "
+                    f"{report.n_repeats} draws; largest {ratio_name} "
+                    f"{largest.ratio_to_standard_error:.3g} for {largest.estimand}"
+                )
     else:
         facts = [
             "; ".join(findings)

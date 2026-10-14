@@ -939,7 +939,7 @@ def test_nineteen_clusters_withhold_the_interval_of_every_coefficient() -> None:
 def test_m8_a_row_level_split_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     """M8: rows of one cluster in two folds.  The integrity check refuses before any learner."""
 
-    def row_folds(self: LTMLE, data: Any) -> Folds:
+    def row_folds(self: LTMLE, data: Any, seed: int | None = None) -> Folds:
         return random_partition(data.n, self.n_folds, seed=0)
 
     monkeypatch.setattr(LTMLE, "_folds", row_folds)

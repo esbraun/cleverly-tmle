@@ -61,8 +61,10 @@ from ..inference.results import (
     select_estimates,
     smooth_contrast,
     sole_estimate,
+    split_noise_lines,
     with_derived_bootstrap,
 )
+from ..inference.results import repeat_spread as shared_repeat_spread
 from ..learners.crossfit import CrossFitPlan, SplitPlan
 from ..protocol import ProtocolDetail, protocol_summary_lines
 from ..provenance import Provenance
@@ -779,30 +781,7 @@ class TMLEResult:
             Standard deviation across the cross-fitting draws, per estimand, on the
             inference scale of that estimand.
         """
-        if self.n_repeats < 2:
-            raise ValueError(
-                "repeat_spread() describes how much psi moved between draws of the "
-                f"cross-fitting split, and this fit has {self.n_repeats}. Fit with "
-                "repeats=2 or more."
-            )
-        shared = [name for name in self.estimates if all(name in r.psi for r in self.repeats)]
-        spreads: dict[str, float] = {}
-        for name in shared:
-            values = np.asarray([repeat.psi[name] for repeat in self.repeats], dtype=float)
-            # Outside the ratio branch, because a draw that is not finite has no spread on
-            # any scale.  Leaving it inside sent an infinite difference-scale draw into
-            # ``np.std``, which warns and therefore raises under this project's
-            # ``error::RuntimeWarning`` filter rather than yielding the promised ``nan``.
-            if not np.all(np.isfinite(values)):
-                spreads[name] = float("nan")
-                continue
-            if self.estimates[name].scale == "ratio":
-                if np.any(values <= 0.0):
-                    spreads[name] = float("nan")
-                    continue
-                values = np.log(values)
-            spreads[name] = float(np.std(values, ddof=1))
-        return spreads
+        return shared_repeat_spread(self.estimates, [repeat.psi for repeat in self.repeats])
 
     # ------------------------------------------------------------- accessors
 
@@ -1600,38 +1579,11 @@ class TMLEResult:
             parts.append("")
             parts.append(record.summary_note())
         if self.n_repeats > 1:
-            # Printed under the table rather than left to the scope document, because a
-            # reader who subtracts two rows of that table gets a third number the fit
-            # never reported.  contrast() refuses for this reason; the table cannot.
-            parts.append("")
-            parts.append(
-                "the report above is coordinatewise: each row is the median of its own "
-                "draws, so algebraic identities among the rows (ate versus ey1 - ey0, "
-                "say) do not hold."
+            # contrast() refuses for the reason the coordinatewise note gives; the table
+            # cannot refuse, so the note is printed under it.
+            parts.extend(
+                split_noise_lines(self.estimates, self.repeat_spread(), self.n_repeats, status)
             )
-            # Beside the standard error rather than in a separate report, because the
-            # comparison is the whole content of the number: on its own "0.0065" says
-            # nothing about whether the split mattered.
-            parts.append("")
-            parts.append(
-                f"split noise -- spread across the {self.n_repeats} draws on the inference "
-                "scale (the log scale for a ratio), a diagnostic and not a standard error:"
-            )
-            for name, value in self.repeat_spread().items():
-                # The plug-in accessor: this share is a diagnostic ratio, and the fit may
-                # be one whose standard error the package refuses to name as one.
-                error = self[name].plugin_std_error
-                # "-" and a named reason, as every other table in this package renders a
-                # cell it has no value for.  A draw this spread could not be taken over
-                # printed "nan (nan% of std_err)" here.
-                if not np.isfinite(value):
-                    parts.append(f"  {name:<5s} -  (no spread on the inference scale)")
-                    continue
-                # Named as ``to_frame`` names the same number, so a selector-path fit
-                # does not describe its diagnostic as a standard error here.
-                label = spread_name("std_err", status)
-                share = f"{value / error:.0%} of {label}" if error > 0 else f"{label} unavailable"
-                parts.append(f"  {name:<5s} {value:.4g}  ({share})")
         if self.simultaneous is None and diagnostic and len(self.estimates) > 1:
             # Stated rather than left blank: a reader who asked for bands, or who knows
             # they are the default, would otherwise have to guess why none are here.

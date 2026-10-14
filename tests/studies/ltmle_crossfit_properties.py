@@ -265,13 +265,15 @@ class FirstNodeStratifiedLTMLE(LTMLE):
         Passed to :class:`~cleverly.longitudinal.LTMLE`.
     """
 
-    def _folds(self, data: Any) -> Folds:
+    def _folds(self, data: Any, seed: int | None = None) -> Folds:
         """The retired first-node-stratified draw.
 
         Parameters
         ----------
         data : LongitudinalData
             The prepared rows.
+        seed : int or None
+            The seed of the draw.
 
         Returns
         -------
@@ -286,7 +288,7 @@ class FirstNodeStratifiedLTMLE(LTMLE):
             resolve_n_folds(self.n_folds, data.n, first),
             stratify=first,
             cluster=data.cluster,
-            random_state=self.random_state,
+            random_state=seed,
         )
 
 
