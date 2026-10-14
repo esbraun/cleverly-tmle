@@ -3,8 +3,10 @@
 # hash, which pins its content.  CRAN packages come from the snapshot of the base image.
 FROM rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c
 
+# The RSPM igraph binary that sl3 loads links libglpk and libgmp at load time.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git libxml2-dev libcurl4-openssl-dev libssl-dev zlib1g-dev \
+        libglpk40 libgmp10 \
     && rm -rf /var/lib/apt/lists/*
 
 # The h2o binary is large, and R's default 60 s download timeout cuts it off.
