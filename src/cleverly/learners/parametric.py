@@ -41,17 +41,18 @@ __all__ = [
 MIN_RECIPROCAL_CONDITION = 1e-12
 """The smallest reciprocal condition number of the equilibrated information matrix."""
 
-OutcomeFeatures = Literal["main_terms", "arm_interactions", "no_arm_main_effect"]
+OutcomeFeatures = Literal["main_terms", "arm_interactions", "arm_interactions_no_intercept"]
 """The outcome feature maps.
 
 ``D`` is the outcome design ``[I, W]`` with ``arm_columns`` treatment columns ``I`` first.
 
 * ``"main_terms"``: ``[1, I, W]``.
 * ``"arm_interactions"``: ``[1, I, W, I x W]``.
-* ``"no_arm_main_effect"``: ``[1, W, I x W]``.
+* ``"arm_interactions_no_intercept"``: ``[I, W, I x W]``. Its reference arm has no
+  intercept, so on most laws that arm's outcome model is wrong.
 """
 
-_OUTCOME_FEATURES: tuple[str, ...] = ("main_terms", "arm_interactions", "no_arm_main_effect")
+_OUTCOME_FEATURES: tuple[str, ...] = ("main_terms", "arm_interactions", "arm_interactions_no_intercept")
 _MAX_ITERATIONS = 100
 _STEP_TOLERANCE = 1e-12
 _MAX_HALVINGS = 50
@@ -301,7 +302,7 @@ class ParametricOutcome(_ParametricLogistic):
 
     Parameters
     ----------
-    features : {"main_terms", "arm_interactions", "no_arm_main_effect"}
+    features : {"main_terms", "arm_interactions", "arm_interactions_no_intercept"}
         The feature map of :data:`OutcomeFeatures`.
     arm_columns : int
         The number of treatment columns that lead the outcome design: 1 for a binary
@@ -359,7 +360,7 @@ class ParametricOutcome(_ParametricLogistic):
         products = (arms[:, :, None] * covariates[:, None, :]).reshape(matrix.shape[0], -1)
         if self.features == "arm_interactions":
             return np.column_stack([ones, arms, covariates, products])
-        return np.column_stack([ones, covariates, products])
+        return np.column_stack([arms, covariates, products])
 
 
 class ParametricMechanism(_ParametricLogistic):

@@ -32,10 +32,10 @@ def test_outcome_feature_maps() -> None:
     design = np.array([[1.0, 2.0, 3.0], [0.0, 4.0, 5.0]])
     main = ParametricOutcome("main_terms").design_matrix(design)
     full = ParametricOutcome("arm_interactions").design_matrix(design)
-    reduced = ParametricOutcome("no_arm_main_effect").design_matrix(design)
+    reduced = ParametricOutcome("arm_interactions_no_intercept").design_matrix(design)
     np.testing.assert_array_equal(main, [[1, 1, 2, 3], [1, 0, 4, 5]])
     np.testing.assert_array_equal(full, [[1, 1, 2, 3, 2, 3], [1, 0, 4, 5, 0, 0]])
-    np.testing.assert_array_equal(reduced, [[1, 2, 3, 2, 3], [1, 4, 5, 0, 0]])
+    np.testing.assert_array_equal(reduced, [[1, 2, 3, 2, 3], [0, 4, 5, 0, 0]])
     np.testing.assert_array_equal(full[:, 1:], laws.arm_interactions(design, indicators=1))
 
 
