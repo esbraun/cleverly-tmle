@@ -126,7 +126,8 @@ regressions of a random tilt.  So a ``DRTMLE`` fit with a non-empty ``guard`` an
 ``weights_estimated=True`` reports its point estimate under the ``"estimated_weight_plugin"``
 status: ``ci``, ``pvalue`` and ``std_error`` raise, and ``plugin_std_error`` and
 ``plugin_interval`` keep the diagnostic.  ``guard=()`` fits the ordinary TMLE and keeps its
-interval.  F5 in ``docs/roadmap.md`` holds the result that would reopen it.
+interval.  X50 in ``docs/roadmap.md`` holds the fixed-weight DR-TMLE curve that would
+reopen it.
 
 Normalisation
 -------------

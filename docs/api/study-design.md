@@ -12,12 +12,20 @@ Use these objects to declare the observed data, identify a causal quantity, and 
    cleverly.PointTreatment
    cleverly.LongitudinalTreatment
    cleverly.TimeToEvent
+   cleverly.LongPanel
+   cleverly.longitudinal.PanelLayout
+   cleverly.longitudinal.LongitudinalData.from_long_panel
+   cleverly.longitudinal.LongitudinalData.to_long_panel
    cleverly.Estimand
    cleverly.IdentificationProvider
    cleverly.ExplicitAdjustmentProvider
    cleverly.IdentifiedEffect
    cleverly.Provenance
 ```
+
+`LongPanel` reads a long panel with one row per unit and decision time. It builds the same
+trajectory container as `LongitudinalData.from_long_panel`, and `PanelLayout` records the roles
+that the container was built from.
 
 Call `CausalStudy(data, design=...)`, then call `identify()` or `estimate()`. An identification
 provider extends this sequence. It does not waive the identification and evidence requirements.
@@ -43,7 +51,7 @@ The public objects divide responsibility as follows:
 | object | responsibility |
 | --- | --- |
 | `StudyProtocol` | study context and study-specific assumption rationale |
-| `PointTreatment`, `LongitudinalTreatment` or `TimeToEvent` | observed column roles and treatment-time structure |
+| `PointTreatment`, `LongitudinalTreatment`, `LongPanel` or `TimeToEvent` | observed column roles and treatment-time structure |
 | typed estimand | the mathematical contrast and intervention metadata |
 | `IdentifiedEffect` | the observed-data functional and identification contract |
 | estimation method | learner, targeting, inference, and runtime configuration |

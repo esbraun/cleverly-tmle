@@ -54,6 +54,188 @@ measured standard-error ratios from 0.9797 to 1.0130 over 1,600 replications at 
 results apply only to that study's law and estimator settings. They do not establish calibrated
 variance for other laws, weights, clusters, survival outcomes, or sample sizes.
 
+## Read a long panel
+
+Customer data usually arrives as one row per customer and decision time. Each row holds the
+covariates known before the decision. It also holds the decision and the observation indicator.
+`LongPanel` and `LongitudinalData.from_long_panel` reshape such a frame into the trajectory
+container that `LongitudinalTreatment` builds from a wide frame. The reshape ends in
+`LongitudinalData.from_frame`, so every check of the wide layout runs on the result.
+
+| argument | the column holds | wide name |
+| --- | --- | --- |
+| `unit=` | the customer identifier. One value is one trajectory | the row of the container, kept in `unit_ids` |
+| `time=` | the decision time. Values must sort | the node index `t`, counted from 1 |
+| `treatment=` | the decision at that row. A list of columns is one vector node | `"offer@t"` |
+| `baseline=` | unit-level covariates, measured before the first decision | the original name |
+| `time_varying=` | covariates measured at that row, before its decision | `"eng@t"` |
+| `censoring=` | `1` while the customer stays observed after the row's decision, `0` on the last row of a customer who left | `"active@t"` |
+| `outcome=` | an end-of-study outcome, one value per customer, on any of its rows | the original name |
+| `event=` | a survival event indicator on each row. A mapping of cause to column declares competing risks | `"event@t"` |
+| `times=` | every decision time, in time order. Omit it when the times are numbers, dates or durations, and the reader sorts them | the node order |
+| `cluster=` | an account or store identifier, constant within a customer | `id=` of the cluster contract |
+| `weights=` | a unit-level probability weight | `weights=` |
+| `treatment_probabilities=`, `censoring_probabilities=` | the known mechanism, as `P(A_t = level \| past)` and `P(C_t = 1 \| past)` on each row | `"column@t"` |
+
+Declare exactly one of `outcome=` and `event=`. One customer trajectory is one observation for the
+inference model. Repeated rows of one customer add no independent observations. Declare
+`cluster=` when customers depend on each other, such as the customers of one account.
+
+A generated name is `"column@t"`, where `t` is the node index and not the time label. The labels
+stay in `data.panel`, a `PanelLayout`, which `data.panel.decision_times` lists. A rule at node `t`
+reads `"column@s"` for `s <= t`. The summary of a fit on an adapted panel adds a `long panel:`
+line. The line names the unit column, the decision times, and any column left out at a node.
+`from_long_panel` takes rows in any order. The container follows the sorted unit identifiers.
+
+```python
+import numpy as np
+import pandas as pd
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+from cleverly import CausalStudy, LongPanel, RegimeContrast
+
+rng = np.random.default_rng(5)
+rows, bought = [], {}
+for customer in range(400):
+    age, eng, offers = rng.normal(), rng.normal(), 0
+    for week in (10, 20, 30):
+        offer = rng.random() < 1 / (1 + np.exp(-0.5 * eng))
+        stays = week == 30 or rng.random() < 0.9
+        rows.append((customer, week, age, eng, "offer" if offer else "none", float(stays)))
+        if not stays:
+            break
+        offers += offer
+        eng = 0.6 * eng + 0.5 * offer + rng.normal(scale=0.7)
+    else:
+        p = 1 / (1 + np.exp(-(0.5 * eng + 0.4 * offers - 0.5)))
+        bought[customer] = float(rng.random() < p)
+panel = pd.DataFrame(rows, columns=["customer", "week", "age", "eng", "offer", "active"])
+panel["bought"] = panel["customer"].map(bought)
+
+long_design = LongPanel(
+    unit="customer",
+    time="week",
+    treatment="offer",
+    baseline=["age"],
+    time_varying=["eng"],
+    censoring="active",
+    outcome="bought",
+)
+long_study = CausalStudy(panel, design=long_design)
+print(long_study.data.history_names(2), long_study.data.panel.decision_times)
+```
+
+The panel holds 400 customers over weeks 10, 20 and 30. A customer who leaves has `active` equal to
+0 on its last row, and no outcome. `history_names(2)` returns `('age', 'eng@1', 'eng@2')`. The
+design hands the frame to `CausalStudy`, and `from_long_panel` takes the same arguments if you
+want the container first.
+
+### Put each measurement on the right row
+
+A `time_varying` column is measured before that row's decision. Code cannot read the order of a
+measurement from the data, so the declaration states it. A measurement taken after the decision,
+such as the response to the offer, belongs to the next row. Move it with one line of pandas:
+
+```python
+after = panel.assign(response=panel["eng"])  # recorded after each row's decision
+after["response"] = after.groupby("customer")["response"].shift()
+```
+
+The first row of each customer then holds a missing value. A leading run of missing values is not
+an error. The column starts at its first recorded node, and `data.panel.omitted` lists each column
+and node left out. A column that is missing at a later node, after it was first recorded, is
+refused. Leaving it out there would remove a confounder from that node's adjustment set.
+
+A column that holds the previous treatment is not a leak. Among the units that follow a plan, it
+equals the arm that the plan assigned. Under a policy, the earlier observed arm is what
+`policy_frame` already exposes to a density.
+
+### Write one rule for every node
+
+`each_node(rule, n_times)` returns one rule per node. Node `t` calls `rule(history, t)`, so the
+rule reads `f"eng@{t}"` and nothing later. Put the result in a `DynamicRegimen`, as
+[Declare a dynamic rule](#declare-a-dynamic-rule) states.
+
+```python
+from cleverly.longitudinal import DynamicRegimen, each_node
+
+engaged = DynamicRegimen(
+    "engaged",
+    each_node(lambda history, t: np.where(history[f"eng@{t}"] > 0, "offer", "none"), 3),
+    rule_kind="known",
+)
+long_result = long_study.estimate(
+    RegimeContrast({"never": ("none",) * 3, "engaged": engaged}, reference="never"),
+    outcome_learner=LogisticRegression(max_iter=1000),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    censoring_learner=LogisticRegression(max_iter=1000),
+    n_folds=2,
+    random_state=0,
+)
+print(long_result.summary())
+```
+
+This plan offers at node `t` when the customer's engagement at node `t` is positive. The fit
+raises `DataError` for a rule that names a column from a later node. It raises the same error when
+the column is absent at the node, for example because the node screened it out as constant. It
+never reads an earlier node instead.
+
+| test | what it checks |
+| --- | --- |
+| `test_a_rule_reads_its_own_node_and_never_a_later_one` | `each_node` equals a rule written by hand, a rule that reads the previous node assigns different arms, and a rule that reads a later node raises |
+| `test_a_screened_out_node_raises_rather_than_read_an_earlier_node` | a rule raises when its column is absent at its node |
+| `test_ltmle_on_the_adapted_panel_equals_the_wide_fit` | `LTMLE` on the adapted panel equals the fit on the equivalent wide frame, to a relative difference of 1e-12 |
+
+### Go back to a long panel
+
+`data.to_long_panel()` returns one row per customer and node at which the customer is still in the
+study. Rows are sorted by unit and time, in the backend that the data came from.
+
+```python
+back = long_study.data.to_long_panel()
+print(back.head(3))
+```
+
+The result differs from the input in three ways.
+
+| difference | reason |
+| --- | --- |
+| the weights have mean one | the container normalizes the weights |
+| a covariate screened out at a node is missing at that node | the node holds no column for it |
+| the known probability columns are not returned | the container keeps them as mechanisms, not as covariates |
+
+`to_long_panel` raises `DataError` on a container built from a wide frame.
+
+### What the reader refuses
+
+Each refusal raises `DataError` before any learner. A message about one unit names the first such unit, and the decision time when one applies.
+
+| the panel holds | why the reader refuses it |
+| --- | --- |
+| time labels that are not numbers, dates or durations, with no `times=` | the sort order of a label such as `"w10"` is not its time order. Declare `times=` in time order |
+| a missing unit or time, a duplicated `(unit, time)` pair, a time that `times=` does not list | a long panel holds one row per unit and decision time. `times=` names every decision time and cannot coarsen a grid |
+| a customer whose first row is after the first decision, or a gap between two rows | late entry is a different observation scheme. Intermittent observation is not censoring |
+| rows after a customer left, or rows that stop with no censoring 0 and no event | a customer who is censored or has the event leaves for good. Declare `censoring=` |
+| an event value on a row whose censoring is 0 | the order at a node is $A_t, C_t, Y_t$. Record an event as censoring 1 and event 1. Record a loss after an event-free interval as censoring 0 and a missing event |
+| a `baseline`, `cluster` or `weights` column that varies within a customer, or is recorded only after the first row | a later value would let a rule at an earlier node read the future |
+| an `outcome` that varies within a customer | an end-of-study outcome holds one value per unit. A per-row outcome is `event=` |
+| one column in two roles, or a covariate that equals the outcome or the row's event | a rule could read the outcome under another name |
+| a time-varying column with no value at a node after its first recorded node | the column would leave that node's adjustment set |
+| a treatment that never changes within a customer | that is one baseline decision held over every node. Build the wide frame and declare `treatment="A"` |
+| a column named like a generated name, such as `eng@1` | the name collides with a generated column. Rename it |
+
+The wide layout refuses the same event on a censored row. `LongitudinalData.from_frame` used to
+drop it without a message, and it now raises `DataError`.
+
+### Long horizons
+
+The registered evidence for `LTMLE` and `SDR` covers two decision nodes. The
+[roadmap](../roadmap.md#x39-longitudinal-evidence-over-three-to-five-decisions) plans laws with
+three to five. Every $L_t$ block accumulates into the history design, so a long panel adds columns
+at each node and needs more customers. `times=` cannot coarsen a grid. To model fewer decisions,
+aggregate the frame to the coarser decision times before you read it.
+
 ## Declare a dynamic rule
 
 Write each plan that holds a rule as a `DynamicRegimen`, and declare `rule_kind="known"`. The
@@ -512,10 +694,24 @@ no sample estimator for them. The
 ## Persistence
 
 `result.save()` and `cleverly.load()` carry a longitudinal result through a round trip. The
-artifact keeps the folds, the fitted mechanisms, the sequential steps, the targeting state, and
-the causal metadata, and the truncation replay recipe. [Persistence and
-replayability](results-assessment.md#persistence-and-replayability) states the shared contract for
-every result, including the assessment cache and the capability rows a restored artifact refuses.
-`tests/unit/test_serialization.py`'s
+artifact keeps the folds, the fitted mechanisms, the sequential steps, the targeting state, the
+causal metadata, and the truncation replay recipe. It keeps the plan that the fit used. A result
+fitted on an adapted panel keeps its `PanelLayout` and `unit_ids`, so `to_long_panel()` works on
+the loaded result.
+
+`save()` writes the result with `cloudpickle`. A rule, a policy density, a map, or a learner that
+you define inline is saved by value. That covers a lambda, a closure, and a function defined in a
+notebook or in `__main__`. A loaded result evaluates each of them again. An importable function
+or class is saved by reference, so its module must import on the machine that loads the artifact.
+
+A by-value object loads only under the Python minor version that saved it. Load such an artifact
+with the same minor version, for example 3.13 for an artifact that 3.13 wrote.
+`tests/unit/test_long_panel.py::test_policies_defined_in_main_survive_a_save_in_a_fresh_interpreter`
+saves a lambda rule, a closure density, and an `each_node` rule from `__main__`. It loads them in
+a new interpreter and compares the assignments and the density.
+
+[Persistence and replayability](results-assessment.md#persistence-and-replayability) states the
+shared contract for every result, including the assessment cache and the capability rows that a
+restored artifact refuses. `tests/unit/test_serialization.py`'s
 `test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment` checks the round trip
 against one cross-fitted, weighted, censored fit.

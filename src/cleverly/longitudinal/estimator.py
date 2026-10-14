@@ -848,6 +848,9 @@ class LongitudinalConfig:
     held_treatment: str | None = None
     #: The grid times of a container built from a time and an event column, else ``None``.
     time_grid: tuple[float, ...] | None = None
+    #: The settings line of a container built from a long panel
+    #: (:meth:`~cleverly.longitudinal.PanelLayout.describe`), else ``None``.
+    panel: str | None = None
     #: The treatment and censoring columns whose factor the data declares known
     #: (:attr:`~cleverly.longitudinal.LongitudinalData.known_mechanisms`), in node order.
     #: Each fits no learner and is not truncated.  Empty on a fit that declares none.
@@ -909,6 +912,8 @@ class LongitudinalConfig:
             )
         if self.time_grid is not None:
             lines.insert(1, f"time grid: {', '.join(f'{g:g}' for g in self.time_grid)}")
+        if self.panel is not None:
+            lines.insert(1, self.panel)
         if len(self.outcome_names) > 1:
             lines.insert(
                 1,
@@ -3762,6 +3767,7 @@ class _SequentialEstimator:
                 (plan.label, plan.point_mass_nodes) for plan in plans if plan.point_mass_nodes
             ),
             held_treatment=prepared.treatment_names[0] if prepared.treatment_held else None,
+            panel=None if prepared.panel is None else prepared.panel.describe(),
             time_grid=prepared.time_grid,
             known_factors=_known_factors(prepared),
             estimator=self._estimator,
