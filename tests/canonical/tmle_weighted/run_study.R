@@ -38,7 +38,7 @@ fit_one <- function(frame) {
     stop(sprintf("invalid treatment nuisance for %s/%s", scenario, replicate))
   }
   qn <- cbind(frame$qn0, frame$qn1)
-  fit <- tmle::tmle(
+  fit <- study_stage("tmle", tmle::tmle(
     Y = frame$Y,
     A = frame$A,
     W = frame[covariates],
@@ -51,7 +51,7 @@ fit_one <- function(frame) {
     gbound = c(0.01, 0.99),
     cvQinit = FALSE,
     verbose = FALSE
-  )
+  ))
   tmle_point_rows(
     fit,
     qn,
@@ -67,9 +67,12 @@ groups <- split(samples, interaction(samples$scenario, samples$replicate, drop =
 expected <- length(groups)
 rm(samples)
 invisible(gc())
+# Forced here, in the parent: with `mc.preschedule = TRUE`, `mclapply` would force it in each
+# child, and `study_collect` would then find no registered groups to retry or assemble.
+fit_group <- study_fitter(groups, fit_one)
 results <- parallel::mclapply(
   seq_along(groups),
-  study_fitter(groups, fit_one),
+  fit_group,
   mc.cores = study_cores(groups),
   mc.preschedule = TRUE
 )

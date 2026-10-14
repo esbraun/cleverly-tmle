@@ -11,7 +11,7 @@ critical <- qnorm(0.975)
 fit_one <- function(frame) {
   scenario <- frame$scenario[[1]]
   replicate <- frame$replicate[[1]]
-  fit <- drtmle::drtmle(
+  fit <- study_stage("drtmle", drtmle::drtmle(
     Y = frame$Y,
     A = frame$A,
     W = frame["W"],
@@ -33,7 +33,7 @@ fit_one <- function(frame) {
     returnModels = FALSE,
     returnNuisance = TRUE,
     use_future = FALSE
-  )
+  ))
   estimates <- as.numeric(fit$drtmle$est)
   covariance <- fit$drtmle$cov
   psi <- c(estimates[[1]], estimates[[2]], estimates[[2]] - estimates[[1]])
@@ -74,9 +74,12 @@ fit_one <- function(frame) {
 
 groups <- split(samples, interaction(samples$scenario, samples$replicate, drop = TRUE))
 cores <- study_cores(groups)
+# Forced here, in the parent: with `mc.preschedule = TRUE`, `mclapply` would force it in each
+# child, and `study_collect` would then find no registered groups to retry or assemble.
+fit_group <- study_fitter(groups, fit_one)
 results <- parallel::mclapply(
   seq_along(groups),
-  study_fitter(groups, fit_one),
+  fit_group,
   mc.cores = cores,
   mc.preschedule = TRUE
 )

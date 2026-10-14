@@ -1,0 +1,35 @@
+wall secs 546 fits rows 6000
+                                       cell  replicates  standardized_bias  se_ratio  coverage    growth  growth_ci_lower  passed  remainder_proxy_over_sd  nonconverged_fits  seconds_per_fit
+0     mar_q_wrong_pi_slow__ey0__first_order       200.0          -0.542721  1.104336     0.945       NaN              NaN    True                -0.942270                4.0         1.525956
+1     mar_q_wrong_pi_slow__ey1__first_order       200.0          -0.578404  0.954251     0.880       NaN              NaN    True                -0.774282                4.0         1.525956
+2               q_slow_g_wrong__ate__growth         NaN                NaN       NaN       NaN  0.433874         0.122651    True                      NaN                NaN              NaN
+3    q_slow_g_wrong_n1000__ate__first_order       200.0          -0.858801  1.541044     0.830       NaN              NaN    True                -0.827966               35.0         0.196430
+4   q_slow_g_wrong_n16000__ate__first_order       200.0          -1.292675  0.888051     0.665       NaN              NaN    True                -1.216190               12.0         1.051442
+5    q_slow_g_wrong_n4000__ate__first_order       200.0          -1.145109  0.987521     0.820       NaN              NaN    True                -1.101440               23.0         0.301445
+15              q_wrong_g_slow__ate__growth         NaN                NaN       NaN       NaN  0.637840         0.375837    True                      NaN                NaN              NaN
+16   q_wrong_g_slow_n1000__ate__first_order       200.0          -0.558118  1.118754     0.940       NaN              NaN    True                -0.895344                0.0         0.170846
+17  q_wrong_g_slow_n16000__ate__first_order       200.0          -1.195958  1.149779     0.840       NaN              NaN    True                -1.320986                0.0         0.596989
+18   q_wrong_g_slow_n4000__ate__first_order       200.0          -0.913742  1.124691     0.895       NaN              NaN    True                -1.024125                0.0         0.254231
+19       mar_q_wrong_pi_slow__ate__reported       200.0          -0.069359  0.979695     0.945       NaN              NaN    True                 0.050779                4.0         1.525956
+20      q_slow_g_wrong_n1000__ey0__reported       200.0           0.657661  1.309811     0.915       NaN              NaN    True                 0.525013               35.0         0.196430
+21      q_slow_g_wrong_n1000__ey1__reported       200.0          -0.411623  1.509033     0.930       NaN              NaN    True                -0.501636               35.0         0.196430
+22     q_slow_g_wrong_n16000__ey0__reported       200.0           0.892461  0.980616     0.860       NaN              NaN    True                 0.810366               12.0         1.051442
+23     q_slow_g_wrong_n16000__ey1__reported       200.0          -0.731576  0.866944     0.845       NaN              NaN    True                -0.714230               12.0         1.051442
+24      q_slow_g_wrong_n4000__ey0__reported       200.0           0.696824  1.040873     0.900       NaN              NaN    True                 0.700603               23.0         0.301445
+25      q_slow_g_wrong_n4000__ey1__reported       200.0          -0.740677  1.015719     0.870       NaN              NaN    True                -0.682731               23.0         0.301445
+26      q_wrong_g_slow_n1000__ey0__reported       200.0           0.305147  1.032083     0.940       NaN              NaN    True                 0.548332                0.0         0.170846
+27      q_wrong_g_slow_n1000__ey1__reported       200.0          -0.397344  1.080732     0.955       NaN              NaN    True                -0.575991                0.0         0.170846
+28     q_wrong_g_slow_n16000__ey0__reported       200.0           0.715445  1.132649     0.950       NaN              NaN    True                 0.876765                0.0         0.596989
+29     q_wrong_g_slow_n16000__ey1__reported       200.0          -0.805730  1.050430     0.885       NaN              NaN    True                -0.809832                0.0         0.596989
+30      q_wrong_g_slow_n4000__ey0__reported       200.0           0.592058  1.071787     0.925       NaN              NaN    True                 0.653169                0.0         0.254231
+31      q_wrong_g_slow_n4000__ey1__reported       200.0          -0.544530  1.015102     0.920       NaN              NaN    True                -0.620168                0.0         0.254231
+                                   cell  replicates  nonconverged_fits  seconds_per_fit
+6      q_wrong_g_glm__ate__conservative       200.0                0.0         0.585065
+7             q_wrong_g_glm__ey0__valid       200.0                0.0         0.585065
+8             q_wrong_g_glm__ey1__valid       200.0                0.0         0.585065
+9   q_wrong_g_glm_cf__ate__conservative       200.0                0.0         1.476128
+10         q_wrong_g_glm_cf__ey0__valid       200.0                0.0         1.476128
+11         q_wrong_g_glm_cf__ey1__valid       200.0                0.0         1.476128
+12          q_wrong_g_known__ate__valid       200.0                0.0         0.538779
+13          q_wrong_g_known__ey0__valid       200.0                0.0         0.538779
+14          q_wrong_g_known__ey1__valid       200.0                0.0         0.538779

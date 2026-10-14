@@ -60,12 +60,15 @@ def _git_status() -> str:
     return completed.stdout.strip()
 
 
-def _writing_driver(*, fail: str | None = None, calls: list[Any] | None = None) -> Any:
+def _writing_driver(
+    *, fail: str | None = None, calls: list[Any] | None = None, optional: bool = False
+) -> Any:
     """A stand-in for the shared driver that writes every artifact and a real manifest.
 
     ``fail="before"`` raises before the manifest exists, as a failed fit does.
     ``fail="after"`` raises after it, as a failed gated verdict does.  ``calls`` collects the
-    command line and the reference of each call.
+    command line and the reference of each call.  ``optional=True`` also writes the failure
+    records and their accounting, as a run with a comparator failure does.
     """
 
     def driver(
@@ -78,7 +81,10 @@ def _writing_driver(*, fail: str | None = None, calls: list[Any] | None = None) 
         if fail == "before":
             raise RuntimeError("a fit failed")
         record = study.STUDY
-        paths = [output / name for name in (*ARTIFACT_NAMES, *record.extra_artifacts)]
+        names = (*ARTIFACT_NAMES, *record.extra_artifacts)
+        if optional:
+            names = (*names, *regenerate.OPTIONAL_ARTIFACT_NAMES)
+        paths = [output / name for name in names]
         for path in paths:
             path.write_text("artifact\n", encoding="utf-8", newline="\n")
         manifest.write_manifest(output / "manifest.json", record, paths)
@@ -316,6 +322,25 @@ class TestTheRecord:
             enter(here)
         assert (here / "manifest.json").exists()
         assert "exit code: 1" in (here / "run.log").read_text(encoding="utf-8")
+
+    @pytest.mark.parametrize("optional", [False, True])
+    def test_the_copy_carries_the_failure_files_and_drops_stale_ones(
+        self, study: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, optional: bool
+    ) -> None:
+        """A failure file left in the study directory by an earlier run is not this run's."""
+        _, enter, _ = study
+        here = tmp_path / "here"
+        here.mkdir()
+        for name in regenerate.OPTIONAL_ARTIFACT_NAMES:
+            (here / name).write_text("stale\n", encoding="utf-8")
+        _guard(monkeypatch, ["--output", str(tmp_path / "run")])
+        monkeypatch.setattr(declared_run, "regenerate", _writing_driver(optional=optional))
+        enter(here)
+        for name in regenerate.OPTIONAL_ARTIFACT_NAMES:
+            copied = here / name
+            assert copied.exists() is optional
+            if optional:
+                assert copied.read_text(encoding="utf-8") == "artifact\n"
 
     def test_a_run_that_stops_before_its_manifest_publishes_nothing(
         self, study: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

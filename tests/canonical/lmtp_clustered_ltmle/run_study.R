@@ -128,7 +128,7 @@ fit_one <- function(frame) {
   })
   for (label in c("always", dynamic_label)) {
     contrast <- list(
-      estimate = fits[[label]]$estimate - fits[["never"]]$estimate,
+      estimate = study_stage("ife", fits[[label]]$estimate - fits[["never"]]$estimate),
       initial = fits[[label]]$initial - fits[["never"]]$initial
     )
     rows[[length(rows) + 1]] <- row_for(

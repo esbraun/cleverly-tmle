@@ -124,12 +124,12 @@ fit_one <- function(frame) {
     if (!identical(left$id, right$id)) {
       stop("regimen influence estimates carry different row identifiers")
     }
-    contrast <- ife::ife(
+    contrast <- study_stage("ife", ife::ife(
       left$estimate - right$estimate,
       left$ic - right$ic,
       left$weights,
       left$id
-    )
+    ))
     weighted_eif <- left$weights * (left$ic - right$ic)
     ht_standard_error <- sd(weighted_eif) / sqrt(nrow(frame))
     hajek_standard_error <- sd(

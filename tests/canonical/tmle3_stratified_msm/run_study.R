@@ -31,14 +31,7 @@ truth_for <- function(replicate, estimand) {
 }
 
 fit_stratum <- function(subset) {
-  stage <- function(label, expression) {
-    tryCatch(
-      force(expression),
-      error = function(condition) {
-        stop(sprintf("%s: %s", label, conditionMessage(condition)), call. = FALSE)
-      }
-    )
-  }
+  # RM39a2: each tmle3 call runs inside `study_stage`, so an error tmle3 raises costs one group.
   # The one-column W node is simplified to a vector at this release, so a deterministic second
   # baseline column keeps it a named table, as the marginal runner does.
   data <- subset[c("W", "A", "Y")]
@@ -46,19 +39,19 @@ fit_stratum <- function(subset) {
   data <- data[c("W", "W_squared", "A", "Y")]
   nodes <- list(W = "W_squared", V = "W", A = "A", Y = "Y")
   spec <- tmle3_Spec_MSM$new(msm = "A + V", weight = weight, weight_ub = NULL)
-  task <- stage("task", spec$make_tmle_task(data, nodes))
-  initial <- stage("initial likelihood", spec$make_initial_likelihood(task, learners))
-  updater <- tmle3_Update$new(cvtmle = FALSE, convergence_type = "sample_size")
-  targeted <- Targeted_Likelihood$new(initial, updater)
-  parameter <- stage("targeted parameter", spec$make_params(task, targeted))
+  task <- study_stage("task", spec$make_tmle_task(data, nodes))
+  initial <- study_stage("initial likelihood", spec$make_initial_likelihood(task, learners))
+  updater <- study_stage("updater", tmle3_Update$new(cvtmle = FALSE, convergence_type = "sample_size"))
+  targeted <- study_stage("targeted likelihood", Targeted_Likelihood$new(initial, updater))
+  parameter <- study_stage("targeted parameter", spec$make_params(task, targeted))
   updater$tmle_params <- parameter
-  stage("targeting", fit_tmle3(task, targeted, parameter, updater))
-  values <- stage("targeted estimates", parameter$estimates(task))
-  initial_parameter <- stage("initial parameter", suppressWarnings(Param_MSM$new(
+  study_stage("targeting", fit_tmle3(task, targeted, parameter, updater))
+  values <- study_stage("targeted estimates", parameter$estimates(task))
+  initial_parameter <- study_stage("initial parameter", suppressWarnings(Param_MSM$new(
     initial, "W", strata_name = "V", msm = "A + V", weight = weight, weight_ub = NULL,
     treatment_values = c(0, 1)
   )))
-  initial_values <- stage("initial estimates", initial_parameter$estimates(task))
+  initial_values <- study_stage("initial estimates", initial_parameter$estimates(task))
   # The arm-indicator coefficients to the (1, a, W) basis, as the marginal runner does.
   transform_beta <- function(beta) c(unname(beta[[1]]), unname(beta[[2]] - beta[[1]]), unname(beta[[3]]))
   transform_ic <- function(ic) {
