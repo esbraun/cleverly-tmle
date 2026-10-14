@@ -1501,3 +1501,63 @@ def test_a_map_flat_only_on_a_counterfactual_frame_names_the_conservative_readin
     assert "is not strictly monotone there" in message
     assert "preimages of the earlier doses" in message
     assert "the check is conservative there" in message
+
+
+# ------------------------------------------------------------------ the zero contract (review LOW-3)
+
+
+def test_the_lookup_is_exactly_zero_outside_the_outer_edges() -> None:
+    """The contract that lets the declaration checks skip frames outside the bin range."""
+    from cleverly.learners.density import _lookup
+
+    edges = np.array([0.0, 1.0, 3.0])
+    probabilities = np.array([[0.25, 0.75], [0.5, 0.5]])
+    values = np.array([[-1e-12, 0.0, 3.0, 3.0 + 1e-12], [np.nan, 0.5, 2.0, np.inf]])
+    found = _lookup(probabilities, edges, values)
+    assert found[0, 0] == 0.0 and found[0, 3] == 0.0 and found[1, 0] == 0.0
+    assert found[1, 3] == 0.0
+    assert np.all(found[:, 1:3] > 0.0)
+
+
+def test_the_checks_skip_only_frames_outside_the_fitted_bin_range(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The range that ``_inside`` reads is each dose's outer bin edges, as the lookup's.
+
+    The observed minimum and maximum lie strictly inside the padded outer edges, so a frame
+    between them would have been skipped although its density is not zero.
+    """
+    from cleverly.interventions import joint_density as jd
+
+    seen: list[Any] = []
+    original = jd._enumerate
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        seen.append(args[5])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(jd, "_enumerate", spy)
+    from sklearn.linear_model import LogisticRegression
+
+    data = geo_data(geo.sample(400, 3))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = (
+            TMLE(
+                policies=[geo_joint("ordered")],
+                outcome_learner=LogisticRegression(),
+                treatment_learner=LogisticRegression(max_iter=1000),
+                ratio="density",
+                cross_fit=False,
+                density_bins=4,
+            )
+            .fit(data)
+            .single()
+        )
+    densities = result.nuisance.policies.joint.densities
+    expected = [
+        (float(densities[name].edges[0]), float(densities[name].edges[-1])) for name in ("D1", "D2")
+    ]
+    assert seen and all(list(item) == expected for item in seen)
+    natural = np.asarray(data.treatment_components, dtype=float)
+    assert expected[0][0] < natural[:, 1].min()

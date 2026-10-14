@@ -916,10 +916,12 @@ def _inside(
     observed_range: Sequence[tuple[float, float]],
     layout: NodeLayout,
 ) -> BoolArray:
-    """Rows whose earlier preimages lie inside each dose's observed range.
+    """Rows whose earlier preimages lie inside each dose's bin range.
 
-    A frame outside that range is one where the estimated density is zero, so the formula
-    reads nothing there and the declaration is not checked there.
+    A frame outside that range is one where the estimated density is exactly zero, by the
+    zero contract of :meth:`~cleverly.learners.density.ConditionalDensity.density_at` outside
+    the outer edges, so the formula reads nothing there and the declaration is not checked
+    there.  ``observed_range`` must be those outer edges for the skip to be sound.
     """
     out = np.ones(layout.n, dtype=bool)
     positions = {index: k for k, index in enumerate(layout.doses)}
@@ -940,6 +942,13 @@ def _image(
 
     A categorical map reads the natural value of every other component, which here is the
     candidate cell and the preimage of the doses.  The level check runs on the valid rows.
+
+    The check runs before any learner, so it cannot tell which frames the fitted density
+    will put mass on.  A valid row whose ``(c, beta)`` later has estimated density zero
+    contributes nothing to the ratio, and a map that returns no level there is still
+    refused.  That refusal is conservative and deliberate: a categorical map must return a
+    level at every value of the components it reads (Díaz et al. 2023, Assumption 1), and a
+    frame of zero estimated density can have positive true density.
     """
     names = layout.names
     columns = []
@@ -1032,17 +1041,18 @@ def evaluate_joint_density(
     rows = layout.rows
     train = rows if fit_rows is None else rows & np.asarray(fit_rows, dtype=bool)
     natural_doses = layout.natural[:, doses]
-    # A restricted fit reads its bin edges from every row at risk, as the scalar node does.
-    dose_edges: list[list[float] | None] = [None] * len(doses)
-    if not np.array_equal(train, rows):
-        for k in range(len(doses)):
-            grid_values = natural_doses[rows, k]
-            bins = default_density_bins(grid_values.size) if n_bins is None else n_bins
-            dose_edges[k] = bin_edges(grid_values, bins, name=names[doses[k]]).tolist()
-    observed_range = [
-        (float(np.min(natural_doses[rows, k])), float(np.max(natural_doses[rows, k])))
-        for k in range(len(doses))
-    ]
+    # Each dose's bin edges are read from every row at risk, before any fit, as the fit
+    # itself reads them; a restricted fit (``fit_rows``) keeps them, as the scalar node does.
+    dose_edges: list[list[float]] = []
+    for k in range(len(doses)):
+        grid_values = natural_doses[rows, k]
+        bins = default_density_bins(grid_values.size) if n_bins is None else n_bins
+        dose_edges.append(bin_edges(grid_values, bins, name=names[doses[k]]).tolist())
+    # The range a fitted density can be positive on.  The density lookup returns exactly 0
+    # outside its outer edges (``learners.density._lookup``), so a frame whose earlier
+    # preimages leave this range contributes nothing, and :func:`_inside` skips its checks.
+    # Keep the two in step: a lookup that extrapolated past the edges would need checks there.
+    observed_range = [(float(edges[0]), float(edges[-1])) for edges in dose_edges]
     coverage = [_coverage_points(natural_doses[rows, k]) for k in range(len(doses))]
     requests = _Requests(layout, [{} for _ in doses], [{} for _ in doses])
     induced_terms: dict[tuple[int, int], list[_Term]] = {}
@@ -1070,12 +1080,7 @@ def evaluate_joint_density(
     ]
     # The counterfactual designs and their values count too, with a copy per parallel
     # worker: a node with many cells, pieces or policies holds more of them than tables.
-    bin_counts = []
-    for edges in dose_edges:
-        if edges is not None:
-            bin_counts.append(len(edges) - 1)
-        else:
-            bin_counts.append(default_density_bins(int(rows.sum())) if n_bins is None else n_bins)
+    bin_counts = [len(edges) - 1 for edges in dose_edges]
     preflight_conditional_densities(
         learner,
         [(fit_designs[k].shape[1], natural_doses[:, k]) for k in range(len(doses))],
