@@ -54,14 +54,15 @@ pooled and stratified fits coincide, at one and five folds
 
 **Properties.** :mod:`tests.studies.longitudinal_sdr_properties` declares every family.
 
-**Red-cell route** (declared before any run).  A red primary truth row, a red G1 row or a
-failed G2 gate blocks the merge and gets a diagnosis.  A red margins row gets a diagnosis; if
-it reads as the stratified-versus-pooled design difference, it is re-registered ``reporting``
-with an owner row, declared before any re-run.  A red property cell that reads as a
-finite-sample limit is re-registered the same way.  A replication that raises is never
-redrawn; the failing cell drops to its owner with its failure count stated as a page limit,
-and the run repeats without it.  No budget, margin, law, learner, fold count or seed moves
-after a verdict is seen.
+**Red-cell route** (declared before any run).  The study publishes under ``reporting``,
+because the harness reads one policy per study and a margins row may need an owner.  A red
+primary truth row of ``cleverly``, a red G1 row or a failed G2 gate blocks the merge and gets a
+diagnosis; ``tests/unit/test_longitudinal_sdr_design.py`` fails on any of them.  A red margins
+row gets a diagnosis; if it reads as the stratified-versus-pooled design difference, it gets an
+owner row, declared before any re-run.  A red property cell that reads as a finite-sample limit
+gets an owner row the same way.  A replication that raises is never redrawn; the failing cell
+drops to its owner with its failure count stated as a page limit, and the run repeats without
+it.  No budget, margin, law, learner, fold count or seed moves after a verdict is seen.
 """
 
 from __future__ import annotations
@@ -183,13 +184,20 @@ CALIBRATION_LABELS = (
     "policy_mix",
     "mtp_up",
     "msm_identity",
-    "selection_weighted",
+    "msm_logit",
 )
 #: The labels of ``clustered_calibration``: 200 clusters of 10 and 20 clusters of 100.
 CLUSTERED_LABELS = ("clusters_200", "clusters_20")
 #: The positive arm of ``clustered_calibration``.  Its GLM outcome regressions are not the
 #: law's, so the name claims only the known ratio.
 CLUSTERED_POSITIVE = "known_ratio"
+#: The calibration families read without an efficiency band: ``family -> (labels, positive
+#: arm)``.  ``weighted_calibration`` holds the weighted law (see
+#: :data:`tests.studies.longitudinal_sdr_properties.NOISE_SD`).
+SEPARATE_CALIBRATION: dict[str, tuple[tuple[str, ...], str]] = {
+    "clustered_calibration": (CLUSTERED_LABELS, CLUSTERED_POSITIVE),
+    "weighted_calibration": (("selection_weighted",), "correctly_specified"),
+}
 #: The joint label of the band cell.
 BAND_LABEL = "six_regimens"
 #: The patterns of ``sequential_double_robustness`` and their sizes (``X4-plan.md`` 6.8).
@@ -210,11 +218,14 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
         for label in CALIBRATION_LABELS
         for cell in ("correctly_specified", "shrunken_se_control", "noise_control")
     ),
-    "clustered_calibration": tuple(
-        f"{label}__{cell}"
-        for label in CLUSTERED_LABELS
-        for cell in (CLUSTERED_POSITIVE, "shrunken_se_control", "noise_control")
-    ),
+    **{
+        family: tuple(
+            f"{label}__{cell}"
+            for label in labels
+            for cell in (positive, "shrunken_se_control", "noise_control")
+        )
+        for family, (labels, positive) in SEPARATE_CALIBRATION.items()
+    },
     "type_i_error": ("static__sharp_null",),
     "power": ("static__alternative",),
     "crossfit_overfitting": ("cross_fitted_sdr", "in_sample_control"),
@@ -447,7 +458,7 @@ def check_ratios(result: Any, plan: Plan, ratios: np.ndarray) -> None:
     weights, _, binding = partial_weights(
         numerator, factors, masks, 1, data.n_times, (np.finfo(float).tiny, 1.0)
     )
-    if binding:
+    if binding.any():
         raise AssertionError(f"plan {plan.label!r}: a partial path probability is zero")
     running = np.ones(data.n)
     for node, weight in enumerate(weights, start=1):

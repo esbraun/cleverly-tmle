@@ -23,6 +23,7 @@ from typing import Any
 import numpy as np
 import pytest
 from sklearn.base import BaseEstimator
+from sklearn.linear_model import LogisticRegression
 
 from cleverly.learners.density import bin_edges
 from cleverly.longitudinal import SDR
@@ -279,3 +280,58 @@ def test_the_remainder_is_bilinear_in_the_ratio_and_regression_errors() -> None:
     assert abs(constant) > 1e-3
     for a, b in ((0.2, 0.05), (0.05, -0.1), (0.3, 0.08)):
         assert _remainder_error(a, b) == pytest.approx(constant * a * b, abs=1e-10)
+
+
+def test_a_fold_classifier_ratio_reads_only_the_fold_s_training_rows() -> None:
+    """``ratio="classifier"``: a fold mechanism is fitted on its training rows alone.
+
+    The witness moves the doses of one fold's held-out rows and refits.  The fold's own
+    numerators at its training rows must not move, while the out-of-fold numerators do.  A
+    fold classifier fitted on every row at risk reads the moved doses and fails the first
+    assertion.
+    """
+
+    def fit(sample: Any) -> Any:
+        edges = tuple(
+            tuple(bin_edges(sample[column].to_numpy(dtype=float), 8)) for column in ("A1", "A2")
+        )
+        outcome, pseudo, _ = mtp_common.continuous_learners("both_correct", edges)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return SDR(
+                {"natural": mtp_common.NATURAL, "up": mtp_common.UP},
+                reference="natural",
+                outcome_learner=outcome,
+                pseudo_learner=pseudo,
+                treatment_learner=LogisticRegression(),
+                ratio="classifier",
+                n_folds=3,
+                g_bounds=(1e-8, 1.0),
+                simultaneous=False,
+                random_state=0,
+            ).fit(
+                sample,
+                outcome="Y",
+                treatment=["A1", "A2"],
+                baseline=["W"],
+                time_varying=[[], ["L2"]],
+                continuous_treatment=["A1", "A2"],
+            )
+
+    sample = mtp_common.sample_continuous(300, 5)
+    first = fit(sample)
+    fold = 0
+    train, held = list(first.folds)[fold]
+    moved = sample.copy()
+    rows = moved.index[held]
+    moved.loc[rows, "A1"] = np.clip(moved.loc[rows, "A1"] + 1.0, 0.0, 6.0)
+    second = fit(moved)
+    np.testing.assert_array_equal(list(second.folds)[fold][1], held)
+    before = first.fold_mechanisms[fold].mechanism.policy_numerators["up"][1]
+    after = second.fold_mechanisms[fold].mechanism.policy_numerators["up"][1]
+    np.testing.assert_allclose(after[train], before[train], rtol=0, atol=1e-12)
+    pooled = (
+        first.mechanism.policy_numerators["up"][1],
+        second.mechanism.policy_numerators["up"][1],
+    )
+    assert np.max(np.abs(pooled[0][train] - pooled[1][train])) > 1e-6

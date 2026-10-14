@@ -340,6 +340,7 @@ ARMS: dict[str, str] = {
     "policy_mix": "contrast of the known policy mix against low, three-level law",
     "mtp_up": "the shift up at both nodes against the natural course, continuous dose",
     "msm_identity": "the duration coefficient of the identity-link working model",
+    "msm_logit": "the duration coefficient of the logit-link working model",
     "selection_weighted": "contrast of always against never on the selected law, with weights",
     "clusters_200": "contrast of always against never, 200 clusters of 10 rows",
     "clusters_20": "contrast of always against never, 20 clusters of 100 rows",
@@ -960,6 +961,10 @@ PROPERTIES: dict[str, str] = {
     "sequential_double_robustness": (
         "the estimate stays consistent when at each node either the outcome regression or "
         "the treatment and censoring mechanisms are correct"
+    ),
+    "weighted_calibration": (
+        "the interval of a fit with fixed observation weights is calibrated, with no "
+        "efficiency claim"
     ),
     "clustered_calibration": (
         "grouped cross-fitting with cluster-level influence curves calibrates inference under "
@@ -2300,15 +2305,18 @@ _SDR_PATTERNS = {
     ),
     "P_A": (
         "both outcome regressions are correct and both mechanisms are wrong",
-        "|bias| + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000",
+        "|bias| + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio "
+        "inside the union-model band",
     ),
     "P_B": (
         "node 1 outcome regression wrong, node 2 mechanism wrong",
-        "|bias| + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000",
+        "|bias| + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio "
+        "inside the union-model band",
     ),
     "P_D": (
         "node 1 mechanism wrong, node 2 outcome regression wrong, the pattern LTMLE misses",
-        "|bias| + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000",
+        "|bias| + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio "
+        "inside the union-model band",
     ),
 }
 CELLS.update(
@@ -2325,11 +2333,13 @@ CELLS.update(
     {
         ("sequential_double_robustness", "node2_both_wrong_control"): (
             "SDR with the outcome regression and the mechanism both wrong at node 2",
-            "bias interval at least 3 empirical standard deviations from zero",
+            "bias interval at least 3 empirical standard deviations from zero, SE ratio inside "
+            "the union-model band",
         ),
         ("sequential_double_robustness", "ltmle_P_D_control"): (
             "LTMLE in pattern P_D, where its recursion needs the node 2 outcome regression",
-            "bias interval at least 3 empirical standard deviations from zero",
+            "bias interval at least 3 empirical standard deviations from zero, SE ratio inside "
+            "the union-model band",
         ),
         ("crossfit_overfitting", "cross_fitted_sdr"): (
             "five-fold SDR with fully grown outcome trees and the known mechanism",
@@ -2351,6 +2361,18 @@ CELLS.update(
         ("clustered_calibration", "known_ratio"): (
             "grouped folds, the known ratio and GLM outcome regressions",
             "SE ratio and coverage intervals both inside their calibration bands",
+        ),
+        ("weighted_calibration", "correctly_specified"): (
+            "every nuisance is correct; no efficiency ratio is claimed (RM18-fixed-weights)",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        ),
+        ("weighted_calibration", "shrunken_se_control"): (
+            "the reported standard errors are multiplied by a declared factor below one",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+        ("weighted_calibration", "noise_control"): (
+            "one efficiency-bound unit of independent noise is added to each estimate",
+            "the SE-ratio interval must fall below the calibration band",
         ),
         ("clustered_calibration", "shrunken_se_control"): (
             "the reported standard errors are multiplied by a declared factor below one",

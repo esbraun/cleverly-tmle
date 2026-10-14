@@ -15,6 +15,10 @@ family                              cells, replications and size
 ``root_n_rate``                     the two rate rows of ``static``, from the ladder
 ``interval_calibration``            eight labels (below); 4,000 at n = 2,000 each, with the
                                     two derived controls of each
+``weighted_calibration``            ``selection_weighted``: the selected law of
+                                    ``weighted_longitudinal_properties_common`` with its
+                                    weights, ``always vs never``; 4,000 at n = 2,000, with
+                                    two derived controls
 ``clustered_calibration``           ``clustered_longitudinal_laws`` with grouped folds and
                                     GLM outcome regressions: ``clusters_200`` (200 clusters
                                     of 10) and ``clusters_20`` (20 clusters of 100,
@@ -51,22 +55,25 @@ label                   law and estimand                                        
                         natural``, with its oracle bins
 ``msm_identity``        the ``duration`` coefficient of the identity working model of   exact EIF
                         ``cross-fitted-longitudinal-msm``
-``selection_weighted``  the selected law of ``weighted_longitudinal_properties_common``  exact EIF
-                        with its weights, ``always vs never``
+``msm_logit``           the ``duration`` coefficient of its logit working model         exact EIF
 ======================  ==============================================================  ==========
 
 A ``clustered_calibration`` label has no efficiency claim, because its GLM outcome
-regressions are misspecified and the cluster latent moves the bound.  Its positive cell,
-``known_ratio``, reads the SE-ratio and coverage bands only.  Its noise control adds
-:data:`NOISE_SD` and reads the SE-ratio rule.
+regressions are misspecified and the cluster latent moves the bound.  ``weighted_calibration``
+has none either, for the reason :data:`NOISE_SD` gives.  The positive cell of each reads the
+SE-ratio and coverage bands only.  Its noise control adds :data:`NOISE_SD` and reads the
+SE-ratio rule.
 
 **The ``sequential_double_robustness`` rule** (``X4-plan.md`` 6.8).  ``both_correct`` and
 ``P_C`` have exact ratios, so they gate the bias, the reported-error screen and the coverage
 floor at both sizes.  ``P_A``, ``P_B`` and ``P_D`` gate the absolute bias at two sizes: the
 pair passes when :math:`|\bar b| + 2\,\mathrm{MCSE}` at n = 8,000 is below
-:data:`SDR_TOLERANCE` and below the same bound at n = 2,000.  Their coverage is reported
-only, because Theorem 4 needs the rate product.  Each control passes when its whole bias
-interval lies at least :data:`CONTROL_FLOOR` empirical standard deviations from zero.
+:data:`SDR_TOLERANCE` and below the same bound at n = 2,000, and the SE ratio at n = 8,000 lies
+inside ``UNION_MODEL_SE_BAND``.  The MCSE halves between the sizes at a fixed replication
+count, so the second clause also holds for a constant bias: the tolerance is the clause that
+discriminates.  Their coverage is reported only, because Theorem 4 needs the rate product.
+Each control passes when its whole bias interval lies at least :data:`CONTROL_FLOOR`
+empirical standard deviations from zero, and its SE ratio lies inside the same band.
 
 A replication that raises is not redrawn.  :func:`failure_probe` counts failed fits per fit
 set and records no estimate.  A fit set with any failure is dropped before the declared run,
@@ -119,7 +126,6 @@ from tests.studies import weighted_longitudinal_properties_common as weighted
 from tests.studies.canonical_longitudinal_sdr import (
     BAND_LABEL,
     CALIBRATION_LABELS,
-    CLUSTERED_LABELS,
     CLUSTERED_POSITIVE,
     G_BOUNDS,
     LEARNER_FOLDS,
@@ -127,6 +133,7 @@ from tests.studies.canonical_longitudinal_sdr import (
     PRIMARY_N,
     SDR_PATTERNS,
     SDR_SIZES,
+    SEPARATE_CALIBRATION,
     STUDY,
     plans_of,
     supplied_ratios,
@@ -212,7 +219,7 @@ CALIBRATION_ESTIMANDS: dict[str, str] = {
     "policy_mix": MIX,
     "mtp_up": UP,
     "msm_identity": MSM_NAME,
-    "selection_weighted": STATIC,
+    "msm_logit": MSM_NAME,
 }
 #: The law each calibration label is drawn from.  ``static`` and ``dynamic`` share their fits.
 CALIBRATION_LAWS: dict[str, str] = {
@@ -223,7 +230,7 @@ CALIBRATION_LAWS: dict[str, str] = {
     "policy_mix": "policy",
     "mtp_up": "mtp",
     "msm_identity": "msm",
-    "selection_weighted": "weighted",
+    "msm_logit": "msm_logit",
 }
 #: ``(clusters, sizes)`` of each ``clustered_calibration`` label, which is also its law's name.
 CLUSTER_LAYOUT = {"clusters_200": (200, "equal10"), "clusters_20": (20, "equal100")}
@@ -242,12 +249,20 @@ EFFICIENCY_SD: dict[str, float] = {
     "policy_mix": policy_properties.EFFICIENCY_SD["mix"],
     "mtp_up": mtp_properties.EFFICIENCY_SD["up"],
     "msm_identity": msm_properties.EFFICIENCY_SD["duration"],
+    "msm_logit": msm_properties.EFFICIENCY_SD[msm_properties.LOGIT],
+}
+#: The root-n noise scale of each label of :data:`SEPARATE_CALIBRATION`.  A clustered label has
+#: no bound: the scale is declared from a design probe of 400 draws on streams 100,000 and
+#: above, which read an empirical root-n spread of 1.727 and 3.590.  ``selection_weighted``
+#: uses its exact bound, but it claims no efficiency ratio.  The fixed-weight LTMLE cell of
+#: ``weighted-ltmle-crossfit`` reads ``finite-sample, contracting`` against the same bound
+#: (owner ``RM18-fixed-weights``), and a design probe of 1,500 draws read an empirical ratio
+#: of 1.080 for SDR against the ceiling of 1.10.
+NOISE_SD: dict[str, float] = {
+    "clusters_200": 1.75,
+    "clusters_20": 3.6,
     "selection_weighted": weighted.EFFICIENCY_SD["static"],
 }
-#: The root-n noise scale of each clustered label's noise control, since no bound exists
-#: there.  Declared before the run from a design probe of 400 draws on streams 100,000 and
-#: above, disjoint from the declared streams: the empirical root-n spread read 1.727 and 3.590.
-NOISE_SD: dict[str, float] = {"clusters_200": 1.75, "clusters_20": 3.6}
 
 #: The truth of each calibration label that does not vary by draw.
 TRUTH: dict[str, float] = {
@@ -258,6 +273,7 @@ TRUTH: dict[str, float] = {
     "policy_mix": float(policy_study.TRUTH[MIX]),
     "mtp_up": float(mtp_study.TRUTH[mtp_study.CONTINUOUS][UP]),
     "msm_identity": float(msm_properties.TRUTH[MSM_NAME]),
+    "msm_logit": float(msm_properties.LOGIT_TRUTH),
     "selection_weighted": float(law.TRUTH[STATIC]),
 }
 
@@ -438,11 +454,11 @@ def mtp_fit(frame: pd.DataFrame) -> Any:
     )
 
 
-def msm_fit(frame: pd.DataFrame) -> Any:
+def msm_fit(frame: pd.DataFrame, link: str = "identity") -> Any:
     outcome, pseudo, treatment, censoring = msm_properties._learners("both_correct")
     return _sdr(
         msm_properties.REGIMENS,
-        msm=msm_properties.working_model(),
+        msm=msm_properties.working_model(link=link),
         outcome_learner=outcome,
         pseudo_learner=pseudo,
         treatment_learner=treatment,
@@ -633,6 +649,8 @@ class DeclaredLaw:
             return {OVERFIT_NAME: overfit_draw(0, n=10)[1]}
         if self.name == "agreement":
             return {AGREEMENT: 0.0}
+        if self.name == "weighted":
+            return {STATIC: TRUTH["selection_weighted"]}
         if self.name in CLUSTER_LAYOUT:
             return {STATIC: clustered_draw(self.name, 0)[1]}
         if self.name == "discrete":
@@ -687,7 +705,15 @@ FIT_SETS: tuple[tuple[str, str, str, int, int, str], ...] = (
             CALIBRATION_REPLICATES,
             label,
         )
-        for label in CLUSTERED_LABELS
+        for label in CLUSTER_LAYOUT
+    ),
+    (
+        "weighted_calibration",
+        "selection_weighted",
+        "correctly_specified",
+        CALIBRATION_N,
+        CALIBRATION_REPLICATES,
+        "weighted",
     ),
     ("type_i_error", "sharp_null", "both_correct", NULL_N, NULL_REPLICATES, "discrete_null"),
     ("power", "alternative", "both_correct", NULL_N, NULL_REPLICATES, "discrete"),
@@ -775,22 +801,24 @@ def declared_cells() -> tuple[PropertyCell, ...]:
                 CALIBRATION_LAWS[label],
                 CALIBRATION_ESTIMANDS[label],
             )
-    for label in CLUSTERED_LABELS:
-        for cell, role in (
-            (CLUSTERED_POSITIVE, "positive"),
-            ("shrunken_se_control", "control"),
-            ("noise_control", "control"),
-        ):
-            add(
-                "clustered_calibration",
-                f"{label}__{cell}",
-                role,
-                label,
-                CALIBRATION_N,
-                CALIBRATION_REPLICATES,
-                label,
-                STATIC,
-            )
+    for family, (labels, positive) in SEPARATE_CALIBRATION.items():
+        for label in labels:
+            law_name = "weighted" if label == "selection_weighted" else label
+            for cell, role in (
+                (positive, "positive"),
+                ("shrunken_se_control", "control"),
+                ("noise_control", "control"),
+            ):
+                add(
+                    family,
+                    f"{label}__{cell}",
+                    role,
+                    law_name,
+                    CALIBRATION_N,
+                    CALIBRATION_REPLICATES,
+                    label,
+                    STATIC,
+                )
     add(
         "type_i_error",
         "static__sharp_null",
@@ -868,7 +896,7 @@ def _calibration_frame(law_name: str, n: int, seed: int) -> tuple[pd.DataFrame, 
         return multivalue.sample(multivalue.PROBS, n, seed), None
     if law_name == "mtp":
         return mtp.sample_continuous(n, seed), None
-    if law_name == "msm":
+    if law_name in {"msm", "msm_logit"}:
         return end_properties.sample(law.PROBS, n, seed), None
     if law_name == "weighted":
         return weighted.sample(law.PROBS, n, seed), None
@@ -886,7 +914,7 @@ CALIBRATION_FITS = {
     "policy": policy_fit,
     "mtp": mtp_fit,
     "msm": msm_fit,
-    "weighted": weighted_fit,
+    "msm_logit": lambda frame: msm_fit(frame, link="logit"),
 }
 
 
@@ -951,6 +979,10 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
         frame, cluster_truth = _calibration_frame(law_name, n, seed)
         estimate = clustered_fit(frame)[STATIC]
         return [row(f"{label}__{CLUSTERED_POSITIVE}", "positive", float(cluster_truth), estimate)]
+    if family == "weighted_calibration":
+        frame, _ = _calibration_frame(law_name, n, seed)
+        estimate = weighted_fit(frame)[STATIC]
+        return [row(f"{label}__{configuration}", "positive", TRUTH[label], estimate)]
     if family == "interval_calibration":
         frame, varying = _calibration_frame(law_name, n, seed)
         if law_name == "discrete":
@@ -1060,7 +1092,7 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
                 shrunken_se_factor=SHRUNKEN_SE_FACTOR,
                 critical=CRITICAL,
             ),
-            clustered_controls(rows),
+            separate_controls(rows),
         ],
         ignore_index=True,
     )
@@ -1069,34 +1101,36 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
     )
 
 
-def clustered_controls(rows: pd.DataFrame) -> pd.DataFrame:
-    """The two derived arms of each ``clustered_calibration`` label, as in ``interval_calibration``.
+def separate_controls(rows: pd.DataFrame) -> pd.DataFrame:
+    """The two derived arms of each :data:`SEPARATE_CALIBRATION` label, as in ``interval_calibration``.
 
     The shrunken arm multiplies the reported standard error by :data:`SHRUNKEN_SE_FACTOR`.  The
     noise arm adds normal noise of scale :data:`NOISE_SD` over root n to each estimate.
     """
     controls: list[pd.DataFrame] = []
-    for label in CLUSTERED_LABELS:
-        base = rows.loc[
-            (rows["property"] == "clustered_calibration")
-            & (rows["cell"] == f"{label}__{CLUSTERED_POSITIVE}")
-        ]
-        if base.empty:
-            raise ValueError(f"{label}__{CLUSTERED_POSITIVE} has no rows to derive controls from")
-        shrunken = base.copy()
-        shrunken["cell"] = f"{label}__shrunken_se_control"
-        shrunken["role"] = "control"
-        shrunken["std_error"] *= SHRUNKEN_SE_FACTOR
-        controls.append(_recompute_interval_columns(shrunken, CRITICAL))
-        noisy = base.copy()
-        rng = np.random.default_rng(stream_seed(STUDY, "efficiency_noise", label))
-        noisy["cell"] = f"{label}__noise_control"
-        noisy["role"] = "control"
-        noisy["estimate"] += rng.normal(
-            scale=NOISE_SD[label] / np.sqrt(CALIBRATION_N), size=len(noisy)
-        )
-        controls.append(_recompute_interval_columns(noisy, CRITICAL))
+    for family, (labels, positive) in SEPARATE_CALIBRATION.items():
+        for label in labels:
+            controls.extend(_derived_arms(rows, family, label, positive))
     return pd.concat(controls, ignore_index=True)
+
+
+def _derived_arms(rows: pd.DataFrame, family: str, label: str, positive: str) -> list[pd.DataFrame]:
+    base = rows.loc[(rows["property"] == family) & (rows["cell"] == f"{label}__{positive}")]
+    if base.empty:
+        raise ValueError(f"{label}__{positive} has no rows to derive controls from")
+    shrunken = base.copy()
+    shrunken["cell"] = f"{label}__shrunken_se_control"
+    shrunken["role"] = "control"
+    shrunken["std_error"] *= SHRUNKEN_SE_FACTOR
+    noisy = base.copy()
+    rng = np.random.default_rng(stream_seed(STUDY, "efficiency_noise", label))
+    noisy["cell"] = f"{label}__noise_control"
+    noisy["role"] = "control"
+    noisy["estimate"] += rng.normal(scale=NOISE_SD[label] / np.sqrt(CALIBRATION_N), size=len(noisy))
+    return [
+        _recompute_interval_columns(shrunken, CRITICAL),
+        _recompute_interval_columns(noisy, CRITICAL),
+    ]
 
 
 def failure_probe(draws: int, *, n_jobs: int = 1, start: int = 0) -> dict[str, int]:
@@ -1164,34 +1198,33 @@ def sequential_double_robustness_verdicts(summary: pd.DataFrame) -> None:
         summary.loc[index, "passed"] = bool(clear and scaled[index])
 
 
-def clustered_calibration_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
-    """The ``clustered_calibration`` rule: SE ratio and coverage, with no efficiency claim.
+def separate_calibration_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
+    """The rule of each :data:`SEPARATE_CALIBRATION` family: SE ratio and coverage only.
 
     The positive arm passes inside both calibration bands.  Both controls must leave the
     SE-ratio band below: the shrunken arm by its factor, the noise arm because added spread
     lowers the ratio.
     """
     margins = STUDY.margins
-    family = summary["property"] == "clustered_calibration"
-    for index in summary.index[family]:
-        cell = str(summary.loc[index, "cell"])
-        ratio = se_ratio_interval(
-            rows.loc[(rows["property"] == "clustered_calibration") & (rows["cell"] == cell)],
-            replicates=margins.bootstrap_replicates,
-            confidence_level=margins.confidence_level,
-            seed=stream_seed(STUDY, "clustered_calibration", cell),
-            truth_varies=STUDY.truth_varies_by_replicate,
-        )
-        summary.loc[index, "se_ratio_ci_lower"] = ratio.low
-        summary.loc[index, "se_ratio_ci_upper"] = ratio.high
-        if cell.endswith(f"__{CLUSTERED_POSITIVE}"):
-            coverage = summary_interval(summary, index, "coverage")
-            passed = ratio.within(*margins.calibration_se_ratio) and coverage.within(
-                *margins.calibration_coverage
+    for family, (_, positive) in SEPARATE_CALIBRATION.items():
+        for index in summary.index[summary["property"] == family]:
+            cell = str(summary.loc[index, "cell"])
+            ratio = se_ratio_interval(
+                rows.loc[(rows["property"] == family) & (rows["cell"] == cell)],
+                replicates=margins.bootstrap_replicates,
+                confidence_level=margins.confidence_level,
+                seed=stream_seed(STUDY, family, cell),
             )
-        else:
-            passed = se_ratio_leaves_band(ratio, margins.calibration_se_ratio, "below")
-        summary.loc[index, "passed"] = bool(passed)
+            summary.loc[index, "se_ratio_ci_lower"] = ratio.low
+            summary.loc[index, "se_ratio_ci_upper"] = ratio.high
+            if cell.endswith(f"__{positive}"):
+                coverage = summary_interval(summary, index, "coverage")
+                passed = ratio.within(*margins.calibration_se_ratio) and coverage.within(
+                    *margins.calibration_coverage
+                )
+            else:
+                passed = se_ratio_leaves_band(ratio, margins.calibration_se_ratio, "below")
+            summary.loc[index, "passed"] = bool(passed)
 
 
 def diagnostic_rows(summary: pd.DataFrame) -> None:
@@ -1235,7 +1268,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         efficiency_bounds=EFFICIENCY_SD,
     )
     calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
-    clustered_calibration_verdicts(summary, rows)
+    separate_calibration_verdicts(summary, rows)
     sequential_double_robustness_verdicts(summary)
     crossfit_overfitting_verdicts(summary, rows, STUDY, positive_cell="cross_fitted_sdr")
     simultaneous_coverage_verdicts(summary, margins=STUDY.margins)
