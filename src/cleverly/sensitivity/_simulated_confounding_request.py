@@ -189,6 +189,12 @@ def _refuse_longitudinal(result: Any) -> str | None:
 def _refuse_multi_arm(result: Any) -> str | None:
     """Refuse a treatment that is neither binary nor a continuous dose."""
     data = result.data
+    if data.treatment_kind == "vector":
+        # Each component takes its own perturbation law, so every categorical component
+        # must be binary, as a one-column treatment must.
+        if any(len(levels) > 2 for levels in data.component_levels):
+            return _MULTI_ARM_REFUSAL
+        return None
     if not data.is_continuous_treatment and not data.is_binary_treatment:
         return _MULTI_ARM_REFUSAL
     return None
@@ -294,7 +300,7 @@ def _refuse_binary_estimator(result: Any) -> str | None:
     from ..estimators.tmle import TMLE
 
     estimator = result.estimator
-    if not result.data.is_continuous_treatment and type(estimator) not in {TMLE, CTMLE, DRTMLE}:
+    if result.data.has_arms and type(estimator) not in {TMLE, CTMLE, DRTMLE}:
         return (
             "simulated_confounding supports ordinary TMLE, collaborative TMLE, and "
             f"complete-outcome DR-TMLE; got {type(estimator).__name__}"
@@ -307,7 +313,7 @@ def _refuse_continuous_estimator(result: Any) -> str | None:
     from ..estimators.tmle import TMLE
 
     estimator = result.estimator
-    if result.data.is_continuous_treatment and type(estimator) is not TMLE:
+    if not result.data.has_arms and type(estimator) is not TMLE:
         return (
             "continuous simulated_confounding supports exact ordinary TMLE only; "
             f"got {type(estimator).__name__}"
