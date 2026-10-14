@@ -11,7 +11,10 @@ committed verdicts.
 
 from __future__ import annotations
 
+import argparse
+import inspect
 import re
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -29,13 +32,14 @@ from cleverly.datasets.longitudinal import (
     _REPEATED_L,
     _REPEATED_Y,
 )
-from cleverly.longitudinal import LongitudinalData
+from cleverly.longitudinal import LTMLE, LongitudinalData
 from tests.studies import canonical_ltmle_repeated as study
 from tests.studies import ltmle_repeated_law as law
 from tests.studies import ltmle_repeated_properties as properties
 from tests.studies.evidence import replication
 from tests.studies.evidence.inference import clopper_pearson
 from tests.studies.evidence.registry import registered
+from tests.studies.fractional_glm import QuasiBinomialSeparationWarning
 
 PLANS = {"never": "never", "always": "always", REPEATED_RULE_LABEL: law.RULE}
 CONFIDENCE = study.STUDY.margins.confidence_level
@@ -311,14 +315,17 @@ def test_swapping_the_two_outcomes_moves_the_node_three_mechanisms() -> None:
 ADAPTER = Path(__file__).parents[1] / "canonical" / "ltmle_repeated_adapter.R"
 
 #: The R variable each term of a ``plogis`` line multiplies, and the generator term it restates.
+#: The generator's one arm term ``a`` splits in two.  The treatment tables read the prior arm
+#: ``abar[, t-1]`` (``a_prev``), and the censoring tables read the current arm ``abar[, t]``
+#: (``a_now``), so an exchange of the two columns changes a table.
 _ADAPTER_TERMS = {
     None: "intercept",
     "w": "w",
     "l": "l",
     "y": "y",
     "y2": "y2",
-    "abar_prev": "a",
-    "abar_now": "a",
+    "abar_prev": "a_prev",
+    "abar_now": "a_now",
 }
 PLOGIS_LINE = r"^\s*p_[ac] <- plogis\((.*)\)\s*$"
 _ADAPTER_ASSIGNMENTS = (
@@ -346,9 +353,19 @@ def _adapter_tables(text: str) -> list[dict[str, float]]:
     return tables
 
 
+def _named_arm(table: dict[str, float], name: str) -> dict[str, float]:
+    """The generator table with its arm term ``a`` renamed to the adapter's ``name``."""
+    return {(name if key == "a" else key): value for key, value in table.items()}
+
+
 def _adapter_restates_the_generator(text: str) -> bool:
     """Whether the four ``plogis`` lines and the three history reads match the generator."""
-    declared = [_REPEATED_A1, _REPEATED_C1, _REPEATED_A, _REPEATED_C]
+    declared = [
+        _REPEATED_A1,
+        _named_arm(_REPEATED_C1, "a_now"),
+        _named_arm(_REPEATED_A, "a_prev"),
+        _named_arm(_REPEATED_C, "a_now"),
+    ]
     return _adapter_tables(text) == declared and all(line in text for line in _ADAPTER_ASSIGNMENTS)
 
 
@@ -374,6 +391,31 @@ def test_a_changed_adapter_literal_fails_the_transcription_guard() -> None:
     # A dropped term and a wrong history column are caught as well.
     assert not _adapter_restates_the_generator(text.replace(" + 1.6 * y2", ""))
     assert not _adapter_restates_the_generator(text.replace('Y%d", t - 2', 'Y%d", t - 1'))
+
+
+def test_exchanging_the_prior_and_current_arm_fails_the_transcription_guard() -> None:
+    """The treatment tables read ``abar[, t - 1]`` and the censoring tables read ``abar[, t]``."""
+    text = ADAPTER.read_text()
+    prior = re.compile(r"abar\[,\s*t\s*-\s*1\s*\]")
+    current = re.compile(r"abar\[,\s*t\s*\]")
+    lines = text.splitlines()
+    treatment = next(
+        line for line in lines if re.match(r"^\s*p_a <- ", line) and prior.search(line)
+    )
+    censoring = next(
+        line for line in lines if re.match(r"^\s*p_c <- ", line) and current.search(line)
+    )
+    assert prior.search(treatment) and current.search(censoring)
+    # Both columns exchanged, then each line alone.
+    both = prior.sub("ARM_NOW", text)
+    both = current.sub("abar[, t - 1]", both).replace("ARM_NOW", "abar[, t]")
+    assert not _adapter_restates_the_generator(both)
+    only_treatment = text.replace(treatment, prior.sub("abar[, t]", treatment))
+    only_censoring = text.replace(censoring, current.sub("abar[, t - 1]", censoring))
+    assert not _adapter_restates_the_generator(only_treatment)
+    assert not _adapter_restates_the_generator(only_censoring)
+    # The first-node censoring line reads the current arm, abar[, 1], in the same key.
+    assert _adapter_tables(text)[1]["a_now"] == _REPEATED_C1["a"]
 
 
 def test_the_subject_publishes_no_plug_in() -> None:
@@ -739,6 +781,52 @@ def test_the_calibration_budget_is_the_declared_rule_applied_to_the_pilot() -> N
     ) > properties.calibration_pass_probability(budget, ratio=1.04)
 
 
+def test_the_study_fit_clips_probabilities_where_ltmle_does() -> None:
+    """``alpha`` is the upper clip, so 0.9999 matches R's ``[0.0001, 0.9999]`` and not 0.9995."""
+    assert pytest.approx(1.0 - 1e-4) == study.PROBABILITY_BOUND
+    # The library default is not the study's choice, and the study does not change it.
+    assert inspect.signature(LTMLE).parameters["alpha"].default == 0.9995
+    seen: dict[str, Any] = {}
+    real = study.LTMLE
+
+    def recorder(*args: Any, **kwargs: Any) -> Any:
+        seen.update(kwargs)
+        return real(*args, **kwargs)
+
+    frame, _ = make_longitudinal_repeated(n=1_000, seed=13, backend="pandas")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(study, "LTMLE", recorder)
+        study.fit_cleverly(frame)
+    assert seen["alpha"] == study.PROBABILITY_BOUND
+
+
+def test_the_probability_bound_moves_an_estimate_on_a_separated_draw() -> None:
+    """Nonzero witness: replicate 157 separates its fit, so the two bounds differ a little."""
+    frame, _ = study.draw_scenario(study.SCENARIO, study.PRIMARY_N, 157)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", QuasiBinomialSeparationWarning)
+        wide = study.fit_cleverly(frame)
+        narrow = LTMLE(
+            study.REGIMENS,
+            reference=study.REFERENCE,
+            outcome_learner=study.QuasiBinomialGLM(),
+            pseudo_learner=study.QuasiBinomialGLM(),
+            treatment_learner=study.KnownRepeatedMechanism("treatment"),
+            censoring_learner=study.KnownRepeatedMechanism("censoring"),
+            n_folds=1,
+            g_bounds=study.G_BOUNDS,
+            simultaneous=False,
+            max_iter=100,
+            tol=1e-10,
+            random_state=0,
+        ).fit(frame, **study.COLUMNS)
+    differences = [
+        abs(float(wide[name].psi) - float(narrow[name].psi)) / float(wide[name].std_error)
+        for name in study.ESTIMANDS
+    ]
+    assert 1e-6 < max(differences) < 1e-2
+
+
 def test_the_small_sample_arms_are_reported_not_gated() -> None:
     """The pilot's ``n = 2,000`` in-sample shortfall publishes with no verdict."""
     assert properties.N == 2_000
@@ -961,33 +1049,37 @@ def _parity_findings(paired: pd.DataFrame) -> list[str]:
     return findings
 
 
-def _committed_paired_rows() -> pd.DataFrame:
-    """The committed primary rows of both implementations, aligned on replication and estimand.
+def _paired_rows(path: Path, replicates: int | None = None) -> pd.DataFrame:
+    """The primary rows of both implementations in ``path``, aligned on replication and estimand.
 
-    Fails, rather than skips, on rows that do not belong to the current declaration.
+    Fails, rather than skips, on rows that do not belong to the current declaration.  With
+    ``replicates`` the file must hold exactly that many replications for every cell, as the
+    declared run does.  Without it, the two implementations are paired on the rows they
+    share, as a smoke run with ``--allow-failures`` needs.
     """
-    rows = pd.read_csv(study.STUDY.artifact("replicates.csv.gz"))
+    rows = pd.read_csv(path)
     key = ["scenario", "replicate", "estimand"]
     subject = rows[rows["implementation"] == study.STUDY.implementation].set_index(key)
     reference = rows[rows["implementation"] == study.STUDY.reference].set_index(key)
     stale = []
     if set(rows["n"]) != {study.PRIMARY_N}:
         stale.append(f"n is {sorted(set(rows['n']))}, declared {study.PRIMARY_N}")
-    if len(subject) != len(study.ESTIMANDS) * study.PRIMARY_REPLICATES:
-        stale.append(
-            f"{len(subject)} cleverly rows, declared "
-            f"{len(study.ESTIMANDS) * study.PRIMARY_REPLICATES}"
-        )
+    if replicates is not None and len(subject) != len(study.ESTIMANDS) * replicates:
+        stale.append(f"{len(subject)} cleverly rows, declared {len(study.ESTIMANDS) * replicates}")
     if subject["initial_estimate"].notna().any():
         stale.append("cleverly publishes an initial estimate, which the declaration removes")
     assert not stale, (
-        "the committed primary rows predate the fourth declaration ("
+        "the rows in "
+        + str(path)
+        + " predate the fourth declaration ("
         + "; ".join(stale)
         + "); run the declared study to refresh tests/canonical/ltmle_repeated"
     )
-    assert len(subject) == len(reference), "the two implementations have different row counts"
-    subject = subject.sort_index()
-    reference = reference.loc[subject.index]
+    if replicates is not None:
+        assert len(subject) == len(reference), "the two implementations have different row counts"
+    shared = subject.index.intersection(reference.index).sort_values()
+    subject = subject.loc[shared]
+    reference = reference.loc[shared]
     return pd.DataFrame(
         {
             "estimand": subject.index.get_level_values("estimand"),
@@ -997,6 +1089,35 @@ def _committed_paired_rows() -> pd.DataFrame:
             "r_std_error": reference["std_error"].to_numpy(),
         }
     )
+
+
+def _committed_paired_rows() -> pd.DataFrame:
+    """The committed primary rows of both implementations, aligned on replication and estimand."""
+    return _paired_rows(study.STUDY.artifact("replicates.csv.gz"), study.PRIMARY_REPLICATES)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Check the parity rule on the ``replicates.csv.gz`` of any run, such as a smoke run.
+
+    ``python -m tests.unit.test_ltmle_repeated_method_study PATH`` prints one line for each
+    breach and returns 1 when there is one.  The rule is the one the fast tier applies to
+    the committed rows.
+    """
+    parser = argparse.ArgumentParser(description=main.__doc__)
+    parser.add_argument("path", type=Path, help="the replicates.csv.gz of a run")
+    paired = _paired_rows(parser.parse_args(argv).path)
+    findings = _parity_findings(paired)
+    cells = paired.groupby("estimand").size()
+    print(
+        f"{len(paired)} paired rows, {cells.min()} to {cells.max()} in each of {len(cells)} cells"
+    )
+    for finding in findings:
+        print(finding)
+    return int(bool(findings))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
 
 
 def test_cleverly_reproduces_r_targeting_move_in_every_cell() -> None:
@@ -1044,3 +1165,54 @@ def test_a_skipped_or_short_targeting_step_fails_the_parity_gate() -> None:
     # R's step absent in a cell is a finding of its own.
     flat = paired.assign(r_estimate=paired["r_initial"], cl_estimate=paired["r_initial"])
     assert all("targeting step is absent" in line for line in _parity_findings(flat))
+
+
+def _run_file(paired: pd.DataFrame, path: Path) -> Path:
+    """Write aligned pairs in the layout of ``replicates.csv.gz``, one frame for both sides."""
+    base = {"scenario": study.SCENARIO, "n": study.PRIMARY_N}
+    ordinal = paired.groupby("estimand").cumcount()
+    subject = pd.DataFrame(
+        {
+            **base,
+            "replicate": ordinal,
+            "estimand": paired["estimand"],
+            "implementation": study.STUDY.implementation,
+            "estimate": paired["cl_estimate"],
+            "std_error": paired["r_std_error"],
+            "initial_estimate": np.nan,
+        }
+    )
+    reference = subject.assign(
+        implementation=study.STUDY.reference,
+        estimate=paired["r_estimate"],
+        initial_estimate=paired["r_initial"],
+    )
+    pd.concat([subject, reference], ignore_index=True).to_csv(path, index=False)
+    return path
+
+
+def test_the_parity_check_reads_the_rows_of_any_run(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The smoke run's file goes through the same rule as the committed one."""
+    paired = _synthetic_pairs()
+    good = _run_file(paired, tmp_path / "good.csv.gz")
+    assert main([str(good)]) == 0
+    assert f"{len(study.ESTIMANDS) * 200} paired rows" in capsys.readouterr().out
+    # A skipped targeting step in cleverly is a breach on the file, as on the frame.
+    skipped = _run_file(paired.assign(cl_estimate=paired["r_initial"]), tmp_path / "bad.csv.gz")
+    assert main([str(skipped)]) == 1
+    assert "rms difference" in capsys.readouterr().out
+    # A row dropped on one side pairs on the rest instead of failing the alignment.
+    frame = pd.read_csv(good)
+    dropped = frame.drop(frame.index[0])
+    dropped.to_csv(tmp_path / "dropped.csv.gz", index=False)
+    assert len(_paired_rows(tmp_path / "dropped.csv.gz")) == len(frame) // 2 - 1
+    # The declared count is strict: the same file fails it.
+    with pytest.raises(AssertionError, match="cleverly rows"):
+        _paired_rows(good, study.PRIMARY_REPLICATES)
+    # A file at another sample size is refused.
+    wrong = frame.assign(n=study.PRIMARY_N + 1)
+    wrong.to_csv(tmp_path / "wrong.csv.gz", index=False)
+    with pytest.raises(AssertionError, match="predate"):
+        _paired_rows(tmp_path / "wrong.csv.gz")

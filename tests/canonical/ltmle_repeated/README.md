@@ -22,12 +22,22 @@ the declared run replaces the artifacts.
 
 Run a disposable smoke study from the repository root. It uses the declared sample size. At
 `n = 400`, a stratified regression at the rule's third node can be rank deficient, and the R
-side then stops on purpose.
+side then stops on purpose. The smoke study draws 700 replications. Seven of them have a separated
+outcome fit on the primary stream: 157, 242, 309, 444, 506, 528 and 693.
 
 ```powershell
 uv run python -m tests.canonical.ltmle_repeated.regenerate `
-  --replicates 8 --n 3000 --skip-properties --allow-failures `
+  --replicates 700 --n 3000 --skip-properties --allow-failures `
   --output .tmp/ltmle-repeated-smoke
+```
+
+Check the parity rule on the smoke rows. The rule compares the two implementations with the
+size of R's own targeting move. The fast tier applies the same rule to the committed rows. The
+command prints one line for each breach and exits with code 1 when there is a breach.
+
+```powershell
+uv run python -m tests.unit.test_ltmle_repeated_method_study `
+  .tmp/ltmle-repeated-smoke/replicates.csv.gz
 ```
 
 Run the declared study and refresh its documentation:

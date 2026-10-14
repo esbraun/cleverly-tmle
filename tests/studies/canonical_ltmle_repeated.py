@@ -20,6 +20,13 @@ Declared before any run
 * Both sides receive the generating mechanisms (:class:`KnownRepeatedMechanism` here, a
   numeric ``gform`` in R) and ``g_bounds = G_BOUNDS``.  Both fit in sample (``n_folds = 1``)
   at ``n = PRIMARY_N = 3,000``.  Pilot P1 below sets ``n``.
+* Both sides clip the initial outcome regression to the same probabilities.  R ``ltmle``
+  bounds each initial prediction to ``[1e-4, 0.9999]`` before the logit, and
+  :class:`~cleverly.longitudinal.LTMLE` clips to ``[1 - alpha, alpha]``.  The default
+  ``alpha = 0.9995`` is a library choice.  The study passes ``alpha =``
+  :data:`PROBABILITY_BOUND` ``= 0.9999``, so the parity gate measures the targeting step
+  alone.  On seven primary draws, two of them with a separated outcome fit, the two bounds
+  move an estimate by at most 0.001 standard errors.
 * The law has depth two.  ``W`` takes three values, and ``A_t``, ``C_t`` and ``Y_t`` read
   ``Y_{t-2}``.  The mechanisms therefore have three design widths, and
   :class:`KnownRepeatedMechanism` builds each index from the generator's coefficient tables
@@ -139,6 +146,11 @@ HORIZONS = (1, 2, 3)
 TIMES = 3
 
 RULE_LABEL = REPEATED_RULE_LABEL
+
+#: The probability bound of the fit, ``LTMLE(alpha=...)``.  R ``ltmle`` clips every initial
+#: prediction to ``[0.0001, 0.9999]`` on the link scale (``Bound(x, bounds=c(0.0001,
+#: 0.9999))`` in its ``ValuesByType``), and cleverly clips to ``[1 - alpha, alpha]``.
+PROBABILITY_BOUND = 0.9999
 
 
 def treat_after(previous: str) -> Any:
@@ -335,6 +347,7 @@ CONFIGURATION = {
     "variance_method": "ic",
     "stratify": True,
     "g_bounds": list(G_BOUNDS),
+    "probability_bound": PROBABILITY_BOUND,
     "horizons": list(HORIZONS),
     "regimens": list(REGIMENS),
     "q_formulas": [
@@ -445,6 +458,7 @@ def fit_cleverly(frame: pd.DataFrame) -> Any:
         n_folds=1,
         g_bounds=G_BOUNDS,
         simultaneous=False,
+        alpha=PROBABILITY_BOUND,
         max_iter=100,
         tol=1e-10,
         random_state=0,

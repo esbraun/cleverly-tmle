@@ -95,10 +95,10 @@ repeated_ltmle_fit <- function(arguments, label) {
   #
   # The initial estimate is a second call with `gcomp = TRUE`, the sequential regression with
   # no fluctuation.  The first block's regression of the targeted chain, which
-  # `ltmle_regimen_adapter.R` publishes, cannot serve here.  W is binary and the first block's
-  # design is `~ W`, so that regression is saturated in W and its fluctuation is exactly zero.
-  # It would equal the targeted estimate in every replicate, and the check that the reference
-  # moved off its plug-in would read nothing.
+  # `ltmle_regimen_adapter.R` publishes, regresses the later node after that node has been
+  # fluctuated.  It is a different quantity from the plug-in.  The parity check reads the
+  # targeting move, the targeted estimate minus the plug-in, as its denominator, so it needs
+  # the plug-in of the untargeted chain.
   targeted <- repeated_ltmle_call(arguments)
   if (any(abs(targeted$cum.g - targeted$cum.g.unbounded) > 1e-12, na.rm = TRUE)) {
     stop(sprintf("%s activated a cumulative g bound", label))
