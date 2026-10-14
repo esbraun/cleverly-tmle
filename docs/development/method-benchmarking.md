@@ -115,7 +115,8 @@ bytes it published before.
 | derived noise | `calibration_controls` draws `noise_control` over the requested range and indexes the noise by replicate. A lost base replicate changes no other control row |
 | verdict budget | `_at_verdict_budget` keeps the ids below the verdict budget. It never refills a lost id from a later one. It sets `failed_replicates` to the ids lost below the budget. A loss at a higher id shows on the slope row only |
 | rate rows | `fitted_rate_row` stamps the sum of its rungs' failures |
-| draw split | Where a worker's body separates, the sample is drawn in `draw=`, outside the classifier. An error in the draw stops the run. A module whose body does not separate keeps the draw inside the fit, so a recordable error in the draw counts as a fitting failure. This is a declared deviation. `WORKER_EXCEPTIONS` in `tests/canonical/python_phase_identity.py` lists the modules whose worker source changed with the split. The 20-replicate prefix and the bound limit the effect |
+| draw split | Each property loop draws its sample in `draw=`, outside the classifier. An error in the draw stops the run. `WORKER_EXCEPTIONS` in `tests/canonical/python_phase_identity.py` lists the modules whose worker source changed with the split. The split leaves the rows byte-identical (`RM39b2-identity.log`) |
+| no-draw loop | `repeated_crossfit_properties` passes no `draw=`. Its stability trial draws one sample before the loop, and each key only varies the fold seed. An error in that draw stops the run before any fit. `UNSPLIT_LOOPS` in `tests/unit/test_property_loops.py` pins this list |
 | `known_mechanism` | A bootstrap that lost draws writes the side column `bootstrap_failed_draws`. The row check records that row as an `invalid_result`, and the published row writes 0. This extends the row rules of the `invalid result` rule |
 | memory cap | `longitudinal_mtp` caps its workers for each size. The pool keeps at least two workers, so a size with a cap of 1 can run two fits. The driver retries a worker killed for memory alone |
 | classifier | The classes and the stop conditions of the `subject failures` rule apply to the property phase |
@@ -130,7 +131,7 @@ bytes it published before.
 | allowance | A cell may lose `floor(b * R)` replicates. The smallest committed cell (`R` = 400) allows 4. A contraction rung of 73,000 replicates allows 730 |
 | gate | A cell above its allowance reads `bound exceeded` before any clause runs. A cell inside it reads `within bound` or `worst case fails`, by its clauses |
 | declared before the run | The value governs a study's next property run. No committed property run lost a replicate, so the value rescues no committed result |
-| raising | Raise the bound only while no committed run of the study shows a property failure |
+| raising | Raise the bound only while no committed run of the study shows a property failure. The driver refuses a property run whose `FAILURE_BOUND` exceeds the bound of a committed run that recorded failures (`property_failures.raised_after_failures`) |
 | lowering | Lowering is allowed. It changes the `bound` and `allowed` columns, so the property phase reruns in the same change |
 | manifest | A property run writes `configuration.property_failure_bound`. A `--skip-properties` run copies the committed manifest's key, or its absence. The fast tier fails a manifest whose key differs from the module, and failure files without the key |
 | primary phase | Each implementation of each registered study declares 0.01 for its next run. No committed primary run lost a replicate, so the value moves no committed verdict. The primary bound has the same facts as the property bound (see the next table) |

@@ -22,6 +22,7 @@ import ast
 import hashlib
 import importlib.util
 import itertools
+import json
 import math
 import re
 from collections.abc import Callable, Mapping, Sequence
@@ -73,6 +74,9 @@ from tests.studies.evidence.seeds import stream_seed
 #: artifacts it did before.
 PROPERTY_FAILURES = "property-failures.csv"
 PROPERTY_ACCOUNTING = "property-failure-accounting.csv"
+
+#: The manifest configuration key that records the property bound a run applied (rev 3 M1).
+PROPERTY_BOUND_KEY = "property_failure_bound"
 
 #: The columns :func:`expand` returns: one row per cell replicate a record costs.
 LOST_COLUMNS = ("property", "cell", "replicate", "group_id")
@@ -175,6 +179,37 @@ def counts(records: pd.DataFrame | None) -> dict[tuple[str, str], int]:
         (str(family), str(cell)): len(group)
         for (family, cell), group in lost.groupby(["property", "cell"], sort=True)
     }
+
+
+def raised_after_failures(here: Path, bound: float) -> bool:
+    """Whether a property run would raise its bound after a committed run lost replicates.
+
+    A committed ``property-failures.csv`` shows that the committed property run lost a
+    replicate.  A re-run draws the same seeds and meets the same failures, so a bound above
+    the one that run applied would buy the pass (rev 3 section 6).  The applied bound is the
+    committed manifest's :data:`PROPERTY_BOUND_KEY`, and 0 when the key is absent.
+
+    Parameters
+    ----------
+    here : pathlib.Path
+        The study's artifact directory.
+    bound : float
+        The module's ``FAILURE_BOUND`` for this run.
+
+    Returns
+    -------
+    bool
+        ``True`` when the committed run recorded a property failure and ``bound`` exceeds the
+        bound it applied.
+    """
+    records = read(here / PROPERTY_FAILURES)
+    if records is None or records.empty:
+        return False
+    manifest = here / "manifest.json"
+    configuration = (
+        (json.loads(manifest.read_text()).get("configuration") or {}) if manifest.exists() else {}
+    )
+    return float(bound) > float(configuration.get(PROPERTY_BOUND_KEY, 0.0))
 
 
 def stamp(rows: pd.DataFrame, records: pd.DataFrame | None) -> pd.DataFrame:

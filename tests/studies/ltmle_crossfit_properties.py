@@ -35,7 +35,7 @@ from tests.studies.evidence.property_verdicts import (
     finish,
     necessity_verdicts,
 )
-from tests.studies.evidence.replication import fit_properties, splat
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 
 DOUBLE_ROBUST_REPLICATES = 1_200
@@ -386,12 +386,20 @@ def untargeted(frame: pd.DataFrame, label: str, configuration: str, folds: Folds
     return float(np.mean(stitched))
 
 
-def _fit_replication(
-    payload: tuple[str, str, int, int, int, int, str],
-) -> list[dict[str, Any]]:
-    property_name, cell_suffix, replicate, n, requested, seed, configuration = payload
+def _draw_replication(payload: tuple[str, str, int, int, int, int, str]) -> Any:
+    property_name, _, _, n, _, seed, _ = payload
     if property_name == "crossfit_overfitting":
-        frame, truth = make_longitudinal(n=n, seed=seed, backend="pandas")
+        return make_longitudinal(n=n, seed=seed, backend="pandas")
+    probs = NULL_PROBS if property_name == "type_i_error" else law.PROBS
+    return sample(probs, n, seed)
+
+
+def _fit_replication(
+    payload: tuple[str, str, int, int, int, int, str], drawn: Any
+) -> list[dict[str, Any]]:
+    property_name, cell_suffix, replicate, n, requested, _, configuration = payload
+    if property_name == "crossfit_overfitting":
+        frame, truth = drawn
         name = "ate_regimen[always vs never]"
         result = _overfit(frame, cross_fit=configuration == "overfit_crossfit")
         estimate = result[name]
@@ -408,8 +416,7 @@ def _fit_replication(
                 alpha=STUDY.margins.alpha,
             )
         ]
-    probs = NULL_PROBS if property_name == "type_i_error" else law.PROBS
-    frame = sample(probs, n, seed)
+    frame = drawn
     result = fit(frame, configuration)
     labels = ("static",) if property_name in {"type_i_error", "power"} else tuple(CONTRASTS)
     rows: list[dict[str, Any]] = []
@@ -549,7 +556,8 @@ PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     outcomes = fit_properties(
         _payloads(),
-        splat(_fit_replication),
+        splat_drawn(_fit_replication),
+        draw=splat_draw(_draw_replication),
         cells_of=_cells_of,
         cell_of=payload_cell,
         replicate_of=payload_replicate,

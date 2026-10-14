@@ -50,7 +50,7 @@ from tests.studies.evidence.property_verdicts import (
     robustness_verdicts,
     simultaneous_coverage_verdicts,
 )
-from tests.studies.evidence.replication import fit_properties, splat
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import FAMILY as JOINT_FAMILY
 from tests.studies.evidence.simultaneous import (
@@ -183,10 +183,20 @@ def _necessity_rows(
     return rows
 
 
+def _draw_replication(payload: tuple[str, str, int, int, int, int, str]) -> pd.DataFrame:
+    property_name, _, _, n, _, seed, _ = payload
+    return laws.sample(NULL_LAW if property_name == "type_i_error" else LAW, n, seed)
+
+
 def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[dict[str, Any]]:
-    property_name, cell, replicate, n, requested, seed, configuration = payload
+    return _fit_drawn(payload, _draw_replication(payload))
+
+
+def _fit_drawn(
+    payload: tuple[str, str, int, int, int, int, str], frame: pd.DataFrame
+) -> list[dict[str, Any]]:
+    property_name, cell, replicate, n, requested, _, configuration = payload
     if property_name == "type_i_error":
-        frame = laws.sample(NULL_LAW, n, seed)
         result = _fit(frame, configuration, law=NULL_LAW)
         return [
             _row(
@@ -200,7 +210,6 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
                 result[TEST_TARGET],
             )
         ]
-    frame = laws.sample(LAW, n, seed)
     if property_name == "interval_calibration":
         result = _fit(frame, configuration, simultaneous=True)
         return [
@@ -463,7 +472,8 @@ PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     outcomes = fit_properties(
         _payloads(),
-        splat(_fit_replication),
+        splat_drawn(_fit_drawn),
+        draw=splat_draw(_draw_replication),
         cells_of=_cells_of,
         cell_of=payload_cell,
         replicate_of=payload_replicate,

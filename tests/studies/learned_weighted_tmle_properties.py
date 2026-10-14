@@ -24,7 +24,7 @@ from tests.studies.evidence.property_verdicts import (
     calibration_verdicts,
     finish,
 )
-from tests.studies.evidence.replication import fit_properties, splat
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.learned_weighted_point_common import (
     SELECTED_ATE,
@@ -78,15 +78,30 @@ def _row(
     )
 
 
-def fit_replication(payload: tuple[str, str, int, int, int, int]) -> list[dict[str, Any]]:
-    """Fit one declared property replication and return its shared-schema rows."""
-    property_name, cell, replicate, n, requested, seed = payload
-    effect = (
+def _effect(property_name: str) -> float:
+    return (
         0.0
         if property_name == "type_i_error"
         else (ALTERNATIVE_EFFECT if property_name == "power" else TARGET_ATE)
     )
-    frame = sample_selected(n, seed, effect=effect)
+
+
+def _draw(payload: tuple[str, str, int, int, int, int]) -> pd.DataFrame:
+    """One declared property replication's sample, drawn outside the fit."""
+    property_name, _, _, n, _, seed = payload
+    return sample_selected(n, seed, effect=_effect(property_name))
+
+
+def fit_replication(payload: tuple[str, str, int, int, int, int]) -> list[dict[str, Any]]:
+    """Fit one declared property replication and return its shared-schema rows."""
+    return _fit_drawn(payload, _draw(payload))
+
+
+def _fit_drawn(
+    payload: tuple[str, str, int, int, int, int], frame: pd.DataFrame
+) -> list[dict[str, Any]]:
+    property_name, cell, replicate, n, requested, _ = payload
+    effect = _effect(property_name)
     result = fit_cleverly(frame, estimands=(TARGET,))
     if property_name != "learner_weight_necessity":
         return [
@@ -228,7 +243,8 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     """Generate every predeclared cell and paired calibration control."""
     outcomes = fit_properties(
         _payloads(),
-        splat(fit_replication),
+        splat_drawn(_fit_drawn),
+        draw=splat_draw(_draw),
         cells_of=_cells_of,
         cell_of=payload_cell,
         replicate_of=payload_replicate,

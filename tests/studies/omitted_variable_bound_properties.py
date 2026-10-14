@@ -26,7 +26,7 @@ from tests.studies.evidence.property_verdicts import (
     calibration_verdicts,
     finish,
 )
-from tests.studies.evidence.replication import fit_properties, splat
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.omitted_variable_bound import (
     ENDS,
@@ -67,9 +67,13 @@ def _row(
     }
 
 
-def _replicate(replicate: int) -> list[dict[str, Any]]:
+def _draw(replicate: int) -> Any:
     seed = stream_seed(STUDY, "property_sample", "interval_calibration", "linear", replicate)
-    frame, truth = draw_from_seed("linear", PRIMARY_N, seed)
+    return draw_from_seed("linear", PRIMARY_N, seed)
+
+
+def _replicate(replicate: int, drawn: Any) -> list[dict[str, Any]]:
+    frame, truth = drawn
     result = fit(frame)
     rows: list[dict[str, Any]] = []
     for name in FITTED:
@@ -131,7 +135,8 @@ def generate_property_rows(
     """Fit every property replication and return one row per cell and replication."""
     outcomes = fit_properties(
         [(index,) for index in range(replicates)],
-        splat(_replicate),
+        splat_drawn(_replicate),
+        draw=splat_draw(_draw),
         cells_of=_cells_of,
         cell_of=_cell_of,
         replicate_of=_replicate_of,

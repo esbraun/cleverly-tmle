@@ -21,7 +21,7 @@ from tests.studies.evidence.properties import (
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import calibration_derived
-from tests.studies.evidence.replication import fit_properties, splat
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.intervention_study_helpers import (
     efficiency_sd,
@@ -61,10 +61,17 @@ EFFICIENCY_SD = efficiency_sd(law.PROBS, TARGET)
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 
 
-def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[dict[str, Any]]:
-    property_name, cell, replicate, n, requested, seed, configuration = payload
+def _draw(payload: tuple[str, str, int, int, int, int, str]) -> pd.DataFrame:
+    property_name, _, _, n, _, seed, _ = payload
     probs = NULL_PROBS if property_name == "type_i_error" else law.PROBS
-    frame = sample_discrete(probs, n, seed)
+    return sample_discrete(probs, n, seed)
+
+
+def _fit_replication(
+    payload: tuple[str, str, int, int, int, int, str], frame: pd.DataFrame
+) -> list[dict[str, Any]]:
+    property_name, cell, replicate, n, requested, _, configuration = payload
+    probs = NULL_PROBS if property_name == "type_i_error" else law.PROBS
     result = fit_regimes(frame, probs, configuration, interventions(), g_bounds=G_BOUNDS)
     truth = NULL_TRUTH if property_name == "type_i_error" else TRUTH
     role = (
@@ -248,8 +255,9 @@ PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     outcomes = fit_properties(
         _payloads(),
-        splat(_fit_replication),
+        splat_drawn(_fit_replication),
         cells_of=_cells_of,
+        draw=splat_draw(_draw),
         cell_of=payload_cell,
         replicate_of=payload_replicate,
         n_jobs=n_jobs,

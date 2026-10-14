@@ -36,7 +36,7 @@ from tests.studies.evidence.property_verdicts import (
     finish,
     necessity_verdicts,
 )
-from tests.studies.evidence.replication import fit_properties, splat
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 
 DOUBLE_ROBUST_REPLICATES = 1_200
@@ -363,10 +363,26 @@ def survivor_only(frame: pd.DataFrame) -> float:
     return float(result.psi("ey_regimen[always]"))
 
 
-def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[dict[str, Any]]:
-    property_name, suffix, replicate, n, requested, seed, configuration = payload
+def _draw_replication(payload: tuple[str, str, int, int, int, int, str]) -> Any:
+    property_name, _, _, n, _, seed, _ = payload
     if property_name == "crossfit_overfitting":
-        frame, truth = make_longitudinal_survival(n=n, seed=seed, censoring=True, backend="pandas")
+        return make_longitudinal_survival(n=n, seed=seed, censoring=True, backend="pandas")
+    probs = (
+        NULL_PROBS
+        if property_name == "type_i_error"
+        else POWER_PROBS
+        if property_name == "power"
+        else law.PROBS
+    )
+    return sample(probs, n, seed)
+
+
+def _fit_replication(
+    payload: tuple[str, str, int, int, int, int, str], drawn: Any
+) -> list[dict[str, Any]]:
+    property_name, suffix, replicate, n, requested, _, configuration = payload
+    if property_name == "crossfit_overfitting":
+        frame, truth = drawn
         name = "ate_regimen[always vs never @ t=2]"
         result = _overfit(frame, cross_fit=configuration == "overfit_crossfit")
         return [
@@ -382,14 +398,7 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
                 alpha=STUDY.margins.alpha,
             )
         ]
-    probs = (
-        NULL_PROBS
-        if property_name == "type_i_error"
-        else POWER_PROBS
-        if property_name == "power"
-        else law.PROBS
-    )
-    frame = sample(probs, n, seed)
+    frame = drawn
     result = fit(frame, configuration)
     rows: list[dict[str, Any]] = []
     for label, name in CONTRASTS.items():
@@ -441,9 +450,15 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
     return rows
 
 
-def _recursion_replication(payload: tuple[int, int, int, int]) -> list[dict[str, Any]]:
-    replicate, n, requested, seed = payload
-    frame = sample(law.PROBS, n, seed)
+def _recursion_draw(payload: tuple[int, int, int, int]) -> pd.DataFrame:
+    _, n, _, seed = payload
+    return sample(law.PROBS, n, seed)
+
+
+def _recursion_replication(
+    payload: tuple[int, int, int, int], frame: pd.DataFrame
+) -> list[dict[str, Any]]:
+    replicate, n, requested, _ = payload
     result = fit(frame, "both_correct")
     name = "risk_regimen[always @ t=2]"
     estimate = result[name]
@@ -575,7 +590,8 @@ PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     outcomes = fit_properties(
         _payloads(),
-        splat(_fit_replication),
+        splat_drawn(_fit_replication),
+        draw=splat_draw(_draw_replication),
         cells_of=_cells_of,
         cell_of=payload_cell,
         replicate_of=payload_replicate,
@@ -596,7 +612,8 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     ]
     recursion = fit_properties(
         recursion_payloads,
-        splat(_recursion_replication),
+        splat_drawn(_recursion_replication),
+        draw=splat_draw(_recursion_draw),
         cells_of=_recursion_cells_of,
         cell_of=_recursion_cell_of,
         replicate_of=_recursion_replicate_of,

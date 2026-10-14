@@ -7,6 +7,8 @@ its errors.  RM39 part b2.
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -158,7 +160,8 @@ class TestKnownMechanismBootstrap:
     def _run(self) -> list[Any]:
         return replication.fit_properties(
             [(("bootstrap", r),) for r in range(6)],
-            replication.splat(known._dispatch),
+            replication.splat_drawn(known._dispatch),
+            draw=replication.splat_draw(known._dispatch_draw),
             cells_of=known._cells_of,
             cell_of=known._cell_of,
             replicate_of=known._replicate_of,
@@ -203,3 +206,32 @@ def test_every_registered_study_declares_a_failure_bound_inside_its_range() -> N
         module = study.properties()
         assert hasattr(module, "FAILURE_BOUND"), f"{study.slug} declares no FAILURE_BOUND"
         assert 0.0 <= float(module.FAILURE_BOUND) <= property_failures.MAXIMUM_BOUND, study.slug
+
+
+#: The property loops that pass no ``draw=``, with the reason each one needs none.  Every other
+#: ``fit_properties`` call in ``tests/studies`` draws its sample outside the classifier (F5).
+UNSPLIT_LOOPS = {
+    ("repeated_crossfit_properties", "_stability_trial"): (
+        "the trial's one sample is drawn before the loop; a key varies only the fold seed"
+    ),
+}
+
+
+def test_every_property_loop_but_the_declared_ones_draws_outside_the_fit() -> None:
+    studies = Path(__file__).resolve().parents[1] / "studies"
+    unsplit: set[tuple[str, str]] = set()
+    calls = 0
+    for path in sorted(studies.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if not isinstance(node, ast.Call):
+                continue
+            name = getattr(node.func, "id", getattr(node.func, "attr", None))
+            if name != "fit_properties" or path.stem == "replication":
+                continue
+            calls += 1
+            if not any(keyword.arg == "draw" for keyword in node.keywords):
+                worker = node.args[1]
+                inner = worker.args[0] if isinstance(worker, ast.Call) and worker.args else worker
+                unsplit.add((path.stem, ast.unparse(inner)))
+    assert calls > 50
+    assert unsplit == set(UNSPLIT_LOOPS)

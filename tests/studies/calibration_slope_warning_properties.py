@@ -37,7 +37,7 @@ from tests.studies.calibration_slope_warning import (
 from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import REPLICATE_COLUMNS
 from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
-from tests.studies.evidence.replication import fit_properties, splat
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 
 #: Replications per property law.  A control reads its positive cell's fits.
@@ -72,9 +72,16 @@ def _row(
     }
 
 
-def _replicate(family: str, law_name: str, replicate: int, replicates: int) -> list[dict[str, Any]]:
+def _draw(family: str, law_name: str, replicate: int, replicates: int) -> Any:
     seed = stream_seed(STUDY, "property_sample", family, law_name, replicate)
-    result = fit(draw_law(law_name, PRIMARY_N, seed), law_name, seed)
+    return draw_law(law_name, PRIMARY_N, seed)
+
+
+def _replicate(
+    family: str, law_name: str, replicate: int, replicates: int, drawn: Any
+) -> list[dict[str, Any]]:
+    seed = stream_seed(STUDY, "property_sample", family, law_name, replicate)
+    result = fit(drawn, law_name, seed)
     reading = read(result)
     truth = LAWS[law_name].limit_slope
     covered = rule_covers(reading, truth)
@@ -147,8 +154,9 @@ def generate_property_rows(
     ]
     outcomes = fit_properties(
         payloads,
-        splat(_replicate),
+        splat_drawn(_replicate),
         cells_of=_cells_of,
+        draw=splat_draw(_draw),
         cell_of=_cell_of,
         replicate_of=_replicate_of,
         n_jobs=n_jobs,

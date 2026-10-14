@@ -29,7 +29,7 @@ from tests.studies.evidence.property_verdicts import (
     finish,
     necessity_verdicts,
 )
-from tests.studies.evidence.replication import fit_properties, splat
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.point_study_helpers import initial_estimates
 from tests.studies.weighted_point_common import (
@@ -114,9 +114,20 @@ def fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[d
     list of dict
         One row for the cell, plus the paired control row where the family declares one.
     """
-    property_name, cell, replicate, n, requested, seed, configuration = payload
+    return _fit_drawn(payload, _draw(payload))
+
+
+def _draw(payload: tuple[str, str, int, int, int, int, str]) -> pd.DataFrame:
+    """One property replication's sample, drawn outside the fit."""
+    property_name, _, _, n, _, seed, _ = payload
+    return sample_selected(_law_for(property_name), n, seed)
+
+
+def _fit_drawn(
+    payload: tuple[str, str, int, int, int, int, str], frame: pd.DataFrame
+) -> list[dict[str, Any]]:
+    property_name, cell, replicate, n, requested, _, configuration = payload
     q = _law_for(property_name)
-    frame = sample_selected(q, n, seed)
     truth = float(truth_for(q, P_W)[TARGET])
     outcome, treatment = _learners(configuration, q)
     fit = partial(
@@ -279,7 +290,8 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     """Run the declared cells and derive paired calibration controls from the same draws."""
     outcomes = fit_properties(
         _payloads(),
-        splat(fit_replication),
+        splat_drawn(_fit_drawn),
+        draw=splat_draw(_draw),
         cells_of=_cells_of,
         cell_of=payload_cell,
         replicate_of=payload_replicate,

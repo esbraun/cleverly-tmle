@@ -564,6 +564,38 @@ def test_p36_skip_properties_carries_the_committed_bound_or_its_absence(
     assert "property_failure_bound" not in manifests[-1]
 
 
+def test_a_property_bound_raised_after_recorded_failures_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """H1: a committed property run lost replicates, so its bound may not rise for a re-run."""
+    from tests.studies.evidence import property_failures
+
+    study, arguments, manifests = _property_driver(monkeypatch, tmp_path)
+    regenerate.main(study, _toy_properties({7}, bound=0.01, replicates=100), here=tmp_path)
+    committed = tmp_path / "committed"
+    committed.mkdir()
+    for name in (
+        "property-replicates.csv.gz",
+        "properties.csv",
+        property_failures.PROPERTY_FAILURES,
+    ):
+        (committed / name).write_bytes((arguments.output / name).read_bytes())
+    (committed / "manifest.json").write_text(json.dumps({"configuration": manifests[-1]}))
+    with pytest.raises(RuntimeError, match="never raised"):
+        regenerate.main(study, _toy_properties({7}, bound=0.02, replicates=100), here=committed)
+    # The same bound, a lower one, and a run that reuses the committed files are allowed.
+    for bound in (0.01, 0.0):
+        regenerate.main(study, _toy_properties({7}, bound=bound, replicates=100), here=committed)
+    arguments.skip_properties = True
+    regenerate.main(study, _toy_properties({7}, bound=0.02, replicates=100), here=committed)
+    # Mutation control: without the key the committed run applied bound 0, so 0.01 is a raise.
+    (committed / "manifest.json").write_text(json.dumps({"configuration": {}}))
+    arguments.skip_properties = False
+    with pytest.raises(RuntimeError, match="never raised"):
+        regenerate.main(study, _toy_properties({7}, bound=0.01, replicates=100), here=committed)
+    assert property_failures.raised_after_failures(tmp_path / "nothing", 0.05) is False
+
+
 def _stub_complete(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Any, record: Any, paired: pd.DataFrame
 ) -> Any:

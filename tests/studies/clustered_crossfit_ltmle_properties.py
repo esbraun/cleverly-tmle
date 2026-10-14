@@ -66,7 +66,7 @@ from tests.studies.evidence.property_verdicts import (
     finish,
     simultaneous_coverage_verdicts,
 )
-from tests.studies.evidence.replication import fit_properties, splat
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import (
     FAMILY as JOINT,
@@ -170,24 +170,33 @@ def fit_survival(frame: pd.DataFrame) -> Any:
     ).fit(frame, outcome=["Y1", "Y2"], id=ID, **NODES)
 
 
-def fit_kind(kind: str, seed: int) -> tuple[Any, dict[str, float]]:
-    """One draw of ``kind`` and its cross-fitted clustered fit."""
+def draw_kind(kind: str, seed: int) -> tuple[Any, dict[str, float]]:
+    """One draw of ``kind`` and its truths."""
     if kind == "survival":
-        frame, truth = law.draw_survival(CLUSTERS, f"equal{CLUSTER_SIZE}", seed)
-        return fit_survival(frame), truth
+        return law.draw_survival(CLUSTERS, f"equal{CLUSTER_SIZE}", seed)
     sizes = "unequal40" if kind == "unequal" else f"equal{CLUSTER_SIZE}"
-    frame, truth = law.draw_end_of_study(CLUSTERS, sizes, seed)
-    return fit_cleverly(frame), truth
+    return law.draw_end_of_study(CLUSTERS, sizes, seed)
+
+
+def fit_drawn(kind: str, frame: Any) -> Any:
+    """The cross-fitted clustered fit of one draw of ``kind``."""
+    return fit_survival(frame) if kind == "survival" else fit_cleverly(frame)
 
 
 def _iid(estimate: Any) -> float:
     return float(np.sqrt(influence_variance(estimate.influence_curve)))
 
 
-def _pair_rows(payload: tuple[int, int, str]) -> list[dict[str, Any]]:
+def _draw_pair(payload: tuple[int, int, str]) -> tuple[Any, dict[str, float]]:
+    replicate, _, kind = payload
+    return draw_kind(kind, _seed(CLUSTERED, kind, replicate))
+
+
+def _pair_rows(payload: tuple[int, int, str], drawn: Any) -> list[dict[str, Any]]:
     """Both arms of every pair that reads this draw kind, from one fit."""
     replicate, requested, kind = payload
-    result, truth = fit_kind(kind, _seed(CLUSTERED, kind, replicate))
+    frame, truth = drawn
+    result = fit_drawn(kind, frame)
     rows: list[dict[str, Any]] = []
     for positive, control, pair_kind, target in PAIRS:
         if pair_kind != kind:
@@ -221,11 +230,15 @@ def _pair_rows(payload: tuple[int, int, str]) -> list[dict[str, Any]]:
     return rows
 
 
-def _band_rows(payload: tuple[int, int]) -> list[dict[str, Any]]:
-    replicate, requested = payload
-    frame, truth = law.draw_end_of_study(
-        CLUSTERS, f"equal{CLUSTER_SIZE}", _seed(JOINT, BAND_LABEL, replicate)
+def _draw_band(payload: tuple[int, int]) -> tuple[Any, dict[str, float]]:
+    return law.draw_end_of_study(
+        CLUSTERS, f"equal{CLUSTER_SIZE}", _seed(JOINT, BAND_LABEL, payload[0])
     )
+
+
+def _band_rows(payload: tuple[int, int], drawn: Any) -> list[dict[str, Any]]:
+    replicate, requested = payload
+    frame, truth = drawn
     result = fit_cleverly(frame, simultaneous=True)
     return joint_coverage_rows(
         result,
@@ -249,9 +262,14 @@ def _payloads(budget: int | None) -> list[tuple[Any, ...]]:
     return out
 
 
-def _run(job: tuple[Any, tuple[Any, ...]]) -> list[dict[str, Any]]:
-    function, payload = job
-    return list(function(payload))
+def _draw(key: tuple[Any, ...]) -> Any:
+    function, payload = key[0]
+    return _draw_band(payload) if function is _band_rows else _draw_pair(payload)
+
+
+def _run(key: tuple[Any, ...], drawn: Any) -> list[dict[str, Any]]:
+    function, payload = key[0]
+    return list(function(payload, drawn))
 
 
 def _cells_of(key: tuple[Any, ...]) -> list[str]:
@@ -293,11 +311,12 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
     """Fit every property replication; ``budget`` caps each cell for a pre-run check."""
     outcomes = fit_properties(
         _payloads(budget),
-        splat(_run),
+        _run,
         cells_of=_cells_of,
         cell_of=_cell_of,
         replicate_of=_replicate_of,
         n_jobs=n_jobs,
+        draw=_draw,
     )
     return pd.DataFrame([row for rows in outcomes for row in rows])
 

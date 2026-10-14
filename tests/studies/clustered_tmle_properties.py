@@ -30,7 +30,7 @@ from tests.studies.evidence.property_verdicts import (
     clustered_inference_verdicts,
     finish,
 )
-from tests.studies.evidence.replication import fit_properties, splat
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 
 #: Named here as well because the two thresholds are this study's declared margins, and
@@ -80,9 +80,17 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     )
 
 
+def _draw_replication(payload: tuple[int, int]) -> Any:
+    return draw_from_seed(SCENARIO, PRIMARY_N, payload[1])
+
+
 def _fit_replication(payload: tuple[int, int]) -> list[dict[str, Any]]:
-    replicate, seed = payload
-    frame, truth = draw_from_seed(SCENARIO, PRIMARY_N, seed)
+    return _fit_drawn(payload, _draw_replication(payload))
+
+
+def _fit_drawn(payload: tuple[int, int], drawn: Any) -> list[dict[str, Any]]:
+    replicate, _ = payload
+    frame, truth = drawn
     result = fit_cleverly(frame)
     estimate = result[TARGET]
     robust = replicate_row(
@@ -148,8 +156,9 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     ]
     outcomes = fit_properties(
         payloads,
-        splat(_fit_replication),
+        splat_drawn(_fit_drawn),
         cells_of=_cells_of,
+        draw=splat_draw(_draw_replication),
         cell_of=_cell_of,
         replicate_of=_replicate_of,
         n_jobs=n_jobs,

@@ -55,7 +55,7 @@ from tests.studies.evidence.property_verdicts import (
     necessity_verdicts,
     simultaneous_coverage_verdicts,
 )
-from tests.studies.evidence.replication import fit_properties, splat
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import FAMILY, joint_coverage_rows
 from tests.studies.evidence.simultaneous import joint_cells as joint_cell_names
@@ -299,6 +299,14 @@ def untargeted(
     return float(np.mean(stitched))
 
 
+def _draw_replication(payload: tuple[str, str, int, int, int, int, str]) -> pd.DataFrame:
+    property_name, _, _, n, _, seed, _ = payload
+    # The power cell samples the primary law, so it needs no branch of its own here; see
+    # :data:`POWER_TRUTH` for why this study declares no separate alternative.
+    probs = NULL_PROBS if property_name == "type_i_error" else law.PROBS
+    return sample(probs, n, seed)
+
+
 def _fit_replication(
     payload: tuple[str, str, int, int, int, int, str],
     *,
@@ -306,11 +314,20 @@ def _fit_replication(
     fit_fn: Callable[..., Any],
     joint_cells: bool = False,
 ) -> list[dict[str, Any]]:
-    property_name, suffix, replicate, n, requested, seed, configuration = payload
-    # The power cell samples the primary law, so it needs no branch of its own here; see
-    # :data:`POWER_TRUTH` for why this study declares no separate alternative.
-    probs = NULL_PROBS if property_name == "type_i_error" else law.PROBS
-    frame = sample(probs, n, seed)
+    return _fit_drawn(
+        payload, _draw_replication(payload), study=study, fit_fn=fit_fn, joint_cells=joint_cells
+    )
+
+
+def _fit_drawn(
+    payload: tuple[str, str, int, int, int, int, str],
+    frame: pd.DataFrame,
+    *,
+    study: Any,
+    fit_fn: Callable[..., Any],
+    joint_cells: bool = False,
+) -> list[dict[str, Any]]:
+    property_name, suffix, replicate, n, requested, _, configuration = payload
     joint = joint_cells and property_name == "interval_calibration"
     result = (
         fit_fn(frame, configuration, simultaneous=True) if joint else fit_fn(frame, configuration)
@@ -386,9 +403,13 @@ def fit_curve(frame: pd.DataFrame) -> Any:
     )
 
 
-def _curve_replication(payload: tuple[int, int]) -> list[dict[str, Any]]:
-    replicate, seed = payload
-    result = fit_curve(sample(law.PROBS, CURVE_N, seed))
+def _curve_draw(payload: tuple[int, int]) -> pd.DataFrame:
+    return sample(law.PROBS, CURVE_N, payload[1])
+
+
+def _curve_replication(payload: tuple[int, int], frame: pd.DataFrame) -> list[dict[str, Any]]:
+    replicate, _ = payload
+    result = fit_curve(frame)
     return _joint(result, CURVE_LABEL, replicate, CURVE_N, CURVE_REPLICATES, study=STUDY)
 
 
@@ -412,7 +433,8 @@ def curve_rows(*, n_jobs: int = STUDY_JOBS, replicates: int = CURVE_REPLICATES) 
     ]
     outcomes = fit_properties(
         payloads,
-        splat(_curve_replication),
+        splat_drawn(_curve_replication),
+        draw=splat_draw(_curve_draw),
         cells_of=_curve_cells_of,
         cell_of=_curve_cell_of,
         replicate_of=_curve_replicate_of,
@@ -422,14 +444,19 @@ def curve_rows(*, n_jobs: int = STUDY_JOBS, replicates: int = CURVE_REPLICATES) 
     return pd.DataFrame([row for result in outcomes for row in result])
 
 
+def _recursion_draw(payload: tuple[int, int, int, int]) -> pd.DataFrame:
+    _, n, _, seed = payload
+    return sample(law.PROBS, n, seed)
+
+
 def _recursion_replication(
     payload: tuple[int, int, int, int],
+    frame: pd.DataFrame,
     *,
     study: Any,
     fit_fn: Callable[[pd.DataFrame, str], Any],
 ) -> list[dict[str, Any]]:
-    replicate, n, requested, seed = payload
-    frame = sample(law.PROBS, n, seed)
+    replicate, n, requested, _ = payload
     result = fit_fn(frame, "both_correct")
     rows: list[dict[str, Any]] = []
     for cause in law.CAUSES:
@@ -564,12 +591,15 @@ def generate_for(
     n_jobs: int,
     joint_cells: bool = False,
 ) -> pd.DataFrame:
-    def runner(payload: tuple[str, str, int, int, int, int, str]) -> list[dict[str, Any]]:
-        return _fit_replication(payload, study=study, fit_fn=fit_fn, joint_cells=joint_cells)
+    def runner(
+        payload: tuple[str, str, int, int, int, int, str], frame: pd.DataFrame
+    ) -> list[dict[str, Any]]:
+        return _fit_drawn(payload, frame, study=study, fit_fn=fit_fn, joint_cells=joint_cells)
 
     outcomes = fit_properties(
         _payloads(study),
-        splat(runner),
+        splat_drawn(runner),
+        draw=splat_draw(_draw_replication),
         cells_of=lambda key: _cells_of(key, joint_cells),
         cell_of=payload_cell,
         replicate_of=payload_replicate,
@@ -589,12 +619,15 @@ def generate_for(
         for replicate in range(RECURSION_REPLICATES)
     ]
 
-    def recursion_runner(payload: tuple[int, int, int, int]) -> list[dict[str, Any]]:
-        return _recursion_replication(payload, study=study, fit_fn=fit_fn)
+    def recursion_runner(
+        payload: tuple[int, int, int, int], frame: pd.DataFrame
+    ) -> list[dict[str, Any]]:
+        return _recursion_replication(payload, frame, study=study, fit_fn=fit_fn)
 
     recursion = fit_properties(
         recursion_payloads,
-        splat(recursion_runner),
+        splat_drawn(recursion_runner),
+        draw=splat_draw(_recursion_draw),
         cells_of=_recursion_cells_of,
         cell_of=_recursion_cell_of,
         replicate_of=_recursion_replicate_of,

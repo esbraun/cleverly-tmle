@@ -65,7 +65,7 @@ from tests.studies.evidence.property_verdicts import (
     robustness_verdicts,
     simultaneous_coverage_verdicts,
 )
-from tests.studies.evidence.replication import fit_properties, splat
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import FAMILY as JOINT_FAMILY
 from tests.studies.evidence.simultaneous import joint_cells, joint_coverage_rows
@@ -329,10 +329,28 @@ def _band_rows(
 Payload = tuple[str, str, int, int, int, int, str]
 
 
-def _fit_rows(payload: Payload) -> tuple[list[dict[str, Any]], Any]:
-    property_name, cell, replicate, n, requested, seed, configuration = payload
+def _law_of(payload: Payload) -> Any:
+    """The law one replication samples, as :func:`_fit_rows` branches on the payload."""
+    property_name, cell = payload[0], payload[1]
     if property_name == "type_i_error":
-        frame = laws.sample(NULL_LAW, n, seed)
+        return NULL_LAW
+    if property_name == "simultaneous_coverage":
+        return LAWS[BAND_LABELS[cell]]
+    if property_name == "corrected_mar_inference":
+        return LAWS[cell]
+    if property_name == "ordinary_targeting" and cell not in ("binary_regime", "binary_msm"):
+        return LAWS[BINARY if cell == "binary" else THREE_ARM]
+    return LAWS[BINARY]
+
+
+def _draw(payload: Payload) -> pd.DataFrame:
+    """One replication's sample, drawn outside the fit."""
+    return laws.sample(_law_of(payload), payload[3], payload[5])
+
+
+def _fit_rows(payload: Payload, frame: pd.DataFrame) -> tuple[list[dict[str, Any]], Any]:
+    property_name, cell, replicate, n, requested, _, configuration = payload
+    if property_name == "type_i_error":
         result = fit_cleverly(frame, NULL_LAW, request=("ate",), simultaneous=False)
         return [
             _row(
@@ -348,13 +366,11 @@ def _fit_rows(payload: Payload) -> tuple[list[dict[str, Any]], Any]:
         ], result
     if property_name == "simultaneous_coverage":
         scenario = BAND_LABELS[cell]
-        frame = laws.sample(LAWS[scenario], n, seed)
         result = fit_cleverly(frame, LAWS[scenario], simultaneous=True)
         return _band_rows(result, scenario, cell, replicate, n, requested), result
     if property_name == "corrected_mar_inference":
         # One fit per scenario and configuration; a scenario reports each of its contrasts.
         scenario = cell
-        frame = laws.sample(LAWS[scenario], n, seed)
         result = fit_cleverly(
             frame, LAWS[scenario], simultaneous=False, **_tables(scenario, configuration)
         )
@@ -375,7 +391,6 @@ def _fit_rows(payload: Payload) -> tuple[list[dict[str, Any]], Any]:
             if owner == scenario and _reports(prefix, configuration)
         ], result
     if property_name == "ordinary_targeting" and cell in ("binary_regime", "binary_msm"):
-        frame = laws.sample(LAWS[BINARY], n, seed)
         if cell == "binary_regime":
             result = fit_cleverly(
                 frame,
@@ -402,7 +417,6 @@ def _fit_rows(payload: Payload) -> tuple[list[dict[str, Any]], Any]:
     if property_name == "ordinary_targeting":
         scenario = BINARY if cell == "binary" else THREE_ARM
         name = TARGET if cell == "binary" else THREE_ARM_TARGET
-        frame = laws.sample(LAWS[scenario], n, seed)
         result = fit_cleverly(frame, LAWS[scenario], guard=(), request=("ate",), simultaneous=False)
         return [
             _row(
@@ -418,7 +432,6 @@ def _fit_rows(payload: Payload) -> tuple[list[dict[str, Any]], Any]:
         ], result
     if property_name == "treatment_complete_case":
         law = LAWS[BINARY]
-        frame = laws.sample(law, n, seed)
         recorded = frame.loc[frame["DeltaA"] == 1.0].drop(columns="DeltaA")
         complete_law = dataclasses.replace(law, pi_treatment=None)
         result = fit_cleverly(
@@ -437,7 +450,6 @@ def _fit_rows(payload: Payload) -> tuple[list[dict[str, Any]], Any]:
             )
         ], result
     law = LAWS[BINARY]
-    frame = laws.sample(law, n, seed)
     if property_name == "interval_calibration":
         result = fit_cleverly(frame, law, simultaneous=True)
         return [
@@ -475,9 +487,9 @@ def _fit_rows(payload: Payload) -> tuple[list[dict[str, Any]], Any]:
     ], result
 
 
-def _fit_replication(payload: Payload) -> list[dict[str, Any]]:
+def _fit_replication(payload: Payload, frame: pd.DataFrame) -> list[dict[str, Any]]:
     """One replication's rows, each with its fit's outer-loop exit reason and round count."""
-    rows, result = _fit_rows(payload)
+    rows, result = _fit_rows(payload, frame)
     return [{**row, **fit_exit(result)} for row in rows]
 
 
@@ -601,8 +613,9 @@ PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     outcomes = fit_properties(
         _payloads(budget),
-        splat(_fit_replication),
+        splat_drawn(_fit_replication),
         cells_of=_cells_of,
+        draw=splat_draw(_draw),
         cell_of=_cell_of,
         replicate_of=payload_replicate,
         n_jobs=n_jobs,

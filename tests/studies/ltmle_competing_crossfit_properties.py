@@ -16,7 +16,7 @@ from tests.studies import ltmle_competing_properties as base
 from tests.studies.canonical_ltmle import KnownLongitudinalMechanism
 from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, replicate_row
-from tests.studies.evidence.replication import fit_properties, splat
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 
 STUDY = canonical.STUDY
@@ -96,9 +96,16 @@ def _overfit(frame: pd.DataFrame, *, cross_fit: bool) -> Any:
     )
 
 
-def _overfit_replication(payload: tuple[str, int, int, int, int]) -> list[dict[str, Any]]:
-    cell, replicate, n, requested, seed = payload
-    frame, truth = _balanced_competing_panel(n, seed)
+def _overfit_draw(payload: tuple[str, int, int, int, int]) -> tuple[pd.DataFrame, float]:
+    _, _, n, _, seed = payload
+    return _balanced_competing_panel(n, seed)
+
+
+def _overfit_replication(
+    payload: tuple[str, int, int, int, int], drawn: tuple[pd.DataFrame, float]
+) -> list[dict[str, Any]]:
+    cell, replicate, n, requested, _ = payload
+    frame, truth = drawn
     result = _overfit(frame, cross_fit=cell == OVERFIT_POSITIVE)
     # The relapse half of the split all-cause event.  ``_balanced_competing_panel`` returns
     # the matching truth, which is half the panel's own all-cause contrast.
@@ -162,7 +169,8 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     )
     overfit = fit_properties(
         _overfit_payloads(),
-        splat(_overfit_replication),
+        splat_drawn(_overfit_replication),
+        draw=splat_draw(_overfit_draw),
         cells_of=_overfit_cells_of,
         cell_of=_overfit_cell_of,
         replicate_of=_overfit_replicate_of,

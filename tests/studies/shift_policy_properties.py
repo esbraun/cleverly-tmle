@@ -38,7 +38,7 @@ from tests.studies.evidence.property_verdicts import (
     finish,
     necessity_verdicts,
 )
-from tests.studies.evidence.replication import fit_properties, splat
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.intervention_study_helpers import INTERVENTION_CALIBRATION_REPLICATES
 
@@ -114,14 +114,25 @@ def fit(
     return fit_shift_estimator(estimator, frame, dgp)
 
 
-def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[dict[str, Any]]:
-    property_name, cell, replicate, n, requested, seed, configuration = payload
-    dgp = (
+def _law(property_name: str) -> ShiftDGP:
+    return (
         policy_dgp(effect=0.0, curvature=0.0)
         if property_name == "type_i_error"
         else policy_dgp(curvature=PROPERTY_CURVATURE)
     )
-    frame, truth_map = dgp.sample(n, policies=POLICIES, seed=seed, backend="pandas")
+
+
+def _draw_replication(payload: tuple[str, str, int, int, int, int, str]) -> Any:
+    property_name, _, _, n, _, seed, _ = payload
+    return _law(property_name).sample(n, policies=POLICIES, seed=seed, backend="pandas")
+
+
+def _fit_replication(
+    payload: tuple[str, str, int, int, int, int, str], drawn: Any
+) -> list[dict[str, Any]]:
+    property_name, cell, replicate, n, requested, _, configuration = payload
+    dgp = _law(property_name)
+    frame, truth_map = drawn
     truth = float(truth_map[TARGET])
     result = fit(frame, dgp, configuration)
     role = (
@@ -307,7 +318,8 @@ PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     outcomes = fit_properties(
         _payloads(),
-        splat(_fit_replication),
+        splat_drawn(_fit_replication),
+        draw=splat_draw(_draw_replication),
         cells_of=_cells_of,
         cell_of=payload_cell,
         replicate_of=payload_replicate,

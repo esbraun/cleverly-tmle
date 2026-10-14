@@ -833,6 +833,62 @@ def splat(worker: Callable[..., Any]) -> Callable[[Any, Any], Any]:
     return _Splat(worker)
 
 
+@dataclass(frozen=True)
+class _SplatDrawn:
+    """A worker that takes its key's arguments and then the drawn sample, as a ``fit_one``."""
+
+    worker: Callable[..., Any]
+
+    def __call__(self, key: Any, drawn: Any) -> Any:
+        return self.worker(*key, drawn) if isinstance(key, tuple) else self.worker(key, drawn)
+
+
+@dataclass(frozen=True)
+class _SplatDraw:
+    """A sampler that takes its key's arguments, as a ``draw``."""
+
+    sampler: Callable[..., Any]
+
+    def __call__(self, key: Any) -> Any:
+        return self.sampler(*key) if isinstance(key, tuple) else self.sampler(key)
+
+
+def splat_drawn(worker: Callable[..., Any]) -> Callable[[Any, Any], Any]:
+    """A split worker as a ``fit_one``: the key's arguments, then the drawn sample (F5).
+
+    The calling rule is :func:`splat`'s.  Pair it with :func:`splat_draw` as ``draw=``, so the
+    draw runs outside the classifier: an error in it stops the run, and the accounting can
+    draw a lost key's sample again for its witness (D3'f).
+
+    Parameters
+    ----------
+    worker : Callable
+        The per-replicate fit, a module-level function so that it pickles by name.
+
+    Returns
+    -------
+    Callable
+        A ``fit_one(key, drawn)``.
+    """
+    return _SplatDrawn(worker)
+
+
+def splat_draw(sampler: Callable[..., Any]) -> Callable[[Any], Any]:
+    """A sampler that takes the key's arguments, as a ``draw`` for :func:`fit_properties`.
+
+    Parameters
+    ----------
+    sampler : Callable
+        The per-replicate draw, a module-level function so that it pickles by name.
+
+    Returns
+    -------
+    Callable
+        A ``draw(key)``.
+    """
+    return _SplatDraw(sampler)
+
+
 def _cell_names(cells: Sequence[str], derived: Mapping[str, Sequence[str]], key: Any) -> list[str]:
     """``cells`` checked as ``property/cell`` names, each derived control beside its base."""
     names = [str(name) for name in cells]

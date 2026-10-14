@@ -24,7 +24,7 @@ from tests.studies.canonical_known_node_mechanisms import STUDY, fit_cleverly, t
 from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, replicate_row
 from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
-from tests.studies.evidence.replication import fit_properties, splat
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 
 ACCURACY = "known_mechanism_accuracy"
@@ -44,9 +44,12 @@ class NoMechanismFit(BaseEstimator, ClassifierMixin):
         raise AssertionError("a declared treatment node fitted a treatment learner")
 
 
-def _replication(replicate: int) -> list[dict[str, Any]]:
+def _draw(replicate: int) -> Any:
     seed = stream_seed(STUDY, "property_sample", ACCURACY, "paired", replicate)
-    frame = law.smart_sample(ACCURACY_N, seed)
+    return law.smart_sample(ACCURACY_N, seed)
+
+
+def _replication(replicate: int, frame: Any) -> list[dict[str, Any]]:
     fits = {
         "ate_regimen__ltmle_known__q_wrong": fit_cleverly(
             frame, treatment_learner=NoMechanismFit(), censoring_learner=NoMechanismFit()
@@ -110,8 +113,9 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
     replicates = ACCURACY_REPLICATES if budget is None else min(budget, ACCURACY_REPLICATES)
     outcomes = fit_properties(
         [(r,) for r in range(replicates)],
-        splat(_replication),
+        splat_drawn(_replication),
         cells_of=_cells_of,
+        draw=splat_draw(_draw),
         cell_of=_cell_of,
         replicate_of=_replicate_of,
         n_jobs=n_jobs,

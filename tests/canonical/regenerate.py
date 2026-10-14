@@ -1123,7 +1123,7 @@ def _property_artifacts(
 
 
 #: The manifest configuration key that records the property phase's declared failure bound.
-PROPERTY_FAILURE_BOUND_KEY = "property_failure_bound"
+PROPERTY_FAILURE_BOUND_KEY = property_failures.PROPERTY_BOUND_KEY
 
 
 def _property_failure_bound(
@@ -1225,6 +1225,14 @@ def _regenerate(
             f"{record.slug} declares a higher failure bound for {raised} than the committed run "
             "that recorded their failures applied; a bound is never raised after a run has "
             "shown failures"
+        )
+    if not arguments.skip_properties and property_failures.raised_after_failures(
+        here, float(properties.FAILURE_BOUND)
+    ):
+        raise RuntimeError(
+            f"{record.slug} declares FAILURE_BOUND {properties.FAILURE_BOUND}, above the bound of "
+            "the committed property run that recorded failures; a bound is never raised after a "
+            "run has shown failures"
         )
     print(f"regenerating {record.name}: {record.replicates} x n={record.n}", flush=True)
     scratch = context.scratch

@@ -49,7 +49,7 @@ from tests.studies.evidence.property_verdicts import (
     necessity_verdicts,
     simultaneous_coverage_verdicts,
 )
-from tests.studies.evidence.replication import fit_properties, splat
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import FAMILY as JOINT_FAMILY
 from tests.studies.evidence.simultaneous import joint_cells, joint_coverage_rows
@@ -256,12 +256,16 @@ def untargeted(frame: pd.DataFrame, label: str, configuration: str) -> float:
     return float(np.mean(earlier.predict(baseline)))
 
 
-def _fit_replication(
-    payload: tuple[str, str, int, int, int, int, str],
-) -> list[dict[str, Any]]:
-    property_name, cell_suffix, replicate, n, requested, seed, configuration = payload
+def _draw_replication(payload: tuple[str, str, int, int, int, int, str]) -> pd.DataFrame:
+    property_name, _, _, n, _, seed, _ = payload
     probs = NULL_PROBS if property_name == "type_i_error" else law.PROBS
-    frame = sample(probs, n, seed)
+    return sample(probs, n, seed)
+
+
+def _fit_replication(
+    payload: tuple[str, str, int, int, int, int, str], frame: pd.DataFrame
+) -> list[dict[str, Any]]:
+    property_name, cell_suffix, replicate, n, requested, _, configuration = payload
     joint = property_name == "interval_calibration"
     result = fit(frame, configuration, simultaneous=joint)
     labels = ("static",) if property_name in {"type_i_error", "power"} else tuple(CONTRASTS)
@@ -400,7 +404,8 @@ PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     outcomes = fit_properties(
         _payloads(),
-        splat(_fit_replication),
+        splat_drawn(_fit_replication),
+        draw=splat_draw(_draw_replication),
         cells_of=_cells_of,
         cell_of=payload_cell,
         replicate_of=payload_replicate,

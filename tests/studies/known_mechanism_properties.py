@@ -58,7 +58,7 @@ from tests.studies.evidence.property_verdicts import (
     calibration_verdicts,
     finish,
 )
-from tests.studies.evidence.replication import fit_properties, splat
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 
 ACCURACY = "known_mechanism_accuracy"
@@ -131,8 +131,11 @@ def _row(
     )
 
 
-def _two_arm(replicate: int) -> list[dict[str, Any]]:
-    frame = law.sample(ACCURACY_N, _seed(ACCURACY, "two_arm", replicate))
+def _two_arm_draw(replicate: int) -> Any:
+    return law.sample(ACCURACY_N, _seed(ACCURACY, "two_arm", replicate))
+
+
+def _two_arm(replicate: int, frame: Any) -> list[dict[str, Any]]:
     fits = {
         "q_correct": fit_cleverly(frame, outcome="correct", estimands=("ate",)),
         "q_wrong": fit_cleverly(frame, outcome="wrong", estimands=("ate", "att", "atc")),
@@ -157,8 +160,11 @@ def _two_arm(replicate: int) -> list[dict[str, Any]]:
     ]
 
 
-def _three_arm(replicate: int) -> list[dict[str, Any]]:
-    frame = law.sample(ACCURACY_N, _seed(ACCURACY, "three_arm", replicate), arms=3)
+def _three_arm_draw(replicate: int) -> Any:
+    return law.sample(ACCURACY_N, _seed(ACCURACY, "three_arm", replicate), arms=3)
+
+
+def _three_arm(replicate: int, frame: Any) -> list[dict[str, Any]]:
     result = fit_cleverly(frame, outcome="wrong", estimands=("ey", "ate"), arms=3)
     return [
         _row(cell, "positive", replicate, ACCURACY_N, ACCURACY_REPLICATES, truth, result[name])
@@ -166,9 +172,12 @@ def _three_arm(replicate: int) -> list[dict[str, Any]]:
     ]
 
 
-def _bootstrap(replicate: int) -> list[dict[str, Any]]:
+def _bootstrap_draw(replicate: int) -> Any:
+    return law.sample(BOOTSTRAP_N, _seed(BOOTSTRAP, "percentile", replicate))
+
+
+def _bootstrap(replicate: int, frame: Any) -> list[dict[str, Any]]:
     seed = _seed(BOOTSTRAP, "percentile", replicate)
-    frame = law.sample(BOOTSTRAP_N, seed)
     result = fit_cleverly(
         frame,
         outcome="wrong",
@@ -212,8 +221,11 @@ def _lost_draws(rows: pd.DataFrame) -> str | None:
     return f"the bootstrap lost {int(lost.max())} draws"
 
 
-def _calibration(replicate: int) -> list[dict[str, Any]]:
-    frame = law.sample(CALIBRATION_N, _seed(CALIBRATION, "paired", replicate))
+def _calibration_draw(replicate: int) -> Any:
+    return law.sample(CALIBRATION_N, _seed(CALIBRATION, "paired", replicate))
+
+
+def _calibration(replicate: int, frame: Any) -> list[dict[str, Any]]:
     truth = TWO_ARM["ate"]
     known = fit_cleverly(frame, outcome="wrong", estimands=("ate",))
     parametric = fit_cleverly(frame, outcome="wrong", mechanism="correct", estimands=("ate",))
@@ -238,9 +250,13 @@ def _calibration(replicate: int) -> list[dict[str, Any]]:
     return rows
 
 
-def _rate(payload: tuple[int, int]) -> list[dict[str, Any]]:
+def _rate_draw(payload: tuple[int, int]) -> Any:
     size, replicate = payload
-    frame = law.sample(size, _seed(RATE, f"n_{size}", replicate))
+    return law.sample(size, _seed(RATE, f"n_{size}", replicate))
+
+
+def _rate(payload: tuple[int, int], frame: Any) -> list[dict[str, Any]]:
+    size, replicate = payload
     result = fit_cleverly(frame, outcome="wrong", estimands=("ate",))
     return [
         replicate_row(
@@ -257,19 +273,24 @@ def _rate(payload: tuple[int, int]) -> list[dict[str, Any]]:
     ]
 
 
-def _dispatch(payload: tuple[str, Any]) -> list[dict[str, Any]]:
+#: Each payload kind's draw and fit.
+_KINDS: dict[str, tuple[Any, Any]] = {
+    "two_arm": (_two_arm_draw, _two_arm),
+    "three_arm": (_three_arm_draw, _three_arm),
+    "bootstrap": (_bootstrap_draw, _bootstrap),
+    "calibration": (_calibration_draw, _calibration),
+    "rate": (_rate_draw, _rate),
+}
+
+
+def _dispatch_draw(payload: tuple[str, Any]) -> Any:
     kind, argument = payload
-    if kind == "two_arm":
-        return _two_arm(argument)
-    if kind == "three_arm":
-        return _three_arm(argument)
-    if kind == "bootstrap":
-        return _bootstrap(argument)
-    if kind == "calibration":
-        return _calibration(argument)
-    if kind == "rate":
-        return _rate(argument)
-    raise KeyError(kind)
+    return _KINDS[kind][0](argument)
+
+
+def _dispatch(payload: tuple[str, Any], drawn: Any) -> list[dict[str, Any]]:
+    kind, argument = payload
+    return _KINDS[kind][1](argument, drawn)
 
 
 def _payloads(budget: int | None = None) -> list[tuple[tuple[str, Any]]]:
@@ -360,8 +381,9 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
     """
     outcomes = fit_properties(
         _payloads(budget),
-        splat(_dispatch),
+        splat_drawn(_dispatch),
         cells_of=_cells_of,
+        draw=splat_draw(_dispatch_draw),
         cell_of=_cell_of,
         replicate_of=_replicate_of,
         n_jobs=n_jobs,

@@ -58,7 +58,7 @@ from tests.studies.evidence.property_verdicts import (
     clustered_inference_verdicts,
     finish,
 )
-from tests.studies.evidence.replication import fit_properties, splat
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 
 TARGET = "ate"
@@ -163,8 +163,7 @@ def _iid(estimate: Any) -> float:
     return float(np.sqrt(influence_variance(estimate.influence_curve)))
 
 
-def _covariate_fit(seed: int) -> tuple[Any, float]:
-    frame = laws.draw_cluster_covariate(COVARIATE_CLUSTERS, np.random.default_rng(seed))
+def _covariate_fit(frame: pd.DataFrame) -> tuple[Any, float]:
     result = (
         TMLE(
             outcome_learner=LogisticRegression(C=1e6, max_iter=1000),
@@ -186,8 +185,8 @@ def _covariate_fit(seed: int) -> tuple[Any, float]:
     return result[COVARIATE_TARGET], laws.covariate_truth()[COVARIATE_TARGET]
 
 
-def _informative_fit(kind: str, seed: int) -> tuple[Any, float]:
-    frame, truth = draw_from_seed(INFORMATIVE, PRIMARY_N, seed)
+def _informative_fit(kind: str, drawn: Any) -> tuple[Any, float]:
+    frame, truth = drawn
     if kind == "stacked":
         return fit_cleverly(frame, INFORMATIVE)[TARGET], truth[TARGET]
     if kind == "fold_evaluated":
@@ -209,12 +208,19 @@ def _informative_fit(kind: str, seed: int) -> tuple[Any, float]:
     raise KeyError(kind)
 
 
-def _pair_rows(payload: tuple[int, int, int, str, str, str]) -> list[dict[str, Any]]:
-    replicate, requested, seed, positive, control, kind = payload
+def _draw_pair(payload: tuple[int, int, int, str, str, str]) -> Any:
+    seed, kind = payload[2], payload[5]
     if kind == "covariate_fold_evaluated":
-        estimate, truth = _covariate_fit(seed)
+        return laws.draw_cluster_covariate(COVARIATE_CLUSTERS, np.random.default_rng(seed))
+    return draw_from_seed(INFORMATIVE, PRIMARY_N, seed)
+
+
+def _pair_rows(payload: tuple[int, int, int, str, str, str], drawn: Any) -> list[dict[str, Any]]:
+    replicate, requested, _, positive, control, kind = payload
+    if kind == "covariate_fold_evaluated":
+        estimate, truth = _covariate_fit(drawn)
     else:
-        estimate, truth = _informative_fit(kind, seed)
+        estimate, truth = _informative_fit(kind, drawn)
     robust = replicate_row(
         property_name=CLUSTERED,
         cell=positive,
@@ -240,9 +246,13 @@ def _pair_rows(payload: tuple[int, int, int, str, str, str]) -> list[dict[str, A
     return [robust, iid]
 
 
-def _weighting_rows(payload: tuple[int, int, int]) -> list[dict[str, Any]]:
-    replicate, requested, seed = payload
-    frame, _ = draw_from_seed(INFORMATIVE, PRIMARY_N, seed)
+def _draw_informative(payload: tuple[int, int, int]) -> Any:
+    return draw_from_seed(INFORMATIVE, PRIMARY_N, payload[2])
+
+
+def _weighting_rows(payload: tuple[int, int, int], drawn: Any) -> list[dict[str, Any]]:
+    replicate, requested, _ = payload
+    frame, _ = drawn
     truth = laws.informative_truth()
     fits = {
         "unweighted": fit_cleverly(frame, INFORMATIVE)[TARGET],
@@ -272,9 +282,9 @@ def cluster_mean_standard_error(curve: Any, cluster: Any) -> float:
     return float(np.sqrt(np.var(means, ddof=1) / means.size))
 
 
-def _aggregation_rows(payload: tuple[int, int, int]) -> list[dict[str, Any]]:
-    replicate, requested, seed = payload
-    frame, truth = draw_from_seed(INFORMATIVE, PRIMARY_N, seed)
+def _aggregation_rows(payload: tuple[int, int, int], drawn: Any) -> list[dict[str, Any]]:
+    replicate, requested, _ = payload
+    frame, truth = drawn
     estimate = fit_cleverly(frame, INFORMATIVE)[TARGET]
     cluster = frame["cluster"].to_numpy()
     rules = {
@@ -317,9 +327,14 @@ def _payloads(budget: int | None) -> list[tuple[Any, ...]]:
     return out
 
 
-def _run(job: tuple[Any, tuple[Any, ...]]) -> list[dict[str, Any]]:
-    function, payload = job
-    return list(function(payload))
+def _draw(key: tuple[Any, ...]) -> Any:
+    function, payload = key[0]
+    return _draw_pair(payload) if function is _pair_rows else _draw_informative(payload)
+
+
+def _run(key: tuple[Any, ...], drawn: Any) -> list[dict[str, Any]]:
+    function, payload = key[0]
+    return list(function(payload, drawn))
 
 
 def _cells_of(key: tuple[Any, ...]) -> list[str]:
@@ -358,11 +373,12 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
     """Fit every property replication; ``budget`` caps each family for a pre-run check."""
     outcomes = fit_properties(
         _payloads(budget),
-        splat(_run),
+        _run,
         cells_of=_cells_of,
         cell_of=_cell_of,
         replicate_of=_replicate_of,
         n_jobs=n_jobs,
+        draw=_draw,
     )
     return pd.DataFrame([row for rows in outcomes for row in rows])
 
