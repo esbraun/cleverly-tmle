@@ -795,7 +795,7 @@ matching capability row therefore carry one reason.
 | a fit with an intermediate variable | an implementation. Each estimand at the level $z$ is a linear functional of the regression of $Y$ on $(A, Z, W)$, so Theorem 2 covers it. The representer carries the weight $1\{Z = z\} / P(Z = z \mid A, W)$, so $c_D$ would combine the treatment and intermediate mechanisms |
 | a longitudinal fit | any registered longitudinal derivation. See [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) |
 | a `regime`, `shift`, or `msm` parameter axis | an implementation. Each of these parameters is a linear functional of the outcome regression and has a Riesz representer, so the bound is well posed here |
-| a `learned_rule` parameter axis | any sensitivity derivation for the fold-average value of rules learned inside each training fold. A benchmark refit would also relearn the rules and change the target. See [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
+| a `learned_rule` parameter axis | a bound for the frozen fold rules. A benchmark refit would relearn the rules and change the target. See [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n), which waits on X9 |
 | an `ipsi` parameter axis | a bound that covers it. An incremental intervention tilts the treatment mechanism, so the mechanism is part of the estimand rather than a nuisance |
 | an arm-indexed fit that reports no counterfactual mean and no linear contrast, such as a ratio-only, PAR, PAF, or complete-outcome `ey_obs` fit | a parameter to bound. One bound is the second moment of one contrast's own Riesz representer. On a fit that reports `rr` or `or`, the sentence names `sensitivity.evalue()` |
 | a median-combined fit from `repeats=` | an influence function for the median bound. A coordinatewise median of per-draw influence terms is not one. Fit one split for this analysis |
@@ -916,8 +916,9 @@ table shows that either direction occurs and not how often.
 first order with the fitted treatment mechanism, and its curve $\hat\alpha^2 - \nu^2$ has no term
 for that fit. The cited sources give no curve that covers every mechanism learner this API accepts.
 For a specified smooth, finite-dimensional mechanism model, stacked M-estimation can include its
-score and Jacobian. [F26](../roadmap.md#f26-confidence-limits-of-the-plug-in-omitted-variable-bound)
-records the implementation and validation that such a specialization would need.
+score and Jacobian. [X26](../roadmap.md#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism)
+holds that specialization. `nu2_estimator="doubly_robust"` gives the limits for any mechanism
+learner, and the refusal names it.
 
 | under the plug-in | result |
 | --- | --- |
@@ -1449,25 +1450,25 @@ surface refuses. The
 
 | refused | kind | why |
 | --- | --- | --- |
-| a longitudinal result | waiting on published theory | no time-indexed latent law covers treatments, censoring, histories, outcomes, and contrasts. See [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay) |
-| a learned-rule fit | waiting on published theory | a replay relearns the rules, so each draw has a different target, and no reviewed source gives a perturbation law for this target. See [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
-| multi-arm treatment | waiting on published theory | no source-backed category-valued perturbation defines the contrast. See [F8](../roadmap.md#f8-multi-arm-simulated-confounding-stress-surface) |
-| a missing outcome | waiting on published theory | no joint observation, treatment, and outcome perturbation law has identified refit semantics. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
-| a declared missing treatment | waiting on published theory | no joint treatment-observation, treatment, and outcome perturbation law has identified refit semantics, for the reason of the missing-outcome row. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
-| a controlled direct effect, or any fit that carries an intermediate variable | waiting on published theory | no ordered treatment, intermediate, observation, and outcome law has a controlled contrast contract. See [F15](../roadmap.md#f15-controlled-direct-effect-simulated-confounding-replay) |
-| estimated observation weights | waiting on published theory | replay lacks stored model provenance, target-population semantics, and a regeneration rule. See [F11](../roadmap.md#f11-estimated-weight-simulated-confounding-replay) |
-| a clustered fit | waiting on published theory | no source chooses a row-level, cluster-level, or mixed latent cause. See [F9](../roadmap.md#f9-clustered-simulated-confounding-stress-surface) |
+| a longitudinal result | waiting on published theory | no time-indexed latent law covers censoring, survival outcomes, a time-varying covariate after the first treatment node, or a time-varying latent. See [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay). One time-fixed latent on an uncensored terminal-outcome fit is not written yet. See [X48](../roadmap.md#x48-longitudinal-simulated-confounding-replay-with-a-time-fixed-latent) |
+| a learned-rule fit | not written yet | a replay relearns the rules, so each draw has a different target. A replay that freezes the fold rules needs a new fold-evaluated path. See [X11](../roadmap.md#x11-learned-policy-follow-ups) part (o) |
+| multi-arm treatment | not written yet | a swap of the two arms of a declared pairwise contrast is the declared law. See [X47](../roadmap.md#x47-simulated-confounding-laws-for-point-treatment-fits) part (a) |
+| a missing outcome | not written yet; waiting on published theory when the response mechanism reads the treatment | a response mechanism that reads the covariates only keeps missing at random given the perturbed treatment. See [X47](../roadmap.md#x47-simulated-confounding-laws-for-point-treatment-fits) part (e). A mechanism that reads the treatment breaks it. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
+| a declared missing treatment | not written yet; waiting on published theory when the observation mechanism reads the treatment | as the missing-outcome row. See [X47](../roadmap.md#x47-simulated-confounding-laws-for-point-treatment-fits) part (e) and [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
+| a controlled direct effect, or any fit that carries an intermediate variable | not written yet; waiting on published theory for the treatment axis | the outcome axis and an intermediate axis that holds the treatment are declared laws. See [X47](../roadmap.md#x47-simulated-confounding-laws-for-point-treatment-fits) part (f). A flip of the treatment makes the latent confound the intermediate and the outcome by an unnamed path. See [F15](../roadmap.md#f15-controlled-direct-effect-simulated-confounding-replay) |
+| estimated observation weights | not written yet | a replay that holds the supplied weights fixed targets the fit's weighted population. See [X47](../roadmap.md#x47-simulated-confounding-laws-for-point-treatment-fits) part (d) |
+| a clustered fit | not written yet | the caller declares a row-level, cluster-level, or mixed latent cause. See [X47](../roadmap.md#x47-simulated-confounding-laws-for-point-treatment-fits) part (b) |
 | identification other than a backdoor mean contrast with explicit adjustment | not written yet | the surface reads registered explicit-adjustment provenance |
 | ATT or ATC under C-TMLE or DR-TMLE | not written yet | `CTMLE` and `DRTMLE` refuse these functionals when they estimate, so no such fitted result exists |
 | a custom MSM link | not written yet | only built-in identity, log, and logit links have a replay audit |
 | a custom intervention type | not written yet | only exact `Static`, `Rule`, `Stochastic`, and `Incremental` declarations have an audited baseline-input contract |
-| a regime, incremental target, or MSM under C-TMLE or DR-TMLE | not written yet | the method catalog lacks the corresponding collaborative score or reduced-dimension correction. See [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
+| a regime, incremental target, or MSM under C-TMLE or DR-TMLE | not written yet | the method catalog lacks the corresponding collaborative score or reduced-dimension correction. See [X50](../roadmap.md#x50-further-dr-tmle-compositions) and [X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets) for regimes and MSMs, and [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) for incremental targets |
 | continuous-treatment C-TMLE and DR-TMLE | not written yet | both estimators refuse a modified-policy functional. See [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
-| PAR or PAF under C-TMLE or DR-TMLE | not written yet | the method catalog lacks a score or correction for these observed-law contrasts. See [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
+| PAR or PAF under C-TMLE or DR-TMLE | not written yet | the method catalog lacks a score or correction for these observed-law contrasts. See [X50](../roadmap.md#x50-further-dr-tmle-compositions) and [X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets) |
 | `NaturalCourseMean`, reported as `ey_obs` | wrong by construction | $E[Y]$ has no counterfactual treatment term. Outcome perturbation alone cannot make it a confounding diagnostic |
 | the policy mean of a zero-delta shift | wrong by construction | $d_0(a, w) = a$ on both branches, so the policy is the natural course. Its mean is $E[Y]$, and no counterfactual treatment dependence remains for a common cause to move. The `ate_policy[...]` contrast that uses this policy as its reference is still accepted |
 | an incremental mean at multiplier one | wrong by construction | its mean is $E[Y]$. Contrasts with this reference remain supported |
-| a categorical benchmark covariate | waiting on published theory | no logical-covariate calibration maps categories to these perturbation strengths. See [F10](../roadmap.md#f10-logical-categorical-confounder-calibration) |
+| a categorical benchmark covariate | not written yet | a block calibration over every encoded column of the covariate, fitted unpenalized. See [X47](../roadmap.md#x47-simulated-confounding-laws-for-point-treatment-fits) part (c) |
 
 Some rows above record an upstream limit rather than a surface limit. The identified effect's
 method catalog refuses unsupported variant targets at `estimate()`, before it builds an estimator.
@@ -1569,8 +1570,8 @@ The selected path depends on the reported contrast and retained artifacts.
 | binomial ATT or ATC | refuse because the conditional baseline risk and conditional ratio target are absent |
 | level or non-arm parameter | report `not_applicable` because no supported two-arm contrast exists |
 | two-arm contrast on a fit whose status supplies no inference: a collaborative fit at any `strategy`, a `DRTMLE` fit with a `guard` and varying weights declared estimated, or a clustered fit under `"few_cluster_plugin"` | report `unavailable`. Each branch reads the estimate's interval or the reference arm's standard error, and this fit supplies neither. The reason of the status follows |
-| any request on a learned-rule fit | report `unavailable` before the estimand is resolved. No sensitivity derivation for the learned-rule value was reviewed. See [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
-| any request on a controlled-direct-effect fit with a discrete treatment, which is such a fit with `intermediate=` | report `unavailable` before the estimand is resolved. This package has no implemented E-value bound for the fitted controlled direct effect and its confounding model. [F25](../roadmap.md#f25-e-value-for-a-controlled-direct-effect) tracks the support gap |
+| any request on a learned-rule fit | report `unavailable` before the estimand is resolved. No E-value of a regime contrast ships, and a learned-rule contrast is not a contrast of two exposure levels. See [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
+| any request on a controlled-direct-effect fit with a discrete treatment, which is such a fit with `intermediate=` | report `unavailable` before the estimand is resolved. This package has no implemented E-value bound for the fitted controlled direct effect and its confounding model. [X49](../roadmap.md#x49-e-value-for-a-controlled-direct-effect) holds the per-arm bound |
 | binomial ATE without exact retarget support or a usable reported baseline | report `unavailable` and name the missing evidence, artifact, or target |
 | several eligible contrasts and no explicit estimand | report `deferred` and name `estimand` in the next step |
 
@@ -1623,12 +1624,12 @@ This package has no implemented E-value bound for its fitted controlled direct e
 confounding model. That fit invokes assumptions about treatment-outcome and
 intermediate-outcome confounding (`estimators/direct_effect.py`, assumptions 2 and 3).
 The ordinary conversion does not by itself quantify sensitivity for that target.
-[F25](../roadmap.md#f25-e-value-for-a-controlled-direct-effect) states what a source-backed
-specialization must connect. `tests/unit/test_evalue_direct_effect_refusals.py` pins the refusal.
+[X49](../roadmap.md#x49-e-value-for-a-controlled-direct-effect) holds the specialization: the bias
+splits into one bounding factor per arm, and the E-value inverts their product. `tests/unit/test_evalue_direct_effect_refusals.py` pins the refusal.
 
 | source, and the version read | what it covers | what it does not cover |
 | --- | --- | --- |
-| VanderWeele (2010), [PMC4231822](https://pmc.ncbi.nlm.nih.gov/articles/PMC4231822/) | the prior RM21 review recorded controlled-direct-effect bias formulas | the present review could not retrieve the full text, so its earlier Appendix 1 characterization is unverified here |
+| VanderWeele (2010), [PMC4231822](https://pmc.ncbi.nlm.nih.gov/articles/PMC4231822/) | Theorem 1 and Appendix 1 give controlled-direct-effect bias formulas when the latent confounds only the intermediate and the outcome | a latent that also confounds the treatment. The [hard-stop review](hard-stop-review.md) records it as context for X49 |
 | Smith and VanderWeele (2019), [author PDF](https://www.louisahsmith.com/publications/smith2019mediational.pdf), pages 835–837, and [supplement](https://download.lww.com/wolterskluwer_vitalstream_com/PermaLink/EDE/B/EDE_2019_07_22_SMITH_EDE18-0696R2_SDC1.pdf), Sections 1–2 | an approximate mediational E-value for natural direct and indirect effects under its stated confounding model | no mapping in this source to the fitted population controlled direct effect at fixed $z$ |
 | Ding and VanderWeele (2016), *Biometrika*, [arXiv 1601.05155](https://arxiv.org/html/1601.05155), Sections 2–4 and Appendix D.4 | bounds for natural direct and indirect effects; Appendix D.4 drops treatment-confounder independence and changes the target to the unexposed population | no stated mapping to this package's population controlled direct effect at fixed $z$ |
 | Ding and VanderWeele (2016), *Epidemiology*, [arXiv 1507.03984](https://arxiv.org/html/1507.03984), Sections 2–3 and Appendix 2.5 | a bounding factor for an exposure contrast with general, possibly multivariate confounders and averaging over measured covariates | a composite exposure such as $(A,Z)$ needs an explicit confounding and standardization mapping before the factor describes the fitted target |
@@ -1687,7 +1688,7 @@ ordered, and each rule assumes that the rules above it passed.
 | order | rule | refuses | row status |
 | --- | --- | --- | --- |
 | 1 | `longitudinal` | a longitudinal result | `unavailable` |
-| 2 | `learned_rule` | a learned-rule fit, which refuses missing outcomes before any learner. [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) holds the derivation | `unavailable` |
+| 2 | `learned_rule` | a learned-rule fit, which refuses missing outcomes before any learner. [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) holds that refusal | `unavailable` |
 | 3 | `natural_course` | a missing-outcome `NaturalCourseMean` fit that reports `ey_obs` alone | `unavailable` |
 | 4 | `missing_outcome` | a fit with no missing outcome | `not_applicable` |
 | 5 | `continuous` | a continuous dose | `unavailable` |

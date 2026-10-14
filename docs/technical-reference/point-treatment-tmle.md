@@ -340,10 +340,10 @@ fluctuation, so it is a named request. The refusals keep their reasons:
 
 | composition | reason |
 | --- | --- |
-| `DRTMLE`, `CTMLE` other than the per-arm `oat` design | no DR-TMLE natural-course mean ships, and no selector-based or shared-design collaborative one. The per-arm `oat` design reports a point estimate. Its observation factor is `P(Delta = 1 \| A, Qbar(A, W))`, read at the realised arm ([collaborative TMLE](collaborative-tmle.md#baseline-strata-and-missing-data-in-the-per-arm-design)). `DRTMLE(guard=())` is the ordinary TMLE, and the message says to use `TMLE`. [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) tracks the refused DR-TMLE compositions |
-| stacked PAR, PAF, or `ey_obs` beside arm targets, with baseline strata | the arm-indexed stacked contract refuses strata. The finite-partition step qualifies, and it needs a witness and a registered cell ([F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants)). The scalar stacked `ey_obs` and every in-sample fit admit strata |
-| `n_bootstrap > 0` | no audited bootstrap result covers this fit ([F2](../roadmap.md#f2-targeted-bootstrap-inference)) |
-| stacked `weights=` or `id=`, stacked continuous outcome, fold targeting, fold evaluation, repeats | the stacked contracts cover unweighted iid rows and a binary outcome ([F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants)) |
+| `DRTMLE`, `CTMLE` other than the per-arm `oat` design | no DR-TMLE natural-course mean ships, and no selector-based or shared-design collaborative one. The per-arm `oat` design reports a point estimate. Its observation factor is `P(Delta = 1 \| A, Qbar(A, W))`, read at the realised arm ([collaborative TMLE](collaborative-tmle.md#baseline-strata-and-missing-data-in-the-per-arm-design)). `DRTMLE(guard=())` is the ordinary TMLE, and the message says to use `TMLE`. [X50](../roadmap.md#x50-further-dr-tmle-compositions) part (c) tracks the DR-TMLE natural-course mean, and [X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets) part (a) the C-TMLE point estimates |
+| stacked PAR, PAF, or `ey_obs` beside arm targets, with baseline strata | the arm-indexed stacked contract refuses strata. The finite-partition step qualifies, and it needs a witness and a registered cell ([X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) part (e)). The scalar stacked `ey_obs` and every in-sample fit admit strata |
+| `n_bootstrap > 0` | the package does not implement a bootstrap for this fit ([X55](../roadmap.md#x55-bootstrap-extensions) part (a)) |
+| stacked `weights=` or `id=`, stacked continuous outcome, fold targeting, fold evaluation, repeats | the stacked contracts cover unweighted iid rows and a binary outcome ([X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) parts (a), (b) and (e)) |
 
 The registered
 [missing-outcome attributable-effect TMLE study](method-evidence/missing-outcome-attributable-effects-tmle.md)
@@ -549,7 +549,7 @@ These requests with `strata=` refuse before any learner:
 | an incremental target with a stratum that lacks a treatment arm | the stratum's treatment-mechanism equation has no finite root |
 | an MSM whose design is singular inside a stratum | the stratum projection is not one coefficient vector; the shipped rank rule decides |
 | a `DRTMLE` stratum with no trainable rows of an arm in some training complement | its reduced regressions cannot be fitted inside the stratum |
-| a stacked PAR, PAF, or `ey_obs` beside arm targets | the arm-indexed stacked contract refuses strata. The step qualifies, and it needs a witness and a registered cell ([F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants)) |
+| a stacked PAR, PAF, or `ey_obs` beside arm targets | the arm-indexed stacked contract refuses strata. The step qualifies, and it needs a witness and a registered cell ([X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) part (e)) |
 
 `cluster=` changes the independent unit for covariance and fold construction, and it does not
 change the estimand. The estimand is the row-weighted mean $\mu_I$ of Wang, Park, Small and Li
@@ -822,18 +822,18 @@ that no setting repairs comes before a refusal whose remedy is a setting, as the
 | order | request | item |
 | ---: | --- | --- |
 | 1 | `CTMLE` or `DRTMLE` with `learned_rule=` | [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
-| 2 | `learned_rule=` beside `interventions=`, `policies=`, `incremental=`, `msm=` or `reference=`, or beside an arm estimand | [X11](../roadmap.md#x11-learned-policy-follow-ups) (c) for `interventions=`, `reference=` and an arm estimand. [F17](../roadmap.md#f17-joint-point-treatment-parameter-axes) for `policies=`, `incremental=` and `msm=` |
+| 2 | `learned_rule=` beside `interventions=`, `policies=`, `incremental=`, `msm=` or `reference=`, or beside an arm estimand | [X11](../roadmap.md#x11-learned-policy-follow-ups) (c) |
 | 3 | a continuous treatment | F27 |
 | 4 | a treatment with more than two arms | X11 (d) |
-| 5 | missing outcomes, `delta=` | [F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants), with a learned-rule text that runs before the F21 refusal |
-| 6 | `intermediate=` | F27 |
-| 7 | `weights=` | F27 |
-| 8 | `id=` | F27 |
-| 9 | `strata=` | F27 |
+| 5 | missing outcomes, `delta=` | F27, with a learned-rule text that runs before the missing-outcome refusal |
+| 6 | `intermediate=` | X11 (j) |
+| 7 | `weights=` | X11 (k) |
+| 8 | `id=` | X11 (l) |
+| 9 | `strata=` | X11 (m) |
 | 10 | `cross_fit=False`, or one fold | X11 (a) |
 | 11 | `cv_evaluation=False` | X11 (e) |
 | 12 | `targeting_scheme="fold"` | X11 (h) |
-| 13 | `repeats` above 1 | F27 |
+| 13 | `repeats` above 1 | X11 (i) |
 | 14 | `n_bootstrap` above 0, the full-refit bootstrap | F27 |
 
 Rows 1 and 2 run when the estimator is built. `CrossFitting`, `TMLEMethod` and the `TMLE`
@@ -857,10 +857,10 @@ is `result.nuisance.regimes.values[:, 1, 0]`. The fit keeps no fitted fold model
 folds, learner templates and seeds replay it.
 
 A refit relearns the rules, so `refute` reads `unavailable`, and the full-refit bootstrap and
-`repeats` above 1 refuse. Every sensitivity analysis reads `unavailable` for another reason: no
-derivation for this target was reviewed.
-[F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) holds the
-sensitivity analyses. The support report and `truncation_curve` run, because they read the same
+`repeats` above 1 refuse. Every sensitivity analysis reads `unavailable` for another reason: the
+package does not implement one for this target. [X11](../roadmap.md#x11-learned-policy-follow-ups) part (n) holds the
+omitted-variable bound, and part (o) simulated confounding and `refute`. [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) holds the
+E-value and the missingness tilt. The support report and `truncation_curve` run, because they read the same
 rules.
 
 ### Modified treatment policies

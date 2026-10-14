@@ -1125,7 +1125,9 @@ class TestTheRefusals:
         assert (
             "the selector strategies and the shared outcome-adaptive design "
             "(oat_design='shared') of C-TMLE (CTMLE, or CollaborativeTMLEMethod) have no "
-            "audited selection and inference result with cross-fitted arm-indexed missing outcomes. Use the ordinary TMLE (TMLE, or "
+            "audited selection and inference result with cross-fitted arm-indexed missing "
+            "outcomes (X51 in docs/roadmap.md tracks their point estimates). Use the ordinary "
+            "TMLE (TMLE, or "
             "TMLEMethod), or CTMLE(strategy='oat', oat_design='per_arm') for point estimates"
         ) in message
 
@@ -1138,7 +1140,8 @@ class TestTheRefusals:
             "audited implementation contracts; use ordinary TMLE, or "
             "CTMLE(strategy='oat', oat_design='per_arm') for point estimates; the C-TMLE "
             "selector strategies, the shared outcome-adaptive design and DR-TMLE need "
-            "separate targeting and inference results"
+            "separate targeting and inference results (X51 in docs/roadmap.md tracks the "
+            "C-TMLE point estimates"
         )
 
     @pytest.mark.parametrize("source", [BINARY_ACTIVE, THREE_ARM_ACTIVE], ids=["k2", "k3"])

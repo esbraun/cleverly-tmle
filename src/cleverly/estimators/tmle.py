@@ -2060,7 +2060,8 @@ class TMLE:
                 "the selector strategies and the shared outcome-adaptive design "
                 "(oat_design='shared') of C-TMLE (CTMLE, or CollaborativeTMLEMethod) have no "
                 "audited selection and inference result with "
-                "cross-fitted arm-indexed missing outcomes. Use the ordinary TMLE (TMLE, or "
+                "cross-fitted arm-indexed missing outcomes (X51 in docs/roadmap.md tracks their "
+                "point estimates). Use the ordinary TMLE (TMLE, or "
                 "TMLEMethod), or CTMLE(strategy='oat', oat_design='per_arm') for point estimates"
             )
         if self.fluctuation != "logistic":
@@ -2203,8 +2204,8 @@ class TMLE:
             reason = (
                 "use ordinary TMLE, or CTMLE(strategy='oat', oat_design='per_arm') for point "
                 "estimates; the C-TMLE selector strategies, the shared outcome-adaptive design "
-                "and DR-TMLE need separate targeting and inference results (X50 in "
-                "docs/roadmap.md tracks the DR-TMLE route)"
+                "and DR-TMLE need separate targeting and inference results (X51 in "
+                "docs/roadmap.md tracks the C-TMLE point estimates, and X50 the DR-TMLE route)"
             )
             if self._assessment_method == "drtmle" and not getattr(self, "guard", True):
                 reason += ". guard=() is the ordinary TMLE; use TMLE"

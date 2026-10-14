@@ -100,7 +100,9 @@ The policy was declared before the run, in `RED_CELL_POLICY` of
 Every ratio and RMST cell passed, and every shrunken control fell below the band. The
 in-sample end-of-study, in-sample survival and point-treatment bootstrap cells passed. So
 `end_of_study/in_sample` and `survival/in_sample` enter `LICENSED_BOOTSTRAP_DESIGNS`, and
-`POINT_BOOTSTRAP_INFERENTIAL` stays `True`.
+`POINT_BOOTSTRAP_INFERENTIAL` stays `True`. The point cell is in sample, so the licence covers the
+in-sample point fit only. `TMLE._bootstrap_inferential` prints a cross-fitted point bootstrap as
+a diagnostic, and `tests/unit/test_ltmle_bootstrap.py` checks both settings.
 
 Three cells are red, and rule 3 applies to each. The two cross-fitted end-of-study cells
 over-cover, with SE ratios near 1.25. The cluster contrast covers 0.924, with a 99% interval below

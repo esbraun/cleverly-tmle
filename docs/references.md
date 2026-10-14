@@ -477,7 +477,7 @@ previous reader had is not a citation; a page number is.
 
   | sibling surface | fact |
   | --- | --- |
-  | shift, incremental, regime, MSM, and controlled-direct-effect targets | under cross-fitting with missing outcomes, the fit raises `CapabilityError` before any learner is fitted. The in-sample fits remain. [F21](roadmap.md#f21-other-missing-outcome-cv-tmle-variants) holds the missing result |
+  | shift, incremental, regime, MSM, and controlled-direct-effect targets | under cross-fitting with missing outcomes, the fit raises `CapabilityError` before any learner is fitted. The in-sample fits remain. [X53](roadmap.md#x53-missing-outcome-cv-tmle-variants) part (d) holds the missing result |
   | ordinary arm-indexed missing-outcome study | it registers only binary `ey1`, `ey0`, and `ate` |
   | registered complete-outcome stacked study | it now declares unstratified folds and `q_bounds=(0, 1)` on a bounded law, and it asserts the realized scheme before it reports a row (`tests/studies/canonical_cvtmle.py`). The gap this row recorded is closed |
   | ordinary C-TMLE with missing outcomes | the audit did not read a source for it |
@@ -1635,6 +1635,9 @@ sizes only the cluster sum is the delta-method variance of the row mean
   *Statistics in Medicine* 39(8):1199-1236, DOI 10.1002/sim.8471. The paper defines the total
   and controlled direct effects on a cause-specific cumulative incidence, and their identifying
   conditions. Cited by the [time-to-event tutorial](examples/longitudinal-survival.ipynb).
+  Roadmap item [X56](roadmap.md#x56-competing-event-intervention-targets) part (a) reads
+  arXiv:1806.06136v3, Sections 5, 6.1 (Equation 23) and 8.1. Section 5 treats the competing event
+  as a censoring event for the risk under its elimination.
 - The `lmtp` 1.5.4 snapshot above, [`R/contrasts.R`, lines 19-57](https://github.com/nt-williams/lmtp/blob/f04a2b47f46debc515ce4ae778e05ebfde922c44/R/contrasts.R#L19-L57),
   forms `lmtp_contrast(type = "rr")` and `type = "or"` from the influence curves of two fits
   through the operators of `ife` 0.2.3. The curves are $IC_a/\psi_a - IC_b/\psi_b$ and
@@ -1788,9 +1791,15 @@ sizes only the cluster sum is the delta-method variance of the row mean
 - VanderWeele & Ding (2017), *Sensitivity analysis in observational research: introducing the
   E-value*.
 - VanderWeele (2010), [*Bias formulas for sensitivity analysis for direct and indirect
-  effects*](https://doi.org/10.1097/EDE.0b013e3181df191c), *Epidemiology* 21(4):540-551. The
-  prior RM21 review cited its controlled-direct-effect bias formulas. The present review could
-  not verify the earlier Appendix 1 characterization from the full text.
+  effects*](https://doi.org/10.1097/EDE.0b013e3181df191c), *Epidemiology* 21(4):540-551. Read
+  first-hand in the author manuscript
+  ([PMC4231822](https://pmc.ncbi.nlm.nih.gov/articles/PMC4231822/)). Theorem 1 gives the
+  controlled-direct-effect bias formula, with its proof in Appendix 2. It assumes
+  $Y_{am} \perp A \mid C$ and $Y_{am} \perp M \mid A, C, U$, so $U$ confounds only the
+  intermediate-outcome relation. Appendix 1 gives the risk-ratio bias for a binary $U$ with a
+  constant $\gamma$. Roadmap item
+  [X49](roadmap.md#x49-e-value-for-a-controlled-direct-effect) lets $U$ confound the treatment
+  too, so this paper is context for X49 and not its base.
 - Smith & VanderWeele (2019), [*Mediational E-values: approximate sensitivity analysis for
   unmeasured mediator-outcome confounding*](https://www.louisahsmith.com/publications/smith2019mediational.pdf),
   *Epidemiology* 30(6):835-837. The [supplement](https://download.lww.com/wolterskluwer_vitalstream_com/PermaLink/EDE/B/EDE_2019_07_22_SMITH_EDE18-0696R2_SDC1.pdf)
@@ -1935,13 +1944,15 @@ sizes only the cluster sum is the delta-method variance of the row mean
   procedure. The abstract on page 1014 states that scope. The method encodes the impact of
   unmeasured confounding on the potential outcomes, and adjusts the estimates of causal effects.
   The paper does not perturb the treatment variable. It therefore supplies no category-valued
-  latent treatment perturbation and no refit law for this surface. Cited by roadmap item F8.
+  latent treatment perturbation and no refit law for this surface. Roadmap item X47, part (a),
+  cites it as a negative finding.
 - Ou, Tang & Chang (2023), [*Sensitivity Analysis of Causal Treatment Effect Estimation for
   Clustered Observational Data with Unmeasured Confounding*](https://arxiv.org/abs/2301.12396v1),
   arXiv:2301.12396v1. The paper models unmeasured cluster effects through mixed models. It derives
   a bias correction from those models. That construction does not perturb the treatment and the
   outcome before a complete TMLE refit. It does not choose between a row-level, a cluster-level,
-  and a mixed latent cause for this surface. Cited by roadmap item F9.
+  and a mixed latent cause for this surface. Roadmap item X47, part (b), cites it as a negative
+  finding.
 
 ## Negative controls
 
@@ -2259,3 +2270,93 @@ support a shipped claim. Each item states the remaining source work.
   Probability*](https://doi.org/10.2202/1557-4679.1114), *International Journal of Biostatistics*
   4(1), Article 17, DOI 10.2202/1557-4679.1114. Cited by roadmap item X7 for the case-control
   weighting that `TMLE.jl` implements.
+
+The [hard-stop review](technical-reference/hard-stop-review.md) read the sources below. Each entry
+gives the version whose locators the review used. A review entry supports a roadmap verdict and
+not a shipped claim.
+
+- Smith, Mathur & VanderWeele (2021), [*Multiple-bias sensitivity analysis using
+  bounds*](https://arxiv.org/abs/2005.02908v1), *Epidemiology*, DOI 10.1097/EDE.0000000000001380.
+  Read first-hand in arXiv:2005.02908v1, the only version. Result 1 bounds the observed risk ratio
+  by a product of bias factors. Its selection factor $BF_s$ is a product of one factor for each
+  arm. Cited by roadmap item [X49](roadmap.md#x49-e-value-for-a-controlled-direct-effect) as the
+  structural precedent for a split into one factor for each arm.
+- Tang & Westling (2024), [*Consistency of the bootstrap for asymptotically linear estimators based
+  on machine learning*](https://arxiv.org/abs/2404.03064v2), arXiv:2404.03064v2. Theorem 3.4 gives
+  bootstrap consistency under conditions (B1) to (B3). Condition (B2) needs the bootstrap nuisance
+  estimator to converge conditionally. Section 2.3 does not treat cross-fitting. Cited by roadmap
+  items [X55](roadmap.md#x55-bootstrap-extensions) part (a) and
+  [F2](roadmap.md#f2-targeted-bootstrap-inference).
+- Coyle (2017), doctoral dissertation, University of California, Berkeley,
+  [eScholarship 9kh0b9vm](https://escholarship.org/uc/item/9kh0b9vm). Read first-hand. Section 1.4
+  and Appendix A, in the thesis numbering, define a model-based bootstrap that resamples from the
+  targeted fit and refits and retargets Super Learner and TMLE on each sample. Theorem 9, in
+  Appendix A.3, needs the efficient score solved to $o_P(1/n)$, a negligible remainder, a uniform
+  Donsker class, and $L_2$ convergence of $D^*$. Lemma 2 and Corollary 1 give $o_P(n^{-1/4})$
+  rates for the treatment-specific mean. The book chapter of Coyle and van der Laan (2018),
+  "Targeted Bootstrap", was not read. Cited by roadmap items
+  [X55](roadmap.md#x55-bootstrap-extensions) part (c) and
+  [F2](roadmap.md#f2-targeted-bootstrap-inference).
+- Stensrud, Young, Didelez, Robins & Hernán (2022), [*Separable effects for causal inference in
+  the presence of competing events*](https://arxiv.org/abs/1901.09472v2), *Journal of the American
+  Statistical Association* 117(537):175-183. Read in arXiv:1901.09472v2. Section 5.2, formula (5),
+  identifies the separable effects with baseline covariates. Cited by roadmap item
+  [X56](roadmap.md#x56-competing-event-intervention-targets) part (b).
+- Stensrud, Hernán, Tchetgen Tchetgen, Robins, Didelez & Young (2021), [*A generalized theory of
+  separable effects in competing event settings*](https://doi.org/10.1007/s10985-021-09530-8),
+  *Lifetime Data Analysis* 27(4):588-631, DOI 10.1007/s10985-021-09530-8. Read first-hand in
+  [PMC8536652](https://pmc.ncbi.nlm.nih.gov/articles/PMC8536652/), the published version of
+  arXiv:2004.14824. Section 6.2, Equation (19), identifies the separable effects with time-varying
+  common causes. It is Section 7.2 of the arXiv version. Section 6.3 treats censoring. Cited by
+  roadmap item [X56](roadmap.md#x56-competing-event-intervention-targets) part (c).
+- Wang, van der Laan, Petersen, Gerds, Kvist & van der Laan (2025), [*Targeted maximum likelihood
+  based estimation for longitudinal mediation analysis*](https://arxiv.org/abs/2304.04904v1),
+  *Journal of Causal Inference* 13(1), DOI 10.1515/jci-2023-0013. Read in arXiv:2304.04904v1, the
+  only version. The abstract names competing risks and survival outcomes. Cited by roadmap item
+  [X56](roadmap.md#x56-competing-event-intervention-targets) parts (b) and (c) as the estimator.
+  The source audit of those parts is pending.
+- Hejazi, Rudolph, van der Laan & Díaz (2023), [*Nonparametric causal mediation analysis for
+  stochastic interventional (in)direct effects*](https://arxiv.org/abs/2009.06203v4),
+  *Biostatistics*, DOI 10.1093/biostatistics/kxac002. Read in arXiv:2009.06203v4. Lemma 3 and
+  Theorems 3 and 4 give the identification and the efficient estimation of incremental mediation
+  effects. Cited by roadmap item X5.
+- Fava (2026), [*Cross-fitting under nonregularity: normality and inference via
+  locality*](https://arxiv.org/abs/2610.02944v1), arXiv:2610.02944v1. The result covers an IPW
+  score with a known propensity only. Cited by future investigation
+  [F27](roadmap.md#f27-learned-policy-value-outside-the-published-conditions).
+- Fang, Wang, Hu & Li (2025), [arXiv:2510.08438](https://arxiv.org/abs/2510.08438), read in the
+  HTML version of 10 October 2025. The paper treats cluster-randomized trials with survival
+  outcomes. Section 3.3 uses the cluster jackknife as a small-sample variance. Cited by roadmap
+  item [X54](roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes)
+  part (c).
+- Ballinari & Wehrli (2024), [arXiv:2411.10009v2](https://arxiv.org/abs/2411.10009v2). The paper
+  treats impulse response functions with double machine learning. Section 3.3, Procedure 2,
+  removes a block of observations between the folds. Assumption 3 needs weak stationarity and
+  $\alpha$-mixing. Theorem 4 gives the limit, and Theorem 5 a Newey-West variance. It treats no
+  TMLE. Cited by future investigation [F7](roadmap.md#f7-time-respecting-cross-fitting).
+- Semenova, Goldman, Chernozhukov & Taddy, [*Estimation and inference on heterogeneous treatment
+  effects in high-dimensional dynamic panels under weak
+  dependence*](https://arxiv.org/abs/1712.09988v6), arXiv:1712.09988v6. Definition 2.1 splits the
+  sample by time blocks. Theorems 3.1 and 3.3 need $\beta$-mixing, and the variance is a
+  cluster-robust estimator over independent panel units. Cited by future investigation
+  [F7](roadmap.md#f7-time-respecting-cross-fitting).
+- Shen, Bacak & Kennedy (2026), [arXiv:2601.17779v1](https://arxiv.org/abs/2601.17779v1). The
+  paper treats sensitivity analysis for incremental effects. Section 5.2 establishes the
+  identification of sharp bounds only, and it leaves a practical estimator to future work. Cited
+  by future investigation [F16](roadmap.md#f16-longitudinal-sensitivity-bound-estimation).
+- Bonvini, Kennedy, Ventura & Wasserman (2022), [*Sensitivity analysis for marginal structural
+  models*](https://arxiv.org/abs/2210.04681v2), arXiv:2210.04681v2. Section 6.1 extends the static
+  methods to time series. It leaves the time-varying constraint to future work. Section 7.2
+  reports bounds without intervals. Cited by future investigation
+  [F16](roadmap.md#f16-longitudinal-sensitivity-bound-estimation).
+- Bruns-Smith & Zhou (2025), [*Robust fitted-Q-evaluation and iteration under sequentially
+  exogenous unobserved confounders*](https://arxiv.org/abs/2302.00662v3), arXiv:2302.00662v3. The
+  review read the text up to Section 5. The target is a robust value of a Markov decision process
+  over observed states. The text read gives no interval. The
+  [hard-stop review](technical-reference/hard-stop-review.md) cites it for F16.
+- Zheng, D'Amour & Franks, [*Copula-based sensitivity analysis for multi-treatment causal
+  inference*](https://arxiv.org/abs/2102.09412), arXiv:2102.09412, read in the HTML version of 25
+  February 2022. Section 4, Equations (12) to (15), gives a Gaussian-copula outcome law that keeps
+  the support of the outcome. The [hard-stop review](technical-reference/hard-stop-review.md)
+  cites it for roadmap item [X47](roadmap.md#x47-simulated-confounding-laws-for-point-treatment-fits)
+  part (g).

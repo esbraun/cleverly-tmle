@@ -147,8 +147,8 @@ def test_repeated_splits_refuse_at_the_existing_method_boundary() -> None:
 VARIANT_REASON = (
     "use ordinary TMLE, or CTMLE(strategy='oat', oat_design='per_arm') for point estimates; "
     "the C-TMLE selector strategies, the shared outcome-adaptive design and DR-TMLE need "
-    "separate targeting and inference results (X50 in docs/roadmap.md tracks the DR-TMLE "
-    "route)"
+    "separate targeting and inference results (X51 in docs/roadmap.md tracks the C-TMLE "
+    "point estimates, and X50 the DR-TMLE route)"
 )
 
 
