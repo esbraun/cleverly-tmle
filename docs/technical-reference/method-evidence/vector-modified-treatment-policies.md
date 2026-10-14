@@ -10,12 +10,13 @@ the estimators, their conditions and their exact-law evidence.
 
 **Status of this page.** The study is registered and declared. It has not run, and the generated
 tables below hold the word `PENDING` where the committed results will write a table or a number.
-The evidence has two parts.
+The evidence label is "Python property evidence, with comparator runs pending". The evidence has
+two parts.
 
 | part | what it is | status |
 | --- | --- | --- |
 | Python property evidence | exact laws with closed-form efficiency bounds, interval calibration with two controls, double robustness in four nuisance configurations, and three necessity pairs | declared. It decides whether the method ships. The study commit fills the tables |
-| `lmtp` comparator runs | the pinned `lmtp` 1.5.4 fits the same samples with vector `trt` nodes, and the study pairs the results | pending. The runs register as they arrive in a later pull request, and a finding in them does not block the method. The fast-tier witnesses and the Python property cells carry the claim until then |
+| `lmtp` comparator runs | the pinned `lmtp` 1.5.4 fits the same samples with vector `trt` nodes, and the study pairs the results | pending. The study record sets `pending_reference="lmtp"`, so no paired row is published. The runs register in a later change, and a finding in them does not block the method. The fast-tier witnesses and the Python property cells carry the claim until then |
 
 The publication policy is `reporting`. A red cell stays red on this page and in the
 [red-cell ledger](red-cells.md), with the owner row that names it.
@@ -43,8 +44,9 @@ The comparator adapter is `tests/canonical/lmtp_vector_adapter.R`. It builds an 
 treatment nodes are vectors, such as `trt = list(c("F", "D"))`. With `mtp = FALSE`, `lmtp` 1.5.4
 multiplies each ratio by the indicator that no component moved (`R/density_ratios.R`, lines 58 to
 61). That indicator is zero on every row that a plan moves, so the adapter sets `mtp = TRUE`. The
-parity check requires that the share of positive `lmtp` ratios equal the package's share. The
-check fails when `mtp = FALSE`.
+parity check requires that the share of positive `lmtp` ratios equal the package's share. Under
+`mtp = TRUE` both shares are 1, because neither classifier predicts 0. Under `mtp = FALSE` the
+`lmtp` share falls to the share of unmoved rows, and the check fails.
 
 The ordered pair reads by three outcomes, declared before any run. Every ratio gap below $10^{-6}$
 makes the pair an exactness witness. Every relative gap below $10^{-4}$, with a diagnosed and
@@ -61,11 +63,9 @@ the cause is found.
 
 ## Agreement with the canonical implementation
 
-<!-- generated: agreement -->
-| status |
-| --- |
-| PENDING: the `lmtp` runs register in a later pull request. The same command writes this table |
-<!-- /generated -->
+Python property evidence, with comparator runs pending. The `lmtp` runs have not run, so this
+study publishes no paired row, and `equivalence.csv` is empty. The change that registers the runs
+adds the paired table here.
 
 ## Theory properties
 
@@ -83,7 +83,7 @@ The truths and the efficiency bounds come from the exact laws and their closed f
 | `interval_calibration` | six positives: point `TMLE`, two-node `LTMLE` and the ordered law as one `LTMLE` node, each on the density route and on the classifier route. Each positive has a shrunken-SE control and a noise control | 24,000, 9,600 and 19,200 replications on the density routes, and 10,000 on each classifier route, at n = 2,000. The design test sizes them |
 | `double_robustness` | point `TMLE` on the ordered law under `full`, two-node `LTMLE` under `flag scaled`, and the ordered law as one `LTMLE` node under `full`. Each runs `both_correct`, `outcome_correct`, `outcome_wrong` and the `both_wrong` control | 2,000 replications at n = 2,000 |
 | `preimage_necessity` | two-node `LTMLE` under `flag scaled`, wrong outcome regression. The declared fit against the same draw with the preimage sum cut to the observed categorical cell | 1,000 pairs at n = 2,000 |
-| `jacobian_necessity` | the ordered law under `full`, wrong outcome regression. The declared fit against the same draw with the Jacobian of every preimage dropped | 1,000 pairs at n = 2,000 |
+| `jacobian_necessity` | the ordered law under `full`, wrong outcome regression. The declared fit against the same draw with the Jacobian of the `D1` scale dropped. That scale is the only map whose Jacobian is not 1 | 1,000 pairs at n = 2,000 |
 | `image_necessity` | the ordered law under `crossed`. The declared fit against the same draw with the flag map read at the observed second value of $D_1$ instead of the natural value of the preimage | 1,000 pairs at n = 2,000 |
 
 Each necessity control removes one term that can vanish at the truth, so each needs a nonzero

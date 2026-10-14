@@ -977,7 +977,8 @@ PROPERTIES: dict[str, str] = {
         "every categorical preimage of a vector value enters the joint induced density"
     ),
     "jacobian_necessity": (
-        "the inverse derivative of each dose map enters the joint induced density"
+        "the inverse derivative of every non-unit dose map, the D1 scale, enters the joint "
+        "induced density"
     ),
     "image_necessity": (
         "a categorical map in the joint induced density reads the natural doses of each preimage"
@@ -1513,12 +1514,12 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "bias interval must fall entirely outside the margin",
     ),
     ("jacobian_necessity", "declared_jacobian"): (
-        "the joint density multiplies each preimage by the inverse derivatives of the dose maps, "
-        "with the outcome misspecified",
+        "the joint density multiplies each preimage by the inverse derivative of the D1 scale, "
+        "the only non-unit Jacobian, with the outcome misspecified",
         "bias interval inside the equivalence margin",
     ),
     ("jacobian_necessity", "jacobian_drop_control"): (
-        "the same fit drops the inverse derivatives",
+        "the same fit drops the inverse derivative of the D1 scale",
         "bias interval must fall entirely outside the margin",
     ),
     ("image_necessity", "declared_image"): (

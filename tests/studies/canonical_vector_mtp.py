@@ -86,7 +86,9 @@ ratio's denominator and this package does not.
   ``tests/canonical/vector_mtp_parity.R`` with ``tests/canonical/vector_mtp_parity.py`` fits
   both on three draws and compares every ratio, and checks the R transcription of the log ratio
   on a grid at ``rtol = 1e-12``.  It also requires that the fraction of rows with a positive
-  ``lmtp`` ratio equal the package's, a witness that fails under ``mtp = FALSE``.  The local
+  ``lmtp`` ratio equal the package's.  Under ``mtp = TRUE`` both fractions are 1, because
+  neither classifier predicts 0, so the witness compares 1 with 1.  Under ``mtp = FALSE``
+  ``lmtp``'s fraction falls to the share of unmoved rows, and the witness fails.  The local
   thread runs it before the declared run.  Three outcomes are declared now:
 
   =====================================================  =====================================
@@ -172,11 +174,28 @@ three necessity families        3 pairs x 1,000 (10.5, 11.7     9.4         0.28
                                 and 11.6 s a pair)
 ==============================  ==============================  ==========  =================
 
-The Python phases take about 124 CPU-hours.  The property phase reserves
+The Python phases take about 124 CPU-hours: 122 for the property families and 2.1 for the
+primary fits.  The property phase reserves
 :func:`~tests.studies.vector_mtp_properties.fit_bytes` (0.5 GiB) per worker, so
-:func:`~tests.parallel.memory_capped_workers` admits 12 workers on a 16 GiB host.  At 12
-workers the Python phases take about 10.5 hours of wall time.  The declared run is
-``--jobs 12 --reference-jobs 3``.
+:func:`~tests.parallel.memory_capped_workers` admits 12 workers on a 16 GiB host.  The wall
+time is the CPU-hours over the workers, because the fits are independent:
+
+=======  ===========================
+workers  wall time, Python phases
+=======  ===========================
+3        about 41 hours
+4        about 31 hours
+8        about 15.5 hours
+12       about 10.5 hours
+=======  ===========================
+
+The declared run is ``--jobs 12 --reference-jobs 3``.  ``generate_property_rows`` is one
+``map_parallel`` call with no checkpoint, so a run that can be interrupted fits each fit set
+of :data:`~tests.studies.vector_mtp_properties.FIT_SETS` in replicate chunks, skips a chunk
+whose file exists, and then assembles the rows exactly as ``generate_property_rows`` does:
+the chunks in ``FIT_SETS`` order, then ``calibration_controls``, then the column order and the
+sort.  At a budget of two replications per fit set the assembled rows equal a single
+call's, byte for byte after decompression.
 
 No ``R`` with ``lmtp`` runs in this container, so the reference phase is measured by the R smoke
 before the declared run.  Each replication makes 13 ``lmtp`` calls.  Each of the other three
@@ -340,7 +359,12 @@ STUDY = StudyRecord(
     resampling_seed=RESAMPLING_SEED,
     margins=Margins(),
     implementation="cleverly-vector-mtp",
-    reference="lmtp",
+    pending_reference="lmtp",
+    pending_reason=(
+        "the lmtp 1.5.4 runs have not run: they need R in the lmtp container, which this "
+        "container lacks. The beta plans' Study queue owns them: item 30, the vector_mtp lmtp "
+        "parity fixture, and then item 31, the R smoke and the declared R run"
+    ),
     modules=(
         "tests/studies/canonical_vector_mtp.py",
         "tests/studies/vector_mtp_properties.py",
