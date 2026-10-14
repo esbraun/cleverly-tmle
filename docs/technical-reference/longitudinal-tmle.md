@@ -1242,6 +1242,11 @@ estimator with `npcausal` 0.1.0 `ipsi()` at commit `56a5ac11`. `longitudinal-inc
 calibrates dropout, survival, weights and clusters against exact truths, with no comparator.
 This page claims no result from either study.
 
+The natural-course value is the sample mean of the outcome. A tilt of 1 sets every weight to 1,
+so the correction terms cancel. Each contrast with the natural course is therefore the tilted
+value minus that mean. Source: `test_the_fitted_natural_course_is_the_sample_mean` in
+`tests/unit/test_longitudinal_incremental_design.py`.
+
 ## Validation issues special to this method
 
 **The reported standard error is the plug-in influence-curve variance.** It does not implement R

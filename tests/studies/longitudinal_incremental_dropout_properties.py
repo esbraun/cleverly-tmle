@@ -1,7 +1,7 @@
 r"""Property families of ``longitudinal-incremental-dropout`` (S2).
 
 Every fit is :class:`~cleverly.longitudinal.IPSI` with five folds and saturated cell means at
-every slot, with 2,000 replications, on a law of
+every slot, with 3,000 replications, on a law of
 :mod:`tests.discrete_law_longitudinal_incremental`.  The size is n = 16,000, except 48,000 on
 the law ``D`` band draws and 32,000 on law ``Dc``.  ``x2`` is the plan that doubles the odds
 of treatment at every node, and ``contrast_x2`` is its contrast with the natural course.
@@ -13,7 +13,7 @@ family                        cells
 ``simultaneous_coverage``     the band over the risks of three plans at horizons 1 to 3 and
                               their six contrasts on law ``D``, and its pointwise control
 ``clustered_inference``       ``ey_regimen[odds x2]`` on law ``Ck`` in 800 clusters of 10,
-                              2,000 replications: the cluster-robust standard error, and the
+                              3,000 replications: the cluster-robust standard error, and the
                               standard error that treats each unit as independent (control)
 ``censoring_complete_case``   ``ey_regimen[odds x2]`` on law ``C`` fitted to the rows that never
                               drop out, without a censoring model (reported, no verdict)
@@ -99,12 +99,14 @@ from tests.studies.evidence.simultaneous import joint_coverage_rows, joint_prope
 
 N_FOLDS = 5
 N = 16_000
-REPLICATES = 2_000
+#: A calibration cell whose SE ratio and coverage equal their targets passes with probability
+#: 0.935 at 2,000 replications and 0.996 at 3,000.  Seven labels read the rule, so 3,000.
+REPLICATES = 3_000
 #: The cluster-robust arm reads the calibration rule, which cannot pass at 1,000 replications
 #: (the 99% intervals are wider than the bands).  ``tests/diagnostics/x19_sizing`` reads the
 #: pair at this size.
 CLUSTER_N = 8_000
-CLUSTER_REPLICATES = 2_000
+CLUSTER_REPLICATES = 3_000
 #: The competing-risk cell needs a larger size.  At n = 8,000 a training fold can hold one
 #: or two treated units of a rare history, and the saturated censoring fit then reaches its
 #: lower bound.  ``tests/diagnostics/x19_sizing`` reads the cell at this size.

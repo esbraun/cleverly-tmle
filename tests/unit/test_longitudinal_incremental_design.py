@@ -12,14 +12,20 @@ Every number here was fixed before any registered run.
   Projected to the declared size (bias as :math:`1/\\sqrt n` after adding one Monte Carlo
   SE, SE-ratio deficit as 1/n), every primary row and positive root-n rung passes its bias rule
   with probability at least 0.95, and every calibration cell passes with probability at least
-  0.90.  The rule sets n = 96,000 (S1, which the two-fold rows need), 80,000 (S2), 48,000
-  (S1 calibration, which the one-fold cell needs) and 16,000 (S2 calibration).  The null,
+  0.90.  A study's calibration cells also pass jointly with probability at least 0.90, which
+  needs 3,000 replications: at 2,000 an ideal cell passes with 0.935 and S1's seven with
+  0.59.  The rule sets n = 96,000 (S1, which the two-fold rows need), 80,000 (S2) and 16,000
+  (S2 calibration).  S1 calibration runs at 48,000; the rule allows 24,000 at 3,000
+  replications, and the larger size cuts the projected bias by a factor of 1.4.  The null,
   power, band, robustness and clustered cells, and the competing-risk cell, are read at their
   own sizes rather than projected.
 * The power cell has exact-law power 0.882 at n = 4,000 (:data:`POWER_SCALE`).
 * The band cells' pointwise controls clear the RM36 control-power rule at ``p0 + 0.005``, with
   ``p0`` from the exact efficient influence functions: 0.811 for S1 and 0.695 for S2.
-* The mechanism-term control's exact SD ratio is 0.78, below the calibration band.
+* The mechanism-term control's exact SD ratio is 0.78, below the calibration band, and the
+  probe reads the published control below it too.
+* The robustness fits use a linear outcome regression, so the mechanism term is nonzero and
+  the targeting control's plug-in sits away from the one-step estimate.
 * The S2 witnesses: the informative weight moves the truth by 5.5 standard errors and the
   first-node propensity by more than 0.05; the independent-unit SE of the clustered cell has
   exact ratio 0.60 and coverage 0.76; the complete-case limit sits 3.6 standard errors from
@@ -96,11 +102,11 @@ def test_the_declared_numbers() -> None:
     assert s1.STUDY.reference == "npcausal" and s2.STUDY.reference is None
     assert p1.REQUIREMENT_SIZES == (6_000, 24_000)
     assert p1.EFFICIENCY_RATIO_BAND == p2.EFFICIENCY_RATIO_BAND == (0.90, 1.10)
-    assert (p1.CALIBRATION_N, p1.CALIBRATION_REPLICATES) == (48_000, 2_000)
+    assert (p1.CALIBRATION_N, p1.CALIBRATION_REPLICATES) == (48_000, 3_000)
     assert (p1.RATE_SIZES, p1.RATE_REPLICATES) == ((24_000, 64_000, 96_000), 1_000)
-    assert (p2.N, p2.REPLICATES, p2.CLUSTER_SIZE) == (16_000, 2_000, 10)
+    assert (p2.N, p2.REPLICATES, p2.CLUSTER_SIZE) == (16_000, 3_000, 10)
     assert (p2.BAND_N, p1.NULL_N, p1.NULL_REPLICATES) == (48_000, 4_000, 2_000)
-    assert (p2.CLUSTER_N, p2.CLUSTER_REPLICATES, p2.COMPETING_N) == (8_000, 2_000, 32_000)
+    assert (p2.CLUSTER_N, p2.CLUSTER_REPLICATES, p2.COMPETING_N) == (8_000, 3_000, 32_000)
 
 
 def test_the_studies_draw_from_their_own_seeds() -> None:
@@ -130,6 +136,16 @@ def test_the_natural_course_is_the_observed_mean() -> None:
     observed = float(np.sum(probs * law.LAW_A.mu))
     assert s1.TRUTH[f"ey_regimen[{s1.REFERENCE}]"] == pytest.approx(observed, abs=1e-12)
     assert abs(s1.TRUTH["ate_regimen[odds x2 vs natural course]"]) > 0.5
+
+
+def test_the_fitted_natural_course_is_the_sample_mean() -> None:
+    """A tilt of 1 sets every weight to 1, so the one-step value is the sample mean exactly."""
+    frame = law.sample(law.LAW_A, 2_000, 11)
+    result = common.fit(frame, law.LAW_A, s1.PLANS, n_folds=5, reference=s1.REFERENCE)
+    natural = result[f"ey_regimen[{s1.REFERENCE}]"]
+    assert float(natural.psi) == pytest.approx(float(frame["Y"].mean()), abs=1e-10)
+    curve = np.asarray(result.influence_curves[f"ey_regimen[{s1.REFERENCE}]"], dtype=float)
+    assert np.max(np.abs(curve - (frame["Y"] - frame["Y"].mean()))) < 1e-10
 
 
 def test_the_slope_is_the_projection_of_the_plan_means() -> None:
@@ -325,9 +341,20 @@ def test_the_sizing_rule_binds() -> None:
     two_folds = probe("s1:ipsi_folds_2", "ate_regimen[odds x0.5 vs natural course]")
     assert bias_pass_probability(projected(two_folds, 64_000)[0], 1_000) < PRIMARY_PASS
     contrast = probe("s1:law_a", "interval_calibration/contrast_x2__correctly_specified")
-    assert calibrated_pass_probability(contrast, 4_000, 2_000) < 0.5
+    assert calibrated_pass_probability(contrast, 4_000, p1.CALIBRATION_REPLICATES) < 0.5
     one_fold = probe("s1:law_a", "interval_calibration/contrast_x2_in_sample__correctly_specified")
-    assert calibrated_pass_probability(one_fold, 32_000, 2_000) < CALIBRATION_PASS
+    assert calibrated_pass_probability(one_fold, 8_000, p1.CALIBRATION_REPLICATES) < 0.5
+    # At 2,000 replications the seven S1 cells pass jointly with probability below 0.6.
+    assert (
+        np.prod(
+            [
+                calibrated_pass_probability(probe(*cell[:2]), cell[2], 2_000)
+                for cell in CALIBRATION_CELLS
+                if cell[0].startswith("s1:")
+            ]
+        )
+        < 0.6
+    )
     cluster = probe("s2:law_ck", "clustered_inference/mean_x2__cluster_robust")
     assert calibrated_pass_probability(cluster, p2.CLUSTER_N, 1_000) < 0.5
 
@@ -397,6 +424,17 @@ def test_every_calibration_cell_is_sized_for_its_pass_probability(
     assert probability >= CALIBRATION_PASS, probability
 
 
+@pytest.mark.parametrize("study", ["s1", "s2"])
+def test_the_calibration_cells_pass_jointly(study: str) -> None:
+    """A study's calibration cells all pass with the per-cell probability floor."""
+    probabilities = [
+        calibrated_pass_probability(probe(cell_set, cell), n, replicates)
+        for cell_set, cell, n, replicates in CALIBRATION_CELLS
+        if cell_set.startswith(f"{study}:")
+    ]
+    assert float(np.prod(probabilities)) >= CALIBRATION_PASS
+
+
 def interval_pass_probability(rate: float, replicates: int, accept: Any) -> float:
     """The chance that the exact 99% interval of a binomial rate satisfies ``accept``."""
     successes = np.arange(replicates + 1)
@@ -451,27 +489,38 @@ def test_the_rate_cells_are_sized_at_their_declared_sizes() -> None:
 
 
 def test_the_single_robustness_pair_is_sized_at_its_declared_sizes() -> None:
-    r"""The two-size absolute rule: the n = 24,000 bound under the tolerance and below n = 6,000.
-
-    Each size's mean error is normal with the probed bias and spread at the declared
-    replication count, and its bound is :math:`|\bar b| + 2\,\mathrm{MCSE}`.
-    """
-    rng = np.random.default_rng(0)
-    bounds = []
+    """Both sizes pass bias equivalence together, from the probe at the declared sizes."""
+    probability = 1.0
     for size in p1.REQUIREMENT_SIZES:
         row = probe(
-            f"s1:outcome_constant__n_{size}",
+            f"s1:outcome_linear__n_{size}",
             f"single_robustness/contrast_x2__mechanism_correct__n_{size}",
         )
-        spread = row.bias_se * np.sqrt(row.replicates / p1.REQUIREMENT_REPLICATES)
-        bias = abs(row.bias) + row.bias_se
-        bounds.append(np.abs(rng.normal(bias, spread, 100_000)) + 2.0 * spread)
-    small, large = bounds
-    passed = (large < p1.ABSOLUTE_BIAS_TOLERANCE) & (large < small)
-    assert passed.mean() >= PRIMARY_PASS
+        bias = abs(row.standardized_bias) + row.mcse
+        probability *= bias_pass_probability(bias, p1.REQUIREMENT_REPLICATES)
+    assert probability >= PRIMARY_PASS
 
 
-# ------------------------------------------------------------------- sized cells
+def test_the_robustness_fits_exercise_the_mechanism_term() -> None:
+    """The witness: a linear outcome regression leaves a plug-in that misses the truth.
+
+    A constant regression makes every plan's regression the same mean, so the plug-in
+    contrast is exactly zero and the mechanism term vanishes.  The linear one is
+    misspecified, so the targeting control has a bias to show.
+    """
+    size = p1.REQUIREMENT_SIZES[1]
+    one_step = probe(f"s1:outcome_linear__n_{size}", "targeting_necessity/contrast_x2__one_step")
+    plug_in = probe(f"s1:outcome_linear__n_{size}", "targeting_necessity/contrast_x2__plug_in")
+    spread = one_step.bias_se * np.sqrt(one_step.replicates)
+    displacement = abs(plug_in.bias - one_step.bias) / spread
+    assert displacement - 2.0 * one_step.mcse >= p1.TARGETING_DISPLACEMENT
+    assert plug_in.bias_se > 0.0
+    assert (
+        bias_pass_probability(
+            abs(one_step.standardized_bias) + one_step.mcse, p1.REQUIREMENT_REPLICATES
+        )
+        >= PRIMARY_PASS
+    )
 
 
 def test_the_power_cell_is_sized_on_the_exact_law() -> None:
@@ -532,6 +581,9 @@ def test_the_mechanism_term_control_falls_below_the_calibration_band() -> None:
     reduced = common.eif_sd(law.LAW_A, s1.PLANS, p1.CONTRAST_X2, known=(1, 2, 3))
     assert reduced / full == pytest.approx(0.78, abs=0.005)
     assert reduced / full < Margins().calibration_se_ratio[0] - 0.1
+    # The statistic the study publishes, on fresh draws: the control reads the reduced curve.
+    control = probe("s1:law_a", "mechanism_term_necessity/contrast_x2__mechanism_term_dropped")
+    assert control.se_ratio < Margins().calibration_se_ratio[0] - 0.1
 
 
 # ------------------------------------------------------------------- the S2 witnesses

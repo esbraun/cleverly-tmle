@@ -8,7 +8,7 @@ names another setting.  ``x2`` is the plan that doubles the odds of treatment at
 ==============================  ===============================================================
 family                          cells, replications and size
 ==============================  ===============================================================
-``interval_calibration``        seven labels (below); 2,000 at n = 48,000 each, with the two
+``interval_calibration``        seven labels (below); 3,000 at n = 48,000 each, with the two
                                 derived controls of each
 ``root_n_and_efficiency``       ``contrast_x2`` at n = 24,000 (control: the smallest rung),
                                 64,000 and 96,000; 1,000 each
@@ -21,10 +21,11 @@ family                          cells, replications and size
                                 means and eight contrasts) and its pointwise control; 2,000 at
                                 n = 5,000
 ``mechanism_term_necessity``    the ``contrast_x2`` calibration fits: the full curve, and the
-                                curve without the mechanism term (control)
-``single_robustness``           the regressions constant and the mechanism right at n = 6,000
-                                and 24,000 (positive, two-size rule); the mechanism constant
-                                and the regressions right at n = 6,000 (no verdict); 1,000 each
+                                curve without the mechanism term, on the outcome's own scale
+                                (control)
+``single_robustness``           linear (misspecified) regressions and the mechanism right at
+                                n = 6,000 and 24,000 (positive); the mechanism constant and the
+                                regressions right at n = 6,000 (no verdict); 1,000 each
 ``targeting_necessity``         the n = 24,000 draws of ``single_robustness``: the one-step
                                 estimate, and the plug-in mean of the first-node regression
                                 (control)
@@ -57,21 +58,25 @@ probe's standardized bias and SE ratio at n = 8,000, projected to the declared s
 calibration cell a pass probability of at least 0.90 and each positive rung at least 0.95
 (``tests/unit/test_longitudinal_incremental_design.py``).  The probe measured biases of 0.20
 on ``contrast_x2`` and -0.18 on ``contrast_x2_in_sample``, and SE ratios of 0.96 to 0.99, so
-n = 4,000 was too small.  At 48,000 every calibration cell passes with a probability of at
-least 0.91; at 32,000 the one-fold cell falls to 0.896.  The power cell's rejection rate
+n = 4,000 was too small.  At 2,000 replications a calibration cell at its targets passes with
+probability 0.935, so the seven cells pass jointly with probability 0.59.  At 3,000 each cell
+passes with at least 0.99 and the seven jointly with 0.96.  The per-cell rule then allows
+n = 24,000.  The study keeps 48,000, which cuts the projected bias by a factor of 1.4.  The
+power cell's rejection rate
 reads 0.855 at n = 4,000 against an exact-law power of 0.882.  One Monte Carlo SE below that
 rate, it clears the power rule with probability 0.84 at 1,000 replications and 0.995 at 2,000,
-so the null
-and power cells run 2,000 each.
+so the null and power cells run 2,000 each.
 
 **Rules.**  ``interval_calibration``, ``root_n_and_efficiency``, ``root_n_rate``,
 ``type_i_error``, ``power`` and ``simultaneous_coverage`` read the shared verdicts.
 ``mechanism_term_necessity`` passes when the full curve's SE-ratio interval lies inside
 :data:`EFFICIENCY_RATIO_BAND` and the control's lies wholly below the calibration band: the
 design test computes the control's exact SD ratio, 0.78.  ``single_robustness``'s positive
-pair passes when :math:`|\bar b| + 2\,\mathrm{MCSE}` at n = 24,000 is below
-:data:`ABSOLUTE_BIAS_TOLERANCE` and below the same bound at n = 6,000 (the ``X4-plan.md`` 6.8
-rule).  Its diagnostic cell publishes its bias beside the exact-law limit of
+pair passes when both sizes pass the shared bias-equivalence rule (standardized bias inside
+0.25).  With a correct mechanism the remainder is a product of a fixed outcome error and a
+mechanism error that averages to zero, so its bias is second order.  A linear outcome
+regression keeps the mechanism term nonzero; a constant one would make it vanish and leave a
+weighting estimator.  Its diagnostic cell publishes its bias beside the exact-law limit of
 :func:`~tests.studies.longitudinal_incremental_common.constant_mechanism_limit`.
 ``targeting_necessity`` reads the shared necessity rule at :data:`TARGETING_DISPLACEMENT`.
 
@@ -88,7 +93,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
-from sklearn.dummy import DummyClassifier, DummyRegressor
+from sklearn.dummy import DummyClassifier
+from sklearn.linear_model import LinearRegression
 
 from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_longitudinal_incremental as law
@@ -116,7 +122,9 @@ from tests.studies.evidence.simultaneous import FAMILY as JOINT
 from tests.studies.evidence.simultaneous import joint_coverage_rows, joint_property_cells
 
 N_FOLDS = 5
-CALIBRATION_REPLICATES = 2_000
+#: A calibration cell at its targets passes with probability 0.935 at 2,000 replications and
+#: 0.996 at 3,000.  Seven labels read the rule, so 3,000.
+CALIBRATION_REPLICATES = 3_000
 CALIBRATION_N = 48_000
 RATE_REPLICATES = 1_000
 RATE_SIZES = (24_000, 64_000, 96_000)
@@ -128,8 +136,6 @@ REQUIREMENT_REPLICATES = 1_000
 REQUIREMENT_SIZES = (6_000, 24_000)
 EFFICIENCY_RATIO_BAND = (0.90, 1.10)
 SHRUNKEN_SE_FACTOR = 0.70
-#: The absolute bias bound of the positive ``single_robustness`` pair at n = 24,000.
-ABSOLUTE_BIAS_TOLERANCE = 0.01
 TARGETING_DISPLACEMENT = 0.25
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 
@@ -209,6 +215,8 @@ def mechanism_free_se(result: Any, name: str = CONTRAST_X2) -> float:
     term = result.fits[left].mechanism_term.sum(axis=1)
     if right is not None:
         term = term - result.fits[right].mechanism_term.sum(axis=1)
+    # The fits hold the term on the scaled outcome; the curve is on the outcome's own scale.
+    term = result.scaler.unscale_influence(term)
     reduced = curve - (term - np.mean(term))
     return float(np.std(reduced, ddof=1) / np.sqrt(len(reduced)))
 
@@ -277,8 +285,8 @@ FIT_SETS: tuple[tuple[str, str, str, int, int, str], ...] = (
     *(
         (
             "single_robustness",
-            f"outcome_constant__n_{size}",
-            "outcome_constant",
+            f"outcome_linear__n_{size}",
+            "outcome_linear",
             size,
             REQUIREMENT_REPLICATES,
             "requirement",
@@ -401,7 +409,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             "requirement",
             size,
             REQUIREMENT_REPLICATES,
-            f"outcome_constant__n_{size}",
+            f"outcome_linear__n_{size}",
             CONTRAST_X2,
         )
     add(
@@ -422,7 +430,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             "requirement",
             REQUIREMENT_SIZES[1],
             REQUIREMENT_REPLICATES,
-            f"outcome_constant__n_{REQUIREMENT_SIZES[1]}",
+            f"outcome_linear__n_{REQUIREMENT_SIZES[1]}",
             CONTRAST_X2,
             stream_family="single_robustness",
         )
@@ -543,7 +551,7 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
                 result[CONTRAST_X2],
             )
         ]
-    result = _fit(frame, law.LAW_A, PLANS, outcome_learner=DummyRegressor())
+    result = _fit(frame, law.LAW_A, PLANS, outcome_learner=LinearRegression())
     estimate = result[CONTRAST_X2]
     rows = [row(f"contrast_x2__mechanism_correct__n_{n}", "positive", CONTRAST_TRUTH, estimate)]
     if n == REQUIREMENT_SIZES[1]:
@@ -649,8 +657,6 @@ def _probe_one(payload: tuple[str, str, str, int, int, int, str]) -> bool:
 
 # ---------------------------------------------------------------------------- verdicts
 
-#: The column that publishes :math:`|\bar b| + 2\,\mathrm{MCSE}` of a requirement cell.
-BIAS_BOUND_COLUMN = "absolute_bias_bound"
 #: The column that publishes a cell's exact-law limit of its mean estimate.
 LIMIT_COLUMN = "exact_limit"
 
@@ -681,21 +687,13 @@ def mechanism_term_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
 
 
 def single_robustness_verdicts(summary: pd.DataFrame) -> None:
-    """The two-size absolute-bias rule, and the published limit of the diagnostic cell."""
+    """Bias equivalence at both sizes, and the published limit of the diagnostic cell."""
     family = summary["property"] == "single_robustness"
-    for index in summary.index[family]:
-        bound = abs(summary.loc[index, "bias"]) + 2.0 * summary.loc[index, "bias_se"]
-        summary.loc[index, BIAS_BOUND_COLUMN] = float(bound)
-    cells = {
-        size: summary.index[
-            family & (summary["cell"] == f"contrast_x2__mechanism_correct__n_{size}")
-        ][0]
-        for size in REQUIREMENT_SIZES
-    }
-    small, large = (summary.loc[cells[size], BIAS_BOUND_COLUMN] for size in REQUIREMENT_SIZES)
-    verdict = bool(large < ABSOLUTE_BIAS_TOLERANCE and large < small)
-    for index in cells.values():
-        summary.loc[index, "passed"] = verdict
+    positive = family & (summary["role"] == "positive")
+    verdict = bool(positive.sum() == len(REQUIREMENT_SIZES)) and bool(
+        summary.loc[positive, "bias_equivalent"].all()
+    )
+    summary.loc[positive, "passed"] = verdict
     diagnostic = family & (summary["cell"] == "contrast_x2__mechanism_constant")
     limit = common.constant_mechanism_limit(law.LAW_A, PLANS[X2]) - common.constant_mechanism_limit(
         law.LAW_A, PLANS[NATURAL]
@@ -714,7 +712,6 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
             "targeting_displacement",
             "coverage_gain_ci_lower",
             "coverage_gain_ci_upper",
-            BIAS_BOUND_COLUMN,
             LIMIT_COLUMN,
         ),
         rate_labels=("contrast_x2",),

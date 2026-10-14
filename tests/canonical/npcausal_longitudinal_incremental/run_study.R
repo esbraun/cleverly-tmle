@@ -84,5 +84,7 @@ fit_one <- function(frame) {
 }
 
 expected <- length(unique(truths$replicate))
-results <- study_stream(paths$samples, fit_one, expected)
+# One replicate is 192,000 archive rows (two scenarios at n = 96,000).  A chunk of 16 replicates
+# keeps every planned worker busy; the default chunk holds less than one replicate.
+results <- study_stream(paths$samples, fit_one, expected, chunk_lines = 3072000L)
 study_collect(results, expected, paths$output, versions = study_version("npcausal"))

@@ -2328,19 +2328,20 @@ CELLS.update(
     {
         ("mechanism_term_necessity", "full_eif"): (
             "the reported standard error from the full influence curve",
-            "both efficiency-ratio intervals inside their band",
+            "the SE-ratio interval inside the efficiency-ratio band",
         ),
         ("mechanism_term_necessity", "mechanism_term_dropped"): (
-            "the same estimates with the treatment-mechanism term removed from the curve",
+            "the same estimates with the treatment-mechanism term, on the outcome's own scale, "
+            "removed from the curve",
             "the SE-ratio interval must fall below the calibration band",
         ),
         ("single_robustness", "mechanism_correct__n_6000"): (
-            "cell-mean treatment mechanism and constant outcome regressions, at n = 6,000",
-            "|bias| + 2 MCSE at n = 24,000 below 0.01 and below its value at n = 6,000",
+            "cell-mean treatment mechanism and linear outcome regressions, at n = 6,000",
+            "bias inside the margin at n = 6,000 and at n = 24,000",
         ),
         ("single_robustness", "mechanism_correct__n_24000"): (
-            "cell-mean treatment mechanism and constant outcome regressions, at n = 24,000",
-            "|bias| + 2 MCSE at n = 24,000 below 0.01 and below its value at n = 6,000",
+            "cell-mean treatment mechanism and linear outcome regressions, at n = 24,000",
+            "bias inside the margin at n = 6,000 and at n = 24,000",
         ),
         ("single_robustness", "mechanism_constant"): (
             "constant treatment mechanism and cell-mean outcome regressions, beside the "
@@ -2348,7 +2349,7 @@ CELLS.update(
             "reported only",
         ),
         ("targeting_necessity", "one_step"): (
-            "the one-step estimate with constant outcome regressions",
+            "the one-step estimate with linear outcome regressions",
             "bias inside the margin",
         ),
         ("targeting_necessity", "plug_in"): (

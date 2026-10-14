@@ -73,11 +73,11 @@ SETS: dict[str, tuple[int, str, str, str, int, int]] = {
     "s1:sharp_null": (10, "s1", "fit_set", "sharp_null", p1.NULL_N, 1_000),
     "s1:alternative": (11, "s1", "fit_set", "alternative", p1.NULL_N, 1_000),
     **{
-        f"s1:outcome_constant__n_{size}": (
+        f"s1:outcome_linear__n_{size}": (
             index,
             "s1",
             "fit_set",
-            f"outcome_constant__n_{size}",
+            f"outcome_linear__n_{size}",
             size,
             1_000,
         )
