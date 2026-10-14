@@ -424,7 +424,7 @@ comparator-backed label to the evidence pages.
 
 A planned comparator run that has not finished does not block a method either. The method ships
 when its Python studies pass with their expected properties. Until the run finishes, the evidence
-names the property studies and labels the comparator run as pending. A later change registers the
+names the property studies and carries the label "comparator runs pending". A later change registers the
 comparator results and fixes each defect that they show.
 
 | comparison | appropriate use | claim it supports |

@@ -98,7 +98,7 @@ requires.
 
 A comparator phase can finish after the method merges. The method merges when its Python phases
 pass with their expected properties. Until the comparator results are registered, the evidence
-page labels the evidence as property evidence with the comparator run pending. A later change
+page labels the evidence "comparator runs pending". A later change
 registers the comparator results and fixes each defect that they show.
 
 Prefer the implementation that the governing source publishes. That implementation reports the
