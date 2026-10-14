@@ -86,6 +86,7 @@ __all__ = [
     "IncrementalEffect",
     "IncrementalMean",
     "LearnedRuleValue",
+    "LongPanel",
     "LongitudinalTreatment",
     "MSMProjection",
     "ModifiedTreatmentPolicy",
@@ -1117,6 +1118,217 @@ class TimeToEvent:
                 f"this design declares causes={self.causes!r}; build the data from this "
                 "design, or correct the design"
             )
+
+
+@dataclass(frozen=True)
+class LongPanel:
+    """Declare a longitudinal study read from a long panel: one row per unit and time.
+
+    Each row holds the covariates measured before that row's decision, the decision, and
+    whether the unit is still observed after it.
+    :meth:`cleverly.longitudinal.LongitudinalData.from_long_panel` states the layout, the
+    generated column names and the refusals.  The estimands are those of
+    :class:`LongitudinalTreatment`, and one unit's rows are one observation.
+
+    Parameters
+    ----------
+    unit : str
+        The unit identifier column.
+    time : str
+        The decision-time column.
+    treatment : str or sequence of str
+        The decision at each row.  A list of columns is one vector node per time.
+    baseline : sequence of str
+        Unit-level covariates measured before the first decision.
+    time_varying : sequence of str
+        Covariates measured at each row before that row's decision.
+    censoring : str or None
+        ``1`` where the unit is still observed after the row's decision.
+    outcome : str or None
+        An end-of-study outcome, one value per unit.
+    event : str or mapping of str to str or None
+        A survival event indicator on each row, or one column per competing cause.
+        Declare exactly one of ``outcome`` and ``event``.
+    times : sequence or None
+        Every decision time, in time order.  ``None`` uses the times the panel holds, sorted,
+        and needs numbers, dates or durations.
+    cluster : str or None
+        Independent-cluster identifier, constant within a unit.
+    weights : str or None
+        Unit-level probability-weight column.
+    weights_type : {"probability"}
+        Interpretation of ``weights``.
+    weights_estimated : bool
+        Whether the supplied weights were estimated from these data.
+    outcome_family : {"auto", "gaussian", "binomial"}
+        Outcome family used by the sequential regressions.
+    continuous_treatment : bool
+        Whether the treatment holds a continuous dose at every node.
+    treatment_probabilities : mapping of level to str, or None
+        The known treatment mechanism: each level mapped to the column that holds
+        ``P(A_t = level | past)`` on each row.
+    censoring_probabilities : str or None
+        The column that holds ``P(C_t = 1 | past)`` on each row.
+
+    See Also
+    --------
+    LongitudinalTreatment : The same declaration on a wide frame.
+    CausalStudy : What a design is handed to along with the data.
+    cleverly.longitudinal.LongitudinalData.from_long_panel : The container it builds.
+
+    Examples
+    --------
+    >>> from cleverly import LongPanel
+    >>> design = LongPanel(
+    ...     unit="customer",
+    ...     time="week",
+    ...     treatment="offer",
+    ...     baseline=["age"],
+    ...     time_varying=["engagement"],
+    ...     censoring="active",
+    ...     outcome="bought",
+    ... )
+    >>> design.time_varying
+    ('engagement',)
+    """
+
+    unit: str
+    time: str
+    treatment: str | Sequence[str]
+    baseline: Sequence[str]
+    time_varying: Sequence[str] = ()
+    censoring: str | None = None
+    outcome: str | None = None
+    event: str | Mapping[str, str] | None = None
+    times: Sequence[Any] | None = None
+    cluster: str | None = None
+    weights: str | None = None
+    weights_type: Literal["probability"] = "probability"
+    weights_estimated: bool = False
+    outcome_family: Family = "auto"
+    continuous_treatment: bool = False
+    treatment_probabilities: Mapping[Any, str] | None = None
+    censoring_probabilities: str | None = None
+
+    def __post_init__(self) -> None:
+        if (self.outcome is None) == (self.event is None):
+            raise DataError(
+                "LongPanel declares exactly one of outcome= (one end-of-study value per unit) "
+                "and event= (an event indicator on each row)"
+            )
+        if not isinstance(self.treatment, str):
+            object.__setattr__(self, "treatment", tuple(self.treatment))
+        object.__setattr__(self, "baseline", tuple(self.baseline))
+        object.__setattr__(self, "time_varying", tuple(self.time_varying))
+        if isinstance(self.event, Mapping):
+            object.__setattr__(self, "event", tuple(self.event.items()))
+        if self.times is not None:
+            object.__setattr__(self, "times", tuple(self.times))
+        if self.treatment_probabilities is not None:
+            object.__setattr__(
+                self, "treatment_probabilities", tuple(self.treatment_probabilities.items())
+            )
+
+    @property
+    def outcome_role(self) -> Any:
+        """The outcome the identified functional names: the outcome or the event columns."""
+        if self.outcome is not None:
+            return self.outcome
+        return dict(self.event) if isinstance(self.event, tuple) else self.event
+
+    def prepare(self, data: Any) -> LongitudinalData:
+        """Validate a long panel and construct its trajectory representation.
+
+        Parameters
+        ----------
+        data : dataframe or LongitudinalData
+            A pandas or polars long panel, or data that this design prepared.
+
+        Returns
+        -------
+        LongitudinalData
+            Validated time-ordered representation.
+        """
+        if isinstance(data, LongitudinalData):
+            self._check_prepared(data)
+            return data
+        return LongitudinalData.from_long_panel(
+            data,
+            unit=self.unit,
+            time=self.time,
+            treatment=self.treatment,
+            baseline=self.baseline,
+            time_varying=self.time_varying,
+            censoring=self.censoring,
+            outcome=self.outcome,
+            event=dict(self.event) if isinstance(self.event, tuple) else self.event,
+            times=self.times,
+            cluster=self.cluster,
+            weights=self.weights,
+            weights_type=self.weights_type,
+            weights_estimated=self.weights_estimated,
+            family=self.outcome_family,
+            continuous_treatment=self.continuous_treatment,
+            treatment_probabilities=(
+                None if self.treatment_probabilities is None else dict(self.treatment_probabilities)
+            ),
+            censoring_probabilities=self.censoring_probabilities,
+        )
+
+    def _check_prepared(self, data: LongitudinalData) -> None:
+        """Reconcile an already-built container with the roles this design declares."""
+        layout = data.panel
+        if layout is None:
+            raise DataError(
+                "the supplied LongitudinalData was built from a wide frame, but this design "
+                "declares a long panel; pass the panel, or use LongitudinalTreatment"
+            )
+        role: Any = None if self.event is None else self.outcome_role
+        event = () if role is None else (role,) if isinstance(role, str) else tuple(role.values())
+        expected: tuple[tuple[str, Any, Any], ...] = (
+            ("unit", self.unit, layout.unit),
+            ("time", self.time, layout.time),
+            (
+                "treatment",
+                (self.treatment,) if isinstance(self.treatment, str) else self.treatment,
+                layout.treatment,
+            ),
+            ("baseline", tuple(self.baseline), layout.baseline),
+            ("time_varying", tuple(self.time_varying), layout.time_varying),
+            ("censoring", self.censoring, layout.censoring),
+            ("outcome", self.outcome, layout.outcome),
+            ("event", event, layout.event),
+            ("cluster", self.cluster, layout.cluster),
+            ("weights", self.weights, layout.weights),
+            (
+                "treatment_probabilities",
+                None
+                if self.treatment_probabilities is None
+                else dict(self.treatment_probabilities),
+                None
+                if layout.treatment_probabilities is None
+                else dict(layout.treatment_probabilities),
+            ),
+            (
+                "censoring_probabilities",
+                self.censoring_probabilities,
+                layout.censoring_probabilities,
+            ),
+            ("weights_type", self.weights_type, data.weight_spec.kind),
+            ("weights_estimated", self.weights_estimated, data.weight_spec.estimated),
+            ("continuous_treatment", self.continuous_treatment, data.is_continuous_node(1)),
+        )
+        if self.times is not None:
+            expected += (("times", tuple(self.times), layout.decision_times),)
+        if self.outcome_family != "auto":
+            expected += (("outcome_family", self.outcome_family, data.family),)
+        for role, declared, held in expected:
+            if declared != held:
+                raise DataError(
+                    f"the supplied LongitudinalData was built with {role}={held!r}, but this "
+                    f"design declares {role}={declared!r}; build the data from this design, "
+                    "or correct the design"
+                )
 
 
 def _default_grid(data: LongitudinalData) -> tuple[float, ...]:
@@ -2743,7 +2955,7 @@ class ExplicitAdjustmentProvider:
             Functional, assumptions, and method availability for the question.
         """
         design = study.design
-        if isinstance(design, (LongitudinalTreatment, TimeToEvent)):
+        if isinstance(design, (LongitudinalTreatment, TimeToEvent, LongPanel)):
             return self._identify_longitudinal(study, estimand)
         return self._identify_point(study, estimand)
 
@@ -2880,7 +3092,7 @@ class ExplicitAdjustmentProvider:
         self, study: CausalStudy, estimand: PointEstimand
     ) -> IdentifiedEffect:
         design = study.design
-        assert isinstance(design, (LongitudinalTreatment, TimeToEvent))
+        assert isinstance(design, (LongitudinalTreatment, TimeToEvent, LongPanel))
         if isinstance(estimand, LearnedRuleValue):
             raise CapabilityError(
                 "LearnedRuleValue is a point-treatment target, and a learned longitudinal "
@@ -2910,7 +3122,7 @@ class ExplicitAdjustmentProvider:
             for time, node in enumerate(data.treatment_names, start=1)
         )
         functional = BackdoorMeanContrast(
-            outcome=design.outcome,
+            outcome=design.outcome_role if isinstance(design, LongPanel) else design.outcome,
             treatment=tuple(data.treatment_names),
             adjustment=tuple(design.baseline),
             target=target,
@@ -2970,7 +3182,7 @@ class CausalStudy:
     ----------
     data : dataframe, CausalData, or LongitudinalData
         Observed study data. Pandas and Polars dataframes are supported.
-    design : PointTreatment, LongitudinalTreatment, or TimeToEvent
+    design : PointTreatment, LongitudinalTreatment, TimeToEvent, or LongPanel
         Column roles and treatment-time structure.
     protocol : StudyProtocol or None
         Scientific study protocol. ``None`` records that no protocol was supplied.
@@ -2978,7 +3190,7 @@ class CausalStudy:
     Attributes
     ----------
     data : CausalData or LongitudinalData
-    design : PointTreatment, LongitudinalTreatment, or TimeToEvent
+    design : PointTreatment, LongitudinalTreatment, TimeToEvent, or LongPanel
     protocol : StudyProtocol or None
 
     See Also
@@ -2986,6 +3198,7 @@ class CausalStudy:
     PointTreatment : The design declaration for treatment given once.
     LongitudinalTreatment : The design declaration for time-varying treatment.
     TimeToEvent : The design declaration for one follow-up time and one event code per unit.
+    LongPanel : The design declaration for one row per unit and decision time.
     IdentifiedEffect : What :meth:`identify` returns.
 
     Examples
@@ -3009,7 +3222,7 @@ class CausalStudy:
         self,
         data: Any,
         *,
-        design: PointTreatment | LongitudinalTreatment | TimeToEvent,
+        design: PointTreatment | LongitudinalTreatment | TimeToEvent | LongPanel,
         protocol: StudyProtocol | None = None,
     ) -> None:
         if protocol is not None and not isinstance(protocol, StudyProtocol):
@@ -3019,7 +3232,7 @@ class CausalStudy:
         self._protocol = protocol
 
     @property
-    def design(self) -> PointTreatment | LongitudinalTreatment | TimeToEvent:
+    def design(self) -> PointTreatment | LongitudinalTreatment | TimeToEvent | LongPanel:
         """Return the immutable study design."""
         return self._design
 

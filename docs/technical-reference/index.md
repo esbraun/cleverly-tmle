@@ -40,7 +40,8 @@ family `cleverly` ships, and names the correctness evidence for each.
 
 "Existing implementation" has two meanings in this matrix. One is the local module that executes
 the method. The other is a pinned external implementation, where the source was audited. External
-parity is never the derivation or the acceptance gate.
+parity is acceptance evidence for the claims it covers. It is never the derivation, and it is
+never a required gate.
 
 The [natural-extension verdicts](natural-extension-verdicts.md) record which refused compositions
 qualify for implementation as natural extensions, and the roadmap row that owns each one.
@@ -51,7 +52,7 @@ The [evidence manifest](evidence.md) distinguishes independent scientific checks
 implementation witnesses. An exact finite-support law can verify a complete functional but miss a
 term that vanishes at the truth. A Gateaux comparison can verify the influence curve but share a
 mistake with the law. Remainder-rate and deliberate-mutation tests make those blind spots visible.
-External implementations are therefore localized provenance, not a substitute for these checks.
+An external comparison does not substitute for these checks on a changed term.
 
 ```{toctree}
 :maxdepth: 2

@@ -41,6 +41,7 @@ from .estimator import (
     ltmle,
     sdr,
 )
+from .panel import NodeRule, PanelLayout, each_node
 from .regimen import (
     DynamicRegimen,
     Plan,
@@ -67,12 +68,15 @@ __all__ = [
     "LongitudinalError",
     "LongitudinalResult",
     "Mechanism",
+    "NodeRule",
+    "PanelLayout",
     "Plan",
     "Regimen",
     "RegimenFit",
     "RegimenSpec",
     "Repeated",
     "SequentialStep",
+    "each_node",
     "fit_mechanism",
     "fit_regimen",
     "ipsi",
