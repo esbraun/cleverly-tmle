@@ -7,17 +7,23 @@ from typing import Any
 import pandas as pd
 from scipy.stats import norm
 
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_learned_weighted_tmle import STUDY, fit_cleverly
-from tests.studies.evidence.properties import control_row, replicate_row
+from tests.studies.evidence.properties import (
+    control_row,
+    payload_cell,
+    payload_replicate,
+    replicate_row,
+)
 from tests.studies.evidence.property_verdicts import (
     alternative_target_necessity_verdicts,
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
 )
+from tests.studies.evidence.replication import fit_properties, splat
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.learned_weighted_point_common import (
     SELECTED_ATE,
@@ -147,7 +153,30 @@ def fit_replication(payload: tuple[str, str, int, int, int, int]) -> list[dict[s
     ]
 
 
-def _payloads() -> list[tuple[tuple[str, str, int, int, int, int]]]:
+#: The calibration positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived((TARGET,), positive_suffix="treatment_correct")
+
+_Key = tuple[tuple[str, str, int, int, int, int]]
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    property_name, cell = key[0][:2]
+    if property_name == "learner_weight_necessity":
+        return [
+            f"{property_name}/ate__{arm}"
+            for arm in (
+                "weighted_targeted",
+                "unweighted_targeted",
+                "weighted_plugin",
+                "unweighted_plugin_control",
+            )
+        ]
+    name = f"{property_name}/{cell}"
+    return [name, *DERIVED_CELLS.get(name, ())]
+
+
+def _payloads() -> list[_Key]:
     specs = [
         *[
             ("root_n_and_efficiency", f"n_{size}", size, RATE_REPLICATES, f"n_{size}")
@@ -170,7 +199,7 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int]]]:
             "paired",
         ),
     ]
-    payloads: list[tuple[tuple[str, str, int, int, int, int]]] = []
+    payloads: list[_Key] = []
     for property_name, cell, n, requested, stream_cell in specs:
         for replicate in range(requested):
             seed = stream_seed(
@@ -186,7 +215,15 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int]]]:
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     """Generate every predeclared cell and paired calibration control."""
-    outcomes = map_parallel(fit_replication, _payloads(), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(),
+        splat(fit_replication),
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for outcome in outcomes for row in outcome])
     controls = calibration_controls(
         rows,

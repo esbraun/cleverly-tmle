@@ -30,21 +30,33 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import mar_arm_indexed_laws as laws
 from tests.studies.canonical_multi_arm_mar_drtmle import ESTIMANDS, LAW, STUDY, fit_cleverly
-from tests.studies.evidence.properties import PropertyCell, control_row, replicate_row
+from tests.studies.evidence.properties import (
+    PropertyCell,
+    control_row,
+    payload_cell,
+    payload_replicate,
+    replicate_row,
+)
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     robustness_verdicts,
     simultaneous_coverage_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties, splat
 from tests.studies.evidence.seeds import stream_seed
-from tests.studies.evidence.simultaneous import joint_coverage_rows, joint_property_cells
+from tests.studies.evidence.simultaneous import FAMILY as JOINT_FAMILY
+from tests.studies.evidence.simultaneous import (
+    joint_cells,
+    joint_coverage_rows,
+    joint_property_cells,
+)
 
 ROBUSTNESS_REPLICATES = 800
 ROBUSTNESS_N = 2_000
@@ -287,11 +299,32 @@ def _specs() -> list[tuple[str, str, int, int, str]]:
     return specs
 
 
-def _payloads(
-    budget: int | None = None,
-) -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
+#: The calibration positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived(("ate",))
+
+_Key = tuple[tuple[str, str, int, int, int, int, str]]
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    property_name, cell = key[0][:2]
+    if property_name == "corrected_mar_inference":
+        return [f"{property_name}/{prefix}__{cell}" for prefix in CONTRASTS]
+    if property_name == "correction_necessity":
+        return [
+            f"{property_name}/{cell}__closed_score",
+            f"{property_name}/{cell}__initial_score_control",
+        ]
+    name = f"{property_name}/{cell}"
+    if property_name == "interval_calibration":
+        joint = [f"{JOINT_FAMILY}/{joint_name}" for joint_name in joint_cells(JOINT_LABEL)]
+        return [name, *joint, *DERIVED_CELLS[name]]
+    return [name]
+
+
+def _payloads(budget: int | None = None) -> list[_Key]:
     """Every replication's payload. ``budget`` caps each cell, for a smoke run only."""
-    out: list[tuple[tuple[str, str, int, int, int, int, str]]] = []
+    out: list[_Key] = []
     for property_name, cell, n, replicates, configuration in _specs():
         count = replicates if budget is None else min(budget, replicates)
         for replicate in range(count):
@@ -417,7 +450,15 @@ def declared_cells() -> tuple[PropertyCell, ...]:
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    outcomes = map_parallel(_fit_replication, _payloads(), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(),
+        splat(_fit_replication),
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     controls = calibration_controls(
         rows,

@@ -29,25 +29,29 @@ from sklearn.base import clone
 from sklearn.dummy import DummyClassifier, DummyRegressor
 
 from cleverly.longitudinal import LTMLE
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_longitudinal as law
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_ltmle import G_BOUNDS, STUDY, declared_regimens
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
+    payload_cell,
+    payload_replicate,
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     necessity_verdicts,
     simultaneous_coverage_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties, splat
 from tests.studies.evidence.seeds import stream_seed
-from tests.studies.evidence.simultaneous import joint_coverage_rows
+from tests.studies.evidence.simultaneous import FAMILY as JOINT_FAMILY
+from tests.studies.evidence.simultaneous import joint_cells, joint_coverage_rows
 
 DOUBLE_ROBUST_REPLICATES = 1_200
 DOUBLE_ROBUST_N = 2_000
@@ -319,6 +323,24 @@ def _fit_replication(
     return rows
 
 
+#: Each calibration label's positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived(tuple(CONTRASTS))
+
+
+def _cells_of(key: tuple[tuple[str, str, int, int, int, int, str]]) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    property_name, cell_suffix = key[0][:2]
+    labels = ("static",) if property_name in {"type_i_error", "power"} else tuple(CONTRASTS)
+    names = [f"{property_name}/{label}__{cell_suffix}" for label in labels]
+    if property_name == "targeting_necessity":
+        names += [f"{property_name}/{label}__untargeted" for label in labels]
+    if property_name == "interval_calibration":
+        names += [f"{JOINT_FAMILY}/{name}" for name in joint_cells(JOINT_LABEL)]
+    for name in list(names):
+        names += DERIVED_CELLS.get(name, ())
+    return names
+
+
 def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
     specs: list[tuple[str, str, int, int, str]] = []
     for configuration in ("both_correct", "outcome_correct", "mechanism_correct", "both_wrong"):
@@ -365,7 +387,15 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    outcomes = map_parallel(_fit_replication, _payloads(), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(),
+        splat(_fit_replication),
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [

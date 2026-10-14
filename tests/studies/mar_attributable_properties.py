@@ -53,7 +53,6 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_mar as mar
 from tests.parallel import STUDY_JOBS
 from tests.studies import mar_arm_indexed_laws as laws
@@ -75,6 +74,8 @@ from tests.studies.evidence.properties import (
     PropertyCell,
     ReplicationSpec,
     control_row,
+    payload_cell,
+    payload_replicate,
     property_role,
     replicate_row,
     replication_payloads,
@@ -82,13 +83,20 @@ from tests.studies.evidence.properties import (
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     necessity_verdicts,
     robustness_verdicts,
     simultaneous_coverage_verdicts,
 )
-from tests.studies.evidence.simultaneous import joint_coverage_rows, joint_property_cells
+from tests.studies.evidence.replication import fit_properties
+from tests.studies.evidence.simultaneous import FAMILY as JOINT_FAMILY
+from tests.studies.evidence.simultaneous import (
+    joint_cells,
+    joint_coverage_rows,
+    joint_property_cells,
+)
 from tests.studies.missing_outcome_study_helpers import WRONG_PI, WRONG_Q
 
 ROBUSTNESS_REPLICATES = 1_200
@@ -179,11 +187,46 @@ def independent_se(result: Any, name: str) -> float:
     )
 
 
-def _fit_replication(payload: Payload) -> list[dict[str, Any]]:
-    property_name, cell, replicate, n, requested, seed, configuration = payload
+#: The calibration positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived((TARGET,))
+
+
+def _sample(key: tuple[Payload]) -> tuple[pd.DataFrame, dict[str, float]]:
+    """The sample and truth a key fits, which are a function of the key alone."""
+    property_name, cell, _, n, _, seed, _ = key[0]
+    scenario = BAND_SCENARIOS[cell] if property_name == "simultaneous_coverage" else BINARY
+    return _draw(scenario, n, seed)
+
+
+def _cells_of(key: tuple[Payload]) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    property_name, cell = key[0][:2]
+    if property_name == "simultaneous_coverage":
+        return [f"{JOINT_FAMILY}/{name}" for name in joint_cells(cell)]
+    if property_name == "interval_calibration":
+        names = [
+            f"{property_name}/{name}__{kind}"
+            for kind in ("correctly_specified", "inflated_se_control")
+            for name in ("par", "paf")
+        ]
+        return names + list(DERIVED_CELLS[f"{property_name}/{cell}"])
+    if property_name == "targeting_necessity":
+        return [f"{property_name}/par__targeted", f"{property_name}/par__untargeted"]
+    if property_name == "missingness_necessity":
+        return [
+            f"{property_name}/par__declared",
+            f"{property_name}/par__complete_case_control",
+            f"{property_name}/paf__complete_case_control",
+        ]
+    return [f"{property_name}/{cell}"]
+
+
+def _fit_replication(key: tuple[Payload], drawn: tuple[pd.DataFrame, dict[str, float]]) -> Any:
+    (payload,) = key
+    property_name, cell, replicate, n, requested, _seed, configuration = payload
+    frame, truth = drawn
     if property_name == "simultaneous_coverage":
         scenario = BAND_SCENARIOS[cell]
-        frame, truth = _draw(scenario, n, seed)
         result = fit_cleverly(frame, scenario, simultaneous=True)
         return joint_coverage_rows(
             result,
@@ -195,7 +238,6 @@ def _fit_replication(payload: Payload) -> list[dict[str, Any]]:
             requested=requested,
             pointwise_critical=CRITICAL,
         )
-    frame, _ = _draw(BINARY, n, seed)
     result = _fit(frame, configuration)
     if property_name == "interval_calibration":
         rows = [
@@ -411,7 +453,16 @@ def declared_cells() -> tuple[PropertyCell, ...]:
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
-    outcomes = map_parallel(_fit_replication, _payloads(budget), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(budget),
+        _fit_replication,
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        draw=_sample,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     controls = calibration_controls(
         rows,

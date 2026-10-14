@@ -33,7 +33,6 @@ import pandas as pd
 from scipy.stats import norm
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import mar_arm_indexed_laws as laws
 from tests.studies.canonical_mar_arm_indexed_cvtmle import (
@@ -46,6 +45,8 @@ from tests.studies.canonical_mar_arm_indexed_cvtmle import (
 from tests.studies.evidence.properties import (
     ReplicationSpec,
     control_row,
+    payload_cell,
+    payload_replicate,
     replication_payloads,
 )
 from tests.studies.evidence.property_verdicts import (
@@ -56,7 +57,9 @@ from tests.studies.evidence.property_verdicts import (
     robustness_verdicts,
     simultaneous_coverage_verdicts,
 )
-from tests.studies.evidence.simultaneous import joint_coverage_rows
+from tests.studies.evidence.replication import fit_properties
+from tests.studies.evidence.simultaneous import FAMILY as JOINT_FAMILY
+from tests.studies.evidence.simultaneous import joint_cells, joint_coverage_rows
 
 ROBUSTNESS_REPLICATES = 1_200
 ROBUSTNESS_N = 2_000
@@ -165,10 +168,41 @@ def _robustness_learners(law: laws.Law, configuration: str) -> dict[str, Any]:
     }
 
 
-def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[dict[str, Any]]:
-    property_name, cell, replicate, n, requested, seed, configuration = payload
+_Key = tuple[tuple[str, str, int, int, int, int, str]]
+
+
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, which is a function of the key alone."""
+    property_name, cell, _, n, _, seed, _ = key[0]
+    frame = laws.sample(laws.LAWS[cell.split("_", 1)[0]], n, seed)
+    return _with_noise(frame, seed) if property_name == "crossfit_overfitting" else frame
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``property/cell`` names the key's rows fill."""
+    property_name, cell = key[0][:2]
+    configuration = key[0][6]
     law = laws.LAWS[cell.split("_", 1)[0]]
-    frame = laws.sample(law, n, seed)
+    if property_name == "interval_calibration":
+        names = [
+            f"{property_name}/{laws.label(law, name)}__{suffix}"
+            for name in laws.ESTIMANDS[law.key]
+            for suffix in (POSITIVE_SUFFIX, "shrunken_se_control")
+        ]
+        return names + [f"{JOINT_FAMILY}/{joint}" for joint in joint_cells(law.key)]
+    if property_name == "mar_robustness":
+        return [
+            f"{property_name}/{laws.label(law, name)}__{configuration}"
+            for name in laws.ESTIMANDS[law.key]
+            if laws.stem(name) == "ate"
+        ]
+    return [f"{property_name}/{cell}"]
+
+
+def _fit_replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    (payload,) = key
+    property_name, cell, replicate, n, requested, _seed, configuration = payload
+    law = laws.LAWS[cell.split("_", 1)[0]]
     truth = laws.truths(law)
 
     if property_name == "interval_calibration":
@@ -238,7 +272,7 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
         label = cell.split("__", 1)[0]
         name = next(item for item in laws.ESTIMANDS[law.key] if laws.label(law, item) == label)
         result = fit_cleverly(
-            _with_noise(frame, seed),
+            frame,
             law,
             outcome_learner=_fully_grown_outcome(law),
             # Both mechanisms read ``W`` from its own column and ignore the noise.
@@ -319,15 +353,28 @@ def _payloads(
     return out
 
 
-def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    outcomes = map_parallel(_fit_replication, _payloads(), n_jobs=n_jobs)
+def _fit(payloads: list[_Key], *, n_jobs: int, label: str, checkpoint: Any) -> pd.DataFrame:
+    outcomes = fit_properties(
+        payloads,
+        _fit_replication,
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        label=label,
+        draw=_draw,
+        checkpoint=checkpoint,
+    )
     return pd.DataFrame([row for result in outcomes for row in result])
+
+
+def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
+    return _fit(_payloads(), n_jobs=n_jobs, label="properties", checkpoint="ambient")
 
 
 def generate_smoke_property_rows(*, n_jobs: int = 1) -> pd.DataFrame:
     """Fit one declared replication of every property cell without summarizing it."""
-    outcomes = map_parallel(_fit_replication, _payloads(replicates=1), n_jobs=n_jobs)
-    return pd.DataFrame([row for result in outcomes for row in result])
+    return _fit(_payloads(replicates=1), n_jobs=n_jobs, label="properties/smoke", checkpoint=None)
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:

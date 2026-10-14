@@ -35,7 +35,6 @@ from sklearn.base import clone
 from sklearn.dummy import DummyClassifier, DummyRegressor
 
 from cleverly.longitudinal import LTMLE
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_survival as law
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_ltmle import G_BOUNDS, declared_regimens
@@ -43,18 +42,22 @@ from tests.studies.canonical_ltmle_survival import PROPERTY_LABELS, STUDY
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
+    payload_cell,
+    payload_replicate,
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     necessity_verdicts,
     simultaneous_coverage_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties, splat
 from tests.studies.evidence.seeds import stream_seed
-from tests.studies.evidence.simultaneous import FAMILY, joint_coverage_rows
+from tests.studies.evidence.simultaneous import FAMILY, joint_cells, joint_coverage_rows
 
 DOUBLE_ROBUST_REPLICATES = 1_200
 DOUBLE_ROBUST_N = 2_000
@@ -380,13 +383,33 @@ def _curve_replication(payload: tuple[int, int]) -> list[dict[str, Any]]:
     return _joint(result, CURVE_LABEL, replicate, CURVE_N, CURVE_REPLICATES)
 
 
+def _curve_cells_of(key: tuple[tuple[int, int]]) -> list[str]:
+    return [f"{FAMILY}/{name}" for name in joint_cells(CURVE_LABEL)]
+
+
+def _curve_cell_of(key: tuple[tuple[int, int]]) -> str:
+    return f"{FAMILY}/{CURVE_LABEL}"
+
+
+def _curve_replicate_of(key: tuple[tuple[int, int]]) -> int:
+    return int(key[0][0])
+
+
 def curve_rows(*, n_jobs: int = STUDY_JOBS, replicates: int = CURVE_REPLICATES) -> pd.DataFrame:
     """The dedicated curve batch."""
     payloads = [
         ((replicate, stream_seed(STUDY, "property_sample", FAMILY, CURVE_LABEL, replicate)),)
         for replicate in range(replicates)
     ]
-    outcomes = map_parallel(_curve_replication, payloads, n_jobs=n_jobs)
+    outcomes = fit_properties(
+        payloads,
+        splat(_curve_replication),
+        cells_of=_curve_cells_of,
+        cell_of=_curve_cell_of,
+        replicate_of=_curve_replicate_of,
+        n_jobs=n_jobs,
+        label="properties/curve",
+    )
     return pd.DataFrame([row for result in outcomes for row in result])
 
 
@@ -420,6 +443,38 @@ def _recursion_replication(payload: tuple[int, int, int, int]) -> list[dict[str,
         critical=CRITICAL,
     )
     return [positive, control]
+
+
+#: Each calibration label's positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived(PROPERTY_LABELS)
+
+
+def _cells_of(key: tuple[tuple[str, str, int, int, int, int, str]]) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    property_name, suffix = key[0][:2]
+    names = [f"{property_name}/{label}__{suffix}" for label in CONTRASTS]
+    if property_name == "targeting_necessity":
+        names += [f"{property_name}/{label}__untargeted" for label in CONTRASTS]
+    if property_name == "interval_calibration":
+        names += [f"{FAMILY}/{name}" for name in joint_cells(ALL_LABEL)]
+    for name in list(names):
+        names += DERIVED_CELLS.get(name, ())
+    return names
+
+
+def _recursion_cells_of(key: tuple[tuple[int, int, int, int]]) -> list[str]:
+    return [
+        "survival_recursion_necessity/always_t2__survival",
+        "survival_recursion_necessity/always_t2__survivor_only",
+    ]
+
+
+def _recursion_cell_of(key: tuple[tuple[int, int, int, int]]) -> str:
+    return "survival_recursion_necessity/always_t2"
+
+
+def _recursion_replicate_of(key: tuple[tuple[int, int, int, int]]) -> int:
+    return int(key[0][0])
 
 
 def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
@@ -465,7 +520,15 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    outcomes = map_parallel(_fit_replication, _payloads(), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(),
+        splat(_fit_replication),
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     recursion_payloads = [
         (
@@ -478,7 +541,15 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
         )
         for replicate in range(RECURSION_REPLICATES)
     ]
-    recursion = map_parallel(_recursion_replication, recursion_payloads, n_jobs=n_jobs)
+    recursion = fit_properties(
+        recursion_payloads,
+        splat(_recursion_replication),
+        cells_of=_recursion_cells_of,
+        cell_of=_recursion_cell_of,
+        replicate_of=_recursion_replicate_of,
+        n_jobs=n_jobs,
+        label="properties/recursion",
+    )
     rows = pd.concat(
         [
             rows,

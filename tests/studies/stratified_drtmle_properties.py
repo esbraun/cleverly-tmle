@@ -42,7 +42,6 @@ from typing import Any
 import pandas as pd
 from scipy.stats import norm
 
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import stratified_alternating_law as law
 from tests.studies.canonical_stratified_drtmle import (
@@ -56,13 +55,21 @@ from tests.studies.canonical_stratified_drtmle import (
     draw_from_seed,
     fit_cleverly,
 )
-from tests.studies.evidence.properties import REPLICATE_COLUMNS, PropertyCell, replicate_row
+from tests.studies.evidence.properties import (
+    REPLICATE_COLUMNS,
+    PropertyCell,
+    payload_cell,
+    payload_replicate,
+    replicate_row,
+)
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 
 PROPERTY_N = 2_000
@@ -107,9 +114,34 @@ def _seed(configuration: str, replicate: int) -> int:
     return stream_seed(STUDY, "property_sample", configuration, replicate)
 
 
-def _fit_replication(payload: tuple[str, str, int, int, int, int]) -> list[dict[str, Any]]:
-    family, configuration, replicate, n, requested, seed = payload
-    frame, truth = draw_from_seed(SCENARIO, n, seed)
+#: The calibration positive arm of each label to the controls derived from it.
+DERIVED_CELLS = calibration_derived(ATE_LABELS)
+
+_Key = tuple[tuple[str, str, int, int, int, int]]
+_Drawn = tuple[pd.DataFrame, dict[str, float]]
+
+
+def _draw(key: _Key) -> _Drawn:
+    """The sample a key fits, a function of the key alone."""
+    _, _, _, n, _, seed = key[0]
+    return draw_from_seed(SCENARIO, n, seed)
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``family/cell`` names the key's rows and derived controls fill."""
+    family, configuration = key[0][:2]
+    if family != "interval_calibration":
+        return [f"{family}/{label}__{configuration}" for label in ATE_LABELS]
+    names = []
+    for label in ATE_LABELS:
+        name = f"{family}/{label}__correctly_specified"
+        names += [name, *DERIVED_CELLS[name]]
+    return names
+
+
+def _fit_replication(key: _Key, drawn: _Drawn) -> list[dict[str, Any]]:
+    family, configuration, replicate, n, requested, _seed = key[0]
+    frame, truth = drawn
     result = fit_cleverly(frame, configuration)
     rows: list[dict[str, Any]] = []
     for label in ATE_LABELS:
@@ -135,7 +167,7 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int]) -> list[dict[
     return rows
 
 
-def _payloads(budget: int | None = None) -> list[tuple[tuple[str, str, int, int, int, int]]]:
+def _payloads(budget: int | None = None) -> list[_Key]:
     batches = [("interval_calibration", "both_correct", CALIBRATION_STREAM, CALIBRATION_REPLICATES)]
     batches += [
         (
@@ -146,7 +178,7 @@ def _payloads(budget: int | None = None) -> list[tuple[tuple[str, str, int, int,
         )
         for configuration in DOUBLE_ROBUST_CONFIGURATIONS
     ]
-    out: list[tuple[tuple[str, str, int, int, int, int]]] = []
+    out: list[_Key] = []
     for family, configuration, stream, declared in batches:
         count = declared if budget is None else budget
         out += [
@@ -158,7 +190,16 @@ def _payloads(budget: int | None = None) -> list[tuple[tuple[str, str, int, int,
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every declared replication, or the first ``budget`` of each, then the controls."""
-    outcomes = map_parallel(_fit_replication, _payloads(budget), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(budget),
+        _fit_replication,
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [
@@ -178,12 +219,6 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
     return rows.loc[:, list(REPLICATE_COLUMNS)].sort_values(
         ["property", "cell", "replicate"], ignore_index=True
     )
-
-
-def generate_smoke_property_rows(*, n_jobs: int = 1, replicates: int = 1) -> pd.DataFrame:
-    """Fit the first ``replicates`` declared replications of each configuration, unsummarized."""
-    outcomes = map_parallel(_fit_replication, _payloads(replicates), n_jobs=n_jobs)
-    return pd.DataFrame([row for result in outcomes for row in result])
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:

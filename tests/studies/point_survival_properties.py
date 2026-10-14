@@ -54,13 +54,17 @@ from tests.studies.evidence.properties import (
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     clustered_inference_verdicts,
     finish,
     simultaneous_coverage_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
+from tests.studies.evidence.simultaneous import FAMILY as JOINT_FAMILY
 from tests.studies.evidence.simultaneous import (
+    joint_cells,
     joint_coverage_rows,
     joint_property_cells,
 )
@@ -440,9 +444,59 @@ def declared_cells() -> tuple[PropertyCell, ...]:
 # ------------------------------------------------------------------ rows
 
 
-def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dict[str, Any]]:
-    family, stream, configuration, replicate, n, requested, label = payload
-    frame = draw(label, n, _seed(family, stream, replicate))
+#: The calibration positive arm of each label to the controls derived from it.
+DERIVED_CELLS = calibration_derived(CALIBRATION_LABELS)
+
+_Payload = tuple[str, str, str, int, int, int, str]
+_Key = tuple[_Payload]
+
+
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone."""
+    family, stream, _, replicate, n, _, label = key[0]
+    return draw(label, n, _seed(family, stream, replicate))
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``family/cell`` names the fit set's rows and derived controls fill."""
+    family, _, configuration, _, n, _, label = key[0]
+    if family == "interval_calibration":
+        bases = [label, "rmst_5"] if label == "survival_t5" else [label]
+        names: list[str] = []
+        for name_label in bases:
+            name = f"{family}/{name_label}__correctly_specified"
+            names += [name, *DERIVED_CELLS[name]]
+        if label == "survival_t5":
+            names += [f"{JOINT_FAMILY}/{joint}" for joint in joint_cells(JOINT_LABEL)]
+        return names
+    if family == "clustered_inference":
+        return [f"{family}/clustered_t5__cluster_robust", f"{family}/clustered_t5__iid_control"]
+    if family == "double_robustness":
+        return [f"{family}/survival_t5__{configuration}"]
+    if family == "root_n_and_efficiency":
+        return [f"{family}/survival_t5__n_{n}"]
+    return [f"{family}/survival_t5__alternative"]
+
+
+def _cell_of(key: _Key) -> str:
+    return f"{key[0][0]}/{key[0][1]}"
+
+
+def _replicate_of(key: _Key) -> int:
+    return key[0][3]
+
+
+def _fit_set_rows(payload: _Payload) -> list[dict[str, Any]]:
+    """The rows of a payload, drawn and fitted in one call, for the failure probe."""
+    return _fit_drawn(payload, _draw((payload,)))
+
+
+def _fit_key(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    return _fit_drawn(key[0], frame)
+
+
+def _fit_drawn(payload: _Payload, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    family, _, configuration, replicate, n, requested, label = payload
     common_row = {"replicate": replicate, "n": n, "requested": requested}
 
     def row(cell: str, role: str, name_label: str, estimate: Any) -> dict[str, Any]:
@@ -505,8 +559,8 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
     return [row("survival_t5__alternative", "positive", label, estimate)]
 
 
-def _payloads(budget: int | None) -> list[tuple[Any, ...]]:
-    out: list[tuple[Any, ...]] = []
+def _payloads(budget: int | None) -> list[_Key]:
+    out: list[_Key] = []
     for family, stream, configuration, n, replicates, label in FIT_SETS:
         requested = replicates if budget is None else budget
         out.extend(
@@ -517,7 +571,16 @@ def _payloads(budget: int | None) -> list[tuple[Any, ...]]:
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each fit set for a pre-run check."""
-    outcomes = map_parallel(_fit_set_rows, _payloads(budget), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(budget),
+        _fit_key,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [

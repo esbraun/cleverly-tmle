@@ -144,15 +144,21 @@ from tests.studies.evidence.property_verdicts import (
     DIAGNOSTIC_ROLE,
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     crossfit_overfitting_verdicts,
     finish,
     necessity_verdicts,
     simultaneous_coverage_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import FAMILY as JOINT
-from tests.studies.evidence.simultaneous import joint_coverage_rows, joint_property_cells
+from tests.studies.evidence.simultaneous import (
+    joint_cells,
+    joint_coverage_rows,
+    joint_property_cells,
+)
 from tests.studies.ltmle_crossfit_properties import KnownDiscreteMechanism
 
 DOUBLE_ROBUST_REPLICATES = 1_000
@@ -622,14 +628,24 @@ def _role(family: str, label: str, n: int) -> str:
     return "positive"
 
 
-def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dict[str, Any]]:
+def _draw_set(payload: tuple[str, str, str, int, int, int, str]) -> Any:
+    """The sample one draw of one fit set fits, which is a function of the payload alone."""
+    family, label, _, replicate, n, _, law_name = payload
+    seed = _seed(family, label, replicate)
+    if family == "crossfit_overfitting":
+        return overfit_draw(seed, n)
+    return in_sample.sample(NULL_PROBS if law_name == "discrete_null" else law.PROBS, n, seed)
+
+
+def _fit_set_rows(
+    payload: tuple[str, str, str, int, int, int, str], drawn: Any
+) -> list[dict[str, Any]]:
     """Every row one draw of one fit set publishes."""
     family, label, configuration, replicate, n, requested, law_name = payload
-    seed = _seed(family, label, replicate)
     alpha = STUDY.margins.alpha
     common = {"replicate": replicate, "n": n, "requested": requested}
     if family == "crossfit_overfitting":
-        frame, truth = overfit_draw(seed, n)
+        frame, truth = drawn
         rows = []
         for cell, cross_fit in (("cross_fitted_msm", True), ("in_sample_control", False)):
             result = overfit(frame, cross_fit=cross_fit)
@@ -645,8 +661,7 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
                 )
             )
         return rows
-    probs = NULL_PROBS if law_name == "discrete_null" else law.PROBS
-    frame = in_sample.sample(probs, n, seed)
+    frame = drawn
     if law_name == "discrete_logit":
         result = fit(frame, configuration, link="logit")
         return [
@@ -731,9 +746,13 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
     return rows
 
 
-def _band_rows(payload: tuple[int, int]) -> list[dict[str, Any]]:
+def _draw_band(payload: tuple[int, int]) -> Any:
+    return draw_from_seed(SCENARIO, PRIMARY_N, _seed(JOINT, BAND_LABEL, payload[0]))
+
+
+def _band_rows(payload: tuple[int, int], drawn: Any) -> list[dict[str, Any]]:
     replicate, requested = payload
-    frame, truth = draw_from_seed(SCENARIO, PRIMARY_N, _seed(JOINT, BAND_LABEL, replicate))
+    frame, truth = drawn
     result = fit_cleverly(frame, simultaneous=True)
     return joint_coverage_rows(
         result,
@@ -760,14 +779,69 @@ def _payloads(budget: int | None) -> list[tuple[Any, ...]]:
     return out
 
 
-def _run(job: tuple[Any, tuple[Any, ...]]) -> list[dict[str, Any]]:
-    function, payload = job
-    return list(function(payload))
+def _draw(key: tuple[Any, ...]) -> Any:
+    function, payload = key[0]
+    return _draw_band(payload) if function is _band_rows else _draw_set(payload)
+
+
+def _run(key: tuple[Any, ...], drawn: Any) -> list[dict[str, Any]]:
+    function, payload = key[0]
+    return list(function(payload, drawn))
+
+
+#: Each calibration label's positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived(CALIBRATION_LABELS)
+
+
+def _cells_of(key: tuple[Any, ...]) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    function, payload = key[0]
+    if function is _band_rows:
+        return [f"{JOINT}/{name}" for name in joint_cells(BAND_LABEL)]
+    family, label, _, _, n, _, law_name = payload
+    if family == "crossfit_overfitting":
+        return [f"{family}/cross_fitted_msm", f"{family}/in_sample_control"]
+    if law_name == "discrete_logit":
+        names = [f"{family}/{LOGIT}__correctly_specified"]
+    else:
+        single = family in {"type_i_error", "power", "targeting_necessity", "projection_necessity"}
+        names = []
+        for term in ("duration",) if single else TERMS:
+            names.append(f"{family}/{term}__{label}")
+            if family == "targeting_necessity":
+                names.append(f"{family}/{term}__untargeted")
+            if family == "projection_necessity":
+                names.append(f"{family}/{term}__uniform_weights")
+            if family == "root_n_and_efficiency" and n == max(RATE_SIZES):
+                names.append(f"in_sample_agreement/{term}__in_sample_agreement")
+    for name in list(names):
+        names += DERIVED_CELLS.get(name, ())
+    return names
+
+
+def _cell_of(key: tuple[Any, ...]) -> str:
+    """The fit set a key belongs to."""
+    function, payload = key[0]
+    return f"{JOINT}/{BAND_LABEL}" if function is _band_rows else f"{payload[0]}/{payload[1]}"
+
+
+def _replicate_of(key: tuple[Any, ...]) -> int:
+    function, payload = key[0]
+    return int(payload[0] if function is _band_rows else payload[3])
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each fit set for a pre-run check."""
-    outcomes = map_parallel(_run, _payloads(budget), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(budget),
+        _run,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [
@@ -808,7 +882,7 @@ def failure_probe(draws: int, *, n_jobs: int = 1, start: int = 0) -> dict[str, i
 
 def _probe_one(payload: tuple[str, str, str, int, int, int, str]) -> bool:
     try:
-        rows = _fit_set_rows(payload)
+        rows = _fit_set_rows(payload, _draw_set(payload))
     except Exception:
         return True
     return not all(np.isfinite(row["estimate"]) and np.isfinite(row["std_error"]) for row in rows)

@@ -95,15 +95,21 @@ from tests.studies.evidence.properties import (
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     crossfit_overfitting_verdicts,
     finish,
     necessity_verdicts,
     simultaneous_coverage_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import FAMILY as JOINT
-from tests.studies.evidence.simultaneous import joint_coverage_rows, joint_property_cells
+from tests.studies.evidence.simultaneous import (
+    joint_cells,
+    joint_coverage_rows,
+    joint_property_cells,
+)
 
 DOUBLE_ROBUST_REPLICATES = 1_200
 DOUBLE_ROBUST_N = 2_000
@@ -732,7 +738,27 @@ def _role(family: str, label: str, n: int) -> str:
     return "positive"
 
 
+def _draw_fit_set(payload: tuple[str, str, str, int, int, int, str]) -> pd.DataFrame:
+    """The sample one draw of one fit set fits, a function of the payload alone."""
+    family, label, _, replicate, n, _, law_name = payload
+    seed = _seed(family, label, replicate)
+    if law_name == "survival_policy":
+        return survival_sample(n, seed)
+    if law_name == "policy_msm":
+        return law.sample(law.PROBS, n, seed)
+    if family == "crossfit_overfitting":
+        return law.sample(law.PROBS, n, seed, noise=True)
+    return law.sample(NULL_PROBS if law_name == "policy_null" else law.PROBS, n, seed)
+
+
 def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dict[str, Any]]:
+    """Every row one draw of one fit set publishes, drawn and fitted in one call."""
+    return _fit_set_drawn(payload, _draw_fit_set(payload))
+
+
+def _fit_set_drawn(
+    payload: tuple[str, str, str, int, int, int, str], frame: pd.DataFrame
+) -> list[dict[str, Any]]:
     """Every row one draw of one fit set publishes."""
     family, label, configuration, replicate, n, requested, law_name = payload
     seed = _seed(family, label, replicate)
@@ -751,15 +777,14 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
         )
 
     if law_name == "survival_policy":
-        result = survival_fit(survival_sample(n, seed))
+        result = survival_fit(frame)
         return [
             row(f"{label}__correctly_specified", "positive", SURVIVAL_TRUTH, result[SURVIVAL_NAME])
         ]
     if law_name == "policy_msm":
-        result = msm_fit(law.sample(law.PROBS, n, seed))
+        result = msm_fit(frame)
         return [row(f"{label}__correctly_specified", "positive", MSM_TRUTH, result[MSM_NAME])]
     if family == "crossfit_overfitting":
-        frame = law.sample(law.PROBS, n, seed, noise=True)
         truth = float(TRUTH[MIX])
         return [
             row(
@@ -775,8 +800,6 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
                 fit(frame, configuration="overfit_control", n_folds=1)[MIX],
             ),
         ]
-    probs = NULL_PROBS if law_name == "policy_null" else law.PROBS
-    frame = law.sample(probs, n, seed)
     if family == "randomizer_projection":
         truth = float(TRUTH[MIX_MEAN])
         integrated = fit(frame, configuration=configuration)
@@ -820,9 +843,12 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
     return rows
 
 
-def _band_rows(payload: tuple[int, int]) -> list[dict[str, Any]]:
+def _draw_band(payload: tuple[int, int]) -> pd.DataFrame:
+    return law.sample(law.PROBS, PRIMARY_N, _seed(JOINT, BAND_LABEL, payload[0]))
+
+
+def _band_rows(payload: tuple[int, int], frame: pd.DataFrame) -> list[dict[str, Any]]:
     replicate, requested = payload
-    frame = law.sample(law.PROBS, PRIMARY_N, _seed(JOINT, BAND_LABEL, replicate))
     result = fit(frame, simultaneous=True)
     return joint_coverage_rows(
         result,
@@ -836,27 +862,81 @@ def _band_rows(payload: tuple[int, int]) -> list[dict[str, Any]]:
     )
 
 
-def _payloads(budget: int | None) -> list[tuple[Any, ...]]:
-    out: list[tuple[Any, ...]] = []
+#: The calibration positive arm of each label to the controls derived from it.
+DERIVED_CELLS = calibration_derived(CALIBRATION_LABELS)
+
+#: A fit-set key is ``("fit_set", payload)`` and a band key is ``("band", (replicate, requested))``.
+_Key = tuple[str, tuple[Any, ...]]
+
+
+def _payloads(budget: int | None) -> list[_Key]:
+    out: list[_Key] = []
     for family, label, configuration, n, replicates, law_name in FIT_SETS:
         requested = replicates if budget is None else budget
         out.extend(
-            ((_fit_set_rows, (family, label, configuration, r, n, requested, law_name)),)
+            ("fit_set", (family, label, configuration, r, n, requested, law_name))
             for r in range(requested)
         )
     band = BAND_REPLICATES if budget is None else budget
-    out.extend(((_band_rows, (r, band)),) for r in range(band))
+    out.extend(("band", (r, band)) for r in range(band))
     return out
 
 
-def _run(job: tuple[Any, tuple[Any, ...]]) -> list[dict[str, Any]]:
-    function, payload = job
-    return list(function(payload))
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone."""
+    kind, payload = key
+    return _draw_band(payload) if kind == "band" else _draw_fit_set(payload)
+
+
+def _run(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    kind, payload = key
+    return list(_band_rows(payload, frame) if kind == "band" else _fit_set_drawn(payload, frame))
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``family/cell`` names the key's rows and derived controls fill."""
+    kind, payload = key
+    if kind == "band":
+        return [f"{JOINT}/{name}" for name in joint_cells(BAND_LABEL)]
+    family, label, _, _, _, _, law_name = payload
+    if family == "crossfit_overfitting":
+        return [f"{family}/cross_fitted_policy_ltmle", f"{family}/in_sample_control"]
+    if family == "randomizer_projection":
+        return [f"{family}/mix__integrated", f"{family}/mix__recorded_randomizer"]
+    if family == "policy_necessity":
+        return [f"{family}/mix__declared_policy", f"{family}/mix__uniform_control"]
+    if law_name in {"survival_policy", "policy_msm"}:
+        base = f"{family}/{label}__correctly_specified"
+    else:
+        stream = "correctly_specified" if family == "interval_calibration" else label
+        base = f"{family}/mix__{stream}"
+        if family == "targeting_necessity":
+            return [base, f"{family}/mix__untargeted"]
+    return [base, *DERIVED_CELLS.get(base, ())]
+
+
+def _cell_of(key: _Key) -> str:
+    kind, payload = key
+    return f"{JOINT}/{BAND_LABEL}" if kind == "band" else f"{payload[0]}/{payload[1]}"
+
+
+def _replicate_of(key: _Key) -> int:
+    kind, payload = key
+    return payload[0] if kind == "band" else payload[3]
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each fit set for a pre-run check."""
-    outcomes = map_parallel(_run, _payloads(budget), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(budget),
+        _run,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [

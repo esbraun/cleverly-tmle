@@ -10,18 +10,19 @@ from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
 from cleverly.datasets import make_longitudinal_survival
 from cleverly.longitudinal import LTMLE
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_ltmle_competing_crossfit as canonical
 from tests.studies import ltmle_competing_properties as base
 from tests.studies.canonical_ltmle import KnownLongitudinalMechanism
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, replicate_row
+from tests.studies.evidence.replication import fit_properties, splat
 from tests.studies.evidence.seeds import stream_seed
 
 STUDY = canonical.STUDY
 PROPERTY_LABELS = base.PROPERTY_LABELS
 CONTRASTS = base.CONTRASTS
 EFFICIENCY_SD = base.EFFICIENCY_SD
+DERIVED_CELLS = base.DERIVED_CELLS
 
 # The four acceptance margins, re-exported rather than delegated to.  ``claims.thresholds``
 # publishes each of these under a ``margin:`` name, and it reaches them through
@@ -132,11 +133,31 @@ def _overfit_payloads() -> list[tuple[tuple[str, int, int, int, int]]]:
     ]
 
 
+def _overfit_cells_of(key: tuple[tuple[str, int, int, int, int]]) -> list[str]:
+    return [f"crossfit_overfitting/{key[0][0]}"]
+
+
+def _overfit_cell_of(key: tuple[tuple[str, int, int, int, int]]) -> str:
+    return f"crossfit_overfitting/{key[0][0]}"
+
+
+def _overfit_replicate_of(key: tuple[tuple[str, int, int, int, int]]) -> int:
+    return int(key[0][1])
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     rows = base.generate_for(
         STUDY, lambda frame, configuration: fit(frame, configuration), n_jobs=n_jobs
     )
-    overfit = map_parallel(_overfit_replication, _overfit_payloads(), n_jobs=n_jobs)
+    overfit = fit_properties(
+        _overfit_payloads(),
+        splat(_overfit_replication),
+        cells_of=_overfit_cells_of,
+        cell_of=_overfit_cell_of,
+        replicate_of=_overfit_replicate_of,
+        n_jobs=n_jobs,
+        label="properties/overfit",
+    )
     combined = pd.concat(
         [rows, pd.DataFrame([row for result in overfit for row in result])], ignore_index=True
     )

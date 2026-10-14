@@ -20,7 +20,6 @@ from typing import Any
 
 import pandas as pd
 
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.calibration_slope_warning import (
     BAND_CONTROLLED,
@@ -37,6 +36,7 @@ from tests.studies.calibration_slope_warning import (
 )
 from tests.studies.evidence.properties import REPLICATE_COLUMNS
 from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
+from tests.studies.evidence.replication import fit_properties, splat
 from tests.studies.evidence.seeds import stream_seed
 
 #: Replications per property law.  A control reads its positive cell's fits.
@@ -109,6 +109,23 @@ def _replicate(family: str, law_name: str, replicate: int, replicates: int) -> l
     return rows
 
 
+def _cells_of(key: tuple[str, str, int, int]) -> list[str]:
+    """The ``property/cell`` names the key's rows fill."""
+    family, law_name = key[:2]
+    cells = [f"{family}/{law_name}__rule"]
+    if family == "warning_rate" and law_name in BAND_CONTROLLED:
+        cells.append(f"{family}/{law_name}__fixed_band")
+    return cells
+
+
+def _cell_of(key: tuple[str, str, int, int]) -> str:
+    return f"{key[0]}/{key[1]}__rule"
+
+
+def _replicate_of(key: tuple[str, str, int, int]) -> int:
+    return key[2]
+
+
 def generate_property_rows(
     *, n_jobs: int = STUDY_JOBS, replicates: int = PROPERTY_REPLICATES
 ) -> pd.DataFrame:
@@ -117,7 +134,14 @@ def generate_property_rows(
     payloads = [
         (family, law, index, replicates) for family, law in laws for index in range(replicates)
     ]
-    outcomes = map_parallel(_replicate, payloads, n_jobs=n_jobs)
+    outcomes = fit_properties(
+        payloads,
+        splat(_replicate),
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+    )
     rows = pd.DataFrame([row for records in outcomes for row in records])
     for family, declared in PROPERTY_CELLS.items():
         cells = set(rows.loc[rows["property"] == family, "cell"])

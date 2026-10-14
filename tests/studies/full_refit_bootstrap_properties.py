@@ -28,7 +28,6 @@ from scipy.stats import norm
 
 from cleverly.estimators import TMLE
 from cleverly.longitudinal import LTMLE
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law as point_law
 from tests import discrete_law_longitudinal as end_law
 from tests.parallel import STUDY_JOBS
@@ -52,6 +51,7 @@ from tests.studies.evidence.property_verdicts import (
     calibration_verdicts,
     finish,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 
 #: The extra replicate columns a bootstrap row carries.
@@ -259,15 +259,25 @@ def _bootstrap_rows(
     return rows
 
 
-def _fit(group: str, spec: dict[str, Any], replicate: int) -> Any:
-    """One sample and one fit, shared by every cell of ``group``."""
+def _sample(group: str, spec: dict[str, Any], replicate: int) -> pd.DataFrame:
+    """The sample shared by every cell of ``group``."""
     seed = stream_seed(STUDY, "property_sample", group, replicate)
+    if spec["law"] == "point":
+        return finite_support_sample(
+            point_law.PROBS, point_law.SUPPORT, spec["n"], seed, columns=("W", "A", "Y")
+        )
+    if spec["law"] == "end_of_study":
+        return sample_end_of_study(spec["n"], seed)
+    if spec["law"] == "clustered":
+        return sample_clustered(seed)
+    return grid.sample(spec["n"], np.random.default_rng(seed))
+
+
+def _fit(group: str, spec: dict[str, Any], replicate: int, frame: pd.DataFrame) -> Any:
+    """One fit of ``frame``, shared by every cell of ``group``."""
     fit_seed = stream_seed(STUDY, "fit_seed", group, replicate)
     boot = {"n_bootstrap": spec["bootstrap"]} if spec["bootstrap"] else {}
     if spec["law"] == "point":
-        frame = finite_support_sample(
-            point_law.PROBS, point_law.SUPPORT, spec["n"], seed, columns=("W", "A", "Y")
-        )
         return (
             TMLE(
                 outcome_learner=end_law.CellMeans(),
@@ -282,13 +292,8 @@ def _fit(group: str, spec: dict[str, Any], replicate: int) -> Any:
             .fit(frame, outcome="Y", treatment="A", covariates=["W"])
             .single()
         )
-    if spec["law"] == "end_of_study":
-        frame = sample_end_of_study(spec["n"], seed)
+    if spec["law"] in ("end_of_study", "clustered"):
         return fit_end_of_study(frame, n_folds=spec["folds"], random_state=fit_seed, **boot)
-    if spec["law"] == "clustered":
-        frame = sample_clustered(seed)
-        return fit_end_of_study(frame, n_folds=spec["folds"], random_state=fit_seed, **boot)
-    frame = grid.sample(spec["n"], np.random.default_rng(seed))
     return fit_grid(frame, n_folds=spec["folds"], random_state=fit_seed, **boot)
 
 
@@ -325,19 +330,46 @@ def _rows(spec: dict[str, Any], result: Any, replicate: int) -> list[dict[str, A
     return _bootstrap_rows(spec, replicate, truth, result[name], failed)
 
 
-def _measure(group: str, replicate: int) -> list[dict[str, Any]]:
+def _measure(group: str, replicate: int, frame: pd.DataFrame) -> list[dict[str, Any]]:
     """Every row of ``group`` at ``replicate``."""
     specs = GROUPS[group]
-    result = _fit(group, specs[0], replicate)
+    result = _fit(group, specs[0], replicate, frame)
     return [row for spec in specs for row in _rows(spec, result, replicate)]
 
 
-def _fit_replication(payload: tuple[str, int]) -> list[dict[str, Any]]:
-    group, replicate = payload
-    return _measure(group, replicate)
+_Key = tuple[tuple[str, int]]
 
 
-def payloads(replicates: int | None = None) -> list[tuple[tuple[str, int]]]:
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone."""
+    group, replicate = key[0]
+    return _sample(group, GROUPS[group][0], replicate)
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``interval_calibration/<cell>`` names the group's rows fill, controls included."""
+    names = []
+    for spec in GROUPS[key[0][0]]:
+        names.append(f"interval_calibration/{spec['label']}__correctly_specified")
+        if spec["control"]:
+            names.append(f"interval_calibration/{spec['label']}__shrunken_se_control")
+    return names
+
+
+def _cell_of(key: _Key) -> str:
+    return key[0][0]
+
+
+def _replicate_of(key: _Key) -> int:
+    return key[0][1]
+
+
+def _fit_replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    group, replicate = key[0]
+    return _measure(group, replicate, frame)
+
+
+def payloads(replicates: int | None = None) -> list[_Key]:
     """Every (group, replicate) pair, optionally capped for a smoke pass."""
     return [
         ((group, replicate),)
@@ -347,7 +379,15 @@ def payloads(replicates: int | None = None) -> list[tuple[tuple[str, int]]]:
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    outcomes = map_parallel(_fit_replication, payloads(), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        payloads(),
+        _fit_replication,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        draw=_draw,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     return rows.loc[:, [*REPLICATE_COLUMNS, *BOOTSTRAP_COLUMNS]].sort_values(
         ["property", "cell", "replicate"], ignore_index=True

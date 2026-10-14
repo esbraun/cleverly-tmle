@@ -13,7 +13,6 @@ from sklearn.linear_model import LinearRegression
 from cleverly.datasets import ShiftDGP
 from cleverly.estimators import TMLE
 from cleverly.learners.density import bin_edges
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_shift_policies import (
     DENSITY_BINS,
@@ -27,12 +26,18 @@ from tests.studies.canonical_shift_policies import (
     reversed_ratio_control,
     shifts,
 )
-from tests.studies.evidence.properties import control_row, replicate_row
+from tests.studies.evidence.properties import (
+    control_row,
+    payload_cell,
+    payload_replicate,
+    replicate_row,
+)
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     finish,
     necessity_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties, splat
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.intervention_study_helpers import INTERVENTION_CALIBRATION_REPLICATES
 
@@ -215,6 +220,28 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
     return rows
 
 
+#: The calibration positive arm to the one control the generator derives from it.
+DERIVED_CELLS = {
+    "interval_calibration/correctly_specified": ("interval_calibration/shrunken_se_control",)
+}
+
+_PAIRS = {
+    "targeting_necessity": ("shift__targeted", "shift__untargeted"),
+    "ratio_necessity": ("shift__declared", "shift__reversed_control"),
+    "cap_necessity": ("shift__declared_cap", "shift__uncapped_control"),
+    "natural_course_identity": ("natural__shift", "natural__mean"),
+}
+
+
+def _cells_of(key: tuple[tuple[str, str, int, int, int, int, str]]) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived control fill."""
+    property_name, cell = key[0][:2]
+    if property_name in _PAIRS:
+        return [f"{property_name}/{name}" for name in _PAIRS[property_name]]
+    name = f"{property_name}/{cell}"
+    return [name, *DERIVED_CELLS.get(name, ())]
+
+
 def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
     specs: list[tuple[str, str, int, int, str]] = []
     for configuration in ("both_correct", "outcome_correct", "density_correct", "both_wrong"):
@@ -267,7 +294,15 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    outcomes = map_parallel(_fit_replication, _payloads(), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(),
+        splat(_fit_replication),
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     source = rows.loc[
         (rows["property"] == "interval_calibration") & (rows["cell"] == "correctly_specified")

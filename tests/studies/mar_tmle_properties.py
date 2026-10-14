@@ -9,7 +9,6 @@ import pandas as pd
 from scipy.stats import norm
 
 from cleverly.estimators import TMLE
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_mar as mar
 from tests.conftest import OracleMissingness, OracleOutcome, OracleTreatment
 from tests.parallel import STUDY_JOBS
@@ -17,6 +16,8 @@ from tests.studies.canonical_mar_tmle import G_BOUNDS, NUISANCE_BOUND, STUDY
 from tests.studies.evidence.properties import (
     ReplicationSpec,
     control_row,
+    payload_cell,
+    payload_replicate,
     property_role,
     replicate_row,
     replication_payloads,
@@ -24,11 +25,13 @@ from tests.studies.evidence.properties import (
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     necessity_verdicts,
     robustness_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.missing_outcome_study_helpers import (
     WRONG_PI,
     WRONG_Q,
@@ -114,10 +117,34 @@ def _fit(
     )
 
 
-def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[dict[str, Any]]:
-    property_name, cell, replicate, n, requested, seed, configuration = payload
+#: The calibration positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived(("ate",))
+
+_Key = tuple[tuple[str, str, int, int, int, int, str]]
+
+
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, which is a function of the key alone."""
+    property_name, _, _, n, _, seed, _ = key[0]
     probs = NULL_PROBS if property_name == "type_i_error" else mar.PROBS
-    frame = sample_discrete(probs, n, seed)
+    return sample_discrete(probs, n, seed)
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    property_name, cell = key[0][:2]
+    if property_name == "targeting_necessity":
+        return [f"{property_name}/ate__targeted", f"{property_name}/ate__untargeted"]
+    if property_name == "missingness_necessity":
+        return [f"{property_name}/ate__declared", f"{property_name}/ate__complete_case_control"]
+    name = f"{property_name}/{cell}"
+    return [name, *DERIVED_CELLS.get(name, ())]
+
+
+def _fit_replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    (payload,) = key
+    property_name, cell, replicate, n, requested, _seed, configuration = payload
+    probs = NULL_PROBS if property_name == "type_i_error" else mar.PROBS
     result = _fit(frame, configuration, probs)
     truth = NULL_TRUTH if property_name == "type_i_error" else TRUTH
     role = property_role(
@@ -230,7 +257,16 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    outcomes = map_parallel(_fit_replication, _payloads(), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(),
+        _fit_replication,
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     controls = calibration_controls(
         rows,

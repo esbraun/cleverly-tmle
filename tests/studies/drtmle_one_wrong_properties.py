@@ -58,7 +58,6 @@ from typing import Any
 
 import pandas as pd
 
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import drtmle_one_wrong as study
 from tests.studies.drtmle_one_wrong import STUDY
@@ -75,6 +74,7 @@ from tests.studies.evidence.property_verdicts import (
     finish,
     one_wrong_inference_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 
 REPORTED_FAMILY = "one_wrong_reported"
@@ -218,10 +218,53 @@ LAW_M_CELLS = {
 }
 
 
-def _replication(payload: tuple[str, str, int, int, int]) -> list[dict[str, Any]]:
-    block, label, n, replicate, requested = payload
+_Key = tuple[tuple[str, str, int, int, int]]
+
+
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone."""
+    block, label, n, replicate, _ = key[0]
     if block == "paired":
-        frame = _sample("paired", replicate, n, "L")
+        return _sample("paired", replicate, n, "L")
+    if block == "cross_fit":
+        return _sample(CROSS_FIT, replicate, n, "L")
+    if block == "ladder":
+        return _sample(label, replicate, n, "L")
+    return _sample(LAW_M, replicate, n, "M")
+
+
+def _block_cells(block: str, label: str, n: int) -> dict[str, tuple[str, str]]:
+    """The ``estimand -> (cell, family)`` maps of a block, one per fitted setting."""
+    if block == "paired":
+        return {
+            f"{setting}/{estimand}": value
+            for setting in PAIRED
+            for estimand, value in _positive_cells(setting).items()
+        }
+    if block == "cross_fit":
+        return _positive_cells(CROSS_FIT)
+    if block == "ladder":
+        return _ladder_cells(label, n)
+    return LAW_M_CELLS
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``family/cell`` names the key's rows fill."""
+    block, label, n, _, _ = key[0]
+    return [f"{family}/{cell}" for cell, family in _block_cells(block, label, n).values()]
+
+
+def _cell_of(key: _Key) -> str:
+    return _cells_of(key)[0]
+
+
+def _replicate_of(key: _Key) -> int:
+    return key[0][3]
+
+
+def _replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    block, label, n, replicate, requested = key[0]
+    if block == "paired":
         return [
             row
             for setting in PAIRED
@@ -234,7 +277,6 @@ def _replication(payload: tuple[str, str, int, int, int]) -> list[dict[str, Any]
             )
         ]
     if block == "cross_fit":
-        frame = _sample(CROSS_FIT, replicate, n, "L")
         return _rows(
             CROSS_FIT,
             frame,
@@ -243,15 +285,13 @@ def _replication(payload: tuple[str, str, int, int, int]) -> list[dict[str, Any]
             cells=_positive_cells(CROSS_FIT),
         )
     if block == "ladder":
-        frame = _sample(label, replicate, n, "L")
         return _rows(
             label, frame, replicate=replicate, requested=requested, cells=_ladder_cells(label, n)
         )
-    frame = _sample(LAW_M, replicate, n, "M")
     return _rows(LAW_M, frame, replicate=replicate, requested=requested, cells=LAW_M_CELLS)
 
 
-def payloads(budget: int | None = None) -> list[tuple[tuple[str, str, int, int, int]]]:
+def payloads(budget: int | None = None) -> list[_Key]:
     """Every replication of the study, the largest fits first.
 
     ``budget`` caps each block's replications for a smoke run, which then requests what it
@@ -302,7 +342,15 @@ def declared_truths() -> tuple[tuple[str, str, str, float], ...]:
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each block for a smoke run."""
-    outcomes = map_parallel(_replication, payloads(budget), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        payloads(budget),
+        _replication,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        draw=_draw,
+    )
     rows = pd.DataFrame([row for outcome in outcomes for row in outcome])
     return rows.loc[:, [*REPLICATE_COLUMNS, *DIAGNOSTIC_COLUMNS]].sort_values(
         ["property", "cell", "replicate"], ignore_index=True

@@ -33,9 +33,11 @@ from tests.studies.evidence.properties import REPLICATE_COLUMNS, PropertyCell, r
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 
 STUDY = study.STUDY
@@ -144,10 +146,46 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     )
 
 
-def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dict[str, Any]]:
-    family, stream, _, replicate, n, requested, label = payload
+#: The calibration positive arm of each label to the controls derived from it.
+DERIVED_CELLS = calibration_derived(CALIBRATION_LABELS)
+
+_Payload = tuple[str, str, str, int, int, int, str]
+_Key = tuple[_Payload]
+
+
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone."""
+    family, stream, _, replicate, n, _, label = key[0]
+    return study.SCENARIOS[SCENARIO_OF[label]].draw(n, _seed(family, stream, replicate))
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``family/cell`` names the fit set's row and derived controls fill."""
+    family, _, _, _, _, _, label = key[0]
+    name = f"{family}/{label}__correctly_specified"
+    return [name, *DERIVED_CELLS[name]]
+
+
+def _cell_of(key: _Key) -> str:
+    return f"{key[0][0]}/{key[0][1]}"
+
+
+def _replicate_of(key: _Key) -> int:
+    return key[0][3]
+
+
+def _fit_set_rows(payload: _Payload) -> list[dict[str, Any]]:
+    """The rows of a payload, drawn and fitted in one call, for the failure probe."""
+    return _fit_drawn(payload, _draw((payload,)))
+
+
+def _fit_key(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    return _fit_drawn(key[0], frame)
+
+
+def _fit_drawn(payload: _Payload, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    family, _, _, replicate, n, requested, label = payload
     scenario = SCENARIO_OF[label]
-    frame = study.SCENARIOS[scenario].draw(n, _seed(family, stream, replicate))
     result = fit_label(label, frame)
     return [
         replicate_row(
@@ -164,8 +202,8 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
     ]
 
 
-def _payloads(budget: int | None) -> list[tuple[Any, ...]]:
-    out: list[tuple[Any, ...]] = []
+def _payloads(budget: int | None) -> list[_Key]:
+    out: list[_Key] = []
     for family, stream, configuration, n, replicates, label in FIT_SETS:
         requested = replicates if budget is None else budget
         out.extend(
@@ -176,7 +214,16 @@ def _payloads(budget: int | None) -> list[tuple[Any, ...]]:
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each fit set for a pre-run check."""
-    outcomes = map_parallel(_fit_set_rows, _payloads(budget), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(budget),
+        _fit_key,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [

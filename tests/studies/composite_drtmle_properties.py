@@ -38,7 +38,6 @@ from scipy.stats import norm
 
 from cleverly.interventions import Rule
 from cleverly.msm import MSM
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import mar_arm_indexed_laws as laws
 from tests.studies.canonical_composite_drtmle import (
@@ -51,17 +50,24 @@ from tests.studies.canonical_composite_drtmle import (
     fit_cleverly,
     fit_exit,
 )
-from tests.studies.evidence.properties import control_row, replicate_row
+from tests.studies.evidence.properties import (
+    control_row,
+    payload_replicate,
+    replicate_row,
+)
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     robustness_verdicts,
     simultaneous_coverage_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties, splat
 from tests.studies.evidence.seeds import stream_seed
-from tests.studies.evidence.simultaneous import joint_coverage_rows
+from tests.studies.evidence.simultaneous import FAMILY as JOINT_FAMILY
+from tests.studies.evidence.simultaneous import joint_cells, joint_coverage_rows
 
 ROBUSTNESS_REPLICATES = 800
 ROBUSTNESS_N = 2_000
@@ -474,6 +480,41 @@ def _fit_replication(payload: Payload) -> list[dict[str, Any]]:
     return [{**row, **fit_exit(result)} for row in rows]
 
 
+#: The calibration positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived(("ate",))
+
+
+def _cell_of(key: tuple[Payload]) -> str:
+    """The fit set a key belongs to: a scenario is fitted once per configuration."""
+    property_name, cell, _, _, _, _, configuration = key[0]
+    return f"{property_name}/{cell}/{configuration}"
+
+
+def _cells_of(key: tuple[Payload]) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    property_name, cell, _, _, _, _, configuration = key[0]
+    if property_name == "simultaneous_coverage":
+        return [f"{JOINT_FAMILY}/{name}" for name in joint_cells(cell)]
+    if property_name == "corrected_mar_inference":
+        return [
+            f"{property_name}/{prefix}__{'both_wrong' if configuration == LOW_CONTROL else configuration}"
+            for prefix, (owner, _) in CONTRASTS.items()
+            if owner == cell and _reports(prefix, configuration)
+        ]
+    if property_name == "correction_necessity":
+        return [
+            f"{property_name}/composite_cycle__closed_score",
+            f"{property_name}/composite_cycle__initial_score_control",
+        ]
+    if property_name == "interval_calibration":
+        return [
+            f"{property_name}/{cell}",
+            *DERIVED_CELLS[f"{property_name}/{cell}"],
+            *(f"{JOINT_FAMILY}/{name}" for name in joint_cells("composite_binary")),
+        ]
+    return [f"{property_name}/{cell}"]
+
+
 def _specs() -> list[tuple[str, str, int, int, str]]:
     specs: list[tuple[str, str, int, int, str]] = [
         ("corrected_mar_inference", scenario, ROBUSTNESS_N, ROBUSTNESS_REPLICATES, configuration)
@@ -547,7 +588,15 @@ def _payloads(budget: int | None = None) -> list[tuple[Payload]]:
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
-    outcomes = map_parallel(_fit_replication, _payloads(budget), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(budget),
+        splat(_fit_replication),
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     controls = calibration_controls(
         rows,

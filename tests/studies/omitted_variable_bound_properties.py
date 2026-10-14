@@ -18,7 +18,6 @@ from typing import Any
 
 import pandas as pd
 
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.evidence.properties import REPLICATE_COLUMNS
 from tests.studies.evidence.property_verdicts import (
@@ -26,6 +25,7 @@ from tests.studies.evidence.property_verdicts import (
     calibration_verdicts,
     finish,
 )
+from tests.studies.evidence.replication import fit_properties, splat
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.omitted_variable_bound import (
     ENDS,
@@ -101,11 +101,31 @@ def _replicate(replicate: int) -> list[dict[str, Any]]:
     return rows
 
 
+def _cells_of(key: tuple[int]) -> list[str]:
+    """Every cell reads the same fit, so a key fills all of them."""
+    return [f"interval_calibration/{cell}" for cell in PROPERTY_CELLS["interval_calibration"]]
+
+
+def _cell_of(key: tuple[int]) -> str:
+    return "interval_calibration/linear"
+
+
+def _replicate_of(key: tuple[int]) -> int:
+    return key[0]
+
+
 def generate_property_rows(
     *, n_jobs: int = STUDY_JOBS, replicates: int = PROPERTY_REPLICATES
 ) -> pd.DataFrame:
     """Fit every property replication and return one row per cell and replication."""
-    outcomes = map_parallel(_replicate, [(index,) for index in range(replicates)], n_jobs=n_jobs)
+    outcomes = fit_properties(
+        [(index,) for index in range(replicates)],
+        splat(_replicate),
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+    )
     rows = pd.DataFrame([row for records in outcomes for row in records])
     if replicates != PROPERTY_REPLICATES:
         rows["requested_replicates"] = replicates

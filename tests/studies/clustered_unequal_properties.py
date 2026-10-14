@@ -34,7 +34,6 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.estimators import DRTMLE, TMLE
 from cleverly.inference import influence_variance
-from cleverly.utils.parallel import map_parallel
 from tests.conftest import OracleTreatment
 from tests.parallel import STUDY_JOBS
 from tests.studies import clustered_unequal_laws as laws
@@ -58,6 +57,7 @@ from tests.studies.evidence.property_verdicts import (
     clustered_inference_verdicts,
     finish,
 )
+from tests.studies.evidence.replication import fit_properties, splat
 from tests.studies.evidence.seeds import stream_seed
 
 TARGET = "ate"
@@ -321,9 +321,38 @@ def _run(job: tuple[Any, tuple[Any, ...]]) -> list[dict[str, Any]]:
     return list(function(payload))
 
 
+def _cells_of(key: tuple[Any, ...]) -> list[str]:
+    """The ``property/cell`` names the key's rows fill."""
+    function, payload = key[0]
+    if function is _pair_rows:
+        return [f"{CLUSTERED}/{payload[3]}", f"{CLUSTERED}/{payload[4]}"]
+    if function is _weighting_rows:
+        return [f"{WEIGHTING}/{cell}" for cell, *_ in WEIGHTING_CELLS]
+    return [f"{AGGREGATION}/cluster_sum", f"{AGGREGATION}/cluster_mean"]
+
+
+def _cell_of(key: tuple[Any, ...]) -> str:
+    """The fit set a key belongs to: a pair, the weighting fits or the aggregation fit."""
+    function, payload = key[0]
+    if function is _pair_rows:
+        return f"{CLUSTERED}/{payload[3]}"
+    return f"{WEIGHTING if function is _weighting_rows else AGGREGATION}/paired"
+
+
+def _replicate_of(key: tuple[Any, ...]) -> int:
+    return int(key[0][1][0])
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each family for a pre-run check."""
-    outcomes = map_parallel(_run, _payloads(budget), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(budget),
+        splat(_run),
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+    )
     return pd.DataFrame([row for rows in outcomes for row in rows])
 
 

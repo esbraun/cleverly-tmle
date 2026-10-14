@@ -14,12 +14,12 @@ from typing import Any
 
 import pandas as pd
 
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import known_mechanism_law as law
 from tests.studies.canonical_known_mechanism_drtmle import STUDY, fit_cleverly
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, replicate_row
 from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
+from tests.studies.evidence.replication import fit_properties, splat
 from tests.studies.evidence.seeds import stream_seed
 
 ACCURACY = "known_mechanism_accuracy"
@@ -57,6 +57,19 @@ def _replication(replicate: int) -> list[dict[str, Any]]:
     return rows
 
 
+def _cells_of(key: tuple[int]) -> list[str]:
+    """Every guard cell reads the same draw, so a key fills all of them."""
+    return [f"{ACCURACY}/ate__drtmle_known__{suffix}" for suffix in GUARD_CELLS]
+
+
+def _cell_of(key: tuple[int]) -> str:
+    return _cells_of(key)[0]
+
+
+def _replicate_of(key: tuple[int]) -> int:
+    return key[0]
+
+
 def declared_truths() -> tuple[tuple[str, str, str, float], ...]:
     """Every ``(family, cell, estimand, truth)`` the replication file carries.
 
@@ -68,7 +81,14 @@ def declared_truths() -> tuple[tuple[str, str, str, float], ...]:
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     replicates = ACCURACY_REPLICATES if budget is None else min(budget, ACCURACY_REPLICATES)
-    outcomes = map_parallel(_replication, [(r,) for r in range(replicates)], n_jobs=n_jobs)
+    outcomes = fit_properties(
+        [(r,) for r in range(replicates)],
+        splat(_replication),
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+    )
     rows = pd.DataFrame([row for outcome in outcomes for row in outcome])
     if budget is not None:
         # A capped smoke run requests what it runs, so the summary reads it as complete.

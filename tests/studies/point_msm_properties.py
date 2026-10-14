@@ -9,7 +9,6 @@ import pandas as pd
 from scipy.stats import norm
 
 from cleverly.estimators import TMLE
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law as law
 from tests.conftest import OracleOutcome, OracleTreatment
 from tests.parallel import STUDY_JOBS
@@ -23,15 +22,19 @@ from tests.studies.canonical_point_msm import (
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
+    payload_cell,
+    payload_replicate,
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     necessity_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 
 DOUBLE_ROBUST_REPLICATES = 1_200
@@ -150,25 +153,47 @@ def fit(
     )
 
 
-def _fit_replication(
-    payload: tuple[str, str, int, int, int, int, str],
-) -> list[dict[str, Any]]:
-    property_name, cell_suffix, replicate, n, requested, seed, configuration = payload
+#: The calibration positive arm of each term to the controls derived from it.
+DERIVED_CELLS = calibration_derived(TERMS)
+
+_Key = tuple[tuple[str, str, int, int, int, int, str]]
+
+_SINGLE_TERM = {"type_i_error", "power", "targeting_necessity"}
+
+
+def _terms(property_name: str) -> tuple[str, ...]:
+    if property_name in _SINGLE_TERM:
+        return ("a",)
+    return ("W",) if property_name == "projection_necessity" else TERMS
+
+
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone."""
+    property_name, _, _, n, _, seed, _ = key[0]
+    return sample(NULL_PROBS if property_name == "type_i_error" else law.PROBS, n, seed)
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    property_name, cell_suffix = key[0][:2]
+    names = []
+    for term in _terms(property_name):
+        name = f"{property_name}/{term}__{cell_suffix}"
+        names.append(name)
+        names.extend(DERIVED_CELLS.get(name, ()))
+        if property_name == "targeting_necessity":
+            names.append(f"{property_name}/{term}__untargeted")
+        if property_name == "projection_necessity":
+            names.append(f"{property_name}/{term}__uniform_weights")
+    return names
+
+
+def _fit_replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    property_name, cell_suffix, replicate, n, requested, _seed, configuration = key[0]
     probs = NULL_PROBS if property_name == "type_i_error" else law.PROBS
-    frame = sample(probs, n, seed)
     result = fit(frame, probs, configuration)
-    terms = (
-        ("a",)
-        if property_name
-        in {
-            "type_i_error",
-            "power",
-            "targeting_necessity",
-        }
-        else (("W",) if property_name == "projection_necessity" else TERMS)
-    )
     rows: list[dict[str, Any]] = []
-    for term in terms:
+    for term in _terms(property_name):
         name = NAMES[term]
         truth = NULL_TRUTH if property_name == "type_i_error" else float(TRUTH[name])
         role = (
@@ -223,7 +248,7 @@ def _fit_replication(
     return rows
 
 
-def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
+def _payloads() -> list[_Key]:
     specs: list[tuple[str, str, int, int, str]] = []
     for configuration in ("both_correct", "outcome_correct", "mechanism_correct", "both_wrong"):
         specs.append(
@@ -264,7 +289,7 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
             ),
         ]
     )
-    payloads: list[tuple[tuple[str, str, int, int, int, int, str]]] = []
+    payloads: list[_Key] = []
     for property_name, cell, n, replicates, configuration in specs:
         for replicate in range(replicates):
             seed = stream_seed(STUDY, "property_sample", property_name, cell, replicate)
@@ -273,7 +298,16 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    outcomes = map_parallel(_fit_replication, _payloads(), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(),
+        _fit_replication,
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [

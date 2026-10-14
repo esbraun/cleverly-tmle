@@ -178,6 +178,16 @@ def replication_payloads(
     return out
 
 
+def payload_cell(key: Sequence[Any]) -> str:
+    """The ``property/cell`` of a :func:`replication_payloads` key, for the systematic prefix."""
+    return f"{key[0][0]}/{key[0][1]}"
+
+
+def payload_replicate(key: Sequence[Any]) -> int:
+    """The replicate index of a :func:`replication_payloads` key."""
+    return int(key[0][2])
+
+
 #: The absolute floor a property truth is read back at, beside a relative tolerance.
 #:
 #: A relative tolerance alone cannot read a truth that is zero by construction, such as a

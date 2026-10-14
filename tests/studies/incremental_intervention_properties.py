@@ -9,7 +9,6 @@ import pandas as pd
 from scipy.stats import norm
 
 from cleverly.estimators import TMLE
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law as law
 from tests import incrementals
 from tests.conftest import OracleOutcome, OracleTreatment
@@ -17,16 +16,20 @@ from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_incremental_interventions import STUDY
 from tests.studies.evidence.properties import (
     control_row,
+    payload_cell,
+    payload_replicate,
     ratio_intervals,
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     necessity_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.intervention_study_helpers import (
     INTERVENTION_CALIBRATION_REPLICATES,
@@ -100,15 +103,46 @@ def _score_control_standard_error(result: Any) -> float:
     return float(np.std(control_curve, ddof=1) / np.sqrt(result.data.n))
 
 
-def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[dict[str, Any]]:
-    property_name, cell, replicate, n, requested, seed, configuration = payload
+#: The calibration positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived(("contrast",))
+
+_Key = tuple[tuple[str, str, int, int, int, int, str]]
+
+
+def _probs(property_name: str) -> np.ndarray:
     if property_name == "type_i_error":
-        probs = NULL_PROBS
-    elif property_name == "treatment_score_necessity":
-        probs = SCORE_PROBS
-    else:
-        probs = law.PROBS
-    frame = sample_discrete(probs, n, seed)
+        return NULL_PROBS
+    if property_name == "treatment_score_necessity":
+        return SCORE_PROBS
+    return law.PROBS
+
+
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone."""
+    property_name, _, _, n, _, seed, _ = key[0]
+    return sample_discrete(_probs(property_name), n, seed)
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    property_name, cell = key[0][:2]
+    if property_name == "targeting_necessity":
+        arm = "outcome" if cell == "outcome_targeted" else "mechanism"
+        return [f"{property_name}/{arm}__targeted", f"{property_name}/{arm}__untargeted"]
+    if property_name == "treatment_score_necessity":
+        return [
+            f"{property_name}/odds_x2__full_eif",
+            f"{property_name}/odds_x2__regime_curve_control",
+        ]
+    if property_name == "natural_course_identity":
+        return [f"{property_name}/natural__ipsi", f"{property_name}/natural__mean"]
+    name = f"{property_name}/{cell}"
+    return [name, *DERIVED_CELLS.get(name, ())]
+
+
+def _fit_replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    property_name, cell, replicate, n, requested, _seed, configuration = key[0]
+    probs = _probs(property_name)
     result = fit(frame, probs, configuration)
     target = SCORE_TARGET if property_name == "treatment_score_necessity" else TARGET
     truth = float(law.functional(probs, target))
@@ -215,7 +249,7 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
     return rows
 
 
-def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
+def _payloads() -> list[_Key]:
     specs: list[tuple[str, str, int, int, str]] = [
         (
             "mechanism_requirement",
@@ -290,7 +324,7 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
             ),
         ]
     )
-    out: list[tuple[tuple[str, str, int, int, int, int, str]]] = []
+    out: list[_Key] = []
     for property_name, cell, n, replicates, configuration in specs:
         for replicate in range(replicates):
             seed = stream_seed(STUDY, "property_sample", property_name, cell, replicate)
@@ -299,7 +333,16 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    outcomes = map_parallel(_fit_replication, _payloads(), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(),
+        _fit_replication,
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     controls = calibration_controls(
         rows,

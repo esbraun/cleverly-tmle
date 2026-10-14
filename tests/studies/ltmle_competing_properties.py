@@ -33,7 +33,6 @@ from sklearn.dummy import DummyClassifier, DummyRegressor
 
 from cleverly.learners.crossfit import Folds
 from cleverly.longitudinal import LTMLE
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_competing as law
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_ltmle_competing as canonical
@@ -41,19 +40,24 @@ from tests.studies.canonical_ltmle import declared_regimens
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
+    payload_cell,
+    payload_replicate,
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     crossfit_overfitting_verdicts,
     finish,
     necessity_verdicts,
     simultaneous_coverage_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties, splat
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import FAMILY, joint_coverage_rows
+from tests.studies.evidence.simultaneous import joint_cells as joint_cell_names
 
 DOUBLE_ROBUST_REPLICATES = 1_200
 DOUBLE_ROBUST_N = 4_000
@@ -387,13 +391,33 @@ def _curve_replication(payload: tuple[int, int]) -> list[dict[str, Any]]:
     return _joint(result, CURVE_LABEL, replicate, CURVE_N, CURVE_REPLICATES, study=STUDY)
 
 
+def _curve_cells_of(key: tuple[tuple[int, int]]) -> list[str]:
+    return [f"{FAMILY}/{name}" for name in joint_cell_names(CURVE_LABEL)]
+
+
+def _curve_cell_of(key: tuple[tuple[int, int]]) -> str:
+    return f"{FAMILY}/{CURVE_LABEL}"
+
+
+def _curve_replicate_of(key: tuple[tuple[int, int]]) -> int:
+    return int(key[0][0])
+
+
 def curve_rows(*, n_jobs: int = STUDY_JOBS, replicates: int = CURVE_REPLICATES) -> pd.DataFrame:
     """The ordinary study's dedicated curve batch."""
     payloads = [
         ((replicate, stream_seed(STUDY, "property_sample", FAMILY, CURVE_LABEL, replicate)),)
         for replicate in range(replicates)
     ]
-    outcomes = map_parallel(_curve_replication, payloads, n_jobs=n_jobs)
+    outcomes = fit_properties(
+        payloads,
+        splat(_curve_replication),
+        cells_of=_curve_cells_of,
+        cell_of=_curve_cell_of,
+        replicate_of=_curve_replicate_of,
+        n_jobs=n_jobs,
+        label="properties/curve",
+    )
     return pd.DataFrame([row for result in outcomes for row in result])
 
 
@@ -499,6 +523,39 @@ def _payloads(study: Any) -> list[tuple[tuple[str, str, int, int, int, int, str]
     ]
 
 
+#: Each calibration label's positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived(PROPERTY_LABELS)
+
+
+def _cells_of(key: tuple[tuple[str, str, int, int, int, int, str]], joint: bool) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    property_name, suffix = key[0][:2]
+    names = [f"{property_name}/{label}__{suffix}" for label in CONTRASTS]
+    if property_name == "targeting_necessity":
+        names += [f"{property_name}/{label}__untargeted" for label in CONTRASTS]
+    if joint and property_name == "interval_calibration":
+        names += [f"{FAMILY}/{name}" for name in joint_cell_names(ALL_LABEL)]
+    for name in list(names):
+        names += DERIVED_CELLS.get(name, ())
+    return names
+
+
+def _recursion_cells_of(key: tuple[tuple[int, int, int, int]]) -> list[str]:
+    return [
+        f"competing_risk_recursion_necessity/{cause}_always_t2__{arm}"
+        for cause in law.CAUSES
+        for arm in ("all_cause", "cause_specific_control")
+    ]
+
+
+def _recursion_cell_of(key: tuple[tuple[int, int, int, int]]) -> str:
+    return "competing_risk_recursion_necessity/always_t2"
+
+
+def _recursion_replicate_of(key: tuple[tuple[int, int, int, int]]) -> int:
+    return int(key[0][0])
+
+
 def generate_for(
     study: Any,
     fit_fn: Callable[..., Any],
@@ -509,7 +566,15 @@ def generate_for(
     def runner(payload: tuple[str, str, int, int, int, int, str]) -> list[dict[str, Any]]:
         return _fit_replication(payload, study=study, fit_fn=fit_fn, joint_cells=joint_cells)
 
-    outcomes = map_parallel(runner, _payloads(study), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(study),
+        splat(runner),
+        cells_of=lambda key: _cells_of(key, joint_cells),
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     recursion_payloads = [
         (
@@ -526,7 +591,15 @@ def generate_for(
     def recursion_runner(payload: tuple[int, int, int, int]) -> list[dict[str, Any]]:
         return _recursion_replication(payload, study=study, fit_fn=fit_fn)
 
-    recursion = map_parallel(recursion_runner, recursion_payloads, n_jobs=n_jobs)
+    recursion = fit_properties(
+        recursion_payloads,
+        splat(recursion_runner),
+        cells_of=_recursion_cells_of,
+        cell_of=_recursion_cell_of,
+        replicate_of=_recursion_replicate_of,
+        n_jobs=n_jobs,
+        label="properties/recursion",
+    )
     rows = pd.concat(
         [
             rows,

@@ -93,14 +93,20 @@ from tests.studies.evidence.property_verdicts import (
     DIAGNOSTIC_ROLE,
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     necessity_verdicts,
     simultaneous_coverage_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import FAMILY as JOINT
-from tests.studies.evidence.simultaneous import joint_coverage_rows, joint_property_cells
+from tests.studies.evidence.simultaneous import (
+    joint_cells,
+    joint_coverage_rows,
+    joint_property_cells,
+)
 
 N_FOLDS = 5
 CALIBRATION_REPLICATES = 2_000
@@ -486,10 +492,29 @@ def _calibration_rows(
     ]
 
 
-def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dict[str, Any]]:
-    """Every row one draw of one fit set publishes."""
-    family, label, configuration, replicate, n, requested, law_name = payload
+_Payload = tuple[str, str, str, int, int, int, str]
+
+#: The law each family samples, beside the ``interval_calibration`` choice of ``law_ax``.
+_LAW_OF = {"root_n_and_efficiency": law.LAW_A, "type_i_error": law.LAW_A0, "power": law.LAW_AW}
+
+
+def _draw_fit_set(payload: _Payload) -> pd.DataFrame:
+    """The sample one draw of one fit set fits, a function of the payload alone."""
+    family, label, _, replicate, n, _, law_name = payload
     seed = _seed(family, label, replicate)
+    if family == "interval_calibration" and law_name == "law_ax":
+        return law.sample(law.LAW_AX, n, seed)
+    return law.sample(_LAW_OF.get(family, law.LAW_A), n, seed)
+
+
+def _fit_set_rows(payload: _Payload) -> list[dict[str, Any]]:
+    """Every row one draw of one fit set publishes, drawn and fitted in one call."""
+    return _fit_set_drawn(payload, _draw_fit_set(payload))
+
+
+def _fit_set_drawn(payload: _Payload, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    """Every row one draw of one fit set publishes."""
+    family, _label, configuration, replicate, n, requested, law_name = payload
     alpha = STUDY.margins.alpha
     common_row = {"replicate": replicate, "n": n, "requested": requested}
 
@@ -507,19 +532,17 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
         )
 
     if family == "interval_calibration":
-        target = law.LAW_AX if law_name == "law_ax" else law.LAW_A
-        return _calibration_rows(law_name, law.sample(target, n, seed), row, common_row)
+        return _calibration_rows(law_name, frame, row, common_row)
     if family == "root_n_and_efficiency":
-        result = _fit(law.sample(law.LAW_A, n, seed), law.LAW_A, PLANS)
+        result = _fit(frame, law.LAW_A, PLANS)
         role = "control" if n == min(RATE_SIZES) else "positive"
         return [row(f"contrast_x2__n_{n}", role, CONTRAST_TRUTH, result[CONTRAST_X2])]
     if family == "type_i_error":
-        result = _fit(law.sample(law.LAW_A0, n, seed), law.LAW_A0, PLANS)
+        result = _fit(frame, law.LAW_A0, PLANS)
         return [row("contrast_x2__sharp_null", "positive", NULL_TRUTH, result[CONTRAST_X2])]
     if family == "power":
-        result = _fit(law.sample(law.LAW_AW, n, seed), law.LAW_AW, POWER_PLANS)
+        result = _fit(frame, law.LAW_AW, POWER_PLANS)
         return [row("contrast_x1_5__alternative", "positive", POWER_TRUTH, result[POWER_NAME])]
-    frame = law.sample(law.LAW_A, n, seed)
     if configuration == "mechanism_constant":
         result = _fit(frame, law.LAW_A, PLANS, treatment_learner=DummyClassifier(strategy="prior"))
         return [
@@ -551,9 +574,12 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
     return rows
 
 
-def _band_rows(payload: tuple[int, int]) -> list[dict[str, Any]]:
+def _draw_band(payload: tuple[int, int]) -> pd.DataFrame:
+    return law.sample(law.LAW_A, BAND_N, _seed(JOINT, BAND_LABEL, payload[0]))
+
+
+def _band_rows(payload: tuple[int, int], frame: pd.DataFrame) -> list[dict[str, Any]]:
     replicate, requested = payload
-    frame = law.sample(law.LAW_A, BAND_N, _seed(JOINT, BAND_LABEL, replicate))
     result = _fit(frame, law.LAW_A, BAND_PLANS, reference=BAND_REFERENCE, simultaneous=True)
     return joint_coverage_rows(
         result,
@@ -567,27 +593,97 @@ def _band_rows(payload: tuple[int, int]) -> list[dict[str, Any]]:
     )
 
 
-def _payloads(budget: int | None) -> list[tuple[Any, ...]]:
-    out: list[tuple[Any, ...]] = []
+#: The calibration positive arm of each label to the controls derived from it.
+DERIVED_CELLS = calibration_derived(CALIBRATION_LABELS)
+
+#: A fit-set key is ``("fit_set", payload)`` and a band key is ``("band", (replicate, requested))``.
+_Key = tuple[str, tuple[Any, ...]]
+
+
+def _payloads(budget: int | None) -> list[_Key]:
+    out: list[_Key] = []
     for family, label, configuration, n, replicates, law_name in FIT_SETS:
         requested = replicates if budget is None else budget
         out.extend(
-            ((_fit_set_rows, (family, label, configuration, r, n, requested, law_name)),)
+            ("fit_set", (family, label, configuration, r, n, requested, law_name))
             for r in range(requested)
         )
     band = BAND_REPLICATES if budget is None else budget
-    out.extend(((_band_rows, (r, band)),) for r in range(band))
+    out.extend(("band", (r, band)) for r in range(band))
     return out
 
 
-def _run(job: tuple[Any, tuple[Any, ...]]) -> list[dict[str, Any]]:
-    function, payload = job
-    return list(function(payload))
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone."""
+    kind, payload = key
+    return _draw_band(payload) if kind == "band" else _draw_fit_set(payload)
+
+
+def _run(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    kind, payload = key
+    return list(_band_rows(payload, frame) if kind == "band" else _fit_set_drawn(payload, frame))
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``family/cell`` names the key's rows and derived controls fill."""
+    kind, payload = key
+    if kind == "band":
+        return [f"{JOINT}/{name}" for name in joint_cells(BAND_LABEL)]
+    family, _, configuration, _, n, _, law_name = payload
+    if family == "interval_calibration":
+        if law_name == "law_ax":
+            labels = ["no_positivity"]
+        elif law_name == "law_a_mixed":
+            labels = ["per_node", "tilt_then_static"]
+        else:
+            labels = ["mean_x2", "contrast_x2", "contrast_x2_in_sample", "known_x2"]
+        names = [f"{family}/{label}__correctly_specified" for label in labels]
+        names += [control for name in names for control in DERIVED_CELLS[name]]
+        if law_name == "law_a":
+            names += [
+                "mechanism_term_necessity/contrast_x2__full_eif",
+                "mechanism_term_necessity/contrast_x2__mechanism_term_dropped",
+            ]
+        return names
+    if family == "root_n_and_efficiency":
+        return [f"{family}/contrast_x2__n_{n}"]
+    if family == "type_i_error":
+        return [f"{family}/contrast_x2__sharp_null"]
+    if family == "power":
+        return [f"{family}/contrast_x1_5__alternative"]
+    if configuration == "mechanism_constant":
+        return [f"{family}/contrast_x2__mechanism_constant"]
+    names = [f"{family}/contrast_x2__mechanism_correct__n_{n}"]
+    if n == REQUIREMENT_SIZES[1]:
+        names += [
+            "targeting_necessity/contrast_x2__one_step",
+            "targeting_necessity/contrast_x2__plug_in",
+        ]
+    return names
+
+
+def _cell_of(key: _Key) -> str:
+    kind, payload = key
+    return f"{JOINT}/{BAND_LABEL}" if kind == "band" else f"{payload[0]}/{payload[1]}"
+
+
+def _replicate_of(key: _Key) -> int:
+    kind, payload = key
+    return payload[0] if kind == "band" else payload[3]
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each fit set for a pre-run check."""
-    outcomes = map_parallel(_run, _payloads(budget), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(budget),
+        _run,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [

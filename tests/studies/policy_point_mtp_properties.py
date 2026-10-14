@@ -59,10 +59,12 @@ from tests.studies.evidence.properties import (
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     necessity_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 
 STUDY = study.STUDY
@@ -444,9 +446,57 @@ def declared_cells() -> tuple[PropertyCell, ...]:
 # ---------------------------------------------------------------------------- rows
 
 
-def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dict[str, Any]]:
-    family, label, configuration, replicate, n, requested, law = payload
+#: The calibration positive arm of each label to the controls derived from it.
+DERIVED_CELLS = calibration_derived(CALIBRATION_LABELS)
+
+_Payload = tuple[str, str, str, int, int, int, str]
+_Key = tuple[_Payload]
+
+
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone."""
+    family, label, _, replicate, n, _, law = key[0]
     seed = _seed(family, label, replicate)
+    return null_sample(n, seed) if law == "point_null" else study.sample(n, seed)
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``family/cell`` names the fit set's rows and derived controls fill."""
+    family, label, _, _, _, _, law = key[0]
+    if law == "point_classifier":
+        base = "classifier_route__correctly_specified"
+    elif law in {"point_piecewise", "point_halve"}:
+        base = f"{label}__correctly_specified"
+    elif family == "inverse_necessity":
+        return [f"{family}/halve__declared_inverse", f"{family}/halve__inverse_dropped_control"]
+    else:
+        stream = "correctly_specified" if family == "interval_calibration" else label
+        base = f"x1_25__{stream}"
+        if family == "targeting_necessity":
+            return [f"{family}/{base}", f"{family}/x1_25__untargeted"]
+    name = f"{family}/{base}"
+    return [name, *DERIVED_CELLS.get(name, ())]
+
+
+def _cell_of(key: _Key) -> str:
+    return f"{key[0][0]}/{key[0][1]}"
+
+
+def _replicate_of(key: _Key) -> int:
+    return key[0][3]
+
+
+def _fit_set_rows(payload: _Payload) -> list[dict[str, Any]]:
+    """The rows of a payload, drawn and fitted in one call, for the failure probe."""
+    return _fit_drawn(payload, _draw((payload,)))
+
+
+def _fit_key(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    return _fit_drawn(key[0], frame)
+
+
+def _fit_drawn(payload: _Payload, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    family, label, configuration, replicate, n, requested, law = payload
     common_row = {"replicate": replicate, "n": n, "requested": requested}
 
     def row(cell: str, role: str, truth: float, estimate: Any) -> dict[str, Any]:
@@ -462,7 +512,7 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
 
     if law == "point_classifier":
         result = study.fit(
-            study.sample(n, seed),
+            frame,
             chosen=_pair("x1.25"),
             ratio="classifier",
             treatment_learner=OracleLogOdds("x1.25"),
@@ -475,10 +525,9 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
     if law in {"point_piecewise", "point_halve"}:
         policy = "piecewise" if law == "point_piecewise" else "halve below 3"
         name = NAMES["piecewise" if law == "point_piecewise" else "halve"]
-        result = study.fit(study.sample(n, seed), chosen=_pair(policy))
+        result = study.fit(frame, chosen=_pair(policy))
         return [row(f"{label}__correctly_specified", "positive", study.TRUTH[name], result[name])]
     if family == "inverse_necessity":
-        frame = study.sample(n, seed)
         declared = study.fit(frame, configuration=configuration, chosen=_pair("halve below 3"))
         with _inverse_dropped(True):
             dropped = study.fit(frame, configuration=configuration, chosen=_pair("halve below 3"))
@@ -495,7 +544,6 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
                 **common_row,
             ),
         ]
-    frame = null_sample(n, seed) if law == "point_null" else study.sample(n, seed)
     result = study.fit(frame, configuration=configuration, chosen=_pair("x1.25"))
     truth = 0.0 if law == "point_null" else study.TRUTH[X125]
     stream = "correctly_specified" if family == "interval_calibration" else label
@@ -520,8 +568,8 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
     return rows
 
 
-def _payloads(budget: int | None) -> list[tuple[Any, ...]]:
-    out: list[tuple[Any, ...]] = []
+def _payloads(budget: int | None) -> list[_Key]:
+    out: list[_Key] = []
     for family, label, configuration, n, replicates, law in FIT_SETS:
         requested = replicates if budget is None else budget
         out.extend(
@@ -532,7 +580,16 @@ def _payloads(budget: int | None) -> list[tuple[Any, ...]]:
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each fit set for a pre-run check."""
-    outcomes = map_parallel(_fit_set_rows, _payloads(budget), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(budget),
+        _fit_key,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [

@@ -87,7 +87,6 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.estimators import TMLE
 from cleverly.msm import MSM, solve_projection
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import stratified_alternating_law as law
 from tests.studies.canonical_stratified_incremental_msm import (
@@ -114,18 +113,27 @@ from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyCell,
     control_row,
+    payload_cell,
+    payload_replicate,
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     necessity_verdicts,
     simultaneous_coverage_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
-from tests.studies.evidence.simultaneous import joint_coverage_rows, joint_property_cells
+from tests.studies.evidence.simultaneous import FAMILY as JOINT_FAMILY
+from tests.studies.evidence.simultaneous import (
+    joint_cells,
+    joint_coverage_rows,
+    joint_property_cells,
+)
 
 CALIBRATION_N = 2_000
 CALIBRATION_REPLICATES = 2_000
@@ -618,24 +626,80 @@ def _targeting(frame: pd.DataFrame, replicate: int, n: int, requested: int) -> l
     return rows
 
 
-def _fit_replication(payload: tuple[str, str, int, int, int, int]) -> list[dict[str, Any]]:
-    family, key, replicate, n, requested, seed = payload
-    if key.startswith("continuous"):
-        return _dose(law.l2_sample(n, seed), key, replicate, n, requested)
-    frame = law.missing_sample(n, seed) if key == "natural_course" else law.sample(n, seed)
+def _calibration_labels() -> tuple[str, ...]:
+    return (*IPSI_LABELS, *MSM_LABELS, *NATURAL_COURSE_LABELS)
+
+
+#: The calibration positive arm of each label to the controls derived from it.
+DERIVED_CELLS = calibration_derived(_calibration_labels())
+
+_Key = tuple[tuple[str, str, int, int, int, int]]
+
+
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone."""
+    _, batch, _, n, _, seed = key[0]
+    if batch.startswith("continuous"):
+        return law.l2_sample(n, seed)
+    return law.missing_sample(n, seed) if batch == "natural_course" else law.sample(n, seed)
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``family/cell`` names the key's rows and derived controls fill."""
+    family, batch = key[0][:2]
+    if batch.startswith("continuous"):
+        link = batch.split("_", 1)[1]
+        return [
+            f"{family}/{label}__outcome_correct"
+            for label in CONTINUOUS_LABELS
+            if label.split("_")[1] == link
+        ]
     if family == "interval_calibration":
-        return _calibration(frame, key, replicate, n, requested)
+        labels = {
+            "ipsi": IPSI_LABELS,
+            "msm_logit": MSM_LABELS,
+            "natural_course": NATURAL_COURSE_LABELS,
+        }[batch]
+        names = []
+        for label in labels:
+            name = f"{family}/{label}__correctly_specified"
+            names += [name, *DERIVED_CELLS[name]]
+        if batch == "ipsi":
+            names += [f"{JOINT_FAMILY}/{name}" for name in joint_cells("ipsi_strata")]
+        return names
+    if family == "stratum_targeting_necessity":
+        return [
+            f"{family}/{label}__{kind}"
+            for label in NECESSITY_LABELS
+            for kind in ("stratified", "marginal_fluctuation")
+        ]
+    if family == "double_robustness":
+        labels = BOTH_WRONG_LABELS if batch == "both_wrong" else DOUBLE_ROBUST_LABELS
+        return [f"{family}/{label}__{batch}" for label in labels]
+    return [
+        f"{family}/{label}__{kind}"
+        for label in TARGETING_LABELS
+        for kind in ("targeted", "untargeted")
+    ]
+
+
+def _fit_replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    family, batch, replicate, n, requested, _seed = key[0]
+    if batch.startswith("continuous"):
+        return _dose(frame, batch, replicate, n, requested)
+    if family == "interval_calibration":
+        return _calibration(frame, batch, replicate, n, requested)
     if family == "stratum_targeting_necessity":
         return _necessity(frame, replicate, n, requested)
     if family == "double_robustness":
-        return _double_robustness(frame, key, replicate, n, requested)
+        return _double_robustness(frame, batch, replicate, n, requested)
     if family == "targeting_necessity":
         return _targeting(frame, replicate, n, requested)
     raise KeyError(family)  # pragma: no cover - declaration guard
 
 
-def _payloads(budget: int | None = None) -> list[tuple[tuple[str, str, int, int, int, int]]]:
-    out: list[tuple[tuple[str, str, int, int, int, int]]] = []
+def _payloads(budget: int | None = None) -> list[_Key]:
+    out: list[_Key] = []
     for family, key, n, declared in BATCHES:
         count = declared if budget is None else budget
         out += [
@@ -645,13 +709,18 @@ def _payloads(budget: int | None = None) -> list[tuple[tuple[str, str, int, int,
     return out
 
 
-def _calibration_labels() -> tuple[str, ...]:
-    return (*IPSI_LABELS, *MSM_LABELS, *NATURAL_COURSE_LABELS)
-
-
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every declared replication, or the first ``budget`` of each batch, then the controls."""
-    outcomes = map_parallel(_fit_replication, _payloads(budget), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(budget),
+        _fit_replication,
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [
@@ -671,12 +740,6 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
     return rows.loc[:, list(REPLICATE_COLUMNS)].sort_values(
         ["property", "cell", "replicate"], ignore_index=True
     )
-
-
-def generate_smoke_property_rows(*, n_jobs: int = 1, replicates: int = 1) -> pd.DataFrame:
-    """Fit the first ``replicates`` declared replications of every batch, unsummarized."""
-    outcomes = map_parallel(_fit_replication, _payloads(replicates), n_jobs=n_jobs)
-    return pd.DataFrame([row for result in outcomes for row in result])
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:

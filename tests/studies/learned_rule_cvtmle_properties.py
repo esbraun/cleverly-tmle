@@ -35,23 +35,26 @@ from typing import Any
 
 import pandas as pd
 
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import _learned_rule_law as law
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
+    payload_cell,
+    payload_replicate,
     property_role,
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     necessity_verdicts,
 )
 from tests.studies.evidence.registry import StudyRecord
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.learned_rule_cvtmle import (
     EFFICIENCY_BOUND,
@@ -142,10 +145,32 @@ def _row(
     return row
 
 
-def _replication(payload: tuple[str, str, int, int, int, int, int]) -> list[dict[str, Any]]:
+#: The calibration positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived((LAW,))
+
+_Key = tuple[tuple[str, str, int, int, int, int, int]]
+
+
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone."""
+    _, _, _, n, _, sample_seed, _ = key[0]
+    return law.draw(LAW, n, sample_seed)
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    family, label = key[0][:2]
+    if family == "targeting_necessity":
+        return [f"{family}/{LAW}__targeted", f"{family}/{LAW}__untargeted"]
+    if family == "fold_locality":
+        return [f"{family}/{LAW}__fold_local", f"{family}/{LAW}__validation_rows"]
+    name = f"{family}/{label}"
+    return [name, *DERIVED_CELLS.get(name, ())]
+
+
+def _replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
     """Every row one property draw writes: one arm, or a paired pair on one sample."""
-    family, label, replicate, n, requested, sample_seed, fold_seed = payload
-    frame = law.draw(LAW, n, sample_seed)
+    family, label, replicate, n, requested, _, fold_seed = key[0]
     if family in ("interval_calibration", "root_n_and_efficiency"):
         result, truth, warnings = law.measured(frame, law.outcome_learner(), LAW, fold_seed)
         role = property_role(
@@ -210,9 +235,7 @@ def _replication(payload: tuple[str, str, int, int, int, int, int]) -> list[dict
     raise ValueError(f"unknown property family {family!r}")
 
 
-def _payloads(
-    record: StudyRecord, cap: int | None
-) -> list[tuple[tuple[str, str, int, int, int, int, int]]]:
+def _payloads(record: StudyRecord, cap: int | None) -> list[_Key]:
     """One payload per property draw.  The slow forest draws go first, so the pool stays fed."""
     resolved = suffixes(record)
     order = sorted(PROPERTY_DRAWS, key=lambda draw: draw.family != "fold_locality")
@@ -246,7 +269,16 @@ def generate_property_rows(
     ``record`` and ``cap`` exist for a harness check on the throwaway record of rule L9 alone.
     The declared run passes neither.
     """
-    outcomes = map_parallel(_replication, _payloads(record, cap), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(record, cap),
+        _replication,
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for records in outcomes for row in records])
     controls = calibration_controls(
         rows,

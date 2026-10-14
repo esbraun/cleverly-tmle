@@ -14,7 +14,6 @@ from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from cleverly.datasets import make_longitudinal_survival
 from cleverly.learners.crossfit import Folds
 from cleverly.longitudinal import LTMLE
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_survival as law
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_ltmle import KnownLongitudinalMechanism, declared_regimens
@@ -23,16 +22,20 @@ from tests.studies.canonical_ltmle_survival_crossfit import PROPERTY_LABELS, STU
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
+    payload_cell,
+    payload_replicate,
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     crossfit_overfitting_verdicts,
     finish,
     necessity_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties, splat
 from tests.studies.evidence.seeds import stream_seed
 
 DOUBLE_ROBUST_REPLICATES = 1_200
@@ -469,6 +472,38 @@ def _recursion_replication(payload: tuple[int, int, int, int]) -> list[dict[str,
     return [positive, control]
 
 
+#: Each calibration label's positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived(PROPERTY_LABELS)
+
+
+def _cells_of(key: tuple[tuple[str, str, int, int, int, int, str]]) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    property_name, suffix = key[0][:2]
+    if property_name == "crossfit_overfitting":
+        return [f"{property_name}/{suffix}"]
+    names = [f"{property_name}/{label}__{suffix}" for label in CONTRASTS]
+    if property_name == "targeting_necessity":
+        names += [f"{property_name}/{label}__untargeted" for label in CONTRASTS]
+    for name in list(names):
+        names += DERIVED_CELLS.get(name, ())
+    return names
+
+
+def _recursion_cells_of(key: tuple[tuple[int, int, int, int]]) -> list[str]:
+    return [
+        "survival_recursion_necessity/always_t2__survival",
+        "survival_recursion_necessity/always_t2__survivor_only",
+    ]
+
+
+def _recursion_cell_of(key: tuple[tuple[int, int, int, int]]) -> str:
+    return "survival_recursion_necessity/always_t2"
+
+
+def _recursion_replicate_of(key: tuple[tuple[int, int, int, int]]) -> int:
+    return int(key[0][0])
+
+
 def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
     specs: list[tuple[str, str, int, int, str]] = []
     for configuration in ("both_correct", "outcome_correct", "mechanism_correct", "both_wrong"):
@@ -527,7 +562,15 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    outcomes = map_parallel(_fit_replication, _payloads(), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(),
+        splat(_fit_replication),
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     recursion_payloads = [
         (
@@ -540,7 +583,15 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
         )
         for replicate in range(RECURSION_REPLICATES)
     ]
-    recursion = map_parallel(_recursion_replication, recursion_payloads, n_jobs=n_jobs)
+    recursion = fit_properties(
+        recursion_payloads,
+        splat(_recursion_replication),
+        cells_of=_recursion_cells_of,
+        cell_of=_recursion_cell_of,
+        replicate_of=_recursion_replicate_of,
+        n_jobs=n_jobs,
+        label="properties/recursion",
+    )
     rows = pd.concat(
         [
             rows,

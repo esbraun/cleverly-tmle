@@ -9,7 +9,6 @@ import pandas as pd
 from scipy.stats import norm
 
 from cleverly.inference import influence_variance
-from cleverly.utils.parallel import map_parallel
 from tests.conftest import OracleTreatment
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_clustered_tmle import (
@@ -30,6 +29,7 @@ from tests.studies.evidence.property_verdicts import (
     clustered_inference_verdicts,
     finish,
 )
+from tests.studies.evidence.replication import fit_properties, splat
 from tests.studies.evidence.seeds import stream_seed
 
 #: Named here as well because the two thresholds are this study's declared margins, and
@@ -112,6 +112,18 @@ def _fit_replication(payload: tuple[int, int]) -> list[dict[str, Any]]:
     return [robust, iid]
 
 
+def _cells_of(key: tuple[tuple[int, int]]) -> list[str]:
+    return [f"{FAMILY}/{POSITIVE}", f"{FAMILY}/{CONTROL}"]
+
+
+def _cell_of(key: tuple[tuple[int, int]]) -> str:
+    return f"{FAMILY}/{POSITIVE}"
+
+
+def _replicate_of(key: tuple[tuple[int, int]]) -> int:
+    return key[0][0]
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     """Fit each draw once and derive both variance cells from its ATE influence curve."""
     payloads = [
@@ -123,7 +135,14 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
         )
         for replicate in range(PROPERTY_REPLICATES)
     ]
-    outcomes = map_parallel(_fit_replication, payloads, n_jobs=n_jobs)
+    outcomes = fit_properties(
+        payloads,
+        splat(_fit_replication),
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+    )
     return pd.DataFrame([row for rows in outcomes for row in rows])
 
 

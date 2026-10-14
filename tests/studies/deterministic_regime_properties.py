@@ -9,12 +9,18 @@ from scipy.stats import norm
 
 from cleverly.estimators import TMLE
 from cleverly.interventions import Static
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law as law
 from tests.parallel import STUDY_JOBS
 from tests.studies import regime_property_helpers as shared_regime
 from tests.studies.canonical_deterministic_regimes import G_BOUNDS, STUDY, interventions
-from tests.studies.evidence.properties import control_row, replicate_row
+from tests.studies.evidence.properties import (
+    control_row,
+    payload_cell,
+    payload_replicate,
+    replicate_row,
+)
+from tests.studies.evidence.property_verdicts import calibration_derived
+from tests.studies.evidence.replication import fit_properties, splat
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.intervention_study_helpers import (
     efficiency_sd,
@@ -167,6 +173,23 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
     return rows
 
 
+#: The calibration positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived((LABEL,))
+
+
+def _cells_of(key: tuple[tuple[str, str, int, int, int, int, str]]) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    property_name, cell = key[0][:2]
+    if property_name == "targeting_necessity":
+        return [f"{property_name}/{LABEL}__targeted", f"{property_name}/{LABEL}__untargeted"]
+    if property_name == "rule_necessity":
+        return [f"{property_name}/{LABEL}__declared", f"{property_name}/{LABEL}__static_control"]
+    if property_name == "static_reduction":
+        return [f"{property_name}/never__regime", f"{property_name}/never__arm"]
+    name = f"{property_name}/{cell}"
+    return [name, *DERIVED_CELLS.get(name, ())]
+
+
 def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
     specs: list[tuple[str, str, int, int, str]] = []
     for configuration in ("both_correct", "outcome_correct", "treatment_correct", "both_wrong"):
@@ -212,7 +235,15 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    outcomes = map_parallel(_fit_replication, _payloads(), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(),
+        splat(_fit_replication),
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     return add_calibration_controls(rows, STUDY, label=LABEL, efficiency_sd=EFFICIENCY_SD)
 
