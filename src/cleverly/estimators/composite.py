@@ -422,11 +422,11 @@ _DROP_REMEDY = (
     "completely at random."
 )
 #: Why a learned rule stays refused: its value is identified under the composite conditions,
-#: and no composite derivation is written for it.
+#: but it is cross-fitted, and the cross-fitted composite construction is open (roadmap X53).
 _LEARNED_RULE_REASON = (
     "A learned-rule value is identified under the composite conditions, but no composite "
     "derivation for a rule learned from the fit is written here, and the value is "
-    "cross-fitted (roadmap F27)."
+    "cross-fitted. The cross-fitted composite construction is open (roadmap X53)."
 )
 #: Targets that read the treatment law of every row.
 _UNIDENTIFIED_TARGETS = ("att", "atc", "ey_obs", "par", "paf")
@@ -481,7 +481,8 @@ def missing_treatment_refusal(
         return _message(
             data,
             "The C-TMLE selector strategies have no collaborative score for the composite "
-            "indicator (roadmap F5), and the shared outcome-adaptive design "
+            "indicator: a selector point estimate that keeps the observation factors off the "
+            "selection path is open (roadmap X51), and the shared outcome-adaptive design "
             "(oat_design='shared') has no composite construction (roadmap F19).",
             "Fit TMLE or DRTMLE, or fit CTMLE(strategy='oat', oat_design='per_arm') for point "
             "estimates.",
@@ -499,10 +500,11 @@ def missing_treatment_refusal(
             "P(A = a, Delta_A = 1, Delta = 1 | W) from the data.",
         )
     if getattr(estimator, "cross_fit", False):
+        open_row = "F21" if method == "drtmle" else "X53"
         return _message(
             data,
             "The composite construction uses the in-sample (Donsker) theorem. The "
-            "cross-fitted missing-data variants are open (roadmap F21).",
+            f"cross-fitted composite construction is open (roadmap {open_row}).",
             "Pass cross_fit=False (CrossFitting(enabled=False) on a method).",
         )
     if data.has_intermediate:

@@ -359,6 +359,45 @@ class TestReporting:
         assert "percentile range" in demoted.summary()
         assert "bootstrap_sd" in demoted["ate"].to_dict()
 
+    def test_a_cross_fitted_point_bootstrap_is_a_diagnostic(self) -> None:
+        """The point licence covers in-sample fits only, as the longitudinal kinds do.
+
+        The registered ``boot_ate_point_tmle`` cell fits in sample. A cross-fitted replicate
+        redraws its split over resampled rows, and no study or source covers that, so the
+        same fit with ``cross_fit=True`` prints the diagnostic names (roadmap F2).
+        """
+        from cleverly.datasets import make_binary_outcome
+        from cleverly.estimators import TMLE
+
+        frame, _ = make_binary_outcome(n=200, seed=1)
+
+        def fit(cross_fit: bool) -> Any:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                return (
+                    TMLE(
+                        outcome_learner=LogisticRegression(max_iter=1000),
+                        treatment_learner=LogisticRegression(max_iter=1000),
+                        cross_fit=cross_fit,
+                        n_folds=2,
+                        estimands=("ate",),
+                        n_bootstrap=3,
+                        random_state=0,
+                    )
+                    .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
+                    .single()
+                )
+
+        in_sample = fit(False)
+        assert in_sample["ate"].bootstrap.inferential is True
+        assert "percentile CI" in in_sample.summary()
+        assert "bootstrap_ci_lower" in in_sample["ate"].to_dict()
+        cross_fitted = fit(True)
+        assert cross_fitted["ate"].bootstrap.inferential is False
+        assert "percentile range" in cross_fitted.summary()
+        assert "bootstrap_sd" in cross_fitted["ate"].to_dict()
+        assert "bootstrap_ci_lower" not in cross_fitted["ate"].to_dict()
+
 
 class TestDerivedBootstrap:
     """``rmst``, ``ratio`` and ``contrast`` carry the bootstrap the replicates imply."""

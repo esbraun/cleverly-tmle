@@ -514,11 +514,11 @@ class DRTMLE(TMLE):
     ``"estimated_weight_plugin"`` status.  The fit runs and the point estimate stands.
     ``ci``, ``pvalue`` and ``std_error`` raise :class:`~cleverly.exceptions.CapabilityError`,
     and ``plugin_std_error`` and ``plugin_interval`` report the retained diagnostic.
-    Roadmap item F5 holds the influence contribution of the weight estimate that would
-    reopen it.  ``guard=()`` fits the ordinary TMLE, whose interval conditions on the
-    weights, and keeps its interval.  Roadmap item F11 separately tracks the stored model,
-    target-population semantics, and regeneration rule needed by a perturbation refit.
-    ``simulated_confounding`` refuses the composition outright until that replay contract exists.
+    Roadmap item X50 holds the fixed-weight DR-TMLE curve that would reopen it.
+    ``guard=()`` fits the ordinary TMLE, whose interval conditions on the weights, and keeps
+    its interval.  Roadmap item X47 separately holds the replay that keeps the supplied
+    weights fixed.  ``simulated_confounding`` refuses the composition outright until that
+    replay contract exists.
 
     ``tests/unit/test_simulated_confounding.py`` now runs fitted nonuniform-weight
     complete-outcome ``DRTMLE`` refits across every supported binary surface parameter.  Those
@@ -750,12 +750,22 @@ class DRTMLE(TMLE):
             )
         for keyword in ("interventions", "policies", "incremental", "msm"):
             if getattr(self, keyword, None):
+                if keyword in ("interventions", "msm"):
+                    status = (
+                        "The indicator reduction for a regime and the projection of the arm "
+                        "or regime means follow from that theorem, but they are not "
+                        "implemented (docs/roadmap.md X50)."
+                    )
+                else:
+                    status = (
+                        "No theorem read here says what its reductions would be "
+                        "(docs/roadmap.md F5)."
+                    )
                 raise CapabilityError(
                     f"DRTMLE and {keyword}= are not combined. The reduced-dimension "
-                    "regressions are derived for counterfactual means under static treatment "
-                    f"treatment; {keyword}= is a different score equation, and no theorem "
-                    "read here says what its reductions would be. Fit a plain TMLE, which "
-                    "is derived there."
+                    "regressions are derived for counterfactual means under a static "
+                    f"treatment, and {keyword}= is a different score equation. {status} "
+                    "Fit a plain TMLE, which is derived there."
                 )
 
     # --------------------------------------------------------------- the hook
@@ -1168,7 +1178,8 @@ class DRTMLE(TMLE):
         if data.has_missing_outcome and self.cross_fit:
             raise CapabilityError(
                 "the published missing-outcome DR-TMLE theorem uses Donsker conditions and "
-                "does not establish its cross-validated extension; pass cross_fit=False "
+                "does not establish its cross-validated extension (docs/roadmap.md F21); "
+                "pass cross_fit=False "
                 "(CrossFitting(enabled=False) on DRTMLEMethod)"
             )
         if route == "randomized_missing_outcome" and self.guard:

@@ -1053,7 +1053,7 @@ class TestARespondentlessComplementIsRefusedOnEveryScale:
 
     The witness is an in-sample greedy C-TMLE with ``delta=``, whose selection folds ask
     that check before any learner. A cross-fitted regime fit carried this witness until
-    the F21 refusal closed that composition. The arm-indexed and natural-course contracts
+    the X53 refusal closed that composition. The arm-indexed and natural-course contracts
     run their own preflights, so this admitted fit is the one that reaches the general
     response branch.
     """

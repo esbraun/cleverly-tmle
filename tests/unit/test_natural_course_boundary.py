@@ -108,8 +108,9 @@ SUBJECT = (
         ({"target_weights": True}, "set target_weights=False"),
         (
             {"n_bootstrap": 2},
-            "set n_bootstrap=0; no audited bootstrap result covers this fit "
-            "(F2 in docs/roadmap.md)",
+            "set n_bootstrap=0; no audited bootstrap result covers this fit. X55 in "
+            "docs/roadmap.md tracks the in-sample bootstrap with finite-dimensional "
+            "nuisances, and F2 the bootstrap with data-adaptive nuisances",
         ),
     ],
 )
@@ -146,7 +147,8 @@ def test_repeated_splits_refuse_at_the_existing_method_boundary() -> None:
 VARIANT_REASON = (
     "use ordinary TMLE, or CTMLE(strategy='oat', oat_design='per_arm') for point estimates; "
     "the C-TMLE selector strategies, the shared outcome-adaptive design and DR-TMLE need "
-    "separate targeting and inference results"
+    "separate targeting and inference results (X50 in docs/roadmap.md tracks the DR-TMLE "
+    "route)"
 )
 
 

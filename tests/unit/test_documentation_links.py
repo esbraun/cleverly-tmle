@@ -298,7 +298,7 @@ def rule_texts(rule: object) -> list[str]:
 def test_every_roadmap_item_a_refusal_cites_exists() -> None:
     """A refusal that cites a roadmap item cites one the roadmap still declares.
 
-    ``simulated_confounding`` refuses six compositions by naming the artifact each one needs
+    ``simulated_confounding`` refuses seven compositions by naming the artifact each one needs
     and the roadmap item that tracks it.  The citation is prose, so
     :func:`test_every_documentation_link_in_source_resolves` does not see it, and renaming an
     item leaves the user an id that resolves to nothing.  This pull request renamed ``F14`` to
@@ -318,7 +318,7 @@ def test_every_roadmap_item_a_refusal_cites_exists() -> None:
 
     # The negative control.  A rule table read through the wrong attribute, or a citation
     # reworded past ``ROADMAP_CITATION``, would make the assertion below vacuously true.
-    assert len(cited) >= 6, f"only {sorted(cited)} matched; check ROADMAP_CITATION"
+    assert len(cited) >= 5, f"only {sorted(cited)} matched; check ROADMAP_CITATION"
     missing = sorted(item for item in cited if item not in ROADMAP_ITEMS)
     assert not missing, (
         f"refusal messages cite roadmap item(s) docs/roadmap.md does not declare: {missing}. "
@@ -335,7 +335,7 @@ def test_the_evalue_refusal_cites_a_roadmap_item_that_exists() -> None:
     from cleverly.sensitivity.evalue import _DIRECT_EFFECT_REFUSAL
 
     cited = ROADMAP_CITATION.findall(_DIRECT_EFFECT_REFUSAL)
-    assert cited == ["F25"]
+    assert cited == ["X49"]
     assert set(cited) <= set(ROADMAP_ITEMS)
 
 

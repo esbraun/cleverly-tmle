@@ -488,7 +488,9 @@ class TestTheRuleTableIsOrderedAndEveryRuleIsReachable:
             assessment_family = "longitudinal"
 
         assert rules["longitudinal"](Elsewhere()) == (
-            "no longitudinal sensitivity derivation is registered"
+            "no longitudinal sensitivity derivation is registered: the bound needs a "
+            "per-period latent law that identifies the bias of a sequential g-formula "
+            "target (docs/roadmap.md F16 tracks this stop)"
         )
 
     def test_a_response_rule_placed_after_longitudinal_would_have_raised(self) -> None:

@@ -493,6 +493,35 @@ _DISCRETE_TREATMENT_REFUSAL = (
     "one Qbar prediction per arm, and a continuous dose has no finite arm vector."
 )
 
+#: Why CTMLE refuses ``policies=``.  Checked before the continuous-dose refusal, because a
+#: shift declares its treatment a dose even when the column holds two arms, and the dose
+#: refusal would then give the wrong reason on a binary treatment.
+_POLICIES_REFUSAL = (
+    "CTMLE and policies= are not combined. A modified treatment policy's mean averages "
+    "Qbar at the dose the policy assigns over the treatment law, so it reads g, and each "
+    "candidate g of the collaborative search defines a different parameter, as under "
+    "incremental=. docs/roadmap.md F5 tracks this stop. Use a plain TMLE, which fits "
+    "policies=."
+)
+
+#: Why CTMLE refuses ``interventions=``.  A named refusal rather than the ATT and ATC or
+#: estimand-axis message that a regime fit met before it.
+_REGIME_REFUSAL = (
+    "CTMLE and interventions= are not combined. A regime mean reads Qbar and the covariate "
+    "law only, so the collaborative template carries its point estimate through the "
+    "indicator 1{A = d(W)}, but no selection criterion for a regime target is implemented. "
+    "docs/roadmap.md X51 tracks the point estimate. Use a plain TMLE, which fits "
+    "interventions= with an interval."
+)
+
+#: Why CTMLE refuses ``msm=`` over discrete arms, for the reason of :data:`_REGIME_REFUSAL`.
+_MSM_REFUSAL = (
+    "CTMLE and msm= are not combined. A working model over discrete arms is a fixed "
+    "full-rank projection of the arm means, so the collaborative template carries its point "
+    "estimate, but no selection criterion for a vector projection is implemented. "
+    "docs/roadmap.md X51 tracks the point estimate. Use a plain TMLE, which fits msm=."
+)
+
 #: The selection split's refusal remedy in the words the nuisance fold loop closes with.
 _SELECTION_SPLIT_BACKSTOP = _POST_DRAW_REMEDY.format(remedy=_SELECTION_SPLIT_REMEDY)
 
@@ -1838,8 +1867,9 @@ class CTMLE(TMLE):
                 )
             )
             raise CapabilityError(
-                f"C-TMLE has no clustered result. {reason}; docs/roadmap.md F22 tracks this "
-                "stop. Drop id= from fit "
+                f"C-TMLE has no clustered result. {reason}; docs/roadmap.md X51 tracks the "
+                "point estimate with a cluster as the unit, and docs/roadmap.md F22 the "
+                "clustered interval. Drop id= from fit "
                 "(PointTreatment(cluster=None)), or use the ordinary TMLE (TMLE, or "
                 "TMLEMethod), which has a clustered result."
             )
@@ -1847,13 +1877,22 @@ class CTMLE(TMLE):
         return super()._resolve_estimands_for_data(data)
 
     def _check_policies(self, data: CausalData) -> None:
-        """Refuse a continuous dose before the shift check can suggest a shift.
+        """Refuse each intervention keyword, then a continuous dose, before the shift check.
 
         ``TMLE._check_policies`` runs first in the preflight, and it answers a dose with no
-        ``policies=`` by suggesting one, which CTMLE does not fit.
+        ``policies=`` by suggesting one, which CTMLE does not fit.  ``policies=`` is asked
+        first, because a shift declares a dose even on a binary column.  ``interventions=``
+        and ``msm=`` over discrete arms are asked next, so neither meets the ATT and ATC
+        refusal of :meth:`_check_estimands` for a reason that is not its own.
         """
+        if self.policies:
+            raise CapabilityError(_POLICIES_REFUSAL)
         if data.is_continuous_treatment:
             raise CapabilityError(_DISCRETE_TREATMENT_REFUSAL)
+        if self.interventions:
+            raise CapabilityError(_REGIME_REFUSAL)
+        if self.msm is not None:
+            raise CapabilityError(_MSM_REFUSAL)
         super()._check_policies(data)
 
     def _check_estimands(self, data: CausalData) -> None:

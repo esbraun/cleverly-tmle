@@ -3,7 +3,7 @@
 The argument that an interval conditions on the weights concerns the efficient influence
 curve. No result read here gives the reduced-dimension regressions of an estimated weight,
 so ``DRTMLE`` with a non-empty ``guard`` and ``weights_estimated=True`` takes the
-``"estimated_weight_plugin"`` status, and F5 in the roadmap holds the reopen route. The
+``"estimated_weight_plugin"`` status, and X50 in the roadmap holds the reopen route. The
 flag changes no number, so a status and not a refusal records what it declares.
 
 The fit is the RM20 probe: ``make_binary_outcome(n=500, seed=3)`` with weights drawn
