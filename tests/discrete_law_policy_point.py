@@ -352,6 +352,53 @@ def eif(grid: str, estimand: str) -> np.ndarray:
     return np.array([gateaux(grid, estimand, point) for point in range(len(GRIDS[grid].support))])
 
 
+# ------------------------------------------------------------------ declared atoms (X40)
+#
+# The unit grid with the dose 3 declared an atom.  The policies mirror the longitudinal atom
+# plans of ``tests/discrete_law_longitudinal_mtp.py``: "to atom" moves 0 and 1 up one and
+# sends 2 to the atom, "hold atom" leaves 2 and the atom in place, and "atom random" takes
+# the first with probability 0.4.  The mixed ratio with respect to Lebesgue plus counting
+# measure on the atom equals the discrete formula on this grid, because every moved
+# continuous dose lands in a bin of the same width.
+
+#: The declared atom, as a support index of :data:`UNIT` and as a dose.
+ATOM_INDEX = 3
+ATOM_DOSE = 3.0
+
+ATOM_POLICIES: dict[str, Branches] = {
+    "natural course": _identity(UNIT),
+    "to atom": _deterministic(UNIT, lambda w, a: min(a + 1.0, 3.0)),
+    "hold atom": _deterministic(UNIT, lambda w, a: a + 1.0 if a < 2.0 else a),
+    "atom random": (
+        (0.4, _deterministic(UNIT, lambda w, a: min(a + 1.0, 3.0))[0][1]),
+        (0.6, _deterministic(UNIT, lambda w, a: a + 1.0 if a < 2.0 else a)[0][1]),
+    ),
+}
+
+
+def atom_functional(probs: Any, label: str) -> Any:
+    """``E[Y^d]`` under one of :data:`ATOM_POLICIES`, longhand."""
+    joint = probs[:, :, 0] + probs[:, :, 1]
+    return _mean_under(joint, probs[:, :, 1] / joint, ATOM_POLICIES[label])
+
+
+def atom_truth(label: str) -> float:
+    """The parameter at the law."""
+    return float(np.real(atom_functional(UNIT.probs, label)))
+
+
+def atom_eif(label: str, *, step: float = 1e-30) -> np.ndarray:
+    """The influence curve at every support point of :data:`UNIT`, by complex step."""
+    out = []
+    base = UNIT.probs.astype(complex)
+    for point in UNIT.support:
+        mass = np.zeros_like(base)
+        mass[point] = 1.0
+        value = atom_functional((1.0 - 1j * step) * base + 1j * step * mass, label)
+        out.append(float(np.imag(value) / step))
+    return np.array(out)
+
+
 # ------------------------------------------------------------------ mixed vector treatment
 #
 # A coarse law whose treatment is a vector ``A = (F, D)``: a binary flag and a dose on the
