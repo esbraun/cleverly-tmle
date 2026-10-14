@@ -40,12 +40,312 @@ RESIDUAL_TOLERANCE = 1e-3
 MLE_PROBE: dict[tuple[str, int], tuple[int, int]] = {
     ("D2", 1_000): (2_000, 11),
     ("D2", 2_000): (2_000, 0),
+    ("D2S", 2_000): (2_000, 0),
+    ("D2C", 2_000): (2_000, 227),
+    ("D2C", 4_000): (2_000, 13),
+    ("D2C", 8_000): (2_000, 0),
+    ("G", 2_000): (2_000, 0),
+    ("X", 2_000): (2_000, 0),
+    ("GM", 2_000): (2_000, 0),
+}
+#: The size at which each law is fitted in a gated cell.
+DECLARED_SIZES = {
+    "D2": study.LADDER[0],
+    "G": study.LADDER[0],
+    "D2S": study.CALIBRATION_N,
+    "X": study.CALIBRATION_N,
+    "GM": study.CALIBRATION_N,
+    "D2C": study.D2C_N,
 }
 
 #: The design pilot at ``CALIBRATION_N``: ``cell -> (replicates, mean SE over empirical SD,
 #: relative SD of the SE, mean bias over empirical SD, sqrt(n) times the empirical SD)``.  It
 #: draws from the ``design_pilot`` stream, which no published cell reads.
-PILOT: dict[str, tuple[int, float, float, float, float]] = {}
+PILOT: dict[str, tuple[int, float, float, float, float]] = {
+    "first_node_se/ice_g_contrast__first_node": (400, 0.035, 0.4198, 0.1257, 2.7709),
+    "first_node_se/ice_g_treat_all__first_node": (400, 0.2418, 0.0847, 0.0818, 2.063),
+    "first_node_se/ice_g_treat_none__first_node": (400, 0.2407, 0.087, -0.0863, 2.0801),
+    "fixed_mechanism_se/hajek_g_contrast__fixed_mechanism": (400, 1.1766, 0.0632, 0.1343, 3.4405),
+    "fixed_mechanism_se/hajek_g_treat_all__fixed_mechanism": (400, 1.0799, 0.0861, 0.1026, 2.6414),
+    "fixed_mechanism_se/hajek_g_treat_none__fixed_mechanism": (
+        400,
+        1.0606,
+        0.0925,
+        -0.0708,
+        2.6979,
+    ),
+    "fixed_mechanism_se/ht_g_contrast__fixed_mechanism": (400, 1.3778, 0.0774, 0.1072, 4.1558),
+    "fixed_mechanism_se/ht_g_treat_all__fixed_mechanism": (400, 1.0867, 0.0992, 0.0947, 2.6486),
+    "fixed_mechanism_se/ht_g_treat_none__fixed_mechanism": (400, 1.3787, 0.1, -0.0543, 3.5863),
+    "interval_calibration/hajek_d2_contrast__correctly_specified": (
+        400,
+        0.9979,
+        0.023,
+        -0.0861,
+        1.9551,
+    ),
+    "interval_calibration/hajek_d2_policy__correctly_specified": (
+        400,
+        0.9743,
+        0.0183,
+        -0.0039,
+        0.8512,
+    ),
+    "interval_calibration/hajek_d2_rule__correctly_specified": (
+        400,
+        1.0388,
+        0.0312,
+        -0.0652,
+        1.3488,
+    ),
+    "interval_calibration/hajek_d2_static_00__correctly_specified": (
+        400,
+        0.989,
+        0.0351,
+        0.0868,
+        1.4718,
+    ),
+    "interval_calibration/hajek_d2_static_12__correctly_specified": (
+        400,
+        1.0236,
+        0.0279,
+        -0.0319,
+        1.2719,
+    ),
+    "interval_calibration/hajek_d2c_relapse_h2__correctly_specified": (
+        400,
+        1.0051,
+        0.0158,
+        0.0148,
+        0.5873,
+    ),
+    "interval_calibration/hajek_d2s_contrast_h2__correctly_specified": (
+        400,
+        1.0131,
+        0.0238,
+        -0.0288,
+        1.7783,
+    ),
+    "interval_calibration/hajek_d2s_risk_h1__correctly_specified": (
+        400,
+        0.9435,
+        0.0384,
+        -0.0223,
+        0.5524,
+    ),
+    "interval_calibration/hajek_d2s_risk_h2__correctly_specified": (
+        400,
+        1.0324,
+        0.0302,
+        -0.0965,
+        1.1889,
+    ),
+    "interval_calibration/hajek_d2w_static_12__correctly_specified": (
+        400,
+        1.0311,
+        0.0288,
+        -0.0164,
+        1.2754,
+    ),
+    "interval_calibration/hajek_g_contrast__correctly_specified": (
+        400,
+        1.0138,
+        0.0617,
+        0.1343,
+        3.4405,
+    ),
+    "interval_calibration/hajek_g_rule__correctly_specified": (
+        400,
+        0.9615,
+        0.1084,
+        -0.0374,
+        3.7606,
+    ),
+    "interval_calibration/hajek_g_treat_all__correctly_specified": (
+        400,
+        0.997,
+        0.0847,
+        0.1026,
+        2.6414,
+    ),
+    "interval_calibration/hajek_g_treat_none__correctly_specified": (
+        400,
+        0.9782,
+        0.0888,
+        -0.0708,
+        2.6979,
+    ),
+    "interval_calibration/ht_d2_contrast__correctly_specified": (
+        400,
+        0.9916,
+        0.0265,
+        -0.0881,
+        2.0162,
+    ),
+    "interval_calibration/ht_d2_policy__correctly_specified": (
+        400,
+        0.9851,
+        0.0215,
+        -0.0137,
+        0.8448,
+    ),
+    "interval_calibration/ht_d2_rule__correctly_specified": (400, 1.009, 0.0411, -0.0191, 1.6249),
+    "interval_calibration/ht_d2_static_00__correctly_specified": (
+        400,
+        0.9809,
+        0.0395,
+        0.0746,
+        1.5426,
+    ),
+    "interval_calibration/ht_d2_static_12__correctly_specified": (
+        400,
+        1.0208,
+        0.0327,
+        -0.0479,
+        1.3095,
+    ),
+    "interval_calibration/ht_d2c_relapse_h2__correctly_specified": (
+        400,
+        1.0018,
+        0.018,
+        0.0198,
+        0.5993,
+    ),
+    "interval_calibration/ht_d2s_contrast_h2__correctly_specified": (
+        400,
+        1.0068,
+        0.0267,
+        -0.0357,
+        1.8326,
+    ),
+    "interval_calibration/ht_d2s_risk_h1__correctly_specified": (
+        400,
+        0.9429,
+        0.0385,
+        -0.0219,
+        0.5527,
+    ),
+    "interval_calibration/ht_d2s_risk_h2__correctly_specified": (
+        400,
+        1.0257,
+        0.0347,
+        -0.1025,
+        1.2279,
+    ),
+    "interval_calibration/ht_g_contrast__correctly_specified": (400, 0.98, 0.0805, 0.1072, 4.1558),
+    "interval_calibration/ht_g_rule__correctly_specified": (400, 0.9697, 0.1144, -0.065, 3.9228),
+    "interval_calibration/ht_g_treat_all__correctly_specified": (
+        400,
+        0.9979,
+        0.0934,
+        0.0947,
+        2.6486,
+    ),
+    "interval_calibration/ht_g_treat_none__correctly_specified": (
+        400,
+        0.966,
+        0.1129,
+        -0.0543,
+        3.5863,
+    ),
+    "interval_calibration/ice_d2_contrast__correctly_specified": (
+        400,
+        0.9972,
+        0.0252,
+        -0.0781,
+        1.9432,
+    ),
+    "interval_calibration/ice_d2_policy__correctly_specified": (
+        400,
+        0.9722,
+        0.0204,
+        -0.0012,
+        0.8479,
+    ),
+    "interval_calibration/ice_d2_rule__correctly_specified": (400, 1.0355, 0.0412, -0.0534, 1.3441),
+    "interval_calibration/ice_d2_static_00__correctly_specified": (
+        400,
+        0.989,
+        0.0379,
+        0.0755,
+        1.4568,
+    ),
+    "interval_calibration/ice_d2_static_12__correctly_specified": (
+        400,
+        1.0237,
+        0.0309,
+        -0.033,
+        1.2677,
+    ),
+    "interval_calibration/ice_d2c_relapse_h2__correctly_specified": (
+        400,
+        1.0014,
+        0.0168,
+        0.0193,
+        0.5887,
+    ),
+    "interval_calibration/ice_d2s_contrast_h2__correctly_specified": (
+        400,
+        0.9924,
+        0.026,
+        -0.0166,
+        1.803,
+    ),
+    "interval_calibration/ice_d2s_risk_h1__correctly_specified": (
+        400,
+        0.9419,
+        0.0385,
+        -0.0228,
+        0.5532,
+    ),
+    "interval_calibration/ice_d2s_risk_h2__correctly_specified": (
+        400,
+        1.0309,
+        0.0344,
+        -0.0932,
+        1.1879,
+    ),
+    "interval_calibration/ice_d2w_static_12__correctly_specified": (
+        400,
+        1.0312,
+        0.0327,
+        -0.0174,
+        1.2724,
+    ),
+    "interval_calibration/ice_g_contrast__correctly_specified": (
+        400,
+        1.043,
+        0.0364,
+        0.1257,
+        2.7709,
+    ),
+    "interval_calibration/ice_g_rule__correctly_specified": (400, 1.0478, 0.0458, -0.055, 2.1091),
+    "interval_calibration/ice_g_treat_all__correctly_specified": (
+        400,
+        1.0102,
+        0.0496,
+        0.0818,
+        2.063,
+    ),
+    "interval_calibration/ice_g_treat_none__correctly_specified": (
+        400,
+        1.0185,
+        0.0537,
+        -0.0863,
+        2.0801,
+    ),
+    "interval_calibration/ice_gm_contrast__correctly_specified": (
+        400,
+        0.9705,
+        0.0214,
+        -0.0435,
+        0.7108,
+    ),
+    "interval_calibration/ice_gm_down__correctly_specified": (400, 1.0331, 0.0167, 0.0408, 1.268),
+    "misspecification_control/hajek_x_contrast__main_terms": (400, 0.9692, 0.0468, 1.8464, 3.2118),
+    "misspecification_control/ht_x_contrast__main_terms": (400, 0.994, 0.0542, 1.9784, 3.7288),
+    "misspecification_control/ice_x_contrast__main_terms": (400, 0.9636, 0.043, 1.6139, 3.0056),
+}
 
 #: The floor on the chance that each K1 cell fails, and that each gated direction holds.
 POWER_FLOOR = 0.95
@@ -54,8 +354,6 @@ FAMILY_FLOOR = 0.95
 REPLICATE_GRAIN = 400
 #: The upper confidence level of the between-cell spread of the true SE ratios.
 TAU_LEVEL = 0.80
-#: The pilots of (b) to (e) are not all pinned yet; these tests wait for them.
-AWAITING_PILOT = pytest.mark.skip(reason="design pilot not pinned yet (X41 handoff)")
 
 
 # ------------------------------------------------------------------------- declarations
@@ -279,16 +577,23 @@ def test_q_bounds_hold_the_outcome_and_g_bounds_never_bind() -> None:
 # -------------------------------------------------------------------- (b) MLE existence
 
 
-@AWAITING_PILOT
-def test_every_declared_fit_exists_at_the_first_ladder_size() -> None:
-    """(b) At ``LADDER[0]`` and at ``CALIBRATION_N``, each law fits on at least 99.9%."""
-    for (law, n), (draws, failed) in MLE_PROBE.items():
-        if n >= study.LADDER[0]:
-            assert draws == 2_000
-            assert 1.0 - failed / draws >= 0.999, (law, n)
-    laws_probed = {law for law, _ in MLE_PROBE}
-    assert laws_probed == {"D2", "D2S", "D2C", "G", "X", "GM"}
-    assert all((law, study.LADDER[0]) in MLE_PROBE for law in laws_probed)
+def test_every_declared_fit_exists_at_its_declared_size() -> None:
+    """(b) At the size each law is fitted in a gated cell, its fits exist on at least 99.9%.
+
+    A failed replicate stops the property phase (``require_complete``), so the sizes are
+    chosen where the probe saw no failure in 2,000 draws.  The smaller sizes are the reason.
+    """
+    assert set(DECLARED_SIZES) == {law for law, _ in MLE_PROBE}
+    for law, size in DECLARED_SIZES.items():
+        draws, failed = MLE_PROBE[law, size]
+        assert draws == 2_000
+        assert failed == 0, (law, size)
+    assert MLE_PROBE["D2", 1_000][1] / 2_000 > 0.001
+    assert MLE_PROBE["D2C", 4_000][1] / 2_000 > 0.001
+    # Every GLM fit set reads its law at or above that size.  The adaptive cells fit no GLM.
+    for name, (law, n, _) in properties.FIT_SETS.items():
+        if not name.startswith("adaptive_"):
+            assert n >= DECLARED_SIZES[law], name
 
 
 # ------------------------------------------------------------------------ the pilot rule
@@ -322,10 +627,13 @@ def family_pass_probability(replicates: int) -> float:
     The arms are the three estimators.  Arm :math:`a` has pilot cell ratios
     :math:`\hat r_c` with mean :math:`m_a`.  :math:`s^2` is the within-arm variance pooled over
     the arms.  :math:`\tau^2` is the between-cell variance of the true ratios beyond pilot
-    noise, at its 80% upper bound from the chi-square law of :math:`s^2`.  Each cell's true
-    ratio is :math:`N(m_a, s^2 / k_a + \tau^2)`, where :math:`k_a` counts the distinct laws of
-    the arm (cells of one law share draws).  The pass chance of each cell is averaged over that
-    law by Gauss-Hermite quadrature, and the family-wise chance is the product.
+    noise, at its 80% upper bound from the chi-square law of :math:`s^2`.  The arm's true ratio
+    is :math:`\mu_a \sim N(m_a, s^2 / k_a)`, where :math:`k_a` counts the distinct laws of the
+    arm (cells of one law share draws), and a cell's true ratio is :math:`\mu_a + \delta_c`
+    with independent :math:`\delta_c \sim N(0, \tau^2)`.  So each arm's ratio is
+    :math:`N(m_a, s^2 / k_a + \tau^2)`, and the cells of one arm share :math:`\mu_a`.  The
+    family-wise chance is the product over the arms of the chance that every cell of the arm
+    passes, by nested Gauss-Hermite quadrature.
     """
     gated = _gated_pilot()
     arms: dict[str, list[str]] = {}
@@ -350,18 +658,27 @@ def family_pass_probability(replicates: int) -> float:
     total = 1.0
     for arm, cells in arms.items():
         laws_of_arm = len({_law_of(cell) for cell in cells})
-        spread = math.sqrt(pooled / laws_of_arm + tau_squared)
-        for cell in cells:
-            noise = gated[cell][2]
-            chance = sum(
-                weight * _pass(replicates, means[arm] + spread * node, noise)
-                for node, weight in zip(nodes, weights, strict=True)
-            )
-            total *= chance
+        shared = math.sqrt(pooled / laws_of_arm)
+        tau = math.sqrt(tau_squared)
+        arm_chance = 0.0
+        for node, weight in zip(nodes, weights, strict=True):
+            mean = means[arm] + shared * node
+            joint = 1.0
+            for cell in cells:
+                noise = gated[cell][2]
+                joint *= (
+                    sum(
+                        inner_weight * _pass(replicates, mean + tau * inner, noise)
+                        for inner, inner_weight in zip(nodes, weights, strict=True)
+                    )
+                    if tau > 0
+                    else _pass(replicates, mean, noise)
+                )
+            arm_chance += weight * joint
+        total *= arm_chance
     return float(total)
 
 
-@AWAITING_PILOT
 def test_the_calibration_replicates_follow_the_sizing_rule() -> None:
     """(e) ``R`` is the smallest multiple of 400 with family-wise pass chance >= 0.95."""
     replicates = properties.CALIBRATION_REPLICATES
@@ -371,7 +688,6 @@ def test_the_calibration_replicates_follow_the_sizing_rule() -> None:
     assert len(_gated_pilot()) == len(study.CALIBRATION_LABELS)
 
 
-@AWAITING_PILOT
 def test_the_k1_cells_fail_with_the_declared_power() -> None:
     """(c) Each K1 cell fails the calibration rule with chance at least 0.95."""
     for estimator in study.ESTIMATORS:
@@ -394,7 +710,6 @@ def _direction_power(cell: str, side: str) -> float:
     return float(norm.cdf((1.0 - z * spread - ratio) / spread))
 
 
-@AWAITING_PILOT
 def test_the_k2_and_k3_directions_are_gated_only_where_powered() -> None:
     """(d) K2 is predicted above 1 and K3 below 1; a cell is gated when its power >= 0.95."""
     powered = {}
@@ -405,7 +720,6 @@ def test_the_k2_and_k3_directions_are_gated_only_where_powered() -> None:
     assert powered == properties.GATED_DIRECTIONS
 
 
-@AWAITING_PILOT
 def test_the_noise_control_scale_is_the_pilot_spread() -> None:
     for label in study.CALIBRATION_LABELS:
         pinned = PILOT[f"interval_calibration/{label}__correctly_specified"][4]

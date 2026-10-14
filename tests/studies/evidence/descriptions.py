@@ -407,7 +407,7 @@ _BASELINE_TARGETS = {
 ARMS.update(
     {
         f"{estimator}_{target}": f"{words}: {target_words}"
-        for estimator, words in {**_BASELINE_ESTIMATORS, "ltmle": "LTMLE"}.items()
+        for estimator, words in _BASELINE_ESTIMATORS.items()
         for target, target_words in _BASELINE_TARGETS.items()
     }
 )
@@ -2588,8 +2588,7 @@ PROPERTIES.update(
             "the ICE standard error of the first-node term alone, against the empirical spread"
         ),
         "adaptive_learners": (
-            "points with the default learner library, beside LTMLE on the same draws, reported "
-            "without an interval"
+            "points with the default learner library, reported without an interval"
         ),
     }
 )
@@ -2614,7 +2613,7 @@ CELLS.update(
                 f"the default learner library on law X, at n = {size:,}",
                 "reported only",
             )
-            for size in (1_000, 2_000)
+            for size in (1_000,)
         },
     }
 )

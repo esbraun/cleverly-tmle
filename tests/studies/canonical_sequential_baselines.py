@@ -70,10 +70,14 @@ RESAMPLING_SEED = 2026144101
 #: The three sizes of the ladder.  ``tests/unit/test_sequential_baselines_design.py`` pins that
 #: every node's MLE exists with probability at least 0.999 at the smallest.
 LADDER = (2_000, 4_000, 8_000)
-#: The two sizes of the reporting-only adaptive cells (A).  Each draw fits the default learner
-#: library three times, so A stays at the two smaller sizes.
-ADAPTIVE_SIZES = (1_000, 2_000)
-#: The size of every calibration cell.
+#: The size of the reporting-only adaptive cells (A).  One draw fits the default learner library
+#: twice, about 180 CPU-seconds at n = 1,000, so A has one size.
+ADAPTIVE_SIZES = (1_000,)
+#: The size of the ``D2C`` calibration cell.  The design probe found a singular ICE fit on
+#: 227 of 2,000 draws at n = 2,000 and 13 of 2,000 at 4,000 (a sparse node-2 cell among the
+#: event-free followers), and none of 2,000 at 8,000.
+D2C_N = 8_000
+#: The size of every other calibration cell.
 CALIBRATION_N = 2_000
 PRIMARY_N = LADDER[-1]
 PRIMARY_REPLICATES = 1_000
@@ -382,7 +386,7 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     "first_node_se": tuple(f"ice_g_{name}__first_node" for name in G_REPORTED),
     "adaptive_learners": tuple(
         f"{estimator}_x_contrast__n_{size}"
-        for estimator in ("ice", "hajek", "ltmle")
+        for estimator in ("ice", "hajek")
         for size in ADAPTIVE_SIZES
     ),
 }

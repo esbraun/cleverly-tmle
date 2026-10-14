@@ -9,7 +9,7 @@ paired within a law.
 family                         cells, replications and size
 =============================  ===================================================================
 ``interval_calibration``       the 43 labels of :data:`~tests.studies.canonical_sequential_
-                               baselines.CALIBRATION_LABELS` at n = 2,000, with
+                               baselines.CALIBRATION_LABELS` at n = 2,000 (``D2C`` at 8,000), with
                                :data:`CALIBRATION_REPLICATES` each, and the two derived controls of
                                each label (a shrunken standard error and added noise)
 ``root_n_and_efficiency``      the six ``*_contrast`` labels of ``D2`` and ``G`` at n = 2,000,
@@ -24,15 +24,15 @@ family                         cells, replications and size
 ``first_node_se``              K3: on the same draws, the ICE standard error of
                                :math:`w (\bar Q_1 - \psi)` alone
 ``adaptive_learners``          A: ``treat_all vs treat_none`` on ``X`` with the default learner library,
-                               ICE, IPW-Hajek and ``LTMLE`` on the same draws, at n = 1,000 and
-                               2,000, :data:`ADAPTIVE_REPLICATES` each; points only
+                               ICE and IPW-Hajek on the same draws, at n = 1,000,
+                               :data:`ADAPTIVE_REPLICATES`; points only
 =============================  ===================================================================
 
 **Rules.**  ``interval_calibration`` reads the shared calibration rule: the 99% bootstrap
 interval of the SE ratio inside (0.93, 1.07) and the 99% coverage interval inside (0.92, 0.98).
 There is no efficiency band: a parametric plug-in is not the efficient estimator of the
 nonparametric model, so :attr:`StudyRecord.calibration_efficiency_ratio` is ``False``, and the
-noise control's scale is :data:`NOISE_SD`, the pilot's :math:`\sqrt{n}` times the empirical SD.
+noise control's scale is :data:`NOISE_SD`, one pilot sampling SD at the cell's size.
 ``root_n_and_efficiency`` reads the shared ladder rule.  ``misspecification_control`` publishes
 the positive rule: it is in ``EXPECTED_RED``, and the design test shows the failure is powered.
 ``fixed_mechanism_se`` and ``first_node_se`` carry a predicted direction: the fixed-mechanism
@@ -56,7 +56,6 @@ import pandas as pd
 from scipy.stats import norm
 
 from cleverly.learners import SuperLearner
-from cleverly.longitudinal import LTMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_sequential_baselines as study
 from tests.studies import sequential_baselines_laws as laws
@@ -83,19 +82,72 @@ CALIBRATION_N = study.CALIBRATION_N
 LADDER = study.LADDER
 #: The replicates of every calibration cell and of K1, sized by the arm-pooled predictive rule
 #: in ``tests/unit/test_sequential_baselines_design.py``.
-CALIBRATION_REPLICATES = 4_000
+CALIBRATION_REPLICATES = 8_800
 LADDER_REPLICATES = 1_000
-ADAPTIVE_REPLICATES = 200
+ADAPTIVE_REPLICATES = 100
 ADAPTIVE_SIZES = study.ADAPTIVE_SIZES
 SHRUNKEN_SE_FACTOR = 0.70
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 ESTIMATORS = study.ESTIMATORS
 
-#: :math:`\sqrt{n}` times the empirical SD of each calibration label in the design pilot.  It
-#: scales the noise control only.  The design test pins these values.
-NOISE_SD: dict[str, float] = dict.fromkeys(study.CALIBRATION_LABELS, 1.0)
+#: The empirical SD of each calibration label in the design pilot times
+#: :math:`\sqrt{2000}` (``CALIBRATION_N``), so the noise control adds one sampling SD at the
+#: cell's own size (``D2C`` too, at 8,000).  It scales the noise control only.  The design test
+#: pins these values.
+NOISE_SD: dict[str, float] = {
+    "hajek_d2_contrast": 1.9551,
+    "hajek_d2_policy": 0.8512,
+    "hajek_d2_rule": 1.3488,
+    "hajek_d2_static_00": 1.4718,
+    "hajek_d2_static_12": 1.2719,
+    "hajek_d2c_relapse_h2": 0.5873,
+    "hajek_d2s_contrast_h2": 1.7783,
+    "hajek_d2s_risk_h1": 0.5524,
+    "hajek_d2s_risk_h2": 1.1889,
+    "hajek_d2w_static_12": 1.2754,
+    "hajek_g_contrast": 3.4405,
+    "hajek_g_rule": 3.7606,
+    "hajek_g_treat_all": 2.6414,
+    "hajek_g_treat_none": 2.6979,
+    "ht_d2_contrast": 2.0162,
+    "ht_d2_policy": 0.8448,
+    "ht_d2_rule": 1.6249,
+    "ht_d2_static_00": 1.5426,
+    "ht_d2_static_12": 1.3095,
+    "ht_d2c_relapse_h2": 0.5993,
+    "ht_d2s_contrast_h2": 1.8326,
+    "ht_d2s_risk_h1": 0.5527,
+    "ht_d2s_risk_h2": 1.2279,
+    "ht_g_contrast": 4.1558,
+    "ht_g_rule": 3.9228,
+    "ht_g_treat_all": 2.6486,
+    "ht_g_treat_none": 3.5863,
+    "ice_d2_contrast": 1.9432,
+    "ice_d2_policy": 0.8479,
+    "ice_d2_rule": 1.3441,
+    "ice_d2_static_00": 1.4568,
+    "ice_d2_static_12": 1.2677,
+    "ice_d2c_relapse_h2": 0.5887,
+    "ice_d2s_contrast_h2": 1.803,
+    "ice_d2s_risk_h1": 0.5532,
+    "ice_d2s_risk_h2": 1.1879,
+    "ice_d2w_static_12": 1.2724,
+    "ice_g_contrast": 2.7709,
+    "ice_g_rule": 2.1091,
+    "ice_g_treat_all": 2.063,
+    "ice_g_treat_none": 2.0801,
+    "ice_gm_contrast": 0.7108,
+    "ice_gm_down": 1.268,
+}
 #: The K2 and K3 cells whose predicted direction the design test shows to be powered.
-GATED_DIRECTIONS: dict[str, str] = {}
+GATED_DIRECTIONS: dict[str, str] = {
+    **{
+        f"{estimator}_g_{key}__fixed_mechanism": "above"
+        for estimator in ("hajek", "ht")
+        for key in study.G_REPORTED
+    },
+    **{f"ice_g_{key}__first_node": "below" for key in study.G_REPORTED},
+}
 
 # ------------------------------------------------------------------------------ the truths
 
@@ -175,7 +227,7 @@ FIT_SETS: dict[str, tuple[str, int, int]] = {
     "calibration_d2": ("D2", CALIBRATION_N, CALIBRATION_REPLICATES),
     "calibration_g": ("G", CALIBRATION_N, CALIBRATION_REPLICATES),
     "calibration_d2s": ("D2S", CALIBRATION_N, CALIBRATION_REPLICATES),
-    "calibration_d2c": ("D2C", CALIBRATION_N, CALIBRATION_REPLICATES),
+    "calibration_d2c": ("D2C", study.D2C_N, CALIBRATION_REPLICATES),
     "calibration_gm": ("GM", CALIBRATION_N, CALIBRATION_REPLICATES),
     "misspecification_x": ("X", CALIBRATION_N, CALIBRATION_REPLICATES),
     **{f"ladder_d2_n_{size}": ("D2", size, LADDER_REPLICATES) for size in LADDER},
@@ -220,18 +272,6 @@ def first_node_standard_error(result: Any, key: str) -> float:
     weights = np.asarray(result.data.weights, dtype=float)
     curve = weights * (values - np.average(values, weights=weights))
     return float(np.sqrt(np.mean(curve**2) / len(curve)))
-
-
-def adaptive_ltmle(frame: pd.DataFrame) -> Any:
-    """``LTMLE`` with its default learners on a draw of ``X``, as cell A reads it."""
-    settings = study.law_settings("X")
-    return LTMLE(
-        settings["regimens"],
-        reference="treat_none",
-        q_bounds=settings["q_bounds"],
-        simultaneous=False,
-        random_state=0,
-    ).fit(frame, **settings["columns"])
 
 
 def _row(
@@ -280,7 +320,6 @@ def fit_set_rows(fit_set: str, replicate: int, frame: pd.DataFrame) -> list[dict
         fits = {
             "ice": study.fit("ice", "X", frame, outcome=SuperLearner(random_state=0)),
             "hajek": study.fit("hajek", "X", frame, mechanism=SuperLearner(random_state=0)),
-            "ltmle": adaptive_ltmle(frame),
         }
         for estimator, result in fits.items():
             rows.append(
@@ -418,7 +457,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             "calibration_g",
             f"ice_g_{key}",
         )
-    for estimator in ("ice", "hajek", "ltmle"):
+    for estimator in ("ice", "hajek"):
         for size in ADAPTIVE_SIZES:
             add(
                 "adaptive_learners",
