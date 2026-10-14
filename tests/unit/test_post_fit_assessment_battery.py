@@ -1496,15 +1496,15 @@ def test_cached_evalue_refusals_store_data_without_exception_tracebacks(tmp_path
     facade = result.sensitivity
     capability = facade.capability("evalue")
     assert not capability.available
-    assert facade._evalue_selections[None] == ("unavailable", capability.reason)
+    assert facade._evalue_selections[None] == ("unavailable", capability.refusal)
     path = tmp_path / "refused-facade.joblib"
     joblib.dump(facade, path)
     restored = joblib.load(path)
     assert restored.capability("evalue") == capability
     for candidate in (facade, restored):
-        with pytest.raises(CapabilityError, match=re.escape(_DIRECT_EFFECT_REFUSAL)):
+        with pytest.raises(CapabilityError, match=re.escape(_DIRECT_EFFECT_REFUSAL.message())):
             candidate.evalue()
-        with pytest.raises(CapabilityError, match=re.escape(_DIRECT_EFFECT_REFUSAL)):
+        with pytest.raises(CapabilityError, match=re.escape(_DIRECT_EFFECT_REFUSAL.message())):
             candidate.evalue("ate")
         assert all(isinstance(value, tuple) for value in candidate._evalue_selections.values())
 

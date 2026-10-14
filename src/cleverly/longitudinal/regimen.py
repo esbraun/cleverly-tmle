@@ -65,7 +65,7 @@ import numpy as np
 
 from .._declarations import FunctionKind
 from .._typing import BoolArray, FloatArray, IntArray
-from ..exceptions import CapabilityError, DataError
+from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
 from ..interventions.base import (
     _RULE_DECLARATION,
     Stochastic,
@@ -1058,13 +1058,18 @@ def refuse_multi_arm_tilt_node(data: LongitudinalData, time: int) -> None:
     DataError
         If the node does not have exactly two levels.
     """
-    from ..interventions.incremental import multi_arm_tilt_message
+    from ..interventions.incremental import multi_arm_tilt_refusal
 
     levels = list(data.treatment_levels[time - 1])
     if len(levels) == 2:
         return
-    raise DataError(
-        multi_arm_tilt_message(f"node {data.treatment_names[time - 1]!r}", len(levels), levels)
+    raise DataError.from_refusal(
+        multi_arm_tilt_refusal(
+            f"node {data.treatment_names[time - 1]!r}",
+            len(levels),
+            levels,
+            alternative="A Stochastic node with density_kind='known' sets this node.",
+        )
     )
 
 
@@ -1130,15 +1135,17 @@ def refuse_continuous_assignments(regimen: RegimenSpec, data: LongitudinalData) 
     nodes = regimen.values if isinstance(regimen, Regimen) else regimen.plan
     for time, node in enumerate(nodes, start=1):
         if data.is_continuous_node(time) and _is_tilt(node):
-            raise CapabilityError(
-                tilt_continuous_message(regimen.label, data.treatment_names[time - 1])
+            raise CapabilityError.from_refusal(
+                tilt_continuous_refusal(regimen.label, data.treatment_names[time - 1])
             )
         if data.is_continuous_node(time) and not _is_mtp(node):
             raise CapabilityError(
                 f"regimen {regimen.label!r} sets the continuous node "
                 f"{data.treatment_names[time - 1]!r} to a fixed dose or rule. A static dose on "
                 "a continuous treatment is not pathwise differentiable (Díaz et al. 2023, "
-                "Section 4). Declare a modified treatment policy at that node"
+                "Section 4), so no root-n interval exists for it.",
+                reason=RefusalReason.INFERENCE_GAP,
+                alternative="Declare a modified treatment policy at that node.",
             )
 
 
@@ -1332,7 +1339,7 @@ def tilt_nodes(regimens: Any, n_times: int) -> frozenset[int]:
     return frozenset(times)
 
 
-def tilt_mix_message(label: str, node: str, kind: str) -> str:
+def tilt_mix_refusal(label: str, node: str, kind: str) -> Refusal:
     """The refusal of a tilt plan that also sets a node by a policy :class:`IPSI` cannot fit.
 
     Parameters
@@ -1346,17 +1353,19 @@ def tilt_mix_message(label: str, node: str, kind: str) -> str:
 
     Returns
     -------
-    str
-        The message.
+    Refusal
+        An :attr:`~cleverly._refusal.RefusalReason.IMPLEMENTATION_GAP` record.
     """
-    return (
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
         f"regimen {label!r} sets node {node!r} by {kind}. IPSI estimates no density ratio "
         "for a modified treatment policy or a risk-ratio tilt, so it has no estimator for a "
-        "plan with such a node. Fit that plan without an odds tilt by LTMLE or SDR"
+        "plan with such a node.",
+        alternative="Fit that plan without an odds tilt by LTMLE or SDR.",
     )
 
 
-def tilt_continuous_message(label: str, node: str) -> str:
+def tilt_continuous_refusal(label: str, node: str) -> Refusal:
     """The refusal of an odds tilt at a continuous node.
 
     Parameters
@@ -1368,13 +1377,14 @@ def tilt_continuous_message(label: str, node: str) -> str:
 
     Returns
     -------
-    str
-        The message.
+    Refusal
+        An :attr:`~cleverly._refusal.RefusalReason.INVALID_DECLARATION` record.
     """
-    return (
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
         f"regimen {label!r} sets the continuous node {node!r} by an odds tilt. An odds tilt "
-        "multiplies the odds of one of two arms, and a continuous dose has no such odds. "
-        "Declare a modified treatment policy at that node and fit it by LTMLE or SDR"
+        "multiplies the odds of one of two arms, and a continuous dose has no such odds.",
+        alternative="Declare a modified treatment policy at that node and fit it by LTMLE or SDR.",
     )
 
 
@@ -1595,10 +1605,14 @@ def _held_plan(label: str, plan: Any, n_times: int) -> Any:
                 "treatment node(s); a plan must say what happens at every one of them"
             )
         return Regimen(label, (nodes[0],)) if isinstance(plan, Regimen) else nodes[0]
-    raise ValueError(
+    raise CapabilityError(
         f"regimen {label!r} declares {len(nodes)} nodes, but this design has one treatment "
-        "decision, at baseline, held over every node. Declare one arm, or a one-node rule, "
-        "policy or modified treatment policy; the later nodes keep the baseline value"
+        "decision, at baseline, held over every node.",
+        reason=RefusalReason.DIFFERENT_ESTIMAND,
+        alternative=(
+            "Declare one arm, or a one-node rule, policy or modified treatment policy. The "
+            "later nodes keep the baseline value."
+        ),
     )
 
 

@@ -32,6 +32,7 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
+from ..exceptions import CapabilityError, RefusalReason
 from ..fluctuation.iterative import Fluctuation, InitialFit
 from ..interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet
 from ..learners._fitting import (
@@ -1586,11 +1587,14 @@ def _check_companion(data: CausalData, companion: CausalData) -> None:
             "new rows is a different object from predicting a probability."
         )
     if data.has_missing_outcome or data.has_intermediate:
-        raise NotImplementedError(
+        raise CapabilityError(
             "an evaluation companion is not built for a fit with delta= or intermediate=: "
             "the curve at the companion rows would need the missingness and intermediate "
-            "mechanisms there too, and DRTMLE -- the only estimator that asks for one -- "
-            "refuses both by name."
+            "mechanisms there too, and DRTMLE, the only estimator that asks for one, "
+            "refuses both by name.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Fit DRTMLE without evaluation=.",
+            roadmap="F5",
         )
     if tuple(companion.covariate_names) != tuple(data.covariate_names):
         raise ValueError(

@@ -34,10 +34,15 @@ from cleverly import (
     Targeting,
 )
 from cleverly.datasets import make_linear_ate, make_longitudinal
-from cleverly.exceptions import CapabilityError, MethodConfigurationError, ParameterSpaceWarning
+from cleverly.exceptions import (
+    CapabilityError,
+    MethodConfigurationError,
+    ParameterSpaceWarning,
+    RefusalReason,
+)
 from cleverly.longitudinal import LTMLE, SDR, sdr
 from cleverly.longitudinal.estimator import SDR_REFUSED_SETTINGS
-from cleverly.methods import SDR_NO_FLUCTUATION, SDR_POINT_REFUSAL
+from cleverly.methods import SDR_POINT_REFUSAL, sdr_no_fluctuation_refusal
 
 from .. import discrete_law_longitudinal as law
 from ..longitudinal_sdr import COLUMNS, sample
@@ -135,9 +140,10 @@ def ordinary(panel: Any) -> Any:
 
 @pytest.mark.parametrize("setting", SDR_REFUSED_SETTINGS)
 def test_r2_refuses_each_fluctuation_setting_by_name(setting: str) -> None:
-    with pytest.raises(TypeError) as raised:
+    with pytest.raises(MethodConfigurationError) as raised:
         SDR(PAIR, **{setting: 0.1})
-    assert str(raised.value) == SDR_NO_FLUCTUATION.format(name=setting)
+    assert str(raised.value) == sdr_no_fluctuation_refusal(setting).message()
+    assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
 
 
 def test_r2_leaves_an_unknown_keyword_to_the_shared_refusal() -> None:
@@ -166,7 +172,7 @@ def test_r3_refuses_the_odds_scale_above_one(above: Any) -> None:
     assert str(raised.value) == (
         f"ey_regimen[always] is {value:.4g}, outside (0, 1). An SDR estimate is an average of "
         "transformed outcomes and can leave the outcome range (Díaz et al. 2023, Section "
-        "5.3); the odds scale needs a level in (0, 1). Report the difference scale"
+        "5.3); the odds scale needs a level in (0, 1). Report the difference scale."
     )
 
 
@@ -184,7 +190,7 @@ def test_r3_refuses_the_log_scale_below_zero(below: Any) -> None:
     assert str(raised.value) == (
         f"ey_regimen[always] is {value:.4g}, at or below 0. An SDR estimate is an average of "
         "transformed outcomes and can leave the outcome range (Díaz et al. 2023, Section "
-        "5.3); the log scale needs a positive level. Report the difference scale"
+        "5.3); the log scale needs a positive level. Report the difference scale."
     )
 
 
@@ -247,7 +253,7 @@ def test_a_projection_that_does_not_converge_is_refused(constant: float, family:
         f"the working model's {family} projection of the SDR transforms did not converge. An "
         "SDR transform can leave [0, 1] (Díaz et al. 2023, Section 5.3), so a "
         f"{family} link can have no finite solution. Use the identity link, or fit "
-        "LTMLE(msm=...)"
+        "LTMLE(msm=...)."
     )
 
 
@@ -302,7 +308,7 @@ def test_sdr_method_refuses_a_fluctuation_setting(field: str, value: Any, engine
     method = SDRMethod(targeting=Targeting(**{field: value}))
     with pytest.raises(MethodConfigurationError) as raised:
         method.estimator_kwargs(longitudinal=True)
-    assert str(raised.value) == SDR_NO_FLUCTUATION.format(name=engine)
+    assert str(raised.value) == sdr_no_fluctuation_refusal(engine).message()
 
 
 def test_sdr_method_translates_to_engine_settings_without_a_fluctuation() -> None:

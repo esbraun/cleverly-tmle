@@ -225,7 +225,8 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "too small in its calibration, primary coverage, estimated-design and band "
                 "cells, flat in n, while its oracle-design cells were calibrated. The point "
                 "estimate stands. The plug-in standard error of the ordinary curve remains as a "
-                "diagnostic under plugin_std_error and plugin_interval. F19 in docs/roadmap.md tracks the generated-design term of both designs."
+                "diagnostic under plugin_std_error and plugin_interval. F19 in docs/roadmap.md "
+                "tracks the generated-design term of both designs."
             ),
             assessment_note=(
                 "the reported curve is a generated-design diagnostic: no confidence interval "

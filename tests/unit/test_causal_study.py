@@ -52,8 +52,9 @@ from cleverly.datasets import (
     make_shift_dose,
 )
 from cleverly.estimators import TMLE
+from cleverly.exceptions import RefusalReason
 from cleverly.inference.results import reported_status
-from cleverly.interventions import Shift
+from cleverly.interventions import Shift, Stochastic
 from cleverly.longitudinal import LTMLE, LongitudinalData
 from cleverly.longitudinal.estimator import DEFAULT_LTMLE_G_BOUNDS
 from cleverly.methods import (
@@ -1012,9 +1013,24 @@ def test_a_continuous_dose_refuses_by_axis_and_admits_a_working_model() -> None:
     assert abs(result["msm[a]"].score) < 1e-10
     assert result.parameter_keys["msm[a]"].term == "a"
 
-    for refused, axis in ((ATE(), "arm"), (RegimeMean(regimens=()), "regime")):
-        with pytest.raises(CapabilityError, match=f"indexed by {axis}"):
+    known = Stochastic(lambda frame: np.full((len(frame), 2), 0.5), "coin", density_kind="known")
+    for refused, fragment, code in (
+        (ATE(), "ATE is indexed by treatment arm", RefusalReason.INFERENCE_GAP),
+        (
+            RegimeMean(regimens=()),
+            "sets the continuous dose by a fixed value or a deterministic rule",
+            RefusalReason.INFERENCE_GAP,
+        ),
+        (
+            RegimeMean(regimens=(known,)),
+            "sets the continuous dose by a known stochastic density",
+            RefusalReason.IMPLEMENTATION_GAP,
+        ),
+    ):
+        with pytest.raises(CapabilityError, match=fragment) as raised:
             study.identify(refused)
+        assert raised.value.refusal.reason is code
+        assert "ModifiedTreatmentPolicy" in str(raised.value)
 
 
 def test_keyword_shortcuts_normalize_to_the_same_typed_method() -> None:

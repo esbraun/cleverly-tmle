@@ -362,7 +362,7 @@ class TestTheSuggestedShiftNamesTheFitThatRunsIt:
             )
         message = str(raised.value)
         assert message.startswith(refusal)
-        for advice in ("policies=", "F21", "cross_fit=False"):
+        for advice in ("Shift(", "F21", "cross_fit=False"):
             assert advice not in message
 
     def test_the_named_in_sample_fit_reports_the_natural_course(self) -> None:
@@ -587,7 +587,7 @@ class TestTheGuardedCurveReadsItsReductionSettings:
         result = sweep.reconfigured(
             sweep.fit_drtmle(), targeting="one_step", reduced_crossfit="nested", n_folds=3
         )
-        assert self._refused_everywhere(result) == self._PREFIX + ONE_STEP_NESTED_REFUSAL
+        assert self._refused_everywhere(result) == self._PREFIX + ONE_STEP_NESTED_REFUSAL.message()
 
     @pytest.mark.parametrize(
         ("configuration", "named"),

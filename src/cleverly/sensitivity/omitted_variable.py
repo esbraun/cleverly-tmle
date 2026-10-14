@@ -86,13 +86,14 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, ParamSpec
 
 import numpy as np
 from scipy import optimize
 
 from .._inference_status import InferenceStatus, supplies_inference
+from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._typing import FloatArray
 from ..assessment import SENSITIVITY_ROUTES
 from ..estimators.ctmle import CTMLESelection, declares_full_adjustment_only
@@ -169,11 +170,14 @@ _AXIS_NOUNS: dict[str, str] = {
     "msm": "A point-treatment MSM coefficient",
 }
 
-#: The longitudinal stop, byte for byte what
-#: :class:`~cleverly.assessment.SensitivityFacade` published before the rule table
-#: existed.  ``tests/unit/test_assessment_contract.py`` matches the declared reason
-#: against the raised one, so the string is the contract rather than the sentence.
-_LONGITUDINAL_BOUND_REFUSAL = "no longitudinal sensitivity derivation is registered"
+#: The longitudinal stop. ``tests/unit/test_assessment_contract.py`` matches the declared
+#: row against the raised error, and both read this one record.
+_LONGITUDINAL_BOUND_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "no longitudinal sensitivity derivation is registered.",
+    alternative=NO_ALTERNATIVE,
+    roadmap="F16",
+)
 
 #: The clause both mechanism refusals end on.  Neither estimator assumes a consistent
 #: treatment mechanism, and that assumption is what the published bound's ``nu^2`` and
@@ -183,15 +187,19 @@ _NO_NU2_DERIVATION = (
     "estimator that does not assume a consistent treatment mechanism."
 )
 
-_DRTMLE_BOUND_REFUSAL = (
+_DRTMLE_BOUND_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
     "the omitted-variable bound has no nu^2 estimate for a 'drtmle' fit. The default "
     "estimator E[2 m(alpha_hat) - alpha_hat^2] equals nu_0^2 minus the squared error of "
     "the fitted representer, by the Riesz identity, so it falls exactly where the fitted "
-    "mechanism is wrong -- the case DR-TMLE guards against. The bound would be too "
-    "narrow and the robustness value too large. " + _NO_NU2_DERIVATION
+    "mechanism is wrong, which is the case DR-TMLE guards against. The bound would be too "
+    "narrow and the robustness value too large. " + _NO_NU2_DERIVATION,
+    alternative="Fit the ordinary TMLE on the same data for the bound.",
+    roadmap="F5",
 )
 
-_CTMLE_BOUND_REFUSAL = (
+_CTMLE_BOUND_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
     "the omitted-variable bound has no nu^2 estimate for a 'collaborative_tmle' fit. The "
     "working mechanism conditions on a function V of W: the selected adjustment set W_S "
     "on the greedy, ordered and discrete paths, and the fitted outcome regression under "
@@ -199,18 +207,21 @@ _CTMLE_BOUND_REFUSAL = (
     "E[alpha_W | A, V], whose second moment cannot exceed the second moment of alpha_W, "
     "while sigma^2 still comes from a regression on every "
     "declared covariate. The product sigma^2 nu^2 belongs to no single conditioning set, "
-    "and the collaborative robustness value is optimistic by construction. " + _NO_NU2_DERIVATION
+    "and the collaborative robustness value is optimistic by construction. " + _NO_NU2_DERIVATION,
+    alternative="Fit the ordinary TMLE on the same data for the bound.",
+    roadmap="F5",
 )
 
 #: The same refusal for the one collaborative fit that selects nothing. Its mechanism is
 #: fitted on every covariate, so the argument above does not apply to it, and the
 #: sentence names the scope rule instead.
-_CTMLE_FULL_CANDIDATE_BOUND_REFUSAL = (
+_CTMLE_FULL_CANDIDATE_BOUND_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
     "the omitted-variable bound is not offered on a 'collaborative_tmle' fit. This "
     "strategy='discrete' fit declares one candidate, equal to the full adjustment set, so "
     "it selects nothing and equals the ordinary TMLE fit. The bound reads the fitted method "
-    "and has no collaborative route. Fit the ordinary TMLE (TMLE, or TMLEMethod) on the "
-    "same data for the bound."
+    "and has no collaborative route.",
+    alternative="Fit the ordinary TMLE (TMLE, or TMLEMethod) on the same data for the bound.",
 )
 
 #: The clause the two well-posed mechanism refusals share: each functional is linear in
@@ -282,20 +293,23 @@ _RESPONSE_BOUND_REFUSAL = (
     "it as a treatment-side strength."
 )
 
-_INTERMEDIATE_BOUND_REFUSAL = (
+_INTERMEDIATE_BOUND_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
     "the omitted-variable bound is not implemented for a fit with an intermediate "
     "variable. Each estimand at the fixed level z is a linear functional of the "
     "regression of Y on (A, Z, W), " + _THEOREM_2_COVERS + " The representer carries the "
     "intermediate weight 1{Z = z} / P(Z = z | A, W), so cf_d would measure a joint "
     "strength over the treatment and intermediate mechanisms. This package reports cf_d "
-    "and the robustness value as a treatment-side strength."
+    "and the robustness value as a treatment-side strength.",
+    alternative=NO_ALTERNATIVE,
+    roadmap="X9",
 )
 
 #: Why the median of several fold draws has no bound, in the words
 #: :func:`~cleverly.exceptions.repeats_refusal` completes.
 _REPEATS_REASON = (
     "A coordinatewise median of the bound's influence terms would not be the influence "
-    "function of the median bound. Fit one split for this analysis."
+    "function of the median bound."
 )
 
 #: Appended to the response refusal on a fit that can still run the tilt.  A
@@ -318,7 +332,7 @@ _RESPONSE_ARM_TILT_POINTER = (
 )
 
 
-def _refuse_longitudinal(result: Any) -> str | None:
+def _refuse_longitudinal(result: Any) -> Refusal | None:
     """Refuse any assessment family but ``point``.
 
     First in the table, and not by taste: :class:`~cleverly.longitudinal.LongitudinalData`
@@ -330,14 +344,14 @@ def _refuse_longitudinal(result: Any) -> str | None:
     return None
 
 
-def _refuse_guarded_mechanism(result: Any) -> str | None:
+def _refuse_guarded_mechanism(result: Any) -> Refusal | None:
     """Refuse a DR-TMLE fit, whose estimator does not assume a consistent mechanism."""
     if result.fitted_method == "drtmle":
         return _DRTMLE_BOUND_REFUSAL
     return None
 
 
-def _refuse_selected_mechanism(result: Any) -> str | None:
+def _refuse_selected_mechanism(result: Any) -> Refusal | None:
     """Refuse a collaborative fit, whose representer comes from a selected working g.
 
     The fit that declares one full candidate selects nothing, and its sentence says so.
@@ -352,7 +366,7 @@ def _refuse_selected_mechanism(result: Any) -> str | None:
     return _CTMLE_BOUND_REFUSAL
 
 
-def _refuse_response_mechanism(result: Any) -> str | None:
+def _refuse_response_mechanism(result: Any) -> Refusal | None:
     """Refuse a fit whose outcome is unobserved on some rows.
 
     The predicate is the data flag ``has_missing_outcome``, which the missingness-tilt
@@ -377,27 +391,34 @@ def _refuse_response_mechanism(result: Any) -> str | None:
         pointer = _RESPONSE_ARM_TILT_POINTER
     else:
         pointer = _RESPONSE_TILT_POINTER
-    return _RESPONSE_BOUND_REFUSAL + pointer
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        _RESPONSE_BOUND_REFUSAL,
+        alternative=pointer.strip() or NO_ALTERNATIVE,
+        roadmap="X9",
+    )
 
 
 #: Why the bound refuses a fit with a declared missing treatment.
-_MISSING_TREATMENT_BOUND_REFUSAL = (
+_MISSING_TREATMENT_BOUND_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
     "the omitted-variable bound is not implemented for a fit with a declared missing "
     "treatment. The Riesz representer of the bound is derived for a recorded treatment, "
     "and this fit divides by the composite mechanism P(A = a, Delta_A = 1[, Delta = 1] | W), "
     "whose representer and confounding strengths are not derived. Roadmap X9 owns the "
-    "representers that carry a second mechanism."
+    "representers that carry a second mechanism.",
+    alternative="Call evalue(result) on the same fit, which has no missing-treatment rule.",
 )
 
 
-def _refuse_missing_treatment(result: Any) -> str | None:
+def _refuse_missing_treatment(result: Any) -> Refusal | None:
     """Refuse a fit with a declared missing treatment, whose representer is not derived."""
     if not getattr(result.data, "has_missing_treatment", False):
         return None
     return _MISSING_TREATMENT_BOUND_REFUSAL
 
 
-def _refuse_intermediate(result: Any) -> str | None:
+def _refuse_intermediate(result: Any) -> Refusal | None:
     """Refuse a fit that declares an intermediate variable.
 
     The predicate is :func:`~cleverly.estimators.direct_effect.declares_intermediate`,
@@ -408,7 +429,7 @@ def _refuse_intermediate(result: Any) -> str | None:
     return _INTERMEDIATE_BOUND_REFUSAL if declares_intermediate(result) else None
 
 
-def _refuse_non_arm_axis(result: Any) -> str | None:
+def _refuse_non_arm_axis(result: Any) -> Refusal | None:
     """Refuse a fit whose counterfactuals are indexed by anything but an arm.
 
     Two reasons, not one.  A regime, a shift, and an MSM coefficient are linear
@@ -423,29 +444,37 @@ def _refuse_non_arm_axis(result: Any) -> str | None:
     if axis == "learned_rule":
         # A third reason: the target is data-adaptive, and no bound for it was reviewed.
         # A benchmark refit would also relearn the rules, and so change the target.
-        return (
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
             "the omitted-variable bound and its benchmark do not cover a learned-rule fit: "
             + LEARNED_RULE_SENSITIVITY_REFUSAL
+            + ".",
+            alternative=NO_ALTERNATIVE,
+            roadmap="F27",
         )
     if axis == "ipsi":
-        return (
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
             "the omitted-variable bound does not cover a fit whose parameters are indexed "
             "by 'ipsi'. An incremental intervention tilts the treatment mechanism, so the "
             "mechanism is part of the estimand rather than a nuisance the bound conditions "
             "on. Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026) bound the bias "
-            "of a linear functional of the outcome regression alone."
+            "of a linear functional of the outcome regression alone.",
         )
     noun = _AXIS_NOUNS[axis]
-    return (
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
         f"the omitted-variable bound is not implemented for a fit whose parameters are "
         f"indexed by {axis!r}. {noun} is a linear functional of the outcome regression, "
         f"and it has a Riesz representer, so the bound is well posed here and no "
         f"implementation of it is registered. The implemented bound covers the "
-        f"arm-indexed linear estimands {sorted(LINEAR_ESTIMANDS)}."
+        f"arm-indexed linear estimands {sorted(LINEAR_ESTIMANDS)}.",
+        alternative=NO_ALTERNATIVE,
+        roadmap="X9",
     )
 
 
-def _refuse_unbounded_parameters(result: Any) -> str | None:
+def _refuse_unbounded_parameters(result: Any) -> Refusal | None:
     """Refuse an arm-indexed fit that reports no parameter the bound applies to.
 
     The predicate is :func:`~cleverly.sensitivity._parameters.reported_arm_parameters`,
@@ -460,16 +489,18 @@ def _refuse_unbounded_parameters(result: Any) -> str | None:
     if reported_arm_parameters(result):
         return None
     ratio = any(parameter_stem(name) in _EVALUE_STEMS for name in result.estimates)
-    return (
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
         "the omitted-variable bound applies to the arm-indexed linear estimands "
         f"{sorted(LINEAR_ESTIMANDS)}, and this arm-indexed fit reported none of them: "
         f"it reported {sorted(result.estimates)}. One bound is the second moment of "
         "one contrast's own Riesz representer, so ask the fit for a counterfactual "
-        "mean or a contrast of arms." + (_EVALUE_POINTER if ratio else "")
+        "mean or a contrast of arms.",
+        alternative=_EVALUE_POINTER.strip() if ratio else None,
     )
 
 
-def _refuse_repeats(result: Any) -> str | None:
+def _refuse_repeats(result: Any) -> Refusal | None:
     """Refuse a median-combined repeated fit.
 
     The one rule a refit of the same estimator lifts, which is why it runs last.  Every
@@ -477,7 +508,11 @@ def _refuse_repeats(result: Any) -> str | None:
     meets no second refusal after the refit.
     """
     return repeats_refusal(
-        result.n_repeats, operation="omitted-variable sensitivity", reason=_REPEATS_REASON
+        result.n_repeats,
+        operation="omitted-variable sensitivity",
+        text=_REPEATS_REASON,
+        reason=RefusalReason.IMPLEMENTATION_GAP,
+        alternative="Fit one split for this analysis.",
     )
 
 
@@ -489,7 +524,7 @@ def _refuse_repeats(result: Any) -> str | None:
 #: names an arm-indexed fit.  ``repeats`` is last because it is the only rule a refit with
 #: one split lifts.  The names are the introspection contract; a test reads them to pin the
 #: order without respelling a message.
-_FIT_WIDE_BOUND_RULES: tuple[tuple[str, Callable[[Any], str | None]], ...] = (
+_FIT_WIDE_BOUND_RULES: tuple[tuple[str, Callable[[Any], Refusal | None]], ...] = (
     ("longitudinal", _refuse_longitudinal),
     ("drtmle", _refuse_guarded_mechanism),
     ("collaborative_tmle", _refuse_selected_mechanism),
@@ -502,7 +537,7 @@ _FIT_WIDE_BOUND_RULES: tuple[tuple[str, Callable[[Any], str | None]], ...] = (
 )
 
 
-def fit_wide_bound_refusal(result: Any) -> str | None:
+def fit_wide_bound_refusal(result: Any) -> Refusal | None:
     """Return the first omitted-variable refusal that applies to the whole fit.
 
     Every boundary in :data:`_FIT_WIDE_BOUND_RULES` is reachable from capability reporting
@@ -517,13 +552,13 @@ def fit_wide_bound_refusal(result: Any) -> str | None:
 
     Returns
     -------
-    str or None
-        Exact refusal reason, or ``None`` when no fit-wide boundary applies.
+    Refusal or None
+        The first fit-wide refusal, or ``None`` when no fit-wide boundary applies.
     """
     for _name, rule in _FIT_WIDE_BOUND_RULES:
-        reason = rule(result)
-        if reason is not None:
-            return reason
+        refusal = rule(result)
+        if refusal is not None:
+            return refusal
     return None
 
 
@@ -621,11 +656,12 @@ def sensitivity_elements(
         # The tilt pointer is fit-wide: a joint natural-course fit can tilt its arm
         # means. The tilt refuses a target read from the natural-course mean, so a
         # request for one is not sent there.
-        if natural_course_names([estimand]):
-            refusal = refusal.removesuffix(_RESPONSE_TILT_POINTER).removesuffix(
-                _RESPONSE_ARM_TILT_POINTER
-            )
-        raise CapabilityError(refusal)
+        if natural_course_names([estimand]) and refusal.alternative in {
+            _RESPONSE_TILT_POINTER.strip(),
+            _RESPONSE_ARM_TILT_POINTER.strip(),
+        }:
+            refusal = replace(refusal, alternative=NO_ALTERNATIVE)
+        raise CapabilityError.from_refusal(refusal)
     parameter = resolve_parameter(result, estimand)
     return _elements_for(result, result.repeats[0], parameter, nu2_estimator)
 
@@ -669,11 +705,13 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
         # The pointer is for the two ratio scales an E-value is defined on. Offered for
         # anything else -- an attributable fraction, say -- it sends the reader from one
         # refusal to a second one.
-        pointer = _EVALUE_POINTER if stem in _EVALUE_STEMS else ""
+        pointer = _EVALUE_POINTER.strip() if stem in _EVALUE_STEMS else None
         raise CapabilityError(
             f"the omitted-variable bound applies to {sorted(LINEAR_ESTIMANDS)}, not "
             f"{estimand!r}: the bound is on the bias of a linear functional of the "
-            f"outcome regression, and {estimand!r} is not one." + pointer
+            f"outcome regression, and {estimand!r} is not one.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative=pointer,
         )
     available = reported_arm_parameters(result)
     if estimand in available:
@@ -682,16 +720,17 @@ def resolve_parameter(result: TMLEResult, estimand: str) -> ArmParameter:
     # false. It is the derivation that is missing, not the parameter.
     conditional = stratum_refusal(result, estimand, "the omitted-variable bound")
     if conditional is not None:
-        raise CapabilityError(conditional)
+        raise CapabilityError.from_refusal(conditional)
     empty = _refuse_unbounded_parameters(result)
     if empty is not None:
         # Every entry point hears this sentence from the fit-wide table before it gets
         # here. A caller that resolves a parameter directly hears the same sentence.
-        raise CapabilityError(empty)
+        raise CapabilityError.from_refusal(empty)
     raise CapabilityError(
         f"estimand {estimand!r} was not requested in this fit. The bound is available for "
-        f"{sorted(available)} -- one per contrast, since nu^2 is the second moment of "
-        "that contrast's own Riesz representer."
+        f"{sorted(available)}, one per contrast, since nu^2 is the second moment of "
+        "that contrast's own Riesz representer.",
+        reason=RefusalReason.INVALID_DECLARATION,
     )
 
 
@@ -771,7 +810,8 @@ def _elements_for(
                 f"the fitted representer, so this value reports a treatment mechanism the "
                 f"bound's derivation does not cover. The plug-in E[alpha_hat^2] squares "
                 f"that same fitted representer, so it is not a substitute. "
-                f"(nu2_estimator={nu2_estimator!r} resolved to {method!r}.)"
+                f"(nu2_estimator={nu2_estimator!r} resolved to {method!r}.)",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
     else:
         nu2_element = representer**2
@@ -1105,14 +1145,31 @@ class SensitivityBounds:
             refuse_inference(self.inference, operation=operation)
         reason = self._limit_reason()
         if reason is not None:
-            raise CapabilityError(f"{operation} is not defined under {reason}")
+            if self.nu2_estimator in _ESTIMATOR_LIMIT_REFUSALS:
+                raise CapabilityError(
+                    f"{operation} is not defined under {reason}",
+                    reason=RefusalReason.INFERENCE_GAP,
+                    alternative=(
+                        "Fit the bound with nu2_estimator='doubly_robust', which has "
+                        "derived limits."
+                    ),
+                    roadmap="F26",
+                )
+            raise CapabilityError(
+                f"{operation} is not defined under {reason}",
+                reason=RefusalReason.INFERENCE_GAP,
+                alternative="Read the point bounds and the robustness value, which stay available.",
+            )
 
     def _guarded(self, name: str, stored: float | None, *, diagnostic: bool = False) -> float:
         """One stored limit, after :meth:`_limit_refusal` has let it through."""
         operation = f"SensitivityBounds.{name}"
         self._limit_refusal(operation, diagnostic=diagnostic)
         if stored is None:  # pragma: no cover - a derived bound always stores its limits
-            raise CapabilityError(f"{operation} was not stored on this bound")
+            raise CapabilityError(
+                f"{operation} was not stored on this bound",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
         return stored
 
     @property
@@ -1428,7 +1485,8 @@ def _robustness_values(
         if strength > 0.0 and (not np.isfinite(value) or not 0.0 < value < 1.0):
             raise CapabilityError(
                 "the equal-strength robustness threshold exists but is not representable "
-                "inside [0, 1) at floating-point precision"
+                "inside [0, 1) at floating-point precision",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
         return value
 
@@ -1462,10 +1520,16 @@ def _robustness_values(
         return rv, None
     high = max(1.0, distance / elements.max_bias)
     if not np.isfinite(high):
-        raise CapabilityError("the confidence-limit robustness root exceeds finite precision")
+        raise CapabilityError(
+            "the confidence-limit robustness root exceeds finite precision",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
     while signed_gap(high) < 0.0:
         if high > np.finfo(float).max / 2.0:
-            raise CapabilityError("the confidence-limit robustness root exceeds finite precision")
+            raise CapabilityError(
+                "the confidence-limit robustness root exceeds finite precision",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
         high *= 2.0
     strength = float(optimize.brentq(signed_gap, 0.0, high))
     return rv, equal_share(strength)
@@ -1653,7 +1717,7 @@ def _benchmark_names(result: TMLEResult, covariates: Any) -> tuple[str, ...]:
     return names
 
 
-def benchmark_refusal(result: TMLEResult, covariates: Any = None) -> str | None:
+def benchmark_refusal(result: TMLEResult, covariates: Any = None) -> Refusal | None:
     """Return the refusal a :func:`benchmark` request meets for its ``covariates``.
 
     :func:`benchmark` raises the sentence this function returns, and the ``benchmark``
@@ -1673,17 +1737,18 @@ def benchmark_refusal(result: TMLEResult, covariates: Any = None) -> str | None:
 
     Returns
     -------
-    str or None
-        Exact refusal reason, or ``None`` when the covariates leave one to adjust for or
+    Refusal or None
+        The refusal, or ``None`` when the covariates leave one to adjust for or
         form a malformed request.  :func:`benchmark` reports a malformed request itself,
         before any refusal.
     """
     if result.data.known_treatment is not None:
-        return (
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
             "benchmark compares the treatment mechanism with and without the named "
             "covariates, and this fit's data declares the mechanism known, so dropping a "
             "covariate cannot change it. A known design mechanism leaves no omitted "
-            "confounder of the treatment to calibrate against"
+            "confounder of the treatment to calibrate against.",
         )
     fitted = _benchmark_covariates(result.data)
     try:
@@ -1692,11 +1757,14 @@ def benchmark_refusal(result: TMLEResult, covariates: Any = None) -> str | None:
         return None
     if any(name not in dropped for name in fitted):
         return None
-    return (
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
         f"benchmark cannot drop every covariate of this fit, {list(fitted)}. The short "
-        "model would adjust for nothing, and a fit needs at least one covariate. Name a "
-        "proper subset of the covariates, which exists only when the fit adjusts for two "
-        "or more"
+        "model would adjust for nothing, and a fit needs at least one covariate.",
+        alternative=(
+            "Name a proper subset of the covariates, which exists only when the fit "
+            "adjusts for two or more."
+        ),
     )
 
 
@@ -1756,7 +1824,10 @@ def benchmark(
     names = _benchmark_names(result, covariates)
     estimator = result.estimator
     if estimator is None:
-        raise CapabilityError("benchmark needs the fitted estimator that produced the result")
+        raise CapabilityError(
+            "benchmark needs the fitted estimator that produced the result",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
 
     # The short model is a refit, so it carries the same reproducibility question a
     # refutation does: an estimator with no ``random_state`` redraws its folds every time,
@@ -1767,7 +1838,7 @@ def benchmark(
     long_elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)
     refusal = benchmark_refusal(result, names)
     if refusal is not None:
-        raise CapabilityError(refusal)
+        raise CapabilityError.from_refusal(refusal)
     short_data = result.data.without_covariates(_benchmark_columns(result.data, names))
     short_result = estimator.refit(
         short_data, intermediate_value=result.intermediate_value, random_state=seed

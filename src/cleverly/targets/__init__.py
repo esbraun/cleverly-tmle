@@ -20,6 +20,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from .._typing import ParameterAxis
+from ..exceptions import CapabilityError, RefusalReason
 from ..fluctuation.submodel import SUBMODEL_BUILDERS, TargetGroup
 from .base import Identification, Target, TargetContext, parameter_name, parameter_stem
 from .builtin import BUILTIN_TARGETS
@@ -178,7 +179,7 @@ _AXIS_ROUTE = {
 }
 
 
-def _off_axis_reason(mismatched: Sequence[str], axis: ParameterAxis) -> str:
+def _off_axis_reason(mismatched: Sequence[str], axis: ParameterAxis) -> tuple[str, str]:
     """Say why targets of another parameter axis cannot come from this fit, and where they can.
 
     Parameters
@@ -190,15 +191,15 @@ def _off_axis_reason(mismatched: Sequence[str], axis: ParameterAxis) -> str:
 
     Returns
     -------
-    str
-        Two sentences: the axes of the targets and of the fit, and the fit that reports the
-        targets.
+    tuple of str
+        The sentence that names the axes of the targets and of the fit, and the sentence that
+        names the fit that reports the targets. Neither ends with a full stop.
     """
     other_axes = sorted({TARGETS[name].parameter_axis for name in mismatched})
     return (
         f"They are indexed by {' and '.join(_AXIS_INDEXES_BY[other] for other in other_axes)}, "
-        f"and this fit's parameters are indexed by {_AXIS_INDEXES_BY[axis]}. Report "
-        f"{list(mismatched)} from {' or '.join(_AXIS_ROUTE[other] for other in other_axes)}"
+        f"and this fit's parameters are indexed by {_AXIS_INDEXES_BY[axis]}",
+        f"Report {list(mismatched)} from {' or '.join(_AXIS_ROUTE[other] for other in other_axes)}",
     )
 
 
@@ -236,23 +237,26 @@ def resolve_estimands(
     mismatched = [name for name in names if not TARGETS[name].matches_axis(axis)]
     if mismatched:
         available = list(all_names(family, n_arms, axis=axis))
-        raise ValueError(
+        explanation, route = _off_axis_reason(mismatched, axis)
+        raise CapabilityError(
             f"estimand(s) {mismatched} do not belong to {_AXIS_DECLARED_BY[axis]}. "
-            f"{_off_axis_reason(mismatched, axis)}. Declaring interventions=, "
+            f"{explanation}. Declaring interventions=, "
             "learned_rule=, policies= or incremental= says what the fit's counterfactuals "
             "are, and msm= says how they are summarised, so reporting across two of them "
-            "from a single fluctuation would put two score equations under one heading. "
-            f"Available here: {available}."
+            "from a single fluctuation would put two score equations under one heading.",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative=f"{route}. Available here: {available}.",
         )
 
     wrong_arms = [name for name in names if not TARGETS[name].supports_arms(n_arms)]
     if wrong_arms:
-        raise ValueError(
+        raise CapabilityError(
             f"estimand(s) {wrong_arms} are defined for a binary treatment only, but this "
-            f"fit has {n_arms} arms. They name one of exactly two arms -- or their "
-            "intervention does, as an incremental tilt of the odds of treatment does -- "
+            f"fit has {n_arms} arms. They name one of exactly two arms, or their "
+            "intervention does, as an incremental tilt of the odds of treatment does, "
             "so with more arms they name no single parameter. Available here: "
-            f"{list(all_names(family, n_arms, axis=axis))}."
+            f"{list(all_names(family, n_arms, axis=axis))}.",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
 
     unsupported = [name for name in names if not TARGETS[name].supported_by(family)]
@@ -261,11 +265,12 @@ def resolve_estimands(
         # Named the way a user thinks of it, with the internal family in parentheses:
         # "binomial" is what the config records, "binary" is what they passed in.
         wanted = " / ".join(_FAMILY_WORDS.get(name, name) for name in needs)
-        raise ValueError(
+        raise CapabilityError(
             f"estimand(s) {unsupported} require a {wanted} outcome "
             f"(family={needs[0]!r}), but this fit has family={family!r}. The risk ratio "
             "and odds ratio are not defined for a continuous outcome. Drop them or "
-            "dichotomise the outcome."
+            "dichotomise the outcome.",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
 
     ordered = tuple(name for name in TARGETS if name in set(names))

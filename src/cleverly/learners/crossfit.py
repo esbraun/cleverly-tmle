@@ -69,7 +69,13 @@ import numpy as np
 from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
 
 from .._typing import BoolArray, FloatArray, IntArray
-from ..exceptions import CapabilityError, DataError
+from ..exceptions import (
+    CapabilityError,
+    DataError,
+    MethodConfigurationError,
+    Refusal,
+    RefusalReason,
+)
 
 __all__ = [
     "CrossFitPlan",
@@ -137,7 +143,7 @@ _UNRECORDED_PLAN_REASON = (
 
 def fold_strata_refusal(
     stratify_folds: str, *, collaborative: bool, learned_rule: bool | None = False
-) -> str | None:
+) -> Refusal | None:
     """Return why a fold-stratification policy cannot run, or ``None``.
 
     ``"none"`` is the only policy any fit draws folds under. ``"treatment"`` and
@@ -165,8 +171,8 @@ def fold_strata_refusal(
 
     Returns
     -------
-    str or None
-        The reason to refuse, or ``None`` when the policy can run.
+    Refusal or None
+        The refusal, or ``None`` when the policy can run.
     """
     if stratify_folds == "none":
         return None
@@ -190,14 +196,17 @@ def fold_strata_refusal(
             f" Otherwise {_IN_SAMPLE_REMEDY}, which draws no split for a policy to apply to.",
             learned_rule,
         )
-    return (
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
         f"stratify_folds={stratify_folds!r} requests stratification of {where} on {reads}. "
         "A split drawn from those strata would make the partition a function of the "
         "data the fit then conditions on. No shipped result "
         "covers that split "
-        "(docs/technical-reference/cv-tmle.md, fold and outcome-scale rules). "
-        "Set stratify_folds='none' "
-        f"(CrossFitting(stratify_by='none')), which is the default.{tail}"
+        "(docs/technical-reference/cv-tmle.md, fold and outcome-scale rules).",
+        alternative=(
+            "Set stratify_folds='none' "
+            f"(CrossFitting(stratify_by='none')), which is the default.{tail}"
+        ),
     )
 
 
@@ -234,7 +243,7 @@ def _cross_fit_policy_refusal(
     collaborative: bool = False,
     option_name: str,
     learned_rule: bool | None = None,
-) -> str | None:
+) -> Refusal | None:
     """Return why a declared cross-fitting policy cannot run, or ``None``.
 
     One ordered message source for two callers with two exception contracts:
@@ -283,35 +292,40 @@ def _cross_fit_policy_refusal(
 
     Returns
     -------
-    str or None
-        The reason to refuse, or ``None`` when the policy can run.
+    Refusal or None
+        The refusal, or ``None`` when the policy can run. Every refusal but the one of
+        :func:`fold_strata_refusal` is an invalid declaration.
     """
+    invalid = RefusalReason.INVALID_DECLARATION
     if repeats < 1:
-        return f"repeats must be at least 1; got {repeats}"
+        return Refusal(invalid, f"repeats must be at least 1; got {repeats}")
     if split_plan is not None:
         if not isinstance(split_plan, SplitPlan):
-            return "split_plan must be a SplitPlan"
+            return Refusal(invalid, "split_plan must be a SplitPlan")
         reason = split_plan._policy_refusal(cross_fit=cross_fit, n_folds=n_folds, repeats=repeats)
         if reason is not None:
-            return reason
+            return Refusal(invalid, reason)
         if n_bootstrap:
-            return (
+            return Refusal(
+                invalid,
                 "n_bootstrap cannot be combined with split_plan: full-refit bootstrap "
                 "replicates duplicate sampled rows, while the supplied assignments "
-                "identify only the original row positions"
+                "identify only the original row positions",
             )
     if repeats > 1 and not cross_fit:
-        return (
+        return Refusal(
+            invalid,
             "repeats takes the median over independent cross-fitting splits, and "
             f"{option_name}=False makes no split to draw or repeat. Enable cross-fitting"
-            + _in_sample_offer(" or set repeats=1", learned_rule)
+            + _in_sample_offer(" or set repeats=1", learned_rule),
         )
     if cross_fit and n_folds < 2:
-        return (
+        return Refusal(
+            invalid,
             f"{option_name}=True with n_folds={n_folds} leaves one fold, so every nuisance "
             "is fitted on the rows it predicts while the fit reports the cross-fitted "
             "estimator's name and variance rule. Set n_folds to at least 2"
-            + _in_sample_offer(", or fit in sample with CrossFitting(enabled=False)", learned_rule)
+            + _in_sample_offer(", or fit in sample with CrossFitting(enabled=False)", learned_rule),
         )
     if cross_fit or collaborative:
         return fold_strata_refusal(
@@ -827,10 +841,16 @@ class SplitPlan:
                         n, origin.requested_n_folds, cluster=cluster, seed=origin.seed
                     )
                 except (ValueError, DataError) as exc:
-                    raise DataError(
-                        f"split-plan repeat {repeat} records a draw that cannot run on these "
-                        f"rows: {exc}"
-                    ) from exc
+                    prefix = (
+                        f"split-plan repeat {repeat} records a draw that cannot run on these rows: "
+                    )
+                    if isinstance(exc, DataError):
+                        # Keep the reason code of the inner refusal.
+                        inner = exc.refusal
+                        raise DataError.from_refusal(
+                            replace(inner, condition=prefix + inner.condition)
+                        ) from exc
+                    raise DataError(f"{prefix}{exc}") from exc
             differing = int(np.count_nonzero(redrawn.assignment != np.asarray(assignment)))
             if differing:
                 raise DataError(
@@ -1478,9 +1498,11 @@ def refuse_scheme(kind: str) -> None:
     CapabilityError
         For ``"blocked"`` and ``"rolling_origin"``, each a well-posed split that this
         version does not implement.
+    MethodConfigurationError
+        For ``"repeated"``, which is redirected to ``repeats=``, and for
+        ``"row_within_cluster"``.
     ValueError
-        For ``"repeated"``, which is redirected to ``repeats=``, for
-        ``"row_within_cluster"``, and for an unknown name.
+        For an unknown name.
     """
     if kind == "blocked":
         raise CapabilityError(
@@ -1491,7 +1513,10 @@ def refuse_scheme(kind: str) -> None:
             "is the independent sampling unit, not a row or time key. LongitudinalData "
             "does order its nodes, but along a within-unit axis: its rows are still "
             "exchangeable units, and a fold there splits units rather than time, so it "
-            "supplies the ordering a *panel* would need and not the one this scheme does."
+            "supplies the ordering a *panel* would need and not the one this scheme does.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Use grouped folds through id=.",
+            roadmap="F7",
         )
     if kind == "rolling_origin":
         raise CapabilityError(
@@ -1501,23 +1526,33 @@ def refuse_scheme(kind: str) -> None:
             "holds out each row. Cross-fitting here rests on exactly that -- Folds is an "
             "assignment of one fold per row, and NuisanceEstimates stores one "
             "out-of-fold prediction per row because of it. A rolling origin needs a "
-            "different storage contract, not a different splitter."
+            "different storage contract, not a different splitter.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Use grouped folds through id=.",
+            roadmap="F7",
         )
     if kind in {"repeated", "repeats"}:
-        raise ValueError(
+        raise MethodConfigurationError(
             "repeated cross-fitting is implemented, and it is not a scheme: it is a count "
             "layered over whichever scheme the data resolved to, so repeating a grouped "
-            "split gives grouped splits. Pass repeats= to the estimator rather than "
-            "naming it here; the count is recorded on CrossFitPlan.repeats."
+            "split gives grouped splits.",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative=(
+                "Pass repeats= to the estimator rather than naming it here. The count is "
+                "recorded on CrossFitPlan.repeats."
+            ),
         )
     if kind == "row_within_cluster":
-        raise ValueError(
+        raise MethodConfigurationError(
             "splitting a cluster across folds is refused. id= declares the independent "
             "sampling unit, and it deliberately fuses the variance unit with the fold "
             "unit: dealing a cluster's correlated rows into different folds lets a "
             "nuisance model train on rows that stand in for the ones it predicts, which "
-            "is the leakage grouped cross-fitting exists to prevent. Too few clusters to "
-            "split is a reason to reduce n_folds, not to unfuse them."
+            "is the leakage grouped cross-fitting exists to prevent.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative=(
+                "Too few clusters to split is a reason to reduce n_folds, not to unfuse them."
+            ),
         )
     raise ValueError(f"unknown cross-fitting scheme {kind!r}")
 

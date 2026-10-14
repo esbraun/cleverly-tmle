@@ -299,7 +299,7 @@ from sklearn.linear_model import LogisticRegression
 from .._inference_status import InferenceStatus, precedent_status
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
-from ..exceptions import CapabilityError
+from ..exceptions import CapabilityError, Refusal, RefusalReason
 from ..fluctuation.iterative import InitialFit, apply_logistic, check_matching_arms
 from ..fluctuation.submodel import Submodel, restrict, weighted_form
 from ..inference.cluster import influence_variance
@@ -488,9 +488,11 @@ _SELECTION_SPLIT_REMEDY = (
 )
 
 #: Why CTMLE refuses a continuous dose, which every strategy does.
-_DISCRETE_TREATMENT_REFUSAL = (
+_DISCRETE_TREATMENT_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
     "CTMLE strategies require a discrete treatment. strategy='oat' fits its mechanism on "
-    "one Qbar prediction per arm, and a continuous dose has no finite arm vector."
+    "one Qbar prediction per arm, and a continuous dose has no finite arm vector.",
+    alternative="Fit TMLE(policies=...) on the continuous dose.",
 )
 
 #: The selection split's refusal remedy in the words the nuisance fold loop closes with.
@@ -1017,11 +1019,15 @@ class CTMLE(TMLE):
         if kwargs.get("learned_rule") is not None:
             # Row 1 of the learned-rule refusal table comes before the fold-evaluation refusal
             # below: its remedy, cv_evaluation=False, would meet this refusal next.
-            raise CapabilityError(learned_rule_configuration_refusal(self) or "")
+            refusal = learned_rule_configuration_refusal(self)
+            assert refusal is not None
+            raise CapabilityError.from_refusal(refusal)
         if kwargs.get("cv_evaluation", False):
             raise CapabilityError(
                 "CTMLE does not support cv_evaluation=True: canonical CV-TMLE selection "
-                "requires a separate fold-specific collaborative derivation."
+                "requires a separate fold-specific collaborative derivation.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative="Use cv_evaluation=False.",
             )
         # The base constructor validates the fold policy. OAT has no selector folds,
         # so it must know the strategy before that validation runs.
@@ -1084,7 +1090,9 @@ class CTMLE(TMLE):
             raise CapabilityError(
                 "CTMLE implements the published pooled collaborative estimator only; "
                 "targeting_scheme='fold' composes it with a different CV-TMLE estimator "
-                "that has not been derived. Use targeting_scheme='pooled'."
+                "that has not been derived.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative="Use targeting_scheme='pooled'.",
             )
 
         if not is_selector_strategy(self.strategy) and self.ctmle_estimand != "ate":
@@ -1825,7 +1833,9 @@ class CTMLE(TMLE):
                 "incremental intervention each candidate g defines a different "
                 "parameter: Psi(delta) is built out of g. The search would be selecting "
                 "between estimands rather than between estimators of one, and the risk "
-                "it minimises would have no fixed target. Use a plain TMLE."
+                "it minimises would have no fixed target.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
+                alternative="Use a plain TMLE.",
             )
         if data.cluster is not None:
             reason = (
@@ -1838,10 +1848,13 @@ class CTMLE(TMLE):
                 )
             )
             raise CapabilityError(
-                f"C-TMLE has no clustered result. {reason}; docs/roadmap.md F22 tracks this "
-                "stop. Drop id= from fit "
-                "(PointTreatment(cluster=None)), or use the ordinary TMLE (TMLE, or "
-                "TMLEMethod), which has a clustered result."
+                f"C-TMLE has no clustered result. {reason}.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=(
+                    "Drop id= from fit (PointTreatment(cluster=None)), or use the ordinary "
+                    "TMLE (TMLE, or TMLEMethod), which has a clustered result."
+                ),
+                roadmap="F22",
             )
         self._check_estimands(data)
         return super()._resolve_estimands_for_data(data)
@@ -1853,17 +1866,19 @@ class CTMLE(TMLE):
         ``policies=`` by suggesting one, which CTMLE does not fit.
         """
         if data.is_continuous_treatment:
-            raise CapabilityError(_DISCRETE_TREATMENT_REFUSAL)
+            raise CapabilityError.from_refusal(_DISCRETE_TREATMENT_REFUSAL)
         super()._check_policies(data)
 
     def _check_estimands(self, data: CausalData) -> None:
         if data.is_continuous_treatment:
-            raise CapabilityError(_DISCRETE_TREATMENT_REFUSAL)
+            raise CapabilityError.from_refusal(_DISCRETE_TREATMENT_REFUSAL)
         if data.has_intermediate:
             raise CapabilityError(
                 "CTMLE does not compose either collaborative strategy with an intermediate "
-                "outcome. "
-                "Fit each controlled direct effect with TMLE instead."
+                "outcome.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative="Fit each controlled direct effect with TMLE instead.",
+                roadmap="F5",
             )
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms)
         conditional = [name for name in estimands if name not in MEAN_GROUP_ESTIMANDS]
@@ -1871,8 +1886,13 @@ class CTMLE(TMLE):
             raise CapabilityError(
                 f"CTMLE does not support estimand(s) {conditional}: the ATT and ATC clever "
                 "covariates condition on a random event, so a single collaboratively "
-                "selected treatment model cannot serve them alongside the ATE. Request them "
-                f"from a plain TMLE, or set estimands={sorted(MEAN_GROUP_ESTIMANDS)!r}."
+                "selected treatment model cannot serve them alongside the ATE.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=(
+                    "Request them from a plain TMLE, or set "
+                    f"estimands={sorted(MEAN_GROUP_ESTIMANDS)!r}."
+                ),
+                roadmap="F5",
             )
         if is_selector_strategy(self.strategy) and self.ctmle_estimand not in estimands:
             raise ValueError(
@@ -1887,7 +1907,12 @@ class CTMLE(TMLE):
             raise CapabilityError(
                 f"ctmle_estimand={self.ctmle_estimand!r} has no selector criterion; choose "
                 f"from {sorted(supported)}. ey_obs, par and paf involve the observed law "
-                "and require a separate collaborative derivation."
+                "and require a separate collaborative derivation.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=(
+                    f"Choose a ctmle_estimand from {sorted(supported)}, or fit a plain TMLE."
+                ),
+                roadmap="F5",
             )
 
 
@@ -2879,7 +2904,11 @@ def logistic_plugin(result: TMLEResult) -> dict[str, LogisticPlugin]:
     """
     reason = _logistic_plugin_refusal(result)
     if reason is not None:
-        raise CapabilityError(_LOGISTIC_PLUGIN_SCOPE + reason)
+        raise CapabilityError(
+            f"{_LOGISTIC_PLUGIN_SCOPE}{reason}.",
+            reason=RefusalReason.DIFFERENT_ESTIMAND,
+            alternative="Read estimate.plugin_interval, the D* interval, for this fit.",
+        )
     data = result.data
     selection = result.extra["ctmle"]
     nuisance = result.nuisance

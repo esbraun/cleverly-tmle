@@ -27,6 +27,7 @@ import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import ATE, CausalStudy, PointTreatment
+from cleverly._refusal import NO_ALTERNATIVE
 from cleverly.assessment import (
     POINT_REPLAY_REFIT_CONFIGURATION,
     AssessmentStatus,
@@ -38,7 +39,8 @@ from cleverly.data import CausalData
 from cleverly.datasets import make_binary_outcome, make_linear_ate
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import CapabilityError, DataError
+from cleverly.exceptions import CapabilityError, DataError, Refusal, RefusalReason
+from cleverly.methods import MethodAvailability
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from cleverly.sensitivity import missingness as missingness_module
 from cleverly.sensitivity import omitted_variable as omitted_variable_module
@@ -139,6 +141,11 @@ def tilt_fits() -> dict[str, Any]:
     return {kind: KINDS[kind].build() for kind in TILT_RULE_OF}
 
 
+def _text(refusal: Refusal | None) -> str | None:
+    """The sentence a refusal record prints, or ``None`` when the request runs."""
+    return None if refusal is None else refusal.message()
+
+
 def _raised(call: Callable[[], Any]) -> str | None:
     """The sentence ``call()`` refuses with, or ``None`` when it runs."""
     try:
@@ -173,8 +180,11 @@ def tilt_disagreements(result: Any) -> list[str]:
     for operation, call in TILT_CALLS.items():
         raised = _raised(functools.partial(call, result))
         problems += _disagreement(operation, facade.capability(operation), raised)
-    bound = fit_wide_bound_refusal(result) or ""
-    points = bound.endswith((_RESPONSE_TILT_POINTER, _RESPONSE_ARM_TILT_POINTER))
+    bound = fit_wide_bound_refusal(result)
+    points = bound is not None and bound.alternative in {
+        _RESPONSE_TILT_POINTER.strip(),
+        _RESPONSE_ARM_TILT_POINTER.strip(),
+    }
     if points and not facade.capability("missingness").available:
         problems.append("the bound points at a tilt row that is not available")
     return problems
@@ -198,9 +208,11 @@ class TestTheTiltRowsReadTheCallsPredicate:
     def test_a_longitudinal_result_hears_the_literal_two_notebooks_print(self) -> None:
         """First, so no later rule reads a ``has_missing_outcome`` that is not there."""
         stand_in = SimpleNamespace(assessment_family="longitudinal")
-        assert fit_wide_tilt_refusal(stand_in) == (
-            "no longitudinal missingness-tilt adapter is implemented"
-        )
+        refusal = fit_wide_tilt_refusal(stand_in)
+        assert refusal is not None
+        assert refusal.condition == "no longitudinal missingness-tilt adapter is implemented."
+        assert refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+        assert refusal.roadmap == "F16"
 
     @pytest.mark.parametrize("kind", list(TILT_RULE_OF))
     def test_each_kind_meets_the_rule_the_table_names(
@@ -231,14 +243,14 @@ class TestTheTiltRowsReadTheCallsPredicate:
             else AssessmentStatus.UNAVAILABLE
         )
         assert row.status is expected
-        assert row.reason == fit_wide_tilt_refusal(result)
+        assert row.reason == _text(fit_wide_tilt_refusal(result))
         assert raised == row.reason
 
     @pytest.mark.parametrize("kind", DECLINED_TILT_KINDS)
     def test_the_facade_refuses_before_it_calls(self, tilt_fits: dict[str, Any], kind: str) -> None:
         """The facade quotes the row, so its refusal carries the call's own sentence."""
         result = tilt_fits[kind]
-        reason = fit_wide_tilt_refusal(result)
+        reason = _text(fit_wide_tilt_refusal(result))
         assert reason is not None
         for operation in TILT_CALLS:
             with pytest.raises(CapabilityError) as error:
@@ -253,7 +265,7 @@ class TestTheTiltRowsReadTheCallsPredicate:
         result = tilt_fits[kind]
         with pytest.raises(CapabilityError) as error:
             tipping_gamma(result, search=(1.0, 2.0))
-        assert str(error.value) == fit_wide_tilt_refusal(result)
+        assert str(error.value) == _text(fit_wide_tilt_refusal(result))
         # The nonzero witness: the fit the table admits checks the same search.
         with pytest.raises(ValueError, match="search must be a finite") as malformed:
             tipping_gamma(tilt_fits["missing"], search=(1.0, 2.0))
@@ -269,22 +281,28 @@ class TestTheTiltRowsReadTheCallsPredicate:
                 assert "declined this request" not in item.detail, (kind, operation)
 
     def test_the_natural_course_rule_keeps_its_sentence(self, tilt_fits: dict[str, Any]) -> None:
-        reason = fit_wide_tilt_refusal(tilt_fits["natural_course"])
-        assert reason == NATURAL_COURSE_TILT_REFUSAL
+        reason = _text(fit_wide_tilt_refusal(tilt_fits["natural_course"]))
+        assert reason is not None
+        assert reason.startswith(NATURAL_COURSE_TILT_REFUSAL)
 
 
 class TestTheBoundPointsAtTheTiltOnlyWhereItRuns:
     """The response refusal of the bound names the tilt only where the tilt runs."""
 
     def test_a_missing_outcome_fit_keeps_the_pointer(self, tilt_fits: dict[str, Any]) -> None:
-        reason = fit_wide_bound_refusal(tilt_fits["missing"])
-        assert reason == _RESPONSE_BOUND_REFUSAL + _RESPONSE_TILT_POINTER
+        refusal = fit_wide_bound_refusal(tilt_fits["missing"])
+        assert refusal is not None
+        assert refusal.condition == _RESPONSE_BOUND_REFUSAL
+        assert refusal.alternative == _RESPONSE_TILT_POINTER.strip()
 
     @pytest.mark.parametrize("kind", [*DECLINED_TILT_KINDS, "natural_course"])
     def test_a_fit_the_tilt_refuses_hears_no_pointer(
         self, tilt_fits: dict[str, Any], kind: str
     ) -> None:
-        assert fit_wide_bound_refusal(tilt_fits[kind]) == _RESPONSE_BOUND_REFUSAL
+        refusal = fit_wide_bound_refusal(tilt_fits[kind])
+        assert refusal is not None
+        assert refusal.condition == _RESPONSE_BOUND_REFUSAL
+        assert refusal.alternative == NO_ALTERNATIVE
 
 
 class TestEachTiltMutationRestoresADisagreement:
@@ -409,7 +427,7 @@ class TestTheTruncationRowResolvesEachRequest:
         row = result.diagnostics.capability("truncation_curve")
         with pytest.raises(CapabilityError) as error:
             truncation_curve(result)
-        assert str(error.value) == row.reason == truncation_refusal(result)
+        assert str(error.value) == row.reason == _text(truncation_refusal(result))
         assert "*inside* the estimand" in str(error.value)
 
     def test_an_incremental_fit_with_missing_outcomes_defers_on_the_axis(
@@ -419,7 +437,7 @@ class TestTheTruncationRowResolvesEachRequest:
         bare = result.diagnostics.capability("truncation_curve")
         assert bare.status is AssessmentStatus.DEFERRED
         assert bare.requires_arguments == ("mechanism",)
-        assert bare.reason == truncation_refusal(result)
+        assert bare.reason == _text(truncation_refusal(result))
         # Naming the axis the row asks for runs the curve, directly and in a report.
         curve = result.diagnostics.truncation_curve([0.01, 0.05], mechanism=True)
         assert len(curve["bound"]) == 2 * len(result.estimates)
@@ -436,7 +454,7 @@ class TestTheTruncationRowResolvesEachRequest:
             "truncation_curve", {"mechanism": False}
         )
         assert refused.status is AssessmentStatus.UNAVAILABLE
-        assert refused.reason == truncation_refusal(result, False) == bare.reason
+        assert refused.reason == _text(truncation_refusal(result, False)) == bare.reason
         with pytest.raises(CapabilityError, match=r"is unavailable: the propensity g"):
             result.diagnostics.truncation_curve(mechanism=False)
 
@@ -446,7 +464,7 @@ class TestTheTruncationRowResolvesEachRequest:
         result = truncation_fits["ordinary"]
         row = result.diagnostics._capability_for_arguments("truncation_curve", {"mechanism": True})
         assert row.status is AssessmentStatus.UNAVAILABLE
-        assert row.reason == truncation_refusal(result, True)
+        assert row.reason == _text(truncation_refusal(result, True))
         assert row.reason is not None
         assert row.reason.startswith("mechanism=True needs a fit with missing outcomes")
         with pytest.raises(CapabilityError, match=r"is unavailable: mechanism=True needs"):
@@ -597,7 +615,9 @@ class TestTheRefuteRowResolvesEachRequest:
         row = result.diagnostics._capability_for_arguments("refute", bare)
         assert row.status is AssessmentStatus.DEFERRED
         assert row.requires_arguments == ("tests",)
-        assert row.reason == refute_refusal(result, estimand=bare["estimand"], tests=DEFAULT_TESTS)
+        assert row.reason == _text(
+            refute_refusal(result, estimand=bare["estimand"], tests=DEFAULT_TESTS)
+        )
         with pytest.raises(CapabilityError) as error:
             result.diagnostics.refute(**bare)
         assert str(error.value) == f"diagnostic 'refute' is deferred: {row.reason}"
@@ -946,7 +966,7 @@ class TestReportedScaleNoEffectNull:
         request: dict[str, Any] = {"estimand": alias, "tests": (test,)}
         if test == "negative_control_outcome":
             request["negative_control_outcome"] = np.zeros(result.data.n)
-        reason = refute_refusal(keyed, **request)
+        reason = _text(refute_refusal(keyed, **request))
         assert reason is not None and "fixed no-effect value" in reason
         row = keyed.diagnostics._capability_for_arguments("refute", request)
         assert not row.available and row.reason == reason
@@ -982,7 +1002,7 @@ class TestThePublicRowIsTheBareRequestsRow:
         assert row == result.diagnostics._capability_for_arguments("refute", {})
         assert row in result.diagnostics.capabilities
         # The bare call refuses, in the call's sentence, through the same predicate.
-        reason = refute_refusal(result, estimand="ate", tests=DEFAULT_TESTS)
+        reason = _text(refute_refusal(result, estimand="ate", tests=DEFAULT_TESTS))
         assert reason == "estimand 'ate' was not requested in this fit"
         with pytest.raises(CapabilityError) as error:
             result.diagnostics.refute(n_replicates=1)
@@ -1151,7 +1171,7 @@ class TestTheRefuteRowReadsEveryRefusalBeforeARefit:
         kind, request = PRE_REFIT_REQUESTS[rule]
         result = pre_refit_fits[kind]
         request = {"estimand": "ate", **request}
-        reason = refute_refusal(result, **request)
+        reason = _text(refute_refusal(result, **request))
         assert reason is not None
         row = result.diagnostics._capability_for_arguments("refute", request)
         assert row.status is AssessmentStatus.UNAVAILABLE
@@ -1198,7 +1218,7 @@ class TestTheRefuteRowReadsEveryRefusalBeforeARefit:
         """
         old_rules = _REQUEST_RULES[:4]
 
-        def four_rules(result: Any, *, estimand: str, tests: Any, **_: Any) -> str | None:
+        def four_rules(result: Any, *, estimand: str, tests: Any, **_: Any) -> Refusal | None:
             request = _RefuteRequest(estimand=estimand, tests=tuple(tests))
             return next(
                 (reason for _, rule in old_rules if (reason := rule(result, request))), None
@@ -1261,7 +1281,7 @@ class TestTheBenchmarkRowResolvesEachRequest:
         result = benchmark_fits["split_plan"]
         row = result.sensitivity.capability("benchmark")
         assert row.status is AssessmentStatus.UNAVAILABLE
-        assert row.reason == benchmark_refusal(result, ["W"])
+        assert row.reason == _text(benchmark_refusal(result, ["W"]))
         assert row.reason is not None and "['W']" in row.reason
         with pytest.raises(CapabilityError) as error:
             benchmark(result, ["W"])
@@ -1298,7 +1318,7 @@ class TestTheBenchmarkRowResolvesEachRequest:
         every = list(result.data.covariate_names)
         row = result.sensitivity._capability_for_arguments("benchmark", {"covariates": every})
         assert row.status is AssessmentStatus.UNAVAILABLE
-        assert row.reason == benchmark_refusal(result, every)
+        assert row.reason == _text(benchmark_refusal(result, every))
         with pytest.raises(CapabilityError) as error:
             result.sensitivity.benchmark(every, random_state=0)
         assert str(error.value) == row.reason
@@ -1412,7 +1432,7 @@ class TestARowItsRequestRefusesCarriesTheRequest:
         )
         item = report["truncation_curve"]
         assert item.status is AssessmentStatus.UNAVAILABLE
-        assert item.detail == truncation_refusal(result, False)
+        assert item.detail == _text(truncation_refusal(result, False))
         assert item.arguments == {"bounds": None, "estimands": None, "mechanism": False}
 
     def test_a_refused_covariate_set_carries_the_request(
@@ -1425,7 +1445,7 @@ class TestARowItsRequestRefusesCarriesTheRequest:
         )
         item = report["benchmark"]
         assert item.status is AssessmentStatus.UNAVAILABLE
-        assert item.detail == benchmark_refusal(result, every)
+        assert item.detail == _text(benchmark_refusal(result, every))
         assert item.arguments == {
             "covariates": every,
             "estimand": "ate",
@@ -1533,7 +1553,7 @@ class TestTheSimulatedConfoundingRowResolvesEachRequest:
             "simulated_confounding", {"grid": ANCHOR, **request}
         )
         assert row.status is AssessmentStatus.UNAVAILABLE
-        assert row.reason == simulated_confounding_refusal(result, "ate", (name,))
+        assert row.reason == _text(simulated_confounding_refusal(result, "ate", (name,)))
         assert row.reason is not None and f"{kind} covariate {name!r}" in row.reason
         with pytest.raises(CapabilityError) as error:
             simulated_confounding(result, grid=ANCHOR, **request)
@@ -1560,7 +1580,7 @@ class TestTheSimulatedConfoundingRowResolvesEachRequest:
         )
         item = report.sensitivity["simulated_confounding"]
         assert item.status is AssessmentStatus.UNAVAILABLE
-        assert item.detail == simulated_confounding_refusal(result, "ate", (name,))
+        assert item.detail == _text(simulated_confounding_refusal(result, "ate", (name,)))
         assert DECLINED not in item.detail
 
     @pytest.mark.parametrize(("kind", "name"), [("categorical", "W"), ("constant", "W1")])
@@ -1599,8 +1619,8 @@ class TestTheSimulatedConfoundingRowResolvesEachRequest:
         result = dataclasses.replace(confounding_fits["natural_course"])
         row = result.sensitivity.capability("simulated_confounding")
         assert row.status is AssessmentStatus.UNAVAILABLE
-        assert row.reason == simulated_confounding_refusal(result, "ate")
-        assert row.reason == simulated_confounding_refusal(result, "ey_obs")
+        assert row.reason == _text(simulated_confounding_refusal(result, "ate"))
+        assert row.reason == _text(simulated_confounding_refusal(result, "ey_obs"))
         assert row.reason is not None and "refuses NaturalCourseMean" in row.reason
         with pytest.raises(CapabilityError) as error:
             result.sensitivity.simulated_confounding(grid=ANCHOR)
@@ -1624,7 +1644,7 @@ class TestTheSimulatedConfoundingRowResolvesEachRequest:
         zero = {"grid": ANCHOR, "estimand": "ey_policy[natural course]"}
         row = result.sensitivity._capability_for_arguments("simulated_confounding", zero)
         assert row.status is AssessmentStatus.UNAVAILABLE
-        assert row.reason == simulated_confounding_refusal(result, zero["estimand"])
+        assert row.reason == _text(simulated_confounding_refusal(result, zero["estimand"]))
         assert row.reason is not None and "zero-delta policy" in row.reason
         up = {"grid": ANCHOR, "estimand": "ey_policy[up half]"}
         assert result.sensitivity._capability_for_arguments("simulated_confounding", up).available
@@ -1720,9 +1740,9 @@ class TestTheBoundRowsReadTheCallsTable:
         result = bound_fits[kind]
         assert result.config.parameter_axis == "arm"
         assert not result.data.has_missing_outcome
-        reason = fit_wide_bound_refusal(result)
+        reason = _text(fit_wide_bound_refusal(result))
         assert reason is not None
-        assert reason == dict(_FIT_WIDE_BOUND_RULES)["bound_parameters"](result)
+        assert reason == _text(dict(_FIT_WIDE_BOUND_RULES)["bound_parameters"](result))
         assert f"it reported {sorted(result.estimates)}" in reason
         assert reason.endswith(_EVALUE_POINTER) is EMPTY_BOUND_FITS[kind]
         for operation, call in BOUND_CALLS.items():
@@ -1742,14 +1762,14 @@ class TestTheBoundRowsReadTheCallsTable:
         result = bound_fits[kind]
         with pytest.raises(CapabilityError) as error:
             resolve_parameter(result, "ate")
-        assert str(error.value) == fit_wide_bound_refusal(result)
+        assert str(error.value) == _text(fit_wide_bound_refusal(result))
 
     def test_the_facade_and_a_combined_report_name_the_refusal(
         self, bound_fits: dict[str, Any]
     ) -> None:
         """Before this rule, the report published five declined rows on this fit."""
         result = dataclasses.replace(bound_fits["natural_course_study"])
-        reason = fit_wide_bound_refusal(result)
+        reason = _text(fit_wide_bound_refusal(result))
         with pytest.raises(CapabilityError) as error:
             result.sensitivity.omitted_confounding()
         assert str(error.value) == f"sensitivity 'omitted_confounding' is unavailable: {reason}"
@@ -2027,7 +2047,9 @@ class TestTheRefitSlotReadsTheRefitPreflight:
         with pytest.raises(CapabilityError) as raised:
             result.estimator.refit(result.data)
         assert type(raised.value) is CapabilityError
-        assert str(raised.value) == result.estimator._refit_configuration_refusal(result.data)
+        refusal = result.estimator._refit_configuration_refusal(result.data)
+        assert refusal is not None
+        assert str(raised.value) == refusal.message()
 
 
 @pytest.fixture(scope="module")
@@ -2065,7 +2087,10 @@ class TestGuardedTruncationUsesCachedNuisanceReplay:
         result = guarded_curve_results["live"]
 
         def refuse() -> None:
-            raise CapabilityError("a fitted function has no known declaration")
+            raise CapabilityError(
+                "a fitted function has no known declaration",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
 
         monkeypatch.setattr(result.estimator, "_refuse_undeclared_functions", refuse)
         assert not replayability(result).retarget_cached_nuisances
@@ -2095,3 +2120,125 @@ class TestEachReplayMutationRestoresADisagreement:
     ) -> None:
         MUTATIONS["M6"].apply(monkeypatch)
         assert replay_disagreements(replay_results["declared cross-fitted"], ("ate",)) == []
+
+
+# ------------------------------------------- a row and its raise share one refusal record
+
+
+def _same_record(row: Any, error: BaseException) -> None:
+    """Assert that ``row`` and the error a call raised carry one refusal.
+
+    The class, the code and the text agree. The record is equal, so the alternative and the
+    roadmap id agree too.
+    """
+    assert row.refusal is not None
+    assert type(error) is CapabilityError
+    assert isinstance(error, CapabilityError)
+    assert error.refusal == row.refusal
+    assert error.refusal.reason is row.refusal.reason
+    assert str(error) == row.reason == row.refusal.message()
+
+
+def _same_code_behind_a_prefix(row: Any, error: BaseException, prefix: str) -> None:
+    """Assert that a facade raise keeps the row's record and adds only its own prefix."""
+    assert row.refusal is not None
+    assert type(error) is CapabilityError
+    assert isinstance(error, CapabilityError)
+    assert error.refusal.reason is row.refusal.reason
+    assert error.refusal.alternative == row.refusal.alternative
+    assert error.refusal.roadmap == row.refusal.roadmap
+    assert str(error) == f"{prefix}{row.reason}"
+
+
+class TestARowAndItsRaiseShareOneRefusal:
+    """Each predicate family hands one ``Refusal`` to its row and to its raise."""
+
+    @pytest.mark.parametrize("rule", list(PRE_REFIT_REQUESTS))
+    def test_refute(self, pre_refit_fits: dict[str, Any], rule: str) -> None:
+        kind, request = PRE_REFIT_REQUESTS[rule]
+        result = pre_refit_fits[kind]
+        request = {"estimand": "ate", **request}
+        row = result.diagnostics._capability_for_arguments("refute", request)
+        assert row.refusal is not None
+        assert row.refusal.reason is RefusalReason.INVALID_DECLARATION
+        with pytest.raises(CapabilityError) as error:
+            refute(_spied(result), **request)
+        _same_record(row, error.value)
+        with pytest.raises(CapabilityError) as facade:
+            result.diagnostics.refute(**request)
+        _same_code_behind_a_prefix(row, facade.value, "diagnostic 'refute' is unavailable: ")
+
+    def test_the_truncation_curve(self, truncation_fits: dict[str, Any]) -> None:
+        result = truncation_fits["incremental"]
+        row = result.diagnostics.capability("truncation_curve")
+        with pytest.raises(CapabilityError) as error:
+            truncation_curve(result)
+        _same_record(row, error.value)
+        with pytest.raises(CapabilityError) as facade:
+            result.diagnostics.truncation_curve()
+        _same_code_behind_a_prefix(
+            row, facade.value, "diagnostic 'truncation_curve' is unavailable: "
+        )
+
+    def test_the_benchmark(self, benchmark_fits: dict[str, Any]) -> None:
+        result = benchmark_fits["ordinary"]
+        every = list(result.data.covariate_names)
+        row = result.sensitivity._capability_for_arguments("benchmark", {"covariates": every})
+        with pytest.raises(CapabilityError) as error:
+            benchmark(result, every, random_state=0)
+        _same_record(row, error.value)
+
+    @pytest.mark.parametrize("kind", DECLINED_TILT_KINDS)
+    @pytest.mark.parametrize("operation", list(TILT_CALLS))
+    def test_the_tilt_rows(self, tilt_fits: dict[str, Any], kind: str, operation: str) -> None:
+        result = tilt_fits[kind]
+        row = result.sensitivity.capability(operation)
+        with pytest.raises(CapabilityError) as error:
+            TILT_CALLS[operation](result)
+        _same_record(row, error.value)
+
+    def test_the_simulated_confounding_row(self, confounding_fits: dict[str, Any]) -> None:
+        result = dataclasses.replace(confounding_fits["natural_course"])
+        row = result.sensitivity.capability("simulated_confounding")
+        with pytest.raises(CapabilityError) as error:
+            simulated_confounding(result, grid=ANCHOR, random_state=0)
+        _same_record(row, error.value)
+
+    @pytest.mark.parametrize(
+        ("method", "code"),
+        [
+            ("sdr", RefusalReason.API_REDIRECTION),
+            ("riesz_tmle", RefusalReason.IMPLEMENTATION_GAP),
+            ("ep", RefusalReason.DIFFERENT_ESTIMAND),
+        ],
+    )
+    def test_a_method_availability_row(self, method: str, code: RefusalReason) -> None:
+        """The study re-raises the record of the row, named for the method and the estimand."""
+        frame, _ = make_linear_ate(n=60, seed=0)
+        study = CausalStudy(
+            frame,
+            design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")),
+        )
+        effect = study.identify(ATE())
+        row = {item.name: item for item in effect.available_methods()}[method]
+        assert not row.available
+        assert row.refusal is not None
+        assert row.refusal.reason is code
+        assert row.reason == row.refusal.message()
+        with pytest.raises(CapabilityError) as error:
+            effect.estimate(method=method)
+        assert type(error.value) is CapabilityError
+        assert error.value.refusal.reason is code
+        assert error.value.refusal.alternative == row.refusal.alternative
+        assert error.value.refusal.roadmap == row.refusal.roadmap
+        assert str(error.value) == f"method {method!r} cannot estimate ATE: {row.reason}"
+        # The nonzero witness: an available method has no refusal.
+        available = {item.name: item for item in effect.available_methods()}["tmle"]
+        assert available.available and available.refusal is None and available.reason is None
+
+    def test_a_row_without_a_record_reads_none(self) -> None:
+        """The property follows the field, so a row with no record has no text."""
+        row = MethodAvailability("tmle", True)
+        assert row.refusal is None and row.reason is None
+        record = Refusal(RefusalReason.INVALID_DECLARATION, "The request cannot run.")
+        assert MethodAvailability("x", False, record).reason == "The request cannot run."

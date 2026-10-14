@@ -63,7 +63,7 @@ from tests.unit.test_drtmle_missing import _binary_trial, _trial
 
 drtmle_module = importlib.import_module("cleverly.estimators.drtmle")
 
-F6 = "docs/roadmap.md F6"
+F6 = "F6 in docs/roadmap.md"
 COVARIATES = ["W1", "W2", "W3", "W4", "S"]
 DOSES = (-1.0, 0.0, 1.0, 2.0)
 NESTED = "targeting='one_step' and reduced_crossfit='nested' are not combined"
@@ -307,7 +307,7 @@ REMAINING: dict[str, tuple[Callable[[], Any], tuple[str, ...], type[Exception]]]
             strata_frame(),
             treatment="A",
         ),
-        ("cv_evaluation=True", "stratum-indexed fold average", "docs/roadmap.md X28"),
+        ("cv_evaluation=True", "stratum-indexed fold average", "X28 in docs/roadmap.md"),
         CapabilityError,
     ),
     "a DR-TMLE stratum with no trainable rows": (

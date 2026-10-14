@@ -41,6 +41,7 @@ from pathlib import Path
 
 import pytest
 
+from cleverly.exceptions import Refusal
 from tests.documents import DOCUMENTS, NOTEBOOKS, ROOT
 
 #: Every Python file that may carry a cross-reference in a docstring or comment.  These are not
@@ -289,8 +290,20 @@ def rule_texts(rule: object) -> list[str]:
     code = rule.__code__  # type: ignore[attr-defined]
     module = importlib.import_module(rule.__module__)  # type: ignore[attr-defined]
     found = [constant for constant in code.co_consts if isinstance(constant, str)]
+    for name in code.co_names:
+        value = getattr(module, name, None)
+        if isinstance(value, str):
+            found.append(value)
+        elif isinstance(value, Refusal):
+            found.append(value.message())
+            if value.roadmap is not None:
+                found.append(f"docs/roadmap.md {value.roadmap}")
+    # A rule that builds its record inline names the item as a ``roadmap=`` literal, which
+    # the compiled code holds as a short string beside the other constants.
     found.extend(
-        value for name in code.co_names if isinstance(value := getattr(module, name, None), str)
+        f"docs/roadmap.md {constant}"
+        for constant in code.co_consts
+        if isinstance(constant, str) and re.fullmatch(r"[A-Z]+\d+", constant)
     )
     return found
 
@@ -334,7 +347,7 @@ def test_the_evalue_refusal_cites_a_roadmap_item_that_exists() -> None:
     """
     from cleverly.sensitivity.evalue import _DIRECT_EFFECT_REFUSAL
 
-    cited = ROADMAP_CITATION.findall(_DIRECT_EFFECT_REFUSAL)
+    cited = ROADMAP_CITATION.findall(_DIRECT_EFFECT_REFUSAL.message())
     assert cited == ["F25"]
     assert set(cited) <= set(ROADMAP_ITEMS)
 

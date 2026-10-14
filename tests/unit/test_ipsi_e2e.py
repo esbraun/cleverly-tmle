@@ -43,6 +43,7 @@ from cleverly.exceptions import (
     DataError,
     MethodConfigurationError,
     ParameterSpaceWarning,
+    RefusalReason,
 )
 from cleverly.interventions import Incremental, RiskRatioTilt, Shift
 from cleverly.longitudinal import IPSI, LTMLE, SDR, DynamicRegimen, ipsi
@@ -167,26 +168,29 @@ def below(panel: Any) -> Any:
 def test_r1_ltmle_refuses_an_estimated_tilt_before_any_learner(panel: Any) -> None:
     with pytest.raises(CapabilityError) as raised:
         LTMLE({"x2": Incremental(2.0)}, **_never()).fit(panel, outcome="Y", **LONGITUDINAL_NODES)
-    assert str(raised.value) == LTMLE_TILT_REFUSAL
+    assert str(raised.value) == LTMLE_TILT_REFUSAL.message()
+    assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
 
 
 def test_r1_ltmle_refuses_the_incremental_keyword() -> None:
-    with pytest.raises(TypeError) as raised:
+    with pytest.raises(CapabilityError) as raised:
         LTMLE({"always": 1}, incremental=[Incremental(2.0)])
-    assert LTMLE_TILT_REFUSAL in str(raised.value)
+    assert LTMLE_TILT_REFUSAL.condition in str(raised.value)
+    assert LTMLE_TILT_REFUSAL.alternative in str(raised.value)
+    assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
 
 
 def test_r2_sdr_refuses_a_tilt_before_any_learner(panel: Any) -> None:
     with pytest.raises(CapabilityError) as raised:
         SDR({"x2": Incremental(2.0)}, **_never()).fit(panel, outcome="Y", **LONGITUDINAL_NODES)
-    assert str(raised.value) == SDR_TILT_REFUSAL
+    assert str(raised.value) == SDR_TILT_REFUSAL.message()
 
 
 def test_r2_sdr_refuses_a_tilt_beside_a_label(panel: Any) -> None:
     plan = DynamicRegimen("tilt then always", (Incremental(2.0), 1))
     with pytest.raises(CapabilityError) as raised:
         SDR([plan], **_never()).fit(panel, outcome="Y", **LONGITUDINAL_NODES)
-    assert str(raised.value) == SDR_TILT_REFUSAL
+    assert str(raised.value) == SDR_TILT_REFUSAL.message()
 
 
 # ------------------------------------------------------------------ T13: R3 and R4
@@ -203,12 +207,15 @@ def _three_level_panel(panel: Any) -> Any:
 def test_r3_refuses_a_tilt_node_with_three_levels(panel: Any) -> None:
     with pytest.raises(DataError) as raised:
         IPSI(TILTS, **_never()).fit(_three_level_panel(panel), outcome="Y", **LONGITUDINAL_NODES)
+    assert raised.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+    assert raised.value.refusal.roadmap == "X43"
     assert str(raised.value) == (
         "an incremental propensity-score intervention tilts the *odds* of treatment, which "
         "names two arms; node 'A2' has 3 ([0.0, 1.0, 2.0]). Kennedy's binary odds multiplier "
         "alone does not select a multinomial policy. This API has no declared multi-arm tilt; "
         "one odds per contrast or a cost-based reference policy defines a different "
-        "intervention with its own influence function."
+        "intervention with its own influence function. X43 in docs/roadmap.md tracks this. "
+        "A Stochastic node with density_kind='known' sets this node."
     )
 
 
@@ -228,7 +235,7 @@ def test_r4_refuses_a_tilt_beside_a_modified_treatment_policy(panel: Any) -> Non
         "regimen 'tilt then shift' sets node 'A2' by a modified treatment policy (Shift). "
         "IPSI estimates no density ratio for a modified treatment policy or a risk-ratio "
         "tilt, so it has no estimator for a plan with such a node. Fit that plan without an "
-        "odds tilt by LTMLE or SDR"
+        "odds tilt by LTMLE or SDR."
     )
 
 
@@ -270,9 +277,10 @@ def test_r4_refuses_a_held_baseline_decision_before_any_learner() -> None:
 
 @pytest.mark.parametrize("setting", IPSI_REFUSED_SETTINGS)
 def test_r5_refuses_each_fluctuation_setting(setting: str) -> None:
-    with pytest.raises(TypeError) as raised:
+    with pytest.raises(MethodConfigurationError) as raised:
         IPSI(TILTS, **{setting: 0.1})
-    assert str(raised.value) == IPSI_NO_FLUCTUATION
+    assert str(raised.value) == IPSI_NO_FLUCTUATION.message()
+    assert raised.value.refusal.reason is RefusalReason.INVALID_DECLARATION
 
 
 def test_r5_leaves_an_unknown_keyword_to_the_shared_refusal() -> None:
@@ -283,9 +291,10 @@ def test_r5_leaves_an_unknown_keyword_to_the_shared_refusal() -> None:
 def test_r8_refuses_a_point_treatment_container() -> None:
     frame, _ = make_linear_ate(n=60, seed=3)
     data = CausalData.from_frame(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
-    with pytest.raises(TypeError) as raised:
+    with pytest.raises(MethodConfigurationError) as raised:
         IPSI(TILTS, **_never()).fit(data)
-    assert str(raised.value) == IPSI_POINT_REFUSAL
+    assert str(raised.value) == IPSI_POINT_REFUSAL.message()
+    assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
 
 
 # ------------------------------------------------------------------ T13 and T17: R6 and range
@@ -304,7 +313,7 @@ def test_r6_refuses_the_odds_scale_above_one(above: Any) -> None:
     assert str(raised.value) == (
         f"ey_regimen[odds x2] is {value:.4g}, outside (0, 1). Kennedy's estimator averages "
         "influence-function values and can leave the outcome range (Kennedy 2019, Section "
-        "4.1); the odds scale needs a level in (0, 1). Report the difference scale"
+        "4.1); the odds scale needs a level in (0, 1). Report the difference scale."
     )
 
 
@@ -321,7 +330,7 @@ def test_r6_refuses_the_log_scale_below_zero(below: Any) -> None:
     assert str(raised.value) == (
         f"ey_regimen[natural course] is {value:.4g}, at or below 0. Kennedy's estimator "
         "averages influence-function values and can leave the outcome range (Kennedy 2019, "
-        "Section 4.1); the log scale needs a positive level. Report the difference scale"
+        "Section 4.1); the log scale needs a positive level. Report the difference scale."
     )
 
 
@@ -368,7 +377,7 @@ def test_r7_refuses_a_logit_projection_that_does_not_converge(panel: Any) -> Non
     assert str(raised.value) == (
         "the working model's logit projection of the IPSI estimates did not converge. A "
         "one-step estimate can leave [0, 1], so a logit link can have no finite solution. Use "
-        "the identity link"
+        "the identity link."
     )
 
 
@@ -486,9 +495,9 @@ def test_an_incremental_effect_on_a_longitudinal_design_lists_ipsi(panel: Any) -
     methods = {record.name: record for record in effect.available_methods()}
     assert methods["ipsi"].available and methods["ipsi"].reason is None
     assert not methods["tmle"].available
-    assert methods["tmle"].reason == LTMLE_TILT_REFUSAL
+    assert methods["tmle"].refusal == LTMLE_TILT_REFUSAL
     assert not methods["sdr"].available
-    assert methods["sdr"].reason == SDR_TILT_REFUSAL
+    assert methods["sdr"].refusal == SDR_TILT_REFUSAL
     with pytest.raises(CapabilityError) as raised:
         effect.estimate(method="tmle")
     assert LTMLE_TILT_REFUSAL in str(raised.value)
@@ -519,7 +528,7 @@ def test_a_point_functional_does_not_list_ipsi() -> None:
     ).identify(ATE())
     methods = {record.name: record for record in effect.available_methods()}
     assert not methods["ipsi"].available
-    assert methods["ipsi"].reason == IPSI_POINT_REFUSAL
+    assert methods["ipsi"].refusal == IPSI_POINT_REFUSAL
 
 
 @pytest.mark.parametrize("estimand", [IncrementalEffect, IncrementalMean])
@@ -629,7 +638,7 @@ def test_an_estimated_mechanism_keeps_tmle_unavailable_on_the_same_frame() -> No
         IncrementalMean([Incremental(2.0)])
     )
     methods = {record.name: record for record in effect.available_methods()}
-    assert methods["tmle"].reason == LTMLE_TILT_REFUSAL
+    assert methods["tmle"].refusal == LTMLE_TILT_REFUSAL
 
 
 # ------------------------------------------------------------------ IPSIMethod

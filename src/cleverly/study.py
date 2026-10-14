@@ -15,9 +15,16 @@ from .data.validate import RANDOMIZED_INTERCEPT
 from .estimators import CTMLE, DRTMLE, TMLE, TMLEResult
 from .estimators._strata import check_stratified_targets
 from .estimators.composite import missing_treatment_design_refusal
-from .exceptions import CapabilityError, CleverlyError, DataError, MethodConfigurationError
+from .exceptions import (
+    CapabilityError,
+    CleverlyError,
+    DataError,
+    MethodConfigurationError,
+    Refusal,
+    RefusalReason,
+)
 from .inference.multiplier import SimultaneousBands, simultaneous_bands
-from .interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet
+from .interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet, Stochastic
 from .interventions.base import InterventionKind, refuse_mixed_interventions
 from .interventions.learned import LearnedRule, refuse_learned_rule_composition
 from .longitudinal import IPSI, LTMLE, SDR, LongitudinalData, LongitudinalResult
@@ -1550,9 +1557,12 @@ def _refuse_typed_tilts(policies: Sequence[Any], holder: str) -> None:
     if tilts:
         raise CapabilityError(
             f"{holder} holds the risk-ratio tilt(s) {tilts}. A tilt reports its own estimands, "
-            "ey_rr_tilt and ate_rr_tilt, and no typed study request reports them. Fit "
-            "TMLE(policies=[RiskRatioTilt(1.0), RiskRatioTilt(delta)]) directly and read "
-            "estimates['ey_rr_tilt[...]']"
+            "ey_rr_tilt and ate_rr_tilt, and no typed study request reports them.",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative=(
+                "Fit TMLE(policies=[RiskRatioTilt(1.0), RiskRatioTilt(delta)]) directly and "
+                "read estimates['ey_rr_tilt[...]']."
+            ),
         )
 
 
@@ -1968,7 +1978,9 @@ class BackdoorMeanContrast:
             raise CapabilityError(
                 f"the arm-indexed target {self.target!r} has no identified expression; add "
                 "one beside the estimands above rather than reporting the counterfactual "
-                "mean's functional under another estimand's name"
+                "mean's functional under another estimand's name. This is a package defect; "
+                "report it.",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
         return (
             f"identified {self.axis}-indexed plug-in functional of {regression()}{support} "
@@ -2181,7 +2193,8 @@ def _arm_scope(
             f"the target {functional.target!r} declares the two-arm positivity assumption "
             "but states no design-bound support of its own; add its row beside the "
             "estimands in _ARM_STATEMENTS rather than printing another estimand's "
-            "positivity statement under its name"
+            "positivity statement under its name. This is a package defect; report it.",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     positivity, cells = row(scope)
     if not positivity:
@@ -2189,7 +2202,9 @@ def _arm_scope(
             f"the row for {functional.target!r} in _ARM_STATEMENTS states no treatment "
             "support; a target that reaches here declares the two-arm positivity "
             "assumption, so write the support its functional needs rather than an empty "
-            "sentence the record would drop without saying so"
+            "sentence the record would drop without saying so. This is a package defect; "
+            "report it.",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     return (scope, positivity, cells)
 
@@ -2216,7 +2231,8 @@ def _conditioning_event_statement(design: PointTreatment, scope: _ArmScope, targ
     raise CapabilityError(
         f"the target {target!r} declares a conditioning event but names no population "
         "it conditions on; state which arm's units carry the parameter rather than "
-        "keeping another estimand's sentence"
+        "keeping another estimand's sentence. This is a package defect; report it.",
+        reason=RefusalReason.INVALID_DECLARATION,
     )
 
 
@@ -2546,6 +2562,119 @@ def _declared_interventions(actual: Any) -> tuple[str, InterventionKind] | None:
     return None
 
 
+def _method_refusal(method: str, estimand: str, declared: Refusal | None) -> Refusal:
+    """The refusal of ``estimate(method=...)``: the method record's refusal, named in context.
+
+    Parameters
+    ----------
+    method : str
+        The requested method name.
+    estimand : str
+        The class name of the identified estimand.
+    declared : Refusal or None
+        The refusal of the method's :class:`~cleverly.methods.MethodAvailability` record.
+        ``None`` means the study declares no record for the method.
+
+    Returns
+    -------
+    Refusal
+        The record's code, alternative and roadmap id, with a condition that names the method
+        and the estimand.
+    """
+    if declared is None:
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            f"method {method!r} cannot estimate {estimand}: the method does not declare support.",
+            alternative="Choose a method that available_methods() lists as available.",
+        )
+    return replace(
+        declared, condition=f"method {method!r} cannot estimate {estimand}: {declared.condition}"
+    )
+
+
+_CONTINUOUS_DOSE_ALTERNATIVE = (
+    "Ask for a modified treatment policy, such as ModifiedTreatmentPolicy([Shift(delta, "
+    "cap=...)]), or an MSM projection of the dose-response curve, MSMProjection(MSM.linear())."
+)
+
+
+def _continuous_dose_refusal(actual: Any, axis: str) -> Refusal:
+    """The refusal of an estimand a continuous dose cannot index, by the estimand's axis.
+
+    Parameters
+    ----------
+    actual : Any
+        The typed estimand.
+    axis : str
+        The estimand's parameter axis.
+
+    Returns
+    -------
+    Refusal
+        One record: a fixed dose or a deterministic rule has no root-n interval, a known
+        stochastic density has no estimator here, and an odds tilt, a risk-ratio tilt or
+        another axis cannot index a dose at all.
+    """
+    name = type(actual).__name__
+    declared = _declared_interventions(actual)
+    items = () if declared is None else tuple(getattr(actual, declared[0]))
+    if axis == "arm":
+        return Refusal(
+            RefusalReason.INFERENCE_GAP,
+            f"{name} is indexed by treatment arm, and on a continuous dose an arm is one "
+            "fixed dose. The mean outcome under a fixed dose is not pathwise differentiable, "
+            "so no root-n interval exists for it.",
+            alternative=_CONTINUOUS_DOSE_ALTERNATIVE,
+        )
+    if axis == "regime" and any(isinstance(item, Stochastic) for item in items):
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            f"{name} sets the continuous dose by a known stochastic density. That target is "
+            "well posed, and this package has no estimator for a stochastic intervention on a "
+            "continuous dose.",
+            alternative=(
+                "A randomized modified policy with a finite known randomizer is supported: "
+                "ModifiedTreatmentPolicy([ModifiedPolicy(name, pieces={...}, "
+                "randomizer=Randomizer(values, probabilities), policy_kind='known')]). "
+                "MSMProjection(MSM.linear()) is the other route."
+            ),
+        )
+    if axis == "regime":
+        return Refusal(
+            RefusalReason.INFERENCE_GAP,
+            f"{name} sets the continuous dose by a fixed value or a deterministic rule. That "
+            "parameter is not pathwise differentiable, so no root-n interval exists for it.",
+            alternative=_CONTINUOUS_DOSE_ALTERNATIVE,
+        )
+    if axis == "ipsi":
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            f"{name} tilts the odds of treatment, and a continuous dose has no odds. Declare "
+            "a modified treatment policy.",
+        )
+    if axis == "rr_tilt":
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            f"{name} is a risk-ratio tilt, which sets a binary treatment, and a continuous "
+            "dose is not binary.",
+        )
+    if axis == "learned_rule":
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "LearnedRuleValue over a continuous treatment is not implemented.",
+            alternative=(
+                "A fixed policy is available: ModifiedTreatmentPolicy([ModifiedPolicy(..., "
+                "policy_kind='known')])."
+            ),
+            roadmap="F27",
+        )
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        f"{name} is indexed by {axis}, which a continuous dose does not provide; a "
+        "continuous-dose design supports modified treatment policies and MSM projections.",
+    )
+
+
 def _point_functional(
     design: PointTreatment,
     data: CausalData,
@@ -2555,7 +2684,10 @@ def _point_functional(
     actual, target = _point_target(estimand, data)
     registered = TARGETS.get(target)
     if registered is None:
-        raise CapabilityError(f"{type(estimand).__name__} is not an evidenced point estimand")
+        raise CapabilityError(
+            f"{type(estimand).__name__} is not an evidenced point estimand",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
     declared = _declared_interventions(actual)
     interventions: tuple[Any, ...] = () if declared is None else tuple(getattr(actual, declared[0]))
     if isinstance(actual, LearnedRuleValue):
@@ -2750,7 +2882,10 @@ class ExplicitAdjustmentProvider:
                 f"choose from {list(data.treatment_levels)}"
             )
         if target not in TARGETS:
-            raise CapabilityError(f"{type(estimand).__name__} is not an evidenced point estimand")
+            raise CapabilityError(
+                f"{type(estimand).__name__} is not an evidenced point estimand",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
         if isinstance(actual, LearnedRuleValue):
             # The rows of the learned-rule refusal table that the data decide, before the generic
             # axis and design checks below: their sentences name other remedies.
@@ -2802,22 +2937,20 @@ class ExplicitAdjustmentProvider:
         # density over arms and an incremental intervention tilts an odds, so those two stay
         # refused; both statements now come from the axis rather than from a spelling.
         if design.treatment_kind == "continuous" and axis not in {"policy", "msm"}:
-            raise CapabilityError(
-                f"{type(actual).__name__} is indexed by {axis}, which a continuous dose does "
-                "not provide; a continuous-dose design supports modified treatment policies "
-                "and MSM projections"
-            )
+            raise CapabilityError.from_refusal(_continuous_dose_refusal(actual, axis))
         if getattr(actual, "horizons", None) is not None:
             raise CapabilityError(
                 f"{type(actual).__name__}(horizons=...) selects follow-up times from a "
                 "sequential fit, and a point-treatment design has one time point; declare "
-                "LongitudinalTreatment to ask that question"
+                "LongitudinalTreatment to ask that question",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
         if isinstance(actual, MSMProjection) and actual.regimens is not None:
             raise CapabilityError(
                 "MSMProjection(regimens=...) projects over longitudinal regimen cells; on a "
                 "point-treatment design the projection is over the declared arms or doses. "
-                "Drop regimens=, or declare LongitudinalTreatment"
+                "Drop regimens=, or declare LongitudinalTreatment",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
         reference = getattr(actual, "reference", None)
         if (
@@ -2833,13 +2966,15 @@ class ExplicitAdjustmentProvider:
         if isinstance(estimand, ControlledDirectEffect):
             if design.intermediate is None:
                 raise CapabilityError(
-                    "ControlledDirectEffect needs PointTreatment(intermediate=...)"
+                    "ControlledDirectEffect needs PointTreatment(intermediate=...)",
+                    reason=RefusalReason.INVALID_DECLARATION,
                 )
             if estimand.intermediate not in (0.0, 1.0):
                 raise DataError("the evidenced binary intermediate must be fixed at 0 or 1")
         elif design.intermediate is not None:
             raise CapabilityError(
-                "a design with intermediate= must identify ControlledDirectEffect explicitly"
+                "a design with intermediate= must identify ControlledDirectEffect explicitly",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
         if isinstance(actual, MSMProjection):
             refuse_continuous_msm_mechanisms(
@@ -2872,7 +3007,9 @@ class ExplicitAdjustmentProvider:
             raise CapabilityError(
                 "LearnedRuleValue is a point-treatment target, and a learned longitudinal "
                 "regimen has no supported path. Van der Laan and Luedtke (2015) give one at "
-                "two time points, and X11 (b) in docs/roadmap.md holds it"
+                "two time points, and X11 (b) in docs/roadmap.md holds it.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative="DynamicRegimen(..., rule_kind='known') fits a fixed regimen.",
             )
         if isinstance(estimand, (IncrementalMean, IncrementalEffect)):
             regimens: Any = _longitudinal_tilts(estimand)
@@ -2882,7 +3019,8 @@ class ExplicitAdjustmentProvider:
             horizons = estimand.horizons
         else:
             raise CapabilityError(
-                f"{type(estimand).__name__} is not a longitudinal regimen functional"
+                f"{type(estimand).__name__} is not a longitudinal regimen functional",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
         if regimens is None:
             raise DataError("a longitudinal estimand must declare regimens")
@@ -3076,13 +3214,17 @@ class CausalStudy:
         """
         if not isinstance(estimand, PointEstimand):
             raise CapabilityError(
-                f"{estimand!r} is not a typed causal estimand; pass one of the objects "
-                f"exported by cleverly, such as ATE()"
-                + (
-                    f". For {estimand!r}, that is {_STRING_ESTIMANDS[estimand]}"
-                    if isinstance(estimand, str) and estimand in _STRING_ESTIMANDS
-                    else ""
-                )
+                f"{estimand!r} is not a typed causal estimand.",
+                reason=RefusalReason.API_REDIRECTION,
+                alternative=(
+                    "Pass one of the objects exported by cleverly, such as ATE()"
+                    + (
+                        f". For {estimand!r}, that is {_STRING_ESTIMANDS[estimand]}"
+                        if isinstance(estimand, str) and estimand in _STRING_ESTIMANDS
+                        else ""
+                    )
+                    + "."
+                ),
             )
         effect = (provider or ExplicitAdjustmentProvider()).identify(self, estimand)
         return replace(effect, protocol=self.protocol, _study=self)
@@ -3190,11 +3332,20 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         point = not self.functional.longitudinal
         target = self.functional.target
         blocker = (
-            "a controlled direct effect fixes an intermediate variable, and neither "
-            "variant's score is derived for that functional"
+            Refusal(
+                RefusalReason.IMPLEMENTATION_GAP,
+                "a controlled direct effect fixes an intermediate variable, and neither "
+                "variant's score is derived for that functional.",
+                alternative="Fit method='tmle'.",
+                roadmap="F5",
+            )
             if self.functional.intermediate is not None
-            else "no collaborative or doubly robust learned-rule result was reviewed (F27 in "
-            "docs/roadmap.md)"
+            else Refusal(
+                RefusalReason.IMPLEMENTATION_GAP,
+                "no collaborative or doubly robust learned-rule result was reviewed.",
+                alternative="Fit method='tmle'.",
+                roadmap="F27",
+            )
             if self.functional.axis == "learned_rule"
             else None
         )
@@ -3215,10 +3366,21 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         collaborative_blocker = (
             KNOWN_CTMLE_REFUSAL
             if known
-            else "C-TMLE has no clustered result: the search draws selection and nested folds "
-            "of its own, and no reviewed result covers a grouped draw of them"
+            else Refusal(
+                RefusalReason.IMPLEMENTATION_GAP,
+                "C-TMLE has no clustered result: the search draws selection and nested folds "
+                "of its own, and no reviewed result covers a grouped draw of them.",
+                alternative="Fit method='tmle'.",
+                roadmap="F22",
+            )
             if clustered
-            else blocker or "no collaborative score is evidenced for this functional"
+            else blocker
+            or Refusal(
+                RefusalReason.IMPLEMENTATION_GAP,
+                "no collaborative score is evidenced for this functional.",
+                alternative="Fit method='tmle'.",
+                roadmap="F5",
+            )
         )
         collaborative = variants and not clustered and not known
         tmle, tmle_reason, sdr, sdr_reason, ipsi, ipsi_reason = self._sequential_methods()
@@ -3234,24 +3396,46 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 variants,
                 None
                 if variants
-                else blocker or "no reduced-dimension correction is evidenced for this functional",
+                else blocker
+                or Refusal(
+                    RefusalReason.IMPLEMENTATION_GAP,
+                    "no reduced-dimension correction is evidenced for this functional.",
+                    alternative="Fit method='tmle'.",
+                    roadmap="F5",
+                ),
             ),
             MethodAvailability("sdr", sdr, sdr_reason),
             MethodAvailability("ipsi", ipsi, ipsi_reason),
             MethodAvailability(
                 "riesz_tmle",
                 False,
-                "the direct-Riesz engine and intervention-state representer are not implemented",
+                Refusal(
+                    RefusalReason.IMPLEMENTATION_GAP,
+                    "the direct-Riesz engine and intervention-state representer are not "
+                    "implemented.",
+                    alternative="Fit method='tmle'.",
+                    roadmap="R1",
+                ),
             ),
             MethodAvailability(
                 "ep",
                 False,
-                "EP requires a conditional-contrast estimand and its distinct result family",
+                Refusal(
+                    RefusalReason.DIFFERENT_ESTIMAND,
+                    "EP requires a conditional-contrast estimand and its distinct result family.",
+                    alternative=(
+                        "To estimate the ATE inside each level of a discrete baseline "
+                        "modifier, declare PointTreatment(..., strata=['V']) and request ATE()."
+                    ),
+                    roadmap="P1",
+                ),
             ),
         )
 
-    def _sequential_methods(self) -> tuple[bool, str | None, bool, str | None, bool, str | None]:
-        """Whether ``tmle``, ``sdr`` and ``ipsi`` fit this functional, each with its reason.
+    def _sequential_methods(
+        self,
+    ) -> tuple[bool, Refusal | None, bool, Refusal | None, bool, Refusal | None]:
+        """Whether ``tmle``, ``sdr`` and ``ipsi`` fit this functional, each with its refusal.
 
         An odds tilt reads the treatment mechanism.  ``LTMLE`` fits it only as a known
         policy, when every tilt node's mechanism is declared (R1), and ``SDR`` never fits it
@@ -3389,7 +3573,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         if self._study is None:
             raise CapabilityError(
                 "this effect is not bound to analysis data; "
-                "construct a new CausalStudy to estimate it again"
+                "construct a new CausalStudy to estimate it again",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
         normalized = self._method(method, overrides)
         if self.functional.longitudinal:
@@ -3404,12 +3589,12 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             record = availability.get(method)
             if record is None:
                 raise CapabilityError(
-                    f"unknown estimation method {method!r}; declarations: {list(availability)}"
+                    f"unknown estimation method {method!r}; declarations: {list(availability)}",
+                    reason=RefusalReason.INVALID_DECLARATION,
                 )
             if not record.available:
-                raise CapabilityError(
-                    f"method {method!r} cannot estimate {type(self.estimand).__name__}: "
-                    f"{record.reason}"
+                raise CapabilityError.from_refusal(
+                    _method_refusal(method, type(self.estimand).__name__, record.refusal)
                 )
             constructors: dict[str, type[TMLEMethod]] = {
                 "tmle": TMLEMethod,
@@ -3423,9 +3608,12 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             raise MethodConfigurationError("method must be a named preset or an EstimationMethod")
         declared = {item.name: item for item in self.available_methods()}.get(method.name)
         if declared is None or not declared.available:
-            reason = "the method does not declare support" if declared is None else declared.reason
-            raise CapabilityError(
-                f"method {method.name!r} cannot estimate {type(self.estimand).__name__}: {reason}"
+            raise CapabilityError.from_refusal(
+                _method_refusal(
+                    method.name,
+                    type(self.estimand).__name__,
+                    None if declared is None else declared.refusal,
+                )
             )
         return method.with_overrides(**overrides)
 

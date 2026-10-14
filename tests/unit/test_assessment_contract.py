@@ -46,6 +46,7 @@ from cleverly.assessment import (
 )
 from cleverly.datasets import make_linear_ate, make_multi_arm
 from cleverly.estimators import TMLE
+from cleverly.exceptions import RefusalReason
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from cleverly.sensitivity._parameters import arm_parameters
 from cleverly.sensitivity._simulated_confounding_request import (
@@ -134,12 +135,12 @@ def test_natural_course_diagnostics_are_truthful_without_a_propensity(
     # The row and the raise must carry the *same* sentence, not two paraphrases of it:
     # docs/architecture-invariants.md makes the capability row the single declared
     # reason, so an identity check is what pins that and a substring match is not.
-    assert support.reason == NATURAL_COURSE_SUPPORT_REFUSAL
+    assert support.refusal == NATURAL_COURSE_SUPPORT_REFUSAL
     with pytest.raises(CapabilityError) as refusal:
         natural_course_result.diagnostics.support()
     # The facade prefixes the operation it refused, so the declared reason is the tail
     # of the raise rather than the whole of it.
-    assert str(refusal.value).endswith(NATURAL_COURSE_SUPPORT_REFUSAL)
+    assert str(refusal.value).endswith(NATURAL_COURSE_SUPPORT_REFUSAL.message())
     nuisance = natural_course_result.diagnostics.nuisance_models()
     assert tuple(model.name for model in nuisance.models) == ("missingness", "outcome")
     assert nuisance.treatment_role is None
@@ -151,7 +152,7 @@ def test_raw_natural_course_result_keeps_capabilities_and_response_curve(
     assert raw_natural_course_result.parameter_keys == {}
     support = raw_natural_course_result.diagnostics.capability("support")
     assert not support.available
-    assert support.reason == NATURAL_COURSE_SUPPORT_REFUSAL
+    assert support.refusal == NATURAL_COURSE_SUPPORT_REFUSAL
     for operation in ("missingness", "tipping_gamma"):
         assert not raw_natural_course_result.sensitivity.capability(operation).available
 
@@ -424,7 +425,7 @@ def test_longitudinal_simulated_confounding_refuses_the_missing_scientific_law( 
     capability = longitudinal_result.sensitivity.capability("simulated_confounding")
     assert not capability.available
     assert capability.status is AssessmentStatus.UNAVAILABLE
-    assert capability.reason == reason
+    assert capability.refusal == reason
     assert _fit_wide_refusal(longitudinal_result) == reason
     # A ``LongitudinalResult`` stores no replay estimator, so there is no ``refit`` to
     # forbid.  Asserted rather than assumed: the day it gains one, this guard must cover it.
@@ -434,11 +435,11 @@ def test_longitudinal_simulated_confounding_refuses_the_missing_scientific_law( 
     with pytest.raises(CapabilityError) as facade_refusal:
         longitudinal_result.sensitivity.simulated_confounding(grid=grid)
     assert str(facade_refusal.value) == (
-        "sensitivity 'simulated_confounding' is unavailable: " + reason
+        "sensitivity 'simulated_confounding' is unavailable: " + reason.message()
     )
     with pytest.raises(CapabilityError) as direct_refusal:
         simulated_confounding(longitudinal_result, grid=grid)
-    assert str(direct_refusal.value) == reason
+    assert str(direct_refusal.value) == reason.message()
 
 
 def test_multi_arm_simulated_confounding_capability_matches_direct_refusal(  # type: ignore[no-untyped-def]
@@ -449,7 +450,7 @@ def test_multi_arm_simulated_confounding_capability_matches_direct_refusal(  # t
     capability = multi_arm_result.sensitivity.capability("simulated_confounding")
     assert not capability.available
     assert capability.status is AssessmentStatus.UNAVAILABLE
-    assert capability.reason == reason
+    assert capability.refusal == reason
     # A multi-arm fit reports one estimate per arm, so the surface cannot pick a default
     # alias. The row must ask for the estimand as well as the grid.
     assert capability.requires_arguments == ("grid", "estimand")
@@ -461,11 +462,11 @@ def test_multi_arm_simulated_confounding_capability_matches_direct_refusal(  # t
     with pytest.raises(CapabilityError) as facade_refusal:
         multi_arm_result.sensitivity.simulated_confounding(grid=grid)
     assert str(facade_refusal.value) == (
-        "sensitivity 'simulated_confounding' is unavailable: " + reason
+        "sensitivity 'simulated_confounding' is unavailable: " + reason.message()
     )
     with pytest.raises(CapabilityError) as direct_refusal:
         simulated_confounding(multi_arm_result, grid=grid)
-    assert str(direct_refusal.value) == reason
+    assert str(direct_refusal.value) == reason.message()
 
 
 def test_an_ambiguous_evalue_row_says_it_is_deferred_rather_than_passed(  # type: ignore[no-untyped-def]
@@ -1013,7 +1014,7 @@ def test_a_custom_provider_fit_never_advertises_a_surface_that_refuses_it(  # ty
     assert not capability.available
     assert capability.status is AssessmentStatus.UNAVAILABLE
     assert capability.reason == str(direct_refusal.value)
-    assert _fit_wide_refusal(result) == str(direct_refusal.value)
+    assert _fit_wide_refusal(result).message() == str(direct_refusal.value)
     with pytest.raises(CapabilityError) as facade_refusal:
         result.sensitivity.simulated_confounding(grid=grid)
     assert str(facade_refusal.value) == (
@@ -1083,7 +1084,7 @@ def test_every_late_fit_wide_rule_reaches_the_capability_row(  # type: ignore[no
     assert not capability.available, rule
     assert capability.status is AssessmentStatus.UNAVAILABLE, rule
     assert capability.reason == str(refusal.value), rule
-    assert _fit_wide_refusal(tampered) == str(refusal.value), rule
+    assert _fit_wide_refusal(tampered).message() == str(refusal.value), rule
     # The nonzero control: the untampered fit advertises the row and does not refuse.
     intact = point_result.sensitivity.capability("simulated_confounding")
     assert intact.available and intact.reason is None
@@ -1637,7 +1638,10 @@ def test_a_refusal_is_unavailable_and_later_diagnostics_still_run(  # type: igno
     refused, accepted = runnable[:2]
 
     def decline(*_args: object, **_kwargs: object) -> object:
-        raise CapabilityError("the fitted artifacts do not support this requested variant")
+        raise CapabilityError(
+            "the fitted artifacts do not support this requested variant",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
 
     monkeypatch.setattr(type(surface), refused, decline, raising=True)
     point_result.assessment_cache.clear()

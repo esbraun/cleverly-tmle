@@ -19,6 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from .._refusal import Refusal, RefusalReason
 from ..targets.base import arm_alias, parameter_name
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -115,7 +116,7 @@ def conditional_stratum(result: TMLEResult, estimand: str) -> tuple[Any, ...] | 
     return None if key is None else key.stratum
 
 
-def stratum_refusal(result: TMLEResult, estimand: str, analysis: str) -> str | None:
+def stratum_refusal(result: TMLEResult, estimand: str, analysis: str) -> Refusal | None:
     """Why *analysis* cannot answer for a stratum-conditional alias, or ``None``.
 
     The fit really did report this parameter, so "not requested in this fit" would be a
@@ -128,12 +129,15 @@ def stratum_refusal(result: TMLEResult, estimand: str, analysis: str) -> str | N
     if stratum is None:
         return None
     marginal = estimand.rsplit("[", 1)[0]
-    return (
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
         f"estimand {estimand!r} is conditional on a baseline stratum, and {analysis} is "
         f"derived here for the marginal functional only. Conditioning changes the "
-        f"parameter, so its representer is not the marginal one under another name. Ask "
-        f"for {marginal!r} to assess the marginal parameter, or fit the stratum as its "
-        f"own study."
+        f"parameter, so its representer is not the marginal one under another name.",
+        alternative=(
+            f"Ask for {marginal!r} to assess the marginal parameter, or fit the stratum as "
+            f"its own study."
+        ),
     )
 
 

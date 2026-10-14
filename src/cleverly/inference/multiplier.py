@@ -133,16 +133,18 @@ import numpy as np
 
 from .._inference_status import FEW_CLUSTER_THRESHOLD
 from .._typing import BoolArray, FloatArray, IntArray
-from ..exceptions import CapabilityError, refuse_inference
+from ..exceptions import CapabilityError, Refusal, RefusalReason, refuse_inference
 from .cluster import cluster_sums
 from .influence import ParameterEstimate
 
 #: Why no band covers an estimate with a Student t reference.
-T_REFERENCE_BAND_REFUSAL = (
+T_REFERENCE_BAND_REFUSAL = Refusal(
+    RefusalReason.INFERENCE_GAP,
     "simultaneous_bands() has no joint result for an estimate with a Student t reference. "
     f"The fit reads fewer than {FEW_CLUSTER_THRESHOLD} clusters with positive weight mass, "
-    "and no source read here gives a simultaneous band at that count. Report the pointwise "
-    "intervals, which use the t reference."
+    "and no source read here gives a simultaneous band at that count.",
+    alternative="Report the pointwise intervals, which use the t reference.",
+    roadmap="F28",
 )
 
 __all__ = ["SimultaneousBands", "multiplier_critical_value", "simultaneous_bands"]
@@ -467,7 +469,7 @@ def simultaneous_bands(
     for _, estimate in items:
         refuse_inference(estimate.inference, operation="simultaneous_bands()")
     if any(estimate.reference_df is not None for _, estimate in items):
-        raise CapabilityError(T_REFERENCE_BAND_REFUSAL)
+        raise CapabilityError.from_refusal(T_REFERENCE_BAND_REFUSAL)
     second_moment = [
         name for name, estimate in items if estimate.covariance_rule == "second_moment"
     ]

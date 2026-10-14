@@ -1708,7 +1708,7 @@ class TestVariableImportanceRefusesBeforeItsFirstFit:
                 covariates=["W"],
                 estimator=estimator,
             )
-        assert str(raised.value) == estimator._fold_policy_refusal()
+        assert str(raised.value) == estimator._fold_policy_refusal().message()
         assert "Set stratify_folds='none'" in str(raised.value)
         assert NeverFit.calls == 0
 
@@ -1761,7 +1761,7 @@ class TestVariableImportanceRefusesBeforeItsFirstFit:
         estimator = TMLE(**linear_in_sample(cross_fit=True, n_folds=2, **never_fit_learners()))
         estimator.stratify_folds = "treatment"
         ranked, fitted = self.refusal_of(estimator, frame)
-        assert ranked == fitted == estimator._fold_policy_refusal()
+        assert ranked == fitted == estimator._fold_policy_refusal().message()
 
     def test_the_scale_refusal_precedes_the_status_refusal(self) -> None:
         """The scale call isolates itself against a status that supplies no inference.

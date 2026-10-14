@@ -60,7 +60,7 @@ from tests.unit._natural_course_support import NeverFit, never_fit_learners
 #: The first clause of every contract refusal.
 CONTRACT = (
     "Cross-fitted TMLE of arm-indexed means and contrasts with missing outcomes supports "
-    "one audited stacked CV-TMLE contract; "
+    "one audited stacked CV-TMLE contract. "
 )
 
 #: Rows in the refusal frames, and the outer folds every admitted setting declares.
@@ -306,7 +306,7 @@ def test_att_and_atc_are_refused_by_name_in_every_request_form() -> None:
             in message
         )
         requested = "['att']" if estimands == ("att",) else "['att', 'atc']"
-        assert f"no audited result covers {requested}" in message
+        assert f"No audited result covers {requested}" in message
         assert NeverFit.calls == 0
 
 

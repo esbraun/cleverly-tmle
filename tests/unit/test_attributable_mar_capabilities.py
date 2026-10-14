@@ -18,6 +18,7 @@ from sklearn.linear_model import LogisticRegression
 
 from cleverly import CapabilityError, PositivityWarning, load
 from cleverly.estimators import TMLE
+from cleverly.exceptions import RefusalReason
 from cleverly.inference.results import reported_status
 from cleverly.targets.population_intervention import (
     NATURAL_COURSE_SUPPORT_REFUSAL,
@@ -102,7 +103,7 @@ class TestTheReadersOfTheTreatmentMechanism:
         scalar = _fit(("ey_obs",), arms=3)
         with pytest.raises(CapabilityError) as caught:
             scalar.diagnostics.support()
-        assert str(caught.value).endswith(NATURAL_COURSE_SUPPORT_REFUSAL)
+        assert str(caught.value).endswith(NATURAL_COURSE_SUPPORT_REFUSAL.message())
 
     def test_the_scalar_three_arm_readers_run(self) -> None:
         scalar = _fit(("ey_obs",), arms=3)
@@ -157,18 +158,20 @@ class TestTheTargetSpecificRefusals:
     def test_the_e_value_names_the_natural_course_comparison(self, joint: Any) -> None:
         with pytest.raises(CapabilityError) as caught:
             joint.sensitivity.evalue("par")
-        assert str(caught.value) == (
+        assert str(caught.value).startswith(
             "an E-value is defined for a two-arm risk ratio or contrast, and par compares "
-            "the natural course with one reference arm"
+            "the natural course with one reference arm."
         )
+        assert caught.value.refusal.reason is RefusalReason.DIFFERENT_ESTIMAND
 
     def test_the_e_value_names_the_natural_course_mean(self, joint: Any) -> None:
         with pytest.raises(CapabilityError) as caught:
             joint.sensitivity.evalue("ey_obs")
-        assert str(caught.value) == (
+        assert str(caught.value).startswith(
             "an E-value is defined for a two-arm risk ratio or contrast, and ey_obs is the "
-            "natural-course mean, not a two-arm contrast"
+            "natural-course mean, not a two-arm contrast."
         )
+        assert caught.value.refusal.reason is RefusalReason.DIFFERENT_ESTIMAND
 
     def test_the_e_value_sentence_is_the_same_on_complete_data(self) -> None:
         frame = _frame().assign(Y=lambda f: f["Y"].fillna(0.0)).drop(columns="Delta")
@@ -206,7 +209,9 @@ class TestTheTargetSpecificRefusals:
     def test_an_explicit_tilt_of_par_refuses(self, joint: Any) -> None:
         with pytest.raises(CapabilityError) as caught:
             joint.sensitivity.missingness(estimands=["par", "ey0"])
-        assert str(caught.value) == natural_course_tilt_refusal(["par"])
+        stem = natural_course_tilt_refusal(["par"]).split(" Request the arm means")[0]
+        assert str(caught.value).startswith(stem)
+        assert caught.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
 
     def test_the_default_tilt_sweep_skips_the_natural_course_targets(self, joint: Any) -> None:
         frame = joint.sensitivity.missingness()
@@ -221,7 +226,10 @@ class TestTheTargetSpecificRefusals:
         row = result.sensitivity.capability(operation)
         assert not row.available
         assert "re-mixes the arm-indexed means" in str(row.reason)
-        assert str(row.reason).endswith(natural_course_tilt_refusal(["paf", "par"]))
+        stem = natural_course_tilt_refusal(["paf", "par"]).split(" Request the arm means")[0]
+        assert stem in str(row.reason)
+        assert row.refusal is not None
+        assert row.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
         call = getattr(result.sensitivity, operation)
         with pytest.raises(CapabilityError) as caught:
             call() if operation == "missingness" else call("par")
@@ -246,7 +254,7 @@ class TestTheTargetSpecificRefusals:
         result.sensitivity.tipping_gamma("ey0")
 
     def test_simulated_confounding_keeps_the_missing_outcome_refusal(self, joint: Any) -> None:
-        with pytest.raises(CapabilityError, match=r"docs/roadmap.md F12 tracks this stop"):
+        with pytest.raises(CapabilityError, match=r"F12 in docs/roadmap.md tracks this"):
             joint.sensitivity.simulated_confounding("par")
 
 

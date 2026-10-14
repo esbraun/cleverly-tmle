@@ -85,11 +85,15 @@ from .._inference_status import (
 from .._typing import BoolArray, CumulativeGBounds, FloatArray, Learner
 from ..exceptions import (
     CapabilityError,
+    CleverlyError,
     DataError,
     DataWarning,
     LongitudinalError,
+    MethodConfigurationError,
     ParameterSpaceWarning,
     PositivityWarning,
+    Refusal,
+    RefusalReason,
 )
 from ..inference.bootstrap import BootstrapResult, Resampling, run_bootstrap
 from ..inference.cluster import (
@@ -137,8 +141,8 @@ from ..methods import (
     IPSI_NO_FLUCTUATION,
     IPSI_POINT_REFUSAL,
     LTMLE_TILT_REFUSAL,
-    SDR_NO_FLUCTUATION,
     SDR_TILT_REFUSAL,
+    sdr_no_fluctuation_refusal,
 )
 from ..msm import MSM, refuse_msm_functions
 from ..protocol import ProtocolDetail, protocol_summary_lines
@@ -172,7 +176,7 @@ from .regimen import (
     refuse_regimen_rules,
     resolve_plans,
     resolve_regimens,
-    tilt_mix_message,
+    tilt_mix_refusal,
 )
 from .sdr import FoldMechanism, SDRCell, fit_cells_sdr, fit_fold_mechanisms
 from .sequential import (
@@ -210,7 +214,8 @@ LONGITUDINAL_REPLAY_FITTED_BOUND_MISMATCH = "longitudinal_replay_fitted_bound_mi
 LONGITUDINAL_REPLAY_REGIMEN_DECLARATION = "longitudinal_replay_regimen_declaration"
 LONGITUDINAL_REPLAY_MSM_DECLARATION = "longitudinal_replay_msm_declaration"
 
-#: The :class:`LTMLE` settings that :class:`SDR` refuses with :data:`SDR_NO_FLUCTUATION`.
+#: The :class:`LTMLE` settings that :class:`SDR` refuses, through
+#: :func:`~cleverly.methods.sdr_no_fluctuation_refusal`.
 SDR_REFUSED_SETTINGS: tuple[str, ...] = ("alpha", "max_iter", "tol")
 
 
@@ -252,14 +257,16 @@ def refuse_sdr_scale(name: str, value: float, scale: str, *, estimator: str = "s
         if value > 0.0:
             return
         raise CapabilityError(
-            f"{name} is {value:.4g}, at or below 0. {cause}the log scale needs a positive "
-            "level. Report the difference scale"
+            f"{name} is {value:.4g}, at or below 0. {cause}the log scale needs a positive level.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative="Report the difference scale.",
         )
     if 0.0 < value < 1.0:
         return
     raise CapabilityError(
-        f"{name} is {value:.4g}, outside (0, 1). {cause}the {scale} scale needs a level in "
-        "(0, 1). Report the difference scale"
+        f"{name} is {value:.4g}, outside (0, 1). {cause}the {scale} scale needs a level in (0, 1).",
+        reason=RefusalReason.INVALID_DECLARATION,
+        alternative="Report the difference scale.",
     )
 
 
@@ -305,7 +312,8 @@ _TRUNCATION_WARN_FRACTION = 0.05
 #: are refused *by name*;
 #: without
 #: this table they were refused by absence, which is a ``TypeError`` naming no reason.
-_REFUSED: dict[str, str] = {
+#: Each entry is a :class:`~cleverly._refusal.Refusal`, raised as a ``CapabilityError``.
+_REFUSED: dict[str, Refusal] = {
     # Kept as a key rather than deleted now that observation weights are supported, for the
     # reason ``event`` and ``competing`` are: a weight is a *column of the data*, so it is
     # declared where the columns are read, and falling through to "unexpected keyword
@@ -314,78 +322,107 @@ _REFUSED: dict[str, str] = {
     # the clever covariate's denominator at every node", which was simply wrong: a weight
     # tilts the population, and the denominator is the 2T mechanism factors and nothing
     # else.
-    "weights": (
-        "observation weights are a column of the data rather than a setting on the "
-        "estimator, so they are declared where the columns are read: "
-        "LTMLE(...).fit(frame, weights='w', ...), or "
-        "LongitudinalData.from_frame(frame, weights='w', ...)"
+    "weights": Refusal(
+        RefusalReason.API_REDIRECTION,
+        "observation weights are a column of the data rather than a setting on the estimator.",
+        alternative=(
+            "Declare them where the columns are read: LTMLE(...).fit(frame, weights='w', ...), "
+            "or LongitudinalData.from_frame(frame, weights='w', ...)."
+        ),
     ),
-    "intermediate": (
-        "a controlled direct effect fixes a mediator at one time point; over a sequence "
-        "of nodes that is a different parameter with a different identification, not a "
-        "further column"
+    "intermediate": Refusal(
+        RefusalReason.DIFFERENT_ESTIMAND,
+        "a controlled direct effect fixes a mediator at one time point. Over a sequence of "
+        "nodes that is a different parameter with a different identification, not a further "
+        "column.",
+        alternative=(
+            "TMLE(..., intermediate=) estimates a controlled direct effect at one decision."
+        ),
     ),
     # Kept as a key rather than deleted now that a working model over regimens is
     # supported, for the reason ``weights``, ``event`` and ``competing`` are: it is
     # declared on the *estimator* and not where the columns are read, so falling through
     # to "unexpected keyword argument" at ``.fit()`` would read as a misspelling rather
     # than as a pointer to the call that takes it.
-    "msm": (
-        "a working model is a setting on the estimator rather than a column of the data, "
-        "so it is declared where the regimens are: LTMLE(regimens, msm=MSM(...)). Its "
-        "design is handed (regimen_label, horizon, baseline_frame)"
+    "msm": Refusal(
+        RefusalReason.API_REDIRECTION,
+        "a working model is a setting on the estimator rather than a column of the data. Its "
+        "design is handed (regimen_label, horizon, baseline_frame).",
+        alternative="Declare it where the regimens are: LTMLE(regimens, msm=MSM(...)).",
     ),
-    "interventions": (
-        "a regime is a density over the arms at one node, and a regimen is a plan "
-        "across nodes -- so the longitudinal analogue of a rule d(W) is not a further "
-        "parameter axis but a regimen whose nodes are rules. Declare it in regimens=, "
-        "for example regimens=[DynamicRegimen('treat once L2 rises', (0, lambda h: "
-        "h['L2'] > 0), rule_kind='known')], with DynamicRegimen from cleverly.longitudinal. "
-        "A node that draws its arm from a known distribution is a Stochastic node in that "
-        "plan: DynamicRegimen('mix', (Stochastic(q1, 'q1', density_kind='known'), 'low'))"
+    "interventions": Refusal(
+        RefusalReason.API_REDIRECTION,
+        "a regime is a density over the arms at one node, and a regimen is a plan across "
+        "nodes. So the longitudinal analogue of a rule d(W) is a regimen whose nodes are "
+        "rules, not a further parameter axis.",
+        alternative=(
+            "Declare it in regimens=, for example regimens=[DynamicRegimen('treat once L2 "
+            "rises', (0, lambda h: h['L2'] > 0), rule_kind='known')], with DynamicRegimen "
+            "from cleverly.longitudinal. A node that draws its arm from a known distribution "
+            "is a Stochastic node in that plan: DynamicRegimen('mix', (Stochastic(q1, 'q1', "
+            "density_kind='known'), 'low'))."
+        ),
     ),
-    "policies": (
-        "a modified treatment policy is a node of a regimen rather than a parameter axis: "
-        "regimens={'+0.5': DynamicRegimen('+0.5', (Shift(0.5, cap=4.0),) * 2)}, or a "
-        "mapping value Shift(0.5, cap=4.0) for every node. Declare continuous nodes with "
-        "LTMLE.fit(..., continuous_treatment=[...]) or "
-        "LongitudinalData.from_frame(..., continuous_treatment=[...])"
+    "policies": Refusal(
+        RefusalReason.API_REDIRECTION,
+        "a modified treatment policy is a node of a regimen rather than a parameter axis.",
+        alternative=(
+            "Pass regimens={'+0.5': DynamicRegimen('+0.5', (Shift(0.5, cap=4.0),) * 2)}, or a "
+            "mapping value Shift(0.5, cap=4.0) for every node. Declare continuous nodes with "
+            "LTMLE.fit(..., continuous_treatment=[...]) or "
+            "LongitudinalData.from_frame(..., continuous_treatment=[...])."
+        ),
     ),
     "incremental": LTMLE_TILT_REFUSAL,
-    "delta": (
+    "delta": Refusal(
+        RefusalReason.API_REDIRECTION,
         "an outcome missing for a reason other than censoring is a further node in the "
-        "likelihood: encode it as a final censoring column, so that its probability is "
-        "estimated and enters the cumulative product rather than being assumed one"
+        "likelihood. Its probability must be estimated and enter the cumulative product, "
+        "not be assumed one.",
+        alternative="Encode it as a final censoring column.",
     ),
     # Kept as a key rather than deleted now that a survival outcome is supported:
     # dropping it would fall through to "unexpected keyword argument", which reads as a
     # misspelling rather than as a pointer to the keyword that does this.
-    "event": (
-        "a survival outcome is declared by the outcome columns themselves, not beside "
-        "them. Pass one event indicator per time point -- outcome=['Y1', 'Y2', ...], in "
-        "the same order as treatment= -- and the fit reports a cumulative risk at every "
-        "horizon rather than one number"
+    "event": Refusal(
+        RefusalReason.API_REDIRECTION,
+        "a survival outcome is declared by the outcome columns themselves, not beside them.",
+        alternative=(
+            "Pass one event indicator per time point, outcome=['Y1', 'Y2', ...], in the same "
+            "order as treatment=. The fit then reports a cumulative risk at every horizon "
+            "rather than one number."
+        ),
     ),
     # Kept as a key now that competing risks are supported, for the reason ``event`` is:
     # dropping it would fall through to "unexpected keyword argument", which reads as a
     # misspelling rather than as a pointer to the keyword that does this.
-    "competing": (
-        "competing risks are declared by the outcome columns themselves, not beside them. "
-        "Pass a mapping of cause to its indicator column per time point -- "
-        "outcome={'relapse': ['R1', 'R2'], 'death': ['D1', 'D2']} -- and the fit reports "
-        "a cumulative incidence per cause at every horizon"
+    "competing": Refusal(
+        RefusalReason.API_REDIRECTION,
+        "competing risks are declared by the outcome columns themselves, not beside them.",
+        alternative=(
+            "Pass a mapping of cause to its indicator column per time point, "
+            "outcome={'relapse': ['R1', 'R2'], 'death': ['D1', 'D2']}. The fit then reports "
+            "a cumulative incidence per cause at every horizon."
+        ),
     ),
-    "eliminate": (
+    "eliminate": Refusal(
+        RefusalReason.DIFFERENT_ESTIMAND,
         "eliminating the competing events is a different estimand, not a setting on this "
         "one. What is reported here is the cause-specific cumulative incidence with the "
         "competing causes left alone, so a competing event is part of the history and "
         "enters the clever covariate's indicator. Removing it would make it an intervened "
         "node: a further factor per node in the denominator, and its own no-unmeasured-"
-        "confounding and positivity assumptions to state"
+        "confounding and positivity assumptions to state.",
+        alternative=(
+            "Declare outcome={cause: [...]} to estimate the cause-specific cumulative "
+            "incidence with the competing causes left alone."
+        ),
     ),
-    "cross_fit": (
-        "pass n_folds=1 for in-sample nuisance fits; the fold count is the only control "
-        "here, and the config says which of the two a fit used"
+    "cross_fit": Refusal(
+        RefusalReason.API_REDIRECTION,
+        "the fold count is the only control over cross-fitting here, and the config says "
+        "which of the two a fit used.",
+        alternative="Pass n_folds=1 for in-sample nuisance fits.",
     ),
 }
 
@@ -428,10 +465,12 @@ LICENSED_BOOTSTRAP_DESIGNS: frozenset[str] = frozenset(
 
 #: Why a fit with two or more causes has no survival view.  One text for
 #: :meth:`LongitudinalResult.curve` and :meth:`LongitudinalResult.ratio`.
-SURVIVAL_VIEW_COMPETING_REFUSAL = (
+SURVIVAL_VIEW_COMPETING_REFUSAL = Refusal(
+    RefusalReason.DIFFERENT_ESTIMAND,
     "a competing-risk fit reports one cumulative incidence per cause, and 1 - one cause's "
     "incidence is not all-cause survival. Event-free survival is 1 - the sum of the "
-    "cause-specific incidences; use incidence_total() to inspect that sum"
+    "cause-specific incidences.",
+    alternative="Use incidence_total() to inspect that sum.",
 )
 
 #: The head name of a *contrast* between two regimens, whatever the outcome is.  A
@@ -480,9 +519,13 @@ def _level_head(*, survival: bool, competing: bool, complement: bool) -> str:
         if complement:
             raise CapabilityError(
                 "a fit with one end-of-study outcome estimates a mean and not a "
-                "cumulative risk, so it has no complement to name: S = 1 - F is a map "
-                "on a risk curve. Pass one outcome column per time point to estimate "
-                "a cumulative risk at every horizon"
+                "cumulative risk, so it has no complement to name. S = 1 - F is a map "
+                "on a risk curve.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
+                alternative=(
+                    "Pass one outcome column per time point to estimate a cumulative risk "
+                    "at every horizon."
+                ),
             )
         return "ey_regimen"
     if complement:
@@ -503,13 +546,14 @@ def _fit_key(label: str, cause: str | None, horizon: int, survival: bool) -> str
 def refuse_unsupported(passed: Mapping[str, Any], *, where: str = "LTMLE") -> None:
     """Refuse a point-treatment keyword by name, saying what it would take to support it."""
     for name in passed:
-        reason = _REFUSED.get(name)
-        if reason is None:
+        refusal = _REFUSED.get(name)
+        if refusal is None:
             raise TypeError(
                 f"{where} got an unexpected keyword argument {name!r}; see "
                 "docs/user-guide/longitudinal.md for what a longitudinal fit supports"
             )
-        raise TypeError(f"{name}= is not supported by a longitudinal fit: {reason}")
+        condition = f"{name}= is not supported by a longitudinal fit: {refusal.condition}"
+        raise CapabilityError.from_refusal(replace(refusal, condition=condition))
 
 
 #: The one sentence a refused replay opens with.  It is a documented contract string --
@@ -518,20 +562,47 @@ def refuse_unsupported(passed: Mapping[str, Any], *, where: str = "LTMLE") -> No
 _REPLAY_REFUSAL = "longitudinal truncation replay is unavailable: "
 
 
-def _refuse_replay(*codes: str) -> NoReturn:
+def _caught_refusal(prefix: str, error: Exception) -> Refusal:
+    """The refusal of a wrapper that re-raises a caught error under a sentence of its own.
+
+    Parameters
+    ----------
+    prefix : str
+        The wrapper's sentence, which opens the condition.
+    error : Exception
+        The caught error. A cleverly error passes its reason code, alternative and roadmap
+        item on, so the wrapper does not hide a code.
+
+    Returns
+    -------
+    Refusal
+        The inner record under the wrapper's sentence, or an
+        ``INVALID_DECLARATION`` record when the caught error is not a cleverly error.
+    """
+    if isinstance(error, CleverlyError):
+        inner = error.refusal
+        return replace(inner, condition=prefix + inner.condition)
+    text = str(error.args[0]) if error.args else str(error)
+    return Refusal(RefusalReason.INVALID_DECLARATION, prefix + text)
+
+
+def _refuse_replay(*codes: str, reason: RefusalReason) -> NoReturn:
     """Refuse a replay request, naming the stable omission codes that prevent it.
 
     Parameters
     ----------
     *codes : str
         Stable omission codes, in the order they are reported.
+    reason : RefusalReason
+        The reason code of the refusal. Every replay omission code is an
+        ``INVALID_DECLARATION``.
 
     Raises
     ------
     CapabilityError
         Always. The prefix is the contract string documented under *Scope and refusals*.
     """
-    raise CapabilityError(_REPLAY_REFUSAL + ", ".join(codes))
+    raise CapabilityError(_REPLAY_REFUSAL + ", ".join(codes), reason=reason)
 
 
 def _frozen_plans(plans: Sequence[Plan]) -> tuple[Plan, ...]:
@@ -1272,9 +1343,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             reported = f"one end-of-study mean of {self.data.outcome_name!r}"
         else:
             return
-        raise ValueError(
-            f"{what} sums a survival curve, and this fit reports {reported}. Declare an "
-            "outcome sequence to estimate a curve"
+        raise CapabilityError(
+            f"{what} sums a survival curve, and this fit reports {reported}.",
+            reason=RefusalReason.DIFFERENT_ESTIMAND,
+            alternative="Declare an outcome sequence to estimate a curve.",
         )
 
     def ratio(
@@ -1357,19 +1429,22 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         if view not in ("risk", "survival"):
             raise ValueError(f"view must be 'risk' or 'survival'; got {view!r}")
         if self.msm is not None:
-            raise ValueError(
+            raise CapabilityError(
                 "this fit reports the coefficients of a working model, and a ratio of two "
-                "coefficients is not a ratio of two regimen means. Use result.contrast() "
-                "for a function of the coefficients"
+                "coefficients is not a ratio of two regimen means.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
+                alternative="Use result.contrast() for a function of the coefficients.",
             )
         survival = self.data.is_survival
         if view == "survival":
             if not survival:
-                raise ValueError(
-                    "an end-of-study fit reports means, not a survival curve. Drop view="
+                raise CapabilityError(
+                    "an end-of-study fit reports means, not a survival curve.",
+                    reason=RefusalReason.DIFFERENT_ESTIMAND,
+                    alternative="Drop view=.",
                 )
             if len(self.config.causes) > 1:
-                raise ValueError(SURVIVAL_VIEW_COMPETING_REFUSAL)
+                raise CapabilityError.from_refusal(SURVIVAL_VIEW_COMPETING_REFUSAL)
         if kind == "or" and not survival:
             refuse_odds_ratio(self.config.family)
         if self.config.estimator in _RANGE_CAUSE:
@@ -1807,10 +1882,14 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             One row per regimen and horizon, with the incidences summed over causes.
         """
         if not self.data.is_competing:
-            raise ValueError(
+            raise CapabilityError(
                 "this fit reports one parameter per regimen per horizon, so there is "
-                "nothing to sum over. Declare competing risks -- outcome={cause: [...]} "
-                "-- to estimate a cumulative incidence per cause"
+                "nothing to sum over.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative=(
+                    "Declare competing risks, outcome={cause: [...]}, to estimate a "
+                    "cumulative incidence per cause."
+                ),
             )
         # Renamed in place, as the point-treatment sweeps rename their spread columns:
         # the number is the same plug-in standard error under either status.  Each total
@@ -1969,20 +2048,27 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         if scale not in ("risk", "survival"):
             raise ValueError(f"scale must be 'risk' or 'survival'; got {scale!r}")
         if self.msm is not None:
-            raise ValueError(
+            raise CapabilityError(
                 "this fit reports the coefficients of a working model, and a coefficient "
                 "has no horizon to index a curve by: the horizon is inside the design, "
                 "which is what lets a coefficient be a trend across horizons rather than "
-                "one number per horizon. S = 1 - F is not a map on a coefficient either. "
-                "result.to_frame() is the report for this fit, and "
-                "result.coefficients() the view that names what each one is"
+                "one number per horizon. S = 1 - F is not a map on a coefficient either.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
+                alternative=(
+                    "result.to_frame() is the report for this fit, and result.coefficients() "
+                    "the view that names what each one is."
+                ),
             )
         if not self.data.is_survival:
-            raise ValueError(
+            raise CapabilityError(
                 f"this fit has one end-of-study outcome ({self.data.outcome_name!r}), so "
-                "its report is a number and not a curve. Pass one outcome column per "
-                "time point -- outcome=[...] -- to estimate a cumulative risk at every "
-                "horizon; result.to_frame() is the report for this fit"
+                "its report is a number and not a curve.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
+                alternative=(
+                    "Pass one outcome column per time point, outcome=[...], to estimate a "
+                    "cumulative risk at every horizon. result.to_frame() is the report for "
+                    "this fit."
+                ),
             )
         # Gated on how many causes the fit *declared*, not on whether it declared any.
         # ``outcome={"death": [...]}`` is a competing-risks declaration with one cause,
@@ -1992,7 +2078,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         # refuse a supported composition, and would make two declarations of the same
         # data disagree about what can be reported from an identical fit.
         if scale == "survival" and len(self.config.causes) > 1:
-            raise ValueError(SURVIVAL_VIEW_COMPETING_REFUSAL)
+            raise CapabilityError.from_refusal(SURVIVAL_VIEW_COMPETING_REFUSAL)
         competing = self.data.is_competing
         # The names ``to_frame`` publishes for the same numbers, through the same table.
         status = self.inference_status
@@ -2105,17 +2191,24 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         if scale not in ("link", "ratio"):
             raise ValueError(f"scale must be 'link' or 'ratio'; got {scale!r}")
         if self.msm is None:
-            raise ValueError(
+            raise CapabilityError(
                 "this fit has no working model, so it reports a mean per regimen rather "
-                "than coefficients; result.to_frame() is its report. Declare msm= to "
-                "project those means onto a model whose coefficients are the parameters."
+                "than coefficients.",
+                reason=RefusalReason.API_REDIRECTION,
+                alternative=(
+                    "result.to_frame() is its report. Declare msm= to project those means "
+                    "onto a model whose coefficients are the parameters."
+                ),
             )
         if scale == "ratio" and self.msm.link == "identity":
-            raise ValueError(
+            raise CapabilityError(
                 "an identity-link working model's coefficients are risk differences, and "
-                "exp() of a difference is not a quantity anybody reports. Declare "
-                "link='log' for coefficients that are log risk ratios, or link='logit' "
-                "for log odds ratios, and this view exponentiates those."
+                "exp() of a difference is not a quantity anybody reports.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
+                alternative=(
+                    "Declare link='log' for coefficients that are log risk ratios, or "
+                    "link='logit' for log odds ratios, and this view exponentiates those."
+                ),
             )
         ratio = "risk ratio" if self.msm.link == "log" else "odds ratio"
         rows: list[dict[str, Any]] = []
@@ -3128,7 +3221,7 @@ class _SequentialEstimator:
                 continue
             nodes = [time for time in range(1, data.n_times + 1) if plan.is_tilt_node(time)]
             if known is None or any(known.treatment_at(time) is None for time in nodes):
-                raise CapabilityError(LTMLE_TILT_REFUSAL)
+                raise CapabilityError.from_refusal(LTMLE_TILT_REFUSAL)
             propensity = {time: _filled_matrix(known.treatment_at(time))[:, 1] for time in nodes}
             out.append(replace(plan.with_tilts(propensity), tilt_deltas=()))
         return tuple(out)
@@ -3258,7 +3351,7 @@ class _SequentialEstimator:
             The known retention probabilities, as for
             :meth:`LongitudinalData.from_frame`.  A declared node fits no censoring learner.
         **refused : Any
-            A point-treatment keyword.  Each one raises :class:`TypeError` with the
+            A point-treatment keyword.  Each one raises :class:`CapabilityError` with the
             reason that a longitudinal fit does not support it.
 
         Returns
@@ -3644,11 +3737,14 @@ class _SequentialEstimator:
         """Which nodes the fit reports a parameter at."""
         if not data.is_survival:
             if self.horizons is not None:
-                raise ValueError(
+                raise MethodConfigurationError(
                     "horizons= applies to a survival outcome, and this fit has one "
                     f"end-of-study outcome ({data.outcome_name!r}), whose only horizon is "
-                    "the end of the study. Pass one outcome column per time point -- "
-                    "outcome=[...] -- to report a curve"
+                    "the end of the study.",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                    alternative=(
+                        "Pass one outcome column per time point, outcome=[...], to report a curve."
+                    ),
                 )
             return (data.n_times,)
         if self.horizons is None:
@@ -4011,8 +4107,8 @@ class LTMLE(_SequentialEstimator):
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
     **refused : Any
-        A point-treatment keyword.  Each one raises :class:`TypeError` with the reason
-        that a longitudinal fit does not support it.
+        A point-treatment keyword.  Each one raises :class:`CapabilityError` with the
+        reason that a longitudinal fit does not support it.
     """
 
     _estimator: ClassVar[str] = "tmle"
@@ -4173,7 +4269,8 @@ class SDR(_SequentialEstimator):
     ratio : {"density", "classifier"}
         How a continuous node's policy ratio is estimated, as for :class:`LTMLE`.
     **refused : Any
-        ``alpha``, ``max_iter`` and ``tol``, which raise :class:`TypeError` because the
+        ``alpha``, ``max_iter`` and ``tol``, which raise
+        :class:`MethodConfigurationError` because the
         estimator fits no fluctuation, and each point-treatment keyword that
         :class:`LTMLE` refuses.
 
@@ -4240,7 +4337,7 @@ class SDR(_SequentialEstimator):
     ) -> None:
         named = [name for name in SDR_REFUSED_SETTINGS if name in refused]
         if named:
-            raise TypeError(SDR_NO_FLUCTUATION.format(name=named[0]))
+            raise MethodConfigurationError.from_refusal(sdr_no_fluctuation_refusal(named[0]))
         super().__init__(
             regimens,
             reference=reference,
@@ -4289,7 +4386,7 @@ class SDR(_SequentialEstimator):
             When a plan holds a tilt node.
         """
         if any(plan.has_tilt for plan in plans):
-            raise CapabilityError(SDR_TILT_REFUSAL)
+            raise CapabilityError.from_refusal(SDR_TILT_REFUSAL)
         return plans
 
     def _pseudo_learner(self) -> Learner:
@@ -4395,7 +4492,7 @@ class IPSI(_SequentialEstimator):
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
     **refused : Any
         ``alpha``, ``max_iter``, ``tol``, ``targeting`` and ``fluctuation``, which raise
-        :class:`TypeError` because the estimator fits no fluctuation, and each
+        :class:`MethodConfigurationError` because the estimator fits no fluctuation, and each
         point-treatment keyword that :class:`LTMLE` refuses.
 
     See Also
@@ -4459,7 +4556,7 @@ class IPSI(_SequentialEstimator):
         **refused: Any,
     ) -> None:
         if any(name in refused for name in IPSI_REFUSED_SETTINGS):
-            raise TypeError(IPSI_NO_FLUCTUATION)
+            raise MethodConfigurationError.from_refusal(IPSI_NO_FLUCTUATION)
         super().__init__(
             _tilt_shorthand(regimens),
             reference=reference,
@@ -4507,13 +4604,13 @@ class IPSI(_SequentialEstimator):
 
         Raises
         ------
-        TypeError
+        MethodConfigurationError
             When ``data`` is a point-treatment :class:`~cleverly.CausalData`.
         """
         from ..data.causal_data import CausalData
 
         if isinstance(data, CausalData):
-            raise TypeError(IPSI_POINT_REFUSAL)
+            raise MethodConfigurationError.from_refusal(IPSI_POINT_REFUSAL)
         return super().fit(data, **kwargs)
 
     def _resolve_tilts(self, data: LongitudinalData, plans: tuple[Plan, ...]) -> tuple[Plan, ...]:
@@ -4540,15 +4637,16 @@ class IPSI(_SequentialEstimator):
         if data.treatment_held:
             raise CapabilityError(
                 "IPSI fits one treatment decision per node, and this design holds one "
-                "baseline decision over every node. For one decision fit "
-                "TMLE(incremental=[...]) on the baseline row"
+                "baseline decision over every node.",
+                reason=RefusalReason.API_REDIRECTION,
+                alternative="For one decision fit TMLE(incremental=[...]) on the baseline row.",
             )
         for plan in plans:
             for time in plan.mtp_nodes:
                 node = plan.regimen.plan[time - 1]  # type: ignore[union-attr]
                 kind = type(node).__name__
-                raise CapabilityError(
-                    tilt_mix_message(
+                raise CapabilityError.from_refusal(
+                    tilt_mix_refusal(
                         plan.label,
                         data.treatment_names[time - 1],
                         "a risk-ratio tilt"
@@ -4699,7 +4797,9 @@ def _refit_bound(
     refuse_regimen_rules(result.config.regimens)
     refuse_evaluated_msm_functions(result.msm)
     if recipe.outcome_learner is None or recipe.pseudo_learner is None:
-        _refuse_replay(LONGITUDINAL_REPLAY_LEARNER_UNCLONABLE)
+        _refuse_replay(
+            LONGITUDINAL_REPLAY_LEARNER_UNCLONABLE, reason=RefusalReason.INVALID_DECLARATION
+        )
     fits, msm_fits = _run_recursion(
         result.data,
         recipe.plans,
@@ -4927,7 +5027,7 @@ def longitudinal_truncation_curve(
     refuse_evaluated_msm_functions(result.msm)
     recipe = result.replay_recipe
     if recipe.omissions:
-        _refuse_replay(*recipe.omissions)
+        _refuse_replay(*recipe.omissions, reason=RefusalReason.INVALID_DECLARATION)
     # Resolved first and deduplicated after, so that ``0.2`` and ``(0.2, 1.0)`` are the one
     # bound pair they denote rather than two replays of it.  A replay is a complete backward
     # recursion per regimen, cause and horizon, so a duplicate entry is minutes of work for
@@ -4946,15 +5046,18 @@ def longitudinal_truncation_curve(
     except (TypeError, ValueError) as error:
         # The resolver's own sentence is reused, because it names the offending value and the
         # condition it failed.
-        raise CapabilityError(
-            "a longitudinal truncation curve cannot resolve the requested cumulative bound "
-            "grid, which is a sequence of scalars or of (lower, upper) pairs: "
-            + (str(error.args[0]) if error.args else str(error))
+        raise CapabilityError.from_refusal(
+            _caught_refusal(
+                "a longitudinal truncation curve cannot resolve the requested cumulative "
+                "bound grid, which is a sequence of scalars or of (lower, upper) pairs: ",
+                error,
+            )
         ) from error
     if not grid:
         raise CapabilityError(
             "a longitudinal truncation curve needs at least one cumulative bound pair; "
-            "the requested grid is empty"
+            "the requested grid is empty.",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     try:
         reported = select_estimates(result.estimates, estimands)
@@ -4963,9 +5066,11 @@ def longitudinal_truncation_curve(
         # caller-input refusal, not a defect in the battery that asked for it.  The
         # selector's own sentence is reused, and ``args[0]`` rather than ``str`` because a
         # ``KeyError`` renders its message in quotes.
-        raise CapabilityError(
-            "a longitudinal truncation curve cannot report the requested estimands: "
-            + (str(error.args[0]) if error.args else str(error))
+        raise CapabilityError.from_refusal(
+            _caught_refusal(
+                "a longitudinal truncation curve cannot report the requested estimands: ",
+                error,
+            )
         ) from error
     fitted_bounds = result.config.g_bounds
     # A point estimate can agree while a stochastic Q recursion differs underneath it.
@@ -4973,7 +5078,9 @@ def longitudinal_truncation_curve(
     # bound, including grids that deliberately omit the fitted pair.
     fitted_replay = _refit_bound(result, recipe, fitted_bounds)
     if not _fitted_replay_matches(result, fitted_replay):
-        _refuse_replay(LONGITUDINAL_REPLAY_FITTED_BOUND_MISMATCH)
+        _refuse_replay(
+            LONGITUDINAL_REPLAY_FITTED_BOUND_MISMATCH, reason=RefusalReason.INVALID_DECLARATION
+        )
     rows: list[dict[str, Any]] = []
     for lower, upper in grid:
         replay = (

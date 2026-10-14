@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from typing import Any, ClassVar, Literal, Protocol, runtime_checkable
 
 from ._typing import FluctuationKind, FoldStrata, GBounds, TargetingMethod, TargetingScheme
-from .exceptions import MethodConfigurationError
+from .exceptions import MethodConfigurationError, Refusal, RefusalReason
 from .inference.bootstrap import Resampling
 from .inference.multiplier import MultiplierKind
 from .learners.crossfit import SplitPlan, _cross_fit_policy_refusal
@@ -19,7 +19,6 @@ __all__ = [
     "IPSI_NO_FLUCTUATION",
     "IPSI_POINT_REFUSAL",
     "LTMLE_TILT_REFUSAL",
-    "SDR_NO_FLUCTUATION",
     "SDR_POINT_REFUSAL",
     "SDR_TILT_REFUSAL",
     "SHORTCUTS",
@@ -35,6 +34,7 @@ __all__ = [
     "SDRMethod",
     "TMLEMethod",
     "Targeting",
+    "sdr_no_fluctuation_refusal",
 ]
 
 
@@ -47,42 +47,73 @@ DEFAULT_POINT_MULTIPLIER = 1000
 DEFAULT_LONGITUDINAL_MULTIPLIER = 2000
 DEFAULT_LONGITUDINAL_G_BOUNDS = (0.01, 1.0)
 
-#: Why the SDR estimator refuses a fluctuation setting, by its engine name.
-SDR_NO_FLUCTUATION = (
+#: Why the SDR estimator refuses a fluctuation setting. The alternative holds ``{name}``, the
+#: engine's own name for the setting, which :func:`sdr_no_fluctuation_refusal` fills in.
+_SDR_NO_FLUCTUATION = Refusal(
+    RefusalReason.API_REDIRECTION,
     "the SDR estimator fits no fluctuation, so it has no logistic shrink, iteration limit or "
-    "score tolerance. LTMLE takes {name}="
+    "score tolerance.",
+    alternative="LTMLE takes {name}=, so pass the setting there.",
 )
 #: Why a point-treatment functional refuses ``method="sdr"`` (R4).
-SDR_POINT_REFUSAL = (
-    "the SDR estimator is the sequential regression of a longitudinal fit; a "
-    "point-treatment functional fits tmle, drtmle or collaborative_tmle"
+SDR_POINT_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "the SDR estimator is the sequential regression of a longitudinal fit.",
+    alternative="A point-treatment functional fits tmle, drtmle or collaborative_tmle.",
 )
 #: Why ``LTMLE`` refuses an odds tilt with an estimated mechanism (R1 in ``test_ipsi_e2e.py``).
-LTMLE_TILT_REFUSAL = (
+LTMLE_TILT_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
     "an odds tilt reads the estimated treatment mechanism, so its influence function has a "
     "mechanism term at every node (Kennedy 2019, Theorem 2), and LTMLE fits no mechanism "
-    "fluctuation over time. Fit IPSI(regimens=[Incremental(2.0), ...]), which runs Kennedy's "
-    "cross-fitted estimator. With a known treatment mechanism, LTMLE fits the tilt as a known "
-    "stochastic policy"
+    "fluctuation over time.",
+    alternative=(
+        "Fit IPSI(regimens=[Incremental(2.0), ...]), which runs Kennedy's cross-fitted "
+        "estimator. With a known treatment mechanism, LTMLE fits the tilt as a known "
+        "stochastic policy."
+    ),
 )
 #: Why ``SDR`` refuses an odds tilt (R2 in ``test_ipsi_e2e.py``).
-SDR_TILT_REFUSAL = (
+SDR_TILT_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
     "the SDR estimator needs a policy that does not depend on the observed-data law (Díaz, "
     "Williams, Hoffman and Schenck 2023, Section 4). An odds tilt reads the treatment "
-    "mechanism, so its estimator is not doubly robust (Kennedy 2019, Section 3.3). Fit "
-    "IPSI(regimens=[...])"
+    "mechanism, so its estimator is not doubly robust (Kennedy 2019, Section 3.3).",
+    alternative="Fit IPSI(regimens=[...]).",
 )
 #: Why the IPSI estimator refuses a fluctuation setting (R5 in ``test_ipsi_e2e.py``).
-IPSI_NO_FLUCTUATION = (
+IPSI_NO_FLUCTUATION = Refusal(
+    RefusalReason.INVALID_DECLARATION,
     "IPSI fits no fluctuation: Kennedy's estimator averages the influence function at the "
     "fitted nuisances, so it has no logistic shrink, iteration limit, score tolerance or "
-    "submodel"
+    "submodel.",
 )
 #: Why a point treatment refuses the IPSI estimator (R8 in ``test_ipsi_e2e.py``).
-IPSI_POINT_REFUSAL = (
-    "IPSI fits a LongitudinalData panel. For a point treatment fit TMLE(incremental=[...]), "
-    "or pass a one-node panel"
+IPSI_POINT_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "IPSI fits a LongitudinalData panel.",
+    alternative="For a point treatment fit TMLE(incremental=[...]), or pass a one-node panel.",
 )
+
+
+def sdr_no_fluctuation_refusal(name: str) -> Refusal:
+    """The refusal of a fluctuation setting on an SDR fit.
+
+    Parameters
+    ----------
+    name : str
+        The engine's name for the refused setting, such as ``"alpha"``.
+
+    Returns
+    -------
+    Refusal
+        An :attr:`~cleverly.exceptions.RefusalReason.API_REDIRECTION` record that names
+        ``name`` as the setting ``LTMLE`` takes.
+    """
+    return replace(
+        _SDR_NO_FLUCTUATION,
+        alternative=str(_SDR_NO_FLUCTUATION.alternative).format(name=name),
+    )
 
 
 @dataclass(frozen=True)
@@ -96,13 +127,20 @@ class MethodAvailability:
     available : bool
         Whether the method supports the identified functional. The record is per method
         name. A configuration of an available method can still refuse before any learner.
-    reason : str or None
-        Refusal reason when ``available`` is false.
+    refusal : Refusal or None
+        The record of the refusal when ``available`` is false: its reason code, the failed
+        condition and the alternative. :attr:`reason` is its text, and a selection of the
+        method raises the same record.
     """
 
     name: str
     available: bool
-    reason: str | None = None
+    refusal: Refusal | None = None
+
+    @property
+    def reason(self) -> str | None:
+        """The text of :attr:`refusal`, or ``None`` when the method is available."""
+        return None if self.refusal is None else self.refusal.message()
 
 
 @dataclass(frozen=True)
@@ -245,7 +283,7 @@ class CrossFitting:
         # method is a collaborative one is a fact about the method rather than about
         # this group, so ``CollaborativeTMLEMethod`` asks the selection-fold question.
         # See ``_cross_fit_policy_refusal``.
-        reason = _cross_fit_policy_refusal(
+        refusal = _cross_fit_policy_refusal(
             cross_fit=self.enabled,
             n_folds=self.n_folds,
             repeats=self.repeats,
@@ -253,8 +291,8 @@ class CrossFitting:
             stratify_folds=self.stratify_by,
             option_name="enabled",
         )
-        if reason is not None:
-            raise MethodConfigurationError(reason)
+        if refusal is not None:
+            raise MethodConfigurationError.from_refusal(refusal)
 
 
 @dataclass(frozen=True)
@@ -632,7 +670,7 @@ class TMLEMethod:
         layers name one reason for one input.
         """
         cross = self.cross_fitting
-        reason = _cross_fit_policy_refusal(
+        refusal = _cross_fit_policy_refusal(
             cross_fit=cross.enabled,
             n_folds=cross.n_folds,
             repeats=cross.repeats,
@@ -642,8 +680,8 @@ class TMLEMethod:
             collaborative=self._collaborative and getattr(self, "strategy", None) != "oat",
             option_name="enabled",
         )
-        if reason is not None:
-            raise MethodConfigurationError(reason)
+        if refusal is not None:
+            raise MethodConfigurationError.from_refusal(refusal)
 
     def with_overrides(self, **overrides: Any) -> TMLEMethod:
         """Return a copy with flat shortcuts normalized by concern.
@@ -674,8 +712,12 @@ class TMLEMethod:
         unknown = sorted(set(overrides) - known)
         if unknown:
             raise MethodConfigurationError(
-                f"unsupported tmle option(s): {unknown}. Study-design roles belong on "
-                "PointTreatment; advanced method options require a typed method object."
+                f"unsupported tmle option(s): {unknown}.",
+                reason=RefusalReason.API_REDIRECTION,
+                alternative=(
+                    "Study-design roles belong on PointTreatment; advanced method options "
+                    "require a typed method object."
+                ),
             )
         method = self
         for group_name, fields in groups.items():
@@ -899,7 +941,11 @@ class CollaborativeTMLEMethod(TMLEMethod):
             CTMLE engine keyword arguments.
         """
         if longitudinal:
-            raise MethodConfigurationError("collaborative TMLE has no longitudinal derivation")
+            raise MethodConfigurationError(
+                "collaborative TMLE has no longitudinal derivation.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative="Fit a longitudinal design with method='tmle' (LTMLE) or 'sdr'.",
+            )
         return {
             **super().estimator_kwargs(),
             "strategy": self.strategy,
@@ -1003,7 +1049,13 @@ class DRTMLEMethod(TMLEMethod):
             DR-TMLE engine keyword arguments.
         """
         if longitudinal:
-            raise MethodConfigurationError("DR-TMLE has no longitudinal derivation")
+            raise MethodConfigurationError(
+                "DR-TMLE has no longitudinal derivation.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=(
+                    "Fit a longitudinal design with method='sdr' (sequentially doubly robust)."
+                ),
+            )
         return {
             **super().estimator_kwargs(),
             "guard": self.guard,
@@ -1084,7 +1136,7 @@ class SDRMethod(TMLEMethod):
             default.
         """
         if not longitudinal:
-            raise MethodConfigurationError(SDR_POINT_REFUSAL)
+            raise MethodConfigurationError.from_refusal(SDR_POINT_REFUSAL)
         defaults = Targeting()
         for field_name, engine_name in (
             ("submodel_alpha", "alpha"),
@@ -1094,7 +1146,7 @@ class SDRMethod(TMLEMethod):
             if _differs_from_default(
                 getattr(self.targeting, field_name), getattr(defaults, field_name)
             ):
-                raise MethodConfigurationError(SDR_NO_FLUCTUATION.format(name=engine_name))
+                raise MethodConfigurationError.from_refusal(sdr_no_fluctuation_refusal(engine_name))
         kwargs = super().estimator_kwargs(longitudinal=True)
         for engine_name in ("alpha", "max_iter", "tol"):
             del kwargs[engine_name]
@@ -1169,13 +1221,13 @@ class IPSIMethod(TMLEMethod):
             default.
         """
         if not longitudinal:
-            raise MethodConfigurationError(IPSI_POINT_REFUSAL)
+            raise MethodConfigurationError.from_refusal(IPSI_POINT_REFUSAL)
         defaults = Targeting()
         for field_name in ("submodel_alpha", "max_iter", "tol"):
             if _differs_from_default(
                 getattr(self.targeting, field_name), getattr(defaults, field_name)
             ):
-                raise MethodConfigurationError(IPSI_NO_FLUCTUATION)
+                raise MethodConfigurationError.from_refusal(IPSI_NO_FLUCTUATION)
         kwargs = super().estimator_kwargs(longitudinal=True)
         for engine_name in ("alpha", "max_iter", "tol"):
             del kwargs[engine_name]

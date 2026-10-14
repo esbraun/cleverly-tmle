@@ -14,7 +14,7 @@ from collections.abc import Sequence
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray
-from ..exceptions import DataError, DataWarning
+from ..exceptions import NO_ALTERNATIVE, DataError, DataWarning, RefusalReason
 
 __all__ = [
     "MAX_TREATMENT_LEVELS",
@@ -116,7 +116,9 @@ def encode_binary(values: np.ndarray, name: str) -> tuple[FloatArray, tuple[obje
             return check_binary(encoded, name), (low, high)
         raise DataError(
             f"{name} must be binary; found {unique.size} distinct values. "
-            "Multi-valued treatments are not supported by the classic TMLE estimator."
+            "A multi-valued intermediate variable is not supported.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Declare a binary intermediate variable.",
         )
 
     unique_obj = np.unique(arr)
@@ -506,9 +508,11 @@ def check_covariates(
         )
     if matrix.shape[1] == 0:
         raise DataError(
-            "no covariates supplied. TMLE needs at least one covariate to adjust for; "
-            "for a randomised trial with no baseline covariates use a constant-plus-noise "
-            "design or a simple difference in means instead."
+            "no covariates supplied. TMLE needs at least one covariate to adjust for. "
+            "For a randomised trial with no baseline covariates, a simple difference in "
+            "means is the route outside this package.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=NO_ALTERNATIVE,
         )
 
     non_finite = ~np.isfinite(matrix)

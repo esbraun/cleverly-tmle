@@ -63,7 +63,7 @@ import numpy as np
 from .._declarations import FunctionDeclaration, FunctionKind
 from .._typing import FloatArray
 from ..data.causal_data import CausalData
-from ..exceptions import CapabilityError, DataError
+from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
 
 __all__ = [
     "Intervention",
@@ -557,55 +557,73 @@ def refuse_mixed_interventions(
             raise CapabilityError(
                 f"{holder} accepts {text.accepts}, and item {position}, {item!r}, is a "
                 "learned rule. A learned rule has no fixed density, so it is not a regime, a "
-                "shift or a tilt. LearnedRuleValue holds it in a CausalStudy, and "
-                "TMLE(learned_rule=...) takes it on the estimator, with "
-                f"{LEARNED_RULE_CONFIGURATION} (the learned-rule refusal table in "
-                "docs/technical-reference/point-treatment-tmle.md)."
+                "shift or a tilt.",
+                reason=RefusalReason.API_REDIRECTION,
+                alternative=(
+                    "LearnedRuleValue holds it in a CausalStudy, and "
+                    "TMLE(learned_rule=...) takes it on the estimator, with "
+                    f"{LEARNED_RULE_CONFIGURATION} (the learned-rule refusal table in "
+                    "docs/technical-reference/point-treatment-tmle.md)."
+                ),
             )
         found = _intervention_kind(item)
         if found == kind:
             continue
         if found == "regime" and not callable(getattr(item, "density", None)):
             raise CapabilityError(
-                f"{holder} accepts {text.accepts}, and item {position}, {item!r}, is a bare "
-                f"value. Write it as an object, such as {text.example}."
+                f"{holder} accepts {text.accepts}, and item {position}, {item!r}, is a bare value.",
+                reason=RefusalReason.API_REDIRECTION,
+                alternative=f"Write it as an object, such as {text.example}.",
             )
         other = _KIND_TEXT[found]
         why = _NOT_A_REGIME.get(found, "") if kind == "regime" else ""
         raise CapabilityError(
             f"{holder} accepts {text.accepts}, such as {text.example}, and item {position}, "
-            f"{item!r}, is {other.item}. {other.estimands} hold that kind in a CausalStudy, "
-            f"and {other.keyword} takes it on the estimator.{why} One fit estimates one "
-            "intervention kind, and docs/roadmap.md F17 tracks a joint request."
+            f"{item!r}, is {other.item}.{why} One fit estimates one intervention kind, and "
+            "docs/roadmap.md F17 tracks a joint request.",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative=(
+                f"{other.estimands} hold that kind in a CausalStudy, and {other.keyword} "
+                "takes it on the estimator."
+            ),
         )
 
 
 #: Why an estimated regime density is refused.  ``_DENSITY_DECLARATION`` reads it, and
-#: :func:`refuse_regime_densities` runs that declaration at every site that checks it.
-_ESTIMATED_DENSITY = (
+#: :func:`refuse_regime_densities` runs that declaration at every site that checks it.  One
+#: refusal serves a population odds tilt and any other estimated density, because the
+#: declaration sees only ``density_kind == "estimated"``, so it names both alternatives.
+_ESTIMATED_DENSITY = Refusal(
+    RefusalReason.INFERENCE_GAP,
     "a Stochastic regime with an estimated density is refused. For a population-law target "
     "whose g*(a | W) depends on P, the regime influence curve omits its pathwise derivative; "
     "an exact-law odds-tilt witness understates that target's standard error. A realized learned "
     "density instead defines a data-adaptive target whose inference needs conditions this "
     "API does not check. "
     "docs/technical-reference/scope-and-refusals.md (Wrong by construction) records the "
-    "refusal and its reason. For the population odds tilt "
-    "of the treatment mechanism, declare cleverly.interventions.Incremental. "
-    f"{_KIND_TEXT['incremental'].estimands} hold it in a CausalStudy, and "
-    f"{_KIND_TEXT['incremental'].keyword} takes it on the estimator. Its curve carries that "
-    "term. Otherwise pass density_fn= as a fixed function of the covariates with "
-    "density_kind='known'. For an odds tilt of the mechanism at each node of a longitudinal "
-    "fit, put Incremental nodes in IPSI(regimens=...) from cleverly.longitudinal."
+    "refusal and its reason.",
+    alternative=(
+        "For the population odds tilt of the treatment mechanism, declare "
+        f"cleverly.interventions.Incremental. {_KIND_TEXT['incremental'].estimands} hold it "
+        f"in a CausalStudy, and {_KIND_TEXT['incremental'].keyword} takes it on the "
+        "estimator. Its curve carries that term. Otherwise pass density_fn= as a fixed "
+        "function of the covariates with density_kind='known'. For an odds tilt of the "
+        "mechanism at each node of a longitudinal fit, put Incremental nodes in "
+        "IPSI(regimens=...) from cleverly.longitudinal."
+    ),
 )
 
-_UNDECLARED_DENSITY = (
-    "Stochastic needs a declaration of what density_fn is. Pass density_kind='known' "
-    "when g*(a | W), or q_t(a | H_t) at a longitudinal node, is a fixed function of the "
-    "covariates or of the node history, chosen independently of the "
-    "analysis sample. A sample-derived density is refused: the regime curve omits a term "
-    "for a population-law-dependent policy, while inference for a realized learned policy "
-    "needs conditions this API does not check (docs/technical-reference/scope-and-refusals.md, "
-    "Wrong by construction)."
+_UNDECLARED_DENSITY = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "Stochastic needs a declaration of what density_fn is. A sample-derived density is "
+    "refused: the regime curve omits a term for a population-law-dependent policy, while "
+    "inference for a realized learned policy needs conditions this API does not check "
+    "(docs/technical-reference/scope-and-refusals.md, Wrong by construction).",
+    alternative=(
+        "Pass density_kind='known' when g*(a | W), or q_t(a | H_t) at a longitudinal node, "
+        "is a fixed function of the covariates or of the node history, chosen independently "
+        "of the analysis sample."
+    ),
 )
 
 #: The regime-density declaration: the field ``density_kind``, and the texts of its
@@ -621,30 +639,38 @@ _DENSITY_DECLARATION = FunctionDeclaration(
     estimated=_ESTIMATED_DENSITY,
 )
 
-_UNDECLARED_RULE = (
-    "a treatment rule needs a declaration of what it is. Pass rule_kind='known' when every "
-    "rule is a fixed rowwise function of the covariates or the node history, chosen "
-    "independently of the analysis sample: Rule(rule, name, rule_kind='known'), or "
-    "DynamicRegimen(label, plan, rule_kind='known') from cleverly.longitudinal. A callable "
-    "written inline in regimens= carries no declaration, so write that plan as a "
-    "DynamicRegimen. A rule learned from the analysis sample is refused ("
-    "docs/technical-reference/scope-and-refusals.md, Wrong by construction)."
+_UNDECLARED_RULE = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "a treatment rule needs a declaration of what it is. A callable written inline in "
+    "regimens= carries no declaration. A rule learned from the analysis sample is refused "
+    "(docs/technical-reference/scope-and-refusals.md, Wrong by construction).",
+    alternative=(
+        "Pass rule_kind='known' when every rule is a fixed rowwise function of the "
+        "covariates or the node history, chosen independently of the analysis sample: "
+        "Rule(rule, name, rule_kind='known'), or DynamicRegimen(label, plan, "
+        "rule_kind='known') from cleverly.longitudinal. Write an inline callable as a "
+        "DynamicRegimen."
+    ),
 )
 
 #: Why a learned treatment rule is refused.  ``_RULE_DECLARATION`` reads it.
-_ESTIMATED_RULE = (
+_ESTIMATED_RULE = Refusal(
+    RefusalReason.INFERENCE_GAP,
     "a treatment rule learned from the analysis sample is refused. A realized learned rule "
     "defines a data-adaptive target, and inference for it needs conditions this API does "
     "not check. For a population-indexed rule, such as a threshold at a sample mean, the "
     "regime influence curve can omit a pathwise derivative through the learned statistic; "
     "an exact-law threshold witness measures that gap. An optimal rule can also be nonregular "
     "at ties. docs/technical-reference/scope-and-refusals.md (Wrong by construction) "
-    "records the refusal and its reason. Fix the rule "
-    "before the fit, or learn it on data independent of the analysis sample, and declare "
-    "rule_kind='known'. For a point treatment, LearnedRuleValue estimates the average value "
-    "of rules learned inside each training fold (docs/technical-reference/point-treatment-tmle.md, "
-    "Learned rules). A learned longitudinal regimen has "
-    "no supported path (X11 in docs/roadmap.md)."
+    "records the refusal and its reason. A learned longitudinal regimen has "
+    "no supported path (X11 in docs/roadmap.md).",
+    alternative=(
+        "Fix the rule before the fit, or learn it on data independent of the analysis "
+        "sample, and declare rule_kind='known'. For a point treatment, LearnedRuleValue "
+        "estimates the average value of rules learned inside each training fold "
+        "(docs/technical-reference/point-treatment-tmle.md, Learned rules)."
+    ),
+    roadmap="X11",
 )
 
 #: The treatment-rule declaration that :class:`Rule` and
@@ -660,31 +686,38 @@ _RULE_DECLARATION = FunctionDeclaration(
     estimated=_ESTIMATED_RULE,
 )
 
-_UNDECLARED_INTERVENTION = (
-    "a user-written Intervention needs a declaration of what its density is. Give the class "
-    "a density_kind attribute of 'known' when density(data) returns a fixed function of the "
-    "covariates, chosen independently of the analysis sample. density receives the data of "
-    "the fit, so it can compute g*(a | W) from the analysis sample, and such a density is "
-    "refused (docs/technical-reference/scope-and-refusals.md, Wrong by construction). Static, "
+_UNDECLARED_INTERVENTION = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "a user-written Intervention needs a declaration of what its density is. density "
+    "receives the data of the fit, so it can compute g*(a | W) from the analysis sample, "
+    "and such a density is refused "
+    "(docs/technical-reference/scope-and-refusals.md, Wrong by construction). Static, "
     "Rule and Stochastic carry their own declarations. A subclass of Static can override "
-    "density, so it declares density_kind itself."
+    "density, so it declares density_kind itself.",
+    alternative=(
+        "Give the class a density_kind attribute of 'known' when density(data) returns a "
+        "fixed function of the covariates, chosen independently of the analysis sample."
+    ),
 )
 
 #: Why a user-written intervention with an estimated density is refused.
 #: ``_INTERVENTION_DECLARATION`` reads it.
-_ESTIMATED_INTERVENTION = (
+_ESTIMATED_INTERVENTION = Refusal(
+    RefusalReason.INFERENCE_GAP,
     "a user-written Intervention with an estimated density is refused. For a population-law "
     "target whose g*(a | W) depends on P, the regime influence curve omits its pathwise "
     "derivative; on an exact witness law, a class that computes the sample-mechanism odds "
     "tilt reports 0.62 of that target's exact standard error. A realized learned density "
     "instead defines a data-adaptive target whose inference needs conditions this API does "
     "not check. docs/technical-reference/scope-and-refusals.md (Wrong by construction) "
-    "records the refusal and its reason. For the "
-    "population odds tilt of the treatment mechanism, declare "
-    f"cleverly.interventions.Incremental. {_KIND_TEXT['incremental'].estimands} hold it in "
-    f"a CausalStudy, and {_KIND_TEXT['incremental'].keyword} takes it on the estimator. "
-    "Otherwise make density(data) a fixed function of the covariates and set "
-    "density_kind = 'known'."
+    "records the refusal and its reason.",
+    alternative=(
+        "For the population odds tilt of the treatment mechanism, declare "
+        f"cleverly.interventions.Incremental. {_KIND_TEXT['incremental'].estimands} hold it "
+        f"in a CausalStudy, and {_KIND_TEXT['incremental'].keyword} takes it on the "
+        "estimator. Otherwise make density(data) a fixed function of the covariates and set "
+        "density_kind = 'known'."
+    ),
 )
 
 #: The density declaration of a user-written :class:`Intervention`: the attribute

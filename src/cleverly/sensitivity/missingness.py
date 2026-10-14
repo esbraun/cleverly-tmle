@@ -61,10 +61,12 @@ say which of the two an interval crossing came from.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._typing import FloatArray
 from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..estimators._nuisance import tilt_missingness
@@ -107,7 +109,31 @@ DEFAULT_GAMMA_GRID: tuple[float, ...] = (
 )
 
 
-def _refuse_longitudinal(result: Any) -> str | None:
+def _natural_course_tilt_refusal(names: Any) -> Refusal:
+    """The refusal of a tilt request for a natural-course target on a joint fit.
+
+    Parameters
+    ----------
+    names : iterable of str
+        The requested names that read the natural-course mean.
+
+    Returns
+    -------
+    Refusal
+        An implementation-gap record that names the targets and the arm-mean remedy.
+    """
+    text = natural_course_tilt_refusal(names)
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        text.split(" Request the arm means", 1)[0].rstrip(".") + ".",
+        alternative=(
+            "Request the arm means by name with estimands=('ey0', 'ey1', 'ate'), or call "
+            "truncation_curve(result, mechanism=True) on this fit."
+        ),
+    )
+
+
+def _refuse_longitudinal(result: Any) -> Refusal | None:
     """Refuse any assessment family but ``point``.
 
     First in the table, and not by taste: :class:`~cleverly.longitudinal.LongitudinalData`
@@ -116,16 +142,34 @@ def _refuse_longitudinal(result: Any) -> str | None:
     sentence, so keep it stable.
     """
     if getattr(result, "assessment_family", None) != "point":
-        return "no longitudinal missingness-tilt adapter is implemented"
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "no longitudinal missingness-tilt adapter is implemented.",
+            alternative=(
+                "Call result.diagnostics.truncation_curve(bounds=[...]) for sensitivity to "
+                "the cumulative treatment-and-censoring bound."
+            ),
+            roadmap="F16",
+        )
     return None
 
 
-def _refuse_natural_course(result: Any) -> str | None:
+def _refuse_natural_course(result: Any) -> Refusal | None:
     """Refuse the missing-outcome natural-course mean, which is not indexed by arm."""
-    return NATURAL_COURSE_TILT_REFUSAL if is_natural_course_fit(result) else None
+    if not is_natural_course_fit(result):
+        return None
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        NATURAL_COURSE_TILT_REFUSAL + ".",
+        alternative=(
+            "Call missingness_tilt on a fit of the same data that requests the arm means, "
+            "estimands=('ey0', 'ey1', 'ate'), or call truncation_curve(result, "
+            "mechanism=True) on this fit."
+        ),
+    )
 
 
-def _refuse_learned_rule(result: Any) -> str | None:
+def _refuse_learned_rule(result: Any) -> Refusal | None:
     """Refuse a learned-rule fit, for which no tilt was derived.
 
     Such a fit refuses missing outcomes before any learner, so it has no observation
@@ -133,12 +177,17 @@ def _refuse_learned_rule(result: Any) -> str | None:
     """
     if result.config.parameter_axis != "learned_rule":
         return None
-    return "missingness_tilt does not cover a learned-rule fit: " + (
-        LEARNED_RULE_SENSITIVITY_REFUSAL
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        "missingness_tilt does not cover a learned-rule fit: "
+        + LEARNED_RULE_SENSITIVITY_REFUSAL
+        + ".",
+        alternative=NO_ALTERNATIVE,
+        roadmap="F27",
     )
 
 
-def _refuse_complete_outcome(result: Any) -> str | None:
+def _refuse_complete_outcome(result: Any) -> Refusal | None:
     """Refuse a fit with no missing outcome, which has no observation mechanism to tilt.
 
     The one rule whose row reads ``not_applicable`` rather than ``unavailable``: the
@@ -148,48 +197,57 @@ def _refuse_complete_outcome(result: Any) -> str | None:
     """
     if result.data.has_missing_outcome:
         return None
-    return (
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
         "the identified functional has no observation mechanism: missingness_tilt requires "
         "a fit with missing outcomes. Declare the indicator with "
-        f"{MISSING_OUTCOME_DECLARATION}, so the missingness mechanism is estimated."
+        f"{MISSING_OUTCOME_DECLARATION}, so the missingness mechanism is estimated.",
     )
 
 
-def _refuse_continuous(result: Any) -> str | None:
+def _refuse_continuous(result: Any) -> Refusal | None:
     """Refuse a continuous dose, whose plug-in reads ``Qbar`` at a policy's dose."""
     if not result.data.is_continuous_treatment:
         return None
-    return (
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
         "missingness_tilt is written for the arm-indexed estimands; this fit declared "
         "a continuous dose with policies= and reports ey_policy/ate_policy. The tilt "
         "re-mixes the targeted Qbar at each arm under a moved missingness mechanism, "
         "and a shift's plug-in is Qbar at the dose the policy assigns rather than at "
-        "an arm -- so the tilt would have to move pi at that dose too, and whether "
+        "an arm. The tilt would have to move pi at that dose too, and whether "
         "the tilted parameter is still the shift parameter under a non-ignorable "
-        "mechanism has not been derived here. Use "
-        "truncation_curve(mechanism=True) for sensitivity to the missingness bound, "
-        "or diagnostics.support() for the overlap question."
+        "mechanism has not been derived here.",
+        alternative=(
+            "Use truncation_curve(mechanism=True) for sensitivity to the missingness bound, "
+            "or diagnostics.support() for the overlap question."
+        ),
+        roadmap="F6",
     )
 
 
-def _refuse_incremental(result: Any) -> str | None:
+def _refuse_incremental(result: Any) -> Refusal | None:
     """Refuse an incremental fit, whose targeting also solves a score in ``g``."""
     if result.nuisance.incremental is None:
         return None
-    return (
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
         "missingness_tilt is written for the arm-indexed estimands; this fit declared "
         "incremental interventions and reports ey_ipsi/ate_ipsi. The tilt reweights a "
         "targeted Qbar under a moved missingness mechanism, and on this axis the "
-        "targeting is two alternating score equations rather than one -- the second "
+        "targeting is two alternating score equations rather than one. The second "
         "lives in the tangent space of g, which the tilt does not move but which the "
         "alternation re-solves against a Qbar that has. Whether the tilted parameter "
         "is that alternation's fixed point has not been derived, so reporting a curve "
-        "would be guessing. Use diagnostics.support() for the overlap question, or "
-        "truncation_curve(mechanism=True) for sensitivity to the missingness bound."
+        "would be guessing.",
+        alternative=(
+            "Use diagnostics.support() for the overlap question, or "
+            "truncation_curve(mechanism=True) for sensitivity to the missingness bound."
+        ),
     )
 
 
-def _refuse_untiltable_parameters(result: Any) -> str | None:
+def _refuse_untiltable_parameters(result: Any) -> Refusal | None:
     """Refuse a fit that reports no parameter the tilt can re-mix.
 
     The tilt re-mixes the arm-indexed means and their linear contrasts, which
@@ -201,16 +259,21 @@ def _refuse_untiltable_parameters(result: Any) -> str | None:
     if reported_arm_parameters(result):
         return None
     natural = natural_course_names(result.estimates) if reads_natural_course_mean(result) else []
-    if natural:
-        return (
-            "missingness_tilt re-mixes the arm-indexed means and their linear contrasts, "
-            f"and this fit reports none of them: {sorted(result.estimates)}. "
-            + natural_course_tilt_refusal(natural)
-        )
-    return (
+    reports_none = (
         "missingness_tilt re-mixes the arm-indexed means and their linear contrasts, "
-        f"and this fit reports none of them: {sorted(result.estimates)}. A ratio, a "
-        "regime mean, and an MSM coefficient have no derived tilt."
+        f"and this fit reports none of them: {sorted(result.estimates)}. "
+    )
+    if natural:
+        refusal = _natural_course_tilt_refusal(natural)
+        return replace(refusal, condition=reports_none + refusal.condition)
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        reports_none + "A ratio, a regime mean, and an MSM coefficient have no derived tilt.",
+        alternative=(
+            "For a ratio-only fit, request the arm means beside the ratio, "
+            "estimands=('ey0', 'ey1', 'ate', 'rr'), and tilt them. For a regime mean or an "
+            "MSM coefficient, call truncation_curve(result, mechanism=True)."
+        ),
     )
 
 
@@ -222,7 +285,7 @@ def _refuse_untiltable_parameters(result: Any) -> str | None:
 #: after it would tilt.  The names are the introspection contract: the capability row
 #: reads the name to choose its status, and a test pins the order without respelling a
 #: message.
-_FIT_WIDE_TILT_RULES: tuple[tuple[str, Callable[[Any], str | None]], ...] = (
+_FIT_WIDE_TILT_RULES: tuple[tuple[str, Callable[[Any], Refusal | None]], ...] = (
     ("longitudinal", _refuse_longitudinal),
     ("learned_rule", _refuse_learned_rule),
     ("natural_course", _refuse_natural_course),
@@ -233,16 +296,16 @@ _FIT_WIDE_TILT_RULES: tuple[tuple[str, Callable[[Any], str | None]], ...] = (
 )
 
 
-def _fit_wide_tilt_rule(result: Any) -> tuple[str, str] | None:
+def _fit_wide_tilt_rule(result: Any) -> tuple[str, Refusal] | None:
     """The first rule of :data:`_FIT_WIDE_TILT_RULES` that refuses, with its reason."""
     for name, rule in _FIT_WIDE_TILT_RULES:
-        reason = rule(result)
-        if reason is not None:
-            return name, reason
+        refusal = rule(result)
+        if refusal is not None:
+            return name, refusal
     return None
 
 
-def fit_wide_tilt_refusal(result: Any) -> str | None:
+def fit_wide_tilt_refusal(result: Any) -> Refusal | None:
     """Return the first missingness-tilt refusal that applies to the whole fit.
 
     Every boundary in :data:`_FIT_WIDE_TILT_RULES` is reachable from capability reporting
@@ -258,8 +321,8 @@ def fit_wide_tilt_refusal(result: Any) -> str | None:
 
     Returns
     -------
-    str or None
-        Exact refusal reason, or ``None`` when no fit-wide boundary applies.
+    Refusal or None
+        The first fit-wide refusal, or ``None`` when no fit-wide boundary applies.
     """
     rule = _fit_wide_tilt_rule(result)
     return None if rule is None else rule[1]
@@ -319,10 +382,13 @@ def missingness_tilt(
     """
     refusal = fit_wide_tilt_refusal(result)
     if refusal is not None:
-        raise CapabilityError(refusal)
+        raise CapabilityError.from_refusal(refusal)
     data = result.data
     if result.nuisance.missingness is None:  # pragma: no cover - guarded above
-        raise CapabilityError("missingness_tilt requires a fitted missingness mechanism")
+        raise CapabilityError(
+            "missingness_tilt requires a fitted missingness mechanism",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
 
     # Which parameters the tilt can re-mix: the arm-indexed linear ones, named for their
     # arms on a fit with more than two. Ratios are excluded by being absent from that
@@ -335,16 +401,17 @@ def missingness_tilt(
         # so asking for the whole report still returns the tiltable part of it.
         natural = natural_course_names(requested)
         if natural and reads_natural_course_mean(result):
-            raise CapabilityError(natural_course_tilt_refusal(natural))
+            raise CapabilityError.from_refusal(_natural_course_tilt_refusal(natural))
         for name in requested:
             conditional = stratum_refusal(result, name, "the MNAR tilt")
             if conditional is not None:
-                raise CapabilityError(conditional)
+                raise CapabilityError.from_refusal(conditional)
     parameters = tuple(tiltable[name] for name in requested if name in tiltable)
     if not parameters:
         raise CapabilityError(
             "no tiltable estimands requested; the tilt applies to the arm-indexed means "
-            f"and their contrasts, which for this fit are {sorted(tiltable)}"
+            f"and their contrasts, which for this fit are {sorted(tiltable)}",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
 
     direction = _tilt_direction(data, arm_gamma)
@@ -561,7 +628,7 @@ def tipping_gamma(
     """
     refusal = fit_wide_tilt_refusal(result)
     if refusal is not None:
-        raise CapabilityError(refusal)
+        raise CapabilityError.from_refusal(refusal)
     import narwhals as nw
     from scipy import optimize
 

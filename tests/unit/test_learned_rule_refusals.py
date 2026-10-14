@@ -216,7 +216,9 @@ class TestTheOrder:
     def test_a_continuous_treatment_is_not_told_to_declare_a_shift(self) -> None:
         """``_check_shifts`` would suggest ``policies=``, which row 2 then refuses."""
         message = _refused(lambda: _fit(_engine(), "continuous"), "F27")
-        assert not any(route in message for route in FORBIDDEN)
+        # ``policies=[`` appears once, as the route of a separate fit without ``learned_rule=``.
+        assert not any(route in message for route in FORBIDDEN if route != "policies=[")
+        assert "A fit without learned_rule= can use TMLE(policies=[" in message
 
     def test_the_contrast_row_comes_before_the_data_rows(self) -> None:
         estimator = _engine()
@@ -277,7 +279,7 @@ class TestEachRemedyRunsAsWritten:
     ) -> None:
         """A lone ``reference=`` names no other target, so its remedy drops the keyword."""
         message = _refused(lambda: _engine(**overrides), "X11 (c)")
-        assert message.endswith(f"Fit the learned-rule value {ending}"), message
+        assert message.endswith(f"Fit the learned-rule value {ending}."), message
 
 
 def _as_written(message: str, *keywords: str) -> dict[str, Any]:
@@ -589,7 +591,7 @@ class TestTheAssessmentRows:
 
     def test_refute_reads_unavailable_and_refuses(self, result: Any) -> None:
         row = result.diagnostics.capability("refute")
-        assert not row.available and row.reason == LEARNED_RULE_REFIT_REFUSAL
+        assert not row.available and row.refusal == LEARNED_RULE_REFIT_REFUSAL
         with pytest.raises(CapabilityError, match="relearns the rule"):
             refute(result, estimand=support.NAME, tests=("random_common_cause",))
 
@@ -620,7 +622,7 @@ class TestTheAssessmentRows:
             fit_wide_tilt_refusal(result),
             simulated_confounding_refusal(result, support.NAME),
         ):
-            assert reason is not None and LEARNED_RULE_SENSITIVITY_REFUSAL in reason
+            assert reason is not None and LEARNED_RULE_SENSITIVITY_REFUSAL in reason.message()
         with pytest.raises(CapabilityError, match="F27"):
             evalue(result, support.NAME)
 

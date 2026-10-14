@@ -99,7 +99,7 @@ import numpy as np
 from .._declarations import FunctionDeclaration, FunctionKind
 from .._typing import FloatArray, Learner
 from ..estimators.targeting import ProjectionFluctuation
-from ..exceptions import CapabilityError, DataError
+from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
 from ..fluctuation.iterative import (
     Fluctuation,
     InitialFit,
@@ -162,16 +162,23 @@ _UNSOLVED = 1e-6
 _EVALUATED_FUNCTIONS_DECLARATION = FunctionDeclaration(
     field="functions_kind",
     meaning="It records whether the source MSM design and projection weights were declared known.",
-    undeclared=(
+    undeclared=Refusal(
+        RefusalReason.INFERENCE_GAP,
         "the saved longitudinal MSM projection has no proof that its design and projection "
         "weights were declared known. Its evaluated arrays and point estimates remain "
-        "available, but a replay or interval cannot treat those functions as fixed. "
-        "Refit the original MSM with design_kind='known' and, when weights= is callable, "
-        "weights_kind='known' to restore inference."
+        "available, but a replay or interval cannot treat those functions as fixed.",
+        alternative=(
+            "Refit the original MSM with design_kind='known' and, when weights= is callable, "
+            "weights_kind='known' to restore inference."
+        ),
     ),
-    estimated=(
+    estimated=Refusal(
+        RefusalReason.INFERENCE_GAP,
         "the saved longitudinal MSM projection does not declare known design and projection "
-        "weights. Refit the original MSM with fixed functions declared known to restore inference."
+        "weights.",
+        alternative=(
+            "Refit the original MSM with fixed functions declared known to restore inference."
+        ),
     ),
 )
 
@@ -679,9 +686,12 @@ def fit_regimens_msm(
                     f"every follower of regimen(s) {pinned} holds one outcome value, 0 or 1, at "
                     f"time {time}, such as a node with no event. A per-regimen fit reads that "
                     "node's regression as the value and does not fluctuate it, but the "
-                    "pooled working-model fluctuation would move the value into its bounds. "
-                    "Fit without msm=, or report horizons at which every regimen's followers "
-                    "have an event"
+                    "pooled working-model fluctuation would move the value into its bounds.",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                    alternative=(
+                        "Fit without msm=, or report horizons at which every regimen's "
+                        "followers have an event."
+                    ),
                 )
             initial = np.concatenate([prepared[k].initial for k in live])
             stacked_design = np.concatenate([fluctuation_design[:, k, :] for k in live])
@@ -1175,13 +1185,16 @@ def project_sdr_cells(
             raise CapabilityError(
                 f"the working model's {link} projection of the IPSI estimates did not "
                 "converge. A one-step estimate can leave [0, 1], so a "
-                f"{link} link can have no finite solution. Use the identity link"
+                f"{link} link can have no finite solution.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Use the identity link.",
             )
         raise CapabilityError(
             f"the working model's {link} projection of the SDR transforms did not converge. "
             "An SDR transform can leave [0, 1] (Díaz et al. 2023, Section 5.3), so a "
-            f"{link} link can have no finite solution. Use the identity link, or fit "
-            "LTMLE(msm=...)"
+            f"{link} link can have no finite solution.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative="Use the identity link, or fit LTMLE(msm=...).",
         )
     beta = projection.beta
     bracket = raw - model.fitted(beta)
