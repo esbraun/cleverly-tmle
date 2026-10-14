@@ -459,6 +459,8 @@ _BIAS_GATED = frozenset(
         "learner_weight_necessity",
         "mar_robustness",
         "missingness_necessity",
+        "outcome_history_necessity",
+        "repeated_outcome_necessity",
         "robustness_contract",
         "policy_necessity",
         "projection_necessity",

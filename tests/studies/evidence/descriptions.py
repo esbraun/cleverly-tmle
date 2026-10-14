@@ -54,6 +54,18 @@ ARMS: dict[str, str] = {
     "ate_1_vs_0": "difference of arm 1 and arm 0",
     "ate_2_vs_0": "difference of arm 2 and arm 0",
     "ate_regimen": "contrast of always against never",
+    # The repeated-outcome study's parameters, one label per plan and horizon.
+    **{
+        f"{plan}_t{horizon}": f"{words} at horizon t = {horizon}, repeated binary outcome"
+        for plan, words in (
+            ("never", "mean under never"),
+            ("always", "mean under always"),
+            ("rule", "mean under the rule that treats after an outcome"),
+            ("always_vs_never", "contrast of always against never"),
+            ("rule_vs_never", "contrast of the rule against never"),
+        )
+        for horizon in (1, 2, 3)
+    },
     "survival_t5": "difference of arm 1 and arm 0 at visit 5, five-visit held law",
     "rmst_5": "RMST difference up to visit 5, five-visit held law",
     "competing_t4": "difference in the death incidence at visit 4, two causes",
@@ -560,6 +572,9 @@ SCENARIOS: dict[str, str] = {
         "the three-level law with known stochastic policies at both nodes"
     ),
     "censored_survival_curve": "two-time-point absorbing-event law with monotone censoring",
+    "censored_repeated_outcome": (
+        "three-time-point law with a repeated binary outcome and monotone censoring"
+    ),
     "censored_competing_risk_curve": (
         "two-time-point, two-cause competing-risk law with monotone censoring"
     ),
@@ -709,6 +724,9 @@ REGIMENS: dict[str, str] = {
     "standard": "assign the standard arm at both times",
     "step_down": "assign high first, then standard",
     "treat then continue if l2 positive": "treat, then continue only if L2 is positive",
+    "treat then treat after an outcome": (
+        "treat first, then treat at each later time only if the previous outcome was one"
+    ),
     "+0.25": "shift dose by 0.25",
     "+0.5 capped": "shift dose by 0.5 subject to the declared cap",
     "natural course": "leave the observed treatment mechanism unchanged",
@@ -890,6 +908,18 @@ PROPERTIES: dict[str, str] = {
     "competing_risk_recursion_necessity": (
         "the cumulative-incidence recursion uses all-cause survival rather than survival from "
         "the target cause alone"
+    ),
+    "horizon_calibration": (
+        "the SE ratio and coverage of the earlier horizons of a repeated outcome, reported "
+        "rather than gated"
+    ),
+    "repeated_outcome_necessity": (
+        "reading the repeated outcome as an absorbing event targets the cumulative maximum "
+        "rather than the mean at the horizon"
+    ),
+    "outcome_history_necessity": (
+        "leaving the earlier outcomes out of the history targets a different g-formula "
+        "when they confound the later nodes"
     ),
     "survival_recursion_necessity": (
         "the absorbing-event recursion is what produces cumulative risk, not an analysis "
@@ -1483,6 +1513,46 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "regression projected on the stratum's rows",
         "bias interval must fall entirely outside the margin",
     ),
+    ("interval_calibration", "estimated_mechanisms"): (
+        "in sample, main-terms logistic mechanisms estimated, quasibinomial GLM outcome "
+        "regressions",
+        "SE-ratio and coverage intervals inside the calibration bands",
+    ),
+    ("interval_calibration", "crossfit_glm"): (
+        "five folds, main-terms logistic mechanisms estimated, quasibinomial GLM outcome "
+        "regressions",
+        "SE-ratio and coverage intervals inside the calibration bands",
+    ),
+    ("interval_calibration", "crossfit_boosted"): (
+        "five folds, main-terms logistic mechanisms estimated, a depth-2 booster of 50 rounds "
+        "with an L2 penalty for both outcome learners",
+        "SE-ratio and coverage intervals inside the calibration bands",
+    ),
+    ("interval_calibration", "continuous_gaussian"): (
+        "the three-value outcome law, least-squares outcome regressions, main-terms logistic "
+        "mechanisms estimated",
+        "SE-ratio and coverage intervals inside the calibration bands",
+    ),
+    ("horizon_calibration", "estimated_mechanisms"): (
+        "the in-sample calibration fits, read at an earlier horizon",
+        "reported, no verdict",
+    ),
+    ("repeated_outcome_necessity", "repeated"): (
+        "the repeated-outcome fit, mechanisms estimated, GLM outcome regressions",
+        "bias interval inside the equivalence margin",
+    ),
+    ("repeated_outcome_necessity", "absorbing_reading"): (
+        "an end-of-study fit of the maximum of the outcomes through the horizon",
+        "bias interval outside the margin, and inside it around the maximum's own truth",
+    ),
+    ("outcome_history_necessity", "repeated"): (
+        "the repeated-outcome fit, mechanisms estimated, GLM outcome regressions",
+        "bias interval inside the equivalence margin",
+    ),
+    ("outcome_history_necessity", "history_free"): (
+        "an end-of-study fit with no earlier outcome in any history, cell-mean outcome regressions",
+        "bias interval outside the margin, and inside it around the coarse g-formula",
+    ),
     ("rule_necessity", "declared"): (
         "the declared covariate-dependent rule assigns both treatment arms",
         "bias interval inside the equivalence margin",
@@ -1760,6 +1830,15 @@ ARM_CELLS.update(
             "the SE-ratio interval must fall above the calibration band",
         )
         for arm in ("par", "paf")
+    }
+)
+ARM_CELLS.update(
+    {
+        ("rule_necessity", arm, "reversed_rule"): (
+            "the same fit treats after a zero outcome instead of after an outcome of one",
+            "bias interval must fall entirely outside the margin",
+        )
+        for arm in ("rule_t2", "rule_t3")
     }
 )
 ARM_CELLS[("interval_calibration", "par", "correctly_specified")] = (

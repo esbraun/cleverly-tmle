@@ -767,6 +767,8 @@ class TestPublishedVerdicts:
         for family, threshold in (
             ("weight_necessity", "WEIGHT_DISPLACEMENT"),
             ("learner_weight_necessity", "LEARNER_WEIGHT_DISPLACEMENT"),
+            ("repeated_outcome_necessity", "NECESSITY_DISPLACEMENT"),
+            ("outcome_history_necessity", "NECESSITY_DISPLACEMENT"),
         ):
             frame = published.loc[published["property"] == family]
             if not frame.empty:
@@ -782,7 +784,7 @@ class TestPublishedVerdicts:
                 displacement_column = {
                     "weight_necessity": "weight_displacement",
                     "learner_weight_necessity": "learner_weight_displacement",
-                }[family]
+                }.get(family, "necessity_displacement")
                 if displacement_column not in frame or frame[displacement_column].isna().all():
                     displacement_column = "necessity_displacement"
                 assert frame["property_passed"].nunique() == 1
@@ -950,6 +952,10 @@ BIAS_GATED_PROPERTIES = frozenset(
         "randomizer_projection",
         "ratio_necessity",
         "rule_necessity",
+        # The two negative controls of the repeated outcome: each control must also reach
+        # its declared alternative target, which the weight-necessity block checks the same way.
+        "repeated_outcome_necessity",
+        "outcome_history_necessity",
     }
 )
 
@@ -1015,6 +1021,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
     {
         property_verdicts.FOLD_POLICY_FAMILY,
         "cluster_aggregation_rule",
+        # The repeated outcome's earlier horizons: the calibration fits read at t = 1 and 2,
+        # whose SE ratio the study declared reported rather than gated.
+        "horizon_calibration",
         "in_sample_agreement",
         "variance_direction",
     }
