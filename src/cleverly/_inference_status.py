@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Final, Literal, cast
 
-from ._refusal import NO_ALTERNATIVE
+from ._refusal import NO_ALTERNATIVE, RefusalReason
 
 __all__ = [
     "CONSTANT_NODE_STATUS",
@@ -143,6 +143,11 @@ class StatusRecord:
         The sentence a refusal of an inferential operation at this status ends with: the
         estimator that supplies an interval for the same question, or
         :data:`~cleverly._refusal.NO_ALTERNATIVE`.
+    code : RefusalReason
+        The reason code of that refusal. A status the theory leaves without inference takes
+        :attr:`~cleverly._refusal.RefusalReason.INFERENCE_GAP`. A status that one sample's
+        numerical failure sets takes
+        :attr:`~cleverly._refusal.RefusalReason.INVALID_DECLARATION`.
     """
 
     reason: str
@@ -152,6 +157,7 @@ class StatusRecord:
     diagnostic_noun: str
     reopened_by: str
     alternative: str
+    code: RefusalReason = RefusalReason.INFERENCE_GAP
 
     def summary_note(self) -> str:
         """The paragraph a result summary prints under its table of diagnostics.

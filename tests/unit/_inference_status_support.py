@@ -194,7 +194,7 @@ def assert_variable_importance_refuses(
             estimator=estimator,
             **roles,
         )
-    assert str(raised.value) == inference_refusal("variable_importance()", status)
+    assert str(raised.value) == inference_refusal("variable_importance()", status).message()
     assert NeverFit.calls == 0
 
 

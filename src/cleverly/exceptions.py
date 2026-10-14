@@ -256,13 +256,14 @@ def inference_refusal(operation: str, status: str) -> Refusal:
     Returns
     -------
     Refusal
-        An :attr:`~cleverly._refusal.RefusalReason.INFERENCE_GAP` record: the operation and the
+        A record with the code the status declares (most statuses declare
+        :attr:`~cleverly._refusal.RefusalReason.INFERENCE_GAP`): the operation and the
         reason :data:`~cleverly._inference_status.NON_INFERENTIAL` records for ``status``,
         then that record's alternative.
     """
     record = status_record(status)
     return Refusal(
-        RefusalReason.INFERENCE_GAP,
+        record.code,
         f"{operation} is not defined here. {record.reason}",
         alternative=record.alternative,
         roadmap=record.reopened_by,

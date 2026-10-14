@@ -33,6 +33,7 @@ from cleverly import (
     SDRMethod,
     Targeting,
 )
+from cleverly.assessment import SDR_SCORE_EQUATIONS_REFUSAL
 from cleverly.datasets import make_linear_ate, make_longitudinal
 from cleverly.exceptions import (
     CapabilityError,
@@ -279,11 +280,11 @@ def test_r4_lists_sdr_as_unavailable_on_a_point_functional() -> None:
     ).identify(ATE())
     methods = {record.name: record for record in effect.available_methods()}
     assert not methods["sdr"].available
-    assert methods["sdr"].reason == SDR_POINT_REFUSAL
+    assert methods["sdr"].refusal == SDR_POINT_REFUSAL
     assert methods["tmle"].available
     with pytest.raises(CapabilityError) as raised:
         effect.estimate(method="sdr")
-    assert SDR_POINT_REFUSAL in str(raised.value)
+    assert SDR_POINT_REFUSAL.message() in str(raised.value)
 
 
 def test_r4_lists_sdr_as_available_on_a_longitudinal_functional(panel: Any) -> None:
@@ -297,7 +298,7 @@ def test_r4_lists_sdr_as_available_on_a_longitudinal_functional(panel: Any) -> N
 def test_sdr_method_refuses_a_point_translation() -> None:
     with pytest.raises(MethodConfigurationError) as raised:
         SDRMethod().estimator_kwargs()
-    assert str(raised.value) == SDR_POINT_REFUSAL
+    assert str(raised.value) == SDR_POINT_REFUSAL.message()
 
 
 @pytest.mark.parametrize(
@@ -556,10 +557,7 @@ def test_the_diagnostics_report_no_score_equation(ordinary: Any) -> None:
     items = {item.name: item for item in ordinary.diagnostics.run_all().items}
     score = items["score_equations"]
     assert score.status.value == "not_applicable"
-    assert score.detail == (
-        "the SDR estimator fits no fluctuation, so no node solves a score equation; "
-        "diagnostics.support() reports each node's transform range and bound share"
-    )
+    assert score.detail == SDR_SCORE_EQUATIONS_REFUSAL.message()
     assert items["support"].status.value == "completed"
 
 

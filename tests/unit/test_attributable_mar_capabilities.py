@@ -246,7 +246,7 @@ class TestTheTargetSpecificRefusals:
         assert row.status.value == "deferred"
         assert "estimand" in row.requires_arguments
         assert "read the natural-course mean" in str(row.reason)
-        assert str(row.reason).endswith("Choose an explicit estimand from ['ey0']")
+        assert str(row.reason).endswith("Choose an explicit estimand from ['ey0'].")
         with pytest.raises(CapabilityError) as caught:
             result.sensitivity.tipping_gamma()
         assert str(caught.value) == row.reason

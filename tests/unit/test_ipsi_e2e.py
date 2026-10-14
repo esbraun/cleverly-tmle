@@ -500,7 +500,7 @@ def test_an_incremental_effect_on_a_longitudinal_design_lists_ipsi(panel: Any) -
     assert methods["sdr"].refusal == SDR_TILT_REFUSAL
     with pytest.raises(CapabilityError) as raised:
         effect.estimate(method="tmle")
-    assert LTMLE_TILT_REFUSAL in str(raised.value)
+    assert LTMLE_TILT_REFUSAL.message() in str(raised.value)
 
 
 def test_the_identification_states_kennedy_and_kim_assumptions(panel: Any) -> None:
@@ -647,7 +647,7 @@ def test_an_estimated_mechanism_keeps_tmle_unavailable_on_the_same_frame() -> No
 def test_ipsi_method_refuses_a_point_translation() -> None:
     with pytest.raises(MethodConfigurationError) as raised:
         IPSIMethod().estimator_kwargs()
-    assert str(raised.value) == IPSI_POINT_REFUSAL
+    assert str(raised.value) == IPSI_POINT_REFUSAL.message()
 
 
 @pytest.mark.parametrize(
@@ -657,7 +657,7 @@ def test_ipsi_method_refuses_a_fluctuation_setting(field: str, value: Any) -> No
     method = IPSIMethod(targeting=Targeting(**{field: value}))
     with pytest.raises(MethodConfigurationError) as raised:
         method.estimator_kwargs(longitudinal=True)
-    assert str(raised.value) == IPSI_NO_FLUCTUATION
+    assert str(raised.value) == IPSI_NO_FLUCTUATION.message()
 
 
 def test_ipsi_method_translates_to_engine_settings_without_a_fluctuation() -> None:
