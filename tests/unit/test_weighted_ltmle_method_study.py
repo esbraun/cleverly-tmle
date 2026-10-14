@@ -50,7 +50,8 @@ def test_the_cross_fitted_payload_serializes_the_fitted_fold_assignment() -> Non
     n = 500
     planted = Folds(np.repeat(np.arange(5), n // 5), 5)
     with patch("cleverly.longitudinal.estimator.random_partition", return_value=planted):
-        sample, _, _ = crossfit._replicate((crossfit.common.SCENARIO, 0, n))
+        key = (crossfit.common.SCENARIO, 0, n)
+        sample, _, _ = crossfit._replicate(key, crossfit.common._draw(crossfit.STUDY, key))
     np.testing.assert_array_equal(sample["fold"], planted.assignment)
 
 

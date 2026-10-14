@@ -30,14 +30,14 @@ import pandas as pd
 from scipy.stats import norm
 
 from cleverly.longitudinal import LTMLE
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_longitudinal as end_law
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_ltmle import G_BOUNDS, declared_regimens
+from tests.studies.evidence import replication
 from tests.studies.evidence.properties import finite_support_sample
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
 SEED = 20261013
 PRIMARY_SCENARIO = "end_of_study_ratio"
@@ -349,18 +349,32 @@ def cleverly_rows(
     ]
 
 
-def _replicate(payload: tuple[int, int]) -> list[dict[str, Any]]:
-    replicate, n = payload
-    frame, truth = draw_scenario(PRIMARY_SCENARIO, n, replicate)
-    return cleverly_rows(frame, truth, PRIMARY_SCENARIO, replicate)
+def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    scenario, replicate, n = key
+    return draw_scenario(scenario, n, replicate)
 
 
-def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
+def _replicate(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
+) -> list[dict[str, Any]]:
+    scenario, replicate, _ = key
+    frame, truth = drawn
+    return cleverly_rows(frame, truth, scenario, replicate)
+
+
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
     """Draw and fit every primary replication."""
-    payloads = [((replicate, n),) for replicate in range(replicates)]
-    outcomes = map_parallel(_replicate, payloads, n_jobs=n_jobs)
-    rows = pd.DataFrame([row for rows in outcomes for row in rows])
-    return rows.loc[:, list(REPLICATE_COLUMNS)]
+    outcomes = replication.fit_primary(
+        [(PRIMARY_SCENARIO, replicate, n) for replicate in range(replicates)],
+        _replicate,
+        draw=_draw,
+        rows_at=None,
+        n_jobs=n_jobs,
+        implementation=STUDY.implementation,
+        seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
+    )
+    rows = pd.DataFrame([row for rows in outcomes.kept for row in rows])
+    return replication.result(outcomes, rows.loc[:, list(REPLICATE_COLUMNS)])
 
 
 def groups() -> dict[str, tuple[dict[str, Any], ...]]:

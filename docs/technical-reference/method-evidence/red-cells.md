@@ -85,9 +85,10 @@ The test fails on four states.
 | [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) | 6 | ordinary weighted end-of-study longitudinal TMLE |
 | [`RM18-comparator-density`](../../roadmap.md#red-cell-owners) | 1 | ordinary continuous modified treatment policies |
 | [`strata-boundary-mean`](../../roadmap.md#red-cell-owners) | 5 | ordinary point-treatment TMLE with baseline strata |
-| [`band-finite-sample`](../../roadmap.md#red-cell-owners) | 5 | clustered cross-fitted end-of-study longitudinal TMLE, ordinary survival-curve longitudinal TMLE, default simultaneous bands across shipped fit shapes |
+| [`band-finite-sample`](../../roadmap.md#red-cell-owners) | 6 | clustered cross-fitted end-of-study longitudinal TMLE, sequentially doubly robust longitudinal estimation, ordinary survival-curve longitudinal TMLE, default simultaneous bands across shipped fit shapes |
 | [`F4-calibration-draws`](../../roadmap.md#red-cell-owners) | 2 | randomized multi-arm missing-outcome DR-TMLE |
 | [`composite-high-arm`](../../roadmap.md#red-cell-owners) | 2 | observational missing-data DR-TMLE with a composite indicator |
+| [`X4-finite-sample`](../../roadmap.md#red-cell-owners) | 1 | sequentially doubly robust longitudinal estimation |
 | [`X8-logit-small-stratum`](../../roadmap.md#red-cell-owners) | 2 | stratified incremental and MSM targeting |
 | [`X8-identity-small-stratum`](../../roadmap.md#red-cell-owners) | 2 | identity-link MSM with baseline strata |
 | [`X8-drtmle-one-sided-bias`](../../roadmap.md#red-cell-owners) | 4 | DR-TMLE with baseline strata |
@@ -99,7 +100,7 @@ The test fails on four states.
 | [`X13-finite-sample`](../../roadmap.md#red-cell-owners) | 2 | point-treatment survival, cross-fitted point-treatment survival |
 | [`F28`](../../roadmap.md#red-cell-owners) | 9 | clustered point-treatment CV-TMLE at unequal cluster sizes, clustered TMLE intervals on a t reference at few clusters |
 | [`X20-bootstrap`](../../roadmap.md#red-cell-owners) | 3 | full-refit bootstrap and derived contrasts |
-| total | 119 | 28 studies |
+| total | 120 | 28 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -172,6 +173,8 @@ same text as the "measured" column of its study page.
 | [ordinary weighted end-of-study longitudinal TMLE](ordinary-weighted-end-of-study-longitudinal-tmle.md) | property | `type_i_error/static__sharp_null` | positive | its own rule | rejection 0.0750, 0.0530 to 0.1022 | [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) |
 | [ordinary known stochastic categorical longitudinal TMLE](stochastic-categorical-longitudinal-tmle.md) | property | `power/mix__alternative` | positive | its own rule | rejection 0.5575, 0.5114 to 0.6029 | [`F1-power-design`](../../roadmap.md#red-cell-owners) |
 | [longitudinal modified treatment policies](longitudinal-modified-treatment-policies.md) | property | `interval_calibration/categorical_mtp__correctly_specified` | positive | its own rule | coverage 0.9289 to 0.9560, SE ratio 0.9432 to 1.0214, empirical efficiency ratio 1.0746 to 1.1643, reported efficiency ratio 1.0948 to 1.1006 | [`mtp-longitudinal-limits`](../../roadmap.md#red-cell-owners) |
+| [sequentially doubly robust longitudinal estimation](sequentially-doubly-robust-estimation.md) | property | `sequential_double_robustness/both_correct__n_2000` | positive | its own rule | bias 0.000011 to 0.0112, margin 0.0172, coverage 0.8853 to 0.9327, SE ratio 0.9459 | [`X4-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [sequentially doubly robust longitudinal estimation](sequentially-doubly-robust-estimation.md) | property | `simultaneous_coverage/six_regimens__simultaneous_band` | positive | its own rule | joint coverage 0.9085 to 0.9394 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [cross-fitted weighted end-of-study longitudinal TMLE](cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | paired | `selected_censored_end_of_study/ey_regimen[always]` | paired | underpowered: coverage leg, calibration leg, calibration resolution | difference -0.000150 to 0.000202 within 0.0031, RMSE ratio bound 1.0162 vs 1.1000, coverage difference bound -0.0475 vs -0.0250, calibration excess bound 0.1050 vs 0.0500, resolution 0.1121 | [`RM18-boundary`](../../roadmap.md#red-cell-owners) |
 | [cross-fitted weighted end-of-study longitudinal TMLE](cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | paired | `selected_censored_end_of_study/ey_regimen[never]` | paired | underpowered: coverage leg, calibration resolution | difference -0.000350 to 0.000263 within 0.0047, RMSE ratio bound 1.0245 vs 1.1000, coverage difference bound -0.0300 vs -0.0250, calibration excess bound 0.0465 vs 0.0500, resolution 0.0662 | [`RM18-fixed-weights`](../../roadmap.md#red-cell-owners) |
 | [cross-fitted weighted end-of-study longitudinal TMLE](cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | paired | `selected_censored_end_of_study/ey_regimen[treat then continue if l2 positive]` | paired | underpowered: coverage leg, calibration resolution | difference -0.000118 to 0.000400 within 0.0032, RMSE ratio bound 1.0175 vs 1.1000, coverage difference bound -0.0425 vs -0.0250, calibration excess bound 0.0382 vs 0.0500, resolution 0.1119 | [`RM18-boundary`](../../roadmap.md#red-cell-owners) |
@@ -247,6 +250,7 @@ row. A move to `gated` is a separate registry decision.
 | [policies at a held baseline treatment](point-treatment-survival-policies.md) | 60 | 0 |
 | [TMLE on a declared known treatment mechanism](known-treatment-mechanism.md) | 57 | 0 |
 | [DR-TMLE on a declared known treatment mechanism](known-mechanism-dr-tmle.md) | 55 | 0 |
+| [DR-TMLE with one inconsistent nuisance](dr-tmle-one-inconsistent-nuisance.md) | 22 | 0 |
 | [LTMLE on declared known node mechanisms](known-node-mechanisms-ltmle.md) | 20 | 0 |
 | [omitted-variable bound standard error](omitted-variable-bound-standard-error.md) | 14 | 0 |
 | [calibration-slope warning](calibration-slope-warning.md) | 13 | 0 |

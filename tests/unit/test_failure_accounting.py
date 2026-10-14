@@ -57,8 +57,12 @@ def _rows(
     *,
     reference_bias: float = 0.0,
     seed: int = 3,
+    subject_failed: tuple[int, ...] = (),
 ) -> pd.DataFrame:
-    """Calibrated, unbiased subject rows; reference rows with ``failed`` left out."""
+    """Calibrated, unbiased subject rows; reference rows with ``failed`` left out.
+
+    The subject rows of ``subject_failed`` are left out as well.
+    """
     rng = np.random.default_rng(seed)
     out = []
     for scenario, estimands in record.scenarios.items():
@@ -73,7 +77,7 @@ def _rows(
                 noise = (noise - noise.mean()) / noise.std(ddof=1)
                 shift = reference_bias if implementation == REFERENCE else 0.0
                 for replicate in range(record.replicates):
-                    if implementation == REFERENCE and replicate in failed:
+                    if replicate in (failed if implementation == REFERENCE else subject_failed):
                         continue
                     estimate = TRUTH + shift * SPREAD + SPREAD * float(noise[replicate])
                     low, high = estimate - 2.576 * SPREAD, estimate + 2.576 * SPREAD
@@ -98,7 +102,9 @@ def _rows(
     return pd.DataFrame(out)
 
 
-def _failures(*groups: tuple[str, str], implementation: str = REFERENCE) -> pd.DataFrame:
+def _failures(
+    *groups: tuple[str, str], implementation: str = REFERENCE, kind: str = "fitting_failure"
+) -> pd.DataFrame:
     return pd.DataFrame(
         [
             {
@@ -107,7 +113,7 @@ def _failures(*groups: tuple[str, str], implementation: str = REFERENCE) -> pd.D
                 "scenarios": scenarios,
                 "replicates": replicates,
                 "attempt": 1,
-                "class": "fitting_failure",
+                "class": kind,
                 "stage": "fit",
                 "call": "drtmle(...)",
                 "message": "singular",
@@ -167,12 +173,12 @@ class TestReconciliation:
         with pytest.raises(ValueError):
             validate_replicates(rows, record=record)
 
-    def test_a_subject_failure_waits_for_the_python_phase(self) -> None:
+    def test_a_subject_failure_covers_the_subjects_missing_rows(self) -> None:
         record = _record()
-        with pytest.raises(ValueError, match="RM39b"):
-            failures.reconcile(
-                _rows(record), _failures(("law", "1"), implementation=SUBJECT), record=record
-            )
+        rows = _rows(record, subject_failed=(1, 6))
+        failures.reconcile(rows, _failures(("law", "1;6"), implementation=SUBJECT), record=record)
+        with pytest.raises(ValueError, match="do not cover"):
+            failures.reconcile(rows, _failures(("law", "1"), implementation=SUBJECT), record=record)
 
     def test_a_cell_with_no_survivor_is_refused(self) -> None:
         record = _record(replicates=3)
@@ -440,6 +446,282 @@ class TestCandidateSets:
         assert seen == expected
 
 
+def _joined(*frames: pd.DataFrame) -> pd.DataFrame:
+    return pd.concat(frames, ignore_index=True)
+
+
+def _replicates(values: tuple[int, ...]) -> str:
+    return ";".join(str(value) for value in values)
+
+
+class TestSubjectFailures:
+    """The subject's failed replicates take its worst case and its own bound (RM39b).
+
+    Each leg test is a mutation control: the subject's complete cases pass and its least
+    favourable fill does not, so a fill at the subject's best case would turn it green.
+    """
+
+    LOST = tuple(range(190, 200))
+
+    def _accounting(
+        self,
+        record: StudyRecord,
+        *,
+        subject_failed: tuple[int, ...] = (),
+        reference_failed: tuple[int, ...] = (),
+        recorded: pd.DataFrame | None = None,
+    ) -> pd.DataFrame:
+        rows = _rows(record, failed=reference_failed, subject_failed=subject_failed)
+        if recorded is None:
+            parts = []
+            if subject_failed:
+                parts.append(
+                    _failures(("law", _replicates(subject_failed)), implementation=SUBJECT)
+                )
+            if reference_failed:
+                parts.append(_failures(("law", _replicates(reference_failed))))
+            recorded = _joined(*parts)
+        failures.reconcile(rows, recorded, record=record)
+        return failures.paired_accounting(rows, recorded, record=record, n_jobs=1)
+
+    def _subject_record(self, **changes: object) -> StudyRecord:
+        return _record(failure_bound={REFERENCE: 0.05, SUBJECT: 0.05}, **changes)
+
+    def test_the_rmse_leg_fills_the_subject_at_its_farthest_survivor(self) -> None:
+        accounting = self._accounting(self._subject_record(), subject_failed=self.LOST)
+        rmse = accounting.loc[accounting["leg"] == "rmse ratio"].iloc[0]
+        assert rmse["complete_case"] >= 0 > rmse["worst_case"]
+        assert rmse["imputation"] == "subject estimate at farthest"
+
+    def test_the_coverage_leg_counts_each_failed_subject_replicate_as_a_miss(self) -> None:
+        accounting = self._accounting(self._subject_record(), subject_failed=self.LOST)
+        coverage = accounting.loc[accounting["leg"] == "coverage difference"].iloc[0]
+        assert coverage["complete_case"] >= 0 > coverage["worst_case"]
+        assert coverage["imputation"] == "subject missed"
+
+    def test_the_calibration_leg_fills_the_subject_at_a_spread_extreme(self) -> None:
+        """Mutation control s3: the complete cases pass, the spread-extreme fill does not."""
+        accounting = self._accounting(self._subject_record(), subject_failed=self.LOST)
+        calibration = accounting.loc[accounting["leg"] == "calibration excess"].iloc[0]
+        assert calibration["complete_case"] >= 0 > calibration["worst_case"]
+        assert calibration["imputation"].startswith("subject SE at min")
+
+    def test_mixed_failures_keep_each_replicate_s_two_sides_aligned(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutation control s5: each replicate both sides fitted stays paired with itself.
+
+        The fills reuse survivor values, so the check reads the pairs of the shared replicates:
+        each one must appear in every full-length bootstrap input, and each side's real value
+        of a replicate only the other side lost must appear too.
+        """
+        record = self._subject_record()
+        subject_lost, reference_lost = (3, 4, 5), (7, 8, 9, 10)
+        rows = _rows(record, failed=reference_lost, subject_failed=subject_lost)
+        wide = (
+            rows.pivot(index="replicate", columns="implementation", values="estimate")
+            .sort_index()
+            .reindex(range(record.replicates))
+        )
+        shared = wide.dropna()
+        captured: list[dict[str, np.ndarray]] = []
+        real = failures.bootstrap
+
+        def spy(data: dict[str, np.ndarray], *args: object, **options: object) -> object:
+            captured.append({name: np.asarray(values) for name, values in data.items()})
+            return real(data, *args, **options)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(failures, "bootstrap", spy)
+        self._accounting(record, subject_failed=subject_lost, reference_failed=reference_lost)
+        full = [
+            data
+            for data in captured
+            if len(data.get("subject_estimate", ())) == record.replicates
+            and "reference_estimate" in data
+        ]
+        assert full
+        for data in full:
+            pairs = set(zip(data["subject_estimate"], data["reference_estimate"], strict=True))
+            assert set(zip(shared[SUBJECT], shared[REFERENCE], strict=True)) <= pairs
+            assert set(wide.loc[list(subject_lost), REFERENCE]) <= set(data["reference_estimate"])
+            assert set(wide.loc[list(reference_lost), SUBJECT]) <= set(data["subject_estimate"])
+
+    def test_the_subject_worst_case_fills_reach_the_bootstrap(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        record = self._subject_record()
+        rows = _rows(record, subject_failed=self.LOST)
+        wide = rows.pivot(
+            index="replicate",
+            columns="implementation",
+            values=["estimate", "covered", "inference_estimate", "std_error"],
+        ).sort_index()
+        captured: list[dict[str, np.ndarray]] = []
+        real = failures.bootstrap
+
+        def spy(data: dict[str, np.ndarray], *args: object, **options: object) -> object:
+            captured.append({name: np.asarray(values) for name, values in data.items()})
+            return real(data, *args, **options)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(failures, "bootstrap", spy)
+        failures.paired_legs(
+            wide,
+            (),
+            record=record,
+            truth=TRUTH,
+            comparable=False,
+            seed=1,
+            subject_failed=self.LOST,
+        )
+        worst = next(data for data in captured if len(data["subject_estimate"]) == 200)
+        k = len(self.LOST)
+        survivors = wide.drop(index=list(self.LOST))[("estimate", SUBJECT)].to_numpy(float)
+        farthest = survivors[np.argmax(np.abs(survivors - TRUTH))]
+        assert np.all(worst["subject_estimate"][-k:] == farthest)
+        assert np.all(worst["subject_covered"][-k:] == 0.0)
+        np.testing.assert_array_equal(worst["subject_estimate"][:-k], survivors)
+        # The reference keeps its real values on the replicates only the subject lost.
+        np.testing.assert_array_equal(
+            worst["reference_estimate"][-k:],
+            wide.loc[list(self.LOST), ("estimate", REFERENCE)].to_numpy(float),
+        )
+
+    def test_the_calibration_leg_crosses_the_two_sides_candidate_sets(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Subject (k + 2) candidates times reference 3 * (k + 2), the complete case aside."""
+        record = self._subject_record()
+        subject_lost, reference_lost = (3, 4, 5), (7, 8)
+        rows = _rows(record, failed=reference_lost, subject_failed=subject_lost)
+        wide = (
+            rows.pivot(
+                index="replicate",
+                columns="implementation",
+                values=["estimate", "covered", "inference_estimate", "std_error"],
+            )
+            .sort_index()
+            .reindex(range(record.replicates))
+        )
+        survivors = [r for r in wide.index if r not in subject_lost]
+        wide.loc[survivors, ("std_error", SUBJECT)] = np.linspace(0.05, 0.15, len(survivors))
+        pairs: set[bytes] = set()
+        subject_sets: set[bytes] = set()
+        reference_sets: set[bytes] = set()
+
+        def spy(
+            subject_se: np.ndarray,
+            subject_inference: np.ndarray,
+            reference_se: np.ndarray,
+            reference_inference: np.ndarray,
+            **options: object,
+        ) -> float:
+            if len(subject_se) == record.replicates:
+                one = subject_se.tobytes() + subject_inference.tobytes()
+                other = reference_se.tobytes() + reference_inference.tobytes()
+                subject_sets.add(one)
+                reference_sets.add(other)
+                pairs.add(one + b"|" + other)
+            return 0.0
+
+        monkeypatch.setattr(failures, "_calibration_slack", spy)
+        legs, _ = failures.paired_legs(
+            wide,
+            reference_lost,
+            record=record,
+            truth=TRUTH,
+            comparable=True,
+            seed=1,
+            subject_failed=subject_lost,
+        )
+        assert len(subject_sets) == len(subject_lost) + 2
+        assert len(pairs) == len(subject_sets) * len(reference_sets)
+        assert len(reference_sets) <= 3 * (len(reference_lost) + 2)
+        calibration = legs[-1]
+        assert calibration.name == "calibration excess"
+
+    def test_both_sides_failing_drops_the_union_and_writes_each_bound(self) -> None:
+        accounting = self._accounting(
+            self._subject_record(), subject_failed=(2, 5), reference_failed=(1, 2)
+        )
+        assert accounting["dropped_replications"].unique().tolist() == [3]
+        assert (
+            accounting["subject_failed"].unique().tolist(),
+            accounting["reference_failed"].unique().tolist(),
+        ) == ([2], [2])
+        bounds = accounting.loc[accounting["leg"].str.endswith("failure bound")]
+        assert dict(zip(bounds["leg"], bounds["complete_case"], strict=True)) == {
+            "failure bound": 2.0,
+            "subject failure bound": 2.0,
+        }
+        witness = accounting.iloc[0]
+        for column in (
+            "witness_failed_error",
+            "witness_succeeded_error",
+            "witness_reference_error_on_subject_failed",
+            "witness_reference_error_on_shared",
+        ):
+            assert math.isfinite(witness[column])
+
+    def test_a_subject_over_its_own_bound_is_red_on_the_paired_cell(self) -> None:
+        """Mutation control: the reference's bound alone would pass this cell."""
+        record = _record(failure_bound={REFERENCE: 0.05, SUBJECT: 0.005})
+        accounting = self._accounting(record, subject_failed=(4, 9))
+        assert set(accounting["reason"]) == {failures.BOUND_EXCEEDED}
+        bound = accounting.loc[accounting["leg"] == "subject failure bound"].iloc[0]
+        assert (bound["complete_case"], bound["worst_case"], bound["leg_passed"]) == (
+            2.0,
+            1.0,
+            False,
+        )
+        reference = accounting.loc[accounting["leg"] == "failure bound"].iloc[0]
+        assert reference["leg_passed"]
+
+    def test_a_subject_truth_cell_takes_its_own_legs_and_bound(self) -> None:
+        record = self._subject_record()
+        rows = _rows(record, subject_failed=(1, 2))
+        recorded = _failures(("law", "1;2"), implementation=SUBJECT)
+        frame = failures.truth_accounting(rows, recorded, record=record, n_jobs=1)
+        assert set(frame["implementation"]) == {SUBJECT}
+        assert set(frame["leg"]) == {"failure bound", "bias", "coverage", "se ratio"}
+        assert frame["gate_passed"].all()
+        undeclared = failures.truth_accounting(rows, recorded, record=_record(), n_jobs=1)
+        assert set(undeclared["reason"]) == {failures.BOUND_EXCEEDED}
+
+    def test_an_induced_reference_loss_counts_against_the_subject(self) -> None:
+        """The reference loses the replicate, and the subject's bound pays for it."""
+        lost = (4, 9)
+        tight = _record(failure_bound={REFERENCE: 0.005, SUBJECT: 0.05})
+        recorded = _joined(
+            _failures(("law", _replicates(lost)), implementation=SUBJECT),
+            _failures(("law", _replicates(lost)), kind=failures.PAIRED_INPUT_MISSING),
+        )
+        rows = _rows(tight, failed=lost, subject_failed=lost)
+        truth = failures.truth_accounting(rows, recorded, record=tight, n_jobs=1)
+        reference = truth.loc[truth["implementation"] == REFERENCE]
+        assert set(reference["leg"]) == {"failure bound", "bias", "coverage", "se ratio"}
+        bound = reference.loc[reference["leg"] == "failure bound"].iloc[0]
+        assert bound["complete_case"] == 0.0 and bound["leg_passed"]
+        paired = self._accounting(
+            tight, subject_failed=lost, reference_failed=lost, recorded=recorded
+        )
+        assert failures.BOUND_EXCEEDED not in set(paired["reason"])
+        bounds = paired.loc[paired["leg"].str.endswith("failure bound")]
+        assert bounds[["leg", "complete_case", "leg_passed"]].values.tolist() == [
+            ["failure bound", 0.0, True],
+            ["subject failure bound", 2.0, True],
+        ]
+        assert (paired["subject_failed"].iloc[0], paired["reference_failed"].iloc[0]) == (2, 0)
+        # Mutation control: read as the reference's own failure, the same loss is over its bound.
+        own = _joined(
+            _failures(("law", _replicates(lost)), implementation=SUBJECT),
+            _failures(("law", _replicates(lost))),
+        )
+        relabelled = self._accounting(
+            tight, subject_failed=lost, reference_failed=lost, recorded=own
+        )
+        assert set(relabelled["reason"]) == {failures.BOUND_EXCEEDED}
+
+
 def _leg(name: str, complete: float, worst: float) -> failures.Leg:
     strict = name == "coverage superiority"
     return failures.Leg(name, complete, worst, "", worst > 0 if strict else worst >= 0)
@@ -610,6 +892,149 @@ class TestHooks:
         with failures.surviving_samples(samples, results) as path:
             assert path == samples
         assert samples.exists()
+
+
+class TestSubjectHooks:
+    """The hook, probe and claims reads split each side's failures (RM39b M1)."""
+
+    def _study(self, record: StudyRecord, gates: dict[str, pd.DataFrame]) -> SimpleNamespace:
+        subject, reference = record.implementation, str(record.reference)
+        return SimpleNamespace(
+            scientific_failures=lambda frames: gates,
+            account_failures=lambda lost, frames: failures.audits(
+                gates,
+                missing={
+                    "score audit": failures.missing_fits(lost, record, subject)
+                    + failures.missing_fits(lost, record, reference),
+                    "solver": failures.missing_fits(lost, record, subject),
+                },
+            ),
+        )
+
+    def test_a_hook_row_names_the_side_and_its_bound(self) -> None:
+        record = _record(failure_bound={REFERENCE: 0.05, SUBJECT: 0.01})
+        study = self._study(record, {"score audit": pd.DataFrame(), "solver": pd.DataFrame()})
+        subject_only = failures.hook_accounting(
+            study, _failures(("law", "1"), implementation=SUBJECT), {}, record=record
+        )
+        assert set(subject_only["implementation"]) == {SUBJECT}
+        assert set(subject_only["allowed"]) == {2}
+        assert subject_only.set_index("leg")["gate_passed"].to_dict() == {
+            "score audit": False,
+            "solver": False,
+        }
+        both = failures.hook_accounting(
+            study,
+            _joined(_failures(("law", "1"), implementation=SUBJECT), _failures(("law", "1;3"))),
+            {},
+            record=record,
+        )
+        assert set(both["implementation"]) == {f"{SUBJECT}+{REFERENCE}"}
+        assert both["allowed"].isna().all()
+        row = both.set_index("leg").loc["score audit"]
+        assert (row["subject_failed"], row["reference_failed"], row["complete_case"]) == (1, 2, 3.0)
+
+    def test_an_induced_reference_record_is_the_subjects_on_the_hook_row(self) -> None:
+        record = _record(failure_bound={REFERENCE: 0.05, SUBJECT: 0.05})
+        study = self._study(record, {"score audit": pd.DataFrame(), "solver": pd.DataFrame()})
+        frame = failures.hook_accounting(
+            study,
+            _joined(
+                _failures(("law", "4"), implementation=SUBJECT),
+                _failures(("law", "4"), kind=failures.PAIRED_INPUT_MISSING),
+            ),
+            {},
+            record=record,
+        )
+        assert set(frame["implementation"]) == {SUBJECT}
+        # Both fits are missing, so the shared-bar audit counts two.
+        assert frame.set_index("leg")["complete_case"].to_dict() == {
+            "score audit": 2.0,
+            "solver": 1.0,
+        }
+
+    def test_a_probe_keeps_a_replication_only_the_subject_lost(self) -> None:
+        record = _record(replicates=4)
+        probe = pd.DataFrame({"scenario": "law", "replicate": [0, 1, 2, 3], "passed": True})
+        audits = failures.probe_audits(
+            probe,
+            _failures(("law", "1"), implementation=SUBJECT),
+            record=record,
+            scenarios=("law",),
+            coverage="coverage",
+            audit="probe",
+        )
+        assert audits["passed"].all()
+        # Mutation control: read as the reference's, the same record is a probe overlap.
+        overlap = failures.probe_audits(
+            probe,
+            _failures(("law", "1")),
+            record=record,
+            scenarios=("law",),
+            coverage="coverage",
+            audit="probe",
+        )
+        assert overlap.set_index("leg")["passed"].to_dict() == {"coverage": False, "probe": True}
+
+    def test_the_claims_count_each_side_and_the_score_audit_pairs_around_both(
+        self, tmp_path: Path
+    ) -> None:
+        record = _record(
+            replicates=4, extra_artifacts=(claims.FIT_DIAGNOSTICS_FILE,), artifacts=tmp_path
+        )
+        diagnostics = pd.DataFrame(
+            {
+                "implementation": [SUBJECT] * 3 + [REFERENCE] * 3,
+                "scenario": "law",
+                "replicate": [0, 2, 3, 0, 1, 3],
+                "score_passed": True,
+            }
+        )
+        diagnostics.to_csv(record.artifact(claims.FIT_DIAGNOSTICS_FILE), index=False)
+        recorded = _joined(_failures(("law", "1"), implementation=SUBJECT), _failures(("law", "2")))
+        data = {claims.FIT_DIAGNOSTICS: diagnostics, claims.FAILURES: recorded}
+        aggregates = claims._aggregates(record)
+        assert aggregates["subject_failures"](data) == 1.0
+        assert aggregates["reference_failures"](data) == 1.0
+        # A reference fit the subject's loss left without an input is the subject's failure.
+        induced = _joined(recorded, _failures(("law", "1"), kind=failures.PAIRED_INPUT_MISSING))
+        with_induced = {**data, claims.FAILURES: induced}
+        assert aggregates["reference_failures"](with_induced) == 1.0
+        assert aggregates["failure_rate"](with_induced) == 0.25
+        assert claims._score_audit_aggregates(record)["score_audited_fits"](data) == 3.0
+        # Mutation control: without the subject's record the pairing does not close.
+        alone = {**data, claims.FAILURES: _failures(("law", "2"))}
+        with pytest.raises(ValueError, match="not paired"):
+            claims._score_audit_aggregates(record)["score_audited_fits"](alone)
+
+    def test_a_subject_failure_reaches_the_ledger_with_an_owner_row(self) -> None:
+        record = _record(failure_bound={REFERENCE: 0.05}, publication_policy="reporting")
+        lost = (4, 9)
+        rows = _rows(record, subject_failed=lost)
+        recorded = _failures(("law", "4;9"), implementation=SUBJECT)
+        summaries = summarize(rows, truth_varies=False)
+        performance = independent_performance_tests(rows, record=record, n_jobs=1)
+        accounting = failures.truth_accounting(rows, recorded, record=record, n_jobs=1)
+        performance = failures.correct_performance(performance, accounting)
+        paired = equivalence(rows, summaries, performance, record=record, n_jobs=1)
+        paired_accounting = failures.paired_accounting(rows, recorded, record=record, n_jobs=1)
+        tables = {
+            "performance": performance,
+            "equivalence": failures.correct_paired(paired, paired_accounting),
+            "properties": pd.DataFrame(
+                columns=["property", "cell", "role", "passed", "property_passed"]
+            ),
+            "accounting": pd.concat([accounting, paired_accounting], ignore_index=True),
+        }
+        red = red_cells.red_rows(record, tables)
+        kinds = {row.key.kind: row for row in red}
+        # The subject declared no bound, so its truth cell and the paired cell are red.
+        assert kinds["truth"].role == SUBJECT
+        assert kinds["truth"].fails_by == f"failure accounting: {failures.BOUND_EXCEEDED}"
+        assert kinds["paired"].fails_by.startswith(failures.UNACCOUNTED)
+        found = red_cells.findings(red, {}, {record.slug: "reporting"}, [])
+        assert len(found) == len(red)
+        assert all("has no owner" in line for line in found)
 
 
 class TestLedger:

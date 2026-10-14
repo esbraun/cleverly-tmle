@@ -380,6 +380,29 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {render(float(row.se_ratio))}"
         )
+    if family == property_verdicts.ONE_WRONG_FAMILY:
+        # Four rules in one family, and each row prints the endpoint its own rule reads.
+        kind = property_verdicts.one_wrong_kind(str(row.cell))
+        if kind == "growth":
+            return f"growth {render(float(row.growth))}, {_interval(row.growth_ci_lower, row.growth_ci_upper)}"
+        if kind == "first_order":
+            return (
+                f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+                f"margin {render(float(row.bias_margin))}, SE ratio {render(float(row.se_ratio))}"
+            )
+        return (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}, "
+            f"{_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
+        )
+    if family == "one_wrong_reported":
+        # Reported, with no margin to read: the bias, coverage and SE ratio of each arm.
+        return (
+            f"bias {render(float(row.standardized_bias))} SD, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}"
+        )
     if family == "known_mechanism_accuracy":
         # A positive cell answers to the bias margin, the coverage floor and the SE screen
         # together; the control to its bias alone, so the margin is printed beside it.
@@ -427,6 +450,39 @@ def measured(row: Any) -> str:
         return f"maximum paired difference {render(float(row.maximum_static_difference))}"
     if family == "natural_course_identity":
         return f"maximum paired difference {render(float(row.maximum_identity_difference))}"
+    if family == "sequential_double_robustness":
+        # Three rules in one family (``longitudinal_sdr_properties``), and each row prints the
+        # endpoints its own rule reads.
+        cell = str(row.cell)
+        if str(row.role) == "control":
+            return (
+                f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+                f"empirical SD {render(float(row.empirical_se))}, "
+                f"SE ratio {render(float(row.se_ratio))}"
+            )
+        if cell.startswith(("both_correct", "P_C")):
+            return (
+                f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+                f"margin {render(float(row.bias_margin))}, "
+                f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+                f"SE ratio {render(float(row.se_ratio))}"
+            )
+        return (
+            f"absolute bias + 2 MCSE {render(float(row.absolute_bias_bound))}, "
+            f"SE ratio {render(float(row.se_ratio))}, coverage {float(row.coverage):.4f}"
+        )
+    if family == "construction_diagnostic":
+        return (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"coverage {float(row.coverage):.4f}, SE ratio {render(float(row.se_ratio))}"
+        )
+    if family == "sdr_tmle_agreement":
+        return f"mean absolute difference / SE {render(float(row.mean_abs_difference_over_se))}"
+    if family in {"clustered_calibration", "weighted_calibration"}:
+        return (
+            f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
+        )
     return f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
 
 

@@ -22,6 +22,13 @@ fit stacks the :math:`K` per-arm estimators, with no fluctuation parameter share
 arms.  ``docs/technical-reference/dr-tmle/theorem.md`` states the contract and the
 conditions.
 
+The per-arm outcome-adaptive :class:`~cleverly.CTMLE` (``strategy="oat"``,
+``oat_design="per_arm"``) fits each factor on the one column ``Qbar_n(a, W)`` instead of on
+:math:`W`, the construction of Benkeser, Cai and van der Laan (2020), Theorem 1, applied to
+:math:`C_a`.  Its treatment observation factor then depends on the arm, so it travels as an
+``(n, K)`` array, one column per arm.  The ``(n,)`` form stays for TMLE and DR-TMLE.  That
+fit reports point estimates only.
+
 **The view** (:func:`composite_view`) is a copy of the data whose treatment holds the arm
 code where :math:`\Delta_A \Delta = 1` and ``NaN`` elsewhere, and whose observation
 indicator is :math:`\Delta_A \Delta`.  Every indicator downstream is
@@ -106,6 +113,10 @@ def missing_data_route(estimator: Any, data: CausalData) -> MissingDataRoute:
     :class:`~cleverly.TMLE` with ``delta=`` on data that declares a known mechanism takes
     ``"missing_outcome"``, the ordinary missing-outcome TMLE, which divides by the
     declaration.
+
+    A :class:`~cleverly.CTMLE` has no ``guard``.  Its per-arm outcome-adaptive fit takes
+    ``"missing_outcome"`` with ``delta=`` alone and ``"composite"`` with a missing
+    treatment, with each factor fitted on ``Qbar_n(a, W)``.
 
     Parameters
     ----------
@@ -227,14 +238,16 @@ def composite_mechanism(
     and each observation factor below by ``nuisance_bound``.  An absent factor is not
     multiplied.  The order is the treatment factor, then the outcome observation factor,
     then the treatment observation factor.  Without a missing treatment the product is the
-    shipped denominator :math:`g\pi` bit for bit.
+    shipped denominator :math:`g\pi` bit for bit.  The treatment observation factor is
+    ``(n,)``, one column shared by every arm, or ``(n, K)``, one column per arm, as the
+    per-arm outcome-adaptive :class:`~cleverly.CTMLE` fits it on each arm's design.
 
     Parameters
     ----------
     nuisance : NuisanceEstimates
         The fitted factors.  ``propensity`` is the treatment factor, ``missingness`` the
         outcome observation factor and ``treatment_observation`` the treatment observation
-        factor.
+        factor, ``(n,)`` or ``(n, K)``.
     bounds : tuple of float
         The ``g_bounds`` of the treatment factor.
     nuisance_bound : float
@@ -256,7 +269,7 @@ def composite_mechanism(
         values = values * bound(np.asarray(nuisance.missingness, dtype=float), lower, 1.0)
     if nuisance.treatment_observation is not None:
         recorded = bound(np.asarray(nuisance.treatment_observation, dtype=float), lower, 1.0)
-        values = values * recorded.reshape(-1, 1)
+        values = values * (recorded.reshape(-1, 1) if recorded.ndim == 1 else recorded)
     return Propensity(values, nuisance.arms, simplex=False)
 
 
@@ -424,7 +437,8 @@ def _message(data: CausalData, reason: str, remedy: str) -> CapabilityError:
     return CapabilityError(
         f"{data.treatment_name} is missing on {unrecorded} row(s). A missing treatment is "
         "supported for arm means and their contrasts (ey, ate, rr, or) on in-sample TMLE "
-        "and DRTMLE fits, and for regime means and arm-indexed MSM coefficients on in-sample "
+        "and DRTMLE fits and, for point estimates, per-arm outcome-adaptive CTMLE fits, and "
+        "for regime means and arm-indexed MSM coefficients on in-sample "
         "TMLE fits, through the composite indicator Delta_A * Delta * 1{A = a}. "
         f"{reason} {remedy}".rstrip()
     )
@@ -460,6 +474,8 @@ def missing_treatment_refusal(
     name = data.treatment_name
     identification = _IDENTIFICATION.format(A=name)
     method = getattr(estimator, "_assessment_method", None)
+    from .ctmle import is_per_arm_oat
+
     if method == "collaborative_tmle" and getattr(estimator, "strategy", None) == "derivative":
         return _message(
             data,
@@ -467,14 +483,17 @@ def missing_treatment_refusal(
             "and a partner mechanism, and no partner is defined for the composite indicator.",
             "Fit TMLE or DRTMLE.",
         )
-    if method == "collaborative_tmle":
+    per_arm_oat = is_per_arm_oat(estimator)
+    if method == "collaborative_tmle" and not per_arm_oat:
         return _message(
             data,
-            "C-TMLE selects a treatment mechanism by a collaborative criterion, and no "
-            "collaborative score is derived for the composite indicator (roadmap F5).",
-            "Fit TMLE or DRTMLE.",
+            "The C-TMLE selector strategies have no collaborative score for the composite "
+            "indicator (roadmap F5), and the shared outcome-adaptive design "
+            "(oat_design='shared') has no composite construction (roadmap F19).",
+            "Fit TMLE or DRTMLE, or fit CTMLE(strategy='oat', oat_design='per_arm') for point "
+            "estimates.",
         )
-    if method not in ("tmle", "drtmle"):
+    if method not in ("tmle", "drtmle") and not per_arm_oat:
         return _message(data, "This fit is not one of those compositions.", _MEANS_REMEDY)
     if data.known_treatment is not None:
         return CapabilityError(KNOWN_TREATMENT_DELTA_REFUSAL)

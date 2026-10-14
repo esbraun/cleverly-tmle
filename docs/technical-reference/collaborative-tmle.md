@@ -506,7 +506,7 @@ The table states the construction of the per-arm curve. `plugin_std_error` and
 | conditions | (i) the curve equation is solved to $o_P(n^{-1/2})$. (ii) $\bar Q_n$ and $Q^*_n$ converge at $o_P(n^{-1/4})$ in $L_2(P_0)$. (iii) the treatment learner is consistent for $P(A = a \mid \bar Q_n(a, W))$ at $o_P(n^{-1/4})$. A misspecified learner makes $R_{23}$ first order whenever $Q^*_n - \bar Q_0 = O_P(n^{-1/2})$, which includes every correctly specified parametric outcome model. (iv) the curve converges in $L_2$, and in sample its class is Donsker. (v) $G_0(\cdot \mid \bar Q_n, \bar Q_0)$ is differentiable in $\bar Q_0$ with a bounded derivative. This condition fails for a root-$n$ outcome regression on a continuous $W$, as the next section states. (vi) the term from fitting $G$ on the initial $\bar Q_n$ is negligible. Positivity: the projection $P(A = a \mid \bar Q_0(a, W))$ lies inside `g_bounds`. Also iid rows, or fixed known weights, and a consistent outcome regression. A correct $g$ alone does not give consistency |
 | the source's warnings | Section 4.1 (p. 12): "the estimated standard errors of CTMLE had poor performance, often underestimating the true variability of the estimator". The Discussion (pp. 17-18) calls the CTMLE "an irregular estimator, it may perform poorly for certain data generating distributions", and notes "the poor behavior of the confidence intervals in both simulations". The limit is pointwise at a fixed law. It is not locally uniform |
 | the key's cases | `strategy="oat"`, `oat_design="per_arm"`, complete outcomes and treatment, no `strata=`, no weights or fixed weights, and `repeats >= 1`. In sample and cross-fitted, at any arm count. Estimands `ey`, `ey1`, `ey0`, `ate`, `rr`, `or`, `ey_obs`, `par` and `paf`. These fits withhold their interval while the revert flag is `False` |
-| withheld | every `strategy="oat"` fit, of either design. [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) holds the generated-design term of both designs. A per-arm fit with `delta=` or `strata=` also has no construction, and [X29](../roadmap.md#x29-per-arm-outcome-adaptive-c-tmle-with-baseline-strata-and-missing-data) holds it |
+| withheld | every `strategy="oat"` fit, of either design. [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) holds the generated-design term of both designs. A per-arm fit with `strata=`, `delta=` or `treatment_delta=` reports a point estimate under [the contract below](#baseline-strata-and-missing-data-in-the-per-arm-design), and the key excludes it even with the flag set |
 | bootstrap | `n_bootstrap=` is a diagnostic on every `oat` fit. Theorem 1 does not cover the bootstrap of a superefficient estimator |
 | key | `per_arm_design_admits(estimator, data)` in `cleverly.estimators.ctmle`. It reads the strategy, the design, the missing outcomes and treatment, the strata and the revert flag, and never a fitted array |
 
@@ -601,3 +601,41 @@ The term needs the full mechanism $g_0$ and the influence function of the outcom
 per-arm design exists to avoid the first, and no source read here gives it for a flexible
 learner. [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) holds it.
 The point estimate stands, so the per-arm design stays the default.
+
+### Baseline strata and missing data in the per-arm design
+
+The per-arm design accepts `strata=`, `delta=` and, in sample, `treatment_delta=`. These fits
+report point estimates and the `plugin_std_error` diagnostic. They report no interval, p-value or
+standard error.
+
+For arm $a$, with $q_a = \bar Q_n(a, W)$, the fit regresses each factor on the one column $q_a$.
+
+| factor | regression | rows it is fitted on |
+| --- | --- | --- |
+| treatment observation, with `treatment_delta=` only | $\Delta_A$ on $q_a$ | every row |
+| treatment | $1\{A = a\}$ on $q_a$ | the rows with a recorded treatment |
+| outcome observation, with `delta=` | $\Delta$ on $q_a$ | the recorded rows of arm $a$ |
+
+With `strata=`, the fit regresses each factor inside each stratum. By the chain rule, the
+product is $P(C_a = 1 \mid q_a)$, or $P(C_a = 1 \mid q_a, S)$, for
+$C_a = \Delta_A \Delta 1\{A = a\}$. This is the composite indicator of
+[the DR-TMLE missing-data construction](dr-tmle/theorem.md), regressed on the design and not on
+$W$. A factor whose target has one value on its rows predicts that value and fits no learner. The
+fit uses the treatment learner for every factor.
+
+The positivity report names the design as the condition of the product row, for example
+`P(A=a,Delta=1|Qbar(a,W))`. With strata, the condition is `Qbar(a,W),S`.
+
+| item | content |
+| --- | --- |
+| base construction | Benkeser, Cai and van der Laan (2020), Section 3, steps 1-7, for each arm, as the per-arm table above states it |
+| what the point claims | consistency for each arm mean when $\bar Q_n(a, \cdot)$ is consistent for $\bar Q_0(a, \cdot)$ in $L_2(P_0)$. With $D(Q, G) = C_a / G\,(Y - Q) + Q - \Psi(Q)$ and $P_n D(Q^*_n, G_n) = 0$, the expansion is $\psi_n - \psi_0 = (P_n - P_0) D(Q^*_n, G_n) + R_2$, with $R_2 = P_0[(P(C_a = 1 \mid W) - G_n) / G_n\,(\bar Q_0 - Q^*_n)]$. The bounds `g_bounds` and `nuisance_bound` bound each factor below, so $R_2 \to 0$ by Cauchy-Schwarz. The empirical-process term vanishes for a Glivenko-Cantelli class in sample, and for bounded functions when cross-fitted. The one-step and linear variants are consistent through their plug-in form. `rr`, `or`, `par` and `paf` follow by the continuous mapping, strata by a finite partition, and `repeats > 1` as a median of consistent points |
+| what the point does not claim | asymptotic linearity, a rate or an interval. Condition (v) fails for an estimated outcome regression, as [the applied revert](#the-applied-revert) states, and these fits inherit that failure. With $\bar Q_n$ inconsistent, the estimator has neither leg |
+| baseline strata | a fixed finite partition with $P(S = s) > 0$. A stratum parameter is the parameter of the law given $S = s$. The update is a function of $(q_a, S)$. The marginal point is the $P_n(S = s)$ mixture. The marginal design conditions on $(q_a, S)$, so the marginal point differs from an unstratified fit. Stratified DR-TMLE uses the same convention |
+| missing outcome | an indicator reduction to $O'_a = (W, C_a, C_a Y)$, with $\bar Q_0(W) = E[Y \mid C_a = 1, W]$. $E[C_a (Y - \bar Q_0(W)) \mid W] = 0$, so $P_0 D(\bar Q_0, G) = 0$ for every design $G$. Missingness at random enters through $\bar Q$ only |
+| missing treatment | the same reduction with three factors. In sample only. The identification conditions are those of the DR-TMLE composite construction |
+| natural course with a missing outcome | the construction with $\Delta$ as the treatment and the design $(A, \bar Q_n(A, W))$. The fit reads the outcome observation factor at the realised arm. `par` follows by linearity, and `paf` by the delta method on the stack with the arm means. With strata, the stratum step applies on top |
+| identification | $Y(a) \perp A \mid W$; $Y(a) \perp \Delta_A \mid A, W$; $Y \perp \Delta \mid A, \Delta_A = 1, W$; $W$ recorded on every row; positivity $P(C_a = 1 \mid W) > 0$ almost surely, per stratum with strata. The design bounds do not imply positivity |
+| the missingness tilt | `missingness_tilt` and `tipping_gamma` read the full-covariate model $P(\Delta = 1 \mid A, W)$, which the fit stores as `nuisance.tilt_missingness`. No targeting step reads it |
+| refused | a cross-fitted fit with a missing treatment, as for every estimator ([F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants)); `ey_obs`, `par` and `paf` with a missing treatment, which are not identified; a stratum or a training complement in which a factor has no row to fit; with `delta=`, a training complement with no nonrespondent among its recorded rows, because the full-covariate response model of the tilt needs one; and, when the treatment learner is a package classification `SuperLearner`, a factor target with fewer than two rows of a class in a training complement. Each refusal reads the data and every drawn split before any learner. The selector strategies and the shared design keep their refusals |
+| evidence | `tests/unit/test_outcome_adaptive_per_arm_extensions.py`: in-sample and cross-fitted longhands of the factors and the targeting to `1e-8`, a longhand of `target_weights=True`, each stratum point against a fit on the stratum's rows, the marginal mixture and its mass term, the solved scores, the natural course, the route identity, an exact law on which the factor product is the cell share of $C_a = 1$ and the oracle $\bar Q$ gives the truth, fold-local nesting, fixed weights against duplicated rows, the tilt, the status matrix, and 14 mutation controls. `tests/unit/test_capability_row_sweep.py` sweeps the capability rows of a per-arm fit with missing outcomes. The registered study `ctmle-oat-per-arm-strata-missing` is designed and waits in the study queue. It lands with its artifacts |

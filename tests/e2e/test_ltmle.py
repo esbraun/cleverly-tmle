@@ -975,7 +975,7 @@ class TestItRefusesByName:
             ("intermediate", "different identification"),
             ("interventions", "Declare it in regimens="),
             ("policies", "node of a regimen"),
-            ("incremental", "tilted mechanisms"),
+            ("incremental", r"Fit IPSI\(regimens=\[Incremental"),
             # Not a refusal any more but a redirect: a survival outcome is declared by
             # the outcome columns, and the keyword stays a key so that passing it says
             # so rather than falling through to "unexpected keyword argument".

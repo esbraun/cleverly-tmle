@@ -26,6 +26,7 @@ from tests.studies.canonical_cvtmle import (
 )
 from tests.studies.canonical_tmle import SCENARIO_ESTIMANDS
 from tests.studies.canonical_tmle import draw_from_seed as canonical_tmle_draw_from_seed
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.seeds import draw_replicate
 
@@ -155,7 +156,7 @@ def cleverly_rows(
     return rows_from_result(STUDY, fit_cleverly(frame, scenario), truth, scenario, replicate)
 
 
-def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
     """Draw and fit every declared primary replication."""
     return fitted_rows(
         STUDY, draw_scenario, cleverly_rows, replicates=replicates, n=n, n_jobs=n_jobs

@@ -27,6 +27,22 @@ doubly_robust = effect.estimate(
 Call `effect.available_methods()` before fitting when method availability matters. An unavailable
 method comes with a capability reason.
 
+`SDRMethod` selects the sequentially doubly robust estimator for a longitudinal functional. A
+point-treatment functional lists it as unavailable. The estimator fits no fluctuation, so it
+refuses a non-default `submodel_alpha`, `max_iter` or `tol`. Its `pseudo_learner` fits a
+transform that can leave $[0, 1]$, so give it a learner of a real-valued target, such as
+`LinearRegression()`. The default is a regression Super Learner with no clip.
+[The sequentially doubly robust estimator](../technical-reference/longitudinal-tmle.md#the-sequentially-doubly-robust-estimator)
+states its contract.
+
+`IPSIMethod` selects the incremental estimator of Kennedy (2019) for `IncrementalMean` or
+`IncrementalEffect` on a longitudinal design. A point-treatment functional lists it as
+unavailable. It fits no fluctuation either, so it refuses the same three settings. At a tilt
+node the treatment mechanism defines the plan, and the estimator is not doubly robust. Give
+`treatment_learner` a learner that can fit the mechanism at every node.
+[Incremental interventions over time](../technical-reference/longitudinal-tmle.md#incremental-interventions-over-time) states
+its contract.
+
 The collaborative fit above reports no confidence interval, no p-value, and no standard error. The
 `"greedy"` strategy is the default. `"ordered"`, `"discrete"`, `"lasso"`, `"learners"`, and `"oat"`
 refuse the same three accessors. Each estimate keeps `plugin_std_error` and `plugin_interval` as
@@ -206,6 +222,7 @@ observations at the rare level.
 | --- | --- | --- |
 | binary `NaturalCourseMean`, stacked | a binary outcome, pooled targeting, and one repeat | [natural-course contracts](../technical-reference/scope-and-refusals.md#missing-outcome-natural-course-contracts) |
 | arm-indexed means and contrasts, cross-fitted | ordinary TMLE, and no `ATT` or `ATC` target | [arm-indexed contract](../technical-reference/scope-and-refusals.md#missing-outcome-arm-indexed-contract) |
+| arm-indexed means and contrasts, per-arm `CTMLE(strategy="oat")` | a respondent in each arm and stratum of each training complement, and a nonrespondent in each complement. The fit reports a point estimate only | [per-arm design contract](../technical-reference/collaborative-tmle.md#baseline-strata-and-missing-data-in-the-per-arm-design) |
 | shift, incremental, regime, MSM, and controlled-direct-effect targets, cross-fitted | no contract. The fit refuses them before the first learner | [not written yet](../technical-reference/scope-and-refusals.md#not-written-yet) |
 
 To fit any target in the table in sample, set `CrossFitting(enabled=False)`. One fold balances nothing, so

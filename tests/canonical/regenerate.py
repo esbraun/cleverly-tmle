@@ -25,7 +25,13 @@ RM39 made a run resumable.  Every run keeps its scratch in a persistent director
 *resume key*: the declaration, the code, the reference sources, the inputs and the Python
 versions.  An R reference checkpoints each group in the Docker volume ``cleverly-cache``, and
 a rerun with the same key reuses the Python phase, the calibration and every finished group.
-A container killed whole is run again once with half the workers.  Every error is still fatal.
+A container killed whole is run again once with half the workers.
+
+RM39 part a2 made a reference fitting failure cost one group, and part b makes a ``cleverly``
+fit failure in the Python phase cost one replicate (``tests/studies/evidence/replication.py``).
+Under :func:`main`, each Python replicate is checkpointed under ``<scratch>/checkpoints``.  Both
+sides' records reach ``failures.csv``, and ``tests/studies/evidence/failures.py`` accounts for
+them.  Every other error is fatal.
 """
 
 from __future__ import annotations
@@ -54,7 +60,7 @@ from typing import Any
 import pandas as pd
 
 from tests.parallel import available_cores
-from tests.studies.evidence import failures
+from tests.studies.evidence import failures, replication
 from tests.studies.evidence.comparison import empty_equivalence, equivalence
 from tests.studies.evidence.manifest import write_csv, write_manifest
 from tests.studies.evidence.performance import independent_performance_tests, summarize
@@ -87,7 +93,18 @@ HARNESS = ROOT / "tests" / "canonical" / "study_harness.R"
 VOLUME = "cleverly-cache"
 
 #: What the scratch directory reuses across runs, and so what the resume key must cover.
-_PYTHON_CACHE = ("samples.csv.gz", "truth.csv", "python-rows.csv.gz")
+#: ``python-phase.json`` is written last and names the files the phase wrote, so a phase
+#: interrupted while writing is not reused.
+_PYTHON_CACHE = (
+    "python-phase.json",
+    "samples.csv.gz",
+    "truth.csv",
+    "python-rows.csv.gz",
+    "python-failures.csv",
+)
+
+#: The per-replicate checkpoints of the Python phase, under the scratch directory.
+CHECKPOINTS = "checkpoints"
 
 #: Exit codes of an R reference container.  3 is the harness's "a rerun resumes" stop; 137 is
 #: a container killed whole, by the kernel or by Docker.
@@ -719,6 +736,30 @@ class _Phase:
     reference_results: Path | None = None
     #: The reference's recorded failures, or ``None`` when it recorded none.
     reference_failures: pd.DataFrame | None = None
+    #: The subject's recorded failures, or ``None`` when every fit succeeded.
+    subject_failures: pd.DataFrame | None = None
+    #: Whether a failed subject fit leaves its replicate without a reference input.
+    reference_input_from_fit: bool = False
+
+    def recorded(self, record: StudyRecord) -> pd.DataFrame | None:
+        """Both sides' records, the induced reference records included, or ``None``.
+
+        A study whose reference input comes from the subject's fit loses the reference's
+        replicate with the subject's, so each subject record induces a reference record.
+        """
+        frames = [self.subject_failures, self.reference_failures]
+        if (
+            self.subject_failures is not None
+            and self.reference_input_from_fit
+            and record.reference is not None
+        ):
+            frames.append(failures.induced(self.subject_failures, record=record))
+        present = [frame for frame in frames if frame is not None and not frame.empty]
+        if not present:
+            return None
+        return pd.concat(present, ignore_index=True).sort_values(
+            ["implementation", "group_id"], ignore_index=True
+        )
 
 
 def _arguments(study: ModuleType, here: Path, reference: Reference | None) -> argparse.Namespace:
@@ -793,13 +834,17 @@ def _claim_scratch(scratch: Path, key: Mapping[str, Any], *, fresh: bool) -> Non
     cached = [
         name for name in (*_PYTHON_CACHE, "reference-results.csv") if (scratch / name).exists()
     ]
+    checkpointed = (scratch / CHECKPOINTS).exists()
     if fresh:
         for name in cached:
             (scratch / name).unlink()
         for pattern in ("*.calibration.json", "*.calibration.key", "*.csv.key"):
             for path in scratch.glob(pattern):
                 path.unlink()
-    elif cached and (not stamp.exists() or stamp.read_text(encoding="utf-8") != text):
+        shutil.rmtree(scratch / CHECKPOINTS, ignore_errors=True)
+    elif (cached or checkpointed) and (
+        not stamp.exists() or stamp.read_text(encoding="utf-8") != text
+    ):
         raise RuntimeError(
             f"refused: {scratch} holds a run under another resume key; pass --fresh to "
             f"discard it, or choose another --cache"
@@ -811,36 +856,69 @@ def _python_phase(study: ModuleType, arguments: argparse.Namespace, scratch: Pat
     """Draw the samples and fit the subject, reusing the scratch's phase when it holds one.
 
     :func:`main` keys the scratch by the resume key, so a phase found there was drawn under
-    the same declaration, code and versions.
+    the same declaration, code and versions.  A phase that stopped part way leaves its
+    replicate checkpoints, so the next run fits only the replicates it did not finish.
+    ``--refresh-python`` discards both.
     """
-    paths = {
-        name: scratch / name
-        for name in (
-            "samples.csv.gz",
-            "truth.csv",
-            "python-rows.csv.gz",
-            "reference-results.csv",
-        )
-    }
-    if not arguments.refresh_python and all(paths[name].exists() for name in _PYTHON_CACHE):
-        rows = pd.read_csv(paths["python-rows.csv.gz"])
-        print(f"reusing the cached Python phase in {scratch}", flush=True)
-        RUN_NOTES.append(f"resumed from {scratch}, reused the Python phase")
-        return _Phase(rows=rows, cached=True, paths=paths)
+    paths = {name: scratch / name for name in (*_PYTHON_CACHE, "reference-results.csv")}
+    stamp = paths["python-phase.json"]
+    if arguments.refresh_python:
+        stamp.unlink(missing_ok=True)
+        shutil.rmtree(scratch / CHECKPOINTS, ignore_errors=True)
+    if stamp.exists():
+        written = json.loads(stamp.read_text(encoding="utf-8"))
+        if all(paths[name].exists() for name in written["files"]):
+            print(f"reusing the cached Python phase in {scratch}", flush=True)
+            RUN_NOTES.append(f"resumed from {scratch}, reused the Python phase")
+            failures_file = paths["python-failures.csv"]
+            return _Phase(
+                rows=pd.read_csv(paths["python-rows.csv.gz"]),
+                cached=True,
+                paths=paths,
+                subject_failures=(
+                    failures.read(failures_file)
+                    if "python-failures.csv" in written["files"]
+                    else None
+                ),
+                reference_input_from_fit=bool(written["reference_input_from_fit"]),
+            )
+        stamp.unlink()
 
-    drawn = study.draw_and_fit(
+    result = study.draw_and_fit(
         replicates=arguments.replicates, n=arguments.n, n_jobs=arguments.jobs
     )
-    if not isinstance(drawn, tuple):
-        # A study with no comparator has no reason to keep the realized rows around: nothing
-        # else ever reads them, so it returns the estimate table straight out.
-        return _Phase(rows=drawn, paths=paths)
-    samples, truths, rows = drawn
+    if not isinstance(result, replication.PhaseResult):
+        raise TypeError(
+            f"{study.STUDY.slug}: draw_and_fit returned {type(result).__name__}, not a PhaseResult"
+        )
     archive = {"method": "gzip", "mtime": 0}
-    write_csv(samples, paths["samples.csv.gz"], compression=archive)
-    write_csv(truths, paths["truth.csv"])
-    write_csv(rows, paths["python-rows.csv.gz"], compression=archive)
-    return _Phase(rows=rows, samples=samples, truths=truths, paths=paths)
+    files = ["python-rows.csv.gz"]
+    write_csv(result.rows, paths["python-rows.csv.gz"], compression=archive)
+    if result.samples is not None and result.truths is not None:
+        write_csv(result.samples, paths["samples.csv.gz"], compression=archive)
+        write_csv(result.truths, paths["truth.csv"])
+        files += ["samples.csv.gz", "truth.csv"]
+    paths["python-failures.csv"].unlink(missing_ok=True)
+    if result.failures is not None:
+        write_csv(result.failures, paths["python-failures.csv"])
+        files.append("python-failures.csv")
+    stamp.write_text(
+        json.dumps(
+            {"files": files, "reference_input_from_fit": result.reference_input_from_fit},
+            indent=1,
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    return _Phase(
+        rows=result.rows,
+        samples=result.samples,
+        truths=result.truths,
+        paths=paths,
+        subject_failures=result.failures,
+        reference_input_from_fit=result.reference_input_from_fit,
+    )
 
 
 def _reference_key(reference: Reference, here: Path, phase: _Phase) -> str | None:
@@ -877,6 +955,17 @@ def _reference_rows(
         if rows.empty:
             raise RuntimeError("no compatible committed reference rows for --skip-reference")
         committed_failures = failures.read(here / failures.FAILURES)
+        induced = (
+            committed_failures is not None
+            and (committed_failures["class"] == failures.PAIRED_INPUT_MISSING).any()
+        )
+        if phase.reference_input_from_fit and (induced or phase.subject_failures is not None):
+            # The committed reference rows were fitted on samples built from the committed
+            # subject fits, and the subject's failed fits decide which samples exist.
+            raise RuntimeError(
+                "--skip-reference cannot pair the committed reference rows with this run: the "
+                "reference input comes from the subject's fit, and a subject fit failed"
+            )
         if committed_failures is not None:
             committed_failures = committed_failures.loc[
                 committed_failures["implementation"] == study.STUDY.reference
@@ -1014,7 +1103,8 @@ def main(
             _claim_scratch(scratch, key, fresh=context.fresh)
             token = _ACTIVE.set(context)
             try:
-                _regenerate(study, properties, arguments, here, reference, context)
+                with replication.checkpoints(scratch / CHECKPOINTS):
+                    _regenerate(study, properties, arguments, here, reference, context)
             finally:
                 _ACTIVE.reset(token)
     finally:
@@ -1091,7 +1181,7 @@ def _regenerate(
     rows = rows.loc[:, list(REPLICATE_COLUMNS)].sort_values(
         ["scenario", "replicate", "estimand", "implementation"], ignore_index=True
     )
-    recorded = phase.reference_failures
+    recorded = phase.recorded(record)
     validate_replicates(rows, record=record, failures=recorded)
 
     optional = () if recorded is None else OPTIONAL_ARTIFACT_NAMES

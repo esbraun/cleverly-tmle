@@ -21,11 +21,13 @@ import pandas as pd
 import pytest
 from scipy import stats
 
+from tests import discrete_law_longitudinal as longitudinal
 from tests.studies import default_band_properties, stratified_law
 from tests.studies.default_band_properties import design, design_correlation
 from tests.studies.evidence.registry import ROOT
 from tests.unit.test_clustered_crossfit_ltmle_design import BAND_DESIGN
 from tests.unit.test_simultaneous_cell_design import EXACT
+from tests.unit.test_simultaneous_cell_design import _exact as exact_correlation
 
 
 def _exact(cell: str, replicates: int) -> float:
@@ -96,6 +98,16 @@ READINGS = {
         2.500,
         0.9337,
         0.9342,
+    ),
+    # The SDR band over the six regimen means and five contrasts of the six-plan law. ``c*`` is
+    # the exact-law critical value at the cell's 2,000 replications.
+    "six_regimens": (
+        "longitudinal_sdr",
+        lambda: design(exact_correlation(longitudinal, longitudinal.NAMES), 2000).critical,
+        2.693,
+        2.683,
+        0.9250,
+        0.9310,
     ),
 }
 

@@ -335,6 +335,32 @@ ARMS: dict[str, str] = {
     "boot_ey_clustered": "cluster-bootstrap percentile interval of the always mean, 60 clusters",
     "boot_ate_clustered": "cluster-bootstrap percentile interval of the contrast, 60 clusters",
     "boot_ate_point_tmle": "bootstrap percentile interval of the point-treatment ATE",
+    "survival_h2": "difference of always and never in the risk at t = 2, survival law",
+    "competing_h2": "difference of always and never in the death incidence at t = 2",
+    "policy_mix": "contrast of the known policy mix against low, three-level law",
+    "mtp_up": "the shift up at both nodes against the natural course, continuous dose",
+    "msm_identity": "the duration coefficient of the identity-link working model",
+    "msm_logit": "the duration coefficient of the logit-link working model",
+    "selection_weighted": "contrast of always against never on the selected law, with weights",
+    "clusters_200": "contrast of always against never, 200 clusters of 10 rows",
+    "clusters_20": "contrast of always against never, 20 clusters of 100 rows",
+    "six_regimens": "the six regimen means and five contrasts of the two-node law",
+    # ``longitudinal-incremental`` and ``longitudinal-incremental-dropout`` (X19).
+    "mean_x2": "odds-x2 mean at every node, three-node law",
+    "contrast_x2": "odds-x2 against the natural course, three-node law",
+    "contrast_x2_in_sample": "odds-x2 against the natural course, one fold",
+    "known_x2": "odds-x2 mean with the true treatment probabilities declared",
+    "no_positivity": "odds-x2 contrast on a law with propensities of exactly 0 and 1",
+    "per_node": "odds multipliers 2, 0.5 and 1.5 at the three nodes",
+    "tilt_then_static": "odds-x2 at nodes 1 and 2, then arm 1 at node 3",
+    "contrast_x1_5": "odds-x1.5 against the natural course, small arm effects",
+    "nine_tilts": "nine odds multipliers from 0.25 to 4, their means and eight contrasts",
+    "dropout_contrast_x2": "odds-x2 contrast at the end of study, with dropout",
+    "survival_contrast_x2_h3": "odds-x2 contrast in the risk by t = 3, with dropout",
+    "competing_contrast_x2_h3": "odds-x2 contrast in the cause-1 incidence by t = 3",
+    "msm_log_delta": "slope of the identity-link working model in log odds multiplier",
+    "weighted_contrast_x0_5": "odds-x0.5 contrast on the law weighted by 1 + A1 + W/2",
+    "survival_grid": "three plans by three horizons, the risks and six contrasts",
 }
 
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
@@ -373,6 +399,9 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-known-mechanism": "`cleverly` TMLE on a declared known mechanism",
     "tmle-r-known-g": "R `tmle` with the known mechanism as `g1W`",
     "cleverly-known-mechanism-drtmle": "`cleverly` DR-TMLE on a declared known mechanism",
+    "cleverly-drtmle-one-wrong": (
+        "`cleverly` DR-TMLE with guards Q and g and the univariate reduction"
+    ),
     "drtmle-r-known-g": "R `drtmle` with the known mechanism as `gn`",
     "cleverly-known-node-mechanisms": "`cleverly` LTMLE on declared known node mechanisms",
     "ltmle-known-gform": "R `ltmle` with the known factors as a numeric `gform`",
@@ -457,6 +486,8 @@ IMPLEMENTATIONS: dict[str, str] = {
     "lmtp": "R `lmtp`",
     "lmtp-weighted": "R `lmtp` with observation weights",
     "npcausal": "R `npcausal`",
+    "cleverly-ipsi": "`cleverly` `IPSI`, one-step over time",
+    "cleverly-ipsi-dropout": "`cleverly` `IPSI` with a censoring mechanism",
     "r-ctmle": "R `ctmle`",
     "tlverse-ctmle3-oat": "R `ctmle3`",
     "ctmle3-multi-arm-oat": "R `ctmle3` multi-arm outcome-adaptive TMLE",
@@ -476,11 +507,16 @@ IMPLEMENTATIONS: dict[str, str] = {
     "tmle-r-cde": "R `tmle` controlled direct-effect path",
     "tmle-r-weighted": "R `tmle` with observation weights",
     "tmle-r-learned-weighted": "R `tmle` with learned weighted nuisances",
+    "cleverly-sdr": "`cleverly` sequentially doubly robust (SDR) longitudinal estimator",
     "zepid-single-crossfit-tmle": "Python `zEpid` single-crossfit TMLE",
 }
 
 
 SCENARIOS: dict[str, str] = {
+    "ipsi_folds_2": "three-node law with a continuous outcome, two folds",
+    "ipsi_folds_5": "three-node law with a continuous outcome, five folds",
+    "dropout_folds_5": "three-node law with dropout after each arm, five folds",
+    "survival_folds_5": "three-node survival law with dropout, horizons 1 to 3, five folds",
     "binary_active": (
         "two arms, an arm-specific outcome index, an instrument, correct outcome regression"
     ),
@@ -493,6 +529,9 @@ SCENARIOS: dict[str, str] = {
     "guard_q": "known mechanism, outcome regression without W2, guard Q",
     "guard_g": "known mechanism, outcome regression without W2, guard g",
     "guard_qg": "known mechanism, outcome regression without W2, guards Q and g",
+    "q_wrong_g_known": (
+        "law L, declared mechanism, outcome regression on A and W1 (wrong), n = 4,000"
+    ),
     "three_arm_guard_none": (
         "three-arm law with a known mechanism, outcome regression without W2, no DR-TMLE guard"
     ),
@@ -656,6 +695,11 @@ SCENARIOS: dict[str, str] = {
     "multi_arm_selector_discrete": "three-arm binary-outcome law, discrete selector",
     "multi_arm_selector_greedy": "three-arm binary-outcome law, greedy selector",
     "multi_arm_selector_ordered": "three-arm binary-outcome law, ordered selector",
+    "sdr_end_of_study": "two-node law with monotone censoring, three plans, one fold",
+    "sdr_end_of_study_crossfit": "the same law and plans, five folds",
+    "sdr_survival": "censored survival law, risks at horizons 1 and 2, one fold",
+    "sdr_mtp": "two-node law with a truncated-normal dose at both nodes and four plans",
+    "sdr_policy": "the three-level law with the plans low, mix and taper",
 }
 
 
@@ -760,6 +804,14 @@ PARAMETERISED: dict[str, str] = {
 
 
 PROPERTIES: dict[str, str] = {
+    "one_wrong_inference": (
+        "with one nuisance inconsistent, the DR-TMLE interval is valid for a declared "
+        "mechanism and conservative for a correct parametric mechanism, and a constructed "
+        "level-set-breaking error produces a bias that grows with n"
+    ),
+    "one_wrong_reported": (
+        "the arms of the first-order controls and the law-M contrast, reported with no verdict"
+    ),
     "known_mechanism_accuracy": (
         "a fit that divides by the declared mechanism is accurate and its interval covers, "
         "whatever the outcome regression"
@@ -919,6 +971,38 @@ PROPERTIES: dict[str, str] = {
     ),
     "weight_necessity": (
         "fixed inverse-selection weights recover the population target from the selected law"
+    ),
+    "mechanism_term_necessity": (
+        "the influence curve includes the term from the estimated treatment mechanism"
+    ),
+    "single_robustness": (
+        "the estimate stays consistent when the treatment mechanism is correct and the "
+        "outcome regressions are constant"
+    ),
+    "censoring_complete_case": (
+        "how far a fit to the rows that never drop out sits from the target, reported rather "
+        "than gated"
+    ),
+    "in_sample_fit": ("how a one-fold fit behaves on the same draws, reported rather than gated"),
+    "sequential_double_robustness": (
+        "the estimate stays consistent when at each node either the outcome regression or "
+        "the treatment and censoring mechanisms are correct"
+    ),
+    "weighted_calibration": (
+        "the interval of a fit with fixed observation weights is calibrated, with no "
+        "efficiency claim"
+    ),
+    "clustered_calibration": (
+        "grouped cross-fitting with cluster-level influence curves calibrates inference under "
+        "within-cluster dependence"
+    ),
+    "construction_diagnostic": (
+        "how two other cross-fit constructions behave on the overfitting draws, reported "
+        "rather than gated"
+    ),
+    "sdr_tmle_agreement": (
+        "how far the SDR estimate sits from the LTMLE estimate on the same draw, in SDR "
+        "standard errors, reported rather than gated"
     ),
 }
 
@@ -1666,6 +1750,18 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the outcome regression is misspecified",
         "bias interval must fall entirely outside the margin",
     ),
+    ("root_n_and_efficiency", "n_6000"): (
+        "bias, coverage and SE calibration at n = 6,000",
+        "",  # the smallest rung's rule depends on its role; :func:`cell` sets it
+    ),
+    ("root_n_and_efficiency", "n_24000"): (
+        "bias, coverage and SE calibration at n = 24,000",
+        "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+    ),
+    ("root_n_and_efficiency", "n_48000"): (
+        "bias, coverage and SE calibration at n = 48,000",
+        "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+    ),
     ("root_n_and_efficiency", "n_500"): (
         "bias, coverage and SE calibration at n = 500",
         "",  # the smallest rung's rule depends on its role; :func:`cell` sets it or raises
@@ -1688,6 +1784,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("root_n_and_efficiency", "n_8000"): (
         "bias, coverage and SE calibration at n = 8,000",
+        "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+    ),
+    ("root_n_and_efficiency", "n_16000"): (
+        "bias, coverage and SE calibration at n = 16,000",
         "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
     ),
     ("root_n_and_efficiency", "n_32000"): (
@@ -1810,6 +1910,66 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "one-sided rejection bound stays under the declared type-I ceiling",
     ),
 }
+
+
+#: The settings of the DR-TMLE one-wrong witness study, by the stem its cells start with.
+#: Mirrored from ``tests.studies.drtmle_one_wrong.SETTINGS``, which this module cannot import;
+#: ``tests/unit/test_drtmle_one_wrong_design.py`` checks every published cell is described.
+_ONE_WRONG_SETTINGS = {
+    "q_wrong_g_glm": "law L, outcome regression on A and W1 (wrong), mechanism a correct "
+    "logistic GLM, in sample",
+    "q_wrong_g_known": "law L, outcome regression on A and W1 (wrong), declared mechanism, "
+    "the draws of q_wrong_g_glm",
+    "q_wrong_g_glm_cf": "law L, outcome regression on A and W1 (wrong), mechanism a correct "
+    "logistic GLM, cross-fitted over the default folds",
+    "q_wrong_g_slow": "law L, outcome regression on A and W1 (wrong), mechanism a correct "
+    "GLM plus the constructed logit offset n^(-1/3) W2",
+    "q_slow_g_wrong": "law L, outcome regression a correct GLM plus the constructed logit "
+    "offset 3 n^(-1/3) (2 W1 + W2) / sqrt(5), mechanism a GLM on W2 (wrong)",
+    "mar_q_wrong_pi_slow": "law M, randomized missing outcome with the declared treatment "
+    "probability 1/2, outcome regression on A and W1 (wrong), response mechanism a correct "
+    "GLM plus the constructed logit offset 2 n^(-1/3) W2",
+}
+_ONE_WRONG_RULES = {
+    "conservative": "SE-ratio interval wholly above the calibration band, coverage clears "
+    "the floor, bias inside the margin",
+    "valid": "coverage clears the floor, bias inside the margin, SE ratio inside the sanity band",
+    "first_order": "bias interval wholly beyond the margin on the predicted negative side, SE "
+    "ratio between 0.1 and 10",
+    "growth": "the lower bound of the 99% interval of the signed growth of bias/SD from "
+    "n = 1,000 to n = 16,000 lies above zero",
+}
+_ONE_WRONG_ESTIMANDS = {"ate": "ATE", "ey1": "arm-1 mean", "ey0": "arm-0 mean"}
+_ONE_WRONG_REPORTED = "reported: bias, SE ratio and coverage, with no verdict"
+
+
+def _one_wrong(family: str, stem: str, estimand: str, kind: str, size: int = 0) -> None:
+    setting = _ONE_WRONG_SETTINGS[stem]
+    tested = f"{_ONE_WRONG_ESTIMANDS[estimand]}: {setting}"
+    if size:
+        stem, tested = f"{stem}_n{size}", f"{tested}, at n = {size:,}"
+    rule = _ONE_WRONG_REPORTED if kind == "reported" else _ONE_WRONG_RULES[kind]
+    CELLS[family, f"{stem}__{estimand}__{kind}"] = (tested, rule)
+
+
+for _stem in ("q_wrong_g_glm", "q_wrong_g_known", "q_wrong_g_glm_cf"):
+    _one_wrong(
+        "one_wrong_inference",
+        _stem,
+        "ate",
+        "valid" if _stem == "q_wrong_g_known" else "conservative",
+    )
+    for _arm in ("ey1", "ey0"):
+        _one_wrong("one_wrong_inference", _stem, _arm, "valid")
+for _stem in ("q_wrong_g_slow", "q_slow_g_wrong"):
+    _one_wrong("one_wrong_inference", _stem, "ate", "growth")
+    for _size in (1_000, 4_000, 16_000):
+        _one_wrong("one_wrong_inference", _stem, "ate", "first_order", _size)
+        for _arm in ("ey1", "ey0"):
+            _one_wrong("one_wrong_reported", _stem, _arm, "reported", _size)
+for _arm in ("ey1", "ey0"):
+    _one_wrong("one_wrong_inference", "mar_q_wrong_pi_slow", _arm, "first_order")
+_one_wrong("one_wrong_reported", "mar_q_wrong_pi_slow", "ate", "reported")
 
 
 class Undescribed(LookupError):
@@ -2116,7 +2276,7 @@ def cell(
                 if base == "targeted"
                 else "the identical targeted mechanism is evaluated with the initial outcome regression"
             )
-    if family == "root_n_and_efficiency" and base in {"n_500", "n_1000"}:
+    if family == "root_n_and_efficiency" and base in {"n_500", "n_1000", "n_6000"}:
         # The smallest rung is a positive cell in some studies and a retained small-sample
         # control in others, and the two are held to opposite rules.  Publishing one rule
         # beside the other role's verdict is the failure this branch exists to prevent, so an
@@ -2241,4 +2401,147 @@ ARM_CELLS[("interval_calibration", "classifier_route", "correctly_specified")] =
     "the ratio by stacked classification, with a logistic model on the true log ratio, so the "
     "classifier is correctly specified",
     "SE ratio and coverage intervals both inside their calibration bands",
+)
+
+
+#: The cells of ``longitudinal-incremental`` and ``longitudinal-incremental-dropout`` (X19)
+#: that no other study shares.  The arm prefix names the plan (:data:`ARMS`).
+CELLS.update(
+    {
+        ("mechanism_term_necessity", "full_eif"): (
+            "the reported standard error from the full influence curve",
+            "both efficiency-ratio intervals inside their band",
+        ),
+        ("mechanism_term_necessity", "mechanism_term_dropped"): (
+            "the same estimates with the treatment-mechanism term removed from the curve",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+        ("single_robustness", "mechanism_correct__n_6000"): (
+            "cell-mean treatment mechanism and constant outcome regressions, at n = 6,000",
+            "absolute bias + 2 MCSE at n = 24,000 below 0.01 and below its value at n = 6,000",
+        ),
+        ("single_robustness", "mechanism_correct__n_24000"): (
+            "cell-mean treatment mechanism and constant outcome regressions, at n = 24,000",
+            "absolute bias + 2 MCSE at n = 24,000 below 0.01 and below its value at n = 6,000",
+        ),
+        ("single_robustness", "mechanism_constant"): (
+            "constant treatment mechanism and cell-mean outcome regressions, beside the "
+            "exact-law limit",
+            "reported only",
+        ),
+        ("targeting_necessity", "one_step"): (
+            "the one-step estimate with constant outcome regressions",
+            "bias inside the margin",
+        ),
+        ("targeting_necessity", "plug_in"): (
+            "the mean of the first-node regression before the correction, on the same fits",
+            "bias interval outside the margin",
+        ),
+        ("censoring_complete_case", "complete_case"): (
+            "a fit to the rows that never drop out, without a censoring model, beside the "
+            "exact-law limit",
+            "reported only",
+        ),
+        ("in_sample_fit", "one_fold"): (
+            "the same estimand fitted with one fold on the same draws",
+            "reported only",
+        ),
+    }
+)
+
+
+#: The ``sequential_double_robustness`` cells of ``longitudinal-sdr``: one pattern of wrong
+#: nuisances per node, at two sizes.  Mirrored from
+#: ``tests.studies.longitudinal_sdr_properties.PATTERN_NUISANCES``.
+_SDR_PATTERNS = {
+    "both_correct": (
+        "every outcome regression and mechanism is correct",
+        "bias inside the margin, SE ratio inside the union-model band, coverage clears the floor",
+    ),
+    "P_C": (
+        "both mechanisms are correct and both outcome regressions are wrong",
+        "bias inside the margin, SE ratio inside the union-model band, coverage clears the floor",
+    ),
+    "P_A": (
+        "both outcome regressions are correct and both mechanisms are wrong",
+        "absolute bias + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio "
+        "inside the union-model band",
+    ),
+    "P_B": (
+        "node 1 outcome regression wrong, node 2 mechanism wrong",
+        "absolute bias + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio "
+        "inside the union-model band",
+    ),
+    "P_D": (
+        "node 1 mechanism wrong, node 2 outcome regression wrong, the pattern LTMLE misses",
+        "absolute bias + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio "
+        "inside the union-model band",
+    ),
+}
+CELLS.update(
+    {
+        ("sequential_double_robustness", f"{pattern}__n_{size}"): (
+            f"{tested}, at n = {size:,}",
+            required,
+        )
+        for pattern, (tested, required) in _SDR_PATTERNS.items()
+        for size in (2_000, 8_000)
+    }
+)
+CELLS.update(
+    {
+        ("sequential_double_robustness", "node2_both_wrong_control"): (
+            "SDR with the outcome regression and the mechanism both wrong at node 2",
+            "bias interval at least 3 empirical standard deviations from zero, SE ratio inside "
+            "the union-model band",
+        ),
+        ("sequential_double_robustness", "ltmle_P_D_control"): (
+            "LTMLE in pattern P_D, where its recursion needs the node 2 outcome regression",
+            "bias interval at least 3 empirical standard deviations from zero, SE ratio inside "
+            "the union-model band",
+        ),
+        ("crossfit_overfitting", "cross_fitted_sdr"): (
+            "five-fold SDR with fully grown outcome trees and the known mechanism",
+            "SE ratio clears the overfitting floor and stays inside the sanity band",
+        ),
+        ("construction_diagnostic", "stitched_cross_fit"): (
+            "the stitched construction: each row's node 2 transform comes from the fold that "
+            "holds it out, and node 1 regresses the stitched transforms",
+            "reported only",
+        ),
+        ("construction_diagnostic", "estimated_flexible_mechanism"): (
+            "the shipped construction with a tree mechanism estimated in each fold, under the "
+            "default bounds (0.01, 1)",
+            "reported only",
+        ),
+        ("sdr_tmle_agreement", "static"): (
+            "the absolute difference of SDR and LTMLE over the SE of SDR, for always against never, "
+            "on the calibration draws",
+            "reported only",
+        ),
+        ("clustered_calibration", "known_ratio"): (
+            "grouped folds, the known ratio and GLM outcome regressions",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        ),
+        ("weighted_calibration", "correctly_specified"): (
+            "every nuisance is correct; no efficiency ratio is claimed (RM18-fixed-weights)",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        ),
+        ("weighted_calibration", "shrunken_se_control"): (
+            "the reported standard errors are multiplied by a declared factor below one",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+        ("weighted_calibration", "noise_control"): (
+            "one efficiency-bound unit of independent noise is added to each estimate",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+        ("clustered_calibration", "shrunken_se_control"): (
+            "the reported standard errors are multiplied by a declared factor below one",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+        ("clustered_calibration", "noise_control"): (
+            "a declared scale of independent noise is added to each estimate",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+    }
 )

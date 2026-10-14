@@ -269,7 +269,8 @@ def test_the_cross_fitted_r_payload_uses_the_realized_outer_folds() -> None:
     frame, truth = crossfit.draw_scenario(crossfit.SCENARIO, 1_000, 0)
     planted = Folds(np.repeat(np.arange(5), len(frame) // 5), 5)
     with patch("cleverly.longitudinal.estimator.random_partition", return_value=planted):
-        sample, written_truth, rows = crossfit._replicate((crossfit.SCENARIO, 0, len(frame)))
+        key = (crossfit.SCENARIO, 0, len(frame))
+        sample, written_truth, rows = crossfit._replicate(key, crossfit._draw(key))
 
     np.testing.assert_array_equal(sample["fold"].to_numpy(), planted.assignment)
     assert {row["estimand"] for row in written_truth} == set(truth)
