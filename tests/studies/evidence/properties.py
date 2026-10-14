@@ -8,6 +8,8 @@ estimator are shared, because every method that gets an evidence row needs the s
 
 from __future__ import annotations
 
+import dataclasses
+import math
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -1170,6 +1172,70 @@ def _positive(values: Any) -> Any:
     no verdict and removes a failure mode that has nothing to do with the estimator.
     """
     return np.maximum(values, np.finfo(float).tiny)
+
+
+def _columns(value: Any, depth: int = 0) -> list[np.ndarray]:
+    """Every numeric column of a drawn sample, found by walking its containers."""
+    if depth > 6 or value is None or isinstance(value, str | bytes | float | int | bool):
+        return []
+    if isinstance(value, pd.DataFrame):
+        numeric = value.select_dtypes(include=["number", "bool"])
+        return [numeric[name].to_numpy(dtype=float) for name in numeric.columns]
+    if isinstance(value, pd.Series):
+        return _columns(value.to_numpy(), depth + 1)
+    if isinstance(value, np.ndarray):
+        if value.dtype.kind not in "biuf" or value.ndim == 0:
+            return []
+        if value.ndim == 1:
+            return [value.astype(float)]
+        flat = value.reshape(value.shape[0], -1).astype(float)
+        return [flat[:, j] for j in range(flat.shape[1])]
+    if isinstance(value, Mapping):
+        return [column for item in value.values() for column in _columns(item, depth + 1)]
+    if isinstance(value, list | tuple):
+        return [column for item in value for column in _columns(item, depth + 1)]
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return [
+            column
+            for item in dataclasses.fields(value)
+            for column in _columns(getattr(value, item.name), depth + 1)
+        ]
+    return []
+
+
+def largest_standardized_value(drawn: Any) -> float:
+    """The most extreme observation of a drawn sample, in its column's standard deviations.
+
+    The property phase's informative-failure witness (RM39b2 rev 3, D3'f).  It reads the
+    sample alone, with no fit, so the accounting can compute it for a replicate whose fit
+    raised.  Every numeric column of the draw counts: a data frame's columns, an array's
+    columns, and the arrays of a data container such as
+    :class:`~cleverly.data.CausalData`, found by walking tuples, mappings and dataclass fields.
+    A binary column with minority share ``p`` reads ``sqrt((1 - p) / p)``, so a draw with a
+    nearly empty arm is as extreme as a continuous outlier.
+
+    Parameters
+    ----------
+    drawn : object
+        One key's drawn sample, as a study's ``draw`` returns it.
+
+    Returns
+    -------
+    float
+        ``max |x - mean| / sd`` over every column with a positive spread, or ``nan`` when no
+        column has one.
+    """
+    largest = math.nan
+    for column in _columns(drawn):
+        finite = column[np.isfinite(column)]
+        if len(finite) < 2:
+            continue
+        spread = float(np.std(finite, ddof=1))
+        if not spread > 0.0:
+            continue
+        value = float(np.max(np.abs(finite - float(np.mean(finite)))) / spread)
+        largest = value if math.isnan(largest) else max(largest, value)
+    return largest
 
 
 def standardized_bias(errors: np.ndarray) -> float:

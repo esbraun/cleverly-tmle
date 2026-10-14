@@ -140,7 +140,9 @@ from tests.studies.canonical_longitudinal_sdr import (
     supplied_ratios,
 )
 from tests.studies.canonical_ltmle import KnownLongitudinalMechanism, declared_regimens
+from tests.studies.evidence import property_failures as pf
 from tests.studies.evidence import property_verdicts
+from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyCell,
@@ -1184,6 +1186,9 @@ def _size(key: _Key) -> int:
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each fit set for a pre-run check.
@@ -1416,6 +1421,166 @@ __all__ = [
 ]
 
 
+#: The cells that share a ``sequential_double_robustness`` verdict: each two-size pattern, and
+#: every other cell alone (rev 3 section 5.0).
+PROPERTY_GROUPS = {
+    "sequential_double_robustness": (
+        *(
+            tuple(f"{pattern}__n_{size}" for size in SDR_SIZES)
+            for pattern in SDR_PATTERNS
+            if pattern not in {"both_correct", "P_C"}
+        ),
+        *(
+            (f"{pattern}__n_{size}",)
+            for pattern in SDR_PATTERNS
+            if pattern in {"both_correct", "P_C"}
+            for size in SDR_SIZES
+        ),
+        *((control,) for control in CONTROLS),
+    )
+}
+
+
+def _pattern(ctx: pf.Context, row: pd.Series) -> str:
+    return str(row["cell"]).rsplit("__n_", 1)[0]
+
+
+def _sdr_rule() -> pf.FamilyRule:
+    """``sequential_double_robustness`` (rev 3 section 5.2).
+
+    ``both_correct`` and ``P_C``: S1 equivalent, S4 in the union band, S2 at the floor, each
+    row alone.  ``P_A``, ``P_B``, ``P_D``: S14 over :data:`SDR_SIZES` against
+    :data:`SDR_TOLERANCE` and the smaller size, and S4 of the larger size, written to both cells.
+    A control: S1 beyond :data:`CONTROL_FLOOR` times its held ``empirical_se`` on the complete
+    case's side, and S4.
+    """
+
+    def single(ctx: pf.Context, row: pd.Series) -> bool:
+        return _pattern(ctx, row) in {"both_correct", "P_C"}
+
+    def control(ctx: pf.Context, row: pd.Series) -> bool:
+        return str(row["cell"]) in CONTROLS
+
+    def own_band(ctx: pf.Context, row: pd.Series) -> bool:
+        return single(ctx, row) or control(ctx, row)
+
+    def band(ctx: pf.Context) -> tuple[float, float]:
+        return UNION_MODEL_SE_BAND
+
+    def floor(ctx: pf.Context) -> float:
+        return ctx.margins.coverage_floor
+
+    def two_size(pattern: str) -> pf.Applies:
+        return lambda ctx, row: _pattern(ctx, row) == pattern and not control(ctx, row)
+
+    clauses: list[pf.Clause] = [
+        pf.bias_clause("bias equivalent", kind="equivalent", applies=single),
+        pf.proportion_clause(
+            "coverage floor", statistic="S2", judge=pf.floor_judge(floor), applies=single
+        ),
+        pf.se_point_clause("se ratio in union band", band=band, applies=own_band),
+        pf.bias_clause(
+            "bias beyond the control floor",
+            kind="beyond",
+            applies=control,
+            margin=lambda ctx, row: CONTROL_FLOOR * float(row["empirical_se"]),
+            strict=False,
+        ),
+    ]
+    small, large = SDR_SIZES
+    for pattern in SDR_PATTERNS:
+        if pattern in {"both_correct", "P_C"}:
+            continue
+        applies = two_size(pattern)
+        cells = (f"{pattern}__n_{small}", f"{pattern}__n_{large}")
+        clauses += [
+            pf.bias_bound_clause(
+                f"{pattern} large-size bias bound under the tolerance",
+                small=cells[0],
+                large=cells[1],
+                kind="tolerance",
+                tolerance=SDR_TOLERANCE,
+                column=BIAS_BOUND_COLUMN,
+                applies=applies,
+            ),
+            pf.bias_bound_clause(
+                f"{pattern} large-size bias bound under the small",
+                small=cells[0],
+                large=cells[1],
+                kind="below small",
+                column=BIAS_BOUND_COLUMN,
+                applies=applies,
+            ),
+            pf.se_point_clause(
+                f"{pattern} large-size se ratio in union band",
+                band=band,
+                applies=applies,
+                of=lambda ctx, row, cell=cells[1]: cell,
+            ),
+        ]
+    return pf.FamilyRule(
+        families=frozenset({"sequential_double_robustness"}),
+        shared="sequential_double_robustness_verdicts",
+        clauses=tuple(clauses),
+        group="pair",
+    )
+
+
+def _separate_calibration_rule() -> pf.FamilyRule:
+    """``clustered_calibration`` and ``weighted_calibration`` (rev 3 section 5.2).
+
+    The positive arm: S5 SE ratio and S2 coverage inside the calibration bands.  Each derived
+    control: S5 below the band.  The seed is ``stream_seed(STUDY, family, cell)``.
+    """
+    positives = {family: positive for family, (_, positive) in SEPARATE_CALIBRATION.items()}
+
+    def positive(ctx: pf.Context, row: pd.Series) -> bool:
+        return str(row["cell"]).endswith(f"__{positives[str(row['property'])]}")
+
+    def derived(ctx: pf.Context, row: pd.Series) -> bool:
+        return not positive(ctx, row)
+
+    def seed(ctx: pf.Context, row: pd.Series) -> int:
+        return stream_seed(ctx.record, str(row["property"]), str(row["cell"]))
+
+    def below(ctx: pf.Context, row: pd.Series, iv: Interval) -> pf.Judged:
+        low, high = ctx.margins.calibration_se_ratio
+        return pf.Judged(low - iv.high, se_ratio_leaves_band(iv, (low, high), "below"))
+
+    return pf.FamilyRule(
+        families=frozenset(SEPARATE_CALIBRATION),
+        shared="separate_calibration_verdicts",
+        clauses=(
+            pf.se_interval_clause(
+                "se ratio in calibration band",
+                which="se_ratio",
+                judge=pf.band_judge(lambda ctx: ctx.margins.calibration_se_ratio),
+                seed=seed,
+                applies=positive,
+                truth_varies=lambda ctx: False,
+            ),
+            pf.proportion_clause(
+                "coverage in calibration band",
+                statistic="S2",
+                judge=pf.band_judge(lambda ctx: ctx.margins.calibration_coverage),
+                applies=positive,
+            ),
+            pf.se_interval_clause(
+                "se ratio below band",
+                which="se_ratio",
+                judge=below,
+                seed=seed,
+                applies=derived,
+                truth_varies=lambda ctx: False,
+            ),
+        ),
+    )
+
+
 #: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
 #: this study's efficiency band as an explicit argument (D3'd).
-PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
+    _sdr_rule(),
+    _separate_calibration_rule(),
+)

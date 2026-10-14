@@ -58,6 +58,7 @@ from tests.studies import cvtmle_properties
 from tests.studies import oat_per_arm_laws as laws
 from tests.studies.bounded_cv_laws import GENERATED_DESIGN_REPLICATES
 from tests.studies.canonical_ctmle_oat_per_arm import STRATIFY_FOLDS, STUDY
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
@@ -487,6 +488,9 @@ def sampling_batches() -> tuple[PropertyBatch, ...]:
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     rows = sampling_batches()[0].run(n_jobs=n_jobs)
@@ -611,3 +615,16 @@ def revert_flag_red_cells(summary: pd.DataFrame, primary: pd.DataFrame) -> list[
         if float(row.coverage_ci_lower) < STUDY.margins.coverage_floor:
             red.append(f"primary/{row.scenario}/{row.estimand}")
     return red
+
+
+#: The label pairs that share a ``generated_design`` joint verdict (RM39b2 rev 3, section 5.0).
+PROPERTY_GROUPS = {
+    "generated_design": tuple(
+        (f"{label}__oracle_design", f"{label}__estimated") for label in CALIBRATION_LABELS
+    )
+}
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = (
+    property_verdicts.generated_design_rule(group="label", shared="_generated_design_verdicts"),
+)

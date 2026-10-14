@@ -13,6 +13,7 @@ import pandas as pd
 
 from tests.parallel import STUDY_JOBS
 from tests.studies.cvtmle_properties import cells, generate, sampling_batch, summarize
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import PropertyBatch, PropertyCell
 from tests.studies.fold_targeted_cvtmle import N_FOLDS, STUDY
 
@@ -34,6 +35,9 @@ def declared_cells() -> tuple[PropertyCell, ...]:
 #: The share of a cell's requested replications that the accounting lets a run lose.  Zero: a
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:

@@ -272,6 +272,9 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     outcomes = fit_properties(
@@ -297,6 +300,16 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return pd.concat([rows, controls], ignore_index=True)
 
 
+#: The ``targeting_necessity`` family's declaration, read by its verdict and its rule.
+TARGETING_NECESSITY = property_verdicts.Necessity(
+    family="targeting_necessity",
+    labels=("z0", "z1"),
+    arms=("targeted", "untargeted"),
+    column="targeting_displacement",
+    threshold=TARGETING_DISPLACEMENT,
+)
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     summary, rates = apply_shared_verdicts(
         rows,
@@ -307,18 +320,13 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     )
     robustness_verdicts(summary, family="cde_robustness")
     calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
-    necessity_verdicts(
-        summary,
-        rows,
-        family="targeting_necessity",
-        labels=("z0", "z1"),
-        arms=("targeted", "untargeted"),
-        column="targeting_displacement",
-        threshold=TARGETING_DISPLACEMENT,
-    )
+    necessity_verdicts(summary, rows, TARGETING_NECESSITY)
     return finish(summary, rates)
 
 
 #: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
 #: this study's efficiency band as an explicit argument (D3'd).
-PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
+    *property_verdicts.necessity_rules(TARGETING_NECESSITY),
+)

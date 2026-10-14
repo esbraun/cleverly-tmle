@@ -134,6 +134,9 @@ def _payloads(budget: int | None = None) -> list[_Key]:
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every declared replication, or the first ``budget``, then derive the controls."""

@@ -33,6 +33,7 @@ from tests.conftest import OracleOutcomeContinuous
 from tests.parallel import STUDY_JOBS
 from tests.studies import bounded_cv_laws, canonical_properties, cvtmle_properties
 from tests.studies.canonical_ctmle_oat import G_BOUNDS, STRATIFY_FOLDS, STUDY
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.properties import (
     PropertyBatch,
@@ -240,6 +241,9 @@ def sampling_batches() -> tuple[PropertyBatch, ...]:
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     batch = sampling_batches()[0]
@@ -313,3 +317,9 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         summary.loc[mask, "property_passed"] = design_joint
 
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = (
+    property_verdicts.generated_design_rule(group="family", shared="summarize_properties"),
+)

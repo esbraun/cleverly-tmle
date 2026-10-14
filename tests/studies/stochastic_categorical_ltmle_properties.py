@@ -57,6 +57,7 @@ change.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -86,7 +87,9 @@ from tests.studies.canonical_stochastic_categorical_ltmle import (
     TRUTH,
     fit,
 )
+from tests.studies.evidence import property_failures as pf
 from tests.studies.evidence import property_verdicts
+from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyCell,
@@ -931,6 +934,9 @@ def _replicate_of(key: _Key) -> int:
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each fit set for a pre-run check."""
@@ -1045,6 +1051,25 @@ def randomizer_projection_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) ->
     summary.loc[mask, "property_passed"] = bool(summary.loc[mask, "passed"].all() and upper < 1.0)
 
 
+#: The ``targeting_necessity`` family's declaration, read by its verdict and its rule.
+TARGETING_NECESSITY = property_verdicts.Necessity(
+    family="targeting_necessity",
+    labels=("mix",),
+    arms=("targeted", "untargeted"),
+    column="targeting_displacement",
+    threshold=TARGETING_DISPLACEMENT,
+)
+
+#: The ``policy_necessity`` family's declaration, read by its verdict and its rule.
+POLICY_NECESSITY = property_verdicts.Necessity(
+    family="policy_necessity",
+    labels=("mix",),
+    arms=("declared_policy", "uniform_control"),
+    column="policy_displacement",
+    threshold=POLICY_DISPLACEMENT,
+)
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """The shared verdicts and the study's own declared rules."""
     summary, rates = apply_shared_verdicts(
@@ -1062,24 +1087,8 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         efficiency_bounds=EFFICIENCY_SD,
     )
     calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
-    necessity_verdicts(
-        summary,
-        rows,
-        family="targeting_necessity",
-        labels=("mix",),
-        arms=("targeted", "untargeted"),
-        column="targeting_displacement",
-        threshold=TARGETING_DISPLACEMENT,
-    )
-    necessity_verdicts(
-        summary,
-        rows,
-        family="policy_necessity",
-        labels=("mix",),
-        arms=("declared_policy", "uniform_control"),
-        column="policy_displacement",
-        threshold=POLICY_DISPLACEMENT,
-    )
+    necessity_verdicts(summary, rows, TARGETING_NECESSITY)
+    necessity_verdicts(summary, rows, POLICY_NECESSITY)
     randomizer_projection_verdicts(summary, rows)
     crossfit_overfitting_verdicts(summary, rows, STUDY, positive_cell="cross_fitted_policy_ltmle")
     simultaneous_coverage_verdicts(summary, margins=STUDY.margins)
@@ -1088,4 +1097,44 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
 
 #: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
 #: this study's efficiency band as an explicit argument (D3'd).
-PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)
+def _projection_statistic(
+    ctx: pf.Context, row: pd.Series, numerator: pd.DataFrame, denominator: pd.DataFrame
+) -> Interval:
+    """The verdict's own :func:`projection_sd_ratio` bound, as an S9 hook (rev 3 G6)."""
+    _, upper = projection_sd_ratio(
+        pd.concat([numerator, denominator], ignore_index=True),
+        replicates=ctx.margins.bootstrap_replicates,
+        level=PROJECTION_LEVEL,
+        seed=stream_seed(ctx.record, "randomizer_projection", "sd_ratio"),
+    )
+    return Interval(math.nan, upper)
+
+
+def _projection_rule() -> pf.FamilyRule:
+    """``randomizer_projection``: each arm's bias, and the one-sided spread bound under one."""
+    return pf.FamilyRule(
+        families=frozenset({"randomizer_projection"}),
+        shared="randomizer_projection_verdicts",
+        clauses=(
+            pf.bias_clause("bias equivalent", kind="equivalent", applies=pf.every),
+            pf.spread_ratio_clause(
+                "projection spread ratio under one",
+                cells=("mix__integrated", "mix__recorded_randomizer"),
+                side="upper",
+                judge=pf.below_judge(lambda ctx: 1.0),
+                seed=lambda ctx, row: stream_seed(ctx.record, "randomizer_projection", "sd_ratio"),
+                applies=pf.every,
+                statistic=_projection_statistic,
+                columns=(None, "projection_sd_ratio_ci_upper"),
+                target="property_passed",
+            ),
+        ),
+        group="family",
+    )
+
+
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
+    *property_verdicts.necessity_rules(TARGETING_NECESSITY, POLICY_NECESSITY),
+    _projection_rule(),
+)

@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from cleverly.data import CausalData
 from tests.studies.evidence import property_failures, property_verdicts
 from tests.studies.evidence.failures import (
     BOUND_EXCEEDED,
@@ -29,15 +30,18 @@ from tests.studies.evidence.inference import clopper_pearson, student_interval
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     coverage_gain_interval,
+    largest_standardized_value,
     mean_difference_interval,
     paired,
     paired_displacement,
     paired_spread_ratio_interval,
     require_accounted,
     se_ratio_deficit_interval,
+    se_ratio_interval,
 )
 from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.replication import DRAW_NOT_SEPARABLE, Recording
+from tests.studies.evidence.seeds import stream_seed
 
 
 def _record_row(scenarios: str, replicate: int, *, group: str = "properties") -> dict:
@@ -1354,21 +1358,25 @@ def _p24_contraction(lose: bool = True) -> Control:
     return Control(rows, summary, study, family, "rate_outcome_correct", "bias contracts")
 
 
-def _overfit_pair(prefix: str, *, lose: bool) -> pd.DataFrame:
-    control = _p7_coverage_gain(lose=lose, control_loses=False)
-    rows = control.rows.copy()
-    rows["cell"] = prefix + "__" + rows["cell"]
-    return rows
+def _module_rules(module: Any) -> tuple[property_failures.FamilyRule, ...]:
+    """A module's declared rules ahead of the shared ones, as :func:`rule_for` resolves them."""
+    return (*module.PROPERTY_RULES, *property_verdicts.FAMILY_RULES)
 
 
 def _p25_pair(lose: bool = True) -> Control:
-    """``group = pair``: two declared crossfit pairs; only the pair that lost reads red."""
+    """``group = pair`` with ``mar_arm_indexed_cvtmle``'s declared label pairs: only the pair
+    that lost reads red."""
+    from tests.studies import mar_arm_indexed_cvtmle_properties as module
+
     study = _study()
-    rows = pd.concat(
-        [_overfit_pair("a", lose=lose), _overfit_pair("b", lose=False)], ignore_index=True
-    )
-    pairs = [("a__cross_fit", "a__in_sample_control"), ("b__cross_fit", "b__in_sample_control")]
+    (pairs,) = module.PROPERTY_GROUPS.values()
     frames = []
+    for index, (positive, control) in enumerate(pairs):
+        arms = _p7_coverage_gain(lose=lose and index == 0, control_loses=False).rows.copy()
+        arms["cell"] = arms["cell"].map({"cross_fit": positive, "in_sample_control": control})
+        frames.append(arms)
+    rows = pd.concat(frames, ignore_index=True)
+    summaries = []
     for positive, control in pairs:
         arms = rows.loc[rows["cell"].isin([positive, control])]
         summary, rates = property_verdicts.apply_shared_verdicts(
@@ -1380,40 +1388,25 @@ def _p25_pair(lose: bool = True) -> Control:
         property_verdicts.crossfit_overfitting_verdicts(
             summary, arms, study, positive_cell=positive, control_cell=control
         )
-        frames.append(property_verdicts.finish(summary, rates))
+        summaries.append(property_verdicts.finish(summary, rates))
     return Control(
         rows,
-        pd.concat(frames, ignore_index=True),
+        pd.concat(summaries, ignore_index=True),
         study,
         "crossfit_overfitting",
-        "a__cross_fit",
+        pairs[0][0],
         "coverage gain",
-        groups={"crossfit_overfitting": pairs},
+        property_verdicts.FAMILY_RULES,
+        module.PROPERTY_GROUPS,
     )
-
-
-def _cap_rule() -> property_failures.FamilyRule:
-    """The ``full_refit_bootstrap`` rule: the shared calibration clauses and the cap (G1)."""
-    from tests.studies.canonical_full_refit_bootstrap import FAILED_REPLICATE_CAP
-
-    shared = property_verdicts.calibration_rule(efficiency_band=None)
-    cap = property_failures.extra_mean_clause(
-        "failed bootstrap share under its cap",
-        value=lambda group: (group["bootstrap_failed"] / group["bootstrap_requested"]).to_numpy(
-            dtype=float
-        ),
-        summary_column="bootstrap_failed_fraction",
-        side="cap",
-        limit=FAILED_REPLICATE_CAP,
-        applies=property_failures.roles("positive"),
-        support=(0.0, 1.0),
-    )
-    return dataclasses.replace(shared, clauses=(*shared.clauses, cap))
 
 
 def _p26_cap(lose: bool = True) -> Control:
-    """S10: a failed-bootstrap share of 0.0095 under the 0.01 cap; 20 lost rows at share 1
-    break it, which the shared calibration rule alone never reads (G1)."""
+    """S10 through ``full_refit_bootstrap``'s own rule: a failed-bootstrap share of 0.0095 under
+    the 0.01 cap; 20 lost rows at share 1 break it, which the shared calibration rule alone
+    never reads (G1)."""
+    from tests.studies import full_refit_bootstrap_properties as module
+
     study = _study()
     size = 4180 if lose else 4200
     rows = _arm(
@@ -1428,46 +1421,30 @@ def _p26_cap(lose: bool = True) -> Control:
     rows["bootstrap_requested"] = 100
     rows["bootstrap_failed"] = (np.arange(size) < round(0.95 * size)).astype(int)
     summary = _shared(rows, study, rate_labels=())
-    share = float((rows["bootstrap_failed"] / rows["bootstrap_requested"]).mean())
-    summary["bootstrap_failed_fraction"] = share
+    summary["bootstrap_failed_fraction"] = float(module.failed_bootstrap_share(rows).mean())
     return Control(
         rows,
         summary,
         study,
         "interval_calibration",
         "z0__correctly_specified",
-        "failed bootstrap share under its cap",
-        (_cap_rule(),),
+        "failed bootstrap share under the cap",
+        _module_rules(module),
     )
 
 
 PROJECTION = "randomizer_projection"
 
 
-def _projection_hook(level: float) -> property_failures.SpreadStatistic:
-    """The verdict's own ``projection_sd_ratio``, its one-sided bound at ``level`` (G6)."""
-    from tests.studies.stochastic_categorical_ltmle_properties import projection_sd_ratio
-
-    def statistic(ctx, row, numerator, denominator):
-        _, upper = projection_sd_ratio(
-            pd.concat([numerator, denominator], ignore_index=True),
-            replicates=ctx.margins.bootstrap_replicates,
-            level=level,
-            seed=17,
-        )
-        return property_failures.Interval(math.nan, upper)
-
-    return statistic
-
-
 def _p27_projection(lose: bool = True) -> Control:
-    """S9 hook: the integrated arm's spread sits under the recorded one's; the numerator's
-    widest split pushes the one-sided bound over one."""
-    from tests.studies.stochastic_categorical_ltmle_properties import projection_sd_ratio
+    """S9 hook through ``stochastic_categorical_ltmle``'s own rule: the integrated arm's spread
+    sits under the recorded one's; the numerator's widest split pushes the verdict's one-sided
+    bound over one.  Twelve lost rows keep the bias legs green."""
+    from tests.studies import stochastic_categorical_ltmle_properties as module
 
     study = _study()
-    size = 380 if lose else 400
-    lost = _every(20, 20) if lose else ()
+    size = 388 if lose else 400
+    lost = _every(33, 12) if lose else ()
     integrated = 0.9 * _signs(size)
     integrated[0], integrated[1] = 2.5, -2.5
     rows = pd.concat(
@@ -1491,74 +1468,83 @@ def _p27_projection(lose: bool = True) -> Control:
         ],
         ignore_index=True,
     )
-    level = 0.99
-    clause = property_failures.spread_ratio_clause(
-        "projection spread ratio under one",
-        cells=("mix__integrated", "mix__recorded_randomizer"),
-        side="upper",
-        judge=property_failures.below_judge(lambda ctx: 1.0),
-        seed=lambda ctx, row: 17,
-        applies=property_failures.every,
-        statistic=_projection_hook(level),
-        columns=(None, "sd_ratio_upper"),
-        target="property_passed",
-    )
-    rules = _one_rule(PROJECTION, clause, group="family")
-    _, upper = projection_sd_ratio(
-        rows, replicates=study.margins.bootstrap_replicates, level=level, seed=17
-    )
-    summary = _summary_of(
-        PROJECTION,
+    rules = _module_rules(module)
+    _, upper = module.projection_sd_ratio(
         rows,
-        rules,
-        columns={cell: {"sd_ratio_upper": upper} for cell in set(rows["cell"])},
-        study=study,
+        replicates=study.margins.bootstrap_replicates,
+        level=module.PROJECTION_LEVEL,
+        seed=stream_seed(study, PROJECTION, "sd_ratio"),
     )
-    return Control(rows, summary, study, PROJECTION, "mix__integrated", clause.name, rules)
+    columns = {}
+    for cell, group in rows.groupby("cell"):
+        errors = (group["estimate"] - group["truth"]).to_numpy(dtype=float)
+        columns[str(cell)] = {
+            **_bias_columns(group, study),
+            "bias_margin": study.margins.standardized_bias * float(np.std(errors, ddof=1)),
+            "projection_sd_ratio_ci_upper": upper,
+        }
+    summary = _summary_of(PROJECTION, rows, rules, columns=columns, study=study)
+    return Control(
+        rows,
+        summary,
+        study,
+        PROJECTION,
+        "mix__integrated",
+        "projection spread ratio under one",
+        rules,
+    )
 
 
-GENERATED = "synthetic_generated_design"
+GENERATED = property_verdicts.GENERATED_DESIGN_FAMILY
 
 
 def _p31_label(lose: bool = True) -> Control:
-    """``group = label``: a loss in label ``a`` breaks its coverage band; label ``b`` keeps its
-    joint verdict."""
+    """``group = label`` with ``ctmle_oat_per_arm``'s declared label groups: a loss in the first
+    label's estimated arm breaks its coverage band; the other label keeps its joint verdict."""
+    from tests.studies import ctmle_oat_per_arm_properties as module
+
     study = _study()
+    groups = module.PROPERTY_GROUPS
+    cells = [cell for members in groups[GENERATED] for cell in members]
+    losing = groups[GENERATED][0][1]
     arms = []
-    for cell in ("a__x", "a__y", "b__x", "b__y"):
-        losing = lose and cell == "a__x"
-        size = 4000 if losing else 4200
+    for cell in cells:
+        loses = lose and cell == losing
+        size = 4000 if loses else 4200
         arms.append(
             _arm(
                 GENERATED,
                 cell,
                 "positive",
                 requested=4200,
-                lost=_every(21, 200) if losing else (),
+                lost=_every(21, 200) if loses else (),
                 estimates=_signs(size),
-                covered=_hits(3730 if losing else round(0.95 * size), size),
+                covered=_hits(3730 if loses else round(0.95 * size), size),
             )
         )
     rows = pd.concat(arms, ignore_index=True)
-    clause = property_failures.proportion_clause(
-        "coverage in calibration band",
-        statistic="S2",
-        judge=property_failures.band_judge(lambda ctx: ctx.margins.calibration_coverage),
-        applies=property_failures.every,
-    )
-    groups = {GENERATED: [("a__x", "a__y"), ("b__x", "b__y")]}
-    rules = _one_rule(GENERATED, clause, group="label")
+    rules = _module_rules(module)
     level = study.margins.confidence_level
     columns = {}
     for cell, group in rows.groupby("cell"):
-        interval = clopper_pearson(int(group["covered"].sum()), len(group), confidence_level=level)
+        coverage = clopper_pearson(int(group["covered"].sum()), len(group), confidence_level=level)
+        ratio = se_ratio_interval(
+            group,
+            replicates=study.margins.bootstrap_replicates,
+            confidence_level=level,
+            seed=stream_seed(study, GENERATED, *str(cell).split("__")),
+        )
         columns[str(cell)] = {
             "coverage": float(group["covered"].mean()),
-            "coverage_ci_lower": interval.low,
-            "coverage_ci_upper": interval.high,
+            "coverage_ci_lower": coverage.low,
+            "coverage_ci_upper": coverage.high,
+            "se_ratio_ci_lower": ratio.low,
+            "se_ratio_ci_upper": ratio.high,
         }
     summary = _summary_of(GENERATED, rows, rules, columns=columns, study=study, groups=groups)
-    return Control(rows, summary, study, GENERATED, "a__x", clause.name, rules, groups)
+    return Control(
+        rows, summary, study, GENERATED, losing, "coverage in calibration band", rules, groups
+    )
 
 
 def _p6_interior(lose: bool = True) -> Control:
@@ -2036,12 +2022,14 @@ def test_p24_the_fill_nearest_a_zero_mean_breaks_the_contraction() -> None:
 
 def test_p25_only_the_pair_that_lost_turns_red() -> None:
     control = _control("p25")
+    (pairs,) = control.groups.values()
     corrected = property_failures.correct_properties(
         control.summary, _accounted("p25"), module=_module(control), rules=control.rules
     ).set_index("cell")
-    assert not corrected.loc[["a__cross_fit", "a__in_sample_control"], "property_passed"].any()
-    assert corrected.loc[["b__cross_fit", "b__in_sample_control"], "property_passed"].all()
-    assert set(_accounted("p25")["cell"]) == {"a__cross_fit", "a__in_sample_control"}
+    assert not corrected.loc[list(pairs[0]), "property_passed"].any()
+    others = [cell for pair in pairs[1:] for cell in pair]
+    assert len(others) >= 2 and corrected.loc[others, "property_passed"].all()
+    assert set(_accounted("p25")["cell"]) == set(pairs[0])
 
 
 def test_p26_the_shared_calibration_rule_alone_stays_green() -> None:
@@ -2055,31 +2043,60 @@ def test_p26_the_shared_calibration_rule_alone_stays_green() -> None:
 
 def test_p27_the_hook_reads_the_verdict_s_own_statistic() -> None:
     """G6: ``projection_sd_ratio`` and ``paired_spread_ratio_interval`` differ on these rows."""
-    from tests.studies.stochastic_categorical_ltmle_properties import projection_sd_ratio
+    from tests.studies import stochastic_categorical_ltmle_properties as module
 
     control = _control("p27")
     rows = control.rows
-    _, upper = projection_sd_ratio(
-        rows, replicates=control.study.margins.bootstrap_replicates, level=0.99, seed=17
+    seed = stream_seed(control.study, PROJECTION, "sd_ratio")
+    _, upper = module.projection_sd_ratio(
+        rows,
+        replicates=control.study.margins.bootstrap_replicates,
+        level=module.PROJECTION_LEVEL,
+        seed=seed,
     )
     default = paired_spread_ratio_interval(
         rows.loc[rows["cell"] == "mix__integrated"],
         rows.loc[rows["cell"] == "mix__recorded_randomizer"],
         replicates=control.study.margins.bootstrap_replicates,
         confidence_level=control.study.margins.confidence_level,
-        seed=17,
+        seed=seed,
     )
     assert default.interval.high != pytest.approx(upper, rel=1e-6)
 
 
+def test_p28_a_module_rule_s_conjunct_turns_the_cell_red_and_the_shared_rule_does_not() -> None:
+    """D3'a precedence on a real module: ``full_refit_bootstrap``'s cap is read only through
+    the module's own rule.  The same cell resolved to the shared rule is green."""
+    from tests.studies import full_refit_bootstrap_properties as module
+
+    control = _control("p26")
+    declared = SimpleNamespace(
+        FAILURE_BOUND=property_failures.MAXIMUM_BOUND, PROPERTY_RULES=module.PROPERTY_RULES
+    )
+    assert property_failures.rule_for("interval_calibration", declared) is module.PROPERTY_RULES[0]
+    assert property_failures.rule_for("interval_calibration") is _rule("interval_calibration")
+    records = _gap_records(control.rows)
+    resolved = property_failures.property_accounting(
+        control.rows, records, control.summary, record=control.study, module=declared
+    )
+    shared = property_failures.property_accounting(
+        control.rows, records, control.summary, record=control.study, module=BOUNDED
+    )
+    assert set(resolved["reason"]) == {WORST_CASE_FAILS}
+    assert set(shared["reason"]) == {WITHIN_BOUND}
+    corrected = property_failures.correct_properties(control.summary, resolved, module=declared)
+    assert not corrected["passed"].astype(bool).any()
+
+
 def test_p31_only_the_label_that_lost_turns_red() -> None:
     control = _control("p31")
+    (losing, kept) = control.groups[GENERATED]
     corrected = property_failures.correct_properties(
         control.summary, _accounted("p31"), module=_module(control), rules=control.rules
     ).set_index("cell")
-    assert not corrected.loc[["a__x", "a__y"], "property_passed"].any()
-    assert not corrected.loc["a__x", "passed"] and corrected.loc["a__y", "passed"]
-    assert corrected.loc[["b__x", "b__y"], "property_passed"].all()
+    assert not corrected.loc[list(losing), "property_passed"].any()
+    assert corrected.loc[losing[0], "passed"] and not corrected.loc[losing[1], "passed"]
+    assert corrected.loc[list(kept), "property_passed"].all()
 
 
 def test_a_label_rule_needs_a_declaration() -> None:
@@ -2283,6 +2300,36 @@ class TestWitness:
 
     def test_mid_rank_ties(self) -> None:
         assert property_failures._mid_rank(1.0, np.array([0.0, 1.0, 1.0, 2.0])) == 0.5
+
+
+class TestSampleWitness:
+    """D3'f: the declared witness reads the draw alone, through any container a study draws."""
+
+    def test_a_binary_column_reads_its_minority_share(self) -> None:
+        treatment = (np.arange(200) < 10).astype(float)
+        p = 10 / 200
+        expected = (1 - p) / np.std(treatment, ddof=1)
+        assert largest_standardized_value(pd.DataFrame({"A": treatment})) == pytest.approx(expected)
+        # The witness separates draws: a nearly empty arm reads larger than a balanced one.
+        balanced = (np.arange(200) < 100).astype(float)
+        assert largest_standardized_value(pd.DataFrame({"A": balanced})) < expected
+
+    def test_an_outlier_in_any_container_is_found(self) -> None:
+        rng = np.random.default_rng(3)
+        covariates = rng.normal(size=(300, 2))
+        covariates[7, 1] = 12.0
+        data = CausalData.from_arrays(
+            rng.normal(size=300), (np.arange(300) % 2).astype(float), covariates
+        )
+        frame = pd.DataFrame(covariates, columns=["x0", "x1"])
+        column = covariates[:, 1]
+        expected = float(np.max(np.abs(column - column.mean())) / np.std(column, ddof=1))
+        for drawn in (data, (data, {"ate": 1.0}), frame, {"frame": frame}, [covariates]):
+            assert largest_standardized_value(drawn) == pytest.approx(expected)
+
+    def test_a_draw_with_no_spread_reads_nan(self) -> None:
+        assert np.isnan(largest_standardized_value(pd.DataFrame({"A": np.ones(5)})))
+        assert np.isnan(largest_standardized_value(("text", 3.0)))
         assert math.isnan(property_failures._mid_rank(math.nan, np.array([0.0])))
 
 

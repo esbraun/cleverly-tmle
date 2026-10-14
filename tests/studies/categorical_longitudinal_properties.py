@@ -11,12 +11,14 @@ from scipy.stats import norm
 from tests import discrete_law_longitudinal_multivalue as law
 from tests.parallel import STUDY_JOBS
 from tests.studies import categorical_longitudinal_common as common
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
+    Necessity,
     apply_shared_verdicts,
     calibration_controls,
     calibration_derived,
@@ -378,6 +380,9 @@ def _payloads(
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(
     record: StudyRecord, *, cross_fit: bool, n_jobs: int = STUDY_JOBS
@@ -413,6 +418,32 @@ def generate_property_rows(
     )
 
 
+#: The three necessity declarations, read by the verdicts and by each adapter's rules.
+NECESSITIES = (
+    Necessity(
+        family="targeting_necessity",
+        labels=tuple(common.CONTRASTS),
+        arms=("targeted", "untargeted"),
+        column="targeting_displacement",
+        threshold=TARGETING_DISPLACEMENT,
+    ),
+    Necessity(
+        family="categorical_probability_necessity",
+        labels=("third_arm",),
+        arms=("assigned_probability", "binary_complement"),
+        column="categorical_probability_displacement",
+        threshold=CATEGORICAL_PROBABILITY_DISPLACEMENT,
+    ),
+    Necessity(
+        family="rule_necessity",
+        labels=("dynamic",),
+        arms=("declared_rule", "reversed_rule"),
+        column="rule_displacement",
+        threshold=RULE_DISPLACEMENT,
+    ),
+)
+
+
 def summarize_properties(
     rows: pd.DataFrame, record: StudyRecord, *, cross_fit: bool
 ) -> pd.DataFrame:
@@ -431,33 +462,8 @@ def summarize_properties(
         efficiency_bounds=EFFICIENCY_SD,
     )
     calibration_verdicts(summary, margins=record.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
-    necessity_verdicts(
-        summary,
-        rows,
-        family="targeting_necessity",
-        labels=tuple(common.CONTRASTS),
-        arms=("targeted", "untargeted"),
-        column="targeting_displacement",
-        threshold=TARGETING_DISPLACEMENT,
-    )
-    necessity_verdicts(
-        summary,
-        rows,
-        family="categorical_probability_necessity",
-        labels=("third_arm",),
-        arms=("assigned_probability", "binary_complement"),
-        column="categorical_probability_displacement",
-        threshold=CATEGORICAL_PROBABILITY_DISPLACEMENT,
-    )
-    necessity_verdicts(
-        summary,
-        rows,
-        family="rule_necessity",
-        labels=("dynamic",),
-        arms=("declared_rule", "reversed_rule"),
-        column="rule_displacement",
-        threshold=RULE_DISPLACEMENT,
-    )
+    for necessity in NECESSITIES:
+        necessity_verdicts(summary, rows, necessity)
     if cross_fit:
         crossfit_overfitting_verdicts(
             summary,

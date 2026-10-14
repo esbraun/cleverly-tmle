@@ -58,6 +58,7 @@ from tests.studies.clustered_crossfit_ltmle import (
     STUDY,
     fit_cleverly,
 )
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import PropertyCell, control_row, replicate_row
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
@@ -282,6 +283,9 @@ def _replicate_of(key: tuple[Any, ...]) -> int:
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each cell for a pre-run check."""
@@ -310,3 +314,9 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         )
     simultaneous_coverage_verdicts(summary, margins=STUDY.margins)
     return finish(summary, rates)
+
+
+#: The pairs that share a ``clustered_inference`` joint verdict (RM39b2 rev 3, section 5.0).
+PROPERTY_GROUPS = {
+    "clustered_inference": tuple((positive, control) for positive, control, _, _ in PAIRS)
+}

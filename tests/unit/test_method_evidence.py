@@ -26,7 +26,13 @@ import pandas as pd
 import pytest
 
 from tests.documents import pipe_table
-from tests.studies.evidence import descriptions, failures, property_failures, property_verdicts
+from tests.studies.evidence import (
+    descriptions,
+    failures,
+    property_failures,
+    property_verdicts,
+    replication,
+)
 from tests.studies.evidence.claims import load, quantities, thresholds, value
 from tests.studies.evidence.comparison import equivalence
 from tests.studies.evidence.document import (
@@ -2827,11 +2833,9 @@ def _context(study: StudyRecord, rows: pd.DataFrame, summary: pd.DataFrame):
 
 
 def _differential(study: StudyRecord, summary: pd.DataFrame, rows: pd.DataFrame) -> pd.DataFrame:
-    local = property_failures.STUDY_LOCAL.get(study.slug, frozenset())
-    wrong = property_failures.differential(
+    return property_failures.differential(
         summary, _context(study, rows, summary), module=study.properties()
     )
-    return wrong.loc[~wrong["property"].isin(local)]
 
 
 class TestPropertyFailures:
@@ -2889,19 +2893,9 @@ class TestPropertyFailures:
         bound = float(study.properties().FAILURE_BOUND)
         assert 0.0 <= bound <= property_failures.MAXIMUM_BOUND
 
-    def test_every_study_local_pair_names_a_shared_family_the_study_publishes(
-        self, study: StudyRecord
-    ) -> None:
-        """A local entry is study code beside a shared rule.  A stale one hides a family.
-
-        A study with a non-zero bound has no local entry: its regeneration adds the rule of
-        each family it computes itself (D3).
-        """
-        local = property_failures.STUDY_LOCAL.get(study.slug, frozenset())
-        published = set(pd.read_csv(study.artifact("properties.csv"))["property"])
-        assert local <= SHARED_FAMILIES & published
-        if float(study.properties().FAILURE_BOUND):
-            assert not local, f"{study.slug} declares a bound but computes {sorted(local)} itself"
+    def test_the_module_declares_its_informative_failure_witness(self, study: StudyRecord) -> None:
+        """D3'f: the regeneration driver reads ``PROPERTY_WITNESS``, a draw-level statistic."""
+        assert isinstance(study.properties().PROPERTY_WITNESS, replication.Witness)
 
     def test_each_shared_rule_reproduces_the_committed_verdicts(self, study: StudyRecord) -> None:
         """Each rule read on the complete-case summary gives every target's published verdict."""
@@ -2935,8 +2929,15 @@ def test_the_differential_sample_covers_every_shared_family() -> None:
         path = study.artifact("properties.csv")
         if not path.exists():
             return set()
-        published = set(pd.read_csv(path)["property"]) & SHARED_FAMILIES
-        return published - property_failures.STUDY_LOCAL.get(study.slug, frozenset())
+        module = study.properties()
+        return {
+            family
+            for family in set(pd.read_csv(path)["property"]) & SHARED_FAMILIES
+            if any(
+                property_failures.rule_for(family, module) is rule
+                for rule in property_verdicts.FAMILY_RULES
+            )
+        }
 
     covered = set().union(*(ruled(STUDY_BY_SLUG[slug]) for slug in DIFFERENTIAL_SAMPLE))
     published = set().union(*(ruled(study) for study in STUDIES))

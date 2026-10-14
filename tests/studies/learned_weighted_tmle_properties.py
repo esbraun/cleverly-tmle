@@ -9,6 +9,7 @@ from scipy.stats import norm
 
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_learned_weighted_tmle import STUDY, fit_cleverly
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     control_row,
     payload_cell,
@@ -217,6 +218,9 @@ def _payloads() -> list[_Key]:
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     """Generate every predeclared cell and paired calibration control."""
@@ -243,6 +247,17 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return pd.concat([rows, controls], ignore_index=True)
 
 
+#: The ``learner_weight_necessity`` family's declaration, read by its verdict and its rule.
+LEARNER_WEIGHT_NECESSITY = property_verdicts.Necessity(
+    family="learner_weight_necessity",
+    labels=(TARGET,),
+    arms=("weighted_plugin", "unweighted_plugin_control"),
+    alternative_truths={TARGET: SELECTED_ATE},
+    column="necessity_displacement",
+    threshold=LEARNER_WEIGHT_DISPLACEMENT,
+)
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """Apply shared repeated-sampling rules, the calibration rules and the weight witness.
 
@@ -265,15 +280,9 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     )
     calibration_verdicts(summary, margins=STUDY.margins, positive_suffix="treatment_correct")
 
-    alternative_target_necessity_verdicts(
-        summary,
-        rows,
-        STUDY,
-        family="learner_weight_necessity",
-        labels=(TARGET,),
-        arms=("weighted_plugin", "unweighted_plugin_control"),
-        alternative_truths={TARGET: SELECTED_ATE},
-        column="necessity_displacement",
-        threshold=LEARNER_WEIGHT_DISPLACEMENT,
-    )
+    alternative_target_necessity_verdicts(summary, rows, STUDY, LEARNER_WEIGHT_NECESSITY)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = (*property_verdicts.necessity_rules(LEARNER_WEIGHT_NECESSITY),)

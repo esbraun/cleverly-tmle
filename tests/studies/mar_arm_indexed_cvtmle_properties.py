@@ -42,6 +42,7 @@ from tests.studies.canonical_mar_arm_indexed_cvtmle import (
     STUDY,
     fit_cleverly,
 )
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     ReplicationSpec,
     control_row,
@@ -372,6 +373,9 @@ def _fit(payloads: list[_Key], *, n_jobs: int, label: str, checkpoint: Any) -> p
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return _fit(_payloads(), n_jobs=n_jobs, label="properties", checkpoint="ambient")
@@ -415,3 +419,13 @@ def declared_settings() -> dict[str, Any]:
         "shrunken_se_factor": SHRUNKEN_SE_FACTOR,
         "nuisance_bound": NUISANCE_BOUND,
     }
+
+
+#: The label pairs that share a ``crossfit_overfitting`` joint verdict (RM39b2 rev 3, section
+#: 5.0).
+PROPERTY_GROUPS = {
+    "crossfit_overfitting": tuple(
+        (f"{label}__stacked_arm_indexed_cvtmle", f"{label}__in_sample_control")
+        for label in OVERFIT_LABELS
+    )
+}

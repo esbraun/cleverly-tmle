@@ -17,6 +17,7 @@ from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_ltmle import declared_regimens
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, control_row, replicate_row
 from tests.studies.evidence.property_verdicts import (
+    Necessity,
     alternative_target_necessity_verdicts,
     apply_shared_verdicts,
     calibration_controls,
@@ -572,6 +573,37 @@ def generate_property_rows(
     )
 
 
+#: The three necessity declarations, read by the verdicts and by each adapter's rules.
+TARGETING_NECESSITY = Necessity(
+    family="targeting_necessity",
+    labels=tuple(CONTRASTS),
+    arms=("targeted", "untargeted"),
+    column="targeting_displacement",
+    threshold=NECESSITY_DISPLACEMENT,
+)
+WEIGHT_NECESSITY = Necessity(
+    family="weight_necessity",
+    labels=tuple(WEIGHT_MEANS),
+    arms=("weighted", "omitted_weight_control"),
+    alternative_truths={
+        label: float(law.functional(SELECTED_PROBS, name)) for label, name in WEIGHT_MEANS.items()
+    },
+    column="weight_displacement",
+    threshold=NECESSITY_DISPLACEMENT,
+)
+LEARNER_WEIGHT_NECESSITY = Necessity(
+    family="learner_weight_necessity",
+    labels=("static",),
+    arms=("weighted_learners", "discarded_learner_weight_control"),
+    alternative_truths={
+        "static": float(law.functional(LEARNER_SELECTED_PROBS, CONTRASTS["static"]))
+    },
+    column="learner_weight_displacement",
+    threshold=NECESSITY_DISPLACEMENT,
+)
+NECESSITIES = (TARGETING_NECESSITY, WEIGHT_NECESSITY, LEARNER_WEIGHT_NECESSITY)
+
+
 def summarize_properties(rows: pd.DataFrame, record: StudyRecord) -> pd.DataFrame:
     summary, rates = apply_shared_verdicts(
         rows,
@@ -590,40 +622,7 @@ def summarize_properties(rows: pd.DataFrame, record: StudyRecord) -> pd.DataFram
         efficiency_bounds=EFFICIENCY_SD,
     )
     calibration_verdicts(summary, margins=record.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
-    necessity_verdicts(
-        summary,
-        rows,
-        family="targeting_necessity",
-        labels=tuple(CONTRASTS),
-        arms=("targeted", "untargeted"),
-        column="targeting_displacement",
-        threshold=NECESSITY_DISPLACEMENT,
-    )
-    alternative_target_necessity_verdicts(
-        summary,
-        rows,
-        record,
-        family="weight_necessity",
-        labels=tuple(WEIGHT_MEANS),
-        arms=("weighted", "omitted_weight_control"),
-        alternative_truths={
-            label: float(law.functional(SELECTED_PROBS, name))
-            for label, name in WEIGHT_MEANS.items()
-        },
-        column="weight_displacement",
-        threshold=NECESSITY_DISPLACEMENT,
-    )
-    alternative_target_necessity_verdicts(
-        summary,
-        rows,
-        record,
-        family="learner_weight_necessity",
-        labels=("static",),
-        arms=("weighted_learners", "discarded_learner_weight_control"),
-        alternative_truths={
-            "static": float(law.functional(LEARNER_SELECTED_PROBS, CONTRASTS["static"]))
-        },
-        column="learner_weight_displacement",
-        threshold=NECESSITY_DISPLACEMENT,
-    )
+    necessity_verdicts(summary, rows, TARGETING_NECESSITY)
+    for necessity in (WEIGHT_NECESSITY, LEARNER_WEIGHT_NECESSITY):
+        alternative_target_necessity_verdicts(summary, rows, record, necessity)
     return finish(summary, rates)

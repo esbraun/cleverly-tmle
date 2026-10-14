@@ -269,6 +269,9 @@ def _payloads() -> list[_Key]:
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     """Run the declared cells and derive paired calibration controls from the same draws."""
@@ -294,6 +297,26 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return pd.concat([rows, controls], ignore_index=True)
 
 
+#: The ``targeting_necessity`` family's declaration, read by its verdict and its rule.
+TARGETING_NECESSITY = property_verdicts.Necessity(
+    family="targeting_necessity",
+    labels=(TARGET,),
+    arms=("targeted", "untargeted"),
+    column="targeting_displacement",
+    threshold=TARGETING_DISPLACEMENT,
+)
+
+#: The ``weight_necessity`` family's declaration, read by its verdict and its rule.
+WEIGHT_NECESSITY = property_verdicts.Necessity(
+    family="weight_necessity",
+    labels=(TARGET,),
+    arms=("weighted", "omitted_control"),
+    alternative_truths={TARGET: SELECTED_TRUTH},
+    column="necessity_displacement",
+    threshold=WEIGHT_DISPLACEMENT,
+)
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """Apply the shared verdicts plus targeting and weight-necessity rules."""
     summary, rates = apply_shared_verdicts(
@@ -315,29 +338,14 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         margins=STUDY.margins,
         efficiency_band=EFFICIENCY_RATIO_BAND,
     )
-    necessity_verdicts(
-        summary,
-        rows,
-        family="targeting_necessity",
-        labels=(TARGET,),
-        arms=("targeted", "untargeted"),
-        column="targeting_displacement",
-        threshold=TARGETING_DISPLACEMENT,
-    )
-    alternative_target_necessity_verdicts(
-        summary,
-        rows,
-        STUDY,
-        family="weight_necessity",
-        labels=(TARGET,),
-        arms=("weighted", "omitted_control"),
-        alternative_truths={TARGET: SELECTED_TRUTH},
-        column="necessity_displacement",
-        threshold=WEIGHT_DISPLACEMENT,
-    )
+    necessity_verdicts(summary, rows, TARGETING_NECESSITY)
+    alternative_target_necessity_verdicts(summary, rows, STUDY, WEIGHT_NECESSITY)
     return finish(summary, rates)
 
 
 #: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
 #: this study's efficiency band as an explicit argument (D3'd).
-PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
+    *property_verdicts.necessity_rules(TARGETING_NECESSITY, WEIGHT_NECESSITY),
+)

@@ -82,7 +82,7 @@ from tests import discrete_law_longitudinal_incremental as law
 from tests.parallel import STUDY_JOBS
 from tests.studies import longitudinal_incremental_common as common
 from tests.studies.canonical_longitudinal_incremental import PLANS, REFERENCE, STUDY
-from tests.studies.evidence import property_verdicts
+from tests.studies.evidence import property_failures, property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyCell,
@@ -678,6 +678,9 @@ def _replicate_of(key: _Key) -> int:
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each fit set for a pre-run check."""
@@ -796,6 +799,16 @@ def single_robustness_verdicts(summary: pd.DataFrame) -> None:
     summary.loc[family, "property_passed"] = verdict
 
 
+#: The ``targeting_necessity`` family's declaration, read by its verdict and its rule.
+TARGETING_NECESSITY = property_verdicts.Necessity(
+    family="targeting_necessity",
+    labels=("contrast_x2",),
+    arms=("one_step", "plug_in"),
+    column="targeting_displacement",
+    threshold=TARGETING_DISPLACEMENT,
+)
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """The shared verdicts and the study's own declared rules."""
     summary, rates = apply_shared_verdicts(
@@ -815,15 +828,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     simultaneous_coverage_verdicts(summary, margins=STUDY.margins)
     mechanism_term_verdicts(summary, rows)
     single_robustness_verdicts(summary)
-    necessity_verdicts(
-        summary,
-        rows,
-        family="targeting_necessity",
-        labels=("contrast_x2",),
-        arms=("one_step", "plug_in"),
-        column="targeting_displacement",
-        threshold=TARGETING_DISPLACEMENT,
-    )
+    necessity_verdicts(summary, rows, TARGETING_NECESSITY)
     return finish(summary, rates)
 
 
@@ -836,6 +841,49 @@ __all__ = [
 ]
 
 
+def _single_robustness_rule() -> property_failures.FamilyRule:
+    """``single_robustness``: S14 over :data:`REQUIREMENT_SIZES`, written to both cells.
+
+    ``B_large < ABSOLUTE_BIAS_TOLERANCE`` and ``B_large < B_small``.  The diagnostic
+    ``mechanism_constant`` cell publishes a limit and no verdict.
+    """
+    small, large = (f"contrast_x2__mechanism_correct__n_{size}" for size in REQUIREMENT_SIZES)
+    pair = property_failures.cells(small, large)
+    return property_failures.FamilyRule(
+        families=frozenset({"single_robustness"}),
+        shared="single_robustness_verdicts",
+        clauses=(
+            property_failures.bias_bound_clause(
+                "large-size bias bound under the tolerance",
+                small=small,
+                large=large,
+                kind="tolerance",
+                tolerance=ABSOLUTE_BIAS_TOLERANCE,
+                column=BIAS_BOUND_COLUMN,
+                applies=pair,
+            ),
+            property_failures.bias_bound_clause(
+                "large-size bias bound under the small",
+                small=small,
+                large=large,
+                kind="below small",
+                column=BIAS_BOUND_COLUMN,
+                applies=pair,
+            ),
+        ),
+        group="family",
+    )
+
+
 #: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
 #: this study's efficiency band as an explicit argument (D3'd).
-PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
+    *property_verdicts.necessity_rules(TARGETING_NECESSITY),
+    property_verdicts.score_necessity_rule(
+        "mechanism_term_necessity",
+        efficiency_band=EFFICIENCY_RATIO_BAND,
+        shared="mechanism_term_verdicts",
+    ),
+    _single_robustness_rule(),
+)

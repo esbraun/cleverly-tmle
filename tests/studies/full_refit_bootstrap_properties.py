@@ -45,6 +45,7 @@ from tests.studies.canonical_full_refit_bootstrap import (
     sample_end_of_study,
 )
 from tests.studies.canonical_ltmle import G_BOUNDS
+from tests.studies.evidence import property_failures, property_verdicts
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, finite_support_sample
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
@@ -382,6 +383,9 @@ def payloads(replicates: int | None = None) -> list[_Key]:
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     outcomes = fit_properties(
@@ -444,6 +448,39 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         if conditional and summary.loc[index, "role"] == "positive":
             summary.loc[index, "passed"] = False
     return finish(summary, rates)
+
+
+def _has_bootstrap(ctx: property_failures.Context, row: pd.Series) -> bool:
+    """A positive row whose cell ran bootstraps, the rows the cap reads."""
+    return str(row["role"]) == "positive" and np.isfinite(float(row["bootstrap_failed_fraction"]))
+
+
+def _calibration_with_cap() -> property_failures.FamilyRule:
+    """The shared calibration rule plus the failed-replicate cap (rev 3 G1).
+
+    The cap is S10 on :func:`failed_bootstrap_share`, a share, so a lost replicate fills at 1.
+    """
+    shared = property_verdicts.calibration_rule(efficiency_band=None)
+    return property_failures.FamilyRule(
+        families=shared.families,
+        shared="summarize_properties",
+        clauses=(
+            *shared.clauses,
+            property_failures.extra_mean_clause(
+                "failed bootstrap share under the cap",
+                value=lambda group: failed_bootstrap_share(group).to_numpy(dtype=float),
+                summary_column="bootstrap_failed_fraction",
+                side="cap",
+                limit=FAILED_REPLICATE_CAP,
+                applies=_has_bootstrap,
+                support=(0.0, 1.0),
+            ),
+        ),
+    )
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = (_calibration_with_cap(),)
 
 
 __all__ = [

@@ -37,6 +37,7 @@ from tests.studies.evidence.property_verdicts import (
     DIAGNOSTIC_ROLE,
     ROOT_N_SLOPE_MARGIN,
     SE_CONTROL_SIDES,
+    Necessity,
     alternative_target_necessity_verdicts,
     calibration_verdicts,
     se_ratio_leaves_band,
@@ -228,12 +229,14 @@ def test_an_alternative_target_control_must_recover_the_target_it_claims() -> No
         summary,
         rows,
         record,
-        family="weight_necessity",
-        labels=("ate",),
-        arms=("weighted", "omitted_control"),
-        alternative_truths={"ate": 1.0},
-        column="necessity_displacement",
-        threshold=0.5,
+        Necessity(
+            family="weight_necessity",
+            labels=("ate",),
+            arms=("weighted", "omitted_control"),
+            alternative_truths={"ate": 1.0},
+            column="necessity_displacement",
+            threshold=0.5,
+        ),
     )
     assert summary["passed"].all()
     assert summary["property_passed"].all()
@@ -243,12 +246,14 @@ def test_an_alternative_target_control_must_recover_the_target_it_claims() -> No
         changed,
         rows,
         record,
-        family="weight_necessity",
-        labels=("ate",),
-        arms=("weighted", "omitted_control"),
-        alternative_truths={"ate": 0.5},
-        column="necessity_displacement",
-        threshold=0.5,
+        Necessity(
+            family="weight_necessity",
+            labels=("ate",),
+            arms=("weighted", "omitted_control"),
+            alternative_truths={"ate": 0.5},
+            column="necessity_displacement",
+            threshold=0.5,
+        ),
     )
     control = changed.loc[changed["role"] == "control"]
     assert not bool(control["alternative_bias_equivalent"].iloc[0])

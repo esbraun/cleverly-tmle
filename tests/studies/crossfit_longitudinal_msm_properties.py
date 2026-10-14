@@ -835,6 +835,9 @@ def _replicate_of(key: tuple[Any, ...]) -> int:
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each fit set for a pre-run check."""
@@ -897,6 +900,25 @@ def _probe_one(payload: tuple[str, str, str, int, int, int, str]) -> bool:
 # ---------------------------------------------------------------------------- verdicts
 
 
+#: The ``targeting_necessity`` family's declaration, read by its verdict and its rule.
+TARGETING_NECESSITY = property_verdicts.Necessity(
+    family="targeting_necessity",
+    labels=("duration",),
+    arms=("targeted", "untargeted"),
+    column="targeting_displacement",
+    threshold=TARGETING_DISPLACEMENT,
+)
+
+#: The ``projection_necessity`` family's declaration, read by its verdict and its rule.
+PROJECTION_NECESSITY = property_verdicts.Necessity(
+    family="projection_necessity",
+    labels=("duration",),
+    arms=("declared_weights", "uniform_weights"),
+    column="projection_displacement",
+    threshold=PROJECTION_DISPLACEMENT,
+)
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """The shared verdicts, the study's own declared rules, and the reported diagnostic."""
     summary, rates = apply_shared_verdicts(
@@ -913,24 +935,8 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         efficiency_bounds=EFFICIENCY_SD,
     )
     calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
-    necessity_verdicts(
-        summary,
-        rows,
-        family="targeting_necessity",
-        labels=("duration",),
-        arms=("targeted", "untargeted"),
-        column="targeting_displacement",
-        threshold=TARGETING_DISPLACEMENT,
-    )
-    necessity_verdicts(
-        summary,
-        rows,
-        family="projection_necessity",
-        labels=("duration",),
-        arms=("declared_weights", "uniform_weights"),
-        column="projection_displacement",
-        threshold=PROJECTION_DISPLACEMENT,
-    )
+    necessity_verdicts(summary, rows, TARGETING_NECESSITY)
+    necessity_verdicts(summary, rows, PROJECTION_NECESSITY)
     crossfit_overfitting_verdicts(summary, rows, STUDY, positive_cell="cross_fitted_msm")
     simultaneous_coverage_verdicts(summary, margins=STUDY.margins)
     # A reported family: its rows publish the declared statistic and state no verdict.  The
@@ -960,4 +966,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
 
 #: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
 #: this study's efficiency band as an explicit argument (D3'd).
-PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
+    *property_verdicts.necessity_rules(TARGETING_NECESSITY, PROJECTION_NECESSITY),
+)

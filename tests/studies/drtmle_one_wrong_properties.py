@@ -61,6 +61,7 @@ import pandas as pd
 from tests.parallel import STUDY_JOBS
 from tests.studies import drtmle_one_wrong as study
 from tests.studies.drtmle_one_wrong import STUDY
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     paired_spread_ratio_interval,
@@ -344,6 +345,9 @@ def declared_truths() -> tuple[tuple[str, str, str, float], ...]:
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each block for a smoke run."""
@@ -409,3 +413,9 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     summary.loc[summary["property"] == REPORTED_FAMILY, "passed"] = True
     _reported(summary, rows)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = (
+    property_verdicts.one_wrong_rule(predicted_signs=PREDICTED_SIGNS, ladders=LADDERS),
+)

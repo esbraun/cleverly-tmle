@@ -25,6 +25,7 @@ from cleverly.estimators import CTMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import multi_arm_common, multi_arm_properties
 from tests.studies.canonical_multi_arm_ctmle_selector import STRATIFY_FOLDS, STUDY
+from tests.studies.evidence import property_failures, property_verdicts
 from tests.studies.evidence.properties import PropertyBatch, PropertyCell, paired
 from tests.studies.evidence.property_verdicts import (
     FOLD_POLICY_FAMILY,
@@ -138,6 +139,9 @@ def sampling_batches() -> tuple[PropertyBatch, ...]:
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return sampling_batches()[0].run(n_jobs=n_jobs)
@@ -210,3 +214,33 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     )
     fold_policy_diagnostics(summary, rows, STUDY)
     return finish(summary, rates)
+
+
+def _selector_rule() -> property_failures.FamilyRule:
+    """``selector_necessity``: each arm's bias endpoint, and S13 on the largest path ratio."""
+    return property_failures.FamilyRule(
+        families=frozenset({"selector_necessity"}),
+        shared="summarize_properties",
+        clauses=(
+            property_failures.bias_clause(
+                "bias equivalent", kind="equivalent", applies=property_failures.roles("positive")
+            ),
+            property_failures.bias_clause(
+                "bias discriminated", kind="beyond", applies=property_failures.roles("control")
+            ),
+            property_failures.rmse_ratio_clause(
+                "largest path rmse ratio under its ceiling",
+                paths=tuple(
+                    (path, multi_arm_properties.SELECTOR_CONTROL)
+                    for path in multi_arm_properties.SELECTOR_PATHS
+                ),
+                statistic=path_rmse_ratio,
+                threshold=SELECTOR_RMSE_RATIO,
+            ),
+        ),
+        group="family",
+    )
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = (_selector_rule(),)

@@ -383,6 +383,7 @@ def _toy_properties(bad: set[int]) -> SimpleNamespace:
 
     return SimpleNamespace(
         FAILURE_BOUND=0.0,
+        PROPERTY_WITNESS=replication.Witness("drawn index", float),
         generate_property_rows=generate_property_rows,
         summarize_properties=summarize_properties,
     )
@@ -451,6 +452,8 @@ def test_a_property_failure_is_recorded_accounted_and_hashed(
     assert set(accounting["reason"]) == {"bound exceeded"}
     witnesses = property_failures.read_witnesses(out / property_failures.PROPERTY_WITNESSES)
     assert witnesses is not None and 7 in set(witnesses["replicate"])
+    assert set(witnesses["statistic"]) == {"drawn index"}
+    assert list(witnesses["value"]) == [float(r) for r in witnesses["replicate"]]
     summary = pd.read_csv(out / "properties.csv")
     assert not summary["passed"].any()
 

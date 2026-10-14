@@ -239,6 +239,9 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     outcomes = fit_properties(
@@ -254,18 +257,20 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return add_calibration_controls(rows, STUDY, label=LABEL, efficiency_sd=EFFICIENCY_SD)
 
 
+#: The study's two necessity declarations, read by its verdicts and its rules.
+NECESSITIES = shared_regime.necessities(LABEL, "rule_necessity", ("declared", "static_control"))
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     return summarize(
         rows,
         STUDY,
         label=LABEL,
         efficiency_sd=EFFICIENCY_SD,
-        necessity_family="rule_necessity",
-        necessity_arms=("declared", "static_control"),
+        declared=NECESSITIES,
         include_static_reduction=True,
     )
 
 
-#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
-#: this study's efficiency band as an explicit argument (D3'd).
-PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = shared_regime.property_rules(NECESSITIES, include_static_reduction=True)

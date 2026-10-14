@@ -627,6 +627,9 @@ def generate_for(
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return generate_for(
@@ -651,27 +654,30 @@ def summarize_for(
     # A no-op for the cross-fitted study, which publishes no joint cell.
     simultaneous_coverage_verdicts(summary, margins=study.margins)
 
-    necessity_verdicts(
-        summary,
-        rows,
-        family="targeting_necessity",
-        labels=PROPERTY_LABELS,
-        arms=("targeted", "untargeted"),
-        column="targeting_displacement",
-        threshold=TARGETING_DISPLACEMENT,
-    )
-    necessity_verdicts(
-        summary,
-        rows,
-        family="competing_risk_recursion_necessity",
-        labels=tuple(f"{cause}_always_t2" for cause in law.CAUSES),
-        arms=("all_cause", "cause_specific_control"),
-        column="recursion_displacement",
-        threshold=RECURSION_DISPLACEMENT,
-    )
+    necessity_verdicts(summary, rows, TARGETING_NECESSITY)
+    necessity_verdicts(summary, rows, COMPETING_RISK_RECURSION_NECESSITY)
     if crossfit_positive_cell is not None:
         crossfit_overfitting_verdicts(summary, rows, study, positive_cell=crossfit_positive_cell)
     return finish(summary, rates)
+
+
+#: The ``targeting_necessity`` family's declaration, read by its verdict and its rule.
+TARGETING_NECESSITY = property_verdicts.Necessity(
+    family="targeting_necessity",
+    labels=PROPERTY_LABELS,
+    arms=("targeted", "untargeted"),
+    column="targeting_displacement",
+    threshold=TARGETING_DISPLACEMENT,
+)
+
+#: The ``competing_risk_recursion_necessity`` family's declaration, read by its verdict and its rule.
+COMPETING_RISK_RECURSION_NECESSITY = property_verdicts.Necessity(
+    family="competing_risk_recursion_necessity",
+    labels=tuple(f"{cause}_always_t2" for cause in law.CAUSES),
+    arms=("all_cause", "cause_specific_control"),
+    column="recursion_displacement",
+    threshold=RECURSION_DISPLACEMENT,
+)
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
@@ -680,4 +686,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
 
 #: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
 #: this study's efficiency band as an explicit argument (D3'd).
-PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
+    *property_verdicts.necessity_rules(TARGETING_NECESSITY, COMPETING_RISK_RECURSION_NECESSITY),
+)

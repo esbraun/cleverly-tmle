@@ -299,19 +299,6 @@ PROPERTY_ACCOUNTING_COLUMNS = (
     "reason",
 )
 
-#: ``(study slug, family)`` pairs whose verdict a study computes itself, beyond a shared
-#: function.  The accounting no longer reads this table: each family resolves through
-#: :func:`rule_for`.  The differential tests of ``tests/unit/test_method_evidence.py`` skip
-#: these pairs until each module declares its own ``PROPERTY_RULES`` (rev 3 commit 7d).
-STUDY_LOCAL: Mapping[str, frozenset[str]] = {
-    "clustered-unequal-cvtmle": frozenset({"clustered_inference"}),
-    "clustered-cross-fitted-ltmle": frozenset({"clustered_inference"}),
-    "stacked-mar-arm-indexed-cvtmle": frozenset({"crossfit_overfitting"}),
-    "mar-drtmle": frozenset({"corrected_mar_inference"}),
-    "multi-arm-mar-drtmle": frozenset({"corrected_mar_inference"}),
-    "composite-missing-drtmle": frozenset({"corrected_mar_inference"}),
-}
-
 #: The witness values a run with a property failure publishes beside its records: the
 #: statistic of every key of each cell that lost a replicate (D3'f).
 PROPERTY_WITNESSES = "property-failure-witnesses.csv"
@@ -1037,6 +1024,7 @@ def se_point_clause(
     *,
     band: Callable[[Context], tuple[float, float]],
     applies: Applies,
+    of: Callable[[Context, pd.Series], str] | None = None,
     target: str = "passed",
 ) -> Clause:
     """S4: the point SE ratio inside a band, over the RM39a2 SE-ratio set (exact, G7).
@@ -1049,6 +1037,9 @@ def se_point_clause(
         The band the ratio must sit inside.
     applies : Callable
         The rows the clause is part of.
+    of : Callable or None
+        The cell of the same family whose ratio the clause reads, for a cross-row read such
+        as a two-size verdict written to both sizes; the row's own cell by default.
     target : str
         The verdict the clause feeds.
 
@@ -1062,18 +1053,41 @@ def se_point_clause(
         low, high = band(ctx)
         return Judged(min(ratio - low, high - ratio), bool(low <= ratio <= high))
 
+    def cell_of(ctx: Context, row: pd.Series) -> str:
+        return str(row["cell"]) if of is None else of(ctx, row)
+
     def read(ctx: Context, row: pd.Series) -> Judged:
-        return judge(ctx, float(row["se_ratio"]))
+        if of is None:
+            return judge(ctx, float(row["se_ratio"]))
+        summary = ctx.summary
+        selected = summary.loc[
+            (summary["property"] == row["property"]) & (summary["cell"] == cell_of(ctx, row)),
+            "se_ratio",
+        ]
+        return judge(ctx, float(selected.iloc[0]))
+
+    def reads(ctx: Context, row: pd.Series) -> list[tuple[str, str]]:
+        return [(str(row["property"]), cell_of(ctx, row))]
 
     def candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
         varies = ctx.record.truth_varies_by_replicate
-        group = ctx.cell(row["property"], row["cell"])
+        family, cell = str(row["property"]), cell_of(ctx, row)
+        group = ctx.cell(family, cell)
+        k = ctx.k(row) if of is None else ctx.lost_in(family, cell)
         return [
             (label, judge(ctx, _se_ratio(frame, varies)))
-            for label, frame in se_ratio_sets(group, ctx.k(row), truth_varies=varies)
+            for label, frame in se_ratio_sets(group, k, truth_varies=varies)
         ]
 
-    return Clause(name, "S4", applies, read, candidates, target=target)
+    return Clause(
+        name,
+        "S4",
+        applies,
+        read,
+        candidates,
+        target=target,
+        reads=None if of is None else reads,
+    )
 
 
 def se_interval_clause(

@@ -43,6 +43,7 @@ from scipy.stats import norm
 from tests.parallel import STUDY_JOBS
 from tests.studies import known_mechanism_law as law
 from tests.studies.canonical_known_mechanism import STUDY, fit_cleverly
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.inference import percentile_interval
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
@@ -343,6 +344,9 @@ def declared_truths() -> tuple[tuple[str, str, str, float], ...]:
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Run every declared replication and derive the calibration controls from the same rows."""
@@ -440,3 +444,10 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     calibration_verdicts(summary, margins=STUDY.margins, positive_suffix=CALIBRATION_ARM)
     _direction_report(summary, rows)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = (
+    property_verdicts.accuracy_rule(ACCURACY, shared="_accuracy_verdicts"),
+    property_verdicts.coverage_floor_rule(BOOTSTRAP, shared="_accuracy_verdicts"),
+)

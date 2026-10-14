@@ -20,6 +20,7 @@ from cleverly.learners.crossfit import CrossFitPlan
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_cvtmle import cv_fit
 from tests.studies.cvtmle_properties import cells, generate, sampling_batch, summarize
+from tests.studies.evidence import property_failures, property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyBatch,
@@ -259,6 +260,9 @@ def _summarize_repeat_stability(rows: pd.DataFrame, columns: pd.Index) -> pd.Dat
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     inherited = generate(
@@ -293,3 +297,29 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         [summary, _summarize_repeat_stability(stability, summary.columns)], ignore_index=True
     )
     return finish(summary, rates)
+
+
+def _stability_rule() -> property_failures.FamilyRule:
+    """``repeat_stability``: S9 on the paired spread ratio, ``U < MAX_REPEAT_SPREAD_RATIO``.
+
+    A replicate is a fold seed on one fixed sample, so the survivor range is the range over
+    fold seeds.  Both rows publish the one verdict.
+    """
+    return property_failures.FamilyRule(
+        families=frozenset({"repeat_stability"}),
+        shared="_summarize_repeat_stability",
+        clauses=(
+            property_failures.spread_ratio_clause(
+                "repeat spread ratio under its boundary",
+                cells=("three_repeats", "one_repeat_control"),
+                side="upper",
+                judge=property_failures.below_judge(lambda ctx: MAX_REPEAT_SPREAD_RATIO),
+                seed=lambda ctx, row: stream_seed(ctx.record, "repeat_stability", "bootstrap"),
+                applies=property_failures.every,
+            ),
+        ),
+    )
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = (_stability_rule(),)

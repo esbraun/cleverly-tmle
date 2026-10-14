@@ -37,6 +37,7 @@ import pandas as pd
 
 from tests.parallel import STUDY_JOBS
 from tests.studies import _learned_rule_law as law
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
@@ -265,6 +266,9 @@ def _payloads(record: StudyRecord, cap: int | None) -> list[_Key]:
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(
     *, n_jobs: int = STUDY_JOBS, record: StudyRecord = STUDY, cap: int | None = None
@@ -304,6 +308,27 @@ def generate_property_rows(
     return rows.loc[:, [*REPLICATE_COLUMNS, *law.HARNESS_COLUMNS]]
 
 
+#: The ``targeting_necessity`` family's declaration, read by its verdict and its rule.
+TARGETING_NECESSITY = property_verdicts.Necessity(
+    family="targeting_necessity",
+    labels=(LAW,),
+    arms=("targeted", "untargeted"),
+    column="targeting_displacement",
+    threshold=TARGETING_DISPLACEMENT,
+    truth_varies=STUDY.truth_varies_by_replicate,
+)
+
+#: The ``fold_locality`` family's declaration, read by its verdict and its rule.
+FOLD_LOCALITY = property_verdicts.Necessity(
+    family="fold_locality",
+    labels=(LAW,),
+    arms=("fold_local", "validation_rows"),
+    column="fold_locality_displacement",
+    threshold=FOLD_LOCALITY_DISPLACEMENT,
+    truth_varies=STUDY.truth_varies_by_replicate,
+)
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """The verdict of each cell, every statistic on the error of each row."""
     summary, rates = apply_shared_verdicts(
@@ -312,24 +337,10 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         extra_columns=("targeting_displacement", "fold_locality_displacement"),
     )
     calibration_verdicts(summary, margins=STUDY.margins)
-    necessity_verdicts(
-        summary,
-        rows,
-        family="targeting_necessity",
-        labels=(LAW,),
-        arms=("targeted", "untargeted"),
-        column="targeting_displacement",
-        threshold=TARGETING_DISPLACEMENT,
-        truth_varies=STUDY.truth_varies_by_replicate,
-    )
-    necessity_verdicts(
-        summary,
-        rows,
-        family="fold_locality",
-        labels=(LAW,),
-        arms=("fold_local", "validation_rows"),
-        column="fold_locality_displacement",
-        threshold=FOLD_LOCALITY_DISPLACEMENT,
-        truth_varies=STUDY.truth_varies_by_replicate,
-    )
+    necessity_verdicts(summary, rows, TARGETING_NECESSITY)
+    necessity_verdicts(summary, rows, FOLD_LOCALITY)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = (*property_verdicts.necessity_rules(TARGETING_NECESSITY, FOLD_LOCALITY),)

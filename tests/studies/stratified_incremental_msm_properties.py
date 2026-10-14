@@ -109,6 +109,7 @@ from tests.studies.canonical_stratified_incremental_msm import (
     msm_label_name,
     natural_label_name,
 )
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyCell,
@@ -713,6 +714,9 @@ def _payloads(budget: int | None = None) -> list[_Key]:
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every declared replication, or the first ``budget`` of each batch, then the controls."""
@@ -747,6 +751,22 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
     )
 
 
+#: The two necessity declarations, read by the verdicts and the rules.
+NECESSITIES = tuple(
+    property_verdicts.Necessity(
+        family=family,
+        labels=labels,
+        arms=arms,
+        column="targeting_displacement",
+        threshold=TARGETING_DISPLACEMENT,
+    )
+    for family, labels, arms in (
+        ("stratum_targeting_necessity", NECESSITY_LABELS, NECESSITY_ARMS),
+        ("targeting_necessity", TARGETING_LABELS, TARGETING_ARMS),
+    )
+)
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """The shared rules, the joint rule, the mechanism rule and both necessity rules."""
     margins = STUDY.margins
@@ -760,19 +780,8 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     # efficiency columns (``calibration_efficiency_ratio=False`` on the record).
     calibration_verdicts(summary, margins=margins, efficiency_band=None)
     simultaneous_coverage_verdicts(summary, margins=margins)
-    for family, labels, arms in (
-        ("stratum_targeting_necessity", NECESSITY_LABELS, NECESSITY_ARMS),
-        ("targeting_necessity", TARGETING_LABELS, TARGETING_ARMS),
-    ):
-        necessity_verdicts(
-            summary,
-            rows,
-            family=family,
-            labels=labels,
-            arms=arms,
-            column="targeting_displacement",
-            threshold=TARGETING_DISPLACEMENT,
-        )
+    for necessity in NECESSITIES:
+        necessity_verdicts(summary, rows, necessity)
     return finish(summary, rates)
 
 
@@ -894,3 +903,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
                 NECESSITY_REPLICATES,
             )
     return tuple(cells)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = (*property_verdicts.necessity_rules(*NECESSITIES),)

@@ -50,6 +50,7 @@ from tests.studies.clustered_unequal_cvtmle import (
     fit_cleverly,
     tmle_settings,
 )
+from tests.studies.evidence import property_failures, property_verdicts
 from tests.studies.evidence.properties import PropertyCell, control_row, replicate_row
 from tests.studies.evidence.property_verdicts import (
     DIAGNOSTIC_ROLE,
@@ -347,6 +348,9 @@ def _replicate_of(key: tuple[Any, ...]) -> int:
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each family for a pre-run check."""
@@ -406,3 +410,36 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
 def exact_propensity() -> OracleTreatment:
     """The exact treatment mechanism of the informative law."""
     return OracleTreatment(ExactPropensity())
+
+
+#: The pairs that share a ``clustered_inference`` joint verdict (RM39b2 rev 3, section 5.0).
+PROPERTY_GROUPS = {
+    "clustered_inference": tuple((positive, control) for positive, control, _ in PAIRS)
+}
+
+
+def _weighting_rule() -> property_failures.FamilyRule:
+    """``estimand_weighting``: S2 at the floor, or S2 under the ceiling, joint over the family."""
+    return property_failures.FamilyRule(
+        families=frozenset({WEIGHTING}),
+        shared="estimand_weighting_verdicts",
+        clauses=(
+            property_failures.proportion_clause(
+                "coverage floor",
+                statistic="S2",
+                judge=property_failures.floor_judge(lambda ctx: ctx.margins.coverage_floor),
+                applies=property_failures.roles("positive"),
+            ),
+            property_failures.proportion_clause(
+                "coverage under the control ceiling",
+                statistic="S2",
+                judge=property_failures.below_judge(lambda ctx: CONTROL_COVERAGE_CEILING),
+                applies=property_failures.roles("control"),
+            ),
+        ),
+        group="family",
+    )
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = (_weighting_rule(),)

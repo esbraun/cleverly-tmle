@@ -583,6 +583,9 @@ def _payloads(budget: int | None) -> list[_Key]:
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each fit set for a pre-run check."""
@@ -639,6 +642,25 @@ def _probe_one(payload: tuple[str, str, str, int, int, int, str]) -> bool:
     return not all(np.isfinite(row["estimate"]) and np.isfinite(row["std_error"]) for row in rows)
 
 
+#: The ``targeting_necessity`` family's declaration, read by its verdict and its rule.
+TARGETING_NECESSITY = property_verdicts.Necessity(
+    family="targeting_necessity",
+    labels=("x1_25",),
+    arms=("targeted", "untargeted"),
+    column="targeting_displacement",
+    threshold=TARGETING_DISPLACEMENT,
+)
+
+#: The ``inverse_necessity`` family's declaration, read by its verdict and its rule.
+INVERSE_NECESSITY = property_verdicts.Necessity(
+    family="inverse_necessity",
+    labels=("halve",),
+    arms=("declared_inverse", "inverse_dropped_control"),
+    column="inverse_displacement",
+    threshold=INVERSE_DISPLACEMENT,
+)
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """The shared verdicts and the study's own declared rules."""
     summary, rates = apply_shared_verdicts(
@@ -654,27 +676,14 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         efficiency_bounds=EFFICIENCY_SD,
     )
     calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
-    necessity_verdicts(
-        summary,
-        rows,
-        family="targeting_necessity",
-        labels=("x1_25",),
-        arms=("targeted", "untargeted"),
-        column="targeting_displacement",
-        threshold=TARGETING_DISPLACEMENT,
-    )
-    necessity_verdicts(
-        summary,
-        rows,
-        family="inverse_necessity",
-        labels=("halve",),
-        arms=("declared_inverse", "inverse_dropped_control"),
-        column="inverse_displacement",
-        threshold=INVERSE_DISPLACEMENT,
-    )
+    necessity_verdicts(summary, rows, TARGETING_NECESSITY)
+    necessity_verdicts(summary, rows, INVERSE_NECESSITY)
     return finish(summary, rates)
 
 
 #: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
 #: this study's efficiency band as an explicit argument (D3'd).
-PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
+    *property_verdicts.necessity_rules(TARGETING_NECESSITY, INVERSE_NECESSITY),
+)

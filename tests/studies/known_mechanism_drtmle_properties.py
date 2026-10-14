@@ -17,6 +17,7 @@ import pandas as pd
 from tests.parallel import STUDY_JOBS
 from tests.studies import known_mechanism_law as law
 from tests.studies.canonical_known_mechanism_drtmle import STUDY, fit_cleverly
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, replicate_row
 from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
 from tests.studies.evidence.replication import fit_properties, splat
@@ -83,6 +84,9 @@ def declared_truths() -> tuple[tuple[str, str, str, float], ...]:
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     replicates = ACCURACY_REPLICATES if budget is None else min(budget, ACCURACY_REPLICATES)
@@ -111,3 +115,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         & summary.loc[family, "se_ratio"].between(*margins.se_ratio_sanity)
     )
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  Every cell is positive.
+PROPERTY_RULES = (property_verdicts.accuracy_rule(ACCURACY, shared="summarize_properties"),)

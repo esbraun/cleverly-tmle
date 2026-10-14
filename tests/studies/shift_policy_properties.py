@@ -26,6 +26,7 @@ from tests.studies.canonical_shift_policies import (
     reversed_ratio_control,
     shifts,
 )
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     control_row,
     payload_cell,
@@ -297,6 +298,9 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     outcomes = fit_properties(
@@ -327,6 +331,35 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return pd.concat([rows, shrunken], ignore_index=True)
 
 
+#: The three necessity declarations, read by the verdicts and the rules.
+NECESSITIES = (
+    property_verdicts.Necessity(
+        family="targeting_necessity",
+        labels=("shift",),
+        arms=("targeted", "untargeted"),
+        column="targeting_displacement",
+        threshold=TARGETING_DISPLACEMENT,
+    ),
+    property_verdicts.Necessity(
+        family="ratio_necessity",
+        labels=("shift",),
+        arms=("declared", "reversed_control"),
+        column="necessity_displacement",
+        threshold=NECESSITY_DISPLACEMENT,
+    ),
+    property_verdicts.Necessity(
+        family="cap_necessity",
+        labels=("shift",),
+        arms=("declared_cap", "uncapped_control"),
+        column="necessity_displacement",
+        threshold=NECESSITY_DISPLACEMENT,
+    ),
+)
+
+#: The cells the ``natural_course_identity`` supremum compares.
+IDENTITY_CELLS = ("natural__shift", "natural__mean")
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     summary, rates = apply_shared_verdicts(
         rows,
@@ -349,40 +382,30 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     summary.loc[control, "passed"] = (
         summary.loc[control, "se_ratio_ci_upper"] < STUDY.margins.calibration_se_ratio[0]
     )
-    for family, arms, column, threshold in (
-        (
-            "targeting_necessity",
-            ("targeted", "untargeted"),
-            "targeting_displacement",
-            TARGETING_DISPLACEMENT,
-        ),
-        (
-            "ratio_necessity",
-            ("declared", "reversed_control"),
-            "necessity_displacement",
-            NECESSITY_DISPLACEMENT,
-        ),
-        (
-            "cap_necessity",
-            ("declared_cap", "uncapped_control"),
-            "necessity_displacement",
-            NECESSITY_DISPLACEMENT,
-        ),
-    ):
-        necessity_verdicts(
-            summary,
-            rows,
-            family=family,
-            labels=("shift",),
-            arms=arms,
-            column=column,
-            threshold=threshold,
-        )
+    for necessity in NECESSITIES:
+        necessity_verdicts(summary, rows, necessity)
     identity = summary["property"] == "natural_course_identity"
     source = rows.loc[rows["property"] == "natural_course_identity"]
     wide = source.pivot(index="replicate", columns="cell", values="estimate")
-    difference = float(np.max(np.abs(wide["natural__shift"] - wide["natural__mean"])))
+    shifted, natural = IDENTITY_CELLS
+    difference = float(np.max(np.abs(wide[shifted] - wide[natural])))
     summary.loc[identity, "maximum_identity_difference"] = difference
     summary.loc[identity, "passed"] = difference < IDENTITY_TOLERANCE
     summary.loc[identity, "property_passed"] = bool(difference < IDENTITY_TOLERANCE)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration verdict is
+#: this module's own code, declared with the shared rule's clauses and no efficiency band.  The
+#: natural-course identity is a sup-norm with a fixed tolerance and is not accountable (R3-1).
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=None),
+    *property_verdicts.necessity_rules(*NECESSITIES),
+    property_verdicts.identity_rule(
+        "natural_course_identity",
+        column="maximum_identity_difference",
+        cells=IDENTITY_CELLS,
+        tolerance=IDENTITY_TOLERANCE,
+        shared="shift_policy_properties.summarize_properties",
+    ),
+)

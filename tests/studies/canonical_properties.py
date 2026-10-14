@@ -25,6 +25,7 @@ from tests.conftest import OracleOutcomeContinuous, OracleTreatment
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_cvtmle
 from tests.studies.canonical_tmle import G_BOUNDS, STUDY
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import PropertyBatch, PropertyCell
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
@@ -499,6 +500,9 @@ def sampling_batches() -> tuple[PropertyBatch, ...]:
 #: The share of a cell's requested replications that the accounting lets a run lose.  Zero: a
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:

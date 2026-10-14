@@ -592,6 +592,9 @@ def _payloads(budget: int | None = None) -> list[tuple[Payload]]:
 #: single lost replication turns the cell red (RM39 part b2, OQ-3).
 FAILURE_BOUND = 0.0
 
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     outcomes = fit_properties(
@@ -666,4 +669,19 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
 
 #: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
 #: this study's efficiency band as an explicit argument (D3'd).
-PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
+    *property_verdicts.corrected_mar_rules(
+        both_wrong_floor=BOTH_WRONG_BIAS_FLOOR,
+        uncorrected_floor=UNCORRECTED_SCORE_FLOOR,
+        correction_ratio=CORRECTION_SCORE_RATIO,
+        shared="summarize_properties",
+    ),
+    property_verdicts.accuracy_rule(
+        "ordinary_targeting",
+        shared="summarize_properties",
+        floor=ORDINARY_COVERAGE_FLOOR,
+        band=ORDINARY_SE_BAND,
+    ),
+    property_verdicts.accuracy_rule("treatment_complete_case", shared="summarize_properties"),
+)

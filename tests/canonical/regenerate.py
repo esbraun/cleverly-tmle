@@ -1059,7 +1059,7 @@ def _property_artifacts(
     out = paths["properties.csv"].parent
     if not arguments.skip_properties:
         with replication.recording(
-            record.implementation, witness=getattr(properties, "PROPERTY_WITNESS", None)
+            record.implementation, witness=properties.PROPERTY_WITNESS
         ) as recorded:
             rows = properties.generate_property_rows(n_jobs=arguments.jobs)
         records = property_failures.frame(recorded)
