@@ -71,7 +71,6 @@ from cleverly.datasets import DGP
 from cleverly.estimators import CTMLE, PropensityArrays
 from cleverly.learners._l1_logistic import L1Logistic, default_penalty_grid
 from cleverly.utils.bounds import expit
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_ctmle_selector import (
     CTMLE_COMMIT,
@@ -79,9 +78,10 @@ from tests.studies.canonical_ctmle_selector import (
     assert_unstratified_selection,
 )
 from tests.studies.canonical_cvtmle import STRATIFY_FOLDS
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS, reported_inference
-from tests.studies.evidence.seeds import draw_replicate, stream_seed
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed, stream_seed
 
 PRIMARY_REPLICATES = 800
 PRIMARY_N = 2000
@@ -977,16 +977,23 @@ def cleverly_rows(
     return [{column: row[column] for column in REPLICATE_COLUMNS} for row in rows]
 
 
+def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    scenario, replicate, n = key
+    return draw_scenario(scenario, n, replicate)
+
+
 def _replicate(
-    payload: tuple[str, int, int],
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
 ) -> tuple[pd.DataFrame, dict[str, Any], list[dict[str, Any]]]:
-    scenario, replicate, n = payload
-    frame, truth = draw_scenario(scenario, n, replicate)
+    scenario, replicate, _ = key
+    frame, truth = drawn
     result = fit_cleverly(frame, scenario, replicate)
     sample = frame.copy()
     # The split the subject scored its candidates on, taken off the fit.  For binary_lasso R
     # selects against it.  For binary_learners it is folds_R - 1, and R redraws folds_R from
-    # its own seed and checks the draw against r_folds.csv.gz.
+    # its own seed and checks the draw against r_folds.csv.gz.  Both columns need the fit, so
+    # a failed fit leaves its replicate without a sample, and the driver passes no
+    # ``reference_input``.
     sample.insert(0, "package_selected", int(result.extra["ctmle"].selected) + 1)
     sample.insert(0, "selection_fold", result.extra["ctmle"].folds.assignment)
     sample.insert(0, "replicate", replicate)
@@ -999,21 +1006,30 @@ def _replicate(
     return sample, truth_row, _rows_from_result(result, truth, scenario, replicate, len(frame))
 
 
-def draw_and_fit(
-    *, replicates: int, n: int, n_jobs: int = STUDY_JOBS
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    payloads = [
-        ((scenario, replicate, n),)
-        for scenario in STUDY.scenarios
-        for replicate in range(replicates)
-    ]
-    outcomes = map_parallel(_replicate, payloads, n_jobs=n_jobs)
-    samples = pd.concat([sample for sample, _, _ in outcomes], ignore_index=True)
-    truths = pd.DataFrame([truth for _, truth, _ in outcomes])
-    rows = pd.DataFrame([row for _, _, records in outcomes for row in records])
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
+    outcomes = replication.fit_primary(
+        [
+            (scenario, replicate, n)
+            for scenario in STUDY.scenarios
+            for replicate in range(replicates)
+        ],
+        _replicate,
+        draw=_draw,
+        n_jobs=n_jobs,
+        implementation=STUDY.implementation,
+        seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
+    )
+    samples = pd.concat([sample for sample, _, _ in outcomes.kept], ignore_index=True)
+    truths = pd.DataFrame([truth for _, truth, _ in outcomes.kept])
+    rows = pd.DataFrame([row for _, _, records in outcomes.kept for row in records])
     # The package's selection travels on its rows to ``extra_artifacts``; the driver keeps
     # only REPLICATE_COLUMNS in the published replicate file.
-    return samples, truths, rows.loc[:, [*REPLICATE_COLUMNS, *PACKAGE_COLUMNS]]
+    return replication.result(
+        outcomes,
+        rows.loc[:, [*REPLICATE_COLUMNS, *PACKAGE_COLUMNS]],
+        samples=samples,
+        truths=truths,
+    )
 
 
 # --------------------------------------------------------------------------- side artefacts
