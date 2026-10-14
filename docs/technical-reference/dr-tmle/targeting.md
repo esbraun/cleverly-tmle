@@ -180,6 +180,12 @@ other rows' generated regressors and then returns to its own reduced-regression 
 those rows. Generic cross-fitting results do not cover that because the conditional independence
 they turn on is exactly what the generated design breaks.
 
+Cross-fitting does not repair a one-wrong fit whose mechanism breaks the level sets of `g_0`. With
+a wrong outcome regression and a gradient-boosting mechanism on law L, the ten-fold default gave an
+ATE bias of +1.53, +2.01 and +1.51 SD at n = 1,000, 4,000 and 16,000. That bias is in the
+estimator's population limit at the fitted mechanism, so no fold layout removes it.
+[A data-adaptive mechanism](theorem.md#a-data-adaptive-mechanism) gives the measurement.
+
 The argument supplied here. Writing `ĥ_k` for what fold `k`'s reduced regression contributes and
 `h̃_k` for the nested version:
 

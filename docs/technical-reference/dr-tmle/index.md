@@ -28,9 +28,13 @@ which is the single most important page in this section.
 The interval is valid when both nuisances are consistent at the product rates, under DR-TMLE's own reduced-regression
 and solve conditions. With one nuisance inconsistent, the two extra equations remove the part of
 the first-order remainder that is a function of the consistent nuisance. The rest can stay first
-order. The one-wrong interval is valid for a declared known mechanism and conservative for a
+order.
+
+The one-wrong interval is valid for a declared known mechanism and conservative for a
 correctly specified parametric mechanism. With the mechanism wrong, the interval is not established, even for a correctly specified parametric outcome regression. With a data-adaptive learner for the consistent
 nuisance it is not established ([the case table](theorem.md#the-conditioning-terms-are-linear-in-one-error)).
+A gradient-boosting mechanism with a wrong outcome regression gave a bias of 1.2 to 2.5 SD,
+cross-fitted or in sample ([a data-adaptive mechanism](theorem.md#a-data-adaptive-mechanism)).
 
 What this is *not*: a better point estimate. The extra fluctuations update the outcome
 regression, the mechanism, or both, so `Ψ̂` differs from the ordinary TMLE in finite samples. The
@@ -82,7 +86,7 @@ that is not, `R_{3,n}` or `R̃_{5,n}`, can stay first order.
 
 | your situation | what this method buys | what it costs |
 | --- | --- | --- |
-| you doubt one nuisance and still want an interval | an interval that is valid for a known mechanism and conservative for a correctly specified parametric mechanism. With the mechanism wrong, or with a data-adaptive learner, it is not established | the reduced regressions are refitted inside the alternation, so a fit costs several rounds of several regressions |
+| you doubt one nuisance and still want an interval | an interval that is valid for a known mechanism and conservative for a correctly specified parametric mechanism. With the mechanism wrong, or with a data-adaptive learner, it is not established. A [gradient-boosting mechanism](theorem.md#a-data-adaptive-mechanism) gave a bias of 1.2 to 2.5 SD | the reduced regressions are refitted inside the alternation, so a fit costs several rounds of several regressions |
 | both nuisances are consistent | nothing you need. The corrections converge to zero and the curve converges to the efficient curve | the extra cost. The corrections add cost and no asymptotic gain here |
 | you want a narrower interval | this is not that | the corrected curve is the estimator's own influence function and not the efficient one |
 | you want `retarget` to be cheap | it is not. A truncation curve on a `DRTMLE` fit costs about a fit per point | a plain `TMLE` handed these nuisances refuses rather than re-solving against arrays it cannot refresh |
