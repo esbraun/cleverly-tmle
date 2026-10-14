@@ -31,7 +31,16 @@ from __future__ import annotations
 
 from ..exceptions import LongitudinalError
 from .data import LongitudinalData
-from .estimator import LTMLE, LongitudinalConfig, LongitudinalResult, ltmle
+from .estimator import (
+    IPSI,
+    LTMLE,
+    SDR,
+    LongitudinalConfig,
+    LongitudinalResult,
+    ipsi,
+    ltmle,
+    sdr,
+)
 from .regimen import (
     DynamicRegimen,
     Plan,
@@ -49,7 +58,9 @@ from .sequential import (
 )
 
 __all__ = [
+    "IPSI",
     "LTMLE",
+    "SDR",
     "DynamicRegimen",
     "LongitudinalConfig",
     "LongitudinalData",
@@ -63,7 +74,9 @@ __all__ = [
     "SequentialStep",
     "fit_mechanism",
     "fit_regimen",
+    "ipsi",
     "ltmle",
     "resolve_plans",
     "resolve_regimens",
+    "sdr",
 ]

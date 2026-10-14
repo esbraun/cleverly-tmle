@@ -30,12 +30,12 @@ from cleverly.data import CausalData
 from cleverly.estimators import DRTMLE
 from cleverly.learners.crossfit import Folds, check_integrity, random_partition
 from cleverly.utils.bounds import expit
-from cleverly.utils.parallel import map_parallel
 from cleverly.validation.score import DEFAULT_TOLERANCE, score_threshold
 from tests.parallel import STUDY_JOBS
 from tests.studies.evidence import failures as evidence_failures
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
-from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
 DRTMLE_COMMIT = "538a3a264c1ca984b6d88978ca7f96165f43152c"
 R_BASE_IMAGE = (
@@ -454,11 +454,16 @@ def _solver_passed(score_check: Any) -> bool:
     return all(not row.failure for row in score_check.rows if row.kind == "fluctuation")
 
 
+def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    scenario, replicate, n = key
+    return draw_scenario(scenario, n, replicate)
+
+
 def _replicate(
-    payload: tuple[str, int, int],
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
 ) -> tuple[pd.DataFrame, dict[str, Any], list[dict[str, Any]]]:
-    scenario, replicate, n = payload
-    frame, reference_truth = draw_scenario(scenario, n, replicate)
+    scenario, replicate, _ = key
+    frame, reference_truth = drawn
     result = fit_cleverly(frame, scenario)
     payload_frame = frame.copy()
     nuisance = result.repeats[0].nuisance
@@ -479,17 +484,20 @@ def _replicate(
     )
 
 
-def draw_and_fit(
-    *, replicates: int, n: int, n_jobs: int = STUDY_JOBS
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    payloads = [
-        ((scenario, replicate, n),) for scenario in SCENARIOS for replicate in range(replicates)
-    ]
-    outcomes = map_parallel(_replicate, payloads, n_jobs=n_jobs)
-    samples = pd.concat([frame for frame, _, _ in outcomes], ignore_index=True)
-    truths = pd.DataFrame([item for _, item, _ in outcomes])
-    rows = pd.DataFrame([row for _, _, fitted in outcomes for row in fitted])
-    return samples, truths, rows
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
+    # Dependent: the reference reads the subject fit's nuisances (qn0, qn1, gn1) from the sample.
+    outcomes = replication.fit_primary(
+        [(scenario, replicate, n) for scenario in SCENARIOS for replicate in range(replicates)],
+        _replicate,
+        draw=_draw,
+        n_jobs=n_jobs,
+        implementation=STUDY.implementation,
+        seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
+    )
+    samples = pd.concat([frame for frame, _, _ in outcomes.kept], ignore_index=True)
+    truths = pd.DataFrame([item for _, item, _ in outcomes.kept])
+    rows = pd.DataFrame([row for _, _, fitted in outcomes.kept for row in fitted])
+    return replication.result(outcomes, rows, samples=samples, truths=truths)
 
 
 def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
@@ -567,15 +575,17 @@ def scientific_failures(
 def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
     """The audits with each recorded failure counted as a failing row (decision Q1).
 
-    A reference fit that failed has no fit-diagnostics row, so the shared-bar score audit
-    counts it as failing.  The solver audit reads the subject only, which records no failure
-    in a2.
+    A fit that failed has no fit-diagnostics row.  The shared-bar score audit counts each
+    side's lost fits as failing, and the solver audit counts the subject's.
     """
+    subject, reference = STUDY.implementation, str(STUDY.reference)
+    lost = {
+        side: evidence_failures.missing_fits(failures, STUDY, side) for side in (subject, reference)
+    }
     return evidence_failures.audits(
         scientific_failures(artifacts),
         missing={
-            "score audit (both implementations, shared bar)": evidence_failures.missing_fits(
-                failures, STUDY
-            )
+            "score audit (both implementations, shared bar)": lost[subject] + lost[reference],
+            "solver health (subject only; the reference reports no flag)": lost[subject],
         },
     )

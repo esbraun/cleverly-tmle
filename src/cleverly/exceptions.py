@@ -19,6 +19,7 @@ __all__ = [
     "LongitudinalError",
     "MethodConfigurationError",
     "NotFittedError",
+    "ParameterSpaceWarning",
     "PositivityWarning",
     "VersionMismatchWarning",
     "WeightingWarning",
@@ -87,6 +88,15 @@ class WeightingWarning(UserWarning):
     Weights are read as *probability* weights: a tilt of the population, under which
     the sample size is still the number of rows.  Counts of identical units are a
     different experiment.  See :mod:`cleverly.data.weighting`.
+    """
+
+
+class ParameterSpaceWarning(UserWarning):
+    """An estimate left the range of the parameter it estimates.
+
+    A sequentially doubly robust estimate is an average of transformed outcomes, and a
+    transform can leave the outcome range (Díaz, Williams, Hoffman and Schenck 2023, Section
+    5.3).  The estimate is reported as computed, with no truncation.
     """
 
 

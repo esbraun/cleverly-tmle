@@ -67,6 +67,7 @@ __all__ = [
     "fit_inner_designs",
     "fit_nuisances",
     "fit_on_rows",
+    "tilt_missingness",
 ]
 
 #: A design a *companion* prediction is taken at: either one matrix every fold's model
@@ -500,6 +501,14 @@ class NuisanceEstimates:
     #: :attr:`propensity` is ``P(A = a | Delta_A = 1, W)`` and :attr:`missingness` is
     #: ``P(Delta = 1 | A = a, Delta_A = 1, W)``, each fitted on the rows it conditions on.
     treatment_observation: FloatArray | None = None
+    #: The full-covariate outcome observation model ``P(Delta = 1 | A = a, W)`` (on the
+    #: composite route, ``P(Delta = 1 | A = a, Delta_A = 1, W)``), ``(n, K)`` and untruncated,
+    #: when :attr:`missingness` holds a different factor, or ``None``.  A per-arm
+    #: outcome-adaptive :class:`~cleverly.CTMLE` fits its observation factor on the arm's
+    #: outcome prediction, so :attr:`missingness` is that design factor and this field keeps
+    #: the model the missingness tilt reads.  No targeting code reads it.
+    #: :func:`tilt_missingness` is the one accessor.
+    tilt_missingness: FloatArray | None = None
     treatment_covariates: tuple[str, ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
     outcome_task: Task = "regression"
@@ -976,6 +985,30 @@ def _companion_matrix(design: CompanionDesign, fold: int) -> FloatArray:
     return np.asarray(design[fold], dtype=float)
 
 
+def tilt_missingness(nuisance: NuisanceEstimates, lower: float) -> FloatArray | None:
+    """The outcome observation model the missingness tilt reads, truncated away from zero.
+
+    The tilt models departures from missingness at random on the full covariates, so it
+    reads :attr:`NuisanceEstimates.tilt_missingness` where a fit stores one, and the
+    targeted :attr:`NuisanceEstimates.missingness` everywhere else.
+
+    Parameters
+    ----------
+    nuisance : NuisanceEstimates
+        The fitted nuisances of one draw.
+    lower : float
+        The floor, the fit's ``nuisance_bound``.
+
+    Returns
+    -------
+    ndarray or None
+        ``(n, K)``, or ``None`` on a fit with no missing outcome.
+    """
+    if nuisance.tilt_missingness is not None:
+        return bound(np.asarray(nuisance.tilt_missingness, dtype=float), lower, 1.0)
+    return nuisance.bounded_missingness(lower)
+
+
 def fit_on_rows(
     learner: Learner,
     design: FloatArray,
@@ -1132,6 +1165,7 @@ def fit_nuisances(
     companion: CausalData | None = None,
     n_jobs: int = 1,
     fit_treatment: bool = True,
+    fit_treatment_observation: bool = True,
 ) -> NuisanceEstimates:
     """Fit every nuisance model this estimator needs.
 
@@ -1153,6 +1187,12 @@ def fit_nuisances(
     target. It is intentionally internal: the returned propensity is an
     :class:`UnfittedPropensity`, whose values are ``NaN`` and whose accessors raise. A
     collaborative caller must replace it; a natural-course caller must avoid it.
+
+    ``fit_treatment_observation=False`` skips the full-covariate treatment observation
+    model on a fit with a missing treatment, and leaves
+    :attr:`NuisanceEstimates.treatment_observation` ``None``.  A per-arm outcome-adaptive
+    :class:`~cleverly.CTMLE` fits that factor on its own design, and nothing reads the
+    full-covariate one.
 
     ``companion`` is an independent draw at which every fold's mechanism and outcome
     regression is *also* evaluated, returned on
@@ -1338,7 +1378,7 @@ def fit_nuisances(
 
     # --- treatment observation mechanism ------------------------------------
     treatment_observation = None
-    if recorded is not None:
+    if recorded is not None and fit_treatment_observation:
         if missingness_learner is None:
             raise ValueError(
                 "the data has a missing treatment but no missingness_learner was supplied"

@@ -1684,7 +1684,7 @@ class TMLE:
         estimates = median_estimates(per_repeat)
         cv_detail = self._cv_detail(details, cluster=data.cluster)
         if self.cv_evaluation and cv_detail is None:
-            raise RuntimeError(
+            raise DataError(
                 "cv_evaluation=True needs at least two realised validation folds, but "
                 "the requested split collapsed to one. Use fewer-stratified data, or "
                 "fit without fold-evaluated CV-TMLE."
@@ -2050,9 +2050,11 @@ class TMLE:
 
         if self._assessment_method == "collaborative_tmle":
             refuse(
-                "C-TMLE (CTMLE, or CollaborativeTMLEMethod) has no audited selection and "
-                "inference result with cross-fitted arm-indexed missing outcomes. Use the "
-                "ordinary TMLE (TMLE, or TMLEMethod)"
+                "the selector strategies and the shared outcome-adaptive design "
+                "(oat_design='shared') of C-TMLE (CTMLE, or CollaborativeTMLEMethod) have no "
+                "audited selection and inference result with "
+                "cross-fitted arm-indexed missing outcomes. Use the ordinary TMLE (TMLE, or "
+                "TMLEMethod), or CTMLE(strategy='oat', oat_design='per_arm') for point estimates"
             )
         if self.fluctuation != "logistic":
             refuse(
@@ -2131,6 +2133,36 @@ class TMLE:
                 "(Inference(n_bootstrap=0))"
             )
 
+    def _design_factor_labels(self, data: CausalData) -> tuple[str, str] | None:
+        """The labels of observation factors fitted on a design other than ``(A, W)``.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+
+        Returns
+        -------
+        tuple of str or None
+            The outcome observation factor, then the treatment observation factor, or
+            ``None`` for the full-covariate factors, which each reader names itself.
+        """
+        return None
+
+    def _admits_natural_course_with_missing(self) -> bool:
+        """Whether this estimator runs the natural-course targets with missing outcomes.
+
+        The ordinary TMLE does. :class:`~cleverly.DRTMLE` and the collaborative selector
+        strategies do not. :class:`~cleverly.CTMLE` overrides it to admit the per-arm
+        outcome-adaptive design, for point estimates.
+
+        Returns
+        -------
+        bool
+            ``True`` when :meth:`_resolve_natural_course_contract` passes its method clause.
+        """
+        return self._assessment_method == "tmle"
+
     def _resolve_natural_course_contract(self, data: CausalData) -> tuple[str, ...]:
         """Resolve targets and enforce the supported natural-course compositions.
 
@@ -2155,13 +2187,15 @@ class TMLE:
         def refuse(reason: str) -> None:
             raise CapabilityError(
                 "NaturalCourseMean, PAR and PAF with missing outcomes currently support "
-                f"ordinary TMLE under their audited implementation contracts; {reason}"
+                "ordinary TMLE and, for point estimates, the per-arm outcome-adaptive CTMLE "
+                f"under their audited implementation contracts; {reason}"
             )
 
-        if self._assessment_method != "tmle":
+        if not self._admits_natural_course_with_missing():
             reason = (
-                "use ordinary TMLE; collaborative and doubly robust estimator variants "
-                "need separate targeting and inference results"
+                "use ordinary TMLE, or CTMLE(strategy='oat', oat_design='per_arm') for point "
+                "estimates; the C-TMLE selector strategies, the shared outcome-adaptive design "
+                "and DR-TMLE need separate targeting and inference results"
             )
             if self._assessment_method == "drtmle" and not getattr(self, "guard", True):
                 reason += ". guard=() is the ordinary TMLE; use TMLE"
@@ -3039,6 +3073,7 @@ class TMLE:
         seed: int | None = None,
         companion: CausalData | None = None,
         fit_treatment: bool = True,
+        fit_treatment_observation: bool = True,
     ) -> NuisanceEstimates:
         outcome_task: Task = "classification" if data.family == "binomial" else "regression"
         msm = self._msm(data)
@@ -3087,6 +3122,7 @@ class TMLE:
             companion=companion,
             n_jobs=self.n_jobs,
             fit_treatment=fit_treatment,
+            fit_treatment_observation=fit_treatment_observation,
         )
         # Evaluated once and carried with the fits, so that every reuse -- retarget, and
         # so the truncation curve, the MNAR tilt, the omitted-variable bound -- targets
@@ -3204,6 +3240,7 @@ class TMLE:
         scaler: OutcomeScaler,
         folds: Folds,
     ) -> TMLEConfig:
+        labels = self._design_factor_labels(data) or ("P(Delta=1|A,W)", "P(Delta_A=1|W)")
         return TMLEConfig(
             family=data.family,
             targeting_spec=self.targeting_spec(),
@@ -3224,8 +3261,8 @@ class TMLE:
             bounded_mechanisms=tuple(
                 name
                 for name, present in (
-                    ("P(Delta=1|A,W)", data.has_missing_outcome),
-                    ("P(Delta_A=1|W)", data.has_missing_treatment),
+                    (labels[0], data.has_missing_outcome),
+                    (labels[1], data.has_missing_treatment),
                     ("P(Z=z|A,W)", data.has_intermediate),
                 )
                 if present
@@ -3317,11 +3354,15 @@ class TMLE:
             if natural_course
             else nuisance.missingness
         )
+        outcome_label, treatment_label = self._design_factor_labels(data) or (
+            "P(Delta = 1 | A, W)",
+            "P(Delta_A = 1 | W)",
+        )
         candidates: list[tuple[str, FloatArray | None]] = [
-            ("P(Delta = 1 | A, W)", missingness_values),
+            (outcome_label, missingness_values),
             # The treatment observation factor of a declared missing treatment divides the
             # composite covariate as the response mechanism does.
-            ("P(Delta_A = 1 | W)", nuisance.treatment_observation),
+            (treatment_label, nuisance.treatment_observation),
         ]
         if nuisance.intermediate is not None and intermediate_value is not None:
             candidates.append(

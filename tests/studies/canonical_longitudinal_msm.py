@@ -11,12 +11,12 @@ import pandas as pd
 from cleverly.datasets import RULE_LABEL, make_longitudinal, rule_arm_at_node_two
 from cleverly.longitudinal import LTMLE, DynamicRegimen
 from cleverly.msm import MSM, solve_projection
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_ltmle import KnownLongitudinalMechanism, QuasiBinomialGLM
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
 LTMLE_VERSION = "1.3-0"
 LTMLE_SOURCE_COMMIT = "338c029dae9692ef20714125773da7037688993b"
@@ -252,11 +252,17 @@ def cleverly_rows(
     return rows
 
 
-def _replicate(
-    payload: tuple[str, int, int],
+def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    scenario, replicate, n = key
+    return draw_scenario(scenario, n, replicate)
+
+
+def _reference_input(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
 ) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
-    scenario, replicate, n = payload
-    frame, reference = draw_scenario(scenario, n, replicate)
+    """The replicate's sample and truth rows, which need no fit, and no subject rows."""
+    scenario, replicate, _ = key
+    frame, reference = drawn
     sample = frame.copy()
     sample.insert(0, "row", np.arange(len(sample)))
     sample.insert(0, "replicate", replicate)
@@ -265,15 +271,31 @@ def _replicate(
         {"scenario": scenario, "replicate": replicate, "estimand": name, "truth": value}
         for name, value in reference.items()
     ]
+    return sample, truths, []
+
+
+def _replicate(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
+) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
+    scenario, replicate, _ = key
+    frame, reference = drawn
+    sample, truths, _ = _reference_input(key, drawn)
     return sample, truths, cleverly_rows(frame, reference, scenario, replicate)
 
 
-def draw_and_fit(
-    *, replicates: int, n: int, n_jobs: int = STUDY_JOBS
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    payloads = [((SCENARIO, replicate, n),) for replicate in range(replicates)]
-    outcomes = map_parallel(_replicate, payloads, n_jobs=n_jobs)
-    samples = pd.concat([sample for sample, _, _ in outcomes], ignore_index=True)
-    truths = pd.DataFrame([row for _, rows, _ in outcomes for row in rows])
-    estimates = pd.DataFrame([row for _, _, rows in outcomes for row in rows])
-    return samples, truths, estimates.loc[:, list(REPLICATE_COLUMNS)]
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
+    outcomes = replication.fit_primary(
+        [(SCENARIO, replicate, n) for replicate in range(replicates)],
+        _replicate,
+        draw=_draw,
+        reference_input=_reference_input,
+        n_jobs=n_jobs,
+        implementation=STUDY.implementation,
+        seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
+    )
+    samples = pd.concat([sample for sample, _, _ in outcomes.kept], ignore_index=True)
+    truths = pd.DataFrame([row for _, rows, _ in outcomes.kept for row in rows])
+    estimates = pd.DataFrame([row for _, _, rows in outcomes.kept for row in rows])
+    return replication.result(
+        outcomes, estimates.loc[:, list(REPLICATE_COLUMNS)], samples=samples, truths=truths
+    )

@@ -7,6 +7,7 @@ family depends on another method family's study module to publish the same claim
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Literal, overload
 
@@ -14,10 +15,15 @@ import numpy as np
 import pandas as pd
 
 from cleverly.data import CausalData
-from tests.studies.evidence.inference import Interval, standardized_bias_verdict
+from tests.studies.evidence.inference import (
+    Interval,
+    percentile_interval,
+    standardized_bias_verdict,
+)
 from tests.studies.evidence.properties import (
     PropertyCell,
     Rate,
+    bootstrap_draw_blocks,
     coverage_gain_interval,
     paired_displacement,
     rate,
@@ -1579,3 +1585,138 @@ def few_cluster_reference_verdicts(
         else:
             summary.loc[index, "passed"] = True
         summary.loc[index, "property_passed"] = summary.loc[index, "passed"]
+
+
+#: The family of the RM40b witness study.  The last ``__`` segment of a cell name is its
+#: kind, and the kind selects the rule (RM40 plan section 5.5).
+ONE_WRONG_FAMILY = "one_wrong_inference"
+#: Columns the family adds to a property summary: the declared bias sign of a control, the
+#: growth control's signed difference of standardized biases, and its bootstrap interval.
+ONE_WRONG_COLUMNS = ("predicted_sign", "growth", "growth_ci_lower", "growth_ci_upper")
+
+
+def one_wrong_kind(cell: str) -> str:
+    """The rule a ``one_wrong_inference`` cell answers to: the last ``__`` segment."""
+    return cell.rsplit("__", 1)[-1]
+
+
+def one_wrong_stem(cell: str) -> str:
+    """A cell's setting and estimand, without its kind or its ladder size.
+
+    ``q_wrong_g_slow_n4000__ate__first_order`` and ``q_wrong_g_slow__ate__growth`` share
+    the stem ``q_wrong_g_slow__ate``, which is what a declared bias sign is keyed by.
+    """
+    setting, estimand, _kind = cell.split("__")
+    return f"{re.sub(r'_n[0-9]+$', '', setting)}__{estimand}"
+
+
+def one_wrong_inference_verdicts(
+    summary: pd.DataFrame,
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    *,
+    predicted_signs: Mapping[str, int],
+    ladders: Mapping[str, tuple[int, ...]],
+) -> list[dict[str, Any]]:
+    """Apply rules C, V and F to the family's rows and return the growth rows of rule G.
+
+    ``conservative`` (C) witnesses the conservative case of a correctly specified
+    parametric mechanism: the 99% bootstrap interval of the SE ratio lies wholly above the
+    calibration band's upper limit, coverage clears the floor and the bias is inside the
+    margin.  It asserts a too-large standard error on purpose, so a future projected variance
+    (X36) is a result-determining change that re-declares the cell.
+
+    ``valid`` (V) is the accuracy rule: coverage clears the floor, the bias is inside the
+    margin and the SE ratio is inside the sanity band.  Its bootstrap SE-ratio interval is
+    published and decides nothing.
+
+    ``first_order`` (F) is a one-sided control.  Its bias interval must lie wholly beyond the
+    margin on the side of the design's predicted sign, ``predicted_signs[stem]``, and its SE
+    ratio inside :data:`UNION_MODEL_SE_BAND`.
+
+    ``growth`` (G) is the signed difference ``s (bias/SD)(largest n) - s (bias/SD)(smallest
+    n)`` over the ladder ``ladders[setting]``, with independent bootstrap draws per rung.  It
+    passes when the lower bound of its 99% interval lies above zero.
+    """
+    margins = record.margins
+    family = summary["property"] == ONE_WRONG_FAMILY
+    for index in summary.index[family]:
+        cell = str(summary.loc[index, "cell"])
+        kind = one_wrong_kind(cell)
+        group = rows.loc[(rows["property"] == ONE_WRONG_FAMILY) & (rows["cell"] == cell)]
+        row = summary.loc[index]
+        bias = bool(row["bias_equivalent"])
+        floor = float(row["coverage_ci_lower"]) >= margins.coverage_floor
+        if kind in {"conservative", "valid"}:
+            ratio = ratio_intervals(
+                group,
+                replicates=margins.bootstrap_replicates,
+                confidence_level=margins.confidence_level,
+                seed=stream_seed(record, ONE_WRONG_FAMILY, cell),
+            )["se_ratio"]
+            summary.loc[index, "se_ratio_ci_lower"] = ratio.low
+            summary.loc[index, "se_ratio_ci_upper"] = ratio.high
+            if kind == "conservative":
+                passed = ratio.low > margins.calibration_se_ratio[1] and floor and bias
+            else:
+                low, high = margins.se_ratio_sanity
+                passed = floor and bias and low <= float(row["se_ratio"]) <= high
+        elif kind == "first_order":
+            sign = predicted_signs[one_wrong_stem(cell)]
+            summary.loc[index, "predicted_sign"] = sign
+            margin = float(row["bias_margin"])
+            beyond = (
+                float(row["bias_ci_upper"]) < -margin
+                if sign < 0
+                else float(row["bias_ci_lower"]) > margin
+            )
+            low, high = UNION_MODEL_SE_BAND
+            passed = beyond and low <= float(row["se_ratio"]) <= high
+        else:
+            raise ValueError(f"{cell} has no {ONE_WRONG_FAMILY} rule for its kind {kind!r}")
+        summary.loc[index, "passed"] = bool(passed)
+
+    growth: list[dict[str, Any]] = []
+    for cell in record.property_cells.get(ONE_WRONG_FAMILY, ()):
+        if one_wrong_kind(cell) != "growth":
+            continue
+        setting, estimand, _kind = cell.split("__")
+        sign = predicted_signs[one_wrong_stem(cell)]
+        sizes = ladders[setting]
+        standardized: list[np.ndarray] = []
+        observed: list[float] = []
+        for size in (sizes[0], sizes[-1]):
+            rung = f"{setting}_n{size}__{estimand}__first_order"
+            errors = rows.loc[(rows["property"] == ONE_WRONG_FAMILY) & (rows["cell"] == rung)]
+            values = (errors["estimate"] - errors["truth"]).to_numpy(dtype=float)
+            observed.append(float(np.mean(values) / np.std(values, ddof=1)))
+            rng = np.random.default_rng(stream_seed(record, ONE_WRONG_FAMILY, cell, size))
+            standardized.append(
+                np.concatenate(
+                    [
+                        block.mean(axis=1) / block.std(axis=1, ddof=1)
+                        for block in bootstrap_draw_blocks(
+                            values, replicates=margins.bootstrap_replicates, rng=rng
+                        )
+                    ]
+                )
+            )
+        interval = percentile_interval(
+            sign * (standardized[1] - standardized[0]), confidence_level=margins.confidence_level
+        )
+        built: dict[str, Any] = dict.fromkeys(summary.columns, np.nan)
+        built.update(
+            {
+                "property": ONE_WRONG_FAMILY,
+                "cell": cell,
+                "role": "control",
+                "predicted_sign": sign,
+                "growth": sign * (observed[1] - observed[0]),
+                "growth_ci_lower": interval.low,
+                "growth_ci_upper": interval.high,
+                "passed": bool(interval.low > 0.0),
+                "property_passed": None,
+            }
+        )
+        growth.append(built)
+    return growth
