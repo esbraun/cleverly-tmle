@@ -1,0 +1,233 @@
+sha256 4e94fa4ddaea36fe8cd17307dfa594100b293c1441477875d58c9c2b928fc23b  reviews/rm41/probe.py
+run CSVs written by this script: True
+commit and cleverly path of the run: ['addfe88ed8557e01d708a9bd04033983be7b7f8a /home/claude/cleverly-tmle/src/cleverly']
+errors: 0
+max |g_n gap| between cleverly's in-sample mechanism and the refit: 0.00e+00
+max |own_in_tmle - tmle_in| over 1800 estimates: 1.7e-12
+population-limit fits with a worst score above 1e-6: 165 of 1800 (largest 7.5e-01); all are kept
+
+Robust reading over all replicates of each own_drtmle cell (ATE): median error / SD(dr_in), and IQR.
+  own_ext       n=  1000: R 200; median +0.978; IQR [+0.580, +1.371]
+  own_ext       n=  4000: R 200; median +1.573; IQR [+0.970, +2.230]
+  own_ext       n= 16000: R 200; median +1.355; IQR [+0.488, +2.206]
+  own_ext_g0    n=  1000: R 200; median +0.390; IQR [-0.078, +0.859]
+  own_ext_g0    n=  4000: R 200; median +0.506; IQR [-0.353, +1.380]
+  own_ext_g0    n= 16000: R 200; median +0.491; IQR [-0.567, +1.336]
+  own_ext_or    n=  1000: R 200; median +0.981; IQR [+0.607, +1.336]
+  own_ext_or    n=  4000: R 200; median +1.661; IQR [+0.984, +2.350]
+  own_ext_or    n= 16000: R 200; median +1.414; IQR [+0.537, +2.235]
+  own_ext_tmle  n=  1000: R 200; median +0.201; IQR [-0.236, +0.568]
+  own_ext_tmle  n=  4000: R 200; median +0.256; IQR [-0.588, +1.024]
+  own_ext_tmle  n= 16000: R 200; median -0.033; IQR [-0.922, +0.981]
+  own_in        n=  1000: R 200; median -1.316; IQR [-1.839, -0.673]
+  own_in        n=  4000: R 200; median -2.437; IQR [-3.045, -1.832]
+  own_in        n= 16000: R 200; median -2.792; IQR [-3.549, -2.127]
+  own_in_g0     n=  1000: R 200; median -1.341; IQR [-1.838, -0.927]
+  own_in_g0     n=  4000: R 200; median -1.036; IQR [-1.655, -0.550]
+  own_in_g0     n= 16000: R 200; median -0.561; IQR [-1.165, -0.001]
+  own_in_gonly  n=  1000: R 200; median -1.132; IQR [-1.779, -0.397]
+  own_in_gonly  n=  4000: R 200; median -1.866; IQR [-2.428, -1.309]
+  own_in_gonly  n= 16000: R 200; median -1.917; IQR [-2.683, -1.358]
+  own_in_qonly  n=  1000: R 200; median -1.518; IQR [-1.805, -1.109]
+  own_in_qonly  n=  4000: R 200; median -1.798; IQR [-2.376, -1.250]
+  own_in_qonly  n= 16000: R 200; median -1.625; IQR [-2.420, -1.004]
+  own_in_tmle   n=  1000: R 200; median -0.062; IQR [-0.347, +0.267]
+  own_in_tmle   n=  4000: R 200; median +0.134; IQR [-0.300, +0.566]
+  own_in_tmle   n= 16000: R 200; median +0.333; IQR [-0.254, +0.948]
+own_drtmle fits kept (every score below 1e-08): 5112 of 5400
+
+bias/SD: mean(psi - truth) / SD(psi) over the kept fits of the cell; mcse 1/sqrt(R).
+rn_bias: sqrt(n) * mean(psi - truth). cover: interval coverage, with its mcse.
+pop_* cells are population limits: their SD is not a sampling SD, so they are read below.
+cell               n est       R  bias/SD   mcse  rn_bias  cover   mcse
+dr_cf           1000 ate     200   +1.531  0.071   +1.366  0.750  0.031
+dr_cf           1000 ey[0]   200   -0.954  0.071   -0.634  0.875  0.023
+dr_cf           1000 ey[1]   200   +0.989  0.071   +0.732  0.810  0.028
+dr_cf           4000 ate     200   +2.008  0.071   +1.649  0.625  0.034
+dr_cf           4000 ey[0]   200   -1.309  0.071   -0.800  0.825  0.027
+dr_cf           4000 ey[1]   200   +1.206  0.071   +0.850  0.785  0.029
+dr_cf          16000 ate     200   +1.510  0.071   +1.165  0.810  0.028
+dr_cf          16000 ey[0]   200   -0.893  0.071   -0.576  0.895  0.022
+dr_cf          16000 ey[1]   200   +0.889  0.071   +0.588  0.870  0.024
+dr_ext          1000 ate     200   +1.700  0.071   +1.625    nan    nan
+dr_ext          1000 ey[0]   200   -1.078  0.071   -0.752    nan    nan
+dr_ext          1000 ey[1]   200   +1.130  0.071   +0.873    nan    nan
+dr_ext          4000 ate     200   +1.557  0.071   +1.685    nan    nan
+dr_ext          4000 ey[0]   200   -1.195  0.071   -0.828    nan    nan
+dr_ext          4000 ey[1]   200   +1.062  0.071   +0.857    nan    nan
+dr_ext         16000 ate     200   +0.953  0.071   +1.066    nan    nan
+dr_ext         16000 ey[0]   200   -0.663  0.071   -0.509    nan    nan
+dr_ext         16000 ey[1]   200   +0.712  0.071   +0.557    nan    nan
+dr_ext_bk       1000 ate     200   +1.676  0.071   +1.631    nan    nan
+dr_ext_bk       1000 ey[0]   200   -1.089  0.071   -0.762    nan    nan
+dr_ext_bk       1000 ey[1]   200   +1.139  0.071   +0.870    nan    nan
+dr_ext_bk       4000 ate     200   +1.584  0.071   +1.706    nan    nan
+dr_ext_bk       4000 ey[0]   200   -1.181  0.071   -0.832    nan    nan
+dr_ext_bk       4000 ey[1]   200   +1.087  0.071   +0.874    nan    nan
+dr_ext_bk      16000 ate     200   +1.019  0.071   +1.129    nan    nan
+dr_ext_bk      16000 ey[0]   200   -0.696  0.071   -0.534    nan    nan
+dr_ext_bk      16000 ey[1]   200   +0.763  0.071   +0.595    nan    nan
+dr_in           1000 ate     200   -1.217  0.071   -2.169  0.750  0.031
+dr_in           1000 ey[0]   200   +0.907  0.071   +1.200  0.770  0.030
+dr_in           1000 ey[1]   200   -0.727  0.071   -0.969  0.820  0.027
+dr_in           4000 ate     200   -2.277  0.071   -2.635  0.410  0.035
+dr_in           4000 ey[0]   200   +1.522  0.071   +1.341  0.650  0.034
+dr_in           4000 ey[1]   200   -1.483  0.071   -1.294  0.695  0.033
+dr_in          16000 ate     200   -2.503  0.071   -2.245  0.405  0.035
+dr_in          16000 ey[0]   200   +1.663  0.071   +1.179  0.675  0.033
+dr_in          16000 ey[1]   200   -1.417  0.071   -1.066  0.695  0.033
+dr_in_bk        1000 ate     200   -1.212  0.071   -2.025  0.730  0.031
+dr_in_bk        1000 ey[0]   200   +0.894  0.071   +1.129  0.780  0.029
+dr_in_bk        1000 ey[1]   200   -0.698  0.071   -0.896  0.835  0.026
+dr_in_bk        4000 ate     200   -2.264  0.071   -2.674  0.370  0.034
+dr_in_bk        4000 ey[0]   200   +1.550  0.071   +1.362  0.615  0.034
+dr_in_bk        4000 ey[1]   200   -1.474  0.071   -1.311  0.645  0.034
+dr_in_bk       16000 ate     200   -3.059  0.071   -2.678  0.205  0.029
+dr_in_bk       16000 ey[0]   200   +1.978  0.071   +1.389  0.530  0.035
+dr_in_bk       16000 ey[1]   200   -1.718  0.071   -1.289  0.565  0.035
+own_ext         1000 ate      98   +1.511  0.101   +1.703    nan    nan
+own_ext         1000 ey[0]    98   -0.991  0.101   -0.690    nan    nan
+own_ext         1000 ey[1]    98   +1.286  0.101   +1.012    nan    nan
+own_ext         4000 ate     187   +1.655  0.073   +1.804    nan    nan
+own_ext         4000 ey[0]   187   -1.259  0.073   -0.886    nan    nan
+own_ext         4000 ey[1]   187   +1.135  0.073   +0.918    nan    nan
+own_ext        16000 ate     198   +1.029  0.071   +1.150    nan    nan
+own_ext        16000 ey[0]   198   -0.732  0.071   -0.558    nan    nan
+own_ext        16000 ey[1]   198   +0.758  0.071   +0.592    nan    nan
+own_ext_g0      1000 ate     173   +0.656  0.076   +0.779    nan    nan
+own_ext_g0      1000 ey[0]   173   -0.435  0.076   -0.342    nan    nan
+own_ext_g0      1000 ey[1]   173   +0.505  0.076   +0.437    nan    nan
+own_ext_g0      4000 ate     193   +0.499  0.072   +0.654    nan    nan
+own_ext_g0      4000 ey[0]   193   -0.383  0.072   -0.314    nan    nan
+own_ext_g0      4000 ey[1]   193   +0.367  0.072   +0.340    nan    nan
+own_ext_g0     16000 ate     196   +0.257  0.071   +0.318    nan    nan
+own_ext_g0     16000 ey[0]   196   -0.158  0.071   -0.134    nan    nan
+own_ext_g0     16000 ey[1]   196   +0.217  0.071   +0.185    nan    nan
+own_ext_or      1000 ate     101   +1.818  0.100   +1.770    nan    nan
+own_ext_or      1000 ey[0]   101   -1.142  0.100   -0.787    nan    nan
+own_ext_or      1000 ey[1]   101   +1.359  0.100   +0.983    nan    nan
+own_ext_or      4000 ate     180   +1.775  0.075   +1.868    nan    nan
+own_ext_or      4000 ey[0]   180   -1.325  0.075   -0.912    nan    nan
+own_ext_or      4000 ey[1]   180   +1.228  0.075   +0.956    nan    nan
+own_ext_or     16000 ate     198   +1.050  0.071   +1.168    nan    nan
+own_ext_or     16000 ey[0]   198   -0.746  0.071   -0.566    nan    nan
+own_ext_or     16000 ey[1]   198   +0.770  0.071   +0.602    nan    nan
+own_ext_tmle    1000 ate     200   +0.226  0.071   +0.272    nan    nan
+own_ext_tmle    1000 ey[0]   200   -0.144  0.071   -0.122    nan    nan
+own_ext_tmle    1000 ey[1]   200   +0.169  0.071   +0.151    nan    nan
+own_ext_tmle    4000 ate     200   +0.153  0.071   +0.212    nan    nan
+own_ext_tmle    4000 ey[0]   200   -0.098  0.071   -0.087    nan    nan
+own_ext_tmle    4000 ey[1]   200   +0.128  0.071   +0.125    nan    nan
+own_ext_tmle   16000 ate     200   -0.036  0.071   -0.047    nan    nan
+own_ext_tmle   16000 ey[0]   200   +0.071  0.071   +0.060    nan    nan
+own_ext_tmle   16000 ey[1]   200   +0.016  0.071   +0.013    nan    nan
+own_in          1000 ate     195   -1.219  0.072   -2.249    nan    nan
+own_in          1000 ey[0]   195   +0.923  0.072   +1.228    nan    nan
+own_in          1000 ey[1]   195   -0.765  0.072   -1.020    nan    nan
+own_in          4000 ate     199   -2.378  0.071   -2.792    nan    nan
+own_in          4000 ey[0]   199   +1.559  0.071   +1.422    nan    nan
+own_in          4000 ey[1]   199   -1.571  0.071   -1.370    nan    nan
+own_in         16000 ate     200   -2.838  0.071   -2.528    nan    nan
+own_in         16000 ey[0]   200   +1.825  0.071   +1.314    nan    nan
+own_in         16000 ey[1]   200   -1.637  0.071   -1.213    nan    nan
+own_in_g0       1000 ate     199   -2.074  0.071   -2.468    nan    nan
+own_in_g0       1000 ey[0]   199   +1.390  0.071   +1.296    nan    nan
+own_in_g0       1000 ey[1]   199   -1.163  0.071   -1.171    nan    nan
+own_in_g0       4000 ate     199   -1.349  0.071   -1.188    nan    nan
+own_in_g0       4000 ey[0]   199   +0.862  0.071   +0.590    nan    nan
+own_in_g0       4000 ey[1]   199   -0.808  0.071   -0.598    nan    nan
+own_in_g0      16000 ate     200   -0.723  0.071   -0.566    nan    nan
+own_in_g0      16000 ey[0]   200   +0.470  0.071   +0.308    nan    nan
+own_in_g0      16000 ey[1]   200   -0.380  0.071   -0.257    nan    nan
+own_in_gonly    1000 ate     196   -0.989  0.071   -1.906    nan    nan
+own_in_gonly    1000 ey[0]   196   +0.764  0.071   +1.051    nan    nan
+own_in_gonly    1000 ey[1]   196   -0.616  0.071   -0.855    nan    nan
+own_in_gonly    4000 ate     200   -2.005  0.071   -2.133    nan    nan
+own_in_gonly    4000 ey[0]   200   +1.327  0.071   +1.090    nan    nan
+own_in_gonly    4000 ey[1]   200   -1.251  0.071   -1.043    nan    nan
+own_in_gonly   16000 ate     200   -2.076  0.071   -1.789    nan    nan
+own_in_gonly   16000 ey[0]   200   +1.327  0.071   +0.926    nan    nan
+own_in_gonly   16000 ey[1]   200   -1.177  0.071   -0.863    nan    nan
+own_in_qonly    1000 ate     200   -2.476  0.071   -2.627    nan    nan
+own_in_qonly    1000 ey[0]   200   +1.744  0.071   +1.374    nan    nan
+own_in_qonly    1000 ey[1]   200   -1.442  0.071   -1.253    nan    nan
+own_in_qonly    4000 ate     200   -2.136  0.071   -2.059    nan    nan
+own_in_qonly    4000 ey[0]   200   +1.494  0.071   +1.031    nan    nan
+own_in_qonly    4000 ey[1]   200   -1.283  0.071   -1.027    nan    nan
+own_in_qonly   16000 ate     200   -1.708  0.071   -1.503    nan    nan
+own_in_qonly   16000 ey[0]   200   +1.017  0.071   +0.734    nan    nan
+own_in_qonly   16000 ey[1]   200   -1.052  0.071   -0.769    nan    nan
+own_in_tmle     1000 ate     200   -0.175  0.071   -0.159    nan    nan
+own_in_tmle     1000 ey[0]   200   +0.195  0.071   +0.146    nan    nan
+own_in_tmle     1000 ey[1]   200   -0.016  0.071   -0.013    nan    nan
+own_in_tmle     4000 ate     200   +0.244  0.071   +0.197    nan    nan
+own_in_tmle     4000 ey[0]   200   -0.127  0.071   -0.079    nan    nan
+own_in_tmle     4000 ey[1]   200   +0.168  0.071   +0.118    nan    nan
+own_in_tmle    16000 ate     200   +0.335  0.071   +0.258    nan    nan
+own_in_tmle    16000 ey[0]   200   -0.166  0.071   -0.107    nan    nan
+own_in_tmle    16000 ey[1]   200   +0.225  0.071   +0.150    nan    nan
+tmle_cf         1000 ate     200   +0.415  0.071   +0.410  1.000  0.000
+tmle_cf         1000 ey[0]   200   -0.183  0.071   -0.141  0.995  0.005
+tmle_cf         1000 ey[1]   200   +0.326  0.071   +0.269  0.985  0.009
+tmle_cf         4000 ate     200   +0.319  0.071   +0.297  0.995  0.005
+tmle_cf         4000 ey[0]   200   -0.181  0.071   -0.126  0.990  0.007
+tmle_cf         4000 ey[1]   200   +0.214  0.071   +0.171  0.965  0.013
+tmle_cf        16000 ate     200   -0.053  0.071   -0.043  0.980  0.010
+tmle_cf        16000 ey[0]   200   +0.043  0.071   +0.028  0.985  0.009
+tmle_cf        16000 ey[1]   200   -0.022  0.071   -0.015  0.975  0.011
+tmle_in         1000 ate     200   -0.175  0.071   -0.159  0.930  0.018
+tmle_in         1000 ey[0]   200   +0.195  0.071   +0.146  0.895  0.022
+tmle_in         1000 ey[1]   200   -0.016  0.071   -0.013  0.875  0.023
+tmle_in         4000 ate     200   +0.244  0.071   +0.197  0.955  0.015
+tmle_in         4000 ey[0]   200   -0.127  0.071   -0.079  0.965  0.013
+tmle_in         4000 ey[1]   200   +0.168  0.071   +0.118  0.925  0.019
+tmle_in        16000 ate     200   +0.335  0.071   +0.258  0.975  0.011
+tmle_in        16000 ey[0]   200   -0.166  0.071   -0.107  0.985  0.009
+tmle_in        16000 ey[1]   200   +0.225  0.071   +0.150  0.960  0.014
+
+Population limits at the independent mechanism (ATE): mean(psi_lim - psi_0) / SD(own_ext), with
+the mcse of that mean, beside the observed own_ext cells on the same replicates.
+  n=  1000: pop_ext +1.558 (0.083); pop_ext_g0 +0.691 (0.040); pop_ext_tmle +0.299 (0.047); own_ext +1.511 (0.101); own_ext_g0 +0.691 (0.080); own_ext_tmle +0.241 (0.076)
+  n=  4000: pop_ext +1.695 (0.035); pop_ext_g0 +0.642 (0.138); pop_ext_tmle +0.193 (0.048); own_ext +1.655 (0.073); own_ext_g0 +0.600 (0.086); own_ext_tmle +0.194 (0.090)
+  n= 16000: pop_ext +1.128 (0.033); pop_ext_g0 -0.045 (0.652); pop_ext_tmle +0.051 (0.044); own_ext +1.029 (0.071); own_ext_g0 +0.285 (0.079); own_ext_tmle -0.042 (0.081)
+
+Paired differences on the ATE (same draw, same initial fits).
+cleverly against own_drtmle at one independent mechanism, in SDs of own_ext:
+         dr_ext - own_ext       n=  1000: pairs  98; mean -0.062 (mcse 0.025); SD 0.244; mean |d| 0.167
+         dr_ext - own_ext       n=  4000: pairs 187; mean -0.064 (mcse 0.015); SD 0.212; mean |d| 0.138
+         dr_ext - own_ext       n= 16000: pairs 198; mean -0.073 (mcse 0.006); SD 0.091; mean |d| 0.085
+      dr_ext_bk - own_ext       n=  1000: pairs  98; mean -0.046 (mcse 0.024); SD 0.241; mean |d| 0.162
+      dr_ext_bk - own_ext       n=  4000: pairs 187; mean -0.045 (mcse 0.015); SD 0.211; mean |d| 0.133
+      dr_ext_bk - own_ext       n= 16000: pairs 198; mean -0.016 (mcse 0.007); SD 0.101; mean |d| 0.072
+         dr_ext - dr_ext_bk     n=  1000: pairs 200; mean -0.006 (mcse 0.013); SD 0.181; mean |d| 0.109
+         dr_ext - dr_ext_bk     n=  4000: pairs 200; mean -0.019 (mcse 0.007); SD 0.093; mean |d| 0.072
+         dr_ext - dr_ext_bk     n= 16000: pairs 200; mean -0.057 (mcse 0.007); SD 0.104; mean |d| 0.084
+cleverly against own_drtmle in sample, and cleverly's two orders, in SDs of dr_in:
+         own_in - dr_in         n=  1000: pairs 195; mean -0.050 (mcse 0.042); SD 0.580; mean |d| 0.395
+         own_in - dr_in         n=  4000: pairs 199; mean -0.133 (mcse 0.024); SD 0.337; mean |d| 0.279
+         own_in - dr_in         n= 16000: pairs 200; mean -0.316 (mcse 0.012); SD 0.168; mean |d| 0.327
+       dr_in_bk - dr_in         n=  1000: pairs 200; mean +0.081 (mcse 0.029); SD 0.417; mean |d| 0.305
+       dr_in_bk - dr_in         n=  4000: pairs 200; mean -0.034 (mcse 0.021); SD 0.302; mean |d| 0.221
+       dr_in_bk - dr_in         n= 16000: pairs 200; mean -0.483 (mcse 0.010); SD 0.135; mean |d| 0.483
+own-row term (in sample minus independent mechanism) and index effect (g_n minus g_0), in SDs of dr_in:
+         own_in - own_ext       n=  1000: pairs  96; mean -2.303 (mcse 0.101); SD 0.989; mean |d| 2.330
+         own_in - own_ext       n=  4000: pairs 186; mean -3.918 (mcse 0.083); SD 1.133; mean |d| 3.918
+         own_in - own_ext       n= 16000: pairs 198; mean -4.102 (mcse 0.079); SD 1.114; mean |d| 4.102
+      own_in_g0 - own_ext_g0    n=  1000: pairs 173; mean -1.819 (mcse 0.055); SD 0.729; mean |d| 1.822
+      own_in_g0 - own_ext_g0    n=  4000: pairs 192; mean -1.604 (mcse 0.061); SD 0.848; mean |d| 1.606
+      own_in_g0 - own_ext_g0    n= 16000: pairs 196; mean -0.983 (mcse 0.072); SD 1.010; mean |d| 1.154
+    own_in_tmle - own_ext_tmle  n=  1000: pairs 200; mean -0.242 (mcse 0.041); SD 0.577; mean |d| 0.504
+    own_in_tmle - own_ext_tmle  n=  4000: pairs 200; mean -0.012 (mcse 0.065); SD 0.921; mean |d| 0.743
+    own_in_tmle - own_ext_tmle  n= 16000: pairs 200; mean +0.339 (mcse 0.078); SD 1.108; mean |d| 0.910
+         own_in - own_in_g0     n=  1000: pairs 194; mean +0.120 (mcse 0.059); SD 0.816; mean |d| 0.626
+         own_in - own_in_g0     n=  4000: pairs 198; mean -1.389 (mcse 0.055); SD 0.770; mean |d| 1.430
+         own_in - own_in_g0     n= 16000: pairs 200; mean -2.187 (mcse 0.030); SD 0.427; mean |d| 2.187
+        own_ext - own_ext_g0    n=  1000: pairs  91; mean +0.499 (mcse 0.032); SD 0.308; mean |d| 0.507
+        own_ext - own_ext_g0    n=  4000: pairs 182; mean +0.950 (mcse 0.032); SD 0.435; mean |d| 0.960
+        own_ext - own_ext_g0    n= 16000: pairs 194; mean +0.913 (mcse 0.030); SD 0.415; mean |d| 0.936
+
+In-sample HGB: mean(1{A=a}/g_n - 1) on its own training rows and on the 200,000-row
+evaluation draw (both zero in mean at g_0). Mean over replicates; sd = their spread.
+n=  1000: w1_train -0.1471 (sd 0.0128); w1_fresh +0.2531 (sd 0.1239); w0_train -0.1469 (sd 0.0141); w0_fresh +0.2504 (sd 0.1250)
+n=  4000: w1_train -0.0623 (sd 0.0045); w1_fresh +0.0670 (sd 0.0279); w0_train -0.0626 (sd 0.0049); w0_fresh +0.0667 (sd 0.0344)
+n= 16000: w1_train -0.0230 (sd 0.0014); w1_fresh +0.0174 (sd 0.0111); w0_train -0.0234 (sd 0.0014); w0_fresh +0.0161 (sd 0.0098)
