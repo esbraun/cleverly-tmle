@@ -885,3 +885,38 @@ def test_a_recorded_row_with_a_missing_component_is_a_data_error() -> None:
         DataError, match=r"'D' has 1 missing value\(s\) on rows flagged as recorded"
     ):
         categorical_data(frame, treatment_delta="recorded")
+
+
+# ------------------------------------------------------------------ fingerprint (review MEDIUM-1)
+
+
+def test_the_data_fingerprint_reads_every_vector_component() -> None:
+    """Two vector datasets that differ in one component fingerprint differently.
+
+    On (a2) the treatment slot holds ``NaN`` alone, so a digest of it could not tell two
+    samples apart; the ``SplitPlan`` source binding and the provenance read this digest.
+    """
+    from cleverly.provenance import data_fingerprint, fingerprint_array
+
+    frame = law.mixed_sample(200, 4)
+    dose = frame.copy()
+    dose.loc[dose.index[0], "D"] = 7.0
+    flag = frame.copy()
+    flag.loc[flag.index[0], "F"] = 1.0 - flag.loc[flag.index[0], "F"]
+    base = vector_data(frame)
+    digests = {
+        "base": data_fingerprint(base),
+        "dose": data_fingerprint(vector_data(dose)),
+        "flag": data_fingerprint(vector_data(flag)),
+        "all categorical": data_fingerprint(categorical_data(frame)),
+    }
+    assert len(set(digests.values())) == len(digests), digests
+    # A copy that takes the dose sample's components is that sample.
+    moved = base.with_treatment(np.asarray(vector_data(dose).treatment_components))
+    assert data_fingerprint(moved) == digests["dose"]
+    renamed = vector_data(frame.rename(columns={"F": "E"}), treatment=["E", "D"])
+    assert data_fingerprint(renamed) != digests["base"]
+    scalar = CausalData.from_frame(frame, outcome="Y", treatment="F", covariates=["W", "D"])
+    assert data_fingerprint(scalar) == fingerprint_array(
+        scalar.outcome, scalar.treatment, scalar.covariates
+    )
