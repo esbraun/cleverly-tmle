@@ -108,6 +108,7 @@ categorized API tables.
    cleverly.interventions.ModifiedPolicy
    cleverly.interventions.Randomizer
    cleverly.interventions.RiskRatioTilt
+   cleverly.interventions.JointPolicy
    cleverly.interventions.PolicySet
    cleverly.interventions.SupportReport
    cleverly.interventions.RegimeSupport

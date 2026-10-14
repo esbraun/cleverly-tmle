@@ -170,7 +170,6 @@ Priorities 2 to 5 follow the beta.
 | 1.13 | Repeated-outcome curves | published support for the incremental case; a fixed-dimension stack for static and dynamic plans | the shipped `IPSI` estimator | [X32](#x32-repeated-outcome-curves) |
 | 1.14 | Targeting and fitting options | no new theory; each option keeps its default bit-identical | none | [X22](#x22-targeting-and-fitting-options) |
 | 1.15 | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
-| 1.16 | Continuous vector components at a node | published support; pending source read | shipped longitudinal modified treatment policies | [X31](#x31-continuous-vector-components-at-a-node) |
 | 1.17 | Plug-in omitted-variable limits with a declared parametric mechanism | [published support; stacked-equation extension](technical-reference/natural-extension-verdicts.md) | the shipped plug-in bound | [X26](#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism) |
 | 2.1 | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
 | 2.2 | Efficient known-score ATT and ATC | published support; pending source read | the shipped known treatment mechanism | [X35](#x35-efficient-known-score-att-and-atc) |
@@ -710,28 +709,6 @@ Acceptance:
   stratum plug-ins;
 - an exact-law test of each stratum curve;
 - a registered calibration cell.
-
-### X31. Continuous vector components at a node
-
-`LTMLE` takes a vector of categorical columns as one node, and the discrete formula gives its
-ratio. `LongitudinalData.from_frame` refuses a vector node with a continuous component, before any
-learner. `CausalData` takes one treatment column, so a point treatment has no vector node at all.
-The pinned `lmtp` 1.5.4 accepts a list of columns as one node of `trt`, so this is a parity gap.
-
-| part | what to add | published source | comparator |
-| --- | --- | --- | --- |
-| (a) a point vector treatment | `CausalData(treatment=["A1", "A2"])` with a joint policy, on the routes the longitudinal vector node uses | Hoffman et al. (2024), *Epidemiology* 35(5). This locator is pending its source read | `lmtp` 1.5.4 with one node of two columns |
-| (b) a continuous component | the ratio of a joint policy when one column is a dose | the same source, and Section 5.4 of Díaz, Williams, Hoffman and Schenck (2023) for the classifier route | the same |
-
-The classifier route (`ratio="classifier"`) needs only the joint policy and the stacked fit, so it
-is the first route to build. A density route needs a joint conditional density, or declared
-per-component pieces whose Jacobian is the product of the component Jacobians.
-
-Acceptance:
-
-- exact-law Gateaux witnesses for each part on a coarse discrete law;
-- a mutation control that drops one component's ratio;
-- a registered study against the pinned `lmtp` 1.5.4, with the ratio supplied to both sides.
 
 ### P1. EP learner
 

@@ -274,6 +274,7 @@ Other maps of the dose use the same `policies=` axis. The table names each class
 | `ModifiedPolicy(name, pieces=..., policy_kind="known")` | your own map, with its inverse and its derivative on each piece |
 | `ModifiedPolicy(name, apply=..., policy_kind="known")` | a map of the levels of a categorical treatment |
 | `RiskRatioTilt(delta)` | the `ipsi` tilt of `lmtp` on a 0/1 treatment, reported as `ey_rr_tilt`. Fit it with `TMLE(policies=...)`. The typed study requests refuse it |
+| `JointPolicy(name, components={column: policy}, policy_kind="known")` | a vector treatment of several columns. It sets one policy for each component, as the [vector treatments](../technical-reference/point-treatment-tmle.md#vector-treatments) section states |
 
 ```python
 from cleverly.interventions import ModifiedPolicy, Piece, Scale

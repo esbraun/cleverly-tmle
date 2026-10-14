@@ -3,10 +3,12 @@
 Use interventions to define static, dynamic, stochastic, incremental, or modified treatment
 assignments. Run the matching support check before you interpret an estimate. A modified
 treatment policy is a `Shift`, a `Scale`, a `Piecewise` map, a `ModifiedPolicy` with declared
-pieces, or a `RiskRatioTilt`. Pass it to `TMLE(policies=...)` or as a node of a longitudinal
-plan. `DynamicRegimen`
-defines a plan across the treatment nodes of a longitudinal fit. A node of that plan can be a
-rule. It can also be a `Stochastic` node that draws its arm from a known policy. `LearnedRule` declares a rule that the fit learns inside each training fold, and
+pieces, or a `RiskRatioTilt`. Pass a policy to `TMLE(policies=...)` or as a node of a longitudinal
+plan. A vector treatment takes a `JointPolicy`, which declares one policy for each component.
+
+`DynamicRegimen` defines a plan across the treatment nodes of a longitudinal fit. A node of that
+plan can be a rule. It can also be a `Stochastic` node that draws its arm from a known policy.
+`LearnedRule` declares a rule that the fit learns inside each training fold, and
 `LearnedRuleRecord` records that fit.
 
 ```{eval-rst}
@@ -30,6 +32,7 @@ rule. It can also be a `Stochastic` node that draws its arm from a known policy.
    cleverly.interventions.ModifiedPolicy
    cleverly.interventions.Randomizer
    cleverly.interventions.RiskRatioTilt
+   cleverly.interventions.JointPolicy
    cleverly.interventions.PolicySet
    cleverly.interventions.SupportReport
    cleverly.interventions.RegimeSupport
