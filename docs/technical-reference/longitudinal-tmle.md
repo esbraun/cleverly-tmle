@@ -864,6 +864,109 @@ the table of kinds above does not list it.
 
 See [scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) for what each `kind` means.
 
+### Repeated fold draws
+
+`repeats=R` on `LTMLE`, `SDR` and `IPSI` runs the complete single-draw fit at `R` independent fold
+assignments. `CrossFitting(repeats=R)` sets it on the `CausalStudy` route. Each draw fits its own
+mechanism, its own training-fold mechanisms, its own recursion and its own estimates.
+`result.repeats` holds one `LongitudinalRepeat` per draw. Draw $r$ equals a fit with `repeats=1` at
+`random_state=result.repeats[r].seed`.
+
+The fit combines the draws by the rule of Chernozhukov et al. (2018, Definition 3.3 and equation
+(3.14), pp. C29-C30). Let $t_r$ be draw $r$'s value on the estimate's inference scale and
+$\hat\sigma_r^2$ its variance on that scale. The reported value is $\tilde t = \operatorname{median}_r
+t_r$, and the reported variance is $\operatorname{median}_r\{\hat\sigma_r^2 + (t_r - \tilde
+t)^2\}$.
+
+At an even draw count the median is the mean of the two central values. The table gives the rule
+for each quantity.
+
+| quantity | rule under `repeats` above 1 |
+| --- | --- |
+| level, risk, incidence, MSM coefficient | the rule above, per name |
+| in-fit contrast `ate_regimen[a vs ref]` | the rule above on the per-draw contrast. Each draw forms the contrast from its own two fits, so its variance keeps that draw's paired covariance |
+| `contrast()`, `ratio()`, `rmst()`, `rmtl()`, `incidence_total()` | the single-draw functional in every draw, then the rule above on its inference scale. A ratio uses the log scale. `contrast(..., transform=T)` uses the scale of `T` and reports $T^{-1}(\tilde t)$ |
+| `covariance(names)` | the matrix rule of equation (3.14) for the selected names. See the next paragraph |
+| simultaneous band | $\tilde\psi_j \pm c_{\mathrm{med}}\,\tilde\sigma_j$. Here $c_{\mathrm{med}}$ is the median of the per-draw multiplier critical values, and $\tilde\sigma_j$ is the reported standard error |
+| inference status | each name takes the precedent status of its draws before any median |
+| `influence_curves` | the curve of the central draw, or the mean of the two central curves at an even draw count. It serves marginal diagnostics only |
+| `repeat_spread()` | the standard deviation of the draws on the inference scale, a diagnostic |
+
+`covariance(names)` builds one candidate per draw, $C_r = \hat\Sigma_r + d_r d_r^\top$. Here
+$\hat\Sigma_r$ is draw $r$'s covariance of the selected names, and $d_r$ is that draw's
+displacement from the coordinatewise median. The method returns the candidate with the median
+largest eigenvalue, with ties to the lower draw. At an even draw count it returns the mean of the
+two candidates with the central largest eigenvalues.
+
+The draw that the rule picks depends on the selection. So an entry of the matrix can differ between two selections that share a name, and from
+the reported variance. A one-name call equals the reported variance exactly, because it runs the
+same scalar rule. The reported intervals, contrasts and bands read the per-name rule and not this
+matrix.
+
+**Why the median keeps each draw's expansion.** Draw $r$ is the shipped single-draw estimator at
+its own split, so $\hat\psi_r - \psi_0 = P_n D^* + \mathrm{Rem}_r + o_P(n^{-1/2})$. For a fixed
+`R` the median lies between the smallest and the largest draw. Its remainder is therefore at most
+$\max_r |\mathrm{Rem}_r|$, which is $o_P(n^{-1/2})$. The displacement term is $o_P(n^{-1})$, so it
+is a finite-sample split adjustment.
+
+The same argument holds on any inference scale that is differentiable at $\psi_0$. Corollary 3.3 of Chernozhukov et al. (2018) states the analogue for
+the DML estimators and is not the licence. A single curve does not represent the split variability
+of the median in a finite sample. Asymptotically at a fixed `R` the median has the curve of each
+draw.
+
+**Status across draws.** A node regression can read a constant target in the training rows of one
+draw only. That draw then stamps `constant_node_plugin` on the level. Every route that combines
+draws first gives each name the precedent status of its draws. Those routes are the reported
+estimates, `contrast()`, `ratio()`, `rmst()`, `rmtl()`, `incidence_total()`, `covariance()` and
+the band. A name that withholds inference in one draw withholds it in the report. The stored
+`result.repeats[r].estimates` keep their own statuses.
+
+**Seeds.** The table gives the seed that each part of a fit reads.
+
+| part | `repeats=1` | `repeats` above 1 |
+| --- | --- | --- |
+| fold assignment | `random_state`, or a fresh seed under `None` | seed $r$ of `CrossFitPlan(random_state=..., repeats=R).seeds()`. A fresh seed replaces each `None` |
+| learners | `random_state` | the seed of the draw, so a Super Learner's inner folds draw again |
+| multiplier band | `random_state` | `random_state` when it is an integer. Under `None` the fit draws one seed and records it as `config.multiplier_seed`. Every draw and a `CausalStudy` band use it |
+
+At one draw a `random_state=None` fit sends `None` to its learners, as before. The point-treatment
+engine sends the fresh fold seed to its learners at one draw. The two engines differ there.
+
+**Diagnostics and replay.** The table gives what each report reads on a repeated fit.
+
+| report | what it reads |
+| --- | --- |
+| `support()`, `nuisance_models()` | draw 1. The report states `n_repeats` and `reported_repeat`. `nuisance_models()` also carries one `repeat_spread` row per name |
+| `score_equations()` | every draw. Its frame gains a `draw` column, one-based, only when `R` is above 1 |
+| `truncation_curve()` | a replay of every draw at each bound. Each row reports the median rule over the draws, and the score-cell counts sum over the draws |
+| `converged` | true only when every node of every draw converged |
+| `provenance.fold_fingerprint` | every draw in fit order. It equals `result.split_plan.fingerprint` |
+
+**Refusals.** Each refusal raises before any learner, except the per-draw ones, which raise when
+the method is called.
+
+| composition | exception | what to do |
+| --- | --- | --- |
+| `repeats` that is not an integer of at least 1 | `ValueError` | set an integer of 1 or more |
+| `repeats` above 1 with `n_folds=1` | `ValueError` | set `n_folds` to 2 or more, or set `repeats=1` |
+| `repeats` above 1 with `n_bootstrap` above 0 | `ValueError` | fit with `repeats=1` for the bootstrap, or with `n_bootstrap=0` for the split-adjusted median interval. No registered study measures a bootstrap of the median, and each replicate would refit every draw |
+| `contrast(..., transform=T)` where `T` has no finite value or slope at one draw's value | `ValueError` that names the draw | use a transform defined at every draw, drop `transform=`, or read each draw in `result.repeats` |
+| any other refusal of a per-draw functional | the original type, with the message prefixed `draw r of R:` | the remedy of the original message |
+| `ratio()` on an `SDR` or `IPSI` fit where one draw's level is outside the log or odds domain | `CapabilityError` that names the draw | report the difference scale. The fit checks every draw and not the median |
+
+`split_plan=` stays refused on the longitudinal engine. A fit records its plan as
+`result.split_plan` and accepts none back.
+
+`tests/unit/test_longitudinal_repeats.py` holds the evidence. It checks that `repeats=1` equals a
+record captured before the change. It checks that each draw of twelve designs equals a single-draw
+fit. It gives a nonzero witness for every rule in the tables above, and 16 source mutations each
+turn a named test red.
+
+A registry test maps every estimator keyword, result member, assessment
+capability, data declaration and `CausalStudy` step to a repeated-fit witness. No registered study
+measures the coverage of the median over draws yet.
+[X46](../roadmap.md#x46-repeated-cross-fitting-for-longitudinal-fits) tracks that study.
+
 ### Clusters
 
 `LTMLE.fit(id=...)` treats the cluster as the unit. The cluster is the fold unit and the variance

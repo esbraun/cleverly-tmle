@@ -127,9 +127,11 @@ model. `cleverly` validates learner task compatibility and sample-weight support
 - `learner_folds` defines internal model-selection folds for learners such as a Super Learner.
   Default 5.
 - `repeats` repeats the outer split and reports the median of the draws. Default 1. The value must
-  be at least 1, and a value above 1 requires `enabled=True`. A repeated fit refuses a simultaneous
-  band, because the band needs the joint influence curves of one draw. Pass `simultaneous=False` to
-  a repeated fit.
+  be at least 1, and a value above 1 requires `enabled=True`. A repeated point-treatment fit
+  refuses a simultaneous band, because the band needs the joint influence curves of one draw. Pass
+  `simultaneous=False` to a repeated point-treatment fit. A longitudinal fit accepts `repeats` and
+  builds the band from every draw, as
+  [repeated fold draws](../technical-reference/longitudinal-tmle.md#repeated-fold-draws) states.
 - `enabled=False` sets a one-fold analysis with no cross-fitting.
 - `stratify_by="none"` draws unstratified folds, so the split reads neither the treatment nor the
   outcome. This is the default, and it is the only policy a fit that draws a split accepts.
@@ -245,5 +247,5 @@ finite-sample estimating procedure and should be reported with support diagnosti
 submodel bound, `submodel_alpha`, is separate from the confidence interval's `alpha`.
 
 Unknown settings and settings an engine cannot use raise `MethodConfigurationError` before fitting
-rather than being ignored. A longitudinal fit refuses a point-only control such as `repeats=`
-instead of accepting it and discarding it.
+rather than being ignored. A longitudinal fit refuses a point-only control such as
+`targeting_scheme=` instead of accepting it and discarding it.

@@ -481,9 +481,15 @@ for that draw. The nuisance summary and the combined assessment row render the s
 zero-padded `draw 01 of 03` instead. Those rows pad every style, so a table cell and the
 sentence that describes it agree on one width.
 
+A repeated longitudinal fit follows the same rule. `support()` and `nuisance_models()` describe
+draw 1 and carry `n_repeats` and `reported_repeat`. `score_equations()` reports every draw and adds
+a one-based `draw` column. `tests/unit/test_longitudinal_repeats.py` checks both reports.
+
 `repeat_spread` contains one `RepeatSpreadRow` per reported parameter when the fit uses two or more
 draws. The row pairs the split standard deviation across every retained draw with the
-median-combined result's standard error.
+median-combined result's standard error. `LongitudinalNuisanceDiagnostics.repeat_spread` holds the
+same rows for a longitudinal fit, and `LongitudinalResult.repeat_spread()` returns the standard
+deviations.
 
 Both quantities are on the inference scale of the estimand. That scale is the log scale for a ratio,
 and the outcome scale otherwise, so `ratio_to_standard_error` divides two like quantities.

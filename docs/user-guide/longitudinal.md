@@ -574,6 +574,56 @@ runs an untargeted recursion for every regimen, and one stacked fluctuation per 
 update. [MSM projections](../technical-reference/msm-projections.md#the-longitudinal-projection)
 states the construction and its evidence.
 
+## Repeat the fold draws
+
+Pass `repeats=R` to `estimate()` to fit the whole estimator at `R` independent fold draws. The
+result reports the median of the draws, and its variance adds the spread of the draws. Use it when
+one split moves the estimate by more than you accept.
+
+```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
+from cleverly.datasets import make_longitudinal
+
+frame, _ = make_longitudinal(n=300, seed=0)
+study = CausalStudy(
+    frame,
+    design=LongitudinalTreatment(
+        outcome="Y",
+        treatment=("A1", "A2"),
+        baseline=("W1", "W2"),
+        time_varying=((), ("L2",)),
+        censoring=("C1", "C2"),
+    ),
+)
+repeated = study.identify(RegimeContrast({"always": 1, "never": 0}, reference="never")).estimate(
+    outcome_learner=LogisticRegression(),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(),
+    censoring_learner=LogisticRegression(),
+    n_folds=2,
+    repeats=3,
+    random_state=0,
+)
+assert repeated.n_repeats == 3
+assert len({draw.seed for draw in repeated.repeats}) == 3
+print(repeated.repeat_spread())
+```
+
+| task | how |
+| --- | --- |
+| read one draw | `repeated.repeats[r]` holds its folds, seed, fits and estimates |
+| see how much the split moves each estimate | `repeated.repeat_spread()`, the standard deviation of the draws |
+| contrast or ratio the levels | `contrast()` and `ratio()` run in every draw and report the median |
+| set it on a method | `CrossFitting(repeats=3)` |
+
+The fit refuses `repeats` above 1 with `n_folds=1`, because one fold has no split to draw again. It
+also refuses `repeats` above 1 with `n_bootstrap` above 0. The support and nuisance reports describe
+draw 1. The score report has one row per node and draw.
+[Repeated fold draws](../technical-reference/longitudinal-tmle.md#repeated-fold-draws) states the
+rule, the seeds and the refusals.
+
 ## Diagnostics
 
 Longitudinal results provide cumulative support, targeting-score, and nuisance-model reports by
