@@ -21,6 +21,7 @@ from cleverly.longitudinal import LongitudinalData
 from tests.studies import canonical_ltmle_repeated as study
 from tests.studies import ltmle_repeated_law as law
 from tests.studies import ltmle_repeated_properties as properties
+from tests.studies.evidence import replication
 from tests.studies.evidence.inference import clopper_pearson
 from tests.studies.evidence.registry import registered
 
@@ -397,3 +398,12 @@ def test_the_declared_truths_are_finite_and_cover_every_label() -> None:
 def test_the_rule_reads_only_the_earlier_outcome() -> None:
     history = pd.DataFrame({"Y1": [0.0, 1.0, 0.0], "L2": [1.0, 0.0, 0.0]})
     np.testing.assert_array_equal(study.treat_after("Y1")(history), [0, 1, 0])
+
+
+def test_the_primary_phase_returns_the_driver_contract() -> None:
+    """The regeneration driver refuses anything but a ``PhaseResult`` (Study queue item 11)."""
+    result = study.draw_and_fit(replicates=1, n=400, n_jobs=1)
+    assert isinstance(result, replication.PhaseResult)
+    assert result.failures is None
+    assert set(result.rows["estimand"]) == set(study.ESTIMANDS)
+    assert result.samples is not None and result.truths is not None
