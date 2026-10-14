@@ -22,6 +22,11 @@ identity. The duplicates are not cells of this study.
 | sequential regressions | follower-stratified quasibinomial regressions on the history at each node | the same family, with a main-terms `Qform` on the same history at each block |
 | fitting | in sample, `n_folds = 1` | in sample |
 | intervals | pointwise 95% Wald from the influence curve | `variance.method = "ic"` |
+| initial estimate | the first node's regression of the targeted second node | a second call with `gcomp = TRUE`, the sequential regression with no fluctuation |
+
+The two initial estimates differ by design, and no verdict reads them. W is binary, so the first
+node's regression is saturated in W and its fluctuation is zero. That value equals the targeted
+estimate. The R plug-in is the value a targeting step must move away from.
 
 Each truth is an exact enumeration of the binary law (`cleverly.datasets.repeated_truth`).
 `tests/studies/ltmle_repeated_law.py` repeats the enumeration on the observed-data law.

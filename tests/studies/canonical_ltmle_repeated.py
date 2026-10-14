@@ -241,6 +241,10 @@ REFERENCE_METADATA = {
     "ltmle_source_commit": LTMLE_SOURCE_COMMIT,
     "ltmle_tarball_sha256": LTMLE_TARBALL_SHA256,
     "r_base_image": R_BASE_IMAGE,
+    "reference_construction": (
+        "ltmle per horizon on the prefix through Y_h, survivalOutcome=FALSE, main-terms Qform, "
+        "numeric gform; the initial estimate is a second call with gcomp=TRUE"
+    ),
 }
 
 CONFIGURATION = {
@@ -357,7 +361,10 @@ def horizon_initials(
     """The untargeted plug-in behind each mean at a horizon, and each contrast of two.
 
     ``fits[f"{label} @ t={h}"].steps[0].initial`` is the first node's regression of the
-    already targeted second node, which is what ``initial_estimate`` means on both sides.
+    already targeted second node.  W is binary, so that regression is saturated in W and its
+    fluctuation is zero: the value equals the targeted estimate.  The R side publishes a
+    second call with ``gcomp = TRUE`` instead (``ltmle_repeated_adapter.R``).  No verdict
+    reads either initial column.
     """
     means: dict[str, float] = {}
     for name in mean_names:

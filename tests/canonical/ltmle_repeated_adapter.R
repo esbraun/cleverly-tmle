@@ -65,17 +65,15 @@ repeated_mechanism <- function(frame, abar, horizon) {
   do.call(cbind, columns)
 }
 
-repeated_ltmle_fit <- function(arguments, frame, label) {
-  # One `ltmle` call and what the study reads back, with the warning policy, the stage and the
-  # cumulative-bound check of `regimen_ltmle_fit`.  The initial estimate is the first block's
-  # regression, whose design here is `~ W`.
+repeated_ltmle_call <- function(arguments) {
+  # One `ltmle` call under the study's warning policy and stage.
   #
   # A rank-deficient stratified regression warns "prediction from rank-deficient fit" and stays
   # fatal: its predictions off the fitted rows are not unique, so the paired comparison would
   # read an arbitrary R value.  At n = 400 one smoke replicate hits it (the rule's third node,
   # about 18 followers).  At the declared n = 2,000 none of the 1,600 primary draws does
   # (X32a Study queue item 11).
-  targeted <- withCallingHandlers(
+  withCallingHandlers(
     study_stage("ltmle", do.call(ltmle, arguments)),
     warning = function(condition) {
       if (grepl("Cnodes|censoring", conditionMessage(condition), ignore.case = TRUE)) {
@@ -84,20 +82,26 @@ repeated_ltmle_fit <- function(arguments, frame, label) {
       study_fatal_error(sprintf("unexpected ltmle warning: %s", conditionMessage(condition)))
     }
   )
+}
+
+repeated_ltmle_fit <- function(arguments, label) {
+  # The targeted fit, its influence curve and the cumulative-bound check of
+  # `regimen_ltmle_fit`, plus the fully untargeted plug-in.
+  #
+  # The initial estimate is a second call with `gcomp = TRUE`, the sequential regression with
+  # no fluctuation.  The first block's regression of the targeted chain, which
+  # `ltmle_regimen_adapter.R` publishes, cannot serve here.  W is binary and the first block's
+  # design is `~ W`, so that regression is saturated in W and its fluctuation is exactly zero.
+  # It would equal the targeted estimate in every replicate, and the check that the reference
+  # moved off its plug-in would read nothing.
+  targeted <- repeated_ltmle_call(arguments)
   if (any(abs(targeted$cum.g - targeted$cum.g.unbounded) > 1e-12, na.rm = TRUE)) {
     stop(sprintf("%s activated a cumulative g bound", label))
   }
-  first_q <- targeted$fit$Q[[1]]
-  initial <- if (inherits(first_q, "no.Y.variation")) {
-    unname(first_q$Y.value)
-  } else {
-    coefficients <- first_q[, "Estimate"]
-    design <- model.matrix(~W, data = frame)
-    unname(mean(plogis(design[, names(coefficients), drop = FALSE] %*% coefficients)))
-  }
+  plug_in <- repeated_ltmle_call(c(arguments, list(gcomp = TRUE)))
   list(
     estimate = unname(targeted$estimates[["tmle"]]),
-    initial = initial,
+    initial = unname(plug_in$estimates[["gcomp"]]),
     ic = as.numeric(targeted$IC$tmle)
   )
 }

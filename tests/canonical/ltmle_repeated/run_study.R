@@ -45,7 +45,7 @@ fit_plan <- function(frame, label, horizon) {
     variance.method = "ic"
   )
   if (horizon > 1) arguments$Lnodes <- sprintf("L%d", 2:horizon)
-  repeated_ltmle_fit(arguments, frame, sprintf("%s at horizon %d", label, horizon))
+  repeated_ltmle_fit(arguments, sprintf("%s at horizon %d", label, horizon))
 }
 
 truth_for <- function(replicate, estimand) {

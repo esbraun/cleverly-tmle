@@ -1125,8 +1125,10 @@ def alternative_target_necessity_verdicts(
         if name not in summary:
             summary[name] = np.nan
     if "alternative_bias_equivalent" not in summary:
+        # ``NaN`` rather than ``None``: the published CSV reads an empty cell back as ``NaN``,
+        # and the recomputation gate compares the two.
         summary["alternative_bias_equivalent"] = pd.Series(
-            [None] * len(summary), dtype=object, index=summary.index
+            [np.nan] * len(summary), dtype=object, index=summary.index
         )
     else:
         summary["alternative_bias_equivalent"] = summary["alternative_bias_equivalent"].astype(
