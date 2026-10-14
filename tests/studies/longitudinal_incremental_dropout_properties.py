@@ -29,7 +29,7 @@ label                           law and estimand
 ``survival_contrast_x2_h3``     ``D``, ``contrast_x2`` of the risk by horizon 3, read off
                                 the band fit
 ``competing_contrast_x2_h3``    ``Dc``, ``contrast_x2`` of the cause-1 incidence by
-                                horizon 3
+                                horizon 3, at n = 32,000
 ``msm_log_delta``               ``C``, the slope of a working model linear in
                                 :math:`\log\delta` over the three plans (identity link)
 ``weighted_contrast_x0_5``      ``C`` with the informative weight :func:`weight`,
@@ -101,6 +101,10 @@ REPLICATES = 2_000
 #: whole clusters, and the sizing probe's bias does not reach them.
 CLUSTER_N = 8_000
 CLUSTER_REPLICATES = 1_000
+#: The competing-risk cell needs a larger size.  At n = 8,000 a training fold can hold one
+#: or two treated units of a rare history, and the saturated censoring fit then reaches its
+#: lower bound.  ``tests/diagnostics/x19_sizing`` reads the cell at this size.
+COMPETING_N = 32_000
 CLUSTER_SIZE = 10
 EFFICIENCY_RATIO_BAND = (0.90, 1.10)
 SHRUNKEN_SE_FACTOR = 0.70
@@ -259,7 +263,7 @@ class DeclaredLaw:
 #: Every fit set: ``(family, draw stream, n, replicates)``.
 FIT_SETS: tuple[tuple[str, str, int, int], ...] = (
     ("interval_calibration", "law_c", N, REPLICATES),
-    ("interval_calibration", "law_dc", N, REPLICATES),
+    ("interval_calibration", "law_dc", COMPETING_N, REPLICATES),
     ("clustered_inference", "law_ck", CLUSTER_N, CLUSTER_REPLICATES),
 )
 
@@ -312,6 +316,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             stream,
             estimand,
             _seed(family, stream, 0),
+            n=COMPETING_N if stream == "law_dc" else N,
         )
     for cell, role in (
         ("mean_x2__cluster_robust", "positive"),

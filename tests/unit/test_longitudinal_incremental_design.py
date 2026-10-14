@@ -89,7 +89,7 @@ def test_the_declared_numbers() -> None:
     assert (p1.CALIBRATION_N, p1.CALIBRATION_REPLICATES) == (32_000, 2_000)
     assert (p1.RATE_SIZES, p1.RATE_REPLICATES) == ((24_000, 64_000, 96_000), 1_000)
     assert (p2.N, p2.REPLICATES, p2.CLUSTER_SIZE) == (16_000, 2_000, 10)
-    assert (p2.CLUSTER_N, p2.CLUSTER_REPLICATES) == (8_000, 1_000)
+    assert (p2.CLUSTER_N, p2.CLUSTER_REPLICATES, p2.COMPETING_N) == (8_000, 1_000, 32_000)
 
 
 def test_the_studies_draw_from_their_own_seeds() -> None:
@@ -340,8 +340,14 @@ CALIBRATION_CELLS = (
             ("law_c", "dropout_contrast_x2"),
             ("law_c", "msm_log_delta"),
             ("law_c", "weighted_contrast_x0_5"),
-            ("law_dc", "competing_contrast_x2_h3"),
         )
+    ),
+    # The competing-risk tail does not shrink as 1/n, so the probe reads it at its own size.
+    (
+        f"s2:law_dc@{p2.COMPETING_N}",
+        "interval_calibration/competing_contrast_x2_h3__correctly_specified",
+        p2.COMPETING_N,
+        p2.REPLICATES,
     ),
     # The survival label reads the band fit, which is the survival scenario's fit.
     ("s2:survival_folds_5", "ate_regimen[odds x2 vs natural course @ t=3]", p2.N, p2.REPLICATES),

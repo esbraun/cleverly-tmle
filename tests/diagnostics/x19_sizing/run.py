@@ -12,13 +12,26 @@ It runs, at :data:`N`:
   :mod:`tests.studies.longitudinal_incremental_properties` (laws ``A``, ``Ax`` and the mixed
   plans);
 * both S2 primary scenarios, every estimand;
-* the S2 fit sets of :mod:`tests.studies.longitudinal_incremental_dropout_properties`.
+* the S2 fit sets of :mod:`tests.studies.longitudinal_incremental_dropout_properties`;
+* the competing-risk fit set again at its declared size, :data:`COMPETING_N`.
+
+The competing-risk cell needs its own size.  At n = 8,000 its SE ratio reads 0.85 on 1,000
+draws while its coverage reads 0.95.  About 0.6% of draws carry a reported SE 3 to 14 times
+the median, and those draws dominate the mean SE.  Each of them has one history cell of about
+13 units in which a training fold holds one or two treated units.  The saturated cell-mean
+fit then puts a censoring probability at the lower bound, 0.01.  The reported SE tracks the
+error on those draws, so this is a finite-sample tail and not a defect in the curve.  It does
+not shrink as :math:`1/n`, so the design test reads that cell at its declared size and does
+not project it.
 
 Replication ``r`` of set ``k`` draws the seed ``SEED_BASE + 100_000 k + r``, outside every
 declared stream.  The probe cannot change a verdict.  The rows go to ``rows.csv.gz`` and the
-reading to ``reading.csv``.
+reading to ``reading.csv``.  Set 0 was the two-fold S1 scenario, which the study no longer
+declares.  Its rows stay in the committed reading as the witness that two folds would need
+about n = 90,000.
 
     python -m tests.diagnostics.x19_sizing.run --jobs 4
+    python -m tests.diagnostics.x19_sizing.run --jobs 4 --set s2:law_dc@32000
 """
 
 from __future__ import annotations
@@ -39,38 +52,44 @@ from tests.studies import longitudinal_incremental_properties as p1
 
 HERE = Path(__file__).resolve().parent
 N = 8_000
-REPLICATES = {"s1": 600, "s2": 400}
+COMPETING_N = p2.COMPETING_N
 SEED_BASE = 9_700_000
 
-#: ``(set, study, kind, key)``: a primary scenario or a property fit set.
-SETS: tuple[tuple[str, str, str, str], ...] = (
-    *(("s1:" + scenario, "s1", "primary", scenario) for scenario in s1.FOLDS),
-    ("s1:law_a", "s1", "property", "law_a"),
-    ("s1:law_ax", "s1", "property", "law_ax"),
-    ("s1:law_a_mixed", "s1", "property", "law_a_mixed"),
-    *(("s2:" + scenario, "s2", "primary", scenario) for scenario in s2.SCENARIOS),
-    ("s2:law_c", "s2", "property", "law_c"),
-    ("s2:law_dc", "s2", "property", "law_dc"),
-)
+#: ``set: (index, study, kind, key, n, replicates)``: a primary scenario or a property fit set.
+#: The index fixes the seed stream.
+SETS: dict[str, tuple[int, str, str, str, int, int]] = {
+    "s1:ipsi_folds_5": (1, "s1", "primary", "ipsi_folds_5", N, 600),
+    "s1:law_a": (2, "s1", "property", "law_a", N, 600),
+    "s1:law_ax": (3, "s1", "property", "law_ax", N, 600),
+    "s1:law_a_mixed": (4, "s1", "property", "law_a_mixed", N, 600),
+    **{
+        "s2:" + scenario: (index, "s2", "primary", scenario, N, 400)
+        for index, scenario in enumerate(s2.SCENARIOS, start=5)
+    },
+    "s2:law_c": (7, "s2", "property", "law_c", N, 400),
+    "s2:law_dc": (8, "s2", "property", "law_dc", N, 400),
+    f"s2:law_dc@{COMPETING_N}": (9, "s2", "property", "law_dc", COMPETING_N, 1_000),
+}
 
 
 def _seed(index: int, replicate: int) -> int:
     return SEED_BASE + 100_000 * index + replicate
 
 
-def _fit(index: int, replicate: int) -> list[dict[str, Any]]:
-    name, study, kind, key = SETS[index]
+def _fit(name: str, replicate: int) -> list[dict[str, Any]]:
+    index, study, kind, key, n, _ = SETS[name]
     seed = _seed(index, replicate)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         if kind == "primary":
             module = s1 if study == "s1" else s2
-            frame, truth = module.draw_from_seed(key, N, seed)
+            frame, truth = module.draw_from_seed(key, n, seed)
             result = module.fit(frame, key)
             return [
                 {
                     "set": name,
                     "cell": estimand,
+                    "n": n,
                     "replicate": replicate,
                     "truth": float(truth[estimand]),
                     "estimate": float(result[estimand].psi),
@@ -81,15 +100,16 @@ def _fit(index: int, replicate: int) -> list[dict[str, Any]]:
         properties = p1 if study == "s1" else p2
         properties._seed = lambda *_: seed  # type: ignore[attr-defined]
         if study == "s1":
-            payload_row = ("interval_calibration", key, "calibration", replicate, N, 1, key)
+            payload_row = ("interval_calibration", key, "calibration", replicate, n, 1, key)
         else:
             family = "clustered_inference" if key == "law_ck" else "interval_calibration"
-            payload_row = (family, key, replicate, N, 1)
+            payload_row = (family, key, replicate, n, 1)
         rows = properties._fit_set_rows(payload_row)
     return [
         {
             "set": name,
             "cell": f"{row['property']}/{row['cell']}",
+            "n": n,
             "replicate": replicate,
             "truth": float(row["truth"]),
             "estimate": float(row["estimate"]),
@@ -110,7 +130,7 @@ def reading(rows: pd.DataFrame) -> pd.DataFrame:
             {
                 "set": name,
                 "cell": cell,
-                "n": N,
+                "n": int(group["n"].iloc[0]),
                 "replicates": len(group),
                 "standardized_bias": float(error.mean() / spread),
                 "mcse": float(1.0 / np.sqrt(len(group))),
@@ -124,14 +144,16 @@ def reading(rows: pd.DataFrame) -> pd.DataFrame:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--jobs", type=int, default=1)
+    parser.add_argument("--set", action="append", choices=sorted(SETS), help="rerun one set")
     args = parser.parse_args()
-    payloads = [
-        (index, replicate)
-        for index, (_, study, _, _) in enumerate(SETS)
-        for replicate in range(REPLICATES[study])
-    ]
+    names = args.set or list(SETS)
+    payloads = [(name, replicate) for name in names for replicate in range(SETS[name][5])]
     outcomes = map_parallel(_fit, payloads, n_jobs=args.jobs)
     rows = pd.DataFrame([row for result in outcomes for row in result])
+    if args.set:
+        kept = pd.read_csv(HERE / "rows.csv.gz")
+        kept["n"] = kept["n"].fillna(N).astype(int) if "n" in kept else N
+        rows = pd.concat([kept[~kept["set"].isin(names)], rows], ignore_index=True)
     rows.to_csv(HERE / "rows.csv.gz", index=False, lineterminator="\n", float_format="%.17g")
     reading(rows).to_csv(
         HERE / "reading.csv", index=False, lineterminator="\n", float_format="%.6g"
