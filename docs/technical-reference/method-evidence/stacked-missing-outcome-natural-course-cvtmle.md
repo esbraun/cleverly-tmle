@@ -59,12 +59,14 @@ records each source locator.
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome observational natural-course law with learned MAR nuisances | `ey_obs` | observed outcome mean under the natural course | -1.770e-11 | 6.736e-09 | 1.0000 | 0 | 0.000001 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `tmle-r-population-mean` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome observational natural-course law with learned MAR nuisances | `ey_obs` | observed outcome mean under the natural course | -1.770e-11 | 6.736e-09 | 1.0000 | 0 | matching implementation | 0.000001 vs 0.0500 | equivalent |
 <!-- /generated -->
 
-R `tmle` uses the centered, `n - 1` divisor sample variance `var(IC) / n`. `cleverly` uses the
+In this comparator-backed study, R `tmle` uses the centered, `n - 1` divisor sample variance `var(IC) / n`. `cleverly` uses the
 uncentered second moment `mean(IC^2) / n`. The two rules differ by the finite-sample factor
 `n / (n - 1)` when the targeted score is zero. R also bounds its binary interval to `[0, 1]`,
 while `cleverly` reports an unbounded Wald interval. This law stays away from the bounds.

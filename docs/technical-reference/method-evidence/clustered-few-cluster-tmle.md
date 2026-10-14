@@ -46,11 +46,13 @@ checks that its household standard error equals `ltmle`'s own to $10^{-10}$.
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | -6.790e-11 | 3.501e-09 | 1.0000 | 0.0010 | 1.276e-10 vs 0.0500 | equivalent |
-| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ey_regimen[always]` | mean outcome under the plan treat at both times | -4.716e-11 | 3.687e-09 | 1.0000 | 0.0010 | 1.021e-10 vs 0.0500 | equivalent |
-| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ey_regimen[never]` | mean outcome under the plan treat at neither time | 2.074e-11 | 1.885e-09 | 1.0000 | 0.0010 | 2.356e-10 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `ltmle` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | -6.790e-11 | 3.501e-09 | 1.0000 | 0.0010 | matching implementation | 1.276e-10 vs 0.0500 | equivalent |
+| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ey_regimen[always]` | mean outcome under the plan treat at both times | -4.716e-11 | 3.687e-09 | 1.0000 | 0.0010 | matching implementation | 1.021e-10 vs 0.0500 | equivalent |
+| 20 clusters of size uniform on 2 to 18, the size in the outcome, one treatment node | `ey_regimen[never]` | mean outcome under the plan treat at neither time | 2.074e-11 | 1.885e-09 | 1.0000 | 0.0010 | matching implementation | 2.356e-10 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Repeated-sampling properties

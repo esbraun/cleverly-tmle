@@ -137,7 +137,7 @@ realized design. With `id=`, the [cluster rules](longitudinal-tmle.md#clusters) 
 | --- | --- |
 | `tests/unit/test_cross_fitted_longitudinal_msm.py` | a saturated model reproduces the cross-fitted per-regimen report on survival, competing-risk, dynamic and three-level grids. The coefficient curve is the stacked delta-method curve. Every node's stacked score is solved. Eight mutations fail, including a fold-local fluctuation |
 | `tests/e2e/test_ltmle_msm.py` | the saturated reduction at one and five folds, under the identity and the logit link |
-| [cross-fitted longitudinal MSM projection](method-evidence/cross-fitted-longitudinal-msm-projection.md) | repeated-sampling properties on the projection law of the ordinary study, paired with a projection of four cross-fitted R `lmtp` regimen fits |
+| [cross-fitted longitudinal MSM projection](method-evidence/cross-fitted-longitudinal-msm-projection.md) | repeated-sampling properties on the projection law of the ordinary study, comparator-backed and paired with a projection of four cross-fitted R `lmtp` regimen fits |
 
 Survival, competing-risk, weighted and clustered projections have the fast-tier exact identities
 only. A cross-fitted `lmtp` 1.5.4 regimen fit differs from this construction twice. It fluctuates

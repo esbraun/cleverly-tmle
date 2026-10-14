@@ -387,6 +387,7 @@ def test_induced_records_name_the_subject_group() -> None:
         n=50,
         seed=1,
         reference="R ref",
+        comparison="matching implementation",
     )
     outcomes = _call(KEYS, _singular_on({("a", 4)}), seed_of=lambda key: 7)
     subject = outcomes.failures.assign(scenarios="law")
@@ -400,4 +401,6 @@ def test_induced_records_name_the_subject_group() -> None:
     ]
     assert "test/a/r000000004" in induced.loc[0, "message"]
     with pytest.raises(ValueError, match="no reference"):
-        failures.induced(subject, record=dataclasses.replace(record, reference=None))
+        failures.induced(
+            subject, record=dataclasses.replace(record, reference=None, comparison=None)
+        )

@@ -199,6 +199,10 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation=IMPLEMENTATION,
     reference=REFERENCE,
+    comparison="matching implementation",
+    comparison_overrides={
+        "strata:*": "related target",
+    },
     extra_artifacts=("design-gap.csv", "fit-diagnostics.csv"),
     modules=(
         "tests/studies/canonical_ctmle_oat_per_arm_strata_missing.py",

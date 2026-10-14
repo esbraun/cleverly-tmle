@@ -615,13 +615,13 @@ missing-outcome CV-TMLE can share a limit while differing in finite samples. Eac
 
 | where to read the evidence | what is there |
 | --- | --- |
-| [stacked point-treatment CV-TMLE](method-evidence/stacked-point-treatment-cv-tmle.md) | paired against R `tmle3` CV-TMLE on **identical realized folds**, plus flexible-learner cross-fit versus in-sample controls |
-| [clustered point-treatment CV-TMLE](method-evidence/clustered-point-treatment-cv-tmle.md) | paired against pinned R `lmtp` and `ife` on identical grouped folds, with cluster-calibration evidence and an IID variance control |
+| [stacked point-treatment CV-TMLE](method-evidence/stacked-point-treatment-cv-tmle.md) | comparator-backed, paired against R `tmle3` CV-TMLE on **identical realized folds**, plus flexible-learner cross-fit versus in-sample controls |
+| [clustered point-treatment CV-TMLE](method-evidence/clustered-point-treatment-cv-tmle.md) | comparator-backed, paired against pinned R `lmtp` and `ife` on identical grouped folds, with cluster-calibration evidence and an IID variance control |
 | [fold-evaluated point-treatment CV-TMLE](method-evidence/fold-evaluated-point-treatment-cv-tmle.md) | no comparator pairs a pooled update with fold evaluation, so the study records a zero-row equivalence artifact and rests on accuracy against known truth and on the theory properties |
-| [fold-targeted point-treatment CV-TMLE](method-evidence/fold-targeted-point-treatment-cv-tmle.md) | paired against Python `zEpid` on identical equal two-fold assignments, where `cleverly`'s equal $1/V$ aggregation equals zEpid's size weighting; all property cells pass, and the report discloses zEpid's `ddof=1` fold variance |
+| [fold-targeted point-treatment CV-TMLE](method-evidence/fold-targeted-point-treatment-cv-tmle.md) | comparator-backed, paired against Python `zEpid` on identical equal two-fold assignments, where `cleverly`'s equal $1/V$ aggregation equals zEpid's size weighting; all property cells pass, and the report discloses zEpid's `ddof=1` fold variance |
 | [repeated point-treatment CV-TMLE](method-evidence/repeated-cross-fitting.md) | exact-truth and repeated-sampling evidence for the median report |
-| [stacked missing-outcome natural-course CV-TMLE](method-evidence/stacked-missing-outcome-natural-course-cvtmle.md) | paired against the R `tmle` 2.1.1 population-mean path with the same stitched out-of-fold nuisance predictions, plus flexible-learner cross-fit versus in-sample controls |
-| [stacked arm-indexed missing-outcome CV-TMLE](method-evidence/stacked-arm-indexed-missing-outcome-cvtmle.md) | two-arm and three-arm means and contrasts, binary and bounded continuous, paired against R `tmle` 2.1.1 with the same stitched out-of-fold nuisance predictions, plus calibration, band, union-model, and overfitting cells |
+| [stacked missing-outcome natural-course CV-TMLE](method-evidence/stacked-missing-outcome-natural-course-cvtmle.md) | comparator-backed, paired against the R `tmle` 2.1.1 population-mean path with the same stitched out-of-fold nuisance predictions, plus flexible-learner cross-fit versus in-sample controls |
+| [stacked arm-indexed missing-outcome CV-TMLE](method-evidence/stacked-arm-indexed-missing-outcome-cvtmle.md) | two-arm and three-arm means and contrasts, binary and bounded continuous, comparator-backed and paired against R `tmle` 2.1.1 with the same stitched out-of-fold nuisance predictions, plus calibration, band, union-model, and overfitting cells |
 | [the implementation validation grid](method-evidence/validation-grid.md) | all rows, with their declared limits |
 
 The fold-evaluated row is worth reading for what it is *not*. It is not parity evidence for stacked

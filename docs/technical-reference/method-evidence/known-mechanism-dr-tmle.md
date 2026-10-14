@@ -71,25 +71,27 @@ mechanism along $Q_r / g$, so the targeted $g^*$ moves off the declaration.
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| known mechanism, outcome regression without W2, guard g | `ate` | average treatment effect | -0.000246 | 0.0719 | 1.0017 | 0 | 0.0033 vs 0.0500 | equivalent |
-| known mechanism, outcome regression without W2, guard g | `ey0` | counterfactual mean under no treatment | 0.000140 | 0.0579 | 1.0017 | 0.0040 | 0.0026 vs 0.0500 | equivalent |
-| known mechanism, outcome regression without W2, guard g | `ey1` | counterfactual mean under treatment | -0.000106 | 0.0415 | 1.0023 | 0.0020 | 0.0033 vs 0.0500 | equivalent |
-| known mechanism, outcome regression without W2, no DR-TMLE guard | `ate` | average treatment effect | 1.390e-10 | 4.034e-08 | 1.0000 | -0.0080 | 0.0349 vs 0.0500 | equivalent |
-| known mechanism, outcome regression without W2, no DR-TMLE guard | `ey0` | counterfactual mean under no treatment | -1.384e-10 | 5.725e-08 | 1.0000 | 0 | 0.0097 vs 0.0500 | equivalent |
-| known mechanism, outcome regression without W2, no DR-TMLE guard | `ey1` | counterfactual mean under treatment | 6.802e-13 | 2.647e-10 | 1.0000 | -0.0110 | 0.0340 vs 0.0500 | equivalent |
-| known mechanism, outcome regression without W2, guard Q | `ate` | average treatment effect | 4.718e-08 | 0.000014 | 1.0000 | 0 | 0.0011 vs 0.0500 | equivalent |
-| known mechanism, outcome regression without W2, guard Q | `ey0` | counterfactual mean under no treatment | -1.976e-07 | 0.000082 | 1.0000 | 0.0020 | 0.0011 vs 0.0500 | equivalent |
-| known mechanism, outcome regression without W2, guard Q | `ey1` | counterfactual mean under treatment | -1.504e-07 | 0.000059 | 1.0000 | -0.0030 | 0.0027 vs 0.0500 | equivalent |
-| known mechanism, outcome regression without W2, guards Q and g | `ate` | average treatment effect | 0.000065 | 0.0191 | 1.0004 | -0.0020 | 0.0031 vs 0.0500 | equivalent |
-| known mechanism, outcome regression without W2, guards Q and g | `ey0` | counterfactual mean under no treatment | -0.000017 | 0.0070 | 1.0010 | 0 | 0.0012 vs 0.0500 | equivalent |
-| known mechanism, outcome regression without W2, guards Q and g | `ey1` | counterfactual mean under treatment | 0.000048 | 0.0189 | 0.9996 | -0.0030 | 0.0041 vs 0.0500 | equivalent |
-| three-arm law with a known mechanism, outcome regression without W2, no DR-TMLE guard | `ate[1.0 vs 0.0]` | difference in counterfactual means, 1.0 versus 0.0 | 1.256e-09 | 3.053e-07 | 1.0000 | -0.0010 | 0.000135 vs 0.0500 | equivalent |
-| three-arm law with a known mechanism, outcome regression without W2, no DR-TMLE guard | `ate[2.0 vs 0.0]` | difference in counterfactual means, 2.0 versus 0.0 | 1.575e-10 | 3.690e-08 | 1.0000 | 0 | 0.000090 vs 0.0500 | equivalent |
-| three-arm law with a known mechanism, outcome regression without W2, no DR-TMLE guard | `ey[0.0]` | counterfactual mean under treatment arm '0.0' | -7.745e-10 | 2.505e-07 | 1.0000 | -0.0010 | 0.000162 vs 0.0500 | equivalent |
-| three-arm law with a known mechanism, outcome regression without W2, no DR-TMLE guard | `ey[1.0]` | counterfactual mean under treatment arm '1.0' | 4.814e-10 | 1.779e-07 | 1.0000 | 0 | 0.0047 vs 0.0500 | equivalent |
-| three-arm law with a known mechanism, outcome regression without W2, no DR-TMLE guard | `ey[2.0]` | counterfactual mean under treatment arm '2.0' | -6.170e-10 | 2.111e-07 | 1.0000 | 0 | 0.0014 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `drtmle-r-known-g` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| known mechanism, outcome regression without W2, guard g | `ate` | average treatment effect | -0.000246 | 0.0719 | 1.0017 | 0 | matching implementation | 0.0033 vs 0.0500 | equivalent |
+| known mechanism, outcome regression without W2, guard g | `ey0` | counterfactual mean under no treatment | 0.000140 | 0.0579 | 1.0017 | 0.0040 | matching implementation | 0.0026 vs 0.0500 | equivalent |
+| known mechanism, outcome regression without W2, guard g | `ey1` | counterfactual mean under treatment | -0.000106 | 0.0415 | 1.0023 | 0.0020 | matching implementation | 0.0033 vs 0.0500 | equivalent |
+| known mechanism, outcome regression without W2, no DR-TMLE guard | `ate` | average treatment effect | 1.390e-10 | 4.034e-08 | 1.0000 | -0.0080 | matching implementation | 0.0349 vs 0.0500 | equivalent |
+| known mechanism, outcome regression without W2, no DR-TMLE guard | `ey0` | counterfactual mean under no treatment | -1.384e-10 | 5.725e-08 | 1.0000 | 0 | matching implementation | 0.0097 vs 0.0500 | equivalent |
+| known mechanism, outcome regression without W2, no DR-TMLE guard | `ey1` | counterfactual mean under treatment | 6.802e-13 | 2.647e-10 | 1.0000 | -0.0110 | matching implementation | 0.0340 vs 0.0500 | equivalent |
+| known mechanism, outcome regression without W2, guard Q | `ate` | average treatment effect | 4.718e-08 | 0.000014 | 1.0000 | 0 | matching implementation | 0.0011 vs 0.0500 | equivalent |
+| known mechanism, outcome regression without W2, guard Q | `ey0` | counterfactual mean under no treatment | -1.976e-07 | 0.000082 | 1.0000 | 0.0020 | matching implementation | 0.0011 vs 0.0500 | equivalent |
+| known mechanism, outcome regression without W2, guard Q | `ey1` | counterfactual mean under treatment | -1.504e-07 | 0.000059 | 1.0000 | -0.0030 | matching implementation | 0.0027 vs 0.0500 | equivalent |
+| known mechanism, outcome regression without W2, guards Q and g | `ate` | average treatment effect | 0.000065 | 0.0191 | 1.0004 | -0.0020 | matching implementation | 0.0031 vs 0.0500 | equivalent |
+| known mechanism, outcome regression without W2, guards Q and g | `ey0` | counterfactual mean under no treatment | -0.000017 | 0.0070 | 1.0010 | 0 | matching implementation | 0.0012 vs 0.0500 | equivalent |
+| known mechanism, outcome regression without W2, guards Q and g | `ey1` | counterfactual mean under treatment | 0.000048 | 0.0189 | 0.9996 | -0.0030 | matching implementation | 0.0041 vs 0.0500 | equivalent |
+| three-arm law with a known mechanism, outcome regression without W2, no DR-TMLE guard | `ate[1.0 vs 0.0]` | difference in counterfactual means, 1.0 versus 0.0 | 1.256e-09 | 3.053e-07 | 1.0000 | -0.0010 | matching implementation | 0.000135 vs 0.0500 | equivalent |
+| three-arm law with a known mechanism, outcome regression without W2, no DR-TMLE guard | `ate[2.0 vs 0.0]` | difference in counterfactual means, 2.0 versus 0.0 | 1.575e-10 | 3.690e-08 | 1.0000 | 0 | matching implementation | 0.000090 vs 0.0500 | equivalent |
+| three-arm law with a known mechanism, outcome regression without W2, no DR-TMLE guard | `ey[0.0]` | counterfactual mean under treatment arm '0.0' | -7.745e-10 | 2.505e-07 | 1.0000 | -0.0010 | matching implementation | 0.000162 vs 0.0500 | equivalent |
+| three-arm law with a known mechanism, outcome regression without W2, no DR-TMLE guard | `ey[1.0]` | counterfactual mean under treatment arm '1.0' | 4.814e-10 | 1.779e-07 | 1.0000 | 0 | matching implementation | 0.0047 vs 0.0500 | equivalent |
+| three-arm law with a known mechanism, outcome regression without W2, no DR-TMLE guard | `ey[2.0]` | counterfactual mean under treatment arm '2.0' | -6.170e-10 | 2.111e-07 | 1.0000 | 0 | matching implementation | 0.0014 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties
