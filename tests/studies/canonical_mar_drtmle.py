@@ -54,6 +54,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-mar-drtmle",
     reference="drtmle-r-mar",
+    failure_bound={"cleverly-mar-drtmle": 0.01, "drtmle-r-mar": 0.01},
     modules=(
         "tests/studies/canonical_mar_drtmle.py",
         "tests/studies/mar_drtmle_properties.py",

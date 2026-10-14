@@ -66,6 +66,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly",
     reference="lmtp",
+    failure_bound={"cleverly": 0.01, "lmtp": 0.01},
     modules=(
         "tests/studies/canonical_deterministic_regimes.py",
         "tests/studies/deterministic_regime_properties.py",

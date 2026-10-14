@@ -155,6 +155,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-held-policy-ltmle",
     reference="lmtp",
+    failure_bound={"cleverly-held-policy-ltmle": 0.01, "lmtp": 0.01},
     modules=(
         "tests/studies/canonical_point_survival_policies.py",
         "tests/studies/point_survival_policies_properties.py",

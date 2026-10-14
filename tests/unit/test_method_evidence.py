@@ -359,11 +359,12 @@ class TestArtifacts:
             assert configuration["accepted_reference_failure"] == study.accepted_reference_failure
         else:
             assert "accepted_reference_failure" not in configuration
-        if study.failure_bound:
-            assert configuration["failure_bound"] == dict(study.failure_bound)
-        else:
-            assert "failure_bound" not in configuration
         recorded = _recorded_failures(study)
+        # RM39b2: a stated primary bound equals the record's.  A manifest without it ran under
+        # bound 0, which is consistent only when that run recorded no failure.
+        assert failures.bound_consistent(
+            configuration, study, failures_recorded=recorded is not None
+        )
         assert (recorded is None) == (not study.artifact(failures.ACCOUNTING).exists())
         # Rev 3 section 6 (M1): a stated key equals the module's bound, and committed property
         # failure records need the key.  A manifest without either is a run that lost nothing,

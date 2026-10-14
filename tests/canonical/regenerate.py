@@ -1219,6 +1219,13 @@ def _regenerate(
             f"--skip-reference runs no reference process, so {record.slug} has no "
             "reference-result file for its reference_artifacts hook to read"
         )
+    raised = failures.raised_after_failures(here, record)
+    if raised:
+        raise RuntimeError(
+            f"{record.slug} declares a higher failure bound for {raised} than the committed run "
+            "that recorded their failures applied; a bound is never raised after a run has "
+            "shown failures"
+        )
     print(f"regenerating {record.name}: {record.replicates} x n={record.n}", flush=True)
     scratch = context.scratch
     phase = _python_phase(study, arguments, scratch)

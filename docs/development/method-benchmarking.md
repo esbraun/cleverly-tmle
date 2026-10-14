@@ -54,9 +54,10 @@ The driver publishes both sides' records as `failures.csv` and the accounting as
 
 | rule | statement |
 | --- | --- |
-| bound | `StudyRecord.failure_bound` declares a bound `b` in [0, 0.05] per implementation. A cell may lose `floor(b * R)` replicates. The default is 0 |
+| bound | `StudyRecord.failure_bound` declares a bound `b` in [0, 0.05] per implementation. A cell may lose `floor(b * R)` replicates. An undeclared implementation has bound 0. Every registered study declares 0.01 for each implementation. The value governs the study's next run |
 | bound 0 | One failure makes the cell red. Diagnose the red cell, fix a genuine defect, and re-run under a fresh declaration. Otherwise report it |
-| raising a bound | Declare a bound before the study runs under it. A study whose run has shown failures may not raise its bound |
+| raising a bound | Declare a bound before the study runs under it. A study whose run has shown failures may not raise its bound. The driver refuses such a run before any fit (`failures.raised_after_failures`) |
+| manifest and claims | A run writes `configuration.failure_bound`. The fast tier fails a stated key that differs from the record, and committed failures without the key. The claims quote `margin:<side>_failure_bound` from the manifest, so a page quotes the bound only after a run applied it |
 | fallback fit | Do not replace a failed replicate by a fallback fit or a new sample |
 | invalid result | A comparator row with a non-finite value, a non-positive standard error, an inverted interval, or a `covered` flag that disagrees with its interval becomes an `invalid_result` record |
 | worst case | Each verdict leg must pass under its least favourable candidate fill of the lost values. The bias, coverage, and similarity candidates lie inside the surviving range. The RMSE and coverage-difference legs fill the reference at its best case: the estimate at the truth and the interval covering it. They fill the subject at its worst case: each lost estimate at the surviving estimate farthest from the truth, and each lost interval missing the truth. The calibration leg tries every pair of the two sides' candidate fills. The range is an assumption, and the accounting records it |
@@ -132,7 +133,7 @@ bytes it published before.
 | raising | Raise the bound only while no committed run of the study shows a property failure |
 | lowering | Lowering is allowed. It changes the `bound` and `allowed` columns, so the property phase reruns in the same change |
 | manifest | A property run writes `configuration.property_failure_bound`. A `--skip-properties` run copies the committed manifest's key, or its absence. The fast tier fails a manifest whose key differs from the module, and failure files without the key |
-| primary phase | The primary phase bounds do not change. [RM42](../roadmap.md#rm42-declare-the-primary-failure-bounds) declares them |
+| primary phase | Each implementation of each registered study declares 0.01 for its next run. No committed primary run lost a replicate, so the value moves no committed verdict. The primary bound has the same facts as the property bound (see the next table) |
 
 The value 0.01 follows from these facts.
 
@@ -142,6 +143,13 @@ The value 0.01 follows from these facts.
 | At bound 0 the gate returns `bound exceeded` before it reads a clause | At 0.01 every declared clause can act in a real run |
 | A lost fit is plausibly an extreme draw, so its estimate is the least likely to lie in the survivor range | For an unbounded statistic, the worst-case mean shift is about `b * sqrt(R) * range / sd` standard errors. This is about 1 at `R` = 400 and about 3 at `R` = 2,400. Large cells turn red through their clauses before they reach the allowance |
 | A bounded statistic fills its full support | The range assumption does not apply to it |
+
+The primary bound has two more facts.
+
+| fact | consequence |
+| --- | --- |
+| The accounting only turns a cell red. A paired leg fills the reference at its best case and the subject at its worst case | A lost replicate on either side never rescues a verdict. At 0.01 the reference side's losses are judged by the same legs |
+| No committed run has a `failures.csv` | No manifest needs the key, no claim artifact changes, and no study reruns for this declaration |
 
 #### Accounting statistics
 

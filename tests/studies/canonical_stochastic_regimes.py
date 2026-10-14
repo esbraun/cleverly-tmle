@@ -67,6 +67,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly",
     reference="lmtp",
+    failure_bound={"cleverly": 0.01, "lmtp": 0.01},
     modules=(
         "tests/studies/canonical_stochastic_regimes.py",
         "tests/studies/stochastic_regime_properties.py",

@@ -91,6 +91,10 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-stacked-mar-arm-indexed-cvtmle",
     reference="tmle-r-stitched-arm-indexed",
+    failure_bound={
+        "cleverly-stacked-mar-arm-indexed-cvtmle": 0.01,
+        "tmle-r-stitched-arm-indexed": 0.01,
+    },
     modules=(
         "tests/studies/canonical_mar_arm_indexed_cvtmle.py",
         "tests/studies/mar_arm_indexed_cvtmle_properties.py",

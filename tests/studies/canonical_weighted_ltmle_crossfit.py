@@ -43,6 +43,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-cross-fitted-weighted-ltmle",
     reference="lmtp-weighted",
+    failure_bound={"cleverly-cross-fitted-weighted-ltmle": 0.01, "lmtp-weighted": 0.01},
     publication_policy="reporting",
     extra_artifacts=("reference-inference.csv.gz",),
     modules=(

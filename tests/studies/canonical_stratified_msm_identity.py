@@ -106,6 +106,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-stratified-msm",
     reference="tmle3-msm-stratified",
+    failure_bound={"cleverly-stratified-msm": 0.01, "tmle3-msm-stratified": 0.01},
     modules=(
         "tests/studies/canonical_stratified_msm_identity.py",
         "tests/studies/stratified_msm_identity_properties.py",

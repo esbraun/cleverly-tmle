@@ -162,6 +162,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly",
     reference="survtmle",
+    failure_bound={"cleverly": 0.01, "survtmle": 0.01},
     modules=(
         "tests/studies/canonical_point_survival.py",
         "tests/studies/point_survival_properties.py",

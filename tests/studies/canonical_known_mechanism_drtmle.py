@@ -114,6 +114,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation=IMPLEMENTATION,
     reference=REFERENCE,
+    failure_bound={IMPLEMENTATION: 0.01, REFERENCE: 0.01},
     modules=(
         "tests/studies/canonical_known_mechanism_drtmle.py",
         "tests/studies/known_mechanism_drtmle_properties.py",

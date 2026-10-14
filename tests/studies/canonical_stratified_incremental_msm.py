@@ -202,6 +202,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-stratified-incremental",
     reference="npcausal-stratified",
+    failure_bound={"cleverly-stratified-incremental": 0.01, "npcausal-stratified": 0.01},
     modules=(
         "tests/studies/canonical_stratified_incremental_msm.py",
         "tests/studies/stratified_incremental_msm_properties.py",

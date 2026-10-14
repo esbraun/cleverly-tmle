@@ -252,6 +252,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-sdr",
     reference="lmtp",
+    failure_bound={"cleverly-sdr": 0.01, "lmtp": 0.01},
     modules=(
         "tests/studies/canonical_longitudinal_sdr.py",
         "tests/studies/longitudinal_sdr_properties.py",

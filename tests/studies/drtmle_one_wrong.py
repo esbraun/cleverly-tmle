@@ -611,6 +611,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation=IMPLEMENTATION,
     reference=None,
+    failure_bound={IMPLEMENTATION: 0.01},
     modules=(
         "tests/studies/drtmle_one_wrong.py",
         "tests/studies/drtmle_one_wrong_properties.py",

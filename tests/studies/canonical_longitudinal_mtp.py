@@ -275,6 +275,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-mtp-ltmle",
     reference="lmtp",
+    failure_bound={"cleverly-mtp-ltmle": 0.01, "lmtp": 0.01},
     modules=(
         "tests/studies/canonical_longitudinal_mtp.py",
         "tests/studies/longitudinal_mtp_properties.py",

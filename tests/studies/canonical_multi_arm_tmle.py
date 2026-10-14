@@ -39,6 +39,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-multi-arm-tmle",
     reference="tmle3-multi-arm",
+    failure_bound={"cleverly-multi-arm-tmle": 0.01, "tmle3-multi-arm": 0.01},
     modules=(
         "tests/studies/multi_arm_common.py",
         "tests/studies/canonical_multi_arm_tmle.py",

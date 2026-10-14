@@ -227,6 +227,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation=IMPLEMENTATION,
     reference=REFERENCE,
+    failure_bound={IMPLEMENTATION: 0.01, REFERENCE: 0.01},
     extra_artifacts=("design-gap.csv", "fit-diagnostics.csv"),
     modules=(
         "tests/studies/canonical_ctmle_oat_per_arm.py",

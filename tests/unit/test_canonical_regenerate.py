@@ -860,7 +860,9 @@ def test_skip_reference_reads_the_committed_failures_before_any_removal(
     """
     from tests.studies.evidence import failures
 
-    record = dataclasses.replace(canonical_tmle.STUDY, artifacts=tmp_path)
+    # The committed run applied no bound, so this run declares none either: a raised bound
+    # after recorded failures is refused (test_a_raised_bound_after_recorded_failures_...).
+    record = dataclasses.replace(canonical_tmle.STUDY, artifacts=tmp_path, failure_bound={})
     reference = str(record.reference)
     committed = _rows(reference).assign(replicate=0, n=50)
     committed.to_csv(tmp_path / "replicates.csv.gz", index=False)
@@ -905,7 +907,8 @@ def test_a_run_removes_the_stale_failure_files_only_when_it_writes_none(
 ) -> None:
     from tests.studies.evidence import failures
 
-    record = dataclasses.replace(fold_evaluated_cvtmle.STUDY, artifacts=tmp_path)
+    # No declared bound, so the raised-bound check does not read the stale failure file.
+    record = dataclasses.replace(fold_evaluated_cvtmle.STUDY, artifacts=tmp_path, failure_bound={})
     for name in regenerate.OPTIONAL_ARTIFACT_NAMES:
         (tmp_path / name).write_text("stale\n", encoding="utf-8")
     study = SimpleNamespace(
@@ -966,3 +969,31 @@ def test_reference_failures_labels_the_harness_records(tmp_path: Any) -> None:
     assert set(frame["implementation"]) == {str(canonical_tmle.STUDY.reference)}
     assert frame["group_id"].tolist() == ["g000000000", "g000000001"]
     assert frame["replicates"].tolist() == ["0", "4"]
+
+
+def test_a_raised_bound_after_recorded_failures_is_refused_before_any_fit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    """RM39b2: a re-run meets the same failures, so a raised bound would buy the pass."""
+    from tests.studies.evidence import failures
+
+    record = dataclasses.replace(canonical_tmle.STUDY, artifacts=tmp_path)
+    pd.DataFrame([_failure_record(str(record.reference), "1")]).to_csv(
+        tmp_path / failures.FAILURES, index=False
+    )
+    study = SimpleNamespace(
+        STUDY=record, PRIMARY_REPLICATES=record.replicates, PRIMARY_N=record.n, CONFIGURATION={}
+    )
+    monkeypatch.setattr(
+        regenerate, "_arguments", lambda *args: _arguments(tmp_path, primary_only=False)
+    )
+    fitted: list[bool] = []
+    monkeypatch.setattr(regenerate, "_python_phase", lambda *args: fitted.append(True))
+    with pytest.raises(RuntimeError, match="never raised"):
+        regenerate.main(
+            study,
+            SimpleNamespace(FAILURE_BOUND=0.0),
+            here=tmp_path,
+            reference=regenerate.Reference("i", "r"),
+        )
+    assert fitted == []

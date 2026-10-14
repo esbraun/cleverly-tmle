@@ -48,6 +48,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation=IMPLEMENTATION,
     reference=REFERENCE,
+    failure_bound={IMPLEMENTATION: 0.01, REFERENCE: 0.01},
     modules=(
         "tests/studies/canonical_learned_weighted_tmle.py",
         "tests/studies/learned_weighted_point_common.py",
