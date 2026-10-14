@@ -53,13 +53,13 @@ from typing import Any
 
 import pandas as pd
 
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_longitudinal_incremental as law
 from tests.parallel import STUDY_JOBS
 from tests.studies import longitudinal_incremental_common as common
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
 PRIMARY_REPLICATES = 1_000
 PRIMARY_N = 80_000
@@ -206,16 +206,29 @@ def result_rows(
     return rows
 
 
-def _replicate(scenario: str, replicate: int, n: int) -> list[dict[str, Any]]:
-    frame, truth = draw_scenario(scenario, n, replicate)
+def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    scenario, replicate, n = key
+    return draw_scenario(scenario, n, replicate)
+
+
+def _replicate(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
+) -> list[dict[str, Any]]:
+    scenario, replicate, _ = key
+    frame, truth = drawn
     return result_rows(fit(frame, scenario), truth, scenario, replicate)
 
 
-def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
     """Every primary row.  No comparator reads the samples, so none is kept."""
-    payloads = [
-        (scenario, replicate, n) for scenario in SCENARIOS for replicate in range(replicates)
-    ]
-    outcomes = map_parallel(_replicate, payloads, n_jobs=n_jobs)
-    rows = pd.DataFrame([row for result in outcomes for row in result])
-    return rows.loc[:, list(REPLICATE_COLUMNS)]
+    outcomes = replication.fit_primary(
+        [(scenario, replicate, n) for scenario in SCENARIOS for replicate in range(replicates)],
+        _replicate,
+        draw=_draw,
+        rows_at=None,
+        n_jobs=n_jobs,
+        implementation=STUDY.implementation,
+        seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
+    )
+    rows = pd.DataFrame([row for result in outcomes.kept for row in result])
+    return replication.result(outcomes, rows.loc[:, list(REPLICATE_COLUMNS)])
