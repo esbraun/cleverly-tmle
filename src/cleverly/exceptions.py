@@ -138,7 +138,7 @@ class CleverlyError(Exception):
         return (_restore, (type(self), self.refusal, state))
 
 
-class CapabilityError(CleverlyError, ValueError):
+class CapabilityError(CleverlyError, ValueError):  # numpydoc ignore=PR01
     """A request the package refuses for a reason other than the data alone.
 
     It has no default code: every raise names the
@@ -148,7 +148,7 @@ class CapabilityError(CleverlyError, ValueError):
     default_reason: ClassVar[RefusalReason | None] = None
 
 
-class LongitudinalError(CleverlyError):
+class LongitudinalError(CleverlyError):  # numpydoc ignore=PR01
     """A longitudinal fit cannot proceed on the data or regimen it was given.
 
     Lives here rather than beside the recursion that raises it, because it is the one
@@ -157,15 +157,15 @@ class LongitudinalError(CleverlyError):
     """
 
 
-class DataError(CleverlyError, ValueError):
+class DataError(CleverlyError, ValueError):  # numpydoc ignore=PR01
     """The supplied data violates an assumption the estimator relies on."""
 
 
-class MethodConfigurationError(CleverlyError, ValueError):
+class MethodConfigurationError(CleverlyError, ValueError):  # numpydoc ignore=PR01
     """An estimation-method declaration is invalid or cannot take effect."""
 
 
-class NotFittedError(CleverlyError, RuntimeError):
+class NotFittedError(CleverlyError, RuntimeError):  # numpydoc ignore=PR01
     """A result was requested from an estimator that has not been fitted."""
 
 
