@@ -159,7 +159,11 @@ def _scratch_in_tmp(
 
 
 def _run_pending(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, independent_passed: bool
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    independent_passed: bool,
+    skip_properties: bool = False,
 ) -> dict[str, Any]:
     """A complete run of a pending record; returns what ``write_manifest`` was handed."""
     record = dataclasses.replace(_pending(), artifacts=tmp_path)
@@ -169,7 +173,7 @@ def _run_pending(
     arguments = argparse.Namespace(
         replicates=2,
         n=50,
-        skip_properties=False,
+        skip_properties=skip_properties,
         primary_only=False,
         allow_failures=False,
         output=tmp_path,
@@ -206,11 +210,12 @@ def _run_pending(
             {"implementation": ["cleverly"], "passed": [independent_passed]}
         ),
     )
-    monkeypatch.setattr(
-        regenerate,
-        "_property_artifacts",
-        lambda *args, **kwargs: pd.DataFrame({"passed": [True], "property_passed": [True]}),
-    )
+    if not skip_properties:
+        monkeypatch.setattr(
+            regenerate,
+            "_property_artifacts",
+            lambda *args, **kwargs: pd.DataFrame({"passed": [True], "property_passed": [True]}),
+        )
 
     def manifest(path: Path, record: Any, artifacts: Any, **options: Any) -> None:
         seen["record"] = record
@@ -219,7 +224,10 @@ def _run_pending(
     monkeypatch.setattr(regenerate, "write_manifest", manifest)
     reference = regenerate.Reference("image", "run_study.R")
     seen["declared"] = reference.files(tmp_path)
-    regenerate.main(study, SimpleNamespace(), here=tmp_path, reference=reference)
+    properties = SimpleNamespace(
+        generate_property_rows=lambda **kwargs: pytest.fail("the property study ran")
+    )
+    regenerate.main(study, properties, here=tmp_path, reference=reference)
     seen["equivalence"] = pd.read_csv(tmp_path / "equivalence.csv")
     return seen
 
@@ -232,6 +240,23 @@ def test_a_pending_run_fits_no_reference_and_records_its_declared_sources(
     assert seen["record"].comparator_state == "pending"
     assert seen["reference_files"] == seen["declared"]
     assert seen["equivalence"].empty
+
+
+def test_a_pending_run_reuses_the_committed_property_artifacts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A property study run elsewhere and committed first survives the pending primary run."""
+    committed = {
+        "property-replicates.csv.gz": b"committed property rows",
+        "properties.csv": b"property,cell,passed\nscore,a,True\n",
+    }
+    for name, payload in committed.items():
+        (tmp_path / name).write_bytes(payload)
+    seen = _run_pending(monkeypatch, tmp_path, independent_passed=True, skip_properties=True)
+    assert seen["record"].comparator_state == "pending"
+    assert seen["equivalence"].empty
+    for name, payload in committed.items():
+        assert (tmp_path / name).read_bytes() == payload
 
 
 def test_a_pending_run_still_gates_the_subject(
