@@ -49,6 +49,7 @@ from tests.conftest import OracleTreatment
 from tests.parallel import STUDY_JOBS
 from tests.studies import clustered_unequal_laws as laws
 from tests.studies.canonical_cvtmle import fitted_rows
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.seeds import draw_replicate
 from tests.studies.point_study_helpers import initial_estimates, primary_rows
@@ -251,7 +252,7 @@ def cleverly_rows(
     )
 
 
-def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
     """Draw and fit every declared primary replication."""
     return fitted_rows(
         STUDY, draw_scenario, cleverly_rows, replicates=replicates, n=n, n_jobs=n_jobs

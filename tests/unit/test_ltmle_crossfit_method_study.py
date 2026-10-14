@@ -80,7 +80,8 @@ def test_primary_folds_are_balanced_and_the_r_payload_uses_them(study: Any) -> N
     # ``random_partition`` does not generate for any seed.
     planted = Folds(np.repeat(np.arange(5), len(frame) // 5), 5)
     with patch("cleverly.longitudinal.estimator.random_partition", return_value=planted):
-        sample, _, _ = study._replicate((study.SCENARIO, 0, len(frame)))
+        key = (study.SCENARIO, 0, len(frame))
+        sample, _, _ = study._replicate(key, study._draw(key))
     np.testing.assert_array_equal(sample["fold"].to_numpy(), planted.assignment)
 
 

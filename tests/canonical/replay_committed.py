@@ -47,6 +47,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from tests.studies.evidence import failures
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
 
 #: The estimand renames of the modified-treatment-policy change: ``shifts=`` became
@@ -105,12 +106,32 @@ def replay(slugs: Sequence[str], replicates: int, n_jobs: int, labels: Mapping[s
     for slug in slugs:
         record = _study(slug)
         module = importlib.import_module(record.runner_module)
-        _, _, rows = module.draw_and_fit(replicates=replicates, n=record.n, n_jobs=n_jobs)
+        result = module.draw_and_fit(replicates=replicates, n=record.n, n_jobs=n_jobs)
         committed = relabel(_read(record.artifacts / "replicates.csv.gz", ".gz"), labels)
         committed = committed.loc[
             (committed["implementation"] == record.implementation)
             & (committed["replicate"] < replicates)
         ]
+        # A replicate the subject failed has no row to compare (RM39b).  The replay must fail
+        # on the same replicates as the committed run, or the failure itself is the drift.
+        lost = _lost(result.failures, record)
+        recorded = {
+            pair
+            for pair in _lost(failures.read(record.artifacts / failures.FAILURES), record)
+            if pair[1] < replicates
+        }
+        if lost != recorded:
+            print(
+                f"{slug}: the replay failed on {sorted(lost)}, the committed run on "
+                f"{sorted(recorded)}",
+                flush=True,
+            )
+            worst = float("inf")
+            continue
+        if lost:
+            print(f"{slug}: skipping the failed replicates {sorted(lost)}", flush=True)
+        rows = result.rows.loc[~_among(result.rows, lost)]
+        committed = committed.loc[~_among(committed, lost)]
         keys = ["scenario", "replicate", "estimand"]
         merged = rows.merge(committed, on=keys, suffixes=("_now", "_committed"), how="outer")
         missing = merged[[f"{c}_now" for c in REPLAYED] + [f"{c}_committed" for c in REPLAYED]]
@@ -124,6 +145,21 @@ def replay(slugs: Sequence[str], replicates: int, n_jobs: int, labels: Mapping[s
         print(f"{slug}: {len(merged)} rows, max abs diff {gap!r}", flush=True)
         worst = max(worst, gap)
     return worst
+
+
+def _lost(recorded: pd.DataFrame | None, record: StudyRecord) -> set[tuple[str, int]]:
+    """The (scenario, replicate) pairs the subject's records cover."""
+    lost = failures.expand(recorded, record)
+    lost = lost.loc[lost["implementation"] == record.implementation]
+    return {
+        (str(scenario), int(replicate))
+        for scenario, replicate in lost[["scenario", "replicate"]].itertuples(False)
+    }
+
+
+def _among(rows: pd.DataFrame, lost: set[tuple[str, int]]) -> pd.Series:
+    pairs = zip(rows["scenario"].astype(str), rows["replicate"].astype(int), strict=True)
+    return pd.Series([pair in lost for pair in pairs], index=rows.index, dtype=bool)
 
 
 def equal_entries(left: pd.Series, right: pd.Series, rtol: float = 0.0) -> np.ndarray:

@@ -11,6 +11,7 @@ from sklearn.linear_model import LogisticRegression
 from cleverly.estimators import TMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import multi_arm_common
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.seeds import draw_replicate
 
@@ -129,7 +130,7 @@ def cleverly_rows(
     return multi_arm_common.cleverly_rows(STUDY, fit_cleverly, frame, truth, scenario, replicate)
 
 
-def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS):
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
     return multi_arm_common.draw_and_fit(
         STUDY, fit_cleverly, replicates=replicates, n=n, n_jobs=n_jobs
     )

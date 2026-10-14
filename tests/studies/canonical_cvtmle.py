@@ -20,19 +20,20 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping, Sequence
+from functools import partial
 from typing import Any
 
 import pandas as pd
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.estimators import TMLE
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_tmle import SCENARIO_ESTIMANDS
 from tests.studies.canonical_tmle import draw_from_seed as canonical_tmle_draw_from_seed
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
 TMLE3_COMMIT = "ed72f8a20e64c914ab25ffe015d865f7a9963d27"
 SL3_COMMIT = "0e8f2365bcbe54010b8120c04a7a2dcfc8119227"
@@ -317,6 +318,24 @@ def cleverly_rows(
     return rows_from_result(STUDY, fit_cleverly(frame), truth, scenario, replicate)
 
 
+def _sample(
+    sample: Callable[[str, int, int], tuple[pd.DataFrame, Mapping[str, float]]],
+    key: tuple[str, int, int],
+) -> tuple[pd.DataFrame, Mapping[str, float]]:
+    scenario, index, size = key
+    return sample(scenario, size, index)
+
+
+def _rows(
+    rows: Callable[[pd.DataFrame, Mapping[str, float], str, int], list[dict[str, Any]]],
+    key: tuple[str, int, int],
+    drawn: tuple[pd.DataFrame, Mapping[str, float]],
+) -> list[dict[str, Any]]:
+    scenario, index, _ = key
+    frame, truth = drawn
+    return rows(frame, truth, scenario, index)
+
+
 def fitted_rows(
     record: StudyRecord,
     sample: Callable[[str, int, int], tuple[pd.DataFrame, Mapping[str, float]]],
@@ -325,7 +344,7 @@ def fitted_rows(
     replicates: int,
     n: int,
     n_jobs: int = STUDY_JOBS,
-) -> pd.DataFrame:
+) -> replication.PhaseResult:
     """Every declared replication of a study whose published file is rows alone.
 
     ``sample`` and ``rows`` are the adopting study's own ``draw_scenario`` and
@@ -333,31 +352,36 @@ def fitted_rows(
     fitter keeps the driver on the same path as
     ``test_refitting_a_committed_replication_reproduces_its_row``, which refits through
     ``cleverly_rows``: a driver that reached past it could publish a row the refit gate
-    never checks.
+    never checks.  ``sample`` must draw from ``record``'s seed stream, which is the seed each
+    failure record names.
 
     This study's own :func:`draw_and_fit` does not use it.  It publishes the sample and the
     truth as well, because the reference implementation reads the identical rows and the
     identical fold assignment from the artifacts.
     """
+    outcomes = replication.fit_primary(
+        [(scenario, index, n) for scenario in record.scenarios for index in range(replicates)],
+        partial(_rows, rows),
+        draw=partial(_sample, sample),
+        rows_at=None,
+        n_jobs=n_jobs,
+        implementation=record.implementation,
+        seed_of=lambda key: replicate_seed(record, key[0], key[1]),
+    )
+    built = pd.DataFrame([row for records in outcomes.kept for row in records])
+    return replication.result(outcomes, built.loc[:, list(REPLICATE_COLUMNS)])
 
-    def replicate(payload: tuple[str, int, int]) -> list[dict[str, Any]]:
-        scenario, index, size = payload
-        frame, truth = sample(scenario, size, index)
-        return rows(frame, truth, scenario, index)
 
-    payloads = [
-        ((scenario, index, n),) for scenario in record.scenarios for index in range(replicates)
-    ]
-    outcomes = map_parallel(replicate, payloads, n_jobs=n_jobs)
-    built = pd.DataFrame([row for records in outcomes for row in records])
-    return built.loc[:, list(REPLICATE_COLUMNS)]
+def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    scenario, replicate, n = key
+    return draw_scenario(scenario, n, replicate)
 
 
 def _replicate(
-    payload: tuple[str, int, int],
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
 ) -> tuple[pd.DataFrame, dict[str, Any], list[dict[str, Any]]]:
-    scenario, replicate, n = payload
-    frame, truth = draw_scenario(scenario, n, replicate)
+    scenario, replicate, _ = key
+    frame, truth = drawn
     result = fit_cleverly(frame)
     payload_frame = frame.copy()
     payload_frame.insert(0, "fold", result.nuisance.folds.assignment)
@@ -371,16 +395,23 @@ def _replicate(
     return payload_frame, truth_row, rows_from_result(STUDY, result, truth, scenario, replicate)
 
 
-def draw_and_fit(
-    *, replicates: int, n: int, n_jobs: int = STUDY_JOBS
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    payloads = [
-        ((scenario, replicate, n),)
-        for scenario in STUDY.scenarios
-        for replicate in range(replicates)
-    ]
-    outcomes = map_parallel(_replicate, payloads, n_jobs=n_jobs)
-    samples = pd.concat([frame for frame, _, _ in outcomes], ignore_index=True)
-    truths = pd.DataFrame([truth for _, truth, _ in outcomes])
-    rows = pd.DataFrame([row for _, _, records in outcomes for row in records])
-    return samples, truths, rows.loc[:, list(REPLICATE_COLUMNS)]
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
+    # No reference input: the reference reads the fit's fold assignment (each sample's fold).
+    outcomes = replication.fit_primary(
+        [
+            (scenario, replicate, n)
+            for scenario in STUDY.scenarios
+            for replicate in range(replicates)
+        ],
+        _replicate,
+        draw=_draw,
+        n_jobs=n_jobs,
+        implementation=STUDY.implementation,
+        seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
+    )
+    samples = pd.concat([frame for frame, _, _ in outcomes.kept], ignore_index=True)
+    truths = pd.DataFrame([truth for _, truth, _ in outcomes.kept])
+    rows = pd.DataFrame([row for _, _, records in outcomes.kept for row in records])
+    return replication.result(
+        outcomes, rows.loc[:, list(REPLICATE_COLUMNS)], samples=samples, truths=truths
+    )

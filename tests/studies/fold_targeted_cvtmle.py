@@ -21,13 +21,13 @@ from numpy.random import RandomState
 from cleverly.data import CausalData
 from cleverly.estimators import TMLE
 from cleverly.learners.crossfit import Folds, check_integrity
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_cvtmle import G_BOUNDS, STRATIFY_FOLDS, cv_fit, rows_from_result
 from tests.studies.canonical_tmle import draw_from_seed as canonical_tmle_draw_from_seed
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
 ZEPID_COMMIT = "16a0f96f8b2c65df8715085801f21757d1478e1e"
 PYTHON_BASE_IMAGE = (
@@ -219,14 +219,17 @@ def initial_fold_ate(result: Any) -> float:
     return float(np.mean(fold_values))
 
 
-def _replicate(
-    payload: tuple[str, int, int],
+def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    scenario, replicate, n = key
+    return draw_scenario(scenario, n, replicate)
+
+
+def _reference_input(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
 ) -> tuple[pd.DataFrame, dict[str, Any], list[dict[str, Any]]]:
-    scenario, replicate, n = payload
-    frame, truth = draw_scenario(scenario, n, replicate)
-    result = fit_cleverly(frame, scenario)
-    if not np.array_equal(result.nuisance.folds.assignment, frame["fold"].to_numpy()):
-        raise RuntimeError("the fixed-fold cleverly fit changed the stored assignment")
+    """The replicate's sample with its stored folds and its truth row, and no subject rows."""
+    scenario, replicate, _ = key
+    frame, truth = drawn
     payload_frame = frame.copy()
     payload_frame.insert(0, "replicate", replicate)
     payload_frame.insert(0, "scenario", scenario)
@@ -235,6 +238,18 @@ def _replicate(
         "replicate": replicate,
         **{f"truth_{name}": value for name, value in truth.items()},
     }
+    return payload_frame, truth_row, []
+
+
+def _replicate(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
+) -> tuple[pd.DataFrame, dict[str, Any], list[dict[str, Any]]]:
+    scenario, replicate, _ = key
+    frame, truth = drawn
+    payload_frame, truth_row, _ = _reference_input(key, drawn)
+    result = fit_cleverly(frame, scenario)
+    if not np.array_equal(result.nuisance.folds.assignment, frame["fold"].to_numpy()):
+        raise RuntimeError("the fixed-fold cleverly fit changed the stored assignment")
     rows = rows_from_result(
         STUDY,
         result,
@@ -246,17 +261,24 @@ def _replicate(
     return payload_frame, truth_row, rows
 
 
-def draw_and_fit(
-    *, replicates: int, n: int, n_jobs: int = STUDY_JOBS
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
     """Draw, store, and fit every declared paired replication."""
-    payloads = [
-        ((scenario, replicate, n),)
-        for scenario in STUDY.scenarios
-        for replicate in range(replicates)
-    ]
-    outcomes = map_parallel(_replicate, payloads, n_jobs=n_jobs)
-    samples = pd.concat([frame for frame, _, _ in outcomes], ignore_index=True)
-    truths = pd.DataFrame([truth for _, truth, _ in outcomes])
-    rows = pd.DataFrame([row for _, _, records in outcomes for row in records])
-    return samples, truths, rows.loc[:, list(REPLICATE_COLUMNS)]
+    outcomes = replication.fit_primary(
+        [
+            (scenario, replicate, n)
+            for scenario in STUDY.scenarios
+            for replicate in range(replicates)
+        ],
+        _replicate,
+        draw=_draw,
+        reference_input=_reference_input,
+        n_jobs=n_jobs,
+        implementation=STUDY.implementation,
+        seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
+    )
+    samples = pd.concat([frame for frame, _, _ in outcomes.kept], ignore_index=True)
+    truths = pd.DataFrame([truth for _, truth, _ in outcomes.kept])
+    rows = pd.DataFrame([row for _, _, records in outcomes.kept for row in records])
+    return replication.result(
+        outcomes, rows.loc[:, list(REPLICATE_COLUMNS)], samples=samples, truths=truths
+    )
