@@ -15,9 +15,153 @@ options(digits = 17)
 # in a checkpoint file.  A killed child leaves the marker and no checkpoint, so the retry loop
 # can name it, run it again alone, and stop when it is killed twice.  A rerun of the container
 # reuses every checkpoint.  The worker count comes from measured memory, not from the input
-# size.  Every error is still fatal: the first one stops the run with its message.
+# size.
+#
+# RM39 part a2: an error that escapes a runner's `study_stage` becomes a `study_fitting_failure`,
+# and the group's checkpoint holds a failure record in place of a result.  A row that breaks the
+# finite, positive, ordering or coverage rule (`study_invalid`) is recorded the same way.  When
+# the first 20 groups of a scenario all fail, the run stops as systematic.  Every other error,
+# and a `study_fatal_error` raised anywhere, is still fatal: the first one stops the run.
 
 study_parent_pid <- Sys.getpid()
+
+#: The id prefixes `study_systematic` reads, set by the parent before any group is fitted.
+study_record_state <- new.env(parent = emptyenv())
+
+study_recording <- function() {
+  # The RM19 diagnostic wrapper turns recording off, so every comparator error stays raw.
+  !identical(study_env("CLEVERLY_R_NO_RECORD"), "1")
+}
+
+study_fatal_error <- function(message) {
+  # The non-recordable class: a check that a runner or adapter makes inside a stage (a promoted
+  # warning, for example) raises this and stays fatal.
+  stop(structure(
+    class = c("study_fatal_error", "error", "condition"),
+    list(message = message, call = sys.call(-1))
+  ))
+}
+
+study_memory_kill <- function(label, message) {
+  # Decision Q2: memory exhaustion is a kill, not a recorded failure.  The worker kills itself
+  # as the kernel would, leaving its start marker and no checkpoint, so the retry loop halves
+  # the workers and fits the group again.  The parent never kills itself.
+  if (Sys.getpid() == study_parent_pid) {
+    study_fatal_error(sprintf("%s: %s (memory exhausted in the parent)", label, message))
+  }
+  cat(sprintf("memory exhausted in %s; this worker kills itself: %s\n", label, message))
+  tools::pskill(Sys.getpid(), tools::SIGKILL)
+  study_fatal_error(sprintf("%s: %s (the worker survived its own kill)", label, message))
+}
+
+study_stage <- function(label, expr) {
+  # The declared comparator-fit stage.  `expr` is lazy, so it is evaluated inside the handler
+  # and its value comes back unchanged.  The handler is exiting: it sees only an error that
+  # escapes `expr`, so a package's own `try()` keeps working, and an error re-signalled by
+  # `future::value()` or a package's `mclapply` is recorded like any other.  A fatal class and an
+  # inner stage's failure pass through, so the innermost label is the one recorded.
+  if (!study_recording()) return(expr)
+  tryCatch(
+    expr,
+    error = function(condition) {
+      if (inherits(condition, c("study_fatal_error", "study_fitting_failure"))) stop(condition)
+      text <- conditionMessage(condition)
+      if (grepl("cannot allocate|vector memory exhausted|memory exhausted|std::bad_alloc", text)) {
+        study_memory_kill(label, text)
+      }
+      if (grepl("C stack usage", text, fixed = TRUE)) {
+        study_fatal_error(sprintf("%s: %s", label, text))
+      }
+      # An error raised by `expr` itself carries tryCatch's own frame as its call.
+      call <- conditionCall(condition)
+      if (is.call(call) && identical(call[[1]], quote(doTryCatch))) call <- NULL
+      stop(structure(
+        class = c("study_fitting_failure", "error", "condition"),
+        list(
+          message = text, call = call,
+          stage = label, original = paste(class(condition), collapse = "/")
+        )
+      ))
+    }
+  )
+}
+
+study_invalid <- function(result) {
+  # The first rule a data-frame result breaks, or NULL: the finite, positive and ordering rules
+  # and the coverage identity that the Python step refuses.  Only columns present are read, and
+  # a missing value breaks a rule rather than raising.
+  if (!is.data.frame(result) || !nrow(result)) return(NULL)
+  columns <- names(result)
+  number <- function(column) suppressWarnings(as.numeric(result[[column]]))
+  where <- function(rows) {
+    row <- rows[[1L]]
+    estimand <- if ("estimand" %in% columns) as.character(result$estimand[[row]]) else "row"
+    scenario <- if ("scenario" %in% columns) sprintf(" of %s", as.character(result$scenario[[row]])) else ""
+    sprintf("%s%s (row %d)", estimand, scenario, row)
+  }
+  for (column in intersect(c("estimate", "inference_estimate", "std_error"), columns)) {
+    rows <- which(!is.finite(number(column)))
+    if (length(rows)) return(sprintf("non-finite %s for %s", column, where(rows)))
+  }
+  if ("std_error" %in% columns) {
+    positive <- number("std_error") > 0
+    rows <- which(is.na(positive) | !positive)
+    if (length(rows)) return(sprintf("non-positive std_error for %s", where(rows)))
+  }
+  if (all(c("ci_lower", "ci_upper") %in% columns)) {
+    ordered <- number("ci_lower") <= number("ci_upper")
+    rows <- which(is.na(ordered) | !ordered)
+    if (length(rows)) return(sprintf("ci_lower above ci_upper for %s", where(rows)))
+  }
+  if (all(c("covered", "truth", "ci_lower", "ci_upper") %in% columns)) {
+    truth <- number("truth")
+    inside <- number("ci_lower") <= truth & truth <= number("ci_upper")
+    inside[is.na(inside)] <- FALSE
+    covered <- number("covered")
+    rows <- which(is.na(covered) | covered != as.numeric(inside))
+    if (length(rows)) return(sprintf("covered disagrees with the interval and truth for %s", where(rows)))
+  }
+  NULL
+}
+
+study_failure_row <- function(id, frame, attempt, class, stage, call, message, seed) {
+  # One failure record (M7).  The Python driver adds the implementation column.
+  clean <- function(text) gsub("[\r\n]", " ", paste(text, collapse = " "))
+  data.frame(
+    group_id = id,
+    scenarios = if ("scenario" %in% names(frame)) {
+      paste(unique(as.character(frame$scenario)), collapse = ";")
+    } else {
+      "*"
+    },
+    replicates = paste(sprintf("%d", as.integer(unique(frame$replicate))), collapse = ";"),
+    attempt = as.integer(attempt),
+    class = class,
+    stage = clean(stage),
+    call = clean(if (is.null(call)) "none" else deparse(call, width.cutoff = 500L, nlines = 1L)),
+    message = clean(message),
+    seed = if (is.null(seed)) NA_integer_ else as.integer(seed),
+    stringsAsFactors = FALSE
+  )
+}
+
+study_prefixes <- function(frames, ids) {
+  # The systematic stop's id prefixes: the first 20 ids of each scenario when every group holds
+  # one scenario, else the first 20 ids of the run.
+  scenarios <- lapply(frames, function(frame) {
+    if ("scenario" %in% names(frame)) unique(as.character(frame$scenario)) else "*"
+  })
+  if (length(frames) && all(lengths(scenarios) == 1L)) {
+    keys <- unlist(scenarios)
+    return(lapply(split(ids, factor(keys, levels = unique(keys))), utils::head, 20L))
+  }
+  list(utils::head(ids, 20L))
+}
+
+study_failure_path <- function(output) {
+  # `<output stem>.failures.csv` beside the output, the stem as Python's `Path.stem` reads it.
+  file.path(dirname(output), paste0(sub("(.)\\.[^.]+$", "\\1", basename(output)), ".failures.csv"))
+}
 
 study_env <- function(name, default = "") {
   value <- Sys.getenv(name, "")
@@ -274,7 +418,10 @@ study_fit_group <- function(id, frame, fit_one, dir, seeds) {
   }
   if (file.exists(file.path(dir, "_fatal"))) return(invisible(NULL))
   writeLines(as.character(Sys.getpid()), paths$started)
+  # The determinism probe's R profile reads which group this child fits.
+  Sys.setenv(CLEVERLY_GROUP_ID = id)
   probe <- identical(study_env("CLEVERLY_HARNESS_RNG_PROBE"), "1")
+  seed <- NULL
   result <- tryCatch(
     {
       seed <- study_seed_for(frame, seeds)
@@ -290,41 +437,108 @@ study_fit_group <- function(id, frame, fit_one, dir, seeds) {
       }
       fitted
     },
+    study_fitting_failure = function(condition) condition,
     error = function(condition) {
       study_write_fatal(dir, id, frame, condition)
       stop(condition)
     }
   )
+  failure <- NULL
+  attempt <- 1L + if (file.exists(paths$kills)) as.integer(readLines(paths$kills, warn = FALSE)[[1]]) else 0L
+  if (inherits(result, "study_fitting_failure")) {
+    failure <- study_failure_row(
+      id, frame, attempt, "fitting_failure", result$stage, conditionCall(result),
+      conditionMessage(result), seed
+    )
+  } else if (study_recording()) {
+    invalid <- study_invalid(result)
+    if (!is.null(invalid)) {
+      failure <- study_failure_row(id, frame, attempt, "invalid_result", "row check", NULL, invalid, seed)
+    }
+  }
   record <- list(
     id = id,
     pid = Sys.getpid(),
     scenarios = if ("scenario" %in% names(frame)) unique(frame$scenario) else NULL,
-    replicates = unique(frame$replicate),
-    result = result
+    replicates = unique(frame$replicate)
   )
+  if (is.null(failure)) record["result"] <- list(result) else record$failure <- failure
   temporary <- sprintf("%s.%d.tmp", paths$rds, Sys.getpid())
   saveRDS(record, temporary)
   file.rename(temporary, paths$rds)
   unlink(paths$started)
+  if (!is.null(failure)) {
+    cat(sprintf(
+      "recorded %s for group %s in %s: %s\n",
+      failure$class, id, failure$stage, failure$message
+    ))
+    study_systematic(dir, study_record_state$prefixes)
+    return(invisible(NULL))
+  }
   result
+}
+
+study_failures <- function(dir, ids) {
+  # The failure records among the checkpoints of `ids`, in id order, or NULL.
+  rows <- list()
+  for (id in sort(ids)) {
+    path <- study_checkpoint_paths(dir, id)$rds
+    if (!file.exists(path)) next
+    record <- readRDS(path)
+    if (!is.null(record$failure)) rows[[length(rows) + 1L]] <- record$failure
+  }
+  if (!length(rows)) return(NULL)
+  do.call(rbind, rows)
+}
+
+study_systematic <- function(dir, prefixes) {
+  # A2's systematic stop: when every id of one 20-id prefix holds a failure record, `_fatal`
+  # names the prefix and the lowest id's message, and the next `study_check_fatal` stops the
+  # run.  A prefix shorter than 20 never triggers; the declared bound covers that run.
+  for (index in seq_along(prefixes)) {
+    prefix <- prefixes[[index]]
+    if (length(prefix) < 20L) next
+    rds <- vapply(prefix, function(id) study_checkpoint_paths(dir, id)$rds, character(1))
+    if (!all(file.exists(rds))) next
+    failures <- study_failures(dir, prefix)
+    if (is.null(failures) || nrow(failures) < length(prefix)) next
+    name <- names(prefixes)[index]
+    scope <- if (is.null(name) || !nzchar(name) || identical(name, "*")) "the run" else name
+    text <- sprintf(
+      "systematic: the first %d groups of %s failed; first: %s in %s (group %s): %s",
+      length(prefix), scope, failures$class[[1]], failures$stage[[1]],
+      failures$group_id[[1]], failures$message[[1]]
+    )
+    temporary <- file.path(dir, sprintf("_fatal.%d.tmp", Sys.getpid()))
+    writeLines(text, temporary)
+    file.rename(temporary, file.path(dir, "_fatal"))
+    return(invisible(TRUE))
+  }
+  invisible(FALSE)
 }
 
 study_calibrate_group <- function(id, frame, fit_one, seeds) {
   # One fresh fork per group, so the high-water mark starts at the fork and not at an earlier
   # group's peak.  A transient allocation freed before the fit returns still raises VmHWM, and
   # a retained one counts in both terms, which errs large.
-  measured <- study_fork({
-    rss_start <- study_rss_mb()
-    seed <- study_seed_for(frame, seeds)
-    if (!is.null(seed)) set.seed(seed)
-    invisible(fit_one(frame))
-    hwm_end <- study_hwm_mb()
-    private <- study_private_mb()
-    list(
-      id = id, rss_start = rss_start, hwm_end = hwm_end, peak_growth = hwm_end - rss_start,
-      private_after_gc = private, per_worker = hwm_end - rss_start + private
-    )
-  })
+  # A fitting failure comes back as its condition, so calibration can take another group.
+  measured <- tryCatch(
+    study_fork({
+      Sys.setenv(CLEVERLY_GROUP_ID = id)
+      rss_start <- study_rss_mb()
+      seed <- study_seed_for(frame, seeds)
+      if (!is.null(seed)) set.seed(seed)
+      invisible(fit_one(frame))
+      hwm_end <- study_hwm_mb()
+      private <- study_private_mb()
+      list(
+        id = id, rss_start = rss_start, hwm_end = hwm_end, peak_growth = hwm_end - rss_start,
+        private_after_gc = private, per_worker = hwm_end - rss_start + private
+      )
+    }),
+    study_fitting_failure = function(condition) condition
+  )
+  if (inherits(measured, "study_fitting_failure")) return(measured)
   if (is.null(measured)) {
     stop(sprintf("calibration group %s was killed; %s", id, study_memory_line()), call. = FALSE)
   }
@@ -337,21 +551,60 @@ study_calibrate <- function(frames, ids, fit_one, seeds, declared = character(0)
   if (!study_calibrating()) return(invisible(FALSE))
   seen <- character(0)
   selected <- character(0)
+  holds <- lapply(frames, function(frame) {
+    if ("scenario" %in% names(frame)) unique(as.character(frame$scenario)) else "*"
+  })
+  keys <- character(0)
   for (index in seq_along(frames)) {
-    frame <- frames[[index]]
-    scenarios <- if ("scenario" %in% names(frame)) unique(as.character(frame$scenario)) else "*"
-    fresh <- setdiff(scenarios, seen)
+    fresh <- setdiff(holds[[index]], seen)
     if (length(fresh)) {
       selected <- c(selected, ids[[index]])
+      keys <- c(keys, fresh[[1]])
       seen <- c(seen, fresh)
     }
   }
   absent <- setdiff(declared, ids)
   if (length(absent)) cat(sprintf("declared calibration groups not present: %s\n", paste(absent, collapse = ", ")))
-  selected <- unique(c(selected, intersect(declared, ids)))
-  measures <- lapply(selected, function(id) {
-    study_calibrate_group(id, frames[[match(id, ids)]], fit_one, seeds)
-  })
+  heaviest <- setdiff(intersect(declared, ids), selected)
+  measures <- list()
+  # Decision Q3: a first group whose fit fails is replaced by the next group of its scenario, up
+  # to the 20-group prefix; 20 failures, or a scenario with no group left, stop as systematic.
+  for (position in seq_along(selected)) {
+    start <- match(selected[[position]], ids)
+    key <- keys[[position]]
+    candidates <- which(vapply(holds, function(held) key %in% held, logical(1)))
+    candidates <- utils::head(candidates[candidates >= start], 20L)
+    first <- NULL
+    measured <- NULL
+    for (index in candidates) {
+      attempt <- study_calibrate_group(ids[[index]], frames[[index]], fit_one, seeds)
+      if (!inherits(attempt, "study_fitting_failure")) {
+        measured <- attempt
+        break
+      }
+      if (is.null(first)) first <- sprintf("%s (group %s): %s", attempt$stage, ids[[index]], conditionMessage(attempt))
+      cat(sprintf(
+        "calibration group %s failed in %s: %s; taking the next group of %s\n",
+        ids[[index]], attempt$stage, gsub("[\r\n]", " ", conditionMessage(attempt)), key
+      ))
+    }
+    if (is.null(measured)) {
+      stop(sprintf(
+        "systematic: the first %d groups of %s failed in calibration; first: %s",
+        length(candidates), if (identical(key, "*")) "the run" else key, first
+      ), call. = FALSE)
+    }
+    measures[[length(measures) + 1L]] <- measured
+  }
+  for (id in heaviest) {
+    attempt <- study_calibrate_group(id, frames[[match(id, ids)]], fit_one, seeds)
+    if (inherits(attempt, "study_fitting_failure")) {
+      cat(sprintf("declared calibration group %s failed in %s and is not measured: %s\n",
+                  id, attempt$stage, gsub("[\r\n]", " ", conditionMessage(attempt))))
+    } else {
+      measures[[length(measures) + 1L]] <- attempt
+    }
+  }
   parent <- study_private_mb()
   memory <- study_memory()
   number <- function(value) if (is.na(value)) "null" else sprintf("%.3f", value)
@@ -439,6 +692,8 @@ study_startup <- function(dir, meta, ids = NULL) {
     if (is.null(ids)) "the rest" else as.character(length(ids) - reused)
   ))
   study_write_state(reused = reused)
+  # A resume over failure checkpoints may already hold a systematic prefix.
+  study_systematic(dir, study_record_state$prefixes)
   invisible(reused)
 }
 
@@ -505,8 +760,76 @@ study_retry <- function(ids, fun, dir, workers, chunk) {
 }
 
 study_assemble <- function(dir, ids) {
-  # Zero-padded ids, so string order is numeric order and the table keeps the group order.
-  lapply(sort(ids), function(id) readRDS(study_checkpoint_paths(dir, id)$rds)$result)
+  # Zero-padded ids, so string order is numeric order and the table keeps the group order.  A
+  # failure checkpoint holds no result; `study_failures` reads it.
+  records <- lapply(sort(ids), function(id) readRDS(study_checkpoint_paths(dir, id)$rds))
+  kept <- vapply(records, function(record) is.null(record$failure), logical(1))
+  lapply(records[kept], function(record) record$result)
+}
+
+study_accounted <- function(out, failures, observed, expected, groups) {
+  # The keys a run accounts for: `observed` from the table, plus each failed group's share of
+  # `expected` (B3: counted by group, so a record without a scenario column needs no expansion).
+  # A failed group whose replication also has rows refuses.
+  if (is.null(failures) || !nrow(failures)) return(observed)
+  per_group <- expected / groups
+  if (per_group != floor(per_group)) {
+    stop(sprintf(
+      "%s keys over %d groups is not a whole number per group, so a failed replication cannot be counted",
+      format(expected), as.integer(groups)
+    ), call. = FALSE)
+  }
+  if (!is.null(out) && "replicate" %in% names(out)) {
+    for (row in seq_len(nrow(failures))) {
+      replicates <- as.integer(strsplit(failures$replicates[[row]], ";", fixed = TRUE)[[1]])
+      scenarios <- strsplit(failures$scenarios[[row]], ";", fixed = TRUE)[[1]]
+      hit <- out$replicate %in% replicates
+      if ("scenario" %in% names(out) && !identical(scenarios, "*")) hit <- hit & out$scenario %in% scenarios
+      if (any(hit)) {
+        stop(sprintf(
+          "failed group %s covers a replication that also has rows", failures$group_id[[row]]
+        ), call. = FALSE)
+      }
+    }
+  }
+  observed + per_group * nrow(failures)
+}
+
+study_write_failures <- function(output, failures) {
+  # The failures file exists only when a record does, so a run without one writes no new file.
+  path <- study_failure_path(output)
+  unlink(path)
+  if (!is.null(failures) && nrow(failures)) write.csv(failures, path, row.names = FALSE)
+  invisible(path)
+}
+
+study_finish <- function(dir, ids, output, count, expected, na = "NA",
+                         dropped = "wrote %d of %d replications") {
+  # The tail of a runner that stays off the harness: assemble the successes, refuse a worker
+  # that returned no result, count `count(table)` plus the failed groups' keys against
+  # `expected`, write the failures file when a record exists, and write the table.  `dropped`
+  # is the runner's own stop text; a `%d` pair in it takes the accounted and expected counts.
+  unlink(study_failure_path(output))
+  study_check_fatal(dir)
+  results <- study_assemble(dir, ids)
+  failures <- study_failures(dir, ids)
+  failed <- !vapply(results, is.data.frame, logical(1))
+  if (any(failed)) stop(sprintf("%d R worker(s) returned no result", sum(failed)))
+  if (!is.null(failures) && !length(results)) {
+    stop(sprintf("every group failed; first: %s", failures$message[[1]]), call. = FALSE)
+  }
+  out <- do.call(rbind, results)
+  accounted <- study_accounted(out, failures, count(out), expected, length(ids))
+  if (accounted != expected) {
+    stop(if (grepl("%d", dropped, fixed = TRUE)) {
+      sprintf(dropped, as.integer(accounted), as.integer(expected))
+    } else {
+      dropped
+    })
+  }
+  study_write_failures(output, failures)
+  write.csv(out, output, row.names = FALSE, na = na)
+  invisible(out)
 }
 # ---- RM39 shared resilience functions: end ----
 
@@ -537,7 +860,7 @@ fit_one <- function(frame, scenario, replicate) {
   data <- frame[c(covariates, "A", "Y")]
   nodes <- list(W = covariates, A = "A", Y = "Y")
   learners <- list(A = Lrnr_glm$new(), Y = Lrnr_glm$new())
-  fit <- tmle3(tmle_oat_TSM_all(), data, nodes, learners)
+  fit <- study_stage("tmle3 oat", tmle3(tmle_oat_TSM_all(), data, nodes, learners))
   estimates <- fit$estimates
   if (length(estimates) != 2) stop("the two-arm OAT comparison did not return two means")
   psi <- vapply(estimates, `[[`, numeric(1), "psi")
@@ -584,32 +907,26 @@ fit_one <- function(frame, scenario, replicate) {
 }
 
 groups <- split(samples, interaction(samples$scenario, samples$replicate, drop = TRUE))
-fit_group <- function(frame) {
-  tryCatch(
-    fit_one(frame, frame$scenario[[1]], frame$replicate[[1]]),
-    error = function(condition) stop(sprintf(
-      "%s replicate %s: %s",
-      frame$scenario[[1]], frame$replicate[[1]], conditionMessage(condition)
-    ), call. = FALSE)
-  )
-}
+fit_group <- function(frame) fit_one(frame, frame$scenario[[1]], frame$replicate[[1]])
 # RM39: the shared functions above fit each group in a forked child, checkpoint it, retry a
-# killed group once and resume a rerun from the checkpoints.  Every error is still fatal.
+# killed group once and resume a rerun from the checkpoints.  An error inside `study_stage`
+# is recorded as a failure of its group (RM39a2); every other error is still fatal and names
+# its group in `_fatal`.
 ids <- sprintf("g%09d", seq_along(groups))
 seeds <- study_seeds(study_env("CLEVERLY_R_SEEDS"))
+study_record_state$prefixes <- study_prefixes(groups, ids)
 study_calibrate(groups, ids, fit_group, seeds, study_declared_groups())
 dir <- study_checkpoint_dir()
 study_startup(dir, study_env("CLEVERLY_R_META"), ids)
 plan <- study_plan(study_granted(1L))
 fit_id <- function(id) study_fit_group(id, groups[[match(id, ids)]], fit_group, dir, seeds)
 study_retry(ids, fit_id, dir, plan$workers, study_chunk(length(ids), plan$workers))
-results <- study_assemble(dir, ids)
-failed <- vapply(results, inherits, logical(1), what = "try-error")
-if (any(failed)) stop(paste(vapply(results[failed], as.character, character(1)), collapse = "\n"))
-out <- do.call(rbind, results)
-expected <- 5L * length(groups)
-if (nrow(out) != expected) stop("an OAT reference replication was silently dropped")
-write.csv(out, output, row.names = FALSE)
+study_finish(
+  dir, ids, output,
+  count = nrow,
+  expected = 5L * length(groups),
+  dropped = "an OAT reference replication was silently dropped"
+)
 cat("ctmle3 ", as.character(packageVersion("ctmle3")), "\n", sep = "")
 cat("tmle3 ", as.character(packageVersion("tmle3")), "\n", sep = "")
 cat("sl3 ", as.character(packageVersion("sl3")), "\n", sep = "")

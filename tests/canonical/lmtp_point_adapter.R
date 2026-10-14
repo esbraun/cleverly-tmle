@@ -1,4 +1,7 @@
 # A one-fold point-treatment adapter for pinned lmtp 1.5.4.
+#
+# RM39a2: each lmtp estimation call runs inside `study_stage` (tests/canonical/study_harness.R,
+# which every caller sources); every check stays outside a stage and stays fatal.
 
 lmtp_point_internal <- function(name) {
   value <- getFromNamespace(name, "lmtp")
@@ -17,6 +20,10 @@ lmtp_point_tmle <- function(
   learners_outcome = "SL.glm",
   learners_trt = "SL.glm"
 ) {
+  # RM39a2 (M7): every argument is evaluated here, outside any stage.
+  invisible(list(
+    data, shifted, density_ratio, mtp, outcome_type, bounds, W, learners_outcome, learners_trt
+  ))
   if (nrow(data) != nrow(shifted) || length(density_ratio) != nrow(data)) {
     stop("natural, shifted, and density-ratio rows do not align")
   }
@@ -44,9 +51,12 @@ lmtp_point_tmle <- function(
     .return_full_fits = TRUE
   )
   progress <- function(...) invisible(NULL)
-  density <- lmtp_point_internal("cf_density_ratios")(
+  cf_density_ratios <- lmtp_point_internal("cf_density_ratios")
+  cf_tmle <- lmtp_point_internal("cf_tmle")
+  theta_dr <- lmtp_point_internal("theta_dr")
+  density <- study_stage("lmtp density ratios", cf_density_ratios(
     task, learners_trt, mtp, control, progress
-  )
+  ))
   supplied <- matrix(as.numeric(density_ratio), ncol = 1)
   if (!identical(dim(supplied), dim(density$density_ratios))) {
     stop("the supplied point-treatment density ratio has the wrong shape")
@@ -58,15 +68,15 @@ lmtp_point_tmle <- function(
     stop("the supplied deterministic ratio follows a different intervention path from lmtp")
   }
   density$density_ratios <- supplied
-  regressions <- lmtp_point_internal("cf_tmle")(
+  regressions <- study_stage("lmtp tmle", cf_tmle(
     task, supplied, learners_outcome, control, progress
-  )
+  ))
   fit <- regressions$fits[[1]][[1]]
-  initial <- as.numeric(predict(fit, shifted[c(W, "A")]))
+  initial <- as.numeric(study_stage("lmtp estimate", predict(fit, shifted[c(W, "A")])))
   if (anyNA(initial) || any(initial < 0) || any(initial > 1)) {
     stop("lmtp produced an invalid initial point-treatment plug-in")
   }
-  result <- lmtp_point_internal("theta_dr")(
+  result <- study_stage("lmtp estimate", theta_dr(
     task = task,
     sequential_regressions = list(
       natural = regressions$natural,
@@ -77,7 +87,7 @@ lmtp_point_tmle <- function(
     fits_r = density$fits,
     shift = "supplied point-treatment policy",
     is_sdr = FALSE
-  )
+  ))
   result$initial <- task$rescale(mean(initial))
   result
 }

@@ -11,6 +11,10 @@
 # cannot move.  Fold the two together when the end-of-study and survival rows are next
 # regenerated for a reason of their own; until then the copy is the only way to leave those
 # rows' provenance intact.
+#
+# RM39a2: each lmtp estimation call runs inside `study_stage` (tests/canonical/study_harness.R,
+# which every caller sources).  The source-time SuperLearner check below and every screen stay
+# outside a stage and stay fatal.
 
 if (!exists("lmtp_internal") || !exists("fold_list")) {
   stop("source lmtp_crossfit_adapter.R before this file: it defines lmtp_internal and fold_list")
@@ -25,10 +29,12 @@ if (!exists("lmtp_internal") || !exists("fold_list")) {
 # asserted -- see `check_direct_learner_matches_superlearner` at the foot of this file, which
 # runs once per R process before any study fit.
 lmtp_direct_learner <- function(data, y, learners, outcome_type, id, folds) {
+  # Configuration checks: lmtp calls this inside the fit's stage, so each one raises the
+  # fatal class that a stage passes through rather than records.
   if (!learners %in% c("SL.glm", "SL.mean")) {
-    stop("the direct adapter only supports one SL.glm or SL.mean learner")
+    study_fatal_error("the direct adapter only supports one SL.glm or SL.mean learner")
   }
-  if (folds < 2L) stop("the declared learner-fold count must be at least two")
+  if (folds < 2L) study_fatal_error("the declared learner-fold count must be at least two")
   features <- setdiff(names(data), c(id, y))
   response <- data[[y]]
   binomial_outcome <- outcome_type == "binomial"
@@ -168,6 +174,11 @@ lmtp_competing_tmle_with_folds <- function(
     .return_full_fits = TRUE
   )
 ) {
+  # RM39a2 (M7): every argument is evaluated here, outside any stage.
+  invisible(list(
+    data, shifted, trt, outcome, compete, baseline, time_vary, cens, outcome_type,
+    fold_assignment, learners_outcome, learners_trt, density_ratios, control
+  ))
   if (nrow(data) != length(fold_assignment)) stop("fold assignment has the wrong length")
   variables <- c(unlist(trt), outcome, compete, unlist(time_vary), baseline, cens)
   variables <- unique(variables[!is.na(variables)])
@@ -211,7 +222,12 @@ lmtp_competing_tmle_with_folds <- function(
   # Fitted unconditionally, as the shared adapter does, even when the caller supplies exact
   # ratios: lmtp's own estimate is what the screens below compare against, and a screen that
   # only runs when nobody supplied anything screens nothing.
-  density <- lmtp_internal("cf_density_ratios")(task, learners_trt, FALSE, control, progress)
+  cf_density_ratios <- lmtp_internal("cf_density_ratios")
+  cf_tmle <- lmtp_internal("cf_tmle")
+  theta_dr <- lmtp_internal("theta_dr")
+  density <- study_stage(
+    "lmtp density ratios", cf_density_ratios(task, learners_trt, FALSE, control, progress)
+  )
   if (!is.null(density_ratios)) {
     if (nrow(density_ratios) != nrow(data) || ncol(density_ratios) != length(trt)) {
       stop("supplied density ratios have the wrong dimensions")
@@ -221,9 +237,9 @@ lmtp_competing_tmle_with_folds <- function(
     density <- list(density_ratios = density_ratios, fits = NULL)
   }
 
-  regressions <- lmtp_internal("cf_tmle")(
+  regressions <- study_stage("lmtp tmle", cf_tmle(
     task, density$density_ratios, learners_outcome, control, progress
-  )
+  ))
   if (!isTRUE(control$.return_full_fits)) {
     stop("the evidence runner requires .return_full_fits=TRUE")
   }
@@ -253,7 +269,7 @@ lmtp_competing_tmle_with_folds <- function(
         fold, length(regressions$fits[[fold]]), length(task$vars$A)
       ))
     }
-    predicted <- predict(regressions$fits[[fold]][[1]], under_shift, 1e-05)
+    predicted <- study_stage("lmtp estimate", predict(regressions$fits[[fold]][[1]], under_shift, 1e-05))
     if (anyNA(predicted) || any(predicted < 0) || any(predicted > 1)) {
       stop(sprintf("fold %d produced an initial plug-in outside [0, 1]", fold))
     }
@@ -262,7 +278,7 @@ lmtp_competing_tmle_with_folds <- function(
   }
   if (anyNA(initial)) stop("the initial plug-in did not cover every row")
 
-  result <- lmtp_internal("theta_dr")(
+  result <- study_stage("lmtp estimate", theta_dr(
     task = task,
     sequential_regressions = list(
       natural = regressions$natural,
@@ -273,7 +289,7 @@ lmtp_competing_tmle_with_folds <- function(
     fits_r = density$fits,
     shift = "supplied competing-risk panel with exact folds",
     is_sdr = FALSE
-  )
+  ))
   result$initial <- initial
   result$fold_assignment <- as.integer(fold_assignment)
   result

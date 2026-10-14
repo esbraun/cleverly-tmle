@@ -109,8 +109,14 @@ def truth_on_inference_scale(estimand: str, truth: float, scale: str) -> float:
     raise ValueError(f"unknown inference scale {scale!r} for {estimand}")
 
 
-def validate_replicates(rows: pd.DataFrame, *, record: StudyRecord) -> None:
+def validate_replicates(
+    rows: pd.DataFrame, *, record: StudyRecord, failures: pd.DataFrame | None = None
+) -> None:
     """Refuse a replication file that cannot be what it claims to be.
+
+    ``failures`` are the comparator's recorded failures (``failures.csv``, RM39 part a2).  A
+    cell may then hold fewer rows than declared, but only when its missing replicates are
+    exactly the recorded ones; :func:`tests.studies.evidence.failures.reconcile` checks that.
 
     The failure this exists for is a mis-joined truth column: every downstream summary stays
     arithmetically self-consistent while measuring the wrong thing, and a coverage column
@@ -190,7 +196,11 @@ def validate_replicates(rows: pd.DataFrame, *, record: StudyRecord) -> None:
             )
     counts = rows.groupby(["implementation", "scenario", "estimand"], sort=True).size()
     wrong = counts[counts != record.replicates]
-    if not wrong.empty:
+    if failures is not None and not failures.empty:
+        from tests.studies.evidence.failures import reconcile
+
+        reconcile(rows, failures, record=record)
+    elif not wrong.empty:
         raise ValueError(
             f"{record.slug}: cells with a replication count other than {record.replicates}:\n"
             f"{wrong.to_string()}"

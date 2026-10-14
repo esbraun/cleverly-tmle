@@ -160,6 +160,7 @@ def write_manifest(
             ),
             "publication_policy": record.publication_policy,
             **({"truth_varies_by_replicate": True} if record.truth_varies_by_replicate else {}),
+            **({"failure_bound": dict(record.failure_bound)} if record.failure_bound else {}),
             **(
                 {"accepted_reference_failure": record.accepted_reference_failure}
                 if record.accepted_reference_failure
