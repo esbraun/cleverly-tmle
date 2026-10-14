@@ -14,7 +14,8 @@
 # `final_type1` is R's type-1 final step from a declared start (X16 plan, 3.4.2): the preamble,
 # `stage2_glmnet(..., best_k = start)` as line 256 calls it, and the block of lines 248-327
 # verbatim.  It returns what the replay reads: the explicit-lambda coefficients, the option
-# losses, the final grid index and the estimate.
+# losses, the final grid index and the estimate.  It needs a start before the last index; its
+# caller, `final_columns`, checks that outside the stage.
 
 ctmle_preamble <- function(Y, A, Q, alpha, fluctuation) {
       # ctmle_glmnet.R:97-112, verbatim.
@@ -79,9 +80,6 @@ final_type1 <- function(Y, A, W, Wg = W, Q, lambdas, start_k,
                         alpha=.995, gbound=.025, like_type = "RSS",
                         fluctuation="logistic", verbose=FALSE,
                         stopFactor=10^6) {
-      if (start_k >= length(lambdas)) {
-            stop("the type-1 final step needs a start before the last penalty (quirk 7)")
-      }
       start <- ctmle_preamble(Y, A, Q, alpha, fluctuation)
       Qinit <- start$Qinit
       ctmletype <- 1

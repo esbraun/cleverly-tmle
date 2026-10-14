@@ -331,7 +331,12 @@ fit_lasso <- function(frame, W, Q, label) {
     }
   )
   # S1: the rebuild runs on every replicate.
-  rebuilt <- study_stage("rebuild_type1", do.call(rebuild_type1, arguments))
+  rebuilt <- study_stage("rebuild_type1", rebuild_type1(
+    Y = arguments$Y, A = arguments$A, W = arguments$W, Q = arguments$Q,
+    lambdas = arguments$lambdas, ctmletype = arguments$ctmletype, family = arguments$family,
+    like_type = arguments$like_type, gbound = arguments$gbound, PEN = arguments$PEN,
+    V = arguments$V, folds = arguments$folds, detailed = arguments$detailed
+  ))
   rebuild_best_k <- as.integer(rebuilt$cv.res$best_k)
   if (inherits(fit, "error")) {
     # Only the quirk-7 failure is adapted: the message must hold the quirk-7 text and the
