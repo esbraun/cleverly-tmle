@@ -755,6 +755,27 @@ class TestPublishedVerdicts:
                 f"{row.cell} publishes passed={row.passed} against its own coverage floor"
             )
 
+        mechanism_term = published.loc[published["property"] == "mechanism_term_necessity"]
+        for row in mechanism_term.itertuples():
+            if row.role == "control":
+                expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
+            else:
+                low, high = study.properties().EFFICIENCY_RATIO_BAND
+                expected = low <= row.se_ratio_ci_lower <= row.se_ratio_ci_upper <= high
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own SE-ratio endpoint"
+            )
+
+        single = published.loc[published["property"] == "single_robustness"]
+        positive = single.loc[single["role"] == "positive"].sort_values("n")
+        if not positive.empty:
+            small, large = positive["absolute_bias_bound"].iloc[[0, -1]]
+            tolerance = study.properties().ABSOLUTE_BIAS_TOLERANCE
+            expected = bool(large < tolerance and large < small)
+            assert [bool(value) for value in positive["passed"]] == [expected] * len(positive), (
+                f"{study.slug}: a single_robustness row's verdict is not the two-size rule"
+            )
+
         # Unconditional over every study with calibration cells.  Guarding this block on the
         # presence of the efficiency columns left a study that publishes no exact ratio with
         # *no* reader of its calibration verdicts at all.
@@ -1204,6 +1225,12 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         "treatment_score_necessity",
         "type_i_error",
         property_verdicts.WARNING_RATE_FAMILY,
+        # The full curve answers to the efficiency band and the curve without the mechanism
+        # term to an SE ratio below the calibration band.  Checked row by row below.
+        "mechanism_term_necessity",
+        # Absolute bias at two sizes (the ``X4-plan.md`` 6.8 rule), beside a diagnostic cell.
+        # Checked row by row below.
+        "single_robustness",
         # Four rules keyed by the cell's last segment: a conservative SE ratio, accuracy, a
         # one-sided bias control and a growth control.  Checked row by row below.
         property_verdicts.ONE_WRONG_FAMILY,
@@ -1224,6 +1251,8 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "in_sample_agreement",
         "sdr_tmle_agreement",
         "variance_direction",
+        "censoring_complete_case",
+        "in_sample_fit",
         "one_wrong_reported",
     }
 )

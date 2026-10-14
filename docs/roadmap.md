@@ -196,7 +196,7 @@ Priorities 2 to 5 follow the beta.
 | ---: | --- | --- | --- | --- |
 | 1.11 | C-TMLE candidate sequences | published support; pending source read | shipped selector paths | [X16](#x16-c-tmle-candidate-sequences) |
 | 1.12 | Hazard-based and monotone survival curves | published support; pending source read | the shipped point-treatment survival design | [X14](#x14-hazard-based-and-monotone-survival-curves) |
-| 1.13 | Incremental interventions over time | source audit | shipped longitudinal modified treatment policies | [X19](#x19-incremental-interventions-over-time) |
+| 1.13 | Repeated-outcome curves | published support for the incremental case; a fixed-dimension stack for static and dynamic plans | the shipped `IPSI` estimator | [X32](#x32-repeated-outcome-curves) |
 | 1.14 | Targeting and fitting options | no new theory; each option keeps its default bit-identical | none | [X22](#x22-targeting-and-fitting-options) |
 | 1.15 | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
 | 1.16 | Continuous vector components at a node | published support; pending source read | shipped longitudinal modified treatment policies | [X31](#x31-continuous-vector-components-at-a-node) |
@@ -462,28 +462,30 @@ Acceptance:
 - a test that each curve is monotone on a law where per-horizon targeting is not;
 - a registered study with joint coverage over the horizons.
 
-### X19. Incremental interventions over time
+### X32. Repeated-outcome curves
 
-`TMLE(incremental=...)` fits Kennedy's odds tilt of a binary point treatment. `LTMLE` refuses
-`incremental=`, because the tilt needs the product of tilted mechanisms and a mechanism submodel at
-every node. The pinned `lmtp` 1.5.4 ships `ipsi()`, which is a risk-ratio tilt and not the odds
-tilt. `RiskRatioTilt` ships that rule at a point treatment and at each node of a plan.
+`LongitudinalData` reads `outcome=[...]` only as an absorbing event. X32 adds a declaration of a
+non-absorbing outcome $Y_t$ at each node. It also adds the curve $t \mapsto E[Y_t^{Q}]$ over a
+declared set of horizons.
 
-| part | what to add | published source | comparator |
-| --- | --- | --- | --- |
-| (a) the odds tilt over time | the incremental intervention at every node of a binary longitudinal treatment | Kennedy (2019), *Journal of the American Statistical Association* 114(526), which treats time-varying treatments | `npcausal` 0.1.0, pinned for the point-treatment incremental study. The audit must confirm that its `ipsi()` fits time-varying data |
+| item | contract |
+| --- | --- |
+| base | Kim, Kennedy and Naimi (2021), *Journal of Causal Inference* 9(1):302–344, Theorems 3.1, 4.1 and 5.1 (tilts, dropout, and the joint process over $\delta$ and $t$). For static and dynamic plans, each horizon is the shipped end-of-study estimand on the panel truncated after node $t$. The curve is their fixed-dimension stack |
+| estimators | one backward pass per horizon, seeded at $Y_t$, with earlier $Y_s$ in the history. `IPSI`, `LTMLE` and `SDR` each fit the declaration or refuse it by name |
+| inference | a joint band over plans and horizons from the stacked curve |
 
-A tilt is a policy density that is a function of the mechanism. The
-[known stochastic policies](technical-reference/longitudinal-tmle.md#known-stochastic-policies)
-fit carries such a density through `sequential._carried(policy, by_arm)` and reads its numerator
-through `regimen._node_numerator(plan, data, time)`. A tilt also needs the numerator to read
-`Mechanism.treatment_observed`, and the curve needs a mechanism-derivative term at every node.
+Today a user can fit one horizon by hand. Truncate the panel after node $t$, and declare $Y_t$ as
+the outcome and earlier $Y_s$ as covariates.
+[Incremental interventions over time](technical-reference/longitudinal-tmle.md#the-incremental-estimand)
+states that route.
 
 Acceptance:
 
-- exact-law witnesses with a nonzero tilt at every node;
-- a mutation control that drops one node's tilt;
-- a registered study against `npcausal`.
+- exact-law witnesses with a non-absorbing outcome that returns to zero, so an absorbing reading
+  fails;
+- a mutation control that treats $Y_t$ as absorbing;
+- a truth-calibrated registered study. Kim's research code is unpinned, so no paired comparator
+  exists.
 
 ### X22. Targeting and fitting options
 
@@ -1121,7 +1123,9 @@ sample-data operation.
 ### F3. Additional longitudinal estimands
 
 Competing-event interventions and other longitudinal estimands wait for their own identification
-assumptions, influence functions, targeting construction, and inference conditions. Add accepted
+assumptions, influence functions, targeting construction, and inference conditions. For the
+incremental case of a non-absorbing time-varying outcome, Kim, Kennedy and Naimi (2021), Theorems
+3.1, 4.1 and 5.1, supply the result. [X32](#x32-repeated-outcome-curves) owns that curve. Add accepted
 targets in both directions to the oracle registry and evidence gates rather than treating them as
 options on an existing cause-specific estimand.
 

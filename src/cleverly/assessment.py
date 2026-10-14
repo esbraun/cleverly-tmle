@@ -316,7 +316,9 @@ def _capability(
             methods
             if methods is not None
             else (
-                ("tmle", "collaborative_tmle", "drtmle") if family == "point" else ("tmle", "sdr")
+                ("tmle", "collaborative_tmle", "drtmle")
+                if family == "point"
+                else ("tmle", "sdr", "ipsi")
             )
         ),
         available=available,
@@ -507,6 +509,11 @@ SDR_SCORE_EQUATIONS_REFUSAL = (
     "diagnostics.support() reports each node's transform range and bound share"
 )
 
+IPSI_SCORE_EQUATIONS_REFUSAL = (
+    "the IPSI estimator fits no fluctuation, so no node solves a score equation; "
+    "diagnostics.support() reports each node's weights, bound share and mechanism term"
+)
+
 
 def _family(result: Any) -> str:
     family = getattr(result, "assessment_family", None)
@@ -541,15 +548,20 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             else row
             for row in rows
         )
-    if family == "longitudinal" and getattr(result.config, "estimator", "tmle") == "sdr":
-        # An SDR fit has no fluctuation, so no node solves a score equation.  The
-        # support report carries its transform ranges and bound shares instead.
+    estimator = getattr(result.config, "estimator", "tmle") if family == "longitudinal" else None
+    if estimator in ("sdr", "ipsi"):
+        # An SDR or IPSI fit has no fluctuation, so no node solves a score equation.  The
+        # support report carries its weights and bound shares instead.
         rows = tuple(
             replace(
                 row,
                 available=False,
                 status=AssessmentStatus.NOT_APPLICABLE,
-                reason=SDR_SCORE_EQUATIONS_REFUSAL,
+                reason=(
+                    SDR_SCORE_EQUATIONS_REFUSAL
+                    if estimator == "sdr"
+                    else IPSI_SCORE_EQUATIONS_REFUSAL
+                ),
             )
             if row.operation == "score_equations"
             else row
@@ -1248,6 +1260,18 @@ def _accepts_arguments(facade: _CapabilityFacade, operation: str) -> bool:
     return len(inspect.signature(function).parameters) > 1
 
 
+def _tilt_methods(item: AssessmentCapability, method: str) -> AssessmentCapability:
+    """List ``ipsi`` on an IPSI fit only, and only ``ipsi`` there.
+
+    An odds-tilt plan refits only by IPSI, so an IPSI fit names IPSI alone.  A fit by
+    another method keeps its own family, which does not include IPSI.
+    """
+    if "ipsi" not in item.methods or item.result_family != "longitudinal":
+        return item
+    admitted = tuple(name for name in item.methods if (name == "ipsi") == (method == "ipsi"))
+    return replace(item, methods=admitted)
+
+
 def _method_gated(item: AssessmentCapability, method: str) -> AssessmentCapability:
     """Refuse a row the fitted method does not declare."""
     if (
@@ -1580,7 +1604,9 @@ class _CapabilityFacade:
         method = _method(self._result)
         replay = replayability(self._result)
         return {
-            item.operation: _replay_gated(_method_gated(item, method), replay)
+            item.operation: _replay_gated(
+                _method_gated(_tilt_methods(item, method), method), replay
+            )
             for item in self._declared
         }
 
