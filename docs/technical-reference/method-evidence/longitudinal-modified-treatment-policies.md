@@ -288,5 +288,4 @@ the committed results and checked at the precision printed.
 | the cross-fitted pairs compare two constructions | `lmtp` 1.5.4 fluctuates on the training rows of each fold. The pairs pass, but they are not exactness checks |
 | one property cell is red under `reporting` | a finite-sample categorical calibration cell with sparse cells. The `mtp-longitudinal-limits` owner holds it |
 | the tilt pairing copies each unit four times | the pairing needs every branch weight on a grid of one quarter |
-| a vector node with a continuous component is refused | [X31](../../roadmap.md#x31-continuous-vector-components-at-a-node) owns it |
 | a policy must be known and fixed | a policy learned from the sample, or one that depends on the law, is outside this evidence |
