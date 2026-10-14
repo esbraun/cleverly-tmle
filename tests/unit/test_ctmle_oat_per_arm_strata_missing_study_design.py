@@ -2,10 +2,11 @@
 
 Every number here was fixed before any registered run: the single primary ``n`` and budget,
 the seeds, the laws and their truths, conditions a, b, d, e, f, g, r and s of ``X29-plan.md``
-section 3.4, the cells a run publishes, and the reading rule.  The post-run gate runs once the
-committed artifacts exist: every red truth row meets the F19 route, no paired or control row
-is red, and the only defect suspects are the two diagnosed ladder rows that F32 owns.  Before
-the run it is skipped.
+section 3.4, the cells a run publishes, and the reading rule.  The ladder and its condition t
+were re-declared after the first run, before the rerun of the property phase
+(:mod:`tests.studies.ctmle_oat_per_arm_strata_missing_properties` gives the reason).  The post-run gate runs once the
+committed artifacts exist: every red truth row meets the F19 route, and no paired, property
+or control row is red.  Before the run it is skipped.
 """
 
 from __future__ import annotations
@@ -50,7 +51,10 @@ def test_the_declared_numbers() -> None:
     assert study.ROUTED_SE_RATIO_CEILING == 1.07
     assert laws.G_BOUNDS == (0.01, 0.99)
     assert study.NUISANCE_BOUND == 0.01
-    assert study.LADDER == (500, 2_000, 8_000)
+    assert study.LADDER == (2_000, 4_000, 8_000)
+    assert study.CONFIGURATION["ladder"] == study.LADDER_DECLARATION
+    for number in ("1.575", "0.0884", "0.0561", "117.1", "ae53bbb"):
+        assert number in study.LADDER_DECLARATION, number
     assert properties.PROPERTY_REPLICATES == properties.LADDER_REPLICATES == 800
     for configuration in properties.CONFIGURATIONS:
         assert configuration.replicates == 800, configuration.name
@@ -61,8 +65,8 @@ def test_the_declared_numbers() -> None:
         "strata_missing": 3_000,
         "weighted_strata_missing": 3_000,
         "strata_missing_outcome_wrong": 3_000,
-        "n_500": 500,
         "n_2000": 2_000,
+        "n_4000": 4_000,
         "n_8000": 8_000,
     }
 
@@ -262,6 +266,47 @@ def test_condition_r_each_positive_cell_is_sized_for_its_pass_probability() -> N
     assert laws.equivalence_pass_probability(500, laws.DESIGN_BIAS) < laws.PASS_PROBABILITY_FLOOR
 
 
+def test_condition_t_the_smallest_factor_cell_is_large_enough() -> None:
+    """Each ladder rung fits every factor on about 100 rows or more per stratum, arm and fold.
+
+    The smallest cell is the outcome-observation factor of arm 0 in stratum ``S = 2``: 0.0732
+    of the rows, four fifths of them in a training complement.  The witness is the first run's
+    ``n = 500`` rung, whose cells of about 29 rows let the cubic factor learner extrapolate.
+    """
+    law = properties.CONFIGURATION_BY_NAME[f"n_{min(study.LADDER)}"].law
+    shares = laws.stratum_arm_shares(law)
+    assert shares.sum() == pytest.approx(1.0, abs=1e-12)
+    assert shares.min() == pytest.approx(0.0732, abs=5e-5)
+    for n in study.LADDER:
+        assert laws.smallest_factor_cell(law, n) >= laws.FACTOR_CELL_FLOOR, n
+    assert laws.smallest_factor_cell(law, min(study.LADDER)) == pytest.approx(117.1, abs=0.05)
+    assert laws.smallest_factor_cell(law, 500) < laws.FACTOR_CELL_FLOOR
+
+
+@pytest.mark.parametrize(
+    "law", [laws.STRATA_MISSING, laws.MISSING_TREATMENT], ids=lambda law: law.name
+)
+def test_the_cell_shares_match_a_monte_carlo(law: laws.ExtensionLaw) -> None:
+    """The quadrature cell shares against ``2 x 10^5`` draws, to four MC errors.
+
+    ``missing_treatment`` is the nonzero witness of the recording factor, which is one on
+    ``strata_missing``.
+    """
+    size = 200_000
+    frame, _ = law.sample(size, 20261029)
+    stratum = frame["S"].to_numpy() if law.stratified else np.zeros(size, dtype=int)
+    recorded = frame["DA"].to_numpy() == 1 if law.missing_treatment else np.ones(size, bool)
+    arm = pd.to_numeric(frame["A"], errors="coerce").to_numpy()
+    shares = laws.stratum_arm_shares(law)
+    for s in range(shares.shape[0]):
+        for a in range(shares.shape[1]):
+            hit = (stratum == s) & recorded & (arm == a)
+            error = np.sqrt(shares[s, a] * (1.0 - shares[s, a]) / size)
+            assert abs(hit.mean() - shares[s, a]) < 4.0 * error, (s, a)
+    if law.missing_treatment:
+        assert shares.sum() < 0.9
+
+
 def test_condition_s_the_control_clears_the_margin() -> None:
     """The control's population bias, from two fits at ``n = 200,000``, is discriminated."""
     assert np.isfinite(properties.CONTROL_BIAS) and np.isfinite(properties.CONTROL_SD)
@@ -311,20 +356,20 @@ def test_the_reading_rule_routes_a_short_se_and_flags_everything_else() -> None:
     columns = ["property", "cell", "passed", "property_passed", "failed_replicates"]
     props = pd.DataFrame(
         [
-            ["root_n_and_efficiency", "n_500", False, False, 0],
+            ["root_n_and_efficiency", "n_2000", False, False, 0],
             ["robustness_contract", "ate__strata_missing", True, True, 0],
             ["robustness_contract", "par__strata_missing", True, True, 1],
         ],
         columns=columns,
     ).assign(bias_equivalent=[True, True, True], se_ratio=[0.86, 0.9, 0.9])
-    suspects = study.defect_suspects(performance, equivalence, props, {"n_500": 0.95})
+    suspects = study.defect_suspects(performance, equivalence, props, {"n_2000": 0.95})
     assert suspects == [
         f"truth row {study.IMPLEMENTATION}/missing_outcome/rr is red outside the F19 route",
         "property row robustness_contract/par__strata_missing lost a replication",
     ]
     truth, ladder = study.routed_rows(performance.iloc[:1], props)
     assert truth == [f"{study.IMPLEMENTATION}/missing_outcome/ate"]
-    assert ladder == ["root_n_and_efficiency/n_500"]
+    assert ladder == ["root_n_and_efficiency/n_2000"]
 
 
 def test_the_reading_rule_is_declared_in_the_reference_metadata() -> None:
@@ -334,26 +379,8 @@ def test_the_reading_rule_is_declared_in_the_reference_metadata() -> None:
     assert re.search(r"below 1\.07", study.READING_RULE)
 
 
-#: The two rows the reading rule calls defect suspects in the committed run, and the roadmap
-#: item that owns them.  The diagnosis found no code defect and not the F19 term: about 5% of
-#: the ``n_500`` fits hold one or two observed rows whose estimated design is far below 0.01,
-#: because the unpenalized cubic factor learner extrapolates in stratum x arm x fold cells of
-#: about 20 to 35 rows.  Their clever-covariate term dominates the plug-in variance, so the
-#: mean SE ratio is 1.575 while the median SE is 1.00 empirical SDs and the points are
-#: unaffected.  The ``reported_se`` slope reads the same tail.
-DIAGNOSED_SUSPECTS = {
-    "root_n_and_efficiency/n_500": "property row root_n_and_efficiency/n_500 is red",
-    "root_n_rate/reported_se": "property row root_n_rate/reported_se is red",
-}
-SMALL_CELL_OWNER = "F32"
-
-
 def test_the_post_run_gate() -> None:
-    """Once the run is committed: only the diagnosed suspects, each owned, and F19 the rest.
-
-    Any suspect other than the two diagnosed rows fails here, and so does either diagnosed row
-    if its owner drops it.  Every routed truth row and every routed ladder rung is F19's.
-    """
+    """Once the run is committed: no defect suspect, and every routed row is owned by F19."""
     artifacts = study.STUDY.artifacts
     names = ("performance-tests.csv", "equivalence.csv", "properties.csv")
     if not all((artifacts / name).exists() for name in names):
@@ -365,16 +392,11 @@ def test_the_post_run_gate() -> None:
     summary = pd.read_csv(artifacts / "properties.csv")
     replicates = pd.read_csv(artifacts / "property-replicates.csv.gz")
     upper = properties.ladder_se_ratio_upper(replicates)
-    suspects = study.defect_suspects(performance, equivalence, summary, upper)
-    assert sorted(suspects) == sorted(DIAGNOSED_SUSPECTS.values())
-    slug = study.STUDY.slug
-    for key in DIAGNOSED_SUSPECTS:
-        assert red_cells.OWNERS[red_cells.RedKey(slug, "property", key)] == SMALL_CELL_OWNER
+    assert study.defect_suspects(performance, equivalence, summary, upper) == []
     truth, ladder = study.routed_rows(performance, summary)
+    owned = set(red_cells.CLAIMS.get(study.RED_CELL_OWNER, ()))
+    slug = study.STUDY.slug
     routed = [red_cells.RedKey(slug, "truth", key) for key in truth]
-    routed += [
-        red_cells.RedKey(slug, "property", key) for key in ladder if key not in DIAGNOSED_SUSPECTS
-    ]
-    assert routed
+    routed += [red_cells.RedKey(slug, "property", key) for key in ladder]
     for key in routed:
-        assert red_cells.OWNERS.get(key) == study.RED_CELL_OWNER, key
+        assert key in owned, key

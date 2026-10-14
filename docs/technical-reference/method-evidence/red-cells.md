@@ -98,8 +98,7 @@ The test fails on four states.
 | [`X13-finite-sample`](../../roadmap.md#red-cell-owners) | 2 | point-treatment survival, cross-fitted point-treatment survival |
 | [`F28`](../../roadmap.md#red-cell-owners) | 9 | clustered point-treatment CV-TMLE at unequal cluster sizes, clustered TMLE intervals on a t reference at few clusters |
 | [`X20-bootstrap`](../../roadmap.md#red-cell-owners) | 3 | full-refit bootstrap and derived contrasts |
-| [`F32`](../../roadmap.md#red-cell-owners) | 2 | outcome-adaptive per-arm C-TMLE with strata and missing data (point estimates) |
-| total | 164 | 28 studies |
+| total | 162 | 28 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -265,9 +264,7 @@ same text as the "measured" column of its study page.
 | [outcome-adaptive per-arm C-TMLE with strata and missing data (point estimates)](outcome-adaptive-per-arm-c-tmle-strata-missing.md) | truth | `drtmle-r-oat-per-arm-strata-missing/three_arm_missing/or[2 vs 0]` | drtmle-r-oat-per-arm-strata-missing | its truth gate | bias -0.0086 to 0.0172, coverage 0.9187, SE ratio 0.9046 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | [outcome-adaptive per-arm C-TMLE with strata and missing data (point estimates)](outcome-adaptive-per-arm-c-tmle-strata-missing.md) | truth | `drtmle-r-oat-per-arm-strata-missing/three_arm_missing/rr[1 vs 0]` | drtmle-r-oat-per-arm-strata-missing | its truth gate | bias -0.0051 to 0.0084, coverage 0.9137, SE ratio 0.8704 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | [outcome-adaptive per-arm C-TMLE with strata and missing data (point estimates)](outcome-adaptive-per-arm-c-tmle-strata-missing.md) | property | `root_n_and_efficiency/n_2000` | positive | its own rule | bias 0.000923, coverage 0.8963 to 0.9460, SE ratio 0.9292 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
-| [outcome-adaptive per-arm C-TMLE with strata and missing data (point estimates)](outcome-adaptive-per-arm-c-tmle-strata-missing.md) | property | `root_n_and_efficiency/n_500` | positive | its own rule | bias 0.0050, coverage 0.9311 to 0.9708, SE ratio 1.5754 | [`F32`](../../roadmap.md#red-cell-owners) |
 | [outcome-adaptive per-arm C-TMLE with strata and missing data (point estimates)](outcome-adaptive-per-arm-c-tmle-strata-missing.md) | property | `root_n_and_efficiency/n_8000` | positive | its own rule | bias 0.000447, coverage 0.8949 to 0.9449, SE ratio 0.8812 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
-| [outcome-adaptive per-arm C-TMLE with strata and missing data (point estimates)](outcome-adaptive-per-arm-c-tmle-strata-missing.md) | property | `root_n_rate/reported_se` | positive | its own rule | slope -0.7943 to -0.6344 | [`F32`](../../roadmap.md#red-cell-owners) |
 | [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/categorical_ltmle__simultaneous_band` | positive | its own rule | joint coverage 0.9101 to 0.9382 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/categorical_ltmle_crossfit__simultaneous_band` | positive | its own rule | joint coverage 0.9173 to 0.9443 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/cde_z0__simultaneous_band` | positive | its own rule | joint coverage 0.9015 to 0.9309 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |

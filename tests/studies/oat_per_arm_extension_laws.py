@@ -39,9 +39,14 @@ e      largest learner distance 1.6e-4 (``three_arm_missing``)                  
 f      stratum ``ate`` 0.2315, 0.0981, -0.0395; every arm mean in [0.1, 0.9]       spacing >= 0.03
 g      P(smallest stratum >= 400 at ``n = 2,250``) 0.9965                         >= 0.99
 r      pass probability at ``d = 0.10``: 0.950 at ``R = 800``, 0.777 at 500         >= 0.90
+t      expected rows of the smallest factor training cell at the smallest ladder  >= 100
+       rung ``n = 2,000``: 117.1 (``S = 2``, arm 0, share 0.0732, four fifths of
+       the rows in training); 29.3 at the dropped ``n = 500`` rung
 =====  =========================================================================  ===============
 
 Condition (s) is in :mod:`tests.studies.ctmle_oat_per_arm_strata_missing_properties`.
+Condition (t) was added after the first run, with the re-declared ladder; that module's
+docstring gives the reason.
 
 Every truth is a quadrature.  An arm mean in stratum ``s`` is a one-dimensional Gauss-Hermite
 integral over the normal index ``u_a . (W1, W2)``.  ``ey_obs`` is a three-dimensional
@@ -109,6 +114,10 @@ SMALLEST_STRATUM_COUNT = 400
 SMALLEST_STRATUM_PROBABILITY = 0.99
 DESIGN_BIAS = 0.10
 PASS_PROBABILITY_FLOOR = 0.90
+#: Condition (t): the expected rows of the smallest per-arm factor training cell at the
+#: smallest ladder rung, and the fold count of every cross-fitted cell.
+FACTOR_CELL_FLOOR = 100.0
+FOLDS = 5
 
 #: Quadrature sizes.
 HERMITE_NODES = 80
@@ -985,6 +994,52 @@ def stratum_ate_spacing(law: ExtensionLaw) -> float:
 def smallest_stratum_probability(n: int, share: float) -> float:
     """Condition (g): ``P(Binomial(n, share) >= 400)``."""
     return float(binom.sf(SMALLEST_STRATUM_COUNT - 1, n, share))
+
+
+def stratum_arm_shares(law: ExtensionLaw) -> np.ndarray:
+    """``P(S = s, Delta_A = 1, A = a)``, shape ``(strata, K)``, by Gauss-Hermite over ``W1, W3``.
+
+    The treatment law and the recording law read ``W1`` and ``W3`` only, so a two-dimensional
+    quadrature is exact up to its nodes.
+    """
+    nodes, weights = hermegauss(JOINT_HERMITE_NODES)
+    weights = weights / weights.sum()
+    w1, w3 = np.meshgrid(nodes, nodes, indexing="ij")
+    mass = np.outer(weights, weights)
+    out = np.empty((len(law.strata), law.k))
+    for s, share in enumerate(law.strata):
+        mechanism = law.mechanism(w1, w3, float(s))
+        for a in range(law.k):
+            recorded = law.recording_probability(a, w3)
+            out[s, a] = share * float(np.sum(mass * mechanism[..., a] * recorded))
+    return out
+
+
+def smallest_factor_cell(law: ExtensionLaw, n: int, folds: int = FOLDS) -> float:
+    """Condition (t): the expected rows of the smallest per-arm factor training cell.
+
+    A cross-fitted fit with strata fits each factor of arm ``a`` in stratum ``s`` on the
+    training rows of each fold, that is ``(folds - 1) / folds`` of the rows.  The
+    outcome-observation factor reads only the recorded rows with ``A = a``, so its cell is the
+    smallest: ``n (folds - 1) / folds P(S = s, Delta_A = 1, A = a)``, minimized over ``s`` and
+    ``a``.
+
+    Parameters
+    ----------
+    law : ExtensionLaw
+        The law the cell samples.
+    n : int
+        The sample size.
+    folds : int, optional
+        The fold count.
+
+    Returns
+    -------
+    float
+        The expected row count of the smallest cell.
+    """
+    share = float(np.min(stratum_arm_shares(law)))
+    return n * (folds - 1) / folds * share
 
 
 def equivalence_pass_probability(replicates: int, standardized_bias: float) -> float:

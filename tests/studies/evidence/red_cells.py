@@ -274,14 +274,6 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "root_n_and_efficiency/n_8000",
         ),
     ),
-    # The heavy-tailed plug-in standard error of small stratum x arm x fold factor fits in the
-    # strata and missing-data extension of the per-arm design, read by the X29 diagnosis.
-    "F32": _keys(
-        "ctmle-oat-per-arm-strata-missing",
-        "property",
-        "root_n_and_efficiency/n_500",
-        "root_n_rate/reported_se",
-    ),
     "RM18-fixed-weights": (
         *_keys(
             "weighted-ltmle-crossfit",

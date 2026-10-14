@@ -137,7 +137,9 @@ PROPERTY_ESTIMANDS: Mapping[str, tuple[str, ...]] = {
     "weighted_strata_missing": tuple(f"ate{suffix}" for suffix in STRATUM_SUFFIXES),
     "strata_missing_outcome_wrong": ("ate",),
 }
-LADDER = (500, 2_000, 8_000)
+#: The ``root_n_and_efficiency`` rungs.  Re-declared after the first run, which had
+#: ``(500, 2_000, 8_000)``: :data:`LADDER_DECLARATION` records why.
+LADDER = (2_000, 4_000, 8_000)
 
 PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     "robustness_contract": tuple(
@@ -236,23 +238,50 @@ REFERENCE_METADATA = {
 
 #: The budget measured before the declaration, in single-process CPU seconds per fit on
 #: replications 0 to 1,999 of each cell's declared stream.  :data:`CONFIGURATION` quotes it.
+#: The ``n_4000`` rung was measured with the re-declared ladder on a second machine, which
+#: also re-measured ``n_2000`` and ``n_8000``; the ratio of the two machines scales it.
 MEASURED_BUDGET = (
     "Python, CPU seconds per fit: primaries (fit, longhand and shipped refit) strata 0.099, "
     "missing_outcome 0.057, three_arm_missing 0.074, missing_treatment 0.069; properties "
     "natural_course_insample 0.049, missing_outcome_crossfit 0.177, strata_missing 0.368, "
-    "weighted_strata_missing 0.579, strata_missing_outcome_wrong 0.353, n_500 0.338, "
-    "n_2000 0.357, n_8000 0.470. The declared run is 3,200 primary and 6,400 property fits, "
-    "about 2,400 CPU seconds (0.7 CPU-hours) before the shared summaries. R: 13 drtmle calls "
-    "per primary replication, 10,400 calls, not measured here (plan estimate 0.6 to 1.5 "
-    "CPU-hours)"
+    "weighted_strata_missing 0.579, strata_missing_outcome_wrong 0.353, n_2000 0.357, "
+    "n_8000 0.470, and the first run's dropped rung n_500 0.338. The re-declared rung "
+    "n_4000 was measured on a second machine, on replications 0 to 1,999: 0.293, against "
+    "0.259 for n_2000 and 0.359 for n_8000 there, so about 0.39 on the first machine. A "
+    "20-replicate smoke of n_4000 there took 6.8 CPU seconds (0.342 per fit). The declared "
+    "run is 3,200 primary and 6,400 property fits, about 2,400 CPU seconds (0.7 CPU-hours) "
+    "before the shared summaries. R: 13 drtmle calls per primary replication, 10,400 calls, "
+    "not measured here (plan estimate 0.6 to 1.5 CPU-hours)"
 )
 FAILURE_PROBE = (
     "replications 0 to 1,999 of every cell and every primary scenario (24,000 fits, 5,982 "
     "CPU seconds on three processes) raised nothing. Targeting ended above tol = 1e-10 "
     "with a ConvergenceWarning in n_500 400, n_2000 55, n_8000 7, strata_missing 31, "
     "weighted_strata_missing 45 and strata_missing_outcome_wrong 25 of 2,000 fits, and in "
-    "no primary fit; such a fit returns its estimate and counts as a replication. The R "
-    "reference was not probed"
+    "no primary fit; such a fit returns its estimate and counts as a replication. The "
+    "re-declared rung n_4000 was probed the same way on replications 0 to 1,999: no fit "
+    "raised, and 19 of 2,000 ended with a ConvergenceWarning; the same probe re-read n_2000 "
+    "55 and n_8000 7. The R reference was not probed"
+)
+#: The ladder's re-declaration, quoted by :data:`CONFIGURATION`.
+#: :mod:`tests.studies.ctmle_oat_per_arm_strata_missing_properties` gives the reason.
+LADDER_DECLARATION = (
+    "root_n_and_efficiency at n = 2,000, 4,000 and 8,000, R = 800 each (condition r: pass "
+    "probability 0.950 at d = 0.10). Re-declared after the first run (commit ae53bbb), whose "
+    "ladder was n = 500, 2,000, 8,000. Its n_500 rung read a mean SE ratio of 1.575 (mean "
+    "plug-in SE 0.0884, empirical SD 0.0561), a median SE of 1.00 empirical SDs, coverage "
+    "0.954 and an equivalent bias; 40 of 800 fits (5%) had an SE above twice the empirical "
+    "SD, and without them the mean ratio was 1.035. The reported_se slope read -0.71. The "
+    "diagnosis found no code defect: each factor was fitted on about 20 to 35 rows per "
+    "stratum, arm and fold, and the unpenalized cubic factor learner extrapolated the design "
+    "toward zero at one or two rows, whose term dominated the plug-in variance. The rung "
+    "measured learner instability in small cells, not the rate, and was dropped. Condition "
+    "t, added with the re-declaration: the smallest factor training cell (stratum x arm x "
+    "fold training complement, recorded rows) holds at least 100 rows in expectation at the "
+    "smallest rung; 117.1 at n = 2,000 (S = 2, arm 0, share 0.0732, four fifths in training), "
+    "29.3 at n = 500. The rerun of the property phase supersedes the first run's property "
+    "artifacts; the primaries, the pairing, the robustness cells, the laws, the seeds and the "
+    "reading rule are unchanged"
 )
 
 CONFIGURATION = {
@@ -286,6 +315,7 @@ CONFIGURATION = {
     "reading_rule": READING_RULE,
     "failure_probe": FAILURE_PROBE,
     "measured_budget": MEASURED_BUDGET,
+    "ladder": LADDER_DECLARATION,
 }
 
 

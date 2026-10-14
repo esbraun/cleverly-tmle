@@ -19,8 +19,10 @@ The study publishes under the `reporting` policy, and it claims the point estima
 `oat` fit takes the `generated_design_plugin` status and reports no interval. The coverage and
 standard-error columns below measure `plugin_interval` and `plugin_std_error` as diagnostics.
 Their pass labels do not authorize `ci`, `pvalue` or `std_error`.
+
 [F19](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) owns the red truth
-rows and two ladder rungs. [F32](../../roadmap.md#red-cell-owners) owns the other two red cells.
+rows. The `root_n_and_efficiency` ladder was re-declared after the first run, and the rerun of
+the property phase is queued. [The re-declared ladder](#the-re-declared-ladder) gives the reason.
 
 ## What was compared
 
@@ -187,17 +189,16 @@ quadrature.
 | `robustness_contract` | `par_s1__strata_missing` | positive | population attributable risk in baseline stratum S = 1: three strata with missing outcomes, cross-fitted per-arm design per stratum, n = 3,000 | bias interval inside the equivalence margin, SE ratio inside (0.1, 10), SE ratio must remain between 0.1 and 10.0 | bias -0.0018 to 0.0026, margin 0.0060, SE ratio 0.9166 | pass |
 | `robustness_contract` | `par_s2__strata_missing` | positive | population attributable risk in baseline stratum S = 2: three strata with missing outcomes, cross-fitted per-arm design per stratum, n = 3,000 | bias interval inside the equivalence margin, SE ratio inside (0.1, 10), SE ratio must remain between 0.1 and 10.0 | bias -0.0043 to 0.0019, margin 0.0085, SE ratio 1.0132 | pass |
 | `robustness_contract` | `rr__missing_outcome_crossfit` | positive | marginal risk ratio: missing outcomes, five-fold cross-fitted per-arm design, n = 2,000 | bias interval inside the equivalence margin, SE ratio inside (0.1, 10), SE ratio must remain between 0.1 and 10.0 | bias -0.0014 to 0.0138, margin 0.0208, SE ratio 0.5586 | pass |
-| `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000923, coverage 0.8963 to 0.9460, SE ratio 0.9292 | **fail** |
-| `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | bias inside the margin, coverage clears the floor, SE ratio inside the band | bias 0.0050, coverage 0.9311 to 0.9708, SE ratio 1.5754 | **fail** |
-| `root_n_and_efficiency` | `n_8000` | positive | bias, coverage and SE calibration at n = 8,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias 0.000447, coverage 0.8949 to 0.9449, SE ratio 0.8812 | **fail** |
-| `root_n_rate` | `empirical_sd` | positive | log empirical spread of the estimates regressed on log n across three sizes | slope interval inside the root-n band and excluding -1/4 | slope -0.5332 to -0.4699 | pass |
-| `root_n_rate` | `reported_se` | positive | the same regression applied to the mean reported standard error | slope interval inside the root-n band and excluding -1/4 | slope -0.7943 to -0.6344 | **fail** |
 <!-- /generated -->
 
 The `robustness_contract` cells measure the bias of the point estimate. Each positive cell passes
 when its bias interval is inside the equivalence margin. The control fits an outcome model without
 $W_1$ and passes when its bias is outside the margin. The `root_n_and_efficiency` ladder fits the
 `strata` law with a missing outcome and five folds, and reads the marginal ATE.
+
+The table does not show the ladder or the `root_n_rate` rows. The rerun of the property phase
+publishes them for the rungs n = 2,000, 4,000 and 8,000. The rerun draws each robustness cell from
+the same seeds, so its rows do not change.
 
 ## Measured values
 
@@ -212,8 +213,6 @@ the committed results and checked at the precision printed.
 | `independent_tests_passed` | 20 | of those, passing |
 | `paired_tests_total` | 31 | paired comparisons with R `drtmle` |
 | `paired_tests_passed` | 31 | of those, passing |
-| `property_cells_total` | 37 | repeated-sampling property cells |
-| `property_cells_passed` | 33 | cells whose own and family verdicts pass |
 | `max_standardized_bias` | 0.0926 | largest absolute primary bias in empirical standard deviations |
 | `min_coverage` | 0.8575 | lowest primary coverage of the diagnostic interval |
 | `min_se_ratio_ci_lower` | 0.6898 | lowest bootstrap primary SE-ratio endpoint |
@@ -222,20 +221,20 @@ the committed results and checked at the precision printed.
 | `mechanism_fits_with_rows_at_bound` | 341 | primary fits with one or more rows of a factor at a declared bound |
 | `mechanism_max_gap_off_bound` | 4.491e-07 | largest gap between the two designs in a fit with no row at a bound |
 | `mechanism_max_gap` | 0.0100 | largest gap between the two designs in any fit |
-| `properties[root_n_and_efficiency/n_500]:mean_std_error` | 0.0884 | mean diagnostic standard error at n = 500 |
-| `properties[root_n_and_efficiency/n_500]:empirical_se` | 0.0561 | empirical spread of the marginal ATE at n = 500 |
-| `properties[root_n_and_efficiency/n_500]:se_ratio` | 1.5754 | their ratio at n = 500 |
-| `properties[root_n_and_efficiency/n_500]:coverage` | 0.9537 | coverage of the diagnostic interval at n = 500 |
-| `properties[root_n_and_efficiency/n_2000]:se_ratio` | 0.9292 | SE ratio at n = 2,000 |
-| `properties[root_n_and_efficiency/n_8000]:se_ratio` | 0.8812 | SE ratio at n = 8,000 |
-| `properties[root_n_rate/reported_se]:slope` | -0.7110 | log mean diagnostic standard error regressed on log n |
-| `properties[root_n_rate/empirical_sd]:slope` | -0.5015 | log empirical spread regressed on log n |
+| `properties[robustness_contract/ate__strata_missing]:se_ratio` | 0.9447 | SE ratio of the marginal ATE on the strata law at n = 3,000 |
+| `properties[robustness_contract/ate__strata_missing_outcome_wrong]:standardized_bias` | 2.8427 | bias of the outcome-wrong control, in empirical standard deviations |
 | `margin:alpha` | 0.0500 | nominal size of the reported intervals |
 | `margin:bootstrap_replicates` | 10000 | resamples behind every bootstrap interval |
 | `margin:confidence_level` | 0.9900 | confidence level of every Monte Carlo interval |
 | `margin:coverage_floor` | 0.9000 | validity floor the coverage lower endpoint must clear |
 | `margin:coverage_noninferiority` | -0.0250 | smallest external-comparison coverage difference bound |
 | `margin:calibration_noninferiority` | 0.0500 | largest external-comparison calibration excess bound |
+| `margin:calibration_coverage_lower` | 0.9200 | calibration-cell coverage band, lower limit |
+| `margin:calibration_coverage_upper` | 0.9800 | calibration-cell coverage band, upper limit |
+| `margin:calibration_se_ratio_lower` | 0.9300 | calibration-cell SE-ratio band, lower limit |
+| `margin:calibration_se_ratio_upper` | 1.0700 | calibration-cell SE-ratio band, upper limit |
+| `margin:minimum_power` | 0.8000 | rejection lower bound the power cell must clear |
+| `margin:type_i_ceiling` | 0.1000 | the rate the null cell must bound |
 | `margin:excluded_slope` | -0.2500 | slower rate a root-n interval must exclude |
 | `margin:nominal_coverage` | 0.9500 | nominal coverage those intervals claim |
 | `margin:over_coverage_ceiling` | 0.9900 | above this, coverage is conservative rather than invalid |
@@ -260,31 +259,57 @@ below 1.07. Every other red row is a defect suspect.
 | red rows | count | reading | owner |
 | --- | --- | --- | --- |
 | truth rows of both implementations | 42 | short diagnostic standard error, equivalent bias. Both implementations read the same rows alike | F19 |
-| `root_n_and_efficiency` rungs `n_2000` and `n_8000` | 2 | short diagnostic standard error, equivalent bias | F19 |
-| `root_n_and_efficiency/n_500` | 1 | defect suspect: a long mean standard error | F32 |
-| `root_n_rate/reported_se` | 1 | defect suspect: the slope of the mean standard error is outside the root-n band | F32 |
 
-No paired row, `robustness_contract` cell or control is red, and no replication failed.
+No paired row, `robustness_contract` cell or control is red, and no replication failed. The
+rerun of the property phase gives the reading of each ladder rung and of the `root_n_rate` rows.
 
-**The diagnosis of the two suspects.** A diagnosis refitted the ladder replications. It found no
-defect in the code and no generated-design term.
+## The re-declared ladder
+
+The first run declared the ladder at n = 500, 2,000 and 8,000. The `n_500` rung measured the
+stability of the factor learner in small cells and not the rate. After the run, the study dropped
+that rung and re-declared the ladder at n = 2,000, 4,000 and 8,000. The rerun of the property
+phase replaces the first run's property artifacts. The first run is commit `ae53bbb`.
+
+The table gives what the `n_500` rung measured in the first run.
+
+| quantity | value |
+| --- | --- |
+| mean diagnostic standard error | 0.0884 |
+| empirical SD of the marginal ATE | 0.0561 |
+| mean SE ratio | 1.575 |
+| median standard error over the empirical SD | 1.00 |
+| fits with a standard error above twice the empirical SD | 40 of 800 (5%) |
+| mean SE ratio without those fits | 1.035 |
+| coverage of the diagnostic interval | 0.954 |
+| `root_n_rate/reported_se` slope (99% interval) | -0.71 (-0.79 to -0.63) |
+| `root_n_rate/empirical_sd` slope | -0.50 |
+| slope of the median standard error | -0.55 |
+
+The reading rule made `n_500` and `root_n_rate/reported_se` defect suspects. A diagnosis refitted
+the ladder replications and found no defect in the code.
 
 | finding | value |
 | --- | --- |
-| fits at n = 500 in the tail, with a standard error above twice the empirical SD | 40 of 800 |
-| estimated design at the row that dominates a tail fit | far below 0.01, against a true design of 0.033 or more |
-| rows in the stratum, arm and fold cell that fits each factor at n = 500 | about 20 to 35 |
-| median standard error over the empirical SD, at n = 500 | 1.00 |
-| mean standard error over the empirical SD without the top 5%, at n = 500 | 1.035 |
-| slope of the median standard error | -0.55 |
-| tail fits at n = 2,000 and at n = 8,000 | 3 of 800, and none |
+| rows in the stratum, arm and fold cell that fits each factor at n = 500 | about 20 to 35; 29.3 expected in the smallest cell |
+| estimated design at the row that dominates a tail fit | far below 0.01 |
+| true design at those rows | 0.11 or more |
 | largest gap between the fit's curve and the textbook curve | 1e-13 |
+| tail fits at n = 2,000 and at n = 8,000 | 3 of 800, and none |
 
-The unpenalized cubic factor learner extrapolates in a small cell. One or two observed rows then
+In a small cell the unpenalized cubic factor learner extrapolates. One or two observed rows then
 get a very small design, and their term $C_a / G\, (Y - \bar Q^*)$ dominates the plug-in
-variance. The point estimate does not change, so its bias stays inside the margin. F32 closes
-with a declared cell-size condition or a penalized factor learner, measured by a re-declared
-ladder.
+variance. The point estimate does not change, so its bias stays inside the margin.
+
+The re-declaration adds condition (t). At the smallest rung, the smallest factor training cell
+must hold 100 rows or more in expectation. That cell is arm 0 in the stratum $S = 2$, with a share
+of 0.0732 of the rows. Four fifths of the rows train each fold. It holds 117.1 rows at
+n = 2,000.
+
+Condition (r) does not read n, so each rung keeps 800 replications, with a pass
+probability of 0.950. The primary laws, the pairing, the robustness cells, the seeds and the
+reading rule do not change. `tests/studies/ctmle_oat_per_arm_strata_missing_properties.py`
+records the change, and `tests/unit/test_ctmle_oat_per_arm_strata_missing_study_design.py`
+checks condition (t).
 
 ## Limitations
 
@@ -292,7 +317,7 @@ ladder.
 | --- | --- |
 | No cell measures published inference | Every `oat` fit withholds `ci`, `pvalue` and `std_error`. The `std_error`, `ci_lower`, `ci_upper` and `covered` columns read `plugin_std_error` and `plugin_interval` |
 | The diagnostic standard error is too small on the primary laws | The primary SE ratios run from `min_se_ratio_ci_lower` to `max_se_ratio_ci_upper`. The truth rows of both implementations are red alike, and F19 owns them. R `drtmle` reports the same standard errors, so the pairing cannot detect the gap |
-| The diagnostic standard error is heavy-tailed in small factor cells | At n = 500 a factor fit inside a stratum, arm and fold cell extrapolates. The mean standard error is `properties[root_n_and_efficiency/n_500]:se_ratio` times the empirical spread. F32 owns the two cells |
+| The diagnostic standard error is heavy-tailed in small factor cells | The ladder starts at n = 2,000 by condition (t). In the first run, at n = 500, a factor fitted on about 29 rows of a stratum, arm and fold cell extrapolated, and the mean standard error was 1.575 times the empirical SD. [The re-declared ladder](#the-re-declared-ladder) gives the measurement |
 | The points are paired, not the intervals | All 31 paired rows are equivalent, with `max_margin_utilization` of the margin used |
 | The designs agree only off the bounds | Where no factor row sits at a bound, the two designs agree to `mechanism_max_gap_off_bound`. In `mechanism_fits_with_rows_at_bound` fits some rows sit at a bound, and the gap reaches `mechanism_max_gap`. The rows at a bound are reported, not gated |
 | Parametric laws with a binary outcome | Each law has a normal index for each arm and one instrument. A continuous outcome and more than three arms have fast-tier evidence only |

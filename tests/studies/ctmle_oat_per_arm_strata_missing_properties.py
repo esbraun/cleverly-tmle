@@ -22,8 +22,8 @@ cell                                                fit
 ``robustness_contract``                             the control: ``strata_missing`` with X17's
 ``strata_missing_outcome_wrong``                    outcome model without ``W1``: marginal
                                                     ``ate``
-``root_n_and_efficiency`` ``n_500`` to ``n_8000``    ``strata_missing``, five folds, ``strata=S``:
-                                                    marginal ``ate``.  The ``root_n_rate`` rows
+``root_n_and_efficiency`` ``n_2000``, ``n_4000``,    ``strata_missing``, five folds, ``strata=S``:
+``n_8000``                                          marginal ``ate``.  The ``root_n_rate`` rows
                                                     read the ladder
 ==================================================  ==============================================
 
@@ -45,6 +45,35 @@ whose coverage and SE-ratio readings fall under the study's reading rule
 plan requires a pass probability of at least 0.90 for a cell whose true standardized bias is
 0.10, and at ``R = 500`` that probability is 0.777.  Each rung takes ``R = 800`` (0.950), as
 every other cell does.  The move was made before any fit of the estimator.
+
+**The ladder re-declared after the first run.**  The first run (commit ``ae53bbb``) declared
+the rungs ``n = 500, 2,000, 8,000``.  Its ``n_500`` rung read a mean plug-in standard error of
+0.0884 against an empirical SD of 0.0561, an SE ratio of 1.575, with coverage 0.954 and a bias
+inside its margin.  The median standard error was 1.00 empirical SDs.  In 40 of the 800 fits
+(5%) the standard error exceeded twice the empirical SD, and without them the mean was 1.035
+empirical SDs.  The ``root_n_rate/reported_se`` slope read -0.71 (99% interval -0.79 to
+-0.63) against an empirical-SD slope of -0.50, and the slope of the median standard error was
+-0.55.  The reading rule made both rows defect suspects.
+
+The diagnosis found no code defect.  At ``n = 500`` each factor is fitted in a stratum, arm
+and fold cell of about 20 to 35 rows (29.3 expected in the smallest).  The unpenalized cubic
+factor learner then extrapolates the design to far below 0.01 at one or two observed rows in
+about 5% of the fits, where the true design at those rows is 0.11 or more.  Their
+clever-covariate term dominates the plug-in variance.  The points do not move, and the curve
+equals the textbook curve to ``1e-13``.  The tail held 3 of 800 fits at ``n = 2,000`` and
+none at ``n = 8,000``.  The rung therefore measured learner instability in small cells,
+outside the regime the consistency claim addresses, and not the rate.
+
+The ladder is re-declared at ``n = 2,000, 4,000, 8,000`` with condition (t) of
+:mod:`tests.studies.oat_per_arm_extension_laws`: the smallest factor training cell holds
+:data:`~tests.studies.oat_per_arm_extension_laws.FACTOR_CELL_FLOOR` rows or more in
+expectation at the smallest rung (117.1 at ``n = 2,000``).  Condition (r) does not read ``n``,
+so each rung keeps ``R = 800`` (0.950).  ``n_2000`` and ``n_8000`` keep their configuration
+names, so their streams and rows are those of the first run; ``n_4000`` is new.  The primary
+scenarios, the pairing, the robustness cells, the laws, the seeds and the reading rule are
+unchanged.  The rerun of the property phase supersedes the first run's property artifacts.
+The ``n = 500`` result stays on the record here and on the study page as the reason for the
+change.
 """
 
 from __future__ import annotations
