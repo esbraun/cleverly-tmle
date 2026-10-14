@@ -1658,16 +1658,67 @@ sizes only the cluster sum is the delta-method variance of the row mean
 
 - Kennedy (2019), [*Nonparametric causal effects based on incremental propensity score
   interventions*](https://doi.org/10.1080/01621459.2017.1422737), *Journal of the American
-  Statistical Association* 114(526):645–656, DOI 10.1080/01621459.2017.1422737.
-  [The arXiv manuscript](https://arxiv.org/html/1704.00211v3), Section 3.3 and Appendix
-  Corollary 2, derives the extra mechanism term for a population-law odds tilt. It does not
-  establish inference for the realized learned-density target. With baseline strata the package
-  inherits Theorem 2's influence function and Theorem 3's conditions inside each stratum
-  (manuscript Sections 3.3 and 4.3). The package's incremental estimator is its own TMLE
-  construction, not the manuscript's estimating-equation estimator. Manuscript Section 6 lists
-  effect modification by covariates as future work. That is a conditional curve, and a fixed
-  finite partition is not one. The locators refer to arXiv v3. The published version's
-  locators were not read.
+  Statistical Association* 114(526):645–656, DOI 10.1080/01621459.2017.1422737. The locators below
+  refer to [arXiv v3](https://arxiv.org/html/1704.00211v3). The published version's locators were
+  not read.
+
+  | locator | what the package reads from it |
+  | --- | --- |
+  | Section 3.1, Equation (1) | the odds tilt $q_t = \delta\pi_t/(\delta\pi_t + 1 - \pi_t)$ |
+  | Section 3.2, Assumptions 1 and 2, Theorem 1 | identification with no positivity, for $\delta$ in a compact subset of $(0, \infty)$ |
+  | Section 3.3, Theorem 2, Remark 2, Corollaries 1 and 2 | the efficient influence function, its mechanism term, and the sequential regression. The section states that double robustness is not possible, and that a known propensity score changes the efficiency bound |
+  | Section 4.2, Algorithm 1 | the cross-fitted estimator. Every nuisance is fitted on the training rows, and the fold means are averaged |
+  | Section 4.3, Theorem 3 | pointwise and uniform asymptotics, with conditions 1 to 4 |
+  | Section 4.4, Theorem 4 | the multiplier band, and the no-effect test that the package does not offer |
+  | Appendix 8.2, Lemmas 2, 3 and 4 | the influence function of a known stochastic intervention, the added term when the intervention reads $P$, and the derivative of $q_t$. The appendix states the lemmas and leaves the proofs of Lemmas 2 and 3 to later work |
+  | Appendix 8.3, Algorithm 2 | the estimator without sample splitting |
+
+  The point-treatment `TMLE(incremental=...)` is the package's own TMLE construction, not the
+  paper's estimating-equation estimator. With baseline strata it inherits Theorem 2's influence
+  function and Theorem 3's conditions inside each stratum. Section 6 lists effect modification by
+  covariates as future work. That is a conditional curve, and a fixed finite partition is not one.
+  The longitudinal `IPSI` is Algorithm 1, with the pooled mean of Theorem 3 in place of the
+  average of fold means. Cited by
+  [incremental interventions over time](technical-reference/longitudinal-tmle.md#incremental-interventions-over-time).
+- Kim, Kennedy & Naimi (2021), [*Incremental intervention effects in studies with dropout and
+  many timepoints*](https://doi.org/10.1515/jci-2020-0031), *Journal of Causal Inference*
+  9(1):302–344, DOI 10.1515/jci-2020-0031. The locators below refer to
+  [arXiv:1907.04004v3](https://arxiv.org/abs/1907.04004). The published version's locators were
+  not read.
+
+  | locator | what the package reads from it |
+  | --- | --- |
+  | Section 2 | monotone dropout after the treatment at each node, and a time-varying outcome |
+  | Section 3, Assumptions A1, A2-E, A2-M and A3, Theorem 3.1 | identification under dropout, with dropout positivity only |
+  | Section 4, Theorem 4.1 | the efficient influence function with the dropout weights |
+  | Section 5.1, estimator (6) | the average of the fold means |
+  | Section 5.2, Theorem 5.1 | conditions 1 to 4, and the joint process over $\delta$ and $t$ |
+  | Appendix A, Algorithm 1 | the cross-fitted estimator with dropout. Step 4 uses $M_s$ both for the regression target and for the augmentation term |
+  | Appendix F, Lemmas F.2 to F.5 | proofs of Kennedy's Lemmas 2 to 4 with dropout, for a general intervention distribution |
+
+  Theorem 3.1 at one horizon also identifies the mean of a non-absorbing outcome $Y_t$. Roadmap
+  item [X32](roadmap.md#x32-repeated-outcome-curves) cites it for that curve. Kim's research code,
+  `kwangho-joshua-kim/Incremental-dropout` at commit `6dc23fb4`, has no package and no tag. It is
+  provenance only and no comparator.
+- Pinned `npcausal` 0.1.0
+  [`R/ipsi.R`](https://github.com/ehkennedy/npcausal/blob/56a5ac117a29258b67b94874be662a171b5131f7/R/ipsi.R)
+  at commit `56a5ac11` is the comparator of the declared `longitudinal-incremental` study. It fits
+  long data with `id` and `time` and an end-of-study `y`.
+
+  | lines | what they do |
+  | --- | --- |
+  | 114 | draw the folds. The function takes no fold argument |
+  | 128–139 | fit one pooled treatment regression over every `(id, time)` training row |
+  | 150–156 | build the tilt weights, their cumulative product by `id`, and the mechanism factor `vt` |
+  | 166–197 | regress each node's target on `x.out` and the arm, and form the tilted target `rtp1` |
+  | 199–202 | assemble the influence-function values |
+  | 208 and 212 | the mean over all units, and `sigma` as the standard deviation of the values |
+  | 224–234 | the Rademacher multiplier band with 10,000 draws |
+
+  Three defects are designed around and never patched. With `nsplits = 1` the training set
+  `slong != split` is empty (lines 114–139). With `fit = "rf"`, lines 178–179 bind `rtp1` of
+  length $n$ to $nT$ rows, so R recycles it across units. Line 255 subtracts `est.eff` recycled
+  down the columns, which is wrong for more than one `delta`.
 - de Aguas (2026), [*Interpolated Stochastic Interventions Based on Propensity Scores, Target
   Policies and Treatment-Specific Costs*](https://arxiv.org/html/2511.11353),
   arXiv:2511.11353v3. The preprint constructs scalar-parameter categorical propensity policies

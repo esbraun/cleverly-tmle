@@ -85,6 +85,7 @@ from .._inference_status import (
 from .._typing import BoolArray, CumulativeGBounds, FloatArray, Learner
 from ..exceptions import (
     CapabilityError,
+    DataError,
     DataWarning,
     LongitudinalError,
     ParameterSpaceWarning,
@@ -132,7 +133,13 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 from ..learners.crossfit import Folds, _fresh_seed, check_integrity, random_partition
 from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearner, resolve_learner
-from ..methods import SDR_NO_FLUCTUATION
+from ..methods import (
+    IPSI_NO_FLUCTUATION,
+    IPSI_POINT_REFUSAL,
+    LTMLE_TILT_REFUSAL,
+    SDR_NO_FLUCTUATION,
+    SDR_TILT_REFUSAL,
+)
 from ..msm import MSM, refuse_msm_functions
 from ..protocol import ProtocolDetail, protocol_summary_lines
 from ..provenance import Provenance, fingerprint_array
@@ -146,6 +153,7 @@ from ..utils.bounds import (
 from ..utils.phases import PhaseProfile, phase, profile_phases
 from ..utils.text import format_pvalue, format_table
 from .data import LongitudinalData
+from .ipsi import IPSICell, fit_cells_ipsi
 from .msm import (
     MSMRegimenFit,
     RegimenMSM,
@@ -164,11 +172,13 @@ from .regimen import (
     refuse_regimen_rules,
     resolve_plans,
     resolve_regimens,
+    tilt_mix_message,
 )
 from .sdr import FoldMechanism, SDRCell, fit_cells_sdr, fit_fold_mechanisms
 from .sequential import (
     Mechanism,
     RegimenFit,
+    _filled_matrix,
     constant_nodes,
     fit_mechanism,
     fit_regimen,
@@ -179,11 +189,13 @@ from .sequential import (
 )
 
 __all__ = [
+    "IPSI",
     "LTMLE",
     "SDR",
     "LongitudinalConfig",
     "LongitudinalResult",
     "constant_node_parameters",
+    "ipsi",
     "ltmle",
     "sdr",
 ]
@@ -202,8 +214,21 @@ LONGITUDINAL_REPLAY_MSM_DECLARATION = "longitudinal_replay_msm_declaration"
 SDR_REFUSED_SETTINGS: tuple[str, ...] = ("alpha", "max_iter", "tol")
 
 
-def refuse_sdr_scale(name: str, value: float, scale: str) -> None:
-    """Refuse a log or odds functional of an SDR level outside that scale's domain.
+#: Why a one-step level can leave the outcome range, by estimator.
+_RANGE_CAUSE: dict[str, str] = {
+    "sdr": (
+        "An SDR estimate is an average of transformed outcomes and can leave the outcome "
+        "range (Díaz et al. 2023, Section 5.3)"
+    ),
+    "ipsi": (
+        "Kennedy's estimator averages influence-function values and can leave the outcome "
+        "range (Kennedy 2019, Section 4.1)"
+    ),
+}
+
+
+def refuse_sdr_scale(name: str, value: float, scale: str, *, estimator: str = "sdr") -> None:
+    """Refuse a log or odds functional of a one-step level outside that scale's domain.
 
     Parameters
     ----------
@@ -213,6 +238,8 @@ def refuse_sdr_scale(name: str, value: float, scale: str) -> None:
         The level on the scale the functional reads.
     scale : {"log", "odds", "logit"}
         The scale of the functional.
+    estimator : {"sdr", "ipsi"}
+        The estimator of the level, which the message names.
 
     Raises
     ------
@@ -220,10 +247,7 @@ def refuse_sdr_scale(name: str, value: float, scale: str) -> None:
         When ``value`` is at or below 0 on the log scale, or outside ``(0, 1)`` on the
         odds or logit scale.
     """
-    cause = (
-        "An SDR estimate is an average of transformed outcomes and can leave the outcome "
-        "range (Díaz et al. 2023, Section 5.3); "
-    )
+    cause = _RANGE_CAUSE[estimator] + "; "
     if scale == "log":
         if value > 0.0:
             return
@@ -240,9 +264,13 @@ def refuse_sdr_scale(name: str, value: float, scale: str) -> None:
 
 
 def _warn_parameter_space(
-    estimates: Mapping[str, ParameterEstimate], data: LongitudinalData, scaler: OutcomeScaler
+    estimates: Mapping[str, ParameterEstimate],
+    data: LongitudinalData,
+    scaler: OutcomeScaler,
+    *,
+    estimator: str = "sdr",
 ) -> None:
-    """Warn once when an SDR level leaves the range of the outcome it averages.
+    """Warn once when a one-step level leaves the range of the outcome it averages.
 
     The range is ``[0, 1]`` on a binary or survival outcome, and ``[q_lo, q_hi]`` on a
     continuous one, declared or derived.
@@ -256,14 +284,16 @@ def _warn_parameter_space(
     if not outside:
         return
     warnings.warn(
-        f"{'; '.join(outside)}: outside the outcome range [{low:.4g}, {high:.4g}]. An SDR "
-        "estimate is an average of transformed outcomes and can leave that range (Díaz et al. "
-        "2023, Section 5.3). It is reported as computed, with no truncation. A ratio or odds "
-        "functional of such a level is refused",
+        f"{'; '.join(outside)}: outside the outcome range [{low:.4g}, {high:.4g}]. "
+        f"{_RANGE_CAUSE[estimator]}. It is reported as computed, with no truncation. A ratio "
+        "or odds functional of such a level is refused",
         ParameterSpaceWarning,
         stacklevel=3,
     )
 
+
+#: The summary title of each estimator.
+_ESTIMATOR_TITLE: dict[str, str] = {"tmle": "TMLE", "sdr": "SDR", "ipsi": "IPSI"}
 
 #: Match the point-treatment estimator's warning threshold.  The exact share remains
 #: available in ``diagnostics()`` below this value; the warning is only the interruption.
@@ -321,11 +351,7 @@ _REFUSED: dict[str, str] = {
         "LTMLE.fit(..., continuous_treatment=[...]) or "
         "LongitudinalData.from_frame(..., continuous_treatment=[...])"
     ),
-    "incremental": (
-        "a tilt of the mechanism is built out of g, so over time it needs the product "
-        "of tilted mechanisms and a mechanism submodel at every node. docs/roadmap.md "
-        "X19 tracks it"
-    ),
+    "incremental": LTMLE_TILT_REFUSAL,
     "delta": (
         "an outcome missing for a reason other than censoring is a further node in the "
         "likelihood: encode it as a final censoring column, so that its probability is "
@@ -629,7 +655,7 @@ class _LongitudinalReplayRecipe:
     tol: float | None
     n_jobs: int
     omissions: tuple[str, ...] = ()
-    #: ``"tmle"`` or ``"sdr"``: which recursion a replay repeats.
+    #: ``"tmle"``, ``"sdr"`` or ``"ipsi"``: which recursion a replay repeats.
     estimator: str = "tmle"
 
     def __setstate__(self, state: dict[str, Any]) -> None:
@@ -795,7 +821,8 @@ class LongitudinalConfig:
     #: (:attr:`~cleverly.longitudinal.LongitudinalData.known_mechanisms`), in node order.
     #: Each fits no learner and is not truncated.  Empty on a fit that declares none.
     known_factors: tuple[str, ...] = ()
-    #: ``"tmle"`` for :class:`LTMLE`, ``"sdr"`` for :class:`SDR`.
+    #: ``"tmle"`` for :class:`LTMLE`, ``"sdr"`` for :class:`SDR`, ``"ipsi"`` for
+    #: :class:`IPSI`.
     estimator: str = "tmle"
 
     def describe(self, *, contrast: bool) -> list[str]:
@@ -826,6 +853,13 @@ class LongitudinalConfig:
                 "estimator: sequentially doubly robust (Diaz, Williams, Hoffman and Schenck "
                 "2023, Section 5.3), no fluctuation",
             )
+        if self.estimator == "ipsi":
+            lines.insert(
+                0,
+                "estimator: Kennedy (2019) Algorithm 1, the mean of the influence function "
+                "at the fitted nuisances (Kim, Kennedy and Naimi 2021, Algorithm 1, under "
+                "censoring), no fluctuation",
+            )
         if self.held_treatment is not None:
             lines.insert(
                 1,
@@ -848,8 +882,19 @@ class LongitudinalConfig:
                 )
                 lines.insert(3, f"causes reported: {', '.join(self.causes)}")
         dynamic = {
-            regimen.label for regimen in self.regimens if isinstance(regimen, DynamicRegimen)
+            regimen.label
+            for regimen in self.regimens
+            if isinstance(regimen, DynamicRegimen)
+            and (regimen.has_rule or regimen.has_policy or not regimen.has_tilt)
         }
+        if any(
+            isinstance(regimen, DynamicRegimen) and regimen.has_tilt for regimen in self.regimens
+        ):
+            lines.append(
+                "  an 'o' node is an odds tilt: each unit draws its arm from "
+                "q_t = delta*pi_t/(delta*pi_t + 1 - pi_t), with pi_t the treatment mechanism "
+                "(Kennedy 2019, Equation (1)); every unit at risk is in the plan"
+            )
         if dynamic:
             # Worth a line rather than leaving "d" to be guessed at, because it changes
             # how the follower counts below should be read: a static regimen's followers
@@ -906,6 +951,9 @@ class LongitudinalConfig:
             + (
                 "partial path treatment-and-censoring probability"
                 if self.estimator == "sdr"
+                else "cumulative censoring and non-tilt treatment probability; the tilt "
+                "factor is unbounded"
+                if self.estimator == "ipsi"
                 else "cumulative treatment-and-censoring probability"
             )
             + (
@@ -1324,13 +1372,14 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 raise ValueError(SURVIVAL_VIEW_COMPETING_REFUSAL)
         if kind == "or" and not survival:
             refuse_odds_ratio(self.config.family)
-        if self.config.estimator == "sdr":
+        if self.config.estimator in _RANGE_CAUSE:
             for level in (numerator, denominator):
                 value = self[level].psi
                 refuse_sdr_scale(
                     level,
                     1.0 - value if view == "survival" else value,
                     "odds" if kind == "or" else "log",
+                    estimator=self.config.estimator,
                 )
         derived = ratio_contrast(
             self.estimates,
@@ -2218,7 +2267,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             )
         facts.extend(self.provenance.describe())
         lines = [
-            f"Longitudinal {'SDR' if self.config.estimator == 'sdr' else 'TMLE'} "
+            f"Longitudinal {_ESTIMATOR_TITLE.get(self.config.estimator, 'TMLE')} "
             f"({self.data.n_times} time points, n = {self.n})",
             "",
             table,
@@ -2262,9 +2311,15 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             if fit.horizon != deepest:
                 continue
             truncated, truncated_time = self._max_truncated(fit)
+            # An odds tilt keeps every unit at risk, so the count is of units observed.
+            kept = (
+                "stayed under observation throughout"
+                if isinstance(fit.regimen, DynamicRegimen) and fit.regimen.has_tilt
+                else "followed it throughout"
+            )
             lines.append(
                 f"  {fit.regimen.label}: {fit.steps[-1].n_trained} of {self.n} units "
-                f"followed it throughout; max weight {fit.max_weight:.1f}, "
+                f"{kept}; max weight {fit.max_weight:.1f}, "
                 f"effective n {fit.effective_n:.0f}; max truncated share "
                 f"{truncated:.1%} at t={truncated_time}"
             )
@@ -2384,10 +2439,10 @@ def _run_recursion(
         Targeting tolerance per node.  ``None`` on an SDR fit.
     n_jobs : int
         Worker count for the parallel fan-out.
-    estimator : {"tmle", "sdr"}
+    estimator : {"tmle", "sdr", "ipsi"}
         Which recursion runs.
     fold_mechanisms : sequence of FoldMechanism
-        Each outer fold's own mechanism, on a cross-fitted SDR fit.
+        Each outer fold's own mechanism, on a cross-fitted SDR or IPSI fit.
 
     Returns
     -------
@@ -2395,6 +2450,21 @@ def _run_recursion(
         The fits keyed by :func:`_fit_key`, and the projection fits, empty without a
         working model.
     """
+    if estimator == "ipsi":
+        return _run_ipsi(
+            data,
+            plans,
+            mechanism,
+            msm=msm,
+            horizons=horizons,
+            outcome_learner=outcome_learner,
+            pseudo_learner=pseudo_learner,
+            folds=folds,
+            scaler=scaler,
+            g_bounds=g_bounds,
+            fold_mechanisms=fold_mechanisms,
+            n_jobs=n_jobs,
+        )
     if estimator == "sdr":
         return _run_sdr(
             data,
@@ -2515,6 +2585,71 @@ def _run_sdr(
             [by_cell[(cell.label, cause, cell.horizon)] for cell in msm.cells],
             scaler,
             cause=cause,
+        )
+        for cause in causes
+    )
+    return fits, msm_fits
+
+
+def _run_ipsi(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    mechanism: Mechanism,
+    *,
+    msm: RegimenMSM | None,
+    horizons: Sequence[int],
+    outcome_learner: Learner,
+    pseudo_learner: Learner,
+    folds: Folds,
+    scaler: OutcomeScaler,
+    g_bounds: tuple[float, float],
+    fold_mechanisms: Sequence[FoldMechanism],
+    n_jobs: int,
+) -> tuple[dict[str, RegimenFit], tuple[MSMRegimenFit, ...]]:
+    """The IPSI branch of :func:`_run_recursion`, in the same cell order.
+
+    Every cell runs in one call, so a cross-fitted fit has one job per outer fold.  With a
+    working model, each cause's cells are projected by
+    :func:`~cleverly.longitudinal.msm.project_sdr_cells`, which reads each cell's
+    :math:`\\varphi` as it reads an SDR transform.
+    """
+    causes: tuple[str | None, ...] = data.cause_labels or (None,)
+    cells = [
+        IPSICell(plan.label, cause, horizon)
+        for plan in plans
+        for cause in causes
+        for horizon in horizons
+    ]
+    fitted = fit_cells_ipsi(
+        data,
+        plans,
+        mechanism,
+        cells,
+        outcome_learner=outcome_learner,
+        pseudo_learner=pseudo_learner,
+        folds=folds,
+        scaler=scaler,
+        g_bounds=g_bounds,
+        fold_mechanisms=fold_mechanisms,
+        n_jobs=n_jobs,
+    )
+    fits = {
+        _fit_key(cell.label, cell.cause, cell.horizon, data.is_survival): fit
+        for cell, fit in zip(cells, fitted, strict=True)
+    }
+    if msm is None:
+        return fits, ()
+    by_cell = {
+        (cell.label, cell.cause, cell.horizon): fit for cell, fit in zip(cells, fitted, strict=True)
+    }
+    msm_fits = tuple(
+        project_sdr_cells(
+            data,
+            msm,
+            [by_cell[(cell.label, cause, cell.horizon)] for cell in msm.cells],
+            scaler,
+            cause=cause,
+            estimator="ipsi",
         )
         for cause in causes
     )
@@ -2847,7 +2982,7 @@ class _SequentialEstimator:
     setting.  :class:`LTMLE` adds ``alpha``, ``max_iter`` and ``tol``.
     """
 
-    #: ``"tmle"`` or ``"sdr"``: the recursion :func:`_run_recursion` runs.
+    #: ``"tmle"``, ``"sdr"`` or ``"ipsi"``: the recursion :func:`_run_recursion` runs.
     _estimator: ClassVar[str]
 
     def __init__(
@@ -2959,6 +3094,44 @@ class _SequentialEstimator:
 
     def _validate_targeting(self) -> None:
         """Refuse an invalid targeting setting.  A recursion without a fluctuation has none."""
+
+    def _resolve_tilts(self, data: LongitudinalData, plans: tuple[Plan, ...]) -> tuple[Plan, ...]:
+        """The plans this estimator fits, given their odds tilt nodes.
+
+        A targeted fit translates a plan whose every tilt node has a declared treatment
+        mechanism into a known stochastic policy: :math:`q_t` is then a fixed function of
+        the history (Kennedy 2019, Section 3.3), so the plan is an F1 policy plan.  A tilt
+        node with an estimated mechanism is refused.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        plans : tuple of Plan
+            The resolved plans.
+
+        Returns
+        -------
+        tuple of Plan
+            The plans, with each tilt node read as a known policy.
+
+        Raises
+        ------
+        CapabilityError
+            When a tilt node's treatment mechanism is estimated.
+        """
+        known = data.known_mechanisms
+        out = []
+        for plan in plans:
+            if not plan.has_tilt:
+                out.append(plan)
+                continue
+            nodes = [time for time in range(1, data.n_times + 1) if plan.is_tilt_node(time)]
+            if known is None or any(known.treatment_at(time) is None for time in nodes):
+                raise CapabilityError(LTMLE_TILT_REFUSAL)
+            propensity = {time: _filled_matrix(known.treatment_at(time))[:, 1] for time in nodes}
+            out.append(replace(plan.with_tilts(propensity), tilt_deltas=()))
+        return tuple(out)
 
     def _targeting(self) -> dict[str, Any]:
         """The fluctuation settings the recursion and the replay recipe take."""
@@ -3146,6 +3319,9 @@ class _SequentialEstimator:
         # Every rule is called here and nowhere else, so a mask and the design the
         # mechanism was evaluated at cannot disagree about what the regimen assigned.
         plans = resolve_plans(regimens, prepared)
+        # An odds tilt node reads the mechanism, so each estimator decides here, before any
+        # learner, whether it fits one.
+        plans = self._resolve_tilts(prepared, plans)
         # Every declared factor is checked against the bounds before any learner.
         preflight_known_mechanisms(prepared, plans, resolve_cumulative_g_bounds(self.g_bounds))
 
@@ -3223,7 +3399,7 @@ class _SequentialEstimator:
         # fold fits one on those rows alone (the training-fold recursion).  The out-of-fold
         # mechanism above is what the result reports and what a held-out row divides by.
         fold_mechanisms: tuple[FoldMechanism, ...] = ()
-        if self._estimator == "sdr" and not folds.is_single:
+        if self._estimator in ("sdr", "ipsi") and not folds.is_single:
             fold_mechanisms = fit_fold_mechanisms(
                 prepared,
                 resolved,
@@ -3310,8 +3486,8 @@ class _SequentialEstimator:
             )
         estimates = reported.estimates
         _warn_parameter_statuses(estimates)
-        if self._estimator == "sdr" and model is None:
-            _warn_parameter_space(estimates, prepared, scaler)
+        if self._estimator in _RANGE_CAUSE and model is None:
+            _warn_parameter_space(estimates, prepared, scaler, estimator=self._estimator)
         with phase("inference"):
             bands = self._bands(estimates, prepared, status)
         result = LongitudinalResult(
@@ -4092,6 +4268,30 @@ class SDR(_SequentialEstimator):
             **refused,
         )
 
+    def _resolve_tilts(self, data: LongitudinalData, plans: tuple[Plan, ...]) -> tuple[Plan, ...]:
+        """Refuse an odds tilt node: an SDR fit needs a policy that does not read the law.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        plans : tuple of Plan
+            The resolved plans.
+
+        Returns
+        -------
+        tuple of Plan
+            The plans, unchanged.
+
+        Raises
+        ------
+        CapabilityError
+            When a plan holds a tilt node.
+        """
+        if any(plan.has_tilt for plan in plans):
+            raise CapabilityError(SDR_TILT_REFUSAL)
+        return plans
+
     def _pseudo_learner(self) -> Learner:
         """The learner of every node before the horizon, unclipped by default.
 
@@ -4108,6 +4308,291 @@ class SDR(_SequentialEstimator):
                 n_jobs=1,
             )
         return super()._pseudo_learner()
+
+
+#: The settings :class:`IPSI` refuses with :data:`~cleverly.methods.IPSI_NO_FLUCTUATION`.
+IPSI_REFUSED_SETTINGS: tuple[str, ...] = ("alpha", "max_iter", "tol", "targeting", "fluctuation")
+
+
+class IPSI(_SequentialEstimator):
+    r"""Incremental propensity-score interventions over time, by Kennedy's estimator.
+
+    An odds tilt multiplies each unit's odds of treatment at a node by :math:`\delta_t`
+    (Kennedy 2019, Equation (1)).  The plan is identified without treatment positivity at
+    its tilt nodes (Theorem 1).  The estimator is Algorithm 1 of Kennedy (2019), with the
+    dropout weights of Kim, Kennedy and Naimi (2021, Algorithm 1): the mean of the efficient
+    influence function at nuisances fitted by the training-fold recursion.  It fits no
+    fluctuation.  The influence function has a mechanism term at each tilt node, so the
+    estimator is not doubly robust: the treatment mechanism must be consistent at every
+    tilt node (Kennedy 2019, Section 3.3).  See :mod:`cleverly.longitudinal.ipsi` for the
+    recursion.
+
+    ``IPSI`` is Kennedy's odds tilt.  ``lmtp::ipsi`` is the risk-ratio tilt of Díaz et al.
+    (2023), which this package fits as :class:`~cleverly.interventions.RiskRatioTilt` with
+    :class:`LTMLE` or :class:`SDR`.
+
+    Parameters
+    ----------
+    regimens : mapping, sequence of Incremental, or sequence of regimens
+        The plans.  A sequence of :class:`~cleverly.interventions.Incremental` objects is
+        shorthand: each one tilts every node, and its ``name`` is the label.  A mapping
+        value ``Incremental(2.0)`` tilts every node.  A
+        :class:`~cleverly.longitudinal.DynamicRegimen` can hold a different tilt per node,
+        and label, rule and known-policy nodes beside the tilts.  A plan with no tilt node
+        is accepted, so a tilt can be contrasted with a static plan on one fit.
+    reference : str or None
+        The regimen every contrast is taken against, the first declared by default.  It
+        must be one of ``regimens``: list ``Incremental(1.0)`` to contrast with the natural
+        course.  Under dropout, :math:`\psi(1)` is the mean with dropout prevented, not the
+        observed mean.
+    horizons : sequence of int or None
+        The survival horizons, as for :class:`LTMLE`.
+    msm : MSM or None
+        A working model over the regimen and horizon cells.  Each cell's influence-function
+        values are projected onto it.  The identity link is supported.  A logit or log
+        projection that does not converge is refused.
+    outcome_learner : object or None
+        The regression at the reported horizon, as for :class:`LTMLE`.
+    pseudo_learner : object or None
+        The regression of every earlier node.  It defaults to ``outcome_learner``, and
+        otherwise to a regression :class:`~cleverly.learners.SuperLearner` with no clip,
+        as ``npcausal::ipsi`` fits it.
+    treatment_learner : object or None
+        The treatment mechanism at each node.  At a tilt node it is part of the estimand.
+    censoring_learner : object or None
+        The censoring mechanism at each node.
+    n_folds : int
+        Outer cross-fitting folds.  Above one fold, each fold fits every nuisance on its
+        training rows alone, and its held-out rows take the influence function from that
+        fold's models (Kennedy 2019, Algorithm 1).  One fold is Kennedy's Algorithm 2, which
+        needs Donsker-type conditions.
+    learner_folds : int
+        The inner folds of a default :class:`~cleverly.learners.SuperLearner`.
+    g_bounds : float or tuple of float
+        The bound pair of the cumulative censoring, label, rule and policy factors.  The
+        tilt factor is never bounded.  The default is ``(0.01, 1.0)``.
+    q_bounds : tuple of float or None
+        The bounds of a continuous outcome, as for :class:`LTMLE`.
+    alpha_sig : float
+        Significance level for confidence intervals.
+    simultaneous : bool
+        Whether to report simultaneous confidence bands over the plans and horizons.  The
+        band covers the declared plans only, not a continuum of :math:`\delta`.
+    n_multiplier : int
+        The number of multiplier draws behind each band.
+    multiplier_kind : {"rademacher", "mammen", "normal"}
+        The distribution of the multiplier draws.
+    random_state : int or None
+        The seed of the outer split, inherited by a default learner.
+    run_id : str or None
+        An identifier of your own, recorded on :attr:`LongitudinalResult.provenance`.
+    n_jobs : int
+        Worker count for the parallel fan-out.
+    n_bootstrap : int
+        Full-refit bootstrap replicates, ``0`` for none.  No registered study measures the
+        IPSI bootstrap, so the draws report a bootstrap sd and no percentile inference.
+    bootstrap_resampling : {"auto", "iid", "cluster"}
+        ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
+    **refused : Any
+        ``alpha``, ``max_iter``, ``tol``, ``targeting`` and ``fluctuation``, which raise
+        :class:`TypeError` because the estimator fits no fluctuation, and each
+        point-treatment keyword that :class:`LTMLE` refuses.
+
+    See Also
+    --------
+    LTMLE : The targeted estimator of static, dynamic and known-policy plans.
+    ipsi : The one-call form of this estimator.
+
+    Examples
+    --------
+    >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+    >>> from cleverly.datasets import make_longitudinal
+    >>> from cleverly.interventions import Incremental
+    >>> from cleverly.longitudinal import IPSI
+    >>> frame, _ = make_longitudinal(n=200, seed=0)
+    >>> result = IPSI(
+    ...     [Incremental(1.0), Incremental(2.0)],
+    ...     n_folds=1,
+    ...     outcome_learner=LinearRegression(),
+    ...     treatment_learner=LogisticRegression(max_iter=1000),
+    ...     censoring_learner=LogisticRegression(max_iter=1000),
+    ... ).fit(
+    ...     frame,
+    ...     outcome="Y",
+    ...     treatment=["A1", "A2"],
+    ...     baseline=["W1", "W2"],
+    ...     time_varying=[[], ["L2"]],
+    ...     censoring=["C1", "C2"],
+    ... )
+    >>> sorted(result.estimates)
+    ['ate_regimen[odds x2 vs natural course]', 'ey_regimen[natural course]', 'ey_regimen[odds x2]']
+    >>> result.config.estimator
+    'ipsi'
+    """
+
+    _estimator: ClassVar[str] = "ipsi"
+
+    def __init__(
+        self,
+        regimens: Any,
+        *,
+        reference: str | None = None,
+        horizons: Sequence[int] | None = None,
+        msm: MSM | None = None,
+        outcome_learner: Learner | None = None,
+        pseudo_learner: Learner | None = None,
+        treatment_learner: Learner | None = None,
+        censoring_learner: Learner | None = None,
+        n_folds: int = 10,
+        learner_folds: int = 5,
+        g_bounds: CumulativeGBounds = DEFAULT_LTMLE_G_BOUNDS,
+        q_bounds: tuple[float, float] | None = None,
+        alpha_sig: float = 0.05,
+        simultaneous: bool = True,
+        n_multiplier: int = 2000,
+        multiplier_kind: str = "rademacher",
+        random_state: int | None = None,
+        run_id: str | None = None,
+        n_jobs: int = 1,
+        n_bootstrap: int = 0,
+        bootstrap_resampling: Resampling = "auto",
+        **refused: Any,
+    ) -> None:
+        if any(name in refused for name in IPSI_REFUSED_SETTINGS):
+            raise TypeError(IPSI_NO_FLUCTUATION)
+        super().__init__(
+            _tilt_shorthand(regimens),
+            reference=reference,
+            horizons=horizons,
+            msm=msm,
+            outcome_learner=outcome_learner,
+            pseudo_learner=pseudo_learner,
+            treatment_learner=treatment_learner,
+            censoring_learner=censoring_learner,
+            n_folds=n_folds,
+            learner_folds=learner_folds,
+            g_bounds=g_bounds,
+            q_bounds=q_bounds,
+            alpha_sig=alpha_sig,
+            simultaneous=simultaneous,
+            n_multiplier=n_multiplier,
+            multiplier_kind=multiplier_kind,
+            random_state=random_state,
+            run_id=run_id,
+            n_jobs=n_jobs,
+            n_bootstrap=n_bootstrap,
+            bootstrap_resampling=bootstrap_resampling,
+            **refused,
+        )
+
+    def fit(self, data: Any, **kwargs: Any) -> LongitudinalResult:
+        """Fit on a wide dataframe, or on an already-built :class:`LongitudinalData`.
+
+        The keywords are those of :meth:`LTMLE.fit`.  A declared treatment mechanism at a
+        tilt node removes that node's mechanism term from the influence function, because
+        the tilt is then a known policy (Kennedy 2019, Section 3.3).
+
+        Parameters
+        ----------
+        data : DataFrame or LongitudinalData
+            One wide frame, a row per unit and a column per node, or a container.
+        **kwargs : Any
+            The column and declaration keywords of :meth:`LTMLE.fit`.
+
+        Returns
+        -------
+        LongitudinalResult
+            The plan estimates, their contrasts or working-model coefficients, and the fits
+            behind them.
+
+        Raises
+        ------
+        TypeError
+            When ``data`` is a point-treatment :class:`~cleverly.CausalData`.
+        """
+        from ..data.causal_data import CausalData
+
+        if isinstance(data, CausalData):
+            raise TypeError(IPSI_POINT_REFUSAL)
+        return super().fit(data, **kwargs)
+
+    def _resolve_tilts(self, data: LongitudinalData, plans: tuple[Plan, ...]) -> tuple[Plan, ...]:
+        """Refuse a plan node this estimator has no ratio for, before any learner.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        plans : tuple of Plan
+            The resolved plans.
+
+        Returns
+        -------
+        tuple of Plan
+            The plans, unchanged.
+
+        Raises
+        ------
+        CapabilityError
+            When a plan sets a node by a modified treatment policy or a risk-ratio tilt, or
+            when the design holds one baseline decision over every node.
+        """
+        if data.treatment_held:
+            raise CapabilityError(
+                "IPSI fits one treatment decision per node, and this design holds one "
+                "baseline decision over every node. For one decision fit "
+                "TMLE(incremental=[...]) on the baseline row"
+            )
+        for plan in plans:
+            for time in plan.mtp_nodes:
+                node = plan.regimen.plan[time - 1]  # type: ignore[union-attr]
+                kind = type(node).__name__
+                raise CapabilityError(
+                    tilt_mix_message(
+                        plan.label,
+                        data.treatment_names[time - 1],
+                        "a risk-ratio tilt"
+                        if kind == "RiskRatioTilt"
+                        else f"a modified treatment policy ({kind})",
+                    )
+                )
+        return plans
+
+    def _pseudo_learner(self) -> Learner:
+        """The learner of every node before the horizon, unclipped by default."""
+        if self.pseudo_learner is None and self.outcome_learner is None:
+            return SuperLearner(
+                task="regression",
+                n_folds=self.learner_folds,
+                clip=None,
+                random_state=self.random_state,
+                n_jobs=1,
+            )
+        return super()._pseudo_learner()
+
+
+def _tilt_shorthand(regimens: Any) -> Any:
+    """Read a sequence of :class:`~cleverly.interventions.Incremental` as one plan each.
+
+    Each tilt broadcasts to every node, under its own ``name``.  Any other argument passes
+    through, and :func:`~cleverly.longitudinal.regimen.resolve_regimens` reads it.
+    """
+    from ..interventions.incremental import Incremental
+
+    if (
+        isinstance(regimens, Sequence)
+        and not isinstance(regimens, (str, bytes))
+        and regimens
+        and all(isinstance(entry, Incremental) for entry in regimens)
+    ):
+        names = [entry.name for entry in regimens]
+        if len(set(names)) != len(names):
+            raise DataError(
+                f"two tilts share the name {sorted(n for n in names if names.count(n) > 1)[0]!r}; "
+                "a name labels a parameter, so give each Incremental its own name="
+            )
+        return {entry.name: entry for entry in regimens}
+    return regimens
 
 
 @dataclass(frozen=True)
@@ -4573,6 +5058,38 @@ def sdr(
 ) -> LongitudinalResult:
     """One-call sequentially doubly robust estimation, mirroring :func:`ltmle`."""
     return SDR(regimens, **kwargs).fit(
+        data,
+        outcome=outcome,
+        treatment=treatment,
+        baseline=baseline,
+        time_varying=time_varying,
+        censoring=censoring,
+        id=id,
+        weights=weights,
+        weights_type=weights_type,
+        weights_estimated=weights_estimated,
+        family=family,
+    )
+
+
+def ipsi(
+    data: Any,
+    *,
+    regimens: Any,
+    outcome: str | Sequence[str] | Mapping[str, Sequence[str]],
+    treatment: Sequence[str],
+    baseline: Sequence[str],
+    time_varying: Sequence[Sequence[str]] | None = None,
+    censoring: Sequence[str] | None = None,
+    id: str | None = None,
+    weights: str | None = None,
+    weights_type: str = "probability",
+    weights_estimated: bool = False,
+    family: str = "auto",
+    **kwargs: Any,
+) -> LongitudinalResult:
+    """One-call incremental propensity-score estimation over time, mirroring :func:`ltmle`."""
+    return IPSI(regimens, **kwargs).fit(
         data,
         outcome=outcome,
         treatment=treatment,
