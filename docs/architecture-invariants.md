@@ -42,6 +42,7 @@ availability separately.
 | A comparator exists | Use it where it is informative. Its agreement is acceptance evidence for the claims it covers. Label each such claim as comparator-backed, and state what the comparison establishes and what differences remain. Each changed term keeps its independent check |
 | Fundamental theory is missing | This blocks the affected claim when the gap needs a new identification, regularity, or asymptotic argument. Scope the block to that method, configuration, or inference claim |
 | A comparator and missing theory | A comparator cannot replace missing fundamental theory. The absence of a comparator does not create a theoretical gap |
+| A planned comparator study has not run | This does not block a merge or a release when the method's Python studies pass with their expected properties. Label the evidence "comparator runs pending" beside its property evidence. When the comparator runs, register its results and act on its findings |
 
 A study without a comparator records that absence and names the independent evidence that replaces
 it. Do not invent a reference implementation, and do not claim parity to fill an evidence table.
