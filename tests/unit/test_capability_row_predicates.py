@@ -2275,14 +2275,6 @@ class TestARowAndItsRaiseShareOneRefusal:
 
 # ------------------------------------------------ every refused row of every kind of fit
 
-#: Calls the facade refuses with an error that is not the row's record. Each entry is a defect
-#: in ``src`` that this test found, and a strict ``xfail`` flips when the defect is fixed.
-FACADE_DEFECTS: dict[tuple[str, str], str] = {
-    ("ltmle", "benchmark"): "the facade resolves a default estimand through arm_parameters, "
-    "which reads data.is_continuous_treatment, an attribute LongitudinalData lacks",
-    ("ipsi", "benchmark"): "the same AttributeError as the longitudinal fit above",
-}
-
 
 def _refused_rows(result: Any, arguments: dict[str, dict[str, Any]]) -> list[tuple[Any, Any]]:
     """Every row of both facades that the request refuses and that carries a record."""
@@ -2309,11 +2301,7 @@ class TestEveryRefusedRowRaisesItsRecord:
     def test_the_call_raises_what_the_row_declares(self, kind: str) -> None:
         result = KINDS[kind].build()
         arguments = sweep_arguments(result)
-        refused = [
-            (facade, row)
-            for facade, row in _refused_rows(result, arguments)
-            if (kind, row.operation) not in FACADE_DEFECTS
-        ]
+        refused = [(facade, row) for facade, row in _refused_rows(result, arguments)]
         # The nonzero witness: this kind refuses some row, so the loop below cannot pass
         # by asking nothing.
         assert refused, kind
@@ -2333,25 +2321,6 @@ class TestEveryRefusedRowRaisesItsRecord:
                 row.refusal.message(),
                 f"{facade._kind} {prefix}{row.refusal.message()}",
             ), (kind, operation)
-
-    @pytest.mark.parametrize(
-        ("kind", "operation"),
-        [
-            pytest.param(*key, marks=pytest.mark.xfail(strict=True, reason=reason))
-            for key, reason in FACADE_DEFECTS.items()
-        ],
-    )
-    def test_the_calls_with_a_known_defect(self, kind: str, operation: str) -> None:
-        result = KINDS[kind].build()
-        arguments = sweep_arguments(result)
-        ((facade, row),) = [
-            (facade, row)
-            for facade, row in _refused_rows(result, arguments)
-            if row.operation == operation
-        ]
-        with pytest.raises(CapabilityError) as error:
-            getattr(facade, operation)(**arguments.get(operation, {}))
-        assert error.value.refusal.reason is row.refusal.reason
 
     def test_the_sweep_covers_every_code_a_row_can_carry_but_one(self) -> None:
         """The rows the sweep reaches span the codes, so it does not test one code alone."""

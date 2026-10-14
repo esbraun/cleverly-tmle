@@ -12,18 +12,22 @@ family also includes Kennedy's incremental estimator `IPSI`.
 ## Why a request can be refused
 
 An error at identification or method selection is often a scientific boundary, not merely an API
-limitation. Refusals fall into three groups:
+limitation. Every `CleverlyError` carries `error.refusal`, and `error.refusal.reason` holds one of
+five codes.
 
-1. **Not implemented:** the parameter is well posed, but its identification map, influence
-   function, targeting step, or evidence gate is missing.
-2. **Different question:** the supplied design and estimand imply another causal parameter, such
-   as requesting an arm ATE for a continuous modified treatment policy.
-3. **Invalid construction:** the requested object is undefined, nonidentified under the declared
-   design, or cannot produce valid inference with the supplied information.
+| `error.refusal.reason` | meaning |
+| --- | --- |
+| `invalid_declaration` | the requested analysis cannot run on the declared sample or design |
+| `different_estimand` | the requested option changes the causal question |
+| `implementation_gap` | the method is well posed, and this package has no implementation yet |
+| `inference_gap` | the estimate exists, and the requested uncertainty calculation is not derived |
+| `api_redirection` | the feature exists through another argument or object |
 
-`CapabilityError` and `MethodConfigurationError` explain the boundary before nuisance fitting.
-Do not work around one by switching to a similarly named estimand unless that estimand is genuinely
-the scientific question.
+A capability row carries the same record before any call. Read
+[how to read a refusal](../technical-reference/scope-and-refusals.md#how-to-read-a-refusal) for the
+action that each code asks of you.
+Do not work around a refusal by switching to a similarly named estimand unless that estimand is
+genuinely the scientific question.
 
 ## Explicitly unimplemented
 

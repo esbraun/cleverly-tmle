@@ -210,7 +210,7 @@ not change the package version.
 
 | milestone | item | readiness | dependency | details |
 | --- | --- | --- | --- | --- |
-| B0 | Acceptance status and refusal reasons | no new theory | none | [RM42](#rm42-acceptance-status-and-refusal-reasons) |
+| B0 | Experimental status and support rows | no new theory | none | [RM42](#rm42-experimental-status-and-support-rows) |
 | B0 | Review of the inherited hard stops | no new theory | the Eligibility rule | [RM43](#rm43-review-of-the-inherited-hard-stops) |
 | B1 | Long-panel adapter and policy history | no new theory | the shipped trajectory representation | [X38](#x38-long-panel-adapter-and-policy-history) |
 | B1 | Longitudinal evidence over three to five decisions | published support | the shipped `LTMLE` and `SDR` | [X39](#x39-longitudinal-evidence-over-three-to-five-decisions) |
@@ -410,8 +410,8 @@ An exact comparator is useful when one exists. Neither an exact nor a related co
 eligibility requirement or a universal release gate. Do not defer a capability only because no
 library implements the identical target, algorithm, fold construction, or composition. Use the
 strongest feasible comparison and state its scope. A comparison is acceptance evidence for the
-claims it covers. [RM42](#rm42-acceptance-status-and-refusal-reasons) part (e) adds the
-comparator-backed label to the evidence pages.
+claims it covers. The evidence pages label each claim that rests on a comparison as
+comparator-backed.
 
 | comparison | appropriate use | claim it supports |
 | --- | --- | --- |
@@ -442,7 +442,7 @@ It does not require an exact comparator method.
 A supported point estimate does not make its confidence interval supported. Track support by the
 combination of target, estimator, outcome, weighting, splitting, and inference. A configuration that
 passed does not certify another configuration of the same method. The `experimental` status does
-not exist in the package yet. [RM42](#rm42-acceptance-status-and-refusal-reasons) owns it.
+not exist in the package yet. [RM42](#rm42-experimental-status-and-support-rows) owns it.
 
 The readiness labels rate method support, not programming effort:
 
@@ -563,30 +563,18 @@ owners do the same for the stratified DR-TMLE study.
 The sections below give one contract for each open item. Their physical order does not override
 the main grid.
 
-### RM42. Acceptance status and refusal reasons
+### RM42. Experimental status and support rows
 
 The [Eligibility](#eligibility) rule classifies each analysis as supported, experimental, or
-unavailable. The package has no `experimental` status today. Its refusals are typed errors with
-prose reasons and no structured reason. This row implements both contracts.
+unavailable. The package has no `experimental` status today. Each refusal carries a reason code,
+and [How to read a refusal](technical-reference/scope-and-refusals.md#how-to-read-a-refusal)
+defines the five codes. This row implements the status and the support rows.
 
 | part | what it delivers |
 | --- | --- |
 | (a) the experimental status | an explicit opt-in for a configuration whose target is justified but whose algorithm or inference extension has unresolved evidence. It is a new record in `cleverly._inference_status` beside the `*_plugin` statuses, not a second status field. Each estimate and interval carries the label, and an unsupported interval is withheld |
-| (b) refusal reasons | a reason code on each refusal, drawn from the table below, with the failed condition and an available alternative in the message |
 | (c) configuration support rows | a support row for each combination of target, estimator, outcome, weighting, splitting, and inference, whose status matches the output |
-| (d) persistence | the status, the reason, the policy definitions, the folds, and the inference assumptions survive `result.save()` and `cleverly.load()` |
-| (e) comparator-backed rows | the comparator-backed label on each evidence page claim that rests on a comparison, and a validation-grid row for a comparator-backed study with no property cells. Comparator-free studies already carry rows with a zero-row equivalence artifact |
-
-| reason | meaning | handling |
-| --- | --- | --- |
-| invalid declaration or data | the requested analysis cannot run on the declared sample or design | keep the validation, and state the failed condition |
-| different estimand | the requested option changes the causal question | name both questions, and never substitute one silently |
-| implementation gap | a valid method has no implementation yet | name the roadmap item and the available alternatives |
-| inference gap | the estimate exists, but the requested uncertainty calculation is incomplete | offer the supported inference, or explicit experimental estimation where defensible |
-| API redirection | the feature exists through another argument or object | point to a working call. This reason does not count as a missing capability |
-
-Part (e) keeps the checks of the target, of each changed mathematical term, and of each claimed
-statistical property. It changes no committed study result.
+| (d) persistence | the experimental status, its configuration key, the support row, and the inference assumptions survive `result.save()` and `cleverly.load()` |
 
 Each inherited refusal keeps its intervention-specific support checks, the estimator-specific
 requirements for policy followers, the invalid-event checks, and the identification declarations.
@@ -596,7 +584,6 @@ call a stochastic or continuous policy an inappropriate question.
 
 Acceptance:
 
-- a pre-fit test for each reason code, which pins the code, the message, and the alternative;
 - a test that an experimental fit carries its label through the summary, the tables, and a
   save-and-load round trip, and withholds an unsupported interval;
 - a test that each support row matches the status that the fit reports.
@@ -1960,7 +1947,7 @@ only.
 
 ## Reading a gap correctly
 
-Not every absence is missing package functionality. The refusal taxonomy in
-[How to read a refusal](technical-reference/scope-and-refusals.md#how-to-read-a-refusal) distinguishes an unimplemented
-well-posed feature from a different causal question and a method that would be wrong by
-construction. Only the first belongs on this roadmap.
+Not every absence is missing package functionality. The five reason codes in
+[How to read a refusal](technical-reference/scope-and-refusals.md#how-to-read-a-refusal)
+separate an `implementation_gap` and an `inference_gap` from an `invalid_declaration`, a
+`different_estimand`, and an `api_redirection`. Only the first two belong on this roadmap.

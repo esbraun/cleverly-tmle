@@ -1442,32 +1442,32 @@ execution name the same stop for all twenty. A fit that reaches the `provider` s
 capability row.
 
 The rows below record the eight missing-science stops, plus the estimands and compositions the
-surface refuses. The
-`kind` column uses the vocabulary of
-[how to read a refusal](scope-and-refusals.md#how-to-read-a-refusal), plus
-`waiting on published theory` from the [roadmap's eligibility rules](../roadmap.md#eligibility).
+surface refuses. The `kind` column holds the reason code of the raise site. The codes are those of
+[how to read a refusal](scope-and-refusals.md#how-to-read-a-refusal). The eight missing-science
+stops and the categorical benchmark covariate also wait on published theory, as the
+[roadmap's eligibility rules](../roadmap.md#eligibility) define the term.
 
 | refused | kind | why |
 | --- | --- | --- |
-| a longitudinal result | waiting on published theory | no time-indexed latent law covers treatments, censoring, histories, outcomes, and contrasts. See [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay) |
-| a learned-rule fit | waiting on published theory | a replay relearns the rules, so each draw has a different target, and no reviewed source gives a perturbation law for this target. See [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
-| multi-arm treatment | waiting on published theory | no source-backed category-valued perturbation defines the contrast. See [F8](../roadmap.md#f8-multi-arm-simulated-confounding-stress-surface) |
-| a missing outcome | waiting on published theory | no joint observation, treatment, and outcome perturbation law has identified refit semantics. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
-| a declared missing treatment | waiting on published theory | no joint treatment-observation, treatment, and outcome perturbation law has identified refit semantics, for the reason of the missing-outcome row. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
-| a controlled direct effect, or any fit that carries an intermediate variable | waiting on published theory | no ordered treatment, intermediate, observation, and outcome law has a controlled contrast contract. See [F15](../roadmap.md#f15-controlled-direct-effect-simulated-confounding-replay) |
-| estimated observation weights | waiting on published theory | replay lacks stored model provenance, target-population semantics, and a regeneration rule. See [F11](../roadmap.md#f11-estimated-weight-simulated-confounding-replay) |
-| a clustered fit | waiting on published theory | no source chooses a row-level, cluster-level, or mixed latent cause. See [F9](../roadmap.md#f9-clustered-simulated-confounding-stress-surface) |
-| identification other than a backdoor mean contrast with explicit adjustment | not written yet | the surface reads registered explicit-adjustment provenance |
-| ATT or ATC under C-TMLE or DR-TMLE | not written yet | `CTMLE` and `DRTMLE` refuse these functionals when they estimate, so no such fitted result exists |
-| a custom MSM link | not written yet | only built-in identity, log, and logit links have a replay audit |
-| a custom intervention type | not written yet | only exact `Static`, `Rule`, `Stochastic`, and `Incremental` declarations have an audited baseline-input contract |
-| a regime, incremental target, or MSM under C-TMLE or DR-TMLE | not written yet | the method catalog lacks the corresponding collaborative score or reduced-dimension correction. See [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
-| continuous-treatment C-TMLE and DR-TMLE | not written yet | both estimators refuse a modified-policy functional. See [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
-| PAR or PAF under C-TMLE or DR-TMLE | not written yet | the method catalog lacks a score or correction for these observed-law contrasts. See [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
-| `NaturalCourseMean`, reported as `ey_obs` | wrong by construction | $E[Y]$ has no counterfactual treatment term. Outcome perturbation alone cannot make it a confounding diagnostic |
-| the policy mean of a zero-delta shift | wrong by construction | $d_0(a, w) = a$ on both branches, so the policy is the natural course. Its mean is $E[Y]$, and no counterfactual treatment dependence remains for a common cause to move. The `ate_policy[...]` contrast that uses this policy as its reference is still accepted |
-| an incremental mean at multiplier one | wrong by construction | its mean is $E[Y]$. Contrasts with this reference remain supported |
-| a categorical benchmark covariate | waiting on published theory | no logical-covariate calibration maps categories to these perturbation strengths. See [F10](../roadmap.md#f10-logical-categorical-confounder-calibration) |
+| a longitudinal result | `implementation_gap` | no time-indexed latent law covers treatments, censoring, histories, outcomes, and contrasts. See [F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay) |
+| a learned-rule fit | `implementation_gap` | a replay relearns the rules, so each draw has a different target, and no reviewed source gives a perturbation law for this target. See [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) |
+| multi-arm treatment | `implementation_gap` | no source-backed category-valued perturbation defines the contrast. See [F8](../roadmap.md#f8-multi-arm-simulated-confounding-stress-surface) |
+| a missing outcome | `implementation_gap` | no joint observation, treatment, and outcome perturbation law has identified refit semantics. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
+| a declared missing treatment | `implementation_gap` | no joint treatment-observation, treatment, and outcome perturbation law has identified refit semantics, for the reason of the missing-outcome row. See [F12](../roadmap.md#f12-missing-outcome-simulated-confounding-replay) |
+| a controlled direct effect, or any fit that carries an intermediate variable | `implementation_gap` | no ordered treatment, intermediate, observation, and outcome law has a controlled contrast contract. See [F15](../roadmap.md#f15-controlled-direct-effect-simulated-confounding-replay) |
+| estimated observation weights | `implementation_gap` | replay lacks stored model provenance, target-population semantics, and a regeneration rule. See [F11](../roadmap.md#f11-estimated-weight-simulated-confounding-replay) |
+| a clustered fit | `implementation_gap` | no source chooses a row-level, cluster-level, or mixed latent cause. See [F9](../roadmap.md#f9-clustered-simulated-confounding-stress-surface) |
+| identification other than a backdoor mean contrast with explicit adjustment | `invalid_declaration` | the surface reads registered explicit-adjustment provenance |
+| ATT or ATC under C-TMLE or DR-TMLE | `implementation_gap` | `CTMLE` and `DRTMLE` refuse these functionals when they estimate, so no such fitted result exists |
+| a custom MSM link | `implementation_gap` | only built-in identity, log, and logit links have a replay audit |
+| a custom intervention type | `implementation_gap` | only exact `Static`, `Rule`, `Stochastic`, and `Incremental` declarations have an audited baseline-input contract |
+| a regime, incremental target, or MSM under C-TMLE or DR-TMLE | `implementation_gap` | the method catalog lacks the corresponding collaborative score or reduced-dimension correction. See [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
+| continuous-treatment C-TMLE and DR-TMLE | `implementation_gap` | both estimators refuse a modified-policy functional. See [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
+| PAR or PAF under C-TMLE or DR-TMLE | `implementation_gap` | the method catalog lacks a score or correction for these observed-law contrasts. See [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
+| `NaturalCourseMean`, reported as `ey_obs` | `invalid_declaration` | $E[Y]$ has no counterfactual treatment term. Outcome perturbation alone cannot make it a confounding diagnostic |
+| the policy mean of a zero-delta shift | `invalid_declaration` | $d_0(a, w) = a$ on both branches, so the policy is the natural course. Its mean is $E[Y]$, and no counterfactual treatment dependence remains for a common cause to move. The `ate_policy[...]` contrast that uses this policy as its reference is still accepted |
+| an incremental mean at multiplier one | `invalid_declaration` | its mean is $E[Y]$. Contrasts with this reference remain supported |
+| a categorical benchmark covariate | `implementation_gap` | no logical-covariate calibration maps categories to these perturbation strengths. See [F10](../roadmap.md#f10-logical-categorical-confounder-calibration) |
 
 Some rows above record an upstream limit rather than a surface limit. The identified effect's
 method catalog refuses unsupported variant targets at `estimate()`, before it builds an estimator.

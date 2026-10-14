@@ -34,7 +34,7 @@ the class.
 
 A capability row carries the same record before any call. A row of
 `result.diagnostics.capabilities`, an `AssessmentItem`, and a `MethodAvailability` row of
-`available_methods()` each hold it in `refusal`. For these rows `refusal` is `None` when no refusal
+`CausalStudy.available_methods()` each hold it in `refusal`. For these rows `refusal` is `None` when no refusal
 applies. The call, when you make it, raises an error with the same code and text. The row and the raise
 therefore state one reason in one text.
 
@@ -82,7 +82,7 @@ so rather than implying the request was ill-posed. A row marked `implementation_
 
 | refused | code | where |
 | --- | --- | --- |
-| missing-outcome `NaturalCourseMean`, PAR or PAF outside their two TMLE contracts | `implementation_gap`, `inference_gap`, `invalid_declaration`. The [subsection](#missing-outcome-natural-course-contracts) gives the code of each check | --- | [missing-outcome natural-course contracts](#missing-outcome-natural-course-contracts) lists every refusal. [Observed-data extensions](point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects) defines both estimators, and [PAR and PAF with missing outcomes](point-treatment-tmle.md#par-and-paf-with-missing-outcomes) defines the stack |
+| missing-outcome `NaturalCourseMean`, PAR or PAF outside their two TMLE contracts | `implementation_gap`, `inference_gap`, `invalid_declaration`. The [subsection](#missing-outcome-natural-course-contracts) gives the code of each check | [missing-outcome natural-course contracts](#missing-outcome-natural-course-contracts) lists every refusal. [Observed-data extensions](point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects) defines both estimators, and [PAR and PAF with missing outcomes](point-treatment-tmle.md#par-and-paf-with-missing-outcomes) defines the stack |
 | cross-fitted arm-indexed means and contrasts with missing outcomes outside the stacked CV-TMLE contract | `implementation_gap`, `inference_gap`, `invalid_declaration`. The [subsection](#missing-outcome-arm-indexed-contract) gives the code of each check | [missing-outcome arm-indexed contract](#missing-outcome-arm-indexed-contract) lists every refusal. [Stacked CV-TMLE for arm-indexed targets](point-treatment-tmle.md#stacked-cv-tmle-for-arm-indexed-targets) defines the estimator |
 | a cross-fitted shift, incremental, regime, MSM, or controlled-direct-effect fit with missing outcomes (`delta=`) | `implementation_gap` | [the refusals a caller can meet](cv-tmle.md#the-refusals-a-caller-can-meet). No audit read a source for these fits. The fit raises `CapabilityError` before any learner is fitted. The in-sample fit with `delta=` remains available, except for a continuous-dose MSM, which the next row refuses. [F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants) reopens it |
 | a continuous-dose MSM with missing outcomes (`delta=`, or `PointTreatment(missingness=...)`) or with `intermediate=`, in sample or cross-fitted | `implementation_gap` | [MSM projections](msm-projections.md#variations). The clever covariate that the package builds divides by the treatment density at each grid dose. In that construction, this composition also needs the response or intermediate mechanism at each grid dose, and the package does not write it. `TMLE` raises `CapabilityError` before any learner. `CausalStudy.identify` raises it for `MSMProjection` with a missing outcome. `tests/unit/test_continuous_msm_mechanism_refusals.py` checks both. [X10](../roadmap.md#x10-continuous-dose-msm-with-a-second-mechanism) reopens it |
@@ -190,6 +190,10 @@ error.
 | a cross-fitting declaration that is invalid by itself | `MethodConfigurationError`. The engine raises `ValueError` with the same reason | `invalid_declaration`, and `implementation_gap` for a stratified fold policy | when `CrossFitting` or `TMLEMethod` is constructed |
 | a composition this target does not support | `CapabilityError` | `implementation_gap`, `inference_gap` or `invalid_declaration`, by requirement | when the fit starts, before any learner is fitted |
 | response support | `DataError` | `invalid_declaration` | after fold generation, before either learner receives data |
+
+The composition check refuses most requirements as an `implementation_gap` that names F21 or F5.
+It refuses `repeats` above 1 and `n_bootstrap` above 0 as an `inference_gap`. It refuses a continuous
+outcome without `q_bounds` as an `invalid_declaration`.
 
 The declaration check is not specific to this target. One function runs its steps in a fixed order,
 and it returns the first reason it finds. The declaration and the engine therefore give one reason
@@ -311,7 +315,7 @@ The longitudinal truncation grid can be scientifically supported while one resul
 it. `result.replayability.unreconstructible` carries the omission codes below as data. The capability
 row states the same codes inside its prose `reason`, so read the attribute when you want them as
 data. A refused replay carries the reason code `invalid_declaration`. `cleverly` exports
-no name for the omission code literals, so compare an omission code against the spelling in the
+no name for the omission code literals. Compare an omission code against the spelling in the
 table. The fitted-bound equality check is different: it can only run when the curve is invoked.
 
 Replay accepts an outcome or pseudo-outcome learner only when every `random_state` parameter it

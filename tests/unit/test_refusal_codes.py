@@ -208,6 +208,13 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
         "This is refused rather than clipped",
     ): "make_* generator argument: an outcome_mean outside the probability range is a "
     "malformed argument of a data generator, and no estimator capability is involved",
+    **{
+        (path, "_SECOND_MOMENT_CLUSTER_REFUSAL"): "low-level guard on a covariance_rule and "
+        "cluster pair: every fit that declares the second-moment rule (the stacked "
+        "natural-course mean) refuses id= upstream with a coded CapabilityError, so only a "
+        "direct call with a malformed pair reaches it"
+        for path in ("src/cleverly/inference/influence.py", "src/cleverly/inference/results.py")
+    },
 }
 
 

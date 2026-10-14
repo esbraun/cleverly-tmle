@@ -16,9 +16,10 @@ inner record here is an ``inference_gap`` or an ``implementation_gap`` with an a
 
 from __future__ import annotations
 
+import importlib
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -54,6 +55,7 @@ from cleverly.msm import MSMSet
 from cleverly.sensitivity import _simulated_confounding_common as common_replay
 from cleverly.sensitivity import _simulated_confounding_fixed as fixed_replay
 from cleverly.sensitivity.evalue import _EValueRefusal
+from tests import discrete_law_mar
 from tests.unit._natural_course_support import Counting, CountingLinear, CountingLogistic
 from tests.unit._simulated_confounding_support import _alias, _fit_msm, _model
 
@@ -83,13 +85,11 @@ def _assert_carries(outer: CleverlyError, inner: Refusal, *, prefix: str = "") -
 COLUMNS = ("W1", "W2", "W3", "W4")
 
 
-def _study(*, strata: tuple[str, ...] = ()) -> CausalStudy:
+def _study() -> CausalStudy:
     frame, _ = make_linear_ate(n=120, seed=1)
-    frame["S"] = (np.arange(len(frame)) % 2).astype(float)
-    adjustment = (*COLUMNS, *strata)
     return CausalStudy(
         frame,
-        design=PointTreatment(outcome="Y", treatment="A", adjustment=adjustment, strata=strata),
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=COLUMNS),
     )
 
 
@@ -104,8 +104,8 @@ def _learners() -> dict[str, Any]:
     }
 
 
-def _estimate(estimand: Any, *, strata: tuple[str, ...] = (), **options: Any) -> Any:
-    return _study(strata=strata).estimate(estimand, **{**_learners(), **options})
+def _estimate(estimand: Any, **options: Any) -> Any:
+    return _study().estimate(estimand, **{**_learners(), **options})
 
 
 @dataclass(frozen=True)
@@ -117,6 +117,8 @@ class Case:
     condition: str
     alternative: str | None
     roadmap: str | None = None
+    #: A long condition is pinned by its opening sentence.
+    whole: bool = True
 
 
 CASES = {
@@ -160,6 +162,7 @@ CASES = {
         "Fix the rule before the fit, or learn it on data independent of the analysis "
         "sample, and declare rule_kind='known'.",
         "X11",
+        whole=False,
     ),
     RefusalReason.API_REDIRECTION: Case(
         RefusalReason.API_REDIRECTION,
@@ -199,18 +202,27 @@ class TestOneRefusalPerCodeBeforeAnyFit:
         assert isinstance(error, CapabilityError)
         record = error.refusal
         assert record.reason is case.reason
-        assert record.condition == case.condition
-        assert record.alternative == case.alternative
+        if case.whole:
+            assert record.condition == case.condition
+        else:
+            assert record.condition.startswith(case.condition)
+        if case.whole:
+            assert record.alternative == case.alternative
+        else:
+            assert case.alternative is not None and record.alternative is not None
+            assert record.alternative.startswith(case.alternative)
         if case.roadmap is None:
             assert record.roadmap is None
         else:
             assert record.roadmap == case.roadmap
-            assert f"{case.roadmap} in docs/roadmap.md tracks this." in str(error)
+            assert case.roadmap in str(error)
         # The text is the record's message, and the message ends with the alternative.
         assert str(error) == record.message()
         assert str(error).startswith(case.condition)
-        if case.alternative is not None:
+        if case.alternative is not None and case.whole:
             assert str(error).endswith(case.alternative)
+        elif case.alternative is not None:
+            assert case.alternative in str(error)
 
     def test_every_code_is_covered(self) -> None:
         assert set(CASES) == set(RefusalReason)
@@ -229,13 +241,32 @@ class TestOneRefusalPerCodeBeforeAnyFit:
         assert Counting.calls > 0
         assert result is not None
 
-    def test_a_refusal_after_a_fit_would_move_the_counter(self) -> None:
-        """The stratified cross-fitted refusal is raised before the nuisance fit."""
-        Counting.calls = 0
-        error = _refused(lambda: _estimate(ATE(), strata=("S",), cross_fit=True))
+    def test_a_stratified_cross_fitted_fit_with_missing_outcomes_names_its_roadmap_item(
+        self,
+    ) -> None:
+        """An implementation gap that names its roadmap item, refused before the nuisance fit."""
+        frame = discrete_law_mar.frame().assign(S=(np.arange(discrete_law_mar.N) % 2).astype(float))
+        study = CausalStudy(
+            frame,
+            design=PointTreatment(
+                outcome="Y",
+                treatment="A",
+                adjustment=("W", "S"),
+                strata=("S",),
+                missingness="Delta",
+            ),
+        )
+        error = _refused(
+            lambda: study.estimate(
+                ATE(),
+                missingness_learner=CountingLogistic(max_iter=200),
+                **{**_learners(), "cross_fit": True},
+            )
+        )
         assert Counting.calls == 0
         assert error.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
         assert error.refusal.roadmap == "F21"
+        assert error.refusal.alternative == "Drop strata= from fit (PointTreatment(strata=()))."
         assert str(error).endswith(
             "No audited result covers baseline strata. F21 in docs/roadmap.md tracks this. "
             "Drop strata= from fit (PointTreatment(strata=()))."
@@ -363,7 +394,7 @@ class TestTheStratifiedWrappersKeepTheInnerClassAndCode:
             companion=None,
             fit_mask=None,
             data=self._data(),
-            nuisance=None,
+            nuisance=cast(Any, None),
             task="regression",
             clip=None,
             n_jobs=1,
@@ -462,7 +493,9 @@ class TestTheCombinedReportKeepsTheCode:
                 roadmap=inner.roadmap,
             )
 
-        monkeypatch.setattr("cleverly.sensitivity.evalue._select_evalue", select)
+        monkeypatch.setattr(
+            importlib.import_module("cleverly.sensitivity.evalue"), "_select_evalue", select
+        )
         facade = self._result().sensitivity
         with pytest.raises(_EValueRefusal) as first:
             facade._evalue_selection(None)

@@ -4332,8 +4332,9 @@ class SensitivityFacade(_CapabilityFacade):
         # longitudinal fit has no covariate list to check a name against, and its row
         # refuses every request.
         args, kwargs = _single_pass(args, kwargs)
-        bound = self._bind_arguments("benchmark", kwargs, partial=True, args=args)
-        _validate_benchmark_arguments(self._result, bound)
+        if _family(self._result) != "longitudinal":
+            bound = self._bind_arguments("benchmark", kwargs, partial=True, args=args)
+            _validate_benchmark_arguments(self._result, bound)
         return self._dispatch("benchmark", args, kwargs)
 
     def contour(self, *args: Any, **kwargs: Any) -> Any:
