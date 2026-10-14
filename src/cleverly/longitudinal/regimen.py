@@ -1016,7 +1016,7 @@ def refuse_continuous_assignments(regimen: RegimenSpec, data: LongitudinalData) 
     nodes = regimen.values if isinstance(regimen, Regimen) else regimen.plan
     for time, node in enumerate(nodes, start=1):
         kind = data.node_kind(time)
-        name = data.treatment_names[time - 1]
+        name = data.decision_name(time)
         if isinstance(node, JointPolicy):
             if kind == "mixed" or len(data.component_names(time)) > 1:
                 continue
