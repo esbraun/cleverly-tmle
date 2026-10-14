@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from datetime import date
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -75,6 +76,10 @@ class PanelLayout:
         The unit-level weight column.
     omitted : tuple of tuple of (str, int)
         Each time-varying column and node that the leading run of missing values left out.
+    treatment_probabilities : tuple of tuple or None
+        The ``(level, column)`` pairs of a known treatment mechanism.
+    censoring_probabilities : str or None
+        The column of the known retention probabilities.
     """
 
     unit: str
@@ -91,6 +96,8 @@ class PanelLayout:
     cluster_labels: tuple[Any, ...] = ()
     weights: str | None = None
     omitted: tuple[tuple[str, int], ...] = field(default_factory=tuple)
+    treatment_probabilities: tuple[tuple[Any, str], ...] | None = None
+    censoring_probabilities: str | None = None
 
     def describe(self) -> str:
         """Return the settings line of a fit on an adapted panel.
@@ -228,6 +235,13 @@ def _sorted_unique(values: np.ndarray, name: str) -> tuple[np.ndarray, np.ndarra
     return labels, np.asarray(codes, dtype=np.int64).reshape(-1)
 
 
+def _orders_in_time(value: Any) -> bool:
+    """Whether a decision-time label sorts in time order: a number or a date."""
+    if isinstance(value, (bool, np.bool_)):
+        return False
+    return isinstance(value, (int, float, np.integer, np.floating, np.datetime64, date))
+
+
 def _label(value: Any) -> Any:
     """A numpy scalar as its Python value, so messages and layouts print plainly."""
     return value.item() if isinstance(value, np.generic) else value
@@ -283,13 +297,22 @@ def _index(frame: Any, unit: str, time: str, times: Sequence[Any] | None) -> _Pa
     unit_labels, unit_code = _sorted_unique(ids, unit)
     observed, node = _sorted_unique(stamps, time)
     if times is None:
+        # Sorting defines the node order, so it must be the time order.  Numbers and dates
+        # sort in time; labels such as "w1", "w10", "w2" do not, and would put a later
+        # node's covariates into an earlier node's history.
+        unordered = [_label(value) for value in observed if not _orders_in_time(value)]
+        if unordered:
+            raise DataError(
+                f"column {time!r} holds decision time(s) {unordered[:3]} that are not numbers "
+                "or dates, so their sort order need not be their time order. Pass times= with "
+                "every decision time in time order"
+            )
         grid = tuple(_label(value) for value in observed)
     else:
-        declared = [_label(value) for value in times]
-        ordered, _ = _sorted_unique(np.asarray(declared, dtype=object), "times=")
-        if len(ordered) != len(declared):
+        # A declared grid is taken in the order given: that order is the time order.
+        grid = tuple(_label(value) for value in times)
+        if len(set(grid)) != len(grid):
             raise DataError("times= lists a decision time more than once")
-        grid = tuple(_label(value) for value in ordered)
         position = {value: index for index, value in enumerate(grid)}
         unknown = [_label(value) for value in observed if _label(value) not in position]
         if unknown:
@@ -712,6 +735,14 @@ def from_long_panel(
         cluster_labels=cluster_labels,
         weights=weights,
         omitted=tuple(omitted),
+        treatment_probabilities=(
+            None
+            if treatment_probabilities is None
+            else tuple((level, str(column)) for level, column in treatment_probabilities.items())
+        ),
+        censoring_probabilities=(
+            None if censoring_probabilities is None else str(censoring_probabilities)
+        ),
     )
     return replace(built, panel=layout, unit_ids=panel.unit_labels)
 
@@ -733,18 +764,18 @@ def _refuse_outcome_copies(
     varies there, so a constant covariate is never mistaken for a copy of a constant outcome.
     """
     if y is not None:
-        observed = np.isfinite(y)
-        if observed.sum() > 1 and np.unique(y[observed]).size > 1:
-            target = y[panel.unit_code]
-            rows = np.isfinite(target)
-            for name in (*baseline, *varying):
-                values = column_array(frame, name)
-                if np.array_equal(values[rows], target[rows]):
-                    raise DataError(
-                        f"column {name!r} equals the outcome {outcome!r} on every unit whose "
-                        "outcome is recorded. It is the outcome under another name, and a rule "
-                        "could read it. Remove it from the covariates"
-                    )
+        # Compared on every row where both the covariate and its unit's outcome are
+        # recorded, so a copy kept on the last row only, or on the first, is caught too.
+        target = y[panel.unit_code]
+        for name in (*baseline, *varying):
+            values = column_array(frame, name)
+            rows = np.isfinite(values) & np.isfinite(target)
+            if np.unique(target[rows]).size > 1 and np.array_equal(values[rows], target[rows]):
+                raise DataError(
+                    f"column {name!r} equals the outcome {outcome!r} on every row where both are "
+                    "recorded. It is the outcome under another name, and a rule could read it. "
+                    "Remove it from the covariates"
+                )
     for event_name, values in zip(event_columns, events, strict=True):
         rows = np.isfinite(values)
         if rows.sum() < 2 or np.unique(values[rows]).size < 2:

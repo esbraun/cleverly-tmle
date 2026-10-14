@@ -1137,7 +1137,8 @@ class LongPanel:
         A survival event indicator on each row, or one column per competing cause.
         Declare exactly one of ``outcome`` and ``event``.
     times : sequence or None
-        The decision times.  ``None`` uses the times the panel holds.
+        Every decision time, in time order.  ``None`` uses the times the panel holds, sorted,
+        and needs numbers or dates.
     cluster : str or None
         Independent-cluster identifier, constant within a unit.
     weights : str or None
@@ -1286,12 +1287,22 @@ class LongPanel:
             ("event", event, layout.event),
             ("cluster", self.cluster, layout.cluster),
             ("weights", self.weights, layout.weights),
+            (
+                "treatment_probabilities",
+                self.treatment_probabilities,
+                layout.treatment_probabilities,
+            ),
+            (
+                "censoring_probabilities",
+                self.censoring_probabilities,
+                layout.censoring_probabilities,
+            ),
             ("weights_type", self.weights_type, data.weight_spec.kind),
             ("weights_estimated", self.weights_estimated, data.weight_spec.estimated),
             ("continuous_treatment", self.continuous_treatment, data.is_continuous_node(1)),
         )
         if self.times is not None:
-            expected += (("times", tuple(sorted(self.times)), layout.decision_times),)
+            expected += (("times", tuple(self.times), layout.decision_times),)
         if self.outcome_family != "auto":
             expected += (("outcome_family", self.outcome_family, data.family),)
         for role, declared, held in expected:

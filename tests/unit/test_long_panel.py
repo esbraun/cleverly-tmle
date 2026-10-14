@@ -703,3 +703,60 @@ def test_a_stochastic_closure_round_trips_in_process() -> None:
         restored.config.regimens[0].policy_density(restored.data, 1),
         regimen.policy_density(result.data, 1),
     )
+
+
+# ------------------------------------------------------------------ time order
+
+
+def _relabelled(labels: dict[int, str]) -> pd.DataFrame:
+    panel = long_panel(n=120)
+    panel["week"] = panel["week"].map(labels)
+    return panel
+
+
+def test_a_declared_grid_is_taken_in_the_order_given() -> None:
+    """Labels whose sort order is not their time order keep the declared order.
+
+    ``"jan" < "feb"`` is false alphabetically, so a grid that sorted the labels would put
+    February's engagement into January's history.
+    """
+    labels = {10: "jan", 20: "feb", 30: "mar"}
+    panel = _relabelled(labels)
+    data = build(panel, times=["jan", "feb", "mar"])
+    assert data.panel is not None and data.panel.decision_times == ("jan", "feb", "mar")
+    reference = build(long_panel(n=120))
+    for left, right in zip(data.time_varying, reference.time_varying, strict=True):
+        np.testing.assert_array_equal(left, right)
+    np.testing.assert_array_equal(data.treatment, reference.treatment)
+    back = data.to_long_panel()
+    assert list(back.loc[back["customer"] == back["customer"].iloc[0], "week"])[:2] == [
+        "jan",
+        "feb",
+    ]
+    design = LongPanel(**{**ROLES, "times": ["jan", "feb", "mar"]})
+    assert CausalStudy(data, design=design).data is data
+
+
+def test_labels_that_do_not_sort_in_time_need_a_declared_grid() -> None:
+    panel = _relabelled({10: "w1", 20: "w2", 30: "w10"})
+    _refused(panel, r"not numbers or dates.*Pass times=")
+    data = build(panel, times=["w1", "w2", "w10"])
+    assert data.panel is not None and data.panel.decision_times == ("w1", "w2", "w10")
+
+
+def test_dates_sort_in_time() -> None:
+    panel = long_panel(n=60)
+    panel["week"] = pd.to_datetime("2026-01-01") + pd.to_timedelta(panel["week"], unit="D")
+    data = build(panel)
+    assert data.panel is not None
+    assert [stamp.day for stamp in data.panel.decision_times] == [11, 21, 31]
+
+
+def test_refuses_an_outcome_copy_recorded_on_one_row_only() -> None:
+    panel = long_panel(n=120)
+    last = panel.groupby("customer")["week"].transform("max") == panel["week"]
+    panel["final"] = np.where(last, panel["bought"], np.nan)
+    _refused(panel, r"'final' equals the outcome", time_varying=["eng", "final"])
+    first = panel["week"] == 10
+    panel["early"] = np.where(first, panel["bought"], np.nan)
+    _refused(panel, r"'early' equals the outcome", baseline=["age", "early"])

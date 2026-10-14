@@ -1,10 +1,10 @@
-"""Whole-result persistence backed by joblib.
+"""Whole-result persistence in a joblib-readable gzip stream.
 
 The stored object includes the fitted result, its cached arrays, method configuration,
 and the unfitted nuisance-estimator templates retained by the estimator. Consequently a
 loaded result has the same refit capabilities as the object that was saved.
 
-An artifact is one gzip stream at compression level 3 that holds two joblib pickles in
+An artifact is one gzip stream at compression level 3 that holds two pickles in
 sequence. The first is a small header that records :data:`cleverly.__version__`. The
 second is the result, written by :mod:`cloudpickle`. It pickles an importable function or
 class by reference, as pickle does, and a lambda, a closure or an object defined in
