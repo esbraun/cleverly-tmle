@@ -61,10 +61,10 @@ combines the errors of :math:`K + 1` factors, and the density of dose :math:`k` 
 
 from __future__ import annotations
 
+import hashlib
 import warnings
 from collections.abc import Callable, Hashable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from functools import partial
 from typing import Any
 
 import numpy as np
@@ -76,6 +76,7 @@ from ..learners.crossfit import Folds
 from ..learners.density import (
     ConditionalDensity,
     DensityDiagnostics,
+    PredictionMemory,
     bin_edges,
     default_density_bins,
     fit_conditional_density,
@@ -615,27 +616,107 @@ def bound_cells(probabilities: FloatArray, bounds: tuple[float, float]) -> Float
 # ------------------------------------------------------------------ the evaluation
 
 
+@dataclass(frozen=True)
+class _Design:
+    """A conditioning design of one dose's density, kept as the columns it changes.
+
+    The design is :meth:`NodeLayout.dose_design`: the history, the categorical indicators
+    and the earlier doses.  The history is the fitted design's, so only the level codes and
+    the earlier doses are stored, and a fold builds its held-out rows on demand
+    (:class:`~cleverly.learners.density.DesignRows`).  A candidate cell's codes are stored as
+    one row, which every held-out row repeats, so a design holds no ``(n, q)`` array.
+    """
+
+    width: int
+    levels: tuple[int, ...]
+    codes: FloatArray
+    doses: FloatArray
+
+    @property
+    def nbytes(self) -> int:
+        """Bytes the design stores."""
+        return int(self.codes.nbytes + self.doses.nbytes)
+
+    def __call__(self, index: IntArray, fitted: FloatArray) -> FloatArray:
+        if self.codes.shape[0] == self.doses.shape[0]:
+            codes = self.codes[index]
+        else:
+            codes = np.repeat(self.codes, len(index), axis=0)
+        blocks = [arm_indicators(codes[:, j], count) for j, count in enumerate(self.levels)]
+        return np.column_stack([fitted[:, : self.width], *blocks, self.doses[index]])
+
+
+def _digest(values: FloatArray) -> str:
+    return hashlib.sha256(np.ascontiguousarray(values, dtype=float).tobytes()).hexdigest()
+
+
 @dataclass
 class _Requests:
-    """The conditioning designs and evaluation values each dose's density is asked for."""
+    """The conditioning designs and evaluation values each dose's density is asked for.
+
+    A design is keyed by its content: the candidate cell (or a digest of per-row codes)
+    and a digest of the earlier doses.  Two terms that condition on the same values share
+    one design, whichever cell, piece path, branch or evaluation asked for it.  A digest
+    match is confirmed by comparing the stored arrays.
+    """
 
     layout: NodeLayout
-    designs: list[dict[Hashable, FloatArray]]
+    designs: list[dict[Hashable, _Design]]
     values: list[dict[Hashable, list[FloatArray]]]
-    serial: int = 0
 
     def ask(
-        self, position: int, key: Hashable, design: Callable[[], FloatArray], at: FloatArray
+        self,
+        position: int,
+        codes: FloatArray,
+        doses: FloatArray,
+        at: FloatArray,
+        cell: tuple[int, ...] | None = None,
     ) -> tuple[int, Hashable, int]:
-        if key not in self.designs[position]:
-            self.designs[position][key] = design()
+        layout = self.layout
+        earlier = np.asarray(doses, dtype=float)[:, :position]
+        if cell is None:
+            stored = np.asarray(codes, dtype=float).reshape(layout.n, -1)
+            identity: Hashable = ("codes", _digest(stored))
+        else:
+            stored = np.asarray(cell, dtype=float).reshape(1, -1)
+            identity = ("cell", tuple(cell))
+        key: Hashable = (identity, _digest(earlier))
+        designs = self.designs[position]
+        while key in designs and not (
+            np.array_equal(designs[key].codes, stored)
+            and np.array_equal(designs[key].doses, earlier, equal_nan=True)
+        ):
+            key = (key, "collision")
+        if key not in designs:
+            designs[key] = _Design(
+                layout.conditioning.shape[1],
+                tuple(len(layout.components[index].levels) for index in layout.categorical),
+                stored,
+                np.array(earlier, dtype=float),
+            )
             self.values[position][key] = []
         self.values[position][key].append(np.asarray(at, dtype=float))
         return position, key, len(self.values[position][key]) - 1
 
-    def fresh(self) -> int:
-        self.serial += 1
-        return self.serial
+    def memory(self, position: int, n_bins: int, folds: Folds) -> PredictionMemory:
+        """What the designs and values of the dose at ``position`` hold while it is fitted."""
+        n = self.layout.n
+        stored = sum(design.nbytes for design in self.designs[position].values())
+        values = sum(8 * n * len(columns) for columns in self.values[position].values())
+        # The predictions are allocated up front and, across folds, also arrive at once.
+        predictions = values if folds.is_single else 2 * values
+        held_out = n if folds.is_single else max(int(test.size) for _, test in folds)
+        width = self.layout.conditioning.shape[1] + sum(
+            max(len(self.layout.components[index].levels) - 1, 1)
+            for index in self.layout.categorical
+        )
+        rows = 8 * held_out * (width + position + 2 * n_bins)
+        return PredictionMemory(
+            held=stored + values + predictions,
+            shipped=stored + values,
+            rows=rows,
+            kept=values,
+        )
 
 
 @dataclass(frozen=True)
@@ -756,15 +837,9 @@ def _enumerate(
             weight = np.where(hit, jacobian, 0.0)
             factors = []
             for position in range(len(doses)):
-                key: Hashable = (
-                    ("cell", cell_index) if position == 0 else ("path", requests.fresh())
-                )
                 factors.append(
                     requests.ask(
-                        position,
-                        key,
-                        partial(layout.dose_design, position, cell_codes, dose_values),
-                        dose_values[:, position],
+                        position, cell_codes, dose_values, dose_values[:, position], cell=cell
                     )
                 )
             terms.append(_Term(cell_index, weight, tuple(factors)))
@@ -920,14 +995,7 @@ def evaluate_joint_density(
         at = values[:, doses]
         factors = []
         for position in range(len(doses)):
-            factors.append(
-                requests.ask(
-                    position,
-                    ("value", e),
-                    partial(layout.dose_design, position, codes, at),
-                    at[:, position],
-                )
-            )
+            factors.append(requests.ask(position, codes, at, at[:, position]))
         observed_factors.append(tuple(factors))
 
     # Every dose's long table is checked before the first learner runs.
@@ -935,6 +1003,14 @@ def evaluate_joint_density(
         layout.dose_design(position, layout.natural[:, layout.categorical], natural_doses)
         for position in range(len(doses))
     ]
+    # The counterfactual designs and their values count too, with a copy per parallel
+    # worker: a node with many cells, pieces or policies holds more of them than tables.
+    bin_counts = []
+    for edges in dose_edges:
+        if edges is not None:
+            bin_counts.append(len(edges) - 1)
+        else:
+            bin_counts.append(default_density_bins(int(rows.sum())) if n_bins is None else n_bins)
     preflight_conditional_densities(
         learner,
         [(fit_designs[k].shape[1], natural_doses[:, k]) for k in range(len(doses))],
@@ -943,6 +1019,7 @@ def evaluate_joint_density(
         fit_mask=rows,
         n_jobs=n_jobs,
         names=[names[index] for index in doses],
+        predictions=[requests.memory(k, bin_counts[k], folds) for k in range(len(doses))],
     )
     # The categorical factor.
     observed_cells = layout.cell_codes(layout.natural[:, layout.categorical], cells)
@@ -993,7 +1070,9 @@ def evaluate_joint_density(
         )
         densities[names[index]] = density
         diagnostics[names[index]] = report
-        retained += density.bin_probabilities.nbytes
+        retained += density.bin_probabilities.nbytes + sum(
+            values.nbytes for values in predicted_values.values()
+        )
         evaluated.append(predicted_values)
 
     def product(factors: Sequence[tuple[int, Hashable, int]]) -> FloatArray:

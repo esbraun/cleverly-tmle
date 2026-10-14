@@ -1226,3 +1226,193 @@ def test_a_longitudinal_mixed_cell_a_training_fold_lacks_is_refused(estimator: A
     message = str(caught.value)
     assert "is missing level(s) ['cell (F2=1.0)']" in message
     assert "ratio='classifier'" in message
+
+
+# ------------------------------------------------------------------ design memory (review HIGH-2)
+
+
+def _design_heavy_node(n: int = 1200, width: int = 12, copies: int = 1) -> tuple[Any, ...]:
+    """A node of six cells and two capped doses, under three policies that set the flag.
+
+    Every policy moves both doses with a cap, so dose 2's density is asked for at many
+    counterfactual designs: candidate cell times the pieces of dose 1.  ``copies`` repeats
+    each policy under a new name, which asks for the same designs again.
+    """
+    from cleverly.interventions.joint_density import JointBranch, JointEvaluation, NodeLayout
+    from cleverly.interventions.policy import JointComponent, joint_assignments, joint_branches
+
+    rng = np.random.default_rng(0)
+    natural = np.column_stack(
+        [rng.integers(0, 2, n), rng.integers(0, 3, n), rng.normal(size=n), rng.normal(size=n)]
+    ).astype(float)
+    components = (
+        JointComponent("F", (0, 1)),
+        JointComponent("G", (0, 1, 2)),
+        JointComponent("D1"),
+        JointComponent("D2"),
+    )
+
+    def frame_with(extra: Any) -> pd.DataFrame:
+        return pd.DataFrame({key: np.asarray(value) for key, value in extra.items()})
+
+    policies = [
+        JointPolicy(
+            f"p{i}-{copy}",
+            components={
+                "F": SET_FLAG,
+                "D1": Shift(0.2 * (i + 1), cap=1.5),
+                "D2": Shift(0.1 * (i + 1), cap=1.5),
+            },
+            policy_kind="known",
+        )
+        for i in range(3)
+        for copy in range(copies)
+    ]
+    everyone = np.ones(n, dtype=bool)
+    layout = NodeLayout(
+        components, natural, everyone, frame_with, rng.normal(size=(n, width)), "node"
+    )
+    branches, assigned = [], []
+    for policy in policies:
+        ((_, mapping),) = joint_branches(policy)
+        branches.append(JointBranch(policy.name, mapping, policy.order))
+        ((_, values),) = joint_assignments(
+            policy, components, natural, frame_with, everyone, where="node"
+        )
+        assigned.append(values)
+    every = tuple(range(len(branches)))
+    evaluations = [JointEvaluation(natural, every)] + [
+        JointEvaluation(values, every) for values in assigned
+    ]
+    return layout, branches, evaluations
+
+
+SET_FLAG = ModifiedPolicy("flag", apply=set_flag, policy_kind="known")
+
+
+class _Stop(Exception):
+    pass
+
+
+def _record_preflight(monkeypatch: pytest.MonkeyPatch, **settings: Any) -> dict[str, Any]:
+    """Run the evaluator up to its preflight and return what the preflight is asked."""
+    from sklearn.linear_model import LogisticRegression
+
+    from cleverly.interventions import joint_density as jd
+    from cleverly.learners import Folds
+
+    recorded: dict[str, Any] = {}
+
+    def record(*args: Any, **kwargs: Any) -> None:
+        recorded.update(args=args, kwargs=kwargs)
+        raise _Stop
+
+    monkeypatch.setattr(jd, "preflight_conditional_densities", record)
+    layout, branches, evaluations = _design_heavy_node(**settings)
+    with pytest.raises(_Stop):
+        jd.evaluate_joint_density(
+            layout,
+            branches,
+            evaluations,
+            learner=LogisticRegression(),
+            weights=np.ones(layout.n),
+            folds=Folds(np.arange(layout.n) % 2, 2),
+            n_bins=8,
+        )
+    monkeypatch.undo()
+    return recorded
+
+
+def test_identical_counterfactual_designs_are_stored_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A second copy of every policy asks for the same designs and adds none.
+
+    Before the review a design was keyed by a fresh serial per term, so each copy stored
+    every design again: 1,069 MiB at n = 20,000 in the review's probe.
+    """
+    once = _record_preflight(monkeypatch)["kwargs"]["predictions"]
+    twice = _record_preflight(monkeypatch, copies=2)["kwargs"]["predictions"]
+    for single, double in zip(once, twice, strict=True):
+        # ``shipped`` is the stored columns plus the values, and ``kept`` the values.
+        # The stored columns do not grow; only the values asked at them do.
+        assert double.shipped - double.kept == single.shipped - single.kept
+        assert double.kept > single.kept
+
+
+def test_the_preflight_refuses_designs_the_tables_alone_would_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The counterfactual designs count toward the peak, and the refusal names a remedy.
+
+    The memory below fits every long table beside the earlier doses' bin probabilities,
+    and does not fit the designs and values of the doses besides.  The same check without
+    the designs passes, which is what the preflight did before the review.
+    """
+    from cleverly.exceptions import MethodConfigurationError
+    from cleverly.learners import density as density_module
+    from cleverly.learners.density import _grid, _table_size, preflight_conditional_densities
+
+    recorded = _record_preflight(monkeypatch)
+    learner, components, folds = recorded["args"]
+    kwargs = dict(recorded["kwargs"])
+    predictions = kwargs.pop("predictions")
+    tables, retained = [], 0
+    for n_covariates, dose in components:
+        grid = _grid(np.asarray(dose), None, 8, None, None)
+        records, columns, _ = _table_size(learner, n_covariates, grid, None)
+        tables.append(records * columns * 8 + retained)
+        retained += dose.size * grid.n_total * 8
+    designs = max(cost.peak(1) for cost in predictions)
+    assert designs > 0
+    free = max(tables) + designs // 2
+    monkeypatch.setattr(density_module, "available_memory", lambda: free)
+    preflight_conditional_densities(learner, components, folds, **kwargs)
+    with pytest.raises(MethodConfigurationError) as caught:
+        preflight_conditional_densities(
+            learner, components, folds, predictions=predictions, **kwargs
+        )
+    message = str(caught.value)
+    assert "of counterfactual designs" in message
+    assert "declare fewer policies or pieces at the node" in message
+
+
+def test_a_design_heavy_fit_refuses_before_any_learner(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The evaluator itself refuses, before the categorical factor or a hazard is fitted."""
+    from sklearn.linear_model import LogisticRegression
+
+    from cleverly.estimators import _nuisance
+    from cleverly.exceptions import MethodConfigurationError
+    from cleverly.interventions import joint_density as jd
+    from cleverly.learners import Folds
+    from cleverly.learners import density as density_module
+
+    recorded = _record_preflight(monkeypatch)
+    designs = max(cost.peak(1) for cost in recorded["kwargs"]["predictions"])
+
+    def refuse(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("a learner was fitted before the refusal")
+
+    monkeypatch.setattr(density_module, "available_memory", lambda: designs - 1)
+    monkeypatch.setattr(_nuisance, "cross_fit_predictions", refuse)
+    monkeypatch.setattr(density_module, "fit_learner", refuse)
+    layout, branches, evaluations = _design_heavy_node()
+    with pytest.raises(MethodConfigurationError, match="counterfactual designs"):
+        jd.evaluate_joint_density(
+            layout,
+            branches,
+            evaluations,
+            learner=LogisticRegression(),
+            weights=np.ones(layout.n),
+            folds=Folds(np.arange(layout.n) % 2, 2),
+            n_bins=8,
+        )
+
+
+def test_parallel_workers_each_count_a_copy_of_the_designs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With two fold fits at once, each worker holds the stored columns and the values."""
+    predictions = _record_preflight(monkeypatch)["kwargs"]["predictions"]
+    for cost in predictions:
+        assert cost.shipped > 0
+        assert cost.peak(2) == cost.held + 2 * cost.shipped + 2 * cost.rows
+        assert cost.peak(1) == cost.held + cost.rows
