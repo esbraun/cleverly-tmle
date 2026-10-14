@@ -5,8 +5,8 @@ estimator of Kim et al. (2021, Algorithm 1 and Theorem 5.1).  No maintained pack
 that construction with dropout, so the study has no comparator (``X19-plan.md`` 1.5).  The
 laws are ``C`` and ``D`` of :mod:`tests.discrete_law_longitudinal_incremental`: law ``A``
 with dropout after each arm, and a three-node survival law with the same dropout.  The plans
-tilt every node by :math:`\delta \in \{0.5, 1, 2\}`.  Two primary scenarios, both with five
-folds:
+tilt every node by :math:`\delta \in \{0.5, 1, 2\}`.  Four primary scenarios, two with one
+fold and two with five:
 
 ======================  =====================================================================
 scenario                law and estimands
@@ -22,8 +22,11 @@ scenario                law and estimands
 g-formula on the empirical cell frequencies, and its tilt is nonlinear in :math:`\hat\pi`.
 So it carries a bias of order (cells)/n, and its standardized bias falls as
 :math:`1/\sqrt n`.  The sizing probe measured about 0.2 at n = 8,000.  Kennedy (2019),
-Theorem 2, covers the one-fold interval because saturated cell means on a finite history set
-form a Donsker class.  The one-fold scenarios are therefore primary rows, sized by the same
+Algorithm 2 (Appendix 8.3), gives the one-fold interval under Donsker conditions.  Kim et al.
+(2021), Theorem 5.1, states the dropout result with sample splitting only.  The same Donsker
+argument extends it to one fold here: saturated cell means on a finite history set form a
+finite-dimensional class, and the remainder is a product of :math:`O_P(n^{-1/2})` errors.
+The one-fold scenarios are therefore primary rows, sized by the same
 rule as the five-fold ones.
 
 **Size** (declared before any run).  :data:`PRIMARY_N` is 80,000, not the plan's 2,000.  The

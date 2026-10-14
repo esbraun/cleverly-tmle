@@ -49,8 +49,10 @@ the independent-unit arm's SE-ratio interval lies below 0.80, and the pair's cov
 at least 0.03.  The design test computes the independent-unit arm's exact SE ratio, 0.60.
 ``censoring_complete_case`` publishes its bias beside the exact complete-case limit of
 :func:`complete_case_limit` and states no verdict.  The one-fold cells are gated like the
-cross-fitted ones: Kennedy (2019), Theorem 2, covers a one-fold fit when the nuisance class is
-Donsker, and saturated cell means on a finite history set are.
+cross-fitted ones.  Kennedy (2019), Algorithm 2 (Appendix 8.3), covers a one-fold fit when
+the nuisance class is Donsker, and saturated cell means on a finite history set are.  Kim et
+al. (2021), Theorem 5.1, states the dropout result with sample splitting; the same Donsker
+argument carries it to one fold.
 
 A replication that raises is not redrawn.  :func:`failure_probe` counts failed fits per fit
 set and records no estimate.  A raise in the declared run stops it; the failing cell then drops
@@ -115,8 +117,10 @@ CLUSTER_REPLICATES = 3_000
 #: (``tests/diagnostics/x19_sizing``, ``tests/unit/test_longitudinal_incremental_design.py``).
 COMPETING_N = 96_000
 #: The band draws of law ``D``.  They also carry the two survival calibration labels, which
-#: read an SE ratio of 0.98 at n = 16,000 and pass the calibration rule with probability
-#: 0.80 there and 0.92 here (``tests/unit/test_longitudinal_incremental_design.py``).
+#: read an SE ratio of 0.98 at n = 16,000.  At 3,000 replications each passes the calibration
+#: rule with probability 0.94 at 16,000 and 0.99 here.  The joint rule sets the size: with
+#: the band at 16,000, S2's calibration cells pass together with probability about 0.85
+#: (``tests/unit/test_longitudinal_incremental_design.py``).
 BAND_N = 48_000
 CLUSTER_SIZE = 10
 EFFICIENCY_RATIO_BAND = (0.90, 1.10)

@@ -93,6 +93,9 @@ SETS: dict[str, tuple[int, str, str, str, int, int]] = {
     # At 32,000 the tail is gone and the SE ratio reads 0.948 (MCSE about 0.02), so a second
     # reading at twice the size fixes the decay of the remaining deficit.
     "s2:law_dc@64000": (19, "s2", "property", "law_dc", 64_000, 1_000),
+    # The law-C calibration cells read SE ratios of 1.02 to 1.04 at 8,000 on 400 draws, which
+    # the projection clamps to 1, so a reading at the declared size checks that clamp.
+    "s2:law_c@16000": (20, "s2", "property", "law_c", 16_000, 600),
 }
 
 

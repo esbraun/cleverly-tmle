@@ -52,6 +52,7 @@ import pandas as pd
 import pytest
 from scipy.stats import binom, norm
 from scipy.stats import t as student
+from sklearn.dummy import DummyClassifier
 
 from tests import discrete_law_longitudinal_incremental as law
 from tests.studies import canonical_longitudinal_incremental as s1
@@ -652,6 +653,39 @@ def test_the_mechanism_term_control_falls_below_the_calibration_band() -> None:
 
 
 # ------------------------------------------------------------------- the S2 witnesses
+
+
+@pytest.mark.parametrize(
+    ("target", "name", "extra"),
+    [
+        (law.LAW_C, p2.CONTRAST_X2, {}),
+        (law.LAW_D, p2.SURVIVAL_X2, {"horizons": [3]}),
+    ],
+)
+def test_the_calibration_cells_see_the_censoring_factor(
+    target: Any, name: str, extra: dict
+) -> None:
+    """A deliberate mutation: no censoring model leaves the estimate and shrinks the SE.
+
+    The censoring factor of the curve barely moves the estimate, so the bias rows cannot see
+    it.  Without it the reported SE falls to about 0.86 of the correct one, below the
+    calibration band, so the calibration cells fail when the factor is lost.
+    """
+    frame = law.sample(target, 8_000, 5)
+    settings = {"n_folds": 5, "reference": s2.REFERENCE, **extra}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        correct = common.fit(frame, target, s2.PLANS, **settings)[name]
+        dropped = common.fit(
+            frame,
+            target,
+            s2.PLANS,
+            censoring_learner=DummyClassifier(strategy="constant", constant=1),
+            **settings,
+        )[name]
+    assert abs(float(dropped.psi) - float(correct.psi)) < 0.1 * float(correct.std_error)
+    ratio = float(dropped.std_error) / float(correct.std_error)
+    assert ratio < Margins().calibration_se_ratio[0] - 0.03
 
 
 def test_the_weight_is_informative() -> None:
