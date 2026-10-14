@@ -1392,8 +1392,8 @@ cancelled tilt factor and needs no such bound.
 | diagnostics | `diagnostics.support()` reports each tilt node's factor range, the mechanism term's share of the curve variance, and the share of $\hat\pi_t$ at exactly 0 or 1 | a tilt needs no positivity, so a degenerate $\hat\pi_t$ is reported and not warned |
 
 A survival risk curve from this estimator can be non-monotone across horizons. Each horizon is its
-own one-step average. [X14](../roadmap.md#x14-hazard-based-and-monotone-survival-curves) owns
-monotone curves.
+own one-step average. The hazard model and the isotonic projection are `LTMLE` settings, and
+`IPSIMethod` refuses them ([H12](scope-and-refusals.md#hazard-and-isotonic-survival-refusals)).
 
 ### IPSI refusals
 
