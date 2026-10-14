@@ -1174,13 +1174,39 @@ class TMLE:
 
         Parameters
         ----------
-        data:
+        data : Any
             A pandas or polars dataframe, or a prepared
             :class:`~cleverly.data.CausalData`.
-        outcome, treatment, covariates, delta, weights, id, intermediate:
-            Column names, when ``data`` is a dataframe.  ``covariates=None`` uses every
+        outcome : str or None
+            The outcome column, when ``data`` is a dataframe.
+        treatment : str or Sequence[str] or None
+            The treatment column, or a list of columns for a vector treatment, when
+            ``data`` is a dataframe.
+        covariates : Sequence[str] or None
+            The covariate columns, when ``data`` is a dataframe.  ``None`` uses every
             column not claimed by another role.
-        treatment_kind:
+        delta : str or None
+            The 0/1 column that is 1 where the outcome is observed, when ``data`` is a
+            dataframe.
+        weights : str or None
+            The weight column, when ``data`` is a dataframe.
+        weights_type : str
+            How to read ``weights``.  Supplying weights changes the estimand to the
+            causal parameter in the weight-tilted population -- see
+            :mod:`cleverly.data.weighting` and
+            :meth:`~cleverly.data.CausalData.from_frame`.
+        weights_estimated : bool
+            Declare that the weights came out of a fitted model.  See
+            :meth:`~cleverly.data.CausalData.from_frame`.
+        id : str or None
+            The cluster identifier column, when ``data`` is a dataframe.
+        intermediate : str or None
+            The intermediate column of a controlled direct effect, when ``data`` is a
+            dataframe.
+        strata : Sequence[str] or None
+            The columns of a finite baseline partition for conditional target
+            parameters, when ``data`` is a dataframe.
+        treatment_kind : TreatmentKind or None
             ``"discrete"`` to code the treatment column into arms, ``"continuous"`` to
             keep its own values and model it with a conditional density.  ``None``
             follows ``policies=``: a modified treatment policy moves a dose and names no
@@ -1191,21 +1217,16 @@ class TMLE:
             :class:`~cleverly.data.CausalData` refuses to guess from the level count for
             exactly that reason.  Pass this explicitly to override, including to get the
             arm-coded refusal for a ``policies=`` fit on a treatment that really has arms.
-        weights_type, weights_estimated:
-            How to read ``weights``.  Supplying weights changes the estimand to the
-            causal parameter in the weight-tilted population -- see
-            :mod:`cleverly.data.weighting` and
-            :meth:`~cleverly.data.CausalData.from_frame`.
-        treatment_delta:
+        treatment_delta : str or None
             The 0/1 column that is 1 where the treatment is recorded, which declares a
             treatment missing at random.  The fit then runs the composite-indicator
             construction of :mod:`cleverly.estimators.composite` for the arm means and
             their contrasts, in sample.  See :meth:`~cleverly.data.CausalData.from_frame`.
-        continuous_treatment:
+        continuous_treatment : Sequence[str]
             The dose columns of a vector ``treatment=[...]``.  A vector with a dose column
             is fitted with ``policies=`` of :class:`~cleverly.interventions.JointPolicy`
             only, on either ``ratio`` route.  See :meth:`~cleverly.data.CausalData.from_frame`.
-        treatment_probabilities:
+        treatment_probabilities : Any
             The known treatment mechanism ``P(A = a | W)`` of a randomized design.  The fit
             then divides by it in place of an estimate and fits no treatment learner.  The
             preferred form maps each level to the frame column that holds its probability,

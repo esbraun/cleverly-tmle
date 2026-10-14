@@ -334,7 +334,11 @@ class CausalData:
 
         Parameters
         ----------
-        treatment:
+        data : Any
+            A pandas or polars dataframe.
+        outcome : str
+            The outcome column.
+        treatment : str or Sequence[str]
             The treatment column, or a list of columns for a vector treatment.  A vector
             of categorical columns is one categorical treatment over the observed tuples of
             its columns: its levels are the tuples, at most
@@ -342,34 +346,49 @@ class CausalData:
             categorical estimand reads them.  A vector with a column named in
             ``continuous_treatment`` is fitted by ``TMLE(policies=[JointPolicy(...)])``
             only, on either ``ratio`` route.
-        continuous_treatment:
-            The columns of a vector ``treatment`` that hold a continuous dose.  A treatment
-            of one column declares a dose with ``treatment_kind="continuous"`` instead.
-        weights_type:
+        covariates : Sequence[str] or None
+            The covariate columns.  ``None`` uses every column not claimed by another role.
+        delta : str or None
+            The 0/1 column that is 1 where the outcome is observed, which declares an
+            outcome missing at random.
+        weights : str or None
+            The weight column.
+        weights_type : str
             How to read ``weights``.  ``"probability"`` (also ``"sampling"``,
             ``"survey"``, ``"design"``) is the supported reading: the weights encode a
             tilt of the population, and the sample size is still the number of rows.
             ``"frequency"`` -- counts of identical units -- is a different experiment and
             is refused with instructions rather than silently mis-analysed.
-        weights_estimated:
+        weights_estimated : bool
             Declare that the weights came out of a fitted model.  Changes no number; it
             makes the reports state that the intervals condition on the estimated
             weights.  See :mod:`cleverly.data.weighting`.
-        treatment_kind:
+        id : str or None
+            The cluster identifier column.  Rows that share an identifier are one
+            independent unit.
+        intermediate : str or None
+            The intermediate column of a controlled direct effect.
+        strata : Sequence[str] or None
+            The columns of a finite baseline partition for conditional target
+            parameters.  The columns stay in the adjustment set.
+        family : str
+            The outcome family: ``"auto"``, ``"gaussian"`` or ``"binomial"``.
+            ``"auto"`` infers it from the observed outcome values.
+        treatment_kind : TreatmentKind or None
             ``"continuous"`` reads the treatment as a quantity on a continuum rather than
             as a set of arms.  It is a declaration rather than something inferred: a dose
             recorded at fifteen distinct values could reasonably be either, and guessing
             from the number of levels would silently change the estimand when a new batch
             of data happened to add a sixteenth.  ``None`` is ``"discrete"``.  A vector
             ``treatment`` refuses it and reads ``continuous_treatment`` instead.
-        treatment_delta:
+        treatment_delta : str or None
             The 0/1 column that is 1 where the treatment is recorded.  It declares a
             treatment missing at random, as ``delta=`` declares an outcome missing at
             random.  The treatment column may then be missing on the rows where this is 0,
             and a value it holds there is ignored.  A missing treatment is never inferred
             from a missing value, so an accidental gap cannot start a missing-data
             analysis.
-        treatment_probabilities:
+        treatment_probabilities : Any
             The known treatment mechanism of the design, ``P(A = a | W)``, which every fit
             then divides by in place of an estimate.  The preferred form maps each treatment
             level to the column that holds its probability, ``{"active": "p_active",
@@ -380,6 +399,14 @@ class CausalData:
             declaration is the mechanism of the weight-tilted law, which equals the design
             mechanism when the weights depend on ``W`` only.  See
             :mod:`cleverly.data.known_mechanism`.
+        continuous_treatment : Sequence[str]
+            The columns of a vector ``treatment`` that hold a continuous dose.  A treatment
+            of one column declares a dose with ``treatment_kind="continuous"`` instead.
+
+        Returns
+        -------
+        CausalData
+            The validated inputs.
         """
         if not is_dataframe(data):
             raise DataError(
