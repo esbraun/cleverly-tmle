@@ -216,15 +216,15 @@ theorem-backed. The fixture is now a pair of fits, and the second is asserted to
 pre-existing column inactive, so a bound-active verdict there can come only from the two new
 witnesses.
 
-**Numerical agreement with the canonical R package is not acceptance evidence, and never will be.**
+**Agreement with the canonical R package does not check the influence curve's form.**
 The influence curve's *provenance* is that its form was read off that package. Its *evidence* is
 that it has since been checked against Theorem 1's own appendices at a nonzero $Q_r$, and against a
 perturbation of the law where in each half of the union model the corrected curve is the efficient
 influence function row for row. These exact laws let the consistent nuisance separate every cell,
 so the conditioning term is zero on them. `tests/unit/test_conditioning_remainder_drtmle.py` adds
 a law where it is not. Agreement between two transcriptions of one source is evidence
-about the transcription. This is a
-[standing decision](../../architecture-invariants.md#validation-and-evidence) rather than a gap.
+about the transcription. A changed term keeps its independent check, as the
+[validation invariant](../../architecture-invariants.md#validation-and-evidence) states.
 
 **Solved scores do not establish nuisance consistency.** `score_check` used to sign a doubly-robust
 fit off with one verdict over three rows, two of which are the corrections. It now branches on

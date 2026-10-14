@@ -13,6 +13,10 @@ categorized API tables.
    cleverly.PointTreatment
    cleverly.LongitudinalTreatment
    cleverly.TimeToEvent
+   cleverly.LongPanel
+   cleverly.longitudinal.PanelLayout
+   cleverly.longitudinal.LongitudinalData.from_long_panel
+   cleverly.longitudinal.LongitudinalData.to_long_panel
    cleverly.Estimand
    cleverly.IdentificationProvider
    cleverly.ExplicitAdjustmentProvider
@@ -96,6 +100,8 @@ categorized API tables.
    cleverly.interventions.Rule
    cleverly.interventions.Stochastic
    cleverly.longitudinal.DynamicRegimen
+   cleverly.longitudinal.each_node
+   cleverly.longitudinal.NodeRule
    cleverly.interventions.LearnedRule
    cleverly.interventions.LearnedRuleRecord
    cleverly.interventions.RegimeSet
