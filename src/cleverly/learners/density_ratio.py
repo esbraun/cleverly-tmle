@@ -60,6 +60,7 @@ def classifier_ratio(
     groups: IntArray | None = None,
     n_jobs: int = 1,
     atoms: Sequence[float] = (),
+    assigned_by_fold: Sequence[Sequence[tuple[float, FloatArray]]] | None = None,
 ) -> list[FloatArray]:
     """Cross-fit :math:`\\hat r = \\hat u / (1 - \\hat u)` and evaluate it at given doses.
 
@@ -96,6 +97,10 @@ def classifier_ratio(
         the odds of the label can jump at an atom.  The odds are then the ratio with
         respect to Lebesgue plus counting measure on the atoms, which Section 5.4 allows
         for any common dominating measure.
+    assigned_by_fold : sequence or None
+        Per outer fold, the ``assigned`` blocks that fold's classifier stacks, in place of
+        ``assigned``: the map of a tuned cap fitted on that fold's training rows.  ``None``
+        stacks ``assigned`` in every fold.
 
     Returns
     -------
@@ -114,21 +119,30 @@ def classifier_ratio(
     w = np.asarray(weights, dtype=float).reshape(-1)
     mask = np.ones(n, dtype=bool) if fit_mask is None else np.asarray(fit_mask, dtype=bool)
     units = np.arange(n, dtype=np.int64) if groups is None else np.asarray(groups)
-    blocks = [(0.0, 1.0, a)] + [
-        (1.0, float(p), _with_atoms(_treatment_block(d, n, width, "an assigned dose"), declared))
-        for p, d in assigned
-    ]
+
+    def stack(pairs: Sequence[tuple[float, FloatArray]]) -> list[tuple[float, float, FloatArray]]:
+        return [(0.0, 1.0, a)] + [
+            (
+                1.0,
+                float(p),
+                _with_atoms(_treatment_block(d, n, width, "an assigned dose"), declared),
+            )
+            for p, d in pairs
+        ]
+
+    blocks = stack(assigned)
+    fold_blocks = None if assigned_by_fold is None else [stack(pairs) for pairs in assigned_by_fold]
     requests = [
         _with_atoms(_treatment_block(dose, n, width, "evaluate_at"), declared)
         for dose in evaluate_at
     ]
 
-    def fit_on(rows: IntArray) -> Learner:
+    def fit_on(rows: IntArray, stacked: list[tuple[float, float, FloatArray]] = blocks) -> Learner:
         keep = rows[mask[rows]]
-        design = np.vstack([np.column_stack([dose[keep], h[keep]]) for _, _, dose in blocks])
-        target = np.concatenate([np.full(keep.size, label) for label, _, _ in blocks])
-        weight = np.concatenate([w[keep] * share for _, share, _ in blocks])
-        unit = np.concatenate([units[keep] for _ in blocks])
+        design = np.vstack([np.column_stack([dose[keep], h[keep]]) for _, _, dose in stacked])
+        target = np.concatenate([np.full(keep.size, label) for label, _, _ in stacked])
+        weight = np.concatenate([w[keep] * share for _, share, _ in stacked])
+        unit = np.concatenate([units[keep] for _ in stacked])
         return fit_learner(learner, design, target, weight, groups=unit, warn_unweighted=False)
 
     def ratio_at(model: Learner, rows: IntArray) -> list[FloatArray]:
@@ -147,11 +161,14 @@ def classifier_ratio(
             target[:] = values
         return results
 
-    def run_fold(train: IntArray, test: IntArray) -> tuple[IntArray, list[FloatArray]]:
-        return test, ratio_at(fit_on(train), test)
+    def run_fold(fold: int, train: IntArray, test: IntArray) -> tuple[IntArray, list[FloatArray]]:
+        stacked = blocks if fold_blocks is None else fold_blocks[fold]
+        return test, ratio_at(fit_on(train, stacked), test)
 
     for test, parts in map_parallel(
-        run_fold, [(train, test) for train, test in folds], n_jobs=n_jobs
+        run_fold,
+        [(fold, train, test) for fold, (train, test) in enumerate(folds)],
+        n_jobs=n_jobs,
     ):
         for target, column in zip(results, parts, strict=True):
             target[test] = column
