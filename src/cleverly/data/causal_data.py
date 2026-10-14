@@ -301,6 +301,13 @@ class CausalData:
     #: categorical component's level code and a continuous component's dose.  ``None`` on
     #: every other treatment.  :attr:`treatment` is then ``NaN`` on every row.
     treatment_components: FloatArray | None = None
+    #: The declared conditional support of a continuous dose, a
+    #: :class:`~cleverly.interventions.Support`, or ``None``.  A policy fit refuses, before
+    #: any learner, an observed dose outside it and a policy that assigns a dose outside it.
+    treatment_support: Any = None
+    #: The declared atoms of a continuous dose: the doses with a recorded point mass.  The
+    #: policy ratio is then taken against Lebesgue plus counting measure on these doses.
+    dose_atoms: tuple[float, ...] = ()
 
     # ------------------------------------------------------------------ build
 
@@ -1080,7 +1087,16 @@ class CausalData:
         self._refuse_vector("treatment_block")
         c = np.asarray(codes, dtype=float).reshape(-1)
         if self.is_continuous_treatment:
-            return c.reshape(-1, 1)
+            if not self.dose_atoms:
+                return c.reshape(-1, 1)
+            # A dose with declared atoms adds the indicator of each atom, read from the
+            # values given: the assigned dose in a counterfactual design.  A regression on a
+            # positive-mass cell can then differ from its limit beside the atom.
+            columns = [c]
+            for atom in self.dose_atoms:
+                tolerance = 1e-12 * max(1.0, abs(float(atom)))
+                columns.append((np.abs(c - float(atom)) <= tolerance).astype(float))
+            return np.column_stack(columns)
         return arm_indicators(c, self.n_arms)
 
     def component_design(self, values: FloatArray | None = None) -> FloatArray:
@@ -1335,6 +1351,51 @@ class CausalData:
                 None if self.treatment_components is None else self.treatment_components[idx]
             ),
         )
+
+    def with_dose_declarations(
+        self, treatment_support: Any = None, dose_atoms: Sequence[float] = ()
+    ) -> CausalData:
+        """Return a copy that declares the support and the atoms of a continuous dose.
+
+        :meth:`cleverly.TMLE.fit` calls this with its ``treatment_support=`` and
+        ``dose_atoms=``.
+
+        Parameters
+        ----------
+        treatment_support : Support or None
+            The declared conditional support of the dose.
+        dose_atoms : sequence of float
+            The doses with a recorded point mass.
+
+        Returns
+        -------
+        CausalData
+            The same data with the declarations attached.
+
+        Raises
+        ------
+        DataError
+            If the treatment is not one continuous dose, or an atom is not finite or is
+            declared twice.
+        """
+        from ..interventions.policy import Support
+
+        atoms = tuple(float(atom) for atom in dose_atoms)
+        if treatment_support is None and not atoms:
+            return self
+        if not self.is_continuous_treatment or self.treatment_kind == "vector":
+            raise DataError(
+                "treatment_support= and dose_atoms= declare the support and the point masses "
+                f"of one continuous dose, and {self.treatment_name!r} is not one. Declare "
+                "treatment_kind='continuous'"
+            )
+        if treatment_support is not None and not isinstance(treatment_support, Support):
+            raise DataError(
+                f"treatment_support= takes a Support(lower, upper); got {treatment_support!r}"
+            )
+        if not all(np.isfinite(atom) for atom in atoms) or len(set(atoms)) != len(atoms):
+            raise DataError(f"dose_atoms= holds distinct finite doses; got {list(atoms)!r}")
+        return replace(self, treatment_support=treatment_support, dose_atoms=tuple(sorted(atoms)))
 
     def with_known_mechanism(self, treatment_probabilities: Any) -> CausalData:
         """Return a copy that declares the treatment mechanism known.

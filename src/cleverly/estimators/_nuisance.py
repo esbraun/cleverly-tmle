@@ -35,7 +35,7 @@ from ..data.causal_data import CausalData
 from ..exceptions import CapabilityError
 from ..fluctuation.iterative import Fluctuation, InitialFit
 from ..interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet
-from ..interventions.policy import vector_route_refusal
+from ..interventions.policy import check_declared_atoms, vector_route_refusal
 from ..learners._fitting import (
     Task,
     as_target,
@@ -44,7 +44,7 @@ from ..learners._fitting import (
     predict_probabilities,
 )
 from ..learners.crossfit import _IN_SAMPLE_REMEDY, _POST_DRAW_REMEDY, Folds
-from ..learners.density import ConditionalDensity, fit_conditional_density
+from ..learners.density import ConditionalDensity, MixedDensity, fit_conditional_density
 from ..learners.screeners import CorrelationScreener
 from ..learners.super_learner import SuperLearnerDiagnostics
 from ..msm import MSMSet
@@ -535,7 +535,7 @@ class NuisanceEstimates:
     #: every row and every bin, or ``None`` when the treatment has arms.  This is the
     #: mechanism half of double robustness there, standing where ``propensity`` stands
     #: for a discrete treatment.
-    density: ConditionalDensity | None = None
+    density: ConditionalDensity | MixedDensity | None = None
     #: The shifts this fit targets, evaluated against ``density``, or ``None`` for a fit
     #: that declared none.  Carried for the reason ``regimes`` is, and built *inside*
     #: :func:`fit_nuisances` rather than beside it -- unlike a regime, a shift's clever
@@ -1143,6 +1143,119 @@ def _requested_levels(
     return tuple(ordered)
 
 
+def fit_mixed_density(
+    learner: Learner,
+    covariates: FloatArray,
+    treatment: FloatArray,
+    weights: FloatArray,
+    folds: Folds,
+    *,
+    atoms: Sequence[float],
+    n_bins: int | None = None,
+    edges: Sequence[float] | None = None,
+    groups: IntArray | None = None,
+    n_jobs: int = 1,
+    fit_mask: BoolArray | None = None,
+    edge_rows: BoolArray | None = None,
+) -> tuple[MixedDensity, dict[str, Any]]:
+    r"""Cross-fit the law of a dose with declared atoms, out of fold.
+
+    Two fits on the same folds.  A multinomial classifier of "which declared atom, or
+    none" gives :math:`p_k(h) = P(A = a_k \mid h)`, as at a categorical node.  The pooled-
+    hazard density of :func:`~cleverly.learners.density.fit_conditional_density` on the
+    rows that hold no atom gives :math:`f(a \mid h)`.  A dose whose every row is an atom
+    fits no density.
+
+    Parameters
+    ----------
+    learner : Learner
+        The treatment learner, a classifier.
+    covariates : ndarray
+        ``(n, p)`` conditioning design.
+    treatment : ndarray
+        ``(n,)`` observed dose.
+    weights : ndarray
+        ``(n,)`` observation weights.
+    folds : Folds
+        The outer split.
+    atoms : sequence of float
+        The declared atoms.
+    n_bins : int or None
+        The bin count of the continuous part, or ``None`` for the default.
+    edges : sequence of float or None
+        Bin edges of the continuous part, or ``None`` to read them from the rows.
+    groups : ndarray or None
+        Cluster codes for the inner folds.
+    n_jobs : int
+        Parallel workers across the outer folds.
+    fit_mask : ndarray or None
+        The rows the fits train on.
+    edge_rows : ndarray or None
+        The rows the default bin edges are read from, when they differ from ``fit_mask``.
+
+    Returns
+    -------
+    MixedDensity
+        The fitted law, evaluated at every row.
+    dict
+        The diagnostics of both fits.
+    """
+    from ..interventions.policy import _atom_index
+
+    a = np.asarray(treatment, dtype=float).reshape(-1)
+    declared = tuple(float(atom) for atom in atoms)
+    eligible = np.ones(a.size, dtype=bool) if fit_mask is None else np.asarray(fit_mask, bool)
+    index = _atom_index(a, declared)
+    none = eligible & (index < 0)
+    label = np.where(index >= 0, index + 1, 0).astype(float)
+    classes = tuple(float(k) for k in range(len(declared) + 1))
+    if not none.any():
+        classes = classes[1:]
+    predictions, classifier_diagnostics = cross_fit_predictions(
+        learner,
+        covariates,
+        label,
+        weights,
+        folds,
+        task="classification",
+        predict_designs={"atoms": covariates},
+        fit_mask=fit_mask,
+        groups=groups,
+        clip=(0.0, 1.0),
+        classes=classes,
+        n_jobs=n_jobs,
+    )
+    probabilities = np.asarray(predictions["atoms"], dtype=float)
+    atom_probabilities = probabilities[:, 1:] if none.any() else probabilities
+    continuous: ConditionalDensity | None = None
+    continuous_diagnostics = None
+    if none.any():
+        grid = edges
+        if grid is None and edge_rows is not None:
+            from ..learners.density import bin_edges, default_density_bins
+
+            source = a[np.asarray(edge_rows, bool) & (index < 0)]
+            bins = default_density_bins(source.size) if n_bins is None else n_bins
+            grid = bin_edges(source, bins).tolist()
+        continuous, continuous_diagnostics = fit_conditional_density(
+            learner,
+            covariates,
+            a,
+            weights,
+            folds,
+            n_bins=n_bins,
+            edges=grid,
+            groups=groups,
+            n_jobs=n_jobs,
+            fit_mask=none,
+        )
+    return MixedDensity(declared, atom_probabilities, continuous), {
+        "atoms": declared,
+        "atom_classifier": classifier_diagnostics,
+        "continuous": continuous_diagnostics,
+    }
+
+
 def fit_nuisances(
     data: CausalData,
     *,
@@ -1256,7 +1369,7 @@ def fit_nuisances(
     )
     # A vector treatment with a continuous component has no arms; see ``vector`` above.
     arms = () if vector else data.arm_codes
-    density: ConditionalDensity | None = None
+    density: ConditionalDensity | MixedDensity | None = None
     policy_set: PolicySet | None = None
     ipsi_set: IPSISet | None = None
     if vector and policy_ratio != "classifier":
@@ -1277,6 +1390,14 @@ def fit_nuisances(
         # The classifier route of Diaz et al. (2023), Section 5.4: no density is fitted, and
         # each policy's ratio is the odds of a stacked label.  The classifier is
         # ``treatment_learner``, cross-fitted on the same folds every other nuisance uses.
+        if data.dose_atoms:
+            check_declared_atoms(
+                data.treatment,
+                np.ones(data.n, dtype=bool),
+                data.dose_atoms,
+                folds,
+                node=data.treatment_name,
+            )
         propensity = Propensity(np.zeros((data.n, 0)), ())
         policy_set = PolicySet.evaluate_by_classifier(
             tuple(policies),
@@ -1292,16 +1413,37 @@ def fit_nuisances(
         # factorises the density into bin hazards, each a conditional probability of a
         # binary event, so the classifier in treatment_learner= estimates all of them at
         # once. The propensity below is an (n, 0) placeholder; see NuisanceEstimates.
-        density, density_diagnostics = fit_conditional_density(
-            treatment_model,
-            data.covariates,
-            data.treatment,
-            data.weights,
-            folds,
-            n_bins=density_bins,
-            groups=groups,
-            n_jobs=n_jobs,
-        )
+        if data.dose_atoms:
+            check_declared_atoms(
+                data.treatment,
+                np.ones(data.n, dtype=bool),
+                data.dose_atoms,
+                folds,
+                node=data.treatment_name,
+            )
+            density_diagnostics: Any
+            density, density_diagnostics = fit_mixed_density(
+                treatment_model,
+                data.covariates,
+                data.treatment,
+                data.weights,
+                folds,
+                atoms=data.dose_atoms,
+                n_bins=density_bins,
+                groups=groups,
+                n_jobs=n_jobs,
+            )
+        else:
+            density, density_diagnostics = fit_conditional_density(
+                treatment_model,
+                data.covariates,
+                data.treatment,
+                data.weights,
+                folds,
+                n_bins=density_bins,
+                groups=groups,
+                n_jobs=n_jobs,
+            )
         diagnostics["density"] = density_diagnostics
         propensity = Propensity(np.zeros((data.n, 0)), ())
         if policies:

@@ -167,6 +167,7 @@ from ..interventions import (
     PolicySet,
     RegimeSet,
     RiskRatioTilt,
+    Support,
     as_interventions,
 )
 from ..interventions.base import refuse_mixed_interventions, refuse_regime_densities
@@ -182,6 +183,7 @@ from ..interventions.learned import (
 )
 from ..interventions.policy import (
     JointPolicy,
+    preflight_point_policies,
     refuse_policy_declarations,
     vector_msm_refusal,
     vector_route_refusal,
@@ -1169,6 +1171,8 @@ class TMLE:
         treatment_delta: str | None = None,
         treatment_probabilities: Any = None,
         continuous_treatment: Sequence[str] = (),
+        treatment_support: Support | None = None,
+        dose_atoms: Sequence[float] = (),
     ) -> TMLEResultSet:
         """Fit the estimator.
 
@@ -1226,6 +1230,17 @@ class TMLE:
             The dose columns of a vector ``treatment=[...]``.  A vector with a dose column
             is fitted with ``policies=`` of :class:`~cleverly.interventions.JointPolicy`
             only, on either ``ratio`` route.  See :meth:`~cleverly.data.CausalData.from_frame`.
+        treatment_support : Support or None
+            The declared conditional support of a continuous dose,
+            :class:`~cleverly.interventions.Support`.  The fit refuses, before any learner, an
+            observed dose outside it and a policy that assigns a row a dose outside it
+            (Díaz et al. 2023, Assumption 1).
+        dose_atoms : sequence of float
+            The doses with a recorded point mass, such as a list price.  The policy ratio
+            is then taken against Lebesgue plus counting measure on these doses, on both
+            ``ratio`` routes, and a piece may send an interval to one of them with
+            ``Piece(lower, upper, to_atom=value)``.  A dose with an undeclared point mass is
+            refused before any learner.
         treatment_probabilities : Any
             The known treatment mechanism ``P(A = a | W)`` of a randomized design.  The fit
             then divides by it in place of an estimate and fits no treatment learner.  The
@@ -1266,7 +1281,7 @@ class TMLE:
             treatment_delta=treatment_delta,
             treatment_probabilities=treatment_probabilities,
             continuous_treatment=continuous_treatment,
-        )
+        ).with_dose_declarations(treatment_support, dose_atoms)
         if not prepared.has_intermediate:
             return TMLEResultSet({None: self._fit_single(prepared, intermediate_value=None)})
 
@@ -3048,6 +3063,17 @@ class TMLE:
                     + ". It is lmtp's ipsi(), which keeps a treated unit treated with "
                     "probability delta and otherwise sets it to 0"
                 )
+        if data.is_continuous_treatment and self.policies:
+            # The declared support, the declared atoms and the undeclared-atom check, all
+            # before any learner (X40 parts (a) and (b)).
+            preflight_point_policies(
+                tuple(self.policies), data, ratio=self.ratio, density_bins=self.density_bins
+            )
+        elif data.treatment_support is not None or data.dose_atoms:
+            raise DataError(
+                "treatment_support= and dose_atoms= declare the dose a modified treatment "
+                "policy moves, so they need policies=[...]"
+            )
         if data.is_continuous_treatment and not self.policies and self.msm is None:
             # The suggested policy meets the F21 refusal of a cross-fitted fit with missing
             # outcomes, so that fit is told which fit estimates the natural course.  The
