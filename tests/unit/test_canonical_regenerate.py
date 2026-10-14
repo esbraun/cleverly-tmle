@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import inspect
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -336,8 +337,8 @@ def test_reporting_policy_publishes_failed_scientific_verdicts(
     regenerate.main(study, SimpleNamespace(FAILURE_BOUND=0.0), here=tmp_path)
 
 
-def _toy_properties(bad: set[int]) -> SimpleNamespace:
-    """A property module of one ``power`` cell of 20 replicates; ``bad`` fits are singular."""
+def _toy_properties(bad: set[int], *, bound: float = 0.0, replicates: int = 20) -> SimpleNamespace:
+    """A property module of one ``power`` cell; ``bad`` fits are singular."""
     from tests.studies.evidence import property_verdicts, replication
     from tests.studies.evidence.properties import REPLICATE_COLUMNS as PROPERTY_COLUMNS
 
@@ -355,7 +356,7 @@ def _toy_properties(bad: set[int]) -> SimpleNamespace:
             "role": "positive",
             "replicate": key[1],
             "n": 100,
-            "requested_replicates": 20,
+            "requested_replicates": replicates,
             "failed_replicates": 0,
             "truth": 0.0,
             "estimate": 0.5,
@@ -366,7 +367,7 @@ def _toy_properties(bad: set[int]) -> SimpleNamespace:
 
     def generate_property_rows(*, n_jobs: int) -> pd.DataFrame:
         values = replication.fit_properties(
-            [("c", replicate) for replicate in range(20)],
+            [("c", replicate) for replicate in range(replicates)],
             fit,
             cells_of=lambda key: ("power/c",),
             cell_of=lambda key: key[0],
@@ -382,7 +383,7 @@ def _toy_properties(bad: set[int]) -> SimpleNamespace:
         return property_verdicts.finish(summary, rates)
 
     return SimpleNamespace(
-        FAILURE_BOUND=0.0,
+        FAILURE_BOUND=bound,
         PROPERTY_WITNESS=replication.Witness("drawn index", float),
         generate_property_rows=generate_property_rows,
         summarize_properties=summarize_properties,
@@ -472,6 +473,95 @@ def test_a_property_failure_is_recorded_accounted_and_hashed(
     regenerate.main(study, _toy_properties(set()), here=tmp_path)
     assert not any((out / name).exists() for name in names)
     assert not set(names) & set(hashed[-1])
+
+
+def _property_driver(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> tuple[SimpleNamespace, argparse.Namespace, list[dict[str, Any]]]:
+    """A complete reporting run whose manifest calls are captured, for p29 and p36."""
+    record = dataclasses.replace(
+        fold_evaluated_cvtmle.STUDY, artifacts=tmp_path, publication_policy="reporting"
+    )
+    study = SimpleNamespace(
+        STUDY=record,
+        PRIMARY_REPLICATES=record.replicates,
+        PRIMARY_N=record.n,
+        CONFIGURATION={},
+    )
+    arguments = _arguments(tmp_path / "out", primary_only=False)
+    monkeypatch.setattr(regenerate, "_arguments", lambda *args: arguments)
+    monkeypatch.setattr(
+        regenerate,
+        "_python_phase",
+        lambda *args: regenerate._Phase(rows=_rows(record.implementation)),
+    )
+    monkeypatch.setattr(regenerate, "validate_replicates", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        regenerate, "summarize", lambda rows, truth_varies: pd.DataFrame({"summary": [1.0]})
+    )
+    monkeypatch.setattr(
+        regenerate,
+        "independent_performance_tests",
+        lambda *args, **kwargs: pd.DataFrame({"passed": [True]}),
+    )
+    monkeypatch.setattr(regenerate, "empty_equivalence", lambda: pd.DataFrame({"passed": []}))
+    manifests: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        regenerate,
+        "write_manifest",
+        lambda path, record, artifacts, **kwargs: manifests.append(kwargs["configuration"]),
+    )
+    return study, arguments, manifests
+
+
+def test_p29_a_failure_inside_the_bound_is_judged_by_its_legs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """P29: at bound 0.01, one failure of 100 is inside the allowance, never ``bound exceeded``.
+
+    The deliberate-mutation control is the same run at bound 0, which reads ``bound exceeded``.
+    """
+    from tests.studies.evidence import property_failures
+
+    study, arguments, manifests = _property_driver(monkeypatch, tmp_path)
+    out = arguments.output
+    regenerate.main(study, _toy_properties({7}, bound=0.01, replicates=100), here=tmp_path)
+    accounting = pd.read_csv(out / property_failures.PROPERTY_ACCOUNTING)
+    assert set(accounting["reason"]) <= {"within bound", "worst case fails"}
+    assert set(accounting["bound"]) == {0.01}
+    assert set(accounting["allowed"]) == {1}
+    assert manifests[-1]["property_failure_bound"] == 0.01
+
+    regenerate.main(study, _toy_properties({7}, bound=0.0, replicates=100), here=tmp_path)
+    accounting = pd.read_csv(out / property_failures.PROPERTY_ACCOUNTING)
+    assert set(accounting["reason"]) == {"bound exceeded"}
+    assert manifests[-1]["property_failure_bound"] == 0.0
+
+
+def test_p36_skip_properties_carries_the_committed_bound_or_its_absence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """P36: a ``--skip-properties`` run copies the committed key, never the module's bound."""
+    study, arguments, manifests = _property_driver(monkeypatch, tmp_path)
+    regenerate.main(study, _toy_properties(set()), here=tmp_path)
+    assert manifests[-1]["property_failure_bound"] == 0.0
+    committed = tmp_path / "committed"
+    committed.mkdir()
+    for name in ("property-replicates.csv.gz", "properties.csv"):
+        (committed / name).write_bytes((arguments.output / name).read_bytes())
+    arguments.skip_properties = True
+
+    regenerate.main(study, _toy_properties(set(), bound=0.01), here=committed)
+    assert "property_failure_bound" not in manifests[-1]
+
+    manifest = {"configuration": {"property_failure_bound": 0.0}}
+    (committed / "manifest.json").write_text(json.dumps(manifest))
+    regenerate.main(study, _toy_properties(set(), bound=0.01), here=committed)
+    assert manifests[-1]["property_failure_bound"] == 0.0
+
+    (committed / "manifest.json").write_text(json.dumps({"configuration": {}}))
+    regenerate.main(study, _toy_properties(set(), bound=0.01), here=committed)
+    assert "property_failure_bound" not in manifests[-1]
 
 
 def _stub_complete(

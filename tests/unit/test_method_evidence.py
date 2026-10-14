@@ -237,6 +237,31 @@ def _property_summary(slug: str) -> pd.DataFrame:
     )
 
 
+def property_bound_consistent(
+    configuration: dict[str, Any], bound: float, *, failures_recorded: bool
+) -> bool:
+    """Whether a manifest's ``property_failure_bound`` obeys rev 3 section 6.
+
+    Parameters
+    ----------
+    configuration : dict
+        The manifest's ``configuration``.
+    bound : float
+        The module's ``FAILURE_BOUND``.
+    failures_recorded : bool
+        Whether the study commits ``property-failures.csv``.
+
+    Returns
+    -------
+    bool
+        ``True`` when a stated key equals ``bound`` and the key is stated wherever failure
+        records are committed.
+    """
+    if "property_failure_bound" in configuration:
+        return float(configuration["property_failure_bound"]) == bound
+    return not failures_recorded
+
+
 def _cheap(study: StudyRecord) -> StudyRecord:
     margins = dataclasses.replace(study.margins, bootstrap_replicates=CONTROL_BOOTSTRAP)
     return dataclasses.replace(study, margins=margins)
@@ -340,11 +365,14 @@ class TestArtifacts:
             assert "failure_bound" not in configuration
         recorded = _recorded_failures(study)
         assert (recorded is None) == (not study.artifact(failures.ACCOUNTING).exists())
-        bound = float(study.properties().FAILURE_BOUND)
-        if bound:
-            assert configuration["property_failure_bound"] == bound
-        else:
-            assert "property_failure_bound" not in configuration
+        # Rev 3 section 6 (M1): a stated key equals the module's bound, and committed property
+        # failure records need the key.  A manifest without either is a run that lost nothing,
+        # written before the key existed or carried by ``--skip-properties``.
+        assert property_bound_consistent(
+            configuration,
+            float(study.properties().FAILURE_BOUND),
+            failures_recorded=study.artifact(property_failures.PROPERTY_FAILURES).exists(),
+        )
 
     def test_the_subject_side_is_identified_rather_than_described(self, study: StudyRecord) -> None:
         """``"working tree"`` names no run; a version and a revision name one.
@@ -2931,6 +2959,27 @@ def _verdict_families(module: Any) -> set[str]:
                 published.loc[published["role"] != property_verdicts.DIAGNOSTIC_ROLE, "property"]
             )
     return families
+
+
+@pytest.mark.parametrize(
+    ("configuration", "bound", "failures_recorded", "consistent"),
+    [
+        ({"property_failure_bound": 0.01}, 0.01, True, True),
+        ({"property_failure_bound": 0.0}, 0.0, False, True),
+        ({}, 0.01, False, True),
+        ({"property_failure_bound": 0.0}, 0.01, False, False),
+        ({"property_failure_bound": 0.01}, 0.0, True, False),
+        ({}, 0.01, True, False),
+    ],
+)
+def test_p36_the_manifest_bound_rule(
+    configuration: dict[str, Any], bound: float, failures_recorded: bool, consistent: bool
+) -> None:
+    """P36: a key present and unequal fails, and failure files without the key fail."""
+    assert (
+        property_bound_consistent(configuration, bound, failures_recorded=failures_recorded)
+        is consistent
+    )
 
 
 class TestDeclaredRules:

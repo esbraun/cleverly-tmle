@@ -1122,6 +1122,31 @@ def _property_artifacts(
     return None, ()
 
 
+#: The manifest configuration key that records the property phase's declared failure bound.
+PROPERTY_FAILURE_BOUND_KEY = "property_failure_bound"
+
+
+def _property_failure_bound(
+    properties: ModuleType, arguments: argparse.Namespace, here: Path
+) -> dict[str, float]:
+    """The manifest's ``property_failure_bound`` entry (RM39b2 rev 3 section 6, M1).
+
+    A property run writes the module's ``FAILURE_BOUND`` on every run, ``0.0`` included.  A
+    ``--skip-properties`` run reuses the committed property files, so it carries the committed
+    manifest's key, or its absence, and never reads the module: the module's bound may have
+    changed since those files were written.
+    """
+    if not arguments.skip_properties:
+        return {PROPERTY_FAILURE_BOUND_KEY: float(properties.FAILURE_BOUND)}
+    committed = here / "manifest.json"
+    if not committed.exists():
+        return {}
+    configuration = json.loads(committed.read_text()).get("configuration") or {}
+    if PROPERTY_FAILURE_BOUND_KEY not in configuration:
+        return {}
+    return {PROPERTY_FAILURE_BOUND_KEY: float(configuration[PROPERTY_FAILURE_BOUND_KEY])}
+
+
 def main(
     study: ModuleType,
     properties: ModuleType,
@@ -1297,7 +1322,6 @@ def _regenerate(
     # The list is complete only now: the property phase decides whether its failure files
     # exist.
     artifact_names = (*artifact_names, *property_failure_names)
-    bound = float(properties.FAILURE_BOUND)
 
     write_manifest(
         out / "manifest.json",
@@ -1307,7 +1331,7 @@ def _regenerate(
         reference_metadata=getattr(study, "REFERENCE_METADATA", None),
         configuration={
             **dict(study.CONFIGURATION or {}),
-            **({"property_failure_bound": bound} if bound else {}),
+            **_property_failure_bound(properties, arguments, here),
         },
     )
     context.completed = True

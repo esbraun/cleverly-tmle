@@ -579,9 +579,11 @@ def _payloads(budget: int | None) -> list[_Key]:
     return out
 
 
-#: The share of a cell's requested replications that the accounting lets a run lose.  Zero: a
-#: single lost replication turns the cell red (RM39 part b2, OQ-3).
-FAILURE_BOUND = 0.0
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
 
 #: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
 PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
