@@ -12,18 +12,56 @@ implementations fit the same GLM outcome model and the same propensity bounds, 0
 
 | scenario | Cleverly | R `ctmle` | selection folds |
 | --- | --- | --- | --- |
-| `binary_lasso` | lasso sequence on `STUDY_LAMBDAS` and the penalty 0 | `ctmleGlmnet`, `ctmletype = 1` | each side draws its own five folds |
+| `binary_lasso` | lasso sequence on `STUDY_LAMBDAS` and the penalty 0 | `ctmleGlmnet`, `ctmletype = 1` | the package's five unstratified selection folds, which R reads from the `selection_fold` column |
 | `binary_learners` | four declared lasso learners at `LEARNER_LAMBDAS` | `build_gn_seq`, then `ctmleGeneral`, `ctmletype = 1` | R's folds from `r_folds.csv.gz` |
 
-`run_ctmle_sequences.R` records four columns beyond the replicate schema. The driver writes them
+`run_ctmle_sequences.R` records nine columns beyond the replicate schema. The driver writes them
 to `r-selection.csv` and summarizes them in `r-selection-summary.csv`.
 
 | column | content |
 | --- | --- |
 | `best_k` | the candidate that R selects, 1-based |
-| `n_candidates` | the number of candidates that R scores |
+| `n_candidates` | the number of candidates that R's full-sample construction accepts |
 | `adapter_used` | whether the runner rebuilt a type-1 fit whose best candidate is the last one |
-| `path_min_lambda` | the smallest penalty of the default `glmnet` path, which `predict` clamps to |
+| `path_min_lambda` | the smallest penalty of the default `glmnet` path on all rows. The accepted refit and the evaluation read this path |
+| `path_min_lambda_fold_1` to `path_min_lambda_fold_5` | the smallest penalty of the default path on the rows outside R's fold `v`. The construction inside fold `v` scores its tries on this path |
+
+`predict(s = 0)` clamps the penalty 0 to the minimum of the path that it reads. The construction
+reads a path on its training rows (`functions_glmnet.R`, lines 132 to 135). R's fold `v` is the
+package's selection fold `v - 1`. The `binary_learners` rows hold no path minima.
+
+## Declared differences
+
+The two implementations differ in these ways. A red paired row is read against this list first.
+
+| difference | R `ctmle` | `cleverly` | scenarios |
+| --- | --- | --- | --- |
+| outcome refit | R does not refit the outcome inside a fold | the package refits the outcome inside each selection fold | both |
+| fluctuation inside a fold (quirk 2) | R refits `epsilon` on every row, then scores the validation rows | the fluctuation uses the training rows only | both |
+| `glmnet` in the evaluation (quirk 3) | R refits the path on every row | each fold fits its own training rows | `binary_lasso` |
+| penalty 0 (quirk 4) | `predict` clamps the penalty 0 to the path minimum. The path minima above record each clamp | the penalty 0 is solved exactly | `binary_lasso` |
+| construction criterion | the loss plus `var(D*)`, whatever `PEN` is (`functions_glmnet.R`, lines 172 to 177; `functions_general.R`, lines 65 to 72). The stop rule can bind | the loss only, because the study sets `penalty=False`. The stop rule does not bind | both |
+| construction penalty inside a fold (quirk 8) | `var(D*)` times `n_train / n` | no penalty | both |
+| terminal candidate | R reads the `cv` column of `SL.glm` | the package refits its terminal under the split | `binary_learners` |
+
+The study pairs `penalty=False` with `PEN = FALSE`, the convention of the selector study
+`canonical-ctmle-selector`. No package setting reproduces R's penalized construction together
+with R's unpenalized selection loss. `tests/unit/test_ctmle_sequence_witness.py` checks the
+penalized construction against R exactly.
+
+## Expected adapter rate
+
+The declaration expects R to need the type-1 adapter on at least one third of the
+`binary_lasso` replicates. The table gives the two estimates behind this expectation.
+
+| estimate | result | source |
+| --- | --- | --- |
+| the package selects the penalty 0 | 67 of 200 fits, 34% | `fit_cleverly` on `binary_lasso` replicates 800 to 999 of the study's seed stream. The run uses replicates 0 to 799 only |
+| R fails with the quirk-7 error | 9 of the 12 witness seeds that reached R | `search` in `tests/canonical/ctmle_sequence_witness/manifest.json`, on the witness law |
+
+Quirk 2 moves R's selection toward later indices. R's rate is therefore expected to be at or above
+the package's rate. `r-selection-summary.csv` reports the measured rate. The paired summary leaves
+out the adapter replicates.
 
 ## Declaration inputs
 

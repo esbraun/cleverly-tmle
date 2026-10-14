@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from cleverly.inference import influence_variance
 from cleverly.learners import _l1_logistic as l1
 from tests.canonical.ctmle_sequence_witness import harness
 from tests.canonical.ctmle_sequence_witness.regenerate import (
@@ -237,6 +238,31 @@ class TestCtmleGlmnet:
         )
         assert estimate == pytest.approx(float(facts["glmnet_est"]), abs=harness.GLM_TOLERANCE)
 
+    def test_the_plugin_variance_is_r_var_psi(
+        self,
+        chooser: Any,
+        lasso_path: harness.Path,
+        internal: np.ndarray,
+        facts: dict[str, str],
+    ) -> None:
+        """``plugin_std_error`` squared equals ``var.psi`` of the type-1 final step.
+
+        Both sides divide ``var(D*)`` with the ``n - 1`` denominator by ``n``
+        (``ctmle_glmnet.R``, line 316, and :func:`~cleverly.inference.influence_variance`).
+        The measured relative gap is about ``2e-8``. A factor ``n / (n - 1)`` on either side
+        would move the ratio by ``1e-3``, far outside the ``glm`` tolerance.
+        """
+        selected = int(facts["glmnet_best_k"]) - 1
+        _, candidate = harness.final_candidate(
+            chooser, lasso_path, internal, matrix(HERE, "g_final_cols.csv"), selected
+        )
+        curve = chooser.influence(candidate.targeted, candidate.submodel, chooser.all_rows)
+        variance = influence_variance(curve)
+        expected = float(facts["glmnet_var_psi"])
+        assert variance == pytest.approx(expected, rel=harness.GLM_TOLERANCE)
+        n = len(curve)
+        assert variance * n / (n - 1) != pytest.approx(expected, rel=harness.GLM_TOLERANCE)
+
 
 class TestTheWitnessesBind:
     """W1 to W3 on R's own path: each fails when its component is removed."""
@@ -248,10 +274,20 @@ class TestTheWitnessesBind:
         assert np.any(np.diff(np.concatenate([[-1], accepted])) > 1)
 
     def test_w2_the_stop_binds_before_the_end(self, lasso_path: harness.Path) -> None:
+        """The package's rule stops where R stops, with two or more candidates left.
+
+        Read from the rule's own control flow: one round per initial fit, and the index of
+        each candidate's initial fit. A rule without the stop would accept again in the last
+        round, start another round, and fluctuate the later candidates from a new initial fit.
+        """
         r = read(HERE / "glmnet_path.csv")
-        accepted = r.loc[r["accepted"] == 1, "index"].to_numpy() - 1
-        assert lasso_path.stopped
-        assert accepted[-1] < len(r) - 1
+        accepted = tuple(int(i) - 1 for i in r.loc[r["accepted"] == 1, "index"])
+        left = len(r) - 1 - accepted[-1]
+        assert left >= 2, "the fixture must stop with two or more candidates left"
+        assert len(lasso_path.rounds) == len(accepted) + 1
+        assert lasso_path.rounds[-1].size == left
+        after = lasso_path.candidates[accepted[-1] + 1 :]
+        assert {candidate.n_steps for candidate in after} == {len(accepted) + 1}
 
     def test_w3_the_final_step_binds(
         self,

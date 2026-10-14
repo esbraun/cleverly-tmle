@@ -61,7 +61,8 @@ SHORT_GRID = (0.2, 0.05, 0.02, 0.005)
 def _fit(frame: Any, **settings: Any) -> Any:
     options = {**IN_SAMPLE, **settings}
     if "selection_split" in settings and "selection_folds" not in settings:
-        options.pop("selection_folds")
+        labels = np.asarray(settings["selection_split"], dtype=float)
+        options["selection_folds"] = max(2, int(labels.max()) + 1) if labels.size else 2
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return CTMLE(**options).fit(frame, outcome="Y", treatment="A").single()
@@ -134,6 +135,27 @@ class TestTheIndexedRule:
         assert [candidate.n_steps for candidate in path] == [1, 1, 2, 2, 3]
         # W2: the stop bound, and candidate 4 is a fluctuation of the last initial fit.
         assert path[4].risk > path[3].risk
+
+    #: Round 1 from q accepts candidate 1. Round 2 from q>1 tries 2 and 3, and its best, 3.5,
+    #: is worse than 3.0, so it stops with two candidates left. A dropped stop would accept
+    #: candidate 2 and record candidate 3 as a fluctuation of q>1>2 with three steps.
+    STOP_TABLE: ClassVar[dict[tuple[str, int], float]] = {
+        ("q", 0): 5.0,
+        ("q", 1): 3.0,
+        ("q", 2): 4.0,
+        ("q", 3): 6.0,
+        ("q>1", 2): 3.5,
+        ("q>1", 3): 4.0,
+        ("q>1>2", 3): 1.0,
+    }
+
+    def test_a_stop_with_two_candidates_left(self) -> None:
+        """W2 where the stop changes the path: both remaining candidates keep the last initial."""
+        fluctuate, calls = _scripted(self.STOP_TABLE)
+        path = _indexed_path(4, "q", fluctuate)
+        assert [candidate.origin for candidate in path] == ["q", "q", "q>1", "q>1"]
+        assert [candidate.n_steps for candidate in path] == [1, 1, 2, 2]
+        assert ("q>1>2", 3, 3) not in calls
 
     def test_without_the_stop_every_remaining_try_is_accepted(self) -> None:
         table = {**self.TABLE, ("q>1>3", 4): 1.0}
@@ -350,20 +372,46 @@ class TestLasso:
             _ = lasso_fit["ate"].ci
 
     def test_the_final_step_follows_the_selection(self, lasso_fit: Any) -> None:
+        """A nonzero witness: this fit selects index 0 of 4, so the final step must run."""
         selection = lasso_fit.extra["ctmle"]
-        if selection.selected == len(selection.path) - 1:
-            assert selection.final is None
-        else:
-            assert selection.final is not None and selection.final > selection.selected
+        assert selection.selected == 0 < len(selection.path) - 1
+        assert selection.final is not None and selection.final > selection.selected
+        assert selection.reported == selection.final
         frame = selection.to_frame()
         assert frame["selected"].count(True) == 1
-        assert frame["final"].count(True) == (selection.final is not None)
+        assert frame["final"].count(True) == 1
         assert selection.selected_covariates == selection.path[selection.reported]
-        assert "final step used candidate" in selection.describe() or selection.final is None
+        assert "final step used candidate" in selection.describe()
 
-    def test_the_first_candidate_is_the_intercept_bit_for_bit(self, frame: Any) -> None:
-        """W4: the short circuit makes the top of the default grid the intercept candidate."""
+    def test_the_first_candidate_is_the_intercept_bit_for_bit(
+        self, frame: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """W4: the short circuit makes the top of the default grid the intercept candidate.
+
+        The risks below agree even when the solver reaches the intercept by coordinate
+        descent, because that fit misses the proportions by about 1e-16 at most, and on this
+        frame by nothing. The analysis fit is therefore checked to be the short-circuit fit
+        itself, a stored ``constant``, and its predictions to be the proportions bit for bit.
+        """
+        analysis: list[Any] = []
+        original = ctmle_module.penalty_path
+
+        def spy(x: Any, *args: Any, **kwargs: Any) -> Any:
+            fits = original(x, *args, **kwargs)
+            if len(x) == len(frame):
+                analysis.append((np.asarray(x), fits[0]))
+            return fits
+
+        monkeypatch.setattr(ctmle_module, "penalty_path", spy)
         lasso = _fit(frame, strategy="lasso")
+        monkeypatch.undo()
+        assert analysis, "the analysis-sample path was not fitted"
+        a = frame["A"].to_numpy()
+        proportions = np.array([np.sum(a == arm) / a.size for arm in (0, 1)])
+        for x, first in analysis:
+            assert first.constant is not None, "the top penalty was solved, not short-circuited"
+            predicted = first.predict_proba(x)
+            assert np.array_equal(predicted, np.broadcast_to(proportions, predicted.shape))
         intercept = _fit(frame, strategy="discrete", candidates=[()])
         selection = lasso.extra["ctmle"]
         reference = intercept.extra["ctmle"]
@@ -547,6 +595,60 @@ class TestArrays:
         with pytest.raises(error, match=pattern):
             CTMLE(**options)
 
+    @pytest.mark.parametrize("which", ["full", "cv"])
+    def test_rows_that_do_not_sum_to_one_are_refused(
+        self, frame: Any, split: Any, arrays: Any, which: str
+    ) -> None:
+        _, full, cv = arrays
+        matrices = {
+            "full": np.column_stack([1.0 - full, full]),
+            "cv": np.column_stack([1.0 - cv, cv]),
+        }
+        # A nonzero witness: a gap of 1e-3 on one row is enough, at either array.
+        matrices[which][7] *= 1.001
+        pair = PropensityArrays(full=matrices["full"], cv=matrices["cv"])
+        with pytest.raises(ValueError, match=rf"each row of {which} must sum to 1.*predict_proba"):
+            _fit(frame, strategy="learners", treatment_candidates=[pair], selection_split=split)
+
+    @pytest.mark.parametrize("scale", [1.0, 1.001])
+    def test_three_arm_rows_off_the_simplex_are_refused(self, scale: float) -> None:
+        """At three arms no later layer checks the row sums, so this check is the only one."""
+        frame = make_multi_arm(n=450, seed=2, family="binomial")[0]
+        x = frame[["W1", "W2", "W3"]].to_numpy(float)
+        a = frame["A"].to_numpy()
+        labels = np.arange(len(frame)) % 3
+        full = LogisticRegression(max_iter=1000).fit(x, a).predict_proba(x)
+        cv = np.empty_like(full)
+        for fold in range(3):
+            held = labels == fold
+            model = LogisticRegression(max_iter=1000).fit(x[~held], a[~held])
+            cv[held] = model.predict_proba(x[held])
+        cv[5] *= scale
+        settings: dict[str, Any] = {
+            "strategy": "learners",
+            "treatment_candidates": [PropensityArrays(full=full, cv=cv)],
+            "selection_split": labels,
+            "outcome_learner": LogisticRegression(max_iter=1000),
+            "estimands": ("ey",),
+            "ctmle_estimand": "ey",
+        }
+        if scale == 1.0:
+            assert _fit(frame, **settings).extra["ctmle"].labels[0] == "arrays[0]"
+            return
+        with pytest.raises(ValueError, match=r"each row of cv must sum to 1 over the 3 arms"):
+            _fit(frame, **settings)
+
+    def test_rows_within_the_tolerance_are_accepted(
+        self, frame: Any, split: Any, arrays: Any
+    ) -> None:
+        _, full, cv = arrays
+        noisy = np.column_stack([1.0 - full, full]) * (1.0 + 1e-11)
+        pair = PropensityArrays(full=noisy, cv=cv)
+        result = _fit(
+            frame, strategy="learners", treatment_candidates=[pair], selection_split=split
+        )
+        assert result.extra["ctmle"].labels[0] == "arrays[0]"
+
     def test_a_wrong_shape_names_the_entry(self, frame: Any, split: Any) -> None:
         pair = PropensityArrays(full=np.full(10, 0.5), cv=np.full(500, 0.5))
         with pytest.raises(ValueError, match=r"PropensityArrays entry 0: full and cv must"):
@@ -579,7 +681,8 @@ class TestTheDeclaredSplit:
         [
             ({"repeats": 2, "cross_fit": True}, CapabilityError, "repeats= redraws"),
             ({"n_bootstrap": 5}, CapabilityError, "bootstrap resample changes"),
-            ({"selection_folds": 4}, ValueError, "replaces selection_folds"),
+            ({"selection_folds": 4}, ValueError, r"declares 3 folds, and selection_folds= is 4"),
+            ({"selection_folds": 5}, ValueError, r"Pass selection_folds=3 with this split"),
             ({"strategy": "oat"}, ValueError, r"selection_split= configure selector"),
         ],
     )
@@ -610,6 +713,8 @@ class TestConfiguration:
             ({"strategy": "greedy", "treatment_candidates": []}, r"treatment_candidates= only"),
             ({"strategy": "learners"}, r"needs an explicit treatment_candidates="),
             ({"strategy": "lasso", "lambdas": [0.1, 0.2]}, r"strictly decreasing"),
+            ({"strategy": "lasso", "lambdas": [0.1]}, r"at least two penalties.*lambdas=None"),
+            ({"strategy": "lasso", "lambdas": 0.1}, r"at least two penalties; got \[0\.1\]"),
             ({"strategy": "nope"}, r"'lasso', 'learners', 'derivative' or 'oat'"),
         ],
     )
@@ -649,23 +754,40 @@ class TestConfiguration:
         with pytest.raises(CapabilityError):
             _ = restored["ate"].std_error
 
-    def test_the_public_lambda_cv_recipe(self, frame: Any) -> None:
-        """The docs recipe for a grid that starts at a cross-validated penalty."""
+    @staticmethod
+    def _lambda_cv_search(frame: Any, l1_ratio: float) -> Any:
         x = frame[["W1", "W2", "W3"]].to_numpy(float)
         a = frame["A"].to_numpy(int)
-        scaler = StandardScaler().fit(x)
-        cv = LogisticRegressionCV(
+        return LogisticRegressionCV(
             Cs=10,
-            l1_ratios=(1.0,),
+            l1_ratios=(l1_ratio,),
             solver="saga",
             scoring="neg_log_loss",
             max_iter=5000,
+            use_legacy_attributes=False,
             random_state=0,
-        ).fit(scaler.transform(x), a)
-        start = 1.0 / (float(np.ravel(cv.C_)[0]) * len(a))
+        ).fit(StandardScaler().fit_transform(x), a)
+
+    @staticmethod
+    def _zero_slopes(search: Any) -> int:
+        """Exact zeros among the slopes of every fold and penalty; the intercept is last."""
+        return int(np.sum(np.asarray(search.coefs_paths_)[..., :-1] == 0.0))
+
+    def test_the_public_lambda_cv_recipe(self, frame: Any) -> None:
+        """The docs recipe for a grid that starts at a cross-validated penalty.
+
+        The search must be an L1 search: at its strongest penalties the slopes are exactly 0.
+        """
+        search = self._lambda_cv_search(frame, 1.0)
+        assert self._zero_slopes(search) > 0
+        start = 1.0 / (search.C_ * len(frame))
         grid = start * np.geomspace(1.0, 0.01, 6)
         result = _fit(frame, strategy="lasso", lambdas=grid)
         assert len(result.extra["ctmle"].path) == 6
+
+    def test_the_sparsity_check_rejects_an_l2_search(self, frame: Any) -> None:
+        """The control: an L2 search, which the recipe gave on scikit-learn before 1.8."""
+        assert self._zero_slopes(self._lambda_cv_search(frame, 0.0)) == 0
 
 
 # ---------------------------------------------------------- row identities (W7)
@@ -699,8 +821,26 @@ def _check_identities(pairs: list[tuple[frozenset[float], frozenset[float]]], ev
         assert not fitted & predicted, "a row reached the model that predicts it"
 
 
+def _check_selection_folds(fitted: list[frozenset[float]], split: np.ndarray) -> None:
+    """Every fit but the analysis-sample one holds out one whole selection fold.
+
+    A fit made inside selection fold ``v`` uses training rows of fold ``v`` only. A fold-``v``
+    validation row that entered it would reach the training-side fluctuation, which scores the
+    candidate, even though the fit never predicts that row.
+    """
+    every = frozenset(float(row) for row in range(split.size))
+    folds = [frozenset(np.flatnonzero(split == v).astype(float).tolist()) for v in set(split)]
+    inside = [ids for ids in fitted if ids != every]
+    assert inside, "no fit was made inside a selection fold"
+    for ids in inside:
+        assert any(not ids & fold for fold in folds), (
+            "a fit inside a selection fold holds a row of every fold: a selection-validation "
+            "row reached it"
+        )
+
+
 class TestRowIdentities:
-    """W7: no selection-validation row reaches a fit that scores it."""
+    """W7: no selection-validation row reaches a fit that scores it, or any fit of its fold."""
 
     @pytest.fixture
     def tagged(self, frame: Any) -> Any:
@@ -708,13 +848,14 @@ class TestRowIdentities:
         tagged["ID"] = np.arange(len(frame), dtype=float)
         return tagged
 
-    def test_learners(self, tagged: Any) -> None:
+    def test_learners(self, tagged: Any, split: np.ndarray) -> None:
         RowSpy.log = []
         _fit(
             tagged,
             strategy="learners",
             treatment_candidates=[RowSpy(column=3)],
             treatment_learner=LogisticRegression(max_iter=1000),
+            selection_split=split,
         )
         pairs = []
         log = RowSpy.log
@@ -723,8 +864,9 @@ class TestRowIdentities:
                 pairs.append((log[index + 1][1], log[index][1]))
         assert len(pairs) >= 1 + 3 * 3
         _check_identities(pairs, set(tagged["ID"].tolist()))
+        _check_selection_folds([ids for kind, ids in log if kind == "fit"], split)
 
-    def test_lasso(self, tagged: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_lasso(self, tagged: Any, split: np.ndarray, monkeypatch: pytest.MonkeyPatch) -> None:
         recorded: list[tuple[frozenset[float], frozenset[float]]] = []
         original = ctmle_module.penalty_path
 
@@ -744,9 +886,10 @@ class TestRowIdentities:
             return [Recorder(fit) for fit in fits]
 
         monkeypatch.setattr(ctmle_module, "penalty_path", spy)
-        _fit(tagged, strategy="lasso", lambdas=SHORT_GRID)
+        _fit(tagged, strategy="lasso", lambdas=SHORT_GRID, selection_split=split)
         assert len(recorded) >= len(SHORT_GRID) * (1 + 3 * 3)
         _check_identities(recorded, set(tagged["ID"].tolist()))
+        _check_selection_folds([fitted for fitted, _ in recorded], split)
 
 
 # ------------------------------------------------------- forced selection (W5)
@@ -781,6 +924,14 @@ class TestSelectionIsForced:
         for lasso, _, _, _ in fits:
             chosen = lasso.extra["ctmle"].selected_covariates
             assert "W1" in chosen
+
+    def test_a_selected_last_penalty_runs_no_final_step(self, fits: Any) -> None:
+        """The other branch of the final step: every seed here selects the last penalty."""
+        for lasso, _, _, _ in fits:
+            selection = lasso.extra["ctmle"]
+            assert selection.selected == len(selection.path) - 1
+            assert selection.final is None
+            assert selection.reported == selection.selected
 
     def test_both_beat_a_do_nothing_selector_by_five_times(self, fits: Any) -> None:
         lasso = np.mean([abs(f[0]["ate"].psi - f[3]) for f in fits])

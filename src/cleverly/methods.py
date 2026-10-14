@@ -792,10 +792,11 @@ default="greedy"
         ``"shared"`` fits the one categorical mechanism of ``ctmle3``. Neither reports an
         interval, for the reason F19 in the roadmap holds.
     lambdas : tuple of float or None, default=None
-        The penalty grid of ``strategy="lasso"``, strictly decreasing, with 0 allowed only
-        as the last value. ``None`` uses ``glmnet``'s default grid with 0 appended. Under
-        ``strategy="derivative"``, the pair ``(mechanism, partner)`` of two different
-        penalties, or ``None`` to choose the mechanism penalty by cross-validation.
+        The penalty grid of ``strategy="lasso"``: two or more penalties, strictly
+        decreasing, with 0 allowed only as the last value. ``None`` uses ``glmnet``'s default
+        grid with 0 appended. Under ``strategy="derivative"``, the pair ``(mechanism,
+        partner)`` of two different penalties, or ``None`` to choose the mechanism penalty by
+        cross-validation.
     treatment_candidates : tuple or None, default=None
         The declared candidates of ``strategy="learners"``, from the least to the most
         adaptive: unfitted learners, or :class:`~cleverly.estimators.PropensityArrays`
@@ -804,7 +805,7 @@ default="greedy"
         learners or two arrays of treatment probabilities.
     selection_split : tuple of int or None, default=None
         Fold labels ``0`` to ``V - 1``, one for each row, used in place of the random
-        selection split.
+        selection split. ``selection_folds`` must equal ``V``.
 
     See Also
     --------

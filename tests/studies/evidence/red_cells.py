@@ -21,6 +21,9 @@ Three kinds of row can be red, and each is read the way the regeneration gates i
 * A **property** row of ``properties.csv`` that fails its own rule *or* its family's joint
   clause, which is the rule ``claims.property_cells_passed`` counts by.  A diagnostic row
   states no verdict and is never red.
+* An **accounting** row of ``failure-accounting.csv``: a hook audit that the study's recorded
+  fitting failures leave red.  A truth or paired cell that the accounting leaves red stays a
+  truth or paired row, and its ``fails by`` names the accounting.
 
 A study module may also define a ``scientific_failures`` hook, which the regeneration driver
 adds to the failures it gates or reports.  Those hooks audit fits rather than publish verdict
@@ -47,7 +50,7 @@ from typing import Any
 import pandas as pd
 
 from tests.documents import pipe_table
-from tests.studies.evidence import property_verdicts
+from tests.studies.evidence import failures, property_verdicts
 from tests.studies.evidence.comparison import ComparisonVerdict, comparison_verdict
 from tests.studies.evidence.document import _CLOSE, _OPEN, _table, measured, render
 from tests.studies.evidence.manifest import write_lines
@@ -71,8 +74,9 @@ _OWNER_ANCHORS = {
     "F27": "f27-learned-policy-value-outside-the-published-conditions",
 }
 
-#: The three kinds of red row, in the order the ledger prints them.
-KINDS = ("truth", "paired", "property")
+#: The kinds of red row, in the order the ledger prints them.  An ``accounting`` row is a hook
+#: audit that a recorded fitting failure leaves red (``failure-accounting.csv``).
+KINDS = ("truth", "paired", "property", "accounting")
 
 #: The three generated blocks of :data:`PAGE`.
 BLOCKS = ("red-cell-summary", "red-cells", "reporting-without-red")
@@ -93,8 +97,9 @@ class RedKey:
     kind : str
         One of :data:`KINDS`.
     key : str
-        ``property/cell`` for a property row, ``scenario/estimand`` for a paired row, and
-        ``implementation/scenario/estimand`` for a truth row.
+        ``property/cell`` for a property row, ``scenario/estimand`` for a paired row,
+        ``implementation/scenario/estimand`` for a truth row, and ``table/leg`` for an
+        accounting row.
     """
 
     slug: str
@@ -556,7 +561,8 @@ def frames(record: StudyRecord) -> dict[str, pd.DataFrame]:
     Returns
     -------
     dict
-        Each verdict table, keyed by its short name in :data:`FRAMES`.
+        Each verdict table, keyed by its short name in :data:`FRAMES`, and the failure
+        accounting under ``accounting``, empty when the study recorded no failure.
 
     Raises
     ------
@@ -565,6 +571,12 @@ def frames(record: StudyRecord) -> dict[str, pd.DataFrame]:
     """
     tables = {name: pd.read_csv(record.artifact(filename)) for name, filename in FRAMES.items()}
     check_verdict_columns(tables)
+    path = record.artifact(failures.ACCOUNTING)
+    tables["accounting"] = (
+        pd.read_csv(path, keep_default_na=False, na_values=[""])
+        if path.exists()
+        else pd.DataFrame(columns=list(failures.ACCOUNTING_COLUMNS))
+    )
     return tables
 
 
@@ -653,6 +665,27 @@ def _truth_measured(row: Any) -> str:
     )
 
 
+def _failures_measured(accounting: pd.DataFrame, table: str, key: tuple[str, ...]) -> str:
+    """``, failures k of R (<reason>)`` for an accounted cell, else nothing."""
+    frame = accounting.loc[accounting["table"] == table]
+    columns = (
+        ["implementation", "scenario", "estimand"]
+        if table == "performance"
+        else [
+            "scenario",
+            "estimand",
+        ]
+    )
+    mask = pd.Series(True, index=frame.index)
+    for column, value in zip(columns, key, strict=True):
+        mask &= frame[column].astype(str) == value
+    rows = frame.loc[mask]
+    if rows.empty:
+        return ""
+    first = rows.iloc[0]
+    return f", failures {int(first['failed'])} of {int(first['requested'])} ({first['reason']})"
+
+
 def red_rows(record: StudyRecord, tables: Mapping[str, pd.DataFrame]) -> list[RedRow]:
     """Every red verdict one study's committed tables publish.
 
@@ -666,7 +699,7 @@ def red_rows(record: StudyRecord, tables: Mapping[str, pd.DataFrame]) -> list[Re
     Returns
     -------
     list of RedRow
-        One row per red verdict, truth rows first, then paired, then property.
+        One row per red verdict, truth rows first, then paired, property, and accounting.
 
     Raises
     ------
@@ -674,18 +707,30 @@ def red_rows(record: StudyRecord, tables: Mapping[str, pd.DataFrame]) -> list[Re
         If a committed paired verdict disagrees with the verdict its legs produce.
     """
     out: list[RedRow] = []
+    accounting = tables.get("accounting")
+    if accounting is None:
+        accounting = pd.DataFrame(columns=list(failures.ACCOUNTING_COLUMNS))
+    truth_gates = failures.cell_gates(accounting, "performance")
+    paired_gates = failures.cell_gates(accounting, "equivalence")
     performance = tables["performance"]
     for row in performance.itertuples():
         if bool(row.passed):
             continue
         if record.accepted_reference_failure and row.implementation == record.reference:
             continue
+        key = (str(row.implementation), str(row.scenario), str(row.estimand))
+        gate = truth_gates.get(key, (True, ""))
+        # A cell red on its own legs is red by its truth gate, whatever its accounting says.
+        own = all(
+            bool(getattr(row, leg, True))
+            for leg in ("bias_equivalent", "coverage_valid", "se_calibrated")
+        )
         out.append(
             RedRow(
-                RedKey(record.slug, "truth", f"{row.implementation}/{row.scenario}/{row.estimand}"),
+                RedKey(record.slug, "truth", "/".join(key)),
                 str(row.implementation),
-                "its truth gate",
-                _truth_measured(row),
+                "its truth gate" if gate[0] or not own else f"failure accounting: {gate[1]}",
+                _truth_measured(row) + _failures_measured(accounting, "performance", key),
             )
         )
 
@@ -693,20 +738,32 @@ def red_rows(record: StudyRecord, tables: Mapping[str, pd.DataFrame]) -> list[Re
     for row in tables["equivalence"].itertuples():
         subject_valid = bool(valid.loc[(record.implementation, row.scenario, row.estimand)])
         legs = paired_legs(row, record.margins, subject_valid)
-        if (legs.passed, legs.conclusion) != (bool(row.passed), str(row.comparison_conclusion)):
+        key = (str(row.scenario), str(row.estimand))
+        gate = paired_gates.get(key, (True, failures.WITHIN_BOUND))
+        # The accounting applies to the verdict the legs give, as ``failures.correct_paired``
+        # does when it writes the row.
+        conclusion, passed = failures.accounted_conclusion(
+            legs.conclusion,
+            equivalent=legs.similar and legs.rmse and legs.coverage and legs.calibration,
+            gate=gate,
+        )
+        if (passed, conclusion) != (bool(row.passed), str(row.comparison_conclusion)):
             raise ValueError(
                 f"{record.slug} commits {row.comparison_conclusion!r} (passed={row.passed}) for "
-                f"{row.scenario}/{row.estimand}, but its legs conclude {legs.conclusion!r} "
-                f"(passed={legs.passed})"
+                f"{row.scenario}/{row.estimand}, but its legs conclude {conclusion!r} "
+                f"(passed={passed})"
             )
-        if legs.passed:
+        if passed:
             continue
+        reasons = list(legs.failed())
+        if legs.passed:
+            reasons.append(f"failure accounting: {gate[1]}")
         out.append(
             RedRow(
-                RedKey(record.slug, "paired", f"{row.scenario}/{row.estimand}"),
+                RedKey(record.slug, "paired", "/".join(key)),
                 "paired",
-                f"{legs.conclusion}: {', '.join(legs.failed())}",
-                _paired_measured(row),
+                f"{conclusion}: {', '.join(reasons)}",
+                _paired_measured(row) + _failures_measured(accounting, "equivalence", key),
             )
         )
 
@@ -722,6 +779,25 @@ def red_rows(record: StudyRecord, tables: Mapping[str, pd.DataFrame]) -> list[Re
                 str(row.role),
                 "its own rule" if not own else "the family's joint clause",
                 measured(row),
+            )
+        )
+
+    hooks = accounting.loc[accounting["table"] == "hook"]
+    for row in hooks.itertuples():
+        if bool(row.gate_passed):
+            continue
+        out.append(
+            RedRow(
+                RedKey(record.slug, "accounting", f"hook/{row.leg}"),
+                str(row.implementation),
+                f"failure accounting: {row.reason}",
+                # A hook with no ``account_failures`` counts no failing row, so the count is NaN.
+                (
+                    f"failing rows {render(float(row.complete_case))}, "
+                    if math.isfinite(float(row.complete_case))
+                    else "failing rows not counted, "
+                )
+                + f"failures {int(row.failed)} of {int(row.requested)}",
             )
         )
     return out

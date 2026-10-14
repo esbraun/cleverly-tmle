@@ -13,9 +13,15 @@ options(digits = 17)
 # binary_learners: build_gn_seq on folds_R, then ctmleGeneral(ctmletype = 1) on folds_R.
 #
 # The declared adapter setting: the default glmnet path runs to lambda_max * 1e-4 instead of
-# stopping early on the deviance (X16 plan, 3.5 fact 3).  R fits every path of the lasso
-# construction and its cross-validation on all rows (quirk 3), so one full-sample path covers
-# every path the fit reads, and the runner records its minimum as `path_min_lambda`.
+# stopping early on the deviance (X16 plan, 3.5 fact 3).  `predict(s = 0)` clamps the penalty 0
+# to the minimum of the path it reads (quirk 4), and R reads paths on two row sets:
+#   - `construct_candidates_glmnet` scores each try with a path fitted on the training rows
+#     only (functions_glmnet.R:132-135).  In the full-sample construction those are all rows.
+#     Inside cross-validation fold v they are the rows outside fold v.
+#   - the accepted refit (functions_glmnet.R:205-208) and `evaluate_candidates_glmnet`
+#     (functions_glmnet.R:22-25, quirk 3) fit the path on all rows.
+# The runner records the full-sample minimum as `path_min_lambda` and the minimum of the path
+# on the rows outside fold v as `path_min_lambda_fold_<v>`, for v = 1 to V.
 glmnet.control(fdev = 0, devmax = 1)
 
 args <- study_arguments("usage: run_ctmle_sequences.R SAMPLES.csv.gz TRUTH.csv OUTPUT.csv")
@@ -205,9 +211,16 @@ fold_labels <- function(folds, n) {
 fit_lasso <- function(frame, W, Q, label) {
   folds <- selection_folds(frame)
   lambdas <- c(STUDY_LAMBDAS, 0)
-  # The default path of the fit's own construction (functions_glmnet.R:131-134), on all rows.
+  # The default path of the fit's own construction (functions_glmnet.R:130-134): once on all
+  # rows, and once on the training rows of each cross-validation fold.
   lassox <- model.matrix(~ W1 + W2 + W3, W)[, -1]
-  path_min <- min(glmnet(x = lassox, y = as.factor(frame$A), family = "binomial")$lambda)
+  path_minimum <- function(rows) {
+    study_stage("default glmnet path", min(glmnet(
+      x = lassox[rows, , drop = FALSE], y = as.factor(frame$A[rows]), family = "binomial"
+    )$lambda))
+  }
+  path_min <- path_minimum(seq_len(nrow(frame)))
+  fold_path_min <- vapply(folds, function(held) path_minimum(-held), numeric(1))
   arguments <- list(
     Y = frame$Y,
     A = frame$A,
@@ -223,7 +236,16 @@ fit_lasso <- function(frame, W, Q, label) {
     folds = folds,
     detailed = TRUE
   )
-  fit <- tryCatch(do.call(ctmleGlmnet, arguments), error = function(condition) condition)
+  # A ctmleGlmnet error comes back as a condition, so the adapter below can look at it.  When
+  # the harness records failures, the stage has already made it a study_fitting_failure.  A
+  # fatal error passes through.
+  fit <- tryCatch(
+    study_stage("ctmleGlmnet", do.call(ctmleGlmnet, arguments)),
+    error = function(condition) {
+      if (inherits(condition, "study_fatal_error")) stop(condition)
+      condition
+    }
+  )
   if (!inherits(fit, "error")) {
     return(list(
       estimate = as.numeric(fit$est),
@@ -231,12 +253,13 @@ fit_lasso <- function(frame, W, Q, label) {
       best_k = as.integer(fit$best_k),
       n_candidates = length(fit$candidates$candidates$lambdas),
       adapter_used = 0L,
-      path_min_lambda = path_min
+      path_min_lambda = path_min,
+      fold_path_min_lambda = fold_path_min
     ))
   }
-  # Only the quirk-7 failure is caught: the rebuilt selection must be the last penalty, or
-  # the original error stops the run.
-  rebuilt <- do.call(rebuild_type1, arguments)
+  # Only the quirk-7 failure is adapted: the rebuilt selection must be the last penalty, or
+  # the original ctmleGlmnet error is recorded as this group's failure.
+  rebuilt <- study_stage("rebuild_type1", do.call(rebuild_type1, arguments))
   best_k <- rebuilt$cv.res$best_k
   if (!identical(as.integer(best_k), length(lambdas))) stop(fit)
   results <- rebuilt$candidates$results.all
@@ -246,14 +269,16 @@ fit_lasso <- function(frame, W, Q, label) {
     best_k = as.integer(best_k),
     n_candidates = length(rebuilt$candidates$candidates$lambdas),
     adapter_used = 1L,
-    path_min_lambda = path_min
+    path_min_lambda = path_min,
+    fold_path_min_lambda = fold_path_min
   )
 }
 
 fit_learners <- function(frame, W, Q, seed, folds, label) {
   n <- nrow(frame)
-  gn_seq <- build_gn_seq(A = frame$A, W = W, SL.library = SL.library, folds = folds,
-                         verbose = FALSE)
+  gn_seq <- study_stage("build_gn_seq", build_gn_seq(
+    A = frame$A, W = W, SL.library = SL.library, folds = folds, verbose = FALSE
+  ))
   full <- as.matrix(gn_seq$gn_candidates)
   cv <- as.matrix(gn_seq$gn_candidates_cv)
   if (ncol(full) != 5L || ncol(cv) != 5L) stop(sprintf("%s: build_gn_seq gave no 5 columns", label))
@@ -261,7 +286,7 @@ fit_learners <- function(frame, W, Q, seed, folds, label) {
   check_separation(cv, "cv", label)
   # The same seed again, so cv_general's redraw at functions_general.R:287 is folds_R.
   set.seed(seed)
-  fit <- ctmleGeneral(
+  fit <- study_stage("ctmleGeneral", ctmleGeneral(
     Y = frame$Y,
     A = frame$A,
     W = W,
@@ -276,7 +301,7 @@ fit_learners <- function(frame, W, Q, seed, folds, label) {
     V = V,
     folds = folds,
     detailed = TRUE
-  )
+  ))
   best_k <- as.integer(fit$best_k)
   # R's plain D* variance at the selected candidate, never `var.psi`, which carries the
   # first-covariate ICg term (quirk 6).
@@ -287,7 +312,8 @@ fit_learners <- function(frame, W, Q, seed, folds, label) {
     best_k = best_k,
     n_candidates = NCOL(fit$candidates$candidates$gns),
     adapter_used = 0L,
-    path_min_lambda = NA_real_
+    path_min_lambda = NA_real_,
+    fold_path_min_lambda = rep(NA_real_, V)
   )
 }
 
@@ -317,7 +343,7 @@ fit_one <- function(frame) {
   if (is.na(truth_row)) stop(sprintf("no truth for %s replicate %s", scenario, replicate))
   truth <- truths$truth_ate[[truth_row]]
   W <- frame[c("W1", "W2", "W3")]
-  q_fit <- glm(Y ~ A + W1 + W2 + W3, data = frame, family = binomial())
+  q_fit <- study_stage("initial glm", glm(Y ~ A + W1 + W2 + W3, data = frame, family = binomial()))
   q0 <- predict(q_fit, transform(frame, A = 0), type = "response")
   q1 <- predict(q_fit, transform(frame, A = 1), type = "response")
   Q <- cbind(q0, q1)
@@ -332,6 +358,10 @@ fit_one <- function(frame) {
   critical <- qnorm(0.975)
   low <- result$estimate - critical * result$std_error
   high <- result$estimate + critical * result$std_error
+  # The five path_min_lambda_fold_<v> columns below assume V = 5.
+  if (length(result$fold_path_min_lambda) != V || V != 5L) {
+    stop(sprintf("%s: %d fold path minima, not 5", label, length(result$fold_path_min_lambda)))
+  }
   data.frame(
     implementation = "r-ctmle",
     scenario = scenario,
@@ -351,15 +381,23 @@ fit_one <- function(frame) {
     n_candidates = result$n_candidates,
     adapter_used = result$adapter_used,
     path_min_lambda = result$path_min_lambda,
+    path_min_lambda_fold_1 = result$fold_path_min_lambda[[1]],
+    path_min_lambda_fold_2 = result$fold_path_min_lambda[[2]],
+    path_min_lambda_fold_3 = result$fold_path_min_lambda[[3]],
+    path_min_lambda_fold_4 = result$fold_path_min_lambda[[4]],
+    path_min_lambda_fold_5 = result$fold_path_min_lambda[[5]],
     stringsAsFactors = FALSE
   )
 }
 
 groups <- split(samples, interaction(samples$scenario, samples$replicate, drop = TRUE))
 cores <- study_cores(groups)
+# Forced here, in the parent: with `mc.preschedule = TRUE`, `mclapply` would force it in each
+# child, and `study_collect` would then find no registered groups to retry or assemble.
+fit_group <- study_fitter(groups, fit_one)
 results <- parallel::mclapply(
   seq_along(groups),
-  study_fitter(groups, fit_one),
+  fit_group,
   mc.cores = cores,
   mc.preschedule = TRUE
 )

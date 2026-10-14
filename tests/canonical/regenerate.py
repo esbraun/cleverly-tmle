@@ -54,6 +54,7 @@ from typing import Any
 import pandas as pd
 
 from tests.parallel import available_cores
+from tests.studies.evidence import failures
 from tests.studies.evidence.comparison import empty_equivalence, equivalence
 from tests.studies.evidence.manifest import write_csv, write_manifest
 from tests.studies.evidence.performance import independent_performance_tests, summarize
@@ -71,6 +72,10 @@ ARTIFACT_NAMES = (
     "property-replicates.csv.gz",
     "properties.csv",
 )
+
+#: Artefacts a run writes only when a comparator failure exists (RM39 part a2): the records and
+#: their accounting.  A run with no failure writes neither, so its artefact set is unchanged.
+OPTIONAL_ARTIFACT_NAMES = (failures.FAILURES, failures.ACCOUNTING)
 
 #: Columns the reference writes as text and the schema requires as numbers.
 _TEXT_COLUMNS = frozenset({"implementation", "scenario", "estimand", "inference_scale"})
@@ -163,6 +168,8 @@ class Reference:
             raise ValueError(f"alternate reference runner {runner!r} is not in extra_files")
         if runner is not None and not self.mount_runner:
             raise ValueError("an alternate reference runner requires mount_runner=True")
+        # A failure file left by an earlier run in the same scratch would read as this run's.
+        failures_path(output).unlink(missing_ok=True)
         subprocess.run(["docker", "build", "-t", self.image, str(context)], check=True)
         active = _ACTIVE.get()
         if active is not None and self.interpreter == "Rscript":
@@ -174,6 +181,11 @@ class Reference:
             _docker_command(self, root, samples, truths, output, selected_runner, cores, env),
             check=True,
         )
+
+
+def failures_path(output: Path) -> Path:
+    """Where the harness writes a reference run's failure records, beside its rows."""
+    return output.with_name(f"{output.stem}.failures.csv")
 
 
 def _docker_command(
@@ -705,6 +717,8 @@ class _Phase:
     #: ``reference_artifacts`` hook reads the same rows, and coupling the two by a literal
     #: file name broke the moment the driver renamed the file.
     reference_results: Path | None = None
+    #: The reference's recorded failures, or ``None`` when it recorded none.
+    reference_failures: pd.DataFrame | None = None
 
 
 def _arguments(study: ModuleType, here: Path, reference: Reference | None) -> argparse.Namespace:
@@ -862,6 +876,12 @@ def _reference_rows(
         ]
         if rows.empty:
             raise RuntimeError("no compatible committed reference rows for --skip-reference")
+        committed_failures = failures.read(here / failures.FAILURES)
+        if committed_failures is not None:
+            committed_failures = committed_failures.loc[
+                committed_failures["implementation"] == study.STUDY.reference
+            ]
+            phase.reference_failures = _failures_below(committed_failures, arguments.replicates)
         return rows
     cached_reference = phase.paths["reference-results.csv"]
     phase.reference_results = cached_reference
@@ -875,6 +895,7 @@ def _reference_rows(
     ):
         print(f"reusing the cached reference phase in {cached_reference.parent}", flush=True)
         RUN_NOTES.append(f"resumed from {cached_reference.parent}, reused the reference phase")
+        phase.reference_failures = _reference_failures(study, cached_reference)
         return pd.read_csv(cached_reference)
     stamp.unlink(missing_ok=True)
     reference.run(
@@ -887,7 +908,36 @@ def _reference_rows(
     if expected is not None and reference.interpreter != "Rscript":
         # An R run writes its own stamp when it completes; any other reference gets it here.
         stamp.write_text(expected, encoding="utf-8", newline="\n")
+    phase.reference_failures = _reference_failures(study, cached_reference)
     return pd.read_csv(cached_reference)
+
+
+def _failures_below(frame: pd.DataFrame, replicates: int) -> pd.DataFrame | None:
+    """The records of replicates below ``replicates``; each record holds one replicate."""
+    single = frame["replicates"].astype(str).str.fullmatch(r"\d+")
+    if not single.all():
+        raise RuntimeError("a failure record holds more than one replicate")
+    kept = frame.loc[frame["replicates"].astype(int) < replicates]
+    return None if kept.empty else kept.reset_index(drop=True)
+
+
+def _reference_failures(study: ModuleType, results: Path) -> pd.DataFrame | None:
+    """The harness's failure records beside ``results``, labelled with the reference's name.
+
+    The harness does not know the implementation's name; the rows carry it, and every record
+    of this file is the reference's.
+    """
+    path = failures_path(results)
+    if not path.exists():
+        return None
+    raw = pd.read_csv(path, dtype={"scenarios": str, "replicates": str}, keep_default_na=False)
+    if raw.empty:
+        return None
+    raw.insert(0, "implementation", str(study.STUDY.reference))
+    frame = raw.loc[:, list(failures.FAILURE_COLUMNS)]
+    for message, count in frame["message"].value_counts().items():
+        print(f"recorded failure ({count}x): {message}", flush=True)
+    return frame.sort_values(["implementation", "group_id"], ignore_index=True)
 
 
 def _property_artifacts(
@@ -1002,7 +1052,6 @@ def _regenerate(
             "reference-result file for its reference_artifacts hook to read"
         )
     print(f"regenerating {record.name}: {record.replicates} x n={record.n}", flush=True)
-
     scratch = context.scratch
     phase = _python_phase(study, arguments, scratch)
     rows = phase.rows
@@ -1042,21 +1091,49 @@ def _regenerate(
     rows = rows.loc[:, list(REPLICATE_COLUMNS)].sort_values(
         ["scenario", "replicate", "estimand", "implementation"], ignore_index=True
     )
-    validate_replicates(rows, record=record)
+    recorded = phase.reference_failures
+    validate_replicates(rows, record=record, failures=recorded)
 
-    artifact_names = (*ARTIFACT_NAMES, *record.extra_artifacts)
+    optional = () if recorded is None else OPTIONAL_ARTIFACT_NAMES
+    # A failure file of an earlier run in this directory would outlive a clean run.  The
+    # removal waits until here because ``--skip-reference`` reads the committed failure file.
+    for name in set(OPTIONAL_ARTIFACT_NAMES) - set(optional):
+        (out / name).unlink(missing_ok=True)
+    artifact_names = (*ARTIFACT_NAMES, *record.extra_artifacts, *optional)
     paths = {name: out / name for name in artifact_names}
     write_csv(rows, paths["replicates.csv.gz"], compression={"method": "gzip", "mtime": 0})
     summaries = summarize(rows, truth_varies=record.truth_varies_by_replicate)
     write_csv(summaries, paths["summary.csv"])
     performance = independent_performance_tests(rows, record=record, n_jobs=arguments.jobs)
+    accounting = failures.truth_accounting(rows, recorded, record=record, n_jobs=arguments.jobs)
+    performance = failures.correct_performance(performance, accounting)
     write_csv(performance, paths["performance-tests.csv"])
     paired = (
         empty_equivalence()
         if reference is None
         else equivalence(rows, summaries, performance, record=record, n_jobs=arguments.jobs)
     )
+    paired_accounting = failures.paired_accounting(
+        rows, recorded, record=record, n_jobs=arguments.jobs
+    )
+    paired = failures.correct_paired(paired, paired_accounting)
     write_csv(paired, paths["equivalence.csv"])
+    accounting = pd.concat(
+        [
+            frame
+            for frame in (
+                accounting,
+                paired_accounting,
+                failures.hook_accounting(study, recorded, extra_frames, record=record),
+            )
+            if not frame.empty
+        ]
+        or [pd.DataFrame(columns=list(failures.ACCOUNTING_COLUMNS))],
+        ignore_index=True,
+    )
+    if recorded is not None:
+        write_csv(recorded, paths[failures.FAILURES])
+        write_csv(accounting, paths[failures.ACCOUNTING])
     for name, frame in extra_frames.items():
         compression = {"method": "gzip", "mtime": 0} if name.endswith(".csv.gz") else None
         write_csv(frame, paths[name], compression=compression)
@@ -1088,7 +1165,7 @@ def _regenerate(
         independent_failures = independent_failures.loc[
             independent_failures["implementation"] != record.reference
         ]
-    failures = {
+    gates: dict[str, pd.DataFrame | None] = {
         "independent performance": independent_failures,
         # Both columns, not just ``passed``: a family whose claim spans its cells records that
         # verdict in ``property_passed`` alone, so gating on the per-row column would let a
@@ -1100,14 +1177,14 @@ def _regenerate(
         ],
     }
     if reference is not None:
-        failures["paired similarity and non-inferiority"] = paired.loc[~paired["passed"]]
+        gates["paired similarity and non-inferiority"] = paired.loc[~paired["passed"]]
         # The subject's own verdict is gated unconditionally above.  This one is about the
         # *comparator*, and a study may declare in advance that its comparator fails its own
         # truth gates while remaining a usable similarity and non-inferiority reference --
         # see ``StudyRecord.accepted_reference_failure``.  Without the declaration the run
         # still refuses, so an unannounced reference regression cannot pass silently.
         if not record.accepted_reference_failure:
-            failures["reference validity"] = paired.loc[~paired["reference_valid"]]
+            gates["reference validity"] = paired.loc[~paired["reference_valid"]]
         elif paired["reference_valid"].all():
             raise RuntimeError(
                 f"{record.slug} declares an accepted reference failure "
@@ -1115,9 +1192,29 @@ def _regenerate(
                 f"remove the declaration rather than carrying a stale exception"
             )
     if hasattr(study, "scientific_failures"):
-        failures.update(study.scientific_failures(extra_frames))
+        hook_gates = study.scientific_failures(extra_frames)
+        if recorded is not None and hasattr(study, "account_failures"):
+            # The hook reads the surviving rows only, so a failed fit is invisible to it or a
+            # gap to its coverage check.  Its accounting rows apply the same thresholds with
+            # the failed fits counted, and they gate under "failure accounting" below.
+            for name, frame in hook_gates.items():
+                if not frame.empty:
+                    print(f"{name} (gated by failure accounting):\n{frame.to_string(index=False)}")
+        else:
+            gates.update(hook_gates)
+    accounted = failures.red(accounting)
+    if reference is not None and record.accepted_reference_failure:
+        # The declared exception covers the reference's own truth cells, under their
+        # accounting as under their verdict.
+        accounted = accounted.loc[
+            ~(
+                (accounted["table"] == "performance")
+                & (accounted["implementation"] == record.reference)
+            )
+        ]
+    gates["failure accounting"] = accounted
     reported = {
-        name: frame for name, frame in failures.items() if frame is not None and not frame.empty
+        name: frame for name, frame in gates.items() if frame is not None and not frame.empty
     }
     if reported and record.publication_policy == "gated" and not arguments.allow_failures:
         raise RuntimeError(
