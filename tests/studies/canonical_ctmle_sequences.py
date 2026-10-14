@@ -688,6 +688,10 @@ def selection_rows(rows: pd.DataFrame) -> pd.DataFrame:
     return out.sort_values(["scenario", "replicate"], ignore_index=True)
 
 
+def _rmse(errors: pd.Series) -> float:
+    return float(np.sqrt(np.mean(errors**2))) if len(errors) else math.nan
+
+
 def selection_summary(rows: pd.DataFrame, selection: pd.DataFrame) -> pd.DataFrame:
     """The descriptive paired comparison over the ``binary_lasso`` replicates R fit directly.
 
@@ -713,8 +717,10 @@ def selection_summary(rows: pd.DataFrame, selection: pd.DataFrame) -> pd.DataFra
     lasso = selection.loc[selection["scenario"] == "binary_lasso"]
     kept = lasso.loc[lasso["adapter_used"] == 0, "replicate"]
     subset = rows.loc[(rows["scenario"] == "binary_lasso") & rows["replicate"].isin(kept)]
+    # When R needed the adapter for every replicate, nothing is compared and the columns of the
+    # pivot are empty.  The summary then reports zero compared replicates.
     paired = subset.pivot(index="replicate", columns="implementation", values="estimate")
-    paired = paired.dropna()
+    paired = paired.reindex(columns=[IMPLEMENTATION, REFERENCE]).dropna()
     difference = (paired[IMPLEMENTATION] - paired[REFERENCE]).to_numpy(dtype=float)
     count = int(difference.size)
     mean = float(np.mean(difference)) if count else math.nan
@@ -738,8 +744,8 @@ def selection_summary(rows: pd.DataFrame, selection: pd.DataFrame) -> pd.DataFra
                 "ci_lower": mean - half,
                 "ci_upper": mean + half,
                 "max_abs_difference": float(np.max(np.abs(difference))) if count else math.nan,
-                "rmse_cleverly": float(np.sqrt(np.mean((paired[IMPLEMENTATION] - truth) ** 2))),
-                "rmse_reference": float(np.sqrt(np.mean((paired[REFERENCE] - truth) ** 2))),
+                "rmse_cleverly": _rmse(paired[IMPLEMENTATION] - truth),
+                "rmse_reference": _rmse(paired[REFERENCE] - truth),
             }
         ]
     )

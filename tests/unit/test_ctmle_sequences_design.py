@@ -261,3 +261,37 @@ def test_r_selection_keeps_every_path_minimum() -> None:
     assert list(selection.columns) == ["scenario", "replicate", *study.REFERENCE_COLUMNS]
     lasso = selection.loc[selection["scenario"] == "binary_lasso"].iloc[0]
     assert lasso["path_min_lambda_fold_5"] == pytest.approx(1e-5 + 4e-7, rel=0, abs=1e-18)
+
+
+def _summary_rows(adapter: tuple[int, ...]) -> pd.DataFrame:
+    """Both implementations on ``binary_lasso`` replicates, R's adapter flag as given."""
+    rows = []
+    for replicate, used in enumerate(adapter):
+        for implementation, estimate in ((study.IMPLEMENTATION, 0.1), (study.REFERENCE, 0.12)):
+            row = {
+                "implementation": implementation,
+                "scenario": "binary_lasso",
+                "replicate": replicate,
+                "truth": 0.1,
+                "estimate": estimate + 0.01 * replicate,
+            }
+            if implementation == study.REFERENCE:
+                row |= {"best_k": 21 if used else 5, "n_candidates": 3, "adapter_used": used}
+                row |= {"path_min_lambda": 1e-5} | dict.fromkeys(study.FOLD_PATH_COLUMNS, 1e-5)
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def test_the_selection_summary_pairs_the_replicates_r_fit_directly() -> None:
+    rows = _summary_rows((0, 1, 0))
+    summary = study.selection_summary(rows, study.selection_rows(rows)).iloc[0]
+    assert summary["adapter_replicates"] == 1 and summary["compared_replicates"] == 2
+    assert summary["mean_difference"] == pytest.approx(-0.02)
+
+
+def test_the_selection_summary_survives_an_adapter_on_every_replicate() -> None:
+    """The second probe stopped here: no replicate is compared, so the pivot has no columns."""
+    rows = _summary_rows((1, 1, 1))
+    summary = study.selection_summary(rows, study.selection_rows(rows)).iloc[0]
+    assert summary["adapter_replicates"] == 3 and summary["compared_replicates"] == 0
+    assert np.isnan(summary["mean_difference"]) and np.isnan(summary["rmse_cleverly"])
