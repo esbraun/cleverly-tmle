@@ -18,11 +18,13 @@ panel <- data.frame(
   Y = raw$Y
 )
 
-# Every regression reads the full history.  Among the followers of a static regime the arm
-# columns are constant, and glm drops them as aliased, as cleverly's GLM does.
+# The outcome regressions read the covariates and no arm column, as cleverly's
+# `outcome_design` does at a label or rule node: on the followers the arm is a function of
+# the covariates.  A rule's arm is not a linear function of them, so an arm column would change
+# a main-terms fit.  The mechanisms read the full history.
 qform <- c(
-  L2 = "Q.kplus1 ~ W1 + W2 + A1",
-  Y = "Q.kplus1 ~ W1 + W2 + A1 + L2 + A2"
+  L2 = "Q.kplus1 ~ W1 + W2",
+  Y = "Q.kplus1 ~ W1 + W2 + L2"
 )
 gform <- c(
   "A1 ~ W1 + W2",

@@ -3,7 +3,9 @@
 ``tests/canonical/sequential_baselines/generate_reference.R`` fits two ``ltmle`` calls per
 regime on ``data.csv``: ``gcomp=TRUE`` with ``stratify=TRUE`` for the plug-in, and
 ``stratify=FALSE`` for the IPTW point, which ``CalcIPTW`` normalizes by the weight sum.  Every
-regression reads the full history with ``SL.library="glm"``, and ``gbounds=c(0.01, 1)``.  The
+mechanism reads the full history, every ``Qform`` reads the covariates and no arm column (as
+``outcome_design`` does at a label or rule node), with ``SL.library="glm"`` and
+``gbounds=c(0.01, 1)``.  The
 exact laws in ``test_sequential_baselines.py`` remain the oracle for the target.  This fixture
 checks that the GLM fits and the weights match the reference implementation.
 """

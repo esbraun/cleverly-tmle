@@ -17,8 +17,10 @@ The two `ltmle` calls are these:
 | g-computation | `gcomp=TRUE`, `stratify=TRUE` |
 | IPTW | `gcomp=FALSE`, `stratify=FALSE`. `CalcIPTW` divides by the weight sum, which is the Hajek form |
 
-Both calls use `SL.library="glm"`, `gbounds=c(0.01, 1)` and the full history in every `Qform`
-and `gform`. The regimes are always treat, never treat, and the rule
+Both calls use `SL.library="glm"` and `gbounds=c(0.01, 1)`. Each `gform` reads the full
+history. Each `Qform` reads the covariates and no arm column, as `outcome_design` does at a
+label or rule node. A rule's arm is not a linear function of the covariates, so an arm column
+changes a main-terms fit. The regimes are always treat, never treat, and the rule
 $A_1 = 1\{W_1 > 0\}$, $A_2 = 1\{L_2 > 0\}$.
 
 The exact laws in `tests/unit/test_sequential_baselines.py` are the oracle for the target. This
