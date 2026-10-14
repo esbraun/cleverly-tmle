@@ -172,7 +172,8 @@ def test_the_primary_phase_runs_and_pairs_the_scenarios(name: str) -> None:
     study, _ = STUDIES[name]
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        samples, truths, rows = study.draw_and_fit(replicates=2, n=300, n_jobs=1)
+        phase = study.draw_and_fit(replicates=2, n=300, n_jobs=1)
+    samples, truths, rows = phase.samples, phase.truths, phase.rows
     assert set(rows["scenario"]) == set(study.STUDY.scenarios)
     for scenario, estimands in study.STUDY.scenarios.items():
         assert set(rows.loc[rows["scenario"] == scenario, "estimand"]) == set(estimands)

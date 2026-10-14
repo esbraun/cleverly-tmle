@@ -22,6 +22,7 @@ from cleverly.estimators import CTMLE
 from cleverly.learners.crossfit import RANDOM_PARTITION_GENERATOR
 from tests.parallel import STUDY_JOBS
 from tests.studies import multi_arm_common
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.seeds import draw_replicate
 
@@ -200,8 +201,8 @@ def cleverly_rows(
     return multi_arm_common.cleverly_rows(STUDY, fit_cleverly, frame, truth, scenario, replicate)
 
 
-def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    rows = multi_arm_common.draw_and_fit(
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
+    return multi_arm_common.draw_and_fit(
         STUDY,
         fit_cleverly,
         replicates=replicates,
@@ -209,5 +210,3 @@ def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> pd.Dat
         n_jobs=n_jobs,
         include_samples=False,
     )
-    assert isinstance(rows, pd.DataFrame)
-    return rows

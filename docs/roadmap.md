@@ -40,14 +40,12 @@ A new capability still needs its own contract and evidence, even in this queue.
 | priority | item | tier | acceptance |
 | ---: | --- | --- | --- |
 | 0.1 | RM39. Keep a study run alive through a failed replicate | b | the contract in [RM39](#rm39-keep-a-study-run-alive-through-a-failed-replicate), its tests, and passing handoff checks |
-| 0.2 | RM41. Find the DR-TMLE bias with an in-sample flexible mechanism | a | the contract in [RM41](#rm41-find-the-dr-tmle-bias-with-an-in-sample-flexible-mechanism), its tests, and passing handoff checks |
-
-RM39 keeps 0.1 by user decision, although RM41's tier ranks higher.
 
 ### RM39. Keep a study run alive through a failed replicate
 
-Status: parts a1 (resilience) and a2 (failure recording and accounting) are delivered. Part b
-(the Python phase) is open. The section leaves this file when b merges.
+Status: parts a1 (resilience), a2 (failure recording and accounting) and b1 (the primary
+Python phase) are delivered. Part b2 (the property phase) is open. The section leaves this file
+when b2 merges.
 
 A registered study with a comparator runs in two phases. The Python phase fits `cleverly`. The
 reference phase fits the pinned comparator, usually R in its container. Before RM39, one failed
@@ -106,47 +104,32 @@ hash of `study_harness.R` and of the three runners outside the harness.
 | a paired statistic reads only the replicates where both implementations succeeded, and it reports the dropped replicates | delivered |
 | an informative-failure witness reports the error of the surviving implementation on the failed replicates. It is a report, not the gate | delivered |
 | a study hook defines `account_failures`, or its accounting row reads `failures not accountable` and is red | delivered |
-| property cells, efficiency ratios, spread slopes, simultaneous coverage and the negative-control union read Python-phase rows only, so no a2 failure reaches them | moved to part b |
+| property cells, efficiency ratios, spread slopes, simultaneous coverage and the negative-control union read Python-phase rows only, so no a2 failure reaches them | moved to part b2 |
 
 The design treats a failure conservatively. It does not rely on a test that failures are
 independent of the outcome, because that test cannot see the missing outcome. The range-bounded
 worst case can miss a failure whose value falls outside the observed range. A small declared bound
 limits that case.
 
-#### Part b: the Python phase
+#### Part b1: the primary Python phase
+
+| acceptance | status |
+| --- | --- |
+| `fit_replicates` gives every primary `draw_and_fit` loop the isolation, the records and the checkpoints of parts a1 and a2. With no failure, each study's Python phase writes the bytes it wrote before | delivered |
+| these exceptions stop the phase: `CapabilityError`, `MethodConfigurationError`, `KeyboardInterrupt`, `SystemExit`, `MemoryError`, `TypeError`, `AttributeError`, `NameError`, `ImportError` and `AssertionError`. An error in the draw also stops it | delivered |
+| the phase records only `DataError`, `LongitudinalError`, `numpy.linalg.LinAlgError`, `FloatingPointError`, `ZeroDivisionError`, `OverflowError`, and a plain `ValueError` or `RuntimeError` that `numpy`, `scipy`, `sklearn` or `statsmodels` raised | delivered |
+| a subject row that breaks a row rule is an `invalid_result` record | delivered |
+| the accounting fills a lost subject value at its worst case, counts each side against its own bound, and charges a `paired_input_missing` reference loss to the subject | delivered |
+| the Python phase checkpoints each replicate under the part a1 resume key. A killed worker costs the replicates in flight, and a second kill of one replicate stops the run | delivered |
+| `CoverageStudy` records the same classes and accepts a `ReplicationCheckpoint` | delivered |
+| the zEpid runner records failures, stops on the systematic prefix and when every group failed, and resumes from the driver's stored reference result. It keeps one container | delivered |
+
+#### Part b2: the property phase
 
 | acceptance |
 | --- |
-| `fit_replicates` gives the Python phase, the property studies and the zEpid comparator the isolation, the records and the checkpoints of parts a1 and a2 |
-| these exceptions stop the phase: `CapabilityError`, `MethodConfigurationError`, `KeyboardInterrupt`, `SystemExit`, `MemoryError`, `TypeError`, `AttributeError`, `NameError`, `ImportError` and `AssertionError` |
-| the phase records only `DataError`, `LongitudinalError`, `numpy.linalg.LinAlgError`, `FloatingPointError`, `ZeroDivisionError`, `OverflowError`, and a plain `ValueError` or `RuntimeError` that `numpy`, `scipy`, `sklearn` or `statsmodels` raised |
-| the Python phase uses the part a1 resume key |
-
-### RM41. Find the DR-TMLE bias with an in-sample flexible mechanism
-
-Status: open. A plan is needed.
-
-The RM40 witness study measured constructed nuisance errors only. Its pre-declaration probe,
-`reviews/rm40/hgb_diagnosis.py`, fitted the mechanism in sample with gradient boosting and fitted
-a wrong outcome regression on law L. The table gives the result from `reviews/rm40/hgb_diagnosis.log`.
-
-| fit | ATE bias in SD at n = 1,000, 4,000, 16,000 | ATE coverage at n = 1,000, 4,000, 16,000 |
-| --- | --- | --- |
-| `DRTMLE`, wrong outcome regression | −1.35, −2.37, −2.54 | 0.66, 0.38, 0.41 |
-| `DRTMLE`, correct outcome regression | −0.00, +0.05, −0.06 | 0.84, 0.94, 0.95 |
-| plain TMLE, the same mechanism and wrong outcome regression | −0.08, +0.25, +0.33 | 0.96, 0.97, 0.98 |
-
-The case table calls a data-adaptive mechanism "not established", so no contract claims this
-interval. The conditioning-term proxy predicts −0.75 to −0.93 SD, so the term does not explain the
-bias. The probe's exact split puts it in the own-row term of the outcome targeting step. The row
-takes tier a, because the interval is anti-conservative and worse than plain TMLE with the same
-learners.
-
-| acceptance |
-| --- |
-| a committed diagnosis names the cause and states whether it is a defect of the code or of the method |
-| a defect of the code is fixed, with a test that fails before the fix |
-| a property of the method is stated on the [theorem page](technical-reference/dr-tmle/theorem.md), with the measured numbers |
+| `fit_replicates` gives the property studies the records and the checkpoints of part b1 |
+| property cells, efficiency ratios, spread slopes, simultaneous coverage and the negative-control union account for their lost replicates |
 
 Each row takes a tier by the harm that its defect does to a user today. The table gives the tiers,
 from the most harmful. Inside a tier, a row with a wider reach comes first. A row that another row
@@ -154,7 +137,7 @@ depends on comes before that row.
 
 | tier | reason | rows |
 | --- | --- | --- |
-| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM41 |
+| a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | no open row |
 | b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | RM39 |
 | c | a correct refusal that arrives late or as the wrong type | no open row |
 | d | a diagnostic or a warning that misleads | no open row |
@@ -183,13 +166,12 @@ Priorities 2 to 5 follow the beta.
 | priority | item | readiness | dependency | details |
 | ---: | --- | --- | --- | --- |
 | 1.11 | C-TMLE candidate sequences | published support; pending source read | shipped selector paths | [X16](#x16-c-tmle-candidate-sequences) |
-| 1.12 | Sequential doubly robust longitudinal estimation | published support; pending source read | implemented longitudinal targets | [X4](#x4-sequential-doubly-robust-longitudinal-estimation) |
-| 1.13 | Hazard-based and monotone survival curves | published support; pending source read | the shipped point-treatment survival design | [X14](#x14-hazard-based-and-monotone-survival-curves) |
-| 1.14 | Incremental interventions over time | source audit | shipped longitudinal modified treatment policies | [X19](#x19-incremental-interventions-over-time) |
-| 1.15 | Targeting and fitting options | no new theory; each option keeps its default bit-identical | none | [X22](#x22-targeting-and-fitting-options) |
-| 1.16 | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
-| 1.17 | Continuous vector components at a node | published support; pending source read | shipped longitudinal modified treatment policies | [X31](#x31-continuous-vector-components-at-a-node) |
-| 1.18 | Plug-in omitted-variable limits with a declared parametric mechanism | [published support; stacked-equation extension](technical-reference/natural-extension-verdicts.md) | the shipped plug-in bound | [X26](#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism) |
+| 1.12 | Hazard-based and monotone survival curves | published support; pending source read | the shipped point-treatment survival design | [X14](#x14-hazard-based-and-monotone-survival-curves) |
+| 1.13 | Repeated-outcome curves | published support for the incremental case; a fixed-dimension stack for static and dynamic plans | the shipped `IPSI` estimator | [X32](#x32-repeated-outcome-curves) |
+| 1.14 | Targeting and fitting options | no new theory; each option keeps its default bit-identical | none | [X22](#x22-targeting-and-fitting-options) |
+| 1.15 | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
+| 1.16 | Continuous vector components at a node | published support; pending source read | shipped longitudinal modified treatment policies | [X31](#x31-continuous-vector-components-at-a-node) |
+| 1.17 | Plug-in omitted-variable limits with a declared parametric mechanism | [published support; stacked-equation extension](technical-reference/natural-extension-verdicts.md) | the shipped plug-in bound | [X26](#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism) |
 | 2.1 | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
 | 2.2 | Efficient known-score ATT and ATC | published support; pending source read | the shipped known treatment mechanism | [X35](#x35-efficient-known-score-att-and-atc) |
 | 3.1 | Natural and interventional mediation effects | published support; pending source read | target-specific identification and evidence | [X5](#x5-natural-and-interventional-mediation-effects) |
@@ -420,20 +402,6 @@ Acceptance:
 - a registered study against the pinned `ctmle` that reuses the selector study's laws and reports
   the point and the plug-in diagnostic.
 
-### X4. Sequential doubly robust longitudinal estimation
-
-`lmtp_sdr` implements the sequentially doubly robust estimator of Díaz, Williams, Hoffman and
-Schenck (2023). That estimator is consistent when either the outcome regression or the treatment
-mechanism is consistent at each time point. It is a second estimator over registered longitudinal
-targets, so it adds no estimand. The comparator is the pinned R `lmtp` 1.5.4 that the longitudinal
-rows already use, and no new container is needed.
-
-Theorem 4 of the same article certifies a fold-local recursion for the SDR estimator. Theorem 3
-certifies the pooled fluctuation that the cross-fitted TMLE runs. Read the rate conditions that
-the SDR interval claims first, because they differ from the sequential regression conditions.
-The SDR estimator also covers the continuous-dose modified treatment policies, and its study covers
-one of them.
-
 ### X14. Hazard-based and monotone survival curves
 
 The shipped survival fit targets each horizon in its own backward pass, so the reported curve is
@@ -465,28 +433,30 @@ Acceptance:
 - a test that each curve is monotone on a law where per-horizon targeting is not;
 - a registered study with joint coverage over the horizons.
 
-### X19. Incremental interventions over time
+### X32. Repeated-outcome curves
 
-`TMLE(incremental=...)` fits Kennedy's odds tilt of a binary point treatment. `LTMLE` refuses
-`incremental=`, because the tilt needs the product of tilted mechanisms and a mechanism submodel at
-every node. The pinned `lmtp` 1.5.4 ships `ipsi()`, which is a risk-ratio tilt and not the odds
-tilt. `RiskRatioTilt` ships that rule at a point treatment and at each node of a plan.
+`LongitudinalData` reads `outcome=[...]` only as an absorbing event. X32 adds a declaration of a
+non-absorbing outcome $Y_t$ at each node. It also adds the curve $t \mapsto E[Y_t^{Q}]$ over a
+declared set of horizons.
 
-| part | what to add | published source | comparator |
-| --- | --- | --- | --- |
-| (a) the odds tilt over time | the incremental intervention at every node of a binary longitudinal treatment | Kennedy (2019), *Journal of the American Statistical Association* 114(526), which treats time-varying treatments | `npcausal` 0.1.0, pinned for the point-treatment incremental study. The audit must confirm that its `ipsi()` fits time-varying data |
+| item | contract |
+| --- | --- |
+| base | Kim, Kennedy and Naimi (2021), *Journal of Causal Inference* 9(1):302–344, Theorems 3.1, 4.1 and 5.1 (tilts, dropout, and the joint process over $\delta$ and $t$). For static and dynamic plans, each horizon is the shipped end-of-study estimand on the panel truncated after node $t$. The curve is their fixed-dimension stack |
+| estimators | one backward pass per horizon, seeded at $Y_t$, with earlier $Y_s$ in the history. `IPSI`, `LTMLE` and `SDR` each fit the declaration or refuse it by name |
+| inference | a joint band over plans and horizons from the stacked curve |
 
-A tilt is a policy density that is a function of the mechanism. The
-[known stochastic policies](technical-reference/longitudinal-tmle.md#known-stochastic-policies)
-fit carries such a density through `sequential._carried(policy, by_arm)` and reads its numerator
-through `regimen._node_numerator(plan, data, time)`. A tilt also needs the numerator to read
-`Mechanism.treatment_observed`, and the curve needs a mechanism-derivative term at every node.
+Today a user can fit one horizon by hand. Truncate the panel after node $t$, and declare $Y_t$ as
+the outcome and earlier $Y_s$ as covariates.
+[Incremental interventions over time](technical-reference/longitudinal-tmle.md#the-incremental-estimand)
+states that route.
 
 Acceptance:
 
-- exact-law witnesses with a nonzero tilt at every node;
-- a mutation control that drops one node's tilt;
-- a registered study against `npcausal`.
+- exact-law witnesses with a non-absorbing outcome that returns to zero, so an absorbing reading
+  fails;
+- a mutation control that treats $Y_t$ as absorbing;
+- a truth-calibrated registered study. Kim's research code is unpinned, so no paired comparator
+  exists.
 
 ### X22. Targeting and fitting options
 
@@ -498,8 +468,8 @@ theory. Each option keeps every default fit bit-identical, and each changes a fi
 | (a) best iterate | report the targeting iterate with the smallest score norm over the loop | a fit that stops at `max_iter` reports its best iterate, and its record says which one | `tmle3` `use_best` |
 | (b) stopping rule | choose the score threshold: the shipped variance-scaled rule, or a threshold of $1/n$ | the two rules that `tmle3` names `scaled_var` and `sample_size` | `tmle3` `convergence_type` |
 | (c) step bound | bound the fluctuation step in each iteration | a damped update for a fit whose first step overshoots | `tmle3` `constrain_step` and `delta_epsilon` |
-| (d) quantile trimming | trim the cumulative density ratio at a declared quantile, beside the shipped bound `g_bounds` | the trimming rule of `lmtp`. The fit records the trimmed share, as it records truncation now | `lmtp` `.trim` |
-| (e) Markov order | restrict each node's nuisance history to the last `k` nodes | an assumption about the data. The identification summary states it | `lmtp` `k` |
+| (d) quantile trimming | trim the cumulative density ratio at a declared quantile, beside the shipped bound `g_bounds` | the trimming rule of `lmtp`. The fit records the trimmed share, as it records truncation now. `SDR` reads the same per-node ratio | `lmtp` `.trim` |
+| (e) Markov order | restrict each node's nuisance history to the last `k` nodes | an assumption about the data. The identification summary states it. `SDR` reads the same per-node ratio and regressions | `lmtp` `k` |
 | (f) per-arm outcome fit | fit the outcome regression separately in each arm | a nuisance choice for `TMLE` and `DRTMLE` | `drtmle` `stratify` |
 | (g) early stop on a C-TMLE path | stop the greedy search after a declared number of steps without a risk improvement | a cheaper path. The fit keeps its `working_mechanism_plugin` status | `ctmle` `patience` |
 | (h) hazard and outcome bounds | bound each node's regression into a declared interval before the logistic fluctuation | a fit on a declared range of the hazard or the iterated mean | `survtmle` `bounds` |
@@ -1124,7 +1094,9 @@ sample-data operation.
 ### F3. Additional longitudinal estimands
 
 Competing-event interventions and other longitudinal estimands wait for their own identification
-assumptions, influence functions, targeting construction, and inference conditions. Add accepted
+assumptions, influence functions, targeting construction, and inference conditions. For the
+incremental case of a non-absorbing time-varying outcome, Kim, Kennedy and Naimi (2021), Theorems
+3.1, 4.1 and 5.1, supply the result. [X32](#x32-repeated-outcome-curves) owns that curve. Add accepted
 targets in both directions to the oracle registry and evidence gates rather than treating them as
 options on an existing cause-specific estimand.
 

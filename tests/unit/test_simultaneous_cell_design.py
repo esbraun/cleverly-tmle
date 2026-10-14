@@ -474,7 +474,7 @@ def test_the_composite_primary_rows_feed_the_fit_exit_artifact() -> None:
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        _, _, rows = study.draw_and_fit(replicates=1, n=300, n_jobs=1)
+        rows = study.draw_and_fit(replicates=1, n=300, n_jobs=1).rows
     (exits,) = study.extra_artifacts(rows).values()
     assert list(exits.columns) == list(study.FIT_EXIT_COLUMNS)
     assert len(exits) == len(rows)

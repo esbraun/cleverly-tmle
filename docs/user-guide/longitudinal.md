@@ -280,6 +280,108 @@ changes the treatment after baseline is refused, because the design holds one de
 [One baseline treatment held over the nodes](../technical-reference/longitudinal-tmle.md#one-baseline-treatment-held-over-the-nodes)
 gives the contract and its evidence.
 
+## Fit the sequentially doubly robust estimator
+
+Pass `method="sdr"` to `estimate()` to fit the sequentially doubly robust estimator. It reports
+the same parameters as the default method. It stays consistent when, at each node, either the
+mechanism or the regression of the node's transform is consistent.
+
+```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
+from cleverly.datasets import make_longitudinal
+
+frame, _ = make_longitudinal(n=300, seed=0)
+study = CausalStudy(
+    frame,
+    design=LongitudinalTreatment(
+        outcome="Y",
+        treatment=("A1", "A2"),
+        baseline=("W1", "W2"),
+        time_varying=((), ("L2",)),
+        censoring=("C1", "C2"),
+    ),
+)
+result = study.identify(RegimeContrast({"always": 1, "never": 0}, reference="never")).estimate(
+    method="sdr",
+    outcome_learner=LogisticRegression(),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(),
+    censoring_learner=LogisticRegression(),
+    n_folds=2,
+    random_state=0,
+    simultaneous=False,
+)
+print(result.summary())
+```
+
+Give `pseudo_learner` a learner of a real-valued target. A transform can leave $[0, 1]$, so a
+level can leave the outcome range too. The fit then warns with `ParameterSpaceWarning`, and
+`ratio()` refuses a scale that is undefined at that level.
+[The sequentially doubly robust estimator](../technical-reference/longitudinal-tmle.md#the-sequentially-doubly-robust-estimator)
+states the contract and what differs from the default method.
+
+## Estimate an incremental intervention over time
+
+Pass `IncrementalEffect` to `identify()` and `method="ipsi"` to `estimate()`. Each
+`Incremental(delta)` multiplies every unit's odds of treatment by `delta` at every node.
+`Incremental(1.0)` is the natural course, and the example uses it as the reference.
+
+```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+from cleverly import CausalStudy, IncrementalEffect, LongitudinalTreatment
+from cleverly.datasets import make_longitudinal
+from cleverly.interventions import Incremental
+
+frame, _ = make_longitudinal(n=300, seed=0)
+study = CausalStudy(
+    frame,
+    design=LongitudinalTreatment(
+        outcome="Y",
+        treatment=("A1", "A2"),
+        baseline=("W1", "W2"),
+        time_varying=((), ("L2",)),
+        censoring=("C1", "C2"),
+    ),
+)
+effect = study.identify(IncrementalEffect([Incremental(1.0), Incremental(2.0)]))
+result = effect.estimate(
+    method="ipsi",
+    outcome_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(),
+    censoring_learner=LogisticRegression(),
+    n_folds=2,
+    random_state=0,
+    simultaneous=False,
+)
+assert result.config.estimator == "ipsi"
+assert list(result.estimates) == ["ate_regimen[odds x2 vs natural course]"]
+print(result.summary())
+```
+
+The `ipsi` method fits the one-step estimator of Kennedy (2019), with the dropout weights of Kim,
+Kennedy and Naimi (2021). It needs no treatment positivity at a tilt node. It is not doubly
+robust, so give `treatment_learner` a learner that can fit the mechanism at every node.
+`available_methods()` lists `tmle` and `sdr` as unavailable for an estimated tilt, with the
+reason.
+
+| task | how |
+| --- | --- |
+| fit the engine directly | `IPSI([Incremental(1.0), Incremental(2.0)], ...)` from `cleverly.longitudinal` |
+| use one tilt per node | `DynamicRegimen("ramp", (Incremental(1.5), Incremental(2.0)))` |
+| tilt one node and fix another | `DynamicRegimen("tilt then stop", (Incremental(2.0), 0))` |
+| declare a known treatment mechanism | pass `treatment_probabilities=` to the design. The tilt is then a known policy |
+
+A level can leave the outcome range, because the estimate is an average of influence-function
+values. The fit then warns with `ParameterSpaceWarning`. A risk curve can also be non-monotone
+across horizons. A mean of a non-absorbing outcome $Y_t$ is the end-of-study estimand on the panel
+truncated after node $t$. Earlier $Y_s$ are covariates there (Kim et al. 2021, Theorem 3.1).
+`IPSI` is Kennedy's odds tilt, and `lmtp::ipsi` is the risk-ratio tilt `RiskRatioTilt`.
+[Incremental interventions over time](../technical-reference/longitudinal-tmle.md#incremental-interventions-over-time) states
+the contract.
+
 ## Longitudinal MSM projections
 
 `MSMProjection` can project regimen-specific longitudinal means onto a declared working model. The

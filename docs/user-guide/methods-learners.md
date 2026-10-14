@@ -27,6 +27,22 @@ doubly_robust = effect.estimate(
 Call `effect.available_methods()` before fitting when method availability matters. An unavailable
 method comes with a capability reason.
 
+`SDRMethod` selects the sequentially doubly robust estimator for a longitudinal functional. A
+point-treatment functional lists it as unavailable. The estimator fits no fluctuation, so it
+refuses a non-default `submodel_alpha`, `max_iter` or `tol`. Its `pseudo_learner` fits a
+transform that can leave $[0, 1]$, so give it a learner of a real-valued target, such as
+`LinearRegression()`. The default is a regression Super Learner with no clip.
+[The sequentially doubly robust estimator](../technical-reference/longitudinal-tmle.md#the-sequentially-doubly-robust-estimator)
+states its contract.
+
+`IPSIMethod` selects the incremental estimator of Kennedy (2019) for `IncrementalMean` or
+`IncrementalEffect` on a longitudinal design. A point-treatment functional lists it as
+unavailable. It fits no fluctuation either, so it refuses the same three settings. At a tilt
+node the treatment mechanism defines the plan, and the estimator is not doubly robust. Give
+`treatment_learner` a learner that can fit the mechanism at every node.
+[Incremental interventions over time](../technical-reference/longitudinal-tmle.md#incremental-interventions-over-time) states
+its contract.
+
 The collaborative fit above reports no confidence interval, no p-value, and no standard error. The
 `"greedy"` strategy is the default. `"ordered"`, `"discrete"`, and `"oat"` refuse the same three
 accessors. Each estimate keeps `plugin_std_error` and `plugin_interval` as a diagnostic. For an

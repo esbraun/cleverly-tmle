@@ -511,3 +511,26 @@ def test_a_missing_targeting_step_fails_the_parity_ratio() -> None:
 def test_the_study_directory_is_the_registered_one() -> None:
     assert study.STUDY.artifacts == ROOT / "tests" / "canonical" / "tmle_mar_arm_indexed_cvtmle"
     assert study.STUDY.artifacts.joinpath("regenerate.py").exists()
+
+
+def test_the_scale_probe_reads_the_lowest_kept_replication(tmp_path: Any) -> None:
+    """A lost subject fit at replication 0 moves the probe instead of stopping the R run."""
+    continuous = [law.scenario for law in LAWS if law.continuous]
+    binary = next(law.scenario for law in LAWS if not law.continuous)
+    rows = [
+        {"scenario": scenario, "replicate": replicate, "Y": float(replicate)}
+        for scenario in (*continuous, binary)
+        for replicate in (0, 3, 4)
+        if not (scenario == continuous[0] and replicate == 0)
+    ]
+    samples = tmp_path / "samples.csv.gz"
+    pd.DataFrame(rows).to_csv(samples, index=False)
+    probed, moved = study.probe_samples(samples)
+    assert moved == {continuous[0]: 3}
+    frame = pd.read_csv(probed)
+    zero = frame.loc[(frame["scenario"] == continuous[0]) & (frame["replicate"] == 0)]
+    assert zero["Y"].tolist() == [3.0]
+    # With replication 0 kept everywhere the probe reads the samples unchanged.
+    full = tmp_path / "full.csv.gz"
+    pd.DataFrame([{**row, "replicate": 0} for row in rows]).to_csv(full, index=False)
+    assert study.probe_samples(full) == (full, {})
