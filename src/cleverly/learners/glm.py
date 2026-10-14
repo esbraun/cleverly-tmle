@@ -68,7 +68,7 @@ def _softmax(eta: FloatArray) -> FloatArray:
     return np.asarray(expd / expd.sum(axis=1, keepdims=True), dtype=float)
 
 
-class GLM(BaseEstimator):  # type: ignore[misc]
+class GLM(BaseEstimator):
     """An unpenalized generalized linear model with a canonical link.
 
     Parameters
