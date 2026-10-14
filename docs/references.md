@@ -2324,12 +2324,14 @@ not a shipped claim.
   locality*](https://arxiv.org/abs/2610.02944v1), arXiv:2610.02944v1. The result covers an IPW
   score with a known propensity only. Cited by future investigation
   [F27](roadmap.md#f27-learned-policy-value-outside-the-published-conditions).
-- Fang, Wang, Hu & Li (2025), [arXiv:2510.08438](https://arxiv.org/abs/2510.08438), read in the
-  HTML version of 10 October 2025. The paper treats cluster-randomized trials with survival
+- Fang, Wang, Hu & Li (2025), [*Estimands and doubly robust estimation for cluster-randomized trials
+  with survival outcomes*](https://arxiv.org/abs/2510.08438), arXiv:2510.08438, read in the HTML
+  version of 10 October 2025. The paper treats cluster-randomized trials with survival
   outcomes. Section 3.3 uses the cluster jackknife as a small-sample variance. Cited by roadmap
   item [X54](roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes)
   part (c).
-- Ballinari & Wehrli (2024), [arXiv:2411.10009v2](https://arxiv.org/abs/2411.10009v2). The paper
+- Ballinari & Wehrli (2024), [*Semiparametric inference for impulse response functions using
+  double/debiased machine learning*](https://arxiv.org/abs/2411.10009v2), arXiv:2411.10009v2. The paper
   treats impulse response functions with double machine learning. Section 3.3, Procedure 2,
   removes a block of observations between the folds. Assumption 3 needs weak stationarity and
   $\alpha$-mixing. Theorem 4 gives the limit, and Theorem 5 a Newey-West variance. It treats no
@@ -2340,7 +2342,8 @@ not a shipped claim.
   sample by time blocks. Theorems 3.1 and 3.3 need $\beta$-mixing, and the variance is a
   cluster-robust estimator over independent panel units. Cited by future investigation
   [F7](roadmap.md#f7-time-respecting-cross-fitting).
-- Shen, Bacak & Kennedy (2026), [arXiv:2601.17779v1](https://arxiv.org/abs/2601.17779v1). The
+- Shen, Bacak & Kennedy (2026), [*Sensitivity analysis for incremental effects, with application to
+  a study of victimization & offending*](https://arxiv.org/abs/2601.17779v1), arXiv:2601.17779v1. The
   paper treats sensitivity analysis for incremental effects. Section 5.2 establishes the
   identification of sharp bounds only, and it leaves a practical estimator to future work. Cited
   by future investigation [F16](roadmap.md#f16-longitudinal-sensitivity-bound-estimation).
