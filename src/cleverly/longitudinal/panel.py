@@ -22,7 +22,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import date
+from datetime import date, timedelta
+from itertools import pairwise
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -239,7 +240,10 @@ def _orders_in_time(value: Any) -> bool:
     """Whether a decision-time label sorts in time order: a number or a date."""
     if isinstance(value, (bool, np.bool_)):
         return False
-    return isinstance(value, (int, float, np.integer, np.floating, np.datetime64, date))
+    return isinstance(
+        value,
+        (int, float, np.integer, np.floating, np.datetime64, np.timedelta64, date, timedelta),
+    )
 
 
 def _label(value: Any) -> Any:
@@ -297,15 +301,15 @@ def _index(frame: Any, unit: str, time: str, times: Sequence[Any] | None) -> _Pa
     unit_labels, unit_code = _sorted_unique(ids, unit)
     observed, node = _sorted_unique(stamps, time)
     if times is None:
-        # Sorting defines the node order, so it must be the time order.  Numbers and dates
-        # sort in time; labels such as "w1", "w10", "w2" do not, and would put a later
+        # Sorting defines the node order, so it must be the time order.  Numbers, dates and
+        # durations sort in time; labels such as "w1", "w10", "w2" do not, and would put a later
         # node's covariates into an earlier node's history.
         unordered = [_label(value) for value in observed if not _orders_in_time(value)]
         if unordered:
             raise DataError(
-                f"column {time!r} holds decision time(s) {unordered[:3]} that are not numbers "
-                "or dates, so their sort order need not be their time order. Pass times= with "
-                "every decision time in time order"
+                f"column {time!r} holds decision time(s) {unordered[:3]} that are not numbers, "
+                "dates or durations, so their sort order need not be their time order. "
+                "Pass times= with every decision time in time order"
             )
         grid = tuple(_label(value) for value in observed)
     else:
@@ -313,6 +317,13 @@ def _index(frame: Any, unit: str, time: str, times: Sequence[Any] | None) -> _Pa
         grid = tuple(_label(value) for value in times)
         if len(set(grid)) != len(grid):
             raise DataError("times= lists a decision time more than once")
+        if all(_orders_in_time(value) for value in grid) and any(
+            later <= earlier for earlier, later in pairwise(grid)
+        ):
+            raise DataError(
+                f"times= lists {list(grid)}, which is not increasing. It gives the decision "
+                "times in time order"
+            )
         position = {value: index for index, value in enumerate(grid)}
         unknown = [_label(value) for value in observed if _label(value) not in position]
         if unknown:
@@ -767,15 +778,24 @@ def _refuse_outcome_copies(
         # Compared on every row where both the covariate and its unit's outcome are
         # recorded, so a copy kept on the last row only, or on the first, is caught too.
         target = y[panel.unit_code]
+        # A status column can hold interim values at earlier nodes and the outcome at a
+        # later one, so a time-varying column is also compared one node at a time.
         for name in (*baseline, *varying):
             values = column_array(frame, name)
-            rows = np.isfinite(values) & np.isfinite(target)
-            if np.unique(target[rows]).size > 1 and np.array_equal(values[rows], target[rows]):
-                raise DataError(
-                    f"column {name!r} equals the outcome {outcome!r} on every row where both are "
-                    "recorded. It is the outcome under another name, and a rule could read it. "
-                    "Remove it from the covariates"
-                )
+            recorded = np.isfinite(values) & np.isfinite(target)
+            subsets = [("", recorded)]
+            if name in varying:
+                subsets += [
+                    (f" at decision time {panel.time(node)!r}", recorded & (panel.node == node))
+                    for node in range(panel.n_times)
+                ]
+            for where, rows in subsets:
+                if np.unique(target[rows]).size > 1 and np.array_equal(values[rows], target[rows]):
+                    raise DataError(
+                        f"column {name!r} equals the outcome {outcome!r}{where} on every row "
+                        "where both are recorded. It is the outcome under another name, and a "
+                        "rule could read it. Remove it from the covariates"
+                    )
     for event_name, values in zip(event_columns, events, strict=True):
         rows = np.isfinite(values)
         if rows.sum() < 2 or np.unique(values[rows]).size < 2:

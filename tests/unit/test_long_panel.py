@@ -739,7 +739,7 @@ def test_a_declared_grid_is_taken_in_the_order_given() -> None:
 
 def test_labels_that_do_not_sort_in_time_need_a_declared_grid() -> None:
     panel = _relabelled({10: "w1", 20: "w2", 30: "w10"})
-    _refused(panel, r"not numbers or dates.*Pass times=")
+    _refused(panel, r"not numbers, dates or durations.*Pass times=")
     data = build(panel, times=["w1", "w2", "w10"])
     assert data.panel is not None and data.panel.decision_times == ("w1", "w2", "w10")
 
@@ -760,3 +760,40 @@ def test_refuses_an_outcome_copy_recorded_on_one_row_only() -> None:
     first = panel["week"] == 10
     panel["early"] = np.where(first, panel["bought"], np.nan)
     _refused(panel, r"'early' equals the outcome", baseline=["age", "early"])
+
+
+def test_durations_sort_in_time() -> None:
+    panel = long_panel(n=60)
+    panel["week"] = pd.to_timedelta(panel["week"], unit="D")
+    data = build(panel)
+    assert data.panel is not None
+    assert [stamp.days for stamp in data.panel.decision_times] == [10, 20, 30]
+
+
+def test_refuses_a_declared_grid_that_is_not_increasing() -> None:
+    _refused(long_panel(n=60), r"not increasing", times=[30, 20, 10])
+
+
+def test_refuses_a_status_column_that_equals_the_outcome_at_one_node() -> None:
+    panel = long_panel(n=120)
+    last = panel.groupby("customer")["week"].transform("max") == panel["week"]
+    panel["status"] = np.where(last & panel["bought"].notna(), panel["bought"], 0.0)
+    _refused(
+        panel,
+        r"'status' equals the outcome 'bought' at decision time 30",
+        time_varying=["eng", "status"],
+    )
+
+
+def test_a_prepared_panel_must_declare_the_same_known_probabilities() -> None:
+    panel = long_panel(n=120)
+    panel["p_offer"] = 0.5
+    panel["p_none"] = 0.5
+    known = {"offer": "p_offer", "none": "p_none"}
+    data = build(panel, treatment_probabilities=known)
+    reordered = LongPanel(**ROLES, treatment_probabilities={"none": "p_none", "offer": "p_offer"})
+    assert CausalStudy(data, design=reordered).data is data
+    with pytest.raises(DataError, match="built with treatment_probabilities="):
+        CausalStudy(data, design=LongPanel(**ROLES))
+    with pytest.raises(DataError, match="built with treatment_probabilities="):
+        CausalStudy(build(panel), design=LongPanel(**ROLES, treatment_probabilities=known))

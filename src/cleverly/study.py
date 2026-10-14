@@ -1138,7 +1138,7 @@ class LongPanel:
         Declare exactly one of ``outcome`` and ``event``.
     times : sequence or None
         Every decision time, in time order.  ``None`` uses the times the panel holds, sorted,
-        and needs numbers or dates.
+        and needs numbers, dates or durations.
     cluster : str or None
         Independent-cluster identifier, constant within a unit.
     weights : str or None
@@ -1289,8 +1289,12 @@ class LongPanel:
             ("weights", self.weights, layout.weights),
             (
                 "treatment_probabilities",
-                self.treatment_probabilities,
-                layout.treatment_probabilities,
+                None
+                if self.treatment_probabilities is None
+                else dict(self.treatment_probabilities),
+                None
+                if layout.treatment_probabilities is None
+                else dict(layout.treatment_probabilities),
             ),
             (
                 "censoring_probabilities",

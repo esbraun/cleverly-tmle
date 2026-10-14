@@ -517,7 +517,7 @@ contract.
 
 | item | rule |
 | --- | --- |
-| node | the $t$-th decision time, counted from 1. `times=` declares the grid in time order and cannot coarsen it. Without it the reader sorts the times, which must be numbers or dates |
+| node | the $t$-th decision time, counted from 1. `times=` declares the grid in time order and cannot coarsen it. Without it the reader sorts the times, which must be numbers, dates or durations |
 | generated column | `"column@t"` for the treatment, each time-varying column, the censoring column, each event column and each known probability column. `PanelLayout` keeps the original time labels |
 | unit order | the sorted unit identifiers. Unsorted input gives the same container |
 | history | the baseline columns and the time-varying columns of nodes 1 to $t$. Every $L_t$ block adds columns to the history design of every later node |

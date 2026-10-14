@@ -72,7 +72,7 @@ container that `LongitudinalTreatment` builds from a wide frame. The reshape end
 | `censoring=` | `1` while the customer stays observed after the row's decision, `0` on the last row of a customer who left | `"active@t"` |
 | `outcome=` | an end-of-study outcome, one value per customer, on any of its rows | the original name |
 | `event=` | a survival event indicator on each row. A mapping of cause to column declares competing risks | `"event@t"` |
-| `times=` | every decision time, in time order. Omit it when the times are numbers or dates, and the reader sorts them | the node order |
+| `times=` | every decision time, in time order. Omit it when the times are numbers, dates or durations, and the reader sorts them | the node order |
 | `cluster=` | an account or store identifier, constant within a customer | `id=` of the cluster contract |
 | `weights=` | a unit-level probability weight | `weights=` |
 | `treatment_probabilities=`, `censoring_probabilities=` | the known mechanism, as `P(A_t = level \| past)` and `P(C_t = 1 \| past)` on each row | `"column@t"` |
@@ -213,7 +213,7 @@ Each refusal raises `DataError` before any learner. A message about one unit nam
 
 | the panel holds | why the reader refuses it |
 | --- | --- |
-| time labels that are not numbers or dates, with no `times=` | the sort order of a label such as `"w10"` is not its time order. Declare `times=` in time order |
+| time labels that are not numbers, dates or durations, with no `times=` | the sort order of a label such as `"w10"` is not its time order. Declare `times=` in time order |
 | a missing unit or time, a duplicated `(unit, time)` pair, a time that `times=` does not list | a long panel holds one row per unit and decision time. `times=` names every decision time and cannot coarsen a grid |
 | a customer whose first row is after the first decision, or a gap between two rows | late entry is a different observation scheme. Intermittent observation is not censoring |
 | rows after a customer left, or rows that stop with no censoring 0 and no event | a customer who is censored or has the event leaves for good. Declare `censoring=` |

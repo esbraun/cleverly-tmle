@@ -628,7 +628,7 @@ class LongitudinalData:
             exactly one of ``outcome`` and ``event``.
         times : sequence or None
             Every decision time, in time order; the order given is the node order.  ``None``
-            uses the times the panel holds, sorted, and needs numbers or dates.
+            uses the times the panel holds, sorted, and needs numbers, dates or durations.
         cluster : str or None
             The cluster identifier, constant within a unit.
         weights : str or None
