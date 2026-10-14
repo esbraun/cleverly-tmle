@@ -137,6 +137,7 @@ from ..methods import (
     IPSI_NO_FLUCTUATION,
     IPSI_POINT_REFUSAL,
     LTMLE_TILT_REFUSAL,
+    REPEATED_OUTCOME_REFUSAL,
     SDR_NO_FLUCTUATION,
     SDR_TILT_REFUSAL,
 )
@@ -566,11 +567,7 @@ def refuse_repeated_outcome(estimator: str, name: str) -> None:
     """
     if estimator == "tmle":
         return
-    raise CapabilityError(
-        f"{name} does not fit a repeated outcome (outcome=Repeated([...])) in this version. "
-        "LTMLE fits it, one end-of-study backward pass per horizon; support for this "
-        "estimator is roadmap row X32b (docs/roadmap.md)"
-    )
+    raise CapabilityError(f"{name} does not fit a repeated outcome. {REPEATED_OUTCOME_REFUSAL}")
 
 
 def refuse_unsupported(passed: Mapping[str, Any], *, where: str = "LTMLE") -> None:

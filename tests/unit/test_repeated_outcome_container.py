@@ -17,10 +17,11 @@ import numpy as np
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
-from cleverly import CausalStudy
+from cleverly import CausalStudy, RegimeContrast
 from cleverly.exceptions import DataError
 from cleverly.longitudinal import LTMLE, LongitudinalData, Repeated
 from cleverly.longitudinal.estimator import bootstrap_design_kind
+from cleverly.methods import REPEATED_OUTCOME_REFUSAL
 from cleverly.msm import MSM
 from cleverly.study import LongitudinalTreatment
 from cleverly.utils.bounds import OutcomeScaler
@@ -254,6 +255,18 @@ def test_w10_a_screened_constant_outcome_copy_does_not_refuse_the_design() -> No
     assert "Y1" not in data.time_varying_names[1]
     assert data.repeated_names == ("Y1", "Y2", "Y3")
     assert CausalStudy(data, design=design).data is data
+
+
+def test_w10_the_study_lists_only_ltmle_on_a_repeated_outcome() -> None:
+    """The fit refuses SDR and IPSI on a repeated outcome (R7), so the listing withholds them."""
+    design = LongitudinalTreatment(**ROLES)
+    study = CausalStudy(design.prepare(panel()), design=design)
+    effect = study.identify(RegimeContrast({"always": 1, "never": 0}, reference="never"))
+    methods = {record.name: record for record in effect.available_methods()}
+    assert methods["tmle"].available
+    for name in ("sdr", "ipsi"):
+        assert not methods[name].available
+        assert methods[name].reason == REPEATED_OUTCOME_REFUSAL
 
 
 # ---------------------------------------------------------------- W11 and W12

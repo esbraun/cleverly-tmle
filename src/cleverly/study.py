@@ -25,6 +25,7 @@ from .longitudinal.regimen import declares_mtp, declares_policy, declares_tilt, 
 from .methods import (
     IPSI_POINT_REFUSAL,
     LTMLE_TILT_REFUSAL,
+    REPEATED_OUTCOME_REFUSAL,
     SDR_POINT_REFUSAL,
     SDR_TILT_REFUSAL,
     CollaborativeTMLEMethod,
@@ -3271,10 +3272,22 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         """
         if not self.functional.longitudinal:
             return True, None, False, SDR_POINT_REFUSAL, False, IPSI_POINT_REFUSAL
+        data = getattr(self._study, "data", None)
+        tmle, tmle_reason, sdr, sdr_reason, ipsi, ipsi_reason = self._tilt_methods(data)
+        # The fit refuses a repeated outcome on SDR and IPSI before any learner (R7), so the
+        # listing must not offer them.
+        if getattr(data, "is_repeated", False):
+            refusal = REPEATED_OUTCOME_REFUSAL
+            return tmle, tmle_reason, False, refusal, False, refusal
+        return tmle, tmle_reason, sdr, sdr_reason, ipsi, ipsi_reason
+
+    def _tilt_methods(
+        self, data: Any
+    ) -> tuple[bool, str | None, bool, str | None, bool, str | None]:
+        """The three sequential methods' availability as the plan set's odds tilts allow."""
         regimens = self.functional.interventions
         if not declares_tilt(regimens):
             return True, None, True, None, True, None
-        data = getattr(self._study, "data", None)
         known = getattr(data, "known_mechanisms", None)
         n_times = getattr(data, "n_times", 0)
         declared = known is not None and all(
