@@ -194,8 +194,8 @@ def test_r6_a_policy_no_observed_history_supports_is_refused_before_any_learner(
         _fit_refused(_plan(avoids, second="low"), frame=frame)
     assert str(caught.value) == (
         "no unit's observed treatment history through time 1 has positive probability under "
-        "regimen 'p' while remaining in the study, so the sequential regression there has "
-        "nothing to fit. The policy is not supported by this sample."
+        "regimen 'p' while remaining in the study, so no unit there can be regressed on or "
+        "weighted. The policy is not supported by this sample."
     )
 
 

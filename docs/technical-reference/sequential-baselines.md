@@ -33,9 +33,9 @@ columns = dict(
 gcomp = SequentialGComputation(
     {"always": 1, "never": 0}, reference="never", outcome_learner=GLM()
 ).fit(frame, **columns)
-ipw = SequentialIPW(
-    {"always": 1, "never": 0}, reference="never", treatment_learner=GLM()
-).fit(frame, **columns)
+ipw = SequentialIPW({"always": 1, "never": 0}, reference="never", treatment_learner=GLM()).fit(
+    frame, **columns
+)
 print(gcomp.summary())
 print(ipw.summary())
 ```
@@ -67,7 +67,8 @@ $F_j(k) = \sum_{t \le k} S(t - 1)\, h_{jt}$, with $S(t) = \prod_{s \le t} (1 - \
 The g-computation estimate is the first-node mean of the recursion that `LTMLE` fits before its
 fluctuation. `tests/unit/test_sequential_baselines.py` (W8) checks that the two agree bit for
 bit. The Hajek and Horvitz-Thompson forms are two finite-sample estimators of one target. Hajek
-stays in the outcome range.
+stays in the outcome range. Both read a continuous outcome on its own scale, so `q_bounds=` does
+not move them while the bounds contain the outcome.
 
 ## Inference
 
@@ -90,7 +91,7 @@ pseudo-outcome's dependence on the later fit. A prediction that a bound moves ha
 | --- | --- | --- |
 | the curve has mean 0 | W5 | `1e-10` relative |
 | the curve is the derivative of the estimate in each observation weight | W6 | `1e-5` relative, at `n = 200` |
-| the curve equals the efficient influence curve on a saturated law | `test_the_stacked_curve_is_the_gateaux_derivative_on_a_saturated_law` | `1e-9` |
+| the curve equals the efficient influence curve on a saturated law | `test_the_stacked_curve_is_the_gateaux_derivative_on_a_saturated_law` | `1e-10` |
 | an independent numpy construction agrees | W10 | `1e-10` on points, `1e-8` on curves |
 
 Lunceford & Davidian (2004), Section 3.1, eqs. (13) to (16), show the effect of the mechanism
@@ -101,7 +102,7 @@ most the fixed-mechanism variance.
 
 | fit | status | what the result reports |
 | --- | --- | --- |
-| every regression that the estimate reads is a `GLM`, a declared known factor, or a constant node | `influence_curve` | the stacked curve, with an interval |
+| every regression that the estimate reads is a `GLM`, or a node with no learner (a declared known factor or no censored unit) | `influence_curve` | the stacked curve, with an interval |
 | a regression that the estimate reads uses another learner | `adaptive_baseline_plugin` | the point estimate, and a diagnostic curve under `plugin_std_error` |
 | `weights_estimated=True` | `estimated_weight_plugin` | the stacked curve as a diagnostic |
 | a node that reads a constant target | `constant_node_plugin`, on that parameter | as for `LTMLE` |
@@ -152,11 +153,18 @@ adds products of distinct columns.
 | `ratio=`, `density_bins=` | IPW | `CapabilityError` |
 | a continuous outcome, a binomial `GLM`, and `q_bounds=None` | g-computation | `CapabilityError`. The scale moves with the sample extremes. Declare `q_bounds=`, or pass `GLM(family="gaussian")` |
 | `longitudinal_truncation_curve` | g-computation | `CapabilityError`. `g_bounds` does not move the estimate |
+| a prediction through a `GLM` column that the followers alias | g-computation | `DataError`. The column has no coefficient, so the prediction assumes that the column has no effect |
+
+A `GLM` drops a design column that is constant, or a combination of other columns, on its fit
+rows. G-computation refuses the fit when a row at risk departs from that relation, because no
+follower has that history. `test_a_prediction_through_an_aliased_column_is_refused` checks it.
+
+No check finds other positivity failures. `preflight_mechanism_support` checks only that each
+treatment level occurs among the rows at risk. Where no unit follows the regimen, the outcome
+`GLM` fits extrapolate, and the interval holds only if they are correct there.
 
 A diagnostic mechanism that cannot fit, for example under separation, does not stop a
 g-computation fit. The fit warns with `PositivityWarning`, and the diagnostics report `nan`.
-`preflight_mechanism_support` still runs, because identification needs positivity for every
-estimator.
 
 ## Validation
 
@@ -165,4 +173,7 @@ estimator.
 | W1, W2, W4 | each estimator equals the g-formula on exact binary, survival, competing-risk, three-arm and policy laws | `test_w1_w2_w4_every_estimate_is_the_g_formula` |
 | W3 | a point-mass policy gives the regimen's estimate and curve | `test_w3_the_policy_path_on_a_point_mass_is_the_regimen` |
 | W7 | the IPW mechanism term and each g-computation chain term move the standard error | `test_w7_each_stacked_term_moves_the_standard_error` |
-| mutations M1 to M10 | each deliberate defect turns at least one witness red | recorded in the plans repository |
+| W6, bounds | the curve is the weight derivative where `g_bounds` binds, and where the Gaussian clip binds | `test_w6_holds_where_g_bounds_bind`, `test_w6_holds_where_the_gaussian_clip_binds` |
+| W5, W6, three arms | the multinomial mechanism term, a known rule and a known policy, off a saturated law | `test_w5_w6_hold_on_multinomial_nodes` |
+| scale | the Horvitz-Thompson estimate does not move with `q_bounds=` or with the outcome of a unit that does not follow the regimen | `test_horvitz_thompson_reads_the_outcome_scale` |
+| status | a data-adaptive pseudo-outcome learner gives every cell the diagnostic curve | `test_the_status_and_every_cell_curve_agree` |

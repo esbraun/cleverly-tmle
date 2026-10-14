@@ -21,9 +21,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cleverly.exceptions import CapabilityError
+from cleverly.exceptions import CapabilityError, DataError
 from cleverly.learners import GLM
-from cleverly.learners.crossfit import Folds
 from cleverly.longitudinal import (
     LTMLE,
     DynamicRegimen,
@@ -32,13 +31,12 @@ from cleverly.longitudinal import (
     SequentialIPW,
 )
 from cleverly.longitudinal import estimator as estimator_module
-from cleverly.longitudinal.estimator import longitudinal_truncation_curve
-from cleverly.longitudinal.regimen import resolve_plans, resolve_regimens
+from cleverly.longitudinal.estimator import _refit_bound, longitudinal_truncation_curve
+from cleverly.longitudinal.regimen import resolve_plans
 from cleverly.longitudinal.sequential import (
     FoldRecursionCell,
     _untargeted_recursion_in_fold,
 )
-from cleverly.utils.bounds import OutcomeScaler
 
 from .. import discrete_law_competing as competing
 from .. import discrete_law_longitudinal as binary
@@ -437,24 +435,198 @@ def test_w6_the_curve_is_the_derivative_in_each_observation_weight(kind: str, va
     raw column and divided by the raw mean.  Every term of the stacked curve enters it.
     """
     frame, columns, settings = _random_case(kind, 200, 6)
-    base = _random_fit(variant, frame, columns, settings)
+    _assert_weight_derivative(lambda data: _random_fit(variant, data, columns, settings), frame)
+
+
+def _assert_weight_derivative(
+    fit: Callable[[pd.DataFrame], Any], frame: pd.DataFrame, *, rows: int = 4, seed: int = 3
+) -> Any:
+    """Assert W6 at ``rows`` random units, for the first two reported names, and return the fit."""
+    base = fit(frame)
     raw = frame["wt"].to_numpy()
     scale = raw.mean()
     normalized = raw / scale
     n = raw.size
-    rng = np.random.default_rng(3)
+    rng = np.random.default_rng(seed)
     step = 1e-5
     for name in list(base.estimates)[:2]:
         curve = base.influence_curves[name]
-        for row in rng.choice(n, 4, replace=False):
+        for row in rng.choice(n, rows, replace=False):
             values = []
             for sign in (1.0, -1.0):
                 moved = frame.copy()
                 moved.loc[moved.index[row], "wt"] = raw[row] + sign * step
-                values.append(_random_fit(variant, moved, columns, settings).psi(name))
+                values.append(fit(moved).psi(name))
             numeric = (values[0] - values[1]) / (2.0 * step)
             analytic = curve[row] / (n * normalized[row]) / scale
             assert numeric == pytest.approx(analytic, rel=1e-5, abs=1e-9), (name, row)
+    return base
+
+
+@pytest.mark.parametrize("variant", ["hajek", "horvitz_thompson"])
+def test_w6_holds_where_g_bounds_bind(variant: str) -> None:
+    """A bounded prefix has derivative 0 in the mechanism, and the curve drops its term."""
+    frame = _draw_binary(200, 6)
+    columns = {**CENSORED, "baseline": ["W"], "weights": "wt"}
+    settings = {"g_bounds": (0.08, 1.0)}
+
+    def fit(data: pd.DataFrame) -> Any:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return SequentialIPW(
+                {"always": 1, "never": 0},
+                treatment_learner=TIGHT,
+                censoring_learner=TIGHT,
+                simultaneous=False,
+                **VARIANTS[variant],
+                **settings,
+            ).fit(data, **columns)
+
+    base = _assert_weight_derivative(fit, frame, rows=6)
+    bound = [
+        np.any(f.cumulative[:, -1] != f.cumulative_unbounded[:, -1]) for f in base.fits.values()
+    ]
+    assert any(bound)
+
+
+def test_w6_holds_where_the_gaussian_clip_binds() -> None:
+    """A Gaussian prediction outside [0, 1] is clipped, and the chain drops its row."""
+    frame = _draw_three_arm(300, 7)
+    rng = np.random.default_rng(1)
+    observed = frame["Y"].notna()
+    frame.loc[observed, "Y"] = frame.loc[observed, "L2"] + 0.1 * rng.normal(size=observed.sum())
+    leavers = frame.index[(frame["C1"] == 1) & (frame["C2"] == 0)][:6]
+    frame.loc[leavers, "L2"] = frame["L2"].max() + 2.0 + np.arange(6)
+    regimens = {"bc": ("b", "c"), "cc": ("c", "c")}
+
+    def fit(data: pd.DataFrame) -> Any:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return SequentialGComputation(
+                regimens,
+                outcome_learner=GAUSSIAN,
+                treatment_learner=TIGHT,
+                censoring_learner=TIGHT,
+                simultaneous=False,
+            ).fit(data, **THREE_ARM)
+
+    base = _assert_weight_derivative(fit, frame, rows=8, seed=11)
+    clipped = []
+    for regimen in base.fits.values():
+        step = next(step for step in regimen.steps if step.time == 2)
+        model_scale = step.initial[step.at_risk]
+        clipped.append(np.any((model_scale <= 0.0) | (model_scale >= 1.0)))
+    assert any(clipped)
+
+
+ARMS = ("a", "b", "c")
+THREE_ARM = {
+    "outcome": "Y",
+    "treatment": ["A1", "A2"],
+    "baseline": ["W"],
+    "time_varying": [[], ["L2"]],
+    "censoring": ["C1", "C2"],
+    "weights": "wt",
+}
+
+
+def _draw_three_arm(n: int, seed: int) -> pd.DataFrame:
+    """Multinomial treatment nodes with continuous W and L2, censoring and weights."""
+    rng = np.random.default_rng(seed)
+    w = rng.normal(size=n)
+
+    def multinomial(first: Any, second: Any) -> Any:
+        probability = np.exp(np.column_stack([np.zeros(n), first, second]))
+        probability /= probability.sum(axis=1, keepdims=True)
+        return (rng.uniform(size=n)[:, None] > probability.cumsum(axis=1)).sum(axis=1)
+
+    a1 = multinomial(0.2 + 0.4 * w, -0.1 - 0.3 * w)
+    c1 = rng.binomial(1, _expit(2.0 + 0.3 * w - 0.3 * (a1 == 2)))
+    l2 = 0.5 * w + 0.3 * (a1 == 1) - 0.2 * (a1 == 2) + rng.normal(size=n)
+    a2 = multinomial(0.1 + 0.5 * l2 + 0.3 * (a1 == 1), -0.2 - 0.4 * l2)
+    c2 = rng.binomial(1, _expit(1.8 + 0.3 * l2 + 0.2 * (a2 == 1)))
+    y = rng.binomial(1, _expit(-0.3 + 0.4 * w + 0.5 * l2 + 0.3 * (a2 == 1) - 0.4 * (a2 == 2)))
+    labels = np.asarray(ARMS, dtype=object)
+    return pd.DataFrame(
+        {
+            "W": w,
+            "A1": labels[a1],
+            "C1": c1.astype(float),
+            "L2": np.where(c1 == 1, l2, np.nan),
+            "A2": np.where(c1 == 1, labels[a2], None),
+            "C2": np.where(c1 == 1, c2, np.nan),
+            "Y": np.where((c1 == 1) & (c2 == 1), y, np.nan),
+            "wt": rng.uniform(0.5, 2.0, n),
+        }
+    )
+
+
+def _first_policy(frame: pd.DataFrame) -> pd.DataFrame:
+    w = np.asarray(frame["W"], dtype=float)
+    share = 0.6 * _expit(w)
+    return pd.DataFrame(np.column_stack([share, np.full(w.size, 0.2), 0.8 - share]), columns=ARMS)
+
+
+def _second_policy(frame: pd.DataFrame) -> pd.DataFrame:
+    w = np.asarray(frame["W"], dtype=float)
+    share = 0.5 * _expit(-w)
+    return pd.DataFrame(np.column_stack([np.full(w.size, 0.3), share, 0.7 - share]), columns=ARMS)
+
+
+def _second_rule(frame: pd.DataFrame) -> Any:
+    return np.where(np.asarray(frame["L2"]) > 0, "b", "c")
+
+
+def _three_arm_regimens(kind: str) -> dict[str, Any]:
+    from cleverly.interventions import Stochastic
+
+    if kind == "static":
+        first: Any = ("b", "c")
+    elif kind == "rule":
+        first = DynamicRegimen("rule", ("b", _second_rule), rule_kind="known")
+    else:
+        first = DynamicRegimen(
+            "policy",
+            (
+                Stochastic(_first_policy, "p1", density_kind="known"),
+                Stochastic(_second_policy, "p2", density_kind="known"),
+            ),
+        )
+    return {kind: first, "aa": ("a", "a")}
+
+
+@pytest.mark.parametrize("variant", list(VARIANTS))
+@pytest.mark.parametrize("kind", ["static", "rule", "policy"])
+def test_w5_w6_hold_on_multinomial_nodes(kind: str, variant: str) -> None:
+    """The multinomial b-term and the rule and policy nodes, off a saturated law."""
+    frame = _draw_three_arm(200, 5)
+    regimens = _three_arm_regimens(kind)
+
+    def fit(data: pd.DataFrame) -> Any:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            if variant == "gcomp":
+                estimator = SequentialGComputation(
+                    regimens,
+                    outcome_learner=TIGHT,
+                    treatment_learner=TIGHT,
+                    censoring_learner=TIGHT,
+                    simultaneous=False,
+                )
+            else:
+                estimator = SequentialIPW(
+                    regimens,
+                    treatment_learner=TIGHT,
+                    censoring_learner=TIGHT,
+                    simultaneous=False,
+                    **VARIANTS[variant],
+                )
+            return estimator.fit(data, **THREE_ARM)
+
+    base = _assert_weight_derivative(fit, frame, rows=3)
+    assert base.inference_status == "influence_curve"
+    for name, curve in base.influence_curves.items():
+        assert abs(float(np.mean(curve))) <= 1e-10 * float(np.mean(np.abs(curve))), name
 
 
 def test_w7_each_stacked_term_moves_the_standard_error() -> None:
@@ -654,6 +826,33 @@ def test_g_computation_reads_no_mechanism_learner_for_its_status() -> None:
     assert result.inference_status == "influence_curve"
 
 
+def test_the_status_and_every_cell_curve_agree() -> None:
+    """A data-adaptive pseudo learner makes every cell diagnostic, the horizon-1 cell too.
+
+    The horizon-1 cell reads only the GLM outcome regression, so its stacked curve exists.
+    The fit takes ``adaptive_baseline_plugin``, so the cell must report the diagnostic curve.
+    """
+    from sklearn.tree import DecisionTreeRegressor
+
+    frame, columns, _ = _random_case("survival", 400, 2)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        mixed = SequentialGComputation(
+            {"always": 1},
+            outcome_learner=GLM(),
+            pseudo_learner=DecisionTreeRegressor(max_depth=2, random_state=0),
+            simultaneous=False,
+        ).fit(frame, **columns)
+        stacked = SequentialGComputation(
+            {"always": 1}, outcome_learner=GLM(), pseudo_learner=GLM(), simultaneous=False
+        ).fit(frame, **columns)
+    name = "risk_regimen[always @ t=1]"
+    assert {e.inference for e in mixed.estimates.values()} == {"adaptive_baseline_plugin"}
+    assert mixed.psi(name) == pytest.approx(stacked.psi(name), abs=1e-12)
+    difference = np.max(np.abs(mixed.influence_curves[name] - stacked.influence_curves[name]))
+    assert difference > 1e-3
+
+
 def test_estimated_weights_take_the_estimated_weight_status() -> None:
     frame, columns = _small()
     frame["wt"] = np.random.default_rng(0).uniform(0.5, 2.0, len(frame))
@@ -729,6 +928,33 @@ def test_a_binomial_glm_on_an_unbounded_scale_is_refused() -> None:
     _fit("gcomp", {"always": 1}, frame, columns, learner=GLM(), q_bounds=G_BOUNDS)
 
 
+def test_horvitz_thompson_reads_the_outcome_scale() -> None:
+    """The Horvitz-Thompson sum does not move with the declared scale.
+
+    The scaled sum maps back to :math:`P_n[w \\lambda R Y] - a (P_n[w \\lambda R] - 1)` unless
+    the fit restores the offset.  Two scales, and a non-follower's outcome, would then move it.
+    """
+    frame, columns, settings = _random_case("gaussian", 400, 4)
+    name = "ey_regimen[always]"
+    base = _random_fit("horvitz_thompson", frame, columns, settings)
+    wider = _random_fit("horvitz_thompson", frame, columns, {"q_bounds": (-6.0, 9.0)})
+    assert wider.psi(name) == pytest.approx(base.psi(name), abs=1e-10)
+    np.testing.assert_allclose(
+        wider.influence_curves[name], base.influence_curves[name], rtol=1e-8, atol=1e-10
+    )
+    observed = frame["Y"].notna().to_numpy()
+    leaver = np.flatnonzero(observed & (frame["A2"].to_numpy() == 0.0))[0]
+    moved = frame.copy()
+    moved.loc[moved.index[leaver], "Y"] = 3.5
+    assert _random_fit("horvitz_thompson", moved, columns, settings).psi(name) == pytest.approx(
+        base.psi(name), abs=1e-10
+    )
+    # The offset is nonzero here: a scaled sum without it would differ by this much.
+    mass = base.fits["always"].steps[-1].clever
+    weights = base.data.weights
+    assert abs(G_BOUNDS[0] * (float(np.mean(weights * mass)) - 1.0)) > 1e-3
+
+
 def test_an_estimated_tilt_is_refused() -> None:
     from cleverly.interventions import Incremental
 
@@ -759,20 +985,66 @@ def test_the_replay_restamps_the_adaptive_status() -> None:
             {"always": 1}, treatment_learner=LogisticRegression(), simultaneous=False
         ).fit(frame, **columns)
         curve = longitudinal_truncation_curve(result, [0.01])
+        replay = _refit_bound(result, result.replay_recipe, result.config.g_bounds)
     assert result.replay_recipe.parametric is False
     assert curve["delta_from_fitted"].iloc[0] == 0.0
+    name = "ey_regimen[always]"
+    assert replay.estimates[name].inference == "adaptive_baseline_plugin"
+    # The replay keeps the fixed-mechanism curve; a rebuilt stacked curve would differ.
+    np.testing.assert_array_equal(
+        replay.fits["always"].influence_curve_scaled,
+        result.fits["always"].influence_curve_scaled,
+    )
 
 
 def test_a_diagnostic_mechanism_that_cannot_fit_leaves_the_estimate() -> None:
-    """m5: a separated treatment GLM warns, and g-computation still reports its estimate."""
+    """m5: a separated treatment GLM warns, and g-computation still reports its estimate.
+
+    ``A1 = 1`` exactly when ``W > 0``.  The followers of "always" still vary in ``W``, so the
+    outcome GLM keeps its coefficient and extrapolates it: the declared model reliance.
+    """
     frame, columns = _small()
-    frame["W"] = np.where(frame["A1"] == 1, 1.0, -1.0) + 0.0 * frame["W"]
+    frame["A1"] = (frame["W"] > 0.0).astype(float)
     with pytest.warns(Warning, match="did not fit"):
         result = SequentialGComputation(
             {"always": 1}, outcome_learner=GLM(), simultaneous=False
         ).fit(frame, **columns)
     assert np.isfinite(result.psi("ey_regimen[always]"))
     assert result.inference_status == "influence_curve"
+
+
+def test_a_prediction_through_an_aliased_column_is_refused() -> None:
+    """B3: ``W`` is constant on the followers, so their fit cannot say what ``W`` does.
+
+    ``W = 1`` exactly when ``A1 = 1``.  No unit with ``W = -1`` follows "always", and the GLM
+    aliases ``W``.  Predicting the ``W = -1`` half at the intercept would assume ``W`` has no
+    effect, so the fit refuses.
+    """
+    frame, columns = _small()
+    frame["W"] = np.where(frame["A1"] == 1, 1.0, -1.0)
+    with (
+        warnings.catch_warnings(),
+        pytest.raises(DataError, match="not identified by sequential g-computation"),
+    ):
+        warnings.simplefilter("ignore")
+        SequentialGComputation({"always": 1}, outcome_learner=GLM(), simultaneous=False).fit(
+            frame, **columns
+        )
+
+
+def test_a_mechanism_factor_off_its_fit_rows_is_refused() -> None:
+    """S3: the factor rebuilds the fit rows, so a drift from the fit must not pass silently."""
+    from cleverly.longitudinal.baselines import _factor
+
+    rng = np.random.default_rng(0)
+    x = rng.normal(size=(300, 2))
+    label = rng.binomial(1, _expit(x[:, 0])).astype(float)
+    weights = np.ones(300)
+    model = GLM(tol=1e-14).fit(x, label, sample_weight=weights)
+    _factor(1, model, x, label, weights, weights, 300)
+    drifted = np.where(np.arange(300) < 20, 0.0, weights)
+    with pytest.raises(RuntimeError, match="does not solve its score equation"):
+        _factor(1, model, x, label, drifted, weights, 300)
 
 
 def test_save_and_load_round_trip(tmp_path: Any) -> None:
@@ -819,7 +1091,3 @@ def test_ltmle_and_the_baselines_share_a_target() -> None:
         result = _random_fit(variant, frame, columns, {})
         estimate = result.estimates["ey_regimen[always]"]
         assert abs(estimate.psi - reference.psi("ey_regimen[always]")) < 3 * estimate.std_error
-
-
-def test_resolve_names_used_here_exist() -> None:
-    assert callable(resolve_regimens) and Folds and OutcomeScaler

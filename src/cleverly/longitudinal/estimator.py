@@ -275,9 +275,10 @@ GCOMP_TRUNCATION_REFUSAL = (
 #: The warning when the diagnostic mechanism of a g-computation fit does not fit.
 GCOMP_MECHANISM_WARNING = (
     "the diagnostic treatment and censoring mechanism of this g-computation fit did not fit "
-    "({error}). The g-computation estimate does not read it, so the estimate and its stacked "
-    "interval stand. The positivity diagnostics and the diagnostic curve read it, so they "
-    "are unavailable (nan)"
+    "({error}). The g-computation estimate does not read it, so the fit continues. Where no "
+    "unit follows the regimen, the outcome GLMs extrapolate, and the interval holds only if "
+    "they are correct there. The positivity diagnostics and the diagnostic curve read the "
+    "mechanism, so they are unavailable (nan)"
 )
 
 
@@ -2563,7 +2564,8 @@ def _run_recursion(
     normalization : str or None
         The IPW normalization, on an IPW fit.
     parametric : bool
-        On an IPW fit, whether the curve carries the mechanism terms.
+        On a g-computation or IPW fit, whether the curve is the stacked one.  The status reads
+        the same flag, so the two agree.
 
     Returns
     -------
@@ -2684,7 +2686,7 @@ def _run_baseline(
         for cause in causes:
             for horizon in horizons:
                 if estimator == "gcomp":
-                    fit, _ = fit_gcomp_cell(
+                    fit = fit_gcomp_cell(
                         data,
                         plan,
                         mechanism,
@@ -2694,6 +2696,7 @@ def _run_baseline(
                         cause=cause,
                         outcome_learner=outcome_learner,
                         pseudo_learner=pseudo_learner,
+                        stacked=parametric,
                     )
                 else:
                     assert normalization is not None

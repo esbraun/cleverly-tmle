@@ -141,3 +141,10 @@ def test_fit_learner_routes_weights_and_clones() -> None:
     model = fit_learner(template, x, y, weights)
     assert not hasattr(template, "coef_")
     np.testing.assert_allclose(model.coef_, GLM().fit(x, y, weights).coef_)
+
+
+def test_binomial_family_refuses_more_than_two_labels() -> None:
+    x, _, _ = _law()
+    labels = np.arange(x.shape[0]) % 3
+    with pytest.raises(ValueError, match="takes two labels"):
+        GLM(family="binomial").fit(x, labels)

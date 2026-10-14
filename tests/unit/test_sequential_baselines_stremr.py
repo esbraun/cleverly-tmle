@@ -29,6 +29,13 @@ FIXTURE = Path(__file__).parents[1] / "canonical" / "stremr"
 REGIMENS = {"always": 1, "never": 0}
 SHARED = {"survNPMSM": "ipw", "GCOMP": "gcomp"}
 
+# The local study queue writes ``reference.csv``.  Comparator runs do not gate a method, so
+# these tests wait for it.
+pytestmark = pytest.mark.skipif(
+    not (FIXTURE / "reference.csv").exists(),
+    reason="the stremr reference run has not been registered",
+)
+
 
 def _data() -> LongitudinalData:
     long = pd.read_csv(FIXTURE / "long.csv", float_precision="round_trip")

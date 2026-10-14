@@ -51,7 +51,7 @@ fixed-mechanism curve for IPW.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
@@ -89,6 +89,8 @@ __all__ = [
 #: The two IPW normalizations: the Hajek ratio, which is R ``ltmle``'s ``CalcIPTW``, and the
 #: Horvitz-Thompson mean.
 IPW_NORMALIZATIONS: tuple[str, ...] = ("hajek", "horvitz_thompson")
+#: How far a mechanism score sum may sit from zero, relative to its absolute mass.
+_SCORE_TOLERANCE = 1e-6
 
 
 def reads_parametric(model: Any) -> bool:
@@ -140,7 +142,8 @@ def fit_gcomp_cell(
     cause: str | None,
     outcome_learner: Any,
     pseudo_learner: Any,
-) -> tuple[RegimenFit, bool]:
+    stacked: bool,
+) -> RegimenFit:
     """One regimen's sequential g-computation estimate at one cause and horizon.
 
     The estimate is the first-node mean of the untargeted recursion on every row.  The
@@ -166,11 +169,20 @@ def fit_gcomp_cell(
         The regression at the horizon.
     pseudo_learner : object
         The regression at every earlier node.
+    stacked : bool
+        Whether the fit's status reads the stacked curve.  ``False`` gives the efficient
+        influence curve at the untargeted fits, the diagnostic curve.
 
     Returns
     -------
-    tuple
-        The fit, and whether its curve is the stacked one (every node model a GLM).
+    RegimenFit
+        The estimate, its curve, and one step per node.
+
+    Raises
+    ------
+    RuntimeError
+        When ``stacked`` is ``True`` and a fitted node model is not one the stacked equations
+        read.  The status and the curve would then disagree.
     """
     masks = plan.masks(data)
     nodes = untargeted_recursion(
@@ -185,6 +197,8 @@ def fit_gcomp_cell(
         keep_models=True,
     )
     nodes.reverse()
+    for node in nodes:
+        _refuse_aliased_extrapolation(data, plan, node)
     cumulative_unbounded, cumulative = mechanism.cumulative_with_unbounded(data, plan, g_bounds)
     numerator = plan.cumulative_numerator(data)
     steps = []
@@ -223,11 +237,15 @@ def fit_gcomp_cell(
         cause=cause,
         numerator=numerator,
     )
-    stacked = all(reads_parametric(node.model) for node in nodes)
     if not stacked:
-        return fit, False
+        return fit
+    if not all(reads_parametric(node.model) for node in nodes):
+        raise RuntimeError(
+            "sequential g-computation: the status reads the stacked curve, but a fitted node "
+            "model is not a GLM"
+        )
     curve = stacked_gcomp_curve(data, plan, nodes, fit.psi_scaled, cause=cause)
-    return _replace_curve(fit, curve), True
+    return _replace_curve(fit, curve)
 
 
 def stacked_gcomp_curve(
@@ -283,6 +301,9 @@ def stacked_gcomp_curve(
             # The later node read a constant target, so this node's pseudo-outcome does not
             # move with any coefficient, and the chain ends here.
             break
+        # The factor (1 - Y_t) is redundant: ``later`` is zero off the rows at risk at
+        # t + 1, which excludes every row with an event at t.  It states the survival
+        # pseudo-outcome Z_t = Y_t + (1 - Y_t) Q_{t+1} rather than relying on that zero.
         factor = 1.0 - data.event_by(node.time) if data.is_survival else np.ones(n)
         link = model.design(design).T @ ((fit_weights * factor)[:, None] * later) / n
         chain = link.T @ projection
@@ -320,6 +341,52 @@ def _carried_derivative(
     return total
 
 
+def _prediction_designs(
+    data: LongitudinalData, plan: Plan, node: _NodeRegression
+) -> list[tuple[FloatArray, BoolArray]]:
+    """Each design a node predicts at, with the rows that read it.
+
+    A label or rule node predicts at its design on the rows at risk.  A policy node predicts at
+    each level, or each branch dose of a continuous node, on the rows that the policy sends
+    there with positive probability.
+    """
+    at_risk = np.asarray(node.at_risk, dtype=bool)
+    if not plan.is_policy_node(node.time):
+        return [(outcome_design(data, plan, node.time), at_risk)]
+    policy = plan.policy_at(node.time)
+    return [
+        (outcome_design(data, plan, node.time, arm=code), at_risk & (policy[:, code] > 0.0))
+        for code in range(policy.shape[1])
+    ]
+
+
+def _refuse_aliased_extrapolation(
+    data: LongitudinalData, plan: Plan, node: _NodeRegression
+) -> None:
+    """Refuse a node whose ``GLM`` predicts through a column its fit rows aliased.
+
+    A covariate that is constant, or a combination of other columns, on the followers has no
+    coefficient.  Where a row at risk departs from that relation, the prediction treats the
+    column as having no effect.  No unit with that history follows the plan, so the regimen
+    is not identified under the model.
+    """
+    model = node.model
+    if not isinstance(model, GLM):
+        return
+    leaving = np.zeros(data.n, dtype=bool)
+    for design, rows in _prediction_designs(data, plan, node):
+        leaving |= rows & model.outside_span(design)
+    if np.any(leaving):
+        raise DataError(
+            f"regimen {plan.label!r} is not identified by sequential g-computation at node "
+            f"{data.decision_name(node.time)!r}: the GLM's fit rows hold a covariate column "
+            "that is constant or a combination of other columns, so it has no coefficient, "
+            f"and {int(np.count_nonzero(leaving))} row(s) at risk depart from that relation. "
+            "No unit with those histories follows the regimen, so its mean would assume the "
+            "column has no effect. Remove the regimen, or remove the column from the design"
+        )
+
+
 def _clipped_jacobian(model: GLM, design: FloatArray, at_risk: BoolArray) -> FloatArray:
     """The mean Jacobian at ``design``, zero where the clip moved the prediction or off risk."""
     jacobian = np.asarray(model.mean_jacobian(design), dtype=float)
@@ -331,8 +398,6 @@ def _clipped_jacobian(model: GLM, design: FloatArray, at_risk: BoolArray) -> Flo
 
 
 def _replace_curve(fit: RegimenFit, curve: FloatArray) -> RegimenFit:
-    from dataclasses import replace
-
     return replace(fit, influence_curve_scaled=curve)
 
 
@@ -411,13 +476,16 @@ def _factor(
 ) -> _Factor:
     information = model.information(design, fit_weights) / n
     score = model.score_contributions(design, label, fit_weights)
-    try:
-        projected = np.linalg.solve(information, score.T).T
-    except np.linalg.LinAlgError as error:
-        raise DataError(
-            f"the GLM mechanism at node {time} has a singular information matrix, so its "
-            "stacked estimating equation has no solution"
-        ) from error
+    # The rows, design and label are rebuilt here, not read from the fit.  At the fitted
+    # coefficients the score sums to zero on the fit's own rows only, so a drift between the
+    # two constructions shows here rather than as a wrong curve.
+    total = np.abs(score.sum(axis=0))
+    if np.any(total > _SCORE_TOLERANCE * np.maximum(1.0, np.abs(score).sum(axis=0))):
+        raise RuntimeError(
+            f"the GLM mechanism at node {time} does not solve its score equation on the rows "
+            "the stacked curve reads"
+        )
+    projected = _solve(information, score.T).T
     return _Factor(
         node=time,
         projected=np.asarray(projected, dtype=float),
@@ -524,6 +592,8 @@ def fit_ipw_cell(
         if survival:
             terms[time] = data.event_by(time, cause)
             followers = masks.following(time)
+            # The all-cause check is conservative for Horvitz-Thompson, which reads the
+            # cause term only.  The Hajek hazard product reads both.
             if constant_target(terms[time], followers) is not None or (
                 cause is not None and constant_target(data.event_by(time), followers) is not None
             ):
@@ -532,9 +602,8 @@ def fit_ipw_cell(
         terms[horizon] = seed_carried(data, scaler)
         if constant_target(terms[horizon], masks.following(horizon)) is not None:
             constant.append(horizon)
-    if not survival:
         psi, curve = _end_of_study(
-            weights, clever[horizon], terms[horizon], horizon, means, normalization
+            weights, clever[horizon], terms[horizon], horizon, means, normalization, scaler
         )
     elif normalization == "horvitz_thompson":
         # A sum of end-of-study identities, one per node, each with its own prefix.
@@ -581,13 +650,23 @@ def _end_of_study(
     horizon: int,
     means: _Means,
     normalization: str,
+    scaler: OutcomeScaler,
 ) -> tuple[float, FloatArray]:
-    """The end-of-study IPW estimate and its curve."""
+    """The end-of-study IPW estimate and its curve, on the scaled outcome.
+
+    The scaled Horvitz-Thompson sum :math:`P_n[w \\lambda R (Y - a)] / (b - a)` maps back to
+    :math:`P_n[w \\lambda R Y] - a (P_n[w \\lambda R] - 1)`, which moves with :math:`a`.  The
+    offset :math:`a (P_n[w \\lambda R] - 1) / (b - a)` restores the outcome-scale sum, and its
+    curve is the mass curve times :math:`a / (b - a)`.  Hajek is invariant to the offset.
+    """
     weighted = weights * clever
     total, total_curve = means(weighted * np.where(clever > 0.0, outcome, 0.0), horizon)
-    if normalization == "horvitz_thompson":
-        return total, total_curve
     mass, mass_curve = means(weighted, horizon)
+    if normalization == "horvitz_thompson":
+        offset = scaler.lower / scaler.range
+        return total + offset * (mass - 1.0), np.asarray(
+            total_curve + offset * mass_curve, dtype=float
+        )
     psi = total / mass
     return psi, np.asarray((total_curve - psi * mass_curve) / mass, dtype=float)
 

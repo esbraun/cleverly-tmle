@@ -37,6 +37,7 @@ from itertools import combinations
 from typing import Literal
 
 import numpy as np
+from scipy.special import expit as scipy_expit
 from sklearn.base import BaseEstimator
 
 from .._typing import BoolArray, FloatArray
@@ -51,6 +52,8 @@ GLMFamily = Literal["auto", "binomial", "multinomial", "gaussian"]
 #: the tolerance of R's ``glm.fit``, ``min(1e-07, control$epsilon / 1000)`` with the default
 #: ``epsilon = 1e-8``.
 _ALIAS_TOLERANCE = 1e-11
+#: How far, relative to the column's size, a row may leave an aliased column's span.
+_SPAN_TOLERANCE = 1e-8
 
 #: A linear predictor beyond this magnitude puts a fitted probability within about 1e-13 of 0
 #: or 1, where the logistic MLE is at or near separation.
@@ -58,7 +61,8 @@ _SEPARATION_ETA = 30.0
 
 
 def _expit(eta: FloatArray) -> FloatArray:
-    return np.asarray(1.0 / (1.0 + np.exp(-eta)), dtype=float)
+    """The logistic function, without overflow at a large negative logit."""
+    return np.asarray(scipy_expit(eta), dtype=float)
 
 
 def _softmax(eta: FloatArray) -> FloatArray:
@@ -93,6 +97,9 @@ class GLM(BaseEstimator):
         Absent on a fit of a float target.
     active_ : numpy.ndarray
         The boolean mask of design columns that are not aliased.
+    alias_ : numpy.ndarray
+        ``(p_active, p_aliased)``: each aliased column as a combination of the active columns
+        on the fit rows. :meth:`outside_span` reads it.
     coef_ : numpy.ndarray
         The coefficients of the active columns. ``(p,)`` for ``binomial`` and ``gaussian``, and
         ``(K - 1, p)`` for ``multinomial``, one row per non-reference label.
@@ -202,6 +209,7 @@ class GLM(BaseEstimator):
         full = self.full_design(x)
         self.active_ = _active_columns(full, weights)
         design = full[:, self.active_]
+        self.alias_ = _alias_relation(full, self.active_, weights)
         if family == "gaussian":
             values = target.astype(float)
             root = np.sqrt(weights)
@@ -242,6 +250,11 @@ class GLM(BaseEstimator):
                 raise DataError(
                     f"GLM: every fit row holds the label {labels[0]!r}, so a binomial model "
                     "has no finite maximum-likelihood estimate"
+                )
+            if labels.size > 2:
+                raise ValueError(
+                    f"GLM: family='binomial' takes two labels, and this target holds "
+                    f"{labels.size}. Pass family='multinomial' or 'auto'"
                 )
             return np.asarray(target == labels[-1], dtype=float)
         values = target.astype(float)
@@ -393,6 +406,32 @@ class GLM(BaseEstimator):
 
     # -- estimating equation ------------------------------------------------------------
 
+    def outside_span(self, x: FloatArray) -> BoolArray:
+        """Whether each row leaves the span the fit rows give the aliased columns.
+
+        An aliased column has no coefficient of its own. On the fit rows it is a combination of
+        the active columns, so a prediction there is determined. A row where the column departs
+        from that combination is predicted as if the column had no effect, which the data
+        cannot support.
+
+        Parameters
+        ----------
+        x : FloatArray
+            The design rows to check, before the intercept and products.
+
+        Returns
+        -------
+        BoolArray
+            ``True`` on each row that leaves the span.
+        """
+        full = self.full_design(x)
+        if np.all(self.active_):
+            return np.zeros(full.shape[0], dtype=bool)
+        aliased = full[:, ~self.active_]
+        residual = aliased - full[:, self.active_] @ self.alias_
+        scale = np.maximum(1.0, np.abs(aliased))
+        return np.asarray(np.any(np.abs(residual) > _SPAN_TOLERANCE * scale, axis=1))
+
     @property
     def n_parameters(self) -> int:
         """The count of free coefficients."""
@@ -532,6 +571,18 @@ def _solve(info: FloatArray, score: FloatArray) -> FloatArray:
             "GLM: the information matrix is singular, so the Newton step is undefined. The "
             "usual cause is separation or a design cell with no row"
         ) from error
+
+
+def _alias_relation(design: FloatArray, active: BoolArray, weights: FloatArray) -> FloatArray:
+    """Each aliased column regressed on the active columns over the rows with positive weight."""
+    rows = weights > 0
+    root = np.sqrt(weights[rows])
+    relation, *_ = np.linalg.lstsq(
+        design[rows][:, active] * root[:, None],
+        design[rows][:, ~active] * root[:, None],
+        rcond=None,
+    )
+    return np.asarray(relation, dtype=float)
 
 
 def _active_columns(design: FloatArray, weights: FloatArray) -> BoolArray:

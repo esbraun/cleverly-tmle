@@ -1591,11 +1591,11 @@ def _require_regimen_followers(
     )
     opening = (
         f"no unit's observed treatment history through time {time} has positive "
-        f"probability under regimen {plan.label!r} {where}, so the sequential regression "
-        "there has nothing to fit. The policy is not supported by this sample."
+        f"probability under regimen {plan.label!r} {where}, so no unit there can be "
+        "regressed on or weighted. The policy is not supported by this sample."
         if plan.has_policy
         else f"no unit followed regimen {plan.label!r} through time {time} {where}, so "
-        "the sequential regression there has nothing to fit. The regimen is not "
+        "no unit there can be regressed on or weighted. The regimen is not "
         "supported by this sample."
     )
     raise LongitudinalError(
