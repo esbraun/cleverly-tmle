@@ -33,6 +33,7 @@ from .density import (
     fit_conditional_density,
 )
 from .library import default_library
+from .parametric import ParametricFitDiagnostics, ParametricMechanism, ParametricOutcome
 from .screeners import CorrelationScreener, screen_by_correlation
 from .super_learner import SuperLearner, SuperLearnerDiagnostics
 
@@ -43,6 +44,9 @@ __all__ = [
     "DensityDiagnostics",
     "FoldOrigin",
     "Folds",
+    "ParametricFitDiagnostics",
+    "ParametricMechanism",
+    "ParametricOutcome",
     "SplitPlan",
     "SuperLearner",
     "SuperLearnerDiagnostics",
