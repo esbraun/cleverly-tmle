@@ -591,6 +591,8 @@ def test_integer_weights_equal_duplicated_rows() -> None:
 _CTMLE = (ctmle_module, CTMLE)
 _IN_SAMPLE = "_outcome_adaptive_nuisances"
 _CROSS_FITTED = "_cross_fit_outcome_adaptive"
+#: Every per-arm factor fit, in sample and in each fold, goes through this one function.
+_FACTORS = (ctmle_module, ctmle_module, "_fit_per_arm_factors")
 
 
 def _shared_coefficient(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -627,9 +629,8 @@ MUTATIONS: dict[str, tuple[Callable[[pytest.MonkeyPatch], None], Callable[[], No
             _IN_SAMPLE,
             [
                 (
-                    "design = base.outcome.arms[arm][:, None]",
-                    "design = base.outcome.arms[arms[(list(arms).index(arm) + 1) % len(arms)]]"
-                    "[:, None]",
+                    "data, generated, learner, every, every",
+                    "data, np.roll(generated, 1, axis=1), learner, every, every",
                 )
             ],
         ),
@@ -642,9 +643,8 @@ MUTATIONS: dict[str, tuple[Callable[[pytest.MonkeyPatch], None], Callable[[], No
             _IN_SAMPLE,
             [
                 (
-                    "design = base.outcome.arms[arm][:, None]",
-                    "design = base.outcome.arms[arms[(list(arms).index(arm) + 1) % len(arms)]]"
-                    "[:, None]",
+                    "data, generated, learner, every, every",
+                    "data, np.roll(generated, 1, axis=1), learner, every, every",
                 )
             ],
         ),
@@ -657,9 +657,9 @@ MUTATIONS: dict[str, tuple[Callable[[pytest.MonkeyPatch], None], Callable[[], No
             _IN_SAMPLE,
             [
                 (
-                    "propensity = Propensity(propensity_values, arms, simplex=False)",
-                    "propensity = Propensity(np.column_stack([1.0 - propensity_values[:, 1], "
-                    "propensity_values[:, 1]]), arms)",
+                    'propensity = Propensity(factors["treatment"], arms, simplex=False)',
+                    'propensity = Propensity(np.column_stack([1.0 - factors["treatment"][:, 1], '
+                    'factors["treatment"][:, 1]]), arms)',
                 )
             ],
         ),
@@ -672,8 +672,8 @@ MUTATIONS: dict[str, tuple[Callable[[pytest.MonkeyPatch], None], Callable[[], No
             _IN_SAMPLE,
             [
                 (
-                    "design = base.outcome.arms[arm][:, None]",
-                    "design = base.outcome.observed[:, None]",
+                    "generated = np.column_stack([base.outcome.arms[arm] for arm in arms])",
+                    "generated = np.column_stack([base.outcome.observed for arm in arms])",
                 )
             ],
         ),
@@ -691,12 +691,11 @@ MUTATIONS: dict[str, tuple[Callable[[pytest.MonkeyPatch], None], Callable[[], No
     "unweighted_in_sample_mechanism": (
         lambda mp: mutate(
             mp,
-            *_CTMLE,
-            _IN_SAMPLE,
+            *_FACTORS,
             [
                 (
-                    "(data.treatment == arm).astype(float),\n                    data.weights,",
-                    "(data.treatment == arm).astype(float),\n                    np.ones(data.n),",
+                    "weights = np.asarray(data.weights, dtype=float)",
+                    "weights = np.ones(data.n)",
                 )
             ],
         ),
@@ -729,8 +728,10 @@ MUTATIONS: dict[str, tuple[Callable[[pytest.MonkeyPatch], None], Callable[[], No
             *_CTMLE,
             _CROSS_FITTED,
             [
-                ("generated[:, [j]],", "generated[:, [(j + 1) % len(arms)]],"),
-                ("generated[test][:, [j]]", "generated[test][:, [(j + 1) % len(arms)]]"),
+                (
+                    "data, generated, treatment_learner, train, test",
+                    "data, np.roll(generated, 1, axis=1), treatment_learner, train, test",
+                )
             ],
         ),
         lambda: check_cv_longhand(BINARY_ACTIVE),
@@ -738,12 +739,11 @@ MUTATIONS: dict[str, tuple[Callable[[pytest.MonkeyPatch], None], Callable[[], No
     "unweighted_mechanism_in_each_fold": (
         lambda mp: mutate(
             mp,
-            *_CTMLE,
-            _CROSS_FITTED,
+            *_FACTORS,
             [
                 (
-                    "indicators[arm],\n                        data.weights,",
-                    "indicators[arm],\n                        np.ones(data.n),",
+                    "weights = np.asarray(data.weights, dtype=float)",
+                    "weights = np.ones(data.n)",
                 )
             ],
         ),
@@ -752,9 +752,8 @@ MUTATIONS: dict[str, tuple[Callable[[pytest.MonkeyPatch], None], Callable[[], No
     "the_first_column_predicted_in_each_fold": (
         lambda mp: mutate(
             mp,
-            *_CTMLE,
-            _CROSS_FITTED,
-            [("generated[test][:, [j]]", "generated[test][:, [0]]")],
+            *_FACTORS,
+            [("column[test[at]]", "generated[test[at]][:, [0]]")],
         ),
         lambda: check_cv_longhand(THREE_ARM_ACTIVE),
     ),

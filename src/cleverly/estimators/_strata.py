@@ -9,12 +9,12 @@ root.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import numpy as np
 
-from .._typing import FloatArray, IntArray
+from .._typing import BoolArray, FloatArray, IntArray
 from ..data.causal_data import CausalData, arm_share
 from ..exceptions import DataError
 
@@ -186,49 +186,105 @@ def refuse_absent_tilt_arms(data: CausalData) -> None:
             raise absent_arm_error(data, arms, fractions, code, "ipsi")
 
 
-def refuse_untrainable_stratum_folds(data: CausalData, folds: Any) -> None:
-    """Refuse a DR-TMLE fit whose reduced regressions cannot train inside some stratum.
+#: One requirement of an outcome-adaptive design family: the rows that must exist in every
+#: training complement of a stratum, and the clause that states their absence in sample.
+Requirement = tuple[BoolArray, str]
+
+
+def refuse_untrainable_stratum_folds(
+    data: CausalData,
+    folds: Any,
+    *,
+    family: str = "reduced regression",
+    requirements: Callable[[float], Sequence[Requirement]] | None = None,
+) -> None:
+    """Refuse a fit whose stratum-local regressions cannot train in some stratum and fold.
 
     A stratified ``DRTMLE`` fits each reduced regression inside each stratum, on the rows
     of that stratum that its family trains on and that each fold's training complement
     holds.  The narrowest family trains on the rows of one arm with an observed outcome:
     ``Q_r`` on the complete-data and composite routes, and ``e`` on the missing-outcome
-    route.  The check reads the data and the drawn folds only, so it runs after the fold
-    draw and before any learner.
+    route.  A per-arm outcome-adaptive :class:`~cleverly.CTMLE` fits each factor of its
+    design inside each stratum in the same way, and inside the whole sample without
+    strata, so it passes its own ``family`` and ``requirements``.  The check reads the
+    data and the drawn folds only, so it runs after the fold draw and before any learner.
 
     Parameters
     ----------
     data : CausalData
-        The data of the fit.  The check returns at once without baseline strata.
+        The data of the fit.  For the default family, the check returns at once without
+        baseline strata.
     folds : Folds
         The drawn split.
+    family : str
+        ``"reduced regression"`` (DR-TMLE, the default), ``"treatment design"`` or
+        ``"observation design"``.
+    requirements : callable or None
+        For a family other than the default: maps an arm code to the ``(rows, absence)``
+        pairs that must each hold a row in every training complement.  ``absence`` is the
+        clause the in-sample message states, for example ``"no recorded row is in arm
+        '1'"``.
 
     Raises
     ------
     ValueError
-        If some stratum, arm and training complement hold no trainable row.  The message is
-        the shipped no-trainable-rows refusal with the stratum named first.
+        If some stratum, arm and training complement hold no row of a requirement.  The
+        default family raises the shipped no-trainable-rows refusal with the stratum named
+        first.
     """
     from ..learners.crossfit import _POST_DRAW_REMEDY
 
-    if data.strata is None or data.is_continuous_treatment:
+    default = family == "reduced regression"
+    if data.is_continuous_treatment or (default and data.strata is None):
         return
     treatment = np.asarray(data.treatment, dtype=float)
     observed = np.asarray(data.observed, dtype=bool)
     every = np.arange(data.n)
     complements = [every] if folds.is_single else [train for train, _ in folds]
-    for code in range(data.n_strata):
-        inside = data.strata == code
+    if data.strata is None:
+        regions = [("the sample", np.ones(data.n, dtype=bool))]
+    else:
+        regions = [
+            (f"baseline stratum {data.stratum_label(code)}", data.strata == code)
+            for code in range(data.n_strata)
+        ]
+    stratified = data.strata is not None
+    for where, inside in regions:
         for arm in data.arm_codes:
-            trainable = inside & (treatment == float(arm)) & observed
-            if any(not np.any(trainable[train]) for train in complements):
-                raise ValueError(
-                    f"inside baseline stratum {data.stratum_label(code)}: a cross-fitting "
-                    "fold has no trainable rows for a reduced regression of arm "
-                    f"{data.arm_label(arm)!r}. "
-                    + _POST_DRAW_REMEDY.format(
-                        remedy="declare fewer baseline strata, or fit with cross_fit=False"
+            if default:
+                trainable = inside & (treatment == float(arm)) & observed
+                if any(not np.any(trainable[train]) for train in complements):
+                    raise ValueError(
+                        f"inside {where}: a cross-fitting "
+                        "fold has no trainable rows for a reduced regression of arm "
+                        f"{data.arm_label(arm)!r}. "
+                        + _POST_DRAW_REMEDY.format(
+                            remedy="declare fewer baseline strata, or fit with cross_fit=False"
+                        )
                     )
+                continue
+            assert requirements is not None
+            for rows, absence in requirements(arm):
+                trainable = inside & np.asarray(rows, dtype=bool)
+                if all(np.any(trainable[train]) for train in complements):
+                    continue
+                if folds.is_single:
+                    message = (
+                        f"inside {where}: {absence}, so the outcome-adaptive {family} of arm "
+                        f"{data.arm_label(arm)!r} cannot be fitted."
+                    )
+                    if stratified:
+                        message += " Declare fewer baseline strata."
+                    raise ValueError(message)
+                remedy = (
+                    "declare fewer baseline strata, or fit with cross_fit=False"
+                    if stratified
+                    else "fit with cross_fit=False"
+                )
+                raise ValueError(
+                    f"inside {where}: a cross-fitting fold has no trainable rows for the "
+                    f"outcome-adaptive {family} of arm {data.arm_label(arm)!r}. "
+                    + _POST_DRAW_REMEDY.format(remedy=remedy)
                 )
 
 

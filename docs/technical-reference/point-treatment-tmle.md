@@ -340,7 +340,7 @@ fluctuation, so it is a named request. The refusals keep their reasons:
 
 | composition | reason |
 | --- | --- |
-| `DRTMLE`, `CTMLE` | no DR-TMLE or collaborative natural-course mean ships. `DRTMLE(guard=())` is the ordinary TMLE, and the message says to use `TMLE`. [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) tracks the refused DR-TMLE compositions |
+| `DRTMLE`, `CTMLE` other than the per-arm `oat` design | no DR-TMLE natural-course mean ships, and no selector-based or shared-design collaborative one. The per-arm `oat` design reports a point estimate. Its observation factor is `P(Delta = 1 \| A, Qbar(A, W))`, read at the realised arm ([collaborative TMLE](collaborative-tmle.md#baseline-strata-and-missing-data-in-the-per-arm-design)). `DRTMLE(guard=())` is the ordinary TMLE, and the message says to use `TMLE`. [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) tracks the refused DR-TMLE compositions |
 | stacked PAR, PAF, or `ey_obs` beside arm targets, with baseline strata | the arm-indexed stacked contract refuses strata. The finite-partition step qualifies, and it needs a witness and a registered cell ([F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants)). The scalar stacked `ey_obs` and every in-sample fit admit strata |
 | `n_bootstrap > 0` | no audited bootstrap result covers this fit ([F2](../roadmap.md#f2-targeted-bootstrap-inference)) |
 | stacked `weights=` or `id=`, stacked continuous outcome, fold targeting, fold evaluation, repeats | the stacked contracts cover unweighted iid rows and a binary outcome ([F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants)) |

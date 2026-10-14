@@ -424,8 +424,9 @@ class PointTreatment:
     treatment_missingness : str or None
         Treatment-observation indicator. One means the treatment is recorded. It declares
         a treatment missing at random. The composite indicator identifies the arm means and
-        their contrasts on in-sample TMLE and DRTMLE fits, and regime means and arm MSMs on
-        in-sample TMLE fits.
+        their contrasts on in-sample TMLE and DRTMLE fits, and their point estimates on the
+        in-sample per-arm outcome-adaptive CTMLE. It also identifies regime means and arm
+        MSMs on in-sample TMLE fits.
     treatment_probabilities : mapping of level to str, or None
         The known treatment mechanism of a randomized design: each treatment level mapped to
         the column that holds ``P(A = level | W)``.  Every method then divides by these

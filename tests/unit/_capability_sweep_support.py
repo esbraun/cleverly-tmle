@@ -174,6 +174,16 @@ def fit_ctmle_oat_shared() -> Any:
     return estimator.fit(frame, outcome="Y", treatment="A").single()
 
 
+def fit_ctmle_oat_missing() -> Any:
+    """A per-arm outcome-adaptive fit with missing outcomes, ``make_missing_outcome(400, 4)``.
+
+    It reports points only, and the missingness tilt reads its full-covariate response
+    model, so its rows are the shared design's and both tilt rows.
+    """
+    estimator = linear_ctmle("oat", estimands=("ate",))
+    return estimator.fit(_missing_frame(), outcome="Y", treatment="A", delta="Delta").single()
+
+
 def fit_msm() -> Any:
     """A linear working-model fit with complete outcomes."""
     return (
@@ -790,6 +800,7 @@ KINDS: dict[str, Kind] = {
     "multi_arm": _kind(fit_multi_arm, *_ARM),
     "ctmle_oat": _kind(fit_ctmle_oat, *_LIVE),
     "ctmle_oat_shared": _kind(fit_ctmle_oat_shared, *_LIVE),
+    "ctmle_oat+missing": _kind(fit_ctmle_oat_missing, *_LIVE, *_TILT),
     "msm": _kind(fit_msm, *_LIVE),
     "regime": _kind(fit_regime, *_LIVE),
     # A refit relearns the rules, so no refutation or bound row answers.
