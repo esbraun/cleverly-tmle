@@ -26,7 +26,7 @@ import pandas as pd
 import pytest
 
 from tests.documents import pipe_table
-from tests.studies.evidence import descriptions, failures, property_verdicts
+from tests.studies.evidence import descriptions, failures, property_failures, property_verdicts
 from tests.studies.evidence.claims import load, quantities, thresholds, value
 from tests.studies.evidence.comparison import equivalence
 from tests.studies.evidence.document import (
@@ -198,11 +198,37 @@ def _property_rows(slug: str) -> pd.DataFrame:
     return pd.read_csv(STUDY_BY_SLUG[slug].artifact("property-replicates.csv.gz"))
 
 
+def _property_records(study: StudyRecord) -> pd.DataFrame | None:
+    """The study's ``property-failures.csv``, or ``None`` when no property fit failed."""
+    return property_failures.read(study.artifact(property_failures.PROPERTY_FAILURES))
+
+
+def _property_accounting(study: StudyRecord) -> pd.DataFrame:
+    """The study's ``property-failure-accounting.csv``, empty when no property fit failed."""
+    path = study.artifact(property_failures.PROPERTY_ACCOUNTING)
+    if not path.exists():
+        return pd.DataFrame(columns=list(property_failures.PROPERTY_ACCOUNTING_COLUMNS))
+    return pd.read_csv(path, keep_default_na=False, na_values=[""])
+
+
 @functools.cache
-def _property_summary(slug: str) -> pd.DataFrame:
-    """Recompute an immutable property summary once per study and worker."""
+def _complete_case_summary(slug: str) -> pd.DataFrame:
+    """The study's own property verdicts on the committed rows, before any accounting."""
     study = STUDY_BY_SLUG[slug]
     return study.properties().summarize_properties(_property_rows(slug))
+
+
+@functools.cache
+def _property_summary(slug: str) -> pd.DataFrame:
+    """Recompute an immutable property summary once per study and worker.
+
+    The study's complete-case verdicts, corrected by the committed property failure
+    accounting, which a separate test recomputes from the rows and the records.
+    """
+    study = STUDY_BY_SLUG[slug]
+    return property_failures.correct_properties(
+        _complete_case_summary(slug), _property_accounting(study)
+    )
 
 
 def _cheap(study: StudyRecord) -> StudyRecord:
@@ -259,7 +285,12 @@ class TestArtifacts:
         } | set(study.extra_artifacts) | {
             # The failure files exist only when a fit failed, and then both are hashed.
             name
-            for name in (failures.FAILURES, failures.ACCOUNTING)
+            for name in (
+                failures.FAILURES,
+                failures.ACCOUNTING,
+                property_failures.PROPERTY_FAILURES,
+                property_failures.PROPERTY_ACCOUNTING,
+            )
             if study.artifact(name).exists()
         }
         for name, digest in manifest["sha256"].items():
@@ -302,6 +333,11 @@ class TestArtifacts:
             assert "failure_bound" not in configuration
         recorded = _recorded_failures(study)
         assert (recorded is None) == (not study.artifact(failures.ACCOUNTING).exists())
+        bound = float(getattr(study.properties(), "FAILURE_BOUND", 0.0))
+        if bound:
+            assert configuration["property_failure_bound"] == bound
+        else:
+            assert "property_failure_bound" not in configuration
 
     def test_the_subject_side_is_identified_rather_than_described(self, study: StudyRecord) -> None:
         """``"working tree"`` names no run; a version and a revision name one.
@@ -2731,3 +2767,145 @@ class TestTheQuantityVocabulary:
             f"{sorted(unresolved)} resolve to no artefact family, so quoting one of them would "
             f"count towards nothing in test_the_table_reaches_every_family_of_result"
         )
+
+
+#: The families a shared :class:`~tests.studies.evidence.property_failures.FamilyRule` reads.
+SHARED_FAMILIES = frozenset(
+    family for rule in property_verdicts.FAMILY_RULES for family in rule.families
+)
+
+#: The studies the differential test perturbs: for each shared family, the registered study
+#: whose ``summarize_properties`` is cheapest among those that publish it under the shared
+#: rule.  ``test_the_differential_sample_covers_every_shared_family`` keeps it covering.
+DIFFERENTIAL_SAMPLE = (
+    "canonical-multi-arm-tmle",
+    "canonical-cvtmle",
+    "clustered-tmle",
+    "few-cluster-cross-fitted-ltmle",
+    "canonical-multi-arm-ctmle-oat",
+    "canonical-drtmle",
+    "mar-tmle",
+    "cde-tmle",
+    "calibration-slope-warning",
+)
+
+
+def _context(study: StudyRecord, rows: pd.DataFrame, summary: pd.DataFrame):
+    return property_failures.Context(
+        study,
+        rows,
+        summary,
+        {},
+        {"efficiency_band": getattr(study.properties(), "EFFICIENCY_RATIO_BAND", None)},
+    )
+
+
+class TestPropertyFailures:
+    """RM39 part b2: the property failure records, their stamps and their accounting."""
+
+    def test_the_two_property_failure_files_exist_together(self, study: StudyRecord) -> None:
+        assert study.artifact(property_failures.PROPERTY_FAILURES).exists() == (
+            study.artifact(property_failures.PROPERTY_ACCOUNTING).exists()
+        )
+
+    def test_the_records_explain_every_gap_in_the_property_rows(self, study: StudyRecord) -> None:
+        property_failures.reconcile(
+            _property_rows(study.slug),
+            _property_records(study),
+            derived=getattr(study.properties(), "DERIVED_CELLS", None),
+        )
+
+    def test_each_cell_is_stamped_with_its_record_count(self, study: StudyRecord) -> None:
+        lost = property_failures.counts(_property_records(study))
+        stamps = _property_rows(study.slug).groupby(["property", "cell"], sort=True)[
+            "failed_replicates"
+        ]
+        for (family, cell), values in stamps:
+            assert set(values) == {lost.get((family, cell), 0)}, (family, cell)
+
+    def test_the_property_failure_accounting_is_recomputed_from_the_rows_and_records(
+        self, study: StudyRecord
+    ) -> None:
+        records = _property_records(study)
+        committed = _property_accounting(study)
+        if records is None:
+            assert committed.empty
+            return
+        recomputed = property_failures.property_accounting(
+            _property_rows(study.slug),
+            records,
+            _complete_case_summary(study.slug),
+            record=study,
+            module=study.properties(),
+        )
+        pd.testing.assert_frame_equal(
+            committed, recomputed, check_dtype=False, check_exact=False, rtol=1e-12
+        )
+
+    def test_the_failure_bound_is_inside_its_range(self, study: StudyRecord) -> None:
+        bound = float(getattr(study.properties(), "FAILURE_BOUND", 0.0))
+        assert 0.0 <= bound <= property_failures.MAXIMUM_BOUND
+
+    def test_every_study_local_pair_names_a_shared_family_the_study_publishes(
+        self, study: StudyRecord
+    ) -> None:
+        """A local entry is study code beside a shared rule.  A stale one hides a family.
+
+        A study with a non-zero bound has no local entry: its regeneration adds the rule of
+        each family it computes itself (D3).
+        """
+        local = property_failures.STUDY_LOCAL.get(study.slug, frozenset())
+        published = set(pd.read_csv(study.artifact("properties.csv"))["property"])
+        assert local <= SHARED_FAMILIES & published
+        if float(getattr(study.properties(), "FAILURE_BOUND", 0.0)):
+            assert not local, f"{study.slug} declares a bound but computes {sorted(local)} itself"
+
+    def test_each_shared_rule_reproduces_the_committed_verdicts(self, study: StudyRecord) -> None:
+        """Each rule read on the complete-case summary gives every target's published verdict."""
+        summary = (
+            pd.read_csv(study.artifact("properties.csv"))
+            if _property_accounting(study).empty
+            else _complete_case_summary(study.slug)
+        )
+        local = property_failures.STUDY_LOCAL.get(study.slug, frozenset())
+        wrong = property_failures.differential(
+            property_verdicts.FAMILY_RULES,
+            summary,
+            _context(study, _property_rows(study.slug), summary),
+            local=local,
+        )
+        assert wrong.empty, wrong.to_string()
+
+
+@pytest.mark.parametrize("kind", property_failures.PERTURBATIONS[1:])
+@pytest.mark.parametrize("slug", DIFFERENTIAL_SAMPLE)
+def test_each_shared_rule_agrees_with_its_study_on_perturbed_rows(slug: str, kind: str) -> None:
+    """F10: a rule missing a conjunct, or reading a moved threshold, disagrees somewhere."""
+    study = STUDY_BY_SLUG[slug]
+    rows = property_failures.perturbed(_property_rows(slug), kind, alpha=study.margins.alpha)
+    summary = study.properties().summarize_properties(rows)
+    assert not (summary["passed"] & summary["property_passed"]).all(), (
+        f"{kind} moved no verdict of {slug}"
+    )
+    wrong = property_failures.differential(
+        property_verdicts.FAMILY_RULES,
+        summary,
+        _context(study, rows, summary),
+        local=property_failures.STUDY_LOCAL.get(slug, frozenset()),
+    )
+    assert wrong.empty, wrong.to_string()
+
+
+def test_the_differential_sample_covers_every_shared_family() -> None:
+    """Every shared family some study publishes under its rule is perturbed somewhere."""
+
+    def ruled(study: StudyRecord) -> set[str]:
+        path = study.artifact("properties.csv")
+        if not path.exists():
+            return set()
+        published = set(pd.read_csv(path)["property"]) & SHARED_FAMILIES
+        return published - property_failures.STUDY_LOCAL.get(study.slug, frozenset())
+
+    covered = set().union(*(ruled(STUDY_BY_SLUG[slug]) for slug in DIFFERENTIAL_SAMPLE))
+    published = set().union(*(ruled(study) for study in STUDIES))
+    assert published <= covered, sorted(published - covered)

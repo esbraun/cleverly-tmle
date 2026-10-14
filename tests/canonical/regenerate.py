@@ -60,7 +60,7 @@ from typing import Any
 import pandas as pd
 
 from tests.parallel import available_cores
-from tests.studies.evidence import failures, replication
+from tests.studies.evidence import failures, property_failures, replication
 from tests.studies.evidence.comparison import empty_equivalence, equivalence
 from tests.studies.evidence.manifest import write_csv, write_manifest
 from tests.studies.evidence.performance import independent_performance_tests, summarize
@@ -82,6 +82,13 @@ ARTIFACT_NAMES = (
 #: Artefacts a run writes only when a comparator failure exists (RM39 part a2): the records and
 #: their accounting.  A run with no failure writes neither, so its artefact set is unchanged.
 OPTIONAL_ARTIFACT_NAMES = (failures.FAILURES, failures.ACCOUNTING)
+
+#: Artefacts the property phase writes only when a property fit recorded a failure (RM39
+#: part b2): its records and their accounting.
+PROPERTY_FAILURE_FILES = (
+    property_failures.PROPERTY_FAILURES,
+    property_failures.PROPERTY_ACCOUNTING,
+)
 
 #: Columns the reference writes as text and the schema requires as numbers.
 _TEXT_COLUMNS = frozenset({"implementation", "scenario", "estimand", "inference_scale"})
@@ -1034,27 +1041,57 @@ def _property_artifacts(
     arguments: argparse.Namespace,
     here: Path,
     paths: dict[str, Path],
-) -> pd.DataFrame | None:
+    record: StudyRecord,
+) -> tuple[pd.DataFrame | None, tuple[str, ...]]:
     """The property study, or the committed rows, or a schema-bearing placeholder.
 
     Returns the summary when it was computed, and ``None`` when the artefacts were reused or
     stubbed -- so the failure gate below can tell "every cell passed" from "no cell ran".
+    The second item names the property failure files written beside the rows, which the
+    manifest hashes: both when a property fit recorded a failure, none otherwise.
+
+    A recorded property failure costs its cells one replicate each.  The rows are stamped
+    and reconciled with the records, the summary is the complete-case one, and the
+    accounting turns red the rows that lost more than ``FAILURE_BOUND`` allows or that a
+    worst case breaks (:func:`tests.studies.evidence.property_failures.property_accounting`).
     """
+    out = paths["properties.csv"].parent
     if not arguments.skip_properties:
-        rows = properties.generate_property_rows(n_jobs=arguments.jobs)
+        with replication.recording(record.implementation) as recorded:
+            rows = properties.generate_property_rows(n_jobs=arguments.jobs)
+        records = property_failures.frame(recorded)
+        rows = property_failures.stamp(rows, records)
+        property_failures.reconcile(
+            rows, records, derived=getattr(properties, "DERIVED_CELLS", None)
+        )
         write_csv(
             rows, paths["property-replicates.csv.gz"], compression={"method": "gzip", "mtime": 0}
         )
         summary = properties.summarize_properties(rows)
+        accounting = property_failures.property_accounting(
+            rows, records, summary, record=record, module=properties, n_jobs=arguments.jobs
+        )
+        summary = property_failures.correct_properties(summary, accounting)
         write_csv(summary, paths["properties.csv"])
-        return summary
+        if records is None:
+            # A failure file of an earlier run in this directory would outlive a clean run.
+            for name in PROPERTY_FAILURE_FILES:
+                (out / name).unlink(missing_ok=True)
+            return summary, ()
+        for message, count in records["message"].value_counts().items():
+            print(f"recorded property failure ({count}x): {message}", flush=True)
+        write_csv(records, out / property_failures.PROPERTY_FAILURES)
+        write_csv(accounting, out / property_failures.PROPERTY_ACCOUNTING)
+        return summary, PROPERTY_FAILURE_FILES
 
     names = ("property-replicates.csv.gz", "properties.csv")
     if all((here / name).exists() for name in names):
-        for name in names:
-            if paths[name].resolve() != (here / name).resolve():
-                paths[name].write_bytes((here / name).read_bytes())
-        return None
+        committed = tuple(name for name in PROPERTY_FAILURE_FILES if (here / name).exists())
+        for name in (*names, *committed):
+            target = out / name
+            if target.resolve() != (here / name).resolve():
+                target.write_bytes((here / name).read_bytes())
+        return None, committed
     if paths["properties.csv"].parent.resolve() == here.resolve():
         raise RuntimeError("skipping the property study needs committed property artefacts")
     # A disposable smoke run has nothing to reuse.  Empty, schema-bearing files keep its
@@ -1066,7 +1103,7 @@ def _property_artifacts(
         compression={"method": "gzip", "mtime": 0},
     )
     write_csv(pd.DataFrame(columns=["property", "cell", "passed"]), paths["properties.csv"])
-    return None
+    return None, ()
 
 
 def main(
@@ -1238,15 +1275,24 @@ def _regenerate(
         context.completed = True
         return
 
-    property_summary = _property_artifacts(properties, arguments, here, paths)
+    property_summary, property_failure_names = _property_artifacts(
+        properties, arguments, here, paths, record
+    )
+    # The list is complete only now: the property phase decides whether its failure files
+    # exist.
+    artifact_names = (*artifact_names, *property_failure_names)
+    bound = float(getattr(properties, "FAILURE_BOUND", 0.0))
 
     write_manifest(
         out / "manifest.json",
         record,
-        [paths[name] for name in artifact_names],
+        [out / name for name in artifact_names],
         reference_files=() if reference is None else reference.files(here),
         reference_metadata=getattr(study, "REFERENCE_METADATA", None),
-        configuration=study.CONFIGURATION,
+        configuration={
+            **dict(study.CONFIGURATION or {}),
+            **({"property_failure_bound": bound} if bound else {}),
+        },
     )
     context.completed = True
 

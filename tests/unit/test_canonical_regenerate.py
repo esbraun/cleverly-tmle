@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -179,7 +180,7 @@ def test_complete_regeneration_gates_a_failed_joint_property_claim(
     monkeypatch.setattr(
         regenerate,
         "_property_artifacts",
-        lambda *args, **kwargs: pd.DataFrame({"passed": [True], "property_passed": [False]}),
+        lambda *args, **kwargs: (pd.DataFrame({"passed": [True], "property_passed": [False]}), ()),
     )
 
     with pytest.raises(RuntimeError, match="statistical property gates failed"):
@@ -329,10 +330,138 @@ def test_reporting_policy_publishes_failed_scientific_verdicts(
     monkeypatch.setattr(
         regenerate,
         "_property_artifacts",
-        lambda *args, **kwargs: pd.DataFrame({"passed": [False], "property_passed": [False]}),
+        lambda *args, **kwargs: (pd.DataFrame({"passed": [False], "property_passed": [False]}), ()),
     )
 
     regenerate.main(study, SimpleNamespace(), here=tmp_path)
+
+
+def _toy_properties(bad: set[int]) -> SimpleNamespace:
+    """A property module of one ``power`` cell of 20 replicates; ``bad`` fits are singular."""
+    from tests.studies.evidence import property_verdicts, replication
+    from tests.studies.evidence.properties import REPLICATE_COLUMNS as PROPERTY_COLUMNS
+
+    record = dataclasses.replace(
+        fold_evaluated_cvtmle.STUDY,
+        margins=dataclasses.replace(fold_evaluated_cvtmle.STUDY.margins, bootstrap_replicates=50),
+    )
+
+    def fit(key: tuple[str, int], drawn: int) -> dict[str, Any]:
+        if drawn in bad:
+            np.linalg.inv(np.zeros((2, 2)))
+        return {
+            "property": "power",
+            "cell": key[0],
+            "role": "positive",
+            "replicate": key[1],
+            "n": 100,
+            "requested_replicates": 20,
+            "failed_replicates": 0,
+            "truth": 0.0,
+            "estimate": 0.5,
+            "std_error": 0.1,
+            "covered": 1,
+            "rejected": 1,
+        }
+
+    def generate_property_rows(*, n_jobs: int) -> pd.DataFrame:
+        values = replication.fit_properties(
+            [("c", replicate) for replicate in range(20)],
+            fit,
+            cells_of=lambda key: ("power/c",),
+            cell_of=lambda key: key[0],
+            replicate_of=lambda key: key[1],
+            n_jobs=n_jobs,
+            draw=lambda key: key[1],
+            checkpoint=None,
+        )
+        return pd.DataFrame(values).loc[:, list(PROPERTY_COLUMNS)]
+
+    def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
+        summary, rates = property_verdicts.apply_shared_verdicts(rows, record, rate_labels=())
+        return property_verdicts.finish(summary, rates)
+
+    return SimpleNamespace(
+        generate_property_rows=generate_property_rows,
+        summarize_properties=summarize_properties,
+    )
+
+
+def test_a_property_failure_is_recorded_accounted_and_hashed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """RM39b2: one failed property fit costs its cell a replicate and turns the cell red.
+
+    The run completes, writes both property failure files, and the manifest hashes them.  A
+    later ``--skip-properties`` run keeps the committed files and still hashes them.
+    """
+    from tests.studies.evidence import property_failures
+
+    record = dataclasses.replace(
+        fold_evaluated_cvtmle.STUDY, artifacts=tmp_path, publication_policy="reporting"
+    )
+    study = SimpleNamespace(
+        STUDY=record,
+        PRIMARY_REPLICATES=record.replicates,
+        PRIMARY_N=record.n,
+        CONFIGURATION={},
+    )
+    out = tmp_path / "out"
+    arguments = _arguments(out, primary_only=False)
+    monkeypatch.setattr(regenerate, "_arguments", lambda *args: arguments)
+    monkeypatch.setattr(
+        regenerate,
+        "_python_phase",
+        lambda *args: regenerate._Phase(rows=_rows(record.implementation)),
+    )
+    monkeypatch.setattr(regenerate, "validate_replicates", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        regenerate, "summarize", lambda rows, truth_varies: pd.DataFrame({"summary": [1.0]})
+    )
+    monkeypatch.setattr(
+        regenerate,
+        "independent_performance_tests",
+        lambda *args, **kwargs: pd.DataFrame({"passed": [True]}),
+    )
+    monkeypatch.setattr(regenerate, "empty_equivalence", lambda: pd.DataFrame({"passed": []}))
+    hashed: list[list[str]] = []
+    monkeypatch.setattr(
+        regenerate,
+        "write_manifest",
+        lambda path, record, artifacts, **kwargs: hashed.append(
+            [Path(artifact).name for artifact in artifacts]
+        ),
+    )
+
+    regenerate.main(study, _toy_properties({7}), here=tmp_path)
+
+    names = (property_failures.PROPERTY_FAILURES, property_failures.PROPERTY_ACCOUNTING)
+    assert all((out / name).exists() for name in names)
+    assert set(names) <= set(hashed[-1])
+    records = property_failures.read(out / property_failures.PROPERTY_FAILURES)
+    assert records is not None and list(records["group_id"]) == ["properties/c/r000000007"]
+    rows = pd.read_csv(out / "property-replicates.csv.gz")
+    assert 7 not in set(rows["replicate"]) and set(rows["failed_replicates"]) == {1}
+    accounting = pd.read_csv(out / property_failures.PROPERTY_ACCOUNTING)
+    assert set(accounting["reason"]) == {"bound exceeded"}
+    summary = pd.read_csv(out / "properties.csv")
+    assert not summary["passed"].any()
+
+    # The committed files survive a run that skips the property phase.
+    committed = tmp_path / "committed"
+    committed.mkdir()
+    for name in ("property-replicates.csv.gz", "properties.csv", *names):
+        (committed / name).write_bytes((out / name).read_bytes())
+    arguments.skip_properties = True
+    regenerate.main(study, _toy_properties(set()), here=committed)
+    assert all((out / name).read_bytes() == (committed / name).read_bytes() for name in names)
+    assert set(names) <= set(hashed[-1])
+
+    # A clean run removes the stale files and hashes neither.
+    arguments.skip_properties = False
+    regenerate.main(study, _toy_properties(set()), here=tmp_path)
+    assert not any((out / name).exists() for name in names)
+    assert not set(names) & set(hashed[-1])
 
 
 def _stub_complete(
@@ -375,7 +504,7 @@ def _stub_complete(
     monkeypatch.setattr(
         regenerate,
         "_property_artifacts",
-        lambda *args, **kwargs: pd.DataFrame({"passed": [True], "property_passed": [True]}),
+        lambda *args, **kwargs: (pd.DataFrame({"passed": [True], "property_passed": [True]}), ()),
     )
     return study
 
