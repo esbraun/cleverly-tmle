@@ -43,7 +43,7 @@ import narwhals as nw
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray
-from ..exceptions import DataError
+from ..exceptions import CapabilityError, DataError
 from ..utils.frames import (
     as_frame,
     backend_of,
@@ -57,6 +57,7 @@ from .known_mechanism import KnownMechanism, known_mechanism, probability_column
 from .validate import (
     MIN_OBSERVATIONS,
     MISSING_TREATMENT_DECLARATION,
+    VECTOR_DENSITY_ROW,
     arm_indicators,
     check_covariates,
     check_delta,
@@ -66,6 +67,7 @@ from .validate import (
     encode_clusters,
     encode_continuous_treatment,
     encode_treatment,
+    encode_vector_treatment,
     infer_family,
     missing_values,
     resolve_family,
@@ -78,13 +80,80 @@ from .weighting import (
     effective_sample_size,
 )
 
-__all__ = ["CategoricalEncoding", "CausalData", "TreatmentKind", "arm_share"]
+__all__ = [
+    "CategoricalEncoding",
+    "CausalData",
+    "StoredTreatmentKind",
+    "TreatmentKind",
+    "arm_share",
+]
 
 #: How the treatment column is to be read.  ``"discrete"`` codes it into arms; there is
 #: no third reading, and the two are not points on a scale -- they select different
 #: mechanisms (a distribution over arms versus a conditional density) and therefore
 #: different estimands.
 TreatmentKind = Literal["discrete", "continuous"]
+
+#: What :attr:`CausalData.treatment_kind` holds.  ``"vector"`` is a treatment of several
+#: columns with at least one continuous component.  It is never declared with
+#: ``treatment_kind=``: a list ``treatment`` with ``continuous_treatment=`` declares it.
+StoredTreatmentKind = Literal["discrete", "continuous", "vector"]
+
+
+class _VectorLevels(tuple[object, ...]):
+    """The :attr:`CausalData.treatment_levels` of a vector treatment with a dose component.
+
+    Such a treatment has no arms.  Every read of its levels, by length, iteration, index or
+    membership, raises :class:`~cleverly.exceptions.CapabilityError`, so a reader that does
+    not first ask for ``treatment_kind == "vector"`` refuses instead of reading zero arms.
+    """
+
+    __slots__ = ()
+
+    def __new__(cls) -> _VectorLevels:
+        return super().__new__(cls, ())
+
+    def _refuse(self) -> CapabilityError:
+        return CapabilityError(_vector_refusal("this treatment", "its arm levels"))
+
+    def __len__(self) -> int:
+        raise self._refuse()
+
+    def __iter__(self) -> Any:
+        raise self._refuse()
+
+    def __getitem__(self, index: Any) -> Any:
+        raise self._refuse()
+
+    def __contains__(self, value: object) -> bool:
+        raise self._refuse()
+
+    def __bool__(self) -> bool:
+        raise self._refuse()
+
+    def __repr__(self) -> str:
+        return "<no arm levels: a vector treatment with a continuous component>"
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        return (_VectorLevels, ())
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _VectorLevels)
+
+    def __hash__(self) -> int:
+        return hash(_VectorLevels)
+
+
+def _vector_refusal(treatment: str, reader: str) -> str:
+    """The refusal of a one-column reader at a vector treatment with a dose component."""
+    return (
+        f"{treatment} is a vector treatment with a continuous component, and {reader} reads "
+        "a treatment of one column. Only TMLE(policies=[JointPolicy(...)], "
+        "ratio='classifier') fits such a treatment: its policy means and contrasts. Every "
+        "other estimator, estimand and reader of it is a post-beta roadmap row, "
+        f"docs/roadmap.md {VECTOR_DENSITY_ROW}"
+    )
+
 
 #: The refusal of a second declaration of the treatment mechanism.
 DECLARED_TWICE = (
@@ -178,7 +247,7 @@ class CausalData:
     #: :attr:`n_arms` is zero, and the mechanism is a conditional *density* rather than a
     #: distribution over a finite set.  Defaulted so every existing construction, and
     #: every ``dataclasses.replace`` of one, stays on the arm-coded path unchanged.
-    treatment_kind: TreatmentKind = "discrete"
+    treatment_kind: StoredTreatmentKind = "discrete"
     delta_name: str | None = None
     cluster: IntArray | None = None
     cluster_name: str | None = None
@@ -223,6 +292,17 @@ class CausalData:
     #: :func:`cleverly.load` had no way to restore, so a saved polars fit came back
     #: emitting pandas.
     backend: str | None = None
+    #: The columns of a vector treatment, in declared order, or ``()`` for a treatment of
+    #: one column.  :attr:`treatment_name` joins them with ``+``.  An all-categorical vector
+    #: is one categorical treatment over the observed tuples of its components, so
+    #: :attr:`treatment` holds the joint level code and :attr:`treatment_levels` the tuples.
+    component_names: tuple[str, ...] = ()
+    #: Each component's labels in code order, or ``()`` for a continuous component.
+    component_levels: tuple[tuple[Any, ...], ...] = ()
+    #: ``(n, d)`` component values of a vector treatment with a continuous component: a
+    #: categorical component's level code and a continuous component's dose.  ``None`` on
+    #: every other treatment.  :attr:`treatment` is then ``NaN`` on every row.
+    treatment_components: FloatArray | None = None
 
     # ------------------------------------------------------------------ build
 
@@ -232,7 +312,7 @@ class CausalData:
         data: Any,
         *,
         outcome: str,
-        treatment: str,
+        treatment: str | Sequence[str],
         covariates: Sequence[str] | None = None,
         delta: str | None = None,
         weights: str | None = None,
@@ -242,9 +322,10 @@ class CausalData:
         intermediate: str | None = None,
         strata: Sequence[str] | None = None,
         family: str = "auto",
-        treatment_kind: TreatmentKind = "discrete",
+        treatment_kind: TreatmentKind | None = None,
         treatment_delta: str | None = None,
         treatment_probabilities: Any = None,
+        continuous_treatment: Sequence[str] = (),
     ) -> CausalData:
         """Build from a pandas or polars dataframe by column name.
 
@@ -255,6 +336,17 @@ class CausalData:
 
         Parameters
         ----------
+        treatment:
+            The treatment column, or a list of columns for a vector treatment.  A vector
+            of categorical columns is one categorical treatment over the observed tuples of
+            its columns: its levels are the tuples, at most
+            :data:`~cleverly.data.validate.MAX_TREATMENT_LEVELS` of them, and every
+            categorical estimand reads them.  A vector with a column named in
+            ``continuous_treatment`` is fitted by ``TMLE(policies=[JointPolicy(...)],
+            ratio="classifier")`` only.
+        continuous_treatment:
+            The columns of a vector ``treatment`` that hold a continuous dose.  A treatment
+            of one column declares a dose with ``treatment_kind="continuous"`` instead.
         weights_type:
             How to read ``weights``.  ``"probability"`` (also ``"sampling"``,
             ``"survey"``, ``"design"``) is the supported reading: the weights encode a
@@ -270,7 +362,8 @@ class CausalData:
             as a set of arms.  It is a declaration rather than something inferred: a dose
             recorded at fifteen distinct values could reasonably be either, and guessing
             from the number of levels would silently change the estimand when a new batch
-            of data happened to add a sixteenth.
+            of data happened to add a sixteenth.  ``None`` is ``"discrete"``.  A vector
+            ``treatment`` refuses it and reads ``continuous_treatment`` instead.
         treatment_delta:
             The 0/1 column that is 1 where the treatment is recorded.  It declares a
             treatment missing at random, as ``delta=`` declares an outcome missing at
@@ -298,7 +391,13 @@ class CausalData:
         frame = as_frame(data)
         columns = list(frame.columns)
 
-        roles = {"outcome": outcome, "treatment": treatment}
+        components = _vector_components(treatment, continuous_treatment, treatment_kind)
+        treatment_name = "+".join(components) if components else str(treatment)
+        roles = {"outcome": outcome}
+        if components:
+            roles.update({f"treatment component {name!r}": name for name in components})
+        else:
+            roles["treatment"] = treatment_name
         for role, name in (
             ("delta", delta),
             ("weights", weights),
@@ -359,7 +458,7 @@ class CausalData:
         for role, name in roles.items():
             # A declared missing treatment reads the column's nulls as unrecorded rows, so
             # the label check would refuse exactly the data the declaration admits.
-            if role == "treatment" and treatment_delta is not None:
+            if role.startswith("treatment") and treatment_delta is not None:
                 continue
             _reject_null_labels(frame, name, role)
 
@@ -367,7 +466,11 @@ class CausalData:
             outcome=column_array(frame, outcome),
             # Not cast: `encode_treatment` reads the dtype kind to tell a numeric arm
             # from a categorical one, and a cast to float would erase that distinction.
-            treatment=frame[treatment].to_numpy(),
+            treatment=(
+                np.column_stack([frame[name].to_numpy() for name in components])
+                if components
+                else frame[treatment_name].to_numpy()
+            ),
             covariates=w_matrix,
             covariate_names=w_names,
             delta=column_array(frame, delta) if delta is not None else None,
@@ -377,9 +480,9 @@ class CausalData:
             cluster=frame[id].to_numpy() if id is not None else None,
             intermediate=(frame[intermediate].to_numpy() if intermediate is not None else None),
             family=family,
-            treatment_kind=treatment_kind,
+            treatment_kind="discrete" if treatment_kind is None else treatment_kind,
             outcome_name=outcome,
-            treatment_name=treatment,
+            treatment_name=treatment_name,
             delta_name=delta,
             weights_name=weights,
             cluster_name=id,
@@ -399,6 +502,8 @@ class CausalData:
                 else {level: column_array(frame, name) for level, name in probability_names}
             ),
             known_columns=probability_names or (),
+            component_names=components,
+            continuous_components=tuple(str(name) for name in continuous_treatment),
         )
 
     @classmethod
@@ -416,24 +521,38 @@ class CausalData:
         id: Any = None,
         intermediate: Any = None,
         family: str = "auto",
-        treatment_kind: TreatmentKind = "discrete",
+        treatment_kind: TreatmentKind | None = None,
         outcome_name: str = "Y",
-        treatment_name: str = "A",
+        treatment_name: str | Sequence[str] = "A",
         strata: np.ndarray | None = None,
         strata_names: Sequence[str] | None = None,
         treatment_delta: Any = None,
         treatment_probabilities: Any = None,
+        continuous_treatment: Sequence[str] = (),
     ) -> CausalData:
         """Build from numpy arrays, mirroring ``tmle(Y, A, W, ...)`` in R.
 
         See :meth:`from_frame` for ``weights_type``, ``weights_estimated``,
-        ``treatment_kind``, ``treatment_delta`` and ``treatment_probabilities``.  Here
-        ``treatment_delta`` is the 0/1 array itself, in the role of R ``drtmle``'s
-        ``DeltaA``, and ``treatment_probabilities`` takes the array forms only, in the role
-        of R ``tmle``'s ``g1W``.
+        ``treatment_kind``, ``treatment_delta``, ``treatment_probabilities`` and
+        ``continuous_treatment``.  Here ``treatment_delta`` is the 0/1 array itself, in the
+        role of R ``drtmle``'s ``DeltaA``, and ``treatment_probabilities`` takes the array
+        forms only, in the role of R ``tmle``'s ``g1W``.  A vector treatment is an ``(n, d)``
+        ``treatment`` with ``treatment_name`` a list of its ``d`` column names.
         """
         if probability_columns(treatment_probabilities) is not None:
             raise DataError(_COLUMN_FORM_NEEDS_A_FRAME)
+        components = _vector_components(treatment_name, continuous_treatment, treatment_kind)
+        raw_treatment = np.asarray(treatment)
+        if components and (raw_treatment.ndim != 2 or raw_treatment.shape[1] != len(components)):
+            raise DataError(
+                f"treatment_name names {len(components)} components, so treatment must be an "
+                f"(n, {len(components)}) array; got shape {raw_treatment.shape}"
+            )
+        if not components and raw_treatment.ndim == 2 and raw_treatment.shape[1] > 1:
+            raise DataError(
+                f"treatment has {raw_treatment.shape[1]} columns. A vector treatment names "
+                "its columns with treatment_name=[...]"
+            )
         w = np.asarray(covariates, dtype=float)
         if w.ndim == 1:
             w = w.reshape(-1, 1)
@@ -453,9 +572,9 @@ class CausalData:
             cluster=None if id is None else np.asarray(id),
             intermediate=None if intermediate is None else np.asarray(intermediate),
             family=family,
-            treatment_kind=treatment_kind,
+            treatment_kind="discrete" if treatment_kind is None else treatment_kind,
             outcome_name=outcome_name,
-            treatment_name=treatment_name,
+            treatment_name="+".join(components) if components else str(treatment_name),
             delta_name="Delta" if delta is not None else None,
             weights_name="weights" if weights is not None else None,
             cluster_name="id" if id is not None else None,
@@ -468,6 +587,8 @@ class CausalData:
             treatment_delta=None if treatment_delta is None else np.asarray(treatment_delta),
             treatment_delta_name="DeltaA" if treatment_delta is not None else None,
             treatment_probabilities=treatment_probabilities,
+            component_names=components,
+            continuous_components=tuple(str(name) for name in continuous_treatment),
         )
 
     @classmethod
@@ -501,6 +622,8 @@ class CausalData:
         treatment_delta_name: str | None = None,
         treatment_probabilities: Any = None,
         known_columns: tuple[tuple[Any, str], ...] = (),
+        component_names: Sequence[str] = (),
+        continuous_components: Sequence[str] = (),
     ) -> CausalData:
         n = len(outcome)
         if n < MIN_OBSERVATIONS:
@@ -512,16 +635,34 @@ class CausalData:
             if len(arr) != n:
                 raise DataError(f"{label} has length {len(arr)}, expected {n}")
 
-        recorded = _treatment_recorded(
+        vector = _encode_vector(
             treatment,
+            tuple(component_names),
+            tuple(continuous_components),
             treatment_name,
-            treatment_delta,
-            treatment_delta_name or "treatment_delta",
-            treatment_kind,
+            declared_missing=treatment_delta is not None,
+            declared_known=treatment_probabilities is not None,
         )
-        if treatment_kind == "continuous":
+        recorded = (
+            None
+            if vector is not None
+            else _treatment_recorded(
+                treatment,
+                treatment_name,
+                treatment_delta,
+                treatment_delta_name or "treatment_delta",
+                treatment_kind,
+            )
+        )
+        stored_kind: StoredTreatmentKind = treatment_kind
+        components: FloatArray | None = None
+        component_levels: tuple[tuple[Any, ...], ...] = ()
+        levels: tuple[object, ...]
+        if vector is not None:
+            a, levels, stored_kind, components, component_levels = vector
+        elif treatment_kind == "continuous":
             a = encode_continuous_treatment(treatment, treatment_name)
-            levels: tuple[object, ...] = ()
+            levels = ()
         elif treatment_kind == "discrete":
             a, levels = encode_treatment(treatment, treatment_name, recorded=recorded)
         else:
@@ -615,7 +756,7 @@ class CausalData:
             outcome_name=outcome_name,
             treatment_name=treatment_name,
             treatment_levels=levels,
-            treatment_kind=treatment_kind,
+            treatment_kind=stored_kind,
             delta_name=delta_name,
             cluster=codes,
             cluster_name=cluster_name,
@@ -632,6 +773,9 @@ class CausalData:
             treatment_delta_name=treatment_delta_name if recorded is not None else None,
             known_treatment=known,
             backend=backend,
+            component_names=tuple(component_names),
+            component_levels=component_levels,
+            treatment_components=components,
         )
 
     # ------------------------------------------------------------- properties
@@ -781,6 +925,20 @@ class CausalData:
     # ------------------------------------------------------------------- arms
 
     @property
+    def is_vector_treatment(self) -> bool:
+        """Whether the treatment is a vector of two or more columns.
+
+        An all-categorical vector is a categorical treatment over the observed tuples of its
+        components.  A vector with a continuous component has ``treatment_kind == "vector"``.
+        """
+        return bool(self.component_names)
+
+    def _refuse_vector(self, reader: str) -> None:
+        """Raise when ``reader`` reads a treatment of one column at a vector with a dose."""
+        if self.treatment_kind == "vector":
+            raise CapabilityError(_vector_refusal(f"{self.treatment_name!r}", reader))
+
+    @property
     def n_arms(self) -> int:
         """How many treatment levels the *declared support* carries.
 
@@ -790,6 +948,7 @@ class CausalData:
         point the missing arm is needed, instead of silently becoming a
         lower-dimensional problem.
         """
+        self._refuse_vector("n_arms")
         return len(self.treatment_levels)
 
     @property
@@ -800,6 +959,7 @@ class CausalData:
         :class:`~cleverly.fluctuation.iterative.InitialFit` key their per-arm arrays by.
         :meth:`arm_label` maps one back to the level the user supplied.
         """
+        self._refuse_vector("arm_codes")
         return tuple(float(i) for i in range(self.n_arms))
 
     def arm_label(self, code: float) -> Any:
@@ -809,6 +969,7 @@ class CausalData:
         messages -- goes through here, so a fit on ``{"low", "high"}`` is never
         reported in terms of ``1.0``.
         """
+        self._refuse_vector("arm_label")
         if self.is_continuous_treatment:
             raise DataError(
                 f"{self.treatment_name} is continuous and has no arms, so {float(code)!r} "
@@ -830,7 +991,11 @@ class CausalData:
         Read off the declaration, not counted in the data: a continuous column that
         happens to visit only a few values is still continuous, and an arm-coded one is
         still arm-coded however many levels it has.
+
+        A vector treatment with a continuous component is neither, and this property
+        raises :class:`~cleverly.exceptions.CapabilityError` there.
         """
+        self._refuse_vector("is_continuous_treatment")
         return self.treatment_kind == "continuous"
 
     @property
@@ -844,6 +1009,7 @@ class CausalData:
         this docstring named all four until they were, which is the shape of claim to
         check against the code rather than inherit.
         """
+        self._refuse_vector("is_binary_treatment")
         return self.n_arms == 2
 
     # ----------------------------------------------------------------- design
@@ -868,10 +1034,65 @@ class CausalData:
         a linear regression on a continuous dose really does fit a straight line in the
         exposure.
         """
+        self._refuse_vector("treatment_block")
         c = np.asarray(codes, dtype=float).reshape(-1)
         if self.is_continuous_treatment:
             return c.reshape(-1, 1)
         return arm_indicators(c, self.n_arms)
+
+    def component_design(self, values: FloatArray | None = None) -> FloatArray:
+        """The design block of a vector treatment: doses as themselves, labels as indicators.
+
+        A continuous component enters as its dose, one column.  A categorical component
+        enters as :func:`~cleverly.data.validate.arm_indicators` of its own codes, drop-first.
+        The joint level code of an all-categorical vector is never a column, because its
+        order is arbitrary.
+
+        Parameters
+        ----------
+        values : ndarray or None
+            ``(n, d)`` component codes and doses, such as the values a policy assigns, on a
+            vector with a continuous component.  ``(n,)`` joint level codes on an
+            all-categorical vector.  ``None`` reads the observed treatment.
+
+        Returns
+        -------
+        ndarray
+            The block, one row per unit.
+
+        Raises
+        ------
+        DataError
+            If the treatment is not a vector, or ``values`` has the wrong shape.
+        """
+        if not self.is_vector_treatment:
+            raise DataError(f"{self.treatment_name!r} is not a vector treatment")
+        if self.treatment_kind == "vector":
+            assert self.treatment_components is not None
+            observed = (
+                self.treatment_components if values is None else np.asarray(values, dtype=float)
+            )
+        else:
+            codes = np.asarray(self.treatment if values is None else values, dtype=float)
+            codes = codes.reshape(-1)
+            observed = np.full((codes.size, len(self.component_names)), np.nan)
+            for code, level in enumerate(self.treatment_levels):
+                rows = codes == float(code)
+                for index, label in enumerate(level):
+                    observed[rows, index] = float(self.component_levels[index].index(label))
+        if observed.ndim != 2 or observed.shape != (self.n, len(self.component_names)):
+            raise DataError(
+                f"component values have shape {observed.shape}; the vector "
+                f"{self.treatment_name!r} reads ({self.n}, {len(self.component_names)})"
+            )
+        columns = []
+        for index, levels in enumerate(self.component_levels):
+            column = observed[:, index]
+            if not levels:
+                columns.append(column.reshape(-1, 1))
+            else:
+                columns.append(arm_indicators(column, len(levels)))
+        return np.hstack(columns)
 
     def treatment_design(
         self, *, include_intermediate: bool = False, missing_as: float | None = None
@@ -890,11 +1111,16 @@ class CausalData:
         on an unrecorded row, so the value written there never reaches an estimate.
         ``None`` leaves the code ``NaN`` there.
         """
-        codes = self.treatment
-        if missing_as is not None:
-            self.arm_label(float(missing_as))  # validates the code against the support
-            codes = np.where(np.isfinite(codes), codes, float(missing_as))
-        blocks = [self.treatment_block(codes), self.covariates]
+        if self.treatment_kind == "vector":
+            if missing_as is not None:
+                self._refuse_vector("treatment_design(missing_as=...)")
+            blocks = [self.component_design(), self.covariates]
+        else:
+            codes = self.treatment
+            if missing_as is not None:
+                self.arm_label(float(missing_as))  # validates the code against the support
+                codes = np.where(np.isfinite(codes), codes, float(missing_as))
+            blocks = [self.treatment_block(codes), self.covariates]
         if include_intermediate:
             if self.intermediate is None:
                 raise DataError("no intermediate variable was supplied")
@@ -926,8 +1152,17 @@ class CausalData:
         that this and :meth:`treatment_design` cannot disagree about the width of the
         design.  Asking for a level the data has no column for is an error rather than a
         silently wider matrix than the model was trained on.
+
+        For a vector treatment with a continuous component it is the ``(n, d)`` component
+        codes and doses each row is set to, as a :class:`~cleverly.interventions.JointPolicy`
+        assigns them.
         """
-        if self.is_continuous_treatment:
+        if self.treatment_kind == "vector":
+            assigned = np.asarray(treatment_value, dtype=float)
+            if not np.all(np.isfinite(assigned)):
+                raise DataError("counterfactual treatment values must all be finite")
+            a = self.component_design(assigned)
+        elif self.is_continuous_treatment:
             values = np.asarray(treatment_value, dtype=float).reshape(-1)
             if values.size == 1:
                 values = np.full(self.n, float(values[0]))
@@ -955,7 +1190,8 @@ class CausalData:
                     f"counterfactual_design was given {requested.size} arm codes for "
                     f"{self.n} rows; pass one code for everybody or one per row"
                 )
-        a = self.treatment_block(values)
+        if self.treatment_kind != "vector":
+            a = self.treatment_block(values)
         blocks = [a, self.covariates]
         if intermediate_value is not None:
             if self.intermediate is None:
@@ -1052,6 +1288,9 @@ class CausalData:
             known_treatment=(
                 None if self.known_treatment is None else self.known_treatment.subset(idx)
             ),
+            treatment_components=(
+                None if self.treatment_components is None else self.treatment_components[idx]
+            ),
         )
 
     def with_known_mechanism(self, treatment_probabilities: Any) -> CausalData:
@@ -1080,6 +1319,7 @@ class CausalData:
         """
         if self.known_treatment is not None:
             raise ValueError(DECLARED_TWICE)
+        self._refuse_vector("a known treatment mechanism (treatment_probabilities=)")
         if probability_columns(treatment_probabilities) is not None:
             raise DataError(_COLUMN_FORM_NEEDS_A_FRAME)
         return replace(
@@ -1376,10 +1616,11 @@ class CausalData:
         numpy arrays), which makes it easy to inspect exactly what the estimator
         saw after encoding and validation.
         """
-        payload: dict[str, Any] = {
-            self.outcome_name: self.outcome,
-            self.treatment_name: self.treatment,
-        }
+        payload: dict[str, Any] = {self.outcome_name: self.outcome}
+        if self.is_vector_treatment:
+            payload.update(self._component_columns())
+        else:
+            payload[self.treatment_name] = self.treatment
         for j, name in enumerate(self.covariate_names):
             payload[name] = self.covariates[:, j]
         if self.delta_name is not None or self.has_missing_outcome:
@@ -1394,13 +1635,43 @@ class CausalData:
             payload[self.intermediate_name or "Z"] = self.intermediate
         return frame_from_dict(payload, backend=self.backend)
 
+    def _component_columns(self) -> dict[str, Any]:
+        """Each component of a vector treatment as its own column of labels or doses."""
+        if self.treatment_kind == "vector":
+            assert self.treatment_components is not None
+            values = self.treatment_components
+        else:
+            values = np.column_stack(
+                [
+                    np.asarray([level[index] for level in self.treatment_levels], dtype=object)[
+                        np.asarray(self.treatment, dtype=np.int64)
+                    ]
+                    for index in range(len(self.component_names))
+                ]
+            )
+            return {name: values[:, index] for index, name in enumerate(self.component_names)}
+        out: dict[str, Any] = {}
+        for index, (name, levels) in enumerate(
+            zip(self.component_names, self.component_levels, strict=True)
+        ):
+            column = values[:, index]
+            if levels:
+                table = np.empty(len(levels), dtype=object)
+                table[:] = list(levels)
+                out[name] = table[column.astype(np.int64)]
+            else:
+                out[name] = column
+        return out
+
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         parts = [
             f"n={self.n}",
             f"family={self.family!r}",
             f"covariates={self.n_covariates}",
         ]
-        if self.is_continuous_treatment:
+        if self.treatment_kind == "vector":
+            parts.append(f"vector treatment {self.treatment_name}")
+        elif self.is_continuous_treatment:
             low, high = float(self.treatment.min()), float(self.treatment.max())
             parts.append(f"{self.treatment_name} in [{low:.3g}, {high:.3g}]")
         else:
@@ -1464,6 +1735,147 @@ def _treatment_recorded(
             f"recorded by {delta_name}"
         )
     return recorded
+
+
+def _vector_components(
+    treatment: Any, continuous: Sequence[str], treatment_kind: TreatmentKind | None
+) -> tuple[str, ...]:
+    """The component columns a list ``treatment`` declares, or ``()`` for one column.
+
+    A vector reads its continuous components from ``continuous_treatment=`` and refuses
+    ``treatment_kind=``, which describes a treatment of one column.
+    """
+    continuous_names = (
+        [str(continuous)] if isinstance(continuous, str) else [str(c) for c in continuous]
+    )
+    if isinstance(treatment, str):
+        if continuous_names:
+            raise DataError(
+                f"continuous_treatment= names {continuous_names}, and treatment={treatment!r} "
+                "is one column. A treatment of one column declares a dose with "
+                "treatment_kind='continuous'; continuous_treatment= names the dose columns "
+                "of a vector treatment=[...]"
+            )
+        return ()
+    names = tuple(str(name) for name in treatment)
+    if len(names) < 2:
+        raise DataError(
+            f"treatment={list(names)!r} names {len(names)} column(s). A vector treatment "
+            "names two or more columns; pass a treatment of one column as a string"
+        )
+    if len(set(names)) != len(names):
+        raise DataError(f"treatment= repeats a column: {list(names)}")
+    if treatment_kind is not None:
+        raise DataError(
+            f"treatment_kind={treatment_kind!r} describes a treatment of one column, and "
+            f"treatment={list(names)} is a vector. Name its dose columns with "
+            "continuous_treatment=[...] instead"
+        )
+    unknown = sorted(set(continuous_names) - set(names))
+    if unknown:
+        raise DataError(
+            f"continuous_treatment= names {unknown}, which are not treatment columns; the "
+            f"treatment columns are {list(names)}"
+        )
+    return names
+
+
+#: What :func:`_encode_vector` returns: codes, levels, kind, components and their levels.
+_EncodedVector = tuple[
+    FloatArray, tuple[Any, ...], StoredTreatmentKind, FloatArray | None, tuple[tuple[Any, ...], ...]
+]
+
+
+def _encode_vector(
+    treatment: Any,
+    names: tuple[str, ...],
+    continuous: tuple[str, ...],
+    treatment_name: str,
+    *,
+    declared_missing: bool,
+    declared_known: bool,
+) -> _EncodedVector | None:
+    """Encode a vector treatment, or return ``None`` for a treatment of one column.
+
+    All components categorical: the joint level code over the observed tuples, with the
+    tuples as levels.  A continuous component: a ``NaN`` placeholder treatment, levels that
+    refuse every read, and the ``(n, d)`` component values.
+    """
+    if not names:
+        return None
+    if declared_missing:
+        raise CapabilityError(
+            f"treatment {treatment_name!r} is a vector, and a treatment declared missing at "
+            "random (treatment_delta=) is supported for a treatment of one column only. A "
+            "missing component of a vector treatment is docs/roadmap.md "
+            f"{VECTOR_DENSITY_ROW}"
+        )
+    if declared_known and continuous:
+        raise CapabilityError(
+            f"treatment {treatment_name!r} is a vector with a continuous component, and "
+            "treatment_probabilities= declares a probability per arm. Such a treatment has "
+            "no arms, and its known mechanism is a joint density. A known mechanism of a "
+            f"vector treatment is docs/roadmap.md {VECTOR_DENSITY_ROW}"
+        )
+    raw = np.asarray(treatment, dtype=object)
+    if raw.ndim != 2 or raw.shape[1] != len(names):
+        raise DataError(
+            f"treatment {treatment_name!r} has shape {raw.shape}; a vector of {len(names)} "
+            f"components is ({raw.shape[0]}, {len(names)})"
+        )
+    for index, name in enumerate(names):
+        missing = missing_values(raw[:, index])
+        if missing.any():
+            raise DataError(
+                f"treatment component {name!r} has {int(missing.sum())} missing value(s). "
+                "Every component of a vector treatment is recorded on every row"
+            )
+    level_sets: list[tuple[Any, ...]] = []
+    columns: list[FloatArray] = []
+    for index, name in enumerate(names):
+        if name in continuous:
+            columns.append(_continuous_component(raw[:, index], name))
+            level_sets.append(())
+            continue
+        codes, levels = encode_treatment(
+            np.asarray([_python_scalar(value) for value in raw[:, index]]),
+            name,
+            remedy=_COMPONENT_REMEDY,
+        )
+        columns.append(np.asarray(codes, dtype=float))
+        level_sets.append(tuple(_python_scalar(level) for level in levels))
+    if continuous:
+        values = np.column_stack(columns)
+        return (np.full(raw.shape[0], np.nan), _VectorLevels(), "vector", values, tuple(level_sets))
+    tuples = np.empty(raw.shape[0], dtype=object)
+    for row in range(raw.shape[0]):
+        tuples[row] = tuple(
+            level_sets[index][int(columns[index][row])] for index in range(len(names))
+        )
+    codes, joint = encode_vector_treatment(tuples, treatment_name)
+    return codes, joint, "discrete", None, tuple(level_sets)
+
+
+#: What to suggest when a categorical component of a vector has too many levels.
+_COMPONENT_REMEDY = (
+    "Collapse its levels, or name it in continuous_treatment=[...] if it holds a dose."
+)
+
+
+def _continuous_component(values: Any, name: str) -> FloatArray:
+    """A continuous component's doses, refusing a non-number, a gap and a constant."""
+    try:
+        dose = np.asarray(values, dtype=float)
+    except (TypeError, ValueError) as error:
+        raise DataError(
+            f"treatment component {name!r} is declared continuous but holds a value that is "
+            "not a number"
+        ) from error
+    if not np.all(np.isfinite(dose)):
+        raise DataError(f"treatment component {name!r} holds a non-finite dose")
+    if np.unique(dose).size < 2:
+        raise DataError(f"treatment component {name!r} takes a single dose")
+    return dose
 
 
 def _reject_null_labels(frame: nw.DataFrame[Any], name: str, role: str) -> None:

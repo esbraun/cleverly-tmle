@@ -77,7 +77,6 @@ from ..data.known_mechanism import (
     probability_columns,
 )
 from ..data.validate import (
-    MAX_TREATMENT_LEVELS,
     MIN_CONTINUOUS_LEVELS,
     MIN_OBSERVATIONS,
     arm_indicators,
@@ -85,6 +84,7 @@ from ..data.validate import (
     check_weights,
     encode_clusters,
     encode_treatment,
+    encode_vector_treatment,
     resolve_family,
 )
 from ..data.weighting import (
@@ -2308,22 +2308,12 @@ def _encode_vector_node(values: Any, name: str) -> tuple[FloatArray, tuple[objec
 
     A discrete vector is one categorical node over the product of its components' observed
     values (a finite partition), so the level limit of a categorical node applies to the
-    tuples.
+    tuples.  :func:`~cleverly.data.validate.encode_vector_treatment` encodes a point vector
+    treatment the same way.
     """
-    observed = list(values.tolist())
-    try:
-        levels = tuple(sorted(set(observed)))
-    except TypeError:
-        levels = tuple(sorted(set(observed), key=repr))
-    if len(levels) > MAX_TREATMENT_LEVELS:
-        raise DataError(
-            f"vector treatment node {name!r} takes {len(levels)} distinct tuples, more than the "
-            f"{MAX_TREATMENT_LEVELS} levels a categorical node accepts. {_TOO_MANY_LEVELS_REMEDY}"
-        )
-    if len(levels) < 2:
-        raise DataError(f"vector treatment node {name!r} takes a single tuple {levels!r}")
-    lookup = {level: float(code) for code, level in enumerate(levels)}
-    return np.asarray([lookup[value] for value in observed], dtype=float), levels
+    return encode_vector_treatment(
+        values, name, what="vector treatment node", remedy=_TOO_MANY_LEVELS_REMEDY
+    )
 
 
 def _node_kind_of(block: Sequence[str], continuous: Sequence[str]) -> NodeKind:
