@@ -14,10 +14,11 @@ The comparison is secondary evidence. The truths come from an exact enumeration 
 binary law in `cleverly.datasets.repeated_truth`. `tests/studies/ltmle_repeated_law.py`
 repeats it on the observed-data law. The property study checks interval calibration,
 double robustness, cross-fitting, a joint band, a flexible learner, a continuous outcome,
-the rule, and two negative controls.
+the rule, targeting, the outcome history, and the controls that must fail.
 
-The study is declared and not yet run. The directory holds no artifacts until the declared
-run.
+The fourth declaration changes the law, the properties and the R adapter. The committed
+artifacts come from the third run, so the manifest hashes of the changed files differ until
+the declared run replaces the artifacts.
 
 Run a disposable smoke study from the repository root. It uses the declared sample size. At
 `n = 400`, a stratified regression at the rule's third node can be rank deficient, and the R
@@ -25,7 +26,7 @@ side then stops on purpose.
 
 ```powershell
 uv run python -m tests.canonical.ltmle_repeated.regenerate `
-  --replicates 8 --n 2000 --skip-properties --allow-failures `
+  --replicates 8 --n 3000 --skip-properties --allow-failures `
   --output .tmp/ltmle-repeated-smoke
 ```
 

@@ -18,7 +18,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
-from scipy.stats import binom, norm
+from scipy.stats import beta, binom, norm
 
 from cleverly.datasets import REPEATED_RULE_LABEL, make_longitudinal_repeated, repeated_truth
 from cleverly.datasets.longitudinal import (
@@ -83,7 +83,7 @@ def test_the_record_is_registered_with_its_own_seeds() -> None:
     assert record.seed not in taken
     assert record.resampling_seed not in taken
     assert record.seed != record.resampling_seed
-    assert (record.replicates, record.n) == (3_200, 2_000)
+    assert (record.replicates, record.n) == (2_400, 3_000)
     assert record.publication_policy == "gated"
     assert record.artifacts.name == "ltmle_repeated"
 
@@ -690,13 +690,53 @@ def test_the_smallest_control_gap_is_the_one_the_design_reports() -> None:
 # ---------------------------------------------------------------------------- the budgets
 
 
-def test_the_calibration_budget_passes_at_the_piloted_ratio() -> None:
-    """The pilot puts ``rule_t3`` at about 0.986 at ``n = 8,000``; 3,200 is sized for it."""
+def test_the_calibration_budget_is_the_declared_rule_applied_to_the_pilot() -> None:
+    """The family-wise product over 28 cells reaches 0.95 at the budget and not 400 below.
+
+    Pilot P2 ran 2,000 draws per arm at ``n = 8,000``.  Its SE ratios have a standard
+    deviation of 0.014 across the 28 cells, the sampling error of one ratio at that size, so
+    the rule evaluates each cell 0.02 farther from one and the product binds at 25,600.
+    """
+    ratios = properties.CALIBRATION_PILOT_RATIOS
+    pilot = properties.CALIBRATION_PILOT_REPLICATES
     assert properties.CALIBRATION_N == 8_000
-    assert properties.CALIBRATION_REPLICATES == 3_200
-    assert properties.calibration_pass_probability(3_200, ratio=0.986) >= 0.96
-    assert properties.calibration_pass_probability(2_800, ratio=0.986) < 0.97
-    assert properties.calibration_pass_probability(3_200) >= 0.99
+    assert len(ratios) == 28
+    assert set(ratios) == {
+        f"{label}__{arm}"
+        for arm in properties.CALIBRATION_ARMS
+        for label in (
+            (*study.GATED_LABELS, *study.EARLIER_LABELS)
+            if arm == "estimated_mechanisms"
+            else study.GATED_LABELS
+        )
+    }
+    assert properties.calibration_replicates(ratios, pilot) == properties.CALIBRATION_REPLICATES
+    evaluated = [properties.evaluated_ratio(value, pilot) for value in ratios.values()]
+
+    def product(budget: int) -> float:
+        return float(
+            np.prod([properties.calibration_pass_probability(budget, ratio=r) for r in evaluated])
+        )
+
+    budget = properties.CALIBRATION_REPLICATES
+    assert product(budget) >= 0.95
+    assert product(budget - properties.BUDGET_STEP) < 0.95
+    # The evaluated ratio lies on the far side of one for every cell, never nearer.
+    assert all(
+        abs(e - 1.0) > abs(value - 1.0) for e, value in zip(evaluated, ratios.values(), strict=True)
+    )
+    # The pilot point estimates alone would pass at 9,600, which the declared rule does not
+    # use: it prices the pilot's own sampling error, as the primary rule does.
+    at_point = np.prod(
+        [properties.calibration_pass_probability(9_600, ratio=r) for r in ratios.values()]
+    )
+    assert at_point >= 0.95
+    # A ratio of exactly one is evaluated on the upper side, and the pass probability falls
+    # off both sides of one.
+    assert properties.evaluated_ratio(1.0, pilot) > 1.0
+    assert properties.calibration_pass_probability(
+        budget, ratio=1.0
+    ) > properties.calibration_pass_probability(budget, ratio=1.04)
 
 
 def test_the_small_sample_arms_are_reported_not_gated() -> None:
@@ -729,11 +769,39 @@ def test_the_backoff_learner_reads_a_seen_cell_and_extrapolates_an_unseen_one() 
     np.testing.assert_allclose(unseen, learner.backoff_.predict(np.array([[1.0, 1.0]])))
 
 
-def test_the_primary_budget_tolerates_a_small_second_order_bias() -> None:
-    """A cell whose true standardized bias is 0.15 passes with probability at least 0.90."""
-    assert study.PRIMARY_REPLICATES == 1_600
-    assert _equivalent(0.15, 1_600) >= 0.90
-    assert _equivalent(0.15, 1_200) < 0.90
+def test_the_primary_budget_is_the_declared_rule_applied_to_the_pilot() -> None:
+    """``primary_replicates`` returns the recorded budget, and each clause is minimal or met.
+
+    The coverage-floor clause binds: 2,000 replications pass a cell at coverage 0.93 with
+    probability 0.986, below 0.99, and 2,400 pass with 0.996.  The family-wise clause reads
+    the pilot's one-sided 80% lower bounds, so it prices the pilot's sampling error.
+    """
+    covered, pilot = properties.PRIMARY_PILOT_COVERED, properties.PRIMARY_PILOT_REPLICATES
+    assert (study.PRIMARY_N, study.PRIMARY_REPLICATES) == (3_000, 2_400)
+    assert properties.primary_replicates(covered, pilot) == study.PRIMARY_REPLICATES
+    assert min(covered.values()) / pilot >= 0.935
+    replicates = study.PRIMARY_REPLICATES
+    assert properties.bias_equivalent_probability(0.15, replicates) >= 0.90
+    assert properties.coverage_floor_pass_probability(replicates, 0.93) >= 0.99
+    assert properties.coverage_floor_pass_probability(replicates - 400, 0.93) < 0.99
+    lower = {
+        cell: float(beta.ppf(0.2, count, pilot - count + 1)) for cell, count in covered.items()
+    }
+
+    def family_wise(budget: int) -> float:
+        return float(
+            np.prod([properties.coverage_floor_pass_probability(budget, v) for v in lower.values()])
+            ** 2
+        )
+
+    assert family_wise(replicates) >= 0.95
+    # The deliberate mutation: one cell whose pilot coverage is 0.925 makes the family-wise
+    # clause bind and raises the budget.
+    worse = {**covered, "ey_regimen[treat then treat after an outcome @ t=3]": 1850}
+    assert properties.primary_replicates(worse, pilot) > replicates
+    # A cell at coverage 0.93 is bias-equivalent with probability 0.99 at 0.15 and fails
+    # the bias clause at 0.30, which the 0.15 margin of the paired comparison guards.
+    assert properties.bias_equivalent_probability(0.30, replicates) < 0.90
 
 
 def test_the_shrunken_error_control_leaves_the_band() -> None:

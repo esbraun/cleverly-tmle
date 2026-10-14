@@ -75,8 +75,9 @@ repeated_ltmle_call <- function(arguments) {
   # A rank-deficient stratified regression warns "prediction from rank-deficient fit" and stays
   # fatal: its predictions off the fitted rows are not unique, so the paired comparison would
   # read an arbitrary R value.  At n = 400 one smoke replicate hits it (the rule's third node,
-  # about 18 followers).  At the declared n = 2,000 none of the 1,600 primary draws does
-  # (X32a Study queue item 11).
+  # about 18 followers).  At the declared n = 3,000 none of 1,000 pilot draws does: the
+  # fewest followers in a stratified block are 288 (`always`, third block), and no design is
+  # rank deficient (pilot P5 in `tests/studies/canonical_ltmle_repeated.py`).
   withCallingHandlers(
     study_stage("ltmle", do.call(ltmle, arguments)),
     warning = function(condition) {

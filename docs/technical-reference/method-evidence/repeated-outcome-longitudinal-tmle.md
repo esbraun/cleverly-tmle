@@ -14,7 +14,7 @@ identity. The duplicates are not cells of this study.
 
 | setting | `cleverly` | R `ltmle` |
 | --- | --- | --- |
-| datasets | 1,600 censored panels of 2,000 rows from `make_longitudinal_repeated`, with three nodes | the identical rows |
+| datasets | 2,400 censored panels of 3,000 rows from `make_longitudinal_repeated`, with three nodes | the identical rows |
 | fit | one fit with `outcome=Repeated(["Y1", "Y2", "Y3"])` | one fit of the prefix through $Y_h$ for each horizon $h$. The earlier $Y_s$ are covariates |
 | plans | `never`, `always`, and a rule that treats at node 1 and then treats exactly when the previous outcome was positive | the same three plans |
 | reported parameters | the mean of each plan at $t = 1, 2, 3$, and the contrasts of the other two plans against `never` | the same, 13 unique cells |
@@ -22,14 +22,23 @@ identity. The duplicates are not cells of this study.
 | sequential regressions | follower-stratified quasibinomial regressions on the history at each node | the same family, with a main-terms `Qform` on the same history at each block |
 | fitting | in sample, `n_folds = 1` | in sample |
 | intervals | pointwise 95% Wald from the influence curve | `variance.method = "ic"` |
-| initial estimate | the first node's regression of the targeted second node | a second call with `gcomp = TRUE`, the sequential regression with no fluctuation |
+| initial estimate | not published. A single-fold fit exposes no untargeted plug-in | a second call with `gcomp = TRUE`, the sequential regression with no fluctuation |
 
-The two initial estimates differ by design, and no verdict reads them. W is binary, so the first
-node's regression is saturated in W and its fluctuation is zero. That value equals the targeted
-estimate. The R plug-in is the value a targeting step must move away from.
+The `cleverly` rows publish no initial estimate. The first node's regression of the targeted chain
+is a different quantity from the R column. The R plug-in is the value a targeting step must move
+away from.
 
 Each truth is an exact enumeration of the binary law (`cleverly.datasets.repeated_truth`).
 `tests/studies/ltmle_repeated_law.py` repeats the enumeration on the observed-data law.
+
+The baseline covariate $W$ takes the values 0, 1 and 2. The law has depth two. The treatment,
+censoring and outcome at node $t$ read $Y_{t-2}$, and the covariate $L_t$ reads $L_{t-1}$. These
+terms act at $t = 3$ only. The first node's regression on $W$ has one design column for three
+cells, so its fluctuation is not zero.
+
+At $t = 3$ the smallest cumulative mechanism product among the units that follow a plan is 0.025,
+for the rule. Every plan keeps at least 11% of the units to the last node. At most 2.2% of the
+followers have a cumulative product below 0.05.
 
 ## Accuracy against known truth
 
@@ -177,17 +186,20 @@ family tests.
 
 | family | what it tests | size |
 | --- | --- | --- |
-| `interval_calibration` | pointwise coverage and SE ratio inside the calibration bands. The cells are in-sample with estimated mechanisms, cross-fitted GLM, cross-fitted boosted trees, and a continuous outcome. The in-sample cells cover every horizon, $t = 1, 2, 3$. A shrunken-SE control and a noise control must fail the same bands | $n$ = 8,000, 3,200 replications |
+| `interval_calibration` | pointwise coverage and SE ratio inside the calibration bands. The cells are in-sample with estimated mechanisms, cross-fitted GLM, cross-fitted boosted trees, and a continuous outcome. The in-sample cells cover every horizon, $t = 1, 2, 3$. A shrunken-SE control and a noise control must fail the same bands | $n$ = 8,000, 25,600 replications |
 | `small_sample_calibration` | the in-sample and continuous arms refitted at $n$ = 2,000. The role is `diagnostic`. The table reports these cells and no rule gates them | $n$ = 2,000, 2,000 replications |
-| `double_robustness` | bias inside the margin when the outcome regression omits every $Y_{t-1}$ and $L_t$ term and the mechanisms are correct. A static plan also has a both-wrong control, which must show bias | $n$ = 2,000, 1,000 replications |
-| `simultaneous_coverage` | the default band over all 15 reported parameters, against its pointwise control | $n$ = 8,000, 3,200 replications |
-| `rule_necessity` | the declared rule against its reverse, which treats after a zero outcome. The reversed rule must miss the declared rule's truth | $n$ = 2,000, 1,000 replications |
+| `double_robustness` | `mechanism_correct`: bias inside the margin when the outcome regression reads $W$ alone and the mechanisms are correct. `outcome_correct`: bias inside the margin when the outcome regression reads the full history and the mechanisms read $W$ alone. `both_wrong`: the control with a $W$ regression and intercept-only mechanisms must miss the truth and reach its exact limit | $n$ = 2,000, 1,000 replications |
+| `targeting_necessity` | the targeted fit against a plug-in with no fluctuation. The plug-in must move the estimate by 0.25 empirical standard deviations of the targeted arm and reach the exact $W$-only g-formula | $n$ = 2,000, 1,000 replications |
+| `simultaneous_coverage` | the default band over all 15 reported parameters, against its pointwise control | $n$ = 8,000, 25,600 replications |
+| `rule_necessity` | the declared rule against its reverse, which treats after a zero outcome. The reversed rule must miss the declared rule's truth and reach the truth of the reversed rule | $n$ = 2,000, 1,000 replications |
 | `repeated_outcome_necessity` (N1) | an absorbing reading of the outcome, which fits $\max_{s \le h} Y_s$. The control must miss the truth and reach the cumulative-maximum limit. Its outcome learner is a cell-means regression with a GLM fallback on an unseen cell | $n$ = 8,000, 1,000 replications |
-| `outcome_history_necessity` (N2) | a fit that leaves every $Y_s$ out of the history. The control must miss the truth and reach the coarse g-formula limit | $n$ = 2,000, 1,000 replications |
+| `outcome_history_necessity` (N2) | a fit that leaves every $Y_s$ out of the history, so the earlier outcomes act as confounders. The control must miss the truth and reach the coarse g-formula limit | $n$ = 2,000, 1,000 replications |
+| `full_history_necessity` (N3) | an outcome regression on the full history against one on $[W, Y_{t-1}, L_t]$, both with intercept-only mechanisms. The control must miss the truth and reach the exact limit of the single-fold fit | $n$ = 8,000, 1,000 replications |
 
 The in-sample cells use $n$ = 8,000. At $n$ = 2,000 the standard error runs a few percent below
-the sampling spread for the rule. The ratio moves toward 1 at the $1/n$ rate of in-sample fitting. The module `tests/studies/ltmle_repeated_properties.py` records the pilot behind that
-choice. The `small_sample_calibration` cells report the shortfall at $n$ = 2,000.
+the sampling spread for the rule. The ratio moves toward 1 at the $1/n$ rate of in-sample fitting.
+The module `tests/studies/ltmle_repeated_properties.py` records the pilots behind these sizes. The
+`small_sample_calibration` cells report the shortfall at $n$ = 2,000.
 
 ## Measured values
 
@@ -242,11 +254,12 @@ the committed results and checked at the precision printed.
 | limit | what it means for use |
 | --- | --- |
 | one law with three nodes and a binary outcome | the continuous outcome has one calibration arm, and the rate in $n$ is not measured |
-| the paired comparison fixes the mechanisms | it isolates the sequential regressions, targeting and inference. It does not claim parity for learned treatment or censoring models |
+| the paired comparison fixes the mechanisms | the paired margins alone cannot separate an untargeted plug-in from the targeted fit, because the plug-in is nearly unbiased on this law. The `targeting_necessity` family and the parity rule on R's targeting move carry that claim. The comparison does not claim parity for learned treatment or censoring models |
 | the in-sample interval is mildly anticonservative at $n$ = 2,000 | the `small_sample_calibration` cells report the shortfall and no rule gates them. The gated cells draw $n$ = 8,000 |
 | the cross-fitted learners are one GLM and one shallow booster | the study does not cover a larger learner library or a different fold count |
-| the absorbing and history-free controls read exact limits of this law | they show that the repeated reading and the outcome history matter here. They do not bound the difference on another law |
-| positivity is comfortable | no cell validates active truncation or near-positivity behavior |
+| the absorbing, history-free and Markov controls read exact limits of this law | they show that the repeated reading, the earlier outcomes and the depth of the outcome regression matter here. They do not bound the difference on another law |
+| positivity is bounded away from zero, not absent | at $t = 3$ the smallest cumulative mechanism product among followers is 0.025, and at most 2.2% of the followers fall below 0.05. No cell validates active truncation or near-positivity behavior |
+| the second-order dependence acts at node 3 only | the law has three nodes, so the depth-two terms act at the last node. No cell reads a longer history |
 | no recurrent-event or truncation-by-death law | the parameter is the mean in a population where censoring is prevented |
 
 The causal interpretation requires consistency, sequential exchangeability, longitudinal

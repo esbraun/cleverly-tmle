@@ -140,7 +140,32 @@ that this module's families address, before any new draw:
 * ``W`` takes three values and the first outcome regression is no longer saturated.  The
   first-node fluctuation therefore moves.
 
-Fourth declaration pilots.  PILOT_PLACEHOLDER
+Fourth declaration pilots.  Every pilot draws from ``stream_seed(STUDY, "pilot", ...)``.
+The hooks are :func:`pilot_se_ratios` (P2, P3), :func:`pilot_property_rows` (P4) and
+:func:`pilot_primary` (P1).
+
+* P2, calibration, ``n = 8,000``, 2,000 draws per arm.  The SE ratios of the 28 gated cells
+  read 0.9795 to 1.0278 for the 13 in-sample cells, 0.974 to 1.0136 for ``crossfit_glm``,
+  1.0073 to 1.0279 for ``crossfit_boosted`` and 0.992 to 1.0055 for ``continuous_gaussian``.
+  They are recorded in :data:`CALIBRATION_PILOT_RATIOS`.  Their mean is 1.006 and their
+  spread across cells is 0.014, which is the sampling error of one ratio at 2,000 draws.
+  :func:`calibration_replicates` evaluates each cell 0.02 farther from one, and the product
+  of 28 per-cell pass probabilities first reaches 0.95 at 25,600 replications (0.9510).
+  The product at 25,200 is 0.9463.  At the pilot point estimates alone, 9,600 replications
+  reach 0.998.  The rule is applied as declared and is not capped, so
+  ``CALIBRATION_REPLICATES = 25,600``.  A larger pilot would shorten the evaluated interval
+  and the budget.
+* P3, ``n = 2,000``, 2,000 draws.  The in-sample ratios of the five gated labels read 0.946
+  (``rule_t3``) to 1.003 (``never_t3``), and the continuous arm reads 0.970 to 0.995.  The
+  shortfall is the ``1/n`` in-sample deficit, and the gated arms draw ``n = 8,000``.
+* P4, 300 draws per family at its own size.  ``outcome_correct`` is unbiased: the largest
+  bias is 0.060 empirical spreads (``rule_t3``), under the 0.10 that would move the family to
+  ``n = 4,000``.  The largest bias of any positive arm is 0.137 spreads at 300 draws, whose
+  own sampling error is 0.058.  Each control sits within 0.108 spreads of its limit.  The
+  smallest control gap is 0.59 spreads (``always_t3`` of N2), then 0.80 (``rule_t3`` of
+  ``both_wrong``).  The full-history outcome regression meets an unseen cell for 0.9% of the
+  rule's rows at the third node and 0.4% to 0.2% of the static rows, so the backoff rarely
+  acts.  The largest share in one draw is 3.3%.
 """
 
 from __future__ import annotations
@@ -202,7 +227,7 @@ from tests.studies.fractional_glm import QuasiBinomialGLM, QuasiBinomialSeparati
 N = 2_000
 #: The sample size of every ``interval_calibration`` arm.  See the module docstring, Budgets.
 CALIBRATION_N = 8_000
-CALIBRATION_REPLICATES = 6_400
+CALIBRATION_REPLICATES = 25_600
 #: The sample size of the N1 family, ``repeated_outcome_necessity``.  See Budgets.
 ABSORBING_N = 8_000
 #: The sample size of the N3 family, ``full_history_necessity``.  See Budgets.
@@ -1263,6 +1288,27 @@ def primary_replicates(
             raise ValueError("no budget up to 50,000 replications meets the primary rule")
 
 
+#: Pilot P1 (see ``tests.studies.canonical_ltmle_repeated``): the covered count of each
+#: primary cell over :data:`PRIMARY_PILOT_REPLICATES` draws at ``n = 3,000`` from the pilot
+#: stream.  :func:`primary_replicates` reads it, and a design test re-derives the budget.
+PRIMARY_PILOT_REPLICATES = 2_000
+PRIMARY_PILOT_COVERED = {
+    "ey_regimen[never @ t=1]": 1914,
+    "ey_regimen[never @ t=2]": 1900,
+    "ey_regimen[never @ t=3]": 1893,
+    "ey_regimen[always @ t=1]": 1881,
+    "ey_regimen[always @ t=2]": 1888,
+    "ey_regimen[always @ t=3]": 1879,
+    "ey_regimen[treat then treat after an outcome @ t=2]": 1901,
+    "ey_regimen[treat then treat after an outcome @ t=3]": 1870,
+    "ate_regimen[always vs never @ t=1]": 1895,
+    "ate_regimen[always vs never @ t=2]": 1904,
+    "ate_regimen[always vs never @ t=3]": 1892,
+    "ate_regimen[treat then treat after an outcome vs never @ t=2]": 1901,
+    "ate_regimen[treat then treat after an outcome vs never @ t=3]": 1901,
+}
+
+
 def evaluated_ratio(ratio: float, pilot_replicates: int) -> float:
     """The end of a pilot SE ratio's 80% interval that lies farther from one.
 
@@ -1271,6 +1317,43 @@ def evaluated_ratio(ratio: float, pilot_replicates: int) -> float:
     """
     half = float(norm.ppf(0.5 + PILOT_LEVEL / 2.0)) * ratio / np.sqrt(2.0 * (pilot_replicates - 1))
     return ratio - half if ratio < 1.0 else ratio + half
+
+
+#: Pilot P2 (see the module docstring): the SE ratio of each of the 28 gated calibration
+#: cells over :data:`CALIBRATION_PILOT_REPLICATES` draws at :data:`CALIBRATION_N`, from the
+#: pilot stream.  :func:`calibration_replicates` reads it, and a design test re-derives the
+#: budget.  Four decimals are recorded, and the rule returns the same budget from them.
+CALIBRATION_PILOT_REPLICATES = 2_000
+CALIBRATION_PILOT_RATIOS = {
+    "never_t3__estimated_mechanisms": 1.0003,
+    "always_t3__estimated_mechanisms": 0.9967,
+    "rule_t3__estimated_mechanisms": 0.9795,
+    "always_vs_never_t3__estimated_mechanisms": 1.0128,
+    "rule_vs_never_t3__estimated_mechanisms": 0.9883,
+    "never_t1__estimated_mechanisms": 1.0183,
+    "never_t2__estimated_mechanisms": 1.0246,
+    "always_t1__estimated_mechanisms": 1.0225,
+    "always_t2__estimated_mechanisms": 1.0061,
+    "rule_t2__estimated_mechanisms": 1.0278,
+    "always_vs_never_t1__estimated_mechanisms": 1.0159,
+    "always_vs_never_t2__estimated_mechanisms": 1.0033,
+    "rule_vs_never_t2__estimated_mechanisms": 1.0182,
+    "never_t3__crossfit_glm": 1.0039,
+    "always_t3__crossfit_glm": 1.0136,
+    "rule_t3__crossfit_glm": 0.9837,
+    "always_vs_never_t3__crossfit_glm": 1.0093,
+    "rule_vs_never_t3__crossfit_glm": 0.9740,
+    "never_t3__crossfit_boosted": 1.0073,
+    "always_t3__crossfit_boosted": 1.0103,
+    "rule_t3__crossfit_boosted": 1.0279,
+    "always_vs_never_t3__crossfit_boosted": 1.0108,
+    "rule_vs_never_t3__crossfit_boosted": 1.0245,
+    "never_t3__continuous_gaussian": 0.9959,
+    "always_t3__continuous_gaussian": 0.9935,
+    "rule_t3__continuous_gaussian": 1.0055,
+    "always_vs_never_t3__continuous_gaussian": 0.9920,
+    "rule_vs_never_t3__continuous_gaussian": 0.9963,
+}
 
 
 def calibration_replicates(ratios: Mapping[str, float], pilot_replicates: int) -> int:

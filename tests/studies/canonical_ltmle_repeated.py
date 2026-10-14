@@ -19,19 +19,21 @@ Declared before any run
   not primary cells.  Thirteen cells remain.
 * Both sides receive the generating mechanisms (:class:`KnownRepeatedMechanism` here, a
   numeric ``gform`` in R) and ``g_bounds = G_BOUNDS``.  Both fit in sample (``n_folds = 1``)
-  at ``n = 2,000``.
+  at ``n = PRIMARY_N = 3,000``.  Pilot P1 below sets ``n``.
 * The law has depth two.  ``W`` takes three values, and ``A_t``, ``C_t`` and ``Y_t`` read
   ``Y_{t-2}``.  The mechanisms therefore have three design widths, and
   :class:`KnownRepeatedMechanism` builds each index from the generator's coefficient tables
   by column name.
-* ``PRIMARY_REPLICATES`` comes from the design rule in
-  ``tests/unit/test_ltmle_repeated_method_study.py``: the smallest multiple of 400 such that
-  (a) a cell whose true standardized bias equals the paired-difference margin, 0.15, passes
-  the bias gate with probability at least 0.90, (b) the coverage-floor gate passes with
-  probability at least 0.99 per cell at coverage 0.93, and (c) the product of the pass
-  probabilities over the 26 coverage tests (13 cells for each implementation) is at least
-  0.95 when each cell sits at the one-sided 80% lower bound of its pilot coverage.  The rule
-  and the pilot that sized it are recorded in ``PRIMARY_PILOT`` below.
+* ``PRIMARY_REPLICATES`` comes from ``properties.primary_replicates``, the declared rule:
+  the smallest multiple of 400 such that (a) a cell whose true standardized bias equals the
+  paired-difference margin, 0.15, passes the bias gate with probability at least 0.90, (b)
+  the coverage-floor gate passes with probability at least 0.99 per cell at coverage 0.93,
+  and (c) the product of the pass probabilities over the 26 coverage tests (13 cells for each
+  implementation) is at least 0.95 when each cell sits at the one-sided 80% lower bound of
+  its pilot coverage.  Clause (c) prices the pilot's own sampling error.  The rule for ``n``
+  is: the pilot must show every primary cell at a coverage of at least 0.935, and if one
+  cell reads lower, ``n`` rises to 3,000 and then to 4,000, because a coverage shortfall of
+  an in-sample fit falls as ``1/n``.  Replications do not cure it.
 * The cleverly rows publish ``initial_estimate = nan``.  A single-fold fit exposes no
   untargeted plug-in: ``steps[0].initial`` is the first node's regression of the already
   targeted chain, a different quantity from the R column.  R keeps ``initial = gcomp``, the
@@ -44,14 +46,37 @@ Declared before any run
   the rule in ``ltmle_repeated_properties``.  A red cell is diagnosed and fixed before a
   fresh declaration on fresh seeds.  No red cell is deferred.
 
+Pilots (stream ``stream_seed(STUDY, "pilot", ...)``, which no published cell reads)
+-----------------------------------------------------------------------------------
+
+P1, ``properties.pilot_primary``: cleverly with the known mechanisms and quasibinomial
+regressions, 2,000 draws.  At ``n = 2,000`` the coverage of the 13 cells reads 0.9335 to
+0.9565.  Two cells read below 0.935, ``ey_regimen[rule @ t=3]`` at 0.9335 and
+``ey_regimen[always @ t=3]`` at 0.9340.  The SE ratios read 0.959 to 1.012 and the largest
+bias is 0.061 empirical spreads.  The rule therefore raises ``n`` to 3,000.  At
+``n = 3,000`` the coverage reads 0.9350 to 0.9570, with the lowest cell ``ey_regimen[rule @
+t=3]`` at 1,870 of 2,000.  The SE ratios read 0.963 to 1.021 and the largest bias is 0.030
+spreads.  ``primary_replicates`` returns 2,400 from the covered counts, so
+``PRIMARY_REPLICATES = 2,400``.  The mean difference between the estimate and a quasibinomial
+sequential-regression plug-in with no fluctuation, the stand-in for the R ``gcomp`` call that
+cannot run in the development container, is at most 0.010 empirical spreads.  The plug-in is
+nearly unbiased on this law, so the margins alone cannot separate it from the targeted fit.
+The parity rule and ``targeting_necessity`` carry that claim.
+
+P5, the stratified main-terms designs R builds at each block, on the implemented generator.
+At ``n = 3,000``, over 1,000 draws, no design is rank deficient.  The fewest followers in a
+block are 288 (``always``, third block) and 363 (``never``, third block).  Six of the 1,000
+draws have a separated terminal fit, against 96 at ``n = 2,000``.
+
 Declaration history
 -------------------
 
-* First declaration (5728c3ce, seed ``20263201``).  Its rows informed the revisions that
-  ``ltmle_repeated_properties`` records.
-* Second declaration (seed ``20263202``).  It re-sized the calibration arms and the N1
-  control.  A third run of the same declaration (52cb8596) added the ``gcomp`` initial
-  estimate on the R side.  Every gate was green.
+* First declaration (5728c3ce, seed ``20263201``).  Every positive cell passed, and two N1
+  controls missed their absorbing limit.  The revisions are in ``ltmle_repeated_properties``.
+* Second declaration (seed ``20263202``).  It drew N1 at ``n = 8,000`` with the backoff
+  learner, gated the earlier horizons in C1, and re-sized the calibration arms.  Every gate
+  was green.  A third run of the same declaration (52cb8596) added the R ``gcomp`` initial
+  estimate.  The law was first order and ``W`` was binary.
 * Fourth declaration (:data:`SEED`, ``20263204``).  A design review of the third run found
   seven defects, which the redesign fixes before any new draw:
 
@@ -105,8 +130,8 @@ from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
-PRIMARY_REPLICATES = 3_200
-PRIMARY_N = 2_000
+PRIMARY_REPLICATES = 2_400
+PRIMARY_N = 3_000
 SEED = 20263204
 RESAMPLING_SEED = 2026320401
 SCENARIO = "censored_repeated_outcome"
