@@ -244,7 +244,7 @@ the committed results and checked at the precision printed.
 | --- | --- |
 | one baseline treatment on finite laws | the evidence covers binary and three-arm baseline treatments on discrete covariates. A continuous dose has fast-tier evidence only |
 | the paired rows are not an exactness check | the targeting submodels differ by construction, so the pairs read under the default margins |
-| per-horizon targeting | each horizon has its own backward pass, so the curve is not constrained to be monotone. [X14](../../roadmap.md#x14-hazard-based-and-monotone-survival-curves) owns hazard-based and whole-curve targeting |
+| per-horizon targeting | each horizon has its own backward pass, so the curve is not constrained to be monotone. [Hazard-based survival targeting](../longitudinal-tmle.md#hazard-based-survival-targeting) covers hazard-based and whole-curve targeting |
 | discrete time | a continuous event time is binned onto a declared grid. The `continuous_t4` cell measures the binned parameter, not a continuous-time one |
 | one calibration cell is red under `reporting` | the `weighted_t5` SE-ratio interval reaches past its band. The reported standard error equals the efficiency bound. The `X13-finite-sample` owner holds it |
 | `survtmle`'s `bounds=` is not paired | [X22](../../roadmap.md#x22-targeting-and-fitting-options) part (h) owns it |

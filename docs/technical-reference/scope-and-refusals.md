@@ -55,6 +55,7 @@ rather than implying the request was ill-posed.
 | a learned-rule value from an in-sample or one-fold fit, the stacked report, fold-specific targeting, a categorical treatment, or a contrast with a known regime or an arm, `reference=` included | [learned rules](point-treatment-tmle.md#learned-rules). Each request has a published source and no implementation here. `TMLE` raises `CapabilityError` before any learner. `CausalStudy.identify` raises it for a categorical treatment, and `IdentifiedEffect.estimate` for a setting. `CrossFitting(n_folds=1)` raises `MethodConfigurationError` at construction, before the estimand is known. [The refusals a caller can meet](cv-tmle.md#the-refusals-a-caller-can-meet) quotes each remedy. [X11](../roadmap.md#x11-learned-policy-follow-ups) reopens them |
 | a learned-rule value with a continuous treatment, `intermediate=`, `weights=`, `id=`, `strata=`, `repeats` above 1, the full-refit bootstrap, `CTMLE` or `DRTMLE`; and every refutation and sensitivity analysis on a learned-rule fit | [learned rules](point-treatment-tmle.md#learned-rules). No reviewed source gives the result. The fit refuses before any learner. `refute` reads `unavailable` because a refit relearns the rules, and each sensitivity row reads `unavailable` because no derivation for this target was reviewed. A learned-rule fit with missing outcomes refuses too, and [F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants) holds it. [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) holds the rest |
 | `intermediate=` and a multi-valued treatment with `incremental=` | [incremental interventions](../user-guide/estimands.md#incremental-propensity-score-interventions) |
+| a hazard-based survival fit outside a held baseline categorical treatment with no covariate after baseline, and the isotonic projection on an end-of-study fit or a working model | [hazard and isotonic survival refusals](#hazard-and-isotonic-survival-refusals) lists every refusal. On a design that H1, H2, H7 or H11 refuses, `LTMLE` with `survival_model="iterated_mean"` and `isotonic=True` reports a monotone curve |
 | `incremental=` on `LTMLE` | [longitudinal TMLE](longitudinal-tmle.md#variations). Kennedy (2019) treats time-varying treatments. `LTMLE` raises `TypeError` by name at construction or at `fit`. [X19](../roadmap.md#x19-incremental-interventions-over-time) reopens it |
 | a vector treatment node with a continuous component, and a vector point treatment | [modified treatment policies at a node](longitudinal-tmle.md#modified-treatment-policies-at-a-node). The ratio of a joint policy needs a joint density or the classifier route over the joint policy. `LongitudinalData.from_frame` raises `CapabilityError` before any learner. [X31](../roadmap.md#x31-continuous-vector-components-at-a-node) owns it |
 | sample sensitivity-bound estimation for `LTMLE` | [longitudinal diagnostics](../user-guide/longitudinal.md#diagnostics). See [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) for the contracts Tan (2025) leaves open |
@@ -299,6 +300,42 @@ fit, and every row that needs the false slot reads `unavailable`.
 The second code reads the checks that `refit()` runs before its first learner. These are the fold
 policy and four data contracts. `TestTheRefitSlotReadsTheRefitPreflight` in
 `tests/unit/test_capability_row_predicates.py` checks each slot against the call it describes.
+
+### Hazard and isotonic survival refusals
+
+[Hazard-based survival targeting](longitudinal-tmle.md#hazard-based-survival-targeting) and
+[the isotonic projection](longitudinal-tmle.md#the-isotonic-projection) refuse each composition
+below by name. Each refusal is raised before any learner. `tests/unit/test_hazard_refusals.py` pins
+the type and the message of each one, with learners that raise if they are fitted.
+
+| id | trigger | when | type | message |
+| --- | --- | --- | --- | --- |
+| H1 | `survival_model="hazard"` on a design with a treatment at more than one node | `fit` | `ValueError` | "survival_model='hazard' is built for one baseline treatment held over every node, and this design declares a treatment at {k} nodes. Hazard targeting for a treatment at several nodes is not built. LTMLE with survival_model='iterated_mean' estimates this curve, and isotonic=True makes it monotone. If one baseline treatment is held over every node, declare treatment='A'" |
+| H2 | `survival_model="hazard"` with a covariate measured after baseline (`time_varying=`) | `fit` | `ValueError` | "survival_model='hazard' models the event and censoring hazards given the baseline treatment and the baseline covariates. This fit declares covariates measured after baseline ({names}), and hazard targeting with such covariates is not built: it needs a model and a fluctuation of each later covariate. LTMLE with survival_model='iterated_mean' adjusts for them, and isotonic=True makes its curve monotone" |
+| H3 | `survival_model="hazard"` on an end-of-study outcome | `fit` | `ValueError` | "survival_model='hazard' needs an event indicator at every node, and this fit declares one end-of-study outcome. A hazard is the chance of the event at a node among the units still at risk, so an outcome measured once has none" |
+| H3 | `isotonic=True` on an end-of-study outcome | `fit` | `ValueError` | "isotonic=True makes a curve over the horizons monotone, and an end-of-study fit reports one horizon" |
+| H4 | `targeting="one_step"` with `survival_model="iterated_mean"` | construction | `ValueError` | "targeting='one_step' requires survival_model='hazard'. The one-step walk moves one set of hazards toward the score equations of every horizon together (Cai and van der Laan 2020). A one-step update of the iterated-mean recursion is not built. Set survival_model='hazard' on a survival design with one baseline treatment, or keep targeting='iterative' and set isotonic=True for a monotone curve" |
+| H5 | `msm=` with `survival_model="hazard"` or `isotonic=True` | construction | `ValueError` | "msm= with {option} is not built. A working model reports coefficients over regimen and horizon cells. Fit msm= with survival_model='iterated_mean' and isotonic=False, or report the curve and take contrasts" |
+| H6 | `pseudo_learner=` with `survival_model="hazard"` | construction | `ValueError` | "pseudo_learner= is not used with survival_model='hazard'. A hazard fit regresses the event indicator at each node and fits no pseudo-outcome. Pass the hazard learner as outcome_learner=" |
+| H7 | a modified treatment policy regimen with `survival_model="hazard"` | `fit` | `ValueError` | "regimen {label!r} is a modified treatment policy, and survival_model='hazard' does not support one. Its plug-in evaluates the event and censoring hazards at the shifted dose, and that construction is not built. Use survival_model='iterated_mean', which supports a modified treatment policy at baseline" |
+| H8 | an unknown `targeting`, `survival_model` or `isotonic` value, or a `step_size` that is not positive and finite | construction | `ValueError` | "targeting must be 'iterative' or 'one_step'; got {v!r}", "survival_model must be 'iterated_mean' or 'hazard'; got {v!r}", "isotonic must be True or False; got {v!r}", and "step_size must be a positive finite number; got {v!r}". A `step_size` under `targeting="iterative"` is accepted and unused |
+| H9 | `q_bounds=` with `survival_model="hazard"` | `fit` | `ValueError` | the binary-outcome refusal, "q_bounds does not apply to a binary outcome" |
+| H10 | `survival_model="hazard"` or `isotonic=True` on a point-treatment functional | method configuration | `MethodConfigurationError` | "survival_model= and isotonic= apply to a survival curve over time nodes, and a point-treatment functional has no curve. Remove them, or declare a longitudinal or TimeToEvent design" |
+| H11 | `survival_model="hazard"` with a continuous baseline treatment | `fit` | `ValueError` | "survival_model='hazard' needs a categorical baseline treatment, and treatment {name!r} is continuous. The hazard plug-in would need the treatment density at every dose, and that construction is not built. Use survival_model='iterated_mean'" |
+
+The fit checks H3 first, then H1, H2, H11 and H7. So a continuous treatment meets H11 before a
+modified treatment policy meets H7.
+
+H1 refuses an extension that qualifies and is not built. A static arm or a known rule at several
+nodes, without a covariate measured after baseline, reduces to an indicator. That indicator is the
+composite "uncensored and on the regimen through node $k$". The hazard construction then applies
+to the composite. This package does not build that reduction.
+
+H2 needs a model and a fluctuation
+of each later covariate. Stitelman, De Gruttola and van der Laan (2012) and Rytgaard, Gerds and van
+der Laan (2022) treat such covariates. Neither source was read for this contract.
+
+The roadmap carries no row for H1, H4, H5, H7 or H11. Each message names the supported route.
 
 ### A different question
 

@@ -53,12 +53,12 @@ until every target's score is solved.  The direction is
 :math:`\Sigma = \operatorname{diag}(P_n D_m^2)` of the initial fit (Rytgaard and van der Laan
 2024, Remark 2).  Every horizon then reads one set of hazards, so each curve is monotone.
 
-Every plug-in mean over the horizons is one vectorised reduction over an ``(n, T)`` array in
-one order.  The incidence :math:`F_j(t)` of each unit is a running sum of non-negative
+Every plug-in mean over the horizons reduces its column in one value-independent order shared
+by every horizon.  The incidence :math:`F_j(t)` of each unit is a running sum of non-negative
 terms, a policy mixture of such sums is a sum of non-negative products, and a weighted mean
-of non-decreasing columns reduced in one order is non-decreasing, so a one-step curve is
-non-decreasing in floating point with no tolerance.  A per-horizon loop of ``np.average``
-would not keep that guarantee, and ``tests/unit/test_survival_monotone.py`` pins it.
+of non-decreasing columns reduced in one order is non-decreasing, because rounding to
+nearest is monotone.  So a one-step curve is non-decreasing in floating point with no
+tolerance, and ``tests/unit/test_survival_monotone.py`` pins it.
 """
 
 from __future__ import annotations
@@ -168,7 +168,7 @@ class HazardInputs:
         exist and hold no event of that cause.  The hazard there is held at zero.
     full : BoolArray
         ``(T, L)`` cells whose rows at risk with that observed level, of positive weight,
-        exist and all hold an event.
+        exist and all hold an event.  The all-cause hazard there is held at one.
     """
 
     at_risk: BoolArray
@@ -239,9 +239,13 @@ class HazardState:
     ----------
     logits : FloatArray
         ``(n, T, L, J)`` :math:`\\eta_l = \\log(\\lambda_l / \\lambda_0)`.
+    full : BoolArray or None
+        ``(T, L)`` cells whose no-event probability :math:`\\lambda_0` is held at exactly
+        zero.  The logits there split the event among the causes.
     """
 
     logits: FloatArray
+    full: BoolArray | None = None
     hazards: FloatArray = field(init=False, repr=False)
     survival: FloatArray = field(init=False, repr=False)
     incidence: FloatArray = field(init=False, repr=False)
@@ -249,9 +253,15 @@ class HazardState:
     def __post_init__(self) -> None:
         eta = np.asarray(self.logits, dtype=float)
         expo = np.exp(eta)
-        denominator = 1.0 + expo.sum(axis=-1)
+        events = expo.sum(axis=-1)
+        if self.full is None:
+            denominator = 1.0 + events
+            none = 1.0 / denominator
+        else:
+            held = np.asarray(self.full, dtype=bool)[None]
+            denominator = np.where(held, events, 1.0 + events)
+            none = np.where(held, 0.0, 1.0 / denominator)
         hazards = expo / denominator[..., None]
-        none = 1.0 / denominator
         survival = np.cumprod(none, axis=1)
         before = np.concatenate([np.ones_like(survival[:, :1]), survival[:, :-1]], axis=1)
         # A running sum of non-negative terms, so every unit's incidence is non-decreasing
@@ -267,11 +277,13 @@ class HazardState:
         hazards: FloatArray,
         bounds: tuple[float, float],
         empty: BoolArray | None = None,
+        full: BoolArray | None = None,
     ) -> HazardState:
         """The state of ``(n, T, L, J)`` hazards, with each logit clipped into ``bounds``.
 
         A cell of ``empty``, ``(T, L, J)``, holds the hazard at exactly zero for every unit,
-        its logit at :math:`-\\infty`.  No fluctuation moves it.
+        its logit at :math:`-\\infty`.  A cell of ``full``, ``(T, L)``, holds the all-cause
+        hazard at exactly one for every unit.  No fluctuation moves either.
         """
         lam = np.asarray(hazards, dtype=float)
         none = 1.0 - lam.sum(axis=-1)
@@ -282,22 +294,24 @@ class HazardState:
         )
         if empty is not None:
             eta = np.where(np.asarray(empty, dtype=bool)[None], -np.inf, eta)
-        return cls(eta)
+        return cls(eta, full)
 
     def moved(self, delta: FloatArray, bounds: tuple[float, float]) -> HazardState:
         """The state after adding ``delta`` to every logit, then clipping.
 
-        A logit at :math:`-\\infty`, a hazard held at zero, stays there.
+        A logit at :math:`-\\infty`, a hazard held at zero, stays there, and so does a held
+        all-cause hazard of one.
         """
         return HazardState(
-            np.where(np.isneginf(self.logits), -np.inf, np.clip(self.logits + delta, *bounds))
+            np.where(np.isneginf(self.logits), -np.inf, np.clip(self.logits + delta, *bounds)),
+            self.full,
         )
 
     def levels(self, q: FloatArray, weights: FloatArray) -> FloatArray:
         """``(R, J, T)`` plug-in incidence of every regimen and cause at every node.
 
-        One vectorised reduction per regimen and cause, over an ``(n, T)`` array in one
-        order, which is what keeps a curve non-decreasing in floating point.
+        One reduction per regimen and cause, over an ``(n, T)`` array in one order shared by
+        every horizon, which keeps a curve non-decreasing in floating point.
         """
         out = np.empty((q.shape[0], self.incidence.shape[3], self.incidence.shape[1]))
         for r in range(q.shape[0]):
@@ -597,6 +611,23 @@ def hazard_inputs(
 # ------------------------------------------------------------------- the EIF algebra
 
 
+def _per_survivor(value: FloatArray, survival: FloatArray) -> FloatArray:
+    """``value / survival``, and zero where a held all-cause hazard of one left no survivor.
+
+    Each numerator is zero where the survival is zero, so the ratio is zero there as well.
+    """
+    alive = survival > 0.0
+    return np.asarray(
+        np.divide(
+            value,
+            survival,
+            out=np.zeros(np.broadcast_shapes(value.shape, survival.shape)),
+            where=alive,
+        ),
+        dtype=float,
+    )
+
+
 @dataclass(frozen=True)
 class _Observed:
     """The state read at each unit's observed level."""
@@ -632,7 +663,7 @@ def _score_terms(
     obs = _observed(state, inputs)
     inverse = inputs.inverse_observed()
     q = inputs.q_observed()
-    ratio = obs.total / obs.survival
+    ratio = _per_survivor(obs.total, obs.survival)
     running_j = np.cumsum(
         inverse[:, :, None] * (obs.residual + obs.incidence * ratio[:, :, None]), axis=1
     )
@@ -652,7 +683,9 @@ def _score_terms(
     for h, t in enumerate(horizons):
         nodes = np.arange(inputs.n_times) < t
         for j in range(n_causes):
-            c = (obs.incidence[:, t - 1, j][:, None] - obs.incidence[:, :, j]) / obs.survival
+            c = _per_survivor(
+                obs.incidence[:, t - 1, j][:, None] - obs.incidence[:, :, j], obs.survival
+            )
             size = np.abs(1.0 - c) + (n_causes - 1) * np.abs(c)
             per_row = np.where(mask & nodes[None, :], inverse * size, 0.0).sum(axis=1)
             scale[:, j, h] = (weight[None, :] * q * per_row[None, :]).mean(axis=1)
@@ -754,7 +787,9 @@ def direction(
         for j in range(n_causes):
             weighted = by_node[r, j][None, :, None] * incidence[..., j]
             expected = np.flip(np.cumsum(np.flip(weighted, axis=1), axis=1), axis=1)
-            spill = (expected - incidence[..., j] * tail[r, j][None, :, None]) / survival
+            spill = _per_survivor(
+                expected - incidence[..., j] * tail[r, j][None, :, None], survival
+            )
             inner -= spill[..., None]
             inner[..., j] += tail[r, j][None, :, None]
         out += inputs.q[r][:, None, :, None] * inner
@@ -782,7 +817,9 @@ def _clever_observed(state: HazardState, inputs: HazardInputs, horizon: int) -> 
     out = []
     for r in range(inputs.n_regimens):
         for j in range(inputs.n_causes):
-            c = (obs.incidence[:, horizon - 1, j][:, None] - obs.incidence[:, :, j]) / obs.survival
+            c = _per_survivor(
+                obs.incidence[:, horizon - 1, j][:, None] - obs.incidence[:, :, j], obs.survival
+            )
             h = -np.repeat(c[:, :, None], inputs.n_causes, axis=2)
             h[:, :, j] += 1.0
             out.append(np.where(nodes[:, :, None], (q[r][:, None] * inverse)[:, :, None] * h, 0.0))
@@ -909,8 +946,10 @@ def _secant_step(
     The fluctuation moves the logits by :math:`\sum_m \epsilon_m h^m`, with :math:`h`
     taken at the current hazards.  The Jacobian of the scores in :math:`\epsilon` is read
     by forward differences, so it carries the change of :math:`h` with the hazards that a
-    fluctuation with :math:`h` held fixed leaves out; the iteration then converges
-    quadratically rather than linearly.  The step is halved until the scaled score norm
+    fluctuation with :math:`h` held fixed leaves out.  This departs from Moore and van der
+    Laan (2009, eq. 13), which fits :math:`\\epsilon` by maximum likelihood with :math:`h`
+    held fixed.  That fit is the fallback, :func:`_newton`, and both endpoints solve the
+    same score equations.  The step is halved until the scaled score norm
     falls, and ``None`` comes back when no halving makes it fall.
     """
     bounds = inputs.bounds
@@ -1159,7 +1198,7 @@ def target_regimens(
         ``(regimen, cause, horizon)``, regimen-outer, then cause, then horizon.
     """
     inputs = hazard_inputs(data, plans, cumulative, alpha=alpha)
-    start = HazardState.from_hazards(initial.hazards, inputs.bounds, inputs.empty)
+    start = HazardState.from_hazards(initial.hazards, inputs.bounds, inputs.empty, inputs.full)
     causes: tuple[str | None, ...] = data.cause_labels or (None,)
     horizons = tuple(horizons)
     reports: dict[int, tuple[HazardState, HazardFit]] = {}

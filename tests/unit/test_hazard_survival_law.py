@@ -21,6 +21,7 @@ import pytest
 from cleverly.exceptions import WeightingWarning
 from cleverly.interventions import Stochastic
 from cleverly.longitudinal import LTMLE
+from cleverly.longitudinal import hazard as hazard_module
 from cleverly.longitudinal.estimator import (
     _fitted_replay_matches,
     _refit_bound,
@@ -409,3 +410,27 @@ def test_e11_the_walk_trace(name: str) -> None:
     _, curves = influence(start, inputs, _horizons(law))
     sigma = np.maximum(np.mean(curves**2, axis=-1), SIGMA_FLOOR).reshape(-1)
     assert np.array_equal(record.sigma, sigma)
+
+
+# ---------------------------------------------------------------- the MLE fallback
+
+
+@pytest.mark.parametrize("name", list(LAWS))
+def test_the_maximum_likelihood_fallback_alone_repairs_a_wrong_hazard(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Per-horizon targeting with every secant step refused runs Moore's MLE step only.
+
+    The secant step never fails on these laws, so this forces the fallback path and asks
+    it for E3 and E4.
+    """
+    monkeypatch.setattr(hazard_module, "_secant_step", lambda *args, **kwargs: None)
+    law = LAWS[name]
+    result = _fit(law, "iterative", learner=ArmOnly())
+    for key, fit in result.fits.items():
+        assert fit.hazard.converged, key
+        assert fit.hazard.relative_score <= 1e-10, key
+        arm = REGIMENS[fit.regimen.label]
+        code = 1 if fit.cause in (None, "relapse") else 2
+        truth = law.functional(law.probs, static(arm), fit.horizon, code)
+        assert fit.psi_scaled == pytest.approx(truth, abs=1e-8), key

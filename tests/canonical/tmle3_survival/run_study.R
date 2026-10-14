@@ -117,7 +117,9 @@ row_for <- function(replicate, name, estimate, initial, ic, n) {
 fit_arm <- function(data, arm, replicate) {
   spec <- tmle3::tmle_survival(treatment_level = arm, control_level = 1 - arm, target_times = grid)
   nodes <- list(W = c("W1", "W2"), A = "A", T_tilde = "T_tilde", Delta = "Delta", id = "id")
-  long <- spec$transform_data(data, nodes)
+  # transform_data indexes its input as a data frame (`data[T_tilde_name]`), as tmle3's own
+  # vignette passes it; make_tmle_task converts the long table back to a data.table.
+  long <- spec$transform_data(as.data.frame(data), nodes)
   task <- spec$make_tmle_task(long$long_data, long$long_node_list)
   observed_times <- sort(unique(task$time))
   if (!identical(as.numeric(observed_times), as.numeric(grid))) {
@@ -142,7 +144,14 @@ fit_arm <- function(data, arm, replicate) {
   ic <- as.matrix(final$IC)[first, , drop = FALSE][order_ids, , drop = FALSE]
   n <- nrow(ic)
   scores <- colMeans(ic)
+  # Read the step record by name and refuse a missing field, so a renamed field stops the run
+  # rather than blanking the per-replicate record.
+  steps <- updater$step_number
   epsilons <- updater$epsilons
+  if (is.null(steps) || is.null(epsilons)) {
+    stop(sprintf("tmle3_Update has no step_number or epsilons field; its fields are %s",
+                 paste(names(updater), collapse = ", ")))
+  }
   nonzero <- sum(vapply(epsilons, function(e) any(unlist(e) != 0), logical(1)))
   solved <- max(abs(scores)) <= 1 / n
   # The epsilon travel, against maxit * delta_epsilon, and the gap between the SE read off the
@@ -151,18 +160,25 @@ fit_arm <- function(data, arm, replicate) {
   summary_se <- as.numeric(fitted$summary$se)
   ic_se <- sqrt(colSums(ic^2)) / n
   se_gap <- if (length(summary_se) == length(ic_se)) max(abs(summary_se - ic_se)) else NA_real_
-  message(sprintf(
+  record <- sprintf(
     paste0("tmle3-survival replicate=%d arm=%d steps=%d nonzero_steps=%d printed_errors=%d ",
            "max_abs_score=%.17g bound=%.17g solved=%s maxit_bound=%s travel=%.17g ",
            "max_se_gap=%.17g"),
-    replicate, arm, updater$steps, nonzero, errors, max(abs(scores)), 1 / n, solved,
-    updater$steps >= maxit, travel, se_gap
-  ))
+    replicate, arm, steps, nonzero, errors, max(abs(scores)), 1 / n, solved,
+    steps >= maxit, travel, se_gap
+  )
+  stopifnot(length(record) == 1)
+  message(record)
   if (nonzero == 0 && !solved) {
     stop(sprintf("arm %d took no nonzero step and left the score unsolved (%.3g > 1/n)",
                  arm, max(abs(scores))))
   }
-  list(survival = final$psi, initial = fitted$initial_psi, ic = ic)
+  initial <- fitted$initial_psi
+  if (length(initial) != length(grid) || length(final$psi) != length(grid)) {
+    stop(sprintf("tmle3 returned %d initial and %d final survivals for a grid of %d",
+                 length(initial), length(final$psi), length(grid)))
+  }
+  list(survival = final$psi, initial = initial, ic = ic)
 }
 
 fit_one <- function(frame) {

@@ -122,7 +122,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
@@ -157,6 +157,9 @@ from ..utils.phases import (
 )
 from .data import LongitudinalData, RegimenMasks
 from .regimen import Plan, Regimen, RegimenSpec
+
+if TYPE_CHECKING:
+    from .hazard import HazardFit
 
 __all__ = [
     "FoldRecursionCell",
@@ -617,7 +620,7 @@ class RegimenFit:
     #: The targeting record of a fit with ``survival_model="hazard"``, and ``None`` on an
     #: iterated-mean fit.  Such a fit runs no backward recursion, so :attr:`steps` is empty.
     #: A one-step fit shares one record between every reported parameter.
-    hazard: Any = None
+    hazard: HazardFit | None = None
     #: ``(n, T)`` the hazard fit's clever weight at each node, at the observed level:
     #: :math:`q_r(A) / (g(A) G_k(A))` on the rows at risk at a node up to the horizon, and
     #: zero elsewhere.  It stands in for each node's clever covariate in

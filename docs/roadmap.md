@@ -184,7 +184,6 @@ Priorities 2 to 5 follow the beta.
 | 1.11 | Per-arm outcome-adaptive C-TMLE with baseline strata and missing data | [natural extension of Theorem 1](technical-reference/natural-extension-verdicts.md) | the shipped per-arm `strategy="oat"` design | [X29](#x29-per-arm-outcome-adaptive-c-tmle-with-baseline-strata-and-missing-data) |
 | 1.12 | C-TMLE candidate sequences | published support; pending source read | shipped selector paths | [X16](#x16-c-tmle-candidate-sequences) |
 | 1.13 | Sequential doubly robust longitudinal estimation | published support; pending source read | implemented longitudinal targets | [X4](#x4-sequential-doubly-robust-longitudinal-estimation) |
-| 1.14 | Hazard-based and monotone survival curves | published support; pending source read | the shipped point-treatment survival design | [X14](#x14-hazard-based-and-monotone-survival-curves) |
 | 1.15 | Incremental interventions over time | source audit | shipped longitudinal modified treatment policies | [X19](#x19-incremental-interventions-over-time) |
 | 1.16 | Targeting and fitting options | no new theory; each option keeps its default bit-identical | none | [X22](#x22-targeting-and-fitting-options) |
 | 1.17 | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
@@ -193,7 +192,7 @@ Priorities 2 to 5 follow the beta.
 | 2.1 | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
 | 2.2 | Efficient known-score ATT and ATC | published support; pending source read | the shipped known treatment mechanism | [X35](#x35-efficient-known-score-att-and-atc) |
 | 3.1 | Natural and interventional mediation effects | published support; pending source read | target-specific identification and evidence | [X5](#x5-natural-and-interventional-mediation-effects) |
-| 3.2 | Continuous-time survival and competing risks | published support; pending source read | continuous-time intensity and targeting contracts; X14 | [X6](#x6-continuous-time-survival-and-competing-risks) |
+| 3.2 | Continuous-time survival and competing risks | published support; pending source read | continuous-time intensity and targeting contracts | [X6](#x6-continuous-time-survival-and-competing-risks) |
 | 3.3 | Two-phase and outcome-dependent sampling | published support; pending source read | observed-data likelihood and influence correction | [X7](#x7-two-phase-and-outcome-dependent-sampling) |
 | 3.4 | Omitted-variable bounds on the other linear functionals | published support; pending source read | the shipped arm-axis bound | [X9](#x9-omitted-variable-bounds-on-the-other-linear-functionals) |
 | 3.5 | Continuous-dose MSM with a second mechanism | source audit | implemented continuous-dose MSM targeting, missing-outcome arm targeting, and controlled-direct-effect targeting | [X10](#x10-continuous-dose-msm-with-a-second-mechanism) |
@@ -474,37 +473,6 @@ the SDR interval claims first, because they differ from the sequential regressio
 The SDR estimator also covers the continuous-dose modified treatment policies, and its study covers
 one of them.
 
-### X14. Hazard-based and monotone survival curves
-
-The shipped survival fit targets each horizon in its own backward pass, so the reported curve is
-not constrained to be monotone. The
-[survival-curve evidence page](technical-reference/method-evidence/ordinary-survival-curve-longitudinal-tmle.md)
-states this limit.
-
-| part | what to add | published source | comparator |
-| --- | --- | --- | --- |
-| (a) hazard-based targeting | targeting of the discrete hazard at every horizon, so the curve is a product of targeted hazards | Benkeser, Carone and Gilbert (2018), *Statistics in Medicine* 37(2) | `survtmle` `method = "hazard"` |
-| (b) one-step whole-curve targeting | one targeting step that solves the score equations of every horizon together, with a simultaneous band over the curve | Cai and van der Laan (2020), *Biometrics* 76(3), the one-step survival paper. It is a different paper from their HAL bootstrap paper | MOSS |
-
-Both parts need a pinned commit of their comparator, because `survtmle` and MOSS are archived on
-CRAN. Part (b) supplies a one-step band over the whole curve. `tmle3` `tmle_survival` at the
-pinned `ed72f8a` is a second part (b) candidate. It takes constrained hazard steps, a binary
-treatment, and the grid $1, \dots, \max \tilde T$. A pairing must give it the grid of the
-`cleverly` fit.
-
-Both parts start from the
-[held point-treatment design](technical-reference/longitudinal-tmle.md#one-baseline-treatment-held-over-the-nodes) and from `TimeToEvent`, which carry the per-node
-indicators, the masks, the censoring and the grid. The `survtmle` runner of the
-`point-treatment-survival` study takes `method=`, so part (a) needs no new image. The
-[survival-curve study](technical-reference/method-evidence/ordinary-survival-curve-longitudinal-tmle.md)
-measures the band of the shipped per-horizon curve.
-
-Acceptance:
-
-- exact-law witnesses for each targeting construction;
-- a test that each curve is monotone on a law where per-horizon targeting is not;
-- a registered study with joint coverage over the horizons.
-
 ### X19. Incremental interventions over time
 
 `TMLE(incremental=...)` fits Kennedy's odds tilt of a binary point treatment. `LTMLE` refuses
@@ -543,9 +511,15 @@ theory. Each option keeps every default fit bit-identical, and each changes a fi
 | (f) per-arm outcome fit | fit the outcome regression separately in each arm | a nuisance choice for `TMLE` and `DRTMLE` | `drtmle` `stratify` |
 | (g) early stop on a C-TMLE path | stop the greedy search after a declared number of steps without a risk improvement | a cheaper path. The fit keeps its `working_mechanism_plugin` status | `ctmle` `patience` |
 | (h) hazard and outcome bounds | bound each node's regression into a declared interval before the logistic fluctuation | a fit on a declared range of the hazard or the iterated mean | `survtmle` `bounds` |
+| (i) pooled-over-time regressions | fit one hazard regression and one censoring regression over every node, with the node as a covariate, in place of one regression per node | a fit with fewer events per node. A pooled fit is a nuisance choice for `survival_model="hazard"` | `survtmle`, MOSS and `tmle3` `tmle_survival` |
 
 At a continuous modified-treatment-policy node of `LTMLE`, the ratio that part (d) trims is the
 node's density ratio, which the fit stores as `RegimenFit.node_ratio`.
+
+Part (h) covers `survtmle` `method = "hazard"` as well as `method = "mean"`. On a fit with
+`survival_model="hazard"`, it bounds each node's cause-specific hazard. Part (i) applies to a fit
+with `survival_model="hazard"`, which today fits one hazard regression per node and cause and one censoring regression per
+node.
 
 Acceptance: for each part, a test that the default fit is bit-identical to the fit before the
 option, and a witness on a law where the option binds. Parts (d) and (e) also name their
@@ -646,9 +620,10 @@ Rytgaard, Eriksson and van der Laan (2023). Its last release is 1.0.5, and CRAN 
 
 That comparator takes a binary baseline treatment under a static or dynamic intervention, which
 bounds the paired cells a first study can claim. A discrete-time study is not evidence for a
-continuous-time interval, so the existing longitudinal rows do not transfer. The whole-curve
-targeting of [X14](#x14-hazard-based-and-monotone-survival-curves) comes first. On a discrete
-grid, a `concrete` intervention on the baseline treatment is a
+continuous-time interval, so the existing longitudinal rows do not transfer. The discrete-time
+whole-curve targeting has shipped as
+[hazard-based survival targeting](technical-reference/longitudinal-tmle.md#hazard-based-survival-targeting),
+with `survival_model="hazard"` and `targeting="one_step"`. On a discrete grid, a `concrete` intervention on the baseline treatment is a
 [held point-treatment design](technical-reference/longitudinal-tmle.md#one-baseline-treatment-held-over-the-nodes) with a plan at node 1. A stochastic intervention is a
 [known stochastic policy](technical-reference/longitudinal-tmle.md#known-stochastic-policies) at
 that node.

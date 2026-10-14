@@ -13,7 +13,6 @@ swapped cause order changes the initial hazards and leaves the targeted estimate
 from __future__ import annotations
 
 import warnings
-from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -410,18 +409,49 @@ def _moving_metric_walk(
 _ORIGINAL_WALK = hazard_module.walk_curve
 
 
-def test_m14_a_metric_re_estimated_at_every_step_fails_the_trace(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """E11's metric check: the recorded metric is the one estimated at the initial fit."""
-    monkeypatch.setattr(hazard_module, "walk_curve", _moving_metric_walk)
+def _metric_ratios(monkeypatch: pytest.MonkeyPatch) -> np.ndarray:
+    """``score / (coefficients * sigma_initial)`` at every direction the walk asks for.
+
+    A spy on :func:`hazard.direction` records the coefficients each step is built from, and
+    the scores of the state it is built at.  A walk with the initial metric fixed gives one
+    ratio, the inverse of each step's norm, across every component of a step.
+    """
+    calls: list[tuple[Any, Any, Any, np.ndarray]] = []
+    original = hazard_module.direction
+
+    def spy(state: Any, inputs: Any, horizons: Any, coefficients: Any) -> Any:
+        calls.append((state, inputs, horizons, np.array(coefficients, dtype=float)))
+        return original(state, inputs, horizons, coefficients)
+
+    monkeypatch.setattr(hazard_module, "direction", spy)
     result = _fit(ONE, "one_step")
-    record = next(iter(result.fits.values())).hazard
     inputs = _inputs(result)
     start = HazardState.from_hazards(result.initial_hazards.hazards, inputs.bounds, inputs.empty)
     _, curves = hazard_module.influence(start, inputs, (1, 2))
-    initial = np.maximum(np.mean(curves**2, axis=-1), hazard_module.SIGMA_FLOOR).reshape(-1)
-    assert not np.array_equal(record.sigma, initial)
+    sigma = np.maximum(np.mean(curves**2, axis=-1), hazard_module.SIGMA_FLOOR)
+    assert len(calls) > 1
+    ratios = []
+    for state, step_inputs, horizons, coefficients in calls:
+        score, _ = hazard_module.scores(state, step_inputs, horizons)
+        moved = coefficients != 0.0
+        ratio = score[moved] / (coefficients * sigma)[moved]
+        ratios.append(np.ptp(ratio) / np.max(np.abs(ratio)))
+    return np.asarray(ratios)
+
+
+def test_m14_the_shipped_walk_steps_in_the_initial_metric(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Positive control: every step's coefficients are the score in the initial metric."""
+    assert np.max(_metric_ratios(monkeypatch)) < 1e-10
+
+
+def test_m14_a_metric_re_estimated_at_every_step_fails_the_metric_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mutated walk steps in a moving metric, which the spy reads off the coefficients."""
+    monkeypatch.setattr(hazard_module, "walk_curve", _moving_metric_walk)
+    assert np.max(_metric_ratios(monkeypatch)) > 1e-6
 
 
 def _inputs(result: Any) -> HazardInputs:
@@ -446,18 +476,3 @@ def test_m15_the_softmax_clip_keeps_some_mass_on_no_event() -> None:
     state = HazardState.from_hazards(_extreme(), bounds)
     assert np.all(state.hazards.sum(axis=-1) < 1.0)
     assert np.all(state.hazards > 0.0)
-
-
-def test_m15_clipping_each_hazard_then_renormalising_puts_all_mass_on_events(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def renormalised(cls: Any, hazards: Any, bounds: Any) -> Any:
-        alpha = 1.0 / (1.0 + np.exp(-bounds[1]))
-        lam = np.clip(np.asarray(hazards, dtype=float), 1.0 - alpha, alpha)
-        total = lam.sum(axis=-1, keepdims=True)
-        return SimpleNamespace(hazards=np.where(total > 1.0, lam / total, lam))
-
-    monkeypatch.setattr(HazardState, "from_hazards", classmethod(renormalised))
-    bounds = (-np.log(0.9995 / 0.0005), np.log(0.9995 / 0.0005))
-    state = HazardState.from_hazards(_extreme(), bounds)
-    assert not np.all(state.hazards.sum(axis=-1) < 1.0)

@@ -8,6 +8,14 @@ own targeted hazards, so no reduction order ties the two levels.  The one-step c
 one set of hazards for every horizon, and ``np.diff`` of each of its curves is non-negative
 with no tolerance (``cleverly.longitudinal.hazard`` module docstring).
 
+The witness is degenerate, and this module says so rather than claim more.  Arm 1 has no
+event at node 3 in this sample, so that cell is held at zero and the one-step curve is
+exactly flat where the iterated-mean curve decreases.  A search of 30 seeds found no sample in
+which a per-horizon or iterated-mean curve decreases by more than 1e-6 at a node with events
+(``X14-impl-review.md`` F5).  The one-step guarantee itself needs no witness: each incidence is
+a running sum of non-negative terms, and ``test_w1_each_cause_and_their_sum_never_decrease``
+checks it on a sample with events at every node.
+
 A two-cause sample checks each cause-specific incidence curve and their sum.
 """
 

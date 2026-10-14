@@ -35,6 +35,13 @@ family                            cells, replications and size
                                   (``all_reported``), each with its pointwise control
 ================================  =========================================================
 
+**The isotonic cell does not exercise a binding projection.**  Its curve rises from 0.375 at
+node 1 to 0.758 at node 2, a step of about nine standard errors at n = 2,000, so the declared
+binding share is zero (``X14-impl-review.md`` F4).  The cell checks that the projection
+leaves a regular curve's inference unchanged.  It is not evidence for an interval after a
+projection that moves a level.  The S-mono law that would have bound has no feasible design
+(``X14-progress.md``, deviation 1).
+
 A curve band is the shipped multiplier band (:func:`cleverly.inference.multiplier.
 simultaneous_bands`, 2,000 rademacher draws, ``random_state=0``) over the five risks of one
 arm, which is the band a fit of that one regimen reports.  The wrong hazard learner is
