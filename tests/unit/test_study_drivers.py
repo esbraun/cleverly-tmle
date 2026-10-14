@@ -16,6 +16,9 @@ in the fast tier.
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -278,3 +281,20 @@ def test_the_fold_targeted_property_driver_runs_every_deterministic_control() ->
         targeting_scheme="fold",
         cv_evaluation=True,
     )
+
+
+def test_every_study_driver_declares_the_phase_result_contract() -> None:
+    """``regenerate.py`` refuses a ``draw_and_fit`` that returns anything but a ``PhaseResult``.
+
+    The check reads every module under ``tests/studies``, registered or not, so a study
+    added on a branch before RM39b1 merged cannot slip past by still returning a tuple.
+    """
+    studies = Path(__file__).resolve().parents[1] / "studies"
+    wrong = {}
+    for path in sorted(studies.glob("*.py")):
+        for node in ast.parse(path.read_text(encoding="utf-8")).body:
+            if isinstance(node, ast.FunctionDef) and node.name == "draw_and_fit":
+                returns = ast.unparse(node.returns) if node.returns else None
+                if returns != "replication.PhaseResult":
+                    wrong[path.name] = returns
+    assert not wrong
