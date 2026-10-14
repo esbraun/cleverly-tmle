@@ -13,6 +13,7 @@ from .learners.crossfit import SplitPlan, _cross_fit_policy_refusal
 from .learners.library import _validate_learner
 
 __all__ = [
+    "BASELINE_NO_FLUCTUATION",
     "DEFAULT_LONGITUDINAL_G_BOUNDS",
     "DEFAULT_LONGITUDINAL_MULTIPLIER",
     "DEFAULT_POINT_MULTIPLIER",
@@ -51,6 +52,11 @@ DEFAULT_LONGITUDINAL_G_BOUNDS = (0.01, 1.0)
 SDR_NO_FLUCTUATION = (
     "the SDR estimator fits no fluctuation, so it has no logistic shrink, iteration limit or "
     "score tolerance. LTMLE takes {name}="
+)
+#: Why a baseline estimator refuses a fluctuation setting.  ``{name}`` is the setting.
+BASELINE_NO_FLUCTUATION = (
+    "the sequential g-computation and IPW estimators fit no fluctuation, so they have no "
+    "logistic shrink, iteration limit or score tolerance. LTMLE takes {name}="
 )
 #: Why a point-treatment functional refuses ``method="sdr"`` (R4).
 SDR_POINT_REFUSAL = (

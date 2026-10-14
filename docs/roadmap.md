@@ -323,6 +323,7 @@ the current boundary, and the refusal that keeps it.
 | Time-respecting cross-fitting | dependence and split-specific TMLE inference for blocked-temporal or rolling-origin folds | iid and grouped cross-fitting only | [F7](#f7-time-respecting-cross-fitting) |
 | Learned-policy value outside the published conditions | an interval for the fold-average learned-rule value without a limiting rule, and results for the refused compositions | `LearnedRuleValue` fits the fold-evaluated CV-TMLE of [learned rules](technical-reference/point-treatment-tmle.md#learned-rules) under the limiting-rule condition. Its boundary study measures under-coverage at an exceptional law. The other F27 requests refuse before any learner | [F27](#f27-learned-policy-value-outside-the-published-conditions) |
 | Inference at a boundary node estimate | an interval for a longitudinal TMLE parameter when a node regression reads a constant 0 or 1, such as a hazard estimated as zero at a grid node with no event, with its coverage | the point estimate stands. The parameter, and every contrast and restricted mean that reads it, take the `constant_node_plugin` status and report a plug-in diagnostic only. The band leaves them out | [F31](#f31-inference-at-a-boundary-node-estimate) |
+| Inference for sequential baselines with data-adaptive nuisances | an asymptotic-linearity result for longitudinal sequential g-computation or IPW whose nuisances are fitted by a data-adaptive learner | the point estimate stands. A fit that reads a regression fitted by a learner other than `GLM` takes the `adaptive_baseline_plugin` status and reports a plug-in diagnostic only | [F32](#f32-inference-for-sequential-baselines-with-data-adaptive-nuisances) |
 | Finite-sample limits of clustered intervals | a small-sample correction or reference for the cluster-summed TMLE curve, at few clusters, at unequal cluster sizes, and for the fold-evaluated variance at few clusters per fold. An interval at 4 to 9 clusters (4 to 19 for `LTMLE`), which no registered study measures, and a fold-evaluated degrees-of-freedom rule at 40 clusters or more | `few_cluster_plugin` below 10 positive-mass clusters, and below 20 for `LTMLE`, the smallest counts the registered study measures. $t_{J-2}$ from 10 (20 for `LTMLE`) to 39. Fold-evaluated fits need 2 clusters per fold. The registered evidence uses parametric nuisance learners | [F28](#f28-finite-sample-limits-of-clustered-intervals) |
 
 ## Eligibility
@@ -1957,6 +1958,18 @@ only.
 | --- | --- |
 | an interval for a parameter whose recursion reads a boundary node | a construction for a TMLE parameter with a boundary node hazard, such as a one-sided exact bound for the node combined with the influence curve of the other nodes, with its coverage. No source read here derives one |
 | a band that includes such a parameter | the same construction, extended to a joint statement. The fit builds its band over the other parameters |
+
+### F32. Inference for sequential baselines with data-adaptive nuisances
+
+`SequentialGComputation` and `SequentialIPW` report an interval only when every regression they
+read is a `GLM`. The interval is then the stacked estimating equation of the parametric fits.
+With another learner the estimator solves no efficient influence-curve equation. Its first-order
+bias is then of the order of the learner's error.
+
+| request | missing published result |
+| --- | --- |
+| an interval for sequential g-computation with a data-adaptive outcome learner | an asymptotic-linearity theorem for the iterated conditional expectation plug-in over several time points, such as an undersmoothing result. No source read here derives one |
+| an interval for longitudinal IPW with a data-adaptive mechanism learner | the same result for the cumulative weights. Ertefaie, Hejazi and van der Laan (2023), Section 3, Theorem 1, cover IPW with an undersmoothed highly adaptive lasso propensity at a single time point only |
 
 ## Reading a gap correctly
 

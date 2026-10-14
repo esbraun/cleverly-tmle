@@ -21,6 +21,7 @@ from types import MappingProxyType
 from typing import Final, Literal, cast
 
 __all__ = [
+    "ADAPTIVE_BASELINE_STATUS",
     "CONSTANT_NODE_STATUS",
     "FEW_CLUSTER_THRESHOLD",
     "HELD_OUT_SCALE",
@@ -48,6 +49,7 @@ InferenceStatus = Literal[
     "working_mechanism_plugin",
     "generated_design_plugin",
     "estimated_weight_plugin",
+    "adaptive_baseline_plugin",
     "few_cluster_plugin",
     "constant_node_plugin",
 ]
@@ -244,7 +246,9 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "error of that curve remains as a diagnostic under plugin_std_error and "
                 "plugin_interval. F5 in docs/roadmap.md reopens this when a paper supplies "
                 "that contribution. The ordinary TMLE (DRTMLE with guard=(), or TMLE) keeps "
-                "an interval that conditions on the weights."
+                "an interval that conditions on the weights. A sequential g-computation or "
+                "IPW fit with estimated weights takes this status too, because its stacked "
+                "estimating-equation curve conditions on the weights."
             ),
             assessment_note=(
                 "the reported curve is a fixed-weight diagnostic: no confidence interval or "
@@ -258,6 +262,35 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             diagnostic_noun="fixed-weight plug-in diagnostic",
             reopened_by="F5",
+        ),
+        "adaptive_baseline_plugin": StatusRecord(
+            reason=(
+                "A sequential g-computation or IPW fit reports no confidence interval, no "
+                "p-value and no standard error when a regression it reads is fitted by a "
+                "learner other than cleverly.learners.GLM. That covers a data-adaptive learner, "
+                "and a parametric scikit-learn model whose score the package does not stack. "
+                "The estimator solves no efficient influence-curve equation, so its "
+                "first-order bias is of the order of the learner's error, and no result read "
+                "here makes that bias negligible over several time points. The point estimate "
+                "stands. The diagnostic curve remains under plugin_std_error and "
+                "plugin_interval: for g-computation it is the efficient influence curve at the "
+                "untargeted fits, and for IPW it is the fixed-mechanism curve. For an interval, "
+                "pass GLM models, or fit LTMLE or SDR. F32 in docs/roadmap.md reopens this when "
+                "a result supplies the asymptotic linearity of these estimators with "
+                "data-adaptive nuisances."
+            ),
+            assessment_note=(
+                "the reported curve is a baseline diagnostic: no confidence interval or "
+                "p-value is available for a g-computation or IPW fit with a data-adaptive "
+                "learner, and F32 in the roadmap is the condition that reopens it"
+            ),
+            summary_label="baseline diagnostic se",
+            bootstrap_note=(
+                "a diagnostic; no result validates the bootstrap of a g-computation or IPW "
+                "fit with a data-adaptive learner"
+            ),
+            diagnostic_noun="baseline plug-in diagnostic",
+            reopened_by="F32",
         ),
         "few_cluster_plugin": StatusRecord(
             reason=(
@@ -321,6 +354,10 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
     }
 )
 
+
+#: The status of a sequential g-computation or IPW fit that reads a regression fitted by a
+#: learner other than :class:`~cleverly.learners.GLM`.
+ADAPTIVE_BASELINE_STATUS: Final = "adaptive_baseline_plugin"
 
 #: The status of a longitudinal parameter whose recursion read a node regression as a
 #: constant 0 or 1. The estimator stamps it by name, so the name lives here once.
