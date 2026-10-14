@@ -12,6 +12,7 @@ import pytest
 from sklearn.linear_model import LogisticRegression
 
 from tests.studies import canonical_ctmle_derivative as study
+from tests.studies import ctmle_derivative_dr_pilot as pilot
 from tests.studies import ctmle_derivative_laws as laws
 from tests.studies import ctmle_derivative_properties as properties
 from tests.studies.canonical_full_refit_bootstrap import calibration_pass_probability
@@ -79,7 +80,35 @@ def _projection_kl(law: laws.DerivativeLaw) -> float:
 
 def test_the_main_terms_lasso_target_is_right_on_the_primary_law_and_wrong_off_it() -> None:
     assert _projection_kl(laws.PRIMARY) < laws.PRIMARY_KL_CEILING
-    assert _projection_kl(laws.OUTCOME_CORRECT) > laws.OUTCOME_CORRECT_KL_FLOOR
+    assert _projection_kl(laws.OUTCOME_CORRECT) >= pilot.KL_FLOOR
+
+
+def test_the_outcome_correct_law_is_the_one_the_committed_pilot_chose() -> None:
+    """The law's coefficient is the smallest grid value that passed every pilot check."""
+    frame = pd.read_csv(pilot.PILOT)
+    assert list(frame["curvature"]) == pytest.approx(pilot.CURVATURE_GRID[: len(frame)])
+    assert frame["passed"].astype(bool).tolist() == [False] * (len(frame) - 1) + [True]
+    assert pilot.chosen_curvature() == laws.OUTCOME_CURVATURE
+    assert pilot.law_for(laws.OUTCOME_CURVATURE) == laws.OUTCOME_CORRECT
+    chosen = frame.iloc[-1]
+    assert chosen["truncation"] <= pilot.DR_TRUNCATION_CEILING
+    assert abs(chosen["ctmle_limit_bias"]) >= pilot.CTMLE_LIMIT_FLOOR * chosen["sigma"]
+    assert abs(chosen["tmle_limit_bias"]) >= pilot.TMLE_LIMIT_FLOOR * chosen["sigma"]
+    assert chosen["both_wrong_pass_probability"] >= pilot.PASS_PROBABILITY
+    assert chosen["outcome_correct_pass_probability"] >= pilot.PASS_PROBABILITY
+
+
+@pytest.mark.parametrize("cell", ["both_wrong", "outcome_correct"])
+def test_the_committed_pilot_rows_reproduce(cell: str) -> None:
+    """Replicate 0 of each pilot cell at the chosen coefficient refits to the committed bytes."""
+    rows = pd.read_csv(pilot.PILOT_REPLICATE_ROWS, float_precision="round_trip")
+    curvature = laws.OUTCOME_CURVATURE
+    committed = rows.loc[
+        (rows["curvature"] == curvature) & (rows["cell"] == cell) & (rows["replicate"] == 0)
+    ].iloc[0]
+    refit = pilot._pilot_fit((curvature, cell, 0))
+    for column in ("estimate", "std_error", "tmle_estimate"):
+        assert refit[column] == pytest.approx(committed[column], rel=1e-9, abs=1e-12)
 
 
 @pytest.mark.parametrize("law", [laws.PRIMARY, laws.THREE_ARM], ids=lambda law: law.name)

@@ -59,8 +59,9 @@ class DerivativeLaw:
         ``u`` on ``(W2, W3, W4)``, shared by every arm.
     scores : tuple of tuple of float
         One row per non-baseline arm: the treatment logit's coefficients on ``W``.
-    interaction : float
-        The coefficient of ``W1 W2`` in every non-baseline arm's score.
+    curvature : float
+        The coefficient of ``W2 |W2|`` in every non-baseline arm's score.  ``W2`` is a
+        confounder, so the term the main-terms lasso cannot read moves the outcome.
     response : tuple of float or None
         ``(intercept, on A, on W2, on W4)`` of the response mechanism's logit, or ``None``
         for a law with no missing outcome.
@@ -74,7 +75,7 @@ class DerivativeLaw:
     intercepts: tuple[float, ...]
     slope: tuple[float, float, float]
     scores: tuple[tuple[float, float, float, float], ...]
-    interaction: float = 0.0
+    curvature: float = 0.0
     response: tuple[float, float, float, float] | None = None
     clusters: int | None = None
     rho: float = 0.0
@@ -93,7 +94,7 @@ class DerivativeLaw:
         """``(n, K)``: ``P(A = a | W)`` per arm."""
         logits = [np.zeros(w.shape[0])]
         for row in self.scores:
-            logits.append(w @ np.asarray(row) + self.interaction * w[:, 0] * w[:, 1])
+            logits.append(w @ np.asarray(row) + self.curvature * w[:, 1] * np.abs(w[:, 1]))
         values = np.column_stack(logits)
         return np.asarray(softmax(values, axis=1), dtype=float)
 
@@ -192,8 +193,12 @@ PRIMARY = DerivativeLaw("primary", (-0.3, 0.2), _SLOPE, _SCORE)
 SHARP_NULL = DerivativeLaw("sharp_null", (-0.3, -0.3), _SLOPE, _SCORE)
 #: The power cell's law: the primary law at the declared contrast.
 ALTERNATIVE = DerivativeLaw("alternative", (-0.3, 0.07), _SLOPE, _SCORE)
-#: A treatment law with a ``W1 W2`` logit term, which the main-terms lasso cannot read.
-OUTCOME_CORRECT = DerivativeLaw("outcome_correct", (-0.3, 0.2), _SLOPE, _SCORE, interaction=0.8)
+#: The primary law plus ``W2 |W2|`` in the treatment logit, which the main-terms lasso cannot
+#: read.  :mod:`tests.studies.ctmle_derivative_dr_pilot` sizes the coefficient.
+OUTCOME_CURVATURE = 0.7
+OUTCOME_CORRECT = DerivativeLaw(
+    "outcome_correct", (-0.3, 0.2), _SLOPE, _SCORE, curvature=OUTCOME_CURVATURE
+)
 #: Three arms: a main-terms multinomial treatment law and a GLM-correct outcome.
 THREE_ARM = DerivativeLaw(
     "three_arm",
@@ -230,8 +235,7 @@ CALIBRATION_REPLICATES = 2_400
 ALTERNATIVE_EIF_SD = 1.0005
 ALTERNATIVE_EIF_SD_ERROR = 0.00021
 #: The KL gap of the main-terms logistic projection of the treatment law, at ``10^5`` draws:
-#: below the first floor on the primary law, above the second on ``outcome_correct``.
+#: below this ceiling on the primary law.  The pilot's floor on ``outcome_correct`` is twice it.
 PRIMARY_KL_CEILING = 1e-3
-OUTCOME_CORRECT_KL_FLOOR = 1e-2
 #: The largest share of mechanism values the three-arm law may put outside ``G_BOUNDS``.
 TRUNCATION_CEILING = 0.01

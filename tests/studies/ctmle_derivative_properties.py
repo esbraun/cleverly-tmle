@@ -16,14 +16,14 @@ family                     cells
 ``root_n_and_efficiency``  ``n_500``, ``n_2000`` and ``n_8000`` on the primary law
 ``double_robustness``      ``treatment_correct`` (a ``DummyRegressor`` outcome on the primary
                            law); ``outcome_correct`` (the correct outcome on the
-                           ``outcome_correct`` law, whose treatment logit has a ``W1 W2``
-                           term); the ``both_wrong`` control (both on that law)
+                           ``outcome_correct`` law, whose treatment logit adds
+                           ``W2 |W2|``); the ``both_wrong`` control (both on that law)
 ``targeting_necessity``    ``ate__targeted`` against ``ate__untargeted``: one fit with a
                            ``DummyRegressor`` outcome, and its initial plug-in
 =========================  ===============================================================
 
-**The paired ordinary TMLE.**  Each ``interval_calibration``, ``type_i_error`` and ``power``
-row also carries the ordinary ``TMLE`` on the same initial fit, mechanism and bounds, with only
+**The paired ordinary TMLE.**  Each ``interval_calibration``, ``type_i_error``, ``power`` and
+``double_robustness`` row also carries the ordinary ``TMLE`` on the same initial fit, mechanism and bounds, with only
 the derivative columns removed (:func:`~tests.studies.canonical_ctmle_derivative.paired_tmle`).
 ``tmle_estimate``, ``tmle_std_error`` and ``tmle_covered`` are descriptive.  No verdict reads
 them.  The declared reading of a red cell reads them.
@@ -42,8 +42,14 @@ of the SE-ratio difference at 1%.
   and no defect is found.  The revert rule fires: every ``derivative`` fit takes the
   ``derivative_plugin`` status.
 
-A red ``double_robustness`` positive cell outside the outcome-correct condition is a standing
-record with no status change.
+A red ``double_robustness`` cell takes :func:`_robustness_reading`.  A red ``both_wrong``
+control whose paired TMLE bias lies outside the margin is a standing record of collaborative
+bias reduction.  Any other red cell of the family is a defect suspect and is diagnosed.
+
+**The second declaration.**  The first run's ``outcome_correct`` law put the misspecified term
+on ``W1 W2``.  ``W1`` is an instrument, so neither estimator's both-wrong limit bias cleared the
+margin, and the control could not separate.  :mod:`tests.studies.ctmle_derivative_dr_pilot`
+sized the new law before this declaration.  No margin, budget, role or other law moved.
 
 A replicate that raises is not redrawn.  The exception stops the run, as the plan's failure
 rule requires.
@@ -56,7 +62,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from scipy.stats import binomtest
+from scipy.stats import binomtest, norm
 from sklearn.dummy import DummyRegressor
 from sklearn.linear_model import LogisticRegression
 
@@ -103,8 +109,11 @@ READING_LEVEL = 0.01
 
 #: The columns the calibration-family rows carry beside the shared schema.
 PAIRED_COLUMNS = ("tmle_estimate", "tmle_std_error", "tmle_covered")
-#: The families whose rows carry :data:`PAIRED_COLUMNS`.
-PAIRED_FAMILIES = ("interval_calibration", "type_i_error", "power")
+#: The families whose rows carry :data:`PAIRED_COLUMNS`.  The double-robustness rows carry
+#: them too, so each cell shows what its law does to the ordinary TMLE.  No verdict reads them.
+PAIRED_FAMILIES = ("interval_calibration", "type_i_error", "power", "double_robustness")
+#: The families :func:`red_cell_reading` reads with McNemar and the SE-ratio bootstrap.
+INTERVAL_FAMILIES = ("interval_calibration", "type_i_error", "power")
 
 
 @dataclass(frozen=True)
@@ -389,6 +398,35 @@ def _paired_se_ratio_difference(
     return float(low), float(high)
 
 
+def _robustness_reading(family: str, name: str, group: pd.DataFrame) -> dict[str, Any]:
+    """The declared reading of a red double-robustness cell.
+
+    A red ``both_wrong`` control whose paired TMLE bias lies outside the margin is
+    ``"collaborative-reduction"``: the law biases the ordinary TMLE, and C-TMLE0 removes part
+    of that bias on the same draws.  It is a standing record.  Any other red cell of the
+    family is ``"defect-suspect"`` and is diagnosed.
+    """
+    truth = float(group["truth"].iloc[0])
+    plain = group["tmle_estimate"].to_numpy(float)
+    derivative = group["estimate"].to_numpy(float)
+    size = plain.size
+    z = float(norm.ppf(1.0 - (1.0 - STUDY.margins.confidence_level) / 2.0))
+    margin = STUDY.margins.standardized_bias * float(derivative.std(ddof=1))
+    tmle_bias = float(plain.mean() - truth)
+    half = z * float(plain.std(ddof=1)) / np.sqrt(size)
+    tmle_discriminated = abs(tmle_bias) - half > margin
+    reduction = name == "both_wrong" and tmle_discriminated
+    return {
+        "property": family,
+        "cell": name,
+        "derivative_bias": float(derivative.mean() - truth),
+        "tmle_bias": tmle_bias,
+        "tmle_bias_half_width": half,
+        "margin": margin,
+        "reading": "collaborative-reduction" if reduction else "defect-suspect",
+    }
+
+
 def red_cell_reading(rows: pd.DataFrame, summary: pd.DataFrame) -> pd.DataFrame:
     """The declared reading of each red interval, type-I or power cell.
 
@@ -414,6 +452,9 @@ def red_cell_reading(rows: pd.DataFrame, summary: pd.DataFrame) -> pd.DataFrame:
     red = summary.loc[summary["property"].isin(PAIRED_FAMILIES) & ~summary["passed"].astype(bool)]
     for family, name in red[["property", "cell"]].itertuples(index=False):
         group = rows.loc[(rows["property"] == family) & (rows["cell"] == name)]
+        if family not in INTERVAL_FAMILIES:
+            out.append(_robustness_reading(family, name, group))
+            continue
         derivative_only = int(((group["covered"] == 1) & (group["tmle_covered"] == 0)).sum())
         tmle_only = int(((group["covered"] == 0) & (group["tmle_covered"] == 1)).sum())
         discordant = derivative_only + tmle_only
