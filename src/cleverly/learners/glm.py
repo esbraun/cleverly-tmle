@@ -9,17 +9,13 @@ estimating-equation curve of a fit.
 
 The families follow R's ``glm``:
 
-==============  =====================================  ==========================================
-family          target                                 model
-==============  =====================================  ==========================================
-``binomial``    a 0/1 label, or a fraction in [0, 1]   :math:`\mu = \operatorname{expit}(x^\top\beta)`.
-                                                       A fractional target is the quasi-binomial
-                                                       fit (Papke and Wooldridge 1996), whose
-                                                       score :math:`x(y - \mu)` is the binomial one
-``multinomial`` three or more integer labels           baseline-category logits, the first label
-                                                       the reference
-``gaussian``    any real target                        :math:`\mu = x^\top\beta`, least squares
-==============  =====================================  ==========================================
+- ``binomial`` takes a 0/1 label or a fraction in [0, 1], with
+  :math:`\mu = \operatorname{expit}(x^\top\beta)`. A fractional target is the quasi-binomial
+  fit of R's ``glm(family = quasibinomial())``, whose score :math:`x(y - \mu)` is the binomial
+  one.
+- ``multinomial`` takes three or more integer labels, with baseline-category logits and the first
+  label as the reference.
+- ``gaussian`` takes any real target, with :math:`\mu = x^\top\beta` fitted by least squares.
 
 ``family="auto"`` reads the target: integer labels give ``binomial`` (two labels) or
 ``multinomial`` (more), a float target in [0, 1] gives ``binomial``, and any other float target

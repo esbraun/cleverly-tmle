@@ -38,13 +38,13 @@ from .screeners import CorrelationScreener, screen_by_correlation
 from .super_learner import SuperLearner, SuperLearnerDiagnostics
 
 __all__ = [
+    "GLM",
     "ConditionalDensity",
     "CorrelationScreener",
     "CrossFitPlan",
     "DensityDiagnostics",
     "FoldOrigin",
     "Folds",
-    "GLM",
     "SplitPlan",
     "SuperLearner",
     "SuperLearnerDiagnostics",
