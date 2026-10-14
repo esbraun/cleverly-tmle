@@ -97,7 +97,7 @@ def test_the_outcome_correct_law_is_the_one_the_committed_pilot_chose() -> None:
     reselected = pilot.select(raw)
     for column in ("check_4", "check_5", "passed"):
         assert reselected[column].tolist() == frame[column].astype(bool).tolist()
-    chosen = frame.loc[frame["curvature"] == pytest.approx(laws.OUTCOME_CURVATURE)].iloc[0]
+    chosen = frame.loc[np.isclose(frame["curvature"], laws.OUTCOME_CURVATURE)].iloc[0]
     assert chosen["truncation"] <= pilot.DR_TRUNCATION_CEILING
     assert abs(chosen["tmle_limit_bias"]) >= pilot.TMLE_LIMIT_FLOOR * chosen["sigma"]
     assert abs(chosen["trend_ctmle_limit_bias"]) >= pilot.CTMLE_LIMIT_FLOOR * chosen["trend_sigma"]
