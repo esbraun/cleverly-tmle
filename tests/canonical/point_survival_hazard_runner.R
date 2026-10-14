@@ -59,13 +59,23 @@ counted_call <- function(arguments) {
   list(fit = fitted, failures = failures, others = others)
 }
 
-ic_column <- function(fitted, code, arm) {
-  column <- sprintf("IC%sstar.Z%d", code, arm)
+ic_column <- function(fitted, code, arm, frame, t0) {
+  # method = "hazard" names the influence curve of F_j(t0 | z) "D.j<j>.z<z>"
+  # (hazard_tmle.R), where method = "mean" writes "IC<j>star.Z<z>".
+  column <- sprintf("D.j%s.z%d", code, arm)
   if (!column %in% names(fitted$ic)) {
     stop(sprintf("no influence column %s; survtmle returned %s", column,
                  paste(names(fitted$ic), collapse = ", ")))
   }
-  fitted$ic[[column]]
+  ic <- fitted$ic[[column]]
+  # The column is the curve of the incidence, not of the survival: it rises with an observed
+  # cause-j event by t0 in arm z.  A negated curve fails this check.
+  observed <- as.numeric(frame$A == arm & frame$event == as.numeric(code) & frame$time <= t0)
+  if (!(stats::cov(ic, observed) > 0)) {
+    stop(sprintf("influence column %s does not rise with an observed event; its sign is wrong",
+                 column))
+  }
+  ic
 }
 
 check_estimation_rows <- function(frame, t0) {
@@ -152,7 +162,7 @@ fit_scenario <- function(frame) {
         key <- sprintf("%d %s", arms[[arm]], code)
         values[[arm]] <- list(
           estimate = fitted$est[key, 1], initial = initial$est[key, 1],
-          ic = ic_column(fitted, code, arms[[arm]])
+          ic = ic_column(fitted, code, arms[[arm]], frame, t0)
         )
         rows[[length(rows) + 1]] <- row_for(
           scenario, replicate, level_name(arm, t0, cause), values[[arm]]$estimate,
