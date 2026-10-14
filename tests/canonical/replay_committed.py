@@ -112,10 +112,22 @@ def replay(slugs: Sequence[str], replicates: int, n_jobs: int, labels: Mapping[s
             (committed["implementation"] == record.implementation)
             & (committed["replicate"] < replicates)
         ]
-        # A replicate the subject failed on either side has no row to compare (RM39b).
-        lost = _lost(result.failures, record) | _lost(
-            failures.read(record.artifacts / failures.FAILURES), record
-        )
+        # A replicate the subject failed has no row to compare (RM39b).  The replay must fail
+        # on the same replicates as the committed run, or the failure itself is the drift.
+        lost = _lost(result.failures, record)
+        recorded = {
+            pair
+            for pair in _lost(failures.read(record.artifacts / failures.FAILURES), record)
+            if pair[1] < replicates
+        }
+        if lost != recorded:
+            print(
+                f"{slug}: the replay failed on {sorted(lost)}, the committed run on "
+                f"{sorted(recorded)}",
+                flush=True,
+            )
+            worst = float("inf")
+            continue
         if lost:
             print(f"{slug}: skipping the failed replicates {sorted(lost)}", flush=True)
         rows = result.rows.loc[~_among(result.rows, lost)]

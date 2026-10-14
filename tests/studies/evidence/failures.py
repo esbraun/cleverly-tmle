@@ -1145,31 +1145,6 @@ def missing_fits(
     return len(lost[["scenario", "replicate"]].drop_duplicates())
 
 
-def unwritten_samples(
-    failures: pd.DataFrame | None,
-    record: StudyRecord,
-    *,
-    scenarios: Iterable[str],
-    replicates: Iterable[int],
-) -> int:
-    """The (scenario, replicate) samples that a failed subject fit left unwritten.
-
-    A study whose reference input comes from the subject's fit writes no sample for a
-    replicate the subject lost, and its driver writes a ``paired_input_missing`` record in
-    its place.  A probe that refits named replicates of the samples loses each one counted
-    here.
-    """
-    lost = expand(
-        None if failures is None else failures.loc[failures["class"] == PAIRED_INPUT_MISSING],
-        record,
-    )
-    chosen = lost.loc[
-        lost["scenario"].isin(set(scenarios))
-        & lost["replicate"].astype(int).isin({int(value) for value in replicates})
-    ]
-    return len(chosen[["scenario", "replicate"]].drop_duplicates())
-
-
 def audits(gates: Mapping[str, pd.DataFrame], *, missing: Mapping[str, int]) -> pd.DataFrame:
     """The ``account_failures`` frame of a study whose audits fail on any row.
 

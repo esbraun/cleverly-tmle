@@ -120,13 +120,17 @@ def records(outcomes: Outcomes) -> pd.DataFrame | None:
     return None if outcomes.failures.empty else outcomes.failures.reset_index(drop=True)
 
 
-def invalid_rows(rows: pd.DataFrame | Sequence[Mapping[str, Any]]) -> str | None:
+def invalid_rows(
+    rows: pd.DataFrame | Sequence[Mapping[str, Any]], *, coverage: bool = True
+) -> str | None:
     """The first row rule that ``rows`` break, or ``None``.
 
     The rules of the reference harness's ``study_invalid`` (RM39a2): a finite ``estimate``,
     ``inference_estimate`` and ``std_error``, a positive ``std_error``, ``ci_lower`` at most
     ``ci_upper``, and ``covered`` equal to the interval's coverage of ``truth``.  Only the
-    columns present are read.  A missing value breaks a rule.
+    columns present are read.  A missing value breaks a rule.  ``coverage=False`` drops the
+    last rule: the study computes a subject row's ``covered`` itself, so a disagreement there
+    is a study defect, and ``schema.validate_replicates`` stops the run on it.
     """
     frame = rows if isinstance(rows, pd.DataFrame) else pd.DataFrame(list(rows))
     if frame.empty:
@@ -154,7 +158,7 @@ def invalid_rows(rows: pd.DataFrame | Sequence[Mapping[str, Any]]) -> str | None
             ordered = number("ci_lower") <= number("ci_upper")
             if not ordered.all():
                 return f"ci_lower above ci_upper for {where(~ordered)}"
-        if {"covered", "truth", "ci_lower", "ci_upper"} <= columns:
+        if coverage and {"covered", "truth", "ci_lower", "ci_upper"} <= columns:
             truth = number("truth")
             inside = (number("ci_lower") <= truth) & (truth <= number("ci_upper"))
             agrees = number("covered") == inside.astype(float)
@@ -525,7 +529,7 @@ def fit_primary(
     A key is ``(scenario, replicate, ...)`` unless ``cell_of`` and ``replicate_of`` say
     otherwise.  ``fit_one`` returns the study's value for one key; ``rows_at`` is the position
     of the subject's rows in it (``None`` when the value is the rows).  The rows are checked by
-    :func:`invalid_rows`.  ``reference_input`` builds a failed key's value without the fit, so
+    :func:`invalid_rows` without the coverage rule.  ``reference_input`` builds a failed key's value without the fit, so
     the reference still fits that replicate.  A study whose reference input needs the fit
     passes none.
     """
@@ -575,4 +579,4 @@ class _RowCheck:
 
     def __call__(self, value: Any) -> str | None:
         rows = value if self.rows_at is None else value[self.rows_at]
-        return invalid_rows(rows)
+        return invalid_rows(rows, coverage=False)

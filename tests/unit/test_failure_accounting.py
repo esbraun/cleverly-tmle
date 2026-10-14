@@ -499,6 +499,53 @@ class TestSubjectFailures:
         assert coverage["complete_case"] >= 0 > coverage["worst_case"]
         assert coverage["imputation"] == "subject missed"
 
+    def test_the_calibration_leg_fills_the_subject_at_a_spread_extreme(self) -> None:
+        """Mutation control s3: the complete cases pass, the spread-extreme fill does not."""
+        accounting = self._accounting(self._subject_record(), subject_failed=self.LOST)
+        calibration = accounting.loc[accounting["leg"] == "calibration excess"].iloc[0]
+        assert calibration["complete_case"] >= 0 > calibration["worst_case"]
+        assert calibration["imputation"].startswith("subject SE at min")
+
+    def test_mixed_failures_keep_each_replicate_s_two_sides_aligned(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutation control s5: each replicate both sides fitted stays paired with itself.
+
+        The fills reuse survivor values, so the check reads the pairs of the shared replicates:
+        each one must appear in every full-length bootstrap input, and each side's real value
+        of a replicate only the other side lost must appear too.
+        """
+        record = self._subject_record()
+        subject_lost, reference_lost = (3, 4, 5), (7, 8, 9, 10)
+        rows = _rows(record, failed=reference_lost, subject_failed=subject_lost)
+        wide = (
+            rows.pivot(index="replicate", columns="implementation", values="estimate")
+            .sort_index()
+            .reindex(range(record.replicates))
+        )
+        shared = wide.dropna()
+        captured: list[dict[str, np.ndarray]] = []
+        real = failures.bootstrap
+
+        def spy(data: dict[str, np.ndarray], *args: object, **options: object) -> object:
+            captured.append({name: np.asarray(values) for name, values in data.items()})
+            return real(data, *args, **options)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(failures, "bootstrap", spy)
+        self._accounting(record, subject_failed=subject_lost, reference_failed=reference_lost)
+        full = [
+            data
+            for data in captured
+            if len(data.get("subject_estimate", ())) == record.replicates
+            and "reference_estimate" in data
+        ]
+        assert full
+        for data in full:
+            pairs = set(zip(data["subject_estimate"], data["reference_estimate"], strict=True))
+            assert set(zip(shared[SUBJECT], shared[REFERENCE], strict=True)) <= pairs
+            assert set(wide.loc[list(subject_lost), REFERENCE]) <= set(data["reference_estimate"])
+            assert set(wide.loc[list(reference_lost), SUBJECT]) <= set(data["subject_estimate"])
+
     def test_the_subject_worst_case_fills_reach_the_bootstrap(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -929,22 +976,6 @@ class TestSubjectHooks:
         )
         assert overlap.set_index("leg")["passed"].to_dict() == {"coverage": False, "probe": True}
 
-    def test_an_unwritten_sample_is_counted_for_the_probe(self) -> None:
-        record = _record(scenarios={"law": ("ate",), "other": ("ate",)})
-        recorded = _joined(
-            _failures(("law", "0;5"), implementation=SUBJECT),
-            _failures(("law", "0;5"), kind=failures.PAIRED_INPUT_MISSING),
-            _failures(("other", "0")),
-        )
-        assert (
-            failures.unwritten_samples(recorded, record, scenarios=("law",), replicates=(0,)) == 1
-        )
-        # A reference fit failure leaves its sample written.
-        assert (
-            failures.unwritten_samples(recorded, record, scenarios=("other",), replicates=(0,)) == 0
-        )
-        assert failures.unwritten_samples(None, record, scenarios=("law",), replicates=(0,)) == 0
-
     def test_the_claims_count_each_side_and_the_score_audit_pairs_around_both(
         self, tmp_path: Path
     ) -> None:
@@ -965,6 +996,11 @@ class TestSubjectHooks:
         aggregates = claims._aggregates(record)
         assert aggregates["subject_failures"](data) == 1.0
         assert aggregates["reference_failures"](data) == 1.0
+        # A reference fit the subject's loss left without an input is the subject's failure.
+        induced = _joined(recorded, _failures(("law", "1"), kind=failures.PAIRED_INPUT_MISSING))
+        with_induced = {**data, claims.FAILURES: induced}
+        assert aggregates["reference_failures"](with_induced) == 1.0
+        assert aggregates["failure_rate"](with_induced) == 0.25
         assert claims._score_audit_aggregates(record)["score_audited_fits"](data) == 3.0
         # Mutation control: without the subject's record the pairing does not close.
         alone = {**data, claims.FAILURES: _failures(("law", "2"))}

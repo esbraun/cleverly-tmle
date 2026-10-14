@@ -137,6 +137,13 @@ def _displacement(frame: pd.DataFrame, implementation: str) -> pd.Series:
     return (rows["estimate"] - rows["initial_estimate"]).abs() / rows["std_error"]
 
 
+def _own(recorded: pd.DataFrame | None) -> pd.DataFrame | None:
+    """``recorded`` without the induced ``paired_input_missing`` records."""
+    if recorded is None:
+        return None
+    return recorded.loc[recorded["class"] != failures.PAIRED_INPUT_MISSING]
+
+
 def _aggregates(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.DataFrame]], float]]:
     """Study-independent headline quantities, derived rather than declared."""
     subject = record.implementation
@@ -152,14 +159,15 @@ def _aggregates(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.Data
             _displacement(data["replicates"], subject).median()
         ),
         "replicates": lambda data: float(record.replicates),
-        # The comparator fits a recorded failure left without a row, zero for a study with no
-        # ``failures.csv``, and their share of the comparator's scenario fits.  The subject's
-        # lost fits are counted apart, because each side has its own bound.
+        # The comparator's own failed fits, zero for a study with no ``failures.csv``, and
+        # their share of the comparator's scenario fits.  The subject's lost fits are counted
+        # apart, because each side has its own bound, and so are the reference fits a lost
+        # subject fit left without an input (``paired_input_missing``), which the subject pays.
         "reference_failures": lambda data: float(
-            failures.missing_fits(data.get(FAILURES), record, str(record.reference))
+            failures.missing_fits(_own(data.get(FAILURES)), record, str(record.reference))
         ),
         "failure_rate": lambda data: (
-            float(failures.missing_fits(data.get(FAILURES), record, str(record.reference)))
+            float(failures.missing_fits(_own(data.get(FAILURES)), record, str(record.reference)))
             / float(record.replicates * len(record.scenarios))
         ),
         "subject_failures": lambda data: float(

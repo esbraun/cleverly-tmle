@@ -194,8 +194,10 @@ class DirectoryCheckpoint:
     """Keep each finished replication of a :class:`CoverageStudy` as a file in a directory.
 
     One file per replication, written under a temporary name and then renamed, so a study
-    stopped mid-write never reads a partial file.  The directory belongs to one study: a
-    second study with other seeds is refused when it loads.
+    stopped mid-write never reads a partial file.  The directory belongs to one study.  The
+    load compares each stored seed with the study's seed and refuses a mismatch.  It compares
+    nothing else, so a study with the same seed and another ``n``, data-generating process or
+    estimator reads the stored results.  Give each configuration its own directory.
 
     Parameters
     ----------

@@ -468,11 +468,49 @@ def reference_artifacts(
     output: Path,
     cores: int,
 ) -> dict[str, pd.DataFrame]:
-    """Run the exact-equality probe of the planted-row scale workaround on replication 0."""
+    """Run the exact-equality probe of the planted-row scale workaround on one replication.
+
+    The probe reads replication 0.  The study's reference input comes from the subject's fit,
+    so a lost subject fit leaves that sample unwritten.  The probe then reads the lowest
+    replication the scenario kept instead, and its table names that replication.
+    """
     del reference_results  # the probe writes its own table rather than reading the rows
     path = output / PROBE_ARTIFACT
-    reference.run(here, samples, truths_path, path, cores=cores, runner=PROBE_RUNNER)
-    return {PROBE_ARTIFACT: pd.read_csv(path)}
+    probed, moved = probe_samples(samples)
+    try:
+        reference.run(here, probed, truths_path, path, cores=cores, runner=PROBE_RUNNER)
+    finally:
+        if probed != samples:
+            probed.unlink(missing_ok=True)
+    table = pd.read_csv(path)
+    for scenario, replicate in moved.items():
+        table.loc[table["scenario"] == scenario, "replicate"] = replicate
+    return {PROBE_ARTIFACT: table}
+
+
+def probe_samples(samples: Path) -> tuple[Path, dict[str, int]]:
+    """The samples the probe reads, and the replication each moved scenario's probe reads.
+
+    The probe runner reads replication 0 of each continuous scenario.  Where the subject lost
+    replication 0, a copy beside ``samples`` relabels the lowest kept replication as 0.
+    """
+    frame = pd.read_csv(samples)
+    moved: dict[str, int] = {}
+    for law in laws.LAWS.values():
+        kept = frame.loc[frame["scenario"] == law.scenario, "replicate"]
+        if law.continuous and not kept.empty and not (kept == 0).any():
+            moved[law.scenario] = int(kept.min())
+    if not moved:
+        return samples, moved
+    substitutes = [
+        frame.loc[(frame["scenario"] == scenario) & (frame["replicate"] == replicate)].assign(
+            replicate=0
+        )
+        for scenario, replicate in moved.items()
+    ]
+    probed = samples.with_name("scale-probe-samples.csv.gz")
+    pd.concat([frame, *substitutes], ignore_index=True).to_csv(probed, index=False)
+    return probed, moved
 
 
 def scientific_failures(extra_frames: Mapping[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
@@ -485,20 +523,15 @@ def scientific_failures(extra_frames: Mapping[str, pd.DataFrame]) -> dict[str, p
 
 
 def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
-    """The probe audits: the probe refits replication 0 of the samples only.
+    """The probe audits: the probe refits one replication of each continuous scenario.
 
-    A failed reference fit removes no probe row, so it changes neither audit.  A failed
-    subject fit at replication 0 leaves that sample unwritten when the reference input comes
-    from the subject's fit, so the probe loses its input: that counts as a coverage gap.  The
-    probe runs its own ``tmle`` call outside ``study_stage``.  When that call fails as well,
-    the run stops in ``reference_artifacts``, as the hook rule in ``method-benchmarking.md``
-    states.
+    No recorded failure removes a probe row.  A failed reference fit leaves its sample
+    written, and a lost subject fit moves the probe to the scenario's lowest kept replication
+    (:func:`reference_artifacts`).  The probe runs its own ``tmle`` call outside
+    ``study_stage``.  When that call fails, the run stops in ``reference_artifacts``, as the
+    hook rule in ``method-benchmarking.md`` states.
     """
+    del failures  # no recorded failure removes a probe row
     gates = scientific_failures(artifacts)
-    coverage = "scale-workaround probe coverage"
-    gates.setdefault(coverage, artifacts[PROBE_ARTIFACT].iloc[:0])
-    continuous = [law.scenario for law in laws.LAWS.values() if law.continuous]
-    gap = evidence_failures.unwritten_samples(
-        failures, STUDY, scenarios=continuous, replicates=(0,)
-    )
-    return evidence_failures.audits(gates, missing={coverage: gap})
+    gates.setdefault("scale-workaround probe coverage", artifacts[PROBE_ARTIFACT].iloc[:0])
+    return evidence_failures.audits(gates, missing={})

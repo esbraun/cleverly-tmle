@@ -350,6 +350,22 @@ class TestRowRules:
         assert replication.invalid_rows([{"estimate": 1.0}]) is None
         assert replication.invalid_rows([]) is None
 
+    def test_the_primary_loop_leaves_a_coverage_disagreement_to_stop_the_run(self) -> None:
+        # The study computes a subject row's ``covered``, so a disagreement is its own defect:
+        # ``fit_primary`` must keep the row for ``validate_replicates`` rather than record it.
+        broken = {**_ROW, "covered": 0}
+        assert replication.invalid_rows([broken]) is not None
+        outcomes = replication.fit_primary(
+            [("law", 0)],
+            lambda key, drawn: [broken],
+            draw=lambda key: None,
+            n_jobs=1,
+            implementation="cleverly",
+            rows_at=None,
+        )
+        assert outcomes.failures.empty
+        assert outcomes.fitted == [[broken]]
+
 
 def test_induced_records_name_the_subject_group() -> None:
     from tests.studies.evidence import failures

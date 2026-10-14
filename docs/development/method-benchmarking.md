@@ -68,7 +68,7 @@ The driver publishes both sides' records as `failures.csv` and the accounting as
 | subject rows | A subject row that breaks a row rule of the `invalid result` rule becomes an `invalid_result` record |
 | side bounds | Each implementation's failures count against its own bound. A paired cell is red when either side exceeds its bound |
 | paired input | A study whose reference input does not need the subject's fit still writes the sample of a replicate that the subject lost, so the reference fits it. A study whose reference input comes from the subject's fit writes no such sample. The driver then writes a `paired_input_missing` reference record, which counts against the subject's bound |
-| Python checkpoints | Under the driver, each Python replicate runs in a worker and leaves a checkpoint. A killed worker costs the replicates in flight. Each one runs once more alone, and a second kill stops the run. A `MemoryError` in a worker is a kill |
+| Python checkpoints | Under the driver, each Python replicate runs in a worker and leaves a checkpoint. A killed worker costs the replicates in flight. Each one runs once more alone, and a second kill stops the run. A `MemoryError` in a worker's fit is a kill. A `MemoryError` elsewhere in the worker stops the run |
 | zEpid | The zEpid runner records failures with a copy of the Python rule that adds `zepid` to the libraries. It runs in one container, so the driver's stored reference result is its resume |
 | property phase | The property studies record no failure in this release. An error there stops the run |
 
@@ -77,7 +77,7 @@ The stage covers the comparator call only. These conditions stay fatal and stop 
 - an error outside a stage, such as a data read or an output write,
 - a `study_fatal_error`, such as a promoted warning,
 - a C stack overflow,
-- the first 20 groups, or Python replicates, of one scenario all fail, and
+- the first 20 groups, or Python replicates, of one cell all fail (a cell is one scenario, or the set of scenarios one key spans), and
 - every group, or every Python replicate, of the run fails.
 
 A memory-exhaustion error ends the worker as a kill. The same run then refits that group with
