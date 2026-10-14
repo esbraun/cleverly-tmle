@@ -266,8 +266,9 @@ print(means.curve(scale="mean")[["estimand", "psi", "ci_lower", "ci_upper"]])
 `truth` holds the exact mean at each horizon, under the names the fit reports. The generator sets
 every node to binary, so the fit can check its curve against `truth`.
 [Repeated outcomes](../technical-reference/longitudinal-tmle.md#repeated-outcomes) gives the
-estimator, its conditions, and its evidence. The study `longitudinal-repeated-outcome` is declared
-and has not run, so no validation result stands behind this estimator yet.
+estimator, its conditions, and its evidence. The
+[repeated-outcome study](../technical-reference/method-evidence/repeated-outcome-longitudinal-tmle.md)
+compares the estimator with R `ltmle` 1.3-0 and checks its intervals against exact truths.
 
 ## Competing risks
 
