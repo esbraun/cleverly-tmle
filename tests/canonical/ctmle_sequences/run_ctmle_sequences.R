@@ -215,8 +215,9 @@ fit_lasso <- function(frame, W, Q, label) {
   # rows, and once on the training rows of each cross-validation fold.
   lassox <- model.matrix(~ W1 + W2 + W3, W)[, -1]
   path_minimum <- function(rows) {
-    min(glmnet(x = lassox[rows, , drop = FALSE], y = as.factor(frame$A[rows]),
-               family = "binomial")$lambda)
+    study_stage("default glmnet path", min(glmnet(
+      x = lassox[rows, , drop = FALSE], y = as.factor(frame$A[rows]), family = "binomial"
+    )$lambda))
   }
   path_min <- path_minimum(seq_len(nrow(frame)))
   fold_path_min <- vapply(folds, function(held) path_minimum(-held), numeric(1))
@@ -235,7 +236,16 @@ fit_lasso <- function(frame, W, Q, label) {
     folds = folds,
     detailed = TRUE
   )
-  fit <- tryCatch(do.call(ctmleGlmnet, arguments), error = function(condition) condition)
+  # A ctmleGlmnet error comes back as a condition, so the adapter below can look at it.  When
+  # the harness records failures, the stage has already made it a study_fitting_failure.  A
+  # fatal error passes through.
+  fit <- tryCatch(
+    study_stage("ctmleGlmnet", do.call(ctmleGlmnet, arguments)),
+    error = function(condition) {
+      if (inherits(condition, "study_fatal_error")) stop(condition)
+      condition
+    }
+  )
   if (!inherits(fit, "error")) {
     return(list(
       estimate = as.numeric(fit$est),
@@ -247,9 +257,9 @@ fit_lasso <- function(frame, W, Q, label) {
       fold_path_min_lambda = fold_path_min
     ))
   }
-  # Only the quirk-7 failure is caught: the rebuilt selection must be the last penalty, or
-  # the original error stops the run.
-  rebuilt <- do.call(rebuild_type1, arguments)
+  # Only the quirk-7 failure is adapted: the rebuilt selection must be the last penalty, or
+  # the original ctmleGlmnet error is recorded as this group's failure.
+  rebuilt <- study_stage("rebuild_type1", do.call(rebuild_type1, arguments))
   best_k <- rebuilt$cv.res$best_k
   if (!identical(as.integer(best_k), length(lambdas))) stop(fit)
   results <- rebuilt$candidates$results.all
@@ -266,8 +276,9 @@ fit_lasso <- function(frame, W, Q, label) {
 
 fit_learners <- function(frame, W, Q, seed, folds, label) {
   n <- nrow(frame)
-  gn_seq <- build_gn_seq(A = frame$A, W = W, SL.library = SL.library, folds = folds,
-                         verbose = FALSE)
+  gn_seq <- study_stage("build_gn_seq", build_gn_seq(
+    A = frame$A, W = W, SL.library = SL.library, folds = folds, verbose = FALSE
+  ))
   full <- as.matrix(gn_seq$gn_candidates)
   cv <- as.matrix(gn_seq$gn_candidates_cv)
   if (ncol(full) != 5L || ncol(cv) != 5L) stop(sprintf("%s: build_gn_seq gave no 5 columns", label))
@@ -275,7 +286,7 @@ fit_learners <- function(frame, W, Q, seed, folds, label) {
   check_separation(cv, "cv", label)
   # The same seed again, so cv_general's redraw at functions_general.R:287 is folds_R.
   set.seed(seed)
-  fit <- ctmleGeneral(
+  fit <- study_stage("ctmleGeneral", ctmleGeneral(
     Y = frame$Y,
     A = frame$A,
     W = W,
@@ -290,7 +301,7 @@ fit_learners <- function(frame, W, Q, seed, folds, label) {
     V = V,
     folds = folds,
     detailed = TRUE
-  )
+  ))
   best_k <- as.integer(fit$best_k)
   # R's plain D* variance at the selected candidate, never `var.psi`, which carries the
   # first-covariate ICg term (quirk 6).
@@ -332,7 +343,7 @@ fit_one <- function(frame) {
   if (is.na(truth_row)) stop(sprintf("no truth for %s replicate %s", scenario, replicate))
   truth <- truths$truth_ate[[truth_row]]
   W <- frame[c("W1", "W2", "W3")]
-  q_fit <- glm(Y ~ A + W1 + W2 + W3, data = frame, family = binomial())
+  q_fit <- study_stage("initial glm", glm(Y ~ A + W1 + W2 + W3, data = frame, family = binomial()))
   q0 <- predict(q_fit, transform(frame, A = 0), type = "response")
   q1 <- predict(q_fit, transform(frame, A = 1), type = "response")
   Q <- cbind(q0, q1)
@@ -381,9 +392,12 @@ fit_one <- function(frame) {
 
 groups <- split(samples, interaction(samples$scenario, samples$replicate, drop = TRUE))
 cores <- study_cores(groups)
+# Forced here, in the parent: with `mc.preschedule = TRUE`, `mclapply` would force it in each
+# child, and `study_collect` would then find no registered groups to retry or assemble.
+fit_group <- study_fitter(groups, fit_one)
 results <- parallel::mclapply(
   seq_along(groups),
-  study_fitter(groups, fit_one),
+  fit_group,
   mc.cores = cores,
   mc.preschedule = TRUE
 )
