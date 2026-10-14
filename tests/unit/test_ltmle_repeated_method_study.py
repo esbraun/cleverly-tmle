@@ -911,13 +911,14 @@ def _bias_cells() -> set[str]:
     }
 
 
-def test_the_bias_checks_pass_jointly_under_the_pooled_reading() -> None:
+def test_the_bias_checks_pass_jointly_under_the_family_reading() -> None:
     """The pilot biases of P4 give a family-wise pass probability of at least 0.95.
 
     Pilot P4 drew 300 replications per family.  The 57 standardized biases of the positive
-    cells and of the controls around their limits share one mean.  Their spread is smaller
-    than the pilot noise, so the point estimate of the spread between cells is zero.  The
-    bound is the 80% upper confidence bound, and the probability is read at the bound.
+    cells and of the controls around their limits fall into six families, and a family shares
+    a mean.  The spread of cells within a family is smaller than the pilot noise, so the point
+    estimate of the spread between cells is zero.  The bound is the 80% upper confidence bound,
+    and the probability is read at the bound.
     """
     biases = properties.PROPERTY_PILOT_BIASES
     pilot = properties.PROPERTY_PILOT_REPLICATES
@@ -930,43 +931,136 @@ def test_the_bias_checks_pass_jointly_under_the_pooled_reading() -> None:
         assert properties.bias_equivalent_probability(bias, 1_000) == pytest.approx(
             _equivalent(bias, 1_000)
         )
-    group = properties.property_bias_group(biases, pilot)
-    values = np.array(list(biases.values()))
-    assert np.std(values, ddof=1) < 1.0 / np.sqrt(pilot)
-    tau = properties.heterogeneity_bound([group])
-    assert tau == pytest.approx(0.033, abs=0.001)
+    groups = properties.property_bias_groups(biases, pilot)
+    assert {name: len(group.values) for name, group in groups.items()} == {
+        "double_robustness": 15,
+        "full_history_necessity": 10,
+        "outcome_history_necessity": 6,
+        "repeated_outcome_necessity": 12,
+        "rule_necessity": 4,
+        "targeting_necessity": 10,
+    }
+    # The family means are not all zero: N1 averages 0.058, 2.4 times the noise of its mean.
+    means = {name: float(np.mean(group.values)) for name, group in groups.items()}
+    assert means["repeated_outcome_necessity"] == pytest.approx(0.058, abs=0.001)
+    assert groups["repeated_outcome_necessity"].mean_variance ** 0.5 == pytest.approx(
+        0.024, abs=0.001
+    )
+    # The spread within families is smaller than the noise the law gives it.
+    observed = sum(float(np.sum((g.values - np.mean(g.values)) ** 2)) for g in groups.values())
+    explained = sum(
+        float(np.trace((np.eye(len(g.values)) - 1.0 / len(g.values)) @ g.noise))
+        for g in groups.values()
+    )
+    assert observed < explained
+    tau = properties.heterogeneity_bound(list(groups.values()))
+    assert tau == pytest.approx(0.0325, abs=0.0005)
     at_bound = properties.property_bias_pass_probability(biases, pilot, replicates, tau)
     at_zero = properties.property_bias_pass_probability(biases, pilot, replicates, 0.0)
-    assert at_bound == pytest.approx(0.962, abs=0.002)
+    assert at_bound == pytest.approx(0.961, abs=0.002)
     assert at_bound >= properties.FAMILY_WISE_PASS
     assert at_zero >= 0.99
     # The default spread is the bound.
     assert properties.property_bias_pass_probability(biases, pilot, replicates) == at_bound
-    # Mutations, each of which must break the probability or the bound.
-    # Too few replications cannot show a bias inside the margin.
-    fewer = dict.fromkeys(replicates, 200)
-    assert properties.property_bias_pass_probability(biases, pilot, fewer, tau) < 0.5
-    # Every cell biased by 0.2 spreads leaves little room inside the margin of 0.25.
-    biased = {name: value + 0.2 for name, value in biases.items()}
-    assert properties.property_bias_pass_probability(biased, pilot, replicates, 0.0) < 1e-6
-    # One cell at 0.30 spreads raises the spread between cells, and with it the bound, and
-    # the probability at the new bound falls.
-    outlier = {**biases, "double_robustness/rule_t3__outcome_correct": 0.30}
-    assert (
-        properties.heterogeneity_bound([properties.property_bias_group(outlier, pilot)]) > 1.4 * tau
+    # The earlier size of 1,000 for every family does not meet the rule: N1 binds.
+    thousand = dict.fromkeys(replicates, 1_000)
+    assert properties.property_bias_pass_probability(biases, pilot, thousand, tau) == pytest.approx(
+        0.75, abs=0.005
     )
-    assert properties.property_bias_pass_probability(outlier, pilot, replicates) < 0.7
-    # A spread of twice the bound lets the 57 cells reach the margin.
-    assert properties.property_bias_pass_probability(biases, pilot, replicates, 2 * tau) < 0.5
-    # Noise ignored across the cells of a family gives a larger bound on the spread.
-    silent = properties.PilotGroup(group.values, np.zeros_like(group.noise))
-    assert properties.heterogeneity_bound([silent]) > 1.5 * tau
-    # The noise of two cells of one family has the signed correlation of their labels.
+    # The cross-check, every cell in one group with one mean, reads the same sizes higher.
+    pool = properties.property_bias_pool(biases, pilot)
+    assert len(pool.values) == 57
+    pooled = properties.property_bias_pass_probability(biases, pilot, replicates, pooled=True)
+    assert pooled == pytest.approx(0.994, abs=0.002)
+    assert properties.heterogeneity_bound([pool]) == pytest.approx(0.0329, abs=0.0005)
+    assert properties.property_bias_pass_probability(
+        biases, pilot, thousand, pooled=True
+    ) == pytest.approx(0.962, abs=0.002)
+    # The noise of two cells of one family has the signed correlation of their labels, and
+    # cells of two families share no draw.
     names = list(biases)
     first = names.index("double_robustness/never_t3__mechanism_correct")
     second = names.index("double_robustness/always_vs_never_t3__mechanism_correct")
-    assert group.noise[first, second] < 0.0
-    assert group.noise[first, names.index("targeting_necessity/never_t3__targeted")] == 0.0
+    assert pool.noise[first, second] < 0.0
+    assert pool.noise[first, names.index("targeting_necessity/never_t3__targeted")] == 0.0
+
+
+def test_the_property_replications_are_the_declared_rule_applied_to_the_pilot() -> None:
+    """Each family takes the smallest multiple of 200 whose own probability reaches 0.95^(1/6)."""
+    biases = properties.PROPERTY_PILOT_BIASES
+    pilot = properties.PROPERTY_PILOT_REPLICATES
+    sizes = properties.property_bias_replicates(biases, pilot)
+    declared = _replications()
+    assert sizes == {family: declared[family] for family in sizes}
+    assert sizes == {
+        "double_robustness": 1_400,
+        "full_history_necessity": 1_200,
+        "outcome_history_necessity": 1_200,
+        "repeated_outcome_necessity": 2_800,
+        "rule_necessity": 2_000,
+        "targeting_necessity": 1_600,
+    }
+    assert all(count % properties.PROPERTY_STEP == 0 for count in sizes.values())
+    groups = properties.property_bias_groups(biases, pilot)
+    tau = properties.heterogeneity_bound(list(groups.values()))
+    target = properties.FAMILY_WISE_PASS ** (1.0 / len(groups))
+
+    def own(family: str, count: int, spread: float = tau) -> float:
+        return properties.pooled_pass_probability(
+            [groups[family]],
+            spread,
+            np.vectorize(lambda bias: properties.bias_equivalent_probability(bias, count)),
+        )
+
+    for family, count in sizes.items():
+        assert own(family, count) >= target
+        assert own(family, count - properties.PROPERTY_STEP) < target
+    # The family the pilot argues against a zero mean for is the one that grows most.
+    assert max(sizes, key=sizes.__getitem__) == "repeated_outcome_necessity"
+    # The family sizes are the module's constants, and nothing else reads a shared count.
+    assert (
+        properties.DOUBLE_ROBUST_REPLICATES,
+        properties.TARGETING_REPLICATES,
+        properties.RULE_REPLICATES,
+        properties.ABSORBING_REPLICATES,
+        properties.HISTORY_FREE_REPLICATES,
+        properties.FULL_HISTORY_REPLICATES,
+    ) == (1_400, 1_600, 2_000, 2_800, 1_200, 1_200)
+
+
+def test_the_bias_checks_fail_under_each_deliberate_mutation() -> None:
+    """Every mutation of the pilot, the sizes or the model moves the probability or the bound."""
+    biases = properties.PROPERTY_PILOT_BIASES
+    pilot = properties.PROPERTY_PILOT_REPLICATES
+    replicates = _replications()
+    groups = list(properties.property_bias_groups(biases, pilot).values())
+    tau = properties.heterogeneity_bound(groups)
+
+    def probability(
+        pilot_biases: Any = biases, sizes: Any = replicates, spread: float | None = tau
+    ) -> float:
+        return properties.property_bias_pass_probability(pilot_biases, pilot, sizes, spread)
+
+    # Too few replications cannot show a bias inside the margin.
+    assert probability(sizes=dict.fromkeys(replicates, 200)) < 1e-6
+    # Every cell biased by 0.2 spreads leaves little room inside the margin of 0.25.
+    assert probability({n: v + 0.2 for n, v in biases.items()}, spread=0.0) < 1e-6
+    # A spread of twice the bound lets cells reach the margin.
+    assert probability(spread=2 * tau) < 0.5
+    # One family biased by 0.1 spreads moves its mean and not the spread within families.  The
+    # family reading finds it.  The probability falls from 0.96 to 0.28 at the declared sizes.
+    shifted = {n: v + 0.1 if n.startswith("repeated_outcome") else v for n, v in biases.items()}
+    shifted_groups = list(properties.property_bias_groups(shifted, pilot).values())
+    assert properties.heterogeneity_bound(shifted_groups) == pytest.approx(tau)
+    assert probability(shifted) < 0.5
+    # One cell at 0.30 spreads raises the spread within its family, and with it the bound.
+    outlier = {**biases, "double_robustness/rule_t3__outcome_correct": 0.30}
+    outlier_groups = list(properties.property_bias_groups(outlier, pilot).values())
+    assert properties.heterogeneity_bound(outlier_groups) > 1.5 * tau
+    assert properties.property_bias_pass_probability(outlier, pilot, replicates) < 0.7
+    # Noise left out leaves the pilot spread unexplained, and the bound grows.
+    silent = [properties.PilotGroup(g.values, np.zeros_like(g.noise)) for g in groups]
+    assert properties.heterogeneity_bound(silent) > 1.5 * tau
 
 
 def test_the_study_fit_clips_probabilities_where_ltmle_does() -> None:

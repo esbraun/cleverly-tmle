@@ -29,7 +29,7 @@ C1 ``interval_calibration``     ``*_t3__estimated_mechanisms``: in sample, the m
 ``small_sample_calibration``    ``*_t3__{estimated_mechanisms,continuous_gaussian}``: C1
                                 and C6 refitted at ``n = 2,000``.  Role ``diagnostic``:
                                 reported, never gated.  2,000 replications
-C2 ``double_robustness``        Three arms on the five gated labels, ``n = 2,000``, 1,000
+C2 ``double_robustness``        Three arms on the five gated labels, ``n = 2,000``, 1,400
                                 replications.  ``mechanism_correct``: the C1 mechanisms with
                                 an outcome regression on ``W`` alone.  ``outcome_correct``:
                                 saturated full-history outcome regressions
@@ -54,21 +54,21 @@ C6 ``interval_calibration``     ``*_t3__continuous_gaussian``: the three-value l
 C7 ``rule_necessity``           ``rule_t{2,3}__declared`` against ``__reversed_rule``, the
                                 rule that treats after a zero outcome.  The positive arm
                                 reads the declared rule's truth.  The control must miss it
-                                and reach :data:`REVERSED_TRUTH`.  1,000 replications
+                                and reach :data:`REVERSED_TRUTH`.  2,000 replications
 N1 ``repeated_outcome_neces     ``{plan}_t{2,3}__repeated`` against ``__absorbing_reading``,
 sity``                          an end-of-study fit of :math:`\\max_{s \\le h} Y_s` with the
                                 earlier outcomes in the history.  The control must miss the
                                 truth and reach :data:`ABSORBING_LIMIT`.  Its outcome
                                 learner is :class:`CellMeansBackoff`.  ``n = 8,000``.
-                                1,000 replications
+                                2,800 replications
 N2 ``outcome_history_necessi    ``{never,always,always_vs_never}_t3__repeated`` against
 ty``                            ``__history_free``, an end-of-study fit with every ``Y_s``
                                 left out of the history and saturated cell-mean outcome
                                 regressions.  The earlier outcomes are confounders here.
                                 The control must miss the truth and reach
-                                :data:`HISTORY_FREE_LIMIT`.  1,000 replications
+                                :data:`HISTORY_FREE_LIMIT`.  1,200 replications
 N3 ``full_history_necessity``   ``{label}__full_history`` against ``__markov_history``,
-                                five labels, ``n = 8,000``, 1,000 replications.  Both arms
+                                five labels, ``n = 8,000``, 1,200 replications.  Both arms
                                 use intercept-only mechanisms, so the outcome regression
                                 alone carries the consistency of the positive arm.  The
                                 positive arm regresses on the full history, and the control
@@ -76,7 +76,7 @@ N3 ``full_history_necessity``   ``{label}__full_history`` against ``__markov_his
                                 and reach :data:`MARKOV_LIMIT`, the exact limit of the
                                 single-fold fit (``tmle_limit`` in the law module)
 T1 ``targeting_necessity``      ``{label}__targeted`` against ``__untargeted``, five
-                                labels, ``n = 2,000``, 1,000 replications.  The targeted
+                                labels, ``n = 2,000``, 1,600 replications.  The targeted
                                 arm is the ``mechanism_correct`` fit.  The control is
                                 :func:`untargeted`, the same sequential regression with no
                                 fluctuation, written without cleverly.  It must move the
@@ -129,8 +129,8 @@ at 25,600 replications.  The pooled rule models the relation.
 
 The probability is 0.9523 at 8,000 replications and 0.9437 at 7,600, so
 ``CALIBRATION_REPLICATES = 8,000``.  At :math:`\\tau = 0` it is 0.9785.  The property
-families read the same pooled reading for their bias checks
-(:func:`property_bias_pass_probability`).  See P4 below.
+families read the same pooled reading for their bias checks.  Each family is a group, and
+:func:`property_bias_replicates` sizes them.  See P4 below.
 
 Revision after the first declared run (5728c3ce).  Every positive cell passed.  Two N1
 controls failed their second condition: ``always_t3`` and ``rule_t3`` missed the truth as
@@ -192,12 +192,22 @@ The hooks are :func:`pilot_se_ratios` (P2, P3), :func:`pilot_property_rows` (P4)
   smallest control gap is 0.59 spreads (``always_t3`` of N2), then 0.80 (``rule_t3`` of
   ``both_wrong``).  The full-history outcome regression meets an unseen cell for 0.9% of the
   rule's rows at the third node and 0.4% to 0.2% of the static rows, so the backoff rarely
-  acts.  The largest share in one draw is 3.3%.  The 57 standardized biases of the positive cells and of the controls around their limits
-  are in :data:`PROPERTY_PILOT_BIASES`.  Their spread is 0.057, which the pilot noise of 0.058
-  explains.  The 80% upper bound on the spread between cells is 0.033.  Under the pooled
-  reading with that bound, the probability that every bias check passes at the declared
-  replications is 0.962 (:func:`property_bias_pass_probability`).  At a spread of zero it is
-  1.000.
+  acts.  The largest share in one draw is 3.3%.
+* P4 biases.  The 57 standardized biases of the positive cells and of the controls around
+  their limits are in :data:`PROPERTY_PILOT_BIASES`.  The declared reading gives each family
+  its own mean (:func:`property_bias_groups`), because a finite-sample bias that a family
+  shares is plausible.  The pilot supports it for N1, whose 12 cells average 0.058 against a
+  noise of 0.024 in that mean.  The pilot spread of cells within families is smaller than the pilot
+  noise, so the point estimate of the spread is zero, and the 80% upper bound on the spread between cells is 0.0325.  The probability that every
+  bias check passes at 1,000 replications for each family is then 0.75, and N1 binds
+  at 0.86.  :func:`property_bias_replicates` raises each family to the smallest multiple of 200
+  at which its own probability reaches 0.95 to the power 1/6.  The sizes are 1,400
+  (``double_robustness``), 1,600 (``targeting_necessity``), 2,000 (``rule_necessity``), 2,800
+  (``repeated_outcome_necessity``) and 1,200 (``outcome_history_necessity`` and
+  ``full_history_necessity``).  The probability that every check passes is 0.961.  At a spread
+  of zero it is 0.999.  The cross-check puts all cells in one group with one mean, which
+  the pilot does not argue for.  It gives a bound of 0.0329 and a probability of 0.994 at these
+  sizes, and 0.962 at 1,000 replications for each family.
 """
 
 from __future__ import annotations
@@ -270,9 +280,14 @@ FULL_HISTORY_N = 8_000
 #: The in-sample arms refitted at :data:`N` and reported under ``small_sample_calibration``.
 SMALL_SAMPLE_ARMS = ("estimated_mechanisms", "continuous_gaussian")
 SMALL_SAMPLE_REPLICATES = 2_000
-DOUBLE_ROBUST_REPLICATES = 1_000
-NECESSITY_REPLICATES = 1_000
-TARGETING_REPLICATES = 1_000
+#: The replications of each property family, from :func:`property_bias_replicates`.  A design
+#: test re-derives them from the pilot biases.  See the module docstring, Budgets.
+DOUBLE_ROBUST_REPLICATES = 1_400
+TARGETING_REPLICATES = 1_600
+RULE_REPLICATES = 2_000
+ABSORBING_REPLICATES = 2_800
+HISTORY_FREE_REPLICATES = 1_200
+FULL_HISTORY_REPLICATES = 1_200
 FOLDS = 5
 SHRUNKEN_SE_FACTOR = 0.70
 #: The least paired displacement, in the positive arm's empirical standard deviations, of
@@ -343,7 +358,7 @@ PLUG_IN_LIMIT = {
 #: mechanisms: the ``both_wrong`` control.  A static plan's fluctuation is inert there, so
 #: the value equals :data:`PLUG_IN_LIMIT`.  The rule's does not, because its clever covariate
 #: reads ``Y_{t-1}``.  The two limits differ by 0.046 empirical SDs for ``rule_t3`` at
-#: ``n = 2,000``, which 1,000 replications cannot separate.  The claim that the rule's
+#: ``n = 2,000``, which 1,400 replications cannot separate.  The claim that the rule's
 #: fluctuation moves the fit rests on the exact sample test of the limit functional in
 #: ``tests/unit/test_ltmle_repeated_method_study.py``, and not on this control.
 BOTH_WRONG_LIMIT = {
@@ -1029,10 +1044,10 @@ FIT_SETS: tuple[tuple[str, str, int], ...] = (
     ("double_robustness", "outcome_correct", DOUBLE_ROBUST_REPLICATES),
     ("double_robustness", "both_wrong", DOUBLE_ROBUST_REPLICATES),
     ("targeting_necessity", "targeted", TARGETING_REPLICATES),
-    ("rule_necessity", "paired", NECESSITY_REPLICATES),
-    ("repeated_outcome_necessity", "paired", NECESSITY_REPLICATES),
-    ("outcome_history_necessity", "paired", NECESSITY_REPLICATES),
-    ("full_history_necessity", "paired", NECESSITY_REPLICATES),
+    ("rule_necessity", "paired", RULE_REPLICATES),
+    ("repeated_outcome_necessity", "paired", ABSORBING_REPLICATES),
+    ("outcome_history_necessity", "paired", HISTORY_FREE_REPLICATES),
+    ("full_history_necessity", "paired", FULL_HISTORY_REPLICATES),
 )
 
 
@@ -1710,16 +1725,24 @@ PROPERTY_PILOT_BIASES = {
 }
 
 
-def property_bias_group(biases: Mapping[str, float], pilot_replicates: int) -> PilotGroup:
-    """The pilot group of every bias check: the standardized biases of all cells.
+def _bias_families(biases: Mapping[str, float]) -> dict[str, list[str]]:
+    """The cell names of each family, in the order of ``biases``."""
+    families: dict[str, list[str]] = {}
+    for name in biases:
+        families.setdefault(name.split("/", 1)[0], []).append(name)
+    return families
 
-    A bias of a consistent estimator is zero up to a finite-sample term, so the cells of every
-    family share one mean.  The cross-cell spread, between families as well as within one,
-    is the :func:`heterogeneity_bound` of the group.  The pilot noise of a standardized bias
-    has variance ``1 / R``.  Cells of one family share each draw, so their noise has the
-    correlation of their labels' efficient influence curves, and a control cell and a
-    positive cell of one label count as the same label, which is the most cautious reading.
-    Cells of two families share no draw.
+
+def property_bias_groups(
+    biases: Mapping[str, float], pilot_replicates: int
+) -> dict[str, PilotGroup]:
+    """One pilot group for each family: the standardized biases of its cells.
+
+    The declared reading.  A family shares a finite-sample bias, so its cells share a mean that
+    differs from zero and from the means of other families.  The pilot noise of a standardized
+    bias has variance ``1 / R``.  Cells of one family share each draw, so their noise has the
+    correlation of their labels' efficient influence curves.  A control cell and a positive
+    cell of one label count as the same label, which is the most cautious reading.
 
     Parameters
     ----------
@@ -1728,14 +1751,38 @@ def property_bias_group(biases: Mapping[str, float], pilot_replicates: int) -> P
     pilot_replicates : int
         The pilot replications behind each bias.
     """
-    families: dict[str, list[str]] = {}
-    for name in biases:
-        families.setdefault(name.split("/", 1)[0], []).append(name)
-    names = [name for family in families.values() for name in family]
-    blocks = [label_correlations(_cell_labels(family)) for family in families.values()]
+    return {
+        family: PilotGroup(
+            np.array([biases[name] for name in names]),
+            label_correlations(_cell_labels(names)) / pilot_replicates,
+        )
+        for family, names in _bias_families(biases).items()
+    }
+
+
+def property_bias_pool(biases: Mapping[str, float], pilot_replicates: int) -> PilotGroup:
+    """The cross-check reading: every cell of every family in one group.
+
+    A bias of a consistent estimator is zero up to a finite-sample term, so this reading gives
+    all families one mean.  The spread between cells then includes the spread between
+    families.  Cells of two families share no draw, so the noise is block diagonal.
+    """
+    groups = property_bias_groups(biases, pilot_replicates)
     return PilotGroup(
-        np.array([biases[name] for name in names]), block_diag(*blocks) / pilot_replicates
+        np.concatenate([group.values for group in groups.values()]),
+        block_diag(*(group.noise for group in groups.values())),
     )
+
+
+def _bias_cell_passes(
+    biases: Mapping[str, float], replicates: Mapping[str, int]
+) -> list[Callable[[np.ndarray], np.ndarray]]:
+    """The pass probability of each cell, in the order of ``biases``, at its family's size."""
+    by_replicates = {
+        count: np.vectorize(lambda bias, count=count: bias_equivalent_probability(bias, count))
+        for count in set(replicates.values())
+    }
+    return [by_replicates[replicates[name.split("/", 1)[0]]] for name in biases]
 
 
 def property_bias_pass_probability(
@@ -1743,12 +1790,16 @@ def property_bias_pass_probability(
     pilot_replicates: int,
     replicates: Mapping[str, int],
     tau: float | None = None,
+    *,
+    pooled: bool = False,
 ) -> float:
-    """The probability that every bias check passes, under the pooled reading.
+    """The probability that every bias check passes.
 
     The cell probability is :func:`bias_equivalent_probability` at the replications of the
-    cell's family, and :func:`pooled_pass_probability` carries the pilot mean, its noise and
-    the spread between cells.
+    cell's family.  :func:`pooled_pass_probability` carries each group's pilot mean, the noise
+    of that mean, and the spread ``tau`` between cells.  The groups are the families
+    (:func:`property_bias_groups`).  With ``pooled=True`` the group is every cell
+    (:func:`property_bias_pool`), the reported cross-check.
 
     Parameters
     ----------
@@ -1760,17 +1811,55 @@ def property_bias_pass_probability(
         The replications of each family.
     tau : float, optional
         The spread between the true biases of the cells.  The default is the
-        :func:`heterogeneity_bound` of the pilot.
+        :func:`heterogeneity_bound` of the pilot under the same grouping.
+    pooled : bool
+        Read one group for all cells.
     """
-    group = property_bias_group(biases, pilot_replicates)
+    groups = (
+        [property_bias_pool(biases, pilot_replicates)]
+        if pooled
+        else list(property_bias_groups(biases, pilot_replicates).values())
+    )
     if tau is None:
-        tau = heterogeneity_bound([group])
-    by_replicates = {
-        count: np.vectorize(lambda bias, count=count: bias_equivalent_probability(bias, count))
-        for count in set(replicates.values())
-    }
-    cells = [by_replicates[replicates[name.split("/", 1)[0]]] for name in biases]
-    return pooled_pass_probability([group], tau, cells)
+        tau = heterogeneity_bound(groups)
+    return pooled_pass_probability(groups, tau, _bias_cell_passes(biases, replicates))
+
+
+#: The multiples of this many replications are the candidate sizes of a property family.
+PROPERTY_STEP = 200
+
+
+def property_bias_replicates(biases: Mapping[str, float], pilot_replicates: int) -> dict[str, int]:
+    """The declared rule for the replications of each property family.
+
+    The families draw independent streams, so the probability that every bias check passes is
+    the product over families.  Each family takes the smallest multiple of
+    :data:`PROPERTY_STEP` at which its own pass probability, with :math:`\\tau` at its 80%
+    bound, reaches :data:`FAMILY_WISE_PASS` to the power ``1 / F`` for ``F`` families.  The
+    product is then at least :data:`FAMILY_WISE_PASS`.
+
+    Parameters
+    ----------
+    biases : Mapping[str, float]
+        The pilot bias of each cell, by ``family/cell`` name.
+    pilot_replicates : int
+        The pilot replications behind each bias.
+    """
+    groups = property_bias_groups(biases, pilot_replicates)
+    tau = heterogeneity_bound(list(groups.values()))
+    target = FAMILY_WISE_PASS ** (1.0 / len(groups))
+    sizes: dict[str, int] = {}
+    for family, group in groups.items():
+        count = PROPERTY_STEP
+        while True:
+            cell = np.vectorize(lambda bias, count=count: bias_equivalent_probability(bias, count))
+            if pooled_pass_probability([group], tau, cell) >= target:
+                break
+            count += PROPERTY_STEP
+            if count > 50_000:  # pragma: no cover - a pilot this far off needs a defect fixed
+                raise ValueError(f"no size up to 50,000 replications meets the rule for {family}")
+        sizes[family] = count
+    return sizes
 
 
 # ---------------------------------------------------------------------------- pilots

@@ -188,13 +188,13 @@ family tests.
 | --- | --- | --- |
 | `interval_calibration` | pointwise coverage and SE ratio inside the calibration bands. The cells are in-sample with estimated mechanisms, cross-fitted GLM, cross-fitted boosted trees, and a continuous outcome. The in-sample cells cover every horizon, $t = 1, 2, 3$. A shrunken-SE control and a noise control must fail the same bands | $n$ = 8,000, 8,000 replications |
 | `small_sample_calibration` | the in-sample and continuous arms refitted at $n$ = 2,000. The role is `diagnostic`. The table reports these cells and no rule gates them | $n$ = 2,000, 2,000 replications |
-| `double_robustness` | `mechanism_correct`: bias inside the margin when the outcome regression reads $W$ alone and the mechanisms are correct. `outcome_correct`: bias inside the margin when the outcome regression reads the full history and the mechanisms read $W$ alone. `both_wrong`: the control with a $W$ regression and intercept-only mechanisms must miss the truth and reach its exact limit. A static plan has no fluctuation in this fit. The rule has one, and it moves the limit by 0.046 empirical standard deviations of the rule's mean at $t = 3$ (0.031 for its contrast). Replications cannot separate that move from the plug-in limit, because the 99% bias interval at 1,000 replications is 0.081 standard deviations wide on each side. The claim that the rule's fluctuation moves the fit rests on `test_the_limit_functional_reproduces_cleverly_on_a_sample`, which matches a fit to the limit functional on one sample to $10^{-10}$ | $n$ = 2,000, 1,000 replications |
-| `targeting_necessity` | the targeted fit against a plug-in with no fluctuation. The plug-in must move the estimate by 0.25 empirical standard deviations of the targeted arm and reach the exact $W$-only g-formula | $n$ = 2,000, 1,000 replications |
+| `double_robustness` | `mechanism_correct`: bias inside the margin when the outcome regression reads $W$ alone and the mechanisms are correct. `outcome_correct`: bias inside the margin when the outcome regression reads the full history and the mechanisms read $W$ alone. `both_wrong`: the control with a $W$ regression and intercept-only mechanisms must miss the truth and reach its exact limit. A static plan has no fluctuation in this fit. The rule has one, and it moves the limit by 0.046 empirical standard deviations of the rule's mean at $t = 3$ (0.031 for its contrast). Replications cannot separate that move from the plug-in limit, because the 99% bias interval at 1,400 replications is 0.069 standard deviations wide on each side. The claim that the rule's fluctuation moves the fit rests on `test_the_limit_functional_reproduces_cleverly_on_a_sample`, which matches a fit to the limit functional on one sample to $10^{-10}$ | $n$ = 2,000, 1,400 replications |
+| `targeting_necessity` | the targeted fit against a plug-in with no fluctuation. The plug-in must move the estimate by 0.25 empirical standard deviations of the targeted arm and reach the exact $W$-only g-formula | $n$ = 2,000, 1,600 replications |
 | `simultaneous_coverage` | the default band over all 15 reported parameters, against its pointwise control | $n$ = 8,000, 8,000 replications |
-| `rule_necessity` | the declared rule against its reverse, which treats after a zero outcome. The reversed rule must miss the declared rule's truth and reach the truth of the reversed rule | $n$ = 2,000, 1,000 replications |
-| `repeated_outcome_necessity` (N1) | an absorbing reading of the outcome, which fits $\max_{s \le h} Y_s$. The control must miss the truth and reach the cumulative-maximum limit. Its outcome learner is a cell-means regression with a GLM fallback on an unseen cell | $n$ = 8,000, 1,000 replications |
-| `outcome_history_necessity` (N2) | a fit that leaves every $Y_s$ out of the history, so the earlier outcomes act as confounders. The control must miss the truth and reach the coarse g-formula limit | $n$ = 2,000, 1,000 replications |
-| `full_history_necessity` (N3) | an outcome regression on the full history against one on $[W, Y_{t-1}, L_t]$, both with intercept-only mechanisms. The control must miss the truth and reach the exact limit of the single-fold fit | $n$ = 8,000, 1,000 replications |
+| `rule_necessity` | the declared rule against its reverse, which treats after a zero outcome. The reversed rule must miss the declared rule's truth and reach the truth of the reversed rule | $n$ = 2,000, 2,000 replications |
+| `repeated_outcome_necessity` (N1) | an absorbing reading of the outcome, which fits $\max_{s \le h} Y_s$. The control must miss the truth and reach the cumulative-maximum limit. Its outcome learner is a cell-means regression with a GLM fallback on an unseen cell | $n$ = 8,000, 2,800 replications |
+| `outcome_history_necessity` (N2) | a fit that leaves every $Y_s$ out of the history, so the earlier outcomes act as confounders. The control must miss the truth and reach the coarse g-formula limit | $n$ = 2,000, 1,200 replications |
+| `full_history_necessity` (N3) | an outcome regression on the full history against one on $[W, Y_{t-1}, L_t]$, both with intercept-only mechanisms. The control must miss the truth and reach the exact limit of the single-fold fit | $n$ = 8,000, 1,200 replications |
 
 The in-sample cells use $n$ = 8,000. At $n$ = 2,000 the standard error runs a few percent below
 the sampling spread for the rule. The ratio moves toward 1 at the $1/n$ rate of in-sample fitting.
@@ -204,8 +204,13 @@ The module `tests/studies/ltmle_repeated_properties.py` records the pilots behin
 The calibration budget is the smallest multiple of 400 replications at which the 28 gated cells
 pass together with probability 0.95. The probability pools the cells of each arm. It takes the
 arm mean from the pilot and adds the noise of that mean. It sets the spread between cells at its
-80% upper bound of 0.0059. The probability is 0.952 at 8,000 replications. The bias checks of the other
-families pass together with probability 0.962 at their declared sizes, by the same reading.
+80% upper bound of 0.0059. The probability is 0.952 at 8,000 replications.
+
+The sizes of the other families come from their bias checks. Each family has its own mean. The
+spread between cells is at its 80% upper bound of 0.0325. Each family takes the smallest multiple
+of 200 replications at which it passes with probability 0.991, the sixth root of 0.95. The six
+families then pass together with probability 0.961. A reading that gives every family one mean
+gives 0.994 at these sizes.
 
 ## Measured values
 
