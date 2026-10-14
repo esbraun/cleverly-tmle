@@ -597,6 +597,8 @@ def test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment(
         "fits",
         "folds",
         "identified_effect",
+        "initial_hazards",
+        "isotonic_moves",
         "mechanism",
         "method",
         "msm",
