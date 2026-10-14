@@ -49,6 +49,7 @@ from tests.studies.evidence.inference import (
     student_interval,
 )
 from tests.studies.evidence.properties import (
+    absolute_bias_bound,
     log_slope,
     mean_difference_interval,
     paired,
@@ -58,6 +59,7 @@ from tests.studies.evidence.properties import (
     rate_samples,
     ratio_intervals,
     spread_values,
+    standardized_bias,
 )
 from tests.studies.evidence.registry import Margins, StudyRecord
 from tests.studies.evidence.replication import WITNESS_COLUMNS, Recording
@@ -1779,8 +1781,9 @@ def rmse_ratio_clause(
     return Clause(name, "S13", applies, read, candidates, target="property_passed", reads=reads)
 
 
-def absolute_bias_bound(errors: np.ndarray) -> float:
-    """``abs(mean) + 2 sd / sqrt(R)`` of a cell's errors, the S14 statistic.
+def error_bias_bound(errors: np.ndarray) -> float:
+    """The S14 statistic of a cell's errors: :func:`absolute_bias_bound` of their mean and its
+    Monte Carlo standard error, as the verdict reads them off the summary.
 
     Parameters
     ----------
@@ -1790,33 +1793,35 @@ def absolute_bias_bound(errors: np.ndarray) -> float:
     Returns
     -------
     float
-        The absolute-bias bound.
+        ``|mean| + 2 sd / sqrt(R)``.
     """
     errors = np.asarray(errors, dtype=float)
-    return float(abs(np.mean(errors)) + 2.0 * np.std(errors, ddof=1) / np.sqrt(len(errors)))
+    return absolute_bias_bound(
+        float(np.mean(errors)), float(np.std(errors, ddof=1) / np.sqrt(len(errors)))
+    )
 
 
 def _equal_fill_bound(errors: np.ndarray, k: int) -> tuple[float, float]:
-    """The minimum of :func:`absolute_bias_bound` over equal fills in the survivors' range.
+    """The minimum of :func:`error_bias_bound` over equal fills in the survivors' range.
 
     The bound is convex and symmetric in the fills, so its minimum over the box sits at equal
     fills, and over those it is a convex function of one variable.
     """
     low, high = float(np.min(errors)), float(np.max(errors))
     if k == 0 or low == high:
-        return absolute_bias_bound(filled(errors, k, low)), low
+        return error_bias_bound(filled(errors, k, low)), low
     grid = np.linspace(low, high, 257)
-    values = [absolute_bias_bound(filled(errors, k, float(c))) for c in grid]
+    values = [error_bias_bound(filled(errors, k, float(c))) for c in grid]
     best = int(np.argmin(values))
     left, right = grid[max(best - 1, 0)], grid[min(best + 1, len(grid) - 1)]
     found = minimize_scalar(
-        lambda c: absolute_bias_bound(filled(errors, k, float(c))),
+        lambda c: error_bias_bound(filled(errors, k, float(c))),
         bounds=(float(left), float(right)),
         method="bounded",
         options={"xatol": 1e-12 * max(1.0, high - low)},
     )
     centre = float(found.x)
-    value = absolute_bias_bound(filled(errors, k, centre))
+    value = error_bias_bound(filled(errors, k, centre))
     if values[best] < value:
         return float(values[best]), float(grid[best])
     return value, centre
@@ -1835,7 +1840,7 @@ def bias_bound_clause(
 ) -> Clause:
     """S14: a two-size absolute-bias bound, the large size at its worst, the small at its best.
 
-    ``B = abs(mean error) + 2 sd / sqrt(R)`` (:func:`absolute_bias_bound`) is convex and
+    ``B = abs(mean error) + 2 sd / sqrt(R)`` (:func:`error_bias_bound`) is convex and
     symmetric in the fills.  Its maximum over the box sits at a vertex, and symmetry reduces
     the vertices to splits; its minimum sits at equal fills, found by a one-dimensional convex
     search (p22).  ``kind`` is ``tolerance`` (``B_large < tolerance``) or ``below small``
@@ -1892,7 +1897,7 @@ def bias_bound_clause(
         large_errors = _errors(ctx, ctx.cell(family, large))
         k_large = ctx.lost_in(family, large)
         worst_large = max(
-            (absolute_bias_bound(vertex(large_errors, k_large, j)), j) for j in range(k_large + 1)
+            (error_bias_bound(vertex(large_errors, k_large, j)), j) for j in range(k_large + 1)
         )
         if kind == "tolerance":
             small_bound, small_label = math.nan, ""
@@ -1908,12 +1913,6 @@ def bias_bound_clause(
         ]
 
     return Clause(name, "S14", applies, read, candidates, target=target, reads=reads)
-
-
-def standardized_mean(values: np.ndarray) -> float:
-    """``mean / sd`` of a rung's errors, the per-rung statistic of S15."""
-    values = np.asarray(values, dtype=float)
-    return float(np.mean(values) / np.std(values, ddof=1))
 
 
 def _equal_fill_t(values: np.ndarray, k: int, *, largest: bool) -> float:
@@ -2056,7 +2055,7 @@ def growth_clause(
                     Option(
                         label if not k else f"{cell} {label}",
                         draws(ctx, option, seed(ctx, row, size)),
-                        standardized_mean(option),
+                        standardized_bias(option),
                     )
                     for label, option in growth_options(values, k, equal_fill=equal_fill)
                 ]

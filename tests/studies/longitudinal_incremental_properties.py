@@ -86,6 +86,7 @@ from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyCell,
+    absolute_bias_bound,
     control_row,
     ratio_intervals,
     replicate_row,
@@ -773,8 +774,9 @@ def single_robustness_verdicts(summary: pd.DataFrame) -> None:
     """The two-size absolute-bias rule, and the published limit of the diagnostic cell."""
     family = summary["property"] == "single_robustness"
     for index in summary.index[family]:
-        bound = abs(summary.loc[index, "bias"]) + 2.0 * summary.loc[index, "bias_se"]
-        summary.loc[index, BIAS_BOUND_COLUMN] = float(bound)
+        summary.loc[index, BIAS_BOUND_COLUMN] = absolute_bias_bound(
+            summary.loc[index, "bias"], summary.loc[index, "bias_se"]
+        )
     cells = {
         size: summary.index[
             family & (summary["cell"] == f"contrast_x2__mechanism_correct__n_{size}")

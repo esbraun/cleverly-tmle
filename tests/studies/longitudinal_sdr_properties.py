@@ -144,6 +144,7 @@ from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyCell,
+    absolute_bias_bound,
     control_row,
     replicate_row,
     se_ratio_interval,
@@ -1292,7 +1293,7 @@ def _probe_one(payload: tuple[str, str, str, int, int, int, str]) -> bool:
 
 
 def _bias_bound(summary: pd.DataFrame, index: Any) -> float:
-    return float(abs(summary.loc[index, "bias"]) + 2.0 * summary.loc[index, "bias_se"])
+    return absolute_bias_bound(summary.loc[index, "bias"], summary.loc[index, "bias_se"])
 
 
 def sequential_double_robustness_verdicts(summary: pd.DataFrame) -> None:

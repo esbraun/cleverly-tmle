@@ -175,6 +175,32 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return sampling_batches()[0].run(n_jobs=n_jobs)
 
 
+def selector_rmse_ratio(collaborative: pd.DataFrame, control: pd.DataFrame) -> float:
+    """The collaborative arm's RMSE over the empty control's, on the replicates both kept.
+
+    A recorded failure may cost the arms different replicates, so the pair reads the
+    intersection through :func:`~tests.studies.evidence.properties.paired`.
+
+    Parameters
+    ----------
+    collaborative : pandas.DataFrame
+        The collaborative arm's rows.
+    control : pandas.DataFrame
+        The empty control's rows.
+
+    Returns
+    -------
+    float
+        ``sqrt(mean(e_collaborative ** 2) / mean(e_control ** 2))``.
+    """
+    collaborative, control = (
+        arm.sort_values("replicate") for arm in paired(collaborative, control)
+    )
+    collaborative_error = collaborative["estimate"].to_numpy() - collaborative["truth"].to_numpy()
+    control_error = control["estimate"].to_numpy() - control["truth"].to_numpy()
+    return float(np.sqrt(np.mean(collaborative_error**2) / np.mean(control_error**2)))
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     # Through ``extra_columns`` rather than assigned afterwards.  The rate rows are built from
     # ``summary.columns`` inside ``apply_shared_verdicts``, so a column added after the call is
@@ -182,17 +208,10 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     # declared mechanism.  Same published value either way today; one of them is a coincidence.
     summary, rates = apply_shared_verdicts(rows, STUDY, extra_columns=("rmse_ratio",))
     necessity = rows.loc[rows["property"] == "selector_necessity"]
-    # The replications both arms kept: a recorded failure may cost the arms different ones.
-    collaborative, control = (
-        arm.sort_values("replicate")
-        for arm in paired(
-            necessity.loc[necessity["cell"] == "collaborative"],
-            necessity.loc[necessity["cell"] == "empty_control"],
-        )
+    ratio = selector_rmse_ratio(
+        necessity.loc[necessity["cell"] == "collaborative"],
+        necessity.loc[necessity["cell"] == "empty_control"],
     )
-    collaborative_error = collaborative["estimate"].to_numpy() - collaborative["truth"].to_numpy()
-    control_error = control["estimate"].to_numpy() - control["truth"].to_numpy()
-    ratio = float(np.sqrt(np.mean(collaborative_error**2) / np.mean(control_error**2)))
     mask = summary["property"] == "selector_necessity"
     summary.loc[mask, "rmse_ratio"] = ratio
     positive = mask & (summary["role"] == "positive")

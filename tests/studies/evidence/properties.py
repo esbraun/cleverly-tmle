@@ -1172,6 +1172,69 @@ def _positive(values: Any) -> Any:
     return np.maximum(values, np.finfo(float).tiny)
 
 
+def standardized_bias(errors: np.ndarray) -> float:
+    """``mean / sd`` of a cell's errors, the per-rung statistic of a bias-growth row.
+
+    Parameters
+    ----------
+    errors : numpy.ndarray
+        The cell's errors.
+
+    Returns
+    -------
+    float
+        The standardized bias.
+    """
+    errors = np.asarray(errors, dtype=float)
+    return float(np.mean(errors) / np.std(errors, ddof=1))
+
+
+def standardized_bias_draws(errors: np.ndarray, *, replicates: int, seed: int) -> np.ndarray:
+    """Bootstrap draws of :func:`standardized_bias`, resampling the cell's replicates.
+
+    Parameters
+    ----------
+    errors : numpy.ndarray
+        The cell's errors.
+    replicates : int
+        The bootstrap draws.
+    seed : int
+        The rung's own stream.
+
+    Returns
+    -------
+    numpy.ndarray
+        One standardized bias per draw.
+    """
+    rng = np.random.default_rng(seed)
+    return np.concatenate(
+        [
+            block.mean(axis=1) / block.std(axis=1, ddof=1)
+            for block in bootstrap_draw_blocks(
+                np.asarray(errors, dtype=float), replicates=replicates, rng=rng
+            )
+        ]
+    )
+
+
+def absolute_bias_bound(bias: float, bias_se: float) -> float:
+    """``|bias| + 2 bias_se``: a cell's absolute-bias bound, read against a tolerance.
+
+    Parameters
+    ----------
+    bias : float
+        The cell's mean error.
+    bias_se : float
+        Its Monte Carlo standard error.
+
+    Returns
+    -------
+    float
+        The bound.
+    """
+    return float(abs(bias) + 2.0 * bias_se)
+
+
 def log_slope(sizes: np.ndarray, values: np.ndarray) -> np.ndarray:
     """Least-squares slope of ``values`` on ``log(sizes)``, vectorised over leading axes."""
     x = np.log(sizes)

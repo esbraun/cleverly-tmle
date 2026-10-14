@@ -1298,7 +1298,7 @@ def _p22_bias_bound(lose: bool = True) -> Control:
         rules,
         columns={
             cell: {
-                "absolute_bias_bound": property_failures.absolute_bias_bound(
+                "absolute_bias_bound": property_failures.error_bias_bound(
                     rows.loc[rows["cell"] == cell, "estimate"].to_numpy(dtype=float)
                 )
             }
@@ -2016,8 +2016,8 @@ def test_p22_a_split_search_and_a_mean_fill_both_miss_the_least_small_bound() ->
     control = _control("p22")
     errors = control.rows.loc[control.rows["cell"] == "small", "estimate"].to_numpy(dtype=float)
     least, centre = property_failures._equal_fill_bound(errors, 2)
-    splits = min(property_failures.absolute_bias_bound(vertex(errors, 2, j)) for j in range(3))
-    at_mean = property_failures.absolute_bias_bound(
+    splits = min(property_failures.error_bias_bound(vertex(errors, 2, j)) for j in range(3))
+    at_mean = property_failures.error_bias_bound(
         np.concatenate([errors, np.full(2, float(np.mean(errors)))])
     )
     large = float(_of(control.summary, SINGLE, "large")["absolute_bias_bound"].iloc[0])
@@ -2454,10 +2454,10 @@ def test_p23_only_the_equal_fill_breaks_the_growth() -> None:
     small = _quantiles(950, -0.88, 0)
     control = _growth(small, _quantiles(4000, -1.035, 1), lost_small=_every(20, 50), lost_large=[])
     assert bool(_row(control)["passed"])
-    complete = property_failures.standardized_mean(small)
+    complete = property_failures.standardized_bias(small)
     options = property_failures.growth_options(small, 50)
-    vertices = [property_failures.standardized_mean(v) for label, v in options if "j=" in label]
-    least = [property_failures.standardized_mean(v) for label, v in options if "least" in label]
+    vertices = [property_failures.standardized_bias(v) for label, v in options if "j=" in label]
+    least = [property_failures.standardized_bias(v) for label, v in options if "least" in label]
     assert min(vertices) > complete > least[0]
     context = _context(control)
     large = _t_draws(
@@ -2854,7 +2854,7 @@ class TestExactness:
             tolerance=0.5 if kind == "tolerance" else None,
         )
         rules = _one_rule(SINGLE, clause, group="family")
-        bound = property_failures.absolute_bias_bound
+        bound = property_failures.error_bias_bound
         summary = _summary_of(
             SINGLE,
             rows,
@@ -2917,10 +2917,10 @@ def _s15_violations(seed: int, k: int, *, equal_fill: bool) -> list[float]:
             option
             for _, option in property_failures.growth_options(values, k, equal_fill=equal_fill)
         ],
-        property_failures.standardized_mean,
+        property_failures.standardized_bias,
     )
     return [
         t
         for completed in _box(np.random.default_rng(seed), values, k)
-        if not low - 1e-12 <= (t := property_failures.standardized_mean(completed)) <= high + 1e-12
+        if not low - 1e-12 <= (t := property_failures.standardized_bias(completed)) <= high + 1e-12
     ]

@@ -24,7 +24,6 @@ from tests.studies.evidence.inference import (
 from tests.studies.evidence.properties import (
     PropertyCell,
     Rate,
-    bootstrap_draw_blocks,
     coverage_gain_interval,
     paired_displacement,
     rate,
@@ -32,6 +31,8 @@ from tests.studies.evidence.properties import (
     require_accounted,
     se_ratio_interval,
     spread_values,
+    standardized_bias,
+    standardized_bias_draws,
     summarize_cells,
     summary_interval,
 )
@@ -1791,16 +1792,12 @@ def one_wrong_inference_verdicts(
             rung = f"{setting}_n{size}__{estimand}__first_order"
             errors = rows.loc[(rows["property"] == ONE_WRONG_FAMILY) & (rows["cell"] == rung)]
             values = (errors["estimate"] - errors["truth"]).to_numpy(dtype=float)
-            observed.append(float(np.mean(values) / np.std(values, ddof=1)))
-            rng = np.random.default_rng(stream_seed(record, ONE_WRONG_FAMILY, cell, size))
+            observed.append(standardized_bias(values))
             standardized.append(
-                np.concatenate(
-                    [
-                        block.mean(axis=1) / block.std(axis=1, ddof=1)
-                        for block in bootstrap_draw_blocks(
-                            values, replicates=margins.bootstrap_replicates, rng=rng
-                        )
-                    ]
+                standardized_bias_draws(
+                    values,
+                    replicates=margins.bootstrap_replicates,
+                    seed=stream_seed(record, ONE_WRONG_FAMILY, cell, size),
                 )
             )
         interval = percentile_interval(

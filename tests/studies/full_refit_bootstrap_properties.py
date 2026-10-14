@@ -399,6 +399,22 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     )
 
 
+def failed_bootstrap_share(group: pd.DataFrame) -> pd.Series:
+    """Each replicate's share of bootstrap draws that failed, the column the cap reads.
+
+    Parameters
+    ----------
+    group : pandas.DataFrame
+        One cell's rows.
+
+    Returns
+    -------
+    pandas.Series
+        ``bootstrap_failed / bootstrap_requested`` per row.
+    """
+    return group["bootstrap_failed"] / group["bootstrap_requested"]
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """The shared calibration verdicts, plus the failed-replicate cap.
 
@@ -421,7 +437,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         if requested is None or not (requested > 0).any():
             summary.loc[index, "bootstrap_conditional"] = False
             continue
-        share = float((group["bootstrap_failed"] / group["bootstrap_requested"]).mean())
+        share = float(failed_bootstrap_share(group).mean())
         conditional = share > FAILED_REPLICATE_CAP
         summary.loc[index, "bootstrap_failed_fraction"] = share
         summary.loc[index, "bootstrap_conditional"] = conditional
@@ -433,6 +449,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
 __all__ = [
     "BOOTSTRAP_REPLICATES",
     "MarkovCellMeans",
+    "failed_bootstrap_share",
     "fit_grid",
     "generate_property_rows",
     "payloads",

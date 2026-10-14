@@ -148,6 +148,30 @@ def _root_mean_square_error(cell: pd.DataFrame) -> float:
     return float(np.sqrt(np.mean(error**2)))
 
 
+def path_rmse_ratio(chosen: pd.DataFrame, control: pd.DataFrame) -> float:
+    """A selector path's RMSE over the control's, on the replicates both arms kept.
+
+    Paired on the replication index, because the cells are run on the same draws precisely
+    so the ratio is not two independent error curves divided.  A cell that lost a replication
+    would otherwise compare different samples and read as a selector effect, so the pair
+    reads the replications both arms kept.
+
+    Parameters
+    ----------
+    chosen : pandas.DataFrame
+        The path's rows.
+    control : pandas.DataFrame
+        The control's rows.
+
+    Returns
+    -------
+    float
+        ``rmse(chosen) / rmse(control)``.
+    """
+    chosen, matched = (arm.sort_values("replicate") for arm in paired(chosen, control))
+    return _root_mean_square_error(chosen) / _root_mean_square_error(matched)
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     summary, rates = apply_shared_verdicts(
         rows,
@@ -161,20 +185,12 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     control = necessity.loc[necessity["cell"] == multi_arm_properties.SELECTOR_CONTROL]
     ratios: dict[str, float] = {}
     for path in multi_arm_properties.SELECTOR_PATHS:
-        # Paired on the replication index, because the cells are run on the same draws
-        # precisely so the ratio below is not two independent error curves divided.  A cell
-        # that lost a replication would otherwise compare different samples and read as a
-        # selector effect, so the pair reads the replications both arms kept.
         try:
-            chosen, matched = (
-                arm.sort_values("replicate")
-                for arm in paired(necessity.loc[necessity["cell"] == path], control)
-            )
+            ratios[path] = path_rmse_ratio(necessity.loc[necessity["cell"] == path], control)
         except ValueError as error:
             raise ValueError(
                 f"the {path!r} selector cell is not paired with its control: {error}"
             ) from error
-        ratios[path] = _root_mean_square_error(chosen) / _root_mean_square_error(matched)
 
     mask = summary["property"] == "selector_necessity"
     for path, ratio in ratios.items():
