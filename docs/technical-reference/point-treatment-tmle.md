@@ -342,7 +342,7 @@ fluctuation, so it is a named request. The refusals keep their reasons:
 | --- | --- |
 | `DRTMLE`, `CTMLE` other than the per-arm `oat` design | no DR-TMLE natural-course mean ships, and no selector-based or shared-design collaborative one. The per-arm `oat` design reports a point estimate. Its observation factor is `P(Delta = 1 \| A, Qbar(A, W))`, read at the realised arm ([collaborative TMLE](collaborative-tmle.md#baseline-strata-and-missing-data-in-the-per-arm-design)). `DRTMLE(guard=())` is the ordinary TMLE, and the message says to use `TMLE`. [X50](../roadmap.md#x50-further-dr-tmle-compositions) part (c) tracks the DR-TMLE natural-course mean, and [X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets) part (a) the C-TMLE point estimates |
 | stacked PAR, PAF, or `ey_obs` beside arm targets, with baseline strata | the arm-indexed stacked contract refuses strata. The finite-partition step qualifies, and it needs a witness and a registered cell ([X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) part (e)). The scalar stacked `ey_obs` and every in-sample fit admit strata |
-| `n_bootstrap > 0` | the package does not implement a bootstrap for this fit ([X55](../roadmap.md#x55-bootstrap-extensions) part (a)) |
+| `n_bootstrap > 0` | the package does not implement a bootstrap for this fit. [X55](../roadmap.md#x55-bootstrap-extensions) part (a) holds the in-sample fit, and [F2](../roadmap.md#f2-targeted-bootstrap-inference) the stacked fit |
 | stacked `weights=` or `id=`, stacked continuous outcome, fold targeting, fold evaluation, repeats | the stacked contracts cover unweighted iid rows and a binary outcome ([X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) parts (a), (b) and (e)) |
 
 The registered
@@ -544,7 +544,7 @@ These requests with `strata=` refuse before any learner:
 
 | request | reason |
 | --- | --- |
-| `targeting_scheme="fold"` | each stratum would need a fold-local update, and no published result covers one |
+| `targeting_scheme="fold"` | fold targeting fits the fluctuation on the validation rows. Zheng and van der Laan (2010) and Montoya et al. (2023) publish that update, and the package does not implement it with strata. No roadmap row holds this composition |
 | `cv_evaluation=True` | the fold-evaluated estimate needs stratum shares and a stratum-indexed fold average in each validation fold ([X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata)) |
 | an incremental target with a stratum that lacks a treatment arm | the stratum's treatment-mechanism equation has no finite root |
 | an MSM whose design is singular inside a stratum | the stratum projection is not one coefficient vector; the shipped rank rule decides |

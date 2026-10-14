@@ -406,11 +406,18 @@ a data-adaptive nuisance.
 
 An `LTMLE` bootstrap is licensed as inference only for a design kind
 in `LICENSED_BOOTSTRAP_DESIGNS`, which a kind enters after its registered cells are green. Every
-other `LTMLE` bootstrap prints as a diagnostic. `POINT_BOOTSTRAP_INFERENTIAL` in
-`estimators/tmle.py` holds the point-treatment rule, and it applies to an in-sample fit only. The
-registered point cell is in sample. A cross-fitted point bootstrap prints as a diagnostic, because
-its replicates redraw the split and no source covers that construction
+other `LTMLE` bootstrap prints as a diagnostic.
+
+`POINT_BOOTSTRAP_INFERENTIAL` in
+`estimators/tmle.py` holds the point-treatment rule. It applies to an in-sample `TMLE` fit only,
+because the registered point cell fits an in-sample `TMLE`. A cross-fitted point bootstrap prints
+as a diagnostic, because its replicates redraw the split and no source covers that construction
 ([F2](../roadmap.md#f2-targeted-bootstrap-inference)).
+
+Every `DRTMLE` and `CTMLE` bootstrap also prints as a diagnostic, in sample too. The study measured neither estimator, and no reviewed
+theorem covers the bootstrap of a selector path. An in-sample `TMLE` fit with a data-adaptive
+learner still prints the interval as inference. The registered study measured it only with
+correctly specified nuisances, and F2 holds the data-adaptive case.
 
 `simultaneous_bands` refuses an estimate that declares the `"second_moment"` covariance rule. The
 multiplier draws center each influence curve. Centering matches the raw second moment only on a

@@ -817,7 +817,11 @@ article as the copy this project read.
   ([PMC11795269](https://pmc.ncbi.nlm.nih.gov/articles/PMC11795269/)), which carries the published
   volume, issue, pages and DOI. Section 4.2 partitions "m clusters into K parts with roughly equal
   sizes (the size difference is at most 1)". That is the law a grouped `random_partition` draw
-  follows. Theorem 4(b) gives asymptotic normality and the efficiency bound when the nuisance
+  follows. Remark 3, in Section 4.2 of the accepted manuscript, contrasts about 20 clusters with
+  about 100, and it recommends parsimonious working models at about 20. The preprint
+  arXiv:2210.07324v3 gives no counts in that remark. Roadmap item
+  [X54](roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) part (h)
+  cites the remark. Theorem 4(b) gives asymptotic normality and the efficiency bound when the nuisance
   estimators converge at the fourth root of the cluster count. The estimator is AIPW-type with a
   cluster-level treatment under cluster randomization, and not a TMLE with a row-level treatment.
   Remark 5 says a stratified cluster randomization needs treatment balance within each stratum of
@@ -883,7 +887,8 @@ article as the copy this project read.
   comparison*](https://doi.org/10.1002/sim.9813), *Statistics in Medicine* 42(19):3443-3466, DOI
   10.1002/sim.9813. Read first-hand in the NIHMS author manuscript
   ([PMC10898620](https://pmc.ncbi.nlm.nih.gov/articles/PMC10898620/)). The package cites it as
-  Benitez et al. (2023).
+  Benitez et al. (2023). The hard-stop review read the preprint arXiv:2110.09633v3, Sections 2,
+  3.1.2 and 3.2.1, which recommend a $t$ reference with $J - 2$ degrees of freedom.
 
   Section 3.2.1, Hierarchical TMLE, gives the cluster-sum aggregation for a row-weighted
   estimand. Section 3.1.2 aggregates the data to the cluster level first, and it estimates a
@@ -921,7 +926,9 @@ article as the copy this project read.
   observational studies: Two-Stage TMLE for subsampling, missingness, and few independent
   units*](https://doi.org/10.1093/biostatistics/kxad015), *Biostatistics* 25(3):599-616, DOI
   10.1093/biostatistics/kxad015. Read first-hand in the published version
-  ([PMC11247188](https://pmc.ncbi.nlm.nih.gov/articles/PMC11247188/)). Section 2 treats
+  ([PMC11247188](https://pmc.ncbi.nlm.nih.gov/articles/PMC11247188/)). The hard-stop review read
+  the preprint arXiv:2208.09508, whose version number is not printed, at the Introduction, Section
+  2.2 and the Section 3.1 discussion. Section 2 treats
   subsampling and missingness, with the estimator in Section 2.1.3. Section 3 treats few
   independent units. There is no cross-fitting. The last paragraph of Section 2.2 recommends a $t$
   reference with $J - 2$ degrees of freedom, where $J$ is the cluster count. The paper writes $N$
@@ -1183,7 +1190,8 @@ sizes only the cluster sum is the delta-method variance of the row mean
   sample-split data-adaptive target only.
 - van der Laan (L.), Carone, Luedtke & van der Laan (M.) (2026), [*Adaptive debiased machine
   learning using data-driven model selection techniques*](https://arxiv.org/abs/2307.12544),
-  arXiv:2307.12544v2. Read first-hand. The framework gives regular, locally uniform inference for
+  arXiv:2307.12544v2. Read first-hand. The hard-stop review read Sections 1, 1.1, 2.2, 4.2, 4.3
+  (Theorem 4) and 5.1. It did not read Theorem 5 or Corollary 1. The framework gives regular, locally uniform inference for
   an oracle projection parameter and names collaborative targeted learning as an application.
   Its working model must approximate a fixed oracle model; a cross-validated sieve may use a
   limiting dimension only when that limit exists and is nonrandom. Under the paper's approximation
@@ -1636,8 +1644,11 @@ sizes only the cluster sum is the delta-method variance of the row mean
   and controlled direct effects on a cause-specific cumulative incidence, and their identifying
   conditions. Cited by the [time-to-event tutorial](examples/longitudinal-survival.ipynb).
   Roadmap item [X56](roadmap.md#x56-competing-event-intervention-targets) part (a) reads
-  arXiv:1806.06136v3, Sections 5, 6.1 (Equation 23) and 8.1. Section 5 treats the competing event
-  as a censoring event for the risk under its elimination.
+  arXiv:1806.06136v3. Section 4.1, Equations (5) and (6), defines the risk under elimination of
+  competing events. Section 5 treats the competing event as a censoring event for that risk.
+  Section 6.1, Equations (20) to (23), gives the identifying conditions and the g-formula. Section
+  8.1, Equations (36) and (37), gives the g-formula and IPW estimators of the direct effect.
+  Section 7 states when the direct effect is well defined.
 - The `lmtp` 1.5.4 snapshot above, [`R/contrasts.R`, lines 19-57](https://github.com/nt-williams/lmtp/blob/f04a2b47f46debc515ce4ae778e05ebfde922c44/R/contrasts.R#L19-L57),
   forms `lmtp_contrast(type = "rr")` and `type = "or"` from the influence curves of two fits
   through the operators of `ife` 0.2.3. The curves are $IC_a/\psi_a - IC_b/\psi_b$ and
@@ -1788,6 +1799,11 @@ sizes only the cluster sum is the delta-method variance of the row mean
   `b69f86ef`](https://github.com/DoubleML/doubleml-for-py/blob/b69f86ef7bdb50d3f9e94fbaf40f18ce050f13d2/doubleml/irm/irm.py),
   method `_sensitivity_element_est`. Its curve of $\nu^2$ omits the share term, and its ATTE score
   writes $m(\alpha)$ as $D / (p^2 (1 - \hat m))$.
+- DoubleML for Python, `doubleml/double_ml.py` on the `main` branch, fetched on 2026-10-14 with no
+  resolvable commit. The hard-stop review read `DoubleML._validate_sensitivity_elements`. When the
+  estimate of $\nu^2$ is not positive, the method warns of a "non-orthogonal" re-estimation and
+  replaces the score of $\nu^2$ by the squared Riesz representer. Roadmap item
+  [F26](roadmap.md#f26-confidence-limits-of-the-plug-in-omitted-variable-bound) cites it.
 - VanderWeele & Ding (2017), *Sensitivity analysis in observational research: introducing the
   E-value*.
 - VanderWeele (2010), [*Bias formulas for sensitivity analysis for direct and indirect
@@ -1812,7 +1828,10 @@ sizes only the cluster sum is the delta-method variance of the row mean
 - Ding & VanderWeele (2016), [*Sensitivity analysis without
   assumptions*](https://arxiv.org/html/1507.03984), *Epidemiology* 27(3):368-377. Sections
   2–3 and Appendix 2.5 give the bounding factor for an exposure contrast, general confounders,
-  and averaging over measured covariates.
+  and averaging over measured covariates. The hard-stop review read arXiv:1507.03984v1, Section 2,
+  Result 1 and Equation (1), eAppendix 1, Lemmas A.1 and A.2, and eAppendix 2.2, Propositions A.1
+  and A.2. The proof of Proposition A.2 bounds a ratio of two integrals with Lemma A.2. Roadmap item
+  [X49](roadmap.md#x49-e-value-for-a-controlled-direct-effect) applies that bound to each arm.
 - Gilbert, Fong, Kenny & Carone (2023), [*A controlled effects approach to assessing immune
   correlates of protection*](https://academic.oup.com/biostatistics/article/24/4/850/7320953),
   *Biostatistics* 24(4):850-865. Its E-value compares marker interventions within one vaccination
@@ -1847,6 +1866,19 @@ sizes only the cluster sum is the delta-method variance of the row mean
   encoded-column deletion, or cumulative mutation of shared data. The refuter takes no weight
   argument in `_include_confounders_effect`, so this source supplies the perturbation and the
   refit only. It does not supply the weighted evaluation.
+- Carnegie, Harada and Dorie, R package [`treatSens`](https://github.com/vdorie/treatSens) 3.0
+  (`DESCRIPTION` dated 2024-02-03), read on the `master` branch. The hard-stop review read
+  `R/genU_contY.R`, `R/treatSensMLM.R` and `man/treatSens.Rd`. `treatSensMLM` declares the latent
+  at the individual or the group level (`trt.level`, lines 4 to 7). `contYZU` in `R/genU_contY.R`
+  draws one latent value per group for a group-level treatment (lines 37 to 84).
+  `man/treatSens.Rd` documents weights recomputed from the propensity of each refit. Roadmap item
+  [X47](roadmap.md#x47-simulated-confounding-laws-for-point-treatment-fits) part (b) cites it as a
+  design precedent for the latent level, not as a base.
+- Qin and Yang, R package [`mediationsens`](https://cran.r-project.org/package=mediationsens)
+  0.0.3, read in the CRAN reference manual. `sens()` simulates a pretreatment latent that enters
+  the mediator and outcome models, and the treatment model when the treatment is not randomized.
+  It treats a binary treatment and the natural direct and indirect effects only. Roadmap item
+  [F15](roadmap.md#f15-controlled-direct-effect-simulated-confounding-replay) cites it.
 - The same DoWhy function branches on treatment and outcome variable types only. It has no branch
   for a response indicator, intermediate, cluster identifier, longitudinal history, or estimated
   weight model. These omissions locate the fit-wide refusal boundary. They do not prove that no
@@ -1945,7 +1977,8 @@ sizes only the cluster sum is the delta-method variance of the row mean
   unmeasured confounding on the potential outcomes, and adjusts the estimates of causal effects.
   The paper does not perturb the treatment variable. It therefore supplies no category-valued
   latent treatment perturbation and no refit law for this surface. Roadmap item X47, part (a),
-  cites it as a negative finding.
+  cites it as a negative finding. The hard-stop review read arXiv:2012.06093, Sections 2.1 to
+  2.3.1, Theorem 2.1 and Remark 2.
 - Ou, Tang & Chang (2023), [*Sensitivity Analysis of Causal Treatment Effect Estimation for
   Clustered Observational Data with Unmeasured Confounding*](https://arxiv.org/abs/2301.12396v1),
   arXiv:2301.12396v1. The paper models unmeasured cluster effects through mixed models. It derives
@@ -2225,7 +2258,8 @@ support a shipped claim. Each item states the remaining source work.
 
 - Tan (2025), [*Sensitivity models and bounds under sequential unmeasured confounding in
   longitudinal studies*](https://doi.org/10.1093/biomet/asae044), *Biometrika* 112(1), DOI
-  10.1093/biomet/asae044. The paper treats a terminal outcome under binary, static longitudinal
+  10.1093/biomet/asae044. The hard-stop review read arXiv:2308.15725, Section 3.1, Equation (11),
+  and Section 4.1, Equation (34). The paper treats a terminal outcome under binary, static longitudinal
   strategies. Section 2 states that it deals with static strategies only. It defines population
   sensitivity models and observed-data convex representations for sharp or conservative bounds.
   It keeps the primary, joint, and product models separate. The primary and joint models share the
@@ -2312,7 +2346,11 @@ not a shipped claim.
 - Wang, van der Laan, Petersen, Gerds, Kvist & van der Laan (2025), [*Targeted maximum likelihood
   based estimation for longitudinal mediation analysis*](https://arxiv.org/abs/2304.04904v1),
   *Journal of Causal Inference* 13(1), DOI 10.1515/jci-2023-0013. Read in arXiv:2304.04904v1, the
-  only version. The abstract names competing risks and survival outcomes. Cited by roadmap item
+  only version. The abstract names competing risks and survival outcomes. Section 2.1 forces the
+  mediator to follow its law under the control intervention. Theorem 3.1, Equation (2), gives the
+  identified g-formula. Section 2.3 puts competing risks inside $L_t$. Theorem 3.2, in Section
+  3.4, gives the efficient influence curve. Section 5.3 gives the TMLE and its conditions (B1) to
+  (B3). Cited by roadmap item
   [X56](roadmap.md#x56-competing-event-intervention-targets) parts (b) and (c) as the estimator.
   The source audit of those parts is pending.
 - Hejazi, Rudolph, van der Laan & Díaz (2023), [*Nonparametric causal mediation analysis for
