@@ -85,7 +85,11 @@ in-sample ratio lies in 0.995 to 1.006.  The gated arms therefore draw ``n = 8,0
 and ``small_sample_calibration`` reports the ``n = 2,000`` shortfall.  The expected ratio
 at ``n = 8,000`` is about 0.986 for ``rule_t3``.  ``CALIBRATION_REPLICATES = 3,200``, a
 multiple of 400, gives a pass probability of at least 0.96 at that ratio
-(:func:`calibration_pass_probability`).
+(:func:`calibration_pass_probability`).  The cross-fit arms report the opposite direction.
+At ``n = 2,000`` over 1,000 draws the GLM arm reads 0.996 to 1.046 and the booster 0.999 to
+1.014.  At ``n = 8,000`` the GLM arm reads 0.957 to 1.055 over 600 draws.  The booster reads
+0.997 to 1.039 over 1,200 draws, and every 99% interval contains 1.  The cross-fit arms keep
+the two-sided gate.  A conservative red row reads by the finite-sample rule above.
 """
 
 from __future__ import annotations
