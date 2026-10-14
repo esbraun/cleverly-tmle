@@ -18,6 +18,10 @@ one replicate stops the run.
 With no failure, the values are exactly those
 :func:`cleverly.utils.parallel.map_parallel` returns for the same worker: each replicate
 depends on its own key only, and the values come back in key order.
+
+RM39 part b2 runs every property loop through :func:`fit_properties`.  A property key may
+write several cells, and its record names each of them.  The regeneration driver collects the
+records with :func:`recording`.  Outside it, a recorded property failure stops the run.
 """
 
 from __future__ import annotations
@@ -247,6 +251,7 @@ class _Task:
     cell: str
     seed: int | None
     ident: str
+    scenarios: str
 
 
 @dataclass(frozen=True)
@@ -272,7 +277,7 @@ def _record(plan: _Plan, task: _Task, kind: str, stage: str, call: str, message:
     return {
         "implementation": plan.implementation,
         "group_id": f"{plan.label}/{task.cell}/r{task.replicate:09d}",
-        "scenarios": task.cell,
+        "scenarios": task.scenarios,
         "replicates": str(task.replicate),
         "attempt": 1 + _kills(plan, task),
         "class": kind,
@@ -309,6 +314,18 @@ def _fit(plan: _Plan, task: _Task) -> _Outcome:
     drawn = None if plan.draw is None else plan.draw(task.key)
     try:
         value = plan.fit_one(task.key, drawn)
+    except _Recorded as recorded:
+        # The fit's own handler already judged the error recordable; keep its call and words.
+        failure = recorded.failure
+        record = _record(
+            plan,
+            task,
+            FITTING_FAILURE,
+            FIT_STAGE,
+            str(failure.call),
+            f"{failure.error_type}: {failure.message}",
+        )
+        return _substitute(plan, task), record
     except MemoryError:
         if plan.directory is not None:
             # A kill, as the reference phase treats memory exhaustion: no checkpoint, the
@@ -438,13 +455,15 @@ def fit_replicates(
     validate: Callable[[Any], str | None] | None = None,
     seed_of: Callable[[Any], int | None] | None = None,
     checkpoint: Path | Literal["ambient"] | None = "ambient",
+    scenarios_of: Callable[[Any], str] | None = None,
     _prefix: int | None = None,
 ) -> Outcomes:
     """Draw and fit every key, recording each recordable fitting failure.
 
     ``fit_one(key, draw(key))`` fits one key (``draw`` defaults to returning ``None``).  When
     it raises a recordable error, or ``validate`` names a broken rule in its value, the key's
-    value is ``on_failure(key, draw(key))`` (``None`` without it) and a record is kept.
+    value is ``on_failure(key, draw(key))`` (``None`` without it) and a record is kept.  A
+    record's ``scenarios`` is ``scenarios_of(key)``, which defaults to ``cell_of(key)``.
 
     The first ``SYSTEMATIC_PREFIX`` keys of every cell run first.  When each of them failed in
     one cell, the run stops with :class:`SystematicFailure`.  ``_prefix`` lets a test run that
@@ -460,6 +479,7 @@ def fit_replicates(
             cell=str(cell_of(key)),
             seed=None if seed_of is None else seed_of(key),
             ident=_digest((implementation, label, cell_of(key), replicate_of(key))),
+            scenarios=str((scenarios_of or cell_of)(key)),
         )
         for key in keys
     ]
@@ -580,3 +600,273 @@ class _RowCheck:
     def __call__(self, value: Any) -> str | None:
         rows = value if self.rows_at is None else value[self.rows_at]
         return invalid_rows(rows, coverage=False)
+
+
+# ---- the property phase (RM39 part b2) --------------------------------------------------------
+
+#: The implementation name a property record carries when no driver collector names the subject.
+PROPERTY_IMPLEMENTATION = "properties"
+
+#: What a property failure raises when no driver collector is open: tests, diagnostics and the
+#: drivers outside the regeneration run keep the all-fatal behaviour they always had.
+NO_COLLECTOR = "a property failure outside the regeneration driver has no record file"
+
+
+class _Recorded(Exception):
+    """A fit that its own handler already recorded, carried to :func:`fit_replicates`.
+
+    ``CoverageStudy.run_replication`` returns a :class:`~cleverly.validation.ReplicationFailure`
+    for a recordable error instead of raising it.  A property worker raises this with that
+    record, and the record keeps the call and the message the classifier saw.  The class is
+    not recordable itself, so it never reaches a record any other way.
+    """
+
+    def __init__(self, failure: Any) -> None:
+        super().__init__(f"{failure.error_type}: {failure.message}")
+        self.failure = failure
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        return (type(self), (self.failure,))
+
+
+class CellsOfMismatch(RuntimeError):
+    """A property key wrote cells other than the ones its ``cells_of`` names.
+
+    A subclass, so :func:`cleverly.validation._failures.recordable` never records it: a wrong
+    ``cells_of`` would charge a failure to the wrong cells, which is a defect of the study.
+    """
+
+
+@dataclass
+class Recording:
+    """The property records of one regeneration run, in the order their loops finished.
+
+    Parameters
+    ----------
+    implementation : str
+        The subject the records name.
+    frames : list of pandas.DataFrame
+        One frame of records per property loop that recorded a failure.
+    labels : list of str
+        Every label a property loop used in this run, in order.
+    """
+
+    implementation: str
+    frames: list[pd.DataFrame] = field(default_factory=list)
+    labels: list[str] = field(default_factory=list)
+
+    @property
+    def failures(self) -> pd.DataFrame | None:
+        """Every record of the run, or ``None`` when no property fit failed."""
+        present = [frame for frame in self.frames if not frame.empty]
+        if not present:
+            return None
+        return pd.concat(present, ignore_index=True).loc[:, list(FAILURE_FIELDS)]
+
+
+_RECORDING: contextvars.ContextVar[Recording | None] = contextvars.ContextVar(
+    "cleverly_property_recording", default=None
+)
+
+
+@contextlib.contextmanager
+def recording(implementation: str) -> Iterator[Recording]:
+    """Collect the records of every :func:`fit_properties` call inside.
+
+    The regeneration driver opens one around its property phase.  Outside it, a recorded
+    property failure stops the run (:data:`NO_COLLECTOR`).
+
+    Parameters
+    ----------
+    implementation : str
+        The subject the records name.
+
+    Yields
+    ------
+    Recording
+        The run's records, filled as each property loop finishes.
+    """
+    collected = Recording(implementation)
+    token = _RECORDING.set(collected)
+    try:
+        yield collected
+    finally:
+        _RECORDING.reset(token)
+
+
+def _rows_of(value: Any, rows_at: int | None) -> pd.DataFrame:
+    """The rows a property worker returned, as one frame.
+
+    A worker returns a frame, a row dictionary, or a sequence of row dictionaries; ``rows_at``
+    is their position in a tuple return.
+    """
+    rows = value if rows_at is None else value[rows_at]
+    if isinstance(rows, pd.DataFrame):
+        return rows
+    if isinstance(rows, Mapping):
+        return pd.DataFrame([rows])
+    return pd.DataFrame(list(rows))
+
+
+def _written(rows: pd.DataFrame) -> set[str]:
+    if rows.empty:
+        return set()
+    if not {"property", "cell"} <= set(rows.columns):
+        raise CellsOfMismatch("a property worker returned rows without property and cell")
+    return {f"{prop}/{cell}" for prop, cell in zip(rows["property"], rows["cell"], strict=True)}
+
+
+@dataclass(frozen=True)
+class _PropertyFit:
+    """A property worker whose rows must be exactly the cells its key declares (F4)."""
+
+    fit_one: Callable[[Any, Any], Any]
+    rows_at: int | None
+    cells_of: Callable[[Any], Sequence[str]]
+    derived: frozenset[str]
+
+    def __call__(self, key: Any, drawn: Any) -> Any:
+        value = self.fit_one(key, drawn)
+        written = _written(_rows_of(value, self.rows_at))
+        declared = set(self.cells_of(key)) - self.derived
+        if written != declared:
+            raise CellsOfMismatch(
+                f"key {key!r} wrote {sorted(written)}, but its cells_of names "
+                f"{sorted(declared)} besides its derived controls"
+            )
+        return value
+
+
+@dataclass(frozen=True)
+class _PropertyRowCheck:
+    """The OQ5 row rules on a property worker's rows, plus a study's ``extra`` rule."""
+
+    rows_at: int | None
+    extra: Callable[[pd.DataFrame], str | None] | None
+
+    def __call__(self, value: Any) -> str | None:
+        rows = _rows_of(value, self.rows_at)
+        broken = invalid_rows(rows, coverage=False)
+        if broken is None and self.extra is not None:
+            broken = self.extra(rows)
+        return broken
+
+
+def _cell_names(cells: Sequence[str], derived: Mapping[str, Sequence[str]], key: Any) -> list[str]:
+    """``cells`` checked as ``property/cell`` names, each derived control beside its base."""
+    names = [str(name) for name in cells]
+    for name in names:
+        if name.count("/") != 1 or ";" in name:
+            raise ValueError(f"key {key!r}: {name!r} is not a property/cell name")
+    if len(set(names)) != len(names):
+        raise ValueError(f"key {key!r}: cells_of names a cell twice: {names}")
+    for base, controls in derived.items():
+        named = [control in names for control in controls]
+        if any(named) and not (base in names and all(named)):
+            raise ValueError(
+                f"key {key!r}: cells_of names a derived control of {base!r} without the base "
+                f"and every control {list(controls)}"
+            )
+        if base in names and not all(named):
+            raise ValueError(
+                f"key {key!r}: cells_of names {base!r} without its derived controls "
+                f"{list(controls)}"
+            )
+    return names
+
+
+def fit_properties(
+    keys: Sequence[Hashable],
+    fit_one: Callable[[Any, Any], Any],
+    *,
+    cells_of: Callable[[Any], Sequence[str]],
+    cell_of: Callable[[Any], str],
+    replicate_of: Callable[[Any], int],
+    n_jobs: int,
+    label: str = "properties",
+    draw: Callable[[Any], Any] | None = None,
+    rows_at: int | None = None,
+    derived: Mapping[str, Sequence[str]] | None = None,
+    extra: Callable[[pd.DataFrame], str | None] | None = None,
+    seed_of: Callable[[Any], int | None] | None = None,
+    checkpoint: Path | Literal["ambient"] | None = "ambient",
+) -> list[Any]:
+    """Fit a property loop so that one failed fit costs the cells its key writes, not the run.
+
+    :func:`fit_replicates` with the property phase's rules.  ``cell_of(key)`` is the cell the
+    systematic prefix reads: the fit set, or the property cell.  ``cells_of(key)`` lists the
+    ``property/cell`` names whose rows the key writes, its derived controls included, and a
+    record names all of them.  Each successful key's rows must name exactly ``cells_of(key)``
+    without the controls ``derived`` lists (base cell to its controls).  Any other set stops
+    the run with :class:`CellsOfMismatch`.  The rows pass :func:`invalid_rows` without the
+    coverage rule, then ``extra``.  A broken rule is an ``invalid_result`` record.
+
+    The records go to the collector that :func:`recording` opens.  Without one, a record
+    stops the run with ``RuntimeError`` (:data:`NO_COLLECTOR`).
+
+    Parameters
+    ----------
+    keys : Sequence of Hashable
+        One key per fit, in the order the rows are published.
+    fit_one : Callable
+        ``fit_one(key, draw(key))`` returns the key's rows, or a tuple that holds them.
+    cells_of : Callable
+        The ``property/cell`` names that a key's rows and derived controls fill.
+    cell_of : Callable
+        The cell whose leading replicates the systematic prefix reads.
+    replicate_of : Callable
+        The key's replicate index.
+    n_jobs : int
+        Worker processes.
+    label : str
+        ``properties`` for a study's main loop, ``properties/<name>`` for any other.
+    draw : Callable or None
+        Draws a key's sample outside classification, so an error there stops the run.
+    rows_at : int or None
+        The position of the rows in a tuple return; ``None`` when the value is the rows.
+    derived : Mapping or None
+        Each base cell's derived controls, which a key names but its worker never returns.
+    extra : Callable or None
+        A further row rule, which returns the broken rule's text or ``None``.
+    seed_of : Callable or None
+        The seed a record reports.
+    checkpoint : Path, "ambient" or None
+        Where finished keys are kept; ``"ambient"`` is the driver's run scratch.
+
+    Returns
+    -------
+    list
+        The values of the keys that succeeded, in key order.
+    """
+    declared = dict(derived or {})
+    controls = frozenset(name for names in declared.values() for name in names)
+    collected = _RECORDING.get()
+    implementation = PROPERTY_IMPLEMENTATION if collected is None else collected.implementation
+    if collected is not None:
+        if label in collected.labels:
+            raise ValueError(f"{implementation}/{label}: the label is used twice in one run")
+        collected.labels.append(label)
+
+    def scenarios(key: Any) -> str:
+        return ";".join(_cell_names(cells_of(key), declared, key))
+
+    outcomes = fit_replicates(
+        keys,
+        _PropertyFit(fit_one, rows_at, cells_of, controls),
+        n_jobs=n_jobs,
+        label=label,
+        implementation=implementation,
+        cell_of=cell_of,
+        replicate_of=replicate_of,
+        draw=draw,
+        validate=_PropertyRowCheck(rows_at, extra),
+        seed_of=seed_of,
+        checkpoint=checkpoint,
+        scenarios_of=scenarios,
+    )
+    if not outcomes.failures.empty:
+        if collected is None:
+            first = outcomes.failures.iloc[0]
+            raise RuntimeError(f"{NO_COLLECTOR}: {first['group_id']}: {first['message']}")
+        collected.frames.append(outcomes.failures)
+    return outcomes.values
