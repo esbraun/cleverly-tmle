@@ -980,7 +980,7 @@ PROPERTIES: dict[str, str] = {
     ),
     "repeated_outcome_necessity": (
         "reading the repeated outcome as an absorbing event targets the cumulative maximum "
-        "rather than the mean at the horizon"
+        "rather than the mean at the horizon, both arms at n = 8,000"
     ),
     "outcome_history_necessity": (
         "leaving the earlier outcomes out of the history targets a different g-formula "
@@ -1647,7 +1647,8 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "bias interval inside the equivalence margin",
     ),
     ("repeated_outcome_necessity", "absorbing_reading"): (
-        "an end-of-study fit of the maximum of the outcomes through the horizon",
+        "an end-of-study fit of the maximum of the outcomes through the horizon, cell means "
+        "with a GLM on an unseen cell",
         "bias interval outside the margin, and inside it around the maximum's own truth",
     ),
     ("outcome_history_necessity", "repeated"): (

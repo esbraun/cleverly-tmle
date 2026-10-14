@@ -49,7 +49,9 @@ C7 ``rule_necessity``           ``rule_t{2,3}__declared`` against ``__reversed_r
 N1 ``repeated_outcome_neces     ``{plan}_t{2,3}__repeated`` against ``__absorbing_reading``,
 sity``                          an end-of-study fit of :math:`\\max_{s \\le h} Y_s` with the
                                 earlier outcomes in the history.  The control must miss the
-                                truth and reach :math:`E[\\max_{s \\le h} Y_s^d]`.  1,000
+                                truth and reach :math:`E[\\max_{s \\le h} Y_s^d]`.  Its
+                                outcome learner is :class:`CellMeansBackoff`.  ``n = 8,000``
+                                (:data:`ABSORBING_N`).  1,000
 N2 ``outcome_history_necessi    ``{never,always,always_vs_never}_t3__repeated`` against
 ty``                            ``__history_free``, an end-of-study fit with every ``Y_s``
                                 left out of the history and saturated cell-mean outcome
@@ -90,6 +92,16 @@ At ``n = 2,000`` over 1,000 draws the GLM arm reads 0.996 to 1.046 and the boost
 1.014.  At ``n = 8,000`` the GLM arm reads 0.957 to 1.055 over 600 draws.  The booster reads
 0.997 to 1.039 over 1,200 draws, and every 99% interval contains 1.  The cross-fit arms keep
 the two-sided gate.  A conservative red row reads by the finite-sample rule above.
+
+Revision after the first declared run (5728c3ce).  Every positive cell passed.  Two N1
+controls failed their second condition: ``always_t3`` and ``rule_t3`` missed the truth as
+declared, but did not reach :data:`ABSORBING_LIMIT`.  On one draw at ``n = 50,000`` the
+control reaches the limit within 0.001.  The cause is the control's learner.  An unseen
+cell fell back to the training mean, the fallback that :class:`CellMeansBackoff` replaces.
+Over 150 draws at ``n = 2,000`` the backoff leaves a mean bias of 0.0096 for the rule, near
+its margin.  Over 120 draws at ``n = 8,000`` every absorbing control is within 0.001 of its
+limit.  N1 therefore draws ``n = 8,000`` with the backoff learner.  Every other family keeps
+its seeds and size, so the re-run reproduces its rows.
 """
 
 from __future__ import annotations
@@ -146,6 +158,8 @@ N = 2_000
 #: The sample size of every ``interval_calibration`` arm.  See the module docstring, Budgets.
 CALIBRATION_N = 8_000
 CALIBRATION_REPLICATES = 3_200
+#: The sample size of the N1 family, ``repeated_outcome_necessity``.  See Budgets.
+ABSORBING_N = 8_000
 #: The in-sample arms refitted at :data:`N` and reported under ``small_sample_calibration``.
 SMALL_SAMPLE_ARMS = ("estimated_mechanisms", "continuous_gaussian")
 SMALL_SAMPLE_REPLICATES = 2_000
@@ -249,6 +263,34 @@ class BaselineOnly(BaseEstimator):
 
     def predict_proba(self, X: Any) -> np.ndarray:
         return np.asarray(self.fitted_.predict_proba(np.asarray(X, dtype=float)[:, :1]))
+
+
+class CellMeansBackoff(BaseEstimator):
+    """Cell means on a seen design row, and a main-terms quasibinomial GLM on an unseen one.
+
+    The N1 control's outcome learner.  :class:`CellMeans` falls back to the training mean on
+    a design row the fit never saw.  The declared run at 5728c3ce read that fallback at the
+    rule's third node, where some histories of the followers through node 2 have no follower
+    through node 3.  The control then missed its own limit:
+    ``rule_t3__absorbing_reading`` reached 0.569 against :data:`ABSORBING_LIMIT` 0.615, and
+    ``always_t3`` 0.728 against 0.740.  A GLM on the same rows predicts an unseen cell from its
+    neighbours, so the fit converges to the same limit with less finite-sample bias.
+    """
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> CellMeansBackoff:
+        matrix = np.asarray(X, dtype=float)
+        self.cells_ = CellMeans().fit(matrix, y, sample_weight=sample_weight)
+        self.backoff_ = QuasiBinomialGLM().fit(matrix, y, sample_weight=sample_weight)
+        return self
+
+    def predict(self, X: Any) -> np.ndarray:
+        matrix = np.asarray(X, dtype=float)
+        keys = self.cells_.keys_
+        rounded = np.round(matrix, 9)
+        seen = (rounded[:, None, :] == keys[None, :, :]).all(axis=2).any(axis=1)
+        return np.where(
+            seen, self.cells_.predict(matrix), np.asarray(self.backoff_.predict(matrix))
+        )
 
 
 def booster(kind: str) -> Any:
@@ -364,8 +406,8 @@ def absorbing_fit(frame: pd.DataFrame, horizon: int) -> Any:
     return LTMLE(
         plans,
         reference="never",
-        outcome_learner=CellMeans(),
-        pseudo_learner=CellMeans(),
+        outcome_learner=CellMeansBackoff(),
+        pseudo_learner=CellMeansBackoff(),
         treatment_learner=g,
         censoring_learner=c,
         n_folds=1,
@@ -431,14 +473,14 @@ def _row(
     truth: float,
     estimate: Any,
     *,
-    n: int = N,
+    n: int | None = None,
 ) -> dict[str, Any]:
     return replicate_row(
         property_name=family,
         cell=cell,
         role=role,
         replicate=replicate,
-        n=n,
+        n=family_n(family) if n is None else n,
         requested=requested,
         truth=truth,
         estimate=estimate,
@@ -456,7 +498,11 @@ def sample(configuration: str, seed: int, n: int = N) -> pd.DataFrame:
 
 def family_n(family: str) -> int:
     """The sample size a property family draws."""
-    return CALIBRATION_N if family == "interval_calibration" else N
+    if family == "interval_calibration":
+        return CALIBRATION_N
+    if family == "repeated_outcome_necessity":
+        return ABSORBING_N
+    return N
 
 
 def _replication(payload: tuple[str, str, int, int, int]) -> list[dict[str, Any]]:

@@ -41,10 +41,11 @@ def _parse(name: str) -> tuple[str, int, str | None]:
     return PLANS[plan], int(horizon), None
 
 
-def _sd(label: str) -> float:
-    """The efficiency bound's standard deviation of a property label at the study's ``n``."""
+def _sd(label: str, family: str) -> float:
+    """The efficiency bound's standard deviation of a property label at its family's ``n``."""
     plan, horizon, reference = _parse(study.label_estimand(label))
-    return law.BINARY.eif_sd(plan, horizon, reference=reference) / np.sqrt(properties.N)
+    scale = law.BINARY.eif_sd(plan, horizon, reference=reference)
+    return scale / np.sqrt(properties.family_n(family))
 
 
 def _discriminated(gap: float, scale: float, replicates: int) -> float:
@@ -228,24 +229,50 @@ def _control_designs() -> list[tuple[str, str, float, float, int]]:
     for label in properties.ABSORBING_LABELS:
         gap = properties.ABSORBING_LIMIT[label] - truth[study.label_estimand(label)]
         designs.append(
-            ("repeated_outcome_necessity", label, gap, _sd(label), properties.NECESSITY_REPLICATES)
+            (
+                "repeated_outcome_necessity",
+                label,
+                gap,
+                _sd(label, "repeated_outcome_necessity"),
+                properties.NECESSITY_REPLICATES,
+            )
         )
     for label in properties.HISTORY_LABELS:
         gap = properties.HISTORY_FREE_LIMIT[label] - truth[study.label_estimand(label)]
         designs.append(
-            ("outcome_history_necessity", label, gap, _sd(label), properties.NECESSITY_REPLICATES)
+            (
+                "outcome_history_necessity",
+                label,
+                gap,
+                _sd(label, "outcome_history_necessity"),
+                properties.NECESSITY_REPLICATES,
+            )
         )
     for label in properties.STATIC_GATED:
         gap = properties.BOTH_WRONG_LIMIT[label] - truth[study.label_estimand(label)]
         designs.append(
-            ("double_robustness", label, gap, _sd(label), properties.DOUBLE_ROBUST_REPLICATES)
+            (
+                "double_robustness",
+                label,
+                gap,
+                _sd(label, "double_robustness"),
+                properties.DOUBLE_ROBUST_REPLICATES,
+            )
         )
     for label in properties.RULE_LABELS:
         horizon = int(label.rsplit("_t", 1)[1])
         gap = law.BINARY.counterfactual("reversed", horizon) - repeated_truth(
             REPEATED_RULE_LABEL, horizon
         )
-        designs.append(("rule_necessity", label, gap, _sd(label), properties.NECESSITY_REPLICATES))
+        designs.append(
+            (
+                "rule_necessity",
+                label,
+                gap,
+                _sd(label, "rule_necessity"),
+                properties.NECESSITY_REPLICATES,
+            )
+        )
     return designs
 
 
@@ -292,6 +319,26 @@ def test_the_small_sample_arms_are_reported_not_gated() -> None:
     assert properties.family_n("small_sample_calibration") == properties.N
     assert properties.family_n("interval_calibration") == properties.CALIBRATION_N
     assert "small_sample_calibration" in properties.REPORTED_CALIBRATION
+
+
+def test_the_absorbing_control_draws_at_its_own_n() -> None:
+    """The run at 5728c3ce left N1 short of its limit at n = 2,000; it now draws 8,000."""
+    assert properties.ABSORBING_N == 8_000
+    assert properties.family_n("repeated_outcome_necessity") == properties.ABSORBING_N
+    assert properties.family_n("outcome_history_necessity") == properties.N
+
+
+def test_the_backoff_learner_reads_a_seen_cell_and_extrapolates_an_unseen_one() -> None:
+    """A seen row returns its cell mean; an unseen row returns the GLM, not the training mean."""
+    X = np.array([[0.0, 0.0], [0.0, 0.0], [1.0, 0.0], [1.0, 0.0], [0.0, 1.0], [0.0, 1.0]])
+    y = np.array([0.1, 0.3, 0.5, 0.7, 0.4, 0.6])
+    learner = properties.CellMeansBackoff().fit(X, y)
+    seen = learner.predict(np.array([[1.0, 0.0], [0.0, 1.0]]))
+    np.testing.assert_allclose(seen, [0.6, 0.5])
+    unseen = learner.predict(np.array([[1.0, 1.0]]))
+    # The training mean is 0.433; the main-terms GLM puts the cell with both effects above 0.6.
+    assert unseen[0] > 0.6
+    np.testing.assert_allclose(unseen, learner.backoff_.predict(np.array([[1.0, 1.0]])))
 
 
 def test_the_primary_budget_tolerates_a_small_second_order_bias() -> None:
