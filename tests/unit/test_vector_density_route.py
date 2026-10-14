@@ -550,6 +550,7 @@ def test_w8_density_a_longitudinal_fit_targets_and_solves_its_score(folds: int) 
         pseudo_learner=DummyRegressor(),
         treatment_learner=LogisticRegression(max_iter=1000),
         n_folds=folds,
+        random_state=0,
         ratio="density",
     )
     with warnings.catch_warnings():

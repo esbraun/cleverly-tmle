@@ -192,6 +192,7 @@ def _misspecified(folds: int) -> Any:
         pseudo_learner=DummyRegressor(),
         treatment_learner=LogisticRegression(max_iter=1000),
         n_folds=folds,
+        random_state=0,
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
