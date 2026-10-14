@@ -17,6 +17,7 @@ from tests.studies import ctmle_derivative_laws as laws
 from tests.studies import ctmle_derivative_properties as properties
 from tests.studies.canonical_full_refit_bootstrap import calibration_pass_probability
 from tests.studies.evidence.property_verdicts import (
+    CLUSTER_ROBUST_CONTROL_SE_CEILING,
     MINIMUM_POWER,
     design_power,
     power_cell_pass_probability,
@@ -84,18 +85,24 @@ def test_the_main_terms_lasso_target_is_right_on_the_primary_law_and_wrong_off_i
 
 
 def test_the_outcome_correct_law_is_the_one_the_committed_pilot_chose() -> None:
-    """The law's coefficient is the smallest grid value that passed every pilot check."""
-    frame = pd.read_csv(pilot.PILOT)
-    assert list(frame["curvature"]) == pytest.approx(pilot.CURVATURE_GRID[: len(frame)])
-    assert frame["passed"].astype(bool).tolist() == [False] * (len(frame) - 1) + [True]
+    """The pilot assessed the whole grid, and the law's coefficient is its smallest pass."""
+    frame = pd.read_csv(pilot.PILOT, float_precision="round_trip")
+    assert list(frame["curvature"]) == pytest.approx(list(pilot.CURVATURE_GRID))
     assert pilot.chosen_curvature() == laws.OUTCOME_CURVATURE
     assert pilot.law_for(laws.OUTCOME_CURVATURE) == laws.OUTCOME_CORRECT
-    chosen = frame.iloc[-1]
+    raw = frame.drop(
+        columns=[c for c in frame.columns if c.startswith("trend_")]
+        + ["check_4", "check_5", "passed"]
+    )
+    reselected = pilot.select(raw)
+    for column in ("check_4", "check_5", "passed"):
+        assert reselected[column].tolist() == frame[column].astype(bool).tolist()
+    chosen = frame.loc[frame["curvature"] == pytest.approx(laws.OUTCOME_CURVATURE)].iloc[0]
     assert chosen["truncation"] <= pilot.DR_TRUNCATION_CEILING
-    assert abs(chosen["ctmle_limit_bias"]) >= pilot.CTMLE_LIMIT_FLOOR * chosen["sigma"]
     assert abs(chosen["tmle_limit_bias"]) >= pilot.TMLE_LIMIT_FLOOR * chosen["sigma"]
-    assert chosen["both_wrong_pass_probability"] >= pilot.PASS_PROBABILITY
-    assert chosen["outcome_correct_pass_probability"] >= pilot.PASS_PROBABILITY
+    assert abs(chosen["trend_ctmle_limit_bias"]) >= pilot.CTMLE_LIMIT_FLOOR * chosen["trend_sigma"]
+    assert chosen["trend_both_wrong_pass_probability"] >= pilot.PASS_PROBABILITY
+    assert chosen["trend_outcome_correct_pass_probability"] >= pilot.PASS_PROBABILITY
 
 
 @pytest.mark.parametrize("cell", ["both_wrong", "outcome_correct"])
@@ -163,6 +170,7 @@ def test_the_cells_carry_the_declared_budgets() -> None:
     for label in study.PROPERTY_CELLS["double_robustness"]:
         assert budgets["double_robustness", label] == (2_000, 1_200)
     assert budgets["targeting_necessity", "ate__targeted"] == (2_000, 1_200)
+    assert budgets["clustered_inference", "cluster_robust"] == calibration
     declared = {(cell.property, cell.cell) for cell in properties.declared_cells()}
     published = {
         (family, label)
@@ -174,21 +182,129 @@ def test_the_cells_carry_the_declared_budgets() -> None:
 
 
 def test_the_targeting_threshold_sits_below_the_exact_untargeted_displacement() -> None:
-    """The constant outcome fit has a zero contrast, so its bias is minus the truth.
+    """The GLM without ``W2`` has a limit bias, and targeting must remove it.
 
-    The targeted arm's spread is its influence-curve SD over root n, with the constant outcome
-    fit.  The declared threshold must sit well below the resulting displacement, so a working
-    targeting step clears it and an inert one cannot.
+    The limit fits the wrong GLM on ``4 x 10^5`` draws.  The targeted arm's spread is the
+    influence-curve SD over root n, with that wrong outcome fit and the true mechanism.  The
+    declared threshold must sit well below the resulting displacement, so a working targeting
+    step clears it and an inert one cannot.
     """
     law = laws.PRIMARY
     rng = np.random.default_rng(20263006)
-    w = rng.standard_normal((200_000, 4))
+    w = rng.standard_normal((400_000, 4))
     g = np.clip(law.mechanism(w)[:, 1], *laws.G_BOUNDS)
-    a = rng.uniform(size=g.size) < g
-    y = rng.uniform(size=g.size) < np.where(
-        a, law.outcome_probability(1, w), law.outcome_probability(0, w)
-    )
+    a = (rng.uniform(size=g.size) < g).astype(float)
+    y = (
+        rng.uniform(size=g.size)
+        < np.where(a == 1.0, law.outcome_probability(1, w), law.outcome_probability(0, w))
+    ).astype(float)
+    design = np.column_stack([a, w])
+    fit = study.omitted_confounder_learner().fit(design, y)
+
+    def predict(arm: float) -> np.ndarray:
+        return fit.predict_proba(np.column_stack([np.full(g.size, arm), w]))[:, 1]
+
+    q0, q1 = predict(0.0), predict(1.0)
     truth = law.truth()["ate"]
-    curve = (a / g - (~a) / (1.0 - g)) * (y - y.mean()) - truth
+    bias = float(np.mean(q1 - q0)) - truth
+    curve = (a / g - (1.0 - a) / (1.0 - g)) * (y - np.where(a == 1.0, q1, q0)) + q1 - q0 - truth
     spread = curve.std() / np.sqrt(properties.NECESSITY_N)
-    assert abs(truth) / spread >= 1.5 * properties.TARGETING_DISPLACEMENT
+    assert abs(bias) / spread >= 1.5 * properties.TARGETING_DISPLACEMENT
+
+
+def test_the_clustered_law_has_a_large_cluster_design_effect() -> None:
+    """The oracle influence curve's cluster design effect clears the declared floor.
+
+    At ``10^4`` clusters the estimate's relative error is about 1.5%.  The IID control's SE
+    ratio is about one over the root of the design effect, so the floor keeps it below the
+    family's ceiling.
+    """
+    law = laws.CLUSTERED
+    assert law.clusters is not None
+    frame = law.sample(law.clusters * 10_000, 20263007)
+    w = frame[list(laws.COVARIATES)].to_numpy()
+    g = law.mechanism(w)[:, 1]
+    a = frame["A"].to_numpy()
+    q0, q1 = law.outcome_probability(0, w), law.outcome_probability(1, w)
+    residual = frame["Y"].to_numpy() - np.where(a == 1.0, q1, q0)
+    curve = (a / g - (1.0 - a) / (1.0 - g)) * residual + q1 - q0 - law.truth()["ate"]
+    sums = np.bincount(frame["cluster"].to_numpy(), weights=curve)
+    effect = float(sums.var() / law.clusters / curve.var())
+    assert effect >= laws.CLUSTER_DESIGN_EFFECT
+    assert 1.0 / np.sqrt(laws.CLUSTER_DESIGN_EFFECT) < CLUSTER_ROBUST_CONTROL_SE_CEILING
+
+
+@pytest.mark.parametrize(
+    ("law", "estimand", "declared", "error"),
+    [
+        (laws.PRIMARY, "ate", laws.PRIMARY_EIF_SD, laws.PRIMARY_EIF_SD_ERROR),
+        (laws.THREE_ARM, "ate[1.0 vs 0.0]", laws.THREE_ARM_EIF_SD, laws.THREE_ARM_EIF_SD_ERROR),
+        (
+            laws.MISSING_OUTCOME,
+            "ate",
+            laws.MISSING_OUTCOME_EIF_SD,
+            laws.MISSING_OUTCOME_EIF_SD_ERROR,
+        ),
+    ],
+    ids=["primary", "three_arm", "missing_outcome"],
+)
+def test_each_efficiency_bound_reproduces(
+    law: laws.DerivativeLaw, estimand: str, declared: float, error: float
+) -> None:
+    """``10^5`` draws reproduce each ``10^6``-draw bound to four of their own errors."""
+    sd, own = law.eif_sd(100_000, 2, estimand)
+    assert abs(sd - declared) < 4.0 * max(own, error)
+    assert properties.EFFICIENCY_BOUNDS
+
+
+def _primary_rows() -> pd.DataFrame:
+    return pd.read_csv(study.ARTIFACTS / "replicates.csv.gz", float_precision="round_trip")
+
+
+def test_the_parity_witness_reproduces_and_passes() -> None:
+    """On each parity scenario, Python and R differ far less than the derivative moves.
+
+    ``paired-tmle.csv`` publishes the SD of the C-TMLE0 minus TMLE difference.  The SD of
+    the Python minus R difference, recomputed here from the committed rows, must be at most
+    :data:`~tests.studies.canonical_ctmle_derivative.PARITY_WITNESS_RATIO` of it.
+    """
+    rows = _primary_rows()
+    paired = pd.read_csv(study.ARTIFACTS / "paired-tmle.csv", float_precision="round_trip")
+    for scenario in study.PARITY_SCENARIOS:
+        frame = rows.loc[rows["scenario"] == scenario].pivot(
+            index="replicate", columns="implementation", values="estimate"
+        )
+        parity = float((frame[study.IMPLEMENTATION] - frame[study.REFERENCE]).std(ddof=1))
+        row = paired.loc[paired["scenario"] == scenario].iloc[0]
+        assert parity == pytest.approx(row["sd_parity_difference"], rel=1e-9)
+        assert parity <= study.PARITY_WITNESS_RATIO * row["sd_difference"]
+        assert bool(row["parity_witness_passed"])
+
+
+def test_a_side_without_the_derivative_columns_would_fail_the_witness() -> None:
+    """The deliberate-mutation control of the witness, on five ``binary_constant_q`` draws.
+
+    Each refit matches R.  The same fits retargeted without the derivative columns, the plain
+    TMLE, sit farther from R in root mean square than the witness allows a scenario's SD to be.
+    """
+    scenario = "binary_constant_q"
+    rows = _primary_rows()
+    paired = pd.read_csv(study.ARTIFACTS / "paired-tmle.csv", float_precision="round_trip")
+    bound = study.PARITY_WITNESS_RATIO * float(
+        paired.loc[paired["scenario"] == scenario, "sd_difference"].iloc[0]
+    )
+    plain = []
+    for replicate in range(5):
+        frame, _ = study.draw_scenario(scenario, study.PRIMARY_N, replicate)
+        result = study.fit_cleverly(frame, scenario)
+        reference = float(
+            rows.loc[
+                (rows["scenario"] == scenario)
+                & (rows["replicate"] == replicate)
+                & (rows["implementation"] == study.REFERENCE),
+                "estimate",
+            ].iloc[0]
+        )
+        assert abs(float(result["ate"].psi) - reference) < 0.1 * bound
+        plain.append(float(study.paired_tmle(result)["ate"].psi) - reference)
+    assert float(np.sqrt(np.mean(np.square(plain)))) > bound

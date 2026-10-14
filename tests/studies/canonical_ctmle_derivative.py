@@ -10,7 +10,7 @@ treatment law, so the internal lasso is consistent for it, and a GLM-correct bin
 
 **The comparator** is R ``ctmle`` 0.1.2 at ``18de559``, ``ctmletype = 3``, through
 ``tests/canonical/ctmle_derivative/run_ctmle_derivative.R`` in the image that
-``tests/canonical/ctmle_selector`` builds.  Both scenarios read the primary law at
+``tests/canonical/ctmle_selector`` builds.  Every scenario reads the primary law at
 ``n = 2,000``.
 
 =========================  ==================================================================
@@ -24,6 +24,11 @@ scenario                   both sides
                            ``learner_folds=10``; R runs ``cv.glmnet(nfolds = 10)``, takes
                            ``lambda.min`` and the partner at ``1.05 lambda.min``, as the
                            ``ctmle`` README does
+``binary_constant_q``      the declared pair, with the constant outcome regression ``mean(Y)``
+                           on both sides (a ``DummyRegressor``).  The GLM outcome of the other
+                           two scenarios is correct, so the derivative columns barely move
+                           the estimate there.  Here the update moves it by about 0.23 SD of
+                           the estimate on each replicate
 =========================  ==================================================================
 
 The pipelines differ in three declared ways: the cross-validation folds; the partner (R
@@ -39,6 +44,14 @@ partner is that draw's own grid neighbour.  ``penalty-design.csv`` keeps every d
 initial fit, mechanism and bounds, with only the derivative columns removed
 (:func:`paired_tmle`), and the penalty pair the fit used.  ``paired-tmle.csv`` and
 ``chosen-penalties.csv`` publish them.
+
+**The parity witness** (declared before the second run).  The equivalence margin is about
+0.15 SD of the estimate, and the C-TMLE0 minus TMLE difference is smaller than that.  A
+Python side that dropped the derivative columns would still read "equivalent".  So, on each
+scenario of :data:`PARITY_SCENARIOS`, the SD of the paired Python minus R difference must be
+at most :data:`PARITY_WITNESS_RATIO` times the SD of the C-TMLE0 minus TMLE difference.
+``paired-tmle.csv`` publishes both SDs and the verdict, and
+``tests/unit/test_ctmle_derivative_study_design.py`` recomputes them from the committed rows.
 """
 
 from __future__ import annotations
@@ -53,7 +66,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
+from sklearn.compose import ColumnTransformer
+from sklearn.dummy import DummyRegressor
 from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
 
 from cleverly.estimators import CTMLE
 from cleverly.utils.parallel import map_parallel
@@ -92,7 +108,13 @@ PENALTY_SEED = 20263100
 SCENARIO_ESTIMANDS: Mapping[str, tuple[str, ...]] = {
     "binary_declared_pair": ("ate",),
     "binary_pipeline": ("ate",),
+    "binary_constant_q": ("ate",),
 }
+#: The scenarios where both sides fit the same estimator, so the parity witness applies.
+PARITY_SCENARIOS = ("binary_declared_pair", "binary_constant_q")
+#: The largest SD of the Python minus R difference, as a share of the SD of the C-TMLE0
+#: minus TMLE difference, on a parity scenario.
+PARITY_WITNESS_RATIO = 0.1
 
 PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     "interval_calibration": (
@@ -100,13 +122,20 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
         "cross_fitted",
         "multi_arm",
         "missing_outcome",
-        "clustered",
     ),
+    "clustered_inference": ("cluster_robust", "iid_control"),
     "type_i_error": ("sharp_null",),
     "power": ("alternative",),
     "root_n_and_efficiency": ("n_500", "n_2000", "n_8000"),
     "root_n_rate": ("empirical_sd", "reported_se"),
-    "double_robustness": ("treatment_correct", "outcome_correct", "both_wrong"),
+    "double_robustness": (
+        "treatment_correct",
+        "outcome_correct",
+        "both_wrong",
+        "multi_arm_treatment_correct",
+        "missing_outcome_treatment_correct",
+        "cross_fitted_treatment_correct",
+    ),
     "targeting_necessity": ("ate__targeted", "ate__untargeted"),
 }
 
@@ -166,7 +195,8 @@ REFERENCE_METADATA = {
     "ctmle_version": "0.1.2",
     "r_base_image": R_BASE_IMAGE,
     "reference_construction": (
-        "Q: glm(Y ~ A + W1 + W2 + W3 + W4, binomial). binary_declared_pair: glmnet(W, "
+        "Q: glm(Y ~ A + W1 + W2 + W3 + W4, binomial); binary_constant_q: mean(Y) for both "
+        "arms. binary_declared_pair and binary_constant_q: glmnet(W, "
         "factor(A), binomial, lambda = sort(PAIR, decreasing = TRUE), thresh = 1e-14, "
         "maxit = 1e7), g1W and g1WPrev by predict(type = 'response') at the mechanism and the "
         "partner penalty. binary_pipeline: cv.glmnet(W, factor(A), binomial, nfolds = 10, "
@@ -185,7 +215,9 @@ CONFIGURATION = {
     "alpha": ALPHA,
     "learner_folds": LEARNER_FOLDS,
     "stratify_folds": STRATIFY_FOLDS,
-    "outcome_learner": "unpenalized logistic regression on [A, W1, W2, W3, W4]",
+    "outcome_learner": (
+        "unpenalized logistic regression on [A, W1, W2, W3, W4]; binary_constant_q: DummyRegressor"
+    ),
     "declared_pair": (
         "tests/canonical/ctmle_derivative/penalties.csv: the lower median lambda_cv of "
         f"{PENALTY_DRAWS} design draws of the primary law at n = {PRIMARY_N:,} (seeds "
@@ -261,11 +293,26 @@ def estimator(
     )
 
 
+def omitted_confounder_learner() -> Pipeline:
+    """A wrong but informative outcome learner: the main-terms GLM without ``W2``.
+
+    The outcome design is ``[A, W1, W2, W3, W4]``, so the learner keeps columns 0, 1, 3
+    and 4.  ``W2`` is a confounder, so the plug-in is biased and the update must remove it.
+    """
+    return Pipeline(
+        [
+            ("columns", ColumnTransformer([("keep", "passthrough", [0, 1, 3, 4])])),
+            ("logistic", outcome_learner()),
+        ]
+    )
+
+
 def fit_cleverly(frame: pd.DataFrame, scenario: str) -> Any:
     """Fit the subject on one primary sample of ``scenario``."""
-    lambdas = declared_pair() if scenario == "binary_declared_pair" else None
+    lambdas = None if scenario == "binary_pipeline" else declared_pair()
+    outcome = DummyRegressor() if scenario == "binary_constant_q" else None
     return (
-        estimator(lambdas=lambdas)
+        estimator(lambdas=lambdas, outcome=outcome)
         .fit(frame, outcome="Y", treatment="A", covariates=list(laws.COVARIATES))
         .single()
     )
@@ -388,8 +435,10 @@ def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
 
     ``paired-tmle.csv`` publishes, per scenario, the mean C-TMLE0 minus TMLE difference, its
     standard deviation, and each estimator's coverage and mean standard error over the primary
-    replications.  The numbers are descriptive.  ``chosen-penalties.csv`` publishes the
-    ``(mechanism, partner)`` pair of each side, per scenario and replication.
+    replications.  Those numbers are descriptive.  It also publishes the SD of the paired
+    Python minus R difference and, on :data:`PARITY_SCENARIOS`, the parity witness verdict
+    (:func:`parity_witness`).  ``chosen-penalties.csv`` publishes the ``(mechanism,
+    partner)`` pair of each side, per scenario and replication.
     """
     subject = rows.loc[rows["implementation"] == IMPLEMENTATION].copy()
     subject["difference"] = subject["estimate"] - subject["tmle_estimate"]
@@ -405,10 +454,44 @@ def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
         )
         .reset_index()
     )
+    paired = paired.merge(parity_witness(rows, paired), on=["scenario", "estimand"])
     penalties = rows.loc[
         :, ["implementation", "scenario", "replicate", "mechanism_penalty", "partner_penalty"]
     ].sort_values(["scenario", "replicate", "implementation"], ignore_index=True)
     return {"paired-tmle.csv": paired, "chosen-penalties.csv": penalties}
+
+
+def parity_witness(rows: pd.DataFrame, paired: pd.DataFrame) -> pd.DataFrame:
+    """The SD of the paired Python minus R difference, and the witness verdict.
+
+    Parameters
+    ----------
+    rows : DataFrame
+        The primary rows of both implementations.
+    paired : DataFrame
+        The ``sd_difference`` (C-TMLE0 minus TMLE) of each scenario and estimand.
+
+    Returns
+    -------
+    DataFrame
+        ``scenario``, ``estimand``, ``sd_parity_difference``, ``parity_witness_ratio`` and
+        ``parity_witness_passed``.  The verdict is empty off :data:`PARITY_SCENARIOS`.
+    """
+    keys = ["scenario", "estimand", "replicate"]
+    subject = rows.loc[rows["implementation"] == IMPLEMENTATION, [*keys, "estimate"]]
+    reference = rows.loc[rows["implementation"] == REFERENCE, [*keys, "estimate"]]
+    joined = subject.merge(reference, on=keys, suffixes=("", "_reference"), validate="1:1")
+    joined["parity"] = joined["estimate"] - joined["estimate_reference"]
+    out = (
+        joined.groupby(["scenario", "estimand"], sort=True)
+        .agg(sd_parity_difference=("parity", "std"))
+        .reset_index()
+        .merge(paired[["scenario", "estimand", "sd_difference"]], on=["scenario", "estimand"])
+    )
+    out["parity_witness_ratio"] = out["sd_parity_difference"] / out["sd_difference"]
+    passed = out["parity_witness_ratio"] <= PARITY_WITNESS_RATIO
+    out["parity_witness_passed"] = passed.where(out["scenario"].isin(PARITY_SCENARIOS))
+    return out.drop(columns="sd_difference")
 
 
 def _penalty_draw(draw: int) -> dict[str, Any]:

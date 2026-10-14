@@ -14,15 +14,19 @@ one-dimensional Gauss-Hermite integral over the normal index ``u^T W``.
 
 The treatment law is main-terms logistic (a softmax with arm 0 the baseline at three arms),
 so the internal lasso is consistent for it.  The ``outcome_correct`` law adds the logit term
-``v12 W1 W2``, which no main-terms model reads.
+``beta W2 |W2|``, which no main-terms model reads.
 
 The missing-outcome law keeps the primary law and adds a logistic response mechanism
 ``pi(A, W)``.  The outcome is missing at random, so every truth is the primary law's.
 
 The clustered law keeps the primary law's marginals.  ``Y = 1{U < Qbar_0(A, W)}``, where
-``U = Phi(sqrt(rho) B + sqrt(1 - rho) E)`` with ``B`` shared within a cluster.  ``U`` is
-uniform for every row, so ``E[Y | A, W] = Qbar_0(A, W)``.  The treatment draws are
-independent given ``W``, so ``P(A = 1 | W)`` stays main-terms logistic.
+``U = Phi(sqrt(rho) B + sqrt(1 - rho) E)`` with ``B`` shared within a cluster.  The treatment
+is ``A = 1{V < g_0(W)}`` with ``V`` built the same way from its own shared score and
+``treatment_rho``.  ``U`` and ``V`` are uniform and independent of ``W`` for every row, so
+``E[Y | A, W] = Qbar_0(A, W)`` and ``P(A = 1 | W)`` stays main-terms logistic.  Correlated
+treatments within a cluster correlate the clever covariates, so the influence curve's
+cluster design effect is about 2.5 (:data:`CLUSTER_DESIGN_EFFECT`).  Residual correlation
+alone would leave it near 1, because ``E[H | W] = 0``.
 """
 
 from __future__ import annotations
@@ -68,7 +72,9 @@ class DerivativeLaw:
     clusters : int or None
         The cluster size of the clustered law, or ``None``.
     rho : float
-        The within-cluster correlation of the copula's normal scores.
+        The within-cluster correlation of the outcome copula's normal scores.
+    treatment_rho : float
+        The within-cluster correlation of the treatment copula's normal scores.
     """
 
     name: str
@@ -79,6 +85,7 @@ class DerivativeLaw:
     response: tuple[float, float, float, float] | None = None
     clusters: int | None = None
     rho: float = 0.0
+    treatment_rho: float = 0.0
     arms: tuple[float, ...] = field(init=False)
 
     def __post_init__(self) -> None:
@@ -140,18 +147,17 @@ class DerivativeLaw:
         w = rng.standard_normal((n, 4))
         g = self.mechanism(w)
         cumulative = np.cumsum(g, axis=1)
-        a = (rng.uniform(size=(n, 1)) > cumulative).sum(axis=1).astype(float)
-        q = np.choose(a.astype(int), [self.outcome_probability(j, w) for j in range(self.k)])
+        cluster = None
         if self.clusters is None:
-            u = rng.uniform(size=n)
-            cluster = None
+            v = rng.uniform(size=(n, 1))
         else:
             if n % self.clusters:
                 raise ValueError(f"n = {n} is not a whole number of clusters of {self.clusters}")
             cluster = np.repeat(np.arange(n // self.clusters), self.clusters)
-            shared = rng.standard_normal(n // self.clusters)[cluster]
-            own = rng.standard_normal(n)
-            u = norm.cdf(np.sqrt(self.rho) * shared + np.sqrt(1.0 - self.rho) * own)
+            v = _copula(rng, cluster, self.treatment_rho)[:, None]
+        a = (v > cumulative).sum(axis=1).astype(float)
+        q = np.choose(a.astype(int), [self.outcome_probability(j, w) for j in range(self.k)])
+        u = rng.uniform(size=n) if cluster is None else _copula(rng, cluster, self.rho)
         y = (u < q).astype(float)
         frame = pd.DataFrame(w, columns=list(COVARIATES))
         frame["A"] = a
@@ -167,21 +173,39 @@ class DerivativeLaw:
     def eif_sd(self, draws: int, seed: int, estimand: str = "ate") -> tuple[float, float]:
         """The efficient influence curve's SD at the truth, and its Monte Carlo error.
 
-        Complete data, binary treatment, ``ate``: the variance is
-        ``E[Q1 (1 - Q1) / g1 + Q0 (1 - Q0) / g0 + (Q1 - Q0 - psi)^2]``.  The error is the
-        delta-method standard error of the SD from the per-draw terms.
+        For the contrast of arm ``a`` against arm 0, with ``pi`` the response mechanism, the
+        variance is ``E[Qa (1 - Qa) / (ga pia) + Q0 (1 - Q0) / (g0 pi0) + (Qa - Q0 - psi)^2]``.
+        ``estimand`` is ``"ate"`` on a binary law and ``"ate[a vs 0.0]"`` otherwise.  The
+        error is the delta-method standard error of the SD from the per-draw terms.  The
+        clustered law has no such bound, because its rows are dependent.
         """
-        if self.k != 2 or estimand != "ate" or self.response is not None:
-            raise ValueError("eif_sd covers the complete-data binary ate only")
+        if self.clusters is not None:
+            raise ValueError("eif_sd has no bound for a law with dependent rows")
+        if estimand not in self.truth() or not estimand.startswith("ate"):
+            raise ValueError(f"{estimand!r} is not a contrast of this law")
+        arm = 1 if estimand == "ate" else int(float(estimand[4:].split(" vs ", 1)[0]))
         rng = np.random.default_rng(seed)
         w = rng.standard_normal((draws, 4))
         g = self.mechanism(w)
-        q0, q1 = self.outcome_probability(0, w), self.outcome_probability(1, w)
-        psi = self.truth()["ate"]
-        terms = q1 * (1 - q1) / g[:, 1] + q0 * (1 - q0) / g[:, 0] + (q1 - q0 - psi) ** 2
+        q0, qa = self.outcome_probability(0, w), self.outcome_probability(arm, w)
+        pi0 = self.response_probability(np.zeros(draws), w)
+        pia = self.response_probability(np.full(draws, float(arm)), w)
+        psi = self.truth()[estimand]
+        terms = (
+            qa * (1 - qa) / (g[:, arm] * pia)
+            + q0 * (1 - q0) / (g[:, 0] * pi0)
+            + (qa - q0 - psi) ** 2
+        )
         variance = float(terms.mean())
         error = float(terms.std(ddof=1) / np.sqrt(draws)) / (2.0 * np.sqrt(variance))
         return float(np.sqrt(variance)), error
+
+
+def _copula(rng: np.random.Generator, cluster: np.ndarray, rho: float) -> np.ndarray:
+    """Uniforms whose normal scores share a cluster component of variance ``rho``."""
+    shared = rng.standard_normal(int(cluster.max()) + 1)[cluster]
+    own = rng.standard_normal(cluster.size)
+    return np.asarray(norm.cdf(np.sqrt(rho) * shared + np.sqrt(1.0 - rho) * own), dtype=float)
 
 
 _SLOPE = (0.6, 0.5, 0.7)
@@ -210,8 +234,11 @@ THREE_ARM = DerivativeLaw(
 MISSING_OUTCOME = DerivativeLaw(
     "missing_outcome", (-0.3, 0.2), _SLOPE, _SCORE, response=(1.2, -0.3, 0.4, 0.3)
 )
-#: The primary law in 100 clusters of 20, dependent through a Gaussian copula.
-CLUSTERED = DerivativeLaw("clustered", (-0.3, 0.2), _SLOPE, _SCORE, clusters=20, rho=0.3)
+#: The primary law in 100 clusters of 20, with treatment and outcome dependent within a
+#: cluster through two Gaussian copulas.
+CLUSTERED = DerivativeLaw(
+    "clustered", (-0.3, 0.2), _SLOPE, _SCORE, clusters=20, rho=0.5, treatment_rho=0.5
+)
 
 LAWS = {
     law.name: law
@@ -234,8 +261,20 @@ CALIBRATION_REPLICATES = 2_400
 #: 1), and its Monte Carlo error.
 ALTERNATIVE_EIF_SD = 1.0005
 ALTERNATIVE_EIF_SD_ERROR = 0.00021
+#: The efficient influence curve's SD of each calibration law's contrast, at ``10^6`` draws
+#: (seed 1), and its Monte Carlo error.  The study publishes each calibration cell's empirical
+#: and reported SD against it.
+PRIMARY_EIF_SD = 0.99989
+PRIMARY_EIF_SD_ERROR = 0.00021
+THREE_ARM_EIF_SD = 1.23389
+THREE_ARM_EIF_SD_ERROR = 0.00033
+MISSING_OUTCOME_EIF_SD = 1.18333
+MISSING_OUTCOME_EIF_SD_ERROR = 0.00027
 #: The KL gap of the main-terms logistic projection of the treatment law, at ``10^5`` draws:
 #: below this ceiling on the primary law.  The pilot's floor on ``outcome_correct`` is twice it.
 PRIMARY_KL_CEILING = 1e-3
 #: The largest share of mechanism values the three-arm law may put outside ``G_BOUNDS``.
 TRUNCATION_CEILING = 0.01
+#: The smallest influence-curve cluster design effect the clustered law may have.  The IID
+#: control's SE ratio is then about ``1 / sqrt(2) = 0.71``, below the family's 0.80 ceiling.
+CLUSTER_DESIGN_EFFECT = 2.0

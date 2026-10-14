@@ -9,21 +9,37 @@ family                     cells
 =========================  ===============================================================
 ``interval_calibration``   ``in_sample``; ``cross_fitted`` (five folds); ``multi_arm`` (the
                            three-arm law, multinomial lasso, ``ate[1.0 vs 0.0]``);
-                           ``missing_outcome`` (``delta=`` with a correct response learner);
-                           ``clustered`` (100 clusters of 20, ``id=``, cross-fitted)
+                           ``missing_outcome`` (``delta=`` with a correct response learner).
+                           Each cell also publishes its SDs against the law's efficiency
+                           bound (:data:`EFFICIENCY_BOUNDS`)
+``clustered_inference``    ``cluster_robust`` (the clustered law, 100 clusters of 20, ``id=``,
+                           cross-fitted) and its ``iid_control``: the same fits, with the IID
+                           variance of the same influence curve
 ``type_i_error``           ``sharp_null`` on the sharp-null law
 ``power``                  ``alternative`` on the alternative law
 ``root_n_and_efficiency``  ``n_500``, ``n_2000`` and ``n_8000`` on the primary law
 ``double_robustness``      ``treatment_correct`` (a ``DummyRegressor`` outcome on the primary
                            law); ``outcome_correct`` (the correct outcome on the
                            ``outcome_correct`` law, whose treatment logit adds
-                           ``W2 |W2|``); the ``both_wrong`` control (both on that law)
-``targeting_necessity``    ``ate__targeted`` against ``ate__untargeted``: one fit with a
-                           ``DummyRegressor`` outcome, and its initial plug-in
+                           ``W2 |W2|``); the ``both_wrong`` control (both on that law); and
+                           three wrong-outcome variants of the calibration cells:
+                           ``multi_arm_treatment_correct`` (a ``DummyRegressor``),
+                           ``missing_outcome_treatment_correct`` and
+                           ``cross_fitted_treatment_correct`` (the GLM without ``W2``)
+``targeting_necessity``    ``ate__targeted`` against ``ate__untargeted``: one fit with the
+                           GLM without ``W2`` as the outcome, and its initial plug-in
 =========================  ===============================================================
 
-**The paired ordinary TMLE.**  Each ``interval_calibration``, ``type_i_error``, ``power`` and
-``double_robustness`` row also carries the ordinary ``TMLE`` on the same initial fit, mechanism and bounds, with only
+**Why the wrong-outcome cells.**  With the correct outcome GLM the update barely moves the
+estimate, so a correct-outcome cell tests the influence-curve variance of a correct plug-in.
+The wrong-outcome cells make the update carry the estimate: the GLM without ``W2`` has a
+plug-in limit bias of about 2.6 SD on the primary law, and the ``DummyRegressor`` plug-in is
+0.  Their theory is the union model, with a correct treatment law and a wrong outcome, so they
+answer to the double-robustness rule (the bias margin and the reported-error screen).  The
+influence-curve variance is then conservative, so they make no calibration claim.
+
+**The paired ordinary TMLE.**  Each ``interval_calibration``, ``clustered_inference``
+positive, ``type_i_error``, ``power`` and ``double_robustness`` row also carries the ordinary ``TMLE`` on the same initial fit, mechanism and bounds, with only
 the derivative columns removed (:func:`~tests.studies.canonical_ctmle_derivative.paired_tmle`).
 ``tmle_estimate``, ``tmle_std_error`` and ``tmle_covered`` are descriptive.  No verdict reads
 them.  The declared reading of a red cell reads them.
@@ -42,14 +58,24 @@ of the SE-ratio difference at 1%.
   and no defect is found.  The revert rule fires: every ``derivative`` fit takes the
   ``derivative_plugin`` status.
 
-A red ``double_robustness`` cell takes :func:`_robustness_reading`.  A red ``both_wrong``
+A red ``iid_control`` did not separate, which is a design failure: it is diagnosed and the
+law is fixed.  A red ``double_robustness`` cell takes :func:`_robustness_reading`.  A red ``both_wrong``
 control whose paired TMLE bias lies outside the margin is a standing record of collaborative
 bias reduction.  Any other red cell of the family is a defect suspect and is diagnosed.
 
 **The second declaration.**  The first run's ``outcome_correct`` law put the misspecified term
 on ``W1 W2``.  ``W1`` is an instrument, so neither estimator's both-wrong limit bias cleared the
 margin, and the control could not separate.  :mod:`tests.studies.ctmle_derivative_dr_pilot`
-sized the new law before this declaration.  No margin, budget, role or other law moved.
+sized the new law before this declaration.
+
+**The third declaration.**  A design review before the second run found three gaps.  The
+clustered law correlated only the outcome residuals, so the influence-curve design effect was
+1.01, and the cell could not fail if ``id=`` were ignored.  The treatment is now correlated
+within a cluster too (design effect about 2.5), and the cell moves to ``clustered_inference``
+with an IID control.  Every calibration cell fitted the correct outcome, so the wrong-outcome
+cells above were added.  The necessity control's constant plug-in could not fail, so the
+necessity cells now fit the GLM without ``W2``.  The pilot also changed its selection rule
+(see :mod:`tests.studies.ctmle_derivative_dr_pilot`).  No margin moved.
 
 A replicate that raises is not redrawn.  The exception stops the run, as the plan's failure
 rule requires.
@@ -66,6 +92,7 @@ from scipy.stats import binomtest, norm
 from sklearn.dummy import DummyRegressor
 from sklearn.linear_model import LogisticRegression
 
+from cleverly.inference import influence_variance
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import ctmle_derivative_laws as laws
@@ -73,6 +100,7 @@ from tests.studies.canonical_ctmle_derivative import (
     CRITICAL,
     STUDY,
     estimator,
+    omitted_confounder_learner,
     paired_tmle,
 )
 from tests.studies.evidence.properties import (
@@ -83,6 +111,7 @@ from tests.studies.evidence.properties import (
 )
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
+    clustered_inference_verdicts,
     finish,
     necessity_verdicts,
 )
@@ -101,9 +130,16 @@ DOUBLE_ROBUST_REPLICATES = 1_200
 NECESSITY_N = 2_000
 NECESSITY_REPLICATES = 1_200
 #: The declared minimum displacement of the untargeted plug-in from the targeted estimate, in
-#: the targeted arm's empirical spread.  The design test checks it against the exact
-#: untargeted bias of the ``DummyRegressor`` outcome on the primary law.
-TARGETING_DISPLACEMENT = 2.0
+#: the targeted arm's empirical spread.  The design test checks it against the exact limit
+#: bias of the GLM without ``W2`` on the primary law, about 2.5 spreads.
+TARGETING_DISPLACEMENT = 1.5
+#: The efficiency bound of each calibration cell's law and contrast.
+EFFICIENCY_BOUNDS = {
+    "in_sample": laws.PRIMARY_EIF_SD,
+    "cross_fitted": laws.PRIMARY_EIF_SD,
+    "multi_arm": laws.THREE_ARM_EIF_SD,
+    "missing_outcome": laws.MISSING_OUTCOME_EIF_SD,
+}
 #: The significance level of the declared reading's paired tests.
 READING_LEVEL = 0.01
 
@@ -111,9 +147,15 @@ READING_LEVEL = 0.01
 PAIRED_COLUMNS = ("tmle_estimate", "tmle_std_error", "tmle_covered")
 #: The families whose rows carry :data:`PAIRED_COLUMNS`.  The double-robustness rows carry
 #: them too, so each cell shows what its law does to the ordinary TMLE.  No verdict reads them.
-PAIRED_FAMILIES = ("interval_calibration", "type_i_error", "power", "double_robustness")
+PAIRED_FAMILIES = (
+    "interval_calibration",
+    "clustered_inference",
+    "type_i_error",
+    "power",
+    "double_robustness",
+)
 #: The families :func:`red_cell_reading` reads with McNemar and the SE-ratio bootstrap.
-INTERVAL_FAMILIES = ("interval_calibration", "type_i_error", "power")
+INTERVAL_FAMILIES = ("interval_calibration", "clustered_inference", "type_i_error", "power")
 
 
 @dataclass(frozen=True)
@@ -163,8 +205,8 @@ def cells() -> tuple[Cell, ...]:
             CALIBRATION_REPLICATES,
         ),
         Cell(
-            "interval_calibration",
-            "clustered",
+            "clustered_inference",
+            "cluster_robust",
             laws.CLUSTERED,
             CALIBRATION_N,
             CALIBRATION_REPLICATES,
@@ -202,19 +244,44 @@ def cells() -> tuple[Cell, ...]:
             outcome="dummy",
         ),
         Cell(
+            "double_robustness",
+            "multi_arm_treatment_correct",
+            laws.THREE_ARM,
+            DOUBLE_ROBUST_N,
+            DOUBLE_ROBUST_REPLICATES,
+            outcome="dummy",
+        ),
+        Cell(
+            "double_robustness",
+            "missing_outcome_treatment_correct",
+            laws.MISSING_OUTCOME,
+            DOUBLE_ROBUST_N,
+            DOUBLE_ROBUST_REPLICATES,
+            outcome="omit_w2",
+        ),
+        Cell(
+            "double_robustness",
+            "cross_fitted_treatment_correct",
+            laws.PRIMARY,
+            DOUBLE_ROBUST_N,
+            DOUBLE_ROBUST_REPLICATES,
+            outcome="omit_w2",
+            cross_fit=True,
+        ),
+        Cell(
             "targeting_necessity",
             "ate__targeted",
             laws.PRIMARY,
             NECESSITY_N,
             NECESSITY_REPLICATES,
-            outcome="dummy",
+            outcome="omit_w2",
         ),
     ]
     return tuple(out)
 
 
 def _root_seed(cell: Cell) -> int:
-    """The cell's own stream.  The ladder shares one stream, so its rungs are nested draws."""
+    """The cell's own stream.  The ladder's rungs share one stream, so they share the seeds."""
     label = "ladder" if cell.family == "root_n_and_efficiency" else cell.cell
     return stream_seed(STUDY, "property_sample", cell.family, label, 0)
 
@@ -235,11 +302,10 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     """
     out: list[PropertyCell] = []
     for cell in cells():
-        names = (
-            ("ate__targeted", "ate__untargeted")
-            if cell.family == "targeting_necessity"
-            else (cell.cell,)
-        )
+        names = {
+            "targeting_necessity": ("ate__targeted", "ate__untargeted"),
+            "clustered_inference": ("cluster_robust", "iid_control"),
+        }.get(cell.family, (cell.cell,))
         for name in names:
             out.append(
                 PropertyCell(
@@ -251,7 +317,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
                     cell.n,
                     cell.replicates,
                     _root_seed(cell),
-                    role="control" if name.endswith("untargeted") else cell.role,
+                    role="control" if name in ("ate__untargeted", "iid_control") else cell.role,
                     estimand=cell.estimand,
                 )
             )
@@ -261,6 +327,8 @@ def declared_cells() -> tuple[PropertyCell, ...]:
 def _outcome(cell: Cell) -> Any:
     if cell.outcome == "dummy":
         return DummyRegressor()
+    if cell.outcome == "omit_w2":
+        return omitted_confounder_learner()
     return None
 
 
@@ -309,6 +377,21 @@ def _replication(payload: tuple[Cell, int]) -> list[dict[str, Any]]:
         row["tmle_estimate"] = float(plain.psi)
         row["tmle_std_error"] = float(plain.std_error)
         row["tmle_covered"] = int(low <= truth <= high)
+    if cell.family == "clustered_inference":
+        iid = control_row(
+            property_name=cell.family,
+            cell="iid_control",
+            replicate=replicate,
+            n=cell.n,
+            requested=cell.replicates,
+            truth=truth,
+            estimate=float(estimate.psi),
+            standard_error=float(np.sqrt(influence_variance(estimate.influence_curve))),
+            critical=CRITICAL,
+        )
+        if iid["estimate"] != row["estimate"]:
+            raise AssertionError("the IID control changed the point estimate")
+        rows.append(iid)
     if cell.family == "targeting_necessity":
         arms = result.nuisance.outcome.arms
         codes = list(result.data.arm_codes)
@@ -365,9 +448,14 @@ def generate_property_rows(
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
+    shared = rows.loc[:, list(REPLICATE_COLUMNS)]
     summary, rates = apply_shared_verdicts(
-        rows.loc[:, list(REPLICATE_COLUMNS)], STUDY, extra_columns=("targeting_displacement",)
+        shared,
+        STUDY,
+        extra_columns=("targeting_displacement",),
+        efficiency_bounds=EFFICIENCY_BOUNDS,
     )
+    clustered_inference_verdicts(summary, shared, STUDY)
     necessity_verdicts(
         summary,
         rows,
@@ -452,6 +540,9 @@ def red_cell_reading(rows: pd.DataFrame, summary: pd.DataFrame) -> pd.DataFrame:
     red = summary.loc[summary["property"].isin(PAIRED_FAMILIES) & ~summary["passed"].astype(bool)]
     for family, name in red[["property", "cell"]].itertuples(index=False):
         group = rows.loc[(rows["property"] == family) & (rows["cell"] == name)]
+        if name == "iid_control":
+            out.append({"property": family, "cell": name, "reading": "design-failure"})
+            continue
         if family not in INTERVAL_FAMILIES:
             out.append(_robustness_reading(family, name, group))
             continue

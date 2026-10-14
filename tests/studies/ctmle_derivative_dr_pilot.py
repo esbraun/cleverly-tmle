@@ -8,8 +8,8 @@ construction, which is a design bug under the roadmap's red-cell rule.
 
 The redesigned law is the primary law plus ``beta W2 |W2|`` in the treatment logit.  ``W2`` is
 a confounder, so the misspecification moves the outcome, and the positive cell gets harder.
-``beta`` is the smallest value of :data:`CURVATURE_GRID` that passes checks 4 and 5 below.
-Checks 1 to 3 are reported and must also pass.
+The pilot assesses every value of :data:`CURVATURE_GRID`.  ``beta`` is the smallest value
+that passes all five checks below.
 
 1. The main-terms projection's KL gap is at least :data:`KL_FLOOR`, twice the primary law's
    ceiling, so the lasso target is wrong.  KL measures how wrong ``g`` is, not how much the
@@ -17,10 +17,17 @@ Checks 1 to 3 are reported and must also pass.
    estimator past the margin.  Checks 3 to 5 measure the bias the error causes.
 2. The share of mechanism values outside ``G_BOUNDS`` is at most :data:`DR_TRUNCATION_CEILING`.
 3. The paired ordinary TMLE's limit bias is at least :data:`TMLE_LIMIT_FLOOR` sigma.
-4. C-TMLE0's limit bias is at least :data:`CTMLE_LIMIT_FLOOR` sigma.
+4. C-TMLE0's limit bias, read off a straight-line trend over the grid, is at least
+   :data:`CTMLE_LIMIT_FLOOR` sigma.
 5. At study conditions, :data:`PILOT_REPLICATES` draws give a both-wrong control pass
    probability and an ``outcome_correct`` equivalence pass probability of at least
-   :data:`PASS_PROBABILITY` each.
+   :data:`PASS_PROBABILITY` each.  Each probability reads the cell's bias off a weighted
+   straight-line trend over the grid, with the trend's own standard error.
+
+Checks 4 and 5 read trends because single grid points are noisy.  The point pass
+probabilities of the first search were 0.69, 0.07, 0.73, 0.99, 0.61 and 0.99 on a bias that
+rises with ``beta``.  A rule that stops at the first noisy pass picks a value whose estimate is
+high by chance.  ``dr-pilot.csv`` keeps the point values beside the trend values.
 
 ``sigma`` is the paired TMLE's standard error at ``n = 10^6`` rescaled to the study's
 ``n = 2,000``.  The limit fits use the declared lasso pair of ``penalties.csv`` and a constant
@@ -200,7 +207,7 @@ def pass_probabilities(rows: pd.DataFrame, truth: float) -> dict[str, float]:
 
 
 def assess(curvature: float, *, n_jobs: int = 1) -> tuple[dict[str, Any], pd.DataFrame]:
-    """Every check at one candidate coefficient."""
+    """Every point value at one candidate coefficient, and checks 1 to 3."""
     law = law_for(curvature)
     limits = limit_biases(curvature, n_jobs=n_jobs)
     rows = pilot_rows(curvature, n_jobs=n_jobs)
@@ -216,26 +223,76 @@ def assess(curvature: float, *, n_jobs: int = 1) -> tuple[dict[str, Any], pd.Dat
     record["check_1"] = bool(record["kl"] >= KL_FLOOR)
     record["check_2"] = bool(record["truncation"] <= DR_TRUNCATION_CEILING)
     record["check_3"] = bool(abs(limits["tmle_limit_bias"]) >= TMLE_LIMIT_FLOOR * sigma)
-    record["check_4"] = bool(abs(limits["ctmle_limit_bias"]) >= CTMLE_LIMIT_FLOOR * sigma)
-    record["check_5"] = bool(
-        record["both_wrong_pass_probability"] >= PASS_PROBABILITY
-        and record["outcome_correct_pass_probability"] >= PASS_PROBABILITY
-    )
-    record["passed"] = all(record[f"check_{index}"] for index in range(1, 6))
     return record, rows
 
 
+def _weighted_line(
+    x: np.ndarray, y: np.ndarray, error: np.ndarray
+) -> Callable[[float], tuple[float, float]]:
+    """The weighted least-squares line of ``y`` on ``x``: its value and standard error."""
+    design = np.column_stack([np.ones_like(x), x])
+    weights = 1.0 / error**2
+    covariance = np.linalg.inv(design.T @ (design * weights[:, None]))
+    coefficients = covariance @ design.T @ (weights * y)
+
+    def line(point: float) -> tuple[float, float]:
+        row = np.array([1.0, point])
+        return float(row @ coefficients), float(np.sqrt(row @ covariance @ row))
+
+    return line
+
+
+def select(summary: pd.DataFrame) -> pd.DataFrame:
+    """Add the trend values, checks 4 and 5, and ``passed`` to the assessed grid.
+
+    Check 4 reads unweighted lines of C-TMLE0's limit bias and of sigma.  Check 5 reads, per
+    cell, a line of the bias weighted by its Monte Carlo error ``sd / sqrt(400)``, and a line
+    of the SD.  A control passes when its bias exceeds ``margin + z sd / sqrt(R)``, and a
+    positive cell when ``|bias|`` stays below ``margin - z sd / sqrt(R)``.  The probability
+    uses the bias line's standard error.
+    """
+    out = summary.copy()
+    x = out["curvature"].to_numpy(float)
+    ctmle = np.polyfit(x, out["ctmle_limit_bias"].to_numpy(float), 1)
+    sigma = np.polyfit(x, out["sigma"].to_numpy(float), 1)
+    out["trend_ctmle_limit_bias"] = np.polyval(ctmle, x)
+    out["trend_sigma"] = np.polyval(sigma, x)
+    for cell in ("both_wrong", "outcome_correct"):
+        sd = out[f"{cell}_sd"].to_numpy(float)
+        bias = _weighted_line(
+            x, out[f"{cell}_bias"].to_numpy(float), sd / np.sqrt(PILOT_REPLICATES)
+        )
+        spread = np.polyfit(x, sd, 1)
+        values, probabilities = [], []
+        for point in x:
+            mean, error = bias(point)
+            width = float(np.polyval(spread, point))
+            half = LEVEL_Z * width / np.sqrt(DR_REPLICATES)
+            if cell == "both_wrong":
+                z = (abs(mean) - BIAS_MARGIN_SD * width - half) / error
+            else:
+                z = (BIAS_MARGIN_SD * width - half - abs(mean)) / error
+            values.append(mean)
+            probabilities.append(float(norm.cdf(z)))
+        out[f"trend_{cell}_bias"] = values
+        out[f"trend_{cell}_pass_probability"] = probabilities
+    out["check_4"] = out["trend_ctmle_limit_bias"].abs() >= CTMLE_LIMIT_FLOOR * out["trend_sigma"]
+    out["check_5"] = (out["trend_both_wrong_pass_probability"] >= PASS_PROBABILITY) & (
+        out["trend_outcome_correct_pass_probability"] >= PASS_PROBABILITY
+    )
+    out["passed"] = out[[f"check_{index}" for index in range(1, 6)]].all(axis=1)
+    return out
+
+
 def search(*, n_jobs: int = STUDY_JOBS) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Assess the grid in order and stop at the first coefficient that passes every check."""
+    """Assess every coefficient of the grid, then apply :func:`select`."""
     records, frames = [], []
     for curvature in CURVATURE_GRID:
         record, rows = assess(curvature, n_jobs=n_jobs)
         records.append(record)
         frames.append(rows)
         print(record, flush=True)
-        if record["passed"]:
-            break
-    return pd.DataFrame(records), pd.concat(frames, ignore_index=True)
+    return select(pd.DataFrame(records)), pd.concat(frames, ignore_index=True)
 
 
 def chosen_curvature() -> float:

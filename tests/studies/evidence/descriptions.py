@@ -503,6 +503,9 @@ SCENARIOS: dict[str, str] = {
     "binary_learners": "binary-outcome law, four declared lasso learners",
     "binary_declared_pair": "binary-outcome law, both sides at one declared pair of penalties",
     "binary_pipeline": "binary-outcome law, each side's own penalty cross-validation",
+    "binary_constant_q": (
+        "binary-outcome law, one declared pair of penalties, a constant outcome regression"
+    ),
     "survival": "five visits, a binary baseline treatment held over every node, visit dropout",
     "competing": "four visits, two competing causes, a held binary treatment, visit dropout",
     "three_arm": "three visits, three arms held over every node, a binary L_t at each later visit",
@@ -1331,6 +1334,24 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "bias interval must fall entirely outside the margin, with the reported standard "
         "error still on the scale of the empirical spread",
     ),
+    ("double_robustness", "multi_arm_treatment_correct"): (
+        "three arms with a multinomial lasso and a constant outcome regression, on the "
+        "contrast of arm 1.0 against arm 0.0",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
+    ),
+    ("double_robustness", "missing_outcome_treatment_correct"): (
+        "outcomes missing at random with a correct response learner, and an outcome GLM "
+        "that omits a confounder",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
+    ),
+    ("double_robustness", "cross_fitted_treatment_correct"): (
+        "five cross-fitting folds, a consistent lasso mechanism, and an outcome GLM that "
+        "omits a confounder",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
+    ),
     ("double_robustness", "lasso_outcome_correct"): (
         "only the outcome regression is correct, and no lasso candidate is a correct mechanism",
         "bias interval inside the equivalence margin, with the reported standard error "
@@ -1440,11 +1461,6 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("interval_calibration", "missing_outcome"): (
         "outcomes are missing at random, with a correct response learner",
-        "SE ratio and coverage intervals both inside their calibration bands",
-    ),
-    ("interval_calibration", "clustered"): (
-        "100 clusters of 20 rows with within-cluster outcome correlation, cross-fitted, "
-        "with the cluster identifier declared",
         "SE ratio and coverage intervals both inside their calibration bands",
     ),
     ("interval_calibration", "flexible_learning"): (
@@ -1758,15 +1774,6 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the estimator fluctuates a misspecified outcome model, so targeting does all the "
         "adjusting",
         "bias interval inside the equivalence margin",
-    ),
-    ("targeting_necessity", "ate__targeted"): (
-        "the estimator fluctuates a constant outcome regression, so targeting does all the "
-        "adjusting",
-        "bias interval inside the equivalence margin",
-    ),
-    ("targeting_necessity", "ate__untargeted"): (
-        "the initial plug-in estimate of the same fit, with every fluctuation step removed",
-        "bias interval must fall entirely outside the margin",
     ),
     ("targeting_necessity", "untargeted"): (
         "the identical fit with every fluctuation step removed",

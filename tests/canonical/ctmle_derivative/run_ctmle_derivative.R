@@ -7,10 +7,12 @@ options(digits = 17)
 
 # R ctmle 0.1.2 at 18de559, ctmletype = 3 (C-TMLE0), for the ctmle-derivative study.
 #
-# Q is R's own main-terms GLM. The two scenarios differ in the mechanism pair only:
+# Q is R's own main-terms GLM, except under binary_constant_q:
 #
 # binary_declared_pair: glmnet at the declared pair of penalties.csv, the pair the package
 #   passes as lambdas=. Both sides fit the same estimator.
+# binary_constant_q:    the declared pair, with Q = mean(Y) for both arms, the package's
+#   DummyRegressor. The update then moves the estimate, so the derivative columns show.
 # binary_pipeline:      cv.glmnet(nfolds = 10, nlambda = 100), g1W at lambda.min and the
 #   partner at 1.05 lambda.min, as the ctmle README does.
 #
@@ -31,11 +33,11 @@ if (length(lam) != 1L || length(lam_plus) != 1L || lam == lam_plus) {
 gbound <- 0.025
 alpha <- 0.995
 covariates <- c("W1", "W2", "W3", "W4")
-scenarios <- c("binary_declared_pair", "binary_pipeline")
+scenarios <- c("binary_declared_pair", "binary_pipeline", "binary_constant_q")
 invisible(glmnet.control(fdev = 0, devmax = 1))
 
 mechanism_pair <- function(W, A, scenario) {
-  if (scenario == "binary_declared_pair") {
+  if (scenario %in% c("binary_declared_pair", "binary_constant_q")) {
     fit <- glmnet(
       W, factor(A), family = "binomial", lambda = sort(c(lam, lam_plus), decreasing = TRUE),
       thresh = 1e-14, maxit = 1e7
@@ -66,9 +68,13 @@ fit_one <- function(frame) {
   truth <- truths$truth[[truth_row]]
   W <- as.matrix(frame[covariates])
   A <- frame$A
-  q_fit <- glm(Y ~ A + W1 + W2 + W3 + W4, data = frame, family = binomial())
-  q0 <- predict(q_fit, transform(frame, A = 0), type = "response")
-  q1 <- predict(q_fit, transform(frame, A = 1), type = "response")
+  if (scenario == "binary_constant_q") {
+    q0 <- q1 <- rep(mean(frame$Y), nrow(frame))
+  } else {
+    q_fit <- glm(Y ~ A + W1 + W2 + W3 + W4, data = frame, family = binomial())
+    q0 <- predict(q_fit, transform(frame, A = 0), type = "response")
+    q1 <- predict(q_fit, transform(frame, A = 1), type = "response")
+  }
   pair <- mechanism_pair(W, A, scenario)
   if (any(pair$g1W == pair$g1WPrev)) {
     stop("the mechanism equals its partner on a row, and ctmle would replace the difference")
@@ -105,9 +111,12 @@ fit_one <- function(frame) {
 
 groups <- split(samples, interaction(samples$scenario, samples$replicate, drop = TRUE))
 cores <- study_cores(groups)
+# Forced here, in the parent: with `mc.preschedule = TRUE`, `mclapply` would force it in each
+# child, and `study_collect` would then find no registered groups to retry or assemble.
+fit_group <- study_fitter(groups, fit_one)
 results <- parallel::mclapply(
   seq_along(groups),
-  study_fitter(groups, fit_one),
+  fit_group,
   mc.cores = cores,
   mc.preschedule = TRUE
 )
