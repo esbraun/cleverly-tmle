@@ -18,7 +18,10 @@ cell goes to ``band-finite-sample`` only if the shortfall-reading diagnostic of
 ``tests/unit/test_band_shortfall_reading.py`` reproduces for it, and otherwise to
 ``X14-finite-sample``.  Any other red cell goes to ``X14-finite-sample``, which closes when a
 re-declared cell passes.  No re-run uses more replicates, wider margins or a new law.  A
-replication that raises is never redrawn: a failed replication fails the run.
+replication that raises is never redrawn.  A recordable fit failure is recorded and costs its
+replicate under a zero failure bound, so its cells read ``bound exceeded``.  Such a cell goes
+to ``X14-fit-failures``, with its failure count stated as a page limit, which closes when a
+re-declared run records no failure.  A fatal error or a systematic failure stops the run.
 """
 
 from __future__ import annotations

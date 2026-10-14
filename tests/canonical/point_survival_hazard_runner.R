@@ -40,27 +40,31 @@ ftime_formula <- function(t0) {
   paste("-1 +", paste(terms, collapse = " + "))
 }
 
-counted_call <- function(arguments) {
+counted_call <- function(arguments, label) {
   # survtmle warns "Fluctuation convergence failure" when one fluctuation glm fails; every
   # warning is counted here rather than suppressed, then muffled so the log stays readable.
-  # Every other warning's text is logged.  This handler raises nothing, so no warning becomes
-  # a record (test_harness_failures.py lists it in COUNTING_HANDLERS).  RM39a2: the survtmle
-  # call runs inside `study_stage`, so an error survtmle raises costs one group.
+  # Every other warning's text is tallied for the run log.  This handler raises nothing, so no
+  # warning becomes a record (test_harness_failures.py lists it in COUNTING_HANDLERS).
+  # RM39a2: the survtmle call runs inside `study_stage`, so an error survtmle raises costs one
+  # group, recorded under `label`.
   failures <- 0L
-  others <- 0L
+  texts <- character(0)
   fitted <- withCallingHandlers(
-    study_stage("survtmle", do.call(survtmle, arguments)),
+    study_stage(label, do.call(survtmle, arguments)),
     warning = function(w) {
       if (grepl("Fluctuation convergence failure", conditionMessage(w), fixed = TRUE)) {
         failures <<- failures + 1L
       } else {
-        others <<- others + 1L
-        message(sprintf("survtmle warning: %s", conditionMessage(w)))
+        texts <<- c(texts, conditionMessage(w))
       }
       invokeRestart("muffleWarning")
     }
   )
-  list(fit = fitted, failures = failures, others = others)
+  tally <- table(texts)
+  list(
+    fit = fitted, failures = failures, others = length(texts),
+    other_texts = paste(sprintf("%s x%d", names(tally), as.integer(tally)), collapse = "; ")
+  )
 }
 
 ic_column <- function(fitted, code, arm, frame, t0) {
@@ -148,17 +152,20 @@ fit_scenario <- function(frame) {
       method = "hazard", glm.trt = "W1 + W2", glm.ftime = ftime_formula(t0),
       glm.ctime = ctime_formula(t0), maxIter = max_iter, gtol = gtol, verbose = FALSE
     )
-    targeted <- counted_call(c(arguments, list(tol = tol, returnIC = TRUE)))
+    targeted <- counted_call(
+      c(arguments, list(tol = tol, returnIC = TRUE)), sprintf("survtmle t0=%d targeted", t0)
+    )
     # At tol = Inf the targeting loop never runs, so est is the initial fit's plug-in.
-    untargeted <- counted_call(c(arguments, list(tol = Inf)))
+    untargeted <- counted_call(c(arguments, list(tol = Inf)), sprintf("survtmle t0=%d tol=Inf", t0))
     fitted <- targeted$fit
     initial <- untargeted$fit
     mean_ic <- as.numeric(unlist(fitted$meanIC))
     message(sprintf(
       paste0("survtmle-hazard scenario=%s replicate=%d t0=%d failures=%d other_warnings=%d ",
-             "initial_failures=%d max_abs_meanIC=%.17g tol=%.17g converged=%s"),
+             "initial_failures=%d max_abs_meanIC=%.17g tol=%.17g converged=%s ",
+             "other_texts=[%s]"),
       scenario, replicate, t0, targeted$failures, targeted$others, untargeted$failures,
-      max(abs(mean_ic)), tol, all(abs(mean_ic) <= tol)
+      max(abs(mean_ic)), tol, all(abs(mean_ic) <= tol), targeted$other_texts
     ))
     for (code in names(causes[[scenario]])) {
       cause <- causes[[scenario]][[code]]

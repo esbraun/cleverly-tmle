@@ -50,8 +50,12 @@ cell goes to ``band-finite-sample`` only if the shortfall-reading diagnostic of
 comparator convention above goes to ``X14-comparator-conventions``, which closes when a
 re-declared paired cell passes.  Any other red cell goes to ``X14-finite-sample``, which
 closes when a re-declared cell passes.  No re-run uses more replicates, wider margins or a new
-law.  A replication that raises is never redrawn: a failed replication fails the run.  A walk
-that stops short is data: the manifest counts it and the evidence page reports it.
+law.  A replication that raises is never redrawn.  A recordable fit failure, on either side, is
+recorded and costs its replicate under a zero failure bound, so its cells read ``bound
+exceeded``.  Such a cell goes to ``X14-fit-failures``, with its failure count stated as a page
+limit, which closes when a re-declared run records no failure.  A fatal error or a systematic
+failure stops the run.  A walk that stops short is data: the manifest counts it and the
+evidence page reports it.
 """
 
 from __future__ import annotations

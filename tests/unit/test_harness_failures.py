@@ -191,6 +191,9 @@ def test_every_warning_promotion_raises_the_fatal_class(path: Path) -> None:
             assert "study_fatal_error(" not in handler, (
                 f"{_label(path)}: a counting handler raises; drop it from COUNTING_HANDLERS"
             )
+            assert 'invokeRestart("muffleWarning")' in handler, (
+                f"{_label(path)}: a counting handler must muffle every warning it counts"
+            )
         else:
             assert "study_fatal_error(" in handler, (
                 f"{_label(path)}: a warning handler must raise study_fatal_error"
