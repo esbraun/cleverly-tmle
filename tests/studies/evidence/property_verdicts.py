@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from cleverly.data import CausalData
+from tests.studies.evidence import property_failures as pf
 from tests.studies.evidence.inference import (
     Interval,
     percentile_interval,
@@ -1756,3 +1757,411 @@ def one_wrong_inference_verdicts(
         )
         growth.append(built)
     return growth
+
+
+# ---- the failure accounting's family rules (RM39 part b2, D3) ----------------------------------
+#
+# One declared clause tree per family whose whole verdict a function above computes.  Each
+# clause reads one statistic type and names its target, and every threshold is the name the
+# verdict function reads, never a copied number.  A study that adds a conjunct after the shared
+# call makes that (study, family) pair study-local, listed in
+# :data:`tests.studies.evidence.property_failures.STUDY_LOCAL`.  The reproduction and
+# differential tests of ``tests/unit/test_method_evidence.py`` hold each rule to the function
+# it restates.
+
+
+def _union_rule() -> pf.FamilyRule:
+    def band(ctx: pf.Context) -> tuple[float, float]:
+        return UNION_MODEL_SE_BAND
+
+    return pf.FamilyRule(
+        families=frozenset(UNION_MODEL_FAMILIES),
+        shared="robustness_verdicts",
+        clauses=(
+            pf.bias_clause("bias equivalent", kind="equivalent", applies=pf.roles("positive")),
+            pf.bias_clause("bias discriminated", kind="discriminated", applies=pf.roles("control")),
+            pf.se_point_clause(
+                "se ratio in union band", band=band, applies=pf.roles("positive", "control")
+            ),
+        ),
+    )
+
+
+def _root_n_rule() -> pf.FamilyRule:
+    def floor(ctx: pf.Context) -> float:
+        return ctx.margins.coverage_floor
+
+    def sanity(ctx: pf.Context) -> tuple[float, float]:
+        return ctx.margins.se_ratio_sanity
+
+    return pf.FamilyRule(
+        families=frozenset({"root_n_and_efficiency"}),
+        shared="apply_shared_verdicts",
+        clauses=(
+            pf.proportion_clause(
+                "coverage floor",
+                statistic="S2",
+                judge=pf.floor_judge(floor),
+                applies=pf.roles("positive"),
+            ),
+            pf.se_point_clause("se ratio sanity", band=sanity, applies=pf.roles("positive")),
+            pf.bias_clause("bias equivalent", kind="equivalent", applies=pf.roles("positive")),
+            pf.proportion_clause(
+                "coverage resolves",
+                statistic="S2",
+                judge=pf.resolve_judge,
+                applies=pf.roles("control"),
+            ),
+        ),
+    )
+
+
+def _rate_ladder(row: pd.Series) -> tuple[str, str, str, tuple[str, ...]]:
+    """The root-n ladder, statistic and seed labels of a ``root_n_rate`` row (:func:`_rate_row`)."""
+    cell = str(row["cell"])
+    label, suffix = cell.rsplit("__", 1) if "__" in cell else ("", cell)
+    statistic = {"empirical_sd": "spread", "reported_se": "reported"}[suffix]
+    prefix = f"{label}__" if label else ""
+    return (
+        "root_n_and_efficiency",
+        prefix,
+        statistic,
+        ("root_n_rate", *([label] if label else []), suffix),
+    )
+
+
+def _root_n_slope(ctx: pf.Context, row: pd.Series, interval: Interval) -> pf.Judged:
+    fitted = Rate(float(row["slope"]), interval)
+    low, high = ROOT_N_SLOPE - ROOT_N_SLOPE_MARGIN, ROOT_N_SLOPE + ROOT_N_SLOPE_MARGIN
+    passed = fitted.equivalent_to(ROOT_N_SLOPE, ROOT_N_SLOPE_MARGIN) and fitted.excludes(
+        EXCLUDED_SLOPE
+    )
+    return pf.Judged(min(interval.low - low, high - interval.high), bool(passed))
+
+
+def _rate_rule() -> pf.FamilyRule:
+    return pf.FamilyRule(
+        families=frozenset({"root_n_rate"}),
+        shared="apply_shared_verdicts",
+        clauses=(
+            pf.rate_slope_clause(
+                "slope in root-n band",
+                judge=_root_n_slope,
+                ladder=_rate_ladder,
+                applies=lambda ctx, row: True,
+            ),
+        ),
+    )
+
+
+def _testing_rules() -> tuple[pf.FamilyRule, ...]:
+    def ceiling(ctx: pf.Context) -> float:
+        return ctx.margins.alpha + ctx.margins.type_i_margin
+
+    def floor(ctx: pf.Context) -> float:
+        return ctx.margins.coverage_floor
+
+    def every(ctx: pf.Context, row: pd.Series) -> bool:
+        return True
+
+    return (
+        pf.FamilyRule(
+            families=frozenset({"type_i_error"}),
+            shared="apply_shared_verdicts",
+            clauses=(
+                pf.proportion_clause(
+                    "rejection ceiling",
+                    statistic="S3",
+                    judge=pf.ceiling_judge(ceiling),
+                    applies=every,
+                ),
+                pf.proportion_clause(
+                    "coverage floor", statistic="S2", judge=pf.floor_judge(floor), applies=every
+                ),
+            ),
+        ),
+        pf.FamilyRule(
+            families=frozenset({"power"}),
+            shared="apply_shared_verdicts",
+            clauses=(
+                pf.proportion_clause(
+                    "rejection floor",
+                    statistic="S3",
+                    judge=pf.floor_judge(lambda ctx: MINIMUM_POWER),
+                    applies=every,
+                ),
+            ),
+        ),
+        pf.FamilyRule(
+            families=frozenset({WARNING_RATE_FAMILY}),
+            shared="warning_rate_verdicts",
+            clauses=(
+                pf.proportion_clause(
+                    "false warnings under the ceiling",
+                    statistic="S3",
+                    judge=pf.ceiling_judge(ceiling),
+                    applies=pf.roles("positive"),
+                ),
+                pf.proportion_clause(
+                    "warnings above the ceiling",
+                    statistic="S3",
+                    judge=pf.above_judge(ceiling),
+                    applies=pf.roles("control"),
+                ),
+            ),
+        ),
+    )
+
+
+def _calibration_kind(row: pd.Series) -> str:
+    if str(row["role"]) == "positive":
+        return "positive"
+    return str(row["cell"]).rsplit("__", 1)[-1]
+
+
+def _calibration_rule() -> pf.FamilyRule:
+    def seed(ctx: pf.Context, row: pd.Series) -> int:
+        return stream_seed(ctx.record, "interval_calibration", str(row["cell"]))
+
+    def calibration_ratio(ctx: pf.Context) -> tuple[float, float]:
+        return ctx.margins.calibration_se_ratio
+
+    def efficiency_band(ctx: pf.Context) -> tuple[float, float]:
+        return ctx.parameters["efficiency_band"]
+
+    def kind(name: str, *, band: bool | None = None) -> pf.Applies:
+        def applies(ctx: pf.Context, row: pd.Series) -> bool:
+            declared = ctx.parameters.get("efficiency_band") is not None
+            return _calibration_kind(row) == name and (band is None or band == declared)
+
+        return applies
+
+    def leaves(side: Literal["below", "above"]) -> pf.Judge:
+        def judge(ctx: pf.Context, row: pd.Series, iv: Interval) -> pf.Judged:
+            low, high = ctx.margins.calibration_se_ratio
+            slack = low - iv.high if side == "below" else iv.low - high
+            return pf.Judged(slack, se_ratio_leaves_band(iv, (low, high), side))
+
+        return judge
+
+    clauses = [
+        pf.se_interval_clause(
+            "se ratio in calibration band",
+            which="se_ratio",
+            judge=pf.band_judge(calibration_ratio),
+            seed=seed,
+            applies=kind("positive"),
+        ),
+        pf.proportion_clause(
+            "coverage in calibration band",
+            statistic="S2",
+            judge=pf.band_judge(lambda ctx: ctx.margins.calibration_coverage),
+            applies=kind("positive"),
+        ),
+        *(
+            pf.se_interval_clause(
+                f"{which.replace('_', ' ')} in efficiency band",
+                which=which,
+                judge=pf.band_judge(efficiency_band),
+                seed=seed,
+                applies=kind("positive", band=True),
+            )
+            for which in ("efficiency_empirical", "efficiency_reported")
+        ),
+        *(
+            pf.se_interval_clause(
+                f"se ratio {side} band",
+                which="se_ratio",
+                judge=leaves(side),
+                seed=seed,
+                applies=kind(control),
+            )
+            for control, side in SE_CONTROL_SIDES.items()
+        ),
+        pf.se_interval_clause(
+            "efficiency above band",
+            which="efficiency_empirical",
+            judge=pf.above_judge(lambda ctx: efficiency_band(ctx)[1]),
+            seed=seed,
+            applies=kind("noise_control", band=True),
+        ),
+        pf.se_interval_clause(
+            "noise se ratio below band",
+            which="se_ratio",
+            judge=leaves("below"),
+            seed=seed,
+            applies=kind("noise_control", band=False),
+        ),
+    ]
+    return pf.FamilyRule(
+        families=frozenset({"interval_calibration"}),
+        shared="calibration_verdicts",
+        clauses=tuple(clauses),
+    )
+
+
+def _simultaneous_rule() -> pf.FamilyRule:
+    return pf.FamilyRule(
+        families=frozenset({"simultaneous_coverage"}),
+        shared="simultaneous_coverage_verdicts",
+        clauses=(
+            pf.proportion_clause(
+                "joint coverage in calibration band",
+                statistic="S2",
+                judge=pf.band_judge(lambda ctx: ctx.margins.calibration_coverage),
+                applies=pf.roles("positive"),
+            ),
+            pf.proportion_clause(
+                "joint coverage below nominal",
+                statistic="S2",
+                judge=pf.below_judge(lambda ctx: 1.0 - ctx.margins.alpha),
+                applies=pf.roles("control"),
+            ),
+        ),
+    )
+
+
+def _cell_seed(family: str) -> Callable[[pf.Context, pd.Series], int]:
+    return lambda ctx, row: stream_seed(ctx.record, family, str(row["cell"]))
+
+
+def _paired_rule(
+    family: str,
+    *,
+    positive: tuple[pf.Clause, ...],
+    control_ceiling: float,
+    gain_floor: float,
+) -> pf.FamilyRule:
+    return pf.FamilyRule(
+        families=frozenset({family}),
+        shared="_paired_cell_verdicts",
+        clauses=(
+            *positive,
+            pf.se_interval_clause(
+                "control se ratio under its ceiling",
+                which="se_ratio",
+                judge=pf.ceiling_judge(lambda ctx: control_ceiling),
+                seed=_cell_seed(family),
+                applies=pf.roles("control"),
+            ),
+            pf.coverage_gain_clause(
+                "coverage gain",
+                floor=gain_floor,
+                seed=lambda ctx, row: stream_seed(ctx.record, family, "coverage_gain"),
+                applies=pf.roles("positive", "control"),
+            ),
+        ),
+        joint="group",
+    )
+
+
+def _overfit_judge(ctx: pf.Context, row: pd.Series, iv: Interval) -> pf.Judged:
+    high = ctx.margins.se_ratio_sanity[1]
+    return pf.Judged(
+        min(iv.low - OVERFIT_SE_FLOOR, high - iv.high),
+        _overfit_positive_rule(iv, Interval(0.0, 1.0), ctx.margins),
+    )
+
+
+def _paired_rules() -> tuple[pf.FamilyRule, ...]:
+    return (
+        _paired_rule(
+            "crossfit_overfitting",
+            positive=(
+                pf.se_interval_clause(
+                    "cross-fit se ratio honest",
+                    which="se_ratio",
+                    judge=_overfit_judge,
+                    seed=_cell_seed("crossfit_overfitting"),
+                    applies=pf.roles("positive"),
+                ),
+            ),
+            control_ceiling=OVERFIT_SE_CONTROL_CEILING,
+            gain_floor=OVERFIT_COVERAGE_GAIN,
+        ),
+        _paired_rule(
+            "clustered_inference",
+            positive=(
+                pf.se_interval_clause(
+                    "se ratio in calibration band",
+                    which="se_ratio",
+                    judge=pf.band_judge(lambda ctx: ctx.margins.calibration_se_ratio),
+                    seed=_cell_seed("clustered_inference"),
+                    applies=pf.roles("positive"),
+                ),
+                pf.proportion_clause(
+                    "coverage in calibration band",
+                    statistic="S2",
+                    judge=pf.band_judge(lambda ctx: ctx.margins.calibration_coverage),
+                    applies=pf.roles("positive"),
+                ),
+            ),
+            control_ceiling=CLUSTER_ROBUST_CONTROL_SE_CEILING,
+            gain_floor=CLUSTERED_COVERAGE_GAIN,
+        ),
+    )
+
+
+def _few_cluster_rule() -> pf.FamilyRule:
+    return pf.FamilyRule(
+        families=frozenset({FEW_CLUSTER_FAMILY}),
+        shared="few_cluster_reference_verdicts",
+        clauses=(
+            pf.proportion_clause(
+                "coverage floor",
+                statistic="S2",
+                judge=pf.floor_judge(lambda ctx: ctx.margins.coverage_floor),
+                applies=pf.roles("positive"),
+            ),
+            pf.bias_clause("bias equivalent", kind="equivalent", applies=pf.roles("positive")),
+            pf.se_interval_clause(
+                "iid se ratio under its ceiling",
+                which="se_ratio",
+                judge=pf.below_judge(lambda ctx: FEW_CLUSTER_IID_CONTROL_CEILING),
+                seed=_cell_seed(FEW_CLUSTER_FAMILY),
+                applies=pf.roles("control"),
+                truth_varies=lambda ctx: False,
+            ),
+        ),
+    )
+
+
+def _contraction_rule() -> pf.FamilyRule:
+    def floor(ctx: pf.Context) -> float:
+        return ctx.margins.coverage_floor
+
+    return pf.FamilyRule(
+        families=frozenset({CONTRACTION_FAMILY}),
+        shared="contraction_verdicts",
+        clauses=(
+            pf.proportion_clause(
+                "rung coverage floor",
+                statistic="S2",
+                judge=pf.floor_judge(floor),
+                applies=pf.roles("positive"),
+            ),
+            pf.proportion_clause(
+                "rung coverage below floor",
+                statistic="S2",
+                judge=pf.below_judge(floor),
+                applies=pf.roles("control"),
+            ),
+        ),
+        # The slope rows are fitted across the rungs with no declared joint rule (F1).
+        accountable=lambda row: not str(row["cell"]).startswith("rate_"),
+    )
+
+
+#: The shared families' rules.  Every other family is not accountable until a study declares a
+#: non-zero ``FAILURE_BOUND`` and adds its own rule with its differential test (D3).
+FAMILY_RULES: tuple[pf.FamilyRule, ...] = (
+    _union_rule(),
+    _root_n_rule(),
+    _rate_rule(),
+    *_testing_rules(),
+    _calibration_rule(),
+    _simultaneous_rule(),
+    *_paired_rules(),
+    _few_cluster_rule(),
+    _contraction_rule(),
+)
