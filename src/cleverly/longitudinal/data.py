@@ -103,6 +103,7 @@ from ..utils.frames import (
     is_dataframe,
     matrix_from_columns,
 )
+from .panel import PanelLayout
 
 __all__ = ["Assignment", "LongitudinalData", "RegimenMasks", "assignment_matrix"]
 
@@ -121,6 +122,7 @@ _ROW_FIELDS: tuple[str, ...] = (
     "cluster",
     "weight_spec",
     "known_mechanisms",
+    "unit_ids",
 )
 _SHARED_FIELDS: tuple[str, ...] = (
     "baseline_names",
@@ -143,6 +145,7 @@ _SHARED_FIELDS: tuple[str, ...] = (
     "time_name",
     "event_name",
     "event_codes",
+    "panel",
 )
 
 #: What arm a regimen assigns at each node: one arm per node for a static plan, or an
@@ -269,6 +272,11 @@ class LongitudinalData:
     #: factor is estimated.  A data field, so a bootstrap replicate carries the rows it drew.
     #: See :class:`~cleverly.data.known_mechanism.KnownNodeMechanisms`.
     known_mechanisms: KnownNodeMechanisms | None = None
+    #: The long-panel roles of a container built by :meth:`from_long_panel`, else ``None``.
+    panel: PanelLayout | None = None
+    #: The unit identifier of each row on a container built by :meth:`from_long_panel`, in
+    #: sorted order, else ``None``.
+    unit_ids: Any = None
 
     # ------------------------------------------------------------------ build
 
@@ -553,6 +561,200 @@ class LongitudinalData:
             treatment_columns=treatment_columns,
             censoring_columns=censoring_columns,
         )
+
+    @classmethod
+    def from_long_panel(
+        cls,
+        data: Any,
+        *,
+        unit: str,
+        time: str,
+        treatment: str | Sequence[str],
+        baseline: Sequence[str],
+        time_varying: Sequence[str] = (),
+        censoring: str | None = None,
+        outcome: str | None = None,
+        event: str | Mapping[str, str] | None = None,
+        times: Sequence[Any] | None = None,
+        cluster: str | None = None,
+        weights: str | None = None,
+        weights_type: str = "probability",
+        weights_estimated: bool = False,
+        family: str = "auto",
+        continuous_treatment: bool = False,
+        treatment_probabilities: Mapping[Any, str] | None = None,
+        censoring_probabilities: str | None = None,
+    ) -> LongitudinalData:
+        """Build from a long panel: one row per unit and decision time.
+
+        Each row holds the covariates measured before that row's decision, the decision,
+        and whether the unit is still observed after it.  The rows of one unit form one
+        trajectory, and the trajectory is one observation: repeated rows add no independent
+        observations.  Units that depend on each other, such as the customers of one
+        account, declare ``cluster=``.
+
+        The container is the one :meth:`from_frame` builds from the equivalent wide frame.
+        Node ``t`` is the ``t``-th decision time.  A column ``c`` measured at node ``t`` is
+        named ``"c@t"`` in :meth:`history_frame` and :meth:`policy_frame`, and
+        :func:`~cleverly.longitudinal.each_node` writes a rule that reads it.  Rows may
+        arrive in any order.  The container's rows follow the sorted unit identifiers.
+
+        Parameters
+        ----------
+        data : DataFrame
+            A pandas or polars frame with one row per unit and decision time.
+        unit : str
+            The unit identifier column.  Identifiers must sort, so use one type.
+        time : str
+            The decision-time column.  Times must sort.
+        treatment : str or sequence of str
+            The decision at each row.  A list of columns is one vector node per time.
+        baseline : sequence of str
+            Unit-level covariates measured before the first decision.  Each is recorded on
+            the unit's first row and holds one value per unit.
+        time_varying : sequence of str
+            Covariates measured at each row before that row's decision.  A measurement taken
+            after the decision belongs to the next row.  A column with no value at the first
+            nodes, such as a lag, starts at its first recorded node.
+        censoring : str or None
+            ``1`` where the unit is still observed after the row's decision, and ``0`` on the
+            last row of a unit that left.  ``None`` means every unit has a row at every
+            decision time, or leaves through the event.
+        outcome : str or None
+            An end-of-study outcome: one value per unit, on any of its rows.
+        event : str or mapping of str to str or None
+            A survival outcome: an event indicator on each row, ``1`` on the row of the
+            event.  A mapping of cause label to column declares competing risks.  Declare
+            exactly one of ``outcome`` and ``event``.
+        times : sequence or None
+            The decision times, in any order.  ``None`` uses the times the panel holds.
+        cluster : str or None
+            The cluster identifier, constant within a unit.
+        weights : str or None
+            A unit-level probability weight.
+        weights_type : {"probability"}
+            How to read ``weights``, as for :meth:`from_frame`.
+        weights_estimated : bool
+            Whether the weights came out of a fitted model.
+        family : {"auto", "gaussian", "binomial"}
+            The outcome family.
+        continuous_treatment : bool
+            Whether the treatment column holds a continuous dose at every node.
+        treatment_probabilities : mapping of level to str, or None
+            The known treatment mechanism: each level mapped to the column that holds
+            ``P(A_t = level | past)`` on each row.
+        censoring_probabilities : str or None
+            The column that holds ``P(C_t = 1 | past)`` on each row.
+
+        Returns
+        -------
+        LongitudinalData
+            The container, with :attr:`panel` and :attr:`unit_ids` set.
+
+        Raises
+        ------
+        DataError
+            For a missing unit or time, a duplicated ``(unit, time)`` row, a unit that
+            starts late or skips a decision time, rows after a unit left, a unit whose rows
+            stop without leaving, a unit-level column that varies within a unit or is first
+            recorded after the first row, a column in two roles, a covariate that copies the
+            outcome or the event, an event recorded on a censored row, a time-varying column
+            that stops being recorded, and a treatment that never changes within a unit.
+            Every check of :meth:`from_frame` applies as well.
+
+        See Also
+        --------
+        to_long_panel : The inverse.
+        cleverly.LongPanel : The same input as a study design.
+        cleverly.longitudinal.each_node : One rule for every node.
+
+        Examples
+        --------
+        A panel of 20 customers over two weeks.  Customer 3 leaves after week 1, so its
+        censoring is 0 on its one row and its outcome is missing.
+
+        >>> import numpy as np
+        >>> import pandas as pd
+        >>> from cleverly.longitudinal import LongitudinalData
+        >>> rng = np.random.default_rng(0)
+        >>> panel = pd.DataFrame(
+        ...     {
+        ...         "customer": np.repeat(np.arange(20), 2),
+        ...         "week": np.tile([1, 2], 20),
+        ...         "age": np.repeat(rng.normal(size=20), 2),
+        ...         "eng": rng.normal(size=40),
+        ...         "offer": rng.choice(["none", "offer"], size=40),
+        ...         "active": 1.0,
+        ...         "bought": np.repeat(rng.integers(0, 2, size=20), 2).astype(float),
+        ...     }
+        ... )
+        >>> panel = panel.drop(index=7)
+        >>> panel.loc[6, ["active", "bought"]] = [0.0, np.nan]
+        >>> data = LongitudinalData.from_long_panel(
+        ...     panel,
+        ...     unit="customer",
+        ...     time="week",
+        ...     treatment="offer",
+        ...     baseline=["age"],
+        ...     time_varying=["eng"],
+        ...     censoring="active",
+        ...     outcome="bought",
+        ... )
+        >>> data.n, data.n_times
+        (20, 2)
+        >>> data.history_names(2)
+        ('age', 'eng@1', 'eng@2')
+        """
+        from .panel import from_long_panel
+
+        return from_long_panel(
+            cls,
+            data,
+            unit=unit,
+            time=time,
+            treatment=treatment,
+            baseline=baseline,
+            time_varying=time_varying,
+            censoring=censoring,
+            outcome=outcome,
+            event=event,
+            times=times,
+            cluster=cluster,
+            weights=weights,
+            weights_type=weights_type,
+            weights_estimated=weights_estimated,
+            family=family,
+            continuous_treatment=continuous_treatment,
+            treatment_probabilities=treatment_probabilities,
+            censoring_probabilities=censoring_probabilities,
+        )
+
+    def to_long_panel(self) -> Any:
+        """Return the long panel this container holds: one row per unit and node.
+
+        A unit has a row at each node at which it is still in the study: uncensored and
+        event-free before the node.  Rows are sorted by unit and then time, in the backend
+        the data came from.  The outcome is repeated on every row of a unit, and missing for
+        a censored unit.  An event column holds ``1`` on the event row, ``0`` before it, and
+        a missing value on the row where the unit was censored.
+
+        Three values differ from the input: the weights are normalized to mean one, a
+        covariate screened out at a node is missing at that node, and known probability
+        columns are not returned.
+
+        Returns
+        -------
+        DataFrame
+            The long panel, with the column names of :attr:`panel`.
+
+        Raises
+        ------
+        DataError
+            If the container was not built by :meth:`from_long_panel`.
+        """
+        from .panel import to_long_panel
+
+        return to_long_panel(self)
 
     def with_known_mechanisms(
         self, *, treatment_probabilities: Any = None, censoring_probabilities: Any = None
@@ -1323,6 +1525,16 @@ class LongitudinalData:
             if self.cluster is None
             else np.asarray(np.unique(self.cluster[idx], return_inverse=True)[1], dtype=np.int64)
         )
+        panel = self.panel
+        if panel is not None and self.cluster is not None:
+            # ``cluster`` is re-coded over the selected codes in sorted order, so the labels
+            # it indexes are the selected codes' labels in that order.
+            panel = replace(
+                panel,
+                cluster_labels=tuple(
+                    panel.cluster_labels[code] for code in np.unique(self.cluster[idx])
+                ),
+            )
         selected = self.weights[idx]
         mean = float(selected.mean())
         return replace(
@@ -1340,6 +1552,8 @@ class LongitudinalData:
             known_mechanisms=(
                 None if self.known_mechanisms is None else self.known_mechanisms.subset(idx)
             ),
+            unit_ids=None if self.unit_ids is None else np.asarray(self.unit_ids)[idx],
+            panel=panel,
         )
 
     # ------------------------------------------------------------------ masks
@@ -2230,6 +2444,18 @@ def _read_followup(
             column = event_values[:, time, cause]
             name = _column_name(cause, time)
             present = np.isfinite(column)
+            # The order at a node is ``A_t, C_t, Y_t``, so ``Y_t`` is unobserved once
+            # ``C_t = 0``.  A value there is data recorded after the unit left, and reading
+            # past it would drop an event that was meant as "had it and left".
+            stray = ~alive & ~happened & present
+            if np.any(stray):
+                raise DataError(
+                    f"outcome column {name!r} holds a value for {int(stray.sum())} unit(s) "
+                    f"that were censored at or before time {time + 1}. The order at a node is "
+                    "A_t, C_t, Y_t, so the event is unobserved once the unit is censored. "
+                    "Record an event at a node as censoring 1 and event 1, and a loss after "
+                    "an event-free interval as censoring 0 with the event missing"
+                )
             bad = required & ~present
             if np.any(bad):
                 raise DataError(

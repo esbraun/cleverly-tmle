@@ -6,8 +6,14 @@ loaded result has the same refit capabilities as the object that was saved.
 
 An artifact is one gzip stream at compression level 3 that holds two joblib pickles in
 sequence. The first is a small header that records :data:`cleverly.__version__`. The
-second is the result. Both pickles stream through the compressor, so an artifact never
-holds a second uncompressed copy of the result in memory. :func:`load` reads the header
+second is the result, written by :mod:`cloudpickle`. It pickles an importable function or
+class by reference, as pickle does, and a lambda, a closure or an object defined in
+``__main__`` by value. So a result keeps the rules, policy densities and maps it was fitted
+with, including those written inline or in a notebook, and a loaded result can evaluate
+them again. A value pickled by value loads only under the Python minor version that saved
+it. The loader is :func:`joblib.load`, which reads both pickles. Both pickles stream
+through the compressor, so an artifact never holds a second uncompressed copy of the
+result in memory. :func:`load` reads the header
 first. On a different version it emits
 :class:`~cleverly.exceptions.VersionMismatchWarning` before it unpickles the result, and
 then it loads the result as saved, with no migration. It then reads the stream to its end,
@@ -31,6 +37,7 @@ import uuid
 from pathlib import Path
 from typing import IO, Any
 
+import cloudpickle
 import joblib
 
 from .._saved_version import warn_on_version_mismatch
@@ -60,13 +67,14 @@ def _write(result: Any, destination: IO[bytes]) -> None:
     ) as stream:
         joblib.dump(header, stream)
         try:
-            joblib.dump(result, stream)
+            cloudpickle.dump(result, stream)
         except OSError:
             raise
         except Exception as error:
             raise TypeError(
-                "the fitted result is not joblib-serializable; nuisance estimators and custom "
-                "callables must be importable and pickle-compatible"
+                "the fitted result is not serializable; a component holds an object that "
+                "pickle cannot write, such as a lock or an open file. Importable objects are "
+                "saved by reference, and lambdas, closures and notebook definitions by value"
             ) from error
 
 
