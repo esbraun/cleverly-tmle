@@ -1252,7 +1252,6 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "sdr_tmle_agreement",
         "variance_direction",
         "censoring_complete_case",
-        "in_sample_fit",
         "one_wrong_reported",
     }
 )

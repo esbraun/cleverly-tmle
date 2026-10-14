@@ -8,7 +8,7 @@ names another setting.  ``x2`` is the plan that doubles the odds of treatment at
 ==============================  ===============================================================
 family                          cells, replications and size
 ==============================  ===============================================================
-``interval_calibration``        six labels (below); 2,000 at n = 32,000 each, with the two
+``interval_calibration``        seven labels (below); 2,000 at n = 48,000 each, with the two
                                 derived controls of each
 ``root_n_and_efficiency``       ``contrast_x2`` at n = 24,000 (control: the smallest rung),
                                 64,000 and 96,000; 1,000 each
@@ -28,8 +28,6 @@ family                          cells, replications and size
 ``targeting_necessity``         the n = 24,000 draws of ``single_robustness``: the one-step
                                 estimate, and the plug-in mean of the first-node regression
                                 (control)
-``in_sample_fit``               ``contrast_x2`` fitted with one fold (Kennedy Algorithm 2) on
-                                the ``contrast_x2`` calibration draws (reported, no verdict)
 ==============================  ===============================================================
 
 The calibration labels:
@@ -39,6 +37,7 @@ label                      law, plan and estimand                               
 =========================  ======================================================  ============
 ``mean_x2``                ``A``, ``ey_regimen[odds x2]``                          EIF
 ``contrast_x2``            ``A``, ``contrast_x2``                                  EIF
+``contrast_x2_in_sample``  ``A``, ``contrast_x2``, one fold (Kennedy Algorithm 2)  EIF
 ``known_x2``               ``A``, ``ey_regimen[odds x2]``, the law's own           known-π EIF
                            :math:`\pi_t` declared (no mechanism term)
 ``no_positivity``          ``Ax`` (exact 0 and 1 propensities, and 0.02 cells),    EIF
@@ -49,15 +48,17 @@ label                      law, plan and estimand                               
                            3, its mean
 =========================  ======================================================  ============
 
-``mean_x2``, ``contrast_x2``, ``known_x2`` and the one-fold fit read one draw each
+``mean_x2``, ``contrast_x2``, ``contrast_x2_in_sample`` and ``known_x2`` read one draw each
 replication, fitted three ways.  ``per_node`` and ``tilt_then_static`` share one fit.
 
 **Sizes** (declared before any run).  The calibration cells and the positive root-n rungs
 are sized by the rule of :mod:`tests.studies.canonical_longitudinal_incremental`: the sizing
 probe's standardized bias and SE ratio at n = 8,000, projected to the declared size, give each
 calibration cell a pass probability of at least 0.90 and each positive rung at least 0.95
-(``tests/unit/test_longitudinal_incremental_design.py``).  The probe measured a bias of 0.20
-on ``contrast_x2`` and SE ratios of 0.96 to 0.99, so n = 4,000 was too small.
+(``tests/unit/test_longitudinal_incremental_design.py``).  The probe measured biases of 0.20
+on ``contrast_x2`` and -0.18 on ``contrast_x2_in_sample``, and SE ratios of 0.96 to 0.99, so
+n = 4,000 was too small.  At 48,000 every calibration cell passes with a probability of at
+least 0.91; at 32,000 the one-fold cell falls to 0.896.
 
 **Rules.**  ``interval_calibration``, ``root_n_and_efficiency``, ``root_n_rate``,
 ``type_i_error``, ``power`` and ``simultaneous_coverage`` read the shared verdicts.
@@ -112,7 +113,7 @@ from tests.studies.evidence.simultaneous import joint_coverage_rows, joint_prope
 
 N_FOLDS = 5
 CALIBRATION_REPLICATES = 2_000
-CALIBRATION_N = 32_000
+CALIBRATION_N = 48_000
 RATE_REPLICATES = 1_000
 RATE_SIZES = (24_000, 64_000, 96_000)
 NULL_REPLICATES = 1_000
@@ -126,8 +127,6 @@ SHRUNKEN_SE_FACTOR = 0.70
 #: The absolute bias bound of the positive ``single_robustness`` pair at n = 24,000.
 ABSOLUTE_BIAS_TOLERANCE = 0.01
 TARGETING_DISPLACEMENT = 0.25
-#: The reported family of the one-fold fits, as in the dropout study.
-IN_SAMPLE = "in_sample_fit"
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 
 X2 = "odds x2"
@@ -150,6 +149,7 @@ BAND_NAMES = common.names(BAND_PLANS, BAND_REFERENCE)
 CALIBRATION_LABELS = (
     "mean_x2",
     "contrast_x2",
+    "contrast_x2_in_sample",
     "known_x2",
     "no_positivity",
     "per_node",
@@ -159,6 +159,7 @@ CALIBRATION_LABELS = (
 CALIBRATION: dict[str, tuple[Any, dict[str, common.Plan], str, tuple[int, ...]]] = {
     "mean_x2": (law.LAW_A, PLANS, MEAN_X2, ()),
     "contrast_x2": (law.LAW_A, PLANS, CONTRAST_X2, ()),
+    "contrast_x2_in_sample": (law.LAW_A, PLANS, CONTRAST_X2, ()),
     "known_x2": (law.LAW_A, PLANS, MEAN_X2, (1, 2, 3)),
     "no_positivity": (law.LAW_AX, AX_PLANS, CONTRAST_X2, ()),
     "per_node": (law.LAW_A, MIXED_PLANS, "ey_regimen[per_node]", ()),
@@ -168,6 +169,7 @@ CALIBRATION: dict[str, tuple[Any, dict[str, common.Plan], str, tuple[int, ...]]]
 CALIBRATION_STREAM = {
     "mean_x2": "law_a",
     "contrast_x2": "law_a",
+    "contrast_x2_in_sample": "law_a",
     "known_x2": "law_a",
     "no_positivity": "law_ax",
     "per_node": "law_a_mixed",
@@ -387,17 +389,6 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             CONTRAST_X2,
             stream_family="interval_calibration",
         )
-    add(
-        IN_SAMPLE,
-        "contrast_x2__one_fold",
-        DIAGNOSTIC_ROLE,
-        "law_a",
-        CALIBRATION_N,
-        CALIBRATION_REPLICATES,
-        "law_a",
-        CONTRAST_X2,
-        stream_family="interval_calibration",
-    )
     for size in REQUIREMENT_SIZES:
         add(
             "single_robustness",
@@ -479,11 +470,10 @@ def _calibration_rows(
         row("mean_x2__correctly_specified", "positive", TRUTH["mean_x2"], result[MEAN_X2]),
         row("contrast_x2__correctly_specified", "positive", TRUTH["contrast_x2"], contrast),
         row(
-            "contrast_x2__one_fold",
-            DIAGNOSTIC_ROLE,
-            CONTRAST_TRUTH,
+            "contrast_x2_in_sample__correctly_specified",
+            "positive",
+            TRUTH["contrast_x2_in_sample"],
             in_sample[CONTRAST_X2],
-            IN_SAMPLE,
         ),
         row("known_x2__correctly_specified", "positive", TRUTH["known_x2"], known[MEAN_X2]),
         row(
@@ -730,9 +720,6 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     simultaneous_coverage_verdicts(summary, margins=STUDY.margins)
     mechanism_term_verdicts(summary, rows)
     single_robustness_verdicts(summary)
-    reported = summary["property"] == IN_SAMPLE
-    summary.loc[reported, "passed"] = True
-    summary.loc[reported, "property_passed"] = True
     necessity_verdicts(
         summary,
         rows,

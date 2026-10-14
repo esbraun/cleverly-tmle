@@ -348,6 +348,9 @@ ARMS: dict[str, str] = {
     # ``longitudinal-incremental`` and ``longitudinal-incremental-dropout`` (X19).
     "mean_x2": "odds-x2 mean at every node, three-node law",
     "contrast_x2": "odds-x2 against the natural course, three-node law",
+    "contrast_x2_in_sample": "odds-x2 against the natural course, one fold",
+    "dropout_contrast_x2_in_sample": "odds-x2 contrast at the end of study, with dropout, one fold",
+    "survival_contrast_x2_h3_in_sample": "odds-x2 contrast in the risk by t = 3, with dropout, one fold",
     "known_x2": "odds-x2 mean with the true treatment probabilities declared",
     "no_positivity": "odds-x2 contrast on a law with propensities of exactly 0 and 1",
     "per_node": "odds multipliers 2, 0.5 and 1.5 at the three nodes",
@@ -510,8 +513,11 @@ IMPLEMENTATIONS: dict[str, str] = {
 
 
 SCENARIOS: dict[str, str] = {
+    "ipsi_folds_2": "three-node law with a continuous outcome, two folds",
     "ipsi_folds_5": "three-node law with a continuous outcome, five folds",
+    "dropout_folds_1": "three-node law with dropout after each arm, one fold",
     "dropout_folds_5": "three-node law with dropout after each arm, five folds",
+    "survival_folds_1": "three-node survival law with dropout, horizons 1 to 3, one fold",
     "survival_folds_5": "three-node survival law with dropout, horizons 1 to 3, five folds",
     "binary_active": (
         "two arms, an arm-specific outcome index, an instrument, correct outcome regression"
@@ -969,7 +975,6 @@ PROPERTIES: dict[str, str] = {
         "how far a fit to the rows that never drop out sits from the target, reported rather "
         "than gated"
     ),
-    "in_sample_fit": ("how a one-fold fit behaves on the same draws, reported rather than gated"),
     "sequential_double_robustness": (
         "the estimate stays consistent when at each node either the outcome regression or "
         "the treatment and censoring mechanisms are correct"
@@ -2353,10 +2358,6 @@ CELLS.update(
         ("censoring_complete_case", "complete_case"): (
             "a fit to the rows that never drop out, without a censoring model, beside the "
             "exact-law limit",
-            "reported only",
-        ),
-        ("in_sample_fit", "one_fold"): (
-            "the same estimand fitted with one fold on the same draws",
             "reported only",
         ),
     }

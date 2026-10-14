@@ -11,18 +11,20 @@ folds:
 ======================  =====================================================================
 scenario                law and estimands
 ======================  =====================================================================
-``dropout_folds_5``     ``C``; the three end-of-study means and their two contrasts
-``survival_folds_5``    ``D``; the risk of every plan by horizons 1, 2 and 3, and the two
-                        contrasts at each horizon
+``dropout_folds_1``     ``C``, one fold; the three end-of-study means and their two contrasts
+``dropout_folds_5``     ``C``, five folds; the same estimands
+``survival_folds_1``    ``D``, one fold; the risk of every plan by horizons 1, 2 and 3, and
+                        the two contrasts at each horizon
+``survival_folds_5``    ``D``, five folds; the same estimands
 ======================  =====================================================================
 
-**One fold** (a deviation from ``X19-plan.md`` 3.5, declared before any run).  The plan put
-one-fold scenarios in the primary rows.  A one-fold fit with saturated cell means is the
-plug-in g-formula on the empirical cell frequencies, and its tilt is nonlinear in
-:math:`\hat\pi`.  So it carries a bias of order (cells)/n.  A probe of 400 draws of law ``C``
-at n = 8,000 measured a standardized bias of +0.24 and -0.21 on the two contrasts (Monte Carlo
-SE 0.05).  The one-fold fits are therefore the reported family ``in_sample_fit`` of the
-properties module, and they state no verdict.
+**One fold** (``X19-plan.md`` 3.5).  A one-fold fit with saturated cell means is the plug-in
+g-formula on the empirical cell frequencies, and its tilt is nonlinear in :math:`\hat\pi`.
+So it carries a bias of order (cells)/n, and its standardized bias falls as
+:math:`1/\sqrt n`.  The sizing probe measured about 0.2 at n = 8,000.  Kennedy (2019),
+Theorem 2, covers the one-fold interval because saturated cell means on a finite history set
+form a Donsker class.  The one-fold scenarios are therefore primary rows, sized by the same
+rule as the five-fold ones.
 
 **Size** (declared before any run).  :data:`PRIMARY_N` is 80,000, not the plan's 2,000.  The
 five-fold contrasts carry a second-order bias of order 1/n.  The sizing probe
@@ -69,7 +71,9 @@ PLANS = common.constant_plans(law.DELTAS)
 HORIZONS = (1, 2, 3)
 #: ``scenario -> (law, horizons, fold count)``.
 SCENARIOS: dict[str, tuple[Any, tuple[int, ...] | None, int]] = {
+    "dropout_folds_1": (law.LAW_C, None, 1),
     "dropout_folds_5": (law.LAW_C, None, 5),
+    "survival_folds_1": (law.LAW_D, HORIZONS, 1),
     "survival_folds_5": (law.LAW_D, HORIZONS, 5),
 }
 ESTIMANDS = {
@@ -93,6 +97,8 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
         for label in (
             "dropout_contrast_x2",
             "survival_contrast_x2_h3",
+            "dropout_contrast_x2_in_sample",
+            "survival_contrast_x2_h3_in_sample",
             "competing_contrast_x2_h3",
             "msm_log_delta",
             "weighted_contrast_x0_5",
@@ -105,7 +111,6 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     ),
     "clustered_inference": ("mean_x2__cluster_robust", "mean_x2__iid_control"),
     "censoring_complete_case": ("mean_x2__complete_case",),
-    "in_sample_fit": ("dropout_contrast_x2__one_fold", "survival_contrast_x2_h3__one_fold"),
 }
 
 STUDY = StudyRecord(

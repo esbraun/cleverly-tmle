@@ -4,9 +4,19 @@ The subject is :class:`~cleverly.longitudinal.IPSI`, the one-step estimator of K
 Algorithm 1), paired with R ``npcausal`` 0.1.0's ``ipsi`` at commit ``56a5ac11``.  The law is
 law ``A`` of :mod:`tests.discrete_law_longitudinal_incremental`: three nodes, binary
 :math:`L_2, L_3`, and a continuous end-of-study outcome.  The plans tilt every node by
-:math:`\delta \in \{0.5, 1, 2\}`.  One primary scenario, ``ipsi_folds_5``: five folds,
-and ``npcausal`` reads the same fold assignment.  The pairing gates also fit two folds on law
-``Ax``, so the exact agreement covers both fold counts.
+:math:`\delta \in \{0.5, 1, 2\}`.  Two primary scenarios:
+
+======================  =====================================================================
+scenario                subject and pairing
+======================  =====================================================================
+``ipsi_folds_2``        two folds; ``npcausal`` reads the same fold assignment
+``ipsi_folds_5``        five folds; the same
+======================  =====================================================================
+
+The plan's unpaired one-fold row is not a primary scenario here.  ``npcausal`` 0.1.0 cannot
+fit one fold: with ``nsplits = 1`` its training rows are ``slong != 1``, which is empty.  A
+primary scenario is paired, so the one-fold fit is the gated calibration cell
+``contrast_x2_in_sample`` of the properties module instead.
 
 **Exact pairing** (``X19-plan.md`` 3.4, 6.1 and 6.8).  Both sides fit saturated cell means:
 :class:`~tests.discrete_law_longitudinal.CellMeans` here, ``SL.cellmeans`` in
@@ -27,10 +37,10 @@ contrasts carry a second-order bias of order 1/n, so their standardized bias fal
 lies inside 0.25 empirical standard deviations, which at 1,000 replications needs a
 standardized bias below about 0.17.  The sizing probe (``tests/diagnostics/x19_sizing/``)
 measured 0.27 at n = 8,000 on the five-fold contrasts and 0.35 on the two-fold ones.
-:data:`PRIMARY_N` is the smallest size on the probe's grid at which the projected bias, with
-one Monte Carlo SE added, gives every row a pass probability of at least 0.95
-(``tests/unit/test_longitudinal_incremental_design.py``).  The plan's two-fold scenario needs
-about 90,000, so it is dropped.  The fallback-read bound holds far below this size.
+:data:`PRIMARY_N` gives every row of both scenarios a pass probability of at least 0.95 at
+the projected bias, with one Monte Carlo SE added
+(``tests/unit/test_longitudinal_incremental_design.py``).  The two-fold rows set it: they
+need about 90,000.  The fallback-read bound holds far below this size.
 
 **Properties.** :mod:`tests.studies.longitudinal_incremental_properties` declares every family.
 
@@ -60,7 +70,7 @@ from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
 
 PRIMARY_REPLICATES = 1_000
-PRIMARY_N = 64_000
+PRIMARY_N = 96_000
 SEED = 20261241
 RESAMPLING_SEED = 2026124101
 #: The pre-declaration gate on every paired quantity (G1 and G2).
@@ -70,7 +80,7 @@ LAW = law.LAW_A
 REFERENCE = law.REFERENCE
 PLANS = common.constant_plans(law.DELTAS)
 ESTIMANDS = common.names(PLANS, REFERENCE)
-FOLDS = {"ipsi_folds_5": 5}
+FOLDS = {"ipsi_folds_2": 2, "ipsi_folds_5": 5}
 TRUTH = common.truths(LAW, PLANS, ESTIMANDS)
 EFFICIENCY_SD = {name: common.eif_sd(LAW, PLANS, name) for name in ESTIMANDS}
 
@@ -81,6 +91,7 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
         for label in (
             "mean_x2",
             "contrast_x2",
+            "contrast_x2_in_sample",
             "known_x2",
             "no_positivity",
             "per_node",
@@ -103,7 +114,6 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
         "contrast_x2__mechanism_constant",
     ),
     "targeting_necessity": ("contrast_x2__one_step", "contrast_x2__plug_in"),
-    "in_sample_fit": ("contrast_x2__one_fold",),
 }
 
 STUDY = StudyRecord(

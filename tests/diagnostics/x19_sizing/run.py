@@ -13,7 +13,10 @@ It runs, at :data:`N`:
   plans);
 * both S2 primary scenarios, every estimand;
 * the S2 fit sets of :mod:`tests.studies.longitudinal_incremental_dropout_properties`;
-* the competing-risk fit set again at its declared size, :data:`COMPETING_N`.
+* the competing-risk fit set again at its declared size, :data:`COMPETING_N`;
+* at its declared size, each cell whose rule the bias projection does not reach: the sharp
+  null, the power cell, both ``single_robustness`` sizes, both bands with the S2 survival
+  calibration and one-fold cells they carry, and the clustered pair.
 
 The competing-risk cell needs its own size.  At n = 8,000 its SE ratio reads 0.85 on 1,000
 draws while its coverage reads 0.95.  About 0.6% of draws carry a reported SE 3 to 14 times
@@ -26,9 +29,7 @@ not project it.
 
 Replication ``r`` of set ``k`` draws the seed ``SEED_BASE + 100_000 k + r``, outside every
 declared stream.  The probe cannot change a verdict.  The rows go to ``rows.csv.gz`` and the
-reading to ``reading.csv``.  Set 0 was the two-fold S1 scenario, which the study no longer
-declares.  Its rows stay in the committed reading as the witness that two folds would need
-about n = 90,000.
+reading to ``reading.csv``.
 
     python -m tests.diagnostics.x19_sizing.run --jobs 4
     python -m tests.diagnostics.x19_sizing.run --jobs 4 --set s2:law_dc@32000
@@ -58,17 +59,35 @@ SEED_BASE = 9_700_000
 #: ``set: (index, study, kind, key, n, replicates)``: a primary scenario or a property fit set.
 #: The index fixes the seed stream.
 SETS: dict[str, tuple[int, str, str, str, int, int]] = {
+    "s1:ipsi_folds_2": (0, "s1", "primary", "ipsi_folds_2", N, 600),
     "s1:ipsi_folds_5": (1, "s1", "primary", "ipsi_folds_5", N, 600),
     "s1:law_a": (2, "s1", "property", "law_a", N, 600),
     "s1:law_ax": (3, "s1", "property", "law_ax", N, 600),
     "s1:law_a_mixed": (4, "s1", "property", "law_a_mixed", N, 600),
-    **{
-        "s2:" + scenario: (index, "s2", "primary", scenario, N, 400)
-        for index, scenario in enumerate(s2.SCENARIOS, start=5)
-    },
+    "s2:dropout_folds_5": (5, "s2", "primary", "dropout_folds_5", N, 400),
+    "s2:survival_folds_5": (6, "s2", "primary", "survival_folds_5", N, 400),
     "s2:law_c": (7, "s2", "property", "law_c", N, 400),
     "s2:law_dc": (8, "s2", "property", "law_dc", N, 400),
     f"s2:law_dc@{COMPETING_N}": (9, "s2", "property", "law_dc", COMPETING_N, 1_000),
+    # The cells the bias projection does not reach, each read at its declared size.
+    "s1:sharp_null": (10, "s1", "fit_set", "sharp_null", p1.NULL_N, 1_000),
+    "s1:alternative": (11, "s1", "fit_set", "alternative", p1.NULL_N, 1_000),
+    **{
+        f"s1:outcome_constant__n_{size}": (
+            index,
+            "s1",
+            "fit_set",
+            f"outcome_constant__n_{size}",
+            size,
+            1_000,
+        )
+        for index, size in enumerate(p1.REQUIREMENT_SIZES, start=12)
+    },
+    "s1:band": (14, "s1", "band", p1.BAND_LABEL, p1.BAND_N, 1_000),
+    "s2:band": (15, "s2", "band", p2.BAND_LABEL, p2.N, 1_000),
+    "s2:law_ck": (16, "s2", "property", "law_ck", p2.CLUSTER_N, 1_000),
+    "s2:dropout_folds_1": (17, "s2", "primary", "dropout_folds_1", N, 600),
+    "s2:survival_folds_1": (18, "s2", "primary", "survival_folds_1", N, 600),
 }
 
 
@@ -99,12 +118,20 @@ def _fit(name: str, replicate: int) -> list[dict[str, Any]]:
             ]
         properties = p1 if study == "s1" else p2
         properties._seed = lambda *_: seed  # type: ignore[attr-defined]
-        if study == "s1":
-            payload_row = ("interval_calibration", key, "calibration", replicate, n, 1, key)
+        if kind == "band":
+            rows = properties._band_rows((replicate, 1))
+        elif kind == "fit_set":
+            (family, label, configuration, _, _, law_name) = next(
+                entry for entry in p1.FIT_SETS if entry[1] == key
+            )
+            rows = p1._fit_set_rows((family, label, configuration, replicate, n, 1, law_name))
+        elif study == "s1":
+            rows = p1._fit_set_rows(
+                ("interval_calibration", key, "calibration", replicate, n, 1, key)
+            )
         else:
             family = "clustered_inference" if key == "law_ck" else "interval_calibration"
-            payload_row = (family, key, replicate, n, 1)
-        rows = properties._fit_set_rows(payload_row)
+            rows = p2._fit_set_rows((family, key, replicate, n, 1))
     return [
         {
             "set": name,
@@ -114,13 +141,21 @@ def _fit(name: str, replicate: int) -> list[dict[str, Any]]:
             "truth": float(row["truth"]),
             "estimate": float(row["estimate"]),
             "std_error": float(row["std_error"]),
+            "covered": float(row["covered"]),
+            "rejected": float(row["rejected"]),
         }
         for row in rows
     ]
 
 
 def reading(rows: pd.DataFrame) -> pd.DataFrame:
-    """The standardized bias, its Monte Carlo SE, the SE ratio and the coverage of each cell."""
+    """Each cell's standardized bias, Monte Carlo SE, SE ratio and coverage.
+
+    ``covered`` and ``rejected`` are the rates the study rows record, which a joint-coverage
+    row reads.  ``bias`` and ``bias_se`` are on the estimand's own scale, which the absolute
+    rule of ``single_robustness`` reads.  The first probe recorded neither rate, so they are
+    empty on its sets.
+    """
     out = []
     for (name, cell), group in rows.groupby(["set", "cell"], sort=True):
         error = group["estimate"].to_numpy() - group["truth"].to_numpy()
@@ -136,6 +171,10 @@ def reading(rows: pd.DataFrame) -> pd.DataFrame:
                 "mcse": float(1.0 / np.sqrt(len(group))),
                 "se_ratio": float(group["std_error"].mean() / spread),
                 "coverage": float(np.mean(np.abs(error) <= half)),
+                "covered": float(group["covered"].mean()) if "covered" in group else np.nan,
+                "rejected": float(group["rejected"].mean()) if "rejected" in group else np.nan,
+                "bias": float(error.mean()),
+                "bias_se": float(error.std(ddof=1) / np.sqrt(len(group))),
             }
         )
     return pd.DataFrame(out)

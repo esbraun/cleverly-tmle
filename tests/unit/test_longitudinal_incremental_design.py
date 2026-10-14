@@ -69,7 +69,7 @@ def test_the_declared_numbers() -> None:
     for record in (s1.STUDY, s2.STUDY):
         assert record.publication_policy == "gated"
         assert record.margins == Margins()
-    assert (s1.PRIMARY_N, s1.PRIMARY_REPLICATES) == (64_000, 1_000)
+    assert (s1.PRIMARY_N, s1.PRIMARY_REPLICATES) == (96_000, 1_000)
     assert (s2.PRIMARY_N, s2.PRIMARY_REPLICATES) == (80_000, 1_000)
     assert (s1.SEED, s1.RESAMPLING_SEED, s2.SEED, s2.RESAMPLING_SEED) == (
         20261241,
@@ -77,19 +77,21 @@ def test_the_declared_numbers() -> None:
         20261242,
         2026124201,
     )
-    assert s1.FOLDS == {"ipsi_folds_5": 5}
+    assert s1.FOLDS == {"ipsi_folds_2": 2, "ipsi_folds_5": 5}
     assert {scenario: folds for scenario, (_, _, folds) in s2.SCENARIOS.items()} == {
+        "dropout_folds_1": 1,
         "dropout_folds_5": 5,
+        "survival_folds_1": 1,
         "survival_folds_5": 5,
     }
     assert s1.PAIRING_GATE == 1e-10
     assert s1.STUDY.reference == "npcausal" and s2.STUDY.reference is None
     assert p1.REQUIREMENT_SIZES == (6_000, 24_000)
     assert p1.EFFICIENCY_RATIO_BAND == p2.EFFICIENCY_RATIO_BAND == (0.90, 1.10)
-    assert (p1.CALIBRATION_N, p1.CALIBRATION_REPLICATES) == (32_000, 2_000)
+    assert (p1.CALIBRATION_N, p1.CALIBRATION_REPLICATES) == (48_000, 2_000)
     assert (p1.RATE_SIZES, p1.RATE_REPLICATES) == ((24_000, 64_000, 96_000), 1_000)
     assert (p2.N, p2.REPLICATES, p2.CLUSTER_SIZE) == (16_000, 2_000, 10)
-    assert (p2.CLUSTER_N, p2.CLUSTER_REPLICATES, p2.COMPETING_N) == (8_000, 1_000, 32_000)
+    assert (p2.CLUSTER_N, p2.CLUSTER_REPLICATES, p2.COMPETING_N) == (8_000, 2_000, 32_000)
 
 
 def test_the_studies_draw_from_their_own_seeds() -> None:
@@ -163,7 +165,7 @@ POSITIVE_CELLS = (
     ),
     ("dropout", law.LAW_C, s2.PLANS, s2.ESTIMANDS["dropout_folds_5"], s2.PRIMARY_N, 5, {}),
     ("survival", law.LAW_D, s2.PLANS, s2.ESTIMANDS["survival_folds_5"], s2.PRIMARY_N, 5, {}),
-    ("competing", law.LAW_DC, s2.PLANS, (p2.COMPETING_X2,), p2.N, 5, {}),
+    ("competing", law.LAW_DC, s2.PLANS, (p2.COMPETING_X2,), p2.COMPETING_N, 5, {}),
     (
         "weighted",
         law.LAW_C,
