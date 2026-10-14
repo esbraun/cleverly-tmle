@@ -24,7 +24,7 @@ from sklearn.dummy import DummyClassifier
 from cleverly import CausalStudy, LongitudinalTreatment, RegimeMean
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import Stochastic
-from cleverly.longitudinal import LTMLE, DynamicRegimen, LongitudinalData
+from cleverly.longitudinal import LTMLE, SDR, DynamicRegimen, LongitudinalData
 from cleverly.longitudinal import sequential as sequential_module
 from cleverly.longitudinal.data import markov_restriction
 from cleverly.longitudinal.regimen import resolve_plans
@@ -189,7 +189,9 @@ PLANS: dict[str, tuple[Any, Any, Any]] = {
 }
 
 
-def _ltmle(*, mechanism: str = "cell", outcome: str = "cell") -> LTMLE:
+def _ltmle(
+    *, mechanism: str = "cell", outcome: str = "cell", estimator: type[LTMLE] | type[SDR] = LTMLE
+) -> LTMLE | SDR:
     def g() -> Any:
         return CellMeans() if mechanism == "cell" else DummyClassifier(strategy="prior")
 
@@ -204,7 +206,7 @@ def _ltmle(*, mechanism: str = "cell", outcome: str = "cell") -> LTMLE:
         )
         for label, plan in PLANS.items()
     }
-    return LTMLE(
+    return estimator(
         regimens,
         reference="never",
         n_folds=1,
@@ -228,7 +230,9 @@ class _MeanRegressor(DummyClassifier):
         return np.full(len(np.asarray(X)), self.mean_)
 
 
-def _errors(name: str, order: int | None, **learners: str) -> dict[str, float]:
+def _errors(
+    name: str, order: int | None, estimator: type[LTMLE] | type[SDR] = LTMLE, **learners: str
+) -> dict[str, float]:
     frame = law.frame(name)
     data = LongitudinalTreatment(
         outcome=THREE.outcome,
@@ -237,7 +241,7 @@ def _errors(name: str, order: int | None, **learners: str) -> dict[str, float]:
         time_varying=THREE.time_varying,
         markov_order=order,
     ).prepare(frame)
-    result = _ltmle(**learners).fit(data)
+    result = _ltmle(estimator=estimator, **learners).fit(data)
     return {
         label: result.fits[label].psi_scaled - law.truth(name, plan)
         for label, plan in PLANS.items()
@@ -272,6 +276,29 @@ class TestTheOneFamilyLaw:
     def test_order_zero_outcome_regressions_alone_miss_the_truth(self) -> None:
         errors = _errors("one_family", 0, mechanism="wrong")
         assert max(abs(value) for value in errors.values()) > 1e-3
+
+
+class TestSDR:
+    """``SDR`` reads the same windows: its node regressions and mechanisms share the designs."""
+
+    def test_order_one_returns_the_truth_through_each_family_alone(self) -> None:
+        assert _exact(_errors("markov1", 1, SDR, mechanism="wrong"))
+        assert _exact(_errors("markov1", 1, SDR, outcome="wrong"))
+
+    def test_order_zero_misses_the_truth(self) -> None:
+        errors = _errors("markov1", 0, SDR)
+        assert min(abs(value) for value in errors.values()) > 1e-4
+
+    def test_order_zero_returns_the_truth_through_the_mechanisms(self) -> None:
+        assert _exact(_errors("one_family", 0, SDR, outcome="wrong"))
+
+    def test_dropping_the_rule_blocks_misses_the_truth(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(sequential_module, "_is_rule_node", lambda plan, node: False)
+        errors = _errors("markov1", 1, SDR, mechanism="wrong")
+        assert abs(errors["rule"]) > 1e-3
+        assert abs(errors["always"]) < EXACT
 
 
 class TestMutationControls:

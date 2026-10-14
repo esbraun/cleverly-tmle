@@ -732,10 +732,11 @@ sums no risk curve.
 
 ### Ratio trimming
 
-`LTMLE(ratio_trim=q)` applies the trimming rule of `lmtp` 1.5.4, `lmtp_control(.trim=q)`. The
-fit builds one matrix of per-node ratios for each regimen. It trims that matrix at one quantile
-and then multiplies the trimmed ratios. `Targeting(ratio_trim=q)` reaches the same option through
-a `CausalStudy`.
+`LTMLE(ratio_trim=q)` and `SDR(ratio_trim=q)` apply the trimming rule of `lmtp` 1.5.4,
+`lmtp_control(.trim=q)`. The fit builds one matrix of per-node ratios for each regimen. It trims
+that matrix at one quantile and then multiplies the trimmed ratios. `Targeting(ratio_trim=q)`
+reaches the same option through a `CausalStudy`. `IPSI` refuses the option with
+`CapabilityError`, because an IPSI tilt node has no per-node density ratio in its weight.
 
 | step | rule | `lmtp` source |
 | --- | --- | --- |
@@ -744,6 +745,7 @@ a `CausalStudy`.
 | threshold | $Q_q$, the type-7 quantile of all $n \times T$ entries, zeros included. A cross-fitted fit trims the pooled out-of-fold matrix once | `utils.R:41-42`, `density_ratios.R:21` |
 | trimmed ratio | $\tilde R_t = \prod_{s \le t} \min(r_s, Q_q)$ | `eif.R:8-15` |
 | composition with `g_bounds` | the clever covariate is $\mathrm{num}_t / \mathrm{bound}(\mathrm{num}_t / \tilde R_t)$, with $\mathrm{num}_t$ the running product of $\pi_s$. On a row whose ratios the trim never moved, this is the untrimmed clever covariate for every bound pair | not in `lmtp`, which has no bound |
+| SDR weight | $W_{t,s}$ is the product of $\min(r_k, Q_q)$ for $k = t..s$, through the same bound composition. Every cross-fitted fold trims its own mechanism's ratios at the pooled $Q_q$ | `eif.R` (`compute_weights`) |
 
 The trim changes the fitted estimator, not the estimand. A trim that binds keeps a fixed share of
 the ratios at every sample size. The remainder therefore keeps a term of the size of the
@@ -769,7 +771,13 @@ threshold, the trimmed product and every clever covariate against a hand constru
 two-node SMART law with declared mechanisms. Mutation controls that trim the cumulative ratio,
 drop the zeros from the quantile, trim per fold, drop the censoring factor, or zero an entry by
 "followed through $t$" each fail it. With every factor known the untrimmed fit returns the
-truth, and the trimmed fit moves away from it.
+truth, and the trimmed fit moves away from it. The same file checks every SDR partial weight against
+$\prod_{k=t}^{s} \min(r_k, Q_q)$, in sample and in each of three folds. A weight that ignores
+the trim, and a threshold from one fold's rows, each fail that check.
+
+The SDR threshold reads every row, so a fold's transform depends on its held-out rows through
+one number. A continuous node's bin edges read the held-out rows in the same way
+(`cleverly.longitudinal.sdr`).
 
 ### Markov order
 
@@ -805,7 +813,8 @@ both families right. The restriction text that a fit records is `markov_restrict
 against the source columns for $T = 4$ and $k \in \{0, 1, 2\}$. On a three-node law whose
 nuisances read the order-1 window, order 1 returns the truth and order 0 does not. On a law whose
 mechanisms read the order-0 window, order 0 returns the truth through the mechanisms. A window one
-node short and a dropped rule block each fail an exact-law check.
+node short and a dropped rule block each fail an exact-law check. `SDR` reads the same designs, and the
+same file runs the witnesses and the rule-block control on `SDR`.
 
 ### Pooled censoring
 
@@ -827,7 +836,8 @@ designs with `CapabilityError`. A point-treatment fit refuses `hazard_pooling=`.
 
 `tests/unit/test_longitudinal_pooled_censoring.py` holds the evidence. It checks the stacked rows,
 the predictions against a hand-fit pooled logistic regression, and the fold of each unit. A
-mutation that drops the time column, and one that keeps the rows after the event, each fail it.
+mutation that drops the time column, and one that keeps the rows after the event, each fail it. On a
+cross-fitted `SDR` fit, it checks that each fold's own mechanism pools that fold's training rows.
 
 ### Cross-fitting the recursion
 
@@ -1322,11 +1332,13 @@ monotone curves.
 | an `IPSI` plan with a modified treatment policy or a `RiskRatioTilt` node | `tilt_mix_message` in `longitudinal/regimen.py` |
 | an odds tilt at a continuous node, on `IPSI`, `LTMLE` or `SDR` | `tilt_continuous_message` in `longitudinal/regimen.py` |
 | a fluctuation setting on `IPSI` or `IPSIMethod` | `IPSI_NO_FLUCTUATION` in `cleverly.methods` |
+| `ratio_trim=` on `IPSI` or `IPSIMethod` | `IPSI_RATIO_TRIM_REFUSAL` in `cleverly.methods` |
 | a point-treatment container, or `IPSIMethod` on a point functional | `IPSI_POINT_REFUSAL` in `cleverly.methods` |
 | a design that holds one baseline decision over every node | `IPSI` names `TMLE(incremental=[...])` on the baseline row |
 
 [Scope and refusals](scope-and-refusals.md#not-written-yet) quotes the first, second and fourth
-messages. `tests/unit/test_ipsi_e2e.py` pins each refusal before any learner runs.
+messages. `tests/unit/test_ipsi_e2e.py` pins each refusal before any learner runs, except the
+`ratio_trim=` refusal. `tests/unit/test_longitudinal_ratio_trim.py` pins that one.
 
 ### IPSI limitations
 

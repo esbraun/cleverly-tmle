@@ -20,6 +20,7 @@ __all__ = [
     "DEFAULT_POINT_MULTIPLIER",
     "IPSI_NO_FLUCTUATION",
     "IPSI_POINT_REFUSAL",
+    "IPSI_RATIO_TRIM_REFUSAL",
     "LTMLE_TILT_REFUSAL",
     "SDR_NO_FLUCTUATION",
     "SDR_POINT_REFUSAL",
@@ -79,6 +80,12 @@ IPSI_NO_FLUCTUATION = (
     "IPSI fits no fluctuation: Kennedy's estimator averages the influence function at the "
     "fitted nuisances, so it has no logistic shrink, iteration limit, score tolerance or "
     "submodel"
+)
+#: Why the IPSI estimator refuses ``ratio_trim=``.
+IPSI_RATIO_TRIM_REFUSAL = (
+    "IPSI does not apply ratio_trim=. The trim follows lmtp's rule for a per-node density "
+    "ratio, and an IPSI tilt node has no such ratio in its weight. Omit ratio_trim=, or trim "
+    "a static, dynamic or policy regimen with LTMLE or SDR"
 )
 #: Why a point treatment refuses the IPSI estimator (R8 in ``test_ipsi_e2e.py``).
 IPSI_POINT_REFUSAL = (
@@ -1219,8 +1226,8 @@ class IPSIMethod(TMLEMethod):
         Raises
         ------
         MethodConfigurationError
-            When ``longitudinal`` is false, or when a fluctuation setting differs from its
-            default.
+            When ``longitudinal`` is false, when a fluctuation setting differs from its
+            default, or when ``ratio_trim`` is set.
         """
         if not longitudinal:
             raise MethodConfigurationError(IPSI_POINT_REFUSAL)
@@ -1230,6 +1237,8 @@ class IPSIMethod(TMLEMethod):
                 getattr(self.targeting, field_name), getattr(defaults, field_name)
             ):
                 raise MethodConfigurationError(IPSI_NO_FLUCTUATION)
+        if self.targeting.ratio_trim is not None:
+            raise MethodConfigurationError(IPSI_RATIO_TRIM_REFUSAL)
         kwargs = super().estimator_kwargs(longitudinal=True)
         for engine_name in ("alpha", "max_iter", "tol"):
             del kwargs[engine_name]

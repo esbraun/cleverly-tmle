@@ -31,6 +31,13 @@ Lemmas 3 and 4 and Theorem 4 of the paper apply.  Where one binds, the bounded w
 a misspecified ratio on that path.  The share of such paths is recorded per node, over the
 paths the estimate reads: a cross-fitted fit counts each fold's held-out rows.
 
+``ratio_trim=q`` trims each per-node ratio :math:`\pi_k / p_k` at :math:`Q_q` before the
+partial products (:func:`trimmed_factors`), so the unbounded weight is the ``lmtp`` weight
+:math:`\prod_{k=t}^{s} \min(r_k, Q_q)`.  The threshold is one per plan, the quantile of the
+pooled out-of-fold ratios (:mod:`cleverly.longitudinal.ratio_trim`), and every fold trims
+its own factors at it.  So a fold's transform reads the held-out rows through that one number,
+as a continuous node's bin edges do.
+
 **Cross-fitting is the training-fold recursion.**  Fold :math:`k` fits every nuisance on its
 training rows: the mechanism (``fit_mechanism(fit_rows=...)``), and the backward recursion
 with its own outcome fits and its own mechanism in every training row's transform.  Its
@@ -160,6 +167,34 @@ def node_factors(data: LongitudinalData, plan: Plan, mechanism: Mechanism) -> Fl
     return np.column_stack(columns)
 
 
+def trimmed_factors(numerator: FloatArray, factors: FloatArray, threshold: float) -> FloatArray:
+    r"""``(n, T)`` per-node mechanism that a ratio trim at ``threshold`` implies.
+
+    Where the per-node ratio :math:`r_t = \pi_t / p_t` lies above :math:`Q_q`, the factor
+    becomes :math:`\pi_t / Q_q`, so that :math:`\pi_t / \tilde p_t = \min(r_t, Q_q)`.  A
+    partial product of the trimmed ratios is then the ``lmtp`` weight
+    :math:`\prod_{k=t}^{s} \min(r_k, Q_q)` (``eif.R``, ``compute_weights``) wherever the
+    bounds do not bind.  An entry with zero density or a zero factor keeps its factor.
+
+    Parameters
+    ----------
+    numerator : FloatArray
+        ``(n, T)`` intervention density :math:`\pi_t` at the observed arm.
+    factors : FloatArray
+        ``(n, T)`` unbounded per-node mechanism :math:`p_t`.
+    threshold : float
+        The trim threshold :math:`Q_q`, above zero.
+
+    Returns
+    -------
+    FloatArray
+        The factors, raised to :math:`\pi_t / Q_q` where the ratio lies above the threshold.
+    """
+    positive = (numerator > 0.0) & (factors > 0.0)
+    ratio = np.where(positive, numerator / np.where(positive, factors, 1.0), 0.0)
+    return np.where(positive & (ratio > threshold), numerator / threshold, factors)
+
+
 def partial_weights(
     numerator: FloatArray,
     factors: FloatArray,
@@ -221,11 +256,14 @@ def _recursion(
     g_bounds: tuple[float, float],
     fit_rows: BoolArray | None,
     outer_fold: int | None,
+    trim_threshold: float | None = None,
 ) -> list[_Node]:
     """One cell's recursion with one fold's nuisances, on every row, in time order."""
     single = Folds.single(data.n)
     numerator = plan.intervention_density(data)
     factors = node_factors(data, plan, mechanism)
+    if trim_threshold is not None:
+        factors = trimmed_factors(numerator, factors, trim_threshold)
     _, cumulative = mechanism.cumulative_with_unbounded(data, plan, g_bounds)
     cumulative_numerator = plan.cumulative_numerator(data)
     horizon = cell.horizon
@@ -441,7 +479,9 @@ def fit_cells_sdr(
         The resolved plans, with the policy numerators of ``mechanism`` attached.
     mechanism : Mechanism
         The in-sample mechanism, or the out-of-fold one above one fold.  The result reports
-        its cumulative products.  Above one fold no transform reads it.
+        its cumulative products.  Above one fold no transform reads its factors.  Under
+        ``ratio_trim=``, every fold's transform trims at its ``Mechanism.ratio_trims``
+        thresholds.
     cells : sequence of SDRCell
         The recursions to run, in the order the result lists them.
     outcome_learner : Learner
@@ -467,6 +507,8 @@ def fit_cells_sdr(
     """
     plan_of = {plan.label: plan for plan in plans}
     masks = {plan.label: plan.masks(data) for plan in plans}
+    # One threshold per plan, from the pooled out-of-fold ratios, as ``lmtp`` trims them.
+    thresholds = {label: trim.threshold for label, trim in mechanism.ratio_trims.items()}
     wanted = profiling()
 
     def run(
@@ -488,6 +530,7 @@ def fit_cells_sdr(
                 g_bounds=g_bounds,
                 fit_rows=fit_rows,
                 outer_fold=outer_fold,
+                trim_threshold=thresholds.get(cell.label),
             )
             for cell in cells
         ]

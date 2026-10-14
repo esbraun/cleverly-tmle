@@ -20,7 +20,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly import CausalStudy, LongitudinalTreatment, ModelSpec, RegimeMean, TMLEMethod
 from cleverly.datasets import make_longitudinal, make_point_survival
 from cleverly.exceptions import CapabilityError, MethodConfigurationError
-from cleverly.longitudinal import LTMLE, LongitudinalResult, pooled_hazards
+from cleverly.longitudinal import LTMLE, SDR, LongitudinalResult, pooled_hazards
 from cleverly.longitudinal.pooled_hazards import stacked_design
 
 NODES = 4
@@ -174,6 +174,43 @@ class TestThePooledFit:
         )
         last = f"always @ t={NODES}"
         assert node.fits[last].psi_scaled != pooled.fits[last].psi_scaled
+
+
+class TestSDR:
+    """A cross-fitted ``SDR`` fit pools each fold's own censoring model on its training rows."""
+
+    def test_each_fold_mechanism_pools_its_training_rows(self, frame: pd.DataFrame) -> None:
+        Recorder.calls = []
+        result = SDR(
+            REGIMENS,
+            reference="never",
+            n_folds=2,
+            random_state=0,
+            outcome_learner=_logistic(),
+            pseudo_learner=LinearRegression(),
+            treatment_learner=_logistic(),
+            censoring_learner=Recorder(),
+            simultaneous=False,
+            hazard_pooling="pooled",
+        ).fit(frame, **COLUMNS)
+        design, target = _hand_stack(result)
+        ids = design[:, 0].astype(int)
+        # The out-of-fold mechanism fits once per fold, and each fold mechanism once more.
+        assert len(Recorder.calls) == 2 * result.folds.n_folds
+        stacks = {}
+        for fold, (train, _) in enumerate(result.folds):
+            rows = np.isin(ids, train)
+            stacks[fold] = (design[rows], target[rows])
+        folds_seen = []
+        for fitted, fitted_target in Recorder.calls:
+            (fold,) = (
+                fold
+                for fold, (expected, expected_target) in stacks.items()
+                if np.array_equal(fitted, expected)
+                and np.array_equal(fitted_target, expected_target)
+            )
+            folds_seen.append(fold)
+        assert sorted(folds_seen) == [0, 0, 1, 1]
 
 
 class TestMutationControls:

@@ -137,6 +137,7 @@ from ..learners.super_learner import SuperLearner, resolve_learner
 from ..methods import (
     IPSI_NO_FLUCTUATION,
     IPSI_POINT_REFUSAL,
+    IPSI_RATIO_TRIM_REFUSAL,
     LTMLE_TILT_REFUSAL,
     SDR_NO_FLUCTUATION,
     SDR_TILT_REFUSAL,
@@ -4060,6 +4061,17 @@ class LTMLE(_SequentialEstimator):
         nuisances on finite binary laws, at ``n = 1000``.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
+    density_bins : int or None
+        The bin count of a continuous node's conditional density.
+    ratio : {"density", "classifier"}
+        How a continuous node's policy ratio is estimated.
+    ratio_trim : float or None
+        A quantile in ``(0, 1)`` at which every per-node density ratio is trimmed, as
+        ``lmtp``'s ``.trim`` does (:mod:`cleverly.longitudinal.ratio_trim`).  A fit whose
+        trim moves a ratio reports no interval.  ``None`` trims nothing.
+    hazard_pooling : {"node", "pooled"}
+        ``"pooled"`` fits one censoring model over every node's at-risk rows, with the node
+        time as a column (:mod:`cleverly.longitudinal.pooled_hazards`).
     **refused : Any
         A point-treatment keyword.  Each one raises :class:`TypeError` with the reason
         that a longitudinal fit does not support it.
@@ -4096,6 +4108,8 @@ class LTMLE(_SequentialEstimator):
         bootstrap_resampling: Resampling = "auto",
         density_bins: int | None = None,
         ratio: str = "density",
+        ratio_trim: float | None = None,
+        hazard_pooling: str = "node",
         **refused: Any,
     ) -> None:
         self.alpha = alpha
@@ -4125,6 +4139,8 @@ class LTMLE(_SequentialEstimator):
             bootstrap_resampling=bootstrap_resampling,
             density_bins=density_bins,
             ratio=ratio,
+            ratio_trim=ratio_trim,
+            hazard_pooling=hazard_pooling,
             **refused,
         )
 
@@ -4222,6 +4238,12 @@ class SDR(_SequentialEstimator):
         The bin count of a continuous node's conditional density, as for :class:`LTMLE`.
     ratio : {"density", "classifier"}
         How a continuous node's policy ratio is estimated, as for :class:`LTMLE`.
+    ratio_trim : float or None
+        The per-node ratio trim, as for :class:`LTMLE`.  Each partial weight
+        :math:`W_{t,s}` is then the product of the trimmed ratios, as in ``lmtp``
+        (:func:`~cleverly.longitudinal.sdr.trimmed_factors`).
+    hazard_pooling : {"node", "pooled"}
+        The censoring model, as for :class:`LTMLE`.  Each cross-fitted fold pools its own.
     **refused : Any
         ``alpha``, ``max_iter`` and ``tol``, which raise :class:`TypeError` because the
         estimator fits no fluctuation, and each point-treatment keyword that
@@ -4286,6 +4308,8 @@ class SDR(_SequentialEstimator):
         bootstrap_resampling: Resampling = "auto",
         density_bins: int | None = None,
         ratio: str = "density",
+        ratio_trim: float | None = None,
+        hazard_pooling: str = "node",
         **refused: Any,
     ) -> None:
         named = [name for name in SDR_REFUSED_SETTINGS if name in refused]
@@ -4315,6 +4339,8 @@ class SDR(_SequentialEstimator):
             bootstrap_resampling=bootstrap_resampling,
             density_bins=density_bins,
             ratio=ratio,
+            ratio_trim=ratio_trim,
+            hazard_pooling=hazard_pooling,
             **refused,
         )
 
@@ -4443,10 +4469,14 @@ class IPSI(_SequentialEstimator):
         IPSI bootstrap, so the draws report a bootstrap sd and no percentile inference.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
+    hazard_pooling : {"node", "pooled"}
+        The censoring model, as for :class:`LTMLE`.
     **refused : Any
         ``alpha``, ``max_iter``, ``tol``, ``targeting`` and ``fluctuation``, which raise
         :class:`TypeError` because the estimator fits no fluctuation, and each
-        point-treatment keyword that :class:`LTMLE` refuses.
+        point-treatment keyword that :class:`LTMLE` refuses.  ``ratio_trim`` other than
+        ``None`` raises :class:`~cleverly.exceptions.CapabilityError`
+        (:data:`~cleverly.methods.IPSI_RATIO_TRIM_REFUSAL`).
 
     See Also
     --------
@@ -4506,10 +4536,13 @@ class IPSI(_SequentialEstimator):
         n_jobs: int = 1,
         n_bootstrap: int = 0,
         bootstrap_resampling: Resampling = "auto",
+        hazard_pooling: str = "node",
         **refused: Any,
     ) -> None:
         if any(name in refused for name in IPSI_REFUSED_SETTINGS):
             raise TypeError(IPSI_NO_FLUCTUATION)
+        if refused.pop("ratio_trim", None) is not None:
+            raise CapabilityError(IPSI_RATIO_TRIM_REFUSAL)
         super().__init__(
             _tilt_shorthand(regimens),
             reference=reference,
@@ -4532,6 +4565,7 @@ class IPSI(_SequentialEstimator):
             n_jobs=n_jobs,
             n_bootstrap=n_bootstrap,
             bootstrap_resampling=bootstrap_resampling,
+            hazard_pooling=hazard_pooling,
             **refused,
         )
 

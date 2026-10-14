@@ -10,6 +10,7 @@ replaces one step of the rule and shows that the hand check fails.
 
 from __future__ import annotations
 
+import importlib
 from collections.abc import Callable
 from typing import Any
 
@@ -22,6 +23,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly import (
     ATE,
     CausalStudy,
+    IPSIMethod,
     LongitudinalTreatment,
     MethodConfigurationError,
     PointTreatment,
@@ -32,7 +34,8 @@ from cleverly import (
 from cleverly._inference_status import NON_INFERENTIAL, TRIMMED_RATIO_STATUS
 from cleverly.datasets import make_linear_ate
 from cleverly.exceptions import CapabilityError, DataError
-from cleverly.longitudinal import LTMLE, LongitudinalResult
+from cleverly.interventions import Incremental
+from cleverly.longitudinal import IPSI, LTMLE, SDR, LongitudinalResult
 from cleverly.longitudinal import estimator as longitudinal_estimator
 from cleverly.longitudinal import ratio_trim as trim_module
 from cleverly.longitudinal.ratio_trim import RatioTrim, node_ratio_entries
@@ -40,6 +43,9 @@ from cleverly.utils.bounds import bound
 from tests.unit import _known_mechanism_support as law
 from tests.unit._natural_course_support import NeverFit
 from tests.unit.test_known_node_mechanisms import SmartMechanism
+
+#: The module, which the package's ``sdr`` function shadows as an attribute.
+sdr_module = importlib.import_module("cleverly.longitudinal.sdr")
 
 REGIMENS = {"always": 1, "never": 0}
 #: A quantile that binds on the SMART law's ratios. The ratios take the values 0, 4/3, 8/3
@@ -479,3 +485,161 @@ def test_the_support_frame_reports_the_trimmed_share_per_node(frame: pd.DataFram
         expected = float(np.mean(trim.trimmed[step.trained_on, row.time - 1]))
         assert row.share_trimmed == pytest.approx(expected, rel=1e-15)
     assert support["share_trimmed"].max() > 0.0
+
+
+def _sdr(**settings: Any) -> SDR:
+    base: dict[str, Any] = {
+        "reference": "never",
+        "n_folds": 1,
+        "random_state": 0,
+        "outcome_learner": LogisticRegression(max_iter=1000),
+        "pseudo_learner": LinearRegression(),
+        "treatment_learner": NeverFit(),
+        "censoring_learner": NeverFit(),
+        "simultaneous": False,
+    }
+    base.update(settings)
+    return SDR(REGIMENS, **base)
+
+
+def _fit_sdr(frame: pd.DataFrame, **settings: Any) -> LongitudinalResult:
+    return _sdr(**settings).fit(
+        frame,
+        **law.SMART_COLUMNS,
+        censoring=["C1", "C2"],
+        treatment_probabilities=law.SMART_TREATMENT,
+        censoring_probabilities=law.SMART_CENSORING,
+    )
+
+
+def _recorded_weights(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[tuple[np.ndarray, int, int, tuple[float, float], list[np.ndarray]]]:
+    """Record each ``partial_weights`` call of the SDR recursion: factors, span, weights."""
+    calls: list[tuple[np.ndarray, int, int, tuple[float, float], list[np.ndarray]]] = []
+    original = sdr_module.partial_weights
+
+    def recording(
+        numerator: Any, factors: Any, masks: Any, start: int, stop: int, bounds: Any
+    ) -> Any:
+        out = original(numerator, factors, masks, start, stop, bounds)
+        calls.append((np.asarray(numerator), start, stop, bounds, out[0]))
+        return out
+
+    monkeypatch.setattr(sdr_module, "partial_weights", recording)
+    return calls
+
+
+def _check_sdr_weights(
+    calls: list[tuple[np.ndarray, int, int, tuple[float, float], list[np.ndarray]]],
+    frame: pd.DataFrame,
+    quantile: float,
+) -> None:
+    """Each weight is ``lmtp``'s ``prod_{k=t}^{s} min(r_k, Q_q)`` through the bounds.
+
+    The plan is read off the numerator: ``always`` has density one where ``A_t = 1``. The
+    hand entries come from the columns, so a weight that ignores the trim, or a threshold
+    that is not the pooled type-7 quantile, fails here. A unit that left the plan before
+    ``t`` has a zero weight from ``t``, as the shipped recursion masks it.
+    """
+    assert calls
+    a1 = frame["A1"].to_numpy(dtype=float)
+    for numerator, start, stop, (lower, upper), weights in calls:
+        arm = 1 if np.array_equal(numerator[:, 0] > 0.0, a1 == 1.0) else 0
+        entries = _hand_entries(frame, arm)
+        trimmed = np.minimum(entries, _type7(entries, quantile))
+        running = np.ones(len(frame))
+        for node, weight in zip(range(start, stop + 1), weights, strict=True):
+            running = running * trimmed[:, node - 1]
+            # The recursion weights the units that follow the plan from node one through
+            # ``node``. A unit that rejoins the plan has a positive entry and a zero weight.
+            following = np.prod(entries[:, :node], axis=1) > 0.0
+            expected = 1.0 / bound(1.0 / running[following], lower, upper)
+            np.testing.assert_allclose(weight[following], expected, rtol=1e-12)
+            assert np.all(weight[~following] == 0.0)
+
+
+class TestSDR:
+    """``SDR(ratio_trim=q)``: each partial weight is a product of trimmed per-node ratios."""
+
+    def test_the_partial_weights_equal_the_lmtp_weights(
+        self, frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls = _recorded_weights(monkeypatch)
+        _fit_sdr(frame, ratio_trim=BINDING)
+        _check_sdr_weights(calls, frame, BINDING)
+
+    def test_every_cross_fitted_fold_trims_at_the_pooled_threshold(
+        self, frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """At ``PER_FOLD`` a threshold from one fold's rows differs from the pooled one."""
+        calls = _recorded_weights(monkeypatch)
+        _fit_sdr(frame, ratio_trim=PER_FOLD, n_folds=3)
+        assert len(calls) == 3 * len(REGIMENS) * 2
+        _check_sdr_weights(calls, frame, PER_FOLD)
+
+    def test_a_weight_that_ignores_the_trim_fails_the_hand_check(
+        self, frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutation: the recursion divides by the untrimmed factors."""
+        calls = _recorded_weights(monkeypatch)
+        monkeypatch.setattr(sdr_module, "trimmed_factors", lambda numerator, factors, _: factors)
+        _fit_sdr(frame, ratio_trim=BINDING)
+        with pytest.raises(AssertionError):
+            _check_sdr_weights(calls, frame, BINDING)
+
+    def test_a_per_fold_threshold_fails_the_hand_check(
+        self, frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutation: each fold trims at the quantile of its own training rows' ratios."""
+        calls = _recorded_weights(monkeypatch)
+        original = sdr_module.trimmed_factors
+
+        def per_fold(numerator: Any, factors: Any, threshold: float) -> Any:
+            positive = (numerator > 0.0) & (factors > 0.0)
+            ratio = np.where(positive, numerator / np.where(positive, factors, 1.0), 0.0)
+            # The SMART factors are fold-free, so the rows differ only by the fold: read the
+            # quantile over a fixed two-thirds of the rows as one fold's training rows.
+            rows = np.arange(ratio.shape[0]) % 3 != 0
+            return original(numerator, factors, float(np.quantile(ratio[rows], PER_FOLD)))
+
+        monkeypatch.setattr(sdr_module, "trimmed_factors", per_fold)
+        _fit_sdr(frame, ratio_trim=PER_FOLD, n_folds=3)
+        with pytest.raises(AssertionError):
+            _check_sdr_weights(calls, frame, PER_FOLD)
+
+    def test_a_binding_trim_moves_the_estimate_and_withholds_the_interval(
+        self, frame: pd.DataFrame
+    ) -> None:
+        plain = _fit_sdr(frame)
+        trimmed = _fit_sdr(frame, ratio_trim=BINDING)
+        truth = law.smart_truth(1, 1)
+        assert abs(plain["ey_regimen[always]"].psi - truth) <= EXACT
+        assert abs(trimmed["ey_regimen[always]"].psi - truth) > 1e-4
+        assert plain.inference_status == "influence_curve"
+        for estimate in trimmed.estimates.values():
+            assert estimate.inference == TRIMMED_RATIO_STATUS
+        assert trimmed.fits["always"].trim_threshold == pytest.approx(
+            _type7(_hand_entries(frame, 1), BINDING), rel=1e-15
+        )
+
+    def test_a_trim_that_moves_no_ratio_keeps_the_numbers(self, frame: pd.DataFrame) -> None:
+        plain = _fit_sdr(frame)
+        kept = _fit_sdr(frame, ratio_trim=0.999)
+        assert kept.inference_status == "influence_curve"
+        for name, estimate in plain.estimates.items():
+            assert kept[name].psi == estimate.psi
+            assert kept[name].std_error == estimate.std_error
+
+
+class TestIPSIRefusesTheTrim:
+    def test_the_engine_refuses_it(self) -> None:
+        with pytest.raises(CapabilityError, match="IPSI does not apply ratio_trim="):
+            IPSI([Incremental(2.0)], ratio_trim=0.9)
+        assert IPSI([Incremental(2.0)], ratio_trim=None).ratio_trim is None
+
+    def test_the_method_refuses_it(self) -> None:
+        method = IPSIMethod(targeting=Targeting(ratio_trim=0.9))
+        with pytest.raises(MethodConfigurationError, match="IPSI does not apply ratio_trim="):
+            method.estimator_kwargs(longitudinal=True)
+        assert IPSIMethod().estimator_kwargs(longitudinal=True)["ratio_trim"] is None
