@@ -912,6 +912,31 @@ def test_m7_a_read_through_get_is_refused_and_names_the_order() -> None:
     _fit_geo_policy(ordered)
 
 
+def reads_d2_and_catches(h: Any) -> np.ndarray:
+    """A bound that reads ``D2`` and swallows every exception, falling back to 6."""
+    try:
+        d2 = np.asarray(h["D2"], dtype=float)
+    except Exception:
+        return np.full(len(h), 6.0)
+    return np.where(d2 <= 2.0, 6.0, -INF)
+
+
+@pytest.mark.parametrize("ratio", ["density", "classifier"])
+def test_m7_a_map_that_catches_its_refused_read_is_still_refused(ratio: str) -> None:
+    """The proxy records the read, and the read is refused after the map returns (LOW-7).
+
+    Before, ``except Exception`` swallowed the refusal and the map silently used its
+    fallback on every row.
+    """
+    policy = JointPolicy(
+        "catches",
+        components={"D1": _doubling("d1 catches", reads_d2_and_catches), "D2": DOUBLE},
+        policy_kind="known",
+    )
+    with pytest.raises(DataError, match=r"'D1' reads \['D2'\].*order=\('D2', 'D1'\)"):
+        _fit_geo_policy(policy, ratio=ratio)
+
+
 def test_m7_the_frame_proxy_refuses_every_access_by_name() -> None:
     from cleverly.interventions.policy import ForbiddenRead, GuardedFrame
 
@@ -926,6 +951,7 @@ def test_m7_the_frame_proxy_refuses_every_access_by_name() -> None:
     ):
         with pytest.raises(ForbiddenRead, match="'D2'"):
             access()
+    assert frame.violations == ["D2"] * 5
     assert issubclass(ForbiddenRead, DataError)
 
 

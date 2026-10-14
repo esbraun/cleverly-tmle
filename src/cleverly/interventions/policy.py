@@ -1959,6 +1959,9 @@ class GuardedFrame:
     to such a component: indexing, ``get``, membership and attribute access.  Every other
     access goes to the frame.
 
+    A map can catch the exception, so the proxy also records each refused read in
+    :attr:`violations`, and :class:`GuardedSource` checks the record after the map returns.
+
     Parameters
     ----------
     frame : object
@@ -1970,12 +1973,17 @@ class GuardedFrame:
     def __init__(self, frame: Any, forbidden: frozenset[str]) -> None:
         object.__setattr__(self, "_frame", frame)
         object.__setattr__(self, "_forbidden", forbidden)
+        object.__setattr__(self, "violations", [])
+
+    def _refuse(self, column: str) -> ForbiddenRead:
+        self.violations.append(column)
+        return ForbiddenRead(column)
 
     def _check(self, key: Any) -> None:
         keys = list(key) if isinstance(key, (list, tuple)) else [key]
         for item in keys:
             if isinstance(item, str) and item in self._forbidden:
-                raise ForbiddenRead(item)
+                raise self._refuse(item)
 
     def __getitem__(self, key: Any) -> Any:
         self._check(key)
@@ -2005,7 +2013,7 @@ class GuardedFrame:
 
     def __getattr__(self, attribute: str) -> Any:
         if attribute in self._forbidden:
-            raise ForbiddenRead(attribute)
+            raise self._refuse(attribute)
         return getattr(self._frame, attribute)
 
     def __len__(self) -> int:
@@ -2050,7 +2058,47 @@ def partial_frame(frame: Any) -> FrameSource:
     return lambda: frame
 
 
-def guarded_source(frame_with: FrameWith, extra: Mapping[str, Any], forbidden: Any) -> FrameSource:
+class GuardedSource:
+    """A guarded frame, built once on first use, that can be asked for refused reads later.
+
+    Parameters
+    ----------
+    frame_with : callable
+        Builds the node's policy frame with extra columns.
+    extra : mapping
+        The component columns the map may read.
+    forbidden : frozenset of str
+        The components it may not read.
+    """
+
+    def __init__(
+        self, frame_with: FrameWith, extra: Mapping[str, Any], forbidden: frozenset[str]
+    ) -> None:
+        self._frame_with = frame_with
+        self._extra = extra
+        self._forbidden = forbidden
+        self._frame: GuardedFrame | None = None
+
+    def __call__(self) -> GuardedFrame:
+        if self._frame is None:
+            self._frame = GuardedFrame(self._frame_with(self._extra), self._forbidden)
+        return self._frame
+
+    def check(self) -> None:
+        """Raise the first refused read, which a map that caught it did not let through.
+
+        Raises
+        ------
+        ForbiddenRead
+            If a map read a component that its frame does not hold.
+        """
+        if self._frame is not None and self._frame.violations:
+            raise ForbiddenRead(self._frame.violations[0])
+
+
+def guarded_source(
+    frame_with: FrameWith, extra: Mapping[str, Any], forbidden: Any
+) -> GuardedSource:
     """The policy frame with ``extra`` appended, guarded, and built once on first use.
 
     Parameters
@@ -2064,11 +2112,10 @@ def guarded_source(frame_with: FrameWith, extra: Mapping[str, Any], forbidden: A
 
     Returns
     -------
-    callable
-        Returns the guarded frame.
+    GuardedSource
+        Returns the guarded frame; :meth:`GuardedSource.check` raises a read a map caught.
     """
-    blocked = frozenset(forbidden)
-    return lazy_frame(lambda: GuardedFrame(frame_with(extra), blocked))
+    return GuardedSource(frame_with, extra, frozenset(forbidden))
 
 
 def _joint_branch(
@@ -2108,15 +2155,17 @@ def _joint_branch(
             readable = {
                 other.name: labels[other.name] for other in components if other is not component
             }
+            source = guarded_source(frame_with, readable, (component.name,))
             assigned[:, index] = _categorical_component(
                 name,
                 declared[component.name],
                 component,
                 natural[:, index],
-                guarded_source(frame_with, readable, (component.name,)),
+                source,
                 rows,
                 here,
             )
+            source.check()
         for position, index in enumerate(doses):
             component = components[index]
             if component.name not in declared:
@@ -2128,13 +2177,11 @@ def _joint_branch(
                 other.name: labels[other.name] for other in components if not other.continuous
             }
             readable.update({other: labels[other] for other in earlier})
+            source = guarded_source(frame_with, readable, set(names) - set(readable))
             assigned[:, index] = _continuous_component(
-                declared[component.name],
-                natural[:, index],
-                guarded_source(frame_with, readable, set(names) - set(readable)),
-                rows,
-                here,
+                declared[component.name], natural[:, index], source, rows, here
             )
+            source.check()
     except ForbiddenRead as error:
         refusal = read_order_refusal(
             name, declared, components, natural, frame_with, rows, where, doses

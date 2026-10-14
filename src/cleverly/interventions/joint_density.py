@@ -893,6 +893,8 @@ def _enumerate(
                         here,
                         note=_COUNTERFACTUAL_FRAMES,
                     )
+                # A map that caught its own refused read still refuses.
+                frame.check()
             paths = grown
         for betas, valid, jacobian in paths:
             dose_values = np.column_stack([betas[index] for index in doses])
@@ -964,17 +966,19 @@ def _image(
             columns.append(cell_codes[:, j])
             continue
         readable = {key: value for key, value in natural.items() if key != component.name}
+        source = guarded_source(layout.frame_with, readable, (component.name,))
         columns.append(
             _categorical_component(
                 branch.name,
                 policy,
                 component,
                 cell_codes[:, j],
-                guarded_source(layout.frame_with, readable, (component.name,)),
+                source,
                 valid,
                 f"component {component.name!r} of {layout.where}",
             )
         )
+        source.check()
     if not columns:
         return np.zeros((layout.n, 0))
     return np.column_stack(columns)
