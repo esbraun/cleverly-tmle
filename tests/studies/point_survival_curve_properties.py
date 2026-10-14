@@ -39,8 +39,12 @@ family                            cells, replications and size
 node 1 to 0.758 at node 2, a step of about nine standard errors at n = 2,000, so the declared
 binding share is zero (``X14-impl-review.md`` F4).  The cell checks that the projection
 leaves a regular curve's inference unchanged.  It is not evidence for an interval after a
-projection that moves a level.  The S-mono law that would have bound has no feasible design
-(``X14-progress.md``, deviation 1).
+projection that moves a level.  No law gives such evidence inside the theory.  The increment
+between two horizons is the event mass at the later node, so the binding share is about
+:math:`\\Phi(-\\sqrt{m})`, with :math:`m` the expected number of observed events there.  On
+this law with the arm-1 node-2 hazard lowered to 0.02, the share is 0.136 at n = 2,000 with
+1.3 expected events.  A projection binds often only where a node has almost no events, and
+there Westling, van der Laan and Carone (2020), Theorem 2, does not apply.
 
 A curve band is the shipped multiplier band (:func:`cleverly.inference.multiplier.
 simultaneous_bands`, 2,000 rademacher draws, ``random_state=0``) over the five risks of one
