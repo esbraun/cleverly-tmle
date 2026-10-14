@@ -94,7 +94,8 @@ STRATA_ROLES = {"outcome": "Y", "treatment": "A", "covariates": ("W", "stratum")
 #: The subject every natural-course contract refusal opens with.
 SUBJECT = (
     "NaturalCourseMean, PAR and PAF with missing outcomes currently support ordinary TMLE "
-    "under their audited implementation contracts; "
+    "and, for point estimates, the per-arm outcome-adaptive CTMLE under their audited "
+    "implementation contracts; "
 )
 
 
@@ -143,8 +144,9 @@ def test_repeated_splits_refuse_at_the_existing_method_boundary() -> None:
 
 #: The estimator-variant refusal, after the subject.
 VARIANT_REASON = (
-    "use ordinary TMLE; collaborative and doubly robust estimator variants need separate "
-    "targeting and inference results"
+    "use ordinary TMLE, or CTMLE(strategy='oat', oat_design='per_arm') for point estimates; "
+    "the C-TMLE selector strategies, the shared outcome-adaptive design and DR-TMLE need "
+    "separate targeting and inference results"
 )
 
 
@@ -154,10 +156,14 @@ VARIANT_REASON = (
     [
         pytest.param(
             lambda estimands: CTMLE(
-                strategy="oat", estimands=estimands, cross_fit=False, **never_fit_learners()
+                strategy="oat",
+                oat_design="shared",
+                estimands=estimands,
+                cross_fit=False,
+                **never_fit_learners(),
             ),
             "",
-            id="ctmle",
+            id="ctmle-oat-shared",
         ),
         pytest.param(
             lambda estimands: DRTMLE(estimands=estimands, cross_fit=False, **never_fit_learners()),
@@ -187,6 +193,53 @@ def test_estimator_variants_refuse_before_nuisance_fitting(
         )
     assert str(caught.value) == SUBJECT + VARIANT_REASON + tail
     assert NeverFit.calls == 0
+
+
+@pytest.mark.parametrize(
+    ("estimands", "ctmle_estimand"),
+    [
+        pytest.param(("ey_obs", "ey0", "ey1", "ate"), "ate", id="joint-ate"),
+        pytest.param(("ey_obs", "ey0", "paf"), "ey0", id="joint-ey0"),
+    ],
+)
+def test_a_selector_strategy_refuses_before_nuisance_fitting(
+    estimands: tuple[str, ...], ctmle_estimand: str
+) -> None:
+    """The greedy selector reaches the method clause, with its selection estimand requested."""
+    estimator = CTMLE(
+        strategy="greedy",
+        estimands=estimands,
+        ctmle_estimand=ctmle_estimand,
+        cross_fit=False,
+        **never_fit_learners(),
+    )
+    with pytest.raises(CapabilityError) as caught:
+        estimator.fit(_frame(), outcome="Y", treatment="A", covariates=("W",), delta="Delta")
+    assert str(caught.value) == SUBJECT + VARIANT_REASON
+    assert NeverFit.calls == 0
+
+
+@pytest.mark.parametrize("estimands", REQUESTS)
+def test_the_per_arm_design_runs_in_sample(estimands: tuple[str, ...]) -> None:
+    """The per-arm outcome-adaptive CTMLE passes the method clause and reports points."""
+    from sklearn.linear_model import LogisticRegression
+
+    result = (
+        CTMLE(
+            strategy="oat",
+            estimands=estimands,
+            cross_fit=False,
+            outcome_learner=LogisticRegression(),
+            treatment_learner=LogisticRegression(),
+            missingness_learner=LogisticRegression(),
+            random_state=0,
+        )
+        .fit(_frame(), outcome="Y", treatment="A", covariates=("W",), delta="Delta")
+        .single()
+    )
+    assert result.inference_status == "generated_design_plugin"
+    for name in estimands:
+        assert np.isfinite(result[name].psi), name
 
 
 #: The in-sample TMLE and the stacked CV-TMLE share every data-axis refusal. Each one
