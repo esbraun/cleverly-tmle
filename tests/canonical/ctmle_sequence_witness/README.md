@@ -56,6 +56,17 @@ The screen runs on the package's own solver arrays first. Only a seed that passe
 R outputs must then pass the screen again on R's arrays, and the conditions on R's selection.
 `manifest.json` records every rejected seed and its reason under `search`.
 
+## The rebuild check
+
+The registered study `canonical-ctmle-sequences` adapts a `ctmleGlmnet` type-1 error with
+`rebuild_type1`, from `tests/canonical/ctmle_sequences/rebuild_type1.R`. On every seed where
+`ctmleGlmnet` completes, `regenerate.py` runs `rebuild_check.R`. The script calls
+`ctmleGlmnet` and `rebuild_type1` with the same seed and arguments. `regenerate.py` stops
+unless `best_k`, the accepted penalties and every candidate estimate are identical.
+`manifest.json` records each check under `rebuild`, and the hashes of both scripts under
+`rebuild_sha256`. `tests/unit/test_ctmle_sequence_witness.py` asserts the recorded agreement.
+It skips while the committed manifest predates the check.
+
 ## Discrimination record
 
 The X16 implementation review measured these controls on 2026-10-12, at commit `1d66d65`. Each

@@ -4,8 +4,10 @@ The seed comes from a declared search over :data:`SEEDS`, in order. Each seed is
 on the package side first, on the package's own solver arrays. A seed that passes runs R
 ``ctmle`` and ``glmnet`` in the pinned image, and its R outputs must pass the same screen
 plus the conditions on R's selection. The first seed that passes is kept, and the manifest
-records every rejected seed with its reason. Run from the repository root with Docker
-running::
+records every rejected seed with its reason. On every seed where ``ctmleGlmnet`` completed,
+``rebuild_check.R`` runs the registered study's type-1 adapter, ``rebuild_type1``, and the
+manifest records whether it agrees with ``ctmleGlmnet`` exactly (plan 3.4, S1). Run from the
+repository root with Docker running::
 
     python -m tests.canonical.ctmle_sequence_witness.regenerate
 """
@@ -49,6 +51,11 @@ OUTPUTS = (
     "facts.csv",
 )
 SOURCES = ("witness.R",)
+#: The S1 rebuild cross-check (X16 plan, 3.4): its script, and the shared adapter it sources
+#: from ``tests/canonical/ctmle_sequences``.
+REBUILD_SOURCES = ("rebuild_check.R",)
+SHARED = HERE.parent / "ctmle_sequences"
+SHARED_SOURCES = ("rebuild_type1.R",)
 
 
 def read(path: Path) -> pd.DataFrame:
@@ -166,6 +173,41 @@ def _run_r(inputs: Path, outputs: Path) -> int:
     ).returncode
 
 
+def _run_rebuild(inputs: Path, outputs: Path) -> dict[str, Any]:
+    """Run ``rebuild_check.R`` on one seed's inputs and read its agreement row."""
+    subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--entrypoint",
+            "Rscript",
+            "-v",
+            f"{HERE}:/fixture:ro",
+            "-v",
+            f"{SHARED}:/shared:ro",
+            "-v",
+            f"{inputs}:/inputs:ro",
+            "-v",
+            f"{outputs}:/outputs",
+            IMAGE,
+            "/fixture/rebuild_check.R",
+            "/inputs",
+            "/outputs",
+        ],
+        check=True,
+    )
+    row = read(outputs / "rebuild.csv").iloc[0]
+    best_k, rebuilt = int(row["best_k"]), int(row["rebuild_best_k"])
+    return {
+        "best_k": best_k,
+        "rebuild_best_k": rebuilt,
+        "agrees": bool(
+            best_k == rebuilt and int(row["est_identical"]) and int(row["lambdas_identical"])
+        ),
+    }
+
+
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -191,6 +233,7 @@ def main() -> None:
         text=True,
     ).stdout.strip()
     search: list[dict[str, Any]] = []
+    rebuild: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory() as scratch:
         for seed in SEEDS:
             frame, grid = harness.draw_inputs(seed)
@@ -210,6 +253,10 @@ def main() -> None:
                 continue
             if status != 0:
                 raise RuntimeError(f"witness.R failed with status {status} at seed {seed}")
+            check = {"seed": seed, **_run_rebuild(inputs, outputs)}
+            rebuild.append(check)
+            if not check["agrees"]:
+                raise RuntimeError(f"rebuild_type1 disagrees with ctmleGlmnet at seed {seed}")
             reason = confirm(frame, outputs)
             if reason is not None:
                 search.append({"seed": seed, "stage": "R", "reason": reason})
@@ -236,6 +283,11 @@ def main() -> None:
         "prediction_tolerance": tolerances(facts),
         "sha256": {
             name: _sha256(HERE / name) for name in ("inputs.csv", "grid.csv", *OUTPUTS, *SOURCES)
+        },
+        "rebuild": rebuild,
+        "rebuild_sha256": {
+            **{name: _sha256(HERE / name) for name in REBUILD_SOURCES},
+            **{f"../ctmle_sequences/{name}": _sha256(SHARED / name) for name in SHARED_SOURCES},
         },
     }
     if not all(math.isfinite(value) for value in manifest["prediction_tolerance"].values()):
