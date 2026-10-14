@@ -39,6 +39,7 @@ from .policy import (
     RiskRatioTilt,
     Scale,
     Shift,
+    Support,
     check_policy_support,
 )
 from .support import RegimeSupport, SupportReport, check_support
@@ -67,6 +68,7 @@ __all__ = [
     "Shift",
     "Static",
     "Stochastic",
+    "Support",
     "SupportReport",
     "as_interventions",
     "check_incremental_support",

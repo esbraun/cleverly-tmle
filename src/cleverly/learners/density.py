@@ -72,6 +72,7 @@ __all__ = [
     "ConditionalDensity",
     "DensityDiagnostics",
     "DesignRows",
+    "MixedDensity",
     "PredictionMemory",
     "bin_edges",
     "fit_conditional_density",
@@ -452,6 +453,153 @@ class ConditionalDensity:
         if idx.dtype == bool:
             idx = np.flatnonzero(idx)
         return replace(self, bin_probabilities=self.bin_probabilities[idx])
+
+
+@dataclass(frozen=True)
+class MixedDensity:
+    r"""The law of a dose with declared atoms, as a density against Lebesgue plus counting.
+
+    Let the declared atoms be :math:`a_1, \ldots, a_K` and :math:`p_k(h) = P(A = a_k \mid h)`.
+    The law of the dose is :math:`\sum_k p_k(h) \delta_{a_k} + (1 - \sum_k p_k(h)) f(\cdot
+    \mid h)\,da`, with :math:`f` the density of the dose on the rows that hold no atom.
+    With respect to Lebesgue measure plus counting measure on the atoms its density is
+    :math:`p_k(h)` at an atom and :math:`(1 - \sum_k p_k(h)) f(a \mid h)` elsewhere.
+
+    Like :class:`ConditionalDensity` it holds evaluated arrays and no model: one row per
+    observation, out of fold.
+
+    Parameters
+    ----------
+    atoms : tuple of float
+        The declared atoms, in order.
+    atom_probabilities : ndarray
+        ``(n, K)`` fitted :math:`p_k(h_i)`, out of fold.
+    continuous : ConditionalDensity or None
+        The density :math:`f` of the dose given the history on the rows with no atom, or
+        ``None`` at a node whose every observed dose is a declared atom.
+
+    Attributes
+    ----------
+    n : int
+    """
+
+    atoms: tuple[float, ...]
+    atom_probabilities: FloatArray
+    continuous: ConditionalDensity | None
+
+    def __post_init__(self) -> None:
+        p = np.asarray(self.atom_probabilities, dtype=float)
+        if p.ndim != 2 or p.shape[1] != len(self.atoms):
+            raise ValueError(
+                f"atom probabilities must be (n, {len(self.atoms)}); got shape {p.shape}"
+            )
+        if self.continuous is not None and self.continuous.n != p.shape[0]:
+            raise ValueError("the continuous density and the atom probabilities differ in rows")
+
+    @property
+    def n(self) -> int:
+        """Return the number of observations."""
+        return int(np.asarray(self.atom_probabilities).shape[0])
+
+    def _continuous_share(self) -> FloatArray:
+        return np.clip(1.0 - np.asarray(self.atom_probabilities, dtype=float).sum(axis=1), 0.0, 1.0)
+
+    def atom_of(self, values: FloatArray) -> IntArray:
+        """The index of the declared atom each value equals, and ``-1`` elsewhere.
+
+        Parameters
+        ----------
+        values : ndarray
+            ``(n,)`` doses, one per row.
+
+        Returns
+        -------
+        ndarray
+            ``(n,)`` atom index per row.
+        """
+        v = np.asarray(values, dtype=float).reshape(-1)
+        out = np.full(v.size, -1, dtype=np.int64)
+        for index, atom in reversed(list(enumerate(self.atoms))):
+            hit = np.abs(v - float(atom)) <= 1e-12 * max(1.0, abs(float(atom)))
+            out = np.where(hit, index, out)
+        return out
+
+    def density_at(self, values: FloatArray) -> FloatArray:
+        r"""The density against Lebesgue plus counting measure, at one value per row.
+
+        Parameters
+        ----------
+        values : ndarray
+            ``(n,)`` doses, one per row.
+
+        Returns
+        -------
+        ndarray
+            ``(n,)`` :math:`p_k(h_i)` at an atom and :math:`(1 - \sum_k p_k) f(a_i \mid h_i)`
+            elsewhere.
+        """
+        v = np.asarray(values, dtype=float).reshape(-1)
+        if v.size != self.n:
+            raise ValueError(f"density_at needs one value per row: got {v.size} for {self.n} rows")
+        index = self.atom_of(v)
+        p = np.asarray(self.atom_probabilities, dtype=float)
+        if self.continuous is None:
+            elsewhere = np.zeros(v.size)
+        else:
+            elsewhere = self._continuous_share() * self.continuous.density_at(v)
+        at_atom = p[np.arange(v.size), np.maximum(index, 0)] if p.shape[1] else np.zeros(v.size)
+        return np.asarray(np.where(index >= 0, at_atom, elsewhere), dtype=float)
+
+    def mass_between(self, lower: FloatArray, upper: FloatArray) -> FloatArray:
+        r"""The probability that the dose has no atom and lies in ``[lower, upper]``, per row.
+
+        :math:`(1 - \sum_k p_k(h_i)) \int_{l_i}^{u_i} f(s \mid h_i)\,ds`.  The binned
+        density is constant within a bin, so a partial bin adds its linear share.
+
+        Parameters
+        ----------
+        lower : ndarray
+            ``(n,)`` lower end per row.
+        upper : ndarray
+            ``(n,)`` upper end per row.
+
+        Returns
+        -------
+        ndarray
+            ``(n,)`` probability per row.
+        """
+        if self.continuous is None:
+            return np.zeros(self.n)
+        lo = np.broadcast_to(np.asarray(lower, dtype=float).reshape(-1), (self.n,))
+        hi = np.broadcast_to(np.asarray(upper, dtype=float).reshape(-1), (self.n,))
+        edges = self.continuous.edges
+        left = np.maximum(lo[:, None], edges[None, :-1])
+        right = np.minimum(hi[:, None], edges[None, 1:])
+        share = np.clip(right - left, 0.0, None) / self.continuous.widths[None, :]
+        mass = np.sum(self.continuous.bin_probabilities * share, axis=1)
+        return np.asarray(self._continuous_share() * mass, dtype=float)
+
+    def subset(self, index: Any) -> MixedDensity:
+        """The same law on a row subset.
+
+        Parameters
+        ----------
+        index : array_like
+            Row positions or a boolean mask.
+
+        Returns
+        -------
+        MixedDensity
+            The same law over the selected rows.
+        """
+        idx = np.asarray(index)
+        if idx.dtype == bool:
+            idx = np.flatnonzero(idx)
+        return MixedDensity(
+            self.atoms,
+            np.asarray(self.atom_probabilities)[idx],
+            None if self.continuous is None else self.continuous.subset(idx),
+        )
 
 
 # ------------------------------------------------------------------- fitting

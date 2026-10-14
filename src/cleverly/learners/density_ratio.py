@@ -59,6 +59,7 @@ def classifier_ratio(
     fit_mask: Any = None,
     groups: IntArray | None = None,
     n_jobs: int = 1,
+    atoms: Sequence[float] = (),
 ) -> list[FloatArray]:
     """Cross-fit :math:`\\hat r = \\hat u / (1 - \\hat u)` and evaluate it at given doses.
 
@@ -89,6 +90,12 @@ def classifier_ratio(
         unit's copies together.
     n_jobs : int
         Parallel workers across the outer folds.
+    atoms : sequence of float
+        The declared atoms of a dose of one column.  Every block of the stack then holds
+        the dose and the indicator of each atom, ``[a, 1{a = a_1}, ..., 1{a = a_K}]``, so
+        the odds of the label can jump at an atom.  The odds are then the ratio with
+        respect to Lebesgue plus counting measure on the atoms, which Section 5.4 allows
+        for any common dominating measure.
 
     Returns
     -------
@@ -100,15 +107,21 @@ def classifier_ratio(
     if h.ndim == 1:
         h = h.reshape(-1, 1)
     n = h.shape[0]
-    a = _treatment_block(observed, n, None, "observed")
-    width = a.shape[1]
+    declared = tuple(float(atom) for atom in atoms)
+    raw = _treatment_block(observed, n, None, "observed")
+    width = raw.shape[1]
+    a = _with_atoms(raw, declared)
     w = np.asarray(weights, dtype=float).reshape(-1)
     mask = np.ones(n, dtype=bool) if fit_mask is None else np.asarray(fit_mask, dtype=bool)
     units = np.arange(n, dtype=np.int64) if groups is None else np.asarray(groups)
     blocks = [(0.0, 1.0, a)] + [
-        (1.0, float(p), _treatment_block(d, n, width, "an assigned dose")) for p, d in assigned
+        (1.0, float(p), _with_atoms(_treatment_block(d, n, width, "an assigned dose"), declared))
+        for p, d in assigned
     ]
-    requests = [_treatment_block(dose, n, width, "evaluate_at") for dose in evaluate_at]
+    requests = [
+        _with_atoms(_treatment_block(dose, n, width, "evaluate_at"), declared)
+        for dose in evaluate_at
+    ]
 
     def fit_on(rows: IntArray) -> Learner:
         keep = rows[mask[rows]]
@@ -143,6 +156,20 @@ def classifier_ratio(
         for target, column in zip(results, parts, strict=True):
             target[test] = column
     return results
+
+
+def _with_atoms(block: FloatArray, atoms: tuple[float, ...]) -> FloatArray:
+    """A one-column dose block with the indicator of each declared atom appended."""
+    if not atoms:
+        return block
+    if block.shape[1] != 1:
+        raise DataError("declared atoms apply to a dose of one column")
+    dose = block[:, 0]
+    columns = [dose]
+    for atom in atoms:
+        tolerance = 1e-12 * max(1.0, abs(atom))
+        columns.append((np.abs(dose - atom) <= tolerance).astype(float))
+    return np.column_stack(columns)
 
 
 def _treatment_block(values: Any, n: int, width: int | None, what: str) -> FloatArray:
