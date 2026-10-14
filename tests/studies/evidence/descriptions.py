@@ -2329,7 +2329,8 @@ CELLS.update(
             "reported only",
         ),
         ("construction_diagnostic", "estimated_flexible_mechanism"): (
-            "the shipped construction with a tree mechanism estimated in each fold",
+            "the shipped construction with a tree mechanism estimated in each fold, under the "
+            "default bounds (0.01, 1)",
             "reported only",
         ),
         ("sdr_tmle_agreement", "static"): (

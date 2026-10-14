@@ -36,6 +36,7 @@ family                              cells, replications and size
 ``construction_diagnostic``         no verdict.  On the overfitting draws: the stitched Step 2
                                     of Section 5.3 (``SDR_STITCHED_CROSS_FIT``), and the
                                     shipped construction with an estimated tree mechanism
+                                    under the default bounds (0.01, 1)
 ``sdr_tmle_agreement``              no verdict.  :math:`|\hat\psi_{SDR} - \hat\psi_{LTMLE}|
                                     / \widehat{SE}_{SDR}` on the ``static`` calibration draws
 ==================================  =======================================================
@@ -196,6 +197,12 @@ UP = mtp_properties.UP
 MSM_NAME = msm_properties.NAMES["duration"]
 #: The estimand of every overfitting and construction cell.
 OVERFIT_NAME = STATIC
+#: The shipped default bounds, for the tree-mechanism diagnostic only.  A leaf of 50 rows can hold
+#: no row at a plan's arm, so its estimated probability is 0 and :data:`G_BOUNDS` would weight a
+#: held-out row by 1e8: the failure probe read estimates near 1e5 in 6 of 2,000 draws.  No true
+#: partial path probability of ``make_longitudinal`` reaches 0.02 (50,000 rows), so these bounds
+#: move only estimated zeros.
+TREE_G_BOUNDS = (0.01, 1.0)
 #: The estimand of an ``sdr_tmle_agreement`` row.
 AGREEMENT = "abs_difference_over_se"
 #: The summary column that publishes the mean of :data:`AGREEMENT`.
@@ -528,7 +535,8 @@ def overfit_fit(frame: pd.DataFrame, *, n_folds: int, mechanism: str = "known") 
     """Fully grown outcome trees on ``make_longitudinal``.
 
     ``mechanism="known"`` is the law's own mechanism.  ``"tree"`` estimates it with trees of at
-    least 50 rows a leaf, the diagnostic arm of ``X4-plan.md`` 6.11.
+    least 50 rows a leaf, the diagnostic arm of ``X4-plan.md`` 6.11, under
+    :data:`TREE_G_BOUNDS`.
     """
     outcome, pseudo = _grown()
     if mechanism == "known":
@@ -537,6 +545,7 @@ def overfit_fit(frame: pd.DataFrame, *, n_folds: int, mechanism: str = "known") 
     else:
         treatment = DecisionTreeClassifier(min_samples_leaf=50, random_state=0)
         censoring = DecisionTreeClassifier(min_samples_leaf=50, random_state=0)
+    bounds = G_BOUNDS if mechanism == "known" else TREE_G_BOUNDS
     return _sdr(
         OVERFIT_PLANS,
         reference="never",
@@ -545,6 +554,7 @@ def overfit_fit(frame: pd.DataFrame, *, n_folds: int, mechanism: str = "known") 
         treatment_learner=treatment,
         censoring_learner=censoring,
         n_folds=n_folds,
+        g_bounds=bounds,
     ).fit(frame, **OVERFIT_COLUMNS)
 
 
