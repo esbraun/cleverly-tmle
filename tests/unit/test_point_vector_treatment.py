@@ -20,6 +20,7 @@ outcome regression is misspecified and the fluctuation moves.  The mutation cont
 from __future__ import annotations
 
 import inspect
+import re
 import warnings
 from collections.abc import Sequence
 from pathlib import Path
@@ -35,11 +36,15 @@ from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import JointPolicy, ModifiedPolicy, Piece, Randomizer, Shift
+from cleverly.interventions.policy import VECTOR_DENSITY_ROW
 from cleverly.targets import TARGETS
 from tests.discrete_law_longitudinal import CellMeans
 from tests.discrete_law_longitudinal_multivalue import CellProbabilities
 
 pytestmark = pytest.mark.xdist_group("point_vector_treatment")
+
+#: The roadmap row every refusal names, read from the source as the refusals read it.
+ROW = f"docs/roadmap.md {VECTOR_DENSITY_ROW}"
 
 EXACT = 1e-10
 INF = np.inf
@@ -216,7 +221,7 @@ READERS: dict[str, Any] = {
 @pytest.mark.parametrize("reader", sorted(READERS))
 def test_a_one_column_reader_refuses_a_vector_treatment(reader: str) -> None:
     data = vector_data()
-    with pytest.raises(CapabilityError, match=r"vector treatment.*docs/roadmap.md X37"):
+    with pytest.raises(CapabilityError, match=rf"vector treatment.*{re.escape(ROW)}"):
         READERS[reader](data)
 
 
@@ -650,7 +655,7 @@ def test_every_estimator_and_estimand_but_the_policy_route_refuses_a_vector() ->
             warnings.simplefilter("ignore")
             build().fit(data)
         if named:
-            assert "docs/roadmap.md X37" in str(caught.value)
+            assert ROW in str(caught.value)
 
 
 # ------------------------------------------------------------------ subset
@@ -787,7 +792,7 @@ def test_the_density_route_names_the_classifier_first() -> None:
     assert message == (
         "treatment 'F+D' is a vector with a continuous component. Pass ratio='classifier': its "
         "policy ratio is estimated by classification (Díaz et al. 2023, Section 5.4). The "
-        "density route for vector treatments, a post-beta roadmap row, is docs/roadmap.md X37"
+        f"density route for vector treatments, a post-beta roadmap row, is {ROW}"
     )
     assert message.index("ratio='classifier'") < message.index("X37")
 
@@ -813,7 +818,7 @@ def test_a_composition_outside_the_classifier_route_is_refused(column: str, role
     assert str(caught.value) == (
         f"treatment 'F+D' is a vector with a continuous component, and the fit declares {role}. "
         "The classifier route at a vector treatment supports weights, clusters, cross-fitting "
-        "and the bootstrap only. This composition is docs/roadmap.md X37"
+        f"and the bootstrap only. This composition is {ROW}"
     )
 
 
@@ -827,14 +832,14 @@ def test_a_known_mechanism_of_a_dose_vector_is_refused() -> None:
     assert str(caught.value) == (
         "treatment 'F+D' is a vector with a continuous component, and treatment_probabilities= "
         "declares a probability per arm. Such a treatment has no arms, and its known mechanism "
-        "is a joint density. A known mechanism of a vector treatment is docs/roadmap.md X37"
+        f"is a joint density. A known mechanism of a vector treatment is {ROW}"
     )
 
 
 def test_a_missing_component_declared_at_random_is_refused() -> None:
     frame = law.mixed_frame().assign(observed=1.0)
     for continuous in (["D"], []):
-        with pytest.raises(CapabilityError, match=r"treatment_delta=.*docs/roadmap.md X37"):
+        with pytest.raises(CapabilityError, match=rf"treatment_delta=.*{re.escape(ROW)}"):
             CausalData.from_frame(
                 frame, continuous_treatment=continuous, treatment_delta="observed", **COLUMNS
             )
@@ -853,7 +858,7 @@ def test_an_estimand_beside_the_policy_means_is_refused() -> None:
     assert str(caught.value) == (
         "treatment 'F+D' is a vector with a continuous component, and estimands= asks for "
         "['ate']. Its policy fit reports ['ate_policy', 'ey_policy'] only; every other "
-        "estimand of such a treatment is docs/roadmap.md X37"
+        f"estimand of such a treatment is {ROW}"
     )
 
 
@@ -884,5 +889,5 @@ def test_a_study_point_treatment_of_several_columns_is_refused() -> None:
         "PointTreatment(treatment=['F', 'D']) declares a vector treatment, and the CausalStudy "
         "spine reads a point treatment of one column. Fit a vector treatment with TMLE on "
         "CausalData.from_frame(treatment=[...]). The study spine for vector treatments, a "
-        "post-beta roadmap row, is docs/roadmap.md X37"
+        f"post-beta roadmap row, is {ROW}"
     )
