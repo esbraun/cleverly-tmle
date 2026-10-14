@@ -1166,6 +1166,7 @@ BIAS_GATED_PROPERTIES = frozenset(
         "weight_necessity",
         "policy_necessity",
         "inverse_necessity",
+        "preimage_necessity",
         "projection_necessity",
         "randomizer_projection",
         "ratio_necessity",
@@ -2450,6 +2451,7 @@ MARGIN_SOURCES: dict[str, Any] = {
     "margin:projection_displacement": lambda s: s.properties().PROJECTION_DISPLACEMENT,
     "margin:policy_displacement": lambda s: s.properties().POLICY_DISPLACEMENT,
     "margin:inverse_displacement": lambda s: s.properties().INVERSE_DISPLACEMENT,
+    "margin:preimage_displacement": lambda s: s.properties().PREIMAGE_DISPLACEMENT,
     "margin:recursion_displacement": lambda s: s.properties().RECURSION_DISPLACEMENT,
 }
 
