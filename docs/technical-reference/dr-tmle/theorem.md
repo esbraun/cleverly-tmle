@@ -579,8 +579,10 @@ wrong outcome regression on law L. The probe `reviews/rm41/probe.py` finds the c
 | size | n = 1,000, 4,000 and 16,000, with 200 draws each |
 
 The results apply to this tuning on law L. The probe does not measure other learners or laws.
-Each number below is an ATE bias divided by the Monte Carlo SD of its cell. The coverage readings
-have a Monte Carlo SE of about 0.03.
+Each number below is an ATE bias divided by the Monte Carlo SD of its cell, unless a row names
+another SD. The coverage readings have a Monte Carlo SE of at most 0.035. The independent solver
+keeps only fits whose scores are below 1e-8. At one mechanism fitted on a separate draw, it keeps
+98, 187 and 198 of 200 fits at n = 1,000, 4,000 and 16,000.
 
 **The bias is a property of the method, not of the code.** An independent solver of equations
 (8) to (10) shares no code with `cleverly`. The checks below compare it with `DRTMLE`.
@@ -589,7 +591,7 @@ have a Monte Carlo SE of about 0.03.
 | --- | --- |
 | `DRTMLE` against the independent solver at one mechanism fitted on a separate draw, paired by draw | a mean difference of −0.06, −0.06 and −0.07 SD |
 | the two `update_order` values at that mechanism | a mean difference of −0.01, −0.02 and −0.06 SD |
-| the population limit of the solver at that mechanism, against the measured bias | +1.56, +1.70 and +1.13 SD, against +1.70, +1.56 and +0.95 SD for `DRTMLE` |
+| the population limit of the solver at that mechanism, against the bias of the solver on the same draws, both divided by the SD of the solver | +1.56, +1.70 and +1.13 SD, against +1.51, +1.66 and +1.03 SD |
 | the independent solver without corrections, against `TMLE` | equal to 1.7e-12 over 1,800 estimates |
 
 **The bias has two parts.** The first part is in the population limit. The second part comes from
@@ -599,15 +601,15 @@ the rows that the mechanism was fitted on.
 | --- | --- | --- |
 | `DRTMLE`, `cross_fit=True` (the default) | +1.53, +2.01, +1.51 | 0.75, 0.63, 0.81 |
 | `DRTMLE`, `cross_fit=False` | −1.22, −2.28, −2.50 | 0.75, 0.41, 0.41 |
-| `TMLE`, the same learners, `cross_fit=True` | +0.42, +0.32, −0.05 | 1.00, 0.99, 0.98 |
+| `TMLE`, the same learners, `cross_fit=True` | +0.42, +0.32, −0.05 | 1.000, 0.995, 0.980 |
 | `TMLE`, the same learners, `cross_fit=False` | −0.18, +0.24, +0.34 | 0.93, 0.96, 0.98 |
 
-**Part 1: the reduction conditions on the fitted index.** Write `F = Q̄_0 − Q̄`. Equation (9)
+**Part 1: the reduction conditions on the fitted index.** Write `D = Q̄_0 − Q̄`. Equation (9)
 removes the part of the remainder that is a function of `g_n`, through
-`Q_r° = E_0[F | A = 1, g_n(W)]`. The exact leftover is
+`Q_r° = E_0[D | A = 1, g_n(W)]`. The exact leftover is
 
 ```text
-P_0[(g_0 − g_n)/g_n · (F − Q_r°)] = E_0[ Cov(g_0, F | g_n) / E_0(g_0 | g_n) ]
+P_0[(g_0 − g_n)/g_n · (D − Q_r°)] = E_0[ Cov(g_0, D | g_n) / E_0(g_0 | g_n) ]
 ```
 
 This term is linear in the spread of `g_0` inside the level sets of `g_n`. It is zero under H2.
@@ -618,14 +620,14 @@ separate draw, so that no row enters its own mechanism.
 | --- | --- | --- |
 | `Q_r` fitted on `g_0` instead of `g_n` | `R_{3,n}`: the case-table row for a bias of order `r_n` along `F/g_0` | +0.66, +0.50, +0.26 |
 | `Q_r` on `g_n` minus `Q_r` on `g_0`, paired by draw, divided by the SD of the in-sample `DRTMLE` fit | `R_{4,n}`: `Q_r` converges to a regression on `g_n`, not on `g_0` | +0.50, +0.95, +0.91 |
-| `Q_r` replaced by its population version on `g_n` | the fitted error of `Q_r` | none: +1.82, +1.78, +1.05 against +1.51, +1.66, +1.03 |
+| `Q_r` replaced by its population version on `g_n` | the fitted error of `Q_r` | none at n = 4,000 and 16,000: +1.82, +1.78, +1.05 against +1.51, +1.66, +1.03 |
 
 This part is in the population limit at the fitted mechanism. Cross-fitting, nested reductions and
 the update order do not remove it.
 
 **Part 2: the own-row term.** An in-sample mechanism and a mechanism fitted on a separate draw have
-the same law. Their population terms are therefore equal in distribution. The paired difference on
-the same rows measures the empirical-process term exactly. The table divides it by the SD of
+the same law. Their population terms are therefore equal in distribution. The mean paired difference on
+the same rows therefore estimates the mean of the empirical-process term. The table divides it by the SD of
 the in-sample `DRTMLE` fit.
 
 | paired difference | n = 1,000 | 4,000 | 16,000 |
@@ -635,7 +637,7 @@ the in-sample `DRTMLE` fit.
 | own-row term of plain TMLE | −0.24 | −0.01 | +0.34 |
 
 At n = 16,000 most of the own-row term acts through `Q_r` fitted on the in-sample `g_n`. The rest
-acts through equation (10).
+acts through the other steps, mainly equation (10).
 
 In equation (10), `g_{r,2}` regresses `(1_a − g_n)/g_n` on `Q̄_n`. A least-squares
 fit with an intercept keeps the mean of its target. The mean of that target is −0.147, −0.062 and
@@ -702,5 +704,6 @@ The one-wrong interval is valid for a declared known mechanism and
 conservative for a correctly specified parametric mechanism. With the mechanism wrong, the interval is not established, even for a correctly specified parametric outcome regression. It is also valid where the consistent
 estimate keeps the level sets of its truth, or where H1 holds. No fit can check the last two. A
 constructed level-set-breaking error produced a bias that grows with `n` in the registered study.
-A gradient-boosting mechanism with a wrong outcome regression produced a bias of 1.2 to 2.5 SD,
-cross-fitted or in sample ([a data-adaptive mechanism](#a-data-adaptive-mechanism)).
+On law L, one gradient-boosting mechanism with a wrong outcome regression produced a bias of +1.5
+to +2.0 SD cross-fitted and −1.2 to −2.5 SD in sample
+([a data-adaptive mechanism](#a-data-adaptive-mechanism)).
