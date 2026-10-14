@@ -45,6 +45,7 @@ from .estimator import (
     ltmle,
     sdr,
 )
+from .panel import NodeRule, PanelLayout, each_node
 from .regimen import (
     DynamicRegimen,
     Plan,
@@ -71,6 +72,8 @@ __all__ = [
     "LongitudinalError",
     "LongitudinalResult",
     "Mechanism",
+    "NodeRule",
+    "PanelLayout",
     "Plan",
     "Regimen",
     "RegimenFit",
@@ -78,6 +81,7 @@ __all__ = [
     "SequentialGComputation",
     "SequentialIPW",
     "SequentialStep",
+    "each_node",
     "fit_mechanism",
     "fit_regimen",
     "gcomp",

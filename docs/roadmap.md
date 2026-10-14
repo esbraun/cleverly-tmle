@@ -212,13 +212,12 @@ not change the package version.
 | --- | --- | --- | --- | --- |
 | B0 | Acceptance status and refusal reasons | no new theory | none | [RM42](#rm42-acceptance-status-and-refusal-reasons) |
 | B0 | Review of the inherited hard stops | no new theory | the Eligibility rule | [RM43](#rm43-review-of-the-inherited-hard-stops) |
-| B1 | Long-panel adapter and policy history | no new theory | the shipped trajectory representation | [X38](#x38-long-panel-adapter-and-policy-history) |
 | B1 | Longitudinal evidence over three to five decisions | published support | the shipped `LTMLE` and `SDR` | [X39](#x39-longitudinal-evidence-over-three-to-five-decisions) |
 | B1 | Targeting and fitting options | no new theory; each option keeps its default bit-identical | none | [X22](#x22-targeting-and-fitting-options) |
 | B2 | Continuous vector components at a node | published support; pending source read | shipped longitudinal modified treatment policies | [X31](#x31-continuous-vector-components-at-a-node) |
 | B2 | Continuous-policy validation and support checks | published support | shipped longitudinal modified treatment policies | [X40](#x40-continuous-policy-validation-and-support-checks) |
 | B3 | Sequential g-computation and IPW baselines | published support; pending source read | the shipped `LTMLE` plan resolution | [X41](#x41-sequential-g-computation-and-ipw-baselines) |
-| B3 | Applied tutorials for offers and pricing | no new theory | X38, X40, X41 | [X42](#x42-applied-tutorials-for-offers-and-pricing) |
+| B3 | Applied tutorials for offers and pricing | no new theory | X40, X41 | [X42](#x42-applied-tutorials-for-offers-and-pricing) |
 | B4 | Categorical incremental policies | natural extension candidate; source audit | the shipped binary `IPSI` estimator | [X43](#x43-categorical-incremental-policies) |
 | B4 | Repeated cross-fitting for longitudinal fits | published support; pending source read | the shipped point-treatment repeats and trajectory-level splits | [X46](#x46-repeated-cross-fitting-for-longitudinal-fits) |
 | BP | Repeated-outcome curves | published support for the incremental case; a fixed-dimension stack for static and dynamic plans | the shipped `IPSI` estimator | [X32](#x32-repeated-outcome-curves) |
@@ -623,33 +622,6 @@ latent law today, so they stay in the grid until this review reads them.
 
 Acceptance: a written verdict for every grid row, and a pre-fit test for each refusal that changes.
 
-### X38. Long-panel adapter and policy history
-
-`LongitudinalData.from_frame` reads one wide row per unit. Customer data usually arrives as one row
-per customer and decision time. This row adds a validated long-panel adapter, and it fixes the
-history that each policy can read.
-
-1. Accept a long panel with customer ID, decision time, covariate, treatment, censoring, and
-   outcome roles.
-2. Convert the panel into the existing trajectory representation. Preserve temporal order and the
-   original treatment labels.
-3. Map the panel's columns onto the shipped history frames. A rule reads `history_frame`, and a
-   policy density reads `policy_frame`, which adds the earlier treatments.
-4. Refuse a panel column that would let a rule read future values or final outcomes.
-5. Carry the policy definitions through result persistence.
-
-One customer trajectory is one observation for the inference model. Repeated time rows within that
-trajectory do not add independent observations. Customers who depend on each other within one
-account or store use the shipped cluster contract with `id=`. Calendar validation and general
-time-series dependence stay with [F7](#f7-time-respecting-cross-fitting).
-
-Acceptance:
-
-- a round-trip test from a long panel to the trajectory representation and back, with irregular
-  censoring and unsorted input;
-- refusal tests for duplicate rows, a gap in decision time, and a rule that reads the future;
-- equality of an `LTMLE` fit on the adapted panel and on the equivalent wide frame.
-
 ### X39. Longitudinal evidence over three to five decisions
 
 Every registered end-of-study longitudinal study uses two treatment nodes. The ordinary and
@@ -721,7 +693,7 @@ baseline without justification.
 Do not describe longitudinal g-computation as one regression on every treatment and confounder.
 `stremr` fits static, dynamic, and stochastic regimes with categorical exposures from long-form
 input ([comparator survey](development/method-benchmarking.md#choose-the-comparator-before-you-write-the-runner)).
-After X38, use it for the overlapping cases, and audit its category-valued policy support before
+Its long-form input matches `LongitudinalData.from_long_panel`. Use it for the overlapping cases, and audit its category-valued policy support before
 a multi-arm parity claim. For finite-category extensions, combine the
 established stochastic intervention argument with exact enumeration and independent influence
 function checks.

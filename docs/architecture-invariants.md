@@ -323,8 +323,11 @@ failures derive from `CleverlyError`, so callers never have to catch implementat
 derivation makes a currently point-only setting operational.
 
 Every causal result carries its `IdentifiedEffect`, normalized method, and structured
-`ParameterKey` mapping. Persistence round-trips the complete result graph with joblib, including
-the fitted arrays, estimator configuration, analysis data, and nuisance-estimator templates.
+`ParameterKey` mapping. Persistence round-trips the complete result graph with cloudpickle inside a
+joblib-readable gzip stream, including the fitted arrays, estimator configuration, analysis data,
+nuisance-estimator templates, and the rules and policy densities of each regimen. Importable
+objects are saved by reference. Lambdas, closures, and objects defined in `__main__` are saved by
+value, and they load only under the Python minor version that saved them.
 Loading therefore has pickle's arbitrary-code-execution risk and is restricted to trusted
 artifacts in compatible dependency environments. *Reconsider when* a safe, estimator-agnostic
 format can represent arbitrary third-party sklearn-compatible models without weakening replay.
