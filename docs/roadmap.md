@@ -1042,7 +1042,7 @@ stay diagnostics. Ordinary TMLE stays the inference alternative under its own as
 | the user pipeline | the studies fit the declared outcome and mechanism models. No study supplies an unknown true quantity |
 | calibration | a registered repeated-sampling study measures bias, the standard-error ratio, coverage and the sample-size ladder |
 | joint effects | the study validates the arm covariance and the ATE interval together |
-| comparator scope | R parity stays evidence for the unchanged estimator. The corrected uncertainty is checked independently, because it can differ from R |
+| comparator scope | R parity stays evidence for the unchanged estimator. The corrected uncertainty is checked independently, because it can differ from R. The Python calibration study gates the merge. An R comparison is registered when it arrives, and it does not block the merge |
 | numerical boundaries | probability truncation and an ill-conditioned fit have explicit behavior and evidence |
 | honest output | an unsupported configuration keeps the diagnostic-only interval. A supported fit states its model and inference conditions |
 
