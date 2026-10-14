@@ -14,8 +14,8 @@ Every number here was fixed before any registered run.
   with probability at least 0.95, and every calibration cell passes with probability at least
   0.90.  A study's calibration cells also pass jointly with probability at least 0.90, which
   needs 3,000 replications: at 2,000 an ideal cell passes with 0.935 and S1's seven with
-  0.59.  The rule sets n = 96,000 (S1, which the two-fold rows need), 80,000 (S2) and 16,000
-  (S2 calibration).  S1 calibration runs at 48,000; the rule allows 24,000 at 3,000
+  0.59.  The rule sets n = 96,000 (S1, which the two-fold rows need), 80,000 (S2) and 48,000
+  (S2 calibration, which the joint rule needs).  S1 calibration runs at 48,000; the rule allows 24,000 at 3,000
   replications, and the larger size cuts the projected bias by a factor of 1.4.  The null,
   power, band, robustness and clustered cells, and the competing-risk cell, are read at their
   own sizes rather than projected.
@@ -26,9 +26,9 @@ Every number here was fixed before any registered run.
   probe reads the published control below it too.
 * The robustness fits use a linear outcome regression.  Its exact plug-in limit misses the
   truth, so the targeting control has a bias to show and the correction has work to do.
-* The S2 witnesses: the informative weight moves the truth by 5.5 standard errors and the
+* The S2 witnesses: the informative weight moves the truth by 9.5 standard errors and the
   first-node propensity by more than 0.05; the independent-unit SE of the clustered cell has
-  exact ratio 0.60 and coverage 0.76; the complete-case limit sits 3.6 standard errors from
+  exact ratio 0.60 and coverage 0.76; the complete-case limit sits 6.2 standard errors from
   the truth.
 * The ``npcausal`` runner's plan grid is the Python one.
 
@@ -105,7 +105,7 @@ def test_the_declared_numbers() -> None:
     assert p1.EFFICIENCY_RATIO_BAND == p2.EFFICIENCY_RATIO_BAND == (0.90, 1.10)
     assert (p1.CALIBRATION_N, p1.CALIBRATION_REPLICATES) == (48_000, 3_000)
     assert (p1.RATE_SIZES, p1.RATE_REPLICATES) == ((24_000, 64_000, 96_000), 1_000)
-    assert (p2.N, p2.REPLICATES, p2.CLUSTER_SIZE) == (16_000, 3_000, 10)
+    assert (p2.N, p2.REPLICATES, p2.CLUSTER_SIZE) == (48_000, 3_000, 10)
     assert (p2.BAND_N, p1.NULL_N, p1.NULL_REPLICATES) == (48_000, 4_000, 2_000)
     assert (p2.CLUSTER_N, p2.CLUSTER_REPLICATES, p2.COMPETING_N) == (8_000, 3_000, 96_000)
 
@@ -356,6 +356,8 @@ def test_the_sizing_rule_binds() -> None:
         )
         < 0.6
     )
+    weighted = "interval_calibration/weighted_contrast_x0_5__correctly_specified"
+    assert calibrated_pass_probability(probe("s2:law_c@16000", weighted), 16_000, 3_000) < 0.85
     competing = "interval_calibration/competing_contrast_x2_h3__correctly_specified"
     replicates = p2.REPLICATES
     assert (
@@ -386,19 +388,19 @@ CALIBRATION_CELLS = (
     ),
     *(
         (
-            f"s2:{stream}",
+            # Read at 16,000: at 8,000 the SE ratios exceed 1, which the projection clamps.
+            "s2:law_c@16000",
             f"interval_calibration/{label}__correctly_specified",
             p2.N,
             p2.REPLICATES,
         )
-        for stream, label in (
-            ("law_c", "dropout_contrast_x2"),
-            ("law_c", "msm_log_delta"),
-            ("law_c", "weighted_contrast_x0_5"),
+        for label in (
+            "dropout_contrast_x2",
+            "dropout_contrast_x2_in_sample",
+            "msm_log_delta",
+            "weighted_contrast_x0_5",
         )
     ),
-    # The first probe named the one-fold fit by its earlier reported cell.
-    ("s2:law_c", "in_sample_fit/dropout_contrast_x2__one_fold", p2.N, p2.REPLICATES),
     # The band draws carry both survival labels, read at their declared size.
     *(
         (
@@ -692,7 +694,7 @@ def test_the_weight_is_informative() -> None:
     weighted = p2.TRUTH["weighted_contrast_x0_5"]
     plain = common.truth(law.LAW_C, s2.PLANS, p2.CONTRAST_X0_5)
     error = p2.EFFICIENCY_SD["weighted_contrast_x0_5"] / np.sqrt(p2.N)
-    assert abs(weighted - plain) / error == pytest.approx(5.46, abs=0.05)
+    assert abs(weighted - plain) / error == pytest.approx(9.46, abs=0.05)
     probs = law.LAW_C.probs
     first = law.LAW_C.axis_of("treatment", 1)
     axes = tuple(range(first + 1, probs.ndim))
@@ -726,7 +728,7 @@ def test_the_independent_unit_error_under_covers_the_clustered_law() -> None:
 def test_the_complete_case_limit_misses_the_truth() -> None:
     error = common.eif_sd(law.LAW_C, s2.PLANS, p2.MEAN_X2) / np.sqrt(p2.N)
     gap = (p2.COMPLETE_CASE_LIMIT - p2.COMPLETE_CASE_TRUTH) / error
-    assert gap == pytest.approx(3.58, abs=0.05)
+    assert gap == pytest.approx(6.20, abs=0.05)
 
 
 def test_the_survival_and_competing_targets_are_risks() -> None:

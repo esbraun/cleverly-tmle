@@ -2,8 +2,8 @@ r"""Property families of ``longitudinal-incremental-dropout`` (S2).
 
 Every fit is :class:`~cleverly.longitudinal.IPSI` with five folds and saturated cell means at
 every slot, with 3,000 replications, on a law of
-:mod:`tests.discrete_law_longitudinal_incremental`.  The size is n = 16,000, except 48,000 on
-the law ``D`` band draws and 96,000 on law ``Dc``.  ``x2`` is the plan that doubles the odds
+:mod:`tests.discrete_law_longitudinal_incremental`.  The size is n = 48,000, except 8,000 on
+law ``Ck`` and 96,000 on law ``Dc``.  ``x2`` is the plan that doubles the odds
 of treatment at every node, and ``contrast_x2`` is its contrast with the natural course.
 
 ============================  =================================================================
@@ -100,7 +100,11 @@ from tests.studies.evidence.simultaneous import FAMILY as JOINT
 from tests.studies.evidence.simultaneous import joint_coverage_rows, joint_property_cells
 
 N_FOLDS = 5
-N = 16_000
+#: The law ``C`` cells.  At n = 16,000 on 600 probe draws, ``weighted_contrast_x0_5`` reads an
+#: SE ratio of 0.974 and a standardized bias of 0.15, and passes the calibration rule with
+#: probability 0.79.  At 32,000 S2's calibration cells pass together with probability 0.91,
+#: and at 48,000 with 0.93 (``tests/unit/test_longitudinal_incremental_design.py``).
+N = 48_000
 #: A calibration cell whose SE ratio and coverage equal their targets passes with probability
 #: 0.935 at 2,000 replications and 0.996 at 3,000.  Eight cells read the rule, so 3,000.
 REPLICATES = 3_000
@@ -118,8 +122,7 @@ CLUSTER_REPLICATES = 3_000
 COMPETING_N = 96_000
 #: The band draws of law ``D``.  They also carry the two survival calibration labels, which
 #: read an SE ratio of 0.98 at n = 16,000.  At 3,000 replications each passes the calibration
-#: rule with probability 0.94 at 16,000 and 0.99 here.  The joint rule sets the size: with
-#: the band at 16,000, S2's calibration cells pass together with probability about 0.85
+#: rule with probability 0.94 at 16,000 and 0.99 here
 #: (``tests/unit/test_longitudinal_incremental_design.py``).
 BAND_N = 48_000
 CLUSTER_SIZE = 10
@@ -150,7 +153,7 @@ def weight(values: Mapping[str, float]) -> float:
 
     Both are observed on every row.  The weight moves the first-node mechanism (the M18
     witness) and the outcome distribution, so the weighted truth differs from the unweighted
-    one by 5.5 standard errors at n = 16,000 (design test).
+    one by 9.5 standard errors at n = 48,000 (design test).
     """
     return 1.0 + values["A1"] + 0.5 * values["W"]
 

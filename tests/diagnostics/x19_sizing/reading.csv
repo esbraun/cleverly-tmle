@@ -45,6 +45,11 @@ s2:law_c,in_sample_fit/dropout_contrast_x2__one_fold,8000,400,-0.191779,0.05,1.0
 s2:law_c,interval_calibration/dropout_contrast_x2__correctly_specified,8000,400,0.230154,0.05,1.03671,0.96,,,0.00250553,0.000544317
 s2:law_c,interval_calibration/msm_log_delta__correctly_specified,8000,400,0.247323,0.05,1.02352,0.9425,,,0.00359015,0.000725803
 s2:law_c,interval_calibration/weighted_contrast_x0_5__correctly_specified,8000,400,-0.228383,0.05,1.02268,0.9375,,,-0.00253956,0.000555987
+s2:law_c@16000,censoring_complete_case/mean_x2__complete_case,16000,600,3.41431,0.0408248,0.973409,0.0683333,0.0683333,1,0.0711366,0.000850579
+s2:law_c@16000,interval_calibration/dropout_contrast_x2__correctly_specified,16000,600,0.160068,0.0408248,1.0023,0.95,0.95,1,0.00126994,0.000323895
+s2:law_c@16000,interval_calibration/dropout_contrast_x2_in_sample__correctly_specified,16000,600,-0.12927,0.0408248,1.00363,0.951667,0.951667,1,-0.00102171,0.000322666
+s2:law_c@16000,interval_calibration/msm_log_delta__correctly_specified,16000,600,0.168207,0.0408248,0.990422,0.943333,0.943333,1,0.00177865,0.000431689
+s2:law_c@16000,interval_calibration/weighted_contrast_x0_5__correctly_specified,16000,600,-0.151199,0.0408248,0.974048,0.946667,0.946667,1,-0.00124508,0.000336181
 s2:law_ck,clustered_inference/mean_x2__cluster_robust,8000,1000,0.0487489,0.0316228,0.998995,0.95,0.95,1,0.00245051,0.00158961
 s2:law_ck,clustered_inference/mean_x2__iid_control,8000,1000,0.0487489,0.0316228,0.632293,0.786,0.786,1,0.00245051,0.00158961
 s2:law_dc,interval_calibration/competing_contrast_x2_h3__correctly_specified,8000,400,-0.022733,0.05,0.881656,0.9625,,,-7.99053e-05,0.000175748

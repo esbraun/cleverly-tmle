@@ -86,7 +86,7 @@ SETS: dict[str, tuple[int, str, str, str, int, int]] = {
         for index, size in enumerate(REQUIREMENT_PROBE_SIZES, start=12)
     },
     "s1:band": (14, "s1", "band", p1.BAND_LABEL, p1.BAND_N, 1_000),
-    "s2:band": (15, "s2", "band", p2.BAND_LABEL, p2.N, 1_000),
+    "s2:band": (15, "s2", "band", p2.BAND_LABEL, 16_000, 1_000),
     "s2:law_ck": (16, "s2", "property", "law_ck", p2.CLUSTER_N, 1_000),
     "s2:dropout_folds_1": (17, "s2", "primary", "dropout_folds_1", N, 600),
     "s2:survival_folds_1": (18, "s2", "primary", "survival_folds_1", N, 600),
