@@ -108,6 +108,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
+from functools import partial
 from itertools import pairwise
 from typing import Any, Literal, TypeAlias
 
@@ -124,6 +125,8 @@ from .support import _intervention_loads, _InterventionLoadRow
 
 __all__ = [
     "POLICY_TYPES",
+    "VECTOR_DENSITY_ROW",
+    "JointPolicy",
     "ModifiedPolicy",
     "Piece",
     "Piecewise",
@@ -613,18 +616,163 @@ class RiskRatioTilt:
             object.__setattr__(self, "name", default)
 
 
+#: The roadmap row of the density route for a vector node with a continuous component, of
+#: triangular dose maps, and of a randomized component inside a :class:`JointPolicy`.
+VECTOR_DENSITY_ROW = "X37"
+
+
+@dataclass(frozen=True)
+class JointPolicy:
+    """A modified treatment policy on a vector node, declared one component at a time.
+
+    Díaz, Williams, Hoffman and Schenck (2023, Section 2) let the treatment of a node be a
+    vector :math:`A_t = (C_t, D_t)`, with categorical components :math:`C_t` and continuous
+    components :math:`D_t`.  A joint policy maps each component.  A component left out of
+    ``components`` keeps its natural value.
+
+    .. code-block:: python
+
+        JointPolicy(
+            "flag everyone, raise the dose of the flagged",
+            components={
+                "flag": ModifiedPolicy("flag", apply=flag_everyone, policy_kind="known"),
+                "dose": ModifiedPolicy("up if flagged", pieces=(...), policy_kind="known"),
+            },
+            policy_kind="known",
+        )
+
+    The rules below make the density ratio exist, and the fit checks them before any
+    learner (their Assumption 4, applied on each categorical cell):
+
+    ======================  =============================================================
+    component               policy and what its frame ``h`` holds
+    ======================  =============================================================
+    continuous              :class:`Shift`, :class:`Scale`, :class:`Piecewise`, or a
+                            :class:`ModifiedPolicy` with ``pieces``.  ``h`` holds the
+                            policy frame and the **natural** values of the node's
+                            categorical components, by component name.  It does not hold
+                            another continuous component, so a map reading one raises
+                            :class:`~cleverly.exceptions.DataError`
+    categorical             a :class:`ModifiedPolicy` with ``apply``, or an arithmetic
+                            policy on numeric labels.  ``h`` holds the policy frame and the
+                            natural values of every other component of the node
+    ======================  =============================================================
+
+    A continuous component's map that reads another dose (a triangular map) is valid in
+    theory, and this version refuses it as a scope limit.  A :class:`Randomizer` is
+    declared here, at the level of the joint policy, never inside a component, and a
+    :class:`RiskRatioTilt` is not a component.
+
+    Parameters
+    ----------
+    name : str
+        The report label.
+    components : mapping
+        The component column of the node mapped to that component's policy.  With a
+        randomizer, a mapping from each randomizer value to such a mapping.
+    randomizer : Randomizer or None
+        The known law of the randomizer, or ``None`` for a deterministic policy.
+    policy_kind : {"known", "estimated"} or None
+        The declaration that the policy is a known function.  A fit accepts ``"known"``
+        only.
+    """
+
+    name: str
+    components: Mapping[Any, Any]
+    randomizer: Randomizer | None = None
+    policy_kind: FunctionKind | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name:
+            raise DataError("a joint policy needs a non-empty name")
+        _POLICY_DECLARATION.check(self.policy_kind)
+        if self.randomizer is not None and not isinstance(self.randomizer, Randomizer):
+            raise CapabilityError(
+                f"policy {self.name!r} draws a continuous randomizer. The estimator "
+                "integrates a randomizer with finitely many values of known probability; "
+                "discretize it as Randomizer(values, probabilities)"
+            )
+        if not isinstance(self.components, Mapping):
+            raise DataError(
+                f"policy {self.name!r}: components= maps each component column of the node "
+                "to its policy"
+            )
+        if self.randomizer is None:
+            object.__setattr__(self, "components", _check_components(self.name, self.components))
+            return
+        if set(self.components) != set(self.randomizer.values):
+            raise DataError(
+                f"policy {self.name!r} draws a randomizer, so components= maps each of its "
+                f"values {list(self.randomizer.values)!r} to that value's component policies"
+            )
+        object.__setattr__(
+            self,
+            "components",
+            {
+                value: _check_components(self.name, self.components[value])
+                for value in self.randomizer.values
+            },
+        )
+
+
+def _check_components(name: str, components: Any) -> dict[str, Any]:
+    """The component policies of one branch of a :class:`JointPolicy`, or a refusal."""
+    if not isinstance(components, Mapping):
+        raise DataError(
+            f"policy {name!r}: each branch maps component columns to policies; got {components!r}"
+        )
+    checked: dict[str, Any] = {}
+    for column, policy in components.items():
+        if not isinstance(column, str) or not column:
+            raise DataError(f"policy {name!r}: a component is named by its column; got {column!r}")
+        if isinstance(policy, JointPolicy):
+            raise DataError(
+                f"policy {name!r}: component {column!r} holds a joint policy. A component "
+                "takes a Shift, Scale, Piecewise or ModifiedPolicy"
+            )
+        if isinstance(policy, RiskRatioTilt):
+            raise CapabilityError(
+                f"policy {name!r}: component {column!r} holds a risk-ratio tilt. A tilt "
+                "inside a joint policy is not supported in this version (docs/roadmap.md, "
+                f"{VECTOR_DENSITY_ROW}). Declare the randomizer on the JointPolicy and a "
+                "label map per branch"
+            )
+        if isinstance(policy, ModifiedPolicy) and policy.randomizer is not None:
+            raise CapabilityError(
+                f"policy {name!r}: component {column!r} draws its own randomizer. A "
+                "randomized component is not supported in this version (docs/roadmap.md, "
+                f"{VECTOR_DENSITY_ROW}). Declare the randomizer on the JointPolicy, with "
+                "deterministic component policies per randomizer value"
+            )
+        if not isinstance(policy, (Shift, Scale, Piecewise, ModifiedPolicy)):
+            raise DataError(
+                f"policy {name!r}: component {column!r} holds {policy!r}. A component takes "
+                "a Shift, Scale, Piecewise or ModifiedPolicy"
+            )
+        checked[column] = policy
+    return checked
+
+
 #: Every policy class a fit takes.
-Policy: TypeAlias = "Shift | Scale | Piecewise | ModifiedPolicy | RiskRatioTilt"
+Policy: TypeAlias = "Shift | Scale | Piecewise | ModifiedPolicy | RiskRatioTilt | JointPolicy"
 
 #: The policy classes, for an ``isinstance`` check.
-POLICY_TYPES: tuple[type, ...] = (Shift, Scale, Piecewise, ModifiedPolicy, RiskRatioTilt)
+POLICY_TYPES: tuple[type, ...] = (
+    Shift,
+    Scale,
+    Piecewise,
+    ModifiedPolicy,
+    RiskRatioTilt,
+    JointPolicy,
+)
 
 
 def refuse_policy_declarations(policies: Iterable[object]) -> None:
     """Refuse an undeclared or estimated user policy before any learner.
 
     :class:`Shift`, :class:`Scale`, :class:`Piecewise` and :class:`RiskRatioTilt` are known
-    by their exact type.  A :class:`ModifiedPolicy` carries ``policy_kind``.
+    by their exact type.  A :class:`ModifiedPolicy` carries ``policy_kind``, and so does a
+    :class:`JointPolicy`, whose component policies are checked as well.
 
     Parameters
     ----------
@@ -636,10 +784,17 @@ def refuse_policy_declarations(policies: Iterable[object]) -> None:
     DataError
         If a declaration is not one of the three states.
     CapabilityError
-        If a :class:`ModifiedPolicy` declares ``policy_kind`` ``None`` or ``"estimated"``.
+        If a :class:`ModifiedPolicy` or :class:`JointPolicy` declares ``policy_kind``
+        ``None`` or ``"estimated"``.
     """
     for policy in policies:
-        if not isinstance(policy, ModifiedPolicy):
+        if isinstance(policy, JointPolicy):
+            refuse_policy_declarations(
+                component
+                for _, components in joint_branches(policy)
+                for component in components.values()
+            )
+        elif not isinstance(policy, ModifiedPolicy):
             continue
         kind: object = policy.policy_kind
         _POLICY_DECLARATION.check(kind)
@@ -680,6 +835,8 @@ def describe_policy(policy: object) -> str:
         return f"RiskRatioTilt(delta={float(policy.delta)!r})"
     if isinstance(policy, ModifiedPolicy):
         return f"ModifiedPolicy({policy.name!r})"
+    if isinstance(policy, JointPolicy):
+        return f"JointPolicy({policy.name!r})"
     return repr(policy)
 
 
@@ -1067,9 +1224,39 @@ def policy_branches(policy: object) -> tuple[tuple[float, _Branch], ...]:
             (p, _ApplyBranch(function, value, draws=True))
             for value, p in zip(law.values, law.probabilities, strict=True)
         )
+    if isinstance(policy, JointPolicy):
+        raise CapabilityError(
+            f"policy {policy.name!r} is a JointPolicy, which declares one policy per component "
+            "of a vector treatment node. This route reads a treatment of one column. A "
+            "JointPolicy applies at a vector node of a longitudinal fit"
+        )
     raise DataError(
         f"{policy!r} is not a modified treatment policy. Declare Shift, Scale, Piecewise, "
-        "ModifiedPolicy or RiskRatioTilt"
+        "ModifiedPolicy, RiskRatioTilt or JointPolicy"
+    )
+
+
+def joint_branches(policy: JointPolicy) -> tuple[tuple[float, Mapping[str, Any]], ...]:
+    """Every deterministic branch of a joint policy and the known probability of each.
+
+    Parameters
+    ----------
+    policy : JointPolicy
+        A declared joint policy.
+
+    Returns
+    -------
+    tuple of tuple
+        ``(probability, components)`` per branch, with ``components`` the component column
+        mapped to its deterministic policy.  A deterministic joint policy has one branch of
+        probability one.
+    """
+    law = policy.randomizer
+    if law is None:
+        return ((1.0, policy.components),)
+    return tuple(
+        (float(p), policy.components[value])
+        for value, p in zip(law.values, law.probabilities, strict=True)
     )
 
 
@@ -1388,6 +1575,318 @@ def discrete_assignments(
             codes[:, k] = column
         out.append((float(probability), codes))
     return tuple(out)
+
+
+# ------------------------------------------------------------- joint policies
+
+
+@dataclass(frozen=True)
+class JointComponent:
+    """One component of a vector node, as a :class:`JointPolicy` reads it.
+
+    Parameters
+    ----------
+    name : str
+        The component's column.
+    levels : tuple
+        The component's labels in code order, or ``()`` for a continuous component.
+    """
+
+    name: str
+    levels: tuple[object, ...] = ()
+
+    @property
+    def continuous(self) -> bool:
+        """Whether the component holds a continuous dose."""
+        return not self.levels
+
+    def labels(self, values: FloatArray) -> Any:
+        """The natural values of the component: labels by code, or the doses."""
+        if self.continuous:
+            return np.asarray(values, dtype=float)
+        table = np.empty(len(self.levels), dtype=object)
+        for code, level in enumerate(self.levels):
+            table[code] = level
+        return table[np.nan_to_num(np.asarray(values, dtype=float), nan=0.0).astype(np.int64)]
+
+
+#: Builds the policy frame of a node with the given extra columns appended.
+FrameWith: TypeAlias = Callable[[Mapping[str, Any]], Any]
+
+
+def joint_assignments(
+    policy: JointPolicy,
+    components: Sequence[JointComponent],
+    natural: FloatArray,
+    frame_with: FrameWith,
+    rows: BoolArray,
+    *,
+    where: str,
+) -> tuple[tuple[float, FloatArray], ...]:
+    """Each branch of a joint policy as the ``(n, d)`` component values it assigns.
+
+    A categorical component is assigned by its label map, read at each row's natural label.
+    A continuous component is checked by :func:`check_continuous_policy` on the rows that
+    hold a dose, and then mapped.  Each component's frame follows the rules of
+    :class:`JointPolicy`.
+
+    Parameters
+    ----------
+    policy : JointPolicy
+        The declared joint policy.
+    components : sequence of JointComponent
+        The node's components, in column order.
+    natural : ndarray
+        ``(n, d)`` natural values: the level code of a categorical component and the dose of
+        a continuous one, filled with zero on rows that do not hold the node.
+    frame_with : callable
+        Returns the node's policy frame with the given columns appended.
+    rows : ndarray
+        ``(n,)`` the rows that hold the node.  Only these are checked, and every other row
+        is set to zero.
+    where : str
+        The node, for the refusals.
+
+    Returns
+    -------
+    tuple of tuple
+        ``(probability, values)`` per branch, with ``values`` the ``(n, d)`` assigned codes
+        and doses.
+
+    Raises
+    ------
+    CapabilityError
+        If a continuous component's policy fails :func:`check_continuous_policy`.
+    DataError
+        If the policy names a column that is not a component of the node, maps a label off
+        the component's levels, or a dose map reads another continuous component.
+    """
+    values = np.asarray(natural, dtype=float)
+    out = []
+    for probability, declared in joint_branches(policy):
+        assigned = _joint_branch(policy.name, declared, components, values, frame_with, rows, where)
+        out.append((probability, np.where(rows[:, None], assigned, 0.0)))
+    return tuple(out)
+
+
+def joint_discrete_assignments(
+    policy: JointPolicy,
+    components: Sequence[JointComponent],
+    levels: Sequence[tuple[object, ...]],
+    frame_with: FrameWith,
+    rows: BoolArray,
+    *,
+    where: str,
+) -> tuple[tuple[float, IntArray], ...]:
+    """A joint policy on an all-categorical vector node, as :func:`discrete_assignments`.
+
+    The node's levels are the observed tuples of its components.  Each branch is read at
+    every level, so the result feeds the discrete formula exactly as a label map of the
+    tuples does.
+
+    Parameters
+    ----------
+    policy : JointPolicy
+        The declared joint policy.
+    components : sequence of JointComponent
+        The node's components, each with its observed labels.
+    levels : sequence of tuple
+        The node's levels in code order.
+    frame_with : callable
+        Returns the node's policy frame with the given columns appended.
+    rows : ndarray
+        ``(n,)`` the rows that hold the node.
+    where : str
+        The node, for the refusals.
+
+    Returns
+    -------
+    tuple of tuple
+        ``(probability, codes)`` per branch, with ``codes`` an ``(n, K)`` integer array.
+
+    Raises
+    ------
+    DataError
+        If a branch sends a row to a tuple that is not a level of the node.
+    """
+    n = int(rows.size)
+    lookup = {tuple(level): code for code, level in enumerate(levels)}
+    out = []
+    for probability, declared in joint_branches(policy):
+        codes = np.zeros((n, len(levels)), dtype=np.int64)
+        for k, level in enumerate(levels):
+            natural = np.empty((n, len(components)))
+            for index, (component, value) in enumerate(zip(components, level, strict=True)):
+                natural[:, index] = float(component.levels.index(value))
+            assigned = _joint_branch(
+                policy.name, declared, components, natural, frame_with, rows, where
+            )
+            for row in np.flatnonzero(rows):
+                pair = tuple(
+                    component.levels[int(assigned[row, index])]
+                    for index, component in enumerate(components)
+                )
+                if pair not in lookup:
+                    raise DataError(
+                        f"policy {policy.name!r} maps {level!r} to {pair!r} at {where}, which "
+                        "is not a level of the node. A policy on a categorical vector node "
+                        "maps observed tuples to observed tuples (Díaz et al. 2023, "
+                        "Assumption 1)"
+                    )
+                codes[row, k] = lookup[pair]
+        out.append((float(probability), codes))
+    return tuple(out)
+
+
+def _joint_branch(
+    name: str,
+    declared: Mapping[str, Any],
+    components: Sequence[JointComponent],
+    natural: FloatArray,
+    frame_with: FrameWith,
+    rows: BoolArray,
+    where: str,
+) -> FloatArray:
+    """One deterministic branch of a joint policy, applied component by component."""
+    names = [component.name for component in components]
+    unknown = sorted(set(declared) - set(names))
+    if unknown:
+        raise DataError(
+            f"policy {name!r} at {where} declares component(s) {unknown}, and the node's "
+            f"components are {names}"
+        )
+    labels = {
+        component.name: component.labels(natural[:, index])
+        for index, component in enumerate(components)
+    }
+    doses = tuple(component.name for component in components if component.continuous)
+    assigned = np.array(natural, dtype=float, copy=True)
+    # Categorical components first, so a dose map that read an assigned label would read a
+    # value this loop has already written; the frame below hands it the natural one.
+    order = sorted(range(len(components)), key=lambda index: components[index].continuous)
+    for index in order:
+        component = components[index]
+        if component.name not in declared:
+            continue
+        here = f"component {component.name!r} of {where}"
+        if component.continuous:
+            # A dose map reads the natural categorical values only (the JointPolicy rules).
+            readable = {
+                other.name: labels[other.name] for other in components if not other.continuous
+            }
+            assigned[:, index] = _guarded(
+                name,
+                here,
+                doses,
+                partial(
+                    _continuous_component,
+                    declared[component.name],
+                    natural[:, index],
+                    _frame_source(frame_with, readable),
+                    rows,
+                    here,
+                ),
+            )
+            continue
+        readable = {
+            other.name: labels[other.name] for other in components if other is not component
+        }
+        assigned[:, index] = _guarded(
+            name,
+            here,
+            (),
+            partial(
+                _categorical_component,
+                name,
+                declared[component.name],
+                component,
+                natural[:, index],
+                _frame_source(frame_with, readable),
+                rows,
+                here,
+            ),
+        )
+    return assigned
+
+
+def _frame_source(frame_with: FrameWith, extra: Mapping[str, Any]) -> FrameSource:
+    """The policy frame with ``extra`` appended, built once on first use."""
+    return lazy_frame(lambda: frame_with(extra))
+
+
+def _guarded(
+    name: str, where: str, forbidden: Sequence[str], evaluate: Callable[[], FloatArray]
+) -> FloatArray:
+    """Evaluate one component's policy, naming the frame rule when a map reads a dose."""
+    try:
+        return evaluate()
+    except (CapabilityError, DataError):
+        raise
+    except Exception as error:
+        read = [column for column in forbidden if column in str(error)]
+        if not read:
+            raise
+        raise DataError(
+            f"policy {name!r} at {where} reads {read[0]!r}, a continuous component of the same "
+            "node. A dose map reads the policy frame and the natural categorical components "
+            "only. A map that reads another dose (a triangular map) is not supported in this "
+            f"version (docs/roadmap.md, {VECTOR_DENSITY_ROW})"
+        ) from error
+
+
+def _continuous_component(
+    policy: Any, dose: FloatArray, frame: FrameSource, rows: BoolArray, where: str
+) -> FloatArray:
+    """A continuous component's assigned dose, after the Assumption-4 check."""
+    observed = np.asarray(dose, dtype=float)
+    check_continuous_policy(policy, observed, frame, rows, where=where)
+    ((_, branch),) = policy_branches(policy)
+    return _per_row(np.asarray(branch.assign(observed, frame), dtype=float), observed.size)
+
+
+def _categorical_component(
+    name: str,
+    policy: Any,
+    component: JointComponent,
+    codes: FloatArray,
+    frame: FrameSource,
+    rows: BoolArray,
+    where: str,
+) -> FloatArray:
+    """A categorical component's assigned level codes, read at each row's natural label."""
+    levels = component.levels
+    numeric = _numeric_levels(levels)
+    ((_, branch),) = policy_branches(policy)
+    if branch.arithmetic and not numeric:
+        raise DataError(
+            f"policy {name!r} adds, scales or splits a dose, but {where} is categorical with "
+            f"levels {list(levels)!r}. Declare ModifiedPolicy(apply=...) that maps labels to "
+            "labels"
+        )
+    natural = component.labels(codes)
+    n = int(natural.size)
+    source: Any = np.asarray(natural, dtype=float) if numeric else natural
+    assigned = _labels(branch.assign(source, frame))
+    if assigned.size != n:
+        raise DataError(
+            f"policy {name!r} at {where} returned {assigned.size} values for {n} rows; it must "
+            "return one per row"
+        )
+    out = np.zeros(n)
+    matched = np.zeros(n, dtype=bool)
+    for code, level in enumerate(levels):
+        here = _equal(assigned, level, numeric) & ~matched
+        out[here] = float(code)
+        matched |= here
+    unknown = rows & ~matched
+    if unknown.any():
+        value = assigned[np.flatnonzero(unknown)[0]]
+        raise DataError(
+            f"policy {name!r} maps {int(unknown.sum())} rows of {where} to values that are not "
+            f"levels of the component (first: {value!r}). A categorical component maps "
+            "levels to levels (Díaz et al. 2023, Assumption 1)"
+        )
+    return out
 
 
 def induced_probabilities(codes: IntArray, probabilities: FloatArray) -> FloatArray:
