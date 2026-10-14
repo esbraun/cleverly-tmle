@@ -767,7 +767,7 @@ class TestPublishedVerdicts:
             )
 
         single = published.loc[published["property"] == "single_robustness"]
-        positive = single.loc[single["role"] == "positive"].sort_values("n")
+        positive = single.loc[single["role"] == "positive"]
         if not positive.empty:
             expected = bool(positive["bias_equivalent"].all())
             assert [bool(value) for value in positive["passed"]] == [expected] * len(positive), (

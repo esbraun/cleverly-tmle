@@ -1,0 +1,3 @@
+engine,replicates,coverage,se_ratio,se_cv,error_se_correlation,bias
+sdr,1000,0.903,0.91801,0.186091,0.3012,-0.00242937
+ltmle,1000,0.903,0.916854,0.187087,0.321198,-0.00209216
