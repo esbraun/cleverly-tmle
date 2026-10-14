@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly",
       "cleverly_version": "0.1.2",
-      "cleverly_commit": "b42bedc49d779273e240d1e1bcd8ceb70c0dc5e3",
+      "cleverly_commit": "531076892c5632e07cb3a7c32eabc0d71d33dc9c",
       "cleverly_worktree_clean": true,
       "python": "3.13.7",
       "numpy": "2.5.4",
@@ -19,7 +19,8 @@
       "ltmle_version": "1.3-0",
       "ltmle_source_commit": "338c029dae9692ef20714125773da7037688993b",
       "ltmle_tarball_sha256": "fb31d0dd6ab81687b81f3279b414c21e91c655e10aac12f73fc6723efd848aad",
-      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_construction": "ltmle per horizon on the prefix through Y_h, survivalOutcome=FALSE, main-terms Qform, numeric gform; the initial estimate is a second call with gcomp=TRUE"
     }
   },
   "configuration": {
@@ -99,7 +100,7 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_ltmle_repeated.py": "dea6f7c120c7dd1d865d2c8ba73d1f18423aa4729fc2b3d45271745721d389d8",
+    "tests/studies/canonical_ltmle_repeated.py": "143f218505dc90f187d09f87953d51f14d9cb67bb54b43fc0ce38eae28023e7d",
     "tests/studies/ltmle_repeated_properties.py": "5af1104a9906ba6cc014e5d5b9fa74fe925834e024b27742039433b051a76bdd",
     "tests/studies/ltmle_repeated_law.py": "0e6fc13a64d0beb34e213e161b5d5a54ded0dd1f3e2f215401f954727feba0a5",
     "tests/studies/canonical_ltmle.py": "3f15ff47823c8ff791fca05d12511f53786e4d89ad7bac4f954e5d735656ad6c",
@@ -110,19 +111,19 @@
     "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
     "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
     "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
-    "tests/studies/evidence/property_verdicts.py": "5e65c9ecce2c7d4e34d5d9bdd825ef7d41cf550c2138fa3d9621c4dd0028a4ef",
+    "tests/studies/evidence/property_verdicts.py": "29b34bcdf54a0e59210901a55afce93a559ec33732c20d65562ce1f1ab655f31",
     "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
     "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
     "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15"
   },
   "reference_sha256": {
     "tests/canonical/ltmle/Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
-    "tests/canonical/ltmle_repeated/run_study.R": "fb07f5689e243c89d849a88c7e73d3ffc6b66ccece5ce87336506eabc52f02bc",
+    "tests/canonical/ltmle_repeated/run_study.R": "528e895165158afca0cdf4a59146b2f6d50bf0c3123b38c6088007af9e53a215",
     "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
-    "tests/canonical/ltmle_repeated_adapter.R": "4f92e157cdb34541c4d9abde2e9fb4f4cd68cc5af0552a717dc516d60445c5c7"
+    "tests/canonical/ltmle_repeated_adapter.R": "2e252d6918ae86e128fab4f62a3b183b19c1ff0c518e7dc6f275b8956e2c89d0"
   },
   "sha256": {
-    "replicates.csv.gz": "1809ca340b327aca7d4be9efae60e94ca819e9ee68144810e6bb883b5f2eb72c",
+    "replicates.csv.gz": "9749404416f7a73027116b043fab845dc2ee2185ec183122143c617fcbeb642e",
     "summary.csv": "d9e7a42d6ae4a895bb44ee5e00bd26762d36d832d24db35739544b676ba4a83f",
     "equivalence.csv": "f5535183107c0aba0952aa248e7467104a556f7e119f45de3fedeb5afd298a4b",
     "performance-tests.csv": "f3d7f679ebd475a7c948593ccaac0facb6abdf9a6792edd0868799b9600fc720",
