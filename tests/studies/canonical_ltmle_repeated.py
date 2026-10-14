@@ -192,6 +192,7 @@ def _property_cells() -> dict[str, tuple[str, ...]]:
 STUDY = StudyRecord(
     name="repeated-outcome longitudinal TMLE",
     slug="longitudinal-repeated-outcome",
+    outcome_kind="repeated",
     artifacts=ROOT / "tests" / "canonical" / "ltmle_repeated",
     document="docs/technical-reference/method-evidence/repeated-outcome-longitudinal-tmle.md",
     anchor="repeated-outcome-longitudinal-tmle",

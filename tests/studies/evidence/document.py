@@ -168,7 +168,7 @@ def accuracy_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[s
         (
             descriptions.scenario(str(row.scenario)),
             f"`{row.estimand}`",
-            descriptions.estimand(str(row.estimand)),
+            descriptions.estimand(str(row.estimand), outcome_kind=record.outcome_kind),
             descriptions.implementation(str(row.implementation)),
             _interval(row.bias_ci_lower, row.bias_ci_upper),
             render(float(row.coverage)),
@@ -187,7 +187,7 @@ def agreement_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[
         (
             descriptions.scenario(str(row.scenario)),
             f"`{row.estimand}`",
-            descriptions.estimand(str(row.estimand)),
+            descriptions.estimand(str(row.estimand), outcome_kind=record.outcome_kind),
             render(float(row.mean_difference)),
             render(float(row.margin_utilization)),
             render(float(row.rmse_ratio_upper)),

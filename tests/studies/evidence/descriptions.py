@@ -692,6 +692,15 @@ ESTIMANDS: dict[str, str] = {
     "rr": "marginal risk ratio, reported on the log scale",
 }
 
+#: The plans of the repeated-outcome study, which has three treatment times rather than two.
+REPEATED_REGIMENS: dict[str, str] = {
+    "never": "treat at no time",
+    "always": "treat at every time",
+    "treat then treat after an outcome": (
+        "treat at the first time, then treat at each later time after an outcome of one"
+    ),
+}
+
 #: The bracketed half of a longitudinal estimand key.
 REGIMENS: dict[str, str] = {
     "arm0": "assign arm 0 at baseline and hold it",
@@ -1941,11 +1950,16 @@ def scenario(key: str) -> str:
         raise Undescribed(f"no description for scenario {key!r}") from None
 
 
-def estimand(key: str) -> str:
-    """What an estimand key names, including a bracketed longitudinal regimen."""
+def estimand(key: str, *, outcome_kind: str = "absorbing") -> str:
+    """What an estimand key names, including a bracketed longitudinal regimen.
+
+    ``outcome_kind`` is the study record's declaration.  It decides the wording of a
+    horizon-indexed contrast, which reads the same on a survival and a repeated outcome.
+    """
     stratum = _STRATUM.match(key)
     if stratum is not None:
-        return f"{estimand(stratum.group('base'))}, in stratum {stratum.group('stratum')}"
+        base = estimand(stratum.group("base"), outcome_kind=outcome_kind)
+        return f"{base}, in stratum {stratum.group('stratum')}"
     match = _PARAMETERISED.match(key)
     if match is None:
         try:
@@ -1987,7 +2001,8 @@ def estimand(key: str) -> str:
     # ``outcome_kind``, and that is out of reach here: this function is handed a key, not a
     # record.  The notation is sufficient while these two constructions are the only ones that
     # index by horizon.  A third would need its own infix, or this function would need the
-    # record -- it must not be added by widening one of the two branches below.
+    # record -- it must not be added by widening one of the two branches below.  The repeated
+    # outcome is that third construction, and the record's ``outcome_kind`` settles it.
     if _CAUSE in argument:
         plan_and_cause, horizon = argument.rsplit(_HORIZON, 1)
         plan, cause = plan_and_cause.rsplit(_CAUSE, 1)
@@ -2001,9 +2016,31 @@ def estimand(key: str) -> str:
                 f"incidence; {name!r} has no cause-specific description"
             )
         return f"{incidence} {regimen(plan)} at horizon t = {horizon}"
+    if outcome_kind == "repeated":
+        if name not in {"ey_regimen", "ate_regimen"}:
+            raise Undescribed(f"{key!r} is not a parameter of a repeated outcome")
+        plan, horizon = argument.rsplit(_HORIZON, 1)
+        mean = (
+            "mean of the repeated outcome under the plan"
+            if name == "ey_regimen"
+            else "difference in the mean of the repeated outcome between the plans"
+        )
+        return f"{mean} {_repeated_plans(plan)} at horizon t = {horizon}"
     if name == "ate_regimen":
         parameter = "difference in cumulative risk between the plans"
     return f"{parameter} {regimen(argument, point=point)}"
+
+
+def _repeated_plans(argument: str) -> str:
+    """A plan or a contrast of two plans of the repeated-outcome study, in words."""
+    labels = argument.split(" vs ", 1)
+    try:
+        words = [REPEATED_REGIMENS[label] for label in labels]
+    except KeyError:
+        raise Undescribed(f"no description for repeated-outcome plan {argument!r}") from None
+    if len(words) == 1:
+        return words[0]
+    return f'"{words[0]}" against "{words[1]}"'
 
 
 def regimen(argument: str, *, point: bool = False) -> str:
