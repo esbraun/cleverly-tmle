@@ -163,6 +163,11 @@ def _property_cells() -> dict[str, tuple[str, ...]]:
             ),
         ),
         "horizon_calibration": tuple(f"{label}__estimated_mechanisms" for label in REPORTED_LABELS),
+        "small_sample_calibration": tuple(
+            f"{label}__{arm}"
+            for label in GATED_LABELS
+            for arm in ("estimated_mechanisms", "continuous_gaussian")
+        ),
         "double_robustness": (
             *(f"{label}__mechanism_correct" for label in GATED_LABELS),
             # The both-wrong limit is the follower mean given ``W``, exact for a static plan.

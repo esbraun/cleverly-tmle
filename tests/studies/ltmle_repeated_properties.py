@@ -1,12 +1,14 @@
 """Independent repeated-sampling properties of repeated-outcome LTMLE (X32a).
 
-Every binary family samples :func:`cleverly.datasets.make_longitudinal_repeated` at
-``n = 2,000`` on its own stream ``stream_seed(STUDY, "property_sample", family,
+Every binary family samples :func:`cleverly.datasets.make_longitudinal_repeated` on its own
+stream ``stream_seed(STUDY, "property_sample", family,
 configuration, replicate)``.  Every truth is enumerated: the binary truths come from
 :func:`cleverly.datasets.repeated_truth`, and :mod:`tests.studies.ltmle_repeated_law` states
 the control limits and the continuous law.  The labels name the parameters:
 ``never_t3`` is ``ey_regimen[never @ t=3]`` and ``rule_vs_never_t3`` is the rule's contrast
-at ``t = 3``.  The five ``*_t3`` labels are the gated labels.
+at ``t = 3``.  The five ``*_t3`` labels are the gated labels.  The ``interval_calibration``
+arms draw ``n = 8,000`` (:data:`CALIBRATION_N`); every other family draws ``n = 2,000``
+(:data:`N`).  Budgets says why.
 
 Declared before any run
 -----------------------
@@ -17,27 +19,30 @@ family and cells                what is fitted, replications and size
 C1 ``interval_calibration``     ``*_t3__estimated_mechanisms``: in sample, the mechanisms
                                 estimated by a main-terms logistic GLM on the declared
                                 design (correctly specified), quasibinomial GLM outcome
-                                regressions.  ``simultaneous=True``.  2,000 replications.
+                                regressions.  ``simultaneous=True``.  3,200 replications.
                                 The derived ``shrunken_se_control`` and ``noise_control``
                                 arms read these rows
 ``horizon_calibration``         the same fits read at ``t = 1`` and ``t = 2``.  Role
                                 ``diagnostic``: reported, never gated
+``small_sample_calibration``    ``*_t3__{estimated_mechanisms,continuous_gaussian}``: C1
+                                and C6 refitted at ``n = 2,000``.  Role ``diagnostic``:
+                                reported, never gated.  2,000 replications
 C2 ``double_robustness``        ``*_t3__mechanism_correct``: the C1 mechanisms with an
                                 outcome regression on ``W`` alone, which drops every
                                 ``Y_{t-1}`` and ``L_t`` term.  ``both_wrong`` (static plans
                                 only): that regression with intercept-only mechanisms.
                                 1,000 replications
-C3 ``interval_calibration``     ``*_t3__crossfit_glm``: C1 at five folds.  2,000
+C3 ``interval_calibration``     ``*_t3__crossfit_glm``: C1 at five folds.  3,200
 C4 ``simultaneous_coverage``    ``all_reported``: the default band of the C1 fits over all
                                 fifteen reported parameters, and its pointwise control
 C5 ``interval_calibration``     ``*_t3__crossfit_boosted``: five folds with a shallow
                                 regularized booster (depth 2, 50 rounds, rate 0.1, L2
                                 penalty 1, at least 20 rows a leaf, no early stopping) for
-                                both outcome learners.  2,000
+                                both outcome learners.  3,200
 C6 ``interval_calibration``     ``*_t3__continuous_gaussian``: the three-value law
                                 :data:`~tests.studies.ltmle_repeated_law.CONTINUOUS`,
                                 least-squares outcome regressions, ``q_bounds = (0, 1)``,
-                                C1 mechanisms.  2,000
+                                C1 mechanisms.  3,200
 C7 ``rule_necessity``           ``rule_t{2,3}__declared`` against ``__reversed_rule``, the
                                 rule that treats after a zero outcome, both read against
                                 the declared rule's truth.  1,000
@@ -66,11 +71,21 @@ Gating, declared before any run:
   ``X32-finite-sample``, and the run is not repeated.  Any other red row is a defect, which
   is fixed before a fresh declaration.
 
-Budgets.  ``CALIBRATION_REPLICATES`` comes from :func:`calibration_pass_probability`:
-2,000 is the smallest multiple of 400 at which a cell at exact calibration passes the
-two-sided SE-ratio and coverage rule with probability at least 0.90.  No pilot ran, because
-a pilot does not fit the fast tier.  :func:`pilot_se_ratios` is the hook: run it before the
-declared run, and re-size the calibration budget by the same rule at the measured ratio.
+Budgets.  The calibration size and budget come from a pilot that ran before this
+declaration (:func:`pilot_se_ratios`, the ``pilot`` stream, which no published cell reads).
+At ``n = 2,000`` the in-sample arms report SE ratios of 0.943 (``rule_t3``) and 0.954
+(``rule_vs_never_t3``) for binary outcomes over 2,000 draws, and 0.92 to 0.97 for the
+continuous law over 1,000.  A diagnosis found no defect.  The ordinary end-of-study fit on
+``main`` returns the same estimate and SE on the same draws.  About 4.6% of units follow
+the rule to the last node, about 91 rows at ``n = 2,000``, and the reported SE stays within
+3% of the influence curve's spread on the same sample.  The deficit falls about fourfold
+when ``n`` quadruples, the ``1/n`` rate of in-sample fitting on few rows.  The second-order
+remainder falls about twofold, the ``1/sqrt(n)`` rate.  At ``n = 8,000`` every binary
+in-sample ratio lies in 0.995 to 1.006.  The gated arms therefore draw ``n = 8,000``,
+and ``small_sample_calibration`` reports the ``n = 2,000`` shortfall.  The expected ratio
+at ``n = 8,000`` is about 0.986 for ``rule_t3``.  ``CALIBRATION_REPLICATES = 3,200``, a
+multiple of 400, gives a pass probability of at least 0.96 at that ratio
+(:func:`calibration_pass_probability`).
 """
 
 from __future__ import annotations
@@ -124,7 +139,12 @@ from tests.studies.evidence.simultaneous import joint_coverage_rows
 from tests.studies.fractional_glm import QuasiBinomialGLM
 
 N = 2_000
-CALIBRATION_REPLICATES = 2_000
+#: The sample size of every ``interval_calibration`` arm.  See the module docstring, Budgets.
+CALIBRATION_N = 8_000
+CALIBRATION_REPLICATES = 3_200
+#: The in-sample arms refitted at :data:`N` and reported under ``small_sample_calibration``.
+SMALL_SAMPLE_ARMS = ("estimated_mechanisms", "continuous_gaussian")
+SMALL_SAMPLE_REPLICATES = 2_000
 DOUBLE_ROBUST_REPLICATES = 1_000
 NECESSITY_REPLICATES = 1_000
 FOLDS = 5
@@ -399,14 +419,22 @@ def _end_of_study_name(label: str) -> str:
 
 
 def _row(
-    family: str, cell: str, role: str, replicate: int, requested: int, truth: float, estimate: Any
+    family: str,
+    cell: str,
+    role: str,
+    replicate: int,
+    requested: int,
+    truth: float,
+    estimate: Any,
+    *,
+    n: int = N,
 ) -> dict[str, Any]:
     return replicate_row(
         property_name=family,
         cell=cell,
         role=role,
         replicate=replicate,
-        n=N,
+        n=n,
         requested=requested,
         truth=truth,
         estimate=estimate,
@@ -414,20 +442,27 @@ def _row(
     )
 
 
-def sample(configuration: str, seed: int) -> pd.DataFrame:
-    """One draw of the law a configuration reads."""
+def sample(configuration: str, seed: int, n: int = N) -> pd.DataFrame:
+    """One draw of size ``n`` of the law a configuration reads."""
     if configuration == "continuous_gaussian":
-        return law.CONTINUOUS.sample(N, seed)
-    frame, _ = make_longitudinal_repeated(n=N, seed=seed, censoring=True, backend="pandas")
+        return law.CONTINUOUS.sample(n, seed)
+    frame, _ = make_longitudinal_repeated(n=n, seed=seed, censoring=True, backend="pandas")
     return frame
+
+
+def family_n(family: str) -> int:
+    """The sample size a property family draws."""
+    return CALIBRATION_N if family == "interval_calibration" else N
 
 
 def _replication(payload: tuple[str, str, int, int, int]) -> list[dict[str, Any]]:
     family, configuration, replicate, requested, seed = payload
-    frame = sample(configuration, seed)
+    n = family_n(family)
+    frame = sample(configuration, seed, n)
     rows: list[dict[str, Any]] = []
-    if family == "interval_calibration":
-        joint = configuration == "estimated_mechanisms"
+    if family in {"interval_calibration", "small_sample_calibration"}:
+        calibration = family == "interval_calibration"
+        joint = calibration and configuration == "estimated_mechanisms"
         result = fit(frame, configuration, simultaneous=joint)
         truths = CONTINUOUS_TRUTH if configuration == "continuous_gaussian" else None
         for label in GATED_LABELS:
@@ -437,11 +472,12 @@ def _replication(payload: tuple[str, str, int, int, int]) -> list[dict[str, Any]
                 _row(
                     family,
                     f"{label}__{configuration}",
-                    "positive",
+                    "positive" if calibration else DIAGNOSTIC_ROLE,
                     replicate,
                     requested,
                     truth,
                     result[name],
+                    n=n,
                 )
             )
         if joint:
@@ -456,6 +492,7 @@ def _replication(payload: tuple[str, str, int, int, int]) -> list[dict[str, Any]
                         requested,
                         TRUTH[name],
                         result[name],
+                        n=n,
                     )
                 )
             rows.extend(
@@ -465,7 +502,7 @@ def _replication(payload: tuple[str, str, int, int, int]) -> list[dict[str, Any]
                     tuple(result.estimates),
                     label=JOINT_LABEL,
                     replicate=replicate,
-                    n=N,
+                    n=n,
                     requested=requested,
                     pointwise_critical=CRITICAL,
                 )
@@ -580,6 +617,7 @@ def _replication(payload: tuple[str, str, int, int, int]) -> list[dict[str, Any]
 #: Every fit set: ``(family, configuration, replications)``.
 FIT_SETS: tuple[tuple[str, str, int], ...] = (
     *(("interval_calibration", arm, CALIBRATION_REPLICATES) for arm in CALIBRATION_ARMS),
+    *(("small_sample_calibration", arm, SMALL_SAMPLE_REPLICATES) for arm in SMALL_SAMPLE_ARMS),
     ("double_robustness", "mechanism_correct", DOUBLE_ROBUST_REPLICATES),
     ("double_robustness", "both_wrong", DOUBLE_ROBUST_REPLICATES),
     ("rule_necessity", "paired", NECESSITY_REPLICATES),
@@ -610,7 +648,7 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
                 STUDY,
                 labels=GATED_LABELS,
                 efficiency_bounds=EFFICIENCY_SD,
-                calibration_n=N,
+                calibration_n=CALIBRATION_N,
                 shrunken_se_factor=SHRUNKEN_SE_FACTOR,
                 critical=CRITICAL,
                 positive_suffix="estimated_mechanisms",
@@ -626,18 +664,22 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
 # ---------------------------------------------------------------------------- verdicts
 
 
-def _horizon_report(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
-    """Publish the earlier horizons' SE-ratio interval beside their coverage, gated by nothing."""
+#: The calibration families reported beside their SE-ratio interval and gated by nothing.
+REPORTED_CALIBRATION = ("horizon_calibration", "small_sample_calibration")
+
+
+def _calibration_report(summary: pd.DataFrame, rows: pd.DataFrame, name: str) -> None:
+    """Publish a reported family's SE-ratio interval beside its coverage, gated by nothing."""
     margins = STUDY.margins
-    family = summary["property"] == "horizon_calibration"
+    family = summary["property"] == name
     for index in summary.index[family]:
         cell = str(summary.loc[index, "cell"])
-        group = rows.loc[(rows["property"] == "horizon_calibration") & (rows["cell"] == cell)]
+        group = rows.loc[(rows["property"] == name) & (rows["cell"] == cell)]
         interval = se_ratio_interval(
             group,
             replicates=margins.bootstrap_replicates,
             confidence_level=margins.confidence_level,
-            seed=stream_seed(STUDY, "horizon_calibration", cell),
+            seed=stream_seed(STUDY, name, cell),
         )
         summary.loc[index, "se_ratio_ci_lower"] = interval.low
         summary.loc[index, "se_ratio_ci_upper"] = interval.high
@@ -664,7 +706,8 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     calibration_verdicts(subset, margins=margins, positive_suffix="estimated_mechanisms")
     summary.loc[subset.index, "passed"] = subset["passed"]
 
-    _horizon_report(summary, rows)
+    for name in REPORTED_CALIBRATION:
+        _calibration_report(summary, rows, name)
     simultaneous_coverage_verdicts(summary, margins=margins)
     necessity_verdicts(
         summary,
@@ -735,9 +778,9 @@ def calibration_pass_probability(
     return max(se_pass, 0.0) * coverage_pass
 
 
-def _pilot_replication(payload: tuple[str, int]) -> dict[str, tuple[float, float]]:
-    configuration, replicate = payload
-    frame = sample(configuration, stream_seed(STUDY, "pilot", configuration, replicate))
+def _pilot_replication(payload: tuple[str, int, int]) -> dict[str, tuple[float, float]]:
+    configuration, replicate, n = payload
+    frame = sample(configuration, stream_seed(STUDY, "pilot", configuration, replicate), n)
     result = fit(frame, configuration)
     return {
         label: (
@@ -749,7 +792,11 @@ def _pilot_replication(payload: tuple[str, int]) -> dict[str, tuple[float, float
 
 
 def pilot_se_ratios(
-    replicates: int = 200, *, configuration: str = "estimated_mechanisms", n_jobs: int = STUDY_JOBS
+    replicates: int = 200,
+    *,
+    configuration: str = "estimated_mechanisms",
+    n: int = CALIBRATION_N,
+    n_jobs: int = STUDY_JOBS,
 ) -> dict[str, float]:
     """PILOT HOOK: the SE ratio of each gated label on ``replicates`` pilot draws.
 
@@ -759,7 +806,7 @@ def pilot_se_ratios(
     the measured ratio.  Record the pilot and the new budget in the declaration commit.
     """
 
-    payloads = [((configuration, replicate),) for replicate in range(replicates)]
+    payloads = [((configuration, replicate, n),) for replicate in range(replicates)]
     draws = map_parallel(_pilot_replication, payloads, n_jobs=n_jobs)
     ratios: dict[str, float] = {}
     for label in GATED_LABELS:

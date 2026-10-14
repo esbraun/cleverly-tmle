@@ -276,12 +276,21 @@ def test_the_smallest_control_gap_is_the_one_the_design_reports() -> None:
 # ---------------------------------------------------------------------------- the budgets
 
 
-def test_the_calibration_budget_is_the_smallest_that_passes_at_exact_calibration() -> None:
-    """PILOT HOOK: re-size with ``pilot_se_ratios`` before the run; this is the prior."""
-    assert properties.CALIBRATION_REPLICATES == 2_000
-    assert properties.calibration_pass_probability(2_000) >= 0.90
-    assert properties.calibration_pass_probability(1_600) < 0.90
-    assert properties.calibration_pass_probability(1_600) == pytest.approx(0.824, abs=0.01)
+def test_the_calibration_budget_passes_at_the_piloted_ratio() -> None:
+    """The pilot puts ``rule_t3`` at about 0.986 at ``n = 8,000``; 3,200 is sized for it."""
+    assert properties.CALIBRATION_N == 8_000
+    assert properties.CALIBRATION_REPLICATES == 3_200
+    assert properties.calibration_pass_probability(3_200, ratio=0.986) >= 0.96
+    assert properties.calibration_pass_probability(2_800, ratio=0.986) < 0.97
+    assert properties.calibration_pass_probability(3_200) >= 0.99
+
+
+def test_the_small_sample_arms_are_reported_not_gated() -> None:
+    """The pilot's ``n = 2,000`` in-sample shortfall publishes with no verdict."""
+    assert properties.N == 2_000
+    assert properties.family_n("small_sample_calibration") == properties.N
+    assert properties.family_n("interval_calibration") == properties.CALIBRATION_N
+    assert "small_sample_calibration" in properties.REPORTED_CALIBRATION
 
 
 def test_the_primary_budget_tolerates_a_small_second_order_bias() -> None:
@@ -351,7 +360,7 @@ def test_one_replication_of_each_fit_set_emits_exactly_the_declared_cells() -> N
         study.STUDY,
         labels=study.GATED_LABELS,
         efficiency_bounds=properties.EFFICIENCY_SD,
-        calibration_n=properties.N,
+        calibration_n=properties.CALIBRATION_N,
         shrunken_se_factor=properties.SHRUNKEN_SE_FACTOR,
         critical=properties.CRITICAL,
         positive_suffix="estimated_mechanisms",

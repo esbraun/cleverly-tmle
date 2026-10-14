@@ -922,6 +922,10 @@ PROPERTIES: dict[str, str] = {
         "the SE ratio and coverage of the earlier horizons of a repeated outcome, reported "
         "rather than gated"
     ),
+    "small_sample_calibration": (
+        "the SE ratio and coverage of the in-sample fits at n = 2,000, where few units follow "
+        "the rule to the last node, reported rather than gated"
+    ),
     "repeated_outcome_necessity": (
         "reading the repeated outcome as an absorbing event targets the cumulative maximum "
         "rather than the mean at the horizon"
@@ -1523,27 +1527,35 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "bias interval must fall entirely outside the margin",
     ),
     ("interval_calibration", "estimated_mechanisms"): (
-        "in sample, main-terms logistic mechanisms estimated, quasibinomial GLM outcome "
+        "n = 8,000, in sample, main-terms logistic mechanisms estimated, quasibinomial GLM outcome "
         "regressions",
         "SE-ratio and coverage intervals inside the calibration bands",
     ),
     ("interval_calibration", "crossfit_glm"): (
-        "five folds, main-terms logistic mechanisms estimated, quasibinomial GLM outcome "
+        "n = 8,000, five folds, main-terms logistic mechanisms estimated, quasibinomial GLM outcome "
         "regressions",
         "SE-ratio and coverage intervals inside the calibration bands",
     ),
     ("interval_calibration", "crossfit_boosted"): (
-        "five folds, main-terms logistic mechanisms estimated, a depth-2 booster of 50 rounds "
+        "n = 8,000, five folds, main-terms logistic mechanisms estimated, a depth-2 booster of 50 rounds "
         "with an L2 penalty for both outcome learners",
         "SE-ratio and coverage intervals inside the calibration bands",
     ),
     ("interval_calibration", "continuous_gaussian"): (
-        "the three-value outcome law, least-squares outcome regressions, main-terms logistic "
+        "n = 8,000, the three-value outcome law, least-squares outcome regressions, main-terms logistic "
         "mechanisms estimated",
         "SE-ratio and coverage intervals inside the calibration bands",
     ),
     ("horizon_calibration", "estimated_mechanisms"): (
         "the in-sample calibration fits, read at an earlier horizon",
+        "reported, no verdict",
+    ),
+    ("small_sample_calibration", "estimated_mechanisms"): (
+        "the in-sample binary calibration arm at n = 2,000",
+        "reported, no verdict",
+    ),
+    ("small_sample_calibration", "continuous_gaussian"): (
+        "the in-sample continuous calibration arm at n = 2,000",
         "reported, no verdict",
     ),
     ("repeated_outcome_necessity", "repeated"): (
