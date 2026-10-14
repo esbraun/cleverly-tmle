@@ -3255,20 +3255,13 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
 
         An odds tilt reads the treatment mechanism.  ``LTMLE`` fits it only as a known
         policy, when every tilt node's mechanism is declared (R1), and ``SDR`` never fits it
-        (R2).  ``IPSI`` fits a longitudinal functional with a tilt node.
+        (R2).  ``IPSI`` fits every longitudinal plan set, with or without a tilt node.
         """
         if not self.functional.longitudinal:
             return True, None, False, SDR_POINT_REFUSAL, False, IPSI_POINT_REFUSAL
         regimens = self.functional.interventions
         if not declares_tilt(regimens):
-            return (
-                True,
-                None,
-                True,
-                None,
-                False,
-                "IPSI fits a plan with an odds tilt node; a plan without one fits tmle or sdr",
-            )
+            return True, None, True, None, True, None
         data = getattr(self._study, "data", None)
         known = getattr(data, "known_mechanisms", None)
         n_times = getattr(data, "n_times", 0)

@@ -1037,7 +1037,8 @@ the plan, so the estimand needs no treatment positivity at a tilt node. A static
 "always treat" needs positivity wherever it puts mass.
 
 `IPSI` in `cleverly.longitudinal` fits this estimand on a `LongitudinalData` panel with a binary
-treatment at each node. It implements the one-step estimator of Kennedy (2019), Algorithm 1. It
+treatment at each node. "Treatment" is the larger of the node's two sorted codes, so the
+odds are those of that code. It implements the one-step estimator of Kennedy (2019), Algorithm 1. It
 adds the dropout weights of Kim, Kennedy and Naimi (2021), Appendix A, Algorithm 1. It is not a
 TMLE, and it fits no fluctuation.
 
@@ -1217,6 +1218,7 @@ monotone curves.
 | `SDR` with a tilt node | `SDR_TILT_REFUSAL` in `cleverly.methods` |
 | a tilt node with other than two levels | the shared point-treatment text, which names the node |
 | an `IPSI` plan with a modified treatment policy or a `RiskRatioTilt` node | `tilt_mix_message` in `longitudinal/regimen.py` |
+| an odds tilt at a continuous node, on `IPSI`, `LTMLE` or `SDR` | `tilt_continuous_message` in `longitudinal/regimen.py` |
 | a fluctuation setting on `IPSI` or `IPSIMethod` | `IPSI_NO_FLUCTUATION` in `cleverly.methods` |
 | a point-treatment container, or `IPSIMethod` on a point functional | `IPSI_POINT_REFUSAL` in `cleverly.methods` |
 | a design that holds one baseline decision over every node | `IPSI` names `TMLE(incremental=[...])` on the baseline row |

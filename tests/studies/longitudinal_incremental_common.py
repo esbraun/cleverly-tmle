@@ -55,9 +55,13 @@ from tests.longitudinal_ipsi import node
 
 #: The largest fallback-read bias a declared positive cell may carry, in standard errors.
 FALLBACK_BOUND = 0.1
-#: The bounds of every fit: no partial product of a non-tilt factor of these laws reaches
-#: them, so no bound binds and the fits are the untruncated functional.
-G_BOUNDS = (1e-8, 1.0)
+#: The bounds of every fit, the shipped default.  No true partial product of a non-tilt factor
+#: of these laws reaches 0.01 (the smallest is about 0.25 x 0.85^3 = 0.15), and a tilt factor
+#: sits outside the product, so the bound never binds at the truth.  It does bind when a sparse
+#: training cell has no row at a label arm, or none that stays: the cell-mean estimate is then
+#: 0, and a lower bound of 1e-8 put a weight of 1e8 on a held-out row (about one draw in 400
+#: of ``tilt_then_static`` at n = 4,000).
+G_BOUNDS = (0.01, 1.0)
 #: The declared support of a continuous outcome: every outcome mean of these laws lies in
 #: [0, 9] and the noise is standard normal, so a draw leaves the support with probability
 #: below 1e-18.  A cross-fitted fit of a continuous outcome needs it (the shipped scale rule).
@@ -237,9 +241,10 @@ def fit(
     if "treatment_probabilities" in declared:
         settings["treatment_learner"] = None
     with warnings.catch_warnings():
-        # A cell-mean probability of exactly 0 or 1 is the law's own (law Ax); the bound
-        # warning it raises says nothing about these fits.
-        warnings.simplefilter("ignore")
+        if target is law.LAW_AX:
+            # A cell-mean probability of exactly 0 or 1 is the law's own here; the bound
+            # warning it raises says nothing about the fit.
+            warnings.simplefilter("ignore")
         return IPSI(regimens(plans), **settings).fit(frame, **law.columns(target), **declared)
 
 

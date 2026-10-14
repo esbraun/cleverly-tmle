@@ -1263,8 +1263,8 @@ def _accepts_arguments(facade: _CapabilityFacade, operation: str) -> bool:
 def _tilt_methods(item: AssessmentCapability, method: str) -> AssessmentCapability:
     """List ``ipsi`` on an IPSI fit only, and only ``ipsi`` there.
 
-    An odds-tilt plan refits only by IPSI, and IPSI refuses a plan set with no tilt, so a
-    longitudinal row names the methods the fit's own plans admit.
+    An odds-tilt plan refits only by IPSI, so an IPSI fit names IPSI alone.  A fit by
+    another method keeps its own family, which does not include IPSI.
     """
     if "ipsi" not in item.methods or item.result_family != "longitudinal":
         return item

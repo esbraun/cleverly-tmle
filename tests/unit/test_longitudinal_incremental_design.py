@@ -179,6 +179,35 @@ def test_every_positive_cell_meets_the_fallback_bound(
     assert bound < common.FALLBACK_BOUND
 
 
+@pytest.mark.parametrize(
+    ("target", "plans", "wanted"),
+    [cell[1:4] for cell in POSITIVE_CELLS],
+    ids=[cell[0] for cell in POSITIVE_CELLS],
+)
+def test_the_lower_bound_never_binds_at_the_truth(target: Any, plans: dict, wanted: tuple) -> None:
+    """The smallest true product of the non-tilt factors stays ten times above the bound.
+
+    A tilt factor sits outside the bounded product, so only label nodes and retention count.
+    """
+    used = {label for name in wanted for label in names_in(name, plans)}
+    for label in used:
+        product = minimum_retention_product(target, plans[label])
+        assert product > 10 * common.G_BOUNDS[0], label
+
+
+def names_in(estimand: str, plans: dict) -> list[str]:
+    return [label for label in plans if label in estimand]
+
+
+def minimum_retention_product(target: Any, plan: Any) -> float:
+    labels = [
+        1.0 / common.node_ratio(target, entry, t)
+        for t, entry in enumerate(plan, 1)
+        if entry[0] != "tilt"
+    ]
+    return float(np.prod(labels)) * common.minimum_retention(target) ** target.n_times
+
+
 def test_the_working_model_slope_meets_the_fallback_bound() -> None:
     """The slope is a fixed combination of the plan means, so its bias is too."""
     bias = sum(

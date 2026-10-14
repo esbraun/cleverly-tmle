@@ -44,7 +44,7 @@ from cleverly.exceptions import (
     MethodConfigurationError,
     ParameterSpaceWarning,
 )
-from cleverly.interventions import Incremental, Shift
+from cleverly.interventions import Incremental, RiskRatioTilt, Shift
 from cleverly.longitudinal import IPSI, LTMLE, SDR, DynamicRegimen, ipsi
 from cleverly.longitudinal.estimator import IPSI_REFUSED_SETTINGS
 from cleverly.methods import (
@@ -227,8 +227,41 @@ def test_r4_refuses_a_tilt_beside_a_modified_treatment_policy(panel: Any) -> Non
     assert str(raised.value) == (
         "regimen 'tilt then shift' sets node 'A2' by a modified treatment policy (Shift). "
         "IPSI estimates no density ratio for a modified treatment policy or a risk-ratio "
-        "tilt, so a plan that mixes them with an odds tilt has no estimator here. Fit plans "
-        "of those nodes alone with LTMLE or SDR"
+        "tilt, so it has no estimator for a plan with such a node. Fit that plan without an "
+        "odds tilt by LTMLE or SDR"
+    )
+
+
+def test_r4_refuses_a_risk_ratio_tilt_before_any_learner(panel: Any) -> None:
+    plan = DynamicRegimen("tilt then rr", (Incremental(2.0), RiskRatioTilt(0.5)))
+    with pytest.raises(CapabilityError) as raised:
+        IPSI([plan], **_never()).fit(panel, outcome="Y", **LONGITUDINAL_NODES)
+    assert str(raised.value).startswith(
+        "regimen 'tilt then rr' sets node 'A2' by a risk-ratio tilt. IPSI estimates no "
+        "density ratio"
+    )
+
+
+def test_r4_refuses_a_tilt_at_a_continuous_node_before_any_learner(panel: Any) -> None:
+    rng = np.random.default_rng(3)
+    frame = panel.copy()
+    frame["A2"] = np.where(frame["A2"].isna(), np.nan, rng.normal(size=len(frame)))
+    with pytest.raises(CapabilityError) as raised:
+        IPSI(TILTS, **_never()).fit(
+            frame, outcome="Y", continuous_treatment=["A2"], **LONGITUDINAL_NODES
+        )
+    assert "sets the continuous node 'A2' by an odds tilt" in str(raised.value)
+    assert "a continuous dose has no such odds" in str(raised.value)
+
+
+def test_r4_refuses_a_held_baseline_decision_before_any_learner() -> None:
+    from tests.discrete_law_point_survival import survival_law
+
+    law_ = survival_law(causes=1)
+    with pytest.raises(CapabilityError) as raised:
+        IPSI({"a0": 0}, **_never()).fit(law_.frame(), **law_.fit_columns(held=True))
+    assert str(raised.value).startswith(
+        "IPSI fits one treatment decision per node, and this design holds one baseline decision"
     )
 
 
@@ -471,10 +504,11 @@ def test_the_identification_states_kennedy_and_kim_assumptions(panel: Any) -> No
     assert identification.references == ("Kennedy (2019)", "Kim, Kennedy & Naimi (2021)")
 
 
-def test_a_regimen_estimand_without_a_tilt_does_not_list_ipsi(panel: Any) -> None:
+def test_a_regimen_estimand_without_a_tilt_lists_ipsi(panel: Any) -> None:
+    """The engine fits a plan set with no tilt node, so the study offers it beside the others."""
     effect = _study(panel).identify(RegimeContrast({"always": 1, "never": 0}, reference="never"))
     methods = {record.name: record for record in effect.available_methods()}
-    assert not methods["ipsi"].available
+    assert methods["ipsi"].available and methods["ipsi"].reason is None
     assert methods["tmle"].available and methods["sdr"].available
 
 

@@ -1131,7 +1131,7 @@ def refuse_continuous_assignments(regimen: RegimenSpec, data: LongitudinalData) 
     for time, node in enumerate(nodes, start=1):
         if data.is_continuous_node(time) and _is_tilt(node):
             raise CapabilityError(
-                tilt_mix_message(regimen.label, data.treatment_names[time - 1], "a continuous dose")
+                tilt_continuous_message(regimen.label, data.treatment_names[time - 1])
             )
         if data.is_continuous_node(time) and not _is_mtp(node):
             raise CapabilityError(
@@ -1351,9 +1351,30 @@ def tilt_mix_message(label: str, node: str, kind: str) -> str:
     """
     return (
         f"regimen {label!r} sets node {node!r} by {kind}. IPSI estimates no density ratio "
-        "for a modified treatment policy or a risk-ratio tilt, so a plan that mixes them "
-        "with an odds tilt has no estimator here. Fit plans of those nodes alone with "
-        "LTMLE or SDR"
+        "for a modified treatment policy or a risk-ratio tilt, so it has no estimator for a "
+        "plan with such a node. Fit that plan without an odds tilt by LTMLE or SDR"
+    )
+
+
+def tilt_continuous_message(label: str, node: str) -> str:
+    """The refusal of an odds tilt at a continuous node.
+
+    Parameters
+    ----------
+    label : str
+        The regimen label.
+    node : str
+        The treatment column of the node.
+
+    Returns
+    -------
+    str
+        The message.
+    """
+    return (
+        f"regimen {label!r} sets the continuous node {node!r} by an odds tilt. An odds tilt "
+        "multiplies the odds of one of two arms, and a continuous dose has no such odds. "
+        "Declare a modified treatment policy at that node and fit it by LTMLE or SDR"
     )
 
 
