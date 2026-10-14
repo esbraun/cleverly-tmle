@@ -26,7 +26,7 @@ fit_one <- function(frame) {
     # tmle orders these as (Z=0,A=0), (Z=0,A=1), (Z=1,A=0), (Z=1,A=1).
     # The declared MAR law excludes Z, so each arm's column repeats at the other level.
     p_delta1 <- cbind(frame$pin_a0, frame$pin_a1, frame$pin_a0, frame$pin_a1)
-    fit <- tmle::tmle(
+    fit <- study_stage("tmle", tmle::tmle(
       Y = frame$Y,
       A = frame$A,
       W = frame["W"],
@@ -44,7 +44,7 @@ fit_one <- function(frame) {
       cvQinit = FALSE,
       evalATT = FALSE,
       verbose = FALSE
-    )
+    ))
     if (!inherits(fit, "tmle.list") || length(fit) != 2L) {
       stop("tmle did not return one controlled direct-effect fit per level")
     }
@@ -63,9 +63,12 @@ fit_one <- function(frame) {
 
 groups <- split(samples, samples$replicate)
 cores <- study_cores(groups)
+# Forced here, in the parent: with `mc.preschedule = TRUE`, `mclapply` would force it in each
+# child, and `study_collect` would then find no registered groups to retry or assemble.
+fit_group <- study_fitter(groups, fit_one)
 results <- parallel::mclapply(
   seq_along(groups),
-  study_fitter(groups, fit_one),
+  fit_group,
   mc.cores = cores,
   mc.preschedule = TRUE
 )

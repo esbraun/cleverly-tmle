@@ -89,6 +89,7 @@ from cleverly.estimators import CTMLE
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import oat_per_arm_laws as laws
+from tests.studies.evidence import failures as evidence_failures
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
@@ -510,3 +511,15 @@ def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
     mechanism = reference.groupby(["scenario", "replicate"])["gn_max_abs_diff"].max()
     diagnostics = pd.concat([bound, mechanism], axis=1).reset_index()
     return {"design-gap.csv": gap, "fit-diagnostics.csv": diagnostics}
+
+
+def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    """The diagnostics are descriptive and gate nothing, so a failed fit fails no audit.
+
+    A failed reference fit leaves ``gn_max_abs_diff`` empty on its replication, and the design
+    gap reads the subject only.
+    """
+    del failures, artifacts
+    return evidence_failures.audits(
+        {"mechanism gap (surviving reference rows)": pd.DataFrame()}, missing={}
+    )

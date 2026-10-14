@@ -130,7 +130,12 @@ def test_the_witness_separates_the_two_spreads() -> None:
 class TestTheRecord:
     def test_the_field_defaults_to_one_truth(self) -> None:
         assert not _record(truth_varies_by_replicate=False).truth_varies_by_replicate
-        assert not dataclasses.fields(StudyRecord)[-1].default
+        (field,) = [
+            field
+            for field in dataclasses.fields(StudyRecord)
+            if field.name == "truth_varies_by_replicate"
+        ]
+        assert field.default is False
 
     def test_a_reference_is_refused_beside_it(self) -> None:
         with pytest.raises(ValueError, match="cannot declare a reference"):

@@ -54,6 +54,7 @@ from cleverly.estimators import DRTMLE, TMLE
 from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import mar_arm_indexed_laws as laws
+from tests.studies.evidence import failures as evidence_failures
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
@@ -344,6 +345,14 @@ def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
             ["scenario", "replicate", "estimand"], ignore_index=True
         )
     }
+
+
+def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    """``fit-exits.csv`` reads the subject only, so a reference failure leaves it whole."""
+    del failures
+    return evidence_failures.audits(
+        {"fit exits (subject only)": artifacts["fit-exits.csv"].iloc[:0]}, missing={}
+    )
 
 
 def comparator_columns(frame: pd.DataFrame, law: laws.Law) -> pd.DataFrame:

@@ -9,8 +9,9 @@ are computed by independent quadrature, and the robustness regimes and corrected
 come from the paper's theorem and simulation design.
 
 This row uses a **reporting** publication policy. Scientific failures remain committed and render
-red; incomplete replications, invalid schemas, non-finite fits, active bounds, and broken
-provenance still abort publication. Thus the tables can show whether Cleverly established
+red. Unrecorded missing replications, invalid schemas, active bounds, and broken provenance
+still abort publication. The R harness records a non-finite reference fit as an `invalid_result`
+failure, and the failure accounting decides its cells. Thus the tables can show whether Cleverly established
 equivalence, coverage superiority, or an inconclusive result without selecting only favorable runs.
 
 ## What was compared
