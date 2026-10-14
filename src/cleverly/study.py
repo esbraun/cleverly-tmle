@@ -838,7 +838,12 @@ class LongitudinalTreatment:
         events, causes = self._outcome_roles()
         empty: tuple[str, ...] = ()
         held = isinstance(self.treatment, str)
-        declared_treatment = (self.treatment,) if held else tuple(self.treatment)
+        # A vector node is declared as its list of columns and named by their join.
+        declared_treatment = (
+            (self.treatment,)
+            if held
+            else tuple(node if isinstance(node, str) else "+".join(node) for node in self.treatment)
+        )
         blocks = (
             tuple(empty for _ in range(data.n_times if held else len(declared_treatment)))
             if self.time_varying is None
@@ -860,11 +865,7 @@ class LongitudinalTreatment:
             (
                 "continuous_treatment",
                 tuple(self.continuous_treatment),
-                tuple(
-                    name
-                    for time, name in enumerate(data.treatment_names, start=1)
-                    if data.is_continuous_node(time)
-                ),
+                data.continuous_columns,
             ),
             (
                 "treatment_probabilities",

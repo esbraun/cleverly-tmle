@@ -163,6 +163,7 @@ from .sequential import (
     constant_nodes,
     fit_mechanism,
     fit_regimen,
+    mixed_density_refusal,
     node_ratios,
     preflight_known_mechanisms,
     preflight_mechanism_support,
@@ -447,6 +448,19 @@ def _frozen_plans(plans: Sequence[Plan]) -> tuple[Plan, ...]:
         )
         retained.append(replace(plan, values=values, policy=policy, mtp_numerators=numerators))
     return tuple(retained)
+
+
+def _component_fingerprint(data: LongitudinalData) -> tuple[FloatArray, ...]:
+    """The arrays a mixed node adds to the data fingerprint, and none without one.
+
+    A mixed node's slot in :attr:`~cleverly.longitudinal.LongitudinalData.treatment` holds its
+    presence only, so its component values and labels are digested here.
+    """
+    if not data.has_mixed_node:
+        return ()
+    values = tuple(block for block in data.component_values if block is not None)
+    labels = np.asarray([repr(levels) for levels in data.component_levels], dtype=str)
+    return (*values, labels)
 
 
 def _frozen(array: FloatArray) -> FloatArray:
@@ -3023,6 +3037,15 @@ class LTMLE:
             treatment_probabilities=treatment_probabilities,
             censoring_probabilities=censoring_probabilities,
         )
+        if prepared.has_mixed_node and self.ratio != "classifier":
+            # Before any regimen is resolved and before any learner: ratio="density" is the
+            # default, so the first fit on a mixed node lands here and learns the remedy.
+            mixed = [
+                prepared.treatment_names[time - 1]
+                for time in range(1, prepared.n_times + 1)
+                if prepared.node_kind(time) == "mixed"
+            ]
+            raise CapabilityError(mixed_density_refusal(mixed[0]))
         regimens = resolve_regimens(
             self.regimens,
             prepared.n_decisions,
@@ -3534,6 +3557,7 @@ class LTMLE:
                     [repr(level) for levels in data.treatment_levels for level in levels],
                     dtype=str,
                 ),
+                *_component_fingerprint(data),
             ),
             fold_fingerprint=fingerprint_array(folds.assignment),
             random_state=self.random_state,

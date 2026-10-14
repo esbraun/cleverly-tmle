@@ -18,7 +18,7 @@ import pandas as pd
 import pytest
 
 from cleverly.exceptions import CapabilityError, DataError
-from cleverly.interventions import ModifiedPolicy, Piece, Shift, Stochastic
+from cleverly.interventions import JointPolicy, ModifiedPolicy, Piece, Shift, Stochastic
 from cleverly.longitudinal import LTMLE, DynamicRegimen, sequential
 from cleverly.utils.bounds import bound
 
@@ -273,11 +273,22 @@ def test_r5_an_undeclared_policy() -> None:
         _refused({"u": undeclared}, continuous_treatment=())
 
 
-def test_r13_a_vector_node_with_a_continuous_component() -> None:
+def test_r13_the_density_route_at_a_vector_node_with_a_continuous_component() -> None:
+    """The density route has no vector form; the refusal names the classifier route first."""
     frame = law.frame(vector=True).assign(A1a=lambda f: f["A1a"] + 0.25)
-    with pytest.raises(CapabilityError, match="vector with continuous components"):
+    natural = {
+        time: JointPolicy(
+            "natural",
+            components={f"A{time}a": Shift(0.0, cap=None)},
+            policy_kind="known",
+        )
+        for time in (1, 2)
+    }
+    regimen = DynamicRegimen("natural", (natural[1], natural[2]))
+    pattern = r"Pass ratio='classifier'.*density route for vector nodes.*X37"
+    with pytest.raises(CapabilityError, match=pattern):
         _refused(
-            {"natural": Shift(0.0, cap=None)},
+            {"natural": regimen},
             frame=frame,
             treatment=[["A1a", "A1b"], ["A2a", "A2b"]],
             continuous_treatment=["A1a"],

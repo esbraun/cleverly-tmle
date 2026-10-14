@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 
 from cleverly.interventions import (
+    JointPolicy,
     ModifiedPolicy,
     Piece,
     Randomizer,
@@ -148,3 +149,76 @@ SURVIVAL_PLAN = DynamicRegimen(
         ModifiedPolicy("treat if L2", apply=_treat_if_l2, policy_kind="known"),
     ),
 )
+
+
+# ------------------------------------------------------------------ mixed vector nodes
+
+#: The fit's reading of :func:`tests.discrete_law_longitudinal_mtp.mixed_frame`: two mixed
+#: nodes, each a binary flag and a continuous dose, on the classifier route.
+MIXED_COLUMNS: dict[str, Any] = {
+    "outcome": "Y",
+    "treatment": [["F1", "D1"], ["F2", "D2"]],
+    "baseline": ["W"],
+    "time_varying": [[], ["L2"]],
+    "continuous_treatment": ["D1", "D2"],
+}
+
+#: The top of the mixed law's dose grid, which every dose policy caps at.
+MIXED_TOP = 2.0
+
+
+def _set_flag(a: Any, h: Any) -> np.ndarray:
+    return np.ones(len(a))
+
+
+def _flagged_boundary(flag: str) -> Any:
+    def boundary(h: Any) -> np.ndarray:
+        return np.where(np.asarray(h[flag], dtype=float) == 1.0, MIXED_TOP - 0.5, -INF)
+
+    return boundary
+
+
+def _up_if_flagged(flag: str) -> ModifiedPolicy:
+    """``d + 1`` where the natural flag is one and ``d`` is below the top, else ``d``."""
+    boundary = _flagged_boundary(flag)
+    return ModifiedPolicy(
+        f"up if {flag}",
+        pieces=(
+            Piece(-INF, boundary, lambda a, h: a + 1.0, lambda b, h: b - 1.0, lambda b, h: 1.0),
+            Piece(boundary, INF),
+        ),
+        policy_kind="known",
+    )
+
+
+def _joint(label: str, time: int) -> JointPolicy:
+    flag, dose = f"F{time}", f"D{time}"
+    up = Shift(1.0, cap=MIXED_TOP)
+    if label == "natural":
+        return JointPolicy(label, components={}, policy_kind="known")
+    if label == "dose up":
+        return JointPolicy(label, components={dose: up}, policy_kind="known")
+    if label == "flag gated":
+        return JointPolicy(
+            label,
+            components={
+                flag: ModifiedPolicy("flag", apply=_set_flag, policy_kind="known"),
+                dose: _up_if_flagged(flag),
+            },
+            policy_kind="known",
+        )
+    if label == "dose gated":
+        return JointPolicy(label, components={dose: _up_if_flagged(flag)}, policy_kind="known")
+    if label == "random":
+        return JointPolicy(
+            label,
+            components={"up": {dose: up}, "stay": {}},
+            randomizer=Randomizer(("up", "stay"), (0.25, 0.75)),
+            policy_kind="known",
+        )
+    raise KeyError(label)
+
+
+def mixed_regimens(labels: tuple[str, ...]) -> dict[str, Any]:
+    """The plans of :data:`tests.discrete_law_longitudinal_mtp.MIXED_PLANS` as joint policies."""
+    return {label: DynamicRegimen(label, (_joint(label, 1), _joint(label, 2))) for label in labels}

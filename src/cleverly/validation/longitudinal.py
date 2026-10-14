@@ -696,14 +696,17 @@ def _treatment_report(result: Any, time: int, mask: BoolArray) -> NuisanceModelR
     """Observed-law treatment report, including multinomial negative log likelihood.
 
     A continuous node reports the negative log likelihood of its binned density, and
-    ``None`` on the classifier route, which fits no density.
+    ``None`` on the classifier route, which fits no density.  A mixed node takes the
+    classifier route only, so it reports ``None``.
     """
     mechanism = result.mechanism
+    if result.data.node_kind(time) == "mixed":
+        return None
     if result.data.is_continuous_node(time):
         density = mechanism.densities.get(time)
         if density is None:
             return None
-        dose = np.nan_to_num(result.data.treatment[:, time - 1], nan=0.0)
+        dose = np.nan_to_num(result.data.node_codes(time), nan=0.0)
         values = np.clip(density.density_at(dose), 1e-300, None)
         log_loss = float(-np.average(np.log(values[mask]), weights=result.data.weights[mask]))
         learner_weights, learner_risks = _aggregate_learner_info(())
@@ -716,7 +719,7 @@ def _treatment_report(result: Any, time: int, mask: BoolArray) -> NuisanceModelR
             learner_risks=learner_risks,
         )
     probabilities = np.asarray(mechanism.treatment_observed[time - 1], dtype=float)
-    actual = np.nan_to_num(result.data.treatment[:, time - 1], nan=0.0).astype(np.int64)
+    actual = np.nan_to_num(result.data.node_codes(time), nan=0.0).astype(np.int64)
     diagnostics = (
         mechanism.treatment_diagnostics[time - 1]
         if time <= len(mechanism.treatment_diagnostics)
