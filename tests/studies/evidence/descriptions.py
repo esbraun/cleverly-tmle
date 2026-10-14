@@ -402,6 +402,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-cross-fitted-ltmle-survival": "`cleverly` cross-fitted survival LTMLE",
     "cleverly-cross-fitted-competing-ltmle": "`cleverly` cross-fitted competing-risk LTMLE",
     "cleverly-competing-ltmle": "`cleverly` competing-risk LTMLE",
+    "cleverly-ctmle-derivative": "`cleverly` C-TMLE0 derivative covariate",
     "cleverly-ctmle-oat": "`cleverly` outcome-adaptive C-TMLE",
     "cleverly-ctmle-selector": "`cleverly` selector-based C-TMLE",
     "cleverly-ctmle-sequences": "`cleverly` C-TMLE lasso and declared-learner sequences",
@@ -500,6 +501,8 @@ SCENARIOS: dict[str, str] = {
     "binary": "binary-outcome law",
     "binary_lasso": "binary-outcome law, lasso candidate sequence",
     "binary_learners": "binary-outcome law, four declared lasso learners",
+    "binary_declared_pair": "binary-outcome law, both sides at one declared pair of penalties",
+    "binary_pipeline": "binary-outcome law, each side's own penalty cross-validation",
     "survival": "five visits, a binary baseline treatment held over every node, visit dropout",
     "competing": "four visits, two competing causes, a held binary treatment, visit dropout",
     "three_arm": "three visits, three arms held over every node, a binary L_t at each later visit",
@@ -1422,6 +1425,28 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "both nuisances are correctly specified",
         "SE ratio and coverage intervals both inside their calibration bands",
     ),
+    ("interval_calibration", "in_sample"): (
+        "the internal lasso is consistent for the main-terms treatment law, and the outcome "
+        "regression is a correct GLM",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    ),
+    ("interval_calibration", "cross_fitted"): (
+        "the same law and nuisances, cross-fitted over five folds",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    ),
+    ("interval_calibration", "multi_arm"): (
+        "three arms with a multinomial lasso, on the contrast of arm 1.0 against arm 0.0",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    ),
+    ("interval_calibration", "missing_outcome"): (
+        "outcomes are missing at random, with a correct response learner",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    ),
+    ("interval_calibration", "clustered"): (
+        "100 clusters of 20 rows with within-cluster outcome correlation, cross-fitted, "
+        "with the cluster identifier declared",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    ),
     ("interval_calibration", "flexible_learning"): (
         "separate depth-five trees fit the outcome and response nuisances out of fold; on this "
         "six-cell law each tree fits the saturated, correct model",
@@ -1733,6 +1758,15 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the estimator fluctuates a misspecified outcome model, so targeting does all the "
         "adjusting",
         "bias interval inside the equivalence margin",
+    ),
+    ("targeting_necessity", "ate__targeted"): (
+        "the estimator fluctuates a constant outcome regression, so targeting does all the "
+        "adjusting",
+        "bias interval inside the equivalence margin",
+    ),
+    ("targeting_necessity", "ate__untargeted"): (
+        "the initial plug-in estimate of the same fit, with every fluctuation step removed",
+        "bias interval must fall entirely outside the margin",
     ),
     ("targeting_necessity", "untargeted"): (
         "the identical fit with every fluctuation step removed",

@@ -318,7 +318,12 @@ admits a C-TMLE0 fit, because the fit assumes a consistent mechanism as the TMLE
 column, and a $2K$ solve that does not converge. An array entry refuses cross-fitting, the
 bootstrap, and every refit, because it describes one fit on the original rows and columns.
 
-**Evidence.** Three test modules hold the C-TMLE0 checks.
+**Evidence.** The registered study [C-TMLE0 derivative covariate](method-evidence/ctmle-derivative.md)
+compares repeated samples with R `ctmle` type 3. Both scenarios pass their truth tests and are
+equivalent to R. The paired mean difference is 4.4e-07 at the declared pair and -2.1e-06 for the
+two pipelines. Sixteen of 17 property cells pass. The red cell is the both-wrong control, which
+the law's mild mechanism misspecification leaves inside the margin. Three test modules hold the
+C-TMLE0 checks.
 
 | test module | checks |
 | --- | --- |
@@ -533,6 +538,7 @@ result cited in the audit fixes its data-adaptive complexity bound rather than r
 | where to read the evidence | what is there |
 | --- | --- |
 | [selector-based point-treatment C-TMLE](method-evidence/selector-based-point-treatment-c-tmle.md) | greedy, ordered, and discrete selectors against R `ctmle` 0.1.2, with a forced-selection versus empty-path control. Parity is unpenalized, non-cross-fitted, and binary-ATE only |
+| [C-TMLE0 derivative covariate](method-evidence/ctmle-derivative.md) | `strategy="derivative"` against R `ctmle` 0.1.2 `ctmleGlmnet(ctmletype = 3)`, at a declared penalty pair and at each side's own penalty cross-validation. Both paired rows are equivalent. The both-wrong control is the one red cell, and the diagnosis finds no defect |
 | [outcome-adaptive point-treatment C-TMLE](method-evidence/outcome-adaptive-point-treatment-c-tmle.md) | the shared design against the archived `ctmle3`, including a pinned-versus-estimated design pair that measures the finite-sample cost of estimating the design |
 | [outcome-adaptive per-arm C-TMLE](method-evidence/outcome-adaptive-per-arm-c-tmle.md) | the per-arm design against R `drtmle` 1.1.2 with `adapt_g = TRUE`, by a binary recode per arm, on two laws with an arm-specific outcome index and an instrument. Its declared revert cells are red, so every per-arm fit withholds its interval. [The applied revert](#the-applied-revert) gives the cells |
 | `tests/diagnostics/x17_generated_design/` | the generated-design term $c^\top \mathrm{IF}_\beta$ restores the standard-error ratio on the binary law |

@@ -92,12 +92,13 @@ The test fails on four states.
 | [`X8-drtmle-one-sided-bias`](../../roadmap.md#red-cell-owners) | 4 | DR-TMLE with baseline strata |
 | [`X8-drtmle-small-stratum`](../../roadmap.md#red-cell-owners) | 3 | DR-TMLE with baseline strata |
 | [`F1-power-design`](../../roadmap.md#red-cell-owners) | 1 | ordinary known stochastic categorical longitudinal TMLE |
+| [`X30-derivative-reading`](../../roadmap.md#red-cell-owners) | 1 | C-TMLE0 derivative covariate |
 | [`mtp-longitudinal-limits`](../../roadmap.md#red-cell-owners) | 1 | longitudinal modified treatment policies |
 | [`mtp-point-calibration`](../../roadmap.md#red-cell-owners) | 1 | ordinary point modified treatment policies |
 | [`X13-finite-sample`](../../roadmap.md#red-cell-owners) | 2 | point-treatment survival, cross-fitted point-treatment survival |
 | [`F28`](../../roadmap.md#red-cell-owners) | 9 | clustered point-treatment CV-TMLE at unequal cluster sizes, clustered TMLE intervals on a t reference at few clusters |
 | [`X20-bootstrap`](../../roadmap.md#red-cell-owners) | 3 | full-refit bootstrap and derived contrasts |
-| total | 118 | 27 studies |
+| total | 119 | 28 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -144,6 +145,7 @@ same text as the "measured" column of its study page.
 | [selector-based multi-arm C-TMLE](selector-based-multi-arm-c-tmle.md) | property | `selector_necessity/greedy` | positive | its own rule | bias 0.0279 to 0.0443, margin 0.0158, RMSE ratio 0.4415 | [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) |
 | [selector-based multi-arm C-TMLE](selector-based-multi-arm-c-tmle.md) | property | `selector_necessity/ordered` | positive | its own rule | bias 0.0154 to 0.0304, margin 0.0145, RMSE ratio 0.3781 | [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) |
 | [selector-based multi-arm C-TMLE](selector-based-multi-arm-c-tmle.md) | property | `type_i_error/sharp_null` | positive | its own rule | rejection 0.0625, 0.0354 to 0.1004 | [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) |
+| [C-TMLE0 derivative covariate](ctmle-derivative.md) | property | `double_robustness/both_wrong` | control | its own rule | bias 0.0031 to 0.0065, margin 0.0057, SE ratio 1.0590 | [`X30-derivative-reading`](../../roadmap.md#red-cell-owners) |
 | [outcome-adaptive multi-arm C-TMLE](outcome-adaptive-multi-arm-c-tmle.md) | property | `generated_design/estimated` | positive | its own rule | coverage 0.9267 to 0.9677, SE ratio 0.9694 to 1.1026 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | [outcome-adaptive multi-arm C-TMLE](outcome-adaptive-multi-arm-c-tmle.md) | property | `generated_design/oracle_design` | positive | its own rule | coverage 0.9282 to 0.9688, SE ratio 0.9797 to 1.1151 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | [DR-TMLE for binary complete data](canonical-dr-tmle.md) | property | `double_robust_contraction/treatment_correct_n1500` | positive | its own rule | coverage 0.8864 to 0.9385, bias 0.0115 | [`RM18-boundary`](../../roadmap.md#red-cell-owners) |

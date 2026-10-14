@@ -48,6 +48,7 @@ repeated-cross-fitting
 selector-based-point-treatment-c-tmle
 selector-based-multi-arm-c-tmle
 c-tmle-candidate-sequences
+ctmle-derivative
 outcome-adaptive-point-treatment-c-tmle
 outcome-adaptive-multi-arm-c-tmle
 outcome-adaptive-per-arm-c-tmle

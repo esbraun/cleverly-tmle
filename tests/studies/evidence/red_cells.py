@@ -426,6 +426,9 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "few_cluster_reference/tmle_cv_evaluation__unequal_informative__j30__t_reference",
         ),
     ),
+    # The both-wrong control of the C-TMLE0 study: its law's mechanism misspecification is too
+    # mild at n = 2,000 for the control to separate from the margin.  No defect.
+    "X30-derivative-reading": _keys("ctmle-derivative", "property", "double_robustness/both_wrong"),
     "F1-power-design": (
         *_keys("stochastic-categorical-ltmle", "property", "power/mix__alternative"),
     ),
