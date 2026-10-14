@@ -117,6 +117,19 @@ def flagged(h: Any) -> np.ndarray:
     return np.where(np.asarray(h["F"], dtype=float) == 1.0, 6.0, -INF)
 
 
+def nudge(a: Any, h: Any) -> np.ndarray:
+    """A change of dose that stays inside its bin of the geometric grid."""
+    return np.asarray(a, dtype=float) + 0.01
+
+
+def unnudge(b: Any, h: Any) -> np.ndarray:
+    return np.asarray(b, dtype=float) - 0.01
+
+
+def unit_slope(b: Any, h: Any) -> np.ndarray:
+    return np.ones(len(b))
+
+
 def flag_if_large_d1(a: Any, h: Any) -> np.ndarray:
     """The flag goes to one where the natural dose 1 is at least 4."""
     return np.where(np.asarray(h["D1"], dtype=float) >= 4.0, 1, np.asarray(a))
@@ -993,6 +1006,49 @@ def test_l3_the_resolution_warning_reads_each_dose() -> None:
     )
     with mtp.exact_bins(GRIDS), pytest.warns(UserWarning, match="across a bin edge"):
         TMLE(policies=[policy], **density_settings()).fit(geo_data()).single()
+
+
+def test_l3_the_resolution_warning_counts_only_the_rows_a_gated_map_moves() -> None:
+    """A gated map is read on the rows it moves, and the warning names the dose.
+
+    ``d1 if flagged`` doubles dose 1 below 6 where the flag is one: 40.6% of the rows. Each
+    doubling crosses an edge of the geometric grid, so the moved rows all cross. Counted over
+    every row the share is 0.406, below the 0.5 threshold, which is the misfire this pins.
+    The warning changes no number: the fit with it silenced is the same fit.
+    """
+    gated = JointPolicy(
+        "gated", components={"D1": _doubling("d1 if flagged", flagged)}, policy_kind="known"
+    )
+    frame = geo.frame()
+    moved = (frame["F"] == 1.0) & (frame["D1"] < 6.0)
+    assert moved.mean() == pytest.approx(0.40625)
+    with mtp.exact_bins(GRIDS), warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        loud = TMLE(policies=[gated], **density_settings()).fit(geo_data()).single()
+    assert not [w for w in caught if "across a bin edge" in str(w.message)]
+    with mtp.exact_bins(GRIDS), warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        quiet = TMLE(policies=[gated], **density_settings()).fit(geo_data()).single()
+    for name, estimate in loud.estimates.items():
+        assert estimate.psi == quiet.estimates[name].psi
+        np.testing.assert_array_equal(
+            estimate.influence_curve, quiet.estimates[name].influence_curve
+        )
+    # A gated map that moves its rows within a bin still warns, over those rows only.
+    tiny = JointPolicy(
+        "tiny gated",
+        components={
+            "D1": ModifiedPolicy(
+                "nudge",
+                pieces=(Piece(-INF, flagged, nudge, unnudge, unit_slope), Piece(flagged, INF)),
+                policy_kind="known",
+            )
+        },
+        policy_kind="known",
+    )
+    pattern = rf"changes 'D1' on {int(moved.sum())} rows, and moves only 0\.0% of them"
+    with mtp.exact_bins(GRIDS), pytest.warns(UserWarning, match=pattern):
+        TMLE(policies=[tiny], **density_settings()).fit(geo_data()).single()
 
 
 def test_l5_a_value_of_estimated_density_zero_warns_on_both_routes() -> None:

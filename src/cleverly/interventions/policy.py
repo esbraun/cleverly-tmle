@@ -2879,10 +2879,16 @@ class PolicySet:
                 continue
             for index, component in enumerate(setup.components):
                 if component.continuous and component.name in mapping:
+                    # Only the rows whose dose this policy changes: a gated map leaves
+                    # the others alone, and they say nothing about the bin width.
+                    changed = shifted[:, c, index] != setup.natural[:, index]
+                    if not changed.any():
+                        continue
                     warn_if_unresolved(
                         parts.densities[component.name],
-                        shifted[:, c, index],
-                        setup.natural[:, index],
+                        shifted[changed, c, index],
+                        setup.natural[changed, index],
+                        component=component.name,
                     )
             warn_unsupported_values(policy.name, parts, c + 1, moved[:, c], setup.where)
         return cls._from_vector(
