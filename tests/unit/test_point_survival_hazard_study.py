@@ -61,7 +61,8 @@ def test_the_declared_numbers() -> None:
     assert record.margins == Margins()
     assert (study.PRIMARY_REPLICATES, study.PRIMARY_N) == (1_600, 2_000)
     assert (study.SEED, study.RESAMPLING_SEED) == (20261070, 2026107001)
-    assert record.reference == "survtmle"
+    assert record.pending_reference == "survtmle"
+    assert record.comparator_state == "pending"
     assert set(record.scenarios) == {"survival", "competing"}
     assert (study.ALGORITHM, study.MAX_ITER, study.TOL) == ("iterative", 100, 1e-10)
     assert {
