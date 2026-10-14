@@ -567,7 +567,17 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
     # what settles a disagreement between two implementations.  Two implementations
     # reporting the same number establishes only that they agree.
     for estimand, deviation in sorted(record.efficiency_bounds.items()):
-        declared[f"bound:{estimand}_standard_error"] = float(deviation) / math.sqrt(record.n)
+        sizes = {
+            record.n_of(scenario)
+            for scenario, names in record.scenarios.items()
+            if estimand in names
+        } or {record.n}
+        if len(sizes) > 1:
+            raise ValueError(
+                f"{record.slug}: the bound of {estimand} is reported by scenarios of sizes "
+                f"{sorted(sizes)}, so one bound cannot be published"
+            )
+        declared[f"bound:{estimand}_standard_error"] = float(deviation) / math.sqrt(sizes.pop())
     # Each side's declared fitting-failure bound, and the failed fits it allows per cell.
     for side, implementation in (
         ("reference", record.reference),

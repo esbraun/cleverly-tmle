@@ -157,6 +157,7 @@ def write_manifest(
         "configuration": {
             "replicates": record.replicates,
             "n": record.n,
+            **({"scenario_n": dict(record.scenario_n)} if record.scenario_n else {}),
             "seed": record.seed,
             **(
                 {"resampling_seed": record.resampling_seed}
