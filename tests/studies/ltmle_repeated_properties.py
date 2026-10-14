@@ -162,6 +162,8 @@ CALIBRATION_N = 8_000
 CALIBRATION_REPLICATES = 3_200
 #: The sample size of the N1 family, ``repeated_outcome_necessity``.  See Budgets.
 ABSORBING_N = 8_000
+#: The sample size of the N3 family, ``full_history_necessity``.
+FULL_HISTORY_N = 8_000
 #: The in-sample arms refitted at :data:`N` and reported under ``small_sample_calibration``.
 SMALL_SAMPLE_ARMS = ("estimated_mechanisms", "continuous_gaussian")
 SMALL_SAMPLE_REPLICATES = 2_000

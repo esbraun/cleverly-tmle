@@ -16,7 +16,14 @@ import pytest
 from scipy.stats import binom, norm
 
 from cleverly.datasets import REPEATED_RULE_LABEL, make_longitudinal_repeated, repeated_truth
-from cleverly.datasets.longitudinal import _REPEATED_C, _REPEATED_C1
+from cleverly.datasets.longitudinal import (
+    _REPEATED_A,
+    _REPEATED_A1,
+    _REPEATED_C,
+    _REPEATED_C1,
+    _REPEATED_L,
+    _REPEATED_Y,
+)
 from cleverly.longitudinal import LongitudinalData
 from tests.studies import canonical_ltmle_repeated as study
 from tests.studies import ltmle_repeated_law as law
@@ -102,7 +109,8 @@ def test_the_reversed_rule_is_identified_and_far_from_the_rule() -> None:
     for horizon in (2, 3):
         reversed_value = law.BINARY.counterfactual("reversed", horizon)
         assert law.BINARY.g_formula("reversed", horizon) == pytest.approx(reversed_value, abs=1e-12)
-        assert reversed_value - repeated_truth(REPEATED_RULE_LABEL, horizon) > 0.09
+        gap = reversed_value - repeated_truth(REPEATED_RULE_LABEL, horizon)
+        assert gap < -0.05, horizon
 
 
 def test_the_continuous_truths_are_identified() -> None:
@@ -110,14 +118,88 @@ def test_the_continuous_truths_are_identified() -> None:
         assert law.CONTINUOUS.g_formula(plan, 3) == pytest.approx(
             law.CONTINUOUS.counterfactual(plan, 3), abs=1e-12
         )
-    assert properties.CONTINUOUS_TRUTH["always_vs_never_t3"] > 0.05
+    assert properties.CONTINUOUS_TRUTH["always_vs_never_t3"] < -0.05
+
+
+def test_the_outcome_reads_two_nodes_back() -> None:
+    """``E[Y_3 | full history]`` moves with ``Y_1`` and with ``L_2``: the second-order terms are live."""
+    paths = law.BINARY.paths
+    observed = paths.loc[paths["C3"] == 1.0]
+    keys = ["W", "Y1", "L2", "Y2", "L3", "A3"]
+    mass = observed.groupby(keys)["p"].sum()
+    mean = (observed["p"] * observed["Y3"]).groupby([observed[k] for k in keys]).sum() / mass
+    table = pd.DataFrame({"mean": mean, "mass": mass}).reset_index()
+
+    def effect(column: str) -> tuple[float, float]:
+        """The mass-weighted mean and the minimum of the difference ``column = 1`` minus ``0``."""
+        others = [k for k in keys if k != column]
+        wide = table.pivot_table(index=others, columns=column, values="mean")
+        weight = table.groupby(others)["mass"].sum().reindex(wide.index)
+        difference = wide[1.0] - wide[0.0]
+        return float(np.average(difference, weights=weight)), float(difference.min())
+
+    y1_mean, y1_min = effect("Y1")
+    l2_mean, l2_min = effect("L2")
+    assert y1_mean >= 0.2
+    assert l2_mean >= 0.02
+    # The sign never reverses, so no cell masks the effect in the average.
+    assert y1_min > 0.1
+    assert l2_min > 0.005
+
+
+def test_a_markov_reading_misses_the_truth() -> None:
+    """The first-order history is wrong at ``t = 3`` and exact at ``t <= 2``."""
+    n = properties.FULL_HISTORY_N
+    for label in study.GATED_LABELS:
+        plan, horizon, reference = _parse(study.label_estimand(label))
+        truth = _law_functional(plan, horizon, reference, history="full")
+        coarse = _law_functional(plan, horizon, reference, history="markov")
+        sd = law.BINARY.eif_sd(plan, horizon, reference=reference) / np.sqrt(n)
+        assert abs(coarse - truth) / sd >= 0.5, label
+    for label in (*study.EARLIER_LABELS, "never_t1"):
+        plan, horizon, reference = _parse(study.label_estimand(label))
+        truth = _law_functional(plan, horizon, reference, history="full")
+        coarse = _law_functional(plan, horizon, reference, history="markov")
+        assert coarse == pytest.approx(truth, abs=1e-12), label
+
+
+def _law_functional(plan: str, horizon: int, reference: str | None, **options: Any) -> float:
+    """The g-formula of a plan, or of its contrast with ``reference``."""
+    value = law.BINARY.g_formula(plan, horizon, **options)
+    if reference is not None:
+        value -= law.BINARY.g_formula(reference, horizon, **options)
+    return value
+
+
+def test_node_one_is_unsaturated() -> None:
+    """Three baseline levels against a one-column design: the first fluctuation can move."""
+    assert len(set(law.BINARY.paths["W"])) == 3
+    frame, _ = make_longitudinal_repeated(n=300, seed=14, backend="pandas")
+    design = _data(frame).history_design(1)
+    parameters = design.shape[1] + 1  # the intercept
+    assert design.shape[1] == 1
+    assert parameters < len(np.unique(design[:, 0]))
 
 
 def test_censoring_reads_the_history_and_never_the_current_outcome() -> None:
-    """``C_t`` reads ``L_t``, ``Y_{t-1}`` and ``A_t`` only, and each term is nonzero."""
+    """``C_t`` reads ``L_t``, ``Y_{t-1}``, ``Y_{t-2}`` and ``A_t`` only, and each term is nonzero."""
     assert set(_REPEATED_C1) == {"intercept", "w", "a"}
-    assert set(_REPEATED_C) == {"intercept", "l", "y", "a"}
-    assert all(value != 0.0 for value in (*_REPEATED_C1.values(), *_REPEATED_C.values()))
+    assert set(_REPEATED_C) == {"intercept", "l", "y", "a", "y2"}
+    assert set(_REPEATED_A) == {"intercept", "w", "l", "y", "a", "y2"}
+    assert set(_REPEATED_L) == {"intercept", "w", "a", "y", "l1"}
+    assert set(_REPEATED_Y) == {"intercept", "w", "a", "l", "y", "ay", "y2", "l1"}
+    assert all(
+        value != 0.0
+        for table in (
+            _REPEATED_A1,
+            _REPEATED_A,
+            _REPEATED_C1,
+            _REPEATED_C,
+            _REPEATED_L,
+            _REPEATED_Y,
+        )
+        for value in table.values()
+    )
     # On the paths, staying at a node is independent of that node's outcome given H_t, A_t.
     paths = law.BINARY.paths
     for time in (2, 3):
@@ -133,11 +215,26 @@ def test_censoring_reads_the_history_and_never_the_current_outcome() -> None:
 
 
 def test_every_plan_keeps_positivity_through_the_last_node() -> None:
-    for plan in ("never", "always", law.RULE):
+    """The minimum cumulative probability and the follower share, with the mass near zero."""
+    weights_of = law.BINARY.paths["p"].to_numpy()
+    for plan in ("never", "always", law.RULE, "reversed"):
         followed = law.BINARY.followed(plan, 3)
-        weights = law.BINARY.cumulative(plan, 3)[followed]
-        assert float(np.min(weights)) > 0.01, plan
-        assert float(np.sum(law.BINARY.paths["p"].to_numpy()[followed])) > 0.04, plan
+        cumulative = law.BINARY.cumulative(plan, 3)[followed]
+        assert float(np.min(cumulative)) > 0.02, plan
+        assert float(np.sum(weights_of[followed])) > 0.10, plan
+        small = float(np.sum(weights_of[followed][cumulative < 0.05]))
+        assert small / float(np.sum(weights_of[followed])) < 0.05, plan
+
+
+def test_every_contrast_is_far_from_zero() -> None:
+    """A sign error in a contrast would show: the truth sits several EIF spreads from zero."""
+    for name in study.ESTIMANDS:
+        if not name.startswith("ate_regimen["):
+            continue
+        plan, horizon, reference = _parse(name)
+        sd = law.BINARY.eif_sd(plan, horizon, reference=reference) / np.sqrt(study.PRIMARY_N)
+        floor = 5.0 if horizon == 1 else 2.5
+        assert abs(study.TRUTH[name]) / sd >= floor, name
 
 
 def _data(frame: pd.DataFrame) -> LongitudinalData:
@@ -220,6 +317,52 @@ def test_each_control_limit_sits_away_from_the_truth() -> None:
 def test_the_history_free_reading_is_refused_for_a_rule() -> None:
     with pytest.raises(ValueError, match="rule"):
         law.BINARY.g_formula(law.RULE, 3, history="free")
+
+
+# ---------------------------------------------------------------------------- the limits
+
+
+def test_the_tmle_limit_is_inert_exactly_where_theory_says() -> None:
+    """Intercept mechanisms make a static plan's clever covariate constant, so nothing moves."""
+    for kind in ("baseline", "markov"):
+        for plan in ("never", "always"):
+            for horizon in (1, 2, 3):
+                limit = law.BINARY.tmle_limit(plan, horizon, q_history=kind)
+                assert limit == pytest.approx(
+                    law.BINARY.g_formula(plan, horizon, history=kind), abs=1e-12
+                ), (kind, plan, horizon)
+    # Nonzero witnesses: the rule's clever covariate reads ``Y_{t-1}``, which a coarse
+    # regression does not, so the fluctuation moves.  Where the coarse history already holds
+    # ``Y_{t-1}`` and the regression is the truth (markov at t = 2), it stays inert.
+    moved = {
+        (kind, horizon): abs(
+            law.BINARY.tmle_limit(law.RULE, horizon, q_history=kind)
+            - law.BINARY.g_formula(law.RULE, horizon, history=kind)
+        )
+        for kind in ("baseline", "markov")
+        for horizon in (2, 3)
+    }
+    assert moved["markov", 3] > 0.005
+    assert moved["baseline", 2] > 0.005
+    assert moved["baseline", 3] > 0.001
+    assert moved["markov", 2] < 1e-12
+
+
+@pytest.mark.parametrize("plan", ["never", "always", law.RULE, "reversed"])
+@pytest.mark.parametrize("kind", ["baseline", "markov", "full"])
+def test_the_tmle_limit_with_the_true_mechanisms_is_the_truth(plan: str, kind: str) -> None:
+    """Double robustness, an independent check of the functional.
+
+    With the generating mechanisms the one-step limit equals the truth whatever the outcome
+    regression reads, and the coarse plug-in does not.
+    """
+    for horizon in (2, 3):
+        truth = law.BINARY.counterfactual(plan, horizon)
+        limit = law.BINARY.tmle_limit(plan, horizon, q_history=kind, mechanisms="true")
+        assert limit == pytest.approx(truth, abs=1e-10)
+    if kind != "full":
+        plug_in = law.BINARY.g_formula(plan, 3, history=kind)
+        assert abs(plug_in - law.BINARY.counterfactual(plan, 3)) > 0.01
 
 
 def _control_designs() -> list[tuple[str, str, float, float, int]]:

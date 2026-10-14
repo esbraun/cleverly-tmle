@@ -263,8 +263,9 @@ print(means.curve(scale="mean")[["estimand", "psi", "ci_lower", "ci_upper"]])
 | missing `Y_t` on an uncensored row | refused. Encode the loss as `C_t = 0` |
 | `SDR` and `IPSI` | refused before any learner |
 
-`truth` holds the exact mean at each horizon, under the names the fit reports. The generator sets
-every node to binary, so the fit can check its curve against `truth`.
+`truth` holds the exact mean at each horizon, under the names the fit reports. In the generator, `W`
+takes three values and every later node is binary. The fit can therefore check its curve against
+`truth`.
 [Repeated outcomes](../technical-reference/longitudinal-tmle.md#repeated-outcomes) gives the
 estimator, its conditions, and its evidence. The
 [repeated-outcome study](../technical-reference/method-evidence/repeated-outcome-longitudinal-tmle.md)
