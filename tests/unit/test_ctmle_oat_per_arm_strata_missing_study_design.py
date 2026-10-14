@@ -465,8 +465,8 @@ def test_the_tail_fits_are_rare() -> None:
 
     A tail fit has a standard error above twice the empirical SD of its cell.  The ladder's
     smallest rung holds 3 of 800, and the strata cells, whose smallest class is about 59
-    nonrespondents, hold 2 of 800 (replications 271 and 605).  They raise the ``S = 2`` mean SE
-    ratio above its median by about 5%.
+    nonrespondents, hold 2 of 800 (replications 271 and 605).  They raise the mean SE ratio of
+    the ``S = 2`` contrasts 5% to 7% above its median.
     """
     spread = properties.se_ratio_spread(_committed("property-replicates.csv.gz"))
     spread = spread.set_index("cell")

@@ -95,7 +95,8 @@ gives its expected count per stratum, arm, fold and factor: 9.9 at the dropped `
 ``n = 4,000`` and 157.9 at ``n = 8,000``.  The restated condition sets no floor, because the
 declared ladder does not hold 100.  :func:`se_ratio_spread` reads the measured consequence: a
 tail of 3 in 800 fits at ``n = 2,000`` and none above it, and 2 in 800 in the
-``strata_missing`` cells, which lift the ``S = 2`` mean SE ratio about 5% above its median.
+``strata_missing`` cells, which lift the mean SE ratio of the ``S = 2`` contrasts 5% to 7%
+above its median.
 """
 
 from __future__ import annotations

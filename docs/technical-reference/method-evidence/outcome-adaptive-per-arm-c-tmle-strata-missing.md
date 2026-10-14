@@ -250,8 +250,8 @@ standard error above twice the empirical SD of its cell. `se_ratio_spread` in
 | `ate__strata_missing_outcome_wrong` | 0.969 | 0.907 | 5 |
 
 In the `strata_missing` cells, the two tail fits are replications 271 and 605. They lift the
-mean SE ratio of each $S = 2$ cell about 5% above its median. No other cell and no primary row has
-a tail fit.
+mean SE ratio of the $S = 2$ `ate`, `par` and `paf` cells 5% to 7% above its median. No cell
+outside the table and no primary row has a tail fit.
 
 ## Measured values
 
