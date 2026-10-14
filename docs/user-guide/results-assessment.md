@@ -982,10 +982,16 @@ The saved artifact carries the assessment cache. A result you derive with `datac
 does not. The cache key records the operation and its arguments, and it records nothing about the
 result that answered them, so a derived result starts with an empty cache of its own.
 
-The joblib artifact contains the complete result graph, including nuisance estimator templates,
-so successfully restored results retain refit-based assessment. Joblib uses pickle internally:
-loading can execute arbitrary code, so load only trusted artifacts in an environment with
-compatible sklearn, Python, and third-party estimator versions.
+The artifact contains the complete result graph, including nuisance estimator templates, so
+successfully restored results retain refit-based assessment. `save()` writes the graph with
+`cloudpickle`. It saves an importable function or class by reference. It saves a lambda, a
+closure, and an object defined in a notebook or in `__main__` by value. A result therefore keeps
+the rules, policy densities, and learners that you wrote inline. A by-value object loads only
+under the Python minor version that saved it.
+
+The loader is `joblib.load`, which uses pickle. Loading can execute arbitrary code, so load only
+trusted artifacts. Use an environment with the same Python minor version and compatible sklearn
+and third-party estimator versions.
 
 `result.save()` records the `cleverly` version that wrote the artifact. When another version saved
 it, `cleverly.load()` warns with `VersionMismatchWarning` and loads the artifact as saved. The load
