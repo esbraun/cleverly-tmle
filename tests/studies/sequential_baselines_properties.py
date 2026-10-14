@@ -19,9 +19,10 @@ family                         cells, replications and size
 ``misspecification_control``   K1: ``treat_all vs treat_none`` on ``X`` for each estimator, n = 2,000,
                                :data:`CALIBRATION_REPLICATES`; it publishes the positive
                                calibration rule, and red is the declared outcome
-``fixed_mechanism_se``         K2: on the ``G`` calibration draws, the IPW standard error with a
-                               fixed mechanism (no mechanism term), for Hajek and HT
-``first_node_se``              K3: on the same draws, the ICE standard error of
+``fixed_mechanism_se``         K2: on the ``G`` and ``D2`` calibration draws, the IPW standard
+                               error with a fixed mechanism (no mechanism term), for Hajek and HT;
+                               on ``D2`` the targets ``static_12``, ``policy`` and ``rule``
+``first_node_se``              K3: on the ``G`` draws, the ICE standard error of
                                :math:`w (\bar Q_1 - \psi)` alone
 ``adaptive_learners``          A: ``treat_all vs treat_none`` on ``X`` with the default learner library,
                                ICE and IPW-Hajek on the same draws, at n = 1,000,
@@ -30,26 +31,39 @@ family                         cells, replications and size
 
 **Rules.**  ``interval_calibration`` reads the shared calibration rule: the 99% bootstrap
 interval of the SE ratio inside (0.93, 1.07) and the 99% coverage interval inside (0.92, 0.98).
-There is no efficiency band: a parametric plug-in is not the efficient estimator of the
-nonparametric model, so :attr:`StudyRecord.calibration_efficiency_ratio` is ``False``, and the
-noise control's scale is :data:`NOISE_SD`, one pilot sampling SD at the cell's size.
-``root_n_and_efficiency`` reads the shared ladder rule.  ``misspecification_control`` publishes
-the positive rule: it is in ``EXPECTED_RED``, and the design test shows the failure is powered.
+A positive cell also needs its 99% standardized-bias interval inside 0.25 SD
+(``bias_equivalent``).  The shared rule reads no bias, and a 0.3 SD bias keeps coverage inside
+its band at this R.  There is no efficiency band: a parametric plug-in is not the efficient
+estimator of the nonparametric model, so :attr:`StudyRecord.calibration_efficiency_ratio` is
+``False``, and the noise control's scale is :data:`NOISE_SD`, one pilot sampling SD at the
+cell's size.  ``root_n_and_efficiency`` reads the shared ladder rule.
+``misspecification_control`` publishes the positive rule: it is in ``EXPECTED_RED``, and the
+design test shows the failure is powered.
+
 ``fixed_mechanism_se`` and ``first_node_se`` carry a predicted direction: the fixed-mechanism
 ratio above 1 (Lunceford and Davidian 2004, Section 3.1) and the first-node ratio below 1.  A
-cell in :data:`GATED_DIRECTIONS` passes when its whole SE-ratio interval lies on the predicted
-side of 1; the design test lists only cells whose direction is powered.  The others, and
-``adaptive_learners``, publish no verdict.
+cell in :data:`GATED_DIRECTIONS` passes when its whole SE-ratio interval leaves the
+calibration band on the predicted side.  That reading shows the calibration instrument would
+catch a dropped mechanism term (K2) or a dropped chain (K3).  The design test gates a cell
+only where its predictive power is at least 0.95, and it lists every such cell; the others
+report.  K3 is a property of the law, not of the estimator, so it cannot fail for a broken
+estimator.  On ``D2`` Hajek's mechanism term moves its SE by about 1%, so only HT's ``D2`` cells
+carry the multinomial mechanism evidence.  ``adaptive_learners`` publishes no verdict.
 
-A replicate whose fit raises a recordable error is recorded by
+Every fit's inference status is checked before its row is written (``fit_set_rows``).
+
+**Failures.**  A replicate whose fit raises a recordable error is recorded by
 :func:`~tests.studies.evidence.replication.fit_replicates` and never redrawn.  The shared
-property summary refuses a cell that lost a replicate, so any failure stops the publication with
-its records; :data:`FAILURE_BOUND` is the declared bound per cell for the accounting.
+property summary refuses a cell that lost a replicate, so the declared 0.01 bound
+(:data:`FAILURE_BOUND`) is not yet operative here.  The declared route: a recordable
+``DataError`` in the property phase stops it with its records.  The phase then reruns unchanged
+(laws, n, R and seeds) once RM39b2 makes the 0.01 bound operative, with the failures accounted
+under its rule.  No size, law or seed moves.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -73,6 +87,7 @@ from tests.studies.evidence.property_verdicts import (
     calibration_controls,
     calibration_verdicts,
     finish,
+    se_ratio_leaves_band,
 )
 from tests.studies.evidence.seeds import stream_seed
 
@@ -139,13 +154,16 @@ NOISE_SD: dict[str, float] = {
     "ice_gm_contrast": 0.7108,
     "ice_gm_down": 1.268,
 }
-#: The K2 and K3 cells whose predicted direction the design test shows to be powered.
-GATED_DIRECTIONS: dict[str, str] = {
-    **{
-        f"{estimator}_g_{key}__fixed_mechanism": "above"
-        for estimator in ("hajek", "ht")
-        for key in study.G_REPORTED
-    },
+#: Every K2 and K3 cell whose predicted side of the calibration band the design test shows
+#: powered (predictive power >= 0.95 at :data:`CALIBRATION_REPLICATES`).  The other K2 cells
+#: report: Hajek on ``D2`` and on ``G``'s levels, and HT's ``treat_all`` on ``G``.
+GATED_DIRECTIONS: dict[str, Literal["below", "above"]] = {
+    "hajek_g_contrast__fixed_mechanism": "above",
+    "ht_g_treat_none__fixed_mechanism": "above",
+    "ht_g_contrast__fixed_mechanism": "above",
+    "ht_d2_static_12__fixed_mechanism": "above",
+    "ht_d2_policy__fixed_mechanism": "above",
+    "ht_d2_rule__fixed_mechanism": "above",
     **{f"ice_g_{key}__first_node": "below" for key in study.G_REPORTED},
 }
 
@@ -297,8 +315,22 @@ def _row(
     )
 
 
+def _target_names(estimator: str, prefix: str) -> list[str]:
+    return [
+        TARGETS[label][0]
+        for label in study.CALIBRATION_LABELS
+        if label.startswith(f"{estimator}_{prefix}_")
+    ]
+
+
 def fit_set_rows(fit_set: str, replicate: int, frame: pd.DataFrame) -> list[dict[str, Any]]:
-    """Every row one draw of one fit set publishes."""
+    """Every row one draw of one fit set publishes.
+
+    Each fit's inference status is checked before a row is written
+    (:func:`~tests.studies.canonical_sequential_baselines.require_status`): ``influence_curve``
+    on every calibration, ladder and K1 fit, and ``adaptive_baseline_plugin`` on the K2 and A
+    fits.  A mismatch stops the run rather than calibrating the wrong curve.
+    """
     law, n, requested = FIT_SETS[fit_set]
     rows: list[dict[str, Any]] = []
     calibration = "interval_calibration"
@@ -309,11 +341,11 @@ def fit_set_rows(fit_set: str, replicate: int, frame: pd.DataFrame) -> list[dict
 
     if fit_set.startswith("ladder_"):
         prefix = fit_set.split("_")[1]
-        role = "positive"
         for estimator in ESTIMATORS:
             result = study.fit(estimator, law, frame)
             label = f"{estimator}_{prefix}_contrast"
-            add("root_n_and_efficiency", f"{label}__n_{n}", role, label, result)
+            study.require_status(result, [TARGETS[label][0]], study.INFERENTIAL)
+            add("root_n_and_efficiency", f"{label}__n_{n}", "positive", label, result)
         return rows
     if fit_set.startswith("adaptive_"):
         name, truth = TARGETS["ice_x_contrast"]
@@ -322,6 +354,7 @@ def fit_set_rows(fit_set: str, replicate: int, frame: pd.DataFrame) -> list[dict
             "hajek": study.fit("hajek", "X", frame, mechanism=SuperLearner(random_state=0)),
         }
         for estimator, result in fits.items():
+            study.require_status(result, [name], study.DIAGNOSTIC)
             rows.append(
                 _row(
                     "adaptive_learners",
@@ -339,12 +372,14 @@ def fit_set_rows(fit_set: str, replicate: int, frame: pd.DataFrame) -> list[dict
         for estimator in ESTIMATORS:
             result = study.fit(estimator, "X", frame)
             label = f"{estimator}_x_contrast"
+            study.require_status(result, [TARGETS[label][0]], study.INFERENTIAL)
             add("misspecification_control", f"{label}__main_terms", "control", label, result)
         return rows
     prefix = {"D2": "d2", "G": "g", "D2S": "d2s", "D2C": "d2c", "GM": "gm"}[law]
     estimators = ("ice",) if law == "GM" else ESTIMATORS
     for estimator in estimators:
         result = study.fit(estimator, law, frame)
+        study.require_status(result, _target_names(estimator, prefix), study.INFERENTIAL)
         for label in study.CALIBRATION_LABELS:
             if label.startswith(f"{estimator}_{prefix}_"):
                 add(calibration, f"{label}__correctly_specified", "positive", label, result)
@@ -365,14 +400,17 @@ def fit_set_rows(fit_set: str, replicate: int, frame: pd.DataFrame) -> list[dict
                         role=DIAGNOSTIC_ROLE,
                     )
                 )
-        if law == "G" and estimator != "ice":
+        if law in study.K2_TARGETS and estimator != "ice":
             fixed = study.fit(estimator, law, frame, mechanism=study.FixedMechanismGLM())
-            for key in study.G_REPORTED:
-                name, truth = TARGETS[f"{estimator}_g_{key}"]
+            keys = study.K2_TARGETS[law]
+            names = [TARGETS[f"{estimator}_{prefix}_{key}"][0] for key in keys]
+            study.require_status(fixed, names, study.DIAGNOSTIC)
+            for key in keys:
+                name, truth = TARGETS[f"{estimator}_{prefix}_{key}"]
                 rows.append(
                     _row(
                         "fixed_mechanism_se",
-                        f"{estimator}_g_{key}__fixed_mechanism",
+                        f"{estimator}_{prefix}_{key}__fixed_mechanism",
                         DIAGNOSTIC_ROLE,
                         replicate,
                         n,
@@ -384,6 +422,7 @@ def fit_set_rows(fit_set: str, replicate: int, frame: pd.DataFrame) -> list[dict
         if law == "D2" and estimator in ("ice", "hajek"):
             weighted = study.fit(estimator, law, frame, weights="w")
             label = f"{estimator}_d2w_static_12"
+            study.require_status(weighted, [TARGETS[label][0]], study.INFERENTIAL)
             add(calibration, f"{label}__correctly_specified", "positive", label, weighted)
     return rows
 
@@ -439,16 +478,18 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             "misspecification_x",
             label,
         )
-    for estimator in ("hajek", "ht"):
-        for key in study.G_REPORTED:
-            label = f"{estimator}_g_{key}"
-            add(
-                "fixed_mechanism_se",
-                f"{label}__fixed_mechanism",
-                DIAGNOSTIC_ROLE,
-                "calibration_g",
-                label,
-            )
+    for k2_law, keys in study.K2_TARGETS.items():
+        k2_prefix = k2_law.lower()
+        for estimator in ("hajek", "ht"):
+            for key in keys:
+                label = f"{estimator}_{k2_prefix}_{key}"
+                add(
+                    "fixed_mechanism_se",
+                    f"{label}__fixed_mechanism",
+                    DIAGNOSTIC_ROLE,
+                    f"calibration_{k2_prefix}",
+                    label,
+                )
     for key in study.G_REPORTED:
         add(
             "first_node_se",
@@ -579,12 +620,13 @@ def _own_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
             )
             continue
         side = GATED_DIRECTIONS.get(cell)
-        if side is None:
-            summary.loc[index, "passed"] = True
-        elif side == "above":
-            summary.loc[index, "passed"] = bool(ratio.low > 1.0)
-        else:
-            summary.loc[index, "passed"] = bool(ratio.high < 1.0)
+        # A gated cell must leave the calibration band on its predicted side, so it shows that
+        # the calibration instrument would catch the dropped term.  Other cells report only.
+        summary.loc[index, "passed"] = (
+            True
+            if side is None
+            else se_ratio_leaves_band(ratio, margins.calibration_se_ratio, side)
+        )
     reported = summary["property"] == "adaptive_learners"
     summary.loc[reported, "passed"] = True
 
@@ -596,6 +638,15 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     )
     summary, rates = apply_shared_verdicts(rows, STUDY, rate_labels=labels)
     calibration_verdicts(summary, margins=STUDY.margins)
+    # The bias leg (design review B2): the shared calibration rule reads the SE ratio and
+    # coverage only, and a bias of 0.3 SD keeps coverage inside its band at this R.  Every
+    # positive calibration cell also needs its 99% bias interval inside 0.25 SD.
+    positive = (summary["property"] == "interval_calibration") & summary["cell"].str.endswith(
+        "__correctly_specified"
+    )
+    summary.loc[positive, "passed"] = summary.loc[positive, "passed"].astype(bool) & summary.loc[
+        positive, "bias_equivalent"
+    ].astype(bool)
     _own_verdicts(summary, rows)
     return finish(summary, rates)
 

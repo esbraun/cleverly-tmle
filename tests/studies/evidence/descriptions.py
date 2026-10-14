@@ -2600,13 +2600,12 @@ CELLS.update(
         ),
         ("fixed_mechanism_se", "fixed_mechanism"): (
             "the mechanism is fitted, and the standard error omits its estimation term",
-            "reported; a predicted direction above 1 is gated only where the design test shows "
-            "it powered",
+            "where gated, the SE-ratio interval must rise above the calibration band; "
+            "otherwise reported",
         ),
         ("first_node_se", "first_node"): (
             "the spread of the first-node term alone, without the later chain terms",
-            "reported; a predicted direction below 1 is gated only where the design test shows "
-            "it powered",
+            "the SE-ratio interval must fall below the calibration band",
         ),
         **{
             ("adaptive_learners", f"n_{size}"): (

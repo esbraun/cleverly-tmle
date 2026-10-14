@@ -34,7 +34,13 @@ outcome regression is main-terms logistic in :math:`(W, L_2)` among the follower
 plan or of the rule :data:`D2_RULE`, which reads :math:`L_1` and :math:`L_2` only; at the policy
 node it needs :math:`L_2 \times` arm, which ``GLM(interactions=2)`` holds.  The node-1
 regression is a function of :math:`(W, L_1)`, which ``GLM(interactions=2)`` saturates.  The
-design test checks every one of these claims at population weights, to ``1e-10``.
+design test checks the points at population weights, to ``1e-10``.  That check is blind at
+node 1: the node-1 follower weight is a function of the binary :math:`L_1`, which the design
+spans, so a node-1 regression with an intercept is exact at the population for any
+specification.  Main-terms ``GLM()`` without interactions is exact for ``static_12``,
+``static_00`` and the rule, and only the policy node discriminates (the design test's negative
+witness).  A non-saturated binomial ICE node 1 is therefore a blind spot of this study; the fast
+tier covers it on laws with a continuous baseline (W6, W10).
 
 On ``G`` every conditional mean of the recursion is linear in the history for a static plan
 and for the rule :math:`A_t = V`, so main-terms ``GLM(family="gaussian")`` is exact, and every

@@ -4,7 +4,11 @@ Every number here is fixed before any registered run.  The conditions are those 
 ``X41-plan.md`` section 5.1: (a) exact specification of each declared GLM, (b) MLE existence
 at the ladder's first size, (c) the K1 power, (d) the K2 and K3 predicted ratios and (e) the
 calibration replicate count.  The cheap conditions are recomputed here.  The pilots of (b) to
-(e) are pinned: their scripts and saved outputs are named beside each table.
+(e) are pinned.  Their scripts and saved outputs are in
+``cleverly-beta-plans/reviews/x41/design-pilot/``: ``mle_probe.py`` and ``d2c_size.py`` with
+``mle/`` for (b), ``pilot.py`` with ``pilot/`` and ``sizing.py`` with ``finalize.py`` and
+``finalize.out`` for (c) to (e), ``adaptive_cost.py`` for cell A, and the design review's
+confirming reads under ``review/``.
 """
 
 from __future__ import annotations
@@ -16,8 +20,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+from scipy.special import expit
 from scipy.stats import chi2, norm
+from sklearn.base import BaseEstimator, ClassifierMixin
 
+from cleverly.learners import GLM
 from tests.studies import canonical_sequential_baselines as study
 from tests.studies import sequential_baselines_laws as laws
 from tests.studies import sequential_baselines_properties as properties
@@ -65,6 +72,15 @@ PILOT: dict[str, tuple[int, float, float, float, float]] = {
     "first_node_se/ice_g_contrast__first_node": (400, 0.035, 0.4198, 0.1257, 2.7709),
     "first_node_se/ice_g_treat_all__first_node": (400, 0.2418, 0.0847, 0.0818, 2.063),
     "first_node_se/ice_g_treat_none__first_node": (400, 0.2407, 0.087, -0.0863, 2.0801),
+    "fixed_mechanism_se/hajek_d2_policy__fixed_mechanism": (400, 0.9889, 0.018, -0.0039, 0.8512),
+    "fixed_mechanism_se/hajek_d2_rule__fixed_mechanism": (400, 1.0442, 0.0312, -0.0652, 1.3488),
+    "fixed_mechanism_se/hajek_d2_static_12__fixed_mechanism": (
+        400,
+        1.0301,
+        0.0276,
+        -0.0319,
+        1.2719,
+    ),
     "fixed_mechanism_se/hajek_g_contrast__fixed_mechanism": (400, 1.1766, 0.0632, 0.1343, 3.4405),
     "fixed_mechanism_se/hajek_g_treat_all__fixed_mechanism": (400, 1.0799, 0.0861, 0.1026, 2.6414),
     "fixed_mechanism_se/hajek_g_treat_none__fixed_mechanism": (
@@ -74,6 +90,9 @@ PILOT: dict[str, tuple[int, float, float, float, float]] = {
         -0.0708,
         2.6979,
     ),
+    "fixed_mechanism_se/ht_d2_policy__fixed_mechanism": (400, 1.2677, 0.0302, -0.0137, 0.8448),
+    "fixed_mechanism_se/ht_d2_rule__fixed_mechanism": (400, 1.1789, 0.0476, -0.0191, 1.6249),
+    "fixed_mechanism_se/ht_d2_static_12__fixed_mechanism": (400, 1.3924, 0.0434, -0.0479, 1.3095),
     "fixed_mechanism_se/ht_g_contrast__fixed_mechanism": (400, 1.3778, 0.0774, 0.1072, 4.1558),
     "fixed_mechanism_se/ht_g_treat_all__fixed_mechanism": (400, 1.0867, 0.0992, 0.0947, 2.6486),
     "fixed_mechanism_se/ht_g_treat_none__fixed_mechanism": (400, 1.3787, 0.1, -0.0543, 3.5863),
@@ -429,11 +448,12 @@ def _support_fit(estimator: str, law: str, *, weighted: bool = False) -> Any:
 
 @pytest.mark.parametrize("estimator", study.ESTIMATORS)
 def test_every_discrete_cell_is_exact_at_population_weights(estimator: str) -> None:
-    """(a) D2, D2S, D2C and the weighted D2: each declared GLM reproduces the truth.
+    """(a) D2, D2S, D2C and the weighted D2: each declared fit reproduces the truth.
 
-    At population weights each fit is the population fit.  A point equal to the truth to
-    ``1e-10`` shows that every outcome regression and mechanism the estimator reads is
-    correctly specified.
+    At population weights each fit is the population fit, so each point equals the truth to
+    ``1e-10``.  The check is blind at node 1: the follower weight there is a function of the
+    binary :math:`L_1`, so any node-1 regression with an intercept is exact.  The witnesses
+    below show which nodes it does discriminate.
     """
     prefixes = {"d2": "D2", "d2s": "D2S", "d2c": "D2C", "d2w": "D2"}
     fits: dict[str, Any] = {}
@@ -448,6 +468,54 @@ def test_every_discrete_cell_is_exact_at_population_weights(estimator: str) -> N
         assert abs(fits[prefix][name].psi - truth) < 1e-10, label
         checked += 1
     assert checked == {"ice": 10, "hajek": 10, "ht": 9}[estimator]
+
+
+class _OmitLastColumnGLM(BaseEstimator, ClassifierMixin):
+    """A main-terms ``GLM`` without the last history column: a wrong mechanism."""
+
+    def fit(self, x: Any, y: Any, sample_weight: Any = None) -> _OmitLastColumnGLM:
+        self.model_ = GLM().fit(np.asarray(x)[:, :-1], y, sample_weight=sample_weight)
+        self.classes_ = self.model_.classes_
+        return self
+
+    def predict_proba(self, x: Any) -> Any:
+        return self.model_.predict_proba(np.asarray(x)[:, :-1])
+
+    def predict(self, x: Any) -> Any:
+        return self.model_.predict(np.asarray(x)[:, :-1])
+
+
+def test_the_exactness_check_sees_a_wrong_policy_node_and_a_wrong_mechanism() -> None:
+    """Negative witnesses for (a).
+
+    Main-terms ``GLM()`` outcome regressions stay exact for the static plans and the rule (the
+    node-1 span), and miss only at the policy node, by about 8e-3.  A mechanism without one
+    history column misses for both IPW normalizations.
+    """
+    frame = laws.D2.support_frame.copy()
+    frame["w"] = frame["prob"]
+    main_terms = study.fit("ice", "D2", frame, weights="w", outcome=GLM())
+    for key in ("static_12", "static_00", "rule"):
+        name, truth = properties.TARGETS[f"ice_d2_{key}"]
+        assert abs(main_terms[name].psi - truth) < 1e-10, key
+    name, truth = properties.TARGETS["ice_d2_policy"]
+    assert abs(main_terms[name].psi - truth) > 1e-3
+    for estimator, key in (("hajek", "static_00"), ("ht", "static_12")):
+        wrong = study.fit(estimator, "D2", frame, weights="w", mechanism=_OmitLastColumnGLM())
+        name, truth = properties.TARGETS[f"{estimator}_d2_{key}"]
+        assert abs(wrong[name].psi - truth) > 1e-3, estimator
+
+
+def test_the_fixed_mechanism_wrapper_keeps_the_point_and_drops_the_interval() -> None:
+    """K2's wrapper refits the same ``GLM``: the point is identical and the status diagnostic."""
+    frame = laws.G.sample(2_000, LARGE_SEED)
+    for estimator in ("hajek", "ht"):
+        stacked = study.fit(estimator, "G", frame)
+        fixed = study.fit(estimator, "G", frame, mechanism=study.FixedMechanismGLM())
+        assert stacked.inference_status == study.INFERENTIAL
+        assert fixed.inference_status == study.DIAGNOSTIC
+        for name in study.G_ESTIMANDS:
+            assert fixed[name].psi == stacked[name].psi, (estimator, name)
 
 
 def _g_q(law: laws.ContinuousLaw, node: int, frame: pd.DataFrame, arms: tuple) -> np.ndarray:
@@ -488,6 +556,9 @@ def _g_residual_moments(law: laws.ContinuousLaw) -> float:
 
 def test_the_g_regressions_are_linear_and_x_is_not() -> None:
     """(a) G: each ICE regression is the declared main-terms linear form.
+
+    The linearity is analytic (each :math:`L_t` is linear in the history plus independent
+    noise).  This Monte Carlo at a ``1e-3`` tolerance detects only a gross departure.
 
     The witness: X's outcome carries ``0.4 L_3^2``, so the same check is far outside the
     tolerance there.
@@ -537,41 +608,66 @@ def test_the_closed_form_truths_match_the_samplers() -> None:
             assert abs(float(np.mean(y)) - truths[label]) < 4 * error, (law.name, label)
 
 
-def test_q_bounds_hold_the_outcome_and_g_bounds_never_bind() -> None:
+#: The smallest true cumulative mechanism product along a follower of each ``G`` plan, over
+#: the ``LARGE_N`` draw at ``LARGE_SEED``.  ``g_bounds`` acts on this cumulative product.
+G_CUMULATIVE_MINIMUM = {"treat_all": 0.020357, "treat_none": 0.026019, "rule": 0.020357}
+
+
+def _g_cumulative_minimum(law: laws.ContinuousLaw) -> dict[str, float]:
+    frame = law.sample(LARGE_N, LARGE_SEED)
+    v, w = frame["V"].to_numpy(), frame["W"].to_numpy()
+    out = {}
+    for label, arms in laws.G_PLANS.items():
+        product = np.ones(LARGE_N)
+        followed = np.ones(LARGE_N, dtype=bool)
+        previous = np.zeros(LARGE_N)
+        low = 1.0
+        for t in range(1, laws.G_TIMES + 1):
+            l = frame[f"L{t}"].to_numpy()
+            target = v if arms[t - 1] == "V" else np.full(LARGE_N, float(arms[t - 1]))
+            treated = expit(law.treatment_logit(w, v, l, previous))
+            retained = expit(law.retention_logit(w, l, target))
+            product = product * np.where(target == 1, treated, 1 - treated) * retained
+            low = min(low, float(product[followed].min()))
+            followed &= (frame[f"A{t}"].to_numpy() == target) & (frame[f"C{t}"].to_numpy() == 1)
+            previous = target
+        out[label] = low
+    return out
+
+
+def test_q_bounds_hold_the_outcome() -> None:
     for law in (laws.G, laws.X):
         frame = law.sample(LARGE_N, LARGE_SEED)
         low, high = law.q_bounds()
         y = frame["Y"].dropna()
         assert low <= y.min() and y.max() <= high
         assert low < law.outcome_support()[0] + 1e-6
-        # The mechanisms' smallest probability over a large draw, far above the 0.01 bound.
-        for t in range(1, laws.G_TIMES + 1):
-            seen = frame[f"L{t}"].notna()
-            a_prev = frame[f"A{t - 1}"] if t > 1 else pd.Series(0.0, index=frame.index)
-            p = 1.0 / (
-                1.0 + np.exp(-law.treatment_logit(frame["W"], frame["V"], frame[f"L{t}"], a_prev))
-            )
-            r = 1.0 / (
-                1.0 + np.exp(-law.retention_logit(frame["W"], frame[f"L{t}"], frame[f"A{t}"]))
-            )
-            assert min(p[seen].min(), 1 - p[seen].max(), r[seen].min()) > 2 * study.G_BOUNDS[0]
     low, high = laws.gm_outcome_support()
     assert study.CONFIGURATION["q_bounds"]["GM"] == [low, high]  # type: ignore[index]
     y = laws.gm_sample(LARGE_N, LARGE_SEED)["Y"]
     assert low <= y.min() and y.max() <= high
+
+
+def test_the_true_cumulative_mechanism_stays_above_the_g_bound() -> None:
+    """``g_bounds`` acts on the cumulative product, so the true product is what must clear it.
+
+    On the ``D2`` family the minimum over the support is exact (0.056).  On ``G`` it is the
+    minimum over a large draw (about 0.020): the margin over 0.01 is about two, so a fitted
+    product at n = 2,000 can cross the bound on a corner row.  The study reads that as the
+    shipped behaviour, and the claim is "rarely binds", not "never".
+    """
     for discrete in (laws.D2, laws.D2S, laws.D2C):
-        smallest = 1.0
+        low = 1.0
         for l1, a1, l2 in itertools.product((0, 1), repeat=3):
-            smallest = min(
-                smallest,
-                discrete.p_a1(l1),
-                1 - discrete.p_a1(l1),
-                discrete.p_c1(l1, a1),
-                float(np.min(discrete.g2(l2, a1))),
-            )
+            first = (discrete.p_a1(l1) if a1 else 1 - discrete.p_a1(l1)) * discrete.p_c1(l1, a1)
+            low = min(low, first)
             for a2 in range(discrete.arms):
-                smallest = min(smallest, discrete.p_c2(l2, a2))
-        assert smallest > 0.05, discrete.name
+                second = float(discrete.g2(l2, a1)[a2]) * discrete.p_c2(l2, a2)
+                low = min(low, first * second)
+        assert low > 5 * study.G_BOUNDS[0], discrete.name
+    measured = _g_cumulative_minimum(laws.G)
+    assert measured == pytest.approx(G_CUMULATIVE_MINIMUM, abs=1e-6)
+    assert min(measured.values()) > 2 * study.G_BOUNDS[0]
 
 
 # -------------------------------------------------------------------- (b) MLE existence
@@ -700,24 +796,65 @@ def test_the_k1_cells_fail_with_the_declared_power() -> None:
 
 
 def _direction_power(cell: str, side: str) -> float:
-    """The chance the whole 99% SE-ratio interval lies on ``side`` of 1 at ``R``."""
-    _, ratio, noise = PILOT[cell][:3]
+    """The predictive chance that the 99% SE-ratio interval leaves the band on ``side``.
+
+    The true ratio is uncertain: normal about the pilot point with the pilot's sampling
+    variance.  The estimate at ``R`` adds its own variance, and the interval is that estimate
+    plus or minus ``z`` of its own spread.
+    """
+    k, ratio, noise = PILOT[cell][:3]
     replicates = properties.CALIBRATION_REPLICATES
     spread = ratio * math.sqrt(1.0 / (2.0 * (replicates - 1)) + noise**2 / replicates)
+    pilot = ratio * math.sqrt(1.0 / (2.0 * (k - 1)) + noise**2 / k)
+    total = math.sqrt(spread**2 + pilot**2)
     z = float(norm.ppf(0.995))
+    low, high = study.STUDY.margins.calibration_se_ratio
     if side == "above":
-        return float(norm.cdf((ratio - z * spread - 1.0) / spread))
-    return float(norm.cdf((1.0 - z * spread - ratio) / spread))
+        return float(norm.cdf((ratio - z * spread - high) / total))
+    return float(norm.cdf((low - z * spread - ratio) / total))
 
 
 def test_the_k2_and_k3_directions_are_gated_only_where_powered() -> None:
-    """(d) K2 is predicted above 1 and K3 below 1; a cell is gated when its power >= 0.95."""
+    """(d) K2 is predicted above the band and K3 below it; gated where power >= 0.95."""
     powered = {}
     for family, side in (("fixed_mechanism_se", "above"), ("first_node_se", "below")):
         for cell in study.PROPERTY_CELLS[family]:
             if _direction_power(f"{family}/{cell}", side) >= POWER_FLOOR:
                 powered[cell] = side
     assert powered == properties.GATED_DIRECTIONS
+    assert all(cell in powered for cell in study.PROPERTY_CELLS["first_node_se"])
+
+
+#: Fresh-draw confirmations of the pilot's weakest cells (design review S5), at the declared
+#: size: ``cell -> (draws, SE ratio, coverage, bias over SD)``.  ``review/h1.py`` reads the
+#: closed form that the ICE fit equals at horizon 1; ``review/gice.py`` and ``review/gipw.py``
+#: refit the estimators on 1,400 draws of ``G`` at n = 2,000.
+CONFIRMING = {
+    "ice_d2s_risk_h1": (20_000, 0.9998, 0.950, 0.0003),
+    "ice_g_treat_all": (1_400, 1.0025, 0.9479, -0.013),
+    "ice_g_treat_none": (1_400, 0.9873, 0.9429, 0.007),
+    "ice_g_rule": (1_400, 1.0112, 0.9521, -0.009),
+    "ice_g_contrast": (1_400, 0.9987, 0.9521, -0.015),
+    "hajek_g_treat_all": (1_400, 1.0031, 0.9429, -0.017),
+    "hajek_g_treat_none": (1_400, 0.9691, 0.9436, -0.019),
+    "hajek_g_rule": (1_400, 0.9933, 0.9564, -0.013),
+    "hajek_g_contrast": (1_400, 0.9891, 0.9514, 0.002),
+    "ht_g_treat_all": (1_400, 1.0056, 0.9429, -0.026),
+    "ht_g_treat_none": (1_400, 0.9764, 0.9421, -0.011),
+    "ht_g_rule": (1_400, 0.9852, 0.9507, -0.014),
+    "ht_g_contrast": (1_400, 0.9908, 0.9557, -0.007),
+}
+
+
+def test_the_weakest_pilot_cells_pass_at_their_confirmed_ratios() -> None:
+    """S5: at the confirmed ratios each of these cells passes at ``R`` with chance >= 0.99.
+
+    The arm-pooled rule's ``tau`` is 0 partly because cells of one law share pilot draws, so it
+    cannot see a cell-specific deficit.  These reads are the check that it does not hide one.
+    """
+    for label, (_, ratio, _, bias) in CONFIRMING.items():
+        noise = PILOT[f"interval_calibration/{label}__correctly_specified"][2]
+        assert _pass(properties.CALIBRATION_REPLICATES, ratio, noise, bias) >= 0.99, label
 
 
 def test_the_noise_control_scale_is_the_pilot_spread() -> None:

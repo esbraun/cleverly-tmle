@@ -7,8 +7,8 @@ in :mod:`tests.studies.sequential_baselines_laws`, and the property families in
 :mod:`tests.studies.sequential_baselines_properties`.
 
 This study is Python only.  It has no reference implementation: the R ``ltmle`` 1.3-0 parity
-(plan cell P) is a separate study that registers later (``tests/canonical/
-sequential_baselines_ltmle/``), so this record does not depend on it.  The fast-tier fixture
+(plan cell P) is a separate study that a later pull request registers, so this record does
+not depend on it.  The fast-tier fixture
 W9 already checks the two ``ltmle`` points on one panel.
 
 **Primary scenarios.**  The end-of-study laws ``D2`` and ``G``, one scenario per estimator, at
@@ -30,7 +30,9 @@ scenario                  estimands
 ``GLM(interactions=2)`` and every mechanism is ``GLM()`` (main terms).  On ``G``, ``X`` and
 ``GM`` the outcome regressions are ``GLM(family="gaussian")`` and every mechanism is ``GLM()``.
 ``q_bounds`` is the exact support of the outcome.  ``g_bounds`` is the shipped default
-``(0.01, 1)``; the design test shows that it never binds on ``D2`` or ``G``.
+``(0.01, 1)``.  The bound acts on the cumulative product of the mechanism factors along a
+follower.  The design test computes its true minimum on ``D2`` and on a large ``G`` draw
+(about 0.019 on ``G``), so the bound binds only where a fitted product crosses 0.01.
 
 **Red-cell reading** (declared before any run).  The study publishes under ``reporting``.  The
 declared red set is :data:`EXPECTED_RED`: the K1 cells of law ``X``, where every main-terms GLM
@@ -205,6 +207,36 @@ class FixedMechanismGLM(BaseEstimator, ClassifierMixin):
         return self.model_.predict(x)
 
 
+class StatusMismatch(AssertionError):
+    """A fit stamped an inference status that its cell does not read.
+
+    An ``AssertionError`` is not a recordable fitting failure
+    (:func:`cleverly.validation._failures.recordable`), so it stops the run.  A replicate row
+    reads ``plugin_std_error`` under any status, so a silently degraded status would calibrate
+    the wrong curve, and the rows could not show it afterwards.
+    """
+
+
+#: The status of a fit whose every regression is a ``GLM`` the stacked curve reads.
+INFERENTIAL = "influence_curve"
+#: The status of a fit with a regression the curve does not read (K2 and cell A).
+DIAGNOSTIC = "adaptive_baseline_plugin"
+
+
+def require_status(result: Any, names: Any, expected: str) -> None:
+    """Raise :class:`StatusMismatch` unless the fit and each read parameter carry ``expected``."""
+    if result.inference_status != expected:
+        raise StatusMismatch(f"fit status {result.inference_status!r}, expected {expected!r}")
+    for name in names:
+        estimate = result[name]
+        supplies = expected == INFERENTIAL
+        if estimate.inference != expected or bool(estimate.supplies_inference) != supplies:
+            raise StatusMismatch(
+                f"{name}: status {estimate.inference!r} (supplies inference "
+                f"{estimate.supplies_inference}), expected {expected!r}"
+            )
+
+
 def law_settings(law: str) -> dict[str, Any]:
     """The regimens, reference, learners and node declaration of one law."""
     if law in ("D2", "D2S", "D2C", "D2B"):
@@ -361,6 +393,12 @@ LADDER_LABELS: tuple[str, ...] = tuple(
     f"{estimator}_{law}_contrast" for law in ("d2", "g") for estimator in ESTIMATORS
 )
 G_REPORTED = ("treat_all", "treat_none", "contrast")
+#: The K2 targets of each law.  On ``D2`` the multinomial node 2 carries the mechanism term;
+#: Hajek's term there moves its SE by about 1%, HT's by 17% to 46% (design review S2).
+K2_TARGETS: dict[str, tuple[str, ...]] = {
+    "G": G_REPORTED,
+    "D2": ("static_12", "policy", "rule"),
+}
 PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     "interval_calibration": tuple(
         f"{label}__{kind}"
@@ -379,9 +417,10 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
         f"{estimator}_x_contrast__main_terms" for estimator in ESTIMATORS
     ),
     "fixed_mechanism_se": tuple(
-        f"{estimator}_g_{name}__fixed_mechanism"
+        f"{estimator}_{law.lower()}_{name}__fixed_mechanism"
+        for law, names in K2_TARGETS.items()
         for estimator in ("hajek", "ht")
-        for name in G_REPORTED
+        for name in names
     ),
     "first_node_se": tuple(f"ice_g_{name}__first_node" for name in G_REPORTED),
     "adaptive_learners": tuple(
@@ -506,6 +545,7 @@ def _replicate(
     frame, truth = drawn
     law, estimator = scenario.split("_", 1)
     result = fit(estimator, law.upper(), frame)
+    require_status(result, SCENARIOS[scenario], INFERENTIAL)
     return result_rows(result, truth, scenario, replicate)
 
 
