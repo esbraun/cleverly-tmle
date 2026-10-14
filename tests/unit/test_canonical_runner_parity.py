@@ -275,6 +275,20 @@ def runner_manifests(runner: Path) -> tuple[Path, ...]:
     )
 
 
+#: The files a study directory holds before its first run: code, never a result.
+_DECLARATION_SUFFIXES = frozenset({".py", ".R", ".md"})
+
+
+def _published(directory: Path) -> bool:
+    """Whether a study directory holds a result: a manifest, or any file that is not code."""
+    return (directory / "manifest.json").exists() or any(
+        path.is_file()
+        and path.suffix not in _DECLARATION_SUFFIXES
+        and "__pycache__" not in path.parts
+        for path in directory.rglob("*")
+    )
+
+
 @pytest.mark.parametrize("runner", RUNNERS, ids=_label)
 def test_every_file_a_runner_sources_is_hashed_by_its_own_manifest(runner: Path) -> None:
     """A shared adapter is half of a comparator, so the manifest has to record it.
@@ -289,7 +303,12 @@ def test_every_file_a_runner_sources_is_hashed_by_its_own_manifest(runner: Path)
     This closes that direction.  A file the runner sources must be named in
     ``reference_sha256``, which makes adding one a deliberate act with a regeneration attached
     rather than an edit that quietly drops a source out of the record.
+
+    A study declared on main before its first run holds code and no result, so it has no
+    record to cover yet.  Its first run writes the manifest and arms this check.
     """
+    if runner.parent != CANONICAL and not _published(runner.parent):
+        pytest.skip(f"{_label(runner)} belongs to a declared study that has not run")
     manifests = runner_manifests(runner)
     assert manifests, f"no study manifest hashes {_label(runner)}"
     for path in manifests:
@@ -302,6 +321,18 @@ def test_every_file_a_runner_sources_is_hashed_by_its_own_manifest(runner: Path)
                 f"not cover the code that produced its rows. Add it to Reference.extra_files "
                 f"and regenerate"
             )
+
+
+def test_only_a_directory_without_any_result_counts_as_declared(tmp_path: Path) -> None:
+    """A study that published rows but lost its manifest still fails the check above."""
+    (tmp_path / "run_study.R").write_text("")
+    (tmp_path / "regenerate.py").write_text("")
+    assert not _published(tmp_path)
+    (tmp_path / "summary.csv").write_text("")
+    assert _published(tmp_path)
+    (tmp_path / "summary.csv").unlink()
+    (tmp_path / "manifest.json").write_text("{}")
+    assert _published(tmp_path)
 
 
 #: The two point-treatment adapters, which restate one transcription.
