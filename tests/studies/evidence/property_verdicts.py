@@ -1106,14 +1106,90 @@ def alternative_target_necessity_verdicts(
     mask = summary["property"] == family
     if not mask.any():
         return
-    if record.truth_varies_by_replicate:
-        raise ValueError(
-            f"{family} reads one alternative truth per label, and {record.slug} declares a "
-            "truth that varies by replication"
-        )
     missing = sorted(set(labels) - set(alternative_truths))
     if missing:
         raise ValueError(f"{family} has no alternative truth for {missing}")
+    if column not in summary:
+        summary[column] = np.nan
+
+    necessity_verdicts(
+        summary,
+        rows,
+        family=family,
+        labels=labels,
+        arms=arms,
+        column=column,
+        threshold=threshold,
+    )
+    control_arm = arms[1]
+    alternative_passed = alternative_target_verdicts(
+        summary,
+        rows,
+        record,
+        family=family,
+        alternative_truths={
+            f"{label}__{control_arm}": float(alternative_truths[label]) for label in labels
+        },
+    )
+
+    # ANDed into what the shared rule already decided, rather than recomputed beside it.
+    # ``necessity_verdicts`` has written the displacement clause and every row's own bias
+    # verdict; the only claim it cannot make is that the control reaches the target this
+    # study declares for it.
+    summary.loc[mask, "property_passed"] = bool(
+        summary.loc[mask, "property_passed"].all() and all(alternative_passed)
+    )
+
+
+def alternative_target_verdicts(
+    summary: pd.DataFrame,
+    rows: pd.DataFrame,
+    record: StudyRecord,
+    *,
+    family: str,
+    alternative_truths: Mapping[str, float],
+) -> list[bool]:
+    """Require each named control cell to recover the alternative target it claims.
+
+    The second direction of :func:`alternative_target_necessity_verdicts`, written once for
+    every family whose control reads an exact limit, including a family with no paired
+    displacement.  A double-robustness ``both_wrong`` cell is one: its fit converges to a
+    declared limit that differs from the truth, and a bias check around the truth alone
+    cannot tell that limit from an arbitrary wrong number.
+
+    For each cell the control's errors around ``alternative_truths[cell]`` go through the
+    same standardized-bias interval the positive arms answer to, scaled by that control's own
+    spread.  The four ``alternative_*`` columns record the interval, and the cell's ``passed``
+    is ANDed with the verdict.  The row's own bias endpoint is not recomputed.  ``property_passed``
+    is untouched: :func:`alternative_target_necessity_verdicts` ANDs the returned verdicts into
+    its joint clause, and :func:`finish` defaults any other family's to ``passed``.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        The cell summary, which this function updates with the target verdicts.
+    rows : pandas.DataFrame
+        Replication rows of the control cells.
+    record : StudyRecord
+        Supplies the standardized-bias margin and confidence level.
+    family : str
+        The property family that owns the cells.
+    alternative_truths : Mapping[str, float]
+        Exact control target for each cell name.
+
+    Returns
+    -------
+    list of bool
+        Whether each control recovered its target, in the order of ``alternative_truths``.
+    """
+    mask = summary["property"] == family
+    if not mask.any():
+        return []
+    if record.truth_varies_by_replicate:
+        raise ValueError(
+            f"{family} reads one alternative truth per cell, and {record.slug} declares a "
+            "truth that varies by replication"
+        )
 
     numeric = (
         "alternative_truth",
@@ -1134,27 +1210,13 @@ def alternative_target_necessity_verdicts(
         summary["alternative_bias_equivalent"] = summary["alternative_bias_equivalent"].astype(
             object
         )
-    if column not in summary:
-        summary[column] = np.nan
 
-    necessity_verdicts(
-        summary,
-        rows,
-        family=family,
-        labels=labels,
-        arms=arms,
-        column=column,
-        threshold=threshold,
-    )
-
-    control_arm = arms[1]
-    alternative_passed: list[bool] = []
-    for label in labels:
-        control_cell = f"{label}__{control_arm}"
+    recovered: list[bool] = []
+    for control_cell, alternative in alternative_truths.items():
         group = rows.loc[(rows["property"] == family) & (rows["cell"] == control_cell)]
         if group.empty:
             raise ValueError(f"{family} has no rows for {control_cell}")
-        truth = float(alternative_truths[label])
+        truth = float(alternative)
         verdict = standardized_bias_verdict(
             group["estimate"].to_numpy(dtype=float) - truth,
             margin=record.margins.standardized_bias,
@@ -1171,15 +1233,8 @@ def alternative_target_necessity_verdicts(
         summary.loc[cell_mask, "passed"] = bool(
             summary.loc[cell_mask, "passed"].iloc[0] and verdict.equivalent
         )
-        alternative_passed.append(bool(verdict.equivalent))
-
-    # ANDed into what the shared rule already decided, rather than recomputed beside it.
-    # ``necessity_verdicts`` has written the displacement clause and every row's own bias
-    # verdict; the only claim it cannot make is that the control reaches the target this
-    # study declares for it.
-    summary.loc[mask, "property_passed"] = bool(
-        summary.loc[mask, "property_passed"].all() and all(alternative_passed)
-    )
+        recovered.append(bool(verdict.equivalent))
+    return recovered
 
 
 def _paired_cell_verdicts(

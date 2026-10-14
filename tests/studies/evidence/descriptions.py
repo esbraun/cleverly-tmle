@@ -612,7 +612,8 @@ SCENARIOS: dict[str, str] = {
     ),
     "censored_survival_curve": "two-time-point absorbing-event law with monotone censoring",
     "censored_repeated_outcome": (
-        "three-time-point law with a repeated binary outcome and monotone censoring"
+        "three-time-point law with a three-valued baseline covariate, a repeated binary outcome "
+        "that reads the two previous nodes, and monotone censoring"
     ),
     "censored_competing_risk_curve": (
         "two-time-point, two-cause competing-risk law with monotone censoring"
@@ -979,8 +980,12 @@ PROPERTIES: dict[str, str] = {
         "rather than the mean at the horizon, both arms at n = 8,000"
     ),
     "outcome_history_necessity": (
-        "leaving the earlier outcomes out of the history targets a different g-formula "
-        "when they confound the later nodes"
+        "leaving the earlier outcomes out of every history targets a different g-formula, "
+        "because the earlier outcomes confound the later nodes"
+    ),
+    "full_history_necessity": (
+        "an outcome regression that reads the full history, rather than the previous node "
+        "alone, determines the target when the outcome depends on two nodes back"
     ),
     "survival_recursion_necessity": (
         "the absorbing-event recursion is what produces cumulative risk, not an analysis "
@@ -1648,8 +1653,21 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "bias interval inside the equivalence margin",
     ),
     ("outcome_history_necessity", "history_free"): (
-        "an end-of-study fit with no earlier outcome in any history, cell-mean outcome regressions",
+        "an end-of-study fit with no earlier outcome in any history, cell-mean outcome "
+        "regressions: the earlier outcomes are confounders, and the fit leaves them out of "
+        "the outcome regression and both mechanisms",
         "bias interval outside the margin, and inside it around the coarse g-formula",
+    ),
+    ("full_history_necessity", "full_history"): (
+        "an outcome regression of cell means on the full history, with intercept-only "
+        "mechanisms, so the regression alone carries the estimate",
+        "bias interval inside the equivalence margin",
+    ),
+    ("full_history_necessity", "markov_history"): (
+        "the same fit with the outcome regression on the previous node only, "
+        "[W, Y_{t-1}, L_t], and the same intercept-only mechanisms",
+        "bias interval outside the margin, and inside it around the exact limit of the "
+        "previous-node fit",
     ),
     ("rule_necessity", "declared"): (
         "the declared covariate-dependent rule assigns both treatment arms",
@@ -2010,9 +2028,45 @@ ARM_CELLS.update(
     {
         ("rule_necessity", arm, "reversed_rule"): (
             "the same fit treats after a zero outcome instead of after an outcome of one",
-            "bias interval must fall entirely outside the margin",
+            "bias interval must fall entirely outside the margin, and inside it around the "
+            "reversed rule's own truth",
         )
         for arm in ("rule_t2", "rule_t3")
+    }
+)
+ARM_CELLS.update(
+    {
+        ("double_robustness", label, "both_wrong"): (
+            "outcome regression of cell means on the baseline covariate alone, and "
+            "intercept-only treatment and censoring mechanisms",
+            "bias interval must fall entirely outside the margin, and inside it around the "
+            "exact limit of that fit, with the reported standard error still on the scale of "
+            "the empirical spread",
+        )
+        for label in (
+            "never_t3",
+            "always_t3",
+            "rule_t3",
+            "always_vs_never_t3",
+            "rule_vs_never_t3",
+        )
+    }
+)
+ARM_CELLS.update(
+    {
+        ("targeting_necessity", label, "untargeted"): (
+            "the iterated cell means on the baseline covariate among the units that followed "
+            "the plan, with no fluctuation step",
+            "bias interval must fall entirely outside the margin, and inside it around the "
+            "baseline-only plug-in limit",
+        )
+        for label in (
+            "never_t3",
+            "always_t3",
+            "rule_t3",
+            "always_vs_never_t3",
+            "rule_vs_never_t3",
+        )
     }
 )
 ARM_CELLS[("interval_calibration", "par", "correctly_specified")] = (

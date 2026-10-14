@@ -214,10 +214,13 @@ def _property_cells() -> dict[str, tuple[str, ...]]:
             for label in GATED_LABELS
             for arm in ("estimated_mechanisms", "continuous_gaussian")
         ),
-        "double_robustness": (
-            *(f"{label}__mechanism_correct" for label in GATED_LABELS),
-            # The both-wrong limit is the follower mean given ``W``, exact for a static plan.
-            *(f"{label}__both_wrong" for label in GATED_LABELS if not label.startswith("rule")),
+        "double_robustness": tuple(
+            f"{label}__{arm}"
+            for label in GATED_LABELS
+            for arm in ("mechanism_correct", "outcome_correct", "both_wrong")
+        ),
+        "targeting_necessity": tuple(
+            f"{label}__{arm}" for label in GATED_LABELS for arm in ("targeted", "untargeted")
         ),
         "simultaneous_coverage": tuple(
             f"all_reported__{kind}" for kind in ("simultaneous_band", "pointwise_joint_control")
@@ -236,6 +239,11 @@ def _property_cells() -> dict[str, tuple[str, ...]]:
             f"{label}__{arm}"
             for label in ("never_t3", "always_t3", "always_vs_never_t3")
             for arm in ("repeated", "history_free")
+        ),
+        "full_history_necessity": tuple(
+            f"{label}__{arm}"
+            for label in GATED_LABELS
+            for arm in ("full_history", "markov_history")
         ),
     }
 

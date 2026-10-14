@@ -299,6 +299,14 @@ def measured(row: Any) -> str:
                 f"{_interval(row.alternative_bias_ci_lower, row.alternative_bias_ci_upper)}, "
                 f"margin {render(float(row.alternative_bias_margin))}"
             )
+        elif str(row.role) == "control" and pd.notna(getattr(row, "alternative_truth", None)):
+            # A control that also answers to an exact limit: its own bias interval says it
+            # misses the truth, and this one says it reaches the limit it claims.
+            measured += (
+                ", bias around its limit "
+                f"{_interval(row.alternative_bias_ci_lower, row.alternative_bias_ci_upper)}, "
+                f"margin {render(float(row.alternative_bias_margin))}"
+            )
         return measured
     if family == "root_n_rate":
         return f"slope {_interval(row.slope_ci_lower, row.slope_ci_upper)}"
@@ -511,6 +519,7 @@ _BIAS_GATED = frozenset(
         "competing_risk_recursion_necessity",
         "density_necessity",
         "fold_locality",
+        "full_history_necessity",
         "inverse_necessity",
         "learner_weight_necessity",
         "mar_robustness",

@@ -1,15 +1,15 @@
 """Independent repeated-sampling properties of repeated-outcome LTMLE (X32a).
 
 Every binary family samples :func:`cleverly.datasets.make_longitudinal_repeated` on its own
-stream ``stream_seed(STUDY, "property_sample", family,
-configuration, replicate)``.  Every truth is enumerated: the binary truths come from
-:func:`cleverly.datasets.repeated_truth`, and :mod:`tests.studies.ltmle_repeated_law` states
-the control limits and the continuous law.  The labels name the parameters:
-``never_t3`` is ``ey_regimen[never @ t=3]`` and ``rule_vs_never_t3`` is the rule's contrast
-at ``t = 3``.  The five ``*_t3`` labels are the gated labels.  The ``interval_calibration``
-arms draw ``n = 8,000`` (:data:`CALIBRATION_N`), and so does
-``repeated_outcome_necessity`` (:data:`ABSORBING_N`).  Every other family draws
-``n = 2,000`` (:data:`N`).  Budgets and the revision note say why.
+stream ``stream_seed(STUDY, "property_sample", family, configuration, replicate)``.  Every
+truth is enumerated.  The binary truths come from :func:`cleverly.datasets.repeated_truth`.
+:mod:`tests.studies.ltmle_repeated_law` states the control limits and the continuous law.
+The labels name the parameters: ``never_t3`` is ``ey_regimen[never @ t=3]`` and
+``rule_vs_never_t3`` is the rule's contrast at ``t = 3``.  The five ``*_t3`` labels are the
+gated labels.  The ``interval_calibration`` arms draw ``n = 8,000``
+(:data:`CALIBRATION_N`).  So do ``repeated_outcome_necessity`` (:data:`ABSORBING_N`) and
+``full_history_necessity`` (:data:`FULL_HISTORY_N`).  Every other family draws
+``n = 2,000`` (:data:`N`).  Budgets and the revision notes say why.
 
 Declared before any run
 -----------------------
@@ -20,46 +20,69 @@ family and cells                what is fitted, replications and size
 C1 ``interval_calibration``     ``*_t3__estimated_mechanisms``: in sample, the mechanisms
                                 estimated by a main-terms logistic GLM on the declared
                                 design (correctly specified), quasibinomial GLM outcome
-                                regressions.  ``simultaneous=True``.  3,200 replications.
-                                The derived ``shrunken_se_control`` and ``noise_control``
-                                arms read these rows.  The same fits read at ``t = 1``
-                                and ``t = 2`` are the C1 cells of the eight earlier-horizon
-                                labels, gated by the same rule
+                                regressions.  ``simultaneous=True``.
+                                :data:`CALIBRATION_REPLICATES` replications.  The derived
+                                ``shrunken_se_control`` and ``noise_control`` arms read
+                                these rows.  The same fits read at ``t = 1`` and ``t = 2``
+                                are the C1 cells of the eight earlier-horizon labels,
+                                gated by the same rule
 ``small_sample_calibration``    ``*_t3__{estimated_mechanisms,continuous_gaussian}``: C1
                                 and C6 refitted at ``n = 2,000``.  Role ``diagnostic``:
                                 reported, never gated.  2,000 replications
-C2 ``double_robustness``        ``*_t3__mechanism_correct``: the C1 mechanisms with an
-                                outcome regression on ``W`` alone, which drops every
-                                ``Y_{t-1}`` and ``L_t`` term.  ``both_wrong`` (static plans
-                                only): that regression with intercept-only mechanisms.
-                                1,000 replications
-C3 ``interval_calibration``     ``*_t3__crossfit_glm``: C1 at five folds.  3,200
+C2 ``double_robustness``        Three arms on the five gated labels, ``n = 2,000``, 1,000
+                                replications.  ``mechanism_correct``: the C1 mechanisms with
+                                an outcome regression on ``W`` alone.  ``outcome_correct``:
+                                saturated full-history outcome regressions
+                                (:class:`CellMeansBackoff`) with mechanisms on ``W`` alone
+                                (:class:`BaselineOnly`), which are wrong and still vary, so
+                                the fluctuation moves.  ``both_wrong``: the ``W``
+                                regression with intercept-only mechanisms.  The two
+                                positive arms must be unbiased.  ``both_wrong`` is a
+                                control that must miss the truth and reach
+                                :data:`BOTH_WRONG_LIMIT`
+C3 ``interval_calibration``     ``*_t3__crossfit_glm``: C1 at five folds
 C4 ``simultaneous_coverage``    ``all_reported``: the default band of the C1 fits over all
                                 fifteen reported parameters, and its pointwise control
 C5 ``interval_calibration``     ``*_t3__crossfit_boosted``: five folds with a shallow
                                 regularized booster (depth 2, 50 rounds, rate 0.1, L2
                                 penalty 1, at least 20 rows a leaf, no early stopping) for
-                                both outcome learners.  3,200
+                                both outcome learners
 C6 ``interval_calibration``     ``*_t3__continuous_gaussian``: the three-value law
                                 :data:`~tests.studies.ltmle_repeated_law.CONTINUOUS`,
                                 least-squares outcome regressions, ``q_bounds = (0, 1)``,
-                                C1 mechanisms.  3,200
+                                C1 mechanisms
 C7 ``rule_necessity``           ``rule_t{2,3}__declared`` against ``__reversed_rule``, the
-                                rule that treats after a zero outcome, both read against
-                                the declared rule's truth.  1,000
+                                rule that treats after a zero outcome.  The positive arm
+                                reads the declared rule's truth.  The control must miss it
+                                and reach :data:`REVERSED_TRUTH`.  1,000 replications
 N1 ``repeated_outcome_neces     ``{plan}_t{2,3}__repeated`` against ``__absorbing_reading``,
 sity``                          an end-of-study fit of :math:`\\max_{s \\le h} Y_s` with the
                                 earlier outcomes in the history.  The control must miss the
-                                truth and reach :math:`E[\\max_{s \\le h} Y_s^d]`.  Its
-                                outcome learner is :class:`CellMeansBackoff`.  ``n = 8,000``
-                                (:data:`ABSORBING_N`).  1,000
+                                truth and reach :data:`ABSORBING_LIMIT`.  Its outcome
+                                learner is :class:`CellMeansBackoff`.  ``n = 8,000``.
+                                1,000 replications
 N2 ``outcome_history_necessi    ``{never,always,always_vs_never}_t3__repeated`` against
 ty``                            ``__history_free``, an end-of-study fit with every ``Y_s``
                                 left out of the history and saturated cell-mean outcome
-                                regressions.  The control must miss the truth and reach the
-                                coarse g-formula of
-                                :meth:`~tests.studies.ltmle_repeated_law.RepeatedOutcomeLaw.g_formula`.
-                                1,000
+                                regressions.  The earlier outcomes are confounders here.
+                                The control must miss the truth and reach
+                                :data:`HISTORY_FREE_LIMIT`.  1,000 replications
+N3 ``full_history_necessity``   ``{label}__full_history`` against ``__markov_history``,
+                                five labels, ``n = 8,000``, 1,000 replications.  Both arms
+                                use intercept-only mechanisms, so the outcome regression
+                                alone carries the consistency of the positive arm.  The
+                                positive arm regresses on the full history, and the control
+                                on ``[W, Y_{t-1}, L_t]``.  The control must miss the truth
+                                and reach :data:`MARKOV_LIMIT`, the exact limit of the
+                                single-fold fit (``tmle_limit`` in the law module)
+T1 ``targeting_necessity``      ``{label}__targeted`` against ``__untargeted``, five
+                                labels, ``n = 2,000``, 1,000 replications.  The targeted
+                                arm is the ``mechanism_correct`` fit.  The control is
+                                :func:`untargeted`, the same sequential regression with no
+                                fluctuation, written without cleverly.  It must move the
+                                estimate by :data:`TARGETING_DISPLACEMENT` spreads of the
+                                targeted arm and reach :data:`PLUG_IN_LIMIT`, which is
+                                exact because no fluctuation exists
 ==============================  =========================================================
 
 Gating, declared before any run:
@@ -67,30 +90,19 @@ Gating, declared before any run:
 * the SE-ratio band gates every C1 cell, at every horizon.  The other calibration arms
   gate the ``t = 3`` labels;
 * every other positive cell answers to its family's shared rule, and each control to the
-  opposite direction of the same instrument;
+  opposite direction of the same instrument.  A control with an alternative target also
+  answers to its own limit: its bias around the limit must lie inside the margin;
 * a red row is diagnosed.  A defect is fixed, and a finite-sample shortfall gets the
   ``n`` that a pilot shows removes it.  Either change is re-declared and re-run on fresh
   seeds.  No red row is deferred to a later roadmap item.
 
-Budgets.  The calibration size and budget come from a pilot that ran before this
-declaration (:func:`pilot_se_ratios`, the ``pilot`` stream, which no published cell reads).
-At ``n = 2,000`` the in-sample arms report SE ratios of 0.943 (``rule_t3``) and 0.954
-(``rule_vs_never_t3``) for binary outcomes over 2,000 draws, and 0.92 to 0.97 for the
-continuous law over 1,000.  A diagnosis found no defect.  The ordinary end-of-study fit on
-``main`` returns the same estimate and SE on the same draws.  About 4.6% of units follow
-the rule to the last node, about 91 rows at ``n = 2,000``, and the reported SE stays within
-3% of the influence curve's spread on the same sample.  The deficit falls about fourfold
-when ``n`` quadruples, the ``1/n`` rate of in-sample fitting on few rows.  The second-order
-remainder falls about twofold, the ``1/sqrt(n)`` rate.  At ``n = 8,000`` every binary
-in-sample ratio lies in 0.995 to 1.006.  The gated arms therefore draw ``n = 8,000``,
-and ``small_sample_calibration`` reports the ``n = 2,000`` shortfall.  The expected ratio
-at ``n = 8,000`` is about 0.986 for ``rule_t3``.  ``CALIBRATION_REPLICATES = 3,200``, a
-multiple of 400, gives a pass probability of at least 0.96 at that ratio
-(:func:`calibration_pass_probability`).  The cross-fit arms report the opposite direction.
-At ``n = 2,000`` over 1,000 draws the GLM arm reads 0.996 to 1.046 and the booster 0.999 to
-1.014.  At ``n = 8,000`` the GLM arm reads 0.957 to 1.055 over 600 draws.  The booster reads
-0.997 to 1.039 over 1,200 draws, and every 99% interval contains 1.  The cross-fit arms keep
-the two-sided gate.  A conservative red row reads by the finite-sample rule above.
+Budgets.  Both budgets come from declared rules (:func:`primary_replicates` and
+:func:`calibration_replicates`) applied to pilots on the stream
+``stream_seed(STUDY, "pilot", ...)``.  No published cell reads that stream.  The
+calibration rule is the smallest multiple of 400 whose product of per-cell pass probabilities
+over the 28 gated calibration cells (:func:`calibration_pass_probability`) reaches 0.95,
+each cell at the end of its pilot SE-ratio 80% interval that lies farther from one.  The
+pilot numbers are in the section "Fourth declaration pilots" below.
 
 Revision after the first declared run (5728c3ce).  Every positive cell passed.  Two N1
 controls failed their second condition: ``always_t3`` and ``rule_t3`` missed the truth as
@@ -101,24 +113,51 @@ Over 150 draws at ``n = 2,000`` the backoff leaves a mean bias of 0.0096 for the
 its margin.  Over 120 draws at ``n = 8,000`` every absorbing control is within 0.001 of its
 limit.  N1 therefore draws ``n = 8,000`` with the backoff learner.  The first run also
 read the earlier horizons as a reported diagnostic.  Their intervals ship, so C1 now gates
-them.  The first run's rows informed both changes, so the second declaration draws fresh
-seeds (:data:`~tests.studies.canonical_ltmle_repeated.SEED`) for every family.
+them.  The first run's rows informed both changes, so the second declaration drew fresh
+seeds for every family.
+
+Third run (52cb8596).  The third run changed the R reference initial estimate only.  The
+property rows are the second declaration's rows.
+
+Fourth declaration (``SEED = 20263204``).  A design review of the third run found defects
+that this module's families address, before any new draw:
+
+* No family showed that targeting matters.  ``targeting_necessity`` (T1) now compares the
+  targeted fit with a longhand plug-in on the same draw.
+* The law was first-order Markov in ``Y`` and ``L``, so no check read the history of the
+  outcome regression beyond one node.  The law now has depth two, and N3 separates a
+  full-history regression from a Markov one.  N2 measures the earlier outcomes as
+  confounders of the later nodes.  N3 measures the depth of the outcome regression.
+* The ``both_wrong`` and reversed-rule controls read a declared limit that no verdict
+  used.  ``both_wrong`` now reads :data:`BOTH_WRONG_LIMIT` through
+  ``alternative_target_verdicts``.  The old limit covered static plans only.  The new
+  limit also covers the rule, whose clever covariate reads ``Y_{t-1}``, so the intercept
+  fluctuation moves.  C7 reads :data:`REVERSED_TRUTH`.
+* ``double_robustness`` read one positive arm.  ``outcome_correct`` now shows consistency
+  with the outcome regression correct and the mechanisms wrong.
+* The calibration budget came from a per-cell rule.  It is now the family-wise product
+  over 28 cells, and every arm is piloted at its declared ``n``.
+* ``W`` takes three values and the first outcome regression is no longer saturated.  The
+  first-node fluctuation therefore moves.
+
+Fourth declaration pilots.  PILOT_PLACEHOLDER
 """
 
 from __future__ import annotations
 
 import time
 import warnings
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 import numpy as np
 import pandas as pd
-from scipy.stats import binom, norm
+from scipy.stats import beta, binom, norm
 from sklearn.base import BaseEstimator, clone
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
 from sklearn.linear_model import LinearRegression
+from sklearn.utils.metaestimators import available_if
 
 from cleverly.datasets import make_longitudinal_repeated
 from cleverly.longitudinal import LTMLE, DynamicRegimen
@@ -129,27 +168,31 @@ from tests.studies import ltmle_repeated_law as law
 from tests.studies.canonical_ltmle_repeated import (
     COLUMNS,
     EARLIER_LABELS,
+    ESTIMANDS,
     G_BOUNDS,
     GATED_LABELS,
+    PRIMARY_N,
     RULE_LABEL,
     STUDY,
+    fit_cleverly,
     label_estimand,
     treat_after,
 )
-from tests.studies.evidence.inference import clopper_pearson
+from tests.studies.evidence.inference import coverage_for_se_ratio
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
+    control_row,
     replicate_row,
     se_ratio_interval,
 )
 from tests.studies.evidence.property_verdicts import (
     DIAGNOSTIC_ROLE,
     alternative_target_necessity_verdicts,
+    alternative_target_verdicts,
     apply_shared_verdicts,
     calibration_controls,
     calibration_verdicts,
     finish,
-    necessity_verdicts,
     simultaneous_coverage_verdicts,
 )
 from tests.studies.evidence.seeds import stream_seed
@@ -159,21 +202,27 @@ from tests.studies.fractional_glm import QuasiBinomialGLM, QuasiBinomialSeparati
 N = 2_000
 #: The sample size of every ``interval_calibration`` arm.  See the module docstring, Budgets.
 CALIBRATION_N = 8_000
-CALIBRATION_REPLICATES = 3_200
+CALIBRATION_REPLICATES = 6_400
 #: The sample size of the N1 family, ``repeated_outcome_necessity``.  See Budgets.
 ABSORBING_N = 8_000
-#: The sample size of the N3 family, ``full_history_necessity``.
+#: The sample size of the N3 family, ``full_history_necessity``.  See Budgets.
 FULL_HISTORY_N = 8_000
 #: The in-sample arms refitted at :data:`N` and reported under ``small_sample_calibration``.
 SMALL_SAMPLE_ARMS = ("estimated_mechanisms", "continuous_gaussian")
 SMALL_SAMPLE_REPLICATES = 2_000
 DOUBLE_ROBUST_REPLICATES = 1_000
 NECESSITY_REPLICATES = 1_000
+TARGETING_REPLICATES = 1_000
 FOLDS = 5
 SHRUNKEN_SE_FACTOR = 0.70
 #: The least paired displacement, in the positive arm's empirical standard deviations, of
 #: every necessity family here: the standardized-bias margin.
 NECESSITY_DISPLACEMENT = 0.25
+#: How far removing the fluctuation must move the estimate, in the targeted arm's empirical
+#: standard deviations, before ``targeting_necessity`` calls the targeting step load bearing.
+#: The standardized-bias margin again: the control must move the estimate by as much as the
+#: study is prepared to overlook.
+TARGETING_DISPLACEMENT = 0.25
 #: The red-cell owner of a row the finite-sample rule admits.
 FINITE_SAMPLE_OWNER = "X32-finite-sample"
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
@@ -200,16 +249,18 @@ _, TRUTH = make_longitudinal_repeated(n=1, seed=0, backend="pandas")
 TRUTH = {name: float(value) for name, value in TRUTH.items()}
 
 
-def _law_value(model: law.RepeatedOutcomeLaw, estimand: str, **options: Any) -> float:
-    """``estimand`` on ``model`` through :meth:`~law.RepeatedOutcomeLaw.g_formula`."""
+def _law_value(
+    model: law.RepeatedOutcomeLaw, estimand: str, method: str = "g_formula", **options: Any
+) -> float:
+    """``estimand`` on ``model`` through one of its plan functionals."""
     if estimand.startswith("ate_regimen["):
         comparison, horizon = estimand[len("ate_regimen[") : -1].rsplit(" @ t=", 1)
         left, right = comparison.split(" vs ")
-        return _law_value(model, f"ey_regimen[{left} @ t={horizon}]", **options) - _law_value(
-            model, f"ey_regimen[{right} @ t={horizon}]", **options
-        )
+        return _law_value(
+            model, f"ey_regimen[{left} @ t={horizon}]", method, **options
+        ) - _law_value(model, f"ey_regimen[{right} @ t={horizon}]", method, **options)
     plan, horizon = estimand[len("ey_regimen[") : -1].rsplit(" @ t=", 1)
-    return model.g_formula(_PLAN[plan], int(horizon), **options)
+    return float(getattr(model, method)(_PLAN[plan], int(horizon), **options))
 
 
 CONTINUOUS_TRUTH = {
@@ -222,9 +273,30 @@ ABSORBING_LIMIT = {
 HISTORY_FREE_LIMIT = {
     label: _law_value(law.BINARY, label_estimand(label), history="free") for label in HISTORY_LABELS
 }
-BOTH_WRONG_LIMIT = {
+#: The limit of the plug-in whose outcome regression is the cell mean given ``W``: the
+#: ``targeting_necessity`` control, exactly, because it has no fluctuation.
+PLUG_IN_LIMIT = {
     label: _law_value(law.BINARY, label_estimand(label), history="baseline")
-    for label in STATIC_GATED
+    for label in GATED_LABELS
+}
+#: The limit of the single-fold fit with a ``W`` cell-mean outcome regression and intercept-only
+#: mechanisms: the ``both_wrong`` control.  A static plan's fluctuation is inert there, so
+#: the value equals :data:`PLUG_IN_LIMIT`.  The rule's does not, because its clever covariate
+#: reads ``Y_{t-1}``.
+BOTH_WRONG_LIMIT = {
+    label: _law_value(law.BINARY, label_estimand(label), "tmle_limit", q_history="baseline")
+    for label in GATED_LABELS
+}
+#: The limit of the single-fold fit with an outcome regression on ``[W, Y_{t-1}, L_t]`` and
+#: intercept-only mechanisms: the N3 control.
+MARKOV_LIMIT = {
+    label: _law_value(law.BINARY, label_estimand(label), "tmle_limit", q_history="markov")
+    for label in GATED_LABELS
+}
+#: The truth of the reversed rule, the alternative target of the C7 control.
+REVERSED_TRUTH = {
+    label: law.BINARY.counterfactual(REVERSED, int(label.rsplit("_t", 1)[1]))
+    for label in RULE_LABELS
 }
 
 
@@ -248,8 +320,9 @@ EFFICIENCY_SD = {label: _eif_sd(law.BINARY, label) for label in GATED_LABELS}
 class BaselineOnly(BaseEstimator):
     """``learner`` fitted on the first design column alone, which is ``W``.
 
-    The misspecified outcome regression of the double-robustness family: it drops every
-    ``Y_{t-1}`` and ``L_t`` term.
+    The misspecified, non-constant mechanism of the ``outcome_correct`` arm: it drops every
+    ``Y_{t-1}`` and ``L_t`` term, and still varies with ``W``, so the fluctuation it feeds
+    moves.
     """
 
     def __init__(self, learner: Any) -> None:
@@ -272,18 +345,20 @@ class BaselineOnly(BaseEstimator):
 class CellMeansBackoff(BaseEstimator):
     """Cell means on a seen design row, and a main-terms quasibinomial GLM on an unseen one.
 
-    The N1 control's outcome learner.  :class:`CellMeans` falls back to the training mean on
-    a design row the fit never saw.  The declared run at 5728c3ce read that fallback at the
-    rule's third node, where some histories of the followers through node 2 have no follower
-    through node 3.  The control then missed its own limit:
-    ``rule_t3__absorbing_reading`` reached 0.569 against :data:`ABSORBING_LIMIT` 0.615, and
-    ``always_t3`` 0.728 against 0.740.  A GLM on the same rows predicts an unseen cell from its
-    neighbours, so the fit converges to the same limit with less finite-sample bias.
+    The outcome learner of every control that reads cells of a coarse or full history.
+    :class:`CellMeans` falls back to the training mean on a design row the fit never saw.
+    The declared run at 5728c3ce read that fallback at the rule's third node, where some
+    histories of the followers through node 2 have no follower through node 3.  The control
+    then missed its own limit: ``rule_t3__absorbing_reading`` reached 0.569 against
+    :data:`ABSORBING_LIMIT` 0.615, and ``always_t3`` 0.728 against 0.740.  A GLM on the same
+    rows predicts an unseen cell from its neighbours, so the fit converges to the same limit
+    with less finite-sample bias.
 
-    The GLM separates by construction.  Once an earlier outcome is 1, the running maximum is 1,
-    so that history column predicts the response exactly.  The last iterate then predicts
-    close to 1 on such a row, which is the limit.  The fit therefore keeps it and drops
-    :class:`QuasiBinomialSeparationWarning`.  A fit whose deviance does not settle still raises.
+    The GLM separates by construction in the N1 control.  Once an earlier outcome is 1, the
+    running maximum is 1, so that history column predicts the response exactly.  The last
+    iterate then predicts close to 1 on such a row, which is the limit.  The fit therefore
+    keeps it and drops :class:`QuasiBinomialSeparationWarning`.  A fit whose deviance does
+    not settle still raises.
     """
 
     def fit(self, X: Any, y: Any, sample_weight: Any = None) -> CellMeansBackoff:
@@ -304,6 +379,55 @@ class CellMeansBackoff(BaseEstimator):
         )
 
 
+class CellMeansOn(BaseEstimator):
+    """``learner`` fitted on the columns of the outcome design that a history kind names.
+
+    A repeated-outcome fit hands the outcome regression at node ``t`` the design
+    ``[W, Y1, L2, ..., Y_{t-1}, L_t]``, so its width is 1, 3 or 5.  ``baseline`` keeps ``W``
+    alone.  ``markov`` keeps ``[W, Y_{t-1}, L_t]``, the last two columns and ``W``, which is
+    the whole design at widths 1 and 3.  ``full`` keeps every column.
+
+    Parameters
+    ----------
+    kind : str
+        ``"baseline"``, ``"markov"`` or ``"full"``.
+    learner : estimator
+        The learner fitted on the selected columns.  ``predict_proba`` is offered only when
+        the learner has it, because a classifier-versus-regressor choice reads the attribute.
+    """
+
+    def __init__(self, kind: str, learner: Any) -> None:
+        self.kind = kind
+        self.learner = learner
+
+    @staticmethod
+    def columns(kind: str, width: int) -> list[int]:
+        """The design columns ``kind`` keeps at a design of ``width`` columns."""
+        if kind == "full":
+            return list(range(width))
+        if kind == "baseline" or width == 1:
+            return [0]
+        if kind == "markov":
+            return [0, width - 2, width - 1]
+        raise ValueError(kind)
+
+    def _select(self, X: Any) -> np.ndarray:
+        matrix = np.asarray(X, dtype=float)
+        return matrix[:, self.columns(self.kind, matrix.shape[1])]
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> CellMeansOn:
+        self.fitted_ = clone(self.learner).fit(self._select(X), y, sample_weight=sample_weight)
+        self.classes_ = np.array([0.0, 1.0])
+        return self
+
+    def predict(self, X: Any) -> np.ndarray:
+        return np.asarray(self.fitted_.predict(self._select(X)))
+
+    @available_if(lambda self: hasattr(self.learner, "predict_proba"))
+    def predict_proba(self, X: Any) -> np.ndarray:
+        return np.asarray(self.fitted_.predict_proba(self._select(X)))
+
+
 def booster(kind: str) -> Any:
     """The shallow regularized booster of C5, never the library default."""
     options = {
@@ -320,17 +444,31 @@ def booster(kind: str) -> Any:
     return HistGradientBoostingRegressor(**options)
 
 
+#: The configurations whose outcome regression is the cell mean given ``W`` alone.
+BASELINE_Q = frozenset({"mechanism_correct", "both_wrong", "targeted"})
+#: The configurations whose mechanisms are intercept-only.
+INTERCEPT_G = frozenset({"both_wrong", "full_history", "markov_history"})
+
+
 def _learners(configuration: str) -> tuple[Any, Any, Any, Any]:
+    """``(outcome, pseudo, treatment, censoring)`` learners of a configuration."""
     if configuration == "crossfit_boosted":
         q, pseudo = booster("classifier"), booster("regressor")
     elif configuration == "continuous_gaussian":
         q, pseudo = LinearRegression(), LinearRegression()
-    elif configuration in {"mechanism_correct", "both_wrong"}:
-        q, pseudo = BaselineOnly(QuasiBinomialGLM()), BaselineOnly(QuasiBinomialGLM())
+    elif configuration in BASELINE_Q:
+        q, pseudo = CellMeansOn("baseline", CellMeans()), CellMeansOn("baseline", CellMeans())
+    elif configuration in {"outcome_correct", "full_history"}:
+        q, pseudo = CellMeansBackoff(), CellMeansBackoff()
+    elif configuration == "markov_history":
+        q = CellMeansOn("markov", CellMeansBackoff())
+        pseudo = CellMeansOn("markov", CellMeansBackoff())
     else:
         q, pseudo = QuasiBinomialGLM(), QuasiBinomialGLM()
-    if configuration == "both_wrong":
+    if configuration in INTERCEPT_G:
         g, c = DummyClassifier(strategy="prior"), DummyClassifier(strategy="prior")
+    elif configuration == "outcome_correct":
+        g, c = BaselineOnly(QuasiBinomialGLM()), BaselineOnly(QuasiBinomialGLM())
     else:
         g, c = QuasiBinomialGLM(), QuasiBinomialGLM()
     return q, pseudo, g, c
@@ -440,8 +578,10 @@ def absorbing_fit(frame: pd.DataFrame, horizon: int) -> Any:
 def history_free_fit(frame: pd.DataFrame, horizon: int = 3) -> Any:
     """The N2 control: an end-of-study fit of ``Y_h`` with no ``Y_s`` in any history.
 
-    Saturated cell-mean outcome regressions on ``[W, L_2, ..., L_t]`` are correct for that
-    coarser history, so the fit converges to its coarse g-formula whatever the mechanisms.
+    The earlier outcomes are confounders of the later nodes, and this fit leaves them out of
+    the outcome regression and both mechanisms.  Saturated cell-mean outcome regressions on
+    ``[W, L_2, ..., L_t]`` are correct for that coarser history, so the fit converges to its
+    coarse g-formula whatever the mechanisms.
     """
     _, _, g, c = _learners("estimated_mechanisms")
     return LTMLE(
@@ -470,6 +610,72 @@ def history_free_fit(frame: pd.DataFrame, horizon: int = 3) -> Any:
 def _end_of_study_name(label: str) -> str:
     """The name an end-of-study fit reports for a label: the horizon leaves the bracket."""
     return label_estimand(label).rsplit(" @ t=", 1)[0] + "]"
+
+
+# ---------------------------------------------------------------------------- plug-ins
+
+
+def label_parts(label: str) -> tuple[str, str | None, int]:
+    """``(plan, reference, horizon)`` of a property label, in the law module's plan names."""
+    stem, horizon = label.rsplit("_t", 1)
+    if "_vs_" in stem:
+        left, right = stem.split("_vs_")
+        return left, right, int(horizon)
+    return stem, None, int(horizon)
+
+
+def plug_in(
+    frame: pd.DataFrame,
+    plan: str,
+    horizon: int,
+    *,
+    history: str = "baseline",
+    learner: Any = None,
+) -> float:
+    r"""The sequential-regression plug-in of one plan, with **no** fluctuation.
+
+    Backward from ``horizon``: regress the carried outcome among the units that followed
+    the plan and stayed under observation through ``t``, on the history ``history`` names at
+    ``t``, predict for every row, and carry the prediction back.  The estimate averages the
+    first prediction.  With the default ``history="baseline"`` and no learner each regression
+    is the cell mean given ``W``, written here with ``numpy`` and ``pandas`` alone.  Given a
+    ``learner``, that learner is fitted on the history's columns.
+
+    Written longhand rather than by calling the estimator with the fluctuation disabled, for
+    the reason ``tests.studies.ltmle_properties.untargeted`` gives: a flag on the estimator
+    would make the control a statement about a branch of the code it audits.
+    """
+    filled = frame.fillna(0.0)
+    baseline = filled["W"].to_numpy()
+    carried = frame[f"Y{horizon}"].to_numpy(dtype=float)
+    for time_point in range(horizon, 0, -1):
+        followers = np.ones(len(frame), dtype=bool)
+        for node in range(1, time_point + 1):
+            earlier = filled[f"Y{node - 1}"].to_numpy() if node > 1 else np.zeros(len(frame))
+            followers &= (filled[f"A{node}"].to_numpy() == law.arm(plan, node, earlier)) & (
+                filled[f"C{node}"].to_numpy() == 1.0
+            )
+        if learner is None:
+            means = pd.Series(carried[followers]).groupby(baseline[followers]).mean()
+            if not set(baseline) <= set(means.index):
+                raise ValueError(
+                    f"a baseline cell has no follower of {plan!r} at node {time_point}"
+                )
+            carried = pd.Series(baseline).map(means).to_numpy()
+        else:
+            design = filled[law.history_columns(time_point, history)].to_numpy()
+            model = clone(learner).fit(design[followers], carried[followers])
+            carried = np.asarray(model.predict(design), dtype=float)
+    return float(np.mean(carried))
+
+
+def untargeted(frame: pd.DataFrame, label: str) -> float:
+    """The ``targeting_necessity`` control: the plug-in of a label, or of its contrast."""
+    plan, reference, horizon = label_parts(label)
+    value = plug_in(frame, plan, horizon)
+    if reference is not None:
+        value -= plug_in(frame, reference, horizon)
+    return value
 
 
 # ---------------------------------------------------------------------------- rows
@@ -513,7 +719,44 @@ def family_n(family: str) -> int:
         return CALIBRATION_N
     if family == "repeated_outcome_necessity":
         return ABSORBING_N
+    if family == "full_history_necessity":
+        return FULL_HISTORY_N
     return N
+
+
+def _paired_rows(
+    family: str,
+    labels: Sequence[str],
+    arms: tuple[str, str],
+    replicate: int,
+    requested: int,
+    positive: Any,
+    control: Any,
+    *,
+    positive_truth: Mapping[str, float] | None = None,
+) -> list[dict[str, Any]]:
+    """The positive and control rows of a paired family, both read at the true value."""
+    rows: list[dict[str, Any]] = []
+    for label in labels:
+        name = label_estimand(label)
+        truth = TRUTH[name] if positive_truth is None else positive_truth[label]
+        rows.append(
+            _row(
+                family,
+                f"{label}__{arms[0]}",
+                "positive",
+                replicate,
+                requested,
+                truth,
+                positive[name],
+            )
+        )
+        rows.append(
+            _row(
+                family, f"{label}__{arms[1]}", "control", replicate, requested, truth, control[name]
+            )
+        )
+    return rows
 
 
 def _replication(payload: tuple[str, str, int, int, int]) -> list[dict[str, Any]]:
@@ -571,9 +814,8 @@ def _replication(payload: tuple[str, str, int, int, int]) -> list[dict[str, Any]
         return rows
     if family == "double_robustness":
         result = fit(frame, configuration)
-        labels = STATIC_GATED if configuration == "both_wrong" else GATED_LABELS
         role = "control" if configuration == "both_wrong" else "positive"
-        for label in labels:
+        for label in GATED_LABELS:
             name = label_estimand(label)
             rows.append(
                 _row(
@@ -584,6 +826,37 @@ def _replication(payload: tuple[str, str, int, int, int]) -> list[dict[str, Any]
                     requested,
                     TRUTH[name],
                     result[name],
+                )
+            )
+        return rows
+    if family == "targeting_necessity":
+        result = fit(frame, configuration)
+        for label in GATED_LABELS:
+            name = label_estimand(label)
+            rows.append(
+                _row(
+                    family,
+                    f"{label}__targeted",
+                    "positive",
+                    replicate,
+                    requested,
+                    TRUTH[name],
+                    result[name],
+                )
+            )
+            # The plug-in has no influence curve of its own, so the row carries the targeted
+            # fit's standard error and the family gates on bias alone.
+            rows.append(
+                control_row(
+                    property_name=family,
+                    cell=f"{label}__untargeted",
+                    replicate=replicate,
+                    n=n,
+                    requested=requested,
+                    truth=TRUTH[name],
+                    estimate=untargeted(frame, label),
+                    standard_error=float(result[name].std_error),
+                    critical=CRITICAL,
                 )
             )
         return rows
@@ -672,6 +945,16 @@ def _replication(payload: tuple[str, str, int, int, int]) -> list[dict[str, Any]
                 )
             )
         return rows
+    if family == "full_history_necessity":
+        return _paired_rows(
+            family,
+            GATED_LABELS,
+            ("full_history", "markov_history"),
+            replicate,
+            requested,
+            fit(frame, "full_history"),
+            fit(frame, "markov_history"),
+        )
     raise KeyError(family)
 
 
@@ -680,10 +963,13 @@ FIT_SETS: tuple[tuple[str, str, int], ...] = (
     *(("interval_calibration", arm, CALIBRATION_REPLICATES) for arm in CALIBRATION_ARMS),
     *(("small_sample_calibration", arm, SMALL_SAMPLE_REPLICATES) for arm in SMALL_SAMPLE_ARMS),
     ("double_robustness", "mechanism_correct", DOUBLE_ROBUST_REPLICATES),
+    ("double_robustness", "outcome_correct", DOUBLE_ROBUST_REPLICATES),
     ("double_robustness", "both_wrong", DOUBLE_ROBUST_REPLICATES),
+    ("targeting_necessity", "targeted", TARGETING_REPLICATES),
     ("rule_necessity", "paired", NECESSITY_REPLICATES),
     ("repeated_outcome_necessity", "paired", NECESSITY_REPLICATES),
     ("outcome_history_necessity", "paired", NECESSITY_REPLICATES),
+    ("full_history_necessity", "paired", NECESSITY_REPLICATES),
 )
 
 
@@ -752,7 +1038,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     summary, rates = apply_shared_verdicts(
         rows,
         STUDY,
-        extra_columns=("necessity_displacement",),
+        extra_columns=("necessity_displacement", "targeting_displacement"),
         rate_labels=(),
     )
     margins = STUDY.margins
@@ -770,45 +1056,110 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     for name in REPORTED_CALIBRATION:
         _calibration_report(summary, rows, name)
     simultaneous_coverage_verdicts(summary, margins=margins)
-    necessity_verdicts(
+
+    # ``both_wrong`` reads its exact limit: the fit differs from the truth, and the limit says
+    # by how much.  ``apply_shared_verdicts`` wrote the family's own verdicts.
+    alternative_target_verdicts(
         summary,
         rows,
-        family="rule_necessity",
-        labels=RULE_LABELS,
-        arms=("declared", "reversed_rule"),
-        column="necessity_displacement",
-        threshold=NECESSITY_DISPLACEMENT,
+        STUDY,
+        family="double_robustness",
+        alternative_truths={
+            f"{label}__both_wrong": BOTH_WRONG_LIMIT[label] for label in GATED_LABELS
+        },
     )
     alternative_target_necessity_verdicts(
         summary,
         rows,
         STUDY,
-        family="repeated_outcome_necessity",
-        labels=ABSORBING_LABELS,
-        arms=("repeated", "absorbing_reading"),
-        alternative_truths=ABSORBING_LIMIT,
-        column="necessity_displacement",
-        threshold=NECESSITY_DISPLACEMENT,
+        family="targeting_necessity",
+        labels=GATED_LABELS,
+        arms=("targeted", "untargeted"),
+        alternative_truths=PLUG_IN_LIMIT,
+        column="targeting_displacement",
+        threshold=TARGETING_DISPLACEMENT,
     )
-    alternative_target_necessity_verdicts(
-        summary,
-        rows,
-        STUDY,
-        family="outcome_history_necessity",
-        labels=HISTORY_LABELS,
-        arms=("repeated", "history_free"),
-        alternative_truths=HISTORY_FREE_LIMIT,
-        column="necessity_displacement",
-        threshold=NECESSITY_DISPLACEMENT,
-    )
+    for family, labels, arms, limits in (
+        ("rule_necessity", RULE_LABELS, ("declared", "reversed_rule"), REVERSED_TRUTH),
+        (
+            "repeated_outcome_necessity",
+            ABSORBING_LABELS,
+            ("repeated", "absorbing_reading"),
+            ABSORBING_LIMIT,
+        ),
+        (
+            "outcome_history_necessity",
+            HISTORY_LABELS,
+            ("repeated", "history_free"),
+            HISTORY_FREE_LIMIT,
+        ),
+        (
+            "full_history_necessity",
+            GATED_LABELS,
+            ("full_history", "markov_history"),
+            MARKOV_LIMIT,
+        ),
+    ):
+        alternative_target_necessity_verdicts(
+            summary,
+            rows,
+            STUDY,
+            family=family,
+            labels=labels,
+            arms=arms,
+            alternative_truths=limits,
+            column="necessity_displacement",
+            threshold=NECESSITY_DISPLACEMENT,
+        )
     return finish(summary, rates)
 
 
 # ---------------------------------------------------------------------------- design
 
 
+def bias_equivalent_probability(bias: float, replicates: int) -> float:
+    """P(an arm's 99% bias interval lies inside the margin), at standardized ``bias``.
+
+    The margin is :attr:`~tests.studies.evidence.registry.Margins.standardized_bias` spreads of
+    the arm, and the interval is the Student interval of the mean error, which is normal at
+    these sizes.
+    """
+    margins = STUDY.margins
+    z = float(norm.ppf(0.5 + margins.confidence_level / 2.0))
+    root = np.sqrt(replicates)
+    return float(
+        norm.cdf(root * (margins.standardized_bias - bias) - z)
+        - norm.cdf(-root * (margins.standardized_bias + bias) + z)
+    )
+
+
+def bias_discriminated_probability(gap: float, replicates: int) -> float:
+    """P(a control's 99% bias interval clears the margin), at standardized ``gap``."""
+    margins = STUDY.margins
+    z = float(norm.ppf(0.5 + margins.confidence_level / 2.0))
+    return float(norm.cdf(np.sqrt(replicates) * (abs(gap) - margins.standardized_bias) - z))
+
+
+def coverage_floor_pass_probability(replicates: int, coverage: float) -> float:
+    """The probability that the exact coverage interval's lower bound clears the floor.
+
+    The gate is :attr:`~tests.studies.evidence.registry.Margins.coverage_floor` on the lower
+    end of the two-sided Clopper-Pearson interval at the study's confidence level.  The lower
+    end rises with the covered count, so the gate passes from one count upward and the
+    probability is a binomial tail.
+    """
+    margins = STUDY.margins
+    tail = (1.0 - margins.confidence_level) / 2.0
+    counts = np.arange(1, replicates + 1)
+    lower = beta.ppf(tail, counts, replicates - counts + 1)
+    passing = counts[lower >= margins.coverage_floor]
+    if passing.size == 0:
+        return 0.0
+    return float(binom.sf(int(passing[0]) - 1, replicates, coverage))
+
+
 def calibration_pass_probability(
-    replicates: int, *, ratio: float = 1.0, coverage: float = 0.95
+    replicates: int, *, ratio: float = 1.0, coverage: float | None = None
 ) -> float:
     """The probability that a calibration cell passes the two-sided rule.
 
@@ -818,8 +1169,13 @@ def calibration_pass_probability(
     The coverage half is exact: it sums the binomial law of the covered count over the counts
     whose Clopper-Pearson interval lies inside the band.  The two halves are independent under
     this approximation, so the probability is their product.
+
+    ``coverage`` defaults to the coverage a Wald interval with this SE ratio attains,
+    :math:`2\\Phi(1.96\\,r) - 1`, because a cell with a ratio off one is off in both halves.
     """
     margins = STUDY.margins
+    if coverage is None:
+        coverage = coverage_for_se_ratio(ratio, alpha=margins.alpha)
     low, high = margins.calibration_se_ratio
     z = float(norm.ppf(0.5 + margins.confidence_level / 2.0))
     spread = ratio / np.sqrt(2.0 * (replicates - 1))
@@ -829,14 +1185,125 @@ def calibration_pass_probability(
     )
     band_low, band_high = margins.calibration_coverage
     counts = np.arange(replicates + 1)
-    inside = np.zeros(replicates + 1, dtype=bool)
-    for count in counts:
-        interval = clopper_pearson(
-            int(count), replicates, confidence_level=margins.confidence_level
-        )
-        inside[count] = interval.low >= band_low and interval.high <= band_high
+    tail = (1.0 - margins.confidence_level) / 2.0
+    lower = np.where(
+        counts > 0, beta.ppf(tail, counts, np.maximum(replicates - counts + 1, 1)), 0.0
+    )
+    upper = np.where(
+        counts < replicates,
+        beta.ppf(1.0 - tail, counts + 1, np.maximum(replicates - counts, 1)),
+        1.0,
+    )
+    inside = (lower >= band_low) & (upper <= band_high)
     coverage_pass = float(np.sum(binom.pmf(counts[inside], replicates, coverage)))
     return max(se_pass, 0.0) * coverage_pass
+
+
+#: The one-sided 80% level of the pilot's own sampling error in both sizing rules.
+PILOT_LEVEL = 0.80
+#: The multiples of this many replications are the candidate budgets of both sizing rules.
+BUDGET_STEP = 400
+#: The family-wise pass probability both sizing rules require.
+FAMILY_WISE_PASS = 0.95
+#: The per-cell coverage-floor pass probability the primary rule requires at the stated coverage.
+PRIMARY_CELL_PASS = 0.99
+PRIMARY_DESIGN_COVERAGE = 0.93
+PRIMARY_DESIGN_BIAS = 0.15
+
+
+def primary_replicates(
+    covered: Mapping[str, int], pilot_replicates: int, *, implementations: int = 2
+) -> int:
+    """The declared rule for ``PRIMARY_REPLICATES``.
+
+    The smallest multiple of :data:`BUDGET_STEP` such that
+
+    * a cell whose true standardized bias is the paired-difference margin
+      (:data:`PRIMARY_DESIGN_BIAS`) passes the bias gate with probability at least 0.90;
+    * the coverage-floor gate passes with probability at least :data:`PRIMARY_CELL_PASS` per
+      cell at coverage :data:`PRIMARY_DESIGN_COVERAGE`; and
+    * the product of the coverage-floor pass probabilities over every cell of every
+      implementation is at least :data:`FAMILY_WISE_PASS`, with each cell at the one-sided
+      80% lower Clopper-Pearson bound of its pilot coverage.  The last clause prices the
+      pilot's own sampling error, so a pilot that happens to read high cannot under-size the
+      run.  The paired cells are not binding, because the two implementations agree.
+
+    Parameters
+    ----------
+    covered : Mapping[str, int]
+        The covered count of each primary cell in the pilot.
+    pilot_replicates : int
+        The number of pilot replications.
+    implementations : int
+        How many implementations each cell is tested for (cleverly and R).
+    """
+    lower = {
+        cell: float(beta.ppf(1.0 - PILOT_LEVEL, count, pilot_replicates - count + 1))
+        if count
+        else 0.0
+        for cell, count in covered.items()
+    }
+    replicates = BUDGET_STEP
+    while True:
+        product = (
+            np.prod(
+                [coverage_floor_pass_probability(replicates, value) for value in lower.values()]
+            )
+            ** implementations
+        )
+        if (
+            bias_equivalent_probability(PRIMARY_DESIGN_BIAS, replicates) >= 0.90
+            and coverage_floor_pass_probability(replicates, PRIMARY_DESIGN_COVERAGE)
+            >= PRIMARY_CELL_PASS
+            and product >= FAMILY_WISE_PASS
+        ):
+            return replicates
+        replicates += BUDGET_STEP
+        if replicates > 50_000:  # pragma: no cover - a pilot this poor needs a larger n
+            raise ValueError("no budget up to 50,000 replications meets the primary rule")
+
+
+def evaluated_ratio(ratio: float, pilot_replicates: int) -> float:
+    """The end of a pilot SE ratio's 80% interval that lies farther from one.
+
+    The interval half-width is ``z_{0.90}`` times the ratio's relative standard deviation,
+    ``1 / sqrt(2 (R - 1))``.  A point estimate of exactly one takes the upper end.
+    """
+    half = float(norm.ppf(0.5 + PILOT_LEVEL / 2.0)) * ratio / np.sqrt(2.0 * (pilot_replicates - 1))
+    return ratio - half if ratio < 1.0 else ratio + half
+
+
+def calibration_replicates(ratios: Mapping[str, float], pilot_replicates: int) -> int:
+    """The declared rule for ``CALIBRATION_REPLICATES``.
+
+    The smallest multiple of :data:`BUDGET_STEP` at which the product of
+    :func:`calibration_pass_probability` over every gated calibration cell is at least
+    :data:`FAMILY_WISE_PASS`, each cell at :func:`evaluated_ratio` of its pilot SE ratio.
+    The product is a lower bound, because cells that share a fit are positively dependent.
+
+    Parameters
+    ----------
+    ratios : Mapping[str, float]
+        The pilot SE ratio of each gated cell, by cell name.
+    pilot_replicates : int
+        The pilot replications behind each ratio.
+    """
+    evaluated = [evaluated_ratio(value, pilot_replicates) for value in ratios.values()]
+    replicates = BUDGET_STEP
+    while True:
+        product = float(
+            np.prod([calibration_pass_probability(replicates, ratio=value) for value in evaluated])
+        )
+        if product >= FAMILY_WISE_PASS:
+            return replicates
+        replicates += BUDGET_STEP
+        if replicates > 50_000:  # pragma: no cover - a pilot this far off needs a defect fixed
+            raise ValueError("no budget up to 50,000 replications meets the calibration rule")
+
+
+# ---------------------------------------------------------------------------- pilots
+#
+# Every pilot draws from ``stream_seed(STUDY, "pilot", ...)``, which no published cell reads.
 
 
 def _pilot_replication(payload: tuple[str, int, int]) -> dict[str, tuple[float, float]]:
@@ -848,7 +1315,7 @@ def _pilot_replication(payload: tuple[str, int, int]) -> dict[str, tuple[float, 
             float(result[label_estimand(label)].psi),
             float(result[label_estimand(label)].std_error),
         )
-        for label in GATED_LABELS
+        for label in (*GATED_LABELS, *EARLIER_LABELS)
     }
 
 
@@ -858,23 +1325,142 @@ def pilot_se_ratios(
     configuration: str = "estimated_mechanisms",
     n: int = CALIBRATION_N,
     n_jobs: int = STUDY_JOBS,
+    offset: int = 0,
 ) -> dict[str, float]:
-    """PILOT HOOK: the SE ratio of each gated label on ``replicates`` pilot draws.
+    """PILOT HOOK (P2, P3): the SE ratio of each reported label on pilot draws.
 
-    Not run by the fast tier.  Run it before the declared run on the stream
-    ``stream_seed(STUDY, "pilot", configuration, replicate)``, which no published cell reads,
-    and re-size :data:`CALIBRATION_REPLICATES` with :func:`calibration_pass_probability` at
-    the measured ratio.  Record the pilot and the new budget in the declaration commit.
+    Not run by the fast tier.  The stream is ``stream_seed(STUDY, "pilot", configuration,
+    replicate)`` for ``replicate`` from ``offset``.  Run one call per calibration arm at
+    :data:`CALIBRATION_N` for P2, and the in-sample arm at :data:`N` for P3, and size
+    :data:`CALIBRATION_REPLICATES` with :func:`calibration_replicates`.  Record the pilot and the
+    new budget in the declaration commit.
     """
-
-    payloads = [((configuration, replicate, n),) for replicate in range(replicates)]
+    payloads = [
+        ((configuration, replicate, n),) for replicate in range(offset, offset + replicates)
+    ]
     draws = map_parallel(_pilot_replication, payloads, n_jobs=n_jobs)
     ratios: dict[str, float] = {}
-    for label in GATED_LABELS:
+    for label in (*GATED_LABELS, *EARLIER_LABELS):
         estimates = np.array([draw[label][0] for draw in draws])
         errors = np.array([draw[label][1] for draw in draws])
         ratios[label] = float(np.mean(errors) / np.std(estimates, ddof=1))
     return ratios
+
+
+def _primary_pilot_replication(payload: tuple[int, int]) -> list[dict[str, Any]]:
+    replicate, n = payload
+    frame, _ = make_longitudinal_repeated(
+        n=n, seed=stream_seed(STUDY, "pilot", "primary", replicate), backend="pandas"
+    )
+    result = fit_cleverly(frame)
+    means: dict[tuple[str, int], float] = {}
+    for plan in ("never", "always", law.RULE):
+        for horizon in (1, 2, 3):
+            if plan == law.RULE and horizon == 1:
+                continue
+            means[plan, horizon] = plug_in(
+                frame, plan, horizon, history="full", learner=QuasiBinomialGLM()
+            )
+    rows = []
+    for name in ESTIMANDS:
+        if name.startswith("ate_regimen["):
+            comparison, horizon_text = name[len("ate_regimen[") : -1].rsplit(" @ t=", 1)
+            left, right = comparison.split(" vs ")
+            horizon = int(horizon_text)
+            initial = means[_short(left), horizon] - means[_short(right), horizon]
+        else:
+            plan_name, horizon_text = name[len("ey_regimen[") : -1].rsplit(" @ t=", 1)
+            initial = means[_short(plan_name), int(horizon_text)]
+        estimate = result[name]
+        low, high = estimate.ci
+        rows.append(
+            {
+                "replicate": replicate,
+                "estimand": name,
+                "estimate": float(estimate.psi),
+                "std_error": float(estimate.std_error),
+                "covered": int(low <= TRUTH[name] <= high),
+                "plug_in": float(initial),
+            }
+        )
+    return rows
+
+
+def _short(plan: str) -> str:
+    return law.RULE if plan == RULE_LABEL else plan
+
+
+def pilot_primary(
+    replicates: int = 200, *, n: int = PRIMARY_N, n_jobs: int = STUDY_JOBS
+) -> pd.DataFrame:
+    """PILOT HOOK (P1): cleverly's primary fits on the ``("pilot", "primary")`` stream.
+
+    One row per replication and primary cell, with the estimate, its standard error, whether
+    its interval covers the truth, and the plug-in of a quasibinomial GLM chain on the full
+    history.  That chain stands in for the ``gcomp`` call of R, which cannot run here.
+    """
+    payloads = [((replicate, n),) for replicate in range(replicates)]
+    outcomes = map_parallel(_primary_pilot_replication, payloads, n_jobs=n_jobs)
+    return pd.DataFrame([row for rows in outcomes for row in rows])
+
+
+def pilot_cell_summary(
+    pilot: pd.DataFrame, targets: Mapping[str, float], *, cell: str = "estimand"
+) -> pd.DataFrame:
+    """Per cell: bias in empirical spreads, SE ratio, coverage and the covered count.
+
+    Parameters
+    ----------
+    pilot : pandas.DataFrame
+        Rows with ``estimate``, ``std_error`` and ``covered`` columns, grouped by ``cell``.
+    targets : Mapping[str, float]
+        The value each cell's bias is read around: the truth, or a control's limit.
+    cell : str
+        The grouping column.
+    """
+    records = []
+    for name, group in pilot.groupby(cell, sort=False):
+        spread = float(group["estimate"].std(ddof=1))
+        records.append(
+            {
+                cell: name,
+                "replicates": len(group),
+                "bias_sd": float((group["estimate"].mean() - targets[str(name)]) / spread),
+                "sd": spread,
+                "se_ratio": float(group["std_error"].mean() / spread),
+                "coverage": float(group["covered"].mean()),
+                "covered": int(group["covered"].sum()),
+            }
+        )
+    return pd.DataFrame(records)
+
+
+def pilot_property_rows(
+    family: str,
+    configuration: str,
+    replicates: int,
+    *,
+    n_jobs: int = STUDY_JOBS,
+) -> pd.DataFrame:
+    """PILOT HOOK (P4): a property family's replication rows on the pilot stream.
+
+    The same fit and rows as the declared run, from
+    ``stream_seed(STUDY, "pilot", family, configuration, replicate)``.
+    """
+    payloads = [
+        (
+            (
+                family,
+                configuration,
+                replicate,
+                replicates,
+                stream_seed(STUDY, "pilot", family, configuration, replicate),
+            ),
+        )
+        for replicate in range(replicates)
+    ]
+    outcomes = map_parallel(_replication, payloads, n_jobs=n_jobs)
+    return pd.DataFrame([row for result in outcomes for row in result])
 
 
 def time_fit_sets(seed: int = 0) -> dict[tuple[str, str], float]:
@@ -895,4 +1481,7 @@ def declared_truths() -> Mapping[str, Mapping[str, float]]:
         "absorbing": ABSORBING_LIMIT,
         "history_free": HISTORY_FREE_LIMIT,
         "both_wrong": BOTH_WRONG_LIMIT,
+        "plug_in": PLUG_IN_LIMIT,
+        "markov": MARKOV_LIMIT,
+        "reversed": REVERSED_TRUTH,
     }

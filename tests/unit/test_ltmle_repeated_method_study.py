@@ -2,8 +2,11 @@
 
 Each number the study declares before its run is derived here from the exact law in
 :mod:`tests.studies.ltmle_repeated_law`: the truths, the control limits, the replication
-budgets, and the power of every control.  The study is declared and not run, so nothing here
-reads a committed artifact.
+budgets, and the power of every control.  The tests assert the properties of the law
+(section "the law"), the limit functional and its agreement with cleverly on a sample, the
+runner and the R adapter, and the budgets.  The fast tier reads no committed property
+artifact here.  The framework tests in ``tests/unit/test_method_evidence.py`` recompute the
+committed verdicts.
 """
 
 from __future__ import annotations
@@ -400,17 +403,190 @@ def test_the_rule_duplicates_always_at_the_first_node() -> None:
 # ---------------------------------------------------------------------------- the controls
 
 
-def test_each_control_limit_sits_away_from_the_truth() -> None:
+_SAMPLE_SEED = 5_001
+_SAMPLE_N = 5_000
+_PLAN_OF = {"never": "never", "always": "always", "rule": law.RULE}
+
+
+def _plan_of(label: str) -> str:
+    return _PLAN_OF[label.rsplit("_t", 1)[0]]
+
+
+@pytest.mark.parametrize(
+    ("configuration", "kind", "tolerance"),
+    [("both_wrong", "baseline", 1e-10), ("markov_history", "markov", 1e-4)],
+)
+def test_the_limit_functional_reproduces_cleverly_on_a_sample(
+    configuration: str, kind: str, tolerance: float
+) -> None:
+    """The functional on a sample's empirical measure is the value the fit returns.
+
+    The single-fold fit with cell-mean regressions and intercept-only mechanisms is the
+    functional of the sample.  The baseline regressions agree to rounding.  The Markov
+    regressions have cells whose mean is exactly 0 or 1, and the fit bounds its submodel's
+    probabilities at ``alpha = 0.9995``, which moves the estimate by about 1e-5.  The mutation
+    is the same functional with a constant clever covariate: it reads no fluctuation, and it
+    must miss the fit for the rule.
+    """
+    frame = properties.sample(configuration, _SAMPLE_SEED, _SAMPLE_N)
+    result = properties.fit(frame, configuration)
+    for label in ("never_t3", "always_t3", "rule_t3"):
+        plan = _plan_of(label)
+        value = result[study.label_estimand(label)].psi
+        limit = law.empirical_tmle_limit(frame, plan, 3, q_history=kind)
+        assert value == pytest.approx(limit, abs=tolerance), label
+    filled = law.with_latent(frame.fillna(0.0).reset_index(drop=True))
+    weights = np.full(len(filled), 1.0 / len(filled))
+    unfluctuated = law.tmle_limit_functional(
+        filled,
+        weights,
+        law.RULE,
+        3,
+        q_history=kind,
+        cumulative=lambda time: np.ones(len(filled)),
+    )
+    if kind == "markov":
+        fitted = result[study.label_estimand("rule_t3")].psi
+        assert abs(fitted - unfluctuated) > 1e-3
+
+
+def _baseline_plug_in(frame: pd.DataFrame, plan: str, horizon: int) -> float:
+    """The iterated cell means of ``W`` among the followers, from the law module's helpers."""
+    filled = law.with_latent(frame.fillna(0.0).reset_index(drop=True))
+    weights = np.full(len(filled), 1.0 / len(filled))
+    carried = filled[f"Y{horizon}"].to_numpy().astype(float)
+    for time in range(horizon, 0, -1):
+        followed = law.followed_mask(filled, plan, time)
+        carried = law.conditional_mean(filled, weights, carried, followed, ["W"])
+    return float(np.mean(carried))
+
+
+def test_the_untargeted_arm_is_the_w_only_plug_in() -> None:
+    """``untargeted`` is the cell-mean chain, and the targeted fit differs from it."""
+    frame = properties.sample("targeted", 77, 2_000)
+    targeted = properties.fit(frame, "mechanism_correct")
+    for label in study.GATED_LABELS:
+        plan, horizon, reference = _parse(study.label_estimand(label))
+        expected = _baseline_plug_in(frame, plan, horizon)
+        if reference is not None:
+            expected -= _baseline_plug_in(frame, reference, horizon)
+        assert properties.untargeted(frame, label) == pytest.approx(expected, abs=1e-12)
+        # A nonzero witness: the fluctuation moves every label on this sample.
+        moved = targeted[study.label_estimand(label)].psi - expected
+        assert abs(moved) > 1e-3, label
+
+
+def test_the_both_wrong_fluctuation_is_exactly_zero_for_static_plans() -> None:
+    """Intercept mechanisms make the static clever covariate constant, so the fit is the plug-in."""
+    frame = properties.sample("both_wrong", 77, 2_000)
+    result = properties.fit(frame, "both_wrong")
+    for label in ("never_t3", "always_t3", "always_vs_never_t3"):
+        assert result[study.label_estimand(label)].psi == pytest.approx(
+            properties.untargeted(frame, label), abs=1e-12
+        ), label
+    # The rule's clever covariate reads Y_{t-1}, so its fit leaves the plug-in.
+    rule = study.label_estimand("rule_t3")
+    assert abs(result[rule].psi - properties.untargeted(frame, "rule_t3")) > 1e-3
+
+
+class _Recorder:
+    """A learner that records the design columns it is fitted on."""
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> _Recorder:
+        self.seen = np.asarray(X)
+        return self
+
+    def predict(self, X: Any) -> np.ndarray:
+        return np.zeros(len(X))
+
+    def get_params(self, deep: bool = True) -> dict[str, Any]:
+        return {}
+
+
+def test_the_markov_wrapper_reads_the_declared_columns() -> None:
+    """Widths 1, 3 and 5 keep ``[0]``, ``[0, 1, 2]`` and ``[0, 3, 4]``."""
+    columns = properties.CellMeansOn.columns
+    assert [columns("markov", width) for width in (1, 3, 5)] == [[0], [0, 1, 2], [0, 3, 4]]
+    assert [columns("baseline", width) for width in (1, 3, 5)] == [[0]] * 3
+    assert columns("full", 5) == [0, 1, 2, 3, 4]
+    design = np.arange(30.0).reshape(6, 5)
+    wrapper = properties.CellMeansOn("markov", _Recorder()).fit(design, np.zeros(6))
+    np.testing.assert_array_equal(wrapper.fitted_.seen, design[:, [0, 3, 4]])
+    with pytest.raises(ValueError):
+        columns("second", 3)
+    assert not hasattr(properties.CellMeansOn("markov", _Recorder()), "predict_proba")
+
+
+def test_the_markov_control_differs_from_the_full_history_arm_on_a_sample() -> None:
+    """Mutation: a wrapper that kept every column would make the two arms equal."""
+    frame = properties.sample("markov_history", _SAMPLE_SEED, _SAMPLE_N)
+    positive = properties.fit(frame, "full_history")
+    control = properties.fit(frame, "markov_history")
+    for label in ("never_t3", "always_t3"):
+        name = study.label_estimand(label)
+        assert abs(positive[name].psi - control[name].psi) > 1e-3, label
+    # The mutation: the same learner on every column reproduces the full-history arm.
+    mutated = properties.LTMLE(
+        properties.regimens(),
+        reference="never",
+        outcome_learner=properties.CellMeansOn("full", properties.CellMeansBackoff()),
+        pseudo_learner=properties.CellMeansOn("full", properties.CellMeansBackoff()),
+        treatment_learner=properties.DummyClassifier(strategy="prior"),
+        censoring_learner=properties.DummyClassifier(strategy="prior"),
+        n_folds=1,
+        g_bounds=properties.G_BOUNDS,
+        max_iter=100,
+        tol=1e-10,
+        random_state=0,
+    ).fit(frame, **properties.COLUMNS)
+    name = study.label_estimand("never_t3")
+    assert mutated[name].psi == pytest.approx(positive[name].psi, abs=1e-12)
+
+
+def _control_limits() -> list[tuple[str, str, float, float]]:
+    """``(family, label, limit, truth)`` for every control that reads an exact limit."""
     truth = properties.TRUTH
+    designs = []
     for label in properties.ABSORBING_LABELS:
-        gap = properties.ABSORBING_LIMIT[label] - truth[study.label_estimand(label)]
-        assert gap >= 0.05, label
+        designs.append(
+            (
+                "repeated_outcome_necessity",
+                label,
+                properties.ABSORBING_LIMIT[label],
+                truth[study.label_estimand(label)],
+            )
+        )
     for label in properties.HISTORY_LABELS:
-        gap = properties.HISTORY_FREE_LIMIT[label] - truth[study.label_estimand(label)]
-        assert abs(gap) >= 0.02, label
-    for label in properties.STATIC_GATED:
-        gap = properties.BOTH_WRONG_LIMIT[label] - truth[study.label_estimand(label)]
-        assert abs(gap) >= 0.02, label
+        designs.append(
+            (
+                "outcome_history_necessity",
+                label,
+                properties.HISTORY_FREE_LIMIT[label],
+                truth[study.label_estimand(label)],
+            )
+        )
+    for label in study.GATED_LABELS:
+        value = truth[study.label_estimand(label)]
+        designs.append(("double_robustness", label, properties.BOTH_WRONG_LIMIT[label], value))
+        designs.append(("full_history_necessity", label, properties.MARKOV_LIMIT[label], value))
+        designs.append(("targeting_necessity", label, properties.PLUG_IN_LIMIT[label], value))
+    for label in properties.RULE_LABELS:
+        designs.append(
+            (
+                "rule_necessity",
+                label,
+                properties.REVERSED_TRUTH[label],
+                truth[study.label_estimand(label)],
+            )
+        )
+    return designs
+
+
+def test_each_control_limit_sits_away_from_the_truth() -> None:
+    """Every control's limit is at least half an efficiency-bound spread from the truth."""
+    for family, label, limit, truth in _control_limits():
+        gap = abs(limit - truth)
+        assert gap >= 0.5 * _sd(label, family), (family, label)
 
 
 def test_the_history_free_reading_is_refused_for_a_rule() -> None:
@@ -464,58 +640,23 @@ def test_the_tmle_limit_with_the_true_mechanisms_is_the_truth(plan: str, kind: s
         assert abs(plug_in - law.BINARY.counterfactual(plan, 3)) > 0.01
 
 
+def _replications() -> dict[str, int]:
+    """The replications each family draws, from the declared fit sets."""
+    return {family: replicates for family, _, replicates in properties.FIT_SETS}
+
+
 def _control_designs() -> list[tuple[str, str, float, float, int]]:
     """``(family, label, gap, scale, replicates)`` for every control the study gates."""
-    truth = properties.TRUTH
-    designs = []
-    for label in properties.ABSORBING_LABELS:
-        gap = properties.ABSORBING_LIMIT[label] - truth[study.label_estimand(label)]
-        designs.append(
-            (
-                "repeated_outcome_necessity",
-                label,
-                gap,
-                _sd(label, "repeated_outcome_necessity"),
-                properties.NECESSITY_REPLICATES,
-            )
+    return [
+        (
+            family,
+            label,
+            limit - truth,
+            _sd(label, family),
+            _replications()[family],
         )
-    for label in properties.HISTORY_LABELS:
-        gap = properties.HISTORY_FREE_LIMIT[label] - truth[study.label_estimand(label)]
-        designs.append(
-            (
-                "outcome_history_necessity",
-                label,
-                gap,
-                _sd(label, "outcome_history_necessity"),
-                properties.NECESSITY_REPLICATES,
-            )
-        )
-    for label in properties.STATIC_GATED:
-        gap = properties.BOTH_WRONG_LIMIT[label] - truth[study.label_estimand(label)]
-        designs.append(
-            (
-                "double_robustness",
-                label,
-                gap,
-                _sd(label, "double_robustness"),
-                properties.DOUBLE_ROBUST_REPLICATES,
-            )
-        )
-    for label in properties.RULE_LABELS:
-        horizon = int(label.rsplit("_t", 1)[1])
-        gap = law.BINARY.counterfactual("reversed", horizon) - repeated_truth(
-            REPEATED_RULE_LABEL, horizon
-        )
-        designs.append(
-            (
-                "rule_necessity",
-                label,
-                gap,
-                _sd(label, "rule_necessity"),
-                properties.NECESSITY_REPLICATES,
-            )
-        )
-    return designs
+        for family, label, limit, truth in _control_limits()
+    ]
 
 
 @pytest.mark.parametrize(
@@ -539,8 +680,11 @@ def test_the_smallest_control_gap_is_the_one_the_design_reports() -> None:
         (family, label): abs(gap) / scale for family, label, gap, scale, _ in _control_designs()
     }
     weakest = min(shifts, key=shifts.__getitem__)
-    assert weakest == ("double_robustness", "always_t3")
-    assert shifts[weakest] == pytest.approx(0.56, abs=0.02)
+    assert weakest == ("outcome_history_necessity", "always_t3")
+    assert shifts[weakest] == pytest.approx(0.73, abs=0.02)
+    # The weakest control of the new families, for the record.
+    assert shifts["double_robustness", "rule_t3"] == pytest.approx(0.74, abs=0.02)
+    assert shifts["rule_necessity", "rule_t3"] > 2.0
 
 
 # ---------------------------------------------------------------------------- the budgets
@@ -568,6 +712,8 @@ def test_the_absorbing_control_draws_at_its_own_n() -> None:
     assert properties.ABSORBING_N == 8_000
     assert properties.family_n("repeated_outcome_necessity") == properties.ABSORBING_N
     assert properties.family_n("outcome_history_necessity") == properties.N
+    assert properties.FULL_HISTORY_N == 8_000
+    assert properties.family_n("full_history_necessity") == properties.FULL_HISTORY_N
 
 
 def test_the_backoff_learner_reads_a_seen_cell_and_extrapolates_an_unseen_one() -> None:
@@ -679,7 +825,9 @@ def test_the_declared_truths_are_finite_and_cover_every_label() -> None:
     assert set(truths["continuous"]) == set(study.GATED_LABELS)
     assert set(truths["absorbing"]) == set(properties.ABSORBING_LABELS)
     assert set(truths["history_free"]) == set(properties.HISTORY_LABELS)
-    assert set(truths["both_wrong"]) == set(properties.STATIC_GATED)
+    for kind in ("both_wrong", "plug_in", "markov"):
+        assert set(truths[kind]) == set(study.GATED_LABELS), kind
+    assert set(truths["reversed"]) == set(properties.RULE_LABELS)
     for table in truths.values():
         assert all(np.isfinite(value) for value in table.values())
 
