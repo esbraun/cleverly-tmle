@@ -37,7 +37,7 @@ from tests.studies import canonical_ltmle_repeated as study
 from tests.studies import ltmle_repeated_law as law
 from tests.studies import ltmle_repeated_properties as properties
 from tests.studies.evidence import replication
-from tests.studies.evidence.inference import clopper_pearson
+from tests.studies.evidence.inference import clopper_pearson, coverage_for_se_ratio
 from tests.studies.evidence.registry import registered
 from tests.studies.fractional_glm import QuasiBinomialSeparationWarning
 
@@ -713,8 +713,6 @@ def test_every_control_is_powered(
     assert _discriminated(gap, scale, replicates) >= 0.99
     # The paired displacement, in the positive arm's spread, clears the declared threshold.
     assert abs(gap) / scale >= 2 * properties.NECESSITY_DISPLACEMENT
-    # The positive arm, and a control that converges to its own limit, read as equivalent.
-    assert _equivalent(0.0, replicates) >= 0.99
 
 
 def test_the_smallest_control_gap_is_the_one_the_design_reports() -> None:
@@ -732,12 +730,101 @@ def test_the_smallest_control_gap_is_the_one_the_design_reports() -> None:
 # ---------------------------------------------------------------------------- the budgets
 
 
-def test_the_calibration_budget_is_the_declared_rule_applied_to_the_pilot() -> None:
-    """The family-wise product over 28 cells reaches 0.95 at the budget and not 400 below.
+def _calibration_groups() -> list[properties.PilotGroup]:
+    return properties.calibration_groups(
+        properties.CALIBRATION_PILOT_RATIOS, properties.CALIBRATION_PILOT_REPLICATES
+    )
 
-    Pilot P2 ran 2,000 draws per arm at ``n = 8,000``.  Its SE ratios have a standard
-    deviation of 0.014 across the 28 cells, the sampling error of one ratio at that size, so
-    the rule evaluates each cell 0.02 farther from one and the product binds at 25,600.
+
+def test_the_effective_cells_derive_from_the_law() -> None:
+    """``k_eff = k^2 / sum(rho^2)`` for the efficient influence curves of the law."""
+    in_sample = [*study.GATED_LABELS, *study.EARLIER_LABELS]
+    gated = list(study.GATED_LABELS)
+    assert len(in_sample) == 13
+    # The correlation of two curves under the law, written out here and not by the module.
+    weights = law.BINARY.paths["p"].to_numpy()
+    curves = {}
+    for label in in_sample:
+        plan, reference, horizon = properties.label_parts(label)
+        curves[label] = law.BINARY.eif(plan, horizon, reference=reference)
+
+    def rho(left: str, right: str) -> float:
+        cross = np.sum(weights * curves[left] * curves[right])
+        return float(
+            cross
+            / np.sqrt(np.sum(weights * curves[left] ** 2) * np.sum(weights * curves[right] ** 2))
+        )
+
+    for labels, expected in ((in_sample, 6.69), (gated, 2.58)):
+        total = sum(rho(left, right) ** 2 for left in labels for right in labels)
+        assert len(labels) ** 2 / total == pytest.approx(expected, abs=0.005)
+        assert properties.effective_cells(labels) == pytest.approx(expected, abs=0.005)
+    # Nonzero witnesses.  The correlation is signed: the mean and its contrast with ``never``
+    # move in opposite directions.  Equal curves count once, and unrelated curves count twice.
+    correlations = properties.label_correlations(["never_t3", "always_vs_never_t3", "never_t3"])
+    assert correlations[0, 1] == pytest.approx(rho("never_t3", "always_vs_never_t3"))
+    assert correlations[0, 1] < -0.5
+    assert correlations[0, 2] == pytest.approx(1.0)
+    assert properties.effective_cells(["never_t3", "never_t3"]) == pytest.approx(1.0)
+    assert properties.effective_cells(["never_t1", "rule_t3"]) > 1.9
+
+
+def test_the_cell_pass_probability_matches_the_scalar_definition() -> None:
+    """The vectorized cell reads the Wald coverage of ``coverage_for_se_ratio``."""
+    margins = study.STUDY.margins
+    low, high = margins.calibration_se_ratio
+    budget = properties.CALIBRATION_REPLICATES
+    bounds = properties._accepted_counts(budget)
+    assert bounds is not None
+    for ratio in (0.97, 1.0, 1.03, 1.06):
+        coverage = coverage_for_se_ratio(ratio, alpha=margins.alpha)
+        covered = sum(binom.pmf(k, budget, coverage) for k in range(bounds[0], bounds[1] + 1))
+        spread = ratio / np.sqrt(2.0 * (budget - 1))
+        half = Z * spread
+        within = norm.cdf((high - half - ratio) / spread) - norm.cdf((low + half - ratio) / spread)
+        expected = max(float(within), 0.0) * float(covered)
+        assert properties.calibration_pass_probability(budget, ratio=ratio) == pytest.approx(
+            expected, abs=1e-9
+        )
+    # Below the smallest budget with an accepted count, nothing passes.
+    assert properties._accepted_counts(100) is None
+    assert properties.calibration_pass_probability(100) == 0.0
+
+
+def test_the_heterogeneity_bound_reads_the_spread_the_noise_does_not_explain() -> None:
+    """The bound is zero for pure noise, and it recovers a spread that the noise cannot hide."""
+    groups = _calibration_groups()
+    tau = properties.heterogeneity_bound(groups)
+    # The pilot spread across cells is 0.013, smaller than its noise, so the point estimate
+    # is zero and the bound prices what the 28 cells cannot rule out.
+    assert tau == pytest.approx(0.0059, abs=0.0001)
+    assert properties.heterogeneity_bound([]) == 0.0
+    # Nonzero witnesses: an alternating spread of 0.02 or 0.04 around each arm mean is found.
+    for amplitude in (0.02, 0.04):
+        spread = [
+            properties.PilotGroup(
+                group.values.mean() + amplitude * (-1.0) ** np.arange(len(group.values)),
+                group.noise,
+            )
+            for group in groups
+        ]
+        assert 0.9 * amplitude < properties.heterogeneity_bound(spread) < 1.25 * amplitude
+    # Mutations.  Independent noise explains more of the pilot spread than the law's
+    # correlated noise does, so it gives a bound of zero.  Noise left out gives a larger one.
+    sampling = 1.0 / (2.0 * (properties.CALIBRATION_PILOT_REPLICATES - 1))
+    independent = [
+        properties.PilotGroup(g.values, np.eye(len(g.values)) * sampling) for g in groups
+    ]
+    silent = [properties.PilotGroup(g.values, np.zeros_like(g.noise)) for g in groups]
+    assert properties.heterogeneity_bound(independent) == 0.0
+    assert properties.heterogeneity_bound(silent) > 2 * tau
+
+
+def test_the_calibration_budget_is_the_declared_rule_applied_to_the_pilot() -> None:
+    """The pooled family-wise pass probability reaches 0.95 at the budget and not 400 below.
+
+    Pilot P2 ran 2,000 draws per arm at ``n = 8,000``.  The true SE ratio of each arm is its
+    pilot mean, with the noise of that mean, and each cell lies a spread ``tau`` away.
     """
     ratios = properties.CALIBRATION_PILOT_RATIOS
     pilot = properties.CALIBRATION_PILOT_REPLICATES
@@ -753,32 +840,133 @@ def test_the_calibration_budget_is_the_declared_rule_applied_to_the_pilot() -> N
         )
     }
     assert properties.calibration_replicates(ratios, pilot) == properties.CALIBRATION_REPLICATES
-    evaluated = [properties.evaluated_ratio(value, pilot) for value in ratios.values()]
-
-    def product(budget: int) -> float:
-        return float(
-            np.prod([properties.calibration_pass_probability(budget, ratio=r) for r in evaluated])
-        )
-
+    assert properties.CALIBRATION_REPLICATES == 8_000
+    groups = _calibration_groups()
+    assert [len(group.values) for group in groups] == [13, 5, 5, 5]
+    assert [round(float(np.mean(group.values)), 4) for group in groups] == [
+        1.0088,
+        0.9969,
+        1.0162,
+        0.9966,
+    ]
+    tau = properties.heterogeneity_bound(groups)
     budget = properties.CALIBRATION_REPLICATES
-    assert product(budget) >= 0.95
-    assert product(budget - properties.BUDGET_STEP) < 0.95
-    # The evaluated ratio lies on the far side of one for every cell, never nearer.
-    assert all(
-        abs(e - 1.0) > abs(value - 1.0) for e, value in zip(evaluated, ratios.values(), strict=True)
+
+    def family(replicates: int, bound: float = tau, pooled: Any = groups) -> float:
+        return properties.calibration_family_pass_probability(replicates, pooled, bound)
+
+    assert family(budget) == pytest.approx(0.9523, abs=0.0005)
+    assert family(budget) >= properties.FAMILY_WISE_PASS
+    assert family(budget - properties.BUDGET_STEP) == pytest.approx(0.9437, abs=0.0005)
+    assert family(budget - properties.BUDGET_STEP) < properties.FAMILY_WISE_PASS
+    # The mean variance of an arm is the noise variance of one ratio over ``k_eff``.
+    sampling = 1.0 / (2.0 * (pilot - 1))
+    labels = [
+        f"{label}__estimated_mechanisms" for label in (*study.GATED_LABELS, *study.EARLIER_LABELS)
+    ]
+    assert groups[0].mean_variance == pytest.approx(
+        sampling / properties.effective_cells(properties._cell_labels(labels))
     )
-    # The pilot point estimates alone would pass at 9,600, which the declared rule does not
-    # use: it prices the pilot's own sampling error, as the primary rule does.
-    at_point = np.prod(
-        [properties.calibration_pass_probability(9_600, ratio=r) for r in ratios.values()]
-    )
-    assert at_point >= 0.95
-    # A ratio of exactly one is evaluated on the upper side, and the pass probability falls
-    # off both sides of one.
-    assert properties.evaluated_ratio(1.0, pilot) > 1.0
+    # The earlier per-cell rule moved every cell to the end of its own interval.  It is gone.
+    assert not hasattr(properties, "evaluated_ratio")
+    # Mutations, each of which must move the probability at the declared budget.  A spread of
+    # zero and a pilot with no noise are optimistic.  A spread of twice the bound, noise that
+    # is fully correlated across cells, and an arm mean 0.03 away from the pilot are not.
+    assert family(budget, 0.0) > family(budget) + 0.02
+    assert family(budget, 2 * tau) < 0.85
+    silent = [properties.PilotGroup(g.values, np.zeros_like(g.noise)) for g in groups]
+    assert family(budget, pooled=silent) > family(budget) + 0.02
+    shared = [properties.PilotGroup(g.values, np.full_like(g.noise, sampling)) for g in groups]
+    assert family(budget, pooled=shared) < 0.85
+    moved = [properties.PilotGroup(g.values + 0.03, g.noise) for g in groups]
+    assert family(budget, pooled=moved) < 0.1
+    # The pass probability rises with the budget, and falls off both sides of one.
+    assert family(budget + 2 * properties.BUDGET_STEP) > family(budget)
     assert properties.calibration_pass_probability(
         budget, ratio=1.0
     ) > properties.calibration_pass_probability(budget, ratio=1.04)
+
+
+def _bias_cells() -> set[str]:
+    """Every cell whose bias a check reads: the positive cells and the controls' limits."""
+    cells: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+        "double_robustness": (
+            study.GATED_LABELS,
+            ("mechanism_correct", "outcome_correct", "both_wrong"),
+        ),
+        "targeting_necessity": (study.GATED_LABELS, ("targeted", "untargeted")),
+        "full_history_necessity": (study.GATED_LABELS, ("full_history", "markov_history")),
+        "rule_necessity": (properties.RULE_LABELS, ("declared", "reversed_rule")),
+        "repeated_outcome_necessity": (
+            properties.ABSORBING_LABELS,
+            ("repeated", "absorbing_reading"),
+        ),
+        "outcome_history_necessity": (properties.HISTORY_LABELS, ("repeated", "history_free")),
+    }
+    return {
+        f"{family}/{label}__{configuration}"
+        for family, (labels, configurations) in cells.items()
+        for label in labels
+        for configuration in configurations
+    }
+
+
+def test_the_bias_checks_pass_jointly_under_the_pooled_reading() -> None:
+    """The pilot biases of P4 give a family-wise pass probability of at least 0.95.
+
+    Pilot P4 drew 300 replications per family.  The 57 standardized biases of the positive
+    cells and of the controls around their limits share one mean.  Their spread is smaller
+    than the pilot noise, so the point estimate of the spread between cells is zero.  The
+    bound is the 80% upper confidence bound, and the probability is read at the bound.
+    """
+    biases = properties.PROPERTY_PILOT_BIASES
+    pilot = properties.PROPERTY_PILOT_REPLICATES
+    replicates = _replications()
+    assert set(biases) == _bias_cells()
+    assert len(biases) == 57
+    assert pilot == 300
+    # The independent definition of a cell's probability agrees with the module's.
+    for bias in (0.0, 0.1, -0.2):
+        assert properties.bias_equivalent_probability(bias, 1_000) == pytest.approx(
+            _equivalent(bias, 1_000)
+        )
+    group = properties.property_bias_group(biases, pilot)
+    values = np.array(list(biases.values()))
+    assert np.std(values, ddof=1) < 1.0 / np.sqrt(pilot)
+    tau = properties.heterogeneity_bound([group])
+    assert tau == pytest.approx(0.033, abs=0.001)
+    at_bound = properties.property_bias_pass_probability(biases, pilot, replicates, tau)
+    at_zero = properties.property_bias_pass_probability(biases, pilot, replicates, 0.0)
+    assert at_bound == pytest.approx(0.962, abs=0.002)
+    assert at_bound >= properties.FAMILY_WISE_PASS
+    assert at_zero >= 0.99
+    # The default spread is the bound.
+    assert properties.property_bias_pass_probability(biases, pilot, replicates) == at_bound
+    # Mutations, each of which must break the probability or the bound.
+    # Too few replications cannot show a bias inside the margin.
+    fewer = dict.fromkeys(replicates, 200)
+    assert properties.property_bias_pass_probability(biases, pilot, fewer, tau) < 0.5
+    # Every cell biased by 0.2 spreads leaves little room inside the margin of 0.25.
+    biased = {name: value + 0.2 for name, value in biases.items()}
+    assert properties.property_bias_pass_probability(biased, pilot, replicates, 0.0) < 1e-6
+    # One cell at 0.30 spreads raises the spread between cells, and with it the bound, and
+    # the probability at the new bound falls.
+    outlier = {**biases, "double_robustness/rule_t3__outcome_correct": 0.30}
+    assert (
+        properties.heterogeneity_bound([properties.property_bias_group(outlier, pilot)]) > 1.4 * tau
+    )
+    assert properties.property_bias_pass_probability(outlier, pilot, replicates) < 0.7
+    # A spread of twice the bound lets the 57 cells reach the margin.
+    assert properties.property_bias_pass_probability(biases, pilot, replicates, 2 * tau) < 0.5
+    # Noise ignored across the cells of a family gives a larger bound on the spread.
+    silent = properties.PilotGroup(group.values, np.zeros_like(group.noise))
+    assert properties.heterogeneity_bound([silent]) > 1.5 * tau
+    # The noise of two cells of one family has the signed correlation of their labels.
+    names = list(biases)
+    first = names.index("double_robustness/never_t3__mechanism_correct")
+    second = names.index("double_robustness/always_vs_never_t3__mechanism_correct")
+    assert group.noise[first, second] < 0.0
+    assert group.noise[first, names.index("targeting_necessity/never_t3__targeted")] == 0.0
 
 
 def test_the_study_fit_clips_probabilities_where_ltmle_does() -> None:

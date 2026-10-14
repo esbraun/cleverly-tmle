@@ -32,8 +32,8 @@ Each truth is an exact enumeration of the binary law (`cleverly.datasets.repeate
 `tests/studies/ltmle_repeated_law.py` repeats the enumeration on the observed-data law.
 
 The baseline covariate $W$ takes the values 0, 1 and 2. The law has depth two. The treatment,
-censoring and outcome at node $t$ read $Y_{t-2}$, and the covariate $L_t$ reads $L_{t-1}$. These
-terms act at $t = 3$ only. The first node's regression on $W$ has one design column for three
+censoring and outcome at node $t$ read $Y_{t-2}$. The covariate $L_t$ reads $L_{t-1}$, and the
+outcome $Y_t$ also reads $L_{t-1}$. These terms act at $t = 3$ only. The first node's regression on $W$ has one design column for three
 cells, so its fluctuation is not zero.
 
 At $t = 3$ the smallest cumulative mechanism product among the units that follow a plan is 0.025,
@@ -186,11 +186,11 @@ family tests.
 
 | family | what it tests | size |
 | --- | --- | --- |
-| `interval_calibration` | pointwise coverage and SE ratio inside the calibration bands. The cells are in-sample with estimated mechanisms, cross-fitted GLM, cross-fitted boosted trees, and a continuous outcome. The in-sample cells cover every horizon, $t = 1, 2, 3$. A shrunken-SE control and a noise control must fail the same bands | $n$ = 8,000, 25,600 replications |
+| `interval_calibration` | pointwise coverage and SE ratio inside the calibration bands. The cells are in-sample with estimated mechanisms, cross-fitted GLM, cross-fitted boosted trees, and a continuous outcome. The in-sample cells cover every horizon, $t = 1, 2, 3$. A shrunken-SE control and a noise control must fail the same bands | $n$ = 8,000, 8,000 replications |
 | `small_sample_calibration` | the in-sample and continuous arms refitted at $n$ = 2,000. The role is `diagnostic`. The table reports these cells and no rule gates them | $n$ = 2,000, 2,000 replications |
-| `double_robustness` | `mechanism_correct`: bias inside the margin when the outcome regression reads $W$ alone and the mechanisms are correct. `outcome_correct`: bias inside the margin when the outcome regression reads the full history and the mechanisms read $W$ alone. `both_wrong`: the control with a $W$ regression and intercept-only mechanisms must miss the truth and reach its exact limit | $n$ = 2,000, 1,000 replications |
+| `double_robustness` | `mechanism_correct`: bias inside the margin when the outcome regression reads $W$ alone and the mechanisms are correct. `outcome_correct`: bias inside the margin when the outcome regression reads the full history and the mechanisms read $W$ alone. `both_wrong`: the control with a $W$ regression and intercept-only mechanisms must miss the truth and reach its exact limit. A static plan has no fluctuation in this fit. The rule has one, and it moves the limit by 0.046 empirical standard deviations of the rule's mean at $t = 3$ (0.031 for its contrast). Replications cannot separate that move from the plug-in limit, because the 99% bias interval at 1,000 replications is 0.081 standard deviations wide on each side. The claim that the rule's fluctuation moves the fit rests on `test_the_limit_functional_reproduces_cleverly_on_a_sample`, which matches a fit to the limit functional on one sample to $10^{-10}$ | $n$ = 2,000, 1,000 replications |
 | `targeting_necessity` | the targeted fit against a plug-in with no fluctuation. The plug-in must move the estimate by 0.25 empirical standard deviations of the targeted arm and reach the exact $W$-only g-formula | $n$ = 2,000, 1,000 replications |
-| `simultaneous_coverage` | the default band over all 15 reported parameters, against its pointwise control | $n$ = 8,000, 25,600 replications |
+| `simultaneous_coverage` | the default band over all 15 reported parameters, against its pointwise control | $n$ = 8,000, 8,000 replications |
 | `rule_necessity` | the declared rule against its reverse, which treats after a zero outcome. The reversed rule must miss the declared rule's truth and reach the truth of the reversed rule | $n$ = 2,000, 1,000 replications |
 | `repeated_outcome_necessity` (N1) | an absorbing reading of the outcome, which fits $\max_{s \le h} Y_s$. The control must miss the truth and reach the cumulative-maximum limit. Its outcome learner is a cell-means regression with a GLM fallback on an unseen cell | $n$ = 8,000, 1,000 replications |
 | `outcome_history_necessity` (N2) | a fit that leaves every $Y_s$ out of the history, so the earlier outcomes act as confounders. The control must miss the truth and reach the coarse g-formula limit | $n$ = 2,000, 1,000 replications |
@@ -200,6 +200,12 @@ The in-sample cells use $n$ = 8,000. At $n$ = 2,000 the standard error runs a fe
 the sampling spread for the rule. The ratio moves toward 1 at the $1/n$ rate of in-sample fitting.
 The module `tests/studies/ltmle_repeated_properties.py` records the pilots behind these sizes. The
 `small_sample_calibration` cells report the shortfall at $n$ = 2,000.
+
+The calibration budget is the smallest multiple of 400 replications at which the 28 gated cells
+pass together with probability 0.95. The probability pools the cells of each arm. It takes the
+arm mean from the pilot and adds the noise of that mean. It sets the spread between cells at its
+80% upper bound of 0.0059. The probability is 0.952 at 8,000 replications. The bias checks of the other
+families pass together with probability 0.962 at their declared sizes, by the same reading.
 
 ## Measured values
 
@@ -223,11 +229,11 @@ the committed results and checked at the precision printed.
 | `max_se_ratio_ci_upper` | 1.0629 | highest bootstrap primary SE-ratio endpoint |
 | `margin:alpha` | 0.0500 | nominal size of the reported intervals, and the family level of the rule |
 | `margin:bootstrap_replicates` | 10000 | resamples behind every bootstrap interval |
-| `margin:calibration_coverage_lower` | 0.9200 | calibration-cell coverage band, lower limit. No cell of this study reads it |
-| `margin:calibration_coverage_upper` | 0.9800 | calibration-cell coverage band, upper limit. No cell of this study reads it |
+| `margin:calibration_coverage_lower` | 0.9200 | calibration-cell coverage band, lower limit |
+| `margin:calibration_coverage_upper` | 0.9800 | calibration-cell coverage band, upper limit |
 | `margin:calibration_noninferiority` | 0.0500 | largest external-comparison calibration excess bound |
-| `margin:calibration_se_ratio_lower` | 0.9300 | calibration-cell SE-ratio band, lower limit. No cell of this study reads it |
-| `margin:calibration_se_ratio_upper` | 1.0700 | calibration-cell SE-ratio band, upper limit. No cell of this study reads it |
+| `margin:calibration_se_ratio_lower` | 0.9300 | calibration-cell SE-ratio band, lower limit |
+| `margin:calibration_se_ratio_upper` | 1.0700 | calibration-cell SE-ratio band, upper limit |
 | `margin:confidence_level` | 0.9900 | confidence level of every Monte Carlo interval |
 | `margin:coverage_floor` | 0.9000 | validity floor the coverage lower endpoint must clear |
 | `margin:coverage_noninferiority` | -0.0250 | smallest external-comparison coverage difference bound |
@@ -244,10 +250,11 @@ the committed results and checked at the precision printed.
 | `margin:se_ratio_sanity_upper` | 1.2000 | SE-ratio screen, upper limit |
 | `margin:standardized_bias` | 0.2500 | bias equivalence margin, in empirical standard deviations |
 | `margin:type_i_ceiling` | 0.1000 | the rate a positive cell must bound and a control must exceed. No cell of this study reads it |
-| `margin:union_model_se_lower` | 0.1000 | union-model SE-ratio screen, lower limit. No cell of this study reads it |
-| `margin:union_model_se_upper` | 10 | union-model SE-ratio screen, upper limit. No cell of this study reads it |
+| `margin:union_model_se_lower` | 0.1000 | union-model SE-ratio screen, lower limit |
+| `margin:union_model_se_upper` | 10 | union-model SE-ratio screen, upper limit |
 | `margin:shrunken_se_factor` | 0.7000 | factor the shrunken-SE control multiplies the standard error by |
 | `margin:necessity_displacement` | 0.2500 | smallest paired displacement of a necessity control, in empirical standard deviations |
+| `margin:targeting_displacement` | 0.2500 | smallest displacement of the untargeted plug-in from the targeted fit, in empirical standard deviations of the targeted arm |
 
 ## Limitations
 
@@ -255,7 +262,7 @@ the committed results and checked at the precision printed.
 | --- | --- |
 | one law with three nodes and a binary outcome | the continuous outcome has one calibration arm, and the rate in $n$ is not measured |
 | the paired comparison fixes the mechanisms | the paired margins alone cannot separate an untargeted plug-in from the targeted fit, because the plug-in is nearly unbiased on this law. The `targeting_necessity` family and the parity gate carry that claim. The gate is `test_cleverly_reproduces_r_targeting_move_in_every_cell`. In each cell the root-mean-square difference from R must stay below 1% of R's root-mean-square targeting move. No replication may differ from R by more than 1% of R's mean standard error. The comparison does not claim parity for learned treatment or censoring models |
-| the in-sample interval is mildly anticonservative at $n$ = 2,000 | the `small_sample_calibration` cells report the shortfall and no rule gates them. The gated cells draw $n$ = 8,000 |
+| the in-sample interval is mildly anticonservative at $n$ = 2,000 | the `small_sample_calibration` cells report the shortfall and no rule gates them. The gated calibration cells draw $n$ = 8,000. The primary cells draw $n$ = 3,000 and answer to the coverage floor |
 | the cross-fitted learners are one GLM and one shallow booster | the study does not cover a larger learner library or a different fold count |
 | the absorbing, history-free and Markov controls read exact limits of this law | they show that the repeated reading, the earlier outcomes and the depth of the outcome regression matter here. They do not bound the difference on another law |
 | positivity is bounded away from zero, not absent | at $t = 3$ the smallest cumulative mechanism product among followers is 0.025, and at most 2.2% of the followers fall below 0.05. No cell validates active truncation or near-positivity behavior |
