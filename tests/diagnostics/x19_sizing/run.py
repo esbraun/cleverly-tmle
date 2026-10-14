@@ -13,7 +13,7 @@ It runs, at :data:`N`:
   plans);
 * both S2 primary scenarios, every estimand;
 * the S2 fit sets of :mod:`tests.studies.longitudinal_incremental_dropout_properties`;
-* the competing-risk fit set again at its declared size, :data:`COMPETING_N`;
+* the competing-risk fit set again at n = 32,000 and 64,000, where its tail is gone;
 * at its declared size, each cell whose rule the bias projection does not reach: the sharp
   null, the power cell, both ``single_robustness`` sizes, both bands with the S2 survival
   calibration and one-fold cells they carry, and the clustered pair.
@@ -53,7 +53,6 @@ from tests.studies import longitudinal_incremental_properties as p1
 
 HERE = Path(__file__).resolve().parent
 N = 8_000
-COMPETING_N = p2.COMPETING_N
 SEED_BASE = 9_700_000
 #: The sizes the ``single_robustness`` probe read.  The declared sizes are larger; the design
 #: test projects these readings to them.
@@ -71,7 +70,7 @@ SETS: dict[str, tuple[int, str, str, str, int, int]] = {
     "s2:survival_folds_5": (6, "s2", "primary", "survival_folds_5", N, 400),
     "s2:law_c": (7, "s2", "property", "law_c", N, 400),
     "s2:law_dc": (8, "s2", "property", "law_dc", N, 400),
-    f"s2:law_dc@{COMPETING_N}": (9, "s2", "property", "law_dc", COMPETING_N, 1_000),
+    "s2:law_dc@32000": (9, "s2", "property", "law_dc", 32_000, 1_000),
     # The cells the bias projection does not reach, each read at its declared size.
     "s1:sharp_null": (10, "s1", "fit_set", "sharp_null", p1.NULL_N, 1_000),
     "s1:alternative": (11, "s1", "fit_set", "alternative", p1.NULL_N, 1_000),

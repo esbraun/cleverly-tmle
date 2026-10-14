@@ -49,6 +49,7 @@ s2:law_ck,clustered_inference/mean_x2__cluster_robust,8000,1000,0.0487489,0.0316
 s2:law_ck,clustered_inference/mean_x2__iid_control,8000,1000,0.0487489,0.0316228,0.632293,0.786,0.786,1,0.00245051,0.00158961
 s2:law_dc,interval_calibration/competing_contrast_x2_h3__correctly_specified,8000,400,-0.022733,0.05,0.881656,0.9625,,,-7.99053e-05,0.000175748
 s2:law_dc@32000,interval_calibration/competing_contrast_x2_h3__correctly_specified,32000,1000,-0.015098,0.0316228,0.947676,0.943,,,-2.29786e-05,4.81288e-05
+s2:law_dc@64000,interval_calibration/competing_contrast_x2_h3__correctly_specified,64000,1000,-0.0223151,0.0316228,0.980394,0.947,0.947,1,-2.31891e-05,3.28614e-05
 s2:survival_folds_1,ate_regimen[odds x0.5 vs natural course @ t=1],8000,600,0.0712503,0.0408248,0.961337,0.93,,,8.41639e-05,4.8224e-05
 s2:survival_folds_1,ate_regimen[odds x0.5 vs natural course @ t=2],8000,600,0.0268118,0.0408248,1.00718,0.958333,,,5.67793e-05,8.64548e-05
 s2:survival_folds_1,ate_regimen[odds x0.5 vs natural course @ t=3],8000,600,0.00698972,0.0408248,0.98511,0.943333,,,2.01717e-05,0.000117817

@@ -106,7 +106,7 @@ def test_the_declared_numbers() -> None:
     assert (p1.RATE_SIZES, p1.RATE_REPLICATES) == ((24_000, 64_000, 96_000), 1_000)
     assert (p2.N, p2.REPLICATES, p2.CLUSTER_SIZE) == (16_000, 3_000, 10)
     assert (p2.BAND_N, p1.NULL_N, p1.NULL_REPLICATES) == (48_000, 4_000, 2_000)
-    assert (p2.CLUSTER_N, p2.CLUSTER_REPLICATES, p2.COMPETING_N) == (8_000, 3_000, 32_000)
+    assert (p2.CLUSTER_N, p2.CLUSTER_REPLICATES, p2.COMPETING_N) == (8_000, 3_000, 96_000)
 
 
 def test_the_studies_draw_from_their_own_seeds() -> None:
@@ -355,6 +355,14 @@ def test_the_sizing_rule_binds() -> None:
         )
         < 0.6
     )
+    competing = "interval_calibration/competing_contrast_x2_h3__correctly_specified"
+    replicates = p2.REPLICATES
+    assert (
+        calibrated_pass_probability(probe("s2:law_dc@32000", competing), 32_000, replicates) < 0.5
+    )
+    assert (
+        calibrated_pass_probability(probe("s2:law_dc@64000", competing), 64_000, replicates) < 0.93
+    )
     cluster = probe("s2:law_ck", "clustered_inference/mean_x2__cluster_robust")
     assert calibrated_pass_probability(cluster, p2.CLUSTER_N, 1_000) < 0.5
 
@@ -400,9 +408,10 @@ CALIBRATION_CELLS = (
         )
         for label in ("survival_contrast_x2_h3", "survival_contrast_x2_h3_in_sample")
     ),
-    # The competing-risk tail does not shrink as 1/n, so the probe reads it at its own size.
+    # The competing-risk tail does not shrink as 1/n, so the probe reads the cell above the
+    # size where the tail is gone (32,000) and projects from there.
     (
-        f"s2:law_dc@{p2.COMPETING_N}",
+        "s2:law_dc@64000",
         "interval_calibration/competing_contrast_x2_h3__correctly_specified",
         p2.COMPETING_N,
         p2.REPLICATES,

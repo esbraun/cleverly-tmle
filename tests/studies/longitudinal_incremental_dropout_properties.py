@@ -3,7 +3,7 @@ r"""Property families of ``longitudinal-incremental-dropout`` (S2).
 Every fit is :class:`~cleverly.longitudinal.IPSI` with five folds and saturated cell means at
 every slot, with 3,000 replications, on a law of
 :mod:`tests.discrete_law_longitudinal_incremental`.  The size is n = 16,000, except 48,000 on
-the law ``D`` band draws and 32,000 on law ``Dc``.  ``x2`` is the plan that doubles the odds
+the law ``D`` band draws and 96,000 on law ``Dc``.  ``x2`` is the plan that doubles the odds
 of treatment at every node, and ``contrast_x2`` is its contrast with the natural course.
 
 ============================  =================================================================
@@ -31,7 +31,7 @@ label                           law and estimand
 ``survival_contrast_x2_h3_in_sample``  ``D``, ``contrast_x2`` of the risk by horizon 3, one
                                 fold, on the band draws
 ``competing_contrast_x2_h3``    ``Dc``, ``contrast_x2`` of the cause-1 incidence by
-                                horizon 3, at n = 32,000
+                                horizon 3, at n = 96,000
 ``msm_log_delta``               ``C``, the slope of a working model linear in
                                 :math:`\log\delta` over the three plans (identity link)
 ``weighted_contrast_x0_5``      ``C`` with the informative weight :func:`weight`,
@@ -109,8 +109,11 @@ CLUSTER_N = 8_000
 CLUSTER_REPLICATES = 3_000
 #: The competing-risk cell needs a larger size.  At n = 8,000 a training fold can hold one
 #: or two treated units of a rare history, and the saturated censoring fit then reaches its
-#: lower bound.  ``tests/diagnostics/x19_sizing`` reads the cell at this size.
-COMPETING_N = 32_000
+#: lower bound.  That tail is gone at 32,000, where the SE ratio reads 0.948, and at 64,000 it
+#: reads 0.980: a deficit that falls as 1/n.  Projected to 96,000, the cell passes with
+#: probability 0.97 and S2's calibration cells pass jointly with at least 0.90
+#: (``tests/diagnostics/x19_sizing``, ``tests/unit/test_longitudinal_incremental_design.py``).
+COMPETING_N = 96_000
 #: The band draws of law ``D``.  They also carry the two survival calibration labels, which
 #: read an SE ratio of 0.98 at n = 16,000 and pass the calibration rule with probability
 #: 0.80 there and 0.92 here (``tests/unit/test_longitudinal_incremental_design.py``).
