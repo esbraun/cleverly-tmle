@@ -877,9 +877,7 @@ def calibration_controls(
         rng = np.random.default_rng(stream_seed(record, "efficiency_noise", label))
         noisy["cell"] = f"{label}__noise_control"
         noisy["role"] = "control"
-        noisy["estimate"] += rng.normal(scale=scale[label], size=_noise_size(base, label))[
-            base["replicate"].to_numpy().astype(np.int64)
-        ]
+        noisy["estimate"] += indexed_noise(rng, base, label, scale=scale[label])
         controls.append(_recompute_interval_columns(noisy, critical))
     return pd.concat(controls, ignore_index=True)
 
@@ -920,6 +918,35 @@ def calibration_derived(
         )
         for label in labels
     }
+
+
+def indexed_noise(
+    rng: np.random.Generator, base: pd.DataFrame, label: str, *, scale: float
+) -> np.ndarray:
+    """Normal noise for each base row, drawn over the requested range and indexed by replicate.
+
+    A base replicate that a recorded failure removed changes no other row's noise (RM39 b2,
+    F2; rev 3 G9).  ``Generator.normal`` fills its output in order, so with no failure the
+    noise equals a draw sized to the rows.
+
+    Parameters
+    ----------
+    rng : numpy.random.Generator
+        The label's noise stream.
+    base : pandas.DataFrame
+        The positive arm's rows, with unique ascending replicate ids.
+    label : str
+        The label, for the error message.
+    scale : float
+        The noise's standard deviation.
+
+    Returns
+    -------
+    numpy.ndarray
+        One noise value per base row, in the rows' order.
+    """
+    noise = rng.normal(scale=scale, size=_noise_size(base, label))
+    return noise[base["replicate"].to_numpy().astype(np.int64)]
 
 
 def _noise_size(base: pd.DataFrame, label: str) -> int:

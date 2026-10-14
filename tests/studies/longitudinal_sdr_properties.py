@@ -158,6 +158,7 @@ from tests.studies.evidence.property_verdicts import (
     calibration_verdicts,
     crossfit_overfitting_verdicts,
     finish,
+    indexed_noise,
     se_ratio_leaves_band,
     simultaneous_coverage_verdicts,
     summary_interval,
@@ -1253,7 +1254,9 @@ def _derived_arms(rows: pd.DataFrame, family: str, label: str, positive: str) ->
     rng = np.random.default_rng(stream_seed(STUDY, "efficiency_noise", label))
     noisy["cell"] = f"{label}__noise_control"
     noisy["role"] = "control"
-    noisy["estimate"] += rng.normal(scale=NOISE_SD[label] / np.sqrt(CALIBRATION_N), size=len(noisy))
+    noisy["estimate"] += indexed_noise(
+        rng, base, label, scale=NOISE_SD[label] / np.sqrt(CALIBRATION_N)
+    )
     return [
         _recompute_interval_columns(shrunken, CRITICAL),
         _recompute_interval_columns(noisy, CRITICAL),

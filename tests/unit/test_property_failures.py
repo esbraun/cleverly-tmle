@@ -343,6 +343,55 @@ def _calibration_record() -> StudyRecord:
     )
 
 
+def test_p13_the_projection_ratio_refuses_an_unmatched_replicate_with_no_stamp() -> None:
+    """M3, G10: ``projection_sd_ratio`` pairs through ``paired``, so an unexplained gap stops it."""
+    from tests.studies.stochastic_categorical_ltmle_properties import projection_sd_ratio
+
+    rows = pd.concat(
+        [
+            _cell("randomizer_projection", "mix__integrated", lost=(4,), seed=1),
+            _cell("randomizer_projection", "mix__recorded_randomizer", seed=2),
+        ],
+        ignore_index=True,
+    )
+    options = {"replicates": 50, "level": 0.99, "seed": 3}
+    point, _ = projection_sd_ratio(rows, **options)
+    kept = rows.loc[rows["replicate"] != 4]
+    expected = float(
+        np.std(kept.loc[kept["cell"] == "mix__integrated", "estimate"], ddof=1)
+        / np.std(kept.loc[kept["cell"] == "mix__recorded_randomizer", "estimate"], ddof=1)
+    )
+    assert point == pytest.approx(expected, rel=1e-12)
+    with pytest.raises(ValueError, match="do not explain"):
+        projection_sd_ratio(rows.assign(failed_replicates=0), **options)
+
+
+@pytest.mark.parametrize(
+    ("family", "label", "positive"),
+    [
+        ("clustered_calibration", "clusters_200", "known_ratio"),
+        ("weighted_calibration", "selection_weighted", "correctly_specified"),
+    ],
+)
+def test_p16_a_lost_sdr_base_replicate_moves_no_other_noise_row(
+    family: str, label: str, positive: str
+) -> None:
+    """H3, G9: ``longitudinal_sdr`` indexes its noise by replicate."""
+    from tests.studies.longitudinal_sdr_properties import _derived_arms
+
+    complete = _cell(family, f"{label}__{positive}")
+    lost = _cell(family, f"{label}__{positive}", lost=(6,))
+    noise = {
+        name: _derived_arms(frame, family, label, positive)[1].set_index("replicate")
+        for name, frame in (("complete", complete), ("lost", lost))
+    }
+    assert 6 not in noise["lost"].index
+    pd.testing.assert_frame_equal(
+        noise["lost"].drop(columns="failed_replicates"),
+        noise["complete"].drop(index=6).drop(columns="failed_replicates"),
+    )
+
+
 class TestCalibrationNoise:
     """p16 and F2: a lost base replicate leaves every other ``noise_control`` row unchanged."""
 

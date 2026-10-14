@@ -91,6 +91,7 @@ from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyCell,
     control_row,
+    paired,
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
@@ -997,16 +998,22 @@ def projection_sd_ratio(
 ) -> tuple[float, float]:
     """``sd(integrated) / sd(recorded)`` and its one-sided bootstrap upper bound.
 
-    The two arms are paired on ``replicate``, so a bootstrap draw resamples replicates and
-    keeps each pair together.
+    The two arms are paired on ``replicate`` through
+    :func:`~tests.studies.evidence.properties.paired`, which reads the replicates both arms
+    kept and refuses a gap the stamps do not explain (rev 3 G10).  A bootstrap draw resamples
+    replicates and keeps each pair together.
     """
     family = rows.loc[rows["property"] == "randomizer_projection"]
-    integrated = family.loc[family["cell"] == "mix__integrated"].set_index("replicate")["estimate"]
-    recorded = family.loc[family["cell"] == "mix__recorded_randomizer"].set_index("replicate")[
-        "estimate"
-    ]
-    paired = pd.concat([integrated, recorded], axis=1, keys=["integrated", "recorded"]).dropna()
-    values = paired.to_numpy(dtype=float)
+    integrated, recorded = paired(
+        family.loc[family["cell"] == "mix__integrated"],
+        family.loc[family["cell"] == "mix__recorded_randomizer"],
+    )
+    values = np.column_stack(
+        [
+            arm.sort_values("replicate")["estimate"].to_numpy(dtype=float)
+            for arm in (integrated, recorded)
+        ]
+    )
     point = float(np.std(values[:, 0], ddof=1) / np.std(values[:, 1], ddof=1))
     rng = np.random.default_rng(seed)
     draws = rng.integers(0, len(values), size=(replicates, len(values)))
