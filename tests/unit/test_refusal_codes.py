@@ -187,6 +187,105 @@ def roadmap_ids(modules: list[tuple[str, ast.Module]]) -> list[tuple[str, int, a
     return values
 
 
+#: The built-in classes a malformed argument raises. A capability refusal raises
+#: ``CapabilityError`` with a code instead.
+BUILTIN_REFUSALS = frozenset({"ValueError", "TypeError", "NotImplementedError"})
+
+#: The wording of a refusal. A built-in raise whose text matches it either refuses a
+#: capability, which needs a code, or names a malformed argument in refusal wording, which
+#: the allow list below records with its reason.
+REFUSAL_VOCABULARY = re.compile(
+    r"is not supported|are not supported|is refused|refused|not implemented"
+    r"|cannot be estimated|no derivation|use .* instead",
+    re.IGNORECASE | re.DOTALL,
+)
+
+#: Every built-in raise that uses refusal wording, keyed by the file and a fragment of its
+#: text. The value says why the raise reports a malformed argument and refuses no capability.
+BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
+    (
+        "src/cleverly/datasets/synthetic.py",
+        "This is refused rather than clipped",
+    ): "make_* generator argument: an outcome_mean outside the probability range is a "
+    "malformed argument of a data generator, and no estimator capability is involved",
+}
+
+
+@dataclass(frozen=True)
+class BuiltinHit:
+    """One built-in raise whose text reads as a refusal, with where it is."""
+
+    path: str
+    line: int
+    kind: str
+    text: str
+
+
+def builtin_refusal_hits(modules: list[tuple[str, ast.Module]]) -> list[BuiltinHit]:
+    """Every built-in raise whose literal text matches the refusal vocabulary.
+
+    The text is every string constant in the call, f-string parts included. An argument
+    that is a bare name ending in ``REFUSAL`` is a hit too, because the text of a refusal
+    constant is a refusal whatever it says.
+
+    Parameters
+    ----------
+    modules : list of tuple of str and ast.Module
+        The parsed package.
+
+    Returns
+    -------
+    list of BuiltinHit
+        One entry per matching raise.
+    """
+    hits = []
+    for path, module in modules:
+        for node in ast.walk(module):
+            if not (isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call)):
+                continue
+            call = node.exc
+            if not (isinstance(call.func, ast.Name) and call.func.id in BUILTIN_REFUSALS):
+                continue
+            text = "".join(
+                part.value
+                for argument in call.args
+                for part in ast.walk(argument)
+                if isinstance(part, ast.Constant) and isinstance(part.value, str)
+            )
+            names = [
+                argument.id
+                for argument in call.args
+                if isinstance(argument, ast.Name) and argument.id.endswith("REFUSAL")
+            ]
+            if REFUSAL_VOCABULARY.search(text) or names:
+                hits.append(BuiltinHit(path, node.lineno, call.func.id, text or names[0]))
+    return hits
+
+
+def unreviewed_builtin_hits(
+    hits: list[BuiltinHit], allowed: dict[tuple[str, str], str]
+) -> list[BuiltinHit]:
+    """The hits that no allow-list entry covers.
+
+    Parameters
+    ----------
+    hits : list of BuiltinHit
+        The built-in raises that read as a refusal.
+    allowed : dict
+        The allow list, keyed by file and text fragment.
+
+    Returns
+    -------
+    list of BuiltinHit
+        The hits whose file and text match no key.
+    """
+    return [
+        hit
+        for hit in hits
+        if not any(hit.path == path and fragment in hit.text for path, fragment in allowed)
+    ]
+
+
 @pytest.fixture(scope="module")
 def modules() -> list[tuple[str, ast.Module]]:
     return list(_modules())
@@ -355,3 +454,65 @@ class TestTheErrors:
         with pytest.raises(CapabilityError) as raised:
             Parallel(n_jobs=2, backend="loky")(delayed(refuse)() for _ in range(2))
         assert raised.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+
+
+class TestTheBuiltinRefusalScan:
+    def test_every_builtin_that_reads_as_a_refusal_is_a_reviewed_malformed_argument(
+        self, modules: list[tuple[str, ast.Module]]
+    ) -> None:
+        unreviewed = unreviewed_builtin_hits(builtin_refusal_hits(modules), BUILTIN_ALLOWED)
+        assert not unreviewed, "\n".join(
+            f"{hit.path}:{hit.line}: {hit.kind}({hit.text[:80]!r}) reads as a capability "
+            "refusal. Raise CapabilityError with a reason code, or record why it is a "
+            "malformed argument in BUILTIN_ALLOWED"
+            for hit in unreviewed
+        )
+
+    def test_every_allow_list_entry_matches_a_hit_and_states_a_reason(
+        self, modules: list[tuple[str, ast.Module]]
+    ) -> None:
+        hits = builtin_refusal_hits(modules)
+        stale = [
+            key
+            for key in BUILTIN_ALLOWED
+            if not any(hit.path == key[0] and key[1] in hit.text for hit in hits)
+        ]
+        assert not stale, f"allow-list entries that match no raise: {stale}"
+        assert all(reason.strip() for reason in BUILTIN_ALLOWED.values())
+
+    def test_the_scan_sees_a_known_hit(self, modules: list[tuple[str, ast.Module]]) -> None:
+        paths = {hit.path for hit in builtin_refusal_hits(modules)}
+        assert "src/cleverly/datasets/synthetic.py" in paths
+
+    @pytest.mark.parametrize(
+        "raised",
+        [
+            'raise ValueError("x is not supported")',
+            'raise TypeError("the option is refused")',
+            'raise NotImplementedError("not implemented here")',
+            'raise ValueError(f"{name} cannot be estimated for {kind}")',
+            'raise ValueError("a" "b no derivation")',
+            'raise ValueError("this fails; use y instead")',
+            "raise ValueError(SOME_REFUSAL)",
+        ],
+    )
+    def test_the_scan_fails_a_bare_builtin_refusal(self, raised: str) -> None:
+        source = ast.parse(f"def f(name, kind):\n    {raised}\n")
+        hits = builtin_refusal_hits([("synthetic.py", source)])
+        assert len(hits) == 1
+        assert unreviewed_builtin_hits(hits, BUILTIN_ALLOWED) == hits
+
+    def test_the_scan_passes_a_reviewed_entry_and_a_plain_argument_error(self) -> None:
+        source = ast.parse(
+            "def f():\n"
+            "    raise ValueError('x is not supported')\n"
+            "def g():\n"
+            "    raise ValueError('alpha must lie in (0, 1)')\n"
+            "def h():\n"
+            "    raise CapabilityError('x is not supported', reason=None)\n"
+        )
+        hits = builtin_refusal_hits([("synthetic.py", source)])
+        assert [hit.line for hit in hits] == [2]
+        allowed = {("synthetic.py", "x is not supported"): "a malformed argument"}
+        assert unreviewed_builtin_hits(hits, allowed) == []
+        assert unreviewed_builtin_hits(hits, {("other.py", "x is not supported"): "r"}) == hits

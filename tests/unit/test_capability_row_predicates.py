@@ -39,7 +39,7 @@ from cleverly.data import CausalData
 from cleverly.datasets import make_binary_outcome, make_linear_ate
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import CapabilityError, DataError, Refusal, RefusalReason
+from cleverly.exceptions import CapabilityError, CleverlyError, DataError, Refusal, RefusalReason
 from cleverly.methods import MethodAvailability
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from cleverly.sensitivity import missingness as missingness_module
@@ -100,6 +100,7 @@ from tests.unit._capability_sweep_support import (
     reconfigured,
     reconfigured_ctmle_clustered,
     reconfigured_stratified,
+    sweep_arguments,
     unbounded_scale_ate,
     without_provenance,
 )
@@ -2236,9 +2237,126 @@ class TestARowAndItsRaiseShareOneRefusal:
         available = {item.name: item for item in effect.available_methods()}["tmle"]
         assert available.available and available.refusal is None and available.reason is None
 
+    @pytest.mark.parametrize("kind", list(EMPTY_BOUND_FITS))
+    @pytest.mark.parametrize("operation", list(BOUND_CALLS))
+    def test_the_omitted_variable_rows(
+        self, bound_fits: dict[str, Any], kind: str, operation: str
+    ) -> None:
+        result = bound_fits[kind]
+        row = result.sensitivity.capability(operation)
+        assert not row.available
+        with pytest.raises(CapabilityError) as error:
+            BOUND_CALLS[operation](result)
+        _same_record(row, error.value)
+        assert error.value.refusal == fit_wide_bound_refusal(result)
+
+    @pytest.mark.parametrize("kind", REFUSED_REPLAY_KINDS)
+    def test_the_refit_slot_and_the_refit_call(
+        self, replay_results: dict[str, Any], kind: str
+    ) -> None:
+        """The slot is a flag, so the preflight record is the row, and ``refit`` raises it."""
+        result = replay_results[kind]
+        record = result.estimator._refit_configuration_refusal(result.data)
+        assert record is not None
+        assert not replayability(result).refit_nuisances
+        with pytest.raises(CleverlyError) as error:
+            result.estimator.refit(result.data)
+        assert error.value.refusal == record
+        assert error.value.refusal.reason is record.reason
+        assert str(error.value) == record.message()
+
     def test_a_row_without_a_record_reads_none(self) -> None:
         """The property follows the field, so a row with no record has no text."""
         row = MethodAvailability("tmle", True)
         assert row.refusal is None and row.reason is None
         record = Refusal(RefusalReason.INVALID_DECLARATION, "The request cannot run.")
         assert MethodAvailability("x", False, record).reason == "The request cannot run."
+
+
+# ------------------------------------------------ every refused row of every kind of fit
+
+#: Calls the facade refuses with an error that is not the row's record. Each entry is a defect
+#: in ``src`` that this test found, and a strict ``xfail`` flips when the defect is fixed.
+FACADE_DEFECTS: dict[tuple[str, str], str] = {
+    ("ltmle", "benchmark"): "the facade resolves a default estimand through arm_parameters, "
+    "which reads data.is_continuous_treatment, an attribute LongitudinalData lacks",
+    ("ipsi", "benchmark"): "the same AttributeError as the longitudinal fit above",
+}
+
+
+def _refused_rows(result: Any, arguments: dict[str, dict[str, Any]]) -> list[tuple[Any, Any]]:
+    """Every row of both facades that the request refuses and that carries a record."""
+    rows = []
+    for facade in (result.diagnostics, result.sensitivity):
+        for declared in facade.capabilities:
+            row = facade._capability_for_arguments(
+                declared.operation, arguments.get(declared.operation, {})
+            )
+            if not row.available and row.refusal is not None:
+                rows.append((facade, row))
+    return rows
+
+
+class TestEveryRefusedRowRaisesItsRecord:
+    """A facade call on a refused row raises the row's class, code, alternative and text.
+
+    The sweep asks every kind of fit in :data:`KINDS`, so a family of rows that the
+    per-family tests above do not name is checked too. The facade adds one prefix, which
+    names the operation and the row's status, and the row's message follows it whole.
+    """
+
+    @pytest.mark.parametrize("kind", list(KINDS))
+    def test_the_call_raises_what_the_row_declares(self, kind: str) -> None:
+        result = KINDS[kind].build()
+        arguments = sweep_arguments(result)
+        refused = [
+            (facade, row)
+            for facade, row in _refused_rows(result, arguments)
+            if (kind, row.operation) not in FACADE_DEFECTS
+        ]
+        # The nonzero witness: this kind refuses some row, so the loop below cannot pass
+        # by asking nothing.
+        assert refused, kind
+        for facade, row in refused:
+            operation = row.operation
+            with pytest.raises(CapabilityError) as error:
+                getattr(facade, operation)(**arguments.get(operation, {}))
+            record = error.value.refusal
+            assert isinstance(row.refusal, Refusal)
+            assert record.reason is row.refusal.reason, (kind, operation)
+            assert record.alternative == row.refusal.alternative, (kind, operation)
+            assert record.roadmap == row.refusal.roadmap, (kind, operation)
+            # A facade raise adds one prefix to the row's message, and a module call raises the
+            # message bare. Either way the whole message follows.
+            prefix = f"{operation!r} is {row.status.value}: "
+            assert str(error.value) in (
+                row.refusal.message(),
+                f"{facade._kind} {prefix}{row.refusal.message()}",
+            ), (kind, operation)
+
+    @pytest.mark.parametrize(
+        ("kind", "operation"),
+        [
+            pytest.param(*key, marks=pytest.mark.xfail(strict=True, reason=reason))
+            for key, reason in FACADE_DEFECTS.items()
+        ],
+    )
+    def test_the_calls_with_a_known_defect(self, kind: str, operation: str) -> None:
+        result = KINDS[kind].build()
+        arguments = sweep_arguments(result)
+        ((facade, row),) = [
+            (facade, row)
+            for facade, row in _refused_rows(result, arguments)
+            if row.operation == operation
+        ]
+        with pytest.raises(CapabilityError) as error:
+            getattr(facade, operation)(**arguments.get(operation, {}))
+        assert error.value.refusal.reason is row.refusal.reason
+
+    def test_the_sweep_covers_every_code_a_row_can_carry_but_one(self) -> None:
+        """The rows the sweep reaches span the codes, so it does not test one code alone."""
+        codes = set()
+        for kind in ("ordinary", "natural_course", "ltmle", "shift"):
+            result = KINDS[kind].build()
+            codes |= {row.refusal.reason for _, row in _refused_rows(result, {})}
+        assert {RefusalReason.IMPLEMENTATION_GAP, RefusalReason.INVALID_DECLARATION} <= codes
