@@ -6,8 +6,9 @@ Every number here was fixed before any registered run.
   given the history, so every plan value of ``C`` with dropout prevented is the value on ``A``.
 * The fallback-read bias bound is below 0.1 standard errors in every declared positive cell
   (``X19-plan.md`` 6.2).  The cells whose bound failed at the plan's size were raised: the S1
-  primary scenarios to n = 6,000, the S1 ``single_robustness`` pair to 4,000 and 16,000, and
-  S2 to 8,000.
+  primary scenarios to n = 6,000 and the S1 ``single_robustness`` pair to 6,000 and 24,000.
+* Both primary studies run at n = 24,000.  The five-fold contrasts carry a second-order bias of
+  order 1/n, measured at 0.22 standardized at n = 8,000 on law ``C`` against the 0.25 gate.
 * The power cell has exact-law power 0.882 at n = 4,000 (:data:`POWER_SCALE`).
 * The band cells' pointwise controls clear the RM36 control-power rule at ``p0 + 0.005``, with
   ``p0`` from the exact efficient influence functions: 0.811 for S1 and 0.695 for S2.
@@ -60,8 +61,8 @@ def test_the_declared_numbers() -> None:
     for record in (s1.STUDY, s2.STUDY):
         assert record.publication_policy == "gated"
         assert record.margins == Margins()
-    assert (s1.PRIMARY_N, s1.PRIMARY_REPLICATES) == (6_000, 1_000)
-    assert (s2.PRIMARY_N, s2.PRIMARY_REPLICATES) == (8_000, 1_000)
+    assert (s1.PRIMARY_N, s1.PRIMARY_REPLICATES) == (24_000, 1_000)
+    assert (s2.PRIMARY_N, s2.PRIMARY_REPLICATES) == (24_000, 1_000)
     assert (s1.SEED, s1.RESAMPLING_SEED, s2.SEED, s2.RESAMPLING_SEED) == (
         20261241,
         2026124101,
@@ -75,7 +76,7 @@ def test_the_declared_numbers() -> None:
     }
     assert s1.PAIRING_GATE == 1e-10
     assert s1.STUDY.reference == "npcausal" and s2.STUDY.reference is None
-    assert p1.REQUIREMENT_SIZES == (4_000, 16_000)
+    assert p1.REQUIREMENT_SIZES == (6_000, 24_000)
     assert p1.EFFICIENCY_RATIO_BAND == p2.EFFICIENCY_RATIO_BAND == (0.90, 1.10)
     assert (p2.N, p2.REPLICATES, p2.CLUSTER_SIZE) == (8_000, 1_000, 10)
 

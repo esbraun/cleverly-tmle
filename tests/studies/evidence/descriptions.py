@@ -1664,6 +1664,18 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the outcome regression is misspecified",
         "bias interval must fall entirely outside the margin",
     ),
+    ("root_n_and_efficiency", "n_6000"): (
+        "bias, coverage and SE calibration at n = 6,000",
+        "",  # the smallest rung's rule depends on its role; :func:`cell` sets it
+    ),
+    ("root_n_and_efficiency", "n_24000"): (
+        "bias, coverage and SE calibration at n = 24,000",
+        "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+    ),
+    ("root_n_and_efficiency", "n_48000"): (
+        "bias, coverage and SE calibration at n = 48,000",
+        "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+    ),
     ("root_n_and_efficiency", "n_500"): (
         "bias, coverage and SE calibration at n = 500",
         "",  # the smallest rung's rule depends on its role; :func:`cell` sets it or raises
@@ -2100,7 +2112,7 @@ def cell(
                 if base == "targeted"
                 else "the identical targeted mechanism is evaluated with the initial outcome regression"
             )
-    if family == "root_n_and_efficiency" and base in {"n_500", "n_1000"}:
+    if family == "root_n_and_efficiency" and base in {"n_500", "n_1000", "n_6000"}:
         # The smallest rung is a positive cell in some studies and a retained small-sample
         # control in others, and the two are held to opposite rules.  Publishing one rule
         # beside the other role's verdict is the failure this branch exists to prevent, so an
@@ -2240,13 +2252,13 @@ CELLS.update(
             "the same estimates with the treatment-mechanism term removed from the curve",
             "the SE-ratio interval must fall below the calibration band",
         ),
-        ("single_robustness", "mechanism_correct__n_4000"): (
-            "cell-mean treatment mechanism and constant outcome regressions, at n = 4,000",
-            "|bias| + 2 MCSE at n = 16,000 below 0.01 and below its value at n = 4,000",
+        ("single_robustness", "mechanism_correct__n_6000"): (
+            "cell-mean treatment mechanism and constant outcome regressions, at n = 6,000",
+            "|bias| + 2 MCSE at n = 24,000 below 0.01 and below its value at n = 6,000",
         ),
-        ("single_robustness", "mechanism_correct__n_16000"): (
-            "cell-mean treatment mechanism and constant outcome regressions, at n = 16,000",
-            "|bias| + 2 MCSE at n = 16,000 below 0.01 and below its value at n = 4,000",
+        ("single_robustness", "mechanism_correct__n_24000"): (
+            "cell-mean treatment mechanism and constant outcome regressions, at n = 24,000",
+            "|bias| + 2 MCSE at n = 24,000 below 0.01 and below its value at n = 6,000",
         ),
         ("single_robustness", "mechanism_constant"): (
             "constant treatment mechanism and cell-mean outcome regressions, beside the "

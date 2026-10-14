@@ -26,9 +26,14 @@ influence value, and the standard error.  Both sides report the influence-curve 
 deviation over :math:`\sqrt n`, so no factor separates the two errors (``X19-plan.md`` 6.8
 assumed one).  The paired rows then read the default ``Margins()``.
 
-**Size.**  :data:`PRIMARY_N` is 6,000, not the plan's 2,000.  At two folds the fallback-read
-bound of :mod:`tests.studies.longitudinal_incremental_common` is 0.158 standard errors at
-5,000 and 0.064 at 6,000 (``X19-plan.md`` 6.2 raises a cell's size until the bound holds).
+**Size.**  :data:`PRIMARY_N` is 24,000, not the plan's 2,000.  Two limits set it.  First, at
+two folds the fallback-read bound of :mod:`tests.studies.longitudinal_incremental_common` is
+0.158 standard errors at 5,000 and 0.064 at 6,000 (``X19-plan.md`` 6.2 raises a cell's size
+until the bound holds).  Second, the cross-fitted contrasts carry a second-order bias of order
+1/n.  Probes of 400 draws at five folds measured a standardized bias of 0.48 on law ``A`` at
+2,000 and 0.28 at 6,000, and 0.44, 0.22 and 0.05 on law ``C`` at 2,000, 8,000 and 32,000
+(Monte Carlo SE 0.05).  The primary rows gate the standardized bias at 0.25, and the 1/n rate
+puts law ``A`` near 0.14 at 24,000.
 
 **Properties.** :mod:`tests.studies.longitudinal_incremental_properties` declares every family.
 
@@ -58,7 +63,7 @@ from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
 
 PRIMARY_REPLICATES = 1_000
-PRIMARY_N = 6_000
+PRIMARY_N = 24_000
 SEED = 20261241
 RESAMPLING_SEED = 2026124101
 #: The pre-declaration gate on every paired quantity (G1 and G2).
@@ -87,7 +92,7 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
         )
         for cell in ("correctly_specified", "shrunken_se_control", "noise_control")
     ),
-    "root_n_and_efficiency": tuple(f"contrast_x2__n_{size}" for size in (1_000, 4_000, 16_000)),
+    "root_n_and_efficiency": tuple(f"contrast_x2__n_{size}" for size in (6_000, 24_000, 48_000)),
     "root_n_rate": ("contrast_x2__empirical_sd", "contrast_x2__reported_se"),
     "type_i_error": ("contrast_x2__sharp_null",),
     "power": ("contrast_x1_5__alternative",),
@@ -97,8 +102,8 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     ),
     "mechanism_term_necessity": ("contrast_x2__full_eif", "contrast_x2__mechanism_term_dropped"),
     "single_robustness": (
-        "contrast_x2__mechanism_correct__n_4000",
-        "contrast_x2__mechanism_correct__n_16000",
+        "contrast_x2__mechanism_correct__n_6000",
+        "contrast_x2__mechanism_correct__n_24000",
         "contrast_x2__mechanism_constant",
     ),
     "targeting_necessity": ("contrast_x2__one_step", "contrast_x2__plug_in"),

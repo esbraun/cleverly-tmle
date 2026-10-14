@@ -21,12 +21,16 @@ one-fold scenarios in the primary rows.  A one-fold fit with saturated cell mean
 plug-in g-formula on the empirical cell frequencies, and its tilt is nonlinear in
 :math:`\hat\pi`.  So it carries a bias of order (cells)/n.  A probe of 400 draws of law ``C``
 at n = 8,000 measured a standardized bias of +0.24 and -0.21 on the two contrasts (Monte Carlo
-SE 0.05).  The five-fold fits showed none.  The one-fold fits are therefore the reported family
-``in_sample_fit`` of the properties module, and they state no verdict.
+SE 0.05).  The one-fold fits are therefore the reported family ``in_sample_fit`` of the
+properties module, and they state no verdict.
 
-**Size.**  :data:`PRIMARY_N` is 8,000, not the plan's 2,000.  At 2,000 the fallback-read bound
-of :mod:`tests.studies.longitudinal_incremental_common` exceeds 0.1 standard errors on law
-``D`` at five folds (``X19-plan.md`` 6.2 raises a cell's size until the bound holds).
+**Size.**  :data:`PRIMARY_N` is 24,000, not the plan's 2,000.  At 2,000 the fallback-read
+bound of :mod:`tests.studies.longitudinal_incremental_common` exceeds 0.1 standard errors on
+law ``D`` at five folds (``X19-plan.md`` 6.2 raises a cell's size until the bound holds).  The
+five-fold contrasts also carry a second-order bias of order 1/n.  Probes of 400 draws of law
+``C`` measured a standardized bias of 0.44 at 2,000, 0.22 at 8,000 and 0.05 at 32,000 (Monte
+Carlo SE 0.05), against the primary rows' gate of 0.25.  The size matches
+:mod:`tests.studies.canonical_longitudinal_incremental`.
 
 **Properties.** :mod:`tests.studies.longitudinal_incremental_dropout_properties` declares every
 family.
@@ -55,7 +59,7 @@ from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
 
 PRIMARY_REPLICATES = 1_000
-PRIMARY_N = 8_000
+PRIMARY_N = 24_000
 SEED = 20261242
 RESAMPLING_SEED = 2026124201
 

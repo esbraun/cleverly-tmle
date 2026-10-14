@@ -10,8 +10,8 @@ family                          cells, replications and size
 ==============================  ===============================================================
 ``interval_calibration``        seven labels (below); 2,000 at n = 4,000 each, with the two
                                 derived controls of each
-``root_n_and_efficiency``       ``contrast_x2`` at n = 1,000 (control: the smallest rung),
-                                4,000 and 16,000; 700 each
+``root_n_and_efficiency``       ``contrast_x2`` at n = 6,000 (control: the smallest rung),
+                                24,000 and 48,000; 700 each
 ``root_n_rate``                 the two rate rows of ``contrast_x2``, from the ladder
 ``type_i_error``                ``contrast_x2`` on law ``A0`` (every tilt has one mean); 1,000
                                 at n = 4,000
@@ -22,10 +22,10 @@ family                          cells, replications and size
                                 n = 5,000
 ``mechanism_term_necessity``    the ``contrast_x2`` calibration fits: the full curve, and the
                                 curve without the mechanism term (control)
-``single_robustness``           the regressions constant and the mechanism right at n = 4,000
-                                and 16,000 (positive, two-size rule); the mechanism constant
-                                and the regressions right at n = 4,000 (no verdict); 1,000 each
-``targeting_necessity``         the n = 16,000 draws of ``single_robustness``: the one-step
+``single_robustness``           the regressions constant and the mechanism right at n = 6,000
+                                and 24,000 (positive, two-size rule); the mechanism constant
+                                and the regressions right at n = 6,000 (no verdict); 1,000 each
+``targeting_necessity``         the n = 24,000 draws of ``single_robustness``: the one-step
                                 estimate, and the plug-in mean of the first-node regression
                                 (control)
 ==============================  ===============================================================
@@ -56,8 +56,8 @@ replication, fitted three ways.  ``per_node`` and ``tilt_then_static`` share one
 ``mechanism_term_necessity`` passes when the full curve's SE-ratio interval lies inside
 :data:`EFFICIENCY_RATIO_BAND` and the control's lies wholly below the calibration band: the
 design test computes the control's exact SD ratio, 0.78.  ``single_robustness``'s positive
-pair passes when :math:`|\bar b| + 2\,\mathrm{MCSE}` at n = 16,000 is below
-:data:`ABSOLUTE_BIAS_TOLERANCE` and below the same bound at n = 4,000 (the ``X4-plan.md`` 6.8
+pair passes when :math:`|\bar b| + 2\,\mathrm{MCSE}` at n = 24,000 is below
+:data:`ABSOLUTE_BIAS_TOLERANCE` and below the same bound at n = 6,000 (the ``X4-plan.md`` 6.8
 rule).  Its diagnostic cell publishes its bias beside the exact-law limit of
 :func:`~tests.studies.longitudinal_incremental_common.constant_mechanism_limit`.
 ``targeting_necessity`` reads the shared necessity rule at :data:`TARGETING_DISPLACEMENT`.
@@ -106,16 +106,16 @@ N_FOLDS = 5
 CALIBRATION_REPLICATES = 2_000
 CALIBRATION_N = 4_000
 RATE_REPLICATES = 700
-RATE_SIZES = (1_000, 4_000, 16_000)
+RATE_SIZES = (6_000, 24_000, 48_000)
 NULL_REPLICATES = 1_000
 NULL_N = 4_000
 BAND_REPLICATES = 2_000
 BAND_N = 5_000
 REQUIREMENT_REPLICATES = 1_000
-REQUIREMENT_SIZES = (4_000, 16_000)
+REQUIREMENT_SIZES = (6_000, 24_000)
 EFFICIENCY_RATIO_BAND = (0.90, 1.10)
 SHRUNKEN_SE_FACTOR = 0.70
-#: The absolute bias bound of the positive ``single_robustness`` pair at n = 16,000.
+#: The absolute bias bound of the positive ``single_robustness`` pair at n = 24,000.
 ABSOLUTE_BIAS_TOLERANCE = 0.01
 TARGETING_DISPLACEMENT = 0.25
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))

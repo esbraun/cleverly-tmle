@@ -1228,7 +1228,8 @@ messages. `tests/unit/test_ipsi_e2e.py` pins each refusal before any learner run
 
 | limitation | detail |
 | --- | --- |
-| finite-sample bias at one fold | on the declared study laws, a one-fold fit carries a plug-in-order bias of about 0.2 standardized units at $n$ = 4,000 to 8,000. Source: the pre-declaration design probe in the `tests/unit/test_longitudinal_incremental_design.py` module docstring. The registered `in_sample_fit` family reports it |
+| finite-sample bias at one fold | on the declared study laws, a one-fold fit carries a plug-in-order bias of about 0.2 standardized units at $n$ = 4,000 to 8,000. Source: the pre-declaration design probe in the `tests/studies/canonical_longitudinal_incremental_dropout.py` module docstring. The registered `in_sample_fit` family reports it |
+| finite-sample bias at five folds | the cross-fitted contrasts carry a second-order bias of order $1/n$. On law `C` the probe measured 0.44 standardized units at $n$ = 2,000, 0.22 at 8,000 and 0.05 at 32,000. Both primary studies run at $n$ = 24,000 for this reason. Source: the `PRIMARY_N` docstrings of the two study modules |
 | a band over the continuum of $\delta$ | not offered. Theorem 4 of Kennedy (2019) gives a band over a compact set of $\delta$, and the API represents a finite grid only |
 | the no-effect test | not offered. Kennedy (2019), Section 4.4, gives it, and `npcausal` does not return it |
 | a TMLE for the tilt over time | not offered. The package ships Kennedy's own estimator, which Theorem 3 covers with no extension |
