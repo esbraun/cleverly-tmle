@@ -17,7 +17,6 @@ from sklearn.linear_model import LogisticRegression
 
 from cleverly.datasets import binary_outcome_dgp
 from cleverly.learners.crossfit import CrossFitPlan
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_cvtmle import cv_fit
 from tests.studies.cvtmle_properties import cells, generate, sampling_batch, summarize
@@ -30,6 +29,7 @@ from tests.studies.evidence.properties import (
     require_accounted,
 )
 from tests.studies.evidence.property_verdicts import finish
+from tests.studies.evidence.replication import fit_properties, splat
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.repeated_crossfit import (
     FOLD_SEED_TRIALS,
@@ -175,6 +175,21 @@ def _stability_trial(
     )
 
 
+STABILITY_CELLS = ("repeat_stability/three_repeats", "repeat_stability/one_repeat_control")
+
+
+def _stability_cells_of(payload: tuple[Any, ...]) -> tuple[str, ...]:
+    return STABILITY_CELLS
+
+
+def _stability_cell_of(payload: tuple[Any, ...]) -> str:
+    return "repeat_stability"
+
+
+def _stability_replicate_of(payload: tuple[Any, ...]) -> int:
+    return int(payload[2])
+
+
 def generate_repeat_stability_rows(
     *, trials: int = FOLD_SEED_TRIALS, n_jobs: int = STUDY_JOBS
 ) -> pd.DataFrame:
@@ -191,7 +206,15 @@ def generate_repeat_stability_rows(
         )
         for replicate in range(trials)
     ]
-    paired = map_parallel(_stability_trial, payloads, n_jobs=n_jobs)
+    paired = fit_properties(
+        payloads,
+        splat(_stability_trial),
+        cells_of=_stability_cells_of,
+        cell_of=_stability_cell_of,
+        replicate_of=_stability_replicate_of,
+        n_jobs=n_jobs,
+        label="properties/repeat_stability",
+    )
     rows = pd.DataFrame([row for pair in paired for row in pair])
     return rows.loc[:, list(REPLICATE_COLUMNS)]
 

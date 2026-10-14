@@ -27,7 +27,6 @@ import pandas as pd
 from scipy.stats import norm
 
 from cleverly.estimators import TMLE
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import multi_arm_common, multi_arm_properties
 from tests.studies.canonical_multi_arm_tmle import STUDY
@@ -41,9 +40,11 @@ from tests.studies.evidence.property_verdicts import (
     finish,
     simultaneous_coverage_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import (
     FAMILY,
+    joint_cells,
     joint_coverage_rows,
     joint_property_cells,
 )
@@ -117,26 +118,51 @@ def fit_joint(frame: pd.DataFrame) -> Any:
     )
 
 
-def _joint_replication(payload: tuple[int, int]) -> list[dict[str, Any]]:
-    replicate, seed = payload
-    frame, truth = multi_arm_properties.Sampler()(JOINT_N, seed)
+def _joint_draw(key: tuple[int, int]) -> Any:
+    return multi_arm_properties.Sampler()(JOINT_N, key[1])
+
+
+def _joint_replication(key: tuple[int, int], drawn: Any) -> list[dict[str, Any]]:
+    frame, truth = drawn
     result = fit_joint(frame)
     return joint_coverage_rows(
         result,
         truth,
         tuple(result.estimates),
         label=JOINT_LABEL,
-        replicate=replicate,
+        replicate=key[0],
         n=JOINT_N,
         requested=JOINT_REPLICATES,
         pointwise_critical=CRITICAL,
     )
 
 
+def _joint_cells_of(key: tuple[int, int]) -> list[str]:
+    return [f"{FAMILY}/{cell}" for cell in joint_cells(JOINT_LABEL)]
+
+
+def _joint_cell_of(key: tuple[int, int]) -> str:
+    return f"{FAMILY}/{JOINT_LABEL}"
+
+
+def _joint_replicate_of(key: tuple[int, int]) -> int:
+    return key[0]
+
+
 def joint_rows(*, n_jobs: int = STUDY_JOBS, replicates: int = JOINT_REPLICATES) -> pd.DataFrame:
     """The joint cell's rows, from its dedicated batch."""
-    payloads = [((replicate, _joint_seed(replicate)),) for replicate in range(replicates)]
-    outcomes = map_parallel(_joint_replication, payloads, n_jobs=n_jobs)
+    keys = [(replicate, _joint_seed(replicate)) for replicate in range(replicates)]
+    outcomes = fit_properties(
+        keys,
+        _joint_replication,
+        cells_of=_joint_cells_of,
+        cell_of=_joint_cell_of,
+        replicate_of=_joint_replicate_of,
+        n_jobs=n_jobs,
+        label="properties/joint",
+        draw=_joint_draw,
+        rows_at=None,
+    )
     return pd.DataFrame([row for rows in outcomes for row in rows]).loc[:, list(REPLICATE_COLUMNS)]
 
 
@@ -145,11 +171,6 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
         [sampling_batches()[0].run(n_jobs=n_jobs), joint_rows(n_jobs=n_jobs)],
         ignore_index=True,
     )
-
-
-def generate_smoke_property_rows(*, n_jobs: int = 1, replicates: int = 1) -> pd.DataFrame:
-    """The first ``replicates`` declared joint replications, unsummarized."""
-    return joint_rows(n_jobs=n_jobs, replicates=replicates)
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:

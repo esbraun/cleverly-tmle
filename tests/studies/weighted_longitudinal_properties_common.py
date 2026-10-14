@@ -12,7 +12,6 @@ from sklearn.dummy import DummyClassifier, DummyRegressor
 
 from cleverly.datasets import WEIGHTED_SELECTION_PROBABILITIES
 from cleverly.longitudinal import LTMLE
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_longitudinal as law
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_ltmle import declared_regimens
@@ -21,11 +20,13 @@ from tests.studies.evidence.property_verdicts import (
     alternative_target_necessity_verdicts,
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     necessity_verdicts,
 )
 from tests.studies.evidence.registry import StudyRecord
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.ltmle_crossfit_properties import KnownDiscreteMechanism, _plan_arms
 
@@ -290,21 +291,74 @@ def untargeted(
     return float(np.average(stitched, weights=weights))
 
 
+#: Each calibration label's positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived(tuple(CONTRASTS))
+
+_Call = tuple[StudyRecord, bool, tuple[str, str, int, int, int, int, str]]
+
+
+def _draw(call: _Call) -> pd.DataFrame:
+    """The sample a call fits, which is a function of the call alone."""
+    _, _, (property_name, _, _, n, _, seed, _) = call
+    probs = law.PROBS
+    if property_name == "type_i_error":
+        from tests.studies.ltmle_properties import NULL_PROBS
+
+        probs = NULL_PROBS
+    selection = LEARNER_SELECTION if property_name == "learner_weight_necessity" else SELECTION
+    return sample(probs, n, seed, selection=selection)
+
+
+def _cells_of(call: _Call) -> list[str]:
+    """The ``property/cell`` names the call's rows and derived controls fill."""
+    _, _, (property_name, suffix, *_) = call
+    names = WEIGHT_MEANS if property_name == "weight_necessity" else CONTRASTS
+    labels = (
+        ("static",)
+        if property_name in {"type_i_error", "power", "learner_weight_necessity"}
+        else tuple(names)
+    )
+    cells = [f"{property_name}/{label}__{suffix}" for label in labels]
+    if property_name == "targeting_necessity":
+        cells += [f"{property_name}/{label}__untargeted" for label in labels]
+    for name in list(cells):
+        cells += DERIVED_CELLS.get(name, ())
+    return cells
+
+
+def _cell_of(call: _Call) -> str:
+    return f"{call[2][0]}/{call[2][1]}"
+
+
+def _replicate_of(call: _Call) -> int:
+    return int(call[2][2])
+
+
+def _fit(call: _Call, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    return _fit_drawn(*call, frame)
+
+
 def _fit_replication(
     record: StudyRecord,
     cross_fit: bool,
     payload: tuple[str, str, int, int, int, int, str],
 ) -> list[dict[str, Any]]:
-    property_name, suffix, replicate, n, requested, seed, configuration = payload
-    probs = law.PROBS
+    """One replicate of a payload, drawn and fitted."""
+    return _fit_drawn(record, cross_fit, payload, _draw((record, cross_fit, payload)))
+
+
+def _fit_drawn(
+    record: StudyRecord,
+    cross_fit: bool,
+    payload: tuple[str, str, int, int, int, int, str],
+    frame: pd.DataFrame,
+) -> list[dict[str, Any]]:
+    property_name, suffix, replicate, n, requested, _seed, configuration = payload
     truth_source = law.TRUTH
     if property_name == "type_i_error":
-        from tests.studies.ltmle_properties import NULL_PROBS, NULL_TRUTH
+        from tests.studies.ltmle_properties import NULL_TRUTH
 
-        probs = NULL_PROBS
         truth_source = {CONTRASTS["static"]: NULL_TRUTH}
-    selection = LEARNER_SELECTION if property_name == "learner_weight_necessity" else SELECTION
-    frame = sample(probs, n, seed, selection=selection)
     use_weights = property_name != "weight_necessity" or suffix == "weighted"
     fit_configuration = (
         "discard_learner_weights"
@@ -486,7 +540,16 @@ def generate_property_rows(
     record: StudyRecord, *, cross_fit: bool, n_jobs: int = STUDY_JOBS
 ) -> pd.DataFrame:
     calls = [(record, cross_fit, payload) for payload in _payloads(record)]
-    outcomes = map_parallel(_fit_replication, calls, n_jobs=n_jobs)
+    outcomes = fit_properties(
+        calls,
+        _fit,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for outcome in outcomes for row in outcome])
     critical = float(norm.ppf(1.0 - record.margins.alpha / 2.0))
     rows = pd.concat(

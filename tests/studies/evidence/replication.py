@@ -752,6 +752,36 @@ class _PropertyRowCheck:
         return broken
 
 
+@dataclass(frozen=True)
+class _Splat:
+    """A ``map_parallel`` worker as a ``fit_one``: the key is its argument list."""
+
+    worker: Callable[..., Any]
+
+    def __call__(self, key: Any, drawn: Any) -> Any:
+        return self.worker(*key) if isinstance(key, tuple) else self.worker(key)
+
+
+def splat(worker: Callable[..., Any]) -> Callable[[Any, Any], Any]:
+    """``worker`` as a ``fit_one`` for :func:`fit_properties`, with ``map_parallel``'s calling rule.
+
+    A tuple key is splatted as positional arguments and any other key is the one argument, so
+    a loop that passed ``payloads`` to ``map_parallel`` passes the same list as its keys.  The
+    drawn value is ignored.
+
+    Parameters
+    ----------
+    worker : Callable
+        The per-replicate worker, a module-level function so that it pickles by name.
+
+    Returns
+    -------
+    Callable
+        A ``fit_one(key, drawn)``.
+    """
+    return _Splat(worker)
+
+
 def _cell_names(cells: Sequence[str], derived: Mapping[str, Sequence[str]], key: Any) -> list[str]:
     """``cells`` checked as ``property/cell`` names, each derived control beside its base."""
     names = [str(name) for name in cells]

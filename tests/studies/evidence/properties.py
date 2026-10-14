@@ -8,21 +8,27 @@ estimator are shared, because every method that gets an evidence row needs the s
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from cleverly.validation import CoverageStudy, ReplicationRecord, summarize_replications
-from cleverly.validation._seeds import sample_seed_streams
+from cleverly.validation import (
+    CoverageStudy,
+    ReplicationFailure,
+    ReplicationRecord,
+    summarize_replications,
+)
+from cleverly.validation._seeds import sample_seed_streams, validate_sample_seeds
 from tests.studies.evidence.inference import (
     Interval,
     clopper_pearson,
     percentile_interval,
     standardized_bias_verdict,
 )
+from tests.studies.evidence.replication import _Recorded, fit_properties
 from tests.studies.evidence.schema import reported_inference, reported_pvalue
 
 REPLICATE_COLUMNS = (
@@ -215,10 +221,59 @@ class PropertyBatch:
     name: str
     cells: tuple[PropertyCell, ...]
     estimator: Callable[[PropertyCell], Callable[[], Any]]
+    #: Each base cell's derived controls as ``property/cell`` names (``DERIVED_CELLS``).
+    derived: Mapping[str, Sequence[str]] = field(default_factory=dict)
 
     def run(self, *, n_jobs: int) -> pd.DataFrame:
         """Run the complete declared batch."""
-        return run_cells(self.cells, self.estimator, n_jobs=n_jobs)
+        return run_cells(
+            self.cells,
+            self.estimator,
+            n_jobs=n_jobs,
+            label=f"properties/{self.name}",
+            derived=self.derived,
+        )
+
+
+@dataclass(frozen=True)
+class _CellFit:
+    """Fit one replicate of one cell and return its row with the alpha it reported."""
+
+    estimator: Callable[[PropertyCell], Callable[[], Any]]
+
+    def __call__(
+        self, key: tuple[PropertyCell, int, int], drawn: Any
+    ) -> tuple[dict[str, Any], float]:
+        cell, replicate, seed = key
+        study = CoverageStudy(
+            dgp=cell.dgp,
+            estimator=self.estimator(cell),
+            n=cell.n,
+            n_replicates=cell.replicates,
+            estimands=(cell.estimand,),
+            fit_kwargs=dict(cell.fit_kwargs),
+            seed=cell.seed,
+            n_jobs=1,
+        )
+        outcome = study.run_replication(replicate, seed)
+        if isinstance(outcome, ReplicationFailure):
+            raise _Recorded(outcome)
+        (record,) = [record for record in outcome if record.estimand == cell.estimand]
+        row = {
+            "property": cell.property,
+            "cell": cell.cell,
+            "role": cell.role,
+            "replicate": record.replicate,
+            "n": cell.n,
+            "requested_replicates": cell.replicates,
+            "failed_replicates": 0,
+            "truth": record.truth,
+            "estimate": record.estimate,
+            "std_error": record.std_error,
+            "covered": int(record.covered),
+            "rejected": int(record.rejected),
+        }
+        return row, record.alpha
 
 
 def run_cells(
@@ -226,63 +281,109 @@ def run_cells(
     estimator: Callable[[PropertyCell], Callable[[], Any]],
     *,
     n_jobs: int,
+    label: str = "properties",
+    derived: Mapping[str, Sequence[str]] | None = None,
 ) -> pd.DataFrame:
     """Run every cell and return the per-replication rows.
 
-    Cells run one at a time with the whole core budget handed to the replication loop inside
-    each, rather than several cells at once each with a slice.  Two levels of process pool
-    over the same cores oversubscribe every one of them; a single level with a few hundred
+    One :func:`~tests.studies.evidence.replication.fit_properties` call fits every
+    ``(cell, replicate, seed)`` key, so the whole core budget feeds one replication loop
+    rather than several cells at once each with a slice.  Two levels of process pool over
+    the same cores oversubscribe every one of them; a single level with a few hundred
     independent fits already keeps every worker fed.
 
     ``requested_replicates`` and ``failed_replicates`` travel on every row.  A replication
-    whose fit raises is dropped by :class:`~cleverly.validation.CoverageStudy` -- correctly,
-    so one bad draw cannot kill a study -- and a dropped replication silently widens the
-    Monte Carlo error of every cell it touches.  Recording the count is what lets the
-    verdicts refuse to be computed on a study that quietly shrank.
+    whose fit raises a recordable error costs that cell one replicate: inside the regeneration
+    driver the loss is recorded and the driver stamps ``failed_replicates``; elsewhere it
+    stops the run.  The rows write ``failed_replicates = 0``, because the driver is the one
+    writer of the column.  Recording the count is what lets the verdicts refuse to be computed
+    on a study that quietly shrank.
 
     Distinct root seeds receive distinct sample seeds across the cells.  Equal roots share
     one prefix, including when their budgets differ, to retain intentionally paired draws.
     Planning by replication index preserves the old prefix when a rung budget increases.
+
+    Parameters
+    ----------
+    cells : Sequence of PropertyCell
+        The cells to fit, in the order their rows are published.
+    estimator : Callable
+        Maps a cell to the zero-argument factory of its estimator.
+    n_jobs : int
+        Worker processes.
+    label : str
+        The loop's label in the run's records and checkpoints.
+    derived : Mapping or None
+        Each base cell's derived controls as ``property/cell`` names.  A record of a base
+        replicate names its controls as well, because the controls lose the replicate with it.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per surviving replication, with the columns of ``REPLICATE_COLUMNS``.
+
+    Raises
+    ------
+    RuntimeError
+        If every replication of a cell failed, or if the replications of a cell report more
+        than one alpha.
     """
     budgets: dict[int, int] = {}
     for cell in cells:
         budgets[cell.seed] = max(budgets.get(cell.seed, 0), cell.replicates)
     sample_seeds = sample_seed_streams(budgets)
-    frames: list[pd.DataFrame] = []
+    keys: list[tuple[PropertyCell, int, int]] = []
     for cell in cells:
-        result = CoverageStudy(
-            dgp=cell.dgp,
-            estimator=estimator(cell),
-            n=cell.n,
-            n_replicates=cell.replicates,
-            estimands=(cell.estimand,),
-            fit_kwargs=dict(cell.fit_kwargs),
-            seed=cell.seed,
-            sample_seeds=sample_seeds[cell.seed][: cell.replicates],
-            n_jobs=n_jobs,
-        ).run()
-        records = tuple(
-            record for record in result.replications if record.estimand == cell.estimand
-        )
-        frames.append(
-            pd.DataFrame(
-                {
-                    "property": cell.property,
-                    "cell": cell.cell,
-                    "role": cell.role,
-                    "replicate": [record.replicate for record in records],
-                    "n": cell.n,
-                    "requested_replicates": cell.replicates,
-                    "failed_replicates": result.n_failed,
-                    "truth": [record.truth for record in records],
-                    "estimate": [record.estimate for record in records],
-                    "std_error": [record.std_error for record in records],
-                    "covered": [int(record.covered) for record in records],
-                    "rejected": [int(record.rejected) for record in records],
-                }
+        seeds = validate_sample_seeds(sample_seeds[cell.seed][: cell.replicates], cell.replicates)
+        keys.extend((cell, replicate, int(seed)) for replicate, seed in enumerate(seeds))
+    values = fit_properties(
+        keys,
+        _CellFit(estimator),
+        cells_of=_CellsOf(dict(derived or {})),
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        label=label,
+        rows_at=0,
+        derived=derived,
+        seed_of=_seed_of,
+    )
+    rows = pd.DataFrame([row for row, _ in values])
+    alphas: dict[tuple[str, str], set[float]] = {}
+    for row, alpha in values:
+        alphas.setdefault((row["property"], row["cell"]), set()).add(alpha)
+    for cell in cells:
+        name = (cell.property, cell.cell)
+        if name not in alphas:
+            raise RuntimeError(f"every replication of {cell.property}/{cell.cell} failed")
+        if len(alphas[name]) != 1:
+            raise RuntimeError(
+                f"replications returned inconsistent alpha levels: {sorted(alphas[name])}"
             )
-        )
-    return pd.concat(frames, ignore_index=True).loc[:, list(REPLICATE_COLUMNS)]
+    return rows.loc[:, list(REPLICATE_COLUMNS)]
+
+
+def _cell_of(key: tuple[PropertyCell, int, int]) -> str:
+    return f"{key[0].property}/{key[0].cell}"
+
+
+@dataclass(frozen=True)
+class _CellsOf:
+    """The cells a ``(cell, replicate, seed)`` key writes: its own and its derived controls."""
+
+    derived: Mapping[str, Sequence[str]]
+
+    def __call__(self, key: tuple[PropertyCell, int, int]) -> tuple[str, ...]:
+        name = _cell_of(key)
+        return (name, *self.derived.get(name, ()))
+
+
+def _replicate_of(key: tuple[PropertyCell, int, int]) -> int:
+    return key[1]
+
+
+def _seed_of(key: tuple[PropertyCell, int, int]) -> int:
+    return key[2]
 
 
 def coverage_gain_interval(

@@ -8,6 +8,7 @@ from tests.parallel import STUDY_JOBS
 from tests.studies import weighted_longitudinal_properties_common as shared
 from tests.studies.canonical_weighted_ltmle_crossfit import STUDY
 
+DERIVED_CELLS = shared.DERIVED_CELLS
 EFFICIENCY_RATIO_BAND = shared.EFFICIENCY_RATIO_BAND
 SHRUNKEN_SE_FACTOR = shared.SHRUNKEN_SE_FACTOR
 TARGETING_DISPLACEMENT = shared.TARGETING_DISPLACEMENT

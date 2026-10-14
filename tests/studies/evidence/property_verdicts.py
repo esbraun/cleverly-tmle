@@ -884,6 +884,44 @@ def calibration_controls(
     return pd.concat(controls, ignore_index=True)
 
 
+#: The two derived control kinds :func:`calibration_controls` writes beside each positive arm.
+CALIBRATION_CONTROL_KINDS = ("shrunken_se_control", "noise_control")
+
+
+def calibration_derived(
+    labels: Sequence[str],
+    *,
+    positive_suffix: str = "correctly_specified",
+    kinds: Sequence[str] = CALIBRATION_CONTROL_KINDS,
+) -> dict[str, tuple[str, ...]]:
+    """Each calibration positive arm's derived controls, as ``property/cell`` names.
+
+    The declaration a module with :func:`calibration_controls` publishes as ``DERIVED_CELLS``
+    and hands to ``fit_properties(derived=...)``.  A replicate that the positive arm lost is
+    also lost to its controls, so a record of that fit names all of them.
+
+    Parameters
+    ----------
+    labels : Sequence of str
+        The calibration labels, as :func:`calibration_controls` takes them.
+    positive_suffix : str
+        The positive arm's cell suffix.
+    kinds : Sequence of str
+        The control suffixes the module derives.
+
+    Returns
+    -------
+    dict
+        Each positive ``interval_calibration/<label>__<suffix>`` cell to its controls.
+    """
+    return {
+        f"interval_calibration/{label}__{positive_suffix}": tuple(
+            f"interval_calibration/{label}__{kind}" for kind in kinds
+        )
+        for label in labels
+    }
+
+
 def _noise_size(base: pd.DataFrame, label: str) -> int:
     """The requested range a label's noise is drawn over, after checking its replicate ids."""
     requested = base["requested_replicates"].unique()
