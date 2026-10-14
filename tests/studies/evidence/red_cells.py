@@ -271,6 +271,7 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "ctmle-oat-per-arm-strata-missing",
             "property",
             "root_n_and_efficiency/n_2000",
+            "root_n_and_efficiency/n_4000",
             "root_n_and_efficiency/n_8000",
         ),
     ),
