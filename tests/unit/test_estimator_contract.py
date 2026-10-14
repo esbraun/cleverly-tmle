@@ -155,6 +155,7 @@ def test_the_beginner_facing_root_is_pinned() -> None:
         "RegimeContrast",
         "RegimeMean",
         "RiskRatio",
+        "Repeated",
         "Replayability",
         "Runtime",
         "SDRMethod",
