@@ -555,6 +555,17 @@ estimate is the mean of $\varphi_1$ over every row. `tests/unit/test_sdr_constru
 the longhand and the two rejected constructions. *Reconsider when* a published result certifies
 the stitched transform of Section 5.3, Step 2, or the recombined ratio that `lmtp` reads.
 
+The incremental estimator `IPSI` shares plan resolution, masks, designs and the mechanism fit
+with LTMLE. An odds-tilt node's factor is computed in the cancelled form
+$(\delta A + 1 - A)/(\delta\pi + 1 - \pi)$. It is never divided by a bounded mechanism.
+`g_bounds` bounds only the cumulative censoring, label, rule and policy product, and the tilt
+product multiplies in after the bound. The influence function holds a mechanism term exactly at
+each tilt node whose treatment mechanism is estimated.
+
+`IPSI` fits no fluctuation. Its estimate is the pooled mean of $\varphi$ over every row. A
+cross-fitted fold runs the training-fold recursion that SDR runs.
+`tests/unit/test_ipsi_exact_laws.py` and `tests/unit/test_ipsi_construction.py` hold the checks.
+
 Longitudinal MSMs are projections over regimen/horizon cells. Their fluctuation is pooled and the
 backward recursion proceeds in lockstep over nodes; the horizon belongs in the design and each
 cause receives its own projection while sharing nuisance fits. Under cross-fitting the fold

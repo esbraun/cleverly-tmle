@@ -57,7 +57,7 @@ SDR_POINT_REFUSAL = (
     "the SDR estimator is the sequential regression of a longitudinal fit; a "
     "point-treatment functional fits tmle, drtmle or collaborative_tmle"
 )
-#: Why ``LTMLE`` refuses an odds tilt with an estimated treatment mechanism (X19 R1).
+#: Why ``LTMLE`` refuses an odds tilt with an estimated mechanism (R1 in ``test_ipsi_e2e.py``).
 LTMLE_TILT_REFUSAL = (
     "an odds tilt reads the estimated treatment mechanism, so its influence function has a "
     "mechanism term at every node (Kennedy 2019, Theorem 2), and LTMLE fits no mechanism "
@@ -65,20 +65,20 @@ LTMLE_TILT_REFUSAL = (
     "cross-fitted estimator. With a known treatment mechanism, LTMLE fits the tilt as a known "
     "stochastic policy"
 )
-#: Why ``SDR`` refuses an odds tilt (X19 R2).
+#: Why ``SDR`` refuses an odds tilt (R2 in ``test_ipsi_e2e.py``).
 SDR_TILT_REFUSAL = (
     "the SDR estimator needs a policy that does not depend on the observed-data law (Díaz, "
     "Williams, Hoffman and Schenck 2023, Section 4). An odds tilt reads the treatment "
     "mechanism, so its estimator is not doubly robust (Kennedy 2019, Section 3.3). Fit "
     "IPSI(regimens=[...])"
 )
-#: Why the IPSI estimator refuses a fluctuation setting (X19 R5).
+#: Why the IPSI estimator refuses a fluctuation setting (R5 in ``test_ipsi_e2e.py``).
 IPSI_NO_FLUCTUATION = (
     "IPSI fits no fluctuation: Kennedy's estimator averages the influence function at the "
     "fitted nuisances, so it has no logistic shrink, iteration limit, score tolerance or "
     "submodel"
 )
-#: Why a point treatment refuses the IPSI estimator (X19 R8).
+#: Why a point treatment refuses the IPSI estimator (R8 in ``test_ipsi_e2e.py``).
 IPSI_POINT_REFUSAL = (
     "IPSI fits a LongitudinalData panel. For a point treatment fit TMLE(incremental=[...]), "
     "or pass a one-node panel"

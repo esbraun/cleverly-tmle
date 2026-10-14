@@ -344,6 +344,22 @@ ARMS: dict[str, str] = {
     "clusters_200": "contrast of always against never, 200 clusters of 10 rows",
     "clusters_20": "contrast of always against never, 20 clusters of 100 rows",
     "six_regimens": "the six regimen means and five contrasts of the two-node law",
+    # ``longitudinal-incremental`` and ``longitudinal-incremental-dropout`` (X19).
+    "mean_x2": "odds-x2 mean at every node, three-node law",
+    "contrast_x2": "odds-x2 against the natural course, three-node law",
+    "contrast_x2_in_sample": "odds-x2 against the natural course, one fold",
+    "known_x2": "odds-x2 mean with the true treatment probabilities declared",
+    "no_positivity": "odds-x2 contrast on a law with propensities of exactly 0 and 1",
+    "per_node": "odds multipliers 2, 0.5 and 1.5 at the three nodes",
+    "tilt_then_static": "odds-x2 at nodes 1 and 2, then arm 1 at node 3",
+    "contrast_x1_5": "odds-x1.5 against the natural course, small arm effects",
+    "nine_tilts": "nine odds multipliers from 0.25 to 4, their means and eight contrasts",
+    "dropout_contrast_x2": "odds-x2 contrast at the end of study, with dropout",
+    "survival_contrast_x2_h3": "odds-x2 contrast in the risk by t = 3, with dropout",
+    "competing_contrast_x2_h3": "odds-x2 contrast in the cause-1 incidence by t = 3",
+    "msm_log_delta": "slope of the identity-link working model in log odds multiplier",
+    "weighted_contrast_x0_5": "odds-x0.5 contrast on the law weighted by 1 + A1 + W/2",
+    "survival_grid": "three plans by three horizons, the risks and six contrasts",
 }
 
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
@@ -464,6 +480,8 @@ IMPLEMENTATIONS: dict[str, str] = {
     "lmtp": "R `lmtp`",
     "lmtp-weighted": "R `lmtp` with observation weights",
     "npcausal": "R `npcausal`",
+    "cleverly-ipsi": "`cleverly` `IPSI`, one-step over time",
+    "cleverly-ipsi-dropout": "`cleverly` `IPSI` with a censoring mechanism",
     "r-ctmle": "R `ctmle`",
     "tlverse-ctmle3-oat": "R `ctmle3`",
     "ctmle3-multi-arm-oat": "R `ctmle3` multi-arm outcome-adaptive TMLE",
@@ -489,6 +507,10 @@ IMPLEMENTATIONS: dict[str, str] = {
 
 
 SCENARIOS: dict[str, str] = {
+    "ipsi_folds_2": "three-node law with a continuous outcome, two folds",
+    "ipsi_folds_5": "three-node law with a continuous outcome, five folds",
+    "dropout_folds_5": "three-node law with dropout after each arm, five folds",
+    "survival_folds_5": "three-node survival law with dropout, horizons 1 to 3, five folds",
     "binary_active": (
         "two arms, an arm-specific outcome index, an instrument, correct outcome regression"
     ),
@@ -923,6 +945,18 @@ PROPERTIES: dict[str, str] = {
     "weight_necessity": (
         "fixed inverse-selection weights recover the population target from the selected law"
     ),
+    "mechanism_term_necessity": (
+        "the influence curve includes the term from the estimated treatment mechanism"
+    ),
+    "single_robustness": (
+        "the estimate stays consistent when the treatment mechanism is correct and the "
+        "outcome regressions are constant"
+    ),
+    "censoring_complete_case": (
+        "how far a fit to the rows that never drop out sits from the target, reported rather "
+        "than gated"
+    ),
+    "in_sample_fit": ("how a one-fold fit behaves on the same draws, reported rather than gated"),
     "sequential_double_robustness": (
         "the estimate stays consistent when at each node either the outcome regression or "
         "the treatment and censoring mechanisms are correct"
@@ -1654,6 +1688,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "bias, coverage and SE calibration at n = 8,000",
         "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
     ),
+    ("root_n_and_efficiency", "n_16000"): (
+        "bias, coverage and SE calibration at n = 16,000",
+        "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+    ),
     ("root_n_and_efficiency", "n_32000"): (
         "bias, coverage and SE calibration at n = 32,000",
         "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
@@ -2187,6 +2225,52 @@ ARM_CELLS[("interval_calibration", "classifier_route", "correctly_specified")] =
     "the ratio by stacked classification, with a logistic model on the true log ratio, so the "
     "classifier is correctly specified",
     "SE ratio and coverage intervals both inside their calibration bands",
+)
+
+
+#: The cells of ``longitudinal-incremental`` and ``longitudinal-incremental-dropout`` (X19)
+#: that no other study shares.  The arm prefix names the plan (:data:`ARMS`).
+CELLS.update(
+    {
+        ("mechanism_term_necessity", "full_eif"): (
+            "the reported standard error from the full influence curve",
+            "both efficiency-ratio intervals inside their band",
+        ),
+        ("mechanism_term_necessity", "mechanism_term_dropped"): (
+            "the same estimates with the treatment-mechanism term removed from the curve",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+        ("single_robustness", "mechanism_correct__n_4000"): (
+            "cell-mean treatment mechanism and constant outcome regressions, at n = 4,000",
+            "|bias| + 2 MCSE at n = 16,000 below 0.01 and below its value at n = 4,000",
+        ),
+        ("single_robustness", "mechanism_correct__n_16000"): (
+            "cell-mean treatment mechanism and constant outcome regressions, at n = 16,000",
+            "|bias| + 2 MCSE at n = 16,000 below 0.01 and below its value at n = 4,000",
+        ),
+        ("single_robustness", "mechanism_constant"): (
+            "constant treatment mechanism and cell-mean outcome regressions, beside the "
+            "exact-law limit",
+            "reported only",
+        ),
+        ("targeting_necessity", "one_step"): (
+            "the one-step estimate with constant outcome regressions",
+            "bias inside the margin",
+        ),
+        ("targeting_necessity", "plug_in"): (
+            "the mean of the first-node regression before the correction, on the same fits",
+            "bias interval outside the margin",
+        ),
+        ("censoring_complete_case", "complete_case"): (
+            "a fit to the rows that never drop out, without a censoring model, beside the "
+            "exact-law limit",
+            "reported only",
+        ),
+        ("in_sample_fit", "one_fold"): (
+            "the same estimand fitted with one fold on the same draws",
+            "reported only",
+        ),
+    }
 )
 
 

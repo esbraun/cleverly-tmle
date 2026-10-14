@@ -26,9 +26,9 @@ influence value, and the standard error.  Both sides report the influence-curve 
 deviation over :math:`\sqrt n`, so no factor separates the two errors (``X19-plan.md`` 6.8
 assumed one).  The paired rows then read the default ``Margins()``.
 
-**Size.**  :data:`PRIMARY_N` is 5,000, not the plan's 2,000: at two folds the fallback-read
-bound of :mod:`tests.studies.longitudinal_incremental_common` is 1.48 standard errors at
-2,000 and 0.053 at 5,000 (``X19-plan.md`` 6.2 raises a cell's size until the bound holds).
+**Size.**  :data:`PRIMARY_N` is 6,000, not the plan's 2,000.  At two folds the fallback-read
+bound of :mod:`tests.studies.longitudinal_incremental_common` is 0.158 standard errors at
+5,000 and 0.064 at 6,000 (``X19-plan.md`` 6.2 raises a cell's size until the bound holds).
 
 **Properties.** :mod:`tests.studies.longitudinal_incremental_properties` declares every family.
 
@@ -58,7 +58,7 @@ from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate
 
 PRIMARY_REPLICATES = 1_000
-PRIMARY_N = 5_000
+PRIMARY_N = 6_000
 SEED = 20261241
 RESAMPLING_SEED = 2026124101
 #: The pre-declaration gate on every paired quantity (G1 and G2).
@@ -96,9 +96,9 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
         "nine_tilts__pointwise_joint_control",
     ),
     "mechanism_term_necessity": ("contrast_x2__full_eif", "contrast_x2__mechanism_term_dropped"),
-    "mechanism_requirement": (
-        "contrast_x2__mechanism_correct__n_2000",
-        "contrast_x2__mechanism_correct__n_8000",
+    "single_robustness": (
+        "contrast_x2__mechanism_correct__n_4000",
+        "contrast_x2__mechanism_correct__n_16000",
         "contrast_x2__mechanism_constant",
     ),
     "targeting_necessity": ("contrast_x2__one_step", "contrast_x2__plug_in"),

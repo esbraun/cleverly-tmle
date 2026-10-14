@@ -11,7 +11,8 @@ law     structure
 ``A``   :math:`T = 3`, :math:`W, A_1, L_2, A_2, L_3, A_3, Y`; the probe law of the plan
 ``A0``  ``A`` with :math:`\mu` free of every arm and each :math:`L_t` free of
         :math:`A_{t-1}`: the sharp null, where every tilt has one mean
-``Aw``  ``A`` with every arm coefficient of :math:`\mu` scaled by :data:`POWER_SCALE`
+``Aw``  ``A`` with every arm coefficient of :math:`\mu` and of each :math:`L_t` scaled by
+        :data:`POWER_SCALE`
 ``Ax``  :math:`T = 2`, with exact 0/1 propensity cells and :math:`\pi = 0.02` cells
 ``C``   ``A`` with dropout after each arm, :math:`\omega_t \in [0.85, 0.97]`
 ``D``   :math:`T = 3` survival with dropout as ``C``; binary absorbing :math:`Y_t`, hazards
@@ -47,14 +48,14 @@ import pandas as pd
 
 #: The outcome noise of every continuous-outcome law.
 SIGMA = 1.0
-#: The arm-coefficient scale of law ``Aw``, chosen in ``tests/unit/test_longitudinal_
+#: The arm-effect scale of law ``Aw``, chosen in ``tests/unit/test_longitudinal_
 #: incremental_design.py`` so that the exact-law power of ``odds x1.5 vs natural course`` at
-#: n = 2,000 lies in [0.80, 0.90].
-POWER_SCALE = 0.25
+#: n = 4,000 lies in [0.80, 0.90].  It is 0.882 at this scale.
+POWER_SCALE = 0.033
 #: The half-range of the binary cluster effect of law ``Ck``.
 CLUSTER_SHIFT = 1.0
 #: The outcome loading of the cluster effect in law ``Ck``.
-CLUSTER_OUTCOME = 0.6
+CLUSTER_OUTCOME = 1.0
 #: The complex step of :func:`eif`.
 STEP = 1e-30
 
@@ -408,8 +409,9 @@ def _node_axes(n_times: int, *, censoring: bool, survival: int = 0) -> tuple[Axi
     return tuple(axes)
 
 
-def _probe_conditional(*, null: bool = False) -> Conditional:
-    """The conditionals of law ``A`` and of its variants."""
+def _probe_conditional(*, null: bool = False, scale: float = 1.0) -> Conditional:
+    """The conditionals of law ``A`` and of its variants; ``scale`` multiplies the arm effects."""
+    effect = 0.0 if null else 1.2 * scale
 
     def conditional(axis: Axis, v: Mapping[str, int]) -> Sequence[float]:
         w = v.get("W", 0)
@@ -418,11 +420,11 @@ def _probe_conditional(*, null: bool = False) -> Conditional:
         if axis.name == "A1":
             return _bern(expit(-0.4 - 0.6 * w))
         if axis.name == "L2":
-            return _bern(expit(-0.5 + (0.0 if null else 1.2) * v["A1"] + 0.3 * w))
+            return _bern(expit(-0.5 + effect * v["A1"] + 0.3 * w))
         if axis.name == "A2":
             return _bern(expit(-0.5 + 1.0 * v["L2"] + 0.8 * v["A1"] - 0.6 * w))
         if axis.name == "L3":
-            return _bern(expit(-0.5 + (0.0 if null else 1.2) * v["A2"] + 0.5 * v["L2"] + 0.3 * w))
+            return _bern(expit(-0.5 + effect * v["A2"] + 0.5 * v["L2"] + 0.3 * w))
         if axis.name == "A3":
             return _bern(expit(-0.5 + 1.0 * v["L3"] + 0.8 * v["A2"] - 0.6 * w))
         if axis.kind == "censoring":
@@ -448,7 +450,7 @@ def _law_a(name: str, *, scale: float = 1.0, null: bool = False, censoring: bool
     return Law(
         name=name,
         axes=_node_axes(3, censoring=censoring),
-        conditional=_probe_conditional(null=null),
+        conditional=_probe_conditional(null=null, scale=scale),
         mean=_probe_mean(scale, null=null),
         n_times=3,
     )

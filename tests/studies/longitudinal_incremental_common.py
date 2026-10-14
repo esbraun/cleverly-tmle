@@ -31,8 +31,10 @@ mass :math:`\times \prod_t r_t \times \omega_{\min}^{-T} \times R / (\sigma / \s
 Here :math:`r_t` is the largest per-node weight of the plan, :math:`R` the range of the
 outcome mean, and :math:`\sigma` the efficient influence function standard deviation.  The
 design test asserts that the bound is below :data:`FALLBACK_BOUND` in every declared positive
-cell before the declaration commit.  A one-fold fit reads no fallback, since every held-out
-cell is a training cell.
+cell before the declaration commit.  A one-fold fit trains on all ``n`` rows.  Under dropout
+it can still read a carried value at an arm whose rows all dropped out, so its bound uses
+``n`` training rows.  The other two reads cannot occur there, and counting them keeps the
+bound conservative.
 """
 
 from __future__ import annotations
@@ -57,7 +59,7 @@ FALLBACK_BOUND = 0.1
 #: them, so no bound binds and the fits are the untruncated functional.
 G_BOUNDS = (1e-8, 1.0)
 #: The declared support of a continuous outcome: every outcome mean of these laws lies in
-#: [1, 8] and the noise is standard normal, so a draw leaves the support with probability
+#: [0, 9] and the noise is standard normal, so a draw leaves the support with probability
 #: below 1e-18.  A cross-fitted fit of a continuous outcome needs it (the shipped scale rule).
 Q_BOUNDS = (-8.0, 17.0)
 #: The causes of a competing-risk fit, in the oracle's level order.
@@ -247,10 +249,16 @@ def plug_in(result: Any, name: str) -> float:
     The recursion runs on the declared outcome scale, so the mean is mapped back through the
     result's scaler.
     """
-    left, right, _, _ = parse(name)
+    left, right, cause, horizon = parse(name)
+    competing = horizon is not None and ", " in name.split(" @ ")[0]
 
     def first(label: str) -> float:
-        return float(np.mean(result.fits[label].steps[0].marginal))
+        key = label
+        if competing:
+            key = f"{label}, {CAUSES[cause - 1]}"
+        if horizon is not None:
+            key = f"{key} @ t={horizon}"
+        return float(np.mean(result.fits[key].steps[0].marginal))
 
     if right is None:
         return float(result.scaler.unscale_level(first(left)))
@@ -352,7 +360,11 @@ def outcome_range(target: Any) -> float:
 
 
 def minimum_retention(target: Any) -> float:
-    """The smallest probability of staying observed at a node, one on a law without dropout."""
+    """The smallest probability of staying observed at a node, one on a law without dropout.
+
+    Only histories still at risk count: after a dropout or an event the later censoring axes
+    sit at their structural zero.
+    """
     probs = target.probs
     k = len(target.axes)
     smallest = 1.0
@@ -363,23 +375,43 @@ def minimum_retention(target: Any) -> float:
         upper = probs.sum(axis=tuple(range(c + 1, k)))
         lower = upper.sum(axis=c)
         kept = np.take(upper, 1, axis=c)
-        share = kept[lower > 0] / lower[lower > 0]
-        smallest = min(smallest, float(share.min()))
+        for cell in itertools.product(*(range(axis.levels) for axis in target.axes[:c])):
+            values = dict(zip([axis.name for axis in target.axes[:c]], cell, strict=True))
+            if lower[cell] > 0 and _at_risk(target, values, c):
+                smallest = min(smallest, float(kept[cell] / lower[cell]))
     return smallest
 
 
-def fallback_bound(target: Any, plans: Sequence[Plan], *, n: int, n_folds: int, sd: float) -> float:
-    """The fallback-read bias bound of a cell in standard errors (module docstring)."""
-    if n_folds == 1:
-        return 0.0
-    n_train = n * (n_folds - 1) // n_folds
-    worst = 0.0
-    for plan in plans:
-        ratio = float(np.prod([node_ratio(target, entry, t) for t, entry in enumerate(plan, 1)]))
-        mass = fallback_read_mass(target, n_train, plan)
-        worst = max(worst, mass * ratio)
+def plan_fallback_bias(target: Any, plan: Plan, *, n: int, n_folds: int) -> float:
+    """The bound on the fallback-read bias of one plan's mean, on the outcome scale."""
+    n_train = n if n_folds == 1 else n * (n_folds - 1) // n_folds
+    ratio = float(np.prod([node_ratio(target, entry, t) for t, entry in enumerate(plan, 1)]))
     scale = outcome_range(target) / minimum_retention(target) ** target.n_times
-    return worst * scale / (sd / np.sqrt(n))
+    return fallback_read_mass(target, n_train, plan) * ratio * scale
+
+
+def fallback_bound(
+    target: Any,
+    plans: Mapping[str, Plan],
+    wanted: Sequence[str],
+    *,
+    n: int,
+    n_folds: int,
+    **extra: Any,
+) -> float:
+    """The largest fallback-read bias bound over ``wanted``, in standard errors.
+
+    A contrast reads the fallbacks of both its plans, so its bound is the sum of theirs.
+    ``extra`` reaches :func:`eif_sd` (``weights=`` or ``known=``).
+    """
+    worst = 0.0
+    for name in wanted:
+        left, right, _, _ = parse(name)
+        bias = plan_fallback_bias(target, plans[left], n=n, n_folds=n_folds)
+        if right is not None:
+            bias += plan_fallback_bias(target, plans[right], n=n, n_folds=n_folds)
+        worst = max(worst, bias / (eif_sd(target, plans, name, **extra) / np.sqrt(n)))
+    return worst
 
 
 # --------------------------------------------------------------- a constant mechanism

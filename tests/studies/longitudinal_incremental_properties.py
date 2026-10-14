@@ -22,10 +22,10 @@ family                          cells, replications and size
                                 n = 5,000
 ``mechanism_term_necessity``    the ``contrast_x2`` calibration fits: the full curve, and the
                                 curve without the mechanism term (control)
-``mechanism_requirement``       the regressions constant and the mechanism right at n = 2,000
-                                and 8,000 (positive, two-size rule); the mechanism constant and
-                                the regressions right at n = 2,000 (no verdict); 1,000 each
-``targeting_necessity``         the n = 8,000 draws of ``mechanism_requirement``: the one-step
+``single_robustness``           the regressions constant and the mechanism right at n = 4,000
+                                and 16,000 (positive, two-size rule); the mechanism constant
+                                and the regressions right at n = 4,000 (no verdict); 1,000 each
+``targeting_necessity``         the n = 16,000 draws of ``single_robustness``: the one-step
                                 estimate, and the plug-in mean of the first-node regression
                                 (control)
 ==============================  ===============================================================
@@ -55,9 +55,9 @@ replication, fitted three ways.  ``per_node`` and ``tilt_then_static`` share one
 ``type_i_error``, ``power`` and ``simultaneous_coverage`` read the shared verdicts.
 ``mechanism_term_necessity`` passes when the full curve's SE-ratio interval lies inside
 :data:`EFFICIENCY_RATIO_BAND` and the control's lies wholly below the calibration band: the
-design test computes the control's exact SD ratio, 0.77.  ``mechanism_requirement``'s positive
-pair passes when :math:`|\bar b| + 2\,\mathrm{MCSE}` at n = 8,000 is below
-:data:`ABSOLUTE_BIAS_TOLERANCE` and below the same bound at n = 2,000 (the ``X4-plan.md`` 6.8
+design test computes the control's exact SD ratio, 0.78.  ``single_robustness``'s positive
+pair passes when :math:`|\bar b| + 2\,\mathrm{MCSE}` at n = 16,000 is below
+:data:`ABSOLUTE_BIAS_TOLERANCE` and below the same bound at n = 4,000 (the ``X4-plan.md`` 6.8
 rule).  Its diagnostic cell publishes its bias beside the exact-law limit of
 :func:`~tests.studies.longitudinal_incremental_common.constant_mechanism_limit`.
 ``targeting_necessity`` reads the shared necessity rule at :data:`TARGETING_DISPLACEMENT`.
@@ -112,10 +112,10 @@ NULL_N = 4_000
 BAND_REPLICATES = 2_000
 BAND_N = 5_000
 REQUIREMENT_REPLICATES = 1_000
-REQUIREMENT_SIZES = (2_000, 8_000)
+REQUIREMENT_SIZES = (4_000, 16_000)
 EFFICIENCY_RATIO_BAND = (0.90, 1.10)
 SHRUNKEN_SE_FACTOR = 0.70
-#: The absolute bias bound of the positive ``mechanism_requirement`` pair at n = 8,000.
+#: The absolute bias bound of the positive ``single_robustness`` pair at n = 16,000.
 ABSOLUTE_BIAS_TOLERANCE = 0.01
 TARGETING_DISPLACEMENT = 0.25
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
@@ -263,7 +263,7 @@ FIT_SETS: tuple[tuple[str, str, str, int, int, str], ...] = (
     ("power", "alternative", "power", NULL_N, NULL_REPLICATES, "power"),
     *(
         (
-            "mechanism_requirement",
+            "single_robustness",
             f"outcome_constant__n_{size}",
             "outcome_constant",
             size,
@@ -273,7 +273,7 @@ FIT_SETS: tuple[tuple[str, str, str, int, int, str], ...] = (
         for size in REQUIREMENT_SIZES
     ),
     (
-        "mechanism_requirement",
+        "single_robustness",
         "mechanism_constant",
         "mechanism_constant",
         REQUIREMENT_SIZES[0],
@@ -382,7 +382,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
         )
     for size in REQUIREMENT_SIZES:
         add(
-            "mechanism_requirement",
+            "single_robustness",
             f"contrast_x2__mechanism_correct__n_{size}",
             "positive",
             "requirement",
@@ -392,7 +392,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             CONTRAST_X2,
         )
     add(
-        "mechanism_requirement",
+        "single_robustness",
         "contrast_x2__mechanism_constant",
         DIAGNOSTIC_ROLE,
         "diagnostic",
@@ -411,7 +411,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             REQUIREMENT_REPLICATES,
             f"outcome_constant__n_{REQUIREMENT_SIZES[1]}",
             CONTRAST_X2,
-            stream_family="mechanism_requirement",
+            stream_family="single_robustness",
         )
     cells.extend(
         joint_property_cells(
@@ -667,9 +667,9 @@ def mechanism_term_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
     summary.loc[family, "property_passed"] = bool(passes) and all(passes)
 
 
-def mechanism_requirement_verdicts(summary: pd.DataFrame) -> None:
+def single_robustness_verdicts(summary: pd.DataFrame) -> None:
     """The two-size absolute-bias rule, and the published limit of the diagnostic cell."""
-    family = summary["property"] == "mechanism_requirement"
+    family = summary["property"] == "single_robustness"
     for index in summary.index[family]:
         bound = abs(summary.loc[index, "bias"]) + 2.0 * summary.loc[index, "bias_se"]
         summary.loc[index, BIAS_BOUND_COLUMN] = float(bound)
@@ -710,7 +710,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
     simultaneous_coverage_verdicts(summary, margins=STUDY.margins)
     mechanism_term_verdicts(summary, rows)
-    mechanism_requirement_verdicts(summary)
+    single_robustness_verdicts(summary)
     necessity_verdicts(
         summary,
         rows,

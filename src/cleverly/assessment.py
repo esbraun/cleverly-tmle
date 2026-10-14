@@ -1260,6 +1260,18 @@ def _accepts_arguments(facade: _CapabilityFacade, operation: str) -> bool:
     return len(inspect.signature(function).parameters) > 1
 
 
+def _tilt_methods(item: AssessmentCapability, method: str) -> AssessmentCapability:
+    """List ``ipsi`` on an IPSI fit only, and only ``ipsi`` there.
+
+    An odds-tilt plan refits only by IPSI, and IPSI refuses a plan set with no tilt, so a
+    longitudinal row names the methods the fit's own plans admit.
+    """
+    if "ipsi" not in item.methods or item.result_family != "longitudinal":
+        return item
+    admitted = tuple(name for name in item.methods if (name == "ipsi") == (method == "ipsi"))
+    return replace(item, methods=admitted)
+
+
 def _method_gated(item: AssessmentCapability, method: str) -> AssessmentCapability:
     """Refuse a row the fitted method does not declare."""
     if (
@@ -1592,7 +1604,9 @@ class _CapabilityFacade:
         method = _method(self._result)
         replay = replayability(self._result)
         return {
-            item.operation: _replay_gated(_method_gated(item, method), replay)
+            item.operation: _replay_gated(
+                _method_gated(_tilt_methods(item, method), method), replay
+            )
             for item in self._declared
         }
 

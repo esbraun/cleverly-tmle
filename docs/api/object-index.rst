@@ -48,6 +48,7 @@ categorized API tables.
    cleverly.CollaborativeTMLEMethod
    cleverly.DRTMLEMethod
    cleverly.SDRMethod
+   cleverly.IPSIMethod
    cleverly.ModelSpec
    cleverly.CrossFitting
    cleverly.SplitPlan
