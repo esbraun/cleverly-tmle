@@ -46,6 +46,10 @@ RM39 part a2 adds two steps:
     replicate 0, whose join refusal must stay fatal.  Each outcome is ``recorded``, ``fatal``,
     ``absorbed`` or ``not reached`` (from the printed hit count).  Rows have step ``a2-probe``.
 
+RM39 part b runs ``stage`` on the zEpid runner too, the one paired runner that is Python:
+``stage --runners zepid_cvtmle/run_zepid_cvtmle.py --base 227cf50b --step-name b1``.  Its
+source is the runner file alone, and its rows have the step that ``--step-name`` gives.
+
 Every row goes to ``determinism.csv`` beside this file.  The nested-fork flag is a grep of the
 runner and the files it sources (not the harness) for ``mclapply``, ``mcparallel``, ``future``
 and a ``parallel =`` argument.  A draw inside a nested fork does not move the worker's
@@ -158,8 +162,11 @@ def _recording() -> Iterator[list[tuple[Any, Any, Path, Any]]]:
         regenerate.main, declared_run.run, learned_rule_run.run = saved  # type: ignore[assignment]
 
 
-def targets() -> list[Target]:
-    """Every runner of every paired study, read from each study's ``regenerate.py``."""
+def targets(interpreters: tuple[str, ...] = ("Rscript",)) -> list[Target]:
+    """Every runner of every paired study, read from each study's ``regenerate.py``.
+
+    Only the runners of ``interpreters`` are returned; every step but ``stage`` reads R.
+    """
     found: list[Target] = []
     for script in sorted(CANONICAL.glob("*/regenerate.py")):
         # A script that hands its study to none of the patched drivers regenerates something
@@ -175,7 +182,7 @@ def targets() -> list[Target]:
             finally:
                 sys.argv = arguments
         for study, _, here, reference in calls:
-            if reference is None or reference.interpreter != "Rscript":
+            if reference is None or reference.interpreter not in interpreters:
                 continue
             runners = [reference.runner] + [
                 name
@@ -236,7 +243,7 @@ def write_inputs(work: Path, target: Target, *, jobs: int) -> None:
         return
     folder.mkdir(parents=True, exist_ok=True)
     drawn = target.study.draw_and_fit(replicates=3, n=target.study.PRIMARY_N, n_jobs=jobs)
-    samples, truths, _ = drawn
+    samples, truths = drawn.samples, drawn.truths
     archive = {"method": "gzip", "mtime": 0}
     samples.to_csv(folder / "samples.csv.gz", index=False, lineterminator="\n", compression=archive)
     truths.to_csv(folder / "truth.csv", index=False, lineterminator="\n")
@@ -514,6 +521,9 @@ def stage_sources(target: Target) -> list[Path]:
     A file the image ships but no run sources (a probe of another target, or a manual smoke
     in ``extra_files``) is not read, so this run does not witness it.
     """
+    if target.reference.interpreter != "Rscript":
+        # A Python runner imports nothing from the repository; its own file is its source.
+        return [target.path]
     found: list[Path] = []
     pending = [target.path]
     if target.root == CANONICAL:
@@ -557,8 +567,11 @@ def _container_path(target: Target, path: Path) -> str | None:
         return None
 
 
-def stage(work: Path, chosen: list[Target], base: str) -> list[dict[str, Any]]:
-    """Plan 7.2: the head sources against the ``base`` sources, on the same inputs and seeds."""
+def stage(work: Path, chosen: list[Target], base: str, step: str = "a2") -> list[dict[str, Any]]:
+    """Plan 7.2: the head sources against the ``base`` sources, on the same inputs and seeds.
+
+    ``step`` labels the rows, so a later edit's witness rows are told apart from RM39a2's.
+    """
     rows = []
     for target in chosen:
         _build(target)
@@ -604,7 +617,7 @@ def stage(work: Path, chosen: list[Target], base: str) -> list[dict[str, Any]]:
                 {
                     "runner": target.label,
                     "study": target.slug,
-                    "step": "a2",
+                    "step": step,
                     "groups": "replicates 0-2",
                     "probe": "",
                     "nested_fork": nested_fork(target),
@@ -779,8 +792,9 @@ def main() -> None:
     parser.add_argument("--runners", default="", help="comma-separated runner labels")
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--base", default=STAGE_BASE, help="the commit the stage step freezes")
+    parser.add_argument("--step-name", default="a2", help="the step the stage rows carry")
     arguments = parser.parse_args()
-    chosen = targets()
+    chosen = targets(("Rscript", "python") if arguments.step == "stage" else ("Rscript",))
     if arguments.studies:
         wanted = set(arguments.studies.split(","))
         chosen = [target for target in chosen if target.slug in wanted]
@@ -798,7 +812,7 @@ def main() -> None:
             print(f"inputs for {target.slug}", flush=True)
         return
     if arguments.step == "stage":
-        stage(arguments.work, chosen, arguments.base)
+        stage(arguments.work, chosen, arguments.base, arguments.step_name)
         return
     if arguments.step == "stage-probe":
         stage_probe(arguments.work, chosen)

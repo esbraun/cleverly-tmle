@@ -23,15 +23,23 @@ __all__ = [
     "DEFAULT_LONGITUDINAL_G_BOUNDS",
     "DEFAULT_LONGITUDINAL_MULTIPLIER",
     "DEFAULT_POINT_MULTIPLIER",
+    "IPSI_NO_FLUCTUATION",
+    "IPSI_POINT_REFUSAL",
+    "LTMLE_TILT_REFUSAL",
+    "SDR_NO_FLUCTUATION",
+    "SDR_POINT_REFUSAL",
+    "SDR_TILT_REFUSAL",
     "SHORTCUTS",
     "CollaborativeTMLEMethod",
     "CrossFitting",
     "DRTMLEMethod",
     "EstimationMethod",
+    "IPSIMethod",
     "Inference",
     "MethodAvailability",
     "ModelSpec",
     "Runtime",
+    "SDRMethod",
     "TMLEMethod",
     "Targeting",
 ]
@@ -45,6 +53,49 @@ __all__ = [
 DEFAULT_POINT_MULTIPLIER = 1000
 DEFAULT_LONGITUDINAL_MULTIPLIER = 2000
 DEFAULT_LONGITUDINAL_G_BOUNDS = (0.01, 1.0)
+
+#: Why the SDR estimator refuses a fluctuation setting, by its engine name.
+SDR_NO_FLUCTUATION = (
+    "the SDR estimator fits no fluctuation, so it has no logistic shrink, iteration limit or "
+    "score tolerance. LTMLE takes {name}="
+)
+#: Why a point-treatment functional refuses ``method="sdr"`` (R4).
+SDR_POINT_REFUSAL = (
+    "the SDR estimator is the sequential regression of a longitudinal fit; a "
+    "point-treatment functional fits tmle, drtmle or collaborative_tmle"
+)
+#: Why ``LTMLE`` refuses an odds tilt with an estimated mechanism (R1 in ``test_ipsi_e2e.py``).
+LTMLE_TILT_REFUSAL = (
+    "an odds tilt reads the estimated treatment mechanism, so its influence function has a "
+    "mechanism term at every node (Kennedy 2019, Theorem 2), and LTMLE fits no mechanism "
+    "fluctuation over time. Fit IPSI(regimens=[Incremental(2.0), ...]), which runs Kennedy's "
+    "cross-fitted estimator. With a known treatment mechanism, LTMLE fits the tilt as a known "
+    "stochastic policy"
+)
+#: Why ``SDR`` refuses an odds tilt (R2 in ``test_ipsi_e2e.py``).
+SDR_TILT_REFUSAL = (
+    "the SDR estimator needs a policy that does not depend on the observed-data law (Díaz, "
+    "Williams, Hoffman and Schenck 2023, Section 4). An odds tilt reads the treatment "
+    "mechanism, so its estimator is not doubly robust (Kennedy 2019, Section 3.3). Fit "
+    "IPSI(regimens=[...])"
+)
+#: Why the IPSI estimator refuses a fluctuation setting (R5 in ``test_ipsi_e2e.py``).
+IPSI_NO_FLUCTUATION = (
+    "IPSI fits no fluctuation: Kennedy's estimator averages the influence function at the "
+    "fitted nuisances, so it has no logistic shrink, iteration limit, score tolerance or "
+    "submodel"
+)
+#: Why ``method="sdr"`` and ``method="ipsi"`` refuse the hazard and isotonic settings.
+SURVIVAL_CURVE_TMLE_ONLY = (
+    "survival_model=, a hazard targeting= algorithm, step_size= and isotonic= are settings of "
+    "the targeted fit, method='tmle'. The {method} estimator fits no hazard, and no "
+    "registered study measures its projected curve. Fit method='tmle', or remove them"
+)
+#: Why a point treatment refuses the IPSI estimator (R8 in ``test_ipsi_e2e.py``).
+IPSI_POINT_REFUSAL = (
+    "IPSI fits a LongitudinalData panel. For a point treatment fit TMLE(incremental=[...]), "
+    "or pass a one-node panel"
+)
 
 
 @dataclass(frozen=True)
@@ -539,6 +590,17 @@ def _differs_from_default(value: Any, default: Any) -> bool:
     return bool(value != default)
 
 
+def _refuse_curve_settings(method: TMLEMethod, name: str) -> None:
+    """Refuse a hazard or isotonic setting on an estimator that is not the targeted fit."""
+    if (
+        method.models.survival_model != "iterated_mean"
+        or method.targeting.algorithm != "iterative"
+        or method.targeting.step_size != Targeting().step_size
+        or method.targeting.isotonic
+    ):
+        raise MethodConfigurationError(SURVIVAL_CURVE_TMLE_ONLY.format(method=name))
+
+
 @dataclass(frozen=True)
 class TMLEMethod:
     """Normalized configuration for the built-in analytic TMLE method.
@@ -998,3 +1060,186 @@ class DRTMLEMethod(TMLEMethod):
             "evaluation": self.evaluation,
             "randomized": self.randomized,
         }
+
+
+@dataclass(frozen=True)
+class SDRMethod(TMLEMethod):
+    """Configure the sequentially doubly robust longitudinal estimator.
+
+    The estimator of Díaz, Williams, Hoffman and Schenck (2023, Section 5.3), fitted by
+    :class:`cleverly.longitudinal.SDR`.  It runs the sequential regression of a longitudinal
+    fit and fits no fluctuation, so the fluctuation settings of :class:`Targeting` stay at
+    their defaults.  ``g_bounds`` bounds each partial path probability.  A point-treatment
+    functional refuses the method.
+
+    Parameters
+    ----------
+    models : ModelSpec
+        Nuisance learners.  ``pseudo_learner`` fits a real-valued target, and its default is
+        a regression Super Learner with no clip.
+    cross_fitting : CrossFitting
+        Sample-splitting settings.  Above one fold, each fold fits every nuisance on its
+        training rows.
+    targeting : Targeting
+        ``g_bounds`` and ``q_bounds``.  ``submodel_alpha``, ``max_iter`` and ``tol`` are
+        refused, because the estimator fits no fluctuation.
+    inference : Inference
+        Interval and resampling settings.  The bootstrap runs and reports a bootstrap sd,
+        with no percentile inference.
+    runtime : Runtime
+        Seed, run identifier, and parallelism.
+    name : str
+        Stable method name.
+
+    See Also
+    --------
+    TMLEMethod : The targeted estimator of the same longitudinal parameters.
+    cleverly.longitudinal.SDR : The engine this configuration is translated for.
+    cleverly.LongitudinalTreatment : The design whose functionals take this method.
+
+    Examples
+    --------
+    >>> from cleverly import CrossFitting, SDRMethod
+    >>> method = SDRMethod(cross_fitting=CrossFitting(n_folds=5))
+    >>> method.name, method.cross_fitting.n_folds
+    ('sdr', 5)
+    >>> "alpha" in method.estimator_kwargs(longitudinal=True)
+    False
+    """
+
+    name: str = "sdr"
+
+    def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
+        """Translate this configuration for the longitudinal SDR engine.
+
+        Parameters
+        ----------
+        longitudinal : bool
+            Must be true, because the estimator is a longitudinal sequential regression.
+
+        Returns
+        -------
+        dict of str to Any
+            SDR engine keyword arguments.
+
+        Raises
+        ------
+        MethodConfigurationError
+            When ``longitudinal`` is false, or when a fluctuation setting differs from its
+            default.
+        """
+        if not longitudinal:
+            raise MethodConfigurationError(SDR_POINT_REFUSAL)
+        defaults = Targeting()
+        for field_name, engine_name in (
+            ("submodel_alpha", "alpha"),
+            ("max_iter", "max_iter"),
+            ("tol", "tol"),
+        ):
+            if _differs_from_default(
+                getattr(self.targeting, field_name), getattr(defaults, field_name)
+            ):
+                raise MethodConfigurationError(SDR_NO_FLUCTUATION.format(name=engine_name))
+        _refuse_curve_settings(self, "SDR")
+        kwargs = super().estimator_kwargs(longitudinal=True)
+        for engine_name in (
+            "alpha",
+            "max_iter",
+            "tol",
+            "survival_model",
+            "targeting",
+            "step_size",
+            "isotonic",
+        ):
+            del kwargs[engine_name]
+        return kwargs
+
+
+@dataclass(frozen=True)
+class IPSIMethod(TMLEMethod):
+    """Configure Kennedy's estimator of incremental propensity-score interventions.
+
+    The estimator of Kennedy (2019, Algorithm 1), with the dropout weights of Kim, Kennedy
+    and Naimi (2021), fitted by :class:`cleverly.longitudinal.IPSI`.  It averages the
+    influence function at the fitted nuisances and fits no fluctuation, so the fluctuation
+    settings of :class:`Targeting` stay at their defaults.  ``g_bounds`` bounds the
+    cumulative censoring factor.  The tilt factor is never bounded.  A point-treatment
+    functional refuses the method.
+
+    Parameters
+    ----------
+    models : ModelSpec
+        Nuisance learners.  ``pseudo_learner`` fits a real-valued target, and its default is
+        a regression Super Learner with no clip.
+    cross_fitting : CrossFitting
+        Sample-splitting settings.  Above one fold, each fold fits every nuisance on its
+        training rows.
+    targeting : Targeting
+        ``g_bounds`` and ``q_bounds``.  ``submodel_alpha``, ``max_iter`` and ``tol`` are
+        refused, because the estimator fits no fluctuation.
+    inference : Inference
+        Interval and resampling settings.  The bootstrap runs and reports a bootstrap sd,
+        with no percentile inference.
+    runtime : Runtime
+        Seed, run identifier, and parallelism.
+    name : str
+        Stable method name.
+
+    See Also
+    --------
+    SDRMethod : The sequential regression of static, dynamic and known-policy plans.
+    cleverly.longitudinal.IPSI : The engine this configuration is translated for.
+    cleverly.IncrementalEffect : The functional that takes this method.
+
+    Examples
+    --------
+    >>> from cleverly import CrossFitting, IPSIMethod
+    >>> method = IPSIMethod(cross_fitting=CrossFitting(n_folds=5))
+    >>> method.name, method.cross_fitting.n_folds
+    ('ipsi', 5)
+    >>> "alpha" in method.estimator_kwargs(longitudinal=True)
+    False
+    """
+
+    name: str = "ipsi"
+
+    def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
+        """Translate this configuration for the longitudinal IPSI engine.
+
+        Parameters
+        ----------
+        longitudinal : bool
+            Must be true, because the estimator fits a longitudinal panel.
+
+        Returns
+        -------
+        dict of str to Any
+            IPSI engine keyword arguments.
+
+        Raises
+        ------
+        MethodConfigurationError
+            When ``longitudinal`` is false, or when a fluctuation setting differs from its
+            default.
+        """
+        if not longitudinal:
+            raise MethodConfigurationError(IPSI_POINT_REFUSAL)
+        defaults = Targeting()
+        for field_name in ("submodel_alpha", "max_iter", "tol"):
+            if _differs_from_default(
+                getattr(self.targeting, field_name), getattr(defaults, field_name)
+            ):
+                raise MethodConfigurationError(IPSI_NO_FLUCTUATION)
+        _refuse_curve_settings(self, "IPSI")
+        kwargs = super().estimator_kwargs(longitudinal=True)
+        for engine_name in (
+            "alpha",
+            "max_iter",
+            "tol",
+            "survival_model",
+            "targeting",
+            "step_size",
+            "isotonic",
+        ):
+            del kwargs[engine_name]
+        return kwargs

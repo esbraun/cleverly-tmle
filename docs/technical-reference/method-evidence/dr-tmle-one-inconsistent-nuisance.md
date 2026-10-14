@@ -218,7 +218,7 @@ from the committed results and checked at the precision printed.
 | --- | --- |
 | a binary outcome and two Gaussian covariates | the study does not measure other outcome types or covariate laws |
 | the univariate reduction with `guard=("Q", "g")` | the bivariate reduction and other guards have no witness here |
-| GLM and polynomial learners with constructed offsets | no off-the-shelf flexible learner is measured. An in-sample gradient-boosting mechanism with a wrong outcome regression gave an ATE bias of −2.37 SD and coverage 0.38 at n = 4,000 (`reviews/rm40/hgb_diagnosis.log`). [RM41](../../roadmap.md#rm41-find-the-dr-tmle-bias-with-an-in-sample-flexible-mechanism) owns it |
+| GLM and polynomial learners with constructed offsets | no off-the-shelf flexible learner is measured here. A probe with a gradient-boosting mechanism and a wrong outcome regression gave an ATE bias of −2.28 SD in sample and +2.01 SD cross-fitted at n = 4,000. [A data-adaptive mechanism](../dr-tmle/theorem.md#a-data-adaptive-mechanism) gives the cause and the numbers |
 | no strata, clusters, weights or more arms | those routes inherit the case table without a witness |
 
 ## Reproduction

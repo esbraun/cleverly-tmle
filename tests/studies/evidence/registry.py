@@ -322,6 +322,9 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_ctmle_oat import STUDY as CANONICAL_CTMLE_OAT
     from tests.studies.canonical_ctmle_oat_per_arm import STUDY as CTMLE_OAT_PER_ARM
+    from tests.studies.canonical_ctmle_oat_per_arm_strata_missing import (
+        STUDY as CTMLE_OAT_PER_ARM_STRATA_MISSING,
+    )
     from tests.studies.canonical_ctmle_selector import STUDY as CANONICAL_CTMLE_SELECTOR
     from tests.studies.canonical_cvtmle import STUDY as CANONICAL_CVTMLE
     from tests.studies.canonical_deterministic_regimes import (
@@ -340,6 +343,7 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_longitudinal_msm import STUDY as CANONICAL_LONGITUDINAL_MSM
     from tests.studies.canonical_longitudinal_mtp import STUDY as LONGITUDINAL_MTP
+    from tests.studies.canonical_longitudinal_sdr import STUDY as LONGITUDINAL_SDR
     from tests.studies.canonical_ltmle import STUDY as CANONICAL_LTMLE
     from tests.studies.canonical_ltmle_competing import STUDY as CANONICAL_LTMLE_COMPETING
     from tests.studies.canonical_ltmle_competing_crossfit import (
@@ -460,6 +464,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_CATEGORICAL_LTMLE,
         STOCHASTIC_CATEGORICAL_LTMLE,
         LONGITUDINAL_MTP,
+        LONGITUDINAL_SDR,
         CANONICAL_LONGITUDINAL_MSM,
         CROSSFIT_LONGITUDINAL_MSM,
         CANONICAL_LTMLE_CROSSFIT,
@@ -477,6 +482,7 @@ def registered() -> tuple[StudyRecord, ...]:
         DRTMLE_ONE_WRONG,
         KNOWN_NODE_MECHANISMS,
         CTMLE_OAT_PER_ARM,
+        CTMLE_OAT_PER_ARM_STRATA_MISSING,
         OMITTED_VARIABLE_BOUND_SE,
         CALIBRATION_SLOPE_WARNING,
         DEFAULT_SIMULTANEOUS_BANDS,

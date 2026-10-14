@@ -1,0 +1,11 @@
+side,scenario,seconds
+cleverly,gate_end_of_study_1,0.022
+cleverly,gate_end_of_study_5,0.061
+cleverly,gate_survival_1,0.028
+cleverly,gate_survival_5,0.083
+cleverly,sdr_end_of_study,0.044
+cleverly,sdr_end_of_study_crossfit,0.093
+cleverly,sdr_mtp,0.524
+cleverly,sdr_policy,0.052
+cleverly,sdr_survival,0.034
+lmtp,all,15.543

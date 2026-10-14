@@ -29,6 +29,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import (
     CausalStudy,
+    IncrementalEffect,
     LongitudinalTreatment,
     RegimeContrast,
     RegimeMean,
@@ -735,6 +736,32 @@ def fit_isotonic() -> Any:
     return _fit_point_survival(isotonic=True, pseudo_learner=LinearRegression())
 
 
+def fit_ipsi() -> Any:
+    """The in-sample two-node odds-tilt fit of ``make_longitudinal(400, 12)``, by IPSI."""
+    frame, _ = make_longitudinal(n=400, seed=12)
+    study = CausalStudy(
+        frame,
+        design=LongitudinalTreatment(
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"]],
+            censoring=["C1", "C2"],
+        ),
+    )
+    return study.identify(IncrementalEffect([Incremental(1.0), Incremental(2.0)])).estimate(
+        method="ipsi",
+        outcome_learner=LinearRegression(),
+        pseudo_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        censoring_learner=LogisticRegression(max_iter=1000),
+        learner_folds=2,
+        random_state=5,
+        simultaneous=False,
+        **IN_SAMPLE,
+    )
+
+
 # ------------------------------------------------------------------------- the kinds
 
 
@@ -869,6 +896,8 @@ KINDS: dict[str, Kind] = {
     "ltmle_hazard": _kind(fit_hazard, *_READ, "truncation_curve"),
     "ltmle_hazard_one_step": _kind(fit_hazard_one_step, *_READ, "truncation_curve"),
     "ltmle_isotonic": _kind(fit_isotonic, *_READ, "truncation_curve"),
+    # IPSI averages the influence function and solves no score equation.
+    "ipsi": _kind(fit_ipsi, "nuisance_models", "support", "truncation_curve"),
 }
 
 
