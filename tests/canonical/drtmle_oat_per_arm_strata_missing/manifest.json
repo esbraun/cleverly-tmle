@@ -1,0 +1,158 @@
+{
+  "schema_version": 2,
+  "study": "outcome-adaptive per-arm C-TMLE with strata and missing data (point estimates)",
+  "slug": "ctmle-oat-per-arm-strata-missing",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-ctmle-oat-per-arm",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "9e0426d36aace16d8288fd393e9ef1e3e04d3467",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": {
+      "implementation": "drtmle-r-oat-per-arm-strata-missing",
+      "drtmle_commit": "538a3a264c1ca984b6d88978ca7f96165f43152c",
+      "drtmle_version": "1.1.2",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_construction": "per arm a: drtmle(W, A = as.numeric(!is.na(A) & DeltaA == 1 & A == a), Y = ifelse(DeltaY == 1, Y, NA), DeltaY, DeltaA, a_0 = c(1, 0), adapt_g = TRUE, stratify = TRUE, Qn = list(qa, qa), glm_g = list(A = B, DeltaY = B, DeltaA = B) with B the cubic in qlogis(pmin(pmax(Q1W, 1e-6), 1 - 1e-6)), cvFolds = 1, guard = NULL, targeted_se = TRUE, tolg = 1e-4, maxIter = 100, tolIC = 1e-10); qa is this package's initial outcome regression; on the strata scenario the same call on each stratum's rows; tmle$est[1] and tmle$cov[1, 1] give the arm mean and its variance; each TMLE curve is rebuilt on the logistic submodel at the reported estimate and checked against tmle$cov[1, 1] to 1e-8; contrasts by the delta method on the stacked curves; the stratum curves embedded as 1{S = s} / P_n(S = s) times the subset curve, and the marginal as the P_n(S = s) mixture with its mass term",
+      "red_cell_owner": "F19",
+      "reading_rule": "Defect suspects (diagnose, fix, re-run under a fresh declaration): a truth row whose bias component fails; any red paired row; any red property or control row other than a routed ladder rung; a failed replicate; and a truth row red on coverage or the SE ratio whose SE ratio is not short. Routed to F19 in red_cells.py OWNERS, as X17's rows are: a truth row of cleverly-ctmle-oat-per-arm or of drtmle-r-oat-per-arm-strata-missing that is red only on its coverage or SE-ratio reading, with bias_equivalent True, a point SE ratio below 1, and the upper end of its 99% SE-ratio interval below 1.07. A root_n_and_efficiency rung reads the same way: red only on its coverage or SE-ratio reading, with bias_equivalent True, a point SE ratio below 1 and the upper end of its 99% bootstrap SE-ratio interval below 1.07, it is routed to F19; red on its bias, it is a defect suspect"
+    }
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 2250,
+    "seed": 20261029,
+    "resampling_seed": 2026102901,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "strata": [
+        "ey0",
+        "ey0[S=0]",
+        "ey0[S=1]",
+        "ey0[S=2]",
+        "ey1",
+        "ey1[S=0]",
+        "ey1[S=1]",
+        "ey1[S=2]",
+        "ate",
+        "ate[S=0]",
+        "ate[S=1]",
+        "ate[S=2]"
+      ],
+      "missing_outcome": [
+        "ey0",
+        "ey1",
+        "ate",
+        "rr",
+        "or"
+      ],
+      "three_arm_missing": [
+        "ey[0]",
+        "ey[1]",
+        "ey[2]",
+        "ate[1 vs 0]",
+        "ate[2 vs 0]",
+        "rr[1 vs 0]",
+        "rr[2 vs 0]",
+        "or[1 vs 0]",
+        "or[2 vs 0]"
+      ],
+      "missing_treatment": [
+        "ey0",
+        "ey1",
+        "ate",
+        "rr",
+        "or"
+      ]
+    },
+    "strategy": "oat",
+    "oat_design": "per_arm",
+    "cross_fit": false,
+    "simultaneous_intervals": false,
+    "inference": "points only: every oat fit is generated_design_plugin, and each row reads plugin_std_error and plugin_interval",
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "nuisance_bound": 0.01,
+    "q_bounds": "the default, None: the plan named (0, 1), and the estimator refuses q_bounds on a binary outcome, whose bounds are (0, 1) already",
+    "stratify_folds": "none",
+    "outcome_learner": "unpenalized logistic regression on [A indicators, W, S indicators, A x W, A x S]",
+    "treatment_learner": "per arm, factor and stratum, unpenalized logistic regression of the factor's target on (l, l^2, l^3), l = logit(clip(Qbar(a, W), 1e-6, 1 - 1e-6))",
+    "missingness_learner": "unpenalized logistic regression on [A, W] (and S): the full-covariate model tilt_missingness holds, which only the reported shipped construction reads",
+    "laws": {
+      "strata": "strata_complete",
+      "missing_outcome": "missing_outcome",
+      "three_arm_missing": "three_arm_missing",
+      "missing_treatment": "missing_treatment"
+    },
+    "reading_rule": "Defect suspects (diagnose, fix, re-run under a fresh declaration): a truth row whose bias component fails; any red paired row; any red property or control row other than a routed ladder rung; a failed replicate; and a truth row red on coverage or the SE ratio whose SE ratio is not short. Routed to F19 in red_cells.py OWNERS, as X17's rows are: a truth row of cleverly-ctmle-oat-per-arm or of drtmle-r-oat-per-arm-strata-missing that is red only on its coverage or SE-ratio reading, with bias_equivalent True, a point SE ratio below 1, and the upper end of its 99% SE-ratio interval below 1.07. A root_n_and_efficiency rung reads the same way: red only on its coverage or SE-ratio reading, with bias_equivalent True, a point SE ratio below 1 and the upper end of its 99% bootstrap SE-ratio interval below 1.07, it is routed to F19; red on its bias, it is a defect suspect",
+    "failure_probe": "replications 0 to 1,999 of every cell and every primary scenario (24,000 fits, 5,982 CPU seconds on three processes) raised nothing. Targeting ended above tol = 1e-10 with a ConvergenceWarning in n_500 400, n_2000 55, n_8000 7, strata_missing 31, weighted_strata_missing 45 and strata_missing_outcome_wrong 25 of 2,000 fits, and in no primary fit; such a fit returns its estimate and counts as a replication. The re-declared rung n_4000 was probed the same way on replications 0 to 1,999: no fit raised, and 19 of 2,000 ended with a ConvergenceWarning; the same probe re-read n_2000 55 and n_8000 7. The R reference was not probed",
+    "measured_budget": "Python, CPU seconds per fit: primaries (fit, longhand and shipped refit) strata 0.099, missing_outcome 0.057, three_arm_missing 0.074, missing_treatment 0.069; properties natural_course_insample 0.049, missing_outcome_crossfit 0.177, strata_missing 0.368, weighted_strata_missing 0.579, strata_missing_outcome_wrong 0.353, n_2000 0.357, n_8000 0.470, and the first run's dropped rung n_500 0.338. The re-declared rung n_4000 was measured on a second machine, on replications 0 to 1,999: 0.293, against 0.259 for n_2000 and 0.359 for n_8000 there, so about 0.39 on the first machine. A 20-replicate smoke of n_4000 there took 6.8 CPU seconds (0.342 per fit). The declared run is 3,200 primary and 6,400 property fits, about 2,400 CPU seconds (0.7 CPU-hours) before the shared summaries. R: 13 drtmle calls per primary replication, 10,400 calls, not measured here (plan estimate 0.6 to 1.5 CPU-hours)",
+    "ladder": "root_n_and_efficiency at n = 2,000, 4,000 and 8,000, R = 800 each (condition r: pass probability 0.950 at d = 0.10). Re-declared after the first run (commit ae53bbb), whose ladder was n = 500, 2,000, 8,000. Its n_500 rung read a mean SE ratio of 1.575 (mean plug-in SE 0.0884, empirical SD 0.0561), a median SE of 1.00 empirical SDs, coverage 0.954 and an equivalent bias; 40 of 800 fits (5%) had an SE above twice the empirical SD, and without them the mean ratio was 1.035. The reported_se slope read -0.71. The diagnosis found no code defect: each factor was fitted on about 20 to 35 rows per stratum, arm and fold, and the unpenalized cubic factor learner extrapolated the design toward zero at one or two rows, whose term dominated the plug-in variance. The rung measured learner instability in small cells, not the rate, and was dropped. Condition t, added with the re-declaration: the smallest factor training cell (stratum x arm x fold training complement, recorded rows) holds at least 100 rows in expectation at the smallest rung; 117.1 at n = 2,000 (S = 2, arm 0, share 0.0732, four fifths in training), 29.3 at n = 500. The rerun of the property phase supersedes the first run's property artifacts; the primaries, the pairing, the robustness cells, the laws, the seeds and the reading rule are unchanged",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    },
+    "property_summary_revision": "properties.csv was summarized again from the committed property-replicates.csv.gz, with no new fit, after the rerun: the summary now multiplies the log-scale plugin_std_error of each rr and or row by its estimate (the delta method), so each SE ratio compares a standard error and an empirical SD of psi. The rerun's first summary compared the log-scale standard error with the SD of psi (missing_outcome_crossfit SE ratio 0.559 for rr and 0.322 for or). No verdict changed. study_module_sha256 records the modules of the run that fitted the replicates"
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_ctmle_oat_per_arm_strata_missing.py": "1aeaf31c130b4a708fef55f1857aef1ab183e7526f2ce12e8909f9527dbd8e1c",
+    "tests/studies/ctmle_oat_per_arm_strata_missing_properties.py": "b254058fe3689b1d5662a33babae376dc28b6bb32e1fe94b2d4845b2b5db0acb",
+    "tests/studies/oat_per_arm_extension_laws.py": "61cc553a45a8cddfcd1afbe7f699b13c7665da0a96b352ae1bb5162a2ddccd8b",
+    "tests/studies/oat_per_arm_laws.py": "081894d3d80766dbef1ea2ab44b39020ac3006ce604d1a732f0a3a414a197c2c",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/studies/evidence/comparison.py": "cda1befd03a8b7509c8e1310bd911501dc2fd11c91b64451ba2b19476b689d6b",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
+    "tests/studies/evidence/property_verdicts.py": "5e65c9ecce2c7d4e34d5d9bdd825ef7d41cf550c2138fa3d9621c4dd0028a4ef",
+    "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/canonical/drtmle/Dockerfile": "470471189bf2b407411d6a89a533e073fd4f2dffb971a9480702658d5da88fe2",
+    "tests/canonical/drtmle_oat_per_arm_strata_missing/run_drtmle_oat_per_arm_strata_missing.R": "e384f28c71136b48267f702930d986c124b421e10253205c24e583d9918b8130",
+    "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
+  },
+  "reference_sha256": {
+    "tests/canonical/drtmle/Dockerfile": "470471189bf2b407411d6a89a533e073fd4f2dffb971a9480702658d5da88fe2",
+    "tests/canonical/drtmle_oat_per_arm_strata_missing/run_drtmle_oat_per_arm_strata_missing.R": "e384f28c71136b48267f702930d986c124b421e10253205c24e583d9918b8130",
+    "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
+  },
+  "sha256": {
+    "replicates.csv.gz": "21aa5a508f0d63b082618ca5199813832bfb012c28ee7aacadd4a417debe6c9b",
+    "summary.csv": "b8017e3556870313f9093f66ac5cd34e46ee82df2262c774cdaf80c850fa636e",
+    "equivalence.csv": "de708edef48d2f6db3f872e5753b8ee551d3618142976f060284165a5e0c2530",
+    "performance-tests.csv": "b35b6fb4d7ca660315218b2e1775cb8016e1fc8480e63a7f779d5db3714fc47e",
+    "property-replicates.csv.gz": "80f0b2251b3b8a3141ede096e60ad810887f20a8c4a18d6a42e994303f4e179a",
+    "properties.csv": "c7ad671042afdc8e99d54855d3aae89c1707b6860bac9855b66ab283345b00f6",
+    "design-gap.csv": "bf742db43a422dbcf4ed431e408cc54b87a9cd34d2710ae6496a4e3f9d9be48a",
+    "fit-diagnostics.csv": "832e6a312a25ba7cdff2c320e8cff2de693c1496d5e08cee1cf7fb0442a9253d"
+  }
+}
