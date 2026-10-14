@@ -26,12 +26,13 @@ from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
 from cleverly import CrossFitting, Inference, ModelSpec, Runtime, Targeting, TMLEMethod
 from cleverly.estimators import TMLE
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import mar_arm_indexed_laws as laws
+from tests.studies.evidence import failures as evidence_failures
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 from tests.studies.point_study_helpers import primary_rows
 
 PRIMARY_REPLICATES = 800
@@ -407,11 +408,16 @@ def reference_sample(
     return sample
 
 
+def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    scenario, replicate, n = key
+    return draw_scenario(scenario, n, replicate)
+
+
 def _replicate(
-    payload: tuple[str, int, int],
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
 ) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
-    scenario, replicate, n = payload
-    frame, truth = draw_scenario(scenario, n, replicate)
+    scenario, replicate, _ = key
+    frame, truth = drawn
     result = fit_cleverly(frame, laws.BY_SCENARIO[scenario])
     sample = reference_sample(frame, result, scenario=scenario, replicate=replicate)
     truth_rows = [
@@ -421,22 +427,26 @@ def _replicate(
     return sample, truth_rows, cleverly_rows(frame, truth, scenario, replicate, result=result)
 
 
-def draw_and_fit(
-    *, replicates: int, n: int, n_jobs: int = STUDY_JOBS
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    outcomes = map_parallel(
-        _replicate,
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
+    # Dependent: the reference reads the subject fit's cross-fitted nuisance predictions.
+    outcomes = replication.fit_primary(
         [
-            ((scenario, replicate, n),)
+            (scenario, replicate, n)
             for scenario in STUDY.scenarios
             for replicate in range(replicates)
         ],
+        _replicate,
+        draw=_draw,
         n_jobs=n_jobs,
+        implementation=STUDY.implementation,
+        seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
     )
-    samples = pd.concat([sample for sample, _, _ in outcomes], ignore_index=True)
-    truth_rows = pd.DataFrame([row for _, rows, _ in outcomes for row in rows])
-    estimates = pd.DataFrame([row for _, _, rows in outcomes for row in rows])
-    return samples, truth_rows, estimates.loc[:, list(REPLICATE_COLUMNS)]
+    samples = pd.concat([sample for sample, _, _ in outcomes.kept], ignore_index=True)
+    truth_rows = pd.DataFrame([row for _, rows, _ in outcomes.kept for row in rows])
+    estimates = pd.DataFrame([row for _, _, rows in outcomes.kept for row in rows])
+    return replication.result(
+        outcomes, estimates.loc[:, list(REPLICATE_COLUMNS)], samples=samples, truths=truth_rows
+    )
 
 
 # ------------------------------------------------------------------ scale-workaround probe
@@ -458,11 +468,49 @@ def reference_artifacts(
     output: Path,
     cores: int,
 ) -> dict[str, pd.DataFrame]:
-    """Run the exact-equality probe of the planted-row scale workaround on replication 0."""
+    """Run the exact-equality probe of the planted-row scale workaround on one replication.
+
+    The probe reads replication 0.  The study's reference input comes from the subject's fit,
+    so a lost subject fit leaves that sample unwritten.  The probe then reads the lowest
+    replication the scenario kept instead, and its table names that replication.
+    """
     del reference_results  # the probe writes its own table rather than reading the rows
     path = output / PROBE_ARTIFACT
-    reference.run(here, samples, truths_path, path, cores=cores, runner=PROBE_RUNNER)
-    return {PROBE_ARTIFACT: pd.read_csv(path)}
+    probed, moved = probe_samples(samples)
+    try:
+        reference.run(here, probed, truths_path, path, cores=cores, runner=PROBE_RUNNER)
+    finally:
+        if probed != samples:
+            probed.unlink(missing_ok=True)
+    table = pd.read_csv(path)
+    for scenario, replicate in moved.items():
+        table.loc[table["scenario"] == scenario, "replicate"] = replicate
+    return {PROBE_ARTIFACT: table}
+
+
+def probe_samples(samples: Path) -> tuple[Path, dict[str, int]]:
+    """The samples the probe reads, and the replication each moved scenario's probe reads.
+
+    The probe runner reads replication 0 of each continuous scenario.  Where the subject lost
+    replication 0, a copy beside ``samples`` relabels the lowest kept replication as 0.
+    """
+    frame = pd.read_csv(samples)
+    moved: dict[str, int] = {}
+    for law in laws.LAWS.values():
+        kept = frame.loc[frame["scenario"] == law.scenario, "replicate"]
+        if law.continuous and not kept.empty and not (kept == 0).any():
+            moved[law.scenario] = int(kept.min())
+    if not moved:
+        return samples, moved
+    substitutes = [
+        frame.loc[(frame["scenario"] == scenario) & (frame["replicate"] == replicate)].assign(
+            replicate=0
+        )
+        for scenario, replicate in moved.items()
+    ]
+    probed = samples.with_name("scale-probe-samples.csv.gz")
+    pd.concat([frame, *substitutes], ignore_index=True).to_csv(probed, index=False)
+    return probed, moved
 
 
 def scientific_failures(extra_frames: Mapping[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
@@ -472,3 +520,18 @@ def scientific_failures(extra_frames: Mapping[str, pd.DataFrame]) -> dict[str, p
     if set(probe["scenario"]) != expected:
         return {"scale-workaround probe coverage": probe}
     return {"scale-workaround probe": probe.loc[~probe["passed"].astype(bool)]}
+
+
+def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    """The probe audits: the probe refits one replication of each continuous scenario.
+
+    No recorded failure removes a probe row.  A failed reference fit leaves its sample
+    written, and a lost subject fit moves the probe to the scenario's lowest kept replication
+    (:func:`reference_artifacts`).  The probe runs its own ``tmle`` call outside
+    ``study_stage``.  When that call fails, the run stops in ``reference_artifacts``, as the
+    hook rule in ``method-benchmarking.md`` states.
+    """
+    del failures  # no recorded failure removes a probe row
+    gates = scientific_failures(artifacts)
+    gates.setdefault("scale-workaround probe coverage", artifacts[PROBE_ARTIFACT].iloc[:0])
+    return evidence_failures.audits(gates, missing={})

@@ -10,7 +10,6 @@ import numpy as np
 import pandas as pd
 
 from cleverly.estimators import TMLE
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_cde as cde
 from tests.conftest import (
     OracleDirectOutcome,
@@ -20,9 +19,11 @@ from tests.conftest import (
 )
 from tests.parallel import STUDY_JOBS
 from tests.studies.cde_study_helpers import efficiency_sd, level_rows, sample_discrete, truths
+from tests.studies.evidence import failures as evidence_failures
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 from tests.studies.point_study_helpers import initial_estimates, primary_rows
 
 TMLE_VERSION = "2.1.1"
@@ -189,12 +190,18 @@ def _cleverly_rows(
     )
 
 
-def _replicate(
-    payload: tuple[int, int],
+def _draw(key: tuple[tuple[str, ...], int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    """One sample serves every level, so it is drawn once, from the first scenario's seed."""
+    _, replicate, n = key
+    return draw_scenario(SCENARIOS[0], n, replicate)
+
+
+def _reference_input(
+    key: tuple[tuple[str, ...], int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
 ) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
-    replicate, n = payload
-    frame, _ = draw_scenario(SCENARIOS[0], n, replicate)
-    fit = fit_cleverly(frame)
+    """The replicate's sample with the oracle nuisances, and every level's truth rows; no fit."""
+    _, replicate, _ = key
+    frame, _ = drawn
     law = cde.DiscreteLaw()
     w = np.rint(frame["W"].to_numpy(dtype=float)).astype(int)
     base_sample = frame.copy()
@@ -210,7 +217,6 @@ def _replicate(
     sample = base_sample.copy()
     sample.insert(0, "replicate", replicate)
     truth_rows: list[dict[str, Any]] = []
-    estimate_rows: list[dict[str, Any]] = []
     for level, scenario in SCENARIOS.items():
         reference = truths(cde.PROBS, ESTIMANDS, level)
         truth_rows.extend(
@@ -222,22 +228,41 @@ def _replicate(
             }
             for name, value in reference.items()
         )
+    return sample, truth_rows, []
+
+
+def _replicate(
+    key: tuple[tuple[str, ...], int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
+) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
+    _, replicate, _ = key
+    frame, _ = drawn
+    sample, truth_rows, _ = _reference_input(key, drawn)
+    fit = fit_cleverly(frame)
+    estimate_rows: list[dict[str, Any]] = []
+    for level, scenario in SCENARIOS.items():
+        reference = truths(cde.PROBS, ESTIMANDS, level)
         estimate_rows.extend(_cleverly_rows(fit, reference, scenario, replicate))
     return sample, truth_rows, estimate_rows
 
 
-def draw_and_fit(
-    *, replicates: int, n: int, n_jobs: int = STUDY_JOBS
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    outcomes = map_parallel(
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
+    scenarios = tuple(SCENARIOS.values())
+    outcomes = replication.fit_primary(
+        [(scenarios, replicate, n) for replicate in range(replicates)],
         _replicate,
-        [((replicate, n),) for replicate in range(replicates)],
+        draw=_draw,
+        reference_input=_reference_input,
         n_jobs=n_jobs,
+        implementation=STUDY.implementation,
+        seed_of=lambda key: replicate_seed(STUDY, SCENARIOS[0], key[1]),
+        cell_of=lambda key: ";".join(key[0]),
     )
-    samples = pd.concat([sample for sample, _, _ in outcomes], ignore_index=True)
-    truth_rows = pd.DataFrame([row for _, rows, _ in outcomes for row in rows])
-    estimates = pd.DataFrame([row for _, _, rows in outcomes for row in rows])
-    return samples, truth_rows, estimates.loc[:, list(REPLICATE_COLUMNS)]
+    samples = pd.concat([sample for sample, _, _ in outcomes.kept], ignore_index=True)
+    truth_rows = pd.DataFrame([row for _, rows, _ in outcomes.kept for row in rows])
+    estimates = pd.DataFrame([row for _, _, rows in outcomes.kept for row in rows])
+    return replication.result(
+        outcomes, estimates.loc[:, list(REPLICATE_COLUMNS)], samples=samples, truths=truth_rows
+    )
 
 
 def reference_artifacts(
@@ -262,3 +287,15 @@ def reference_artifacts(
         runner="tmle_cde/probe_native_result2.R",
     )
     return {path.name: pd.read_csv(path)}
+
+
+def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    """The defect probe refits replication 0 on its own, so a failed main fit leaves it whole.
+
+    The probe's ``tmle`` call runs outside ``study_stage``.  When it fails, the run stops in
+    ``reference_artifacts``, as the hook rule in ``method-benchmarking.md`` states.
+    """
+    del failures, artifacts
+    return evidence_failures.audits(
+        {"native second-result probe (replication 0)": pd.DataFrame()}, missing={}
+    )

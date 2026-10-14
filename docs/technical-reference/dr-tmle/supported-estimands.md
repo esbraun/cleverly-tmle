@@ -208,7 +208,7 @@ retained diagnostic.
 | a missing treatment with `randomized=True` | it selects Díaz & van der Laan's construction, which observes the treatment on every row |
 | a missing treatment with a declared known mechanism | a missing treatment needs `P(A = a \| Delta_A = 1, W)`, which equals the design mechanism only when recording is independent of treatment given `W` |
 | `evaluation=` whose companion declares no known mechanism, on data that declares one | the companion's mechanism must be its own declaration. Declare the same columns on the companion |
-| a missing treatment with `CTMLE` | no collaborative score is derived for the composite indicator ([F5](../../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions)) |
+| a missing treatment with a C-TMLE selector strategy or the shared outcome-adaptive design | no collaborative score is derived for the composite indicator ([F5](../../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions)). The per-arm outcome-adaptive `CTMLE` fits it in sample, for point estimates ([its contract](../collaborative-tmle.md#baseline-strata-and-missing-data-in-the-per-arm-design)) |
 | `intermediate=` | the reduced equations carry no controlled-intermediate factor |
 | `delta=` or a missing treatment with `cross_fit=True`, **whatever `guard=` is** | the published missing-outcome theorems use Donsker conditions and do not establish a cross-validated extension. With `guard=()` and `delta=` alone, the fit is a plain TMLE on a surface that only ordinary TMLE's audited stacked contract admits |
 | `targeting_scheme="fold"` | each fold would need its own reduced regressions and alternation |

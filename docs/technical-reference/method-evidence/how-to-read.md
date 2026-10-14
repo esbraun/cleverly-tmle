@@ -58,9 +58,14 @@ is reported against the reference. It does not turn `cleverly`'s row red.
 
 A paired row concludes `equivalent`, `superior`, `inferior`, or `inconclusive`. Equivalence and
 superiority are separate passing routes. A reporting study can publish a failed scientific
-verdict. It still refuses incomplete replications, invalid schemas, and broken provenance.
+verdict. It still refuses an unrecorded missing replication, invalid schemas, and broken
+provenance.
 Failure to establish non-inferiority is `inconclusive`, not affirmative evidence of inferiority;
 the `inferior` label is reserved for a future rule with a confidence bound in that direction.
+
+The failure accounting checks each passing route alone. A `superior` row whose superiority does
+not survive its comparator failures concludes `equivalent` when equivalence survives. A row that
+keeps no passing route concludes `unaccounted`.
 
 The harness has negative controls for all of it, in `tests/unit/test_method_evidence.py`. The fast
 tests corrupt bias, coverage, and reported standard errors for each implementation in turn. They
@@ -79,6 +84,8 @@ the same set, and each file answers the same question wherever it appears.
 | `performance-tests.csv` | the accuracy verdicts against known truth |
 | `equivalence.csv` | the paired verdicts against the canonical implementation |
 | `properties.csv` | the theory-property cells and their controls |
+| `failures.csv` | each recorded fitting failure of either implementation, with its replicates, stage, and message. Present only when a fit failed |
+| `failure-accounting.csv` | each cell that lost a replicate, with each side's count and bound, its legs at the complete cases and at the worst case, and its gate. Present only when a fit failed |
 
 A study page's Reproduction section adds only what is specific to that study.
 

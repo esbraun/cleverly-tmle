@@ -142,7 +142,12 @@ from ..interventions.policy import (
     policy_branches,
 )
 from ..learners.crossfit import Folds
-from ..learners.density import ConditionalDensity, fit_conditional_density
+from ..learners.density import (
+    ConditionalDensity,
+    bin_edges,
+    default_density_bins,
+    fit_conditional_density,
+)
 from ..learners.density_ratio import classifier_ratio
 from ..learners.super_learner import SuperLearnerDiagnostics
 from ..utils.bounds import OutcomeScaler, bound
@@ -341,7 +346,8 @@ class Mechanism:
         Keeping the raw prefix is not optional diagnostic bookkeeping: without it a
         result cannot distinguish a naturally small path probability from one replaced
         by the configured floor.  :meth:`cumulative` retains its historical bounded-only
-        interface and delegates here.
+        interface and delegates here.  An odds tilt node's factor is never bounded, so the
+        product leaves it out.
         """
         lower, upper = bounds
         running = np.ones(data.n)
@@ -350,7 +356,8 @@ class Mechanism:
         for time in range(1, data.n_times + 1):
             treatment = self.treatment[time - 1][plan.label]
             censoring = self.censoring[time - 1][plan.label]
-            running = running * treatment
+            if not plan.is_tilt_node(time):
+                running = running * treatment
             if data.censoring_names:
                 running = running * censoring
             raw_columns.append(running)
@@ -468,10 +475,13 @@ class SequentialStep:
         Cumulative inverse-probability multiplier on regimen followers.  On a plan with a
         policy node it is the cumulative ratio, the policy numerator over the bounded
         mechanism.
-    fluctuation : Fluctuation
-        Targeting solve retained for this node.
+    fluctuation : Fluctuation or None
+        Targeting solve retained for this node.  ``None`` on a sequentially doubly robust
+        fit, which solves no fluctuation (:mod:`cleverly.longitudinal.sdr`).
     learner_diagnostics : tuple of SuperLearnerDiagnostics
         Learner diagnostics from each fitted fold of the node regression.
+    constant_folds : tuple of int
+        The one-based outer folds whose training rows held one target value, 0 or 1.
     regression_target : FloatArray or None
         Target the node regression was fitted to, when it differs from ``pseudo_outcome``.
     marginal : FloatArray or None
@@ -484,6 +494,14 @@ class SequentialStep:
     initial_by_arm : FloatArray or None
         ``(n, K_t)`` initial predictions at each level of a policy node, the arrays the
         fluctuation moved into ``targeted_by_arm``.  ``None`` elsewhere.
+    transform : FloatArray or None
+        On a sequentially doubly robust fit, the node's transformed outcome
+        :math:`\\varphi_t` of Díaz, Williams, Hoffman and Schenck (2023, Equation (4)),
+        filled with ``0.5`` off ``at_risk``.  ``None`` on a targeted fit.
+    bound_binding : float or None
+        On a sequentially doubly robust fit, the share of the followed paths that start at
+        this node whose partial mechanism product ``g_bounds`` moved.  ``None`` on a
+        targeted fit.
 
     Attributes
     ----------
@@ -516,7 +534,9 @@ class SequentialStep:
     initial: FloatArray
     targeted: FloatArray
     clever: FloatArray
-    fluctuation: Fluctuation
+    #: ``None`` on a sequentially doubly robust fit, which targets nothing: its
+    #: ``targeted`` is ``initial`` and its estimate is the mean of :attr:`transform`.
+    fluctuation: Fluctuation | None
     #: Super Learner diagnostics retained from the regression that produced ``initial``.
     learner_diagnostics: tuple[SuperLearnerDiagnostics, ...] = ()
     #: On a cross-fitted fit, the one-based outer folds whose training rows held one target
@@ -533,6 +553,13 @@ class SequentialStep:
     marginal: FloatArray | None = None
     targeted_by_arm: FloatArray | None = None
     initial_by_arm: FloatArray | None = None
+    #: The transformed outcome of a sequentially doubly robust fit.  The node's regression
+    #: was fitted to it composed with the node's event, and its first-node mean is the
+    #: estimate.
+    transform: FloatArray | None = None
+    #: The share of followed ``(row, s)`` paths from this node whose partial mechanism
+    #: product the bounds moved, on a sequentially doubly robust fit.
+    bound_binding: float | None = None
 
     @property
     def n_trained(self) -> int:
@@ -600,6 +627,11 @@ class RegimenFit:
     #: continuous node is the density ratio :math:`r_t` itself.  Not bounded by
     #: ``g_bounds``.  ``None`` on a plan without such a node.
     node_ratio: FloatArray | None = None
+    #: On an :class:`~cleverly.longitudinal.IPSI` fit, the ``(n, T)`` mechanism term of the
+    #: influence function at each node (Kennedy 2019, Appendix Lemmas 3 and 4): zero at a
+    #: node that is not a tilt or whose treatment mechanism is declared.  The uncentered
+    #: influence function adds the row sum.  ``None`` on every other fit.
+    mechanism_term: FloatArray | None = None
 
     @property
     def leverage(self) -> FloatArray:
@@ -633,7 +665,7 @@ class RegimenFit:
 
     @property
     def converged(self) -> bool:
-        return all(step.fluctuation.converged for step in self.steps)
+        return all(step.fluctuation is None or step.fluctuation.converged for step in self.steps)
 
 
 def _check_categorical_fold_support(
@@ -775,6 +807,7 @@ def fit_mechanism(
     n_jobs: int = 1,
     density_bins: int | None = None,
     ratio: str = "density",
+    fit_rows: BoolArray | None = None,
 ) -> Mechanism:
     """Fit the treatment and censoring mechanisms at every node, out of fold.
 
@@ -804,7 +837,15 @@ def fit_mechanism(
     probability fills ``censoring[t]`` for every plan and ``censoring_observed[t]``.  Values
     on rows that are not at risk are never read; :func:`preflight_known_mechanisms` checks
     the rows that are.
+
+    ``fit_rows`` restricts every learner to those rows, with ``folds`` the single in-sample
+    fold, and the fitted models still predict every row.  That is one outer training fold's
+    own mechanism, which the cross-fitted sequentially doubly robust recursion reads at its
+    training rows (:mod:`cleverly.longitudinal.sdr`).  The support preflight then belongs to
+    the caller, which ran it on the realized outer split.  ``None`` fits on every eligible row.
     """
+    if fit_rows is not None and not folds.is_single:
+        raise ValueError("fit_rows= is one training fold's restriction; pass the single fold")
     treatment: list[dict[str, FloatArray]] = []
     censoring: list[dict[str, FloatArray]] = []
     treatment_observed: list[FloatArray] = []
@@ -824,9 +865,13 @@ def fit_mechanism(
     # unused here and the all-true assignment makes that explicit rather than implicit.
     with phase("mask_construction"):
         fit_masks = data.regimen_masks(data.treatment)
-    preflight_mechanism_support(data, fit_masks, folds)
+    if fit_rows is None:
+        preflight_mechanism_support(data, fit_masks, folds)
     for time in range(1, data.n_times + 1):
         at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
+        # The rows a learner trains on.  The same array as ``at_risk`` on a fit of every
+        # eligible row, so that path is bit for bit the one it was.
+        fit_at = at_risk if fit_rows is None else at_risk & fit_rows
         arm = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
         if data.is_held_node(time):
             # An identity node of a held design: its factor is exactly one in the
@@ -854,6 +899,7 @@ def fit_mechanism(
                     time,
                     at_risk,
                     numerators,
+                    fit_at=fit_at,
                     treatment_learner=treatment_learner,
                     folds=folds,
                     density_bins=density_bins,
@@ -874,6 +920,7 @@ def fit_mechanism(
                 plans,
                 time,
                 at_risk,
+                fit_at,
                 arm,
                 treatment,
                 treatment_observed,
@@ -897,7 +944,7 @@ def fit_mechanism(
         # No eligible unit was censored at this node, so the retention factor is exactly
         # one and the learner has a constant target, which a standard classifier refuses.
         # This is the first node of every default integer grid.
-        if _retains_every_eligible_unit(data, at_risk, time):
+        if _retains_every_eligible_unit(data, fit_at, time):
             censoring.append({plan.label: np.ones(data.n) for plan in plans})
             censoring_observed.append(np.ones(data.n))
             censoring_diagnostics.append(())
@@ -922,7 +969,7 @@ def fit_mechanism(
                 folds,
                 task="classification",
                 predict_designs=censor_prediction_designs,
-                fit_mask=at_risk,
+                fit_mask=fit_at,
                 groups=data.cluster,
                 clip=(0.0, 1.0),
                 n_jobs=n_jobs,
@@ -975,7 +1022,8 @@ def preflight_known_mechanisms(
     contradicts it.  A regimen that the declared design cannot identify is refused: see
     :func:`_refuse_unidentified_regimens`.  And the running product of the declared factors
     on every row that follows a plan must lie inside ``bounds``: truncating a known product
-    moves the estimate with no variance reason.  With estimated factors beside declared
+    moves the estimate with no variance reason.  An odds tilt node's factor is never bounded,
+    so it is not part of that product.  With estimated factors beside declared
     ones, the product is over the declared factors alone, and the estimated factors keep
     the shipped truncation.
 
@@ -1047,7 +1095,8 @@ def preflight_known_mechanisms(
         running = np.ones(data.n)
         for time in range(1, data.n_times + 1):
             declared = None if data.is_held_node(time) else known.treatment_at(time)
-            if declared is not None:
+            # An odds tilt's factor is never bounded, so it stays out of the product.
+            if declared is not None and not plan.is_tilt_node(time):
                 filled = _filled_matrix(declared)
                 running = running * filled[np.arange(data.n), plan.arm(time).astype(np.int64)]
             retention = known.censoring_at(time) if data.censoring_names else None
@@ -1079,6 +1128,7 @@ def _refuse_unidentified_regimens(data: LongitudinalData, plans: Sequence[Plan])
     node                           refused when, on a row at risk under the plan
     =============================  ==========================================================
     label or rule                  the declared probability of the assigned arm is 0
+    odds tilt                      never: the tilt gives an arm of probability 0 no mass
     stochastic policy              the policy puts mass on an arm whose declared value is 0
     modified treatment policy      the policy sends a unit to a level whose declared value
                                    is 0
@@ -1113,7 +1163,8 @@ def _refuse_unidentified_regimens(data: LongitudinalData, plans: Sequence[Plan])
         for time in range(1, data.n_times + 1):
             at_risk = masks.at_risk(time)
             declared = None if data.is_held_node(time) else known.treatment_at(time)
-            if declared is not None:
+            # An odds tilt puts no mass on an arm the mechanism gives probability 0.
+            if declared is not None and not plan.is_tilt_node(time):
                 filled = _filled_matrix(declared)
                 if plan.is_mtp_node(time):
                     branches = plan.mtp_assignments[time - 1]
@@ -1180,6 +1231,7 @@ def _categorical_node(
     plans: Sequence[Plan],
     time: int,
     at_risk: BoolArray,
+    fit_at: BoolArray,
     arm: FloatArray,
     treatment: list[dict[str, FloatArray]],
     treatment_observed: list[FloatArray],
@@ -1211,7 +1263,7 @@ def _categorical_node(
             folds,
             task="classification",
             predict_designs=prediction_designs,
-            fit_mask=at_risk,
+            fit_mask=fit_at,
             groups=data.cluster,
             clip=(0.0, 1.0),
             classes=classes,
@@ -1265,6 +1317,7 @@ def _continuous_node_ratios(
     at_risk: BoolArray,
     numerators: dict[str, dict[int, FloatArray]],
     *,
+    fit_at: BoolArray,
     treatment_learner: Learner,
     folds: Folds,
     density_bins: int | None,
@@ -1286,6 +1339,14 @@ def _continuous_node_ratios(
     frame = lazy_frame(lambda: data.policy_frame(time))
     density: ConditionalDensity | None = None
     if ratio == "density":
+        edges = None
+        if not np.array_equal(fit_at, at_risk):
+            # One outer training fold's own density (``fit_rows=``).  Its bin edges are the
+            # out-of-fold fit's, read from every row at risk, so at the fold's held-out rows
+            # it is the model the out-of-fold mechanism uses there.
+            grid_values = dose[at_risk]
+            bins = default_density_bins(grid_values.size) if density_bins is None else density_bins
+            edges = bin_edges(grid_values, bins).tolist()
         density, _ = fit_conditional_density(
             treatment_learner,
             history,
@@ -1293,9 +1354,10 @@ def _continuous_node_ratios(
             data.weights,
             folds,
             n_bins=density_bins,
+            edges=edges,
             groups=data.cluster,
             n_jobs=n_jobs,
-            fit_mask=at_risk,
+            fit_mask=fit_at,
         )
     for plan in plans:
         targets = plan.carry_targets(time)
@@ -1317,7 +1379,7 @@ def _continuous_node_ratios(
                 data.weights,
                 folds,
                 evaluate_at=[dose],
-                fit_mask=at_risk,
+                fit_mask=fit_at,
                 groups=data.cluster,
                 n_jobs=n_jobs,
             )
@@ -1599,6 +1661,7 @@ def _fit_node_regression(
     fit_rows: BoolArray | None = None,
     outer_fold: int | None = None,
     n_jobs: int = 1,
+    clip: tuple[float, float] | None = (0.0, 1.0),
 ) -> _NodeRegression:
     """Fit one node's regression without constructing targeting-only arrays.
 
@@ -1606,6 +1669,10 @@ def _fit_node_regression(
     predictions and builds the clever covariate once in the parent during pooled targeting.
     Keeping that path here prevents each worker from constructing and profiling arrays that it
     immediately discards.
+
+    ``clip`` bounds the predictions.  A targeted fit regresses ``[0, 1]``-valued targets and
+    keeps the default.  The sequentially doubly robust recursion passes ``None``: its targets
+    are transformed outcomes that can leave ``[0, 1]``, and ``lmtp`` predicts them unbounded.
     """
     if masks is None:
         with phase("mask_construction"):
@@ -1651,7 +1718,7 @@ def _fit_node_regression(
                 predict_designs=predict_designs,
                 fit_mask=fitted_on,
                 groups=data.cluster,
-                clip=(0.0, 1.0),
+                clip=clip,
                 n_jobs=n_jobs,
                 # A training fold whose rows hold one class predicts that class.
                 constant_folds=[] if task == "classification" else None,

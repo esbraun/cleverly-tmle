@@ -224,6 +224,14 @@ class StudyRecord:
     #: move the last bits.  ``docs/development/method-benchmarking.md``, "A truth that varies
     #: by replication", states the rule.
     truth_varies_by_replicate: bool = False
+    #: Implementation -> the share of replicates that may fail in one cell before the cell is
+    #: red (RM39 part a2).  An absent implementation has bound 0, so one failure is a red cell.
+    #:
+    #: Declare a bound before the study's first run under it, and never raise it after a run
+    #: has shown failures: a re-run draws the same seeds and meets the same failures, so a
+    #: raised bound would buy the pass.  ``tests/studies/evidence/failures.py`` applies it, and
+    #: ``docs/development/method-benchmarking.md``, "Failed replicates", states the rule.
+    failure_bound: Mapping[str, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.publication_policy not in ("gated", "reporting"):
@@ -238,6 +246,16 @@ class StudyRecord:
             )
         if self.resampling_seed is not None and self.resampling_seed < 0:
             raise ValueError("resampling_seed must be non-negative")
+        unknown_bounds = set(self.failure_bound) - set(self.implementations)
+        if unknown_bounds:
+            raise ValueError(
+                f"failure_bound names undeclared implementations: {sorted(unknown_bounds)}"
+            )
+        outside = {
+            name: bound for name, bound in self.failure_bound.items() if not 0.0 <= bound <= 0.05
+        }
+        if outside:
+            raise ValueError(f"a failure bound must lie in [0, 0.05]; got {outside}")
         if self.nuisance_count < 1:
             raise ValueError("nuisance_count must be positive")
         scenarios = set(self.scenarios)
@@ -326,6 +344,7 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_longitudinal_msm import STUDY as CANONICAL_LONGITUDINAL_MSM
     from tests.studies.canonical_longitudinal_mtp import STUDY as LONGITUDINAL_MTP
+    from tests.studies.canonical_longitudinal_sdr import STUDY as LONGITUDINAL_SDR
     from tests.studies.canonical_ltmle import STUDY as CANONICAL_LTMLE
     from tests.studies.canonical_ltmle_competing import STUDY as CANONICAL_LTMLE_COMPETING
     from tests.studies.canonical_ltmle_competing_crossfit import (
@@ -392,6 +411,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.clustered_few_cluster_tmle import STUDY as CLUSTERED_FEW_CLUSTER_TMLE
     from tests.studies.clustered_unequal_cvtmle import STUDY as CLUSTERED_UNEQUAL_CVTMLE
     from tests.studies.default_bands import STUDY as DEFAULT_SIMULTANEOUS_BANDS
+    from tests.studies.drtmle_one_wrong import STUDY as DRTMLE_ONE_WRONG
     from tests.studies.few_cluster_crossfit_ltmle import STUDY as FEW_CLUSTER_CROSSFIT_LTMLE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
     from tests.studies.fold_targeted_cvtmle import STUDY as FOLD_TARGETED_CVTMLE
@@ -446,6 +466,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_CATEGORICAL_LTMLE,
         STOCHASTIC_CATEGORICAL_LTMLE,
         LONGITUDINAL_MTP,
+        LONGITUDINAL_SDR,
         CANONICAL_LONGITUDINAL_MSM,
         CROSSFIT_LONGITUDINAL_MSM,
         CANONICAL_LTMLE_CROSSFIT,
@@ -461,6 +482,7 @@ def registered() -> tuple[StudyRecord, ...]:
         POINT_SURVIVAL_POLICIES,
         KNOWN_MECHANISM,
         KNOWN_MECHANISM_DRTMLE,
+        DRTMLE_ONE_WRONG,
         KNOWN_NODE_MECHANISMS,
         CTMLE_OAT_PER_ARM,
         OMITTED_VARIABLE_BOUND_SE,

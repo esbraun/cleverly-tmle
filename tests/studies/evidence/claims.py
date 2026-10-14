@@ -16,7 +16,7 @@ from collections.abc import Callable, Mapping
 
 import pandas as pd
 
-from tests.studies.evidence import property_verdicts
+from tests.studies.evidence import failures, property_verdicts
 from tests.studies.evidence.registry import StudyRecord
 
 #: Artefact file names, and the columns each is keyed by.
@@ -42,6 +42,13 @@ FIT_DIAGNOSTICS = "fit_diagnostics"
 #: aggregate per scenario, so a page quotes the descriptive oracle standard error by name.
 HARNESS_FILE = "harness.csv.gz"
 HARNESS = "harness"
+
+#: The failure files (RM39a2), which a study publishes only when a fit failed.  ``accounting``
+#: rows are quotable as ``accounting[performance/<implementation>/<scenario>/<estimand>/<leg>]``
+#: or ``accounting[equivalence/<implementation>/<scenario>/<estimand>/<leg>]``.
+FAILURES = "failures"
+ACCOUNTING = "accounting"
+ACCOUNTING_KEYS = ("table", "implementation", "scenario", "estimand", "leg")
 
 #: The third optional result file: the design gap of the per-arm outcome-adaptive study, one
 #: row per scenario and estimand.  A page quotes a row by the reference form,
@@ -78,6 +85,10 @@ def load(record: StudyRecord) -> dict[str, pd.DataFrame]:
     for name, (filename, _) in OPTIONAL_ARTIFACTS.items():
         if filename in record.extra_artifacts:
             frames[name] = pd.read_csv(record.artifact(filename))
+    for name, filename in ((FAILURES, failures.FAILURES), (ACCOUNTING, failures.ACCOUNTING)):
+        path = record.artifact(filename)
+        if path.exists():
+            frames[name] = pd.read_csv(path, keep_default_na=False, na_values=[""])
     return frames
 
 
@@ -126,6 +137,13 @@ def _displacement(frame: pd.DataFrame, implementation: str) -> pd.Series:
     return (rows["estimate"] - rows["initial_estimate"]).abs() / rows["std_error"]
 
 
+def _own(recorded: pd.DataFrame | None) -> pd.DataFrame | None:
+    """``recorded`` without the induced ``paired_input_missing`` records."""
+    if recorded is None:
+        return None
+    return recorded.loc[recorded["class"] != failures.PAIRED_INPUT_MISSING]
+
+
 def _aggregates(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.DataFrame]], float]]:
     """Study-independent headline quantities, derived rather than declared."""
     subject = record.implementation
@@ -141,6 +159,20 @@ def _aggregates(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.Data
             _displacement(data["replicates"], subject).median()
         ),
         "replicates": lambda data: float(record.replicates),
+        # The comparator's own failed fits, zero for a study with no ``failures.csv``, and
+        # their share of the comparator's scenario fits.  The subject's lost fits are counted
+        # apart, because each side has its own bound, and so are the reference fits a lost
+        # subject fit left without an input (``paired_input_missing``), which the subject pays.
+        "reference_failures": lambda data: float(
+            failures.missing_fits(_own(data.get(FAILURES)), record, str(record.reference))
+        ),
+        "failure_rate": lambda data: (
+            float(failures.missing_fits(_own(data.get(FAILURES)), record, str(record.reference)))
+            / float(record.replicates * len(record.scenarios))
+        ),
+        "subject_failures": lambda data: float(
+            failures.missing_fits(data.get(FAILURES), record, subject)
+        ),
         "n": lambda data: float(record.n),
         "independent_tests_total": lambda data: count(data["performance"]),
         "independent_tests_passed": lambda data: float(data["performance"]["passed"].sum()),
@@ -242,25 +274,43 @@ def _score_audit_aggregates(
             reference_keys = set(
                 reference_rows.loc[:, ["scenario", "replicate"]].itertuples(False, None)
             )
-            if subject_keys != reference_keys:
+            # A recorded failure leaves its side's fit without a row (RM39a2, RM39b).
+            failed = failures.expand(data.get(FAILURES), record)
+
+            def failed_keys(implementation: str) -> set[tuple[str, int]]:
+                return set(
+                    failed.loc[
+                        failed["implementation"] == implementation, ["scenario", "replicate"]
+                    ]
+                    .astype({"replicate": int})
+                    .itertuples(False, None)
+                )
+
+            subject_failed = failed_keys(record.implementation)
+            reference_failed = failed_keys(str(record.reference))
+            if (
+                subject_keys | subject_failed != reference_keys | reference_failed
+                or subject_keys & subject_failed
+                or reference_keys & reference_failed
+            ):
                 raise ValueError(
                     "the subject and reference score audits are not paired on scenario and "
                     "replicate"
                 )
         return subject_rows, reference_rows
 
-    def failures(rows: pd.DataFrame) -> float:
+    def misses(rows: pd.DataFrame) -> float:
         return float((~rows["score_passed"].astype(bool)).sum())
 
     def reference_failures(data: Mapping[str, pd.DataFrame]) -> float:
         reference_rows = paired(data)[1]
         if reference_rows is None:
             raise ValueError("a reference score audit was requested without a reference")
-        return failures(reference_rows)
+        return misses(reference_rows)
 
     out: dict[str, Callable[[Mapping[str, pd.DataFrame]], float]] = {
         "score_audited_fits": lambda data: float(len(paired(data)[0])),
-        "subject_score_failures": lambda data: failures(paired(data)[0]),
+        "subject_score_failures": lambda data: misses(paired(data)[0]),
     }
     if record.reference is not None:
         out["reference_score_failures"] = reference_failures
@@ -520,6 +570,16 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
     # reporting the same number establishes only that they agree.
     for estimand, deviation in sorted(record.efficiency_bounds.items()):
         declared[f"bound:{estimand}_standard_error"] = float(deviation) / math.sqrt(record.n)
+    # Each side's declared fitting-failure bound, and the failed fits it allows per cell.
+    for side, implementation in (
+        ("reference", record.reference),
+        ("subject", record.implementation),
+    ):
+        if implementation is not None and implementation in record.failure_bound:
+            declared[f"margin:{side}_failure_bound"] = float(record.failure_bound[implementation])
+            declared[f"margin:{side}_failures_allowed"] = float(
+                failures.allowed(record, implementation)
+            )
     return declared
 
 
@@ -555,7 +615,11 @@ def value(record: StudyRecord, name: str, data: Mapping[str, pd.DataFrame] | Non
         return float(table[name](data))
 
     artifact = match.group("artifact")
-    known = {**ARTIFACTS, **OPTIONAL_ARTIFACTS}
+    known = {
+        **ARTIFACTS,
+        **OPTIONAL_ARTIFACTS,
+        ACCOUNTING: (failures.ACCOUNTING, ACCOUNTING_KEYS),
+    }
     if artifact not in known or artifact not in data:
         raise KeyError(
             f"{name!r} names artefact {artifact!r}, which {record.slug} does not publish; "

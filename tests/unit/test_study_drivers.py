@@ -34,8 +34,8 @@ from tests.studies import (
 from tests.studies.evidence.registry import StudyRecord, registered
 from tests.studies.evidence.schema import INFERENCE_SCALES, REPLICATE_COLUMNS
 
-#: The three cross-fitted point-treatment runners.  ``canonical_cvtmle`` returns a triple
-#: rather than one frame, so it is checked separately below.
+#: The three cross-fitted point-treatment runners.  ``canonical_cvtmle`` returns samples and
+#: truths beside its rows, so it is checked separately below.
 SCENARIO_FITTED = (fold_evaluated_cvtmle, repeated_crossfit)
 
 
@@ -69,7 +69,7 @@ def _check_rows(rows: pd.DataFrame, record: StudyRecord) -> None:
 
 @pytest.mark.parametrize("runner", SCENARIO_FITTED, ids=lambda module: module.STUDY.slug)
 def test_a_scenario_fitted_driver_returns_the_replication_contract(runner: object) -> None:
-    rows = runner.draw_and_fit(replicates=1, n=200, n_jobs=1)  # type: ignore[attr-defined]
+    rows = runner.draw_and_fit(replicates=1, n=200, n_jobs=1).rows  # type: ignore[attr-defined]
     _check_rows(rows, runner.STUDY)  # type: ignore[attr-defined]
 
 
@@ -79,14 +79,16 @@ def test_the_shared_driver_gives_one_answer_on_one_job_or_two() -> None:
     Regeneration runs the drivers on ``STUDY_JOBS``, so the nested call the shared driver
     passes to the pool has to survive being sent to a worker.
     """
-    one = repeated_crossfit.draw_and_fit(replicates=1, n=200, n_jobs=1)
-    two = repeated_crossfit.draw_and_fit(replicates=1, n=200, n_jobs=2)
+    one = repeated_crossfit.draw_and_fit(replicates=1, n=200, n_jobs=1).rows
+    two = repeated_crossfit.draw_and_fit(replicates=1, n=200, n_jobs=2).rows
     pd.testing.assert_frame_equal(one, two)
 
 
 def test_the_stacked_driver_returns_its_samples_truths_and_rows() -> None:
     """This one publishes the sample and the truth as well, for the R side to read."""
-    samples, truths, rows = canonical_cvtmle.draw_and_fit(replicates=1, n=200, n_jobs=1)
+    phase = canonical_cvtmle.draw_and_fit(replicates=1, n=200, n_jobs=1)
+    samples, truths, rows = phase.samples, phase.truths, phase.rows
+    assert samples is not None and truths is not None
     record = canonical_cvtmle.STUDY
 
     # ``validate_replicates`` wants both implementations, and a driver produces only the
@@ -102,7 +104,9 @@ def test_the_stacked_driver_returns_its_samples_truths_and_rows() -> None:
 
 
 def test_the_fold_targeted_driver_returns_its_exact_samples_truths_and_rows() -> None:
-    samples, truths, rows = fold_targeted_cvtmle.draw_and_fit(replicates=1, n=200, n_jobs=1)
+    phase = fold_targeted_cvtmle.draw_and_fit(replicates=1, n=200, n_jobs=1)
+    samples, truths, rows = phase.samples, phase.truths, phase.rows
+    assert samples is not None and truths is not None
     record = fold_targeted_cvtmle.STUDY
 
     assert tuple(rows.columns) == REPLICATE_COLUMNS
@@ -122,7 +126,7 @@ def test_a_driver_draws_the_scenario_the_seed_names() -> None:
     study's sample: every column would still be well formed.
     """
     runner = repeated_crossfit
-    rows = runner.draw_and_fit(replicates=1, n=200, n_jobs=1)
+    rows = runner.draw_and_fit(replicates=1, n=200, n_jobs=1).rows
     for scenario in runner.STUDY.scenarios:
         frame, truth = runner.draw_scenario(scenario, 200, 0)
         expected = pd.DataFrame(runner.cleverly_rows(frame, truth, scenario, 0))

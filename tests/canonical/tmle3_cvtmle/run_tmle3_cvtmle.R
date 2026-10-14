@@ -22,11 +22,18 @@ exact_folds <- function(assignment) {
   })
 }
 
-fit_cv <- function(spec, data, nodes, folds, conditional = FALSE, variable_types = NULL) {
+# RM39a2 (M7): the task and its fold check run outside the comparator stage, so a fold that is
+# not the supplied one stays fatal; `fit_cv` is the fit alone.  Each fit takes a fresh task, as
+# it did when one function did both.
+cv_task <- function(data, nodes, folds, variable_types = NULL) {
   task <- point_tx_task(data, nodes, variable_types = variable_types, folds = folds)
   stopifnot(all(vapply(seq_along(folds), function(v) {
     identical(task$folds[[v]]$validation_set, folds[[v]]$validation_set)
   }, logical(1))))
+  task
+}
+
+fit_cv <- function(spec, task, folds, conditional = FALSE) {
   learners <- list(
     A = Lrnr_cv$new(Lrnr_glm$new(), folds = folds, full_fit = TRUE),
     Y = Lrnr_cv$new(Lrnr_glm$new(), folds = folds, full_fit = TRUE)
@@ -97,42 +104,42 @@ fit_one <- function(frame, scenario, replicate) {
   }
   n <- nrow(data)
   rows <- list()
-  stage <- function(label, expression) {
-    tryCatch(force(expression), error = function(condition) {
-      stop(sprintf("%s: %s", label, conditionMessage(condition)), call. = FALSE)
-    })
-  }
+  # RM39a2: each tmle3 fit runs inside `study_stage`, so an error tmle3 raises costs one group.
+  fresh_task <- function() cv_task(data, nodes, folds, variable_types = variable_types)
 
-  tsm <- stage("TSM", fit_cv(tmle_TSM_all(), data, nodes, folds,
-    variable_types = variable_types))
+  tsm_task <- fresh_task()
+  tsm <- study_stage("TSM", fit_cv(tmle_TSM_all(), tsm_task, folds))
   rows[[length(rows) + 1]] <- extract(tsm, c("ey0", "ey1"), scenario, replicate, truth, n)
+  ate_task <- fresh_task()
   rows[[length(rows) + 1]] <- extract(
-    stage("ATE", fit_cv(tmle_ATE(1, 0), data, nodes, folds, variable_types = variable_types)),
+    study_stage("ATE", fit_cv(tmle_ATE(1, 0), ate_task, folds)),
     "ate", scenario, replicate, truth, n
   )
+  att_task <- fresh_task()
   rows[[length(rows) + 1]] <- extract(
-    stage("ATT", fit_cv(tmle_ATT(1, 0), data, nodes, folds, conditional = TRUE,
-      variable_types = variable_types)),
+    study_stage("ATT", fit_cv(tmle_ATT(1, 0), att_task, folds, conditional = TRUE)),
     "att", scenario, replicate, truth, n
   )
+  atc_task <- fresh_task()
   rows[[length(rows) + 1]] <- extract(
-    stage("ATC", fit_cv(tmle_ATC(1, 0), data, nodes, folds, conditional = TRUE,
-      variable_types = variable_types)),
+    study_stage("ATC", fit_cv(tmle_ATC(1, 0), atc_task, folds, conditional = TRUE)),
     "atc", scenario, replicate, truth, n
   )
-  par <- stage("PAR", fit_cv(tmle_PAR(0), data, nodes, folds,
-    variable_types = variable_types))
+  par_task <- fresh_task()
+  par <- study_stage("PAR", fit_cv(tmle_PAR(0), par_task, folds))
   par_rows <- extract(par, c("ey0", "ey_obs", "par", "paf"), scenario, replicate, truth, n)
   if (scenario != "binary") par_rows <- par_rows[par_rows$estimand != "paf", ]
   rows[[length(rows) + 1]] <- par_rows[par_rows$estimand != "ey0", ]
 
   if (scenario == "binary") {
+    rr_task <- fresh_task()
     rows[[length(rows) + 1]] <- extract(
-      stage("RR", fit_cv(tmle_RR(0, 1), data, nodes, folds, variable_types = variable_types)),
+      study_stage("RR", fit_cv(tmle_RR(0, 1), rr_task, folds)),
       c("ey0", "ey1", "rr"), scenario, replicate, truth, n
     )[3, ]
+    or_task <- fresh_task()
     rows[[length(rows) + 1]] <- extract(
-      stage("OR", fit_cv(tmle_OR(0, 1), data, nodes, folds, variable_types = variable_types)),
+      study_stage("OR", fit_cv(tmle_OR(0, 1), or_task, folds)),
       c("ey0", "ey1", "or"), scenario, replicate, truth, n
     )[3, ]
   }

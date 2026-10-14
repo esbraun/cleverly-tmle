@@ -705,7 +705,7 @@ previous reader had is not a citation; a page number is.
 
   | locator | content |
   | --- | --- |
-  | Section 5.3, Step 2, page 854 | fits each pseudo-outcome regression "using only data points" that belong to one training fold |
+  | Section 5.3, Step 2, page 854 | computes each row's transform with the nuisances of the fold that holds the row out, then fits each fold's regression "using only data points" in that fold's training rows |
   | Section 5.3, Step 3, page 854 | defines the estimate as an average of influence-function values, and not as a plug-in of a targeted regression |
   | Lemma 4, page 854 | gives "$2\tau$-multiply robust consistency of SDR estimator" |
   | Theorem 4, page 854 | gives weak convergence at the nonparametric efficiency bound |
@@ -717,9 +717,28 @@ previous reader had is not a citation; a page number is.
   the TMLE.
 
   Theorem 3 certifies the pooled fluctuation that the shipped cross-fitted longitudinal TMLE runs.
-  Theorem 4 certifies a fold-local recursion, and it covers the SDR estimator rather than the
-  shipped one. [X4](roadmap.md#x4-sequential-doubly-robust-longitudinal-estimation) plans
-  `lmtp_sdr`, and no SDR path ships today.
+  Theorem 4 covers the SDR estimator, and the supplement prints no proof of it. Step 2 is a
+  stitched transform: a training row's transform reads the folds that hold that row out, so the
+  transform is not fixed given the fold's training rows. Section 5.4 states that cross-fitting
+  keeps the independences that the proofs of Theorems 3 and 4 need, and the proof of Theorem 3
+  (supplement Section 6) conditions on a fit fixed given its training rows. The shipped
+  [`SDR`](technical-reference/longitudinal-tmle.md#the-sequentially-doubly-robust-estimator)
+  therefore runs a training-fold recursion, which is fold-measurable. With ratios that do not
+  depend on the fold, it equals `lmtp::cf_sdr`.
+- Luedtke, Sofrygin, van der Laan & Carone (2017), [*Sequential double robustness in
+  right-censored longitudinal models*](https://arxiv.org/abs/1705.02459), arXiv:1705.02459 v2,
+  dated 2018-05-17. Read first-hand for the SDR plan. Section 2, Definitions 1 to 3, separates
+  double robustness from sequential double robustness. Section 3 and Algorithm 2 give the
+  doubly robust unbiased transformation, and state that a transform does not necessarily obey the
+  outcome bounds. Condition DC of Section 4 is the Donsker-type condition that an in-sample
+  `SDR` fit rests on.
+- Rotnitzky, Robins & Babino (2017), [*On the multiply robust estimation of the mean of the
+  g-functional*](https://arxiv.org/abs/1705.08582), arXiv:1705.08582 v1. Read first-hand for the
+  SDR plan. Section 4.7.1, Lemma 2, writes the bias as a sum of terms, each zero if either
+  nuisance at its node is right. Section 5, Algorithm 6, builds every nuisance and the multiply
+  robust outcome inside the training sample. The paragraph after Equation (72) calls the rate of
+  that construction a conjecture, because of dependence within the training sample. Section 7.5
+  proposes multi-layer cross-fitting. The `SDR` contract assumes the rate, as Theorem 4 does.
 
   The cross-fitted longitudinal MSM projection runs Steps 1 to 4 for every regimen and horizon
   cell at once. Its stacked fluctuation solves the projected equations rather than each cell's own
@@ -1639,23 +1658,69 @@ sizes only the cluster sum is the delta-method variance of the row mean
 
 - Kennedy (2019), [*Nonparametric causal effects based on incremental propensity score
   interventions*](https://doi.org/10.1080/01621459.2017.1422737), *Journal of the American
-  Statistical Association* 114(526):645–656, DOI 10.1080/01621459.2017.1422737.
-  [The arXiv manuscript](https://arxiv.org/html/1704.00211v3), Section 3.3 and Appendix
-  Corollary 2, derives the extra mechanism term for a population-law odds tilt. It does not
-  establish inference for the realized learned-density target. With baseline strata the package
-  inherits Theorem 2's influence function and Theorem 3's conditions inside each stratum
-  (manuscript Sections 3.3 and 4.3). The package's incremental estimator is its own TMLE
-  construction, not the manuscript's estimating-equation estimator. Manuscript Section 6 lists
-  effect modification by covariates as future work. That is a conditional curve, and a fixed
-  finite partition is not one. The locators refer to arXiv v3. The published version's
-  locators were not read.
+  Statistical Association* 114(526):645–656, DOI 10.1080/01621459.2017.1422737. The locators below
+  refer to [arXiv v3](https://arxiv.org/html/1704.00211v3). The published version's locators were
+  not read.
+
+  | locator | what the package reads from it |
+  | --- | --- |
+  | Section 3.1, Equation (1) | the odds tilt $q_t = \delta\pi_t/(\delta\pi_t + 1 - \pi_t)$ |
+  | Section 3.2, Assumptions 1 and 2, Theorem 1 | identification with no positivity, for $\delta$ in a compact subset of $(0, \infty)$ |
+  | Section 3.3, Theorem 2, Remark 2, Corollaries 1 and 2 | the efficient influence function, its mechanism term, and the sequential regression. The section states that double robustness is not possible, and that a known propensity score changes the efficiency bound |
+  | Section 4.2, Algorithm 1 | the cross-fitted estimator. Every nuisance is fitted on the training rows, and the fold means are averaged |
+  | Section 4.3, Theorem 3 | pointwise and uniform asymptotics, with conditions 1 to 4 |
+  | Section 4.4, Theorem 4 | the multiplier band, and the no-effect test that the package does not offer |
+  | Appendix 8.2, Lemmas 2, 3 and 4 | the influence function of a known stochastic intervention, the added term when the intervention reads $P$, and the derivative of $q_t$. The appendix states the lemmas and leaves the proofs of Lemmas 2 and 3 to later work |
+  | Appendix 8.3, Algorithm 2 | the estimator without sample splitting |
+
+  The point-treatment `TMLE(incremental=...)` is the package's own TMLE construction, not the
+  paper's estimating-equation estimator. With baseline strata it inherits Theorem 2's influence
+  function and Theorem 3's conditions inside each stratum. Section 6 lists effect modification by
+  covariates as future work. That is a conditional curve, and a fixed finite partition is not one.
+  The longitudinal `IPSI` is Algorithm 1, with the pooled mean of Theorem 3 in place of the
+  average of fold means. Cited by
+  [incremental interventions over time](technical-reference/longitudinal-tmle.md#incremental-interventions-over-time).
 - Kim, Kennedy & Naimi (2021), [*Incremental intervention effects in studies with dropout and
-  many timepoints*](https://arxiv.org/abs/1907.04004), arXiv:1907.04004v3. Section 2 places each
-  repeated outcome before the next node's covariates and treatment, in time order. The package
-  cites it as context for the repeated-outcome curve of `LTMLE`, which rests on the end-of-study
-  results of Bang & Robins (2005) and van der Laan & Gruber (2012). The published version's
-  locators were not read. [X32b](roadmap.md#x32b-repeated-outcomes-for-sdr-and-ipsi) reads them
-  before `IPSI` cites the paper.
+  many timepoints*](https://doi.org/10.1515/jci-2020-0031), *Journal of Causal Inference*
+  9(1):302–344, DOI 10.1515/jci-2020-0031. The locators below refer to
+  [arXiv:1907.04004v3](https://arxiv.org/abs/1907.04004). The published version's locators were
+  not read.
+
+  | locator | what the package reads from it |
+  | --- | --- |
+  | Section 2 | monotone dropout after the treatment at each node, and a time-varying outcome |
+  | Section 3, Assumptions A1, A2-E, A2-M and A3, Theorem 3.1 | identification under dropout, with dropout positivity only |
+  | Section 4, Theorem 4.1 | the efficient influence function with the dropout weights |
+  | Section 5.1, estimator (6) | the average of the fold means |
+  | Section 5.2, Theorem 5.1 | conditions 1 to 4, and the joint process over $\delta$ and $t$ |
+  | Appendix A, Algorithm 1 | the cross-fitted estimator with dropout. Step 4 uses $M_s$ both for the regression target and for the augmentation term |
+  | Appendix F, Lemmas F.2 to F.5 | proofs of Kennedy's Lemmas 2 to 4 with dropout, for a general intervention distribution |
+
+  Theorem 3.1 at one horizon also identifies the mean of a non-absorbing outcome $Y_t$. The
+  repeated-outcome curve of `LTMLE` cites the paper as context only. That curve rests on the
+  end-of-study results of Bang & Robins (2005) and van der Laan & Gruber (2012).
+  [X32b](roadmap.md#x32b-repeated-outcomes-for-sdr-and-ipsi) reads the paper for `IPSI`. Kim's research code,
+  `kwangho-joshua-kim/Incremental-dropout` at commit `6dc23fb4`, has no package and no tag. It is
+  provenance only and no comparator.
+- Pinned `npcausal` 0.1.0
+  [`R/ipsi.R`](https://github.com/ehkennedy/npcausal/blob/56a5ac117a29258b67b94874be662a171b5131f7/R/ipsi.R)
+  at commit `56a5ac11` is the comparator of the declared `longitudinal-incremental` study. It fits
+  long data with `id` and `time` and an end-of-study `y`.
+
+  | lines | what they do |
+  | --- | --- |
+  | 114 | draw the folds. The function takes no fold argument |
+  | 128–139 | fit one pooled treatment regression over every `(id, time)` training row |
+  | 150–156 | build the tilt weights, their cumulative product by `id`, and the mechanism factor `vt` |
+  | 166–197 | regress each node's target on `x.out` and the arm, and form the tilted target `rtp1` |
+  | 199–202 | assemble the influence-function values |
+  | 208 and 212 | the mean over all units, and `sigma` as the standard deviation of the values |
+  | 224–234 | the Rademacher multiplier band with 10,000 draws |
+
+  Three defects are designed around and never patched. With `nsplits = 1` the training set
+  `slong != split` is empty (lines 114–139). With `fit = "rf"`, lines 178–179 bind `rtp1` of
+  length $n$ to $nT$ rows, so R recycles it across units. Line 255 subtracts `est.eff` recycled
+  down the columns, which is wrong for more than one `delta`.
 - de Aguas (2026), [*Interpolated Stochastic Interventions Based on Propensity Scores, Target
   Policies and Treatment-Specific Costs*](https://arxiv.org/html/2511.11353),
   arXiv:2511.11353v3. The preprint constructs scalar-parameter categorical propensity policies

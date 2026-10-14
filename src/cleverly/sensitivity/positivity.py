@@ -130,14 +130,46 @@ _COMPOSED_ROWS: dict[tuple[bool, bool, bool], str] = {
     (True, False, True): COMPOSITE_MECHANISM,
 }
 
+#: The conditioning sets of a per-arm outcome-adaptive design, without and with baseline
+#: strata. Such a fit regresses every factor on ``Qbar(a, W)`` (and ``S``), not on ``W``,
+#: so its product is the composite indicator's probability given that design.
+_DESIGN_CONDITIONS = ("Qbar(a,W)", "Qbar(a,W),S")
+
+
+def _on_design(name: str, condition: str) -> str:
+    """A derived row's name with the per-arm design in place of ``W`` as the condition."""
+    return name.replace("|W)", f"|{condition})")
+
+
+#: The derived rows of a per-arm outcome-adaptive fit, keyed by the row they replace and
+#: the design's conditioning set. A controlled direct effect has no per-arm design.
+_DESIGN_ROWS: dict[tuple[str, str], str] = {
+    (name, condition): _on_design(name, condition)
+    for key, name in _COMPOSED_ROWS.items()
+    if not key[1]
+    for condition in _DESIGN_CONDITIONS
+}
+
 #: The derived rows of a missing treatment, which also report the share of unit-arm cells
 #: below the propensity floor -- the scale R ``drtmle``'s ``tolg`` floors the product at.
-_COMPOSITE_ROWS = frozenset({COMPOSITE_TREATMENT, COMPOSITE_MECHANISM})
+_COMPOSITE_ROWS = frozenset(
+    {COMPOSITE_TREATMENT, COMPOSITE_MECHANISM}
+    | {
+        design
+        for (name, _), design in _DESIGN_ROWS.items()
+        if name in (COMPOSITE_TREATMENT, COMPOSITE_MECHANISM)
+    }
+)
 
 #: How many ``[nuisance_bound, 1]`` factors stand beside ``g`` in each derived row.
-_COMPOSED_NUISANCE_FACTORS = {name: sum(key) for key, name in _COMPOSED_ROWS.items()}
+_COMPOSED_NUISANCE_FACTORS = {name: sum(key) for key, name in _COMPOSED_ROWS.items()} | {
+    design: sum(key)
+    for key, name in _COMPOSED_ROWS.items()
+    for (base, _), design in _DESIGN_ROWS.items()
+    if base == name
+}
 
-_COMPOSED_MECHANISMS = frozenset(_COMPOSED_ROWS.values())
+_COMPOSED_MECHANISMS = frozenset(_COMPOSED_ROWS.values()) | frozenset(_DESIGN_ROWS.values())
 
 #: The target groups whose clever covariate really divides by ``g_a(W) pi_a(W) q_z(a, W)``
 #: -- :func:`~cleverly.fluctuation.submodel.mean_submodel`, ``regime_submodel`` and
@@ -262,7 +294,9 @@ class PositivityReport:
         stay on the untruncated product, as the fitted rows' do, while its ``clipped``
         counts the cells where *any* factor moved -- which is the truncation this
         denominator underwent, and which a comparison of the two products would miss
-        wherever a zero in one factor hides a clip in another.
+        wherever a zero in one factor hides a clip in another.  A per-arm outcome-adaptive
+        fit regresses each factor on ``Qbar(a, W)``, so its row names that design as the
+        condition: ``P(A=a,Delta=1|Qbar(a,W))``, with ``,S`` added under baseline strata.
 
         The derived row is the reason this table exists.  Each factor can look
         comfortable on its own while their product concentrates the weight, because the
@@ -1103,12 +1137,13 @@ def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
     has_observation = nuisance.missingness is not None
     has_intermediate = nuisance.intermediate is not None and level is not None
     has_recording = nuisance.treatment_observation is not None
+    outcome_label, treatment_label = _observation_labels(result)
     factors: list[tuple[str, FloatArray, FloatArray]] = []
     if has_recording:
         recorded_raw = np.asarray(nuisance.treatment_observation, dtype=float)
         factors.append(
             (
-                TREATMENT_OBSERVATION,
+                treatment_label,
                 recorded_raw,
                 np.clip(recorded_raw, missingness_bound, 1.0),
             )
@@ -1116,7 +1151,7 @@ def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
     if has_observation:
         factors.append(
             (
-                "P(Delta=1|A,W)",
+                outcome_label,
                 np.asarray(nuisance.missingness, dtype=float),
                 np.asarray(nuisance.bounded_missingness(missingness_bound), dtype=float),
             )
@@ -1167,7 +1202,7 @@ def _mechanism_overlap(result: TMLEResult) -> dict[str, dict[str, float]]:
             raws.append(raw)
             boundeds.append(bounded_factor)
             masks.append(raw != bounded_factor)
-        name = _COMPOSED_ROWS[has_observation, has_intermediate, has_recording]
+        name = _composed_row(result, has_observation, has_intermediate, has_recording)
         product = np.prod(np.stack(boundeds), axis=0)
         out[name] = summarize(
             np.prod(np.stack(raws), axis=0),
@@ -1746,15 +1781,55 @@ def _moved_factor(result: TMLEResult, mechanism: bool) -> str | None:
     if result.extra.get("missing_data") != "composite":
         return None
     name = result.data.treatment_name
+    design = _design_factors(result)
     if not mechanism:
+        if design:
+            return design[0]
         conditioning = ", Delta_A=1" if result.data.has_missing_treatment else ""
         return f"P({name}=a|W{conditioning})"
+    outcome_label, treatment_label = _observation_labels(result)
     factors = []
     if result.nuisance.missingness is not None:
-        factors.append(f"P(Delta=1|{name}=a,W)")
+        factors.append(outcome_label if design else f"P(Delta=1|{name}=a,W)")
     if result.nuisance.treatment_observation is not None:
-        factors.append("P(Delta_A=1|W)")
+        factors.append(treatment_label)
     return " and ".join(factors)
+
+
+def _design_factors(result: TMLEResult) -> tuple[str, ...]:
+    """The factor labels of a per-arm outcome-adaptive fit, or an empty tuple.
+
+    Such a fit regresses each factor on ``Qbar(a, W)``, not on ``W``, so the report names
+    the factor it fitted. :class:`~cleverly.estimators.ctmle.CTMLEOutcomeAdaptiveFit`
+    lists them, the treatment factor first.
+    """
+    return tuple(getattr(result.ctmle_selection, "factors", ()))
+
+
+def _composed_row(
+    result: TMLEResult, has_observation: bool, has_intermediate: bool, has_recording: bool
+) -> str:
+    """The name of a fit's derived denominator row.
+
+    A per-arm outcome-adaptive fit regresses each factor on ``Qbar(a, W)``, and inside each
+    baseline stratum with ``strata=``. Its product is the composite indicator's probability
+    given that design, so the row names the design's conditioning set, which the fit's
+    treatment factor label states. Every other fit names ``W``.
+    """
+    name = _COMPOSED_ROWS[has_observation, has_intermediate, has_recording]
+    design = _design_factors(result)
+    if not design or has_intermediate:
+        return name
+    condition = _DESIGN_CONDITIONS[1] if design[0].endswith(",S)") else _DESIGN_CONDITIONS[0]
+    return _DESIGN_ROWS[name, condition]
+
+
+def _observation_labels(result: TMLEResult) -> tuple[str, str]:
+    """The labels of the outcome and of the treatment observation factor of a fit."""
+    design = _design_factors(result)
+    outcome = next((f for f in design if f.startswith("P(Delta=1|")), "P(Delta=1|A,W)")
+    treatment = next((f for f in design if f.startswith("P(Delta_A=1|")), TREATMENT_OBSERVATION)
+    return outcome, treatment
 
 
 def _clipped_fraction(result: TMLEResult, pair: tuple[float, float], mechanism: bool) -> float:

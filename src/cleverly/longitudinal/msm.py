@@ -143,6 +143,7 @@ __all__ = [
     "RegimenMSM",
     "evaluate_regimen_msm",
     "fit_regimens_msm",
+    "project_sdr_cells",
     "refuse_evaluated_msm_functions",
 ]
 
@@ -1098,4 +1099,105 @@ def _cell_fit(
         obs_weights=np.asarray(data.weights, dtype=float),
         policy=plan_of[cell.label].policy,
         cumulative_numerator=numerators[cell.label],
+    )
+
+
+def project_sdr_cells(
+    data: LongitudinalData,
+    model: RegimenMSM,
+    fits: Sequence[RegimenFit],
+    scaler: OutcomeScaler,
+    *,
+    cause: str | None,
+    estimator: str = "sdr",
+) -> MSMRegimenFit:
+    r"""Project each cell's sequentially doubly robust transform onto the working model.
+
+    An SDR fit targets nothing, so the projection reads each cell's
+    :math:`\varphi_{1,c}` in place of a targeted first-node prediction, and its curve is
+    the shipped :func:`_influence` with the bracket replaced:
+
+    .. math::
+
+        D_\beta = M^{-1} \sum_c h\,(dm/d\eta)\,x(c, V)
+            \bigl(\varphi_{1,c} - m(c, V; \beta)\bigr),
+
+    with :math:`x` the design.  The steps are the conditional form of Equation (6) of Díaz,
+    Williams, Hoffman and Schenck (2023) at :math:`H_1`, a baseline :math:`V`, and the
+    projection's stacked estimating equation.  No published source states them for a
+    working model, and ``docs/technical-reference/natural-extension-verdicts.md`` records
+    the extension.
+
+    A transform can leave ``[0, 1]`` (the paper's Section 5.3), so under a logit or log
+    link the projection can have no finite solution.  When
+    :func:`~cleverly.msm.solve_projection` does not converge under such a link, the fit is
+    refused.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    model : RegimenMSM
+        The evaluated working model.
+    fits : sequence of RegimenFit
+        One sequentially doubly robust fit per cell of ``model``, in cell order.
+    scaler : OutcomeScaler
+        The outcome transformation.
+    cause : str or None
+        The absorbing cause, on a competing-risk fit.
+    estimator : {"sdr", "ipsi"}
+        The estimator of the cells.  An :class:`~cleverly.longitudinal.IPSI` cell's
+        :math:`\varphi_1` is its uncentered influence function, Kennedy (2019), Algorithm 1,
+        and the projection reads it as it reads a transform.
+
+    Returns
+    -------
+    MSMRegimenFit
+        The coefficients and their curve.  It records no node fluctuation.
+
+    Raises
+    ------
+    CapabilityError
+        When a logit or log projection of the transforms does not converge.
+    """
+    transforms = []
+    for fit in fits:
+        first = fit.steps[0].transform
+        if first is None:  # pragma: no cover - the SDR engine fills every transform
+            raise ValueError("a working model over SDR cells needs each cell's transform")
+        transforms.append(first)
+    raw = scaler.unscale_levels(np.column_stack(transforms))
+    with phase("influence_curve"):
+        projection = solve_projection(
+            model.design, model.weights, raw, data.weights, str(model.link)
+        )
+    link = str(model.link)
+    if not projection.converged and not link_for(link).is_identity:
+        if estimator == "ipsi":
+            raise CapabilityError(
+                f"the working model's {link} projection of the IPSI estimates did not "
+                "converge. A one-step estimate can leave [0, 1], so a "
+                f"{link} link can have no finite solution. Use the identity link"
+            )
+        raise CapabilityError(
+            f"the working model's {link} projection of the SDR transforms did not converge. "
+            "An SDR transform can leave [0, 1] (Díaz et al. 2023, Section 5.3), so a "
+            f"{link} link can have no finite solution. Use the identity link, or fit "
+            "LTMLE(msm=...)"
+        )
+    beta = projection.beta
+    bracket = raw - model.fitted(beta)
+    covariate = model.weighted_design_at(beta)
+    contribution = data.weights[:, None] * np.einsum("ikp,ik->ip", covariate, bracket)
+    influence = np.asarray(np.linalg.solve(projection.jacobian, contribution.T).T, dtype=float)
+    return MSMRegimenFit(
+        model=model,
+        cause=cause,
+        beta=beta,
+        influence_curves=influence,
+        projection=projection,
+        alternation=ProjectionFluctuation(beta=beta, converged=projection.converged),
+        fits=tuple(fits),
+        nodes=(),
+        fluctuation_design=model.fluctuation_design_at(beta),
     )

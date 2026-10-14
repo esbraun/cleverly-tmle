@@ -6,20 +6,21 @@ results. `tests/unit/test_red_cell_ledger.py` checks each table against those re
 
 ## What counts as red
 
-A study publishes three kinds of verdict. The ledger reads each kind the way the regeneration
-gates it.
+A study publishes three kinds of verdict, and a fourth kind of row when a comparator fit failed.
+The ledger reads each kind the way the regeneration gates it.
 
 | kind | source file | red when |
 | --- | --- | --- |
 | truth | `performance-tests.csv` | the row fails its truth gate. The ledger skips a comparator row when the study declares an accepted reference failure |
 | paired | `equivalence.csv` | the paired conclusion is not `equivalent` or `superior`. The ledger computes the conclusion again from the committed endpoints of each leg, and it refuses a row whose committed verdict disagrees |
 | property | `properties.csv` | the cell fails its own rule or the joint clause of its family. A `diagnostic` row states no verdict, so it is never red |
+| accounting | `failure-accounting.csv` | a hook audit fails after the recorded comparator failures are counted. A truth or paired cell that its accounting turns red stays a truth or paired row, and its "fails by" names the accounting |
 
 The ledger reads each verdict column as a boolean. It refuses a table whose verdict column holds
 a blank or any other value, because a blank would otherwise read as a pass. The paired
 `reference_valid` column repeats the comparator's truth row, so the truth kind covers it.
 
-The ledger reads verdict rows only. Five study modules also define a `scientific_failures` hook.
+The ledger reads verdict rows and accounting rows only. Five study modules also define a `scientific_failures` hook.
 The regeneration adds each hook's rows to the failures it gates or reports. These hooks audit
 fits and publish no verdict cell, so the ledger does not read them.
 
@@ -244,6 +245,7 @@ row. A move to `gated` is a separate registry decision.
 | [policies at a held baseline treatment](point-treatment-survival-policies.md) | 60 | 0 |
 | [TMLE on a declared known treatment mechanism](known-treatment-mechanism.md) | 57 | 0 |
 | [DR-TMLE on a declared known treatment mechanism](known-mechanism-dr-tmle.md) | 55 | 0 |
+| [DR-TMLE with one inconsistent nuisance](dr-tmle-one-inconsistent-nuisance.md) | 22 | 0 |
 | [LTMLE on declared known node mechanisms](known-node-mechanisms-ltmle.md) | 20 | 0 |
 | [omitted-variable bound standard error](omitted-variable-bound-standard-error.md) | 14 | 0 |
 | [calibration-slope warning](calibration-slope-warning.md) | 13 | 0 |

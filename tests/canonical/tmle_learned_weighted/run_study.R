@@ -30,7 +30,7 @@ fit_one <- function(frame) {
   if (length(unique(frame$scenario)) != 1L || length(unique(frame$replicate)) != 1L) {
     stop("a fit group contains more than one pairing key")
   }
-  fit <- tmle::tmle(
+  fit <- study_stage("tmle", tmle::tmle(
     Y = frame$Y,
     A = frame$A,
     W = frame[c("W1", "W2")],
@@ -43,7 +43,7 @@ fit_one <- function(frame) {
     cvQinit = FALSE,
     prescreenW.g = FALSE,
     verbose = FALSE
-  )
+  ))
   qn <- fit$Qinit$Q
   if (!is.matrix(qn) || ncol(qn) != 2L || nrow(qn) != nrow(frame)) {
     stop("tmle did not retain an aligned two-arm initial outcome regression")
@@ -63,9 +63,12 @@ groups <- split(samples, interaction(samples$scenario, samples$replicate, drop =
 expected <- length(groups)
 rm(samples)
 invisible(gc())
+# Forced here, in the parent: with `mc.preschedule = TRUE`, `mclapply` would force it in each
+# child, and `study_collect` would then find no registered groups to retry or assemble.
+fit_group <- study_fitter(groups, fit_one)
 results <- parallel::mclapply(
   seq_along(groups),
-  study_fitter(groups, fit_one),
+  fit_group,
   mc.cores = study_cores(groups),
   mc.preschedule = TRUE
 )

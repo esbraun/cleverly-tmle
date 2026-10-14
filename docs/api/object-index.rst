@@ -48,6 +48,8 @@ categorized API tables.
    cleverly.TMLEMethod
    cleverly.CollaborativeTMLEMethod
    cleverly.DRTMLEMethod
+   cleverly.SDRMethod
+   cleverly.IPSIMethod
    cleverly.ModelSpec
    cleverly.CrossFitting
    cleverly.SplitPlan
@@ -73,6 +75,7 @@ categorized API tables.
    cleverly.MethodConfigurationError
    cleverly.NotFittedError
    cleverly.ConvergenceWarning
+   cleverly.ParameterSpaceWarning
    cleverly.PositivityWarning
    cleverly.VersionMismatchWarning
    cleverly.WeightingWarning
@@ -152,6 +155,8 @@ categorized API tables.
    cleverly.validation.StudyResult
    cleverly.validation.ReplicationRecord
    cleverly.validation.ReplicationFailure
+   cleverly.validation.ReplicationCheckpoint
+   cleverly.validation.DirectoryCheckpoint
    cleverly.validation.score_check
    cleverly.validation.nuisance_diagnostics
    cleverly.validation.refute

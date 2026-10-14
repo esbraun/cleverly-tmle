@@ -9,6 +9,7 @@ import pandas as pd
 
 from tests.parallel import STUDY_JOBS
 from tests.studies import weighted_longitudinal_common as common
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.weighted_longitudinal_properties_common import property_cells
 
@@ -107,12 +108,10 @@ def cleverly_rows(
 
 
 def _replicate(
-    payload: tuple[str, int, int],
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
 ) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
-    return common.replicate(STUDY, payload, cross_fit=False)
+    return common.replicate(STUDY, key, drawn, cross_fit=False)
 
 
-def draw_and_fit(
-    *, replicates: int, n: int, n_jobs: int = STUDY_JOBS
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
     return common.draw_and_fit(STUDY, replicates=replicates, n=n, cross_fit=False, n_jobs=n_jobs)

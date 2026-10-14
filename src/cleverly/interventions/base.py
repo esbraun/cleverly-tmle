@@ -594,8 +594,8 @@ _ESTIMATED_DENSITY = (
     f"{_KIND_TEXT['incremental'].estimands} hold it in a CausalStudy, and "
     f"{_KIND_TEXT['incremental'].keyword} takes it on the estimator. Its curve carries that "
     "term. Otherwise pass density_fn= as a fixed function of the covariates with "
-    "density_kind='known'. A tilt of the mechanism at each node of a longitudinal fit is not "
-    "fitted yet; docs/roadmap.md X19 tracks it."
+    "density_kind='known'. For an odds tilt of the mechanism at each node of a longitudinal "
+    "fit, put Incremental nodes in IPSI(regimens=...) from cleverly.longitudinal."
 )
 
 _UNDECLARED_DENSITY = (

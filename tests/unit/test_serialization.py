@@ -594,6 +594,7 @@ def test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment(
         "data",
         "estimates",
         "fitted_method",
+        "fold_mechanisms",
         "fits",
         "folds",
         "identified_effect",

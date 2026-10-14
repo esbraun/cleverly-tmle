@@ -26,7 +26,7 @@ import pandas as pd
 import pytest
 
 from tests.documents import pipe_table
-from tests.studies.evidence import descriptions, property_verdicts
+from tests.studies.evidence import descriptions, failures, property_verdicts
 from tests.studies.evidence.claims import load, quantities, thresholds, value
 from tests.studies.evidence.comparison import equivalence
 from tests.studies.evidence.document import (
@@ -85,6 +85,57 @@ def _revisions() -> dict[tuple[str, str], str]:
     return table
 
 
+DETERMINISM = ROOT / "tests" / "canonical" / "harness_fixture" / "determinism.csv"
+
+
+def _witness_step(judgement: str) -> str:
+    """The determinism step a judgement's last ``Witness:`` names, ``a2`` by default."""
+    steps = re.findall(r"Witness: the `([^`]+)` rows", judgement)
+    return steps[-1] if steps else "a2"
+
+
+def test_every_rm39a2_judgement_has_its_determinism_witness() -> None:
+    """A result-neutral claim about a stage edit names a run that showed it.
+
+    Each ledger row whose judgement names a ``Witness:`` needs a ``determinism.csv`` row of
+    step ``a2`` for the same source, run on the bytes the row calls ``current``, with the
+    verdict ``identical``.  Any other a2 verdict for those bytes, from any runner that reads
+    them, refutes the claim.  The local thread's ``determinism.py stage`` writes those rows.
+    """
+    witnesses = pd.read_csv(DETERMINISM, dtype=str, keep_default_na=False)
+    if "source_sha256" not in witnesses.columns:
+        witnesses = witnesses.assign(source="", source_sha256="")
+    # A judgement names its step ("Witness: the `b1` rows"); RM39a2's rows are step a2.
+    staged = [row for row in witnesses.itertuples(index=False) if row.step in {"a2", "b1"}]
+    witnessed = {
+        (row.step, row.source, row.source_sha256) for row in staged if row.verdict == "identical"
+    }
+    refuted = {
+        (row.step, row.source, row.source_sha256) for row in staged if row.verdict != "identical"
+    }
+    claimed = [
+        (_witness_step(row["judgement"]), row["source"].strip("`"), row["current"].strip("`"))
+        for row in pipe_table(REVISIONS, REVISION_COLUMNS)
+        if "Witness:" in row["judgement"]
+    ]
+    contradicted = [
+        f"{source} at {sha[:12]}" for step, source, sha in claimed if (step, source, sha) in refuted
+    ]
+    assert contradicted == [], (
+        f"a2 rows in {DETERMINISM.name} show these result-neutral sources change a result: "
+        f"{contradicted}"
+    )
+    missing = [
+        f"{source} at {sha[:12]} ({step})"
+        for step, source, sha in claimed
+        if (step, source, sha) not in witnessed
+    ]
+    assert missing == [], (
+        f"{len(missing)} RM39a2 judgements have no identical a2 row in {DETERMINISM.name}; run "
+        f"`python -m tests.canonical.harness_fixture.determinism stage`: {missing}"
+    )
+
+
 def test_no_provenance_revision_outlives_the_manifest_it_explains() -> None:
     """The ledger refuses a stale row, on the terms ``accepted_reference_failure`` already sets.
 
@@ -119,6 +170,20 @@ def study(request: pytest.FixtureRequest) -> StudyRecord:
 @pytest.fixture
 def rows(study: StudyRecord) -> pd.DataFrame:
     return _replication_rows(study.slug)
+
+
+def _recorded_failures(study: StudyRecord) -> pd.DataFrame | None:
+    """The study's ``failures.csv``, or ``None`` when no fit failed."""
+    path = study.artifact(failures.FAILURES)
+    return failures.read(path) if path.exists() else None
+
+
+def _accounting(study: StudyRecord) -> pd.DataFrame:
+    """The study's ``failure-accounting.csv``, empty when no fit failed."""
+    path = study.artifact(failures.ACCOUNTING)
+    if not path.exists():
+        return pd.DataFrame(columns=list(failures.ACCOUNTING_COLUMNS))
+    return pd.read_csv(path, keep_default_na=False, na_values=[""])
 
 
 @functools.cache
@@ -191,7 +256,12 @@ class TestArtifacts:
             "performance-tests.csv",
             "property-replicates.csv.gz",
             "properties.csv",
-        } | set(study.extra_artifacts)
+        } | set(study.extra_artifacts) | {
+            # The failure files exist only when a fit failed, and then both are hashed.
+            name
+            for name in (failures.FAILURES, failures.ACCOUNTING)
+            if study.artifact(name).exists()
+        }
         for name, digest in manifest["sha256"].items():
             assert hashlib.sha256(study.artifact(name).read_bytes()).hexdigest() == digest
         # Reference sources are keyed from the repository root rather than from the study
@@ -226,6 +296,12 @@ class TestArtifacts:
             assert configuration["accepted_reference_failure"] == study.accepted_reference_failure
         else:
             assert "accepted_reference_failure" not in configuration
+        if study.failure_bound:
+            assert configuration["failure_bound"] == dict(study.failure_bound)
+        else:
+            assert "failure_bound" not in configuration
+        recorded = _recorded_failures(study)
+        assert (recorded is None) == (not study.artifact(failures.ACCOUNTING).exists())
 
     def test_the_subject_side_is_identified_rather_than_described(self, study: StudyRecord) -> None:
         """``"working tree"`` names no run; a version and a revision name one.
@@ -248,7 +324,42 @@ class TestArtifacts:
     def test_the_replication_file_satisfies_the_shared_contract(
         self, study: StudyRecord, rows: pd.DataFrame
     ) -> None:
-        validate_replicates(rows, record=study)
+        validate_replicates(rows, record=study, failures=_recorded_failures(study))
+
+    def test_the_failure_accounting_is_recomputed_from_the_rows_and_records(
+        self, study: StudyRecord, rows: pd.DataFrame
+    ) -> None:
+        recorded = _recorded_failures(study)
+        if recorded is None:
+            return
+        published = _accounting(study)
+        recomputed = pd.concat(
+            [
+                failures.truth_accounting(rows, recorded, record=study),
+                failures.paired_accounting(rows, recorded, record=study),
+            ],
+            ignore_index=True,
+        )
+        # The hooks read the committed extra artifacts only, so their rows recompute too.
+        extra_frames = {name: pd.read_csv(study.artifact(name)) for name in study.extra_artifacts}
+        hooks = failures.hook_accounting(study.runner(), recorded, extra_frames, record=study)
+        pd.testing.assert_frame_equal(
+            published.loc[published["table"] == "hook"].reset_index(drop=True),
+            hooks.astype(published.dtypes.to_dict(), errors="ignore"),
+            check_exact=False,
+            check_dtype=False,
+            rtol=1e-12,
+            atol=1e-12,
+        )
+        tables = published.loc[published["table"] != "hook"].reset_index(drop=True)
+        pd.testing.assert_frame_equal(
+            tables.loc[:, list(recomputed.columns)],
+            recomputed.astype(tables.dtypes.to_dict(), errors="ignore"),
+            check_exact=False,
+            check_dtype=False,
+            rtol=1e-12,
+            atol=1e-12,
+        )
 
     def test_published_summaries_are_recomputed_from_the_replication_rows(
         self, study: StudyRecord, rows: pd.DataFrame
@@ -325,8 +436,21 @@ class TestPublishedVerdicts:
             (published["se_ratio_ci_lower"] >= published["se_ratio_margin_lower"])
             & (published["se_ratio_ci_upper"] <= published["se_ratio_margin_upper"])
         )
+        gates = failures.cell_gates(_accounting(study), "performance")
+        accounted = pd.Series(
+            [
+                gates.get((str(i), str(s), str(e)), (True, ""))[0]
+                for i, s, e in published[["implementation", "scenario", "estimand"]].itertuples(
+                    index=False
+                )
+            ],
+            index=published.index,
+        )
         assert published["passed"].equals(
-            published["bias_equivalent"] & published["coverage_valid"] & published["se_calibrated"]
+            published["bias_equivalent"]
+            & published["coverage_valid"]
+            & published["se_calibrated"]
+            & accounted
         )
 
     def test_each_implementation_independently_performs_against_truth(
@@ -347,15 +471,19 @@ class TestPublishedVerdicts:
         if study.reference is None:
             pytest.skip("study declares no comparison implementation")
         published = pd.read_csv(study.artifact("equivalence.csv"))
-        assert published["dropped_replications"].eq(0).all()
-        assert published["passed"].equals(
-            (published["paired_similarity"] & published["subject_not_inferior"])
-            | published["coverage_superior"]
-        ), "the published verdict is not an equivalence or superiority conclusion"
-        expected = np.select(
+        # Only a recorded failure may leave a replication out of the pairing.
+        failed = failures.expand(_recorded_failures(study), study)
+        lost = failed.groupby(["scenario", "estimand"])["replicate"].nunique()
+        assert [
+            int(lost.get((str(s), str(e)), 0))
+            for s, e in published[["scenario", "estimand"]].itertuples(index=False)
+        ] == published["dropped_replications"].astype(int).tolist()
+        gates = failures.cell_gates(_accounting(study), "equivalence")
+        equivalent = published["paired_similarity"] & published["subject_not_inferior"]
+        own = np.select(
             [
                 published["coverage_superior"],
-                published["paired_similarity"] & published["subject_not_inferior"],
+                equivalent,
                 # A cell whose calibration bound is wider than the calibration margin could
                 # not have concluded non-inferiority at any true excess, so its failure is a
                 # statement about the design and is named apart from an unsettled one.
@@ -364,7 +492,20 @@ class TestPublishedVerdicts:
             ["superior", "equivalent", "underpowered"],
             default="inconclusive",
         )
-        assert published["comparison_conclusion"].tolist() == expected.tolist()
+        expected = [
+            failures.accounted_conclusion(
+                str(conclusion),
+                equivalent=bool(similar),
+                gate=gates.get((str(s), str(e)), (True, failures.WITHIN_BOUND)),
+            )
+            for conclusion, similar, s, e in zip(
+                own, equivalent, published["scenario"], published["estimand"], strict=True
+            )
+        ]
+        assert published["passed"].tolist() == [passed for _, passed in expected], (
+            "the published verdict is not an equivalence or superiority conclusion"
+        )
+        assert published["comparison_conclusion"].tolist() == [c for c, _ in expected]
         assert published["calibration_resolved"].equals(
             ~published["se_comparable"]
             | (
@@ -558,6 +699,40 @@ class TestPublishedVerdicts:
                 f"{row.cell} publishes passed={row.passed} against its own contraction endpoint"
             )
 
+        # One family, four rules, and the cell's last segment names the rule.  The growth row
+        # has no bias of its own: it answers to the interval of its signed growth.
+        one_wrong = published.loc[published["property"] == property_verdicts.ONE_WRONG_FAMILY]
+        for row in one_wrong.itertuples():
+            kind = property_verdicts.one_wrong_kind(str(row.cell))
+            floor = row.coverage_ci_lower >= study.margins.coverage_floor
+            if kind == "growth":
+                expected = row.growth_ci_lower > 0.0
+            elif kind == "first_order":
+                low, high = property_verdicts.UNION_MODEL_SE_BAND
+                beyond = (
+                    row.bias_ci_upper < -row.bias_margin
+                    if row.predicted_sign < 0
+                    else row.bias_ci_lower > row.bias_margin
+                )
+                expected = beyond and low <= row.se_ratio <= high
+            elif kind == "conservative":
+                expected = (
+                    row.se_ratio_ci_lower > study.margins.calibration_se_ratio[1]
+                    and floor
+                    and bool(row.bias_equivalent)
+                )
+            else:
+                expected = (
+                    floor
+                    and bool(row.bias_equivalent)
+                    and study.margins.se_ratio_sanity[0]
+                    <= row.se_ratio
+                    <= study.margins.se_ratio_sanity[1]
+                )
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own one-wrong endpoint"
+            )
+
         accuracy = published.loc[published["property"] == "known_mechanism_accuracy"]
         for row in accuracy.itertuples():
             if row.role == "control":
@@ -578,6 +753,27 @@ class TestPublishedVerdicts:
             expected = row.coverage_ci_lower >= study.margins.coverage_floor
             assert bool(row.passed) is bool(expected), (
                 f"{row.cell} publishes passed={row.passed} against its own coverage floor"
+            )
+
+        mechanism_term = published.loc[published["property"] == "mechanism_term_necessity"]
+        for row in mechanism_term.itertuples():
+            if row.role == "control":
+                expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
+            else:
+                low, high = study.properties().EFFICIENCY_RATIO_BAND
+                expected = low <= row.se_ratio_ci_lower <= row.se_ratio_ci_upper <= high
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own SE-ratio endpoint"
+            )
+
+        single = published.loc[published["property"] == "single_robustness"]
+        positive = single.loc[single["role"] == "positive"].sort_values("n")
+        if not positive.empty:
+            small, large = positive["absolute_bias_bound"].iloc[[0, -1]]
+            tolerance = study.properties().ABSOLUTE_BIAS_TOLERANCE
+            expected = bool(large < tolerance and large < small)
+            assert [bool(value) for value in positive["passed"]] == [expected] * len(positive), (
+                f"{study.slug}: a single_robustness row's verdict is not the two-size rule"
             )
 
         # Unconditional over every study with calibration cells.  Guarding this block on the
@@ -642,6 +838,25 @@ class TestPublishedVerdicts:
                 assert bool(row.passed) is bool(expected), (
                     f"{row.cell} publishes passed={row.passed} against its calibration endpoint"
                 )
+
+        separate = published.loc[
+            published["property"].isin({"clustered_calibration", "weighted_calibration"})
+        ]
+        low, high = study.margins.calibration_se_ratio
+        for row in separate.itertuples():
+            if row.role == "control":
+                expected = row.se_ratio_ci_upper < low
+            else:
+                expected = (
+                    low <= row.se_ratio_ci_lower <= row.se_ratio_ci_upper <= high
+                    and study.margins.calibration_coverage[0]
+                    <= row.coverage_ci_lower
+                    <= row.coverage_ci_upper
+                    <= study.margins.calibration_coverage[1]
+                )
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its calibration endpoint"
+            )
 
         # The band answers to the two-sided calibration coverage band, and its pointwise
         # control must establish joint coverage below nominal, so the band does work.
@@ -989,6 +1204,14 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         "robustness_contract",
         "generated_design",
         "interval_calibration",
+        # Calibration families with no efficiency claim: the positive arm answers to the
+        # SE-ratio and coverage bands, each control to an SE-ratio interval below the band.
+        # Checked row by row below.
+        "clustered_calibration",
+        "weighted_calibration",
+        # Two-size absolute-bias bounds, exact-ratio patterns and two bias-floor controls,
+        # all on the union-model SE screen; recomputed from the rows by the summary test.
+        "sequential_double_robustness",
         "natural_course_identity",
         # The composite TMLE's cells: bias inside the margin, a coverage floor and an SE band.
         "ordinary_targeting",
@@ -1008,6 +1231,15 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         "treatment_score_necessity",
         "type_i_error",
         property_verdicts.WARNING_RATE_FAMILY,
+        # The full curve answers to the efficiency band and the curve without the mechanism
+        # term to an SE ratio below the calibration band.  Checked row by row below.
+        "mechanism_term_necessity",
+        # Absolute bias at two sizes (the ``X4-plan.md`` 6.8 rule), beside a diagnostic cell.
+        # Checked row by row below.
+        "single_robustness",
+        # Four rules keyed by the cell's last segment: a conservative SE ratio, accuracy, a
+        # one-sided bias control and a growth control.  Checked row by row below.
+        property_verdicts.ONE_WRONG_FAMILY,
     }
 )
 
@@ -1021,6 +1253,7 @@ DIAGNOSTIC_PROPERTIES = frozenset(
     {
         property_verdicts.FOLD_POLICY_FAMILY,
         "cluster_aggregation_rule",
+        "construction_diagnostic",
         # The repeated outcome's earlier horizons: the calibration fits read at t = 1 and 2,
         # whose SE ratio the study declared reported rather than gated.
         "horizon_calibration",
@@ -1028,7 +1261,11 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # the last node, so the pilot SE ratio sits below the band (X32 pilot).
         "small_sample_calibration",
         "in_sample_agreement",
+        "sdr_tmle_agreement",
         "variance_direction",
+        "censoring_complete_case",
+        "in_sample_fit",
+        "one_wrong_reported",
     }
 )
 
@@ -1879,6 +2116,10 @@ _FAMILY = {
     "subject_score_failures": "fit_diagnostics",
     "reference_score_failures": "fit_diagnostics",
     "mean_oracle_se": "harness",
+    # ``failures.csv``: zero for a study whose comparator never failed.
+    "reference_failures": "failures",
+    "subject_failures": "failures",
+    "failure_rate": "failures",
     "mechanism_": "fit_diagnostics",
 }
 

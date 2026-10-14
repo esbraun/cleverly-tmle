@@ -17,8 +17,21 @@ import pytest
 from cleverly._inference_status import NON_INFERENTIAL
 from cleverly.datasets import make_clustered
 from cleverly.estimators import TMLE
+from cleverly.exceptions import (
+    CapabilityError,
+    DataError,
+    LongitudinalError,
+    MethodConfigurationError,
+)
 from cleverly.inference import make_estimate
-from cleverly.validation import CoverageStudy, EstimandSummary, StudyResult, simulation
+from cleverly.validation import (
+    CoverageStudy,
+    EstimandSummary,
+    ReplicationCheckpoint,
+    ReplicationFailure,
+    StudyResult,
+    simulation,
+)
 from tests.conftest import linear_in_sample
 
 FEW = "few_cluster_plugin"
@@ -91,13 +104,22 @@ class _Result:
 
 
 class _Estimator:
-    def __init__(self, *, alpha: float = 0.05, error: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        alpha: float = 0.05,
+        error: str | None = None,
+        singular: frozenset[int] = frozenset(),
+    ) -> None:
         self.alpha = alpha
         self.error = error
+        self.singular = singular
 
     def fit(self, frame, **kwargs):  # type: ignore[no-untyped-def]
         if self.error is not None:
-            raise RuntimeError(self.error)
+            raise np.linalg.LinAlgError(self.error)
+        if getattr(frame, "seed", None) in self.singular:
+            raise np.linalg.LinAlgError("singular on this draw")
         return _Result(alpha=self.alpha)
 
 
@@ -116,15 +138,9 @@ def test_coverage_study_uses_the_estimates_non_default_alpha() -> None:
 
 def test_failed_replications_retain_the_seed_and_cause() -> None:
     seeds = np.random.SeedSequence(7).generate_state(3)
-
-    def dgp(n, seed):  # type: ignore[no-untyped-def]
-        if seed == int(seeds[0]):
-            raise LookupError("bad draw")
-        return SimpleNamespace(seed=seed), {"ate": 0.0}
-
     study = CoverageStudy(
-        dgp=dgp,
-        estimator=lambda: _Estimator(),
+        dgp=lambda n, seed: (SimpleNamespace(seed=seed), {"ate": 0.0}),
+        estimator=lambda: _Estimator(singular=frozenset({int(seeds[0])})),
         n=2,
         n_replicates=3,
         seed=7,
@@ -132,9 +148,133 @@ def test_failed_replications_retain_the_seed_and_cause() -> None:
     assert study.n_failed == 1
     assert study.failures[0].replicate == 0
     assert study.failures[0].seed == int(seeds[0])
-    assert study.failures[0].error_type == "LookupError"
-    assert study.failures[0].message == "bad draw"
+    assert study.failures[0].error_type == "LinAlgError"
+    assert study.failures[0].message == "singular on this draw"
+    assert study.failures[0].call.endswith(":fit")
     assert {record.replicate for record in study.replications} == {1, 2}
+
+
+def test_an_error_in_the_draw_stops_the_study() -> None:
+    def dgp(n, seed):  # type: ignore[no-untyped-def]
+        raise np.linalg.LinAlgError("a law defect, not a fit")
+
+    study = CoverageStudy(dgp=dgp, estimator=lambda: _Estimator(), n=2, n_replicates=3, seed=7)
+    with pytest.raises(np.linalg.LinAlgError, match="a law defect"):
+        study.run()
+
+
+class _Raising(_Estimator):
+    def __init__(self, error: BaseException) -> None:
+        super().__init__()
+        self.raised = error
+
+    def fit(self, frame, **kwargs):  # type: ignore[no-untyped-def]
+        raise self.raised
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        TypeError("a bug"),
+        KeyError("a bug"),
+        ValueError("raised by this test module, not by a fitting library"),
+        RuntimeError("raised by this test module, not by a fitting library"),
+        CapabilityError("not implemented"),
+        MethodConfigurationError("misdeclared"),
+    ],
+    ids=lambda error: type(error).__name__,
+)
+def test_a_non_recordable_fit_error_stops_the_study(error: BaseException) -> None:
+    study = CoverageStudy(
+        dgp=lambda n, seed: (SimpleNamespace(seed=seed), {"ate": 0.0}),
+        estimator=lambda: _Raising(error),
+        n=2,
+        n_replicates=3,
+        seed=7,
+    )
+    with pytest.raises(type(error)):
+        study.run()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [DataError("no overlap"), LongitudinalError("nobody followed"), ZeroDivisionError("zero")],
+    ids=lambda error: type(error).__name__,
+)
+def test_a_recordable_fit_error_is_a_failure(error: BaseException) -> None:
+    study = CoverageStudy(
+        dgp=lambda n, seed: (SimpleNamespace(seed=seed), {"ate": 0.0}),
+        estimator=lambda: _Raising(error),
+        n=2,
+        n_replicates=2,
+        seed=7,
+    )
+    with pytest.raises(RuntimeError, match=f"{type(error).__name__}"):
+        study.run()
+    outcome = study.run_replication(0, 11)
+    assert isinstance(outcome, ReplicationFailure)
+    assert outcome.error_type == type(error).__name__
+
+
+class _Store:
+    def __init__(self) -> None:
+        self.outcomes: dict[int, object] = {}
+
+    def load(self, replicate):  # type: ignore[no-untyped-def]
+        return self.outcomes.get(replicate)
+
+    def save(self, replicate, outcome):  # type: ignore[no-untyped-def]
+        self.outcomes[replicate] = outcome
+
+
+def test_a_checkpointed_study_resumes_without_refitting() -> None:
+    fits: list[int] = []
+
+    class Counting(_Estimator):
+        def fit(self, frame, **kwargs):  # type: ignore[no-untyped-def]
+            fits.append(frame.seed)
+            return super().fit(frame, **kwargs)
+
+    store = _Store()
+
+    def study() -> CoverageStudy:
+        return CoverageStudy(
+            dgp=lambda n, seed: (SimpleNamespace(seed=seed), {"ate": 0.0}),
+            estimator=lambda: Counting(),
+            n=2,
+            n_replicates=4,
+            seed=9,
+            checkpoint=store,
+        )
+
+    assert isinstance(store, ReplicationCheckpoint)
+    first = study().run()
+    assert len(fits) == 4
+    del store.outcomes[2]
+    second = study().run()
+    assert len(fits) == 5
+    assert second.replications == first.replications
+
+
+def test_a_checkpoint_under_another_seed_is_refused() -> None:
+    store = _Store()
+    CoverageStudy(
+        dgp=lambda n, seed: (SimpleNamespace(seed=seed), {"ate": 0.0}),
+        estimator=lambda: _Estimator(),
+        n=2,
+        n_replicates=3,
+        seed=9,
+        checkpoint=store,
+    ).run()
+    with pytest.raises(RuntimeError, match="under seed"):
+        CoverageStudy(
+            dgp=lambda n, seed: (SimpleNamespace(seed=seed), {"ate": 0.0}),
+            estimator=lambda: _Estimator(),
+            n=2,
+            n_replicates=3,
+            seed=10,
+            checkpoint=store,
+        ).run()
 
 
 def test_an_all_failed_study_reports_the_first_cause() -> None:
@@ -145,7 +285,7 @@ def test_an_all_failed_study_reports_the_first_cause() -> None:
         n_replicates=2,
         seed=8,
     )
-    with pytest.raises(RuntimeError, match="RuntimeError: deliberate failure"):
+    with pytest.raises(RuntimeError, match="LinAlgError: deliberate failure"):
         study.run()
 
 

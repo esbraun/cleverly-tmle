@@ -113,8 +113,13 @@ provenance contract.
 
 `tests/canonical/regenerate.py` keeps the scratch of each run outside the repository. An R
 reference stores the result of each group as a checkpoint. A rerun of the same command reuses the
-Python phase, the calibration and each checkpoint. The rerun prints what it reused. Every error
-stays fatal: the first error stops the phase with its message.
+Python phase, the calibration and each checkpoint. The rerun prints what it reused.
+
+A failure checkpoint is reused like a result: the rerun does not refit a group whose comparator
+call failed. The Python phase stores each replicate as a checkpoint too, so a rerun refits only
+the replicates that the stopped run did not finish. The
+[failure rule](method-benchmarking.md#comparator-fitting-failures) says which errors stop the
+phase.
 
 A run shares its cache with a rerun only when the two have one *resume key*. The key holds the
 declared study without its output path, `HEAD` and the tree state. It also holds the reference
@@ -125,7 +130,9 @@ Python versions. A change to any of these starts a new cache.
 | --- | --- |
 | host scratch | `%LOCALAPPDATA%/cleverly/runs/<slug>/<key>/` on Windows, `~/.cache/cleverly/runs/<slug>/<key>/` elsewhere. `--cache DIR` replaces it |
 | R checkpoints | `/cache/<slug>/<key>/<runner>__<output>/` in the Docker volume `cleverly-cache` |
+| Python checkpoints | `checkpoints/<implementation>/<label>/` in the host scratch |
 | discard the cache of this key | add `--fresh` |
+| refit the Python phase | add `--refresh-python`. It also discards the Python checkpoints |
 | host lock | `_lock` in the host scratch. A second driver on one key refuses and names the holder. The driver removes the lock of a dead process |
 | container lock | the container name `cleverly-<slug>-<key>-<leaf>`. Docker refuses a second live container of one name |
 | the RM39 smoke | `python -m tests.canonical.harness_fixture.smoke` |

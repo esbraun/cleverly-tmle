@@ -67,6 +67,7 @@ import numpy as np
 
 from .._typing import FloatArray
 from ..data.validate import MISSING_OUTCOME_DECLARATION
+from ..estimators._nuisance import tilt_missingness
 from ..exceptions import CapabilityError, refuse_inference
 from ..inference.delta import wald_ci
 from ..inference.influence import spread_name
@@ -460,7 +461,7 @@ def _tilted_psi(
     """
     data = result.data
     scaler = repeat.nuisance.scaler
-    missingness = repeat.nuisance.bounded_missingness(result.config.missingness_bound)
+    missingness = tilt_missingness(repeat.nuisance, result.config.missingness_bound)
     assert missingness is not None
     weights = data.weights
     arms = repeat.nuisance.arms

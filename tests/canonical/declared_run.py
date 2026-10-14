@@ -38,7 +38,12 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from tests.canonical.regenerate import ARTIFACT_NAMES, RUN_NOTES, Reference
+from tests.canonical.regenerate import (
+    ARTIFACT_NAMES,
+    OPTIONAL_ARTIFACT_NAMES,
+    RUN_NOTES,
+    Reference,
+)
 from tests.canonical.regenerate import main as regenerate
 from tests.diagnostics.rm18_shared import THREAD_VARIABLES, note, refusals, run_log
 from tests.parallel import available_cores
@@ -106,6 +111,13 @@ def publish_run(
     if missing:
         raise RuntimeError(f"the run wrote no {missing} to {output}; nothing is copied")
     here.mkdir(parents=True, exist_ok=True)
+    # The failure records and their accounting exist only when a comparator failed (RM39 part
+    # a2).  One left in ``here`` by an earlier run would outlive this run's manifest.
+    optional = [name for name in OPTIONAL_ARTIFACT_NAMES if (output / name).exists()]
+    for name in OPTIONAL_ARTIFACT_NAMES:
+        if name not in optional:
+            (here / name).unlink(missing_ok=True)
+    names = (*names, *optional)
     for name in names:
         shutil.copyfile(output / name, here / name)
     print(f"copied {len(names)} files from {output} to {here}", flush=True)

@@ -1,0 +1,4 @@
+draws: 200; n = 2,000 per draw
+ordinary TMLE  mean error -0.0008  sd 0.0087  mean se 0.0093  mean se / sd 1.06  intervals containing the ATE 191 of 200
+DR-TMLE        mean error -0.0003  sd 0.0087  mean se 0.0092  mean se / sd 1.06  intervals containing the ATE 192 of 200
+DR-TMLE draws with an assessment row needing attention: 13 of 200

@@ -41,14 +41,15 @@ from scipy.special import expit, logit
 from sklearn.tree import DecisionTreeClassifier
 
 from cleverly.estimators import TMLE
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_mar as mar
 from tests.conftest import OracleMissingness, OracleOutcomeContinuous, OracleTreatment
 from tests.parallel import STUDY_JOBS
 from tests.studies import mar_arm_indexed_laws as laws
+from tests.studies.evidence import failures as evidence_failures
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 from tests.studies.missing_outcome_study_helpers import NaturalCourseLaw
 from tests.studies.point_study_helpers import primary_rows
 
@@ -702,11 +703,16 @@ def reference_sample(
     return sample
 
 
+def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    scenario, replicate, n = key
+    return draw_scenario(scenario, n, replicate)
+
+
 def _replicate(
-    payload: tuple[str, int, int],
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
 ) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
-    scenario, replicate, n = payload
-    frame, truth = draw_scenario(scenario, n, replicate)
+    scenario, replicate, _ = key
+    frame, truth = drawn
     result = fit_cleverly(frame, scenario)
     sample = reference_sample(frame, result, scenario=scenario, replicate=replicate)
     truth_rows = [
@@ -716,18 +722,22 @@ def _replicate(
     return sample, truth_rows, cleverly_rows(frame, truth, scenario, replicate, result=result)
 
 
-def draw_and_fit(
-    *, replicates: int, n: int, n_jobs: int = STUDY_JOBS
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    outcomes = map_parallel(
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
+    # Dependent: the reference reads the subject fit's nuisance predictions (reference_sample).
+    outcomes = replication.fit_primary(
+        [(scenario, replicate, n) for scenario in SCENARIOS for replicate in range(replicates)],
         _replicate,
-        [((scenario, replicate, n),) for scenario in SCENARIOS for replicate in range(replicates)],
+        draw=_draw,
         n_jobs=n_jobs,
+        implementation=STUDY.implementation,
+        seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
     )
-    samples = pd.concat([sample for sample, _, _ in outcomes], ignore_index=True)
-    truth_rows = pd.DataFrame([row for _, rows, _ in outcomes for row in rows])
-    estimates = pd.DataFrame([row for _, _, rows in outcomes for row in rows])
-    return samples, truth_rows, estimates.loc[:, list(REPLICATE_COLUMNS)]
+    samples = pd.concat([sample for sample, _, _ in outcomes.kept], ignore_index=True)
+    truth_rows = pd.DataFrame([row for _, rows, _ in outcomes.kept for row in rows])
+    estimates = pd.DataFrame([row for _, _, rows in outcomes.kept for row in rows])
+    return replication.result(
+        outcomes, estimates.loc[:, list(REPLICATE_COLUMNS)], samples=samples, truths=truth_rows
+    )
 
 
 # ------------------------------------------------------------------ scale-workaround probe
@@ -752,7 +762,9 @@ def reference_artifacts(
 ) -> dict[str, pd.DataFrame]:
     """Run the exact-equality probe of the planted-row workaround on every continuous fit."""
     path = output / PROBE_ARTIFACT
-    reference.run(here, samples, truths_path, path, cores=cores, runner=PROBE_RUNNER)
+    # A failed reference fit leaves its replication out of the probe as well (decision Q1).
+    with evidence_failures.surviving_samples(samples, reference_results) as surviving:
+        reference.run(here, surviving, truths_path, path, cores=cores, runner=PROBE_RUNNER)
     probe = pd.read_csv(path).sort_values(["replicate", "path"], ignore_index=True)
     reference_rows = pd.read_csv(reference_results, usecols=["scenario", "replicate"])
     expected = sorted(
@@ -776,3 +788,15 @@ def scientific_failures(extra_frames: Mapping[str, pd.DataFrame]) -> dict[str, p
         if set(probe["scenario"]) != {CONTINUOUS} or replicates != list(range(count)):
             return {"scale-workaround probe coverage": probe}
     return {"scale-workaround probe": probe.loc[~probe["passed"].fillna(False).eq(True)]}
+
+
+def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    """The probe audits with the failed replications counted as covered (decision Q1)."""
+    return evidence_failures.probe_audits(
+        artifacts[PROBE_ARTIFACT],
+        failures,
+        record=STUDY,
+        scenarios=(CONTINUOUS,),
+        coverage="scale-workaround probe coverage",
+        audit="scale-workaround probe",
+    )
