@@ -122,13 +122,14 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from functools import partial
 
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.validate import arm_indicators
 from ..data.weighting import effective_sample_size
-from ..estimators._nuisance import cross_fit_predictions
+from ..estimators._nuisance import cross_fit_predictions, fit_mixed_density
 from ..exceptions import CapabilityError, DataError, LongitudinalError
 from ..fluctuation.iterative import (
     Fluctuation,
@@ -146,14 +147,21 @@ from ..interventions.joint_density import (
 )
 from ..interventions.policy import (
     JointPolicy,
+    _atom_index,
+    _refuse_undeclared_atoms,
+    branch_ratio,
+    check_declared_atoms,
+    check_observed_support,
     induced_probabilities,
     joint_branches,
     lazy_frame,
     policy_branches,
+    policy_moves_dose,
 )
 from ..learners.crossfit import Folds
 from ..learners.density import (
     ConditionalDensity,
+    MixedDensity,
     bin_edges,
     default_density_bins,
     fit_conditional_density,
@@ -170,7 +178,7 @@ from ..utils.phases import (
     profiling,
 )
 from .data import LongitudinalData, RegimenMasks
-from .regimen import Plan, Regimen, RegimenSpec
+from .regimen import DynamicRegimen, Plan, Regimen, RegimenSpec
 
 __all__ = [
     "FoldRecursionCell",
@@ -182,6 +190,7 @@ __all__ = [
     "fit_mechanism",
     "fit_regimen",
     "outcome_design",
+    "preflight_declared_doses",
     "preflight_known_mechanisms",
     "preflight_mechanism_support",
     "preflight_terminal_outcomes",
@@ -308,7 +317,9 @@ class Mechanism:
     #: has one key, its treatment column; a mixed node has one per dose, each the density of
     #: the dose given the history, the categorical components and the earlier doses.  Empty
     #: without a continuous component.
-    densities: dict[tuple[int, str], ConditionalDensity] = field(default_factory=dict)
+    densities: dict[tuple[int, str], ConditionalDensity | MixedDensity] = field(
+        default_factory=dict
+    )
     #: The censoring nodes, counted from one, at which no eligible unit was censored.  The
     #: eligible sample is the rows at risk before the node, with positive weight.  Such a
     #: node's factor is exactly one at every plan, and no learner is fitted there
@@ -813,6 +824,16 @@ def preflight_mechanism_support(
                 _check_mixed_cell_support(data, time, at_risk, folds)
             continue
         if data.node_kind(time) != "categorical":
+            if data.node_atoms(time):
+                # R-b2: each declared atom needs rows in every training fold, on both
+                # routes, since both read P(A = a_k | H) from those rows.
+                check_declared_atoms(
+                    np.nan_to_num(data.node_codes(time), nan=0.0),
+                    at_risk,
+                    data.node_atoms(time),
+                    folds,
+                    node=data.treatment_names[time - 1],
+                )
             continue
         arm = np.nan_to_num(data.node_codes(time), nan=0.0)
         classes = tuple(float(code) for code in range(len(data.treatment_levels[time - 1])))
@@ -825,6 +846,66 @@ def preflight_mechanism_support(
             data.decision_name(time),
             every_level=time == 1 and not folds.is_single,
         )
+
+
+def preflight_declared_doses(
+    data: LongitudinalData,
+    regimens: Sequence[RegimenSpec],
+    *,
+    ratio: str,
+    density_bins: int | None,
+) -> None:
+    """The declared-support and atom checks of every continuous node, before any plan.
+
+    At each continuous node, in order: an observed dose outside the declared support
+    (R-a2 of ``X40-plan.md``), an undeclared recorded atom where some regimen's policy moves
+    a dose (R-b4), and a declared atom with no row at risk (R-b2).  The policy's own checks
+    under the declared support and atoms (R-a1, R-b1, R-b3) run when the plans resolve, and
+    the training-fold half of R-b2 runs in :func:`preflight_mechanism_support`.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    regimens : sequence of RegimenSpec
+        The resolved regimens, before their plans are evaluated.
+    ratio : {"density", "classifier"}
+        The ratio route, which decides whether the bin count rule applies.
+    density_bins : int or None
+        The declared bin count of the density route, or ``None`` for the default.
+
+    Raises
+    ------
+    DataError
+        If a declaration contradicts the data, or a node has an undeclared atom.
+    """
+    for time in range(1, data.n_times + 1):
+        if data.is_held_node(time) or data.node_kind(time) != "continuous":
+            continue
+        reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
+        dose = np.nan_to_num(data.node_codes(time), nan=0.0)
+        name = data.treatment_names[time - 1]
+        support = data.node_support(time)
+        if support is not None:
+            check_observed_support(
+                dose, lazy_frame(partial(data.policy_frame, time)), reachable, support, node=name
+            )
+        atoms = data.node_atoms(time)
+        moved = any(
+            policy_moves_dose(regimen.plan[time - 1])
+            for regimen in regimens
+            if isinstance(regimen, DynamicRegimen) and regimen.is_mtp(time)
+        )
+        at_risk = dose[reachable]
+        bins: int | None = None
+        if ratio == "density":
+            continuous = at_risk[_atom_index(at_risk, atoms) < 0] if atoms else at_risk
+            bins = (
+                density_bins if density_bins is not None else default_density_bins(continuous.size)
+            )
+        _refuse_undeclared_atoms(at_risk, atoms=atoms, moved=moved, bins=bins, where=name)
+        if atoms:
+            check_declared_atoms(dose, reachable, atoms, None, node=name)
 
 
 def _check_mixed_cell_support(
@@ -922,7 +1003,7 @@ def fit_mechanism(
     numerators: dict[str, dict[int, FloatArray]] = {
         plan.label: {} for plan in plans if plan.has_mtp
     }
-    densities: dict[tuple[int, str], ConditionalDensity] = {}
+    densities: dict[tuple[int, str], ConditionalDensity | MixedDensity] = {}
     no_censoring_nodes: list[int] = []
     no_censoring_folds: dict[int, tuple[int, ...]] = {}
     known = data.known_mechanisms
@@ -1418,7 +1499,7 @@ def _continuous_node_ratios(
     density_bins: int | None,
     ratio: str,
     n_jobs: int,
-) -> ConditionalDensity | None:
+) -> ConditionalDensity | MixedDensity | None:
     """A continuous or mixed node's policy ratios, by the binned density or by classification.
 
     The density route fits one pooled-hazard density of the dose given the observed
@@ -1455,8 +1536,26 @@ def _continuous_node_ratios(
     dose = np.nan_to_num(data.node_codes(time), nan=0.0)
     history = data.history_design(time)
     frame = lazy_frame(lambda: data.policy_frame(time))
-    density: ConditionalDensity | None = None
-    if ratio == "density":
+    atoms = data.node_atoms(time)
+    density: ConditionalDensity | MixedDensity | None = None
+    if ratio == "density" and atoms:
+        # A dose with declared atoms: the multinomial "which atom, or none" and the binned
+        # density of the rows with no atom, on the same folds (X40 section 2.3).  A
+        # training fold's own fit reads its bin edges from every row at risk.
+        density, _ = fit_mixed_density(
+            treatment_learner,
+            history,
+            dose,
+            data.weights,
+            folds,
+            atoms=atoms,
+            n_bins=density_bins,
+            groups=data.cluster,
+            n_jobs=n_jobs,
+            fit_mask=fit_at,
+            edge_rows=None if np.array_equal(fit_at, at_risk) else at_risk,
+        )
+    elif ratio == "density":
         edges = None
         if not np.array_equal(fit_at, at_risk):
             # One outer training fold's own density (``fit_rows=``).  Its bin edges are the
@@ -1484,7 +1583,7 @@ def _continuous_node_ratios(
         if density is not None:
             numerator = np.zeros(data.n)
             for probability, branch in branches:
-                numerator = numerator + probability * branch.ratio(dose, frame, density.density_at)
+                numerator = numerator + probability * branch_ratio(branch, dose, frame, density)
         else:
             (numerator,) = classifier_ratio(
                 treatment_learner,
@@ -1500,6 +1599,7 @@ def _continuous_node_ratios(
                 fit_mask=fit_at,
                 groups=data.cluster,
                 n_jobs=n_jobs,
+                atoms=atoms,
             )
         numerators[plan.label][time] = np.where(at_risk, numerator, 0.0)
     return density
@@ -1876,7 +1976,9 @@ def outcome_design(
                 if current and targets is not None
                 else np.nan_to_num(plan.values[:, node - 1], nan=0.0)
             )
-            blocks.append(np.asarray(dose, dtype=float).reshape(-1, 1))
+            # With declared atoms the block adds the indicator of each atom, read from the
+            # dose set here: the assigned dose in a counterfactual design.
+            blocks.append(data.dose_block(node, dose))
             continue
         codes = np.full(data.n, float(arm)) if current else plan.values[:, node - 1]  # type: ignore[arg-type]
         blocks.append(arm_indicators(codes, len(data.treatment_levels[node - 1])))

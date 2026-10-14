@@ -130,6 +130,7 @@ from ..inference.results import (
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..assessment import AssessmentReport
+from ..interventions.policy import Support
 from ..learners.crossfit import Folds, _fresh_seed, check_integrity, random_partition
 from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearner, resolve_learner
@@ -183,6 +184,7 @@ from .sequential import (
     fit_mechanism,
     fit_regimen,
     node_ratios,
+    preflight_declared_doses,
     preflight_known_mechanisms,
     preflight_mechanism_support,
     preflight_terminal_outcomes,
@@ -3197,9 +3199,10 @@ class _SequentialEstimator:
         weights_type: str = "probability",
         weights_estimated: bool = False,
         family: str = "auto",
-        continuous_treatment: Sequence[str] = (),
+        continuous_treatment: Sequence[str] | Mapping[str, Support | None] = (),
         treatment_probabilities: Any = None,
         censoring_probabilities: Any = None,
+        dose_atoms: Mapping[str, Sequence[float]] | None = None,
         **refused: Any,
     ) -> LongitudinalResult:
         """Fit on a wide dataframe, or on an already-built :class:`LongitudinalData`.
@@ -3254,10 +3257,12 @@ class _SequentialEstimator:
             Declare that the weights came out of a fitted model.  It changes no number.
         family : {"auto", "binomial", "gaussian"}
             The outcome family.  ``"auto"`` infers it from the outcome.
-        continuous_treatment : sequence of str
+        continuous_treatment : sequence of str or mapping
             The treatment columns that hold a continuous dose, as for
             :meth:`LongitudinalData.from_frame`.  Each such node takes a modified treatment
-            policy.
+            policy.  The mapping form ``{name: Support(lower, upper) or None}`` also
+            declares each dose's conditional support, which the fit checks before any
+            learner.
         treatment_probabilities : array-like, mapping, or None
             The known treatment mechanism of a sequentially randomized design, as for
             :meth:`LongitudinalData.from_frame`.  A declared node fits no treatment learner,
@@ -3270,6 +3275,9 @@ class _SequentialEstimator:
         censoring_probabilities : array-like, mapping, or None
             The known retention probabilities, as for
             :meth:`LongitudinalData.from_frame`.  A declared node fits no censoring learner.
+        dose_atoms : mapping of str to sequence of float, or None
+            The declared atoms of each continuous dose, as for
+            :meth:`LongitudinalData.from_frame`: the doses with a recorded point mass.
         **refused : Any
             A point-treatment keyword.  Each one raises :class:`TypeError` with the
             reason that a longitudinal fit does not support it.
@@ -3305,6 +3313,7 @@ class _SequentialEstimator:
             continuous_treatment=continuous_treatment,
             treatment_probabilities=treatment_probabilities,
             censoring_probabilities=censoring_probabilities,
+            dose_atoms=dose_atoms,
         )
         regimens = resolve_regimens(
             self.regimens,
@@ -3329,6 +3338,11 @@ class _SequentialEstimator:
                         "Two parameters would then share a name; rename the cause"
                     )
         reference = self._reference(regimens)
+        # The declared support and the declared atoms of each continuous dose, and the
+        # undeclared-atom check, before any plan or learner (X40 parts (a) and (b)).
+        preflight_declared_doses(
+            prepared, regimens, ratio=self.ratio, density_bins=self.density_bins
+        )
         # Every rule is called here and nowhere else, so a mask and the design the
         # mechanism was evaluated at cannot disagree about what the regimen assigned.
         plans = resolve_plans(regimens, prepared)
@@ -3594,9 +3608,10 @@ class _SequentialEstimator:
         weights_type: str,
         weights_estimated: bool,
         family: str,
-        continuous_treatment: Sequence[str] = (),
+        continuous_treatment: Sequence[str] | Mapping[str, Any] = (),
         treatment_probabilities: Any = None,
         censoring_probabilities: Any = None,
+        dose_atoms: Mapping[str, Sequence[float]] | None = None,
     ) -> LongitudinalData:
         if isinstance(data, LongitudinalData):
             declared = {
@@ -3620,6 +3635,8 @@ class _SequentialEstimator:
                 named.append("weights_estimated")
             if continuous_treatment:
                 named.append("continuous_treatment")
+            if dose_atoms:
+                named.append("dose_atoms")
             if named:
                 raise ValueError(
                     f"{named} cannot be combined with a LongitudinalData input; the node "
@@ -3653,6 +3670,7 @@ class _SequentialEstimator:
             continuous_treatment=continuous_treatment,
             treatment_probabilities=treatment_probabilities,
             censoring_probabilities=censoring_probabilities,
+            dose_atoms=dose_atoms,
         )
 
     def _horizons(self, data: LongitudinalData) -> tuple[int, ...]:

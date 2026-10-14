@@ -1126,7 +1126,17 @@ def _resolve_mtp_node(
     probabilities = np.array([probability for probability, _ in branches])
     if data.is_continuous_node(time):
         observed = np.nan_to_num(data.node_codes(time), nan=0.0)
-        check_continuous_policy(node, observed, frame, reachable, where=where)
+        check_continuous_policy(
+            node,
+            observed,
+            frame,
+            reachable,
+            where=where,
+            support=data.node_support(time),
+            atoms=data.node_atoms(time),
+            regimen=regimen.label,
+            node=name,
+        )
         doses = []
         for _, branch in branches:
             assigned = np.asarray(branch.assign(observed, frame), dtype=float).reshape(-1)
