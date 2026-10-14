@@ -32,6 +32,7 @@ from .density import (
     bin_edges,
     fit_conditional_density,
 )
+from .glm import GLM
 from .library import default_library
 from .screeners import CorrelationScreener, screen_by_correlation
 from .super_learner import SuperLearner, SuperLearnerDiagnostics
@@ -43,6 +44,7 @@ __all__ = [
     "DensityDiagnostics",
     "FoldOrigin",
     "Folds",
+    "GLM",
     "SplitPlan",
     "SuperLearner",
     "SuperLearnerDiagnostics",
