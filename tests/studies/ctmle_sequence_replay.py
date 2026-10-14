@@ -32,8 +32,11 @@ leaves out a replicate where that difference can move a compared value:
   ``Q`` of the package, on the path or in a final-step option, lies at or outside a bound.
   Where every value lies strictly inside, neither side's bound acts on a candidate.
 * ``binary_learners``: R writes each candidate's estimate and loss from its own ``Qstars``,
-  bounded the same way, so a bound on a counterfactual arm moves both sides alike.  The
-  flag fires when a targeted ``Q`` of the package on an observed row, a row the fluctuation
+  bounded the same way, so a bound on a counterfactual arm moves both sides' estimates alike.
+  It does not move R's construction penalty: R computes ``var(D*)`` from the unbounded
+  ``Qstars``, and the package from the bounded ones.  The difference in that score is about
+  ``4e-8`` of the score, below :data:`MARGIN` (``1e-6``), so it can reverse a decision only
+  where the ``near_tie`` flag already leaves the replicate out.  The flag fires when a targeted ``Q`` of the package on an observed row, a row the fluctuation
   is fitted on, lies at or outside a bound.  There the package solves the score of the
   bounded fit, and R's ``glm`` solves the unbounded one, so the two ``epsilon`` differ.  When
   every observed row lies strictly inside, the package's score is the unbounded score, and
@@ -112,6 +115,10 @@ SUMMARY_COLUMNS = (
     "max_loss_gap",
     "max_final_est_gap",
     "max_final_loss_gap",
+    "flagged_max_est_gap",
+    "flagged_max_loss_gap",
+    "flagged_max_final_est_gap",
+    "flagged_max_final_loss_gap",
     "tolerance",
     "min_unflagged",
     "min_final",
@@ -327,6 +334,9 @@ def replay_summary(compared: pd.DataFrame) -> pd.DataFrame:
     that share of R's loss, and at each final-step start the final index is identical and
     the estimate and every option loss are within the same tolerances.  The gate also needs
     :data:`MIN_UNFLAGGED` unflagged replicates and :data:`MIN_FINAL` final-step comparisons.
+    The ``flagged_max_*`` columns publish the largest gaps on the flagged replicates.  They
+    are descriptive and no gate reads them, so a gross error confined to flagged rows stays
+    visible.
 
     Parameters
     ----------
@@ -346,6 +356,8 @@ def replay_summary(compared: pd.DataFrame) -> pd.DataFrame:
         flagged = (rows["near_tie"] != 0) | (rows["clip"] != 0)
         kept = rows.loc[~flagged]
         final = kept.loc[kept["final_starts"] > 0]
+        left_out = rows.loc[flagged]
+        left_out_final = left_out.loc[left_out["final_starts"] > 0]
 
         def largest(frame: pd.DataFrame, column: str) -> float:
             return float(frame[column].max()) if len(frame) else math.nan
@@ -377,6 +389,10 @@ def replay_summary(compared: pd.DataFrame) -> pd.DataFrame:
                 "max_loss_gap": largest(kept, "loss_gap"),
                 "max_final_est_gap": largest(final, "final_est_gap"),
                 "max_final_loss_gap": largest(final, "final_loss_gap"),
+                "flagged_max_est_gap": largest(left_out, "est_gap"),
+                "flagged_max_loss_gap": largest(left_out, "loss_gap"),
+                "flagged_max_final_est_gap": largest(left_out_final, "final_est_gap"),
+                "flagged_max_final_loss_gap": largest(left_out_final, "final_loss_gap"),
                 "tolerance": GLM_TOLERANCE,
                 "min_unflagged": MIN_UNFLAGGED,
                 "min_final": MIN_FINAL[scenario],

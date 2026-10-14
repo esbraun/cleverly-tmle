@@ -311,6 +311,15 @@ class TestTheWitnessesBind:
         assert harness.smallest_margin(lasso_path) > harness.MARGIN
         assert harness.interior(lasso_path)
 
+    def test_the_trace_keeps_every_try(self, lasso_path: harness.Path) -> None:
+        """The clip flag reads each scored try, and the discarded tries are among them."""
+        assert len(lasso_path.tries) == sum(scores.size for scores in lasso_path.rounds)
+        np.testing.assert_array_equal(
+            [float(candidate.risk) for candidate in lasso_path.tries],
+            np.concatenate(lasso_path.rounds),
+        )
+        assert len(lasso_path.tries) > len(lasso_path.candidates)
+
 
 class TestTheRebuild:
     """S1 of the X16 plan (3.4): the study's type-1 adapter agrees with ``ctmleGlmnet``.

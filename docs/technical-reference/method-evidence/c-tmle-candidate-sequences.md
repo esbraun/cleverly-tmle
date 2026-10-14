@@ -62,7 +62,11 @@ only to the initial fit and to each accepted update.
 | `binary_lasso` | unbounded estimates and losses | a targeted value of the package lies at or outside a bound |
 | `binary_learners` | estimates and losses from R's targeted values, bounded as the package bounds them | a targeted value of the package on an observed row lies at or outside a bound. On those rows the two fluctuation fits solve different equations |
 
-The file `replay-summary.csv` records the counts, the flags and the largest gap of each kind.
+The `clip` flag reads every try that the construction scores. This includes a try that the path
+discards.
+
+The file `replay-summary.csv` records the counts, the flags and the largest gap of each kind. It
+also records the largest gaps on the flagged replicates. No gate reads those gaps.
 
 The property study uses a public nested cross-fit configuration: five outer folds, three
 selection folds, and two inner folds. Every two-arm property cell samples a proportion and

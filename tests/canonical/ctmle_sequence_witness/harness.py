@@ -403,6 +403,9 @@ class Path:
         The scores of each round's tries.
     best : tuple of float
         The best score before each round.
+    tries : tuple
+        Every ``_Candidate`` the construction scored, in order, the off-path tries included:
+        a round's tries that lost, and the tries of round 1 that an acceptance discarded.
     """
 
     candidates: list[Any]
@@ -410,6 +413,7 @@ class Path:
     stopped: bool
     rounds: tuple[np.ndarray, ...]
     best: tuple[float, ...]
+    tries: tuple[Any, ...] = ()
 
     @property
     def estimates(self) -> np.ndarray:
@@ -464,10 +468,12 @@ def indexed_path(chooser: Any, columns: np.ndarray) -> Path:
 def _trace(count: int, initial: Any, fluctuate: Any, construct: Any = None) -> Path:
     """Run the indexed construction with ``fluctuate``, recording each try's score."""
     calls: list[tuple[int, int, float]] = []
+    tries: list[Any] = []
 
     def recorded(index: int, start: Any, n_steps: int) -> Any:
         candidate = fluctuate(index, start, n_steps)
         calls.append((id(start), index, float(candidate.risk)))
+        tries.append(candidate)
         return candidate
 
     rule = ctmle_module._indexed_path if construct is None else construct
@@ -487,7 +493,7 @@ def _trace(count: int, initial: Any, fluctuate: Any, construct: Any = None) -> P
     stopped = bool(last[choice] > best_before[-1])
     if not stopped:
         accepted.append(starts[-1] + choice)
-    return Path(candidates, tuple(accepted), stopped, rounds, tuple(best_before))
+    return Path(candidates, tuple(accepted), stopped, rounds, tuple(best_before), tuple(tries))
 
 
 def final_step(
@@ -644,11 +650,13 @@ def interior(path: Path, extra: Sequence[Any] = (), *, arms: bool = True) -> boo
     """Whether every targeted ``Q`` lies strictly inside :data:`Q_INTERIOR`.
 
     A value at a bound fails, so a value that the package's ``alpha`` bound clipped fails.
-    ``extra`` adds candidates outside the path, such as the final step's options.  With
-    ``arms=False`` only the observed rows are read: the rows the fluctuation is fitted on.
+    The check reads every try of ``path``, not only its candidates: a clipped try that lost
+    its round, or that an acceptance discarded, still moved a score that decided the path.
+    ``extra`` adds candidates outside the construction, such as the final step's options.
+    With ``arms=False`` only the observed rows are read: the rows the fluctuation is fitted on.
     """
     low, high = Q_INTERIOR
-    for candidate in (*path.candidates, *extra):
+    for candidate in (*path.candidates, *path.tries, *extra):
         fit = candidate.targeted
         for values in (fit.observed, *(fit.arms.values() if arms else ())):
             if not (np.all(values > low) and np.all(values < high)):

@@ -97,6 +97,16 @@ class TestTheGateRule:
         lasso.loc[0, ["accepted_match", flag]] = [0, 1]
         assert _verdict(lasso)["binary_lasso"]
 
+    def test_a_flagged_gap_is_published_and_not_gated(self) -> None:
+        lasso = _compared("binary_lasso", replay.MIN_UNFLAGGED + 1)
+        lasso.loc[0, ["near_tie", "est_gap", "final_loss_gap"]] = [1, 0.3, 0.2]
+        learners = _compared("binary_learners", replay.MIN_UNFLAGGED)
+        summary = replay.replay_summary(pd.concat([lasso, learners], ignore_index=True))
+        row = summary.set_index("scenario").loc["binary_lasso"]
+        assert row["passed"] and row["max_est_gap"] == 1e-9
+        assert row["flagged_max_est_gap"] == 0.3 and row["flagged_max_final_loss_gap"] == 0.2
+        assert np.isnan(summary.set_index("scenario").loc["binary_learners", "flagged_max_est_gap"])
+
     def test_too_few_unflagged_replicates_fail(self) -> None:
         lasso = _compared("binary_lasso", replay.MIN_UNFLAGGED)
         lasso.loc[0, "near_tie"] = 1
@@ -217,12 +227,17 @@ def test_a_wrong_accepted_index_is_caught(lasso_row: dict[str, Any]) -> None:
     assert replay.replay_one(row)["accepted_match"] == 0
 
 
-def _one_candidate(observed: float, arm: float) -> SimpleNamespace:
+def _targeted(observed: float, arm: float) -> SimpleNamespace:
     n = 4
     fit = InitialFit(np.full(n, 0.5), {0.0: np.full(n, 0.5), 1.0: np.full(n, 0.5)})
     fit.observed[0] = observed
     fit.arms[1.0][0] = arm
-    return SimpleNamespace(candidates=[SimpleNamespace(targeted=fit)])
+    return SimpleNamespace(targeted=fit)
+
+
+def _one_candidate(observed: float, arm: float) -> SimpleNamespace:
+    candidate = _targeted(observed, arm)
+    return SimpleNamespace(candidates=[candidate], tries=(candidate,))
 
 
 @pytest.mark.parametrize("value", [1.0 - harness.ALPHA, harness.ALPHA])
@@ -237,6 +252,19 @@ def test_the_clip_flag_reads_a_value_at_a_bound(value: float) -> None:
     assert not harness.interior(arm)
     assert harness.interior(arm, arms=False)
     assert not harness.interior(_one_candidate(value, 0.5), arms=False)
+
+
+@pytest.mark.parametrize("value", [1.0 - harness.ALPHA, harness.ALPHA])
+def test_the_clip_flag_reads_an_off_path_try(value: float) -> None:
+    """A clipped try that the path discarded still flags the replicate.
+
+    A round-1 try that an acceptance discards, or a try that loses its round, scores a
+    deciding gap, so a clip there can move the path without touching a kept candidate.
+    """
+    kept = _targeted(0.5, 0.5)
+    path = SimpleNamespace(candidates=[kept], tries=(kept, _targeted(value, 0.5)))
+    assert not harness.interior(path, arms=False)
+    assert harness.interior(SimpleNamespace(candidates=[kept], tries=(kept,)), arms=False)
 
 
 def test_a_vector_column_reads_a_single_value_and_a_missing_one() -> None:
