@@ -88,6 +88,9 @@ SETS: dict[str, tuple[int, str, str, str, int, int]] = {
     "s2:law_ck": (16, "s2", "property", "law_ck", p2.CLUSTER_N, 1_000),
     "s2:dropout_folds_1": (17, "s2", "primary", "dropout_folds_1", N, 600),
     "s2:survival_folds_1": (18, "s2", "primary", "survival_folds_1", N, 600),
+    # At 32,000 the tail is gone and the SE ratio reads 0.948 (MCSE about 0.02), so a second
+    # reading at twice the size fixes the decay of the remaining deficit.
+    "s2:law_dc@64000": (19, "s2", "property", "law_dc", 64_000, 1_000),
 }
 
 
