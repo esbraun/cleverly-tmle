@@ -293,6 +293,12 @@ the fit records it under `result.extra["missing_data"]`.
 | any | yes | no | any, or `TMLE` | `composite` |
 | any | yes | yes | any | refused: `randomized=True` selects a construction that observes the treatment on every row, and a declared mechanism is not the mechanism of the recorded rows |
 
+A per-arm outcome-adaptive `CTMLE` fit takes the `missing_outcome` route with `delta=` alone, and
+the `composite` route with a missing treatment, in sample only. Its factors regress on
+`Qbar_n(a, W)` and not on `W`, and the fit reports a point estimate only. The
+[collaborative TMLE reference](../collaborative-tmle.md#baseline-strata-and-missing-data-in-the-per-arm-design)
+states that contract. The other C-TMLE strategies refuse a missing treatment.
+
 **The contract** has five parts.
 
 | part | content |

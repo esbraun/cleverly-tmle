@@ -1,4 +1,13 @@
-"""Run zEpid's native single-crossfit TMLE on the study's exact rows and folds."""
+"""Run zEpid's native single-crossfit TMLE on the study's exact rows and folds.
+
+RM39 part b: a fit that raises a recorded fitting failure costs its replicate, as a failed
+group costs an R reference run (``tests/canonical/study_harness.R``).  The runner writes one
+record per failed replicate to ``<output stem>.failures.csv``.  The rule copies
+``cleverly.validation._failures``, without the ``cleverly`` classes, which the image does not
+install, and with ``zepid`` among the libraries.  A row that breaks a row rule is recorded as
+``invalid_result``.  The run stops when the first 20 replicates of a scenario all failed, when
+every replicate failed, and on any other error.
+"""
 
 from __future__ import annotations
 
@@ -7,10 +16,95 @@ import sys
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
+from types import TracebackType
 from typing import Any
 
 import numpy as np
 import pandas as pd
+
+#: Always fatal; checked first.  ``cleverly.validation._failures.FATAL`` without its
+#: ``cleverly`` classes.
+FATAL: tuple[type[BaseException], ...] = (
+    KeyboardInterrupt,
+    SystemExit,
+    MemoryError,
+    TypeError,
+    AttributeError,
+    NameError,
+    ImportError,
+    AssertionError,
+)
+
+#: Recorded wherever raised.  ``cleverly.validation._failures.RECORDED`` without its
+#: ``cleverly`` classes.
+RECORDED: tuple[type[BaseException], ...] = (
+    np.linalg.LinAlgError,
+    FloatingPointError,
+    ZeroDivisionError,
+    OverflowError,
+)
+
+#: Packages whose own plain ``ValueError`` or ``RuntimeError`` is a fitting failure.
+LIBRARY_MODULES: tuple[str, ...] = ("numpy", "scipy", "sklearn", "statsmodels", "zepid")
+
+#: The R harness's systematic stop: the first 20 groups of one scenario all failed.
+SYSTEMATIC_PREFIX = 20
+
+FAILURE_COLUMNS = (
+    "group_id",
+    "scenarios",
+    "replicates",
+    "attempt",
+    "class",
+    "stage",
+    "call",
+    "message",
+    "seed",
+)
+
+
+def _innermost(traceback: TracebackType | None) -> TracebackType | None:
+    while traceback is not None and traceback.tb_next is not None:
+        traceback = traceback.tb_next
+    return traceback
+
+
+def recordable(error: BaseException) -> bool:
+    """Whether ``error`` costs its replicate rather than the run."""
+    if isinstance(error, FATAL):
+        return False
+    if isinstance(error, RECORDED):
+        return True
+    if type(error) in (ValueError, RuntimeError):
+        innermost = _innermost(error.__traceback__)
+        module = "" if innermost is None else str(innermost.tb_frame.f_globals.get("__name__", ""))
+        return any(module == name or module.startswith(f"{name}.") for name in LIBRARY_MODULES)
+    return False
+
+
+def failure_call(error: BaseException) -> str:
+    """``module:function`` of the frame that raised ``error``."""
+    innermost = _innermost(error.__traceback__)
+    if innermost is None:
+        return ""
+    frame = innermost.tb_frame
+    return f"{frame.f_globals.get('__name__', '')}:{frame.f_code.co_name}"
+
+
+def invalid(row: dict[str, Any]) -> str | None:
+    """The first row rule ``row`` breaks: the harness's ``study_invalid`` rules."""
+    where = f"{row['estimand']} of {row['scenario']} (row 1)"
+    for column in ("estimate", "inference_estimate", "std_error"):
+        if not np.isfinite(float(row[column])):
+            return f"non-finite {column} for {where}"
+    if not float(row["std_error"]) > 0:
+        return f"non-positive std_error for {where}"
+    if not float(row["ci_lower"]) <= float(row["ci_upper"]):
+        return f"ci_lower above ci_upper for {where}"
+    inside = float(row["ci_lower"]) <= float(row["truth"]) <= float(row["ci_upper"])
+    if int(row["covered"]) != int(inside):
+        return f"covered disagrees with the interval and truth for {where}"
+    return None
 
 
 def assert_native_split_identity(
@@ -102,6 +196,87 @@ def _fit_one(payload: tuple[pd.DataFrame, float]) -> dict[str, Any]:
     }
 
 
+def _record(
+    group_id: str, payload: tuple[pd.DataFrame, float], kind: str, stage: str, call: str, text: str
+) -> dict[str, Any]:
+    frame = payload[0]
+    return {
+        "group_id": group_id,
+        "scenarios": str(frame["scenario"].iloc[0]),
+        "replicates": str(int(frame["replicate"].iloc[0])),
+        "attempt": 1,
+        "class": kind,
+        "stage": stage,
+        "call": call,
+        "message": text.replace("\r", " ").replace("\n", " "),
+        "seed": "NA",
+    }
+
+
+def _attempt(task: tuple[str, tuple[pd.DataFrame, float]]) -> tuple[str, dict[str, Any]]:
+    """One replicate's row, or its failure record.  It runs where the fit ran, so the
+    classification reads the fit's own frames."""
+    group_id, payload = task
+    try:
+        row = _fit_one(payload)
+    except Exception as error:
+        if not recordable(error):
+            raise
+        message = f"{type(error).__name__}: {error}"
+        record = _record(
+            group_id, payload, "fitting_failure", "zepid fit", failure_call(error), message
+        )
+        return "failure", record
+    broken = invalid(row)
+    if broken is not None:
+        return "failure", _record(group_id, payload, "invalid_result", "row check", "none", broken)
+    return "row", row
+
+
+def _map(tasks: list[Any], cores: int) -> list[tuple[str, dict[str, Any]]]:
+    if cores == 1:
+        return [_attempt(task) for task in tasks]
+    with ProcessPoolExecutor(max_workers=cores) as pool:
+        return list(pool.map(_attempt, tasks))
+
+
+def fit_all(
+    groups: list[tuple[pd.DataFrame, float]], cores: int
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The rows and the failure records of every group, in group order.
+
+    Groups take the harness's ids ``g000000001, ...``.  The first 20 groups of each scenario
+    run first, and the run stops when all of one scenario's 20 failed.
+    """
+    tasks = [(f"g{index:09d}", group) for index, group in enumerate(groups, start=1)]
+    by_scenario: dict[str, list[int]] = {}
+    for index, (_, (frame, _)) in enumerate(tasks):
+        by_scenario.setdefault(str(frame["scenario"].iloc[0]), []).append(index)
+    first = sorted(
+        index for members in by_scenario.values() for index in members[:SYSTEMATIC_PREFIX]
+    )
+    done = dict(zip(first, _map([tasks[index] for index in first], cores), strict=True))
+    for scenario, members in by_scenario.items():
+        prefix = members[:SYSTEMATIC_PREFIX]
+        if len(prefix) == SYSTEMATIC_PREFIX and all(
+            done[index][0] == "failure" for index in prefix
+        ):
+            record = done[prefix[0]][1]
+            raise RuntimeError(
+                f"systematic: the first {SYSTEMATIC_PREFIX} groups of {scenario} failed; first: "
+                f"{record['class']} in {record['stage']} (group {record['group_id']}): "
+                f"{record['message']}"
+            )
+    rest = [index for index in range(len(tasks)) if index not in done]
+    done.update(zip(rest, _map([tasks[index] for index in rest], cores), strict=True))
+    outcomes = [done[index] for index in range(len(tasks))]
+    rows = [value for kind, value in outcomes if kind == "row"]
+    failures = [value for kind, value in outcomes if kind == "failure"]
+    if failures and not rows:
+        raise RuntimeError(f"every group failed; first: {failures[0]['message']}")
+    return rows, failures
+
+
 def _cores(groups: int) -> int:
     raw = os.getenv("CLEVERLY_REFERENCE_CORES", os.getenv("CLEVERLY_R_CORES", "1"))
     try:
@@ -124,10 +299,18 @@ def main() -> None:
         (frame.copy(), truth_lookup[(str(scenario), int(replicate))])
         for (scenario, replicate), frame in samples.groupby(["scenario", "replicate"], sort=True)
     ]
-    with ProcessPoolExecutor(max_workers=_cores(len(groups))) as pool:
-        rows = list(pool.map(_fit_one, groups))
-    if len(rows) != len(groups):
-        raise RuntimeError(f"zEpid returned {len(rows)} rows for {len(groups)} replications")
+    rows, failures = fit_all(groups, _cores(len(groups)))
+    if len(rows) + len(failures) != len(groups):
+        raise RuntimeError(
+            f"zEpid returned {len(rows)} rows and {len(failures)} failures for {len(groups)} "
+            "replications"
+        )
+    failures_path = output_path.with_name(f"{output_path.stem}.failures.csv")
+    failures_path.unlink(missing_ok=True)
+    if failures:
+        for record in failures:
+            print(f"recorded {record['class']} for group {record['group_id']}: {record['message']}")
+        pd.DataFrame(failures, columns=list(FAILURE_COLUMNS)).to_csv(failures_path, index=False)
     pd.DataFrame(rows).to_csv(output_path, index=False, na_rep="NA")
 
 

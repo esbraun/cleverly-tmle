@@ -27,7 +27,13 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
-from cleverly import CausalStudy, LongitudinalTreatment, RegimeMean, SplitPlan
+from cleverly import (
+    CausalStudy,
+    IncrementalEffect,
+    LongitudinalTreatment,
+    RegimeMean,
+    SplitPlan,
+)
 from cleverly.assessment import (
     AssessmentStatus,
     DiagnosticsFacade,
@@ -166,6 +172,16 @@ def fit_ctmle_oat_shared() -> Any:
     frame, _ = make_instrument(n=500, seed=44)
     estimator = linear_ctmle("oat", estimands=("ate",), oat_design="shared")
     return estimator.fit(frame, outcome="Y", treatment="A").single()
+
+
+def fit_ctmle_oat_missing() -> Any:
+    """A per-arm outcome-adaptive fit with missing outcomes, ``make_missing_outcome(400, 4)``.
+
+    It reports points only, and the missingness tilt reads its full-covariate response
+    model, so its rows are the shared design's and both tilt rows.
+    """
+    estimator = linear_ctmle("oat", estimands=("ate",))
+    return estimator.fit(_missing_frame(), outcome="Y", treatment="A", delta="Delta").single()
 
 
 def fit_msm() -> Any:
@@ -684,6 +700,32 @@ def fit_ltmle() -> Any:
     )
 
 
+def fit_ipsi() -> Any:
+    """The in-sample two-node odds-tilt fit of ``make_longitudinal(400, 12)``, by IPSI."""
+    frame, _ = make_longitudinal(n=400, seed=12)
+    study = CausalStudy(
+        frame,
+        design=LongitudinalTreatment(
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"]],
+            censoring=["C1", "C2"],
+        ),
+    )
+    return study.identify(IncrementalEffect([Incremental(1.0), Incremental(2.0)])).estimate(
+        method="ipsi",
+        outcome_learner=LinearRegression(),
+        pseudo_learner=LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=1000),
+        censoring_learner=LogisticRegression(max_iter=1000),
+        learner_folds=2,
+        random_state=5,
+        simultaneous=False,
+        **IN_SAMPLE,
+    )
+
+
 # ------------------------------------------------------------------------- the kinds
 
 
@@ -758,6 +800,7 @@ KINDS: dict[str, Kind] = {
     "multi_arm": _kind(fit_multi_arm, *_ARM),
     "ctmle_oat": _kind(fit_ctmle_oat, *_LIVE),
     "ctmle_oat_shared": _kind(fit_ctmle_oat_shared, *_LIVE),
+    "ctmle_oat+missing": _kind(fit_ctmle_oat_missing, *_LIVE, *_TILT),
     "msm": _kind(fit_msm, *_LIVE),
     "regime": _kind(fit_regime, *_LIVE),
     # A refit relearns the rules, so no refutation or bound row answers.
@@ -814,6 +857,8 @@ KINDS: dict[str, Kind] = {
         reconfigured_ctmle_clustered, *_READ, "truncation_curve", refits=False
     ),
     "ltmle": _kind(fit_ltmle, *_READ, "truncation_curve"),
+    # IPSI averages the influence function and solves no score equation.
+    "ipsi": _kind(fit_ipsi, "nuisance_models", "support", "truncation_curve"),
 }
 
 

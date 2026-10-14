@@ -84,8 +84,8 @@ the same set, and each file answers the same question wherever it appears.
 | `performance-tests.csv` | the accuracy verdicts against known truth |
 | `equivalence.csv` | the paired verdicts against the canonical implementation |
 | `properties.csv` | the theory-property cells and their controls |
-| `failures.csv` | each recorded comparator fitting failure, with its replicates, stage, and message. Present only when a fit failed |
-| `failure-accounting.csv` | each cell that lost a replicate, with its bound, its legs at the complete cases and at the worst case, and its gate. Present only when a fit failed |
+| `failures.csv` | each recorded fitting failure of either implementation, with its replicates, stage, and message. Present only when a fit failed |
+| `failure-accounting.csv` | each cell that lost a replicate, with each side's count and bound, its legs at the complete cases and at the worst case, and its gate. Present only when a fit failed |
 
 A study page's Reproduction section adds only what is specific to that study.
 

@@ -822,11 +822,29 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
     # rows whose treatment is recorded, so each is checked there, against the factor it is.
     recorded = data.treatment_recorded if data.has_missing_treatment else None
 
-    if nuisance.treatment_observation is not None:
+    recording = nuisance.treatment_observation
+    if recording is not None and np.ndim(recording) == 2:
+        # The per-arm outcome-adaptive design of CTMLE fits one treatment observation
+        # factor per arm, on that arm's Qbar(a, W), and stores one diagnostics list per arm.
+        stored = nuisance.diagnostics.get("treatment_observation")
+        for index, arm in enumerate(nuisance.arms):
+            models.append(
+                _binary_report(
+                    f"treatment_observation[{data.arm_label(arm)}]",
+                    np.asarray(recording, dtype=float)[:, index],
+                    data.treatment_recorded.astype(float),
+                    data.weights,
+                    stored[index] if isinstance(stored, list) else None,
+                    inverse_weight_rows="label_one",
+                    folds=folds,
+                    cluster=data.cluster,
+                )
+            )
+    elif recording is not None:
         models.append(
             _binary_report(
                 "treatment_observation",
-                nuisance.treatment_observation,
+                recording,
                 data.treatment_recorded.astype(float),
                 data.weights,
                 nuisance.diagnostics.get("treatment_observation"),

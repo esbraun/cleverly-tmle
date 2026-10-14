@@ -592,9 +592,12 @@ class CellMeans(BaseEstimator):
     earlier node is an expectation of the *later* node's regression -- a quantity nobody
     would want to transcribe.
 
-    A design row the fit never saw falls back to the training mean.  Only rows the
-    estimator masks away can hit that path: a unit censored before the node in question
-    has its history filled with zeros, and nothing reads its prediction.
+    A design row the fit never saw falls back to the training mean.  A masked row can hit
+    that path: a unit censored before the node in question has its history filled with
+    zeros, and nothing reads its prediction.  A held-out row can hit it too, and then the
+    prediction is read.  Under an odds tilt or a randomized policy the estimator predicts
+    at every arm of a held-out row, and a cross-fit training fold can lack that cell
+    (``X19-plan.md`` 6.2 bounds the bias this adds in each registered incremental cell).
 
     ``sample_weight`` is **honoured, not accepted and dropped**, and that is what makes the
     saturated fit the oracle of the *tilted* law as well as of ``P_0``.  A weighted cell

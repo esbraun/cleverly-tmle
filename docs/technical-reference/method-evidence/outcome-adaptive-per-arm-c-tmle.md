@@ -241,8 +241,20 @@ study fits no ordinary TMLE on the same draws, so this comparison is reported an
 | The mechanisms agree only off the bounds | Where no row of the per-arm mechanism sits at a bound, the two mechanisms agree to `mechanism_max_gap_off_bound`. In `mechanism_fits_with_rows_at_bound` fits some rows sit at a bound, and the gap reaches `mechanism_max_gap`. The rows at a bound are reported, not gated |
 | A flexible outcome learner biases the point estimate | The `crossfit_overfitting` pair fits a fully grown regression tree. Cross-fitting restores the SE ratio, which is all that pair gates. The cross-fitted estimate still has a bias of `properties[crossfit_overfitting/cross_fitted_oat]:standardized_bias` empirical standard deviations, and its diagnostic interval covers `properties[crossfit_overfitting/cross_fitted_oat]:coverage`. The point-estimate evidence holds for the correctly specified GLM |
 | Two parametric laws with a binary outcome | Each law has a normal index for each arm and one instrument. A continuous outcome and more than three arms have fast-tier evidence only |
-| No missing outcomes, strata or clusters | X29 owns the per-arm design with baseline strata and missing outcomes, for the point estimate only |
+| Strata and missing data have fast-tier evidence only | The laws above have no strata and no missing data. The study `ctmle-oat-per-arm-strata-missing` is designed and queued. See [Baseline strata and missing data](#baseline-strata-and-missing-data). Clusters stay refused |
 | One unstratified split does the cross-fitting | The property cells declare `stratify_folds="none"`. The primary fit is in sample, so the pairing says nothing about cross-fitted parity |
+
+## Baseline strata and missing data
+
+The per-arm design also fits inside baseline strata and with missing data. The
+[collaborative TMLE reference](../collaborative-tmle.md#baseline-strata-and-missing-data-in-the-per-arm-design)
+defines the factors and the routes. The table gives the state of the evidence.
+
+| evidence | state |
+| --- | --- |
+| Fast tier | `tests/unit/test_outcome_adaptive_per_arm_extensions.py` checks the factor product on an exact law, the longhands, the solved scores, the identity of the missing-outcome route and the composite route, the refusals, and a deliberate-mutation control for each factor |
+| Registered study | `ctmle-oat-per-arm-strata-missing` is designed, and its full run is queued. The study registers when its artifacts land |
+| Inference | Every fit withholds `ci`, `pvalue` and `std_error`, as above. The study will read `plugin_std_error` and `plugin_interval`, as the per-arm study above does |
 
 ## Reproduction
 
