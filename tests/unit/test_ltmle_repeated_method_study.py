@@ -912,3 +912,135 @@ def test_the_primary_phase_returns_the_driver_contract() -> None:
     assert result.failures is None
     assert set(result.rows["estimand"]) == set(study.ESTIMANDS)
     assert result.samples is not None and result.truths is not None
+
+
+# ---------------------------------------------------------------------------- parity
+
+#: The largest ratio of the root-mean-square difference between the two implementations to
+#: the root-mean-square size of R's own targeting move, in any primary cell.  Declared before
+#: the run.  The paired margins cannot see a missing targeting step, because the untargeted
+#: sequential regression is nearly unbiased on this law.  The ratio can: a skipped step has
+#: ratio 1 and a step 10% short has ratio 0.1.  The bound sits ten times below the second and
+#: far above the disagreement of two solvers that stop at a relative score of 1e-8 to 1e-10.
+PARITY_RMS_BOUND = 0.01
+#: The largest single difference between the two implementations, as a fraction of R's mean
+#: reported standard error in the cell.  Declared before the run.
+PARITY_MAX_SE_FRACTION = 0.01
+#: R's targeting step must exist in every cell: its root-mean-square size is at least this.
+PARITY_MIN_MOVE = 1e-7
+
+
+def _rms(values: pd.Series) -> float:
+    return float(np.sqrt(np.mean(np.square(values.to_numpy(dtype=float)))))
+
+
+def _parity_findings(paired: pd.DataFrame) -> list[str]:
+    """The cells of aligned paired rows that break the parity rule, as readable findings.
+
+    ``paired`` has one row per replication and estimand with ``r_initial`` (the ``gcomp``
+    call), ``r_estimate`` (the targeted R fit), ``cl_estimate`` and ``r_std_error``.  The
+    denominator is R's own targeting move, because cleverly publishes no plug-in.
+    """
+    findings = []
+    for estimand, cell in paired.groupby("estimand"):
+        move = cell["r_estimate"] - cell["r_initial"]
+        difference = cell["cl_estimate"] - cell["r_estimate"]
+        if _rms(move) <= PARITY_MIN_MOVE:
+            findings.append(f"{estimand}: R's targeting step is absent (rms {_rms(move):.2e})")
+        elif _rms(difference) > PARITY_RMS_BOUND * _rms(move):
+            findings.append(
+                f"{estimand}: rms difference is {_rms(difference) / _rms(move):.3g} of R's "
+                f"targeting move, above {PARITY_RMS_BOUND}"
+            )
+        worst = float(difference.abs().max())
+        if worst > PARITY_MAX_SE_FRACTION * float(cell["r_std_error"].mean()):
+            findings.append(
+                f"{estimand}: largest difference {worst:.2e} exceeds {PARITY_MAX_SE_FRACTION} "
+                "of R's mean standard error"
+            )
+    return findings
+
+
+def _committed_paired_rows() -> pd.DataFrame:
+    """The committed primary rows of both implementations, aligned on replication and estimand.
+
+    Fails, rather than skips, on rows that do not belong to the current declaration.
+    """
+    rows = pd.read_csv(study.STUDY.artifact("replicates.csv.gz"))
+    key = ["scenario", "replicate", "estimand"]
+    subject = rows[rows["implementation"] == study.STUDY.implementation].set_index(key)
+    reference = rows[rows["implementation"] == study.STUDY.reference].set_index(key)
+    stale = []
+    if set(rows["n"]) != {study.PRIMARY_N}:
+        stale.append(f"n is {sorted(set(rows['n']))}, declared {study.PRIMARY_N}")
+    if len(subject) != len(study.ESTIMANDS) * study.PRIMARY_REPLICATES:
+        stale.append(
+            f"{len(subject)} cleverly rows, declared "
+            f"{len(study.ESTIMANDS) * study.PRIMARY_REPLICATES}"
+        )
+    if subject["initial_estimate"].notna().any():
+        stale.append("cleverly publishes an initial estimate, which the declaration removes")
+    assert not stale, (
+        "the committed primary rows predate the fourth declaration ("
+        + "; ".join(stale)
+        + "); run the declared study to refresh tests/canonical/ltmle_repeated"
+    )
+    assert len(subject) == len(reference), "the two implementations have different row counts"
+    subject = subject.sort_index()
+    reference = reference.loc[subject.index]
+    return pd.DataFrame(
+        {
+            "estimand": subject.index.get_level_values("estimand"),
+            "r_initial": reference["initial_estimate"].to_numpy(),
+            "r_estimate": reference["estimate"].to_numpy(),
+            "cl_estimate": subject["estimate"].to_numpy(),
+            "r_std_error": reference["std_error"].to_numpy(),
+        }
+    )
+
+
+def test_cleverly_reproduces_r_targeting_move_in_every_cell() -> None:
+    """The parity gate on the committed paired rows, in all 13 primary cells."""
+    paired = _committed_paired_rows()
+    assert set(paired["estimand"]) == set(study.ESTIMANDS)
+    assert _parity_findings(paired) == []
+
+
+def _synthetic_pairs(replicates: int = 200) -> pd.DataFrame:
+    """Aligned rows with a nonzero targeting move and a rounding-level disagreement."""
+    rng = np.random.default_rng(2026320411)
+    records = []
+    for estimand in study.ESTIMANDS:
+        initial = rng.normal(0.3, 0.02, replicates)
+        move = rng.normal(0.002, 0.003, replicates)
+        records.append(
+            pd.DataFrame(
+                {
+                    "estimand": estimand,
+                    "r_initial": initial,
+                    "r_estimate": initial + move,
+                    "cl_estimate": initial + move + rng.normal(0.0, 1e-9, replicates),
+                    "r_std_error": 0.02,
+                }
+            )
+        )
+    return pd.concat(records, ignore_index=True)
+
+
+def test_a_skipped_or_short_targeting_step_fails_the_parity_gate() -> None:
+    """Deliberate mutations: cleverly with no targeting, and with a step 10% short."""
+    paired = _synthetic_pairs()
+    assert _parity_findings(paired) == []
+    move = paired["r_estimate"] - paired["r_initial"]
+    skipped = paired.assign(cl_estimate=paired["r_initial"])
+    short = paired.assign(cl_estimate=paired["r_initial"] + 0.9 * move)
+    for name, mutated in (("skipped", skipped), ("ten percent short", short)):
+        flagged = {line.split(":")[0] for line in _parity_findings(mutated)}
+        assert flagged == set(study.ESTIMANDS), name
+    # A single replicate off by 2% of the standard error trips the maximum clause alone.
+    off = paired.copy()
+    off.loc[0, "cl_estimate"] += 0.02 * 0.02
+    assert [line.split(":")[0] for line in _parity_findings(off)] == [study.ESTIMANDS[0]]
+    # R's step absent in a cell is a finding of its own.
+    flat = paired.assign(r_estimate=paired["r_initial"], cl_estimate=paired["r_initial"])
+    assert all("targeting step is absent" in line for line in _parity_findings(flat))

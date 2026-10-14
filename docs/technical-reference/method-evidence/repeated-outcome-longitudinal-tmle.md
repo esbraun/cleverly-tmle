@@ -254,7 +254,7 @@ the committed results and checked at the precision printed.
 | limit | what it means for use |
 | --- | --- |
 | one law with three nodes and a binary outcome | the continuous outcome has one calibration arm, and the rate in $n$ is not measured |
-| the paired comparison fixes the mechanisms | the paired margins alone cannot separate an untargeted plug-in from the targeted fit, because the plug-in is nearly unbiased on this law. The `targeting_necessity` family and the parity rule on R's targeting move carry that claim. The comparison does not claim parity for learned treatment or censoring models |
+| the paired comparison fixes the mechanisms | the paired margins alone cannot separate an untargeted plug-in from the targeted fit, because the plug-in is nearly unbiased on this law. The `targeting_necessity` family and the parity gate carry that claim. The gate is `test_cleverly_reproduces_r_targeting_move_in_every_cell`. In each cell the root-mean-square difference from R must stay below 1% of R's root-mean-square targeting move. No replication may differ from R by more than 1% of R's mean standard error. The comparison does not claim parity for learned treatment or censoring models |
 | the in-sample interval is mildly anticonservative at $n$ = 2,000 | the `small_sample_calibration` cells report the shortfall and no rule gates them. The gated cells draw $n$ = 8,000 |
 | the cross-fitted learners are one GLM and one shallow booster | the study does not cover a larger learner library or a different fold count |
 | the absorbing, history-free and Markov controls read exact limits of this law | they show that the repeated reading, the earlier outcomes and the depth of the outcome regression matter here. They do not bound the difference on another law |
