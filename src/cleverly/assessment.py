@@ -3353,11 +3353,13 @@ def _conditioning_population(report: Any) -> tuple[float | None, float | None, b
         for cell in report.cells
         if cell.target_population_fraction is not None
     ]
+    from .sensitivity.simulated_confounding import _is_anchor
+
     anchor = next(
         (
             cell.target_population_fraction
             for cell in report.cells
-            if cell.treatment_strength == 0.0 and cell.outcome_strength == 0.0
+            if _is_anchor(cell.treatment_strength, cell.outcome_strength)
         ),
         None,
     )

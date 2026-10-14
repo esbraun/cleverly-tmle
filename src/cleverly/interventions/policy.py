@@ -864,8 +864,14 @@ def is_identity_policy(policy: object) -> bool:
     Returns
     -------
     bool
-        ``True`` for ``Shift(0.0, ...)``, ``Scale(1.0, ...)`` and ``RiskRatioTilt(1.0)``.
+        ``True`` for ``Shift(0.0, ...)``, ``Scale(1.0, ...)`` and ``RiskRatioTilt(1.0)``, and
+        for a :class:`JointPolicy` with no randomizer whose every component is one of them,
+        ``JointPolicy(name, components={})`` included.
     """
+    if isinstance(policy, JointPolicy):
+        return policy.randomizer is None and all(
+            is_identity_policy(component) for component in policy.components.values()
+        )
     return (
         (isinstance(policy, Shift) and policy.delta == 0.0)
         or (isinstance(policy, Scale) and policy.factor == 1.0)
