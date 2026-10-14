@@ -152,7 +152,8 @@ def arm_parameters(result: TMLEResult) -> dict[str, ArmParameter]:
     by an index error here.
     """
     data = result.data
-    if not data.has_arms:
+    # A longitudinal result has nodes, not arms, and its data has no arm reader at all.
+    if result.assessment_family != "point" or not data.has_arms:
         return {}
     if result.parameter_keys:
         from ..targets import TARGETS
