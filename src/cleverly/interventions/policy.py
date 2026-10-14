@@ -2417,7 +2417,8 @@ class PolicySet:
         ``(n,)`` observed level codes on a categorical treatment, or ``None``.
     capped : ndarray or None
         ``(n, C)`` boolean, whether a declared ``cap`` held the component at that row's own
-        dose.  ``None`` on a categorical treatment, where no cap is evaluated.
+        dose; on a vector treatment, whether a cap held any of its doses.  ``None`` on a
+        categorical treatment, where no cap is evaluated.
     joint : JointDensityParts or None
         On a vector treatment with a continuous component, fitted on the density route: the
         factors of the node's law at the observed value and at each branch's assigned
@@ -2845,6 +2846,15 @@ class PolicySet:
     ) -> PolicySet:
         """The policy set of a vector treatment from its evaluated ratios."""
         moved = np.asarray(np.any(shifted != setup.natural[:, None, :], axis=2), dtype=bool)
+        # A component's cap holds a row at its own dose, as a scalar branch's ``held`` reads
+        # it; the component is capped at the row when any of its doses is.
+        capped = np.zeros(moved.shape, dtype=bool)
+        for column, (_, _, mapping) in enumerate(setup.owners):
+            for index, component in enumerate(setup.components):
+                mapped = mapping.get(component.name)
+                if component.continuous and isinstance(mapped, (Shift, Scale)):
+                    held = mapped.apply(setup.natural[:, index])[1]
+                    capped[:, column] |= np.asarray(held, dtype=bool)
         owners = [
             (index, probability)
             for (index, _, _), probability in zip(setup.owners, setup.probabilities, strict=True)
@@ -2864,6 +2874,7 @@ class PolicySet:
             moved,
             code,
             mixing,
+            capped=capped,
             joint=joint,
         )
 

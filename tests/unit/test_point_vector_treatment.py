@@ -22,6 +22,7 @@ from __future__ import annotations
 import inspect
 import warnings
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -492,9 +493,9 @@ def _arguments(
     }
 
 
-def _outcomes(subject: Any, arguments: dict[str, Any]) -> dict[str, type[BaseException] | None]:
-    """Call every public member of ``subject``: ``None`` when it returns, else the error."""
-    outcomes: dict[str, type[BaseException] | None] = {}
+def _outcomes(subject: Any, arguments: dict[str, Any]) -> dict[str, tuple[str, Any]]:
+    """Call every public member of ``subject``: ``("ok", value)``, or ``("error", type)``."""
+    outcomes: dict[str, tuple[str, Any]] = {}
     owner = type(subject)
     for name in sorted(dir(owner)):
         if name.startswith("_"):
@@ -514,67 +515,229 @@ def _outcomes(subject: Any, arguments: dict[str, Any]) -> dict[str, type[BaseExc
                     if callable(getattr(value, "summary", None)):
                         value.summary()
         except Exception as error:
-            outcomes[name] = type(error)
+            outcomes[name] = ("error", type(error))
         else:
-            outcomes[name] = None
+            outcomes[name] = ("ok", value)
     return outcomes
 
 
-def _sample_fits() -> tuple[Any, Any]:
-    """A vector fit and a one-column dose fit of the same route, on the same sample."""
+def _numbers(value: Any, depth: int = 0, seen: set[int] | None = None) -> list[float]:
+    """Every number a returned value holds, in a fixed order: the value to compare."""
+    import dataclasses
+
+    seen = set() if seen is None else seen
+    if depth > 6 or id(value) in seen or value is None:
+        return []
+    if isinstance(value, (str, bytes, Path)):
+        return []
+    if isinstance(value, (bool, int, float, np.number)):
+        return [float(value)]
+    if isinstance(value, np.ndarray):
+        return list(value.astype(float).ravel()) if value.dtype.kind in "fiub" else []
+    if isinstance(value, pd.DataFrame):
+        return list(value.select_dtypes(["number", "bool"]).to_numpy(float).ravel())
+    if isinstance(value, pd.Series):
+        return list(value.to_numpy(float)) if value.dtype.kind in "fiub" else []
+    seen.add(id(value))
+    if isinstance(value, dict):
+        return [x for key in sorted(value, key=str) for x in _numbers(value[key], depth + 1, seen)]
+    if isinstance(value, (list, tuple)):
+        return [x for item in value for x in _numbers(item, depth + 1, seen)]
+    if callable(getattr(value, "to_frame", None)) and not isinstance(value, type):
+        try:
+            return _numbers(value.to_frame(), depth + 1, seen)
+        except Exception:
+            pass
+    if dataclasses.is_dataclass(value):
+        fields = dataclasses.fields(value)
+        return [x for f in fields for x in _numbers(getattr(value, f.name), depth + 1, seen)]
+    if hasattr(value, "__dict__"):
+        return _numbers(vars(value), depth + 1, seen)
+    return []
+
+
+def _same(found: Any, expected: Any, where: str) -> None:
+    left, right = np.asarray(_numbers(found)), np.asarray(_numbers(expected))
+    assert left.shape == right.shape, f"{where}: {left.shape} numbers against {right.shape}"
+    np.testing.assert_allclose(left, right, rtol=1e-9, atol=1e-9, err_msg=where)
+
+
+def _up(a: Any, h: Any) -> np.ndarray:
+    return np.asarray(a, dtype=float) + 1.0
+
+
+def _down(b: Any, h: Any) -> np.ndarray:
+    return np.asarray(b, dtype=float) - 1.0
+
+
+def _one(b: Any, h: Any) -> np.ndarray:
+    return np.ones(np.asarray(b).shape)
+
+
+#: The scalar reading of the vector policies "natural", "dose up" and "random" on the dose
+#: ``D`` with ``F`` among the covariates: each leaves ``F`` at its natural value, so its
+#: ratio is the ratio of ``D`` given ``(F, W)``.  ``UP`` holds the top dose ``2`` by its cap,
+#: and the pieces of "random" hold it by an identity piece.
+SCALAR_READING = (
+    Shift(0.0, cap=None, name="natural"),
+    Shift(1.0, cap=2.0, name="dose up"),
+    ModifiedPolicy(
+        "random",
+        pieces={
+            "up": (Piece(-INF, 1.5, _up, _down, _one), Piece(1.5, INF)),
+            "stay": (Piece(-INF, INF),),
+        },
+        randomizer=Randomizer(("up", "stay"), (0.25, 0.75)),
+        policy_kind="known",
+    ),
+)
+
+
+def _sample_fits(ratio: str = "classifier") -> tuple[Any, Any]:
+    """A vector fit and its scalar reading on the same sample, folds and learners.
+
+    The vector lists the dose first, and the scalar fit lists ``F`` before ``W``, so both
+    fits read the same design columns in the same order.
+    """
     from sklearn.linear_model import LogisticRegression
 
     frame = law.mixed_sample(500, 7)
-    learners = {
+    configuration = {
         "outcome_learner": LogisticRegression(),
         "treatment_learner": LogisticRegression(),
+        "ratio": ratio,
+        "n_bootstrap": 5,
+        "cross_fit": True,
+        "n_folds": 3,
+        "random_state": 0,
+        "simultaneous": False,
     }
-    vector = fit(
-        ("natural", "dose up", "random"), data=vector_data(frame), n_bootstrap=5, **learners
-    )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        dose = CausalData.from_frame(
-            frame, outcome="Y", treatment="D", covariates=["W", "F"], treatment_kind="continuous"
+        vector = CausalData.from_frame(
+            frame,
+            outcome="Y",
+            treatment=["D", "F"],
+            covariates=["W"],
+            continuous_treatment=["D"],
         )
-    scalar = fit(data=dose, policies=[Shift(0.0, cap=None), UP], n_bootstrap=5, **learners)
-    return vector, scalar
+        dose = CausalData.from_frame(
+            frame, outcome="Y", treatment="D", covariates=["F", "W"], treatment_kind="continuous"
+        )
+        policies = [joint(label) for label in ("natural", "dose up", "random")]
+        fitted = TMLE(policies=policies, **configuration).fit(vector).single()
+        scalar = TMLE(policies=list(SCALAR_READING), **configuration).fit(dose).single()
+    return fitted, scalar
 
 
-def test_h1_every_reader_of_a_vector_result_returns_or_refuses(tmp_path: Path) -> None:
-    """Each public member returns a value or raises ``CapabilityError``.
+#: Members whose value differs between the readings by construction, and why.  Each one is
+#: compared below on the parts the two readings share.
+_DECLARED_DIFFERENTLY = {
+    "result.estimator": "holds the declared policies, a JointPolicy against a Shift",
+    "result.provenance": "digests the vector's components and counts F as a covariate",
+    "result.nuisance": "the vector's shifted values are (n, C, d)",
+    "result.nuisances": "the vector's shifted values are (n, C, d)",
+    "diagnostics.support": (
+        "a cap holds the top dose of 'random' on the vector, a piece on D; the vector's "
+        "min_density is the joint density of (D, F), the scalar's that of D given F"
+    ),
+}
 
-    A member that raises another error must raise the same one on a one-column dose fit of
-    the same route: such an error belongs to the parameter axis, not to the vector.
+
+def _observed_dose(result: Any) -> np.ndarray:
+    """The observed dose of a vector fit whose first component is ``D``."""
+    return np.asarray(result.data.treatment_components, dtype=float)[:, 0]
+
+
+@pytest.mark.parametrize("ratio", ["classifier", "density"])
+def test_h1_every_reader_of_a_vector_result_equals_its_scalar_reading(
+    ratio: str, tmp_path: Path
+) -> None:
+    """Each public member of the vector result equals the member of its scalar reading.
+
+    The vector policies leave ``F`` at its natural value, so the fit is the fit of the dose
+    ``D`` with ``F`` a covariate: an independent computation of every value.  A member
+    that returns a value returns the same numbers on both readings; a member that raises
+    raises ``CapabilityError`` on the vector, or the error the scalar reading raises.  A
+    scalar read of the vector, such as a digest of its ``NaN`` treatment slot or a cap
+    record left empty, changes a number here.
     """
-    vector, scalar = _sample_fits()
+    vector, scalar = _sample_fits(ratio)
     subjects = {
         "result": (vector, scalar),
         "diagnostics": (vector.diagnostics, scalar.diagnostics),
         "sensitivity": (vector.sensitivity, scalar.sensitivity),
     }
-    other: dict[str, type[BaseException]] = {}
+    compared = 0
     for where, (subject, reference) in subjects.items():
         found = _outcomes(subject, _arguments(vector, where, tmp_path))
         expected = _outcomes(reference, _arguments(scalar, where, tmp_path))
-        for name, error in found.items():
-            if error is None or issubclass(error, CapabilityError):
+        assert set(found) == set(expected), where
+        for name, (kind, value) in found.items():
+            key = f"{where}.{name}"
+            other_kind, other = expected[name]
+            if kind == "error":
+                assert issubclass(value, CapabilityError) or other is value, key
+                assert other_kind == "error", f"{key} refuses the vector only"
                 continue
-            assert expected.get(name) is error, f"{where}.{name} raised {error.__name__}"
-            other[f"{where}.{name}"] = error
-    assert set(other) <= {
-        "result.ate",
-        "result.estimate",
-        "result.coefficients",
-        "result.repeat_spread",
-    }
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        assert vector.diagnostics.support() is not None
-        assert vector.diagnostics.score_equations() is not None
-        assert len(vector.diagnostics.truncation_curve()) > 0
-        with pytest.raises(CapabilityError, match="requires a discrete arm contrast"):
-            vector.sensitivity.evalue()
+            assert other_kind == "ok", f"{key} returns on the vector only"
+            if key not in _DECLARED_DIFFERENTLY:
+                _same(value, other, key)
+                compared += 1
+    assert compared >= 30
+    # The members declared differently, on what the two readings share.
+    for name, estimate in vector.estimates.items():
+        reference = scalar.estimates[name]
+        assert estimate.psi == pytest.approx(reference.psi, abs=1e-12)
+        assert estimate.std_error == pytest.approx(reference.std_error, abs=1e-12)
+        np.testing.assert_allclose(
+            estimate.influence_curve, reference.influence_curve, rtol=0, atol=1e-12
+        )
+        assert abs(float(np.mean(estimate.influence_curve))) < 1e-10
+    assert vector.provenance.n == scalar.provenance.n
+    assert vector.provenance.fold_fingerprint == scalar.provenance.fold_fingerprint
+    assert vector.provenance.data_fingerprint != scalar.provenance.data_fingerprint
+    ours, theirs = vector.nuisance.policies, scalar.nuisance.policies
+    np.testing.assert_array_equal(ours.shifted[:, :, 0], theirs.shifted)
+    flag = np.asarray(vector.data.treatment_components)[:, 1:2]
+    np.testing.assert_array_equal(
+        ours.shifted[:, :, 1], np.broadcast_to(flag, theirs.shifted.shape)
+    )
+    for field in ("ratio", "ratio_at", "moved"):
+        np.testing.assert_allclose(getattr(ours, field), getattr(theirs, field), atol=1e-12)
+    # Components: natural, dose up, then the "up" and "stay" branches of "random".  The
+    # vector's "up" branch is the capped UP, so its cap record is dose up's.
+    assert ours.capped is not None and theirs.capped is not None
+    np.testing.assert_array_equal(ours.capped[:, :2], theirs.capped[:, :2])
+    np.testing.assert_array_equal(ours.capped[:, 2], ours.capped[:, 1])
+    assert ours.capped[:, 1].any() and not ours.capped[:, 3].any()
+    support, reference_support = vector.diagnostics.support(), scalar.diagnostics.support()
+    assert set(support) == set(reference_support)
+    for label, row in support.items():
+        if label == "random":
+            assert row.capped_fraction == pytest.approx(0.25 * float(ours.capped[:, 1].mean()))
+            row = replace(row, capped_fraction=reference_support[label].capped_fraction)
+        if ours.joint is not None:
+            # g(d, f | w) = g_C(f | w) g_D(d | f, w) at the observed value.
+            cells = ours.joint.cell_probabilities[np.arange(vector.n), ours.joint.targets[:, 0]]
+            observed = cells * ours.joint.densities["D"].density_at(
+                np.asarray(_observed_dose(vector))
+            )
+            assert row.min_density == pytest.approx(float(observed.min()), rel=1e-12)
+            assert reference_support[label].min_density is not None
+            row = replace(row, min_density=reference_support[label].min_density)
+        _same(row, reference_support[label], f"diagnostics.support[{label}]")
+    _same(vector.nuisance.outcome, scalar.nuisance.outcome, "nuisance.outcome")
+    # The capability tables agree operation by operation.
+    for facade in ("diagnostics", "sensitivity"):
+        statuses = [
+            (item.operation, item.status, item.available)
+            for item in getattr(vector, facade).capabilities
+        ]
+        assert statuses == [
+            (item.operation, item.status, item.available)
+            for item in getattr(scalar, facade).capabilities
+        ]
     assert vector.bootstrap is not None
     assert vector.bootstrap.n_failed == 0
     for draws in vector.bootstrap.draws.values():
