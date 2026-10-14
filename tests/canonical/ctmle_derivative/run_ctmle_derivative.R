@@ -13,6 +13,9 @@ options(digits = 17)
 #   passes as lambdas=. Both sides fit the same estimator.
 # binary_constant_q:    the declared pair, with Q = mean(Y) for both arms, the package's
 #   DummyRegressor. The update then moves the estimate, so the derivative columns show.
+#   R bounds only the initial Q; the package also bounds each targeted arm prediction at
+#   0.005 and 0.995 after every step. Under a constant Q the derivative coefficients are large,
+#   so the two sides differ by about 1e-5 in SD, 0.003 of the parity witness's reference SD.
 # binary_pipeline:      cv.glmnet(nfolds = 10, nlambda = 100), g1W at lambda.min and the
 #   partner at 1.05 lambda.min, as the ctmle README does.
 #

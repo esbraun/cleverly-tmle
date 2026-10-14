@@ -35,8 +35,8 @@ estimate, so a correct-outcome cell tests the influence-curve variance of a corr
 The wrong-outcome cells make the update carry the estimate: the GLM without ``W2`` has a
 plug-in limit bias of about 2.6 SD on the primary law, and the ``DummyRegressor`` plug-in is
 0.  Their theory is the union model, with a correct treatment law and a wrong outcome, so they
-answer to the double-robustness rule (the bias margin and the reported-error screen).  The
-influence-curve variance is then conservative, so they make no calibration claim.
+answer to the double-robustness rule (the bias margin and the reported-error screen).  They
+make no calibration claim.
 
 **The paired ordinary TMLE.**  Each ``interval_calibration``, ``clustered_inference``
 positive, ``type_i_error``, ``power`` and ``double_robustness`` row also carries the ordinary ``TMLE`` on the same initial fit, mechanism and bounds, with only
@@ -127,6 +127,9 @@ LADDER = (500, 2_000, 8_000)
 LADDER_REPLICATES = 1_200
 DOUBLE_ROBUST_N = 2_000
 DOUBLE_ROBUST_REPLICATES = 1_200
+#: The three-arm wrong-outcome cell's budget.  A 150-replicate pilot gave a pass probability of
+#: 0.88 at 1,200, because the three-arm estimate is the noisiest of the family.
+MULTI_ARM_ROBUST_REPLICATES = 1_800
 NECESSITY_N = 2_000
 NECESSITY_REPLICATES = 1_200
 #: The declared minimum displacement of the untargeted plug-in from the targeted estimate, in
@@ -248,7 +251,7 @@ def cells() -> tuple[Cell, ...]:
             "multi_arm_treatment_correct",
             laws.THREE_ARM,
             DOUBLE_ROBUST_N,
-            DOUBLE_ROBUST_REPLICATES,
+            MULTI_ARM_ROBUST_REPLICATES,
             outcome="dummy",
         ),
         Cell(

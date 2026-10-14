@@ -22,12 +22,17 @@ that passes all five checks below.
 5. At study conditions, :data:`PILOT_REPLICATES` draws give a both-wrong control pass
    probability and an ``outcome_correct`` equivalence pass probability of at least
    :data:`PASS_PROBABILITY` each.  Each probability reads the cell's bias off a weighted
-   straight-line trend over the grid, with the trend's own standard error.
+   quadratic over the grid.  Its error combines the quadratic's standard error, inflated by
+   the lack of fit, with the study's own noise.  The point value at the same coefficient, with
+   the pilot's error and the study's noise, must also reach :data:`POINT_PASS_PROBABILITY`.
 
 Checks 4 and 5 read trends because single grid points are noisy.  The point pass
 probabilities of the first search were 0.69, 0.07, 0.73, 0.99, 0.61 and 0.99 on a bias that
 rises with ``beta``.  A rule that stops at the first noisy pass picks a value whose estimate is
-high by chance.  ``dr-pilot.csv`` keeps the point values beside the trend values.
+high by chance.  A straight line was tried first and rejected: its lack of fit was
+``chi^2 = 20.5`` on 6 degrees of freedom, and it left the study's noise out, so it predicted
+pass probabilities near 1 where a fresh pilot measured about 0.83.  ``dr-pilot.csv`` keeps
+the point values beside the trend values.
 
 ``sigma`` is the paired TMLE's standard error at ``n = 10^6`` rescaled to the study's
 ``n = 2,000``.  The limit fits use the declared lasso pair of ``penalties.csv`` and a constant
@@ -73,7 +78,8 @@ KL_FLOOR = 2.0 * laws.PRIMARY_KL_CEILING
 DR_TRUNCATION_CEILING = 0.10
 TMLE_LIMIT_FLOOR = 0.5
 CTMLE_LIMIT_FLOOR = 0.40
-PASS_PROBABILITY = 0.90
+PASS_PROBABILITY = 0.95
+POINT_PASS_PROBABILITY = 0.90
 PILOT_REPLICATES = 400
 LIMIT_N = 1_000_000
 LIMIT_SEEDS = (20263201, 20263202, 20263203)
@@ -226,30 +232,51 @@ def assess(curvature: float, *, n_jobs: int = 1) -> tuple[dict[str, Any], pd.Dat
     return record, rows
 
 
-def _weighted_line(
+def _weighted_quadratic(
     x: np.ndarray, y: np.ndarray, error: np.ndarray
 ) -> Callable[[float], tuple[float, float]]:
-    """The weighted least-squares line of ``y`` on ``x``: its value and standard error."""
-    design = np.column_stack([np.ones_like(x), x])
+    """The weighted least-squares quadratic of ``y`` on ``x``: its value and standard error.
+
+    The covariance is inflated by ``chi^2 / df`` when that ratio exceeds 1, so a lack of fit
+    widens the error rather than hiding behind the Monte Carlo weights.
+    """
+    design = np.column_stack([np.ones_like(x), x, x**2])
     weights = 1.0 / error**2
     covariance = np.linalg.inv(design.T @ (design * weights[:, None]))
     coefficients = covariance @ design.T @ (weights * y)
+    residual = y - design @ coefficients
+    dof = x.size - design.shape[1]
+    covariance = covariance * max(1.0, float(np.sum(weights * residual**2)) / dof)
 
-    def line(point: float) -> tuple[float, float]:
-        row = np.array([1.0, point])
+    def curve(point: float) -> tuple[float, float]:
+        row = np.array([1.0, point, point**2])
         return float(row @ coefficients), float(np.sqrt(row @ covariance @ row))
 
-    return line
+    return curve
+
+
+def _pass_z(cell: str, bias: float, sd: float, error: float) -> float:
+    """The z value of a cell's pass at :data:`DR_REPLICATES`, with ``error`` on the bias.
+
+    A control passes when its study bias interval lies outside the margin, and a positive
+    cell when it lies inside.  ``error`` counts the pilot's error on the bias and the study's
+    own Monte Carlo noise ``sd / sqrt(R)``.
+    """
+    half = LEVEL_Z * sd / np.sqrt(DR_REPLICATES)
+    if cell == "both_wrong":
+        return (abs(bias) - BIAS_MARGIN_SD * sd - half) / error
+    return (BIAS_MARGIN_SD * sd - half - abs(bias)) / error
 
 
 def select(summary: pd.DataFrame) -> pd.DataFrame:
     """Add the trend values, checks 4 and 5, and ``passed`` to the assessed grid.
 
     Check 4 reads unweighted lines of C-TMLE0's limit bias and of sigma.  Check 5 reads, per
-    cell, a line of the bias weighted by its Monte Carlo error ``sd / sqrt(400)``, and a line
-    of the SD.  A control passes when its bias exceeds ``margin + z sd / sqrt(R)``, and a
-    positive cell when ``|bias|`` stays below ``margin - z sd / sqrt(R)``.  The probability
-    uses the bias line's standard error.
+    cell, a quadratic of the bias weighted by its Monte Carlo error ``sd / sqrt(400)`` and
+    inflated by its lack of fit, and a line of the SD.  Each predictive pass probability
+    puts the trend's error and the study's own noise ``sd / sqrt(R)`` in its denominator, and
+    must reach :data:`PASS_PROBABILITY`.  The point pass probability at the same value, with
+    the pilot's own error and the study's noise, must reach :data:`POINT_PASS_PROBABILITY`.
     """
     out = summary.copy()
     x = out["curvature"].to_numpy(float)
@@ -257,29 +284,33 @@ def select(summary: pd.DataFrame) -> pd.DataFrame:
     sigma = np.polyfit(x, out["sigma"].to_numpy(float), 1)
     out["trend_ctmle_limit_bias"] = np.polyval(ctmle, x)
     out["trend_sigma"] = np.polyval(sigma, x)
+    passes = np.ones(x.size, dtype=bool)
     for cell in ("both_wrong", "outcome_correct"):
         sd = out[f"{cell}_sd"].to_numpy(float)
-        bias = _weighted_line(
-            x, out[f"{cell}_bias"].to_numpy(float), sd / np.sqrt(PILOT_REPLICATES)
-        )
+        point_bias = out[f"{cell}_bias"].to_numpy(float)
+        bias = _weighted_quadratic(x, point_bias, sd / np.sqrt(PILOT_REPLICATES))
         spread = np.polyfit(x, sd, 1)
-        values, probabilities = [], []
-        for point in x:
-            mean, error = bias(point)
-            width = float(np.polyval(spread, point))
-            half = LEVEL_Z * width / np.sqrt(DR_REPLICATES)
-            if cell == "both_wrong":
-                z = (abs(mean) - BIAS_MARGIN_SD * width - half) / error
-            else:
-                z = (BIAS_MARGIN_SD * width - half - abs(mean)) / error
+        values, probabilities, points = [], [], []
+        for index, value in enumerate(x):
+            mean, error = bias(value)
+            width = float(np.polyval(spread, value))
+            noise = width / np.sqrt(DR_REPLICATES)
             values.append(mean)
-            probabilities.append(float(norm.cdf(z)))
+            probabilities.append(
+                float(norm.cdf(_pass_z(cell, mean, width, float(np.hypot(error, noise)))))
+            )
+            own = float(
+                np.hypot(sd[index] / np.sqrt(PILOT_REPLICATES), sd[index] / np.sqrt(DR_REPLICATES))
+            )
+            points.append(float(norm.cdf(_pass_z(cell, point_bias[index], sd[index], own))))
         out[f"trend_{cell}_bias"] = values
         out[f"trend_{cell}_pass_probability"] = probabilities
+        out[f"point_{cell}_pass_probability"] = points
+        passes &= (np.asarray(probabilities) >= PASS_PROBABILITY) & (
+            np.asarray(points) >= POINT_PASS_PROBABILITY
+        )
     out["check_4"] = out["trend_ctmle_limit_bias"].abs() >= CTMLE_LIMIT_FLOOR * out["trend_sigma"]
-    out["check_5"] = (out["trend_both_wrong_pass_probability"] >= PASS_PROBABILITY) & (
-        out["trend_outcome_correct_pass_probability"] >= PASS_PROBABILITY
-    )
+    out["check_5"] = passes
     out["passed"] = out[[f"check_{index}" for index in range(1, 6)]].all(axis=1)
     return out
 

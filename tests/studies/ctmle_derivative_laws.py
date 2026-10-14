@@ -219,7 +219,7 @@ SHARP_NULL = DerivativeLaw("sharp_null", (-0.3, -0.3), _SLOPE, _SCORE)
 ALTERNATIVE = DerivativeLaw("alternative", (-0.3, 0.07), _SLOPE, _SCORE)
 #: The primary law plus ``W2 |W2|`` in the treatment logit, which the main-terms lasso cannot
 #: read.  :mod:`tests.studies.ctmle_derivative_dr_pilot` sizes the coefficient.
-OUTCOME_CURVATURE = 0.65
+OUTCOME_CURVATURE = 0.7
 OUTCOME_CORRECT = DerivativeLaw(
     "outcome_correct", (-0.3, 0.2), _SLOPE, _SCORE, curvature=OUTCOME_CURVATURE
 )

@@ -168,7 +168,8 @@ def test_the_cells_carry_the_declared_budgets() -> None:
     for n in properties.LADDER:
         assert budgets["root_n_and_efficiency", f"n_{n}"] == (n, properties.LADDER_REPLICATES)
     for label in study.PROPERTY_CELLS["double_robustness"]:
-        assert budgets["double_robustness", label] == (2_000, 1_200)
+        expected = 1_800 if label == "multi_arm_treatment_correct" else 1_200
+        assert budgets["double_robustness", label] == (2_000, expected)
     assert budgets["targeting_necessity", "ate__targeted"] == (2_000, 1_200)
     assert budgets["clustered_inference", "cluster_robust"] == calibration
     declared = {(cell.property, cell.cell) for cell in properties.declared_cells()}
@@ -284,8 +285,9 @@ def test_the_parity_witness_reproduces_and_passes() -> None:
 def test_a_side_without_the_derivative_columns_would_fail_the_witness() -> None:
     """The deliberate-mutation control of the witness, on five ``binary_constant_q`` draws.
 
-    Each refit matches R.  The same fits retargeted without the derivative columns, the plain
-    TMLE, sit farther from R in root mean square than the witness allows a scenario's SD to be.
+    Each refit matches R to half the bound.  The same fits retargeted without the derivative
+    columns, the plain TMLE, sit farther from R in root mean square than the witness allows a
+    scenario's SD to be.
     """
     scenario = "binary_constant_q"
     rows = _primary_rows()
@@ -305,6 +307,27 @@ def test_a_side_without_the_derivative_columns_would_fail_the_witness() -> None:
                 "estimate",
             ].iloc[0]
         )
-        assert abs(float(result["ate"].psi) - reference) < 0.1 * bound
+        # Python bounds each targeted arm prediction at 0.005 and 0.995 after every step, and
+        # R bounds only the initial fit.  Under a constant outcome the derivative coefficients
+        # are large, so the two differ by up to about 1e-4, about a fifth of the bound.
+        assert abs(float(result["ate"].psi) - reference) < 0.5 * bound
         plain.append(float(study.paired_tmle(result)["ate"].psi) - reference)
     assert float(np.sqrt(np.mean(np.square(plain)))) > bound
+
+
+def test_the_cluster_robust_cell_is_sized_for_its_pass_probability() -> None:
+    """The cluster cell passes with probability 0.9 or more at a true SE ratio of 1.
+
+    With 100 clusters the reported standard error varies more than with independent rows.  A
+    200-replicate pilot measured a relative spread of 0.075, so the sizing carries it.
+    """
+    margins = Margins()
+    probability = calibration_pass_probability(
+        properties.CALIBRATION_REPLICATES,
+        true_se_ratio=1.0,
+        se_noise=0.075,
+        confidence_level=margins.confidence_level,
+        se_band=margins.calibration_se_ratio,
+        coverage_band=margins.calibration_coverage,
+    )
+    assert probability >= 0.90
