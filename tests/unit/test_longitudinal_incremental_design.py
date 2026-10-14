@@ -12,8 +12,10 @@ Every number here was fixed before any registered run.
   Projected to the declared size (bias as :math:`1/\\sqrt n` after adding one Monte Carlo
   SE, SE-ratio deficit as 1/n), every primary row and positive root-n rung passes its bias rule
   with probability at least 0.95, and every calibration cell passes with probability at least
-  0.90.  The rule sets n = 64,000 (S1), 80,000 (S2), 32,000 (S1 calibration) and 16,000
-  (S2 calibration).  It drops the two-fold S1 scenario, which needs about 90,000.
+  0.90.  The rule sets n = 96,000 (S1, which the two-fold rows need), 80,000 (S2), 48,000
+  (S1 calibration, which the one-fold cell needs) and 16,000 (S2 calibration).  The null,
+  power, band, robustness and clustered cells, and the competing-risk cell, are read at their
+  own sizes rather than projected.
 * The power cell has exact-law power 0.882 at n = 4,000 (:data:`POWER_SCALE`).
 * The band cells' pointwise controls clear the RM36 control-power rule at ``p0 + 0.005``, with
   ``p0`` from the exact efficient influence functions: 0.811 for S1 and 0.695 for S2.
@@ -25,10 +27,10 @@ Every number here was fixed before any registered run.
 * The ``npcausal`` runner's plan grid is the Python one.
 
 Probes before declaration.  A 40-replication smoke of the S2 primary scenarios read replicates
-0 to 39 of their declared streams.  A 400-replication probe of a one-fold law ``C`` scenario,
-since removed, read replicates 0 to 399 of its own stream.  It found a standardized bias of
-about 0.24 on both contrasts, and the one-fold fits moved to the reported ``in_sample_fit``
-family.  Nothing else changed in response to a probe.
+0 to 39 of their declared streams.  A 400-replication probe of a one-fold law ``C`` scenario
+read replicates 0 to 399 of its own stream.  Every other probe reads seeds outside the
+declared streams (``tests/diagnostics/x19_sizing/``).  The probes changed sizes and
+replication counts only.
 
 Seeds: the four seeds are new, and no registered study uses any of them.
 """
@@ -42,7 +44,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
-from scipy.stats import norm
+from scipy.stats import binom, norm
 from scipy.stats import t as student
 
 from tests import discrete_law_longitudinal_incremental as law
@@ -57,7 +59,13 @@ from tests.studies.default_band_properties import (
     control_power,
     design,
 )
-from tests.studies.evidence.property_verdicts import design_power, power_cell_pass_probability
+from tests.studies.evidence import clopper_pearson
+from tests.studies.evidence.property_verdicts import (
+    CLUSTER_ROBUST_CONTROL_SE_CEILING,
+    CLUSTERED_COVERAGE_GAIN,
+    design_power,
+    power_cell_pass_probability,
+)
 from tests.studies.evidence.registry import ROOT, Margins, registered
 
 pytestmark = pytest.mark.xdist_group("longitudinal_incremental_design")
@@ -91,6 +99,7 @@ def test_the_declared_numbers() -> None:
     assert (p1.CALIBRATION_N, p1.CALIBRATION_REPLICATES) == (48_000, 2_000)
     assert (p1.RATE_SIZES, p1.RATE_REPLICATES) == ((24_000, 64_000, 96_000), 1_000)
     assert (p2.N, p2.REPLICATES, p2.CLUSTER_SIZE) == (16_000, 2_000, 10)
+    assert (p2.BAND_N, p1.NULL_N, p1.NULL_REPLICATES) == (48_000, 4_000, 2_000)
     assert (p2.CLUSTER_N, p2.CLUSTER_REPLICATES, p2.COMPETING_N) == (8_000, 2_000, 32_000)
 
 
@@ -288,7 +297,11 @@ def calibrated_pass_probability(row: Any, n: int, replicates: int) -> float:
 
 
 PRIMARY_ROWS = (
-    *(("s1:ipsi_folds_5", name, s1.PRIMARY_N, s1.PRIMARY_REPLICATES) for name in s1.ESTIMANDS),
+    *(
+        (f"s1:{scenario}", name, s1.PRIMARY_N, s1.PRIMARY_REPLICATES)
+        for scenario in s1.FOLDS
+        for name in s1.ESTIMANDS
+    ),
     *(
         (f"s2:{scenario}", name, s2.PRIMARY_N, s2.PRIMARY_REPLICATES)
         for scenario, names in s2.ESTIMANDS.items()
@@ -310,9 +323,13 @@ def test_the_sizing_rule_binds() -> None:
     worst = probe("s1:ipsi_folds_5", "ate_regimen[odds x0.5 vs natural course]")
     assert bias_pass_probability(projected(worst, 24_000)[0], 1_000) < 0.5
     two_folds = probe("s1:ipsi_folds_2", "ate_regimen[odds x0.5 vs natural course]")
-    assert bias_pass_probability(projected(two_folds, s1.PRIMARY_N)[0], 1_000) < PRIMARY_PASS
+    assert bias_pass_probability(projected(two_folds, 64_000)[0], 1_000) < PRIMARY_PASS
     contrast = probe("s1:law_a", "interval_calibration/contrast_x2__correctly_specified")
     assert calibrated_pass_probability(contrast, 4_000, 2_000) < 0.5
+    one_fold = probe("s1:law_a", "interval_calibration/contrast_x2_in_sample__correctly_specified")
+    assert calibrated_pass_probability(one_fold, 32_000, 2_000) < CALIBRATION_PASS
+    cluster = probe("s2:law_ck", "clustered_inference/mean_x2__cluster_robust")
+    assert calibrated_pass_probability(cluster, p2.CLUSTER_N, 1_000) < 0.5
 
 
 @pytest.mark.parametrize("size", [size for size in p1.RATE_SIZES if size != min(p1.RATE_SIZES)])
@@ -344,6 +361,18 @@ CALIBRATION_CELLS = (
             ("law_c", "weighted_contrast_x0_5"),
         )
     ),
+    # The first probe named the one-fold fit by its earlier reported cell.
+    ("s2:law_c", "in_sample_fit/dropout_contrast_x2__one_fold", p2.N, p2.REPLICATES),
+    # The band draws carry both survival labels, read at their declared size.
+    *(
+        (
+            "s2:band",
+            f"interval_calibration/{label}__correctly_specified",
+            p2.BAND_N,
+            p2.REPLICATES,
+        )
+        for label in ("survival_contrast_x2_h3", "survival_contrast_x2_h3_in_sample")
+    ),
     # The competing-risk tail does not shrink as 1/n, so the probe reads it at its own size.
     (
         f"s2:law_dc@{p2.COMPETING_N}",
@@ -351,8 +380,12 @@ CALIBRATION_CELLS = (
         p2.COMPETING_N,
         p2.REPLICATES,
     ),
-    # The survival label reads the band fit, which is the survival scenario's fit.
-    ("s2:survival_folds_5", "ate_regimen[odds x2 vs natural course @ t=3]", p2.N, p2.REPLICATES),
+    (
+        "s2:law_ck",
+        "clustered_inference/mean_x2__cluster_robust",
+        p2.CLUSTER_N,
+        p2.CLUSTER_REPLICATES,
+    ),
 )
 
 
@@ -362,6 +395,80 @@ def test_every_calibration_cell_is_sized_for_its_pass_probability(
 ) -> None:
     probability = calibrated_pass_probability(probe(cell_set, cell), n, replicates)
     assert probability >= CALIBRATION_PASS, probability
+
+
+def interval_pass_probability(rate: float, replicates: int, accept: Any) -> float:
+    """The chance that the exact 99% interval of a binomial rate satisfies ``accept``."""
+    successes = np.arange(replicates + 1)
+    level = Margins().confidence_level
+    passing = [
+        k for k in successes if accept(clopper_pearson(int(k), replicates, confidence_level=level))
+    ]
+    return float(binom.pmf(passing, replicates, rate).sum())
+
+
+def test_the_rate_cells_are_sized_at_their_declared_sizes() -> None:
+    """The null, power, band and clustered-control cells, read at their own sizes.
+
+    Each rate moves one Monte Carlo SE toward failure before its pass probability is taken.
+    """
+    margins = Margins()
+
+    null = probe("s1:sharp_null", "type_i_error/contrast_x2__sharp_null")
+    rejection = null.rejected + np.sqrt(null.rejected * (1 - null.rejected) / null.replicates)
+    ceiling = margins.alpha + margins.type_i_margin
+    assert (
+        interval_pass_probability(rejection, p1.NULL_REPLICATES, lambda i: i.high <= ceiling)
+        >= PRIMARY_PASS
+    )
+    power = probe("s1:alternative", "power/contrast_x1_5__alternative")
+    rate = power.rejected - np.sqrt(power.rejected * (1 - power.rejected) / power.replicates)
+    assert power_cell_pass_probability(rate, p1.NULL_REPLICATES) >= PRIMARY_PASS
+    for cell_set, label, replicates in (
+        ("s1:band", p1.BAND_LABEL, p1.BAND_REPLICATES),
+        # Read at n = 16,000; the declared band runs at 48,000, where it is no less calibrated.
+        ("s2:band", p2.BAND_LABEL, p2.REPLICATES),
+    ):
+        band = probe(cell_set, f"simultaneous_coverage/{label}__simultaneous_band")
+        spread = np.sqrt(band.covered * (1 - band.covered) / band.replicates)
+        for coverage in (band.covered - spread, band.covered + spread):
+            assert (
+                interval_pass_probability(
+                    coverage, replicates, lambda i: i.within(*margins.calibration_coverage)
+                )
+                >= CALIBRATION_PASS
+            )
+        control = probe(cell_set, f"simultaneous_coverage/{label}__pointwise_joint_control")
+        rate = control.covered + np.sqrt(control.covered * (1 - control.covered) / replicates)
+        assert (
+            interval_pass_probability(rate, replicates, lambda i: i.high < 1.0 - margins.alpha)
+            >= PRIMARY_PASS
+        )
+    control = probe("s2:law_ck", "clustered_inference/mean_x2__iid_control")
+    assert control.se_ratio < CLUSTER_ROBUST_CONTROL_SE_CEILING - 0.1
+    robust = probe("s2:law_ck", "clustered_inference/mean_x2__cluster_robust")
+    assert robust.covered - control.covered > CLUSTERED_COVERAGE_GAIN + 0.1
+
+
+def test_the_single_robustness_pair_is_sized_at_its_declared_sizes() -> None:
+    r"""The two-size absolute rule: the n = 24,000 bound under the tolerance and below n = 6,000.
+
+    Each size's mean error is normal with the probed bias and spread at the declared
+    replication count, and its bound is :math:`|\bar b| + 2\,\mathrm{MCSE}`.
+    """
+    rng = np.random.default_rng(0)
+    bounds = []
+    for size in p1.REQUIREMENT_SIZES:
+        row = probe(
+            f"s1:outcome_constant__n_{size}",
+            f"single_robustness/contrast_x2__mechanism_correct__n_{size}",
+        )
+        spread = row.bias_se * np.sqrt(row.replicates / p1.REQUIREMENT_REPLICATES)
+        bias = abs(row.bias) + row.bias_se
+        bounds.append(np.abs(rng.normal(bias, spread, 100_000)) + 2.0 * spread)
+    small, large = bounds
+    passed = (large < p1.ABSOLUTE_BIAS_TOLERANCE) & (large < small)
+    assert passed.mean() >= PRIMARY_PASS
 
 
 # ------------------------------------------------------------------- sized cells

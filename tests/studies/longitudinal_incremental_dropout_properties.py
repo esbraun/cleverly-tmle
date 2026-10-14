@@ -1,8 +1,9 @@
 r"""Property families of ``longitudinal-incremental-dropout`` (S2).
 
 Every fit is :class:`~cleverly.longitudinal.IPSI` with five folds and saturated cell means at
-every slot, at n = 16,000 with 2,000 replications, on a law of
-:mod:`tests.discrete_law_longitudinal_incremental`.  ``x2`` is the plan that doubles the odds
+every slot, with 2,000 replications, on a law of
+:mod:`tests.discrete_law_longitudinal_incremental`.  The size is n = 16,000, except 48,000 on
+the law ``D`` band draws and 32,000 on law ``Dc``.  ``x2`` is the plan that doubles the odds
 of treatment at every node, and ``contrast_x2`` is its contrast with the natural course.
 
 ============================  =================================================================
@@ -108,6 +109,10 @@ CLUSTER_REPLICATES = 2_000
 #: or two treated units of a rare history, and the saturated censoring fit then reaches its
 #: lower bound.  ``tests/diagnostics/x19_sizing`` reads the cell at this size.
 COMPETING_N = 32_000
+#: The band draws of law ``D``.  They also carry the two survival calibration labels, which
+#: read an SE ratio of 0.98 at n = 16,000 and pass the calibration rule with probability
+#: 0.80 there and 0.92 here (``tests/unit/test_longitudinal_incremental_design.py``).
+BAND_N = 48_000
 CLUSTER_SIZE = 10
 EFFICIENCY_RATIO_BAND = (0.90, 1.10)
 SHRUNKEN_SE_FACTOR = 0.70
@@ -248,8 +253,9 @@ def iid_standard_error(estimate: Any) -> float:
 
 
 def _size(label: str) -> int:
-    """The declared size of a calibration label: :data:`COMPETING_N` on law ``Dc``."""
-    return COMPETING_N if CALIBRATION[label][0] == "law_dc" else N
+    """The declared size of a calibration label: :data:`N` unless its stream declares one."""
+    stream = CALIBRATION[label][0]
+    return {"law_dc": COMPETING_N, BAND_LABEL: BAND_N}.get(stream, N)
 
 
 @dataclass(frozen=True)
@@ -356,7 +362,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     )
     cells.extend(
         joint_property_cells(
-            BAND_LABEL, n=N, replicates=REPLICATES, seed=_seed(JOINT, BAND_LABEL, 0)
+            BAND_LABEL, n=BAND_N, replicates=REPLICATES, seed=_seed(JOINT, BAND_LABEL, 0)
         )
     )
     return tuple(cells)
@@ -459,7 +465,7 @@ def _fit_set_rows(payload: tuple[str, str, int, int, int]) -> list[dict[str, Any
 
 def _band_rows(payload: tuple[int, int]) -> list[dict[str, Any]]:
     replicate, requested = payload
-    frame = law.sample(law.LAW_D, N, _seed(JOINT, BAND_LABEL, replicate))
+    frame = law.sample(law.LAW_D, BAND_N, _seed(JOINT, BAND_LABEL, replicate))
     result = _fit(frame, law.LAW_D, horizons=list(HORIZONS), simultaneous=True)
     one_fold = _fit(frame, law.LAW_D, horizons=[3], n_folds=1)
     label = "survival_contrast_x2_h3"
@@ -470,7 +476,7 @@ def _band_rows(payload: tuple[int, int]) -> list[dict[str, Any]]:
             BAND_NAMES,
             label=BAND_LABEL,
             replicate=replicate,
-            n=N,
+            n=BAND_N,
             requested=requested,
             pointwise_critical=CRITICAL,
         ),
@@ -482,7 +488,7 @@ def _band_rows(payload: tuple[int, int]) -> list[dict[str, Any]]:
             estimate=result[SURVIVAL_X2],
             alpha=STUDY.margins.alpha,
             replicate=replicate,
-            n=N,
+            n=BAND_N,
             requested=requested,
         ),
         replicate_row(
@@ -493,7 +499,7 @@ def _band_rows(payload: tuple[int, int]) -> list[dict[str, Any]]:
             estimate=one_fold[SURVIVAL_X2],
             alpha=STUDY.margins.alpha,
             replicate=replicate,
-            n=N,
+            n=BAND_N,
             requested=requested,
         ),
     ]

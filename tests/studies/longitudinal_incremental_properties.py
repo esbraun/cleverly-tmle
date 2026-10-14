@@ -13,9 +13,9 @@ family                          cells, replications and size
 ``root_n_and_efficiency``       ``contrast_x2`` at n = 24,000 (control: the smallest rung),
                                 64,000 and 96,000; 1,000 each
 ``root_n_rate``                 the two rate rows of ``contrast_x2``, from the ladder
-``type_i_error``                ``contrast_x2`` on law ``A0`` (every tilt has one mean); 1,000
+``type_i_error``                ``contrast_x2`` on law ``A0`` (every tilt has one mean); 2,000
                                 at n = 4,000
-``power``                       ``odds x1.5 vs natural course`` on law ``Aw``; 1,000 at
+``power``                       ``odds x1.5 vs natural course`` on law ``Aw``; 2,000 at
                                 n = 4,000
 ``simultaneous_coverage``       the band over nine tilts on ``geomspace(0.25, 4, 9)`` (nine
                                 means and eight contrasts) and its pointwise control; 2,000 at
@@ -58,7 +58,11 @@ calibration cell a pass probability of at least 0.90 and each positive rung at l
 (``tests/unit/test_longitudinal_incremental_design.py``).  The probe measured biases of 0.20
 on ``contrast_x2`` and -0.18 on ``contrast_x2_in_sample``, and SE ratios of 0.96 to 0.99, so
 n = 4,000 was too small.  At 48,000 every calibration cell passes with a probability of at
-least 0.91; at 32,000 the one-fold cell falls to 0.896.
+least 0.91; at 32,000 the one-fold cell falls to 0.896.  The power cell's rejection rate
+reads 0.855 at n = 4,000 against an exact-law power of 0.882.  One Monte Carlo SE below that
+rate, it clears the power rule with probability 0.84 at 1,000 replications and 0.995 at 2,000,
+so the null
+and power cells run 2,000 each.
 
 **Rules.**  ``interval_calibration``, ``root_n_and_efficiency``, ``root_n_rate``,
 ``type_i_error``, ``power`` and ``simultaneous_coverage`` read the shared verdicts.
@@ -116,7 +120,7 @@ CALIBRATION_REPLICATES = 2_000
 CALIBRATION_N = 48_000
 RATE_REPLICATES = 1_000
 RATE_SIZES = (24_000, 64_000, 96_000)
-NULL_REPLICATES = 1_000
+NULL_REPLICATES = 2_000
 NULL_N = 4_000
 BAND_REPLICATES = 2_000
 BAND_N = 5_000
