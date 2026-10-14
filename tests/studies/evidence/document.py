@@ -380,6 +380,29 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {render(float(row.se_ratio))}"
         )
+    if family == property_verdicts.ONE_WRONG_FAMILY:
+        # Four rules in one family, and each row prints the endpoint its own rule reads.
+        kind = property_verdicts.one_wrong_kind(str(row.cell))
+        if kind == "growth":
+            return f"growth {render(float(row.growth))}, {_interval(row.growth_ci_lower, row.growth_ci_upper)}"
+        if kind == "first_order":
+            return (
+                f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+                f"margin {render(float(row.bias_margin))}, SE ratio {render(float(row.se_ratio))}"
+            )
+        return (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}, "
+            f"{_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
+        )
+    if family == "one_wrong_reported":
+        # Reported, with no margin to read: the bias, coverage and SE ratio of each arm.
+        return (
+            f"bias {render(float(row.standardized_bias))} SD, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}"
+        )
     if family == "known_mechanism_accuracy":
         # A positive cell answers to the bias margin, the coverage floor and the SE screen
         # together; the control to its bias alone, so the margin is printed beside it.

@@ -399,6 +399,9 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-known-mechanism": "`cleverly` TMLE on a declared known mechanism",
     "tmle-r-known-g": "R `tmle` with the known mechanism as `g1W`",
     "cleverly-known-mechanism-drtmle": "`cleverly` DR-TMLE on a declared known mechanism",
+    "cleverly-drtmle-one-wrong": (
+        "`cleverly` DR-TMLE with guards Q and g and the univariate reduction"
+    ),
     "drtmle-r-known-g": "R `drtmle` with the known mechanism as `gn`",
     "cleverly-known-node-mechanisms": "`cleverly` LTMLE on declared known node mechanisms",
     "ltmle-known-gform": "R `ltmle` with the known factors as a numeric `gform`",
@@ -524,6 +527,9 @@ SCENARIOS: dict[str, str] = {
     "guard_q": "known mechanism, outcome regression without W2, guard Q",
     "guard_g": "known mechanism, outcome regression without W2, guard g",
     "guard_qg": "known mechanism, outcome regression without W2, guards Q and g",
+    "q_wrong_g_known": (
+        "law L, declared mechanism, outcome regression on A and W1 (wrong), n = 4,000"
+    ),
     "three_arm_guard_none": (
         "three-arm law with a known mechanism, outcome regression without W2, no DR-TMLE guard"
     ),
@@ -789,6 +795,14 @@ PARAMETERISED: dict[str, str] = {
 
 
 PROPERTIES: dict[str, str] = {
+    "one_wrong_inference": (
+        "with one nuisance inconsistent, the DR-TMLE interval is valid for a declared "
+        "mechanism and conservative for a correct parametric mechanism, and a constructed "
+        "level-set-breaking error produces a bias that grows with n"
+    ),
+    "one_wrong_reported": (
+        "the arms of the first-order controls and the law-M contrast, reported with no verdict"
+    ),
     "known_mechanism_accuracy": (
         "a fit that divides by the declared mechanism is accurate and its interval covers, "
         "whatever the outcome regression"
@@ -1811,6 +1825,66 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "one-sided rejection bound stays under the declared type-I ceiling",
     ),
 }
+
+
+#: The settings of the DR-TMLE one-wrong witness study, by the stem its cells start with.
+#: Mirrored from ``tests.studies.drtmle_one_wrong.SETTINGS``, which this module cannot import;
+#: ``tests/unit/test_drtmle_one_wrong_design.py`` checks every published cell is described.
+_ONE_WRONG_SETTINGS = {
+    "q_wrong_g_glm": "law L, outcome regression on A and W1 (wrong), mechanism a correct "
+    "logistic GLM, in sample",
+    "q_wrong_g_known": "law L, outcome regression on A and W1 (wrong), declared mechanism, "
+    "the draws of q_wrong_g_glm",
+    "q_wrong_g_glm_cf": "law L, outcome regression on A and W1 (wrong), mechanism a correct "
+    "logistic GLM, cross-fitted over the default folds",
+    "q_wrong_g_slow": "law L, outcome regression on A and W1 (wrong), mechanism a correct "
+    "GLM plus the constructed logit offset n^(-1/3) W2",
+    "q_slow_g_wrong": "law L, outcome regression a correct GLM plus the constructed logit "
+    "offset 3 n^(-1/3) (2 W1 + W2) / sqrt(5), mechanism a GLM on W2 (wrong)",
+    "mar_q_wrong_pi_slow": "law M, randomized missing outcome with the declared treatment "
+    "probability 1/2, outcome regression on A and W1 (wrong), response mechanism a correct "
+    "GLM plus the constructed logit offset 2 n^(-1/3) W2",
+}
+_ONE_WRONG_RULES = {
+    "conservative": "SE-ratio interval wholly above the calibration band, coverage clears "
+    "the floor, bias inside the margin",
+    "valid": "coverage clears the floor, bias inside the margin, SE ratio inside the sanity band",
+    "first_order": "bias interval wholly beyond the margin on the predicted negative side, SE "
+    "ratio between 0.1 and 10",
+    "growth": "the lower bound of the 99% interval of the signed growth of bias/SD from "
+    "n = 1,000 to n = 16,000 lies above zero",
+}
+_ONE_WRONG_ESTIMANDS = {"ate": "ATE", "ey1": "arm-1 mean", "ey0": "arm-0 mean"}
+_ONE_WRONG_REPORTED = "reported: bias, SE ratio and coverage, with no verdict"
+
+
+def _one_wrong(family: str, stem: str, estimand: str, kind: str, size: int = 0) -> None:
+    setting = _ONE_WRONG_SETTINGS[stem]
+    tested = f"{_ONE_WRONG_ESTIMANDS[estimand]}: {setting}"
+    if size:
+        stem, tested = f"{stem}_n{size}", f"{tested}, at n = {size:,}"
+    rule = _ONE_WRONG_REPORTED if kind == "reported" else _ONE_WRONG_RULES[kind]
+    CELLS[family, f"{stem}__{estimand}__{kind}"] = (tested, rule)
+
+
+for _stem in ("q_wrong_g_glm", "q_wrong_g_known", "q_wrong_g_glm_cf"):
+    _one_wrong(
+        "one_wrong_inference",
+        _stem,
+        "ate",
+        "valid" if _stem == "q_wrong_g_known" else "conservative",
+    )
+    for _arm in ("ey1", "ey0"):
+        _one_wrong("one_wrong_inference", _stem, _arm, "valid")
+for _stem in ("q_wrong_g_slow", "q_slow_g_wrong"):
+    _one_wrong("one_wrong_inference", _stem, "ate", "growth")
+    for _size in (1_000, 4_000, 16_000):
+        _one_wrong("one_wrong_inference", _stem, "ate", "first_order", _size)
+        for _arm in ("ey1", "ey0"):
+            _one_wrong("one_wrong_reported", _stem, _arm, "reported", _size)
+for _arm in ("ey1", "ey0"):
+    _one_wrong("one_wrong_inference", "mar_q_wrong_pi_slow", _arm, "first_order")
+_one_wrong("one_wrong_reported", "mar_q_wrong_pi_slow", "ate", "reported")
 
 
 class Undescribed(LookupError):

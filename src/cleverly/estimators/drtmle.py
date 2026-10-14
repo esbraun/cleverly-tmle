@@ -34,12 +34,14 @@ r"""Doubly-robust nonparametric inference: a TMLE with two extra reduced-regress
       study (6,000 fits, two seed batches) measured the plain interval at ``0.532``/``0.472``
       against this estimator's ``0.844``/``0.848`` at ``n = 2,400``, and ``0.880`` at best.
       The reported ``se`` ran about 10% short in ``q-drift`` and about 16% *long* in
-      ``g-drift``.  The attribution of that shortfall is withdrawn and under re-examination
-      (RM40 in ``docs/roadmap.md``).  With the outcome regression wrong the interval is
-      valid for a declared known mechanism, and conservative for a correctly specified
-      parametric mechanism.  It is valid where the mechanism estimate keeps the level sets
-      of the truth or where the law makes the term vanish, which no fit can check.  For a
-      data-adaptive learner it is not established.  ``theorem.md`` gives the case table.
+      ``g-drift``.  A committed probe (``reviews/rm40/drift_attribution.py``) found that the
+      conditioning term at the mean fit does not account for that shortfall, which stays
+      unattributed.  With
+      the outcome regression wrong the interval is valid for a declared known mechanism,
+      and conservative for a correctly specified parametric mechanism.  It is valid where
+      the mechanism estimate keeps the level sets of the truth or where the law makes the
+      term vanish, which no fit can check.  For a data-adaptive learner it is not
+      established.  ``theorem.md`` gives the case table.
    3. **The alternation is not guaranteed to converge, though it mostly does.**
       Equation (10)'s covariate becomes small on exactly the fits anybody wants -- see
       :func:`~cleverly.estimators.targeting.solve_with_reduction` -- so a draw can exit at
@@ -304,9 +306,9 @@ class DRTMLE(TMLE):
     separately compares its binary complete-data numbers with the pinned R package under the
     paper's nuisance-correctness regimes; that bounded comparison is not the derivation.  A
     controlled archived study measured higher coverage than a plain TMLE's interval, and
-    nominal coverage nowhere; the attribution of that shortfall is withdrawn and under
-    re-examination (RM40).  The interval is offered as valid *conditionally* on nuisance
-    conditions a fit cannot check for itself.
+    nominal coverage nowhere; that shortfall is not attributed, and the conditioning term at the
+    mean fit does not account for it (``reviews/rm40/drift_attribution.py``).  The interval is
+    offered as valid *conditionally* on nuisance conditions a fit cannot check for itself.
 
     Every :class:`~cleverly.TMLE` keyword is accepted and behaves identically except the
     ones listed under *Notes*, which are refused rather than approximated.

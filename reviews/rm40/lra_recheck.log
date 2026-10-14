@@ -1,0 +1,7 @@
+piglm    ate    R= 1000 errors=0 bias/SD=-0.020 99%=[-0.101, +0.062] contains0=True term/SD=+0.000 SEratio=0.958 coverage=0.943 secs/fit=1.35
+piglm    ey[0]  R= 1000 errors=0 bias/SD=+0.054 99%=[-0.028, +0.135] contains0=True term/SD=-0.010 SEratio=1.005 coverage=0.952 secs/fit=1.35
+piglm    ey[1]  R= 1000 errors=0 bias/SD=+0.027 99%=[-0.055, +0.108] contains0=True term/SD=-0.010 SEratio=0.982 coverage=0.946 secs/fit=1.35
+piknown  ate    R= 1000 errors=0 bias/SD=+0.062 99%=[-0.019, +0.143] contains0=True term/SD=+0.000 SEratio=1.028 coverage=0.952 secs/fit=2.86
+piknown  ey[0]  R= 1000 errors=0 bias/SD=-0.019 99%=[-0.101, +0.062] contains0=True term/SD=+0.000 SEratio=1.008 coverage=0.957 secs/fit=2.86
+piknown  ey[1]  R= 1000 errors=0 bias/SD=+0.066 99%=[-0.016, +0.147] contains0=True term/SD=+0.000 SEratio=1.017 coverage=0.955 secs/fit=2.86
+outcome: A

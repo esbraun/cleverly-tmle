@@ -406,6 +406,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.clustered_few_cluster_tmle import STUDY as CLUSTERED_FEW_CLUSTER_TMLE
     from tests.studies.clustered_unequal_cvtmle import STUDY as CLUSTERED_UNEQUAL_CVTMLE
     from tests.studies.default_bands import STUDY as DEFAULT_SIMULTANEOUS_BANDS
+    from tests.studies.drtmle_one_wrong import STUDY as DRTMLE_ONE_WRONG
     from tests.studies.few_cluster_crossfit_ltmle import STUDY as FEW_CLUSTER_CROSSFIT_LTMLE
     from tests.studies.fold_evaluated_cvtmle import STUDY as FOLD_EVALUATED_CVTMLE
     from tests.studies.fold_targeted_cvtmle import STUDY as FOLD_TARGETED_CVTMLE
@@ -475,6 +476,7 @@ def registered() -> tuple[StudyRecord, ...]:
         POINT_SURVIVAL_POLICIES,
         KNOWN_MECHANISM,
         KNOWN_MECHANISM_DRTMLE,
+        DRTMLE_ONE_WRONG,
         KNOWN_NODE_MECHANISMS,
         CTMLE_OAT_PER_ARM,
         OMITTED_VARIABLE_BOUND_SE,

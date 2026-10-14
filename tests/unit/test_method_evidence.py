@@ -686,6 +686,40 @@ class TestPublishedVerdicts:
                 f"{row.cell} publishes passed={row.passed} against its own contraction endpoint"
             )
 
+        # One family, four rules, and the cell's last segment names the rule.  The growth row
+        # has no bias of its own: it answers to the interval of its signed growth.
+        one_wrong = published.loc[published["property"] == property_verdicts.ONE_WRONG_FAMILY]
+        for row in one_wrong.itertuples():
+            kind = property_verdicts.one_wrong_kind(str(row.cell))
+            floor = row.coverage_ci_lower >= study.margins.coverage_floor
+            if kind == "growth":
+                expected = row.growth_ci_lower > 0.0
+            elif kind == "first_order":
+                low, high = property_verdicts.UNION_MODEL_SE_BAND
+                beyond = (
+                    row.bias_ci_upper < -row.bias_margin
+                    if row.predicted_sign < 0
+                    else row.bias_ci_lower > row.bias_margin
+                )
+                expected = beyond and low <= row.se_ratio <= high
+            elif kind == "conservative":
+                expected = (
+                    row.se_ratio_ci_lower > study.margins.calibration_se_ratio[1]
+                    and floor
+                    and bool(row.bias_equivalent)
+                )
+            else:
+                expected = (
+                    floor
+                    and bool(row.bias_equivalent)
+                    and study.margins.se_ratio_sanity[0]
+                    <= row.se_ratio
+                    <= study.margins.se_ratio_sanity[1]
+                )
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own one-wrong endpoint"
+            )
+
         accuracy = published.loc[published["property"] == "known_mechanism_accuracy"]
         for row in accuracy.itertuples():
             if row.role == "control":
@@ -1184,6 +1218,9 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # Absolute bias at two sizes (the ``X4-plan.md`` 6.8 rule), beside a diagnostic cell.
         # Checked row by row below.
         "single_robustness",
+        # Four rules keyed by the cell's last segment: a conservative SE ratio, accuracy, a
+        # one-sided bias control and a growth control.  Checked row by row below.
+        property_verdicts.ONE_WRONG_FAMILY,
     }
 )
 
@@ -1203,6 +1240,7 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "variance_direction",
         "censoring_complete_case",
         "in_sample_fit",
+        "one_wrong_reported",
     }
 )
 

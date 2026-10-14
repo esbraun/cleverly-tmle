@@ -1,0 +1,130 @@
+sha256 73056bdefea8ebd7658a9f963b5556cb6265a5a363ff2467f9f2b69dab0529e1  reviews/rm40/drift_attribution.py
+# RM40b drift-attribution probe. Tag drtmle-validation-archive-2026-08. numpy 2.5.4, python 3.13.16.
+
+## Step 1. linear_dgp re-implemented and checked
+linear_dgp's propensity and outcome_mean source block: identical at the tag and at HEAD
+REFERENCE_N = 200,000, REFERENCE_SEED = 20260101: re-implemented sampler reproduces the cleverly draw exactly (W, A, Y)
+wrong_mechanism_coefficients (archived, code columns (1, 2)): theta = (-0.19428077, +0.09909913), intercept = -0.00664607; re-implemented fit agrees to 1e-10
+
+## Step 2. g-drift: E ghat_n, the additive split, and the predicted ATE bias
+g0 on the quadrature: mean 0.500000, sd 0.090507; ||g_add - g0||_2 = 1.982e-03 (the n -> infinity error)
+arm 1: Qbar weighted-OLS limit; E[Q0 - Qbar] = -0.14680, E[w_a (Q0 - Qbar)] = -2.1e-15
+arm 0: Qbar weighted-OLS limit; E[Q0 - Qbar] = +0.14680, E[w_a (Q0 - Qbar)] = +4.6e-16
+
+| n | fits | h_n | train rows | ||E ghat_n - g0|| | ||E ghat_n - g_add|| | ||E ghat_n - g_h,inf|| | min, max of E ghat_n |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 600 | 2000 | 0.5169 | 480 | 3.383e-02 | 3.377e-02 | 8.906e-04 | 0.2289, 0.7554 |
+| 1,200 | 1200 | 0.4740 | 960 | 2.968e-02 | 2.962e-02 | 9.483e-04 | 0.2129, 0.7699 |
+| 2,400 | 600 | 0.4347 | 1,920 | 2.650e-02 | 2.643e-02 | 1.228e-03 | 0.1827, 0.7867 |
+g_h,inf is the fixed-h population limit of the backfit (each E[g0 | W_j] component smoothed twice, as the archived fit-then-evaluate does); E ghat_n approaches g_add as n grows.
+
+Per arm (raw ATE units, at ghat = E ghat_n, Qr degree-9 polynomial):
+| n | (a) arm 1 | (b) arm 1 | (a) arm 0 | (b) arm 0 |
+| --- | --- | --- | --- | --- |
+| 600 | +9.021e-06 | +7.220e-04 | -1.605e-05 | -9.875e-04 |
+| 1,200 | +1.278e-05 | +1.590e-04 | -1.353e-05 | -6.040e-05 |
+| 2,400 | +2.832e-05 | -9.216e-04 | -3.132e-05 | +4.983e-04 |
+
+ATE (arm 1 minus arm 0), root-n scaled, sqrt(n) x leftover, with batch-means MC error:
+| n | sqrt(n) (a) | sqrt(n) (b) | sqrt(n) B_ATE | raw B_ATE | MC SE of sqrt(n) B_ATE |
+| --- | --- | --- | --- | --- | --- |
+| 600 | +0.0006 | +0.0419 | +0.0425 | +1.735e-03 | 0.0364 |
+| 1,200 | +0.0009 | +0.0076 | +0.0085 | +2.457e-04 | 0.0368 |
+| 2,400 | +0.0029 | -0.0696 | -0.0666 | -1.360e-03 | 0.0592 |
+
+Error of the conditional-expectation step and sensitivity rows, sqrt(n) B_ATE:
+| n | primary | 2nd scramble | Qr 256 bins | Qr degree 5 | Qr linear (glm limit) | with TMLE shift of Qbar | at g_h,inf | mean over fits: random part of ghat_n included (linear Qr, 2^17) | same Qr at E ghat_n (2^17) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 600 | +0.0425 | +0.0424 | +0.0495 | +0.0425 | +0.0423 | +0.0424 | -0.0086 | +2.2769 +/- 0.0503 | +0.0422 |
+| 1,200 | +0.0085 | +0.0084 | +0.0172 | +0.0085 | +0.0077 | +0.0084 | -0.0112 | +2.0407 +/- 0.0430 | +0.0075 |
+| 2,400 | -0.0666 | -0.0667 | -0.0554 | -0.0666 | -0.0667 | -0.0665 | -0.0142 | +1.7007 +/- 0.0610 | -0.0669 |
+(fits: n = 600: 2000 in 142 s, n = 1,200: 1200 in 350 s, n = 2,400: 600 in 799 s)
+
+## Step 3. q-drift: the mirror term's deterministic part and its variance part
+identity a = 1/g + h/g (arm 1; arm 0 mirrored) holds to 1.3e-15
+arm 1: E[h] = -1.07e-07, E[h L] = +3.58e-07, E[h L^2] = -1.62e-06, sd(h) = 0.1080 (2nd scramble: E[h L] = -1.92e-07)
+arm 0: E[h] = -9.67e-08, E[h L] = -6.21e-07, E[h L^2] = -1.50e-06, sd(h) = 0.1087 (2nd scramble: E[h L] = -2.64e-07)
+
+Deterministic part, sqrt(n) (M_1 - M_0):
+| n | h_n | analytic affine limit (quadrature error) | 2nd scramble | averaged archived smoother | MC SE | glm-reduction h | ||E Qhat_n,1 - affine limit|| | fits |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 600 | 0.5169 | +7.93e-06 | -3.26e-07 | +0.0217 | 0.0058 | +0.0219 | 0.0156 | 1000 in 56 s |
+| 1,200 | 0.4740 | +9.72e-06 | -5.72e-07 | +0.0242 | 0.0097 | +0.0247 | 0.0123 | 600 in 91 s |
+| 2,400 | 0.4347 | +1.18e-05 | -9.54e-07 | +0.0206 | 0.0056 | +0.0201 | 0.0105 | 400 in 244 s |
+(the affine constant is arbitrary because E[h] = 0; the archived smoother is trained on 4n/5 rows per fold, per arm on the A = a rows)
+
+Variance part (raw scale, Var(Y | A, W) = 1):
+Var(D_rep) = 4.03917; projection ||k1||^2_g0 = 0.02488, ||k0||^2_(1-g0) = 0.02521, E[k1] = -0.03762, E[k0] = -0.03800
+predicted SE ratio sd(D_rep)/sd(D_rep - extra): 0.9877 (Hermite degree 8); 0.9877 (degree 5)
+implied coverage from the ratio alone: 2 Phi(1.96 x 0.9877) - 1 = 0.9471; N = 100 (0.95 - 0.9471) = +0.29 points of the 10.4 (at the archived 0.903: 2.67)
+
+Monte Carlo check of the variance part with the archived finite-h smoother (one fit on n rows, no cross-fitting):
+T1 = P_n D_rep (true residuals), T2 = sum over arms of +/- P0[h_a (Q0_a - Qhat_a)] (2^17 sub-quadrature).
+| n | fits | sd(T1) sqrt(n) | sd(T1 + T2) sqrt(n) | ratio sd(T1)/sd(T1 + T2) | bootstrap SE | projection prediction |
+| --- | --- | --- | --- | --- | --- | --- |
+| 600 | 600 (92 s) | 1.9488 | 1.9816 | 0.9835 | 0.0035 | 0.9877 |
+| 1,200 | 400 (124 s) | 2.1399 | 2.1563 | 0.9924 | 0.0041 | 0.9877 |
+| 2,400 | 300 (294 s) | 2.1307 | 2.1370 | 0.9970 | 0.0049 | 0.9877 |
+(sqrt(Var(D_rep)) = 2.0098 is the large-n value of sd(T1) sqrt(n))
+
+## Step 4. The archived measurements (DRTMLE, ATE)
+Cited lines at drtmle-validation-archive-2026-08 (each checked for the quoted numbers):
+- investigation-log.md:1533: `20250802`, the second run after the first completed. Both cells, `600 / 1,200 / 2,400`, 250
+- investigation-log.md:1554: | `q-drift` | 600 | 0.716 / 0.784 | 0.792 / 0.820 | `+0.076 ± 0.022` | `+0.036 ± 0.021` |
+- investigation-log.md:1555: | `q-drift` | 1,200 | 0.600 / 0.676 | 0.824 / 0.880 | `+0.224 ± 0.029` | `+0.204 ± 0.029` |
+- investigation-log.md:1556: | `q-drift` | 2,400 | 0.532 / 0.472 | 0.844 / 0.848 | `+0.312 ± 0.031` | `+0.376 ± 0.033` |
+- investigation-log.md:1557: | `g-drift` | 600 | 0.864 / 0.892 | 0.776 / 0.808 | `−0.088 ± 0.023` | `−0.084 ± 0.020` |
+- investigation-log.md:1558: | `g-drift` | 1,200 | 0.828 / 0.860 | 0.800 / 0.844 | `−0.028 ± 0.018` | `−0.016 ± 0.017` |
+- investigation-log.md:1559: | `g-drift` | 2,400 | 0.712 / 0.728 | 0.780 / 0.784 | `+0.068 ± 0.023` | `+0.056 ± 0.022` |
+- investigation-log.md:1583: | `DRTMLE` n=600 | 0.89 | 1.85 | 0.827 | 0.815 (excl.) |
+- investigation-log.md:1584: | `DRTMLE` n=1,200 | 0.80 | 1.85 | 0.849 | 0.824 |
+- investigation-log.md:1585: | `DRTMLE` n=2,400 | 0.67 | 1.77 | 0.858 | 0.844 |
+- investigation-log.md:1608: `2.01 / 1.69 / 1.44`, falling at about `n^(−0.24)`; `√n R_rem` sits at `1.25`. Extrapolating the
+- investigation-log.md:1625: `q-drift` at `n = 2,400` `DRTMLE`'s spread is 4.5% below `TMLE`'s (`0.0443` against `0.0464`) while
+- investigation-log.md:1626: its *estimated* `se` is 10.7% below (`0.0400` against `0.0448`) — the `se ratio` of `0.903`, which
+- investigation-log.md:1658: that leaves `DRTMLE` carrying a *larger* bias than `TMLE` (`+0.1260` against `+0.1186` in batch A)
+- investigation-log.md:1659: inside a *narrower* interval (`0.4472` against `0.4647`) — two measured quantities pushing the same
+- coverage-study.md:942: | **1.5** `se ratio` in `[0.90, 1.10]`, largest size, both cells | coverage table | `q-drift` `0.903` / `0.903`; `g-drift` `1.157` / `1.156` | **fail*
+- coverage-study.md:943: | **1.6** coverage compatible with `0.95`, largest size, both cells | coverage table, `compatible` | `0.844` / `0.848` and `0.780` / `0.784`; `NO` in 
+- construction-contrasts.md:363: | `cleverly`, `n = 2,400` | `5.2986` | `+0.06987` | `0.05487` |
+
+C3c (250 replicates per cell and size, two batches):
+| cell | n | root-n bias (A) | bias/sd (A) | coverage A / B | SE ratio A / B | coverage MC SE |
+| --- | --- | --- | --- | --- | --- | --- |
+| q-drift | 600 | +2.01 | 0.89 | 0.792 / 0.820 | not stated | 0.026 |
+| q-drift | 1,200 | +1.69 | 0.80 | 0.824 / 0.880 | not stated | 0.024 |
+| q-drift | 2,400 | +1.44 | 0.67 | 0.844 / 0.848 | 0.903 / 0.903 | 0.023 |
+| g-drift | 600 | +3.09 (raw +0.1260) | not stated | 0.776 / 0.808 | not stated | 0.026 |
+| g-drift | 1,200 | not stated | not stated | 0.800 / 0.844 | not stated | 0.025 |
+| g-drift | 2,400 | not stated | not stated | 0.780 / 0.784 | 1.157 / 1.156 | 0.026 |
+
+F5 terminal, `glm-pooled` arm (shipped construction, `glm` reductions), both cohorts pooled, from the per-replicate rows:
+| cell | n | draws | raw bias | MC SE | root-n bias | empirical sd | SE ratio | coverage |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| q-drift | 600 | 48 | +0.05850 | 0.01454 | +1.433 | 0.10075 | 0.853 | 0.833 |
+| q-drift | 2,400 | 160 | +0.03131 | 0.00317 | +1.534 | 0.04011 | 0.999 | 0.894 |
+| g-drift | 600 | 48 | +0.11243 | 0.01422 | +2.754 | 0.09855 | 1.152 | 0.854 |
+| g-drift | 2,400 | 160 | +0.06786 | 0.00344 | +3.325 | 0.04348 | 1.262 | 0.825 |
+F4 audit, `cleverly` arm (construction-contrasts.md:363): g-drift n = 2,400 bias +0.06987, se 0.05487 (no MC SE stated; a reading only).
+
+C3c g-drift Wald-implied standardized bias at n = 2,400: batch A 1.495 +/- 0.089, batch B 1.480; times the F5 pooled sd 0.04348 gives raw +0.06502 +/- 0.00385.
+C3c q-drift check: bias/sd 0.67 x sd 0.0443 = +0.02968 against root-n 1.44 / sqrt(2400) = +0.02939.
+
+## Decision (rule in the header, n = 2,400, raw ATE bias; root-n in brackets)
+| cell | predicted (MC SE) | source | archived (MC SE) | |pred - arch| | max(0.30 |arch|, 2 MC SE) | |arch|/3 | outcome |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| g-drift | -0.00136 (0.00121) [-0.067] | S1 F5 glm-pooled | +0.06786 (0.00344) [+3.325] | 0.06922 | 0.02036 | 0.02262 | refuted |
+| g-drift | -0.00136 (0.00121) [-0.067] | S2 C3c Wald-implied (batch A) x F5 sd | +0.06502 (0.00385) [+3.185] | 0.06638 | 0.01950 | 0.02167 | refuted |
+| q-drift | +0.00042 (0.00012) [+0.021] | S1 C3c batch A (docs) | +0.02939 (0.00280) [+1.440] | 0.02897 | 0.00882 | 0.00980 | refuted |
+| q-drift | +0.00042 (0.00012) [+0.021] | S2 F5 glm-pooled | +0.03131 (0.00317) [+1.534] | 0.03089 | 0.00939 | 0.01044 | refuted |
+
+**g-drift: refuted.** Selected docs sentence: "The shortfall is not attributed. The mechanism error does not account for it."
+**q-drift: refuted.** Selected docs sentence: "The shortfall is not attributed. The mechanism error does not account for it."
+g-drift dominant part of the prediction: (b) smoothing bias (sqrt(n) (a) = +0.0029, sqrt(n) (b) = -0.0696).
+Sensitivity, not the rule: the g-drift mean over fits (random part of ghat_n included, linear Qr) is +0.03471 +/- 0.00125 [+1.701]; against S1 / S2 the rule would read inconclusive / inconclusive.
+
+Variance findings (decide nothing about attribution):
+- q-drift: predicted SE ratio 0.988 against the archived 0.903. The variance part accounts for about 0.3 of the 10.4 points of shortfall.
+- g-drift: archived SE ratio 1.157 (a long SE). This probe makes no g-drift SE-ratio prediction; a long SE cannot cause a shortfall.
+
+runtime 2455 s
