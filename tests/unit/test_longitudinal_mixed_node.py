@@ -399,11 +399,12 @@ def test_a_bootstrap_refits_mixed_nodes() -> None:
         assert np.all(np.isfinite(draws))
 
 
-def test_a_study_identifies_a_contrast_of_joint_policies_and_refuses_the_density_route() -> None:
+def test_a_study_identifies_a_contrast_of_joint_policies_and_refuses_to_estimate_it() -> None:
     """The CausalStudy spine: the declaration check compares component names.
 
-    The spine's method configuration has no ``ratio`` field, so a study fit at a mixed node
-    reaches the density route and refuses before any learner is fitted.
+    The spine's method configuration has no ``ratio`` field, so it has no classifier route.
+    A study fit at a mixed node refuses before any learner is fitted, and the refusal names
+    the direct ``LTMLE`` fit a study user can make instead of a keyword the spine lacks.
     """
     from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
 
@@ -420,7 +421,16 @@ def test_a_study_identifies_a_contrast_of_joint_policies_and_refuses_the_density
     identified = study.identify(
         RegimeContrast(mtp.mixed_regimens(("natural", "flag gated")), reference="natural")
     )
-    with pytest.raises(CapabilityError, match="ratio='classifier'"), warnings.catch_warnings():
+    message = (
+        "node 'F1+D1' is a vector with a continuous component. Its policy ratio is estimated "
+        "by classification, and the CausalStudy spine has no classifier route yet. Fit "
+        "LTMLE(regimens, ratio='classifier') directly on the data. The study spine for vector "
+        f"nodes, a post-beta roadmap row, is docs/roadmap.md {VECTOR_DENSITY_ROW}"
+    )
+    with (
+        pytest.raises(CapabilityError) as refused,
+        warnings.catch_warnings(),
+    ):
         warnings.simplefilter("ignore")
         identified.estimate(
             outcome_learner=NeverFit(),
@@ -429,6 +439,8 @@ def test_a_study_identifies_a_contrast_of_joint_policies_and_refuses_the_density
             g_bounds=NO_TRUNCATION,
             cross_fit=False,
         )
+    assert str(refused.value) == message
+    assert "Pass ratio=" not in str(refused.value)
 
 
 def test_a_prepared_container_passes_the_design_check() -> None:

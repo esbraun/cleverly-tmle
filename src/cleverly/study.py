@@ -11,7 +11,7 @@ import narwhals as nw
 from ._typing import Family
 from .data import CausalData
 from .data.known_mechanism import KNOWN_CTMLE_REFUSAL, probability_columns
-from .data.validate import RANDOMIZED_INTERCEPT
+from .data.validate import RANDOMIZED_INTERCEPT, VECTOR_DENSITY_ROW
 from .estimators import CTMLE, DRTMLE, TMLE, TMLEResult
 from .estimators._strata import check_stratified_targets
 from .estimators.composite import missing_treatment_design_refusal
@@ -488,6 +488,8 @@ class PointTreatment:
                     "to TMLE.fit(treatment_probabilities=)."
                 )
             object.__setattr__(self, "treatment_probabilities", columns)
+        if not isinstance(self.treatment, str):
+            raise CapabilityError(_point_vector_refusal(self.treatment))
         if not self.outcome or not self.treatment:
             raise DataError("outcome and treatment must be non-empty column names")
         if self.outcome == self.treatment:
@@ -514,6 +516,8 @@ class PointTreatment:
             Validated internal representation.
         """
         if isinstance(data, CausalData):
+            if data.is_vector_treatment:
+                raise CapabilityError(_point_vector_refusal(data.component_names))
             self._check_prepared(data)
             return data
         covariates = self.adjustment
@@ -1723,6 +1727,31 @@ _STRING_ESTIMANDS: dict[str, str] = {
     "ate_ipsi": "IncrementalEffect(interventions=...)",
     "msm": "MSMProjection(model=...)",
 }
+
+
+def _point_vector_refusal(treatment: Any) -> str:
+    """The refusal of a vector treatment by :class:`PointTreatment`."""
+    columns = [str(name) for name in treatment]
+    return (
+        f"PointTreatment(treatment={columns!r}) declares a vector treatment, and the "
+        "CausalStudy spine reads a point treatment of one column. Fit a vector treatment "
+        "with TMLE on CausalData.from_frame(treatment=[...]). The study spine for vector "
+        f"treatments, a post-beta roadmap row, is docs/roadmap.md {VECTOR_DENSITY_ROW}"
+    )
+
+
+def _study_mixed_node_refusal(node: str) -> str:
+    """The study spine's refusal at a vector node with a continuous component.
+
+    The spine's method configuration has no ``ratio`` option, so it fits the density route,
+    which a vector node with a dose does not support.  The refusal names the direct fit.
+    """
+    return (
+        f"node {node!r} is a vector with a continuous component. Its policy ratio is "
+        "estimated by classification, and the CausalStudy spine has no classifier route "
+        "yet. Fit LTMLE(regimens, ratio='classifier') directly on the data. The study spine "
+        f"for vector nodes, a post-beta roadmap row, is docs/roadmap.md {VECTOR_DENSITY_ROW}"
+    )
 
 
 def _narrow_bands(
@@ -3506,6 +3535,14 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
     def _estimate_longitudinal(self, method: EstimationMethod) -> LongitudinalResult:
         assert self._study is not None and isinstance(self._study.data, LongitudinalData)
         functional = self.functional
+        data = self._study.data
+        mixed = [
+            data.treatment_names[time - 1]
+            for time in range(1, data.n_times + 1)
+            if data.node_kind(time) == "mixed"
+        ]
+        if mixed:
+            raise CapabilityError(_study_mixed_node_refusal(mixed[0]))
         estimator = LTMLE(
             functional.interventions,
             reference=functional.reference,
