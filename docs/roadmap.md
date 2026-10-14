@@ -224,6 +224,7 @@ not change the package version.
 | BP | C-TMLE candidate sequences | published support; pending source read | shipped selector paths | [X16](#x16-c-tmle-candidate-sequences) |
 | BP | Hazard-based and monotone survival curves | published support; pending source read | the shipped point-treatment survival design | [X14](#x14-hazard-based-and-monotone-survival-curves) |
 | BP | Plug-in omitted-variable limits with a declared parametric mechanism | [published support; stacked-equation extension](technical-reference/natural-extension-verdicts.md) | the shipped plug-in bound | [X26](#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism) |
+| BP | Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome | [natural extension](technical-reference/hard-stop-review.md) candidate; oracle diagnostic | RM42; the shipped per-arm design | [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
 | B5 | Learned-policy follow-ups | published support for parts (g) and (h); natural extension for parts (i) and (k) to (o); published support; pending source read for parts (a), (b), (e) and (f); source audit for parts (c), (d) and (j) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
 | B5 | Structural dynamic treatment effects | source audit | X41 | [X44](#x44-structural-dynamic-treatment-effects) |
 | B5 | Parametric forward-simulation g-formula | source audit | X41 | [X45](#x45-parametric-forward-simulation-g-formula) |
@@ -240,7 +241,7 @@ not change the package version.
 | after beta | E-value for a controlled direct effect | [natural extension](technical-reference/hard-stop-review.md) | the shipped E-value conversions | [X49](#x49-e-value-for-a-controlled-direct-effect) |
 | after beta | Further DR-TMLE compositions | [natural extension](technical-reference/hard-stop-review.md); no new theory for parts (d) and (e) | the shipped `DRTMLE` | [X50](#x50-further-dr-tmle-compositions) |
 | after beta | C-TMLE point estimates for further targets | [natural extension](technical-reference/hard-stop-review.md); no new theory for part (f) | the shipped selector and outcome-adaptive paths | [X51](#x51-c-tmle-point-estimates-for-further-targets) |
-| after beta | Parametric C-TMLE intervals | [natural extension](technical-reference/hard-stop-review.md) | the shipped selector path and per-arm design | [X52](#x52-parametric-c-tmle-intervals) |
+| after beta | Parametric C-TMLE intervals | [natural extension](technical-reference/hard-stop-review.md) | the shipped selector path; X58 for part (b) | [X52](#x52-parametric-c-tmle-intervals) |
 | after beta | Missing-outcome CV-TMLE variants | [natural extension](technical-reference/hard-stop-review.md); pending source read for the incremental and tilt axes of part (d) | the shipped stacked missing-outcome contracts | [X53](#x53-missing-outcome-cv-tmle-variants) |
 | after beta | Small-sample evidence for clustered intervals and boundary nodes | [no new theory](technical-reference/hard-stop-review.md) | the shipped clustered intervals and `constant_node_plugin` status | [X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) |
 | after beta | Bootstrap extensions | [published support](technical-reference/hard-stop-review.md); the book chapter of part (c) is not read | the shipped full-refit bootstrap; a HAL learner for part (b) | [X55](#x55-bootstrap-extensions) |
@@ -326,7 +327,7 @@ It moved each part that an established method or a natural extension carries to 
 | Longitudinal sensitivity-bound estimation | (a) a sample estimate of the bounds of Tan (2025); (b) its interval; (c) an omitted-variable bound or an E-value on a longitudinal fit | (a) asymptotic; (b) regularity; (c) identification | no sensitivity bound on a longitudinal fit | [F16](#f16-longitudinal-sensitivity-bound-estimation) |
 | Other refused C-TMLE and DR-TMLE compositions | C-TMLE ATT, ATC, incremental, modified treatment policies and controlled direct effects; DR-TMLE ATT, ATC, modified treatment policies, incremental and controlled direct effects | regularity for the C-TMLE targets; asymptotic for the DR-TMLE targets | named pre-fit refusals. [X50](#x50-further-dr-tmle-compositions) and [X51](#x51-c-tmle-point-estimates-for-further-targets) hold the compositions that moved | [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
 | Selector-path C-TMLE inference | inference after the shipped stopping-index selection | adaptive-optimum inference | point estimates and path diagnostics. The greedy, ordered and discrete paths refuse `ci`, `pvalue` and `std_error`, except a `discrete` fit whose one declared candidate is the full adjustment set. [X52](#x52-parametric-c-tmle-intervals) holds one declared partial candidate with parametric learners | [F18](#f18-selector-path-c-tmle-inference) |
-| Outcome-adaptive C-TMLE generated-design inference | a flexible outcome learner; a nonparametric shared multinomial design; the cross-fitted construction; local uniformity over the nonparametric model | asymptotic; regularity for the shared design | point estimates only, under the `generated_design_plugin` status. The per-arm study measured the diagnostic 8 to 24 percent too small ([the applied revert](technical-reference/collaborative-tmle.md#the-applied-revert)). [X52](#x52-parametric-c-tmle-intervals) holds the fully parametric cells | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) |
+| Outcome-adaptive C-TMLE generated-design inference | a flexible outcome learner; a nonparametric shared multinomial design; the cross-fitted construction; local uniformity over the nonparametric model | asymptotic; regularity for the shared design | point estimates only, under the `generated_design_plugin` status. The per-arm study measured the diagnostic 8 to 24 percent too small ([the applied revert](technical-reference/collaborative-tmle.md#the-applied-revert)). [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) holds the per-arm cells with a parametric outcome, and [X52](#x52-parametric-c-tmle-intervals) holds the shared and composite parametric cells | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | Other missing-outcome CV-TMLE variants | a cross-fitted `DRTMLE` with `delta=` or a missing treatment, and `reduced_crossfit="nested"` on the composite | asymptotic | the in-sample composite `DRTMLE`. [X53](#x53-missing-outcome-cv-tmle-variants) holds the `TMLE` variants | [F21](#f21-other-missing-outcome-cv-tmle-variants) |
 | Grouped cross-fitting beyond point-treatment TMLE | clustered C-TMLE intervals beyond the parametric cells of X52 | asymptotic | C-TMLE refuses `id=`. [X51](#x51-c-tmle-point-estimates-for-further-targets) holds the clustered point estimates | [F22](#f22-grouped-cross-fitting-beyond-point-treatment-tmle) |
 | Time-respecting cross-fitting | blocked-temporal and rolling-origin folds for a dependent calendar series | serial dependence | iid and grouped cross-fitting only | [F7](#f7-time-respecting-cross-fitting) |
@@ -421,6 +422,11 @@ library implements the identical target, algorithm, fold construction, or compos
 strongest feasible comparison and state its scope. A comparison is acceptance evidence for the
 claims it covers. [RM42](#rm42-acceptance-status-and-refusal-reasons) part (e) adds the
 comparator-backed label to the evidence pages.
+
+A planned comparator run that has not finished does not block a method either. The method ships
+when its Python studies pass with their expected properties. Until the run finishes, the evidence
+names the property studies and carries the label "comparator runs pending". A later change registers the
+comparator results and fixes each defect that they show.
 
 | comparison | appropriate use | claim it supports |
 | --- | --- | --- |
@@ -546,7 +552,7 @@ owners do the same for the stratified DR-TMLE study.
 | id | work | acceptance |
 | --- | --- | --- |
 | `F18` | an inference result for the shipped selector path | an influence curve derived after the stopping-index selection, and a registered study whose `selector_necessity` and `type_i_error` cells pass their existing margins at their existing budgets. The multi-arm `interval_calibration/correctly_specified` cell must also pass its band, because its standard-error ratio interval, 0.8987 to 0.9862, measures the fixed-candidate covariance that F18 replaces |
-| `F19` | an inference result for the generated design, the red cells of `ctmle-oat-per-arm`, and the short-SE truth rows and ladder rungs of `ctmle-oat-per-arm-strata-missing` | a published result, or an Eligibility-qualifying natural extension, that establishes whether the ordinary adaptive-propensity curve suffices for the cross-fitted shared-multinomial joint target. For the per-arm design, a curve that adds the generated-design term $c^\top \mathrm{IF}_\beta$, with $c = E[(1 - g_0 / G)\, \partial \bar Q / \partial \beta]$, or a source that removes it. Implement any contribution the result requires, then register covariance and coverage evidence at declared budgets. The per-arm revert cells must pass their declared bands under a fresh declaration. The `generated_design` pair stays a reporting diagnostic, and acceptance does not require a negative standard-error deficit |
+| `F19` | an inference result for the generated design, the red cells of `ctmle-oat-per-arm`, and the short-SE truth rows and ladder rungs of `ctmle-oat-per-arm-strata-missing` | a published result, or an Eligibility-qualifying natural extension, that establishes whether the ordinary adaptive-propensity curve suffices for the cross-fitted shared-multinomial joint target. For the per-arm design, a curve that adds the generated-design term $c^\top \mathrm{IF}_\beta$, with $c = E[(1 - g_0 / G)\, \partial \bar Q / \partial \beta]$, or a source that removes it. Implement any contribution the result requires, then register covariance and coverage evidence at declared budgets. The per-arm revert cells must pass their declared bands under a fresh declaration. [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) plans the per-arm part for the configurations that its support predicate admits. The committed red cells keep their verdicts and stay owned here. The `generated_design` pair stays a reporting diagnostic, and acceptance does not require a negative standard-error deficit |
 | `F27` | an interval for the fold-average learned-rule value outside the published conditions | [F27](#f27-learned-policy-value-outside-the-published-conditions) gives the acceptance for each request. The `exceptional` row needs a published result. The `weak_blip` row is a finite-sample limit at n = 2,000 inside condition C3 |
 | `RM18-fixed-weights` | the `interval_calibration/static__correctly_specified` cell and the paired `ey_regimen[never]` row of `weighted-ltmle-crossfit` | reading `finite-sample, contracting` and `equivalent at the declared budget` ([`tests/diagnostics/rm18_fixed_weights/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_fixed_weights)). The pooled update applies the weighted targeting equation, so the reading is no reason to revert it. A result for complex surveys, estimated or calibrated weights, clustering or other longitudinal weight laws is still open. Karim (2026), arXiv:2606.30918v2, is adjacent point-treatment survey theory, and it does not cover this construction |
 | `RM18-boundary` | cells at a finite-budget boundary: `root_n_and_efficiency/n_500` of `canonical-multi-arm-ctmle-selector`; `double_robust_contraction/treatment_correct_n1500` of `canonical-drtmle`; `double_robust_contraction/outcome_correct_n4000`, `interval_calibration/correctly_specified` and `root_n_and_efficiency/n_500` of `canonical-multi-arm-drtmle`; `double_robustness/static__both_wrong` and the paired `ey_regimen[always]` and `ey_regimen[treat then continue if l2 positive]` rows of `weighted-ltmle-crossfit` | reading `resolved: truth satisfies the gate` for the six cells, and `comparator SE convention` for the two paired rows ([`tests/diagnostics/rm18_boundary/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/rm18_boundary)). Before a future regeneration of `weighted-ltmle-crossfit`, declare whether it adopts the `lmtp` standard-error convention for the two paired rows |
@@ -918,6 +924,145 @@ Acceptance:
   of $\nu^2$ equals $\alpha(g_0)^2 - \nu^2$ row by row;
 - a registered coverage study.
 
+### X58. Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome
+
+This item gives the per-arm outcome-adaptive design a corrected interval in a restricted scope. It
+takes the tractable part of [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference): a
+regular parametric outcome model with a declared treatment-mechanism contract. F19 keeps the
+flexible outcome learner, the shared design, local uniformity, and the compositions outside this
+contract. F19 also keeps the committed red cells. Every configuration outside the support predicate
+below keeps the `generated_design_plugin` status.
+
+**What is known.** [The applied revert](technical-reference/collaborative-tmle.md#the-applied-revert)
+and the [per-arm evidence page](technical-reference/method-evidence/outcome-adaptive-per-arm-c-tmle.md)
+give the cells.
+
+| finding | evidence | consequence |
+| --- | --- | --- |
+| a comparator exists | R `drtmle` 1.1.2 at commit `538a3a2`, with `adapt_g = TRUE`, called once per arm on a binary recode | the comparator does not block this item |
+| `cleverly` agrees with the comparator | each estimate and standard error agrees to `1e-8` in `ctmle-oat-per-arm` | parity holds for the uncorrected curve |
+| the reported standard error is too small | ratios from 0.76 to 0.92 over the primary estimands at $n$ = 1,500. The $n$ ladder reads 0.83, 0.86 and 0.86 at $n$ = 500, 2,000 and 8,000 | parity does not establish calibrated inference, and it cannot override a measured shortfall |
+| the learned design causes the deficit | the paired cells with $\bar Q_n$ pinned to the truth read 0.997 and 1.009 | learning the predictions adds an omitted contribution |
+| a correction has diagnostic support | `tests/diagnostics/x17_generated_design/run.py` adds $c^\top \mathrm{IF}_\beta$ and reads ratios of 1.03 and 0.98, at $n$ = 1,500 and 6,000 | a restricted correction is a concrete candidate |
+| no production correction exists | the diagnostic reads the true $g_0$ and the outcome learner's coefficient influence function | each oracle quantity needs an estimable or declared replacement |
+
+For arm $a$, $g_{0,a}(W) = P(A = a \mid W)$ is the full mechanism, and
+$G_a(\bar Q_a(W)) = P(A = a \mid \bar Q_a(W))$ is the adaptive mechanism. The diagnosis identifies
+this candidate curve for a parametric outcome model with coefficients $\beta$:
+
+$$
+D_{\mathrm{corrected},a} = D_{\mathrm{plugin},a} + c_a^\top \mathrm{IF}_\beta, \qquad
+c_a = E\left[\left(1 - \frac{g_{0,a}(W)}{G_a(\bar Q_a(W))}\right)
+\frac{\partial \bar Q_a(W)}{\partial \beta}\right].
+$$
+
+$\mathrm{IF}_\beta$ is the influence function of the fitted outcome coefficients. The formula
+summarizes the diagnosis. It is not the inference contract. With a parametric adaptive mechanism,
+the $\gamma$ and $\epsilon$ terms also enter. This item derives the complete first-order
+expansion of the fitted estimator, with the outcome fit, the adaptive mechanism fit, the targeting
+step and the final average.
+
+**Readiness.** This item is a natural extension candidate with an oracle diagnostic. The
+[hard-stop review](technical-reference/hard-stop-review.md) reads the in-sample parametric stack
+as a natural extension. Its base is a stacked M-estimator (Saul and Hudgens 2020) with the
+conditions of Appendix F of Benkeser, Cai and van der Laan, arXiv:1901.05056v1. The stack, not the
+curve of Theorem 1, supplies the generated-design term. Theorem 1 needs condition (v), and
+condition (v) fails here.
+
+The steps are an indicator reduction for each arm, a stacked estimating
+equation, the chain rule for influence functions, the delta method, and a fixed-dimension stack.
+This item must confirm that every step is in the standard-step table of
+[Eligibility](#eligibility). A step outside that table returns its claim to F19.
+
+**First scope.** Each extension enters through its own acceptance cells.
+
+| axis | first implementation |
+| --- | --- |
+| design | `strategy="oat"`, `oat_design="per_arm"` |
+| data | independent rows, complete outcomes and treatment, no `strata=`, no weights |
+| treatment | binary |
+| outcome learner | a declared regular parametric model that exposes its score, its derivative and its coefficient influence function |
+| adaptive mechanism | a declared smooth parametric fit. The contract states its assumptions and the behavior of `g_bounds` |
+| target | the two arm means and the ATE, with their joint covariance |
+| fitting | in sample |
+| inference | a corrected pointwise covariance and a Wald interval, inside the declared model and its regularity conditions |
+
+| part | extension | entry condition |
+| --- | --- | --- |
+| (a) | the first scope above | the acceptance list below |
+| (b) | more than two arms, and `rr`, `or`, `par` and `paf` by the delta method | a map of the changed contributions, and their own witnesses and cells |
+| (c) | cross-fitting with parametric learners, and `repeats` above 1 | an explicit map of the fold-specific coefficient contributions, and a written expansion. Without one, the claim stays in F19 |
+| (d) | fixed known weights | the weight-tilted law of the shipped per-arm contract, with its own witness and cell |
+
+The `ctmle-oat-per-arm` revert cells split by part. Part (a) takes the binary primary rows of
+`ey1`, `ey0` and `ate`, `interval_calibration/binary_active__correctly_specified` and the binary
+`generated_design` pair. Part (b) takes the other primary rows, the three-arm cells and the
+simultaneous band. Part (c) takes `binary_repeats__correctly_specified`, and part (d) takes
+`binary_weighted__correctly_specified`. A cell stays with F19 until its part passes.
+
+**Routes to compare.** This item evaluates each route, then implements the smallest justified route
+with reliable behavior.
+
+| route | what it estimates | conditions to state |
+| --- | --- | --- |
+| a full mechanism | $c_a^\top \mathrm{IF}_\beta$, plus the $\gamma$ and $\epsilon$ terms of the parametric adaptive mechanism, with a declared known $g_0$ or with a correctly specified parametric mechanism whose score enters the stack. `CTMLE` refuses a declared `treatment_probabilities=` today (`KNOWN_CTMLE_REFUSAL`). This route lifts that refusal for the per-arm correction only, with $g_0$ an input to the curve and not to the design, and updates [scope and refusals](technical-reference/scope-and-refusals.md) | the full mechanism is known or consistently estimated |
+| a joint estimating equation | the sandwich over $\beta$, the adaptive mechanism $\gamma$, the fluctuation $\epsilon$ and $\psi$, as [X52](#x52-parametric-c-tmle-intervals) describes | the outcome model is correct for coverage of $\psi_0$. The sample Jacobian may estimate $c_a$ from the observed treatment without a full mechanism. The derivation must confirm this |
+
+A consistent full mechanism is an acceptable cost for valid restricted inference. Avoiding that
+mechanism is a further objective, and F19 keeps it. A correct outcome model alone does not
+establish calibrated uncertainty. This item claims no superefficiency and no efficiency gain over
+ordinary TMLE without a separate argument.
+
+**Implementation sequence.**
+
+1. Derive the complete first-order expansion for the fitted estimator and the learner contract.
+2. Name each oracle quantity, and specify an estimable or declared replacement.
+3. Evaluate the full-mechanism route, with a known or consistently estimated $g_0$.
+4. Evaluate the joint estimating equation when it accounts for every fitted stage.
+5. Compare the routes, and choose one.
+6. Compute the covariance from the corrected row-wise curves. Keep the cross-arm covariance for the
+   ATE.
+7. Implement the support predicate, and restrict the inferential status to the configurations that
+   meet it.
+8. Add parts (b) and (c) only after their changed contributions are mapped and tested.
+
+**Release gate.** A support predicate replaces the global flag `OAT_PER_ARM_INFERENTIAL`. The
+predicate reads the outcome learner, the mechanism learner, the design, the fitting, the target and
+the inference request. It never reads a fitted array. One passed study does not open every per-arm
+fit.
+
+The corrected status, the covariance and the method declaration survive `result.save()`,
+`cleverly.load()`, contrasts and summaries. [RM42](#rm42-acceptance-status-and-refusal-reasons)
+part (c) supplies the support rows. `plugin_std_error`, `plugin_interval` and the bootstrap spread
+stay diagnostics. Ordinary TMLE stays the inference alternative under its own assumptions.
+
+**Acceptance.**
+
+| criterion | evidence |
+| --- | --- |
+| a complete correction | a written expansion, or a standard joint-equation argument, that accounts for the outcome fit, the adaptive mechanism fit, the targeting step and the average |
+| no oracle quantity | the released curve uses quantities that a user can estimate or declare known |
+| an independent check | a tractable law verifies the changed contribution, its sign and the resulting covariance |
+| sensitive witnesses | a mutation that removes or reverses the contribution fails the check. A fixed design removes the learned-design contribution where the derivation says so |
+| the user pipeline | the studies fit the declared outcome and mechanism models. No study supplies an unknown true quantity |
+| calibration | a registered repeated-sampling study measures bias, the standard-error ratio, coverage and the sample-size ladder |
+| joint effects | the study validates the arm covariance and the ATE interval together |
+| comparator scope | R parity stays evidence for the unchanged estimator. The corrected uncertainty is checked independently, because it can differ from R. The Python calibration study gates the merge. An R comparison is registered when it arrives, and it does not block the merge |
+| numerical boundaries | probability truncation and an ill-conditioned fit have explicit behavior and evidence |
+| honest output | an unsupported configuration keeps the diagnostic-only interval. A supported fit states its model and inference conditions |
+
+Declare the corrected procedure and the study before the final validation draws. Keep the failed
+results and thresholds of `ctmle-oat-per-arm`. Do not relabel an old failure as a pass, and do not
+widen a margin after the outcome is known.
+
+Run a fresh declared study, or a registered regeneration, for the changed procedure. Reuse the
+evidence for unchanged components, and add checks for each changed term. Cross-fitting alone is not
+the correction. A full-refit bootstrap needs its own validity argument for this estimator. Neither
+removes the generated-design contribution, and neither resolves the irregularity.
+
+When the acceptance passes, close the supported part of F19 only. F19 keeps its other claims and
+its red cells.
+
 ### X2. Replicate-weight designs
 
 Rust and Rao (1996) govern replication variance for complex surveys. Add BRR, jackknife, or
@@ -1269,9 +1414,9 @@ term.
 | part | request |
 | --- | --- |
 | (a) | a selector fit with one declared partial candidate and parametric learners |
-| (b) | the per-arm outcome-adaptive design and its composite cells, with a parametric outcome, in sample |
+| (b) | the composite cells of the per-arm outcome-adaptive design (baseline strata, a missing outcome, a missing treatment), with a parametric outcome, in sample. It builds on [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome), which holds the plain per-arm cells |
 | (c) | the shared design with a parametric outcome and a parametric multinomial design |
-| (d) | the clustered versions of parts (a) to (c), with the few-cluster rules of [F28](#f28-finite-sample-limits-of-clustered-intervals) |
+| (d) | the clustered versions of parts (a) to (c) and of the X58 cells, with the few-cluster rules of [F28](#f28-finite-sample-limits-of-clustered-intervals) |
 
 | item | contract |
 | --- | --- |
@@ -1763,9 +1908,10 @@ propensity is fitted on the training side only, and both nuisances are evaluated
 side. A mutation test changes every evaluation outcome without moving either nuisance on those
 rows.
 
-[X52](#x52-parametric-c-tmle-intervals) parts (b) and (c) hold the fully parametric cells: the
-per-arm design and its composite cells with a parametric outcome, in sample, and the shared design
-with a parametric outcome and design. This item keeps four claims. The table gives the kind of
+[X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) holds the per-arm design with a regular parametric outcome model:
+a corrected curve, its covariance and its Wald interval under a declared support predicate.
+[X52](#x52-parametric-c-tmle-intervals) part (b) holds the composite per-arm cells, and part (c)
+holds the shared design with a parametric outcome and design. This item keeps four claims. The table gives the kind of
 argument that each one needs.
 
 | kept claim | kind of missing argument |
@@ -1792,7 +1938,8 @@ order.
 For a parametric outcome model, the term is $c^\top \mathrm{IF}_\beta$, with
 $c = E[(1 - g_0 / G)\, \partial \bar Q / \partial \beta]$, when the design learner is consistent
 for $G = P(A = a \mid \bar Q(a, W))$. With a parametric design learner, the $\epsilon$ and
-$\gamma$ terms also enter, and [X52](#x52-parametric-c-tmle-intervals) stacks them. The x17
+$\gamma$ terms also enter. [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) plans to derive and implement the
+complete term. The x17
 ratios below measure the omission on one law. They do not show that it is zero.
 
 The registered study
@@ -1834,10 +1981,10 @@ is further outside Theorem 1, because Appendix D only outlines its proof.
 
 | open item | what a result must settle |
 | --- | --- |
-| the per-arm generated-design term | an estimator of $c^\top \mathrm{IF}_\beta$, or of its analogue for a flexible outcome learner, that does not need a consistent full mechanism, or a source that shows the term vanishes under a stated condition |
+| the per-arm generated-design term | an analogue of $c^\top \mathrm{IF}_\beta$ for a flexible outcome learner, or an estimator of the term that does not need a consistent full mechanism when no other derivation supplies one, or a source that shows the term vanishes under a stated condition. [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) may use a known or consistently estimated full mechanism, and it does not need to settle this item |
 | one shared multinomial | one categorical fit on `K` estimated columns supplies every arm's clever covariate, so an inconsistent column for one arm enters every other arm's mechanism |
 | vector target and simultaneous inference | the joint covariance and the simultaneous critical value, not the per-arm variance alone |
-| uniformity, for both designs | each estimator is superefficient by design, so a pointwise limit law does not give locally uniform coverage. This item covers the per-arm design too |
+| uniformity, for both designs | each estimator is superefficient by design, so a pointwise limit law does not give locally uniform coverage. A pointwise claim under stated regularity conditions, such as the [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) claim, does not need a uniformity result. It states that it is pointwise |
 | transport of the shared design beyond the source law | missing outcomes need the response-mechanism expansion. Fixed weights need a weighted empirical-law result, and estimated weights a first-stage contribution. Clusters and strata need dependence- and stratum-specific expansions. Repeats need the median and split-dispersion aggregation |
 
 **Acceptance.**
@@ -1845,11 +1992,13 @@ is further outside Theorem 1, because Appendix D only outlines its proof.
 - A result covers the exact cross-fitted multi-arm construction, and it separates a fixed target
   from a target conditional on the learned design.
 - For the per-arm design, the revert cells of `ctmle-oat-per-arm` pass their declared bands under
-  a fresh declaration, and the flag `OAT_PER_ARM_INFERENTIAL` returns to `True`.
+  a fresh declaration. A support predicate for the validated configurations replaces the flag
+  `OAT_PER_ARM_INFERENTIAL`. [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) plans this for its
+  scope.
 - It establishes whether the current curve suffices or an added representation contribution is
   needed.
 - It covers the requested joint means or contrasts and their covariance. It states the remainder,
-  the nuisance-rate conditions and a uniformity claim.
+  the nuisance-rate conditions, and whether its claim is pointwise or locally uniform.
 - A new contribution propagates through pointwise and simultaneous inference.
 - The evidence needs a fixed-design reduction, a generated-design comparison, and registered
   coverage for every claimed treatment and target dimension.
@@ -1888,7 +2037,7 @@ The package draws whole-cluster outer folds for the ordinary cross-fitted point-
 DR-TMLE and longitudinal TMLE. C-TMLE refuses `id=` at every `cross_fit` setting.
 [X51](#x51-c-tmle-point-estimates-for-further-targets) part (e) holds the clustered point
 estimates, with a cluster as the unit and whole-cluster folds. The clustered versions of the
-parametric cells move with [X52](#x52-parametric-c-tmle-intervals) part (d). This item keeps every
+parametric cells, X58's cells included, move with [X52](#x52-parametric-c-tmle-intervals) part (d). This item keeps every
 other clustered C-TMLE interval. Its kind is asymptotic.
 
 | composition | what ships | what a result must supply |
