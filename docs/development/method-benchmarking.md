@@ -9,9 +9,12 @@ checks. Use this strategy when adding or changing a method-level row in the
 ## Begin with the scientific claim
 
 Record the identified parameter, estimator construction, governing source, supported
-compositions, and inference rule before choosing a comparator. An R package is an implementation
-witness: agreement can localize a discrepancy, but it cannot prove that the parameter, influence
-curve, or theorem is correct.
+compositions, and inference rule before choosing a comparator. Agreement with an R package is
+acceptance evidence for the claims the comparison covers, as
+[Theory and comparators](../architecture-invariants.md#theory-and-comparators) states.
+[RM42](../roadmap.md#rm42-acceptance-status-and-refusal-reasons) part (e) adds the comparator-backed
+label to the evidence pages. Agreement does not prove that the parameter, influence curve, or
+theorem is correct.
 
 Give materially different estimators separate evidence rows. Ordinary TMLE, stacked CV-TMLE,
 fold-evaluated CV-TMLE, and fold-specific extensions may share a limit while differing in finite
@@ -89,6 +92,9 @@ A failure message can carry a container path. The record keeps it as written.
 Search for every maintained implementation of the parameter. Record what you found. Record why
 you rejected each candidate you did not use. A study that reports no comparator makes a claim
 about the field, and a reader cannot check that claim unless the study names what it examined.
+A study with no comparator is still eligible to register. It records the independent evidence
+that replaces the comparison, as [Theory and comparators](../architecture-invariants.md#theory-and-comparators)
+requires.
 
 Prefer the implementation that the governing source publishes. That implementation reports the
 influence curve the source derives. A separate package that reproduces the point estimate does
@@ -430,8 +436,10 @@ artifacts, or provenance conventions for each comparison.
    weights, clustering, missing outcomes, and a flexible learner are each such a composition.
 
 If a registered study has no canonical comparator, its cross-implementation cell says so and its
-row rests on the other two columns; a study with no property cells is not a validation row at
-all, because matching another implementation is not evidence that either one is right.
+row rests on the other two columns. A comparison is acceptance evidence for the claims it covers.
+Today the validation grid lists only a study with property cells.
+[RM42](../roadmap.md#rm42-acceptance-status-and-refusal-reasons) part (e) owns the label and the
+grid row for a comparator-backed study.
 
 A study with no property cells can still register as a reporting study. It declares
 `publication_policy="reporting"` and an empty `property_cells`. It keeps its own page, with no

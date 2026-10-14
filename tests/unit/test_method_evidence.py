@@ -2259,11 +2259,10 @@ class TestThePublishedTestTables:
     def test_a_study_without_property_cells_is_a_reporting_study_off_the_grid(
         self, study: StudyRecord
     ) -> None:
-        """A study with no property cell is not a validation row, so the grid does not list it.
+        """A study with no property cell has no grid row until RM42 part (e) adds one.
 
-        ``method-benchmarking.md`` states the rule: matching another implementation, or a
-        coverage reading alone, is not evidence that a method is right.  Such a study still
-        registers, publishes its verdicts under ``reporting`` and carries its own page.
+        Such a study still registers, publishes its verdicts under ``reporting`` and carries its
+        own page.
         """
         if study.property_cells:
             pytest.skip("study declares property cells")
