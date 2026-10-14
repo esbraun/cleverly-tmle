@@ -198,7 +198,7 @@ it from `NON_INFERENTIAL`. The estimator that stamps a parameter status names it
 `CONSTANT_NODE_STATUS`. [Inference status](technical-reference/inference.md#inference-status)
 gives the public contract. *Reconsider when* [F18](roadmap.md#f18-selector-path-c-tmle-inference)
 supplies the selector paths' influence curve, when a second parameter status is added, or when
-[F31](roadmap.md#f31-inference-at-a-boundary-node-estimate) supplies an interval at a boundary
+[X54](roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) part (i) supplies an interval at a boundary
 node, which would remove the one status that reads a fitted quantity.
 
 Where a configuration group serves more than one engine, a default that differs between them is
