@@ -1,38 +1,41 @@
-# A probe, not a registered study. RM41, round 1: is the in-sample HGB bias a code defect?
+# A probe, not a registered study. RM41: is the DR-TMLE bias under an HGB mechanism a code defect?
 #
-# Law L, learners and reduced learners come from `reviews/rm40/drdr_sim.py` (wrong outcome GLM on
-# (A, W1), HGB propensity at the `g_hgb` tuning, cubic-polynomial reduced learners,
-# `g_bounds=(0.01, 0.99)`, `guard=("Q", "g")`, univariate reduction).
+# Law L, learners and reduced learners come from `reviews/rm40/drdr_sim.py`: a wrong outcome GLM
+# on (A, W1), an HGB propensity at the `g_hgb` tuning, cubic-polynomial reduced learners,
+# `g_bounds=(0.01, 0.99)`, `guard=("Q", "g")` and the univariate reduction.
 #
 # | cell | what it fits |
 # | --- | --- |
 # | `dr_in` | `cleverly.DRTMLE`, in sample (`cross_fit=False`) |
 # | `dr_in_bk` | the same, `update_order="benkeser"` (the published six-step order) |
 # | `tmle_in` | `cleverly.TMLE`, in sample |
-# | `own_in` | `own_drtmle` below, on `dr_in`'s initial `Q_n` and `g_n` |
-# | `dr_cf`, `tmle_cf` | the same two estimators, `cross_fit=True` (the shipped 10-fold split) |
+# | `dr_cf`, `tmle_cf` | `DRTMLE` and `TMLE` with `cross_fit=True` (the shipped 10-fold split) |
+# | `own_in` | `own_drtmle` below, at `dr_in`'s initial `Q̄_n` and `g_n` |
+# | `own_in_tmle` | `own_in` without either correction: plain TMLE |
+# | `own_in_gonly` | `own_in` with the mechanism tilt (equation 9) and without equation 10 |
+# | `own_in_qonly` | `own_in` with equation 10 and without the mechanism tilt |
+# | `own_in_g0` | `own_in` with `Q_r` regressed on the true `g_0` instead of `g_n` |
 # | `own_ext` | `own_drtmle` with `g_n` from an HGB fitted on an independent draw of the same size |
-# | `own_ext_or` | `own_drtmle` at `own_ext`'s `g_n`, with the reduced regression `Q_r` replaced by its population version at the estimated index (an oracle `Q_r`) |
-# | `own_ext_g0` | `own_drtmle` at `own_ext`'s `g_n`, with `Q_r` regressed on the true `g_0` instead of `g_n` |
+# | `own_ext_tmle` | `own_ext` without either correction |
+# | `own_ext_or` | `own_ext` with `Q_r` replaced by its population version at the estimated index: |
+# | | the weighted cubic least-squares fit of `Q̄_0 - Q̄_n` on `g_n` over the evaluation draw |
+# | `own_ext_g0` | `own_ext` with `Q_r` regressed on the true `g_0` instead of `g_n` |
 #
-# `own_drtmle` is an independent transcription of the recursion of Benkeser et al. (2017,
-# Section 3.2) for one arm: an initial outcome step along `1/g`, then rounds of (fit `Q_r` on `g`,
-# tilt `g` along `Q_r/g`, fit `g_{r,1}` and `g_{r,2}` on `Q̄`, tilt `Q̄` along `(1/g, g_{r,2}/g_{r,1})`)
-# until the three empirical means are below 1e-9, at most 500 rounds, the mechanism kept in `g_bounds` after each tilt. It shares no code with
-# `cleverly`.
+# `own_drtmle` transcribes the recursion of Benkeser et al. (2017, Section 3.2) for one arm. It
+# takes an initial outcome step along `1/g`. Each round fits `Q_r` on `g`, tilts `g` along `Q_r/g`,
+# fits `g_{r,1}` and `g_{r,2}` on `Q̄`, and tilts `Q̄` along `(1/g, g_{r,2}/g_{r,1})`. It stops when
+# the three empirical means are below 1e-9, or after 500 rounds. The mechanism stays in `g_bounds`
+# after each tilt. It shares no code with `cleverly`. Its fits count only below `SOLVED`.
 #
-# Proxies, on a 200,000-row evaluation draw, for each fitted mechanism `g_n` (arm a):
-#
-# | proxy | definition |
-# | --- | --- |
-# | `lin` | `P_0[(g_0 - g_n)/g_n · r]`, `r = Q̄_0(a, W) - Q̄_n(a, W)`: the remainder of plain TMLE |
-# | `dr` | `P_0[(g_0 - g_n)/g_n · (r - Q_r^lim(g_n))]`, `Q_r^lim` the cubic least-squares projection of `r` on `g_n` with weights `g_0` (the population target of the `A = a` regression): the remainder that DR-TMLE leaves at the estimated index |
+# Weight means: for the in-sample HGB, `mean(1{A=a}/g_n - 1)` on its own training rows and on a
+# 200,000-row evaluation draw. Both are zero in mean at `g_0`.
 #
 # Seeds: replicate `rep` at size `n` draws with `41_000_011 + 7919 * n + rep`; the independent
 # mechanism draw adds 500_000; the evaluation draw uses 41_777_001.
 #
-# Usage: `python reviews/rm41/probe.py run <n> <R> --procs 4`, then
-# `python reviews/rm41/probe.py analyze > reviews/rm41/probe.log`.
+# Usage: `python reviews/rm41/probe.py run <n> <R> --procs 4` for (n, R) = (1000, 200),
+# (4000, 200) and (16000, 100), then `python reviews/rm41/probe.py analyze > reviews/rm41/probe.log`.
+# The run CSVs go to `reviews/rm41/_probe/` and are not committed.
 """RM41 round-1 probe: separate a code defect from a property of DR-TMLE under an HGB mechanism."""
 
 from __future__ import annotations
@@ -66,6 +69,8 @@ EVAL_N = 200_000
 EVAL_SEED = 41_777_001
 LO, HI = sim.G_BOUNDS
 ESTIMANDS = ("ey[1]", "ey[0]", "ate")
+#: an `own_drtmle` fit counts only when every score it solves is below this
+SOLVED = 1e-8
 
 
 def script_sha() -> str:
@@ -118,11 +123,13 @@ def own_drtmle(
     gn: np.ndarray,
     qr_index: np.ndarray | None = None,
     qr_oracle: Any = None,
+    corrections: tuple[str, ...] = ("g", "Q"),
 ) -> tuple[float, float, int]:
     """One arm. `ind` is 1{A = a}; `qn` is Q̄_n(a, W); `gn` is g_n(a|W). Returns (psi, max score, rounds).
 
     `qr_index` replaces the regressor of Q_r (default: the current g); `qr_oracle(g)` replaces the
-    fitted Q_r by a given function of the current g.
+    fitted Q_r by a given function of the current g. `corrections` drops the mechanism tilt
+    (`"g"`, equation 9) or the second outcome covariate (`"Q"`, equation 10) when absent.
     """
     q = np.clip(qn, 1e-6, 1 - 1e-6)
     g = np.clip(gn, LO, HI)
@@ -137,11 +144,12 @@ def own_drtmle(
             qr = qr_oracle(g)
         else:
             qr = _poly(idx) @ _ls(idx[treated], (y - q)[treated])
-        e = _tilt(ind, logit(g), (qr / g)[:, None])
-        g = np.clip(expit(logit(g) + e[0] * qr / g), LO, HI)
+        if "g" in corrections:
+            e = _tilt(ind, logit(g), (qr / g)[:, None])
+            g = np.clip(expit(logit(g) + e[0] * qr / g), LO, HI)
         gr1 = np.clip(expit(_poly(q) @ _logistic_poly(q, ind)), LO, 1.0)
         gr2 = _poly(q) @ _ls(q, (ind - g) / g)
-        h = np.column_stack([1.0 / g, gr2 / gr1])
+        h = np.column_stack([1.0 / g, gr2 / gr1]) if "Q" in corrections else (1.0 / g)[:, None]
         eps = _tilt(y, logit(q), h, treated)
         q = np.clip(expit(logit(q) + h @ eps), 1e-9, 1 - 1e-9)
         if qr_oracle is not None:
@@ -149,11 +157,11 @@ def own_drtmle(
         else:
             idx = g if qr_index is None else qr_index
             qr = _poly(idx) @ _ls(idx[treated], (y - q)[treated])
-        s = [
-            np.mean(ind / g * (y - q)),
-            np.mean(ind * gr2 / gr1 * (y - q)),
-            np.mean(qr / g * (ind - g)),
-        ]
+        s = [np.mean(ind / g * (y - q))]
+        if "Q" in corrections:
+            s.append(np.mean(ind * gr2 / gr1 * (y - q)))
+        if "g" in corrections:
+            s.append(np.mean(qr / g * (ind - g)))
         worst = float(np.max(np.abs(s)))
         if worst < 1e-9:
             break
@@ -171,6 +179,7 @@ def init() -> None:
     _S.update(
         truth=sim.truth(),
         w=np.column_stack([w1, w2]),
+        a=ev.A.to_numpy(),
         g0=sim.g0(w1, w2),
         q0={1.0: sim.q0(1.0, w1, w2), 0.0: sim.q0(0.0, w1, w2)},
     )
@@ -184,19 +193,13 @@ def _glm_q(beta: np.ndarray, arm: float, w1: np.ndarray) -> np.ndarray:
     return expit(beta[0] + beta[1] * arm + beta[2] * w1)
 
 
-def proxies(model: Any, beta: np.ndarray) -> dict[str, dict[float, float]]:
-    """`lin` and `dr` on the evaluation draw for a fitted HGB and outcome GLM coefficients."""
-    w = _S["w"]
+def weight_means(model: Any, w: np.ndarray, a: np.ndarray) -> dict[str, float]:
+    """`mean(1{A = a}/g_n - 1)` per arm, on the given rows (zero in mean at the truth)."""
     g1 = np.clip(model.predict_proba(w)[:, 1], LO, HI)
-    out: dict[str, dict[float, float]] = {"lin": {}, "dr": {}}
-    for arm in (1.0, 0.0):
-        gn = g1 if arm == 1.0 else 1.0 - g1
-        gt = _S["g0"] if arm == 1.0 else 1.0 - _S["g0"]
-        r = _S["q0"][arm] - _glm_q(beta, arm, w[:, 0])
-        out["lin"][arm] = float(np.mean((gt - gn) / gn * r))
-        qr = _poly(gn) @ _ls(gn, r, gt)
-        out["dr"][arm] = float(np.mean((gt - gn) / gn * (r - qr)))
-    return out
+    return {
+        "w1": float(np.mean(a / g1 - 1.0)),
+        "w0": float(np.mean((1.0 - a) / (1.0 - g1) - 1.0)),
+    }
 
 
 def oracle_qr(model: Any, beta: np.ndarray, arm: float) -> Any:
@@ -211,6 +214,16 @@ def oracle_qr(model: Any, beta: np.ndarray, arm: float) -> Any:
 
 def _combine(per_arm: dict[float, float]) -> dict[str, float]:
     return {"ey[1]": per_arm[1.0], "ey[0]": per_arm[0.0], "ate": per_arm[1.0] - per_arm[0.0]}
+
+
+#: in-sample `own_drtmle` cells at `dr_in`'s initial fits
+IN_VARIANTS: dict[str, dict[str, Any]] = {
+    "own_in": {},
+    "own_in_tmle": {"corrections": ()},
+    "own_in_gonly": {"corrections": ("g",)},
+    "own_in_qonly": {"corrections": ("Q",)},
+    "own_in_g0": {"qr_index": "g0"},
+}
 
 
 def one(payload: tuple[int, int]) -> list[dict[str, Any]]:
@@ -255,26 +268,30 @@ def one(payload: tuple[int, int]) -> list[dict[str, Any]]:
                          "truth": _S["truth"][name], "se": float(est.std_error),
                          "covered": int(lo <= _S["truth"][name] <= hi)})
 
-    # in-sample HGB, refitted here (deterministic), for its proxies
+    # in-sample HGB, refitted here (deterministic), for its weight means
     model_in = _hgb().fit(np.column_stack([w1, w2]), a)
-    px_in = {k: _combine(v) for k, v in proxies(model_in, beta).items()}
+    wm_in = weight_means(model_in, np.column_stack([w1, w2]), a)
+    wm_fresh = weight_means(model_in, _S["w"], _S["a"])
     gtrain = np.clip(model_in.predict_proba(np.column_stack([w1, w2]))[:, 1], LO, HI)
     gap = float(np.max(np.abs(gtrain - gn_in))) if gn_in is not None else np.nan
     if gn_in is not None:
-        per, worst = {}, 0.0
-        for arm in (1.0, 0.0):
-            ind = a if arm == 1.0 else 1.0 - a
-            g = gn_in if arm == 1.0 else 1.0 - gn_in
-            per[arm], s, _ = own_drtmle(y, ind, qn_in[arm], g)
-            worst = max(worst, s)
-        record("own_in", per, {"score": worst})
+        for cell, kw in IN_VARIANTS.items():
+            per, worst = {}, 0.0
+            for arm in (1.0, 0.0):
+                ind = a if arm == 1.0 else 1.0 - a
+                g = gn_in if arm == 1.0 else 1.0 - gn_in
+                k = dict(kw)
+                if k.get("qr_index") == "g0":
+                    k["qr_index"] = g01 if arm == 1.0 else 1.0 - g01
+                per[arm], s, _ = own_drtmle(y, ind, qn_in[arm], g, **k)
+                worst = max(worst, s)
+            record(cell, per, {"score": worst})
 
     # an independent mechanism: HGB on a separate draw of the same law and size
     dx = sim.draw(n, seed + EXT_OFFSET)
     model_ext = _hgb().fit(dx[["W1", "W2"]].to_numpy(), dx["A"].to_numpy())
     g_ext = np.clip(model_ext.predict_proba(np.column_stack([w1, w2]))[:, 1], LO, HI)
-    px_ext = {k: _combine(v) for k, v in proxies(model_ext, beta).items()}
-    for cell in ("own_ext", "own_ext_or", "own_ext_g0"):
+    for cell in ("own_ext", "own_ext_or", "own_ext_g0", "own_ext_tmle"):
         per, worst = {}, 0.0
         for arm in (1.0, 0.0):
             ind = a if arm == 1.0 else 1.0 - a
@@ -285,6 +302,8 @@ def one(payload: tuple[int, int]) -> list[dict[str, Any]]:
                 kw["qr_oracle"] = oracle_qr(model_ext, beta, arm)
             if cell == "own_ext_g0":
                 kw["qr_index"] = g01 if arm == 1.0 else 1.0 - g01
+            if cell == "own_ext_tmle":
+                kw["corrections"] = ()
             per[arm], s, _ = own_drtmle(y, ind, qn, g, **kw)
             worst = max(worst, s)
         record(cell, per, {"score": worst})
@@ -293,9 +312,9 @@ def one(payload: tuple[int, int]) -> list[dict[str, Any]]:
         if r["estimand"] == "error":
             continue
         r["gap"] = gap
-        for k in ("lin", "dr"):
-            r[f"in_{k}"] = px_in[k][r["estimand"]]
-            r[f"ext_{k}"] = px_ext[k][r["estimand"]]
+        for arm in ("w1", "w0"):
+            r[f"{arm}_train"] = wm_in[arm]
+            r[f"{arm}_fresh"] = wm_fresh[arm]
     return rows
 
 
@@ -321,19 +340,39 @@ def analyze() -> None:
     print(f"errors: {len(errors)}" + ("" if errors.empty else f"; first: {errors['error'].iloc[0]}"))
     frame = frame.loc[frame["estimand"] != "error"].copy()
     print(f"max |g_n gap| between cleverly's in-sample mechanism and the refit: {frame['gap'].max():.2e}")
-    if "score" in frame:
-        print(f"own_drtmle: worst final score {frame['score'].max():.1e}")
+    own = frame["cell"].str.startswith("own")
+    solved = ~own | (frame["score"] < SOLVED)
+    print(f"own_drtmle fits kept (every score below {SOLVED:g}): {int(solved[own].sum() / 3)} of {int(own.sum() / 3)}")
+    frame = frame.loc[solved]
     print()
-    print("bias/SD: mean(psi - truth) / SD(psi) in the cell; mcse 1/sqrt(R). Proxies / the same SD.")
-    print(f"{'cell':11s} {'n':>6s} {'est':6s} {'R':>4s} {'bias/SD':>8s} {'mcse':>6s} {'cover':>6s} "
-          f"{'in_lin':>7s} {'in_dr':>7s} {'ext_lin':>8s} {'ext_dr':>7s}")
+    print("bias/SD: mean(psi - truth) / SD(psi) over the kept fits of the cell; mcse 1/sqrt(R).")
+    print("rn_bias: sqrt(n) * mean(psi - truth).")
+    print(f"{'cell':13s} {'n':>6s} {'est':6s} {'R':>4s} {'bias/SD':>8s} {'mcse':>6s} {'rn_bias':>8s} {'cover':>6s}")
     for (cell, n, name), g in frame.groupby(["cell", "n", "estimand"], sort=True):
         r = len(g)
+        err = g["psi"] - g["truth"]
         sd = float(g["psi"].std(ddof=1))
-        b = float((g["psi"] - g["truth"]).mean()) / sd
         cov = float(g["covered"].mean()) if "covered" in g and g["covered"].notna().any() else np.nan
-        print(f"{cell:11s} {n:6d} {name:6s} {r:4d} {b:+8.3f} {1 / np.sqrt(r):6.3f} {cov:6.3f} "
-              + " ".join(f"{float(g[c].mean()) / sd:+7.3f}" for c in ("in_lin", "in_dr", "ext_lin", "ext_dr")))
+        print(f"{cell:13s} {n:6d} {name:6s} {r:4d} {float(err.mean()) / sd:+8.3f} {1 / np.sqrt(r):6.3f} "
+              f"{np.sqrt(n) * float(err.mean()):+8.3f} {cov:6.3f}")
+    print()
+    print("own_in against dr_in, per replicate, on the kept fits (difference / SD of dr_in):")
+    for n, g in frame.loc[frame["estimand"] == "ate"].groupby("n"):
+        a = g.loc[g["cell"] == "dr_in"].set_index("rep")["psi"]
+        b = g.loc[g["cell"] == "own_in"].set_index("rep")["psi"]
+        d = ((b - a).dropna()) / a.std(ddof=1)
+        print(f"n={n:6d}: pairs {d.size}; mean {d.mean():+.3f}; SD {d.std(ddof=1):.3f}; max |d| {d.abs().max():.3f}")
+    _weights(frame)
+
+
+def _weights(frame: pd.DataFrame) -> None:
+    print()
+    print("In-sample HGB: mean(1{A=a}/g_n - 1) on its own training rows and on the 200,000-row")
+    print("evaluation draw (both zero in mean at g_0). Mean over replicates; sd = their spread.")
+    one_row = frame.loc[(frame["cell"] == "dr_in") & (frame["estimand"] == "ate")]
+    for n, g in one_row.groupby("n"):
+        cols = ("w1_train", "w1_fresh", "w0_train", "w0_fresh")
+        print(f"n={n:6d}: " + "; ".join(f"{c} {g[c].mean():+.4f} (sd {g[c].std(ddof=1):.4f})" for c in cols))
 
 
 def main() -> None:
