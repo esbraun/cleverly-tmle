@@ -118,7 +118,7 @@ from ..data.known_mechanism import (
     KNOWN_SCREEN_REFUSAL,
     moved_known_values_refusal,
 )
-from ..data.validate import MISSING_OUTCOME_DECLARATION
+from ..data.validate import MISSING_OUTCOME_DECLARATION, VECTOR_DENSITY_ROW
 from ..exceptions import (
     CapabilityError,
     ConvergenceWarning,
@@ -180,7 +180,13 @@ from ..interventions.learned import (
     learned_rule_scheme_refusal,
     refuse_learned_rule_composition,
 )
-from ..interventions.policy import refuse_policy_declarations
+from ..interventions.policy import (
+    JointPolicy,
+    refuse_policy_declarations,
+    vector_density_refusal,
+    vector_route_refusal,
+    whole_vector_refusal,
+)
 from ..learners._fitting import Task, infer_task
 from ..learners.crossfit import (
     _POST_DRAW_REMEDY,
@@ -467,6 +473,15 @@ _REPEATED_BANDS_REASON = (
 #: ``full-refit-bootstrap-and-derived-contrasts`` measured it.  A red ``boot_ate_point_tmle``
 #: cell sets this to ``False``, so the interval then publishes as a diagnostic.
 POINT_BOOTSTRAP_INFERENTIAL = True
+
+
+def _has_no_arms(data: CausalData) -> bool:
+    """Whether the treatment carries doses and no arms.
+
+    A continuous treatment, or a vector treatment with a continuous component, which
+    :meth:`_refuse_vector_compositions` admits on the classifier policy route only.
+    """
+    return data.treatment_kind in ("continuous", "vector")
 
 
 def _all_tilts(policies: Sequence[object]) -> bool:
@@ -1431,6 +1446,7 @@ class TMLE:
         :meth:`_refuse_known_compositions` first, and the bound check of
         :meth:`_refuse_moved_known_values` once the targets are resolved.
         """
+        self._refuse_vector_compositions(data)
         self._refuse_known_compositions(data)
         if data.has_missing_treatment:
             named = None if self.estimands is None or self.estimands == "all" else self.estimands
@@ -1520,6 +1536,54 @@ class TMLE:
         self._refuse_moved_known_values(data, estimands)
         self._reference_arm(data)
         return estimands
+
+    def _refuse_vector_compositions(self, data: CausalData) -> None:
+        """Refuse every fit of a vector treatment with a dose component but the supported one.
+
+        The supported fit is this estimator with ``policies=`` of
+        :class:`~cleverly.interventions.JointPolicy` and ``ratio="classifier"``: the policy
+        means and contrasts.  Each refusal names what is missing, before any learner.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+
+        Raises
+        ------
+        CapabilityError
+            For another estimator, another parameter axis, a policy declared on the vector
+            as a whole, the density route, ``delta=``, ``strata=`` or ``intermediate=``.
+        """
+        if data.treatment_kind != "vector":
+            return
+        name = data.treatment_name
+        if (
+            self._assessment_method != "tmle"
+            or not self.policies
+            or self.msm is not None
+            or self.interventions
+            or self.incremental
+            or self.learned_rule is not None
+        ):
+            raise CapabilityError(vector_route_refusal(name))
+        for policy in self.policies:
+            if not isinstance(policy, JointPolicy):
+                raise CapabilityError(whole_vector_refusal(policy, name))
+        if self.ratio != "classifier":
+            raise CapabilityError(vector_density_refusal(name))
+        for present, role in (
+            (data.has_missing_outcome or data.delta_name is not None, "a missing outcome (delta=)"),
+            (data.has_strata, "baseline strata (strata=)"),
+            (data.has_intermediate, "an intermediate (intermediate=)"),
+        ):
+            if present:
+                raise CapabilityError(
+                    f"treatment {name!r} is a vector with a continuous component, and the fit "
+                    f"declares {role}. The classifier route at a vector treatment supports "
+                    "weights, clusters, cross-fitting and the bootstrap only. This composition "
+                    f"is docs/roadmap.md {VECTOR_DENSITY_ROW}"
+                )
 
     def _refuse_known_compositions(self, data: CausalData) -> None:
         """Refuse a composition that a declared known mechanism does not support.
@@ -2138,7 +2202,9 @@ class TMLE:
         with arm targets (``par``, ``paf``, or ``ey_obs`` beside arm means and contrasts).
         Both use the shipped natural-course fluctuation, so both meet the same refusals.
         """
-        estimands = resolve_estimands(self.estimands, data.family, data.n_arms, axis=self._axis)
+        # A vector treatment with a dose component has no arms, as a continuous one has none.
+        arms = 0 if data.treatment_kind == "vector" else data.n_arms
+        estimands = resolve_estimands(self.estimands, data.family, arms, axis=self._axis)
         if not data.has_missing_outcome:
             return estimands
         if self.estimands == "all":
@@ -2384,7 +2450,7 @@ class TMLE:
                 lambda value: f"respondent(s) with outcome {scaler.unscale_level(value):g}",
             ),
         ]
-        if fits_treatment and not data.is_continuous_treatment:
+        if fits_treatment and not _has_no_arms(data):
             roles.append(
                 (
                     "treatment",
@@ -2575,7 +2641,7 @@ class TMLE:
             of an outer split and not of a split that an in-sample fit draws itself.
         """
         treatment = np.asarray(data.treatment, dtype=float)
-        arms = np.asarray(data.arm_codes, dtype=float)
+        arms = np.asarray(() if _has_no_arms(data) else data.arm_codes, dtype=float)
         observed = np.asarray(data.observed, dtype=bool)
         unit_of, unit = _independent_units(data)
         for arm in arms:
@@ -2614,7 +2680,7 @@ class TMLE:
             # asks nothing, because every row is then a respondent.
             ("response", observed, np.array([True])),
         ]
-        if not data.is_continuous_treatment:
+        if not _has_no_arms(data):
             support.insert(0, ("arm", treatment, arms))
         if data.family == "binomial":
             outcome = np.where(observed, np.asarray(data.outcome, dtype=float), -1.0)
@@ -2805,6 +2871,9 @@ class TMLE:
         continuous treatment with no ``policies=`` has no estimand at all, since every
         registered arm-indexed target names a level it has none of.
         """
+        if data.treatment_kind == "vector":
+            # :meth:`_refuse_vector_compositions` admits joint policies only.
+            return
         if self.policies and any(isinstance(item, RiskRatioTilt) for item in self.policies):
             levels = [] if data.is_continuous_treatment else list(data.treatment_levels)
             if data.is_continuous_treatment or sorted(float(level) for level in levels) != [
@@ -2952,7 +3021,7 @@ class TMLE:
             folds = supplied.validate(
                 n=data.n,
                 cluster=data.cluster,
-                treatment=None if data.is_continuous_treatment else data.treatment,
+                treatment=None if _has_no_arms(data) else data.treatment,
                 stratify=stratify,
                 source_fingerprint=data_fingerprint(data),
             )
@@ -3236,7 +3305,7 @@ class TMLE:
                 if data.known_treatment is not None and not _is_natural_course(data, estimands)
                 else "estimated"
             ),
-            continuous_treatment=data.is_continuous_treatment,
+            continuous_treatment=_has_no_arms(data),
             q_bounds=None if scaler.is_identity else (scaler.lower, scaler.upper),
             screen_treatment=self.screen_treatment,
             estimands=estimands,
@@ -3777,7 +3846,7 @@ class TMLE:
         """
         if self.stratify_folds == "none":
             return None
-        if data.is_continuous_treatment:
+        if _has_no_arms(data):
             return None
         if self.stratify_folds == "treatment":
             return data.treatment
@@ -3812,7 +3881,7 @@ class TMLE:
         cross_fit = self.cross_fit
         supplied = self.split_plan
         stratify_by: tuple[str, ...]
-        if not cross_fit or data.is_continuous_treatment or self.stratify_folds == "none":
+        if not cross_fit or _has_no_arms(data) or self.stratify_folds == "none":
             stratify_by = ()
         elif self.stratify_folds == "treatment":
             stratify_by = (data.treatment_name,)

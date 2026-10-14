@@ -31,6 +31,7 @@ from ._assessment_cache import (
 from ._declarations import declarations_pass
 from ._inference_status import precedent_status, status_record, supplies_inference
 from ._typing import CumulativeGBounds
+from .data.validate import VECTOR_DENSITY_ROW
 from .data.weighting import REPORTED_DRAW, format_score_load
 from .exceptions import CapabilityError, DataError, inference_refusal
 from .inference.influence import spread_name
@@ -515,11 +516,37 @@ def _method(result: Any) -> str:
     raise TypeError("assessment requires the fitted artifact to declare its fitted method")
 
 
+#: The assessments a point fit of a vector treatment with a continuous component offers.
+VECTOR_ASSESSMENTS = frozenset({"support", "score_equations"})
+
+#: Why every other assessment of such a fit is unavailable.
+VECTOR_ASSESSMENT_REFUSAL = (
+    "the treatment is a vector with a continuous component, and this assessment reads a "
+    "treatment of one column. support() and score_equations() are implemented for it; every "
+    f"other assessment is a post-beta roadmap row, docs/roadmap.md {VECTOR_DENSITY_ROW}"
+)
+
+
 def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
     """All operation declarations for the result's family."""
 
     family = _family(result)
     rows = tuple(item for item in ASSESSMENT_CAPABILITIES if item.result_family == family)
+    if family == "point" and result.data.treatment_kind == "vector":
+        # A vector treatment with a continuous component: every reader that reads a
+        # treatment of one column refuses, so only the reports that read the policy set's
+        # arrays are offered.
+        return tuple(
+            row
+            if row.operation in VECTOR_ASSESSMENTS
+            else replace(
+                row,
+                available=False,
+                status=AssessmentStatus.UNAVAILABLE,
+                reason=VECTOR_ASSESSMENT_REFUSAL,
+            )
+            for row in rows
+        )
     if family == "point" and is_natural_course_fit(result):
         rows = tuple(
             replace(
@@ -2457,7 +2484,8 @@ class DiagnosticsFacade(_CapabilityFacade):
                     self._result.data.treatment,
                     propensity=(
                         None
-                        if self._result.data.is_continuous_treatment
+                        if self._result.data.treatment_kind == "vector"
+                        or self._result.data.is_continuous_treatment
                         else nuisance.propensity.values
                     ),
                     mechanisms=mechanisms,
@@ -3726,6 +3754,20 @@ class SensitivityFacade(_CapabilityFacade):
     def _declared(self) -> tuple[AssessmentCapability, ...]:
         family = _family(self._result)
         longitudinal = family == "longitudinal"
+        if not longitudinal and self._result.data.treatment_kind == "vector":
+            # Every analysis here reads a treatment of one column.
+            return tuple(
+                _capability(
+                    operation,
+                    family,
+                    artifacts=(),
+                    interpretation="sensitivity analysis of a treatment of one column",
+                    available=False,
+                    status=AssessmentStatus.UNAVAILABLE,
+                    reason=VECTOR_ASSESSMENT_REFUSAL,
+                )
+                for operation in SENSITIVITY_ROUTES
+            )
         # The two tilt rows read the table both tilt entry points raise from.  Its
         # ``missing_outcome`` rule reads the data flag the bound's response rule reads, so
         # every fit offered the tilt is a fit the bound refuses for its response mechanism.

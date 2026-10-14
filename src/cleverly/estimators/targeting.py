@@ -394,7 +394,7 @@ def build_submodel(
         # it eagerly would refuse a shift fit on behalf of a builder that discards it.
         arm_fractions=(
             None
-            if data.is_continuous_treatment
+            if data.treatment_kind == "vector" or data.is_continuous_treatment
             else (data.arm_fractions if arm_fractions is None else arm_fractions)
         ),
         reference=reference,

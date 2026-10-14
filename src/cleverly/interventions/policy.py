@@ -110,13 +110,14 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from functools import partial
 from itertools import pairwise
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal, TypeAlias, cast
 
 import numpy as np
 
 from .._declarations import FunctionDeclaration, FunctionKind
 from .._typing import BoolArray, FloatArray, IntArray
 from ..data.causal_data import CausalData
+from ..data.validate import VECTOR_DENSITY_ROW
 from ..data.weighting import effective_sample_size, format_score_load
 from ..exceptions import CapabilityError, DataError, PositivityWarning
 from ..learners.crossfit import Folds
@@ -614,11 +615,6 @@ class RiskRatioTilt:
         if not self.name:
             default = "natural course" if self.delta == 1.0 else f"rr {self.delta:g}"
             object.__setattr__(self, "name", default)
-
-
-#: The roadmap row of the density route for a vector node with a continuous component, of
-#: triangular dose maps, and of a randomized component inside a :class:`JointPolicy`.
-VECTOR_DENSITY_ROW = "X37"
 
 
 @dataclass(frozen=True)
@@ -1965,7 +1961,8 @@ class PolicySet:
         A stable text of each policy, from :func:`describe_policy`.
     shifted : ndarray
         ``(n, C)``, :math:`d_c(A_i, W_i)` per component: a dose on a continuous treatment
-        and a level code on a categorical one.
+        and a level code on a categorical one.  ``(n, C, d)`` on a vector treatment with a
+        continuous component: the component codes and doses each branch assigns.
     ratio : ndarray
         ``(n, C)``, :math:`h_c(A_i, W_i)` -- the clever covariate at the *observed*
         treatment.  **Untruncated** on a continuous treatment, and targeting applies no
@@ -2026,7 +2023,7 @@ class PolicySet:
             raise ValueError(f"{s} policy names but {len(self.descriptions)} descriptions")
         if len(set(self.names)) != s:
             raise ValueError(f"policy names must be distinct; got {list(self.names)}")
-        n, c = np.asarray(self.shifted).shape
+        n, c = np.asarray(self.shifted).shape[:2]
         for name, array, shape in (
             ("ratio", self.ratio, (n, c)),
             ("moved", self.moved, (n, c)),
@@ -2180,6 +2177,10 @@ class PolicySet:
             )
         )
         everyone = np.ones(data.n, dtype=bool)
+        if data.treatment_kind == "vector":
+            return cls._evaluate_vector(
+                declared, names, data, learner, folds, frame, reference=reference, n_jobs=n_jobs
+            )
         a = np.asarray(data.treatment, dtype=float).reshape(-1)
         owners: list[tuple[int, float]] = []
         columns: list[FloatArray] = []
@@ -2197,8 +2198,8 @@ class PolicySet:
             observed_codes = a.astype(np.int64)
             where = f"treatment {data.treatment_name!r}"
             for index, policy in enumerate(declared):
-                for probability, codes in discrete_assignments(
-                    policy, levels, frame, everyone, where=where
+                for probability, codes in _point_discrete_assignments(
+                    policy, data, levels, frame, everyone, where=where
                 ):
                     owners.append((index, probability))
                     columns.append(codes[np.arange(data.n), observed_codes].astype(float))
@@ -2206,15 +2207,18 @@ class PolicySet:
         count = shifted.shape[1]
         ratio = np.zeros((data.n, count))
         ratio_at = np.zeros((data.n, count, count))
+        # The classifier reads a vector's components as indicators, never the joint level
+        # code, whose order is arbitrary.  A treatment of one column keeps its own value.
+        block = data.component_design if data.is_vector_treatment else _same
         for c in range(count):
             evaluated = classifier_ratio(
                 learner,
                 data.covariates,
-                a,
-                ((1.0, shifted[:, c]),),
+                block(a),
+                ((1.0, block(shifted[:, c])),),
                 data.weights,
                 folds,
-                evaluate_at=[a, *(shifted[:, s] for s in range(count))],
+                evaluate_at=[block(a), *(block(shifted[:, s]) for s in range(count))],
                 groups=data.cluster,
                 n_jobs=n_jobs,
             )
@@ -2238,6 +2242,94 @@ class PolicySet:
             code,
             mixing,
             capped=None if held is None else np.column_stack(held),
+        )
+
+    @classmethod
+    def _evaluate_vector(
+        cls,
+        declared: tuple[object, ...],
+        names: tuple[str, ...],
+        data: CausalData,
+        learner: Any,
+        folds: Folds,
+        frame: FrameSource,
+        *,
+        reference: str | None,
+        n_jobs: int,
+    ) -> PolicySet:
+        """:meth:`evaluate_by_classifier` on a vector treatment with a continuous component.
+
+        Each policy is a :class:`JointPolicy`, applied component by component by
+        :func:`joint_assignments`.  The stacked classifier reads
+        :meth:`~cleverly.data.CausalData.component_design` beside the covariates, so it sees
+        every component.  ``shifted`` is ``(n, C, d)``.
+        """
+        from ..learners.density_ratio import classifier_ratio
+
+        assert data.treatment_components is not None
+        for policy in declared:
+            if not isinstance(policy, JointPolicy):
+                raise CapabilityError(whole_vector_refusal(policy, data.treatment_name))
+        components = tuple(
+            JointComponent(name, levels)
+            for name, levels in zip(data.component_names, data.component_levels, strict=True)
+        )
+        natural = np.asarray(data.treatment_components, dtype=float)
+        everyone = np.ones(data.n, dtype=bool)
+        where = f"treatment {data.treatment_name!r}"
+
+        def frame_with(extra: Mapping[str, Any]) -> Any:
+            payload = {name: data.covariates[:, j] for j, name in enumerate(data.covariate_names)}
+            payload.update(extra)
+            return data.frame_like(payload)
+
+        owners: list[tuple[int, float]] = []
+        branches: list[FloatArray] = []
+        for index, policy in enumerate(declared):
+            assert isinstance(policy, JointPolicy)
+            for probability, values in joint_assignments(
+                policy, components, natural, frame_with, everyone, where=where
+            ):
+                owners.append((index, probability))
+                branches.append(np.asarray(values, dtype=float))
+                _warn_outside_cell_support(policy.name, components, natural, values)
+        shifted = np.stack(branches, axis=1)
+        count = shifted.shape[1]
+        observed = data.component_design()
+        assigned = [data.component_design(shifted[:, c]) for c in range(count)]
+        ratio = np.zeros((data.n, count))
+        ratio_at = np.zeros((data.n, count, count))
+        for c in range(count):
+            evaluated = classifier_ratio(
+                learner,
+                data.covariates,
+                observed,
+                ((1.0, assigned[c]),),
+                data.weights,
+                folds,
+                evaluate_at=[observed, *assigned],
+                groups=data.cluster,
+                n_jobs=n_jobs,
+            )
+            ratio[:, c] = evaluated[0]
+            for s in range(count):
+                ratio_at[:, s, c] = evaluated[s + 1]
+        moved = np.asarray(np.any(shifted != natural[:, None, :], axis=2), dtype=bool)
+        mixing = None if count == len(declared) else _mixing(len(declared), owners)
+        code = 0.0
+        if reference is not None:
+            if reference not in names:
+                raise DataError(f"reference={reference!r} is not one of the policies {list(names)}")
+            code = float(names.index(reference))
+        return cls(
+            names,
+            tuple(describe_policy(policy) for policy in declared),
+            shifted,
+            ratio,
+            ratio_at,
+            moved,
+            code,
+            mixing,
         )
 
     # ----------------------------------------------------------------- access
@@ -2468,7 +2560,9 @@ def _discrete_components(
     columns: list[IntArray] = []
     where = f"treatment {data.treatment_name!r}"
     for index, policy in enumerate(policies):
-        for probability, codes in discrete_assignments(policy, levels, frame, rows, where=where):
+        for probability, codes in _point_discrete_assignments(
+            policy, data, levels, frame, rows, where=where
+        ):
             owners.append((index, probability))
             columns.append(codes)
     component_codes = np.stack(columns, axis=1)
@@ -2482,6 +2576,77 @@ def _discrete_components(
     moved = np.asarray(shifted != observed[:, None], dtype=bool)
     mixing = None if len(columns) == len(policies) else _mixing(len(policies), owners)
     return shifted, ratio, ratio_at, moved, mixing, component_codes, observed, None
+
+
+def _same(values: FloatArray) -> FloatArray:
+    """The treatment values themselves, the classifier block of a treatment of one column."""
+    return values
+
+
+def vector_density_refusal(treatment: str) -> str:
+    """The refusal of the density route at a point vector treatment with a dose component."""
+    return (
+        f"treatment {treatment!r} is a vector with a continuous component. Pass "
+        "ratio='classifier': its policy ratio is estimated by classification (Díaz et al. "
+        "2023, Section 5.4). The density route for vector treatments, a post-beta roadmap "
+        f"row, is docs/roadmap.md {VECTOR_DENSITY_ROW}"
+    )
+
+
+def vector_route_refusal(treatment: str) -> str:
+    """The refusal of every fit of a point vector treatment but its one supported route."""
+    return (
+        f"treatment {treatment!r} is a vector with a continuous component. The one supported "
+        "fit is TMLE(policies=[JointPolicy(...)], ratio='classifier'), which reports its "
+        "policy means and contrasts. Every other estimator and estimand of such a treatment "
+        f"is a post-beta roadmap row, docs/roadmap.md {VECTOR_DENSITY_ROW}"
+    )
+
+
+def whole_vector_refusal(policy: object, treatment: str) -> str:
+    """The refusal of a policy declared on a vector treatment with a dose as a whole."""
+    return (
+        f"policy {describe_policy(policy)} is declared on the vector treatment {treatment!r} "
+        "as a whole. A vector with a continuous component takes one policy per component: "
+        "declare JointPolicy(name, components={column: policy, ...}, policy_kind='known')"
+    )
+
+
+def _point_discrete_assignments(
+    policy: object,
+    data: CausalData,
+    levels: Sequence[object],
+    frame: FrameSource,
+    rows: BoolArray,
+    *,
+    where: str,
+) -> tuple[tuple[float, IntArray], ...]:
+    """:func:`discrete_assignments` at a point treatment, reading a :class:`JointPolicy`.
+
+    A joint policy applies at an all-categorical vector treatment by the discrete reduction
+    of :func:`joint_discrete_assignments`.  At a treatment of one column it is refused by
+    :func:`policy_branches`.
+    """
+    if not isinstance(policy, JointPolicy) or not data.is_vector_treatment:
+        return discrete_assignments(policy, levels, frame, rows, where=where)
+    components = tuple(
+        JointComponent(name, component_levels)
+        for name, component_levels in zip(data.component_names, data.component_levels, strict=True)
+    )
+
+    def frame_with(extra: Mapping[str, Any]) -> Any:
+        payload = {name: data.covariates[:, j] for j, name in enumerate(data.covariate_names)}
+        payload.update(extra)
+        return data.frame_like(payload)
+
+    return joint_discrete_assignments(
+        policy,
+        components,
+        [tuple(cast("Sequence[object]", level)) for level in levels],
+        frame_with,
+        rows,
+        where=where,
+    )
 
 
 def _discrete_ratios(
@@ -2504,6 +2669,46 @@ def _discrete_ratios(
         axis=1,
     )
     return ratio, ratio_at
+
+
+def _warn_outside_cell_support(
+    name: str, components: Sequence[JointComponent], natural: FloatArray, assigned: FloatArray
+) -> None:
+    """Warn when a joint policy assigns a dose outside the doses of its target cell.
+
+    Positivity at a vector treatment reads each categorical cell: when the categorical map
+    moves a unit from cell ``c`` to cell ``c'``, its assigned dose must lie inside the doses
+    observed in cell ``c'``.  This compares each assigned dose with the observed range of
+    the same component among the units whose natural categorical values are ``c'``.
+    """
+    categorical = [index for index, component in enumerate(components) if not component.continuous]
+    natural_cells = [tuple(row) for row in natural[:, categorical]]
+    target_cells = [tuple(row) for row in assigned[:, categorical]]
+    for index, component in enumerate(components):
+        if not component.continuous:
+            continue
+        below = above = 0
+        for cell in set(target_cells):
+            source = np.asarray([value == cell for value in natural_cells], dtype=bool)
+            target = np.asarray([value == cell for value in target_cells], dtype=bool)
+            if not source.any():
+                continue
+            doses = natural[source, index]
+            moved = assigned[target, index]
+            below += int(np.count_nonzero(moved < float(np.min(doses))))
+            above += int(np.count_nonzero(moved > float(np.max(doses))))
+        for count, side in ((below, "below the smallest"), (above, "above the largest")):
+            if not count:
+                continue
+            warnings.warn(
+                f"policy {name!r} assigns {count / natural.shape[0]:.1%} of rows a "
+                f"{component.name!r} dose {side} one observed in the categorical cell the "
+                "policy sends them to. The outcome regression is extrapolating there. "
+                "Identification requires the doses a policy assigns in a cell to lie inside "
+                "the conditional support of the dose in that cell.",
+                PositivityWarning,
+                stacklevel=5,
+            )
 
 
 def _warn_outside_support(
