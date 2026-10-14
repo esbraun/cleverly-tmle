@@ -15,7 +15,8 @@ install_folds <- function(folds) {
   ns <- asNamespace("drtmle")
   original <- get("make_validRows", envir = ns)
   utils::assignInNamespace("make_validRows", function(cvFolds, n, ...) {
-    stopifnot(n == length(folds))
+    # Runs inside drtmle's stage, so a broken fold contract raises the fatal class (RM39a2).
+    if (n != length(folds)) study_fatal_error(sprintf("the fold patch got n = %s for %s folds", n, length(folds)))
     original(folds, n = n, ...)
   }, ns = "drtmle")
   function() utils::assignInNamespace("make_validRows", original, ns = "drtmle")
@@ -37,7 +38,7 @@ fit_subset <- function(frame, suffix, replicate, n_total) {
   folds <- as.integer(factor(folds))
   restore <- install_folds(folds)
   on.exit(restore(), add = TRUE)
-  fit <- drtmle::drtmle(
+  fit <- study_stage("drtmle", drtmle::drtmle(
     Y = frame$Y,
     A = frame$A,
     W = frame[c("W1", "W2", "W12")],
@@ -57,7 +58,7 @@ fit_subset <- function(frame, suffix, replicate, n_total) {
     se_cv = "none",
     returnModels = FALSE,
     use_future = FALSE
-  )
+  ))
   estimates <- as.numeric(fit$drtmle$est)
   covariance <- fit$drtmle$cov
   psi <- c(estimates[[1]], estimates[[2]], estimates[[2]] - estimates[[1]])

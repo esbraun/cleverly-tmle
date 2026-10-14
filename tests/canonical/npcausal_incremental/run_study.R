@@ -55,7 +55,7 @@ fit_delta <- function(frame, delta, seed) {
   # cannot represent this law.  `.^2` over two indicators and A spans all six (W, A) cells, so
   # the outcome fit is the saturated nonparametric one; the identically-zero W1:W2 column is
   # dropped as collinear.  The same library saturates the three-cell treatment model.
-  fit <- ipsi(
+  fit <- study_stage("ipsi", ipsi(
     y = frame$Y,
     a = frame$A,
     x.trt = design,
@@ -68,7 +68,7 @@ fit_delta <- function(frame, delta, seed) {
     return_ifvals = TRUE,
     fit = "sl",
     sl.lib = c("SL.glm.interaction")
-  )
+  ))
   influence <- as.numeric(fit$ifvals[, 1])
   estimate <- fit$res.ptwise$est[[1]]
   # `res.ptwise$se` is `sd(raw ifvals)`, computed before the centering above.  Reading the

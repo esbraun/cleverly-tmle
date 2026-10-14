@@ -12,7 +12,10 @@
 # Since RM39 the runner retries a group whose worker was killed.  A retried group would count
 # its rounds twice, so the wrapper sets CLEVERLY_R_NO_RETRY=1, under which the first kill stops
 # the run.  Each fit runs in its own fork, so the per-PID files below hold one draw each.
+# Since RM39a2 an error inside the runner's `study_stage` is recorded as a failed draw rather
+# than raised.  A diagnostic must see every draw, so CLEVERLY_R_NO_RECORD=1 keeps each error raw.
 Sys.setenv(CLEVERLY_R_NO_RETRY = "1")
+Sys.setenv(CLEVERLY_R_NO_RECORD = "1")
 suppressPackageStartupMessages(library(drtmle))
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) != 3) stop("usage: count_rounds.R SAMPLES.csv.gz TRUTH.csv OUTPUT.csv")

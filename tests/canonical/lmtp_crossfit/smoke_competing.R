@@ -7,6 +7,8 @@
 
 suppressPackageStartupMessages(library(lmtp))
 future::plan(future::sequential)
+# The adapters call `study_stage` (RM39a2), which the harness defines.
+source("/fixture/study_harness.R")
 source("/fixture/lmtp_crossfit_adapter.R")
 source("/fixture/lmtp_competing_adapter.R")
 

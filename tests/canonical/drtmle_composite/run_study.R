@@ -41,7 +41,7 @@ fit_one <- function(frame) {
   # A is NA where the treatment is unrecorded, so drtmle's default DeltaA = !is.na(A)
   # holds the treatment observation indicator. gn is the oracle composite
   # P(A = a, DeltaA = 1, DeltaY = 1 | W), so estimateG is skipped. cvFolds = 1 fits in-sample.
-  fit <- drtmle::drtmle(
+  fit <- study_stage("drtmle", drtmle::drtmle(
     Y = frame$Y,
     A = frame$A_code,
     W = frame["W"],
@@ -63,7 +63,7 @@ fit_one <- function(frame) {
     returnModels = FALSE,
     returnNuisance = TRUE,
     use_future = FALSE
-  )
+  ))
   initial <- vapply(qn, mean, numeric(1))
   out <- multi_arm_rows_from_moments(
     as.numeric(fit$drtmle$est), fit$drtmle$cov, initial, labels, internal,
@@ -90,9 +90,12 @@ fit_one <- function(frame) {
 
 groups <- split(samples, interaction(samples$scenario, samples$replicate, drop = TRUE))
 cores <- study_cores(groups)
+# Forced here, in the parent: with `mc.preschedule = TRUE`, `mclapply` would force it in each
+# child, and `study_collect` would then find no registered groups to retry or assemble.
+fit_group <- study_fitter(groups, fit_one)
 results <- parallel::mclapply(
   seq_along(groups),
-  study_fitter(groups, fit_one),
+  fit_group,
   mc.cores = cores,
   mc.preschedule = TRUE
 )

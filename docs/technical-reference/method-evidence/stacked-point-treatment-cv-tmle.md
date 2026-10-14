@@ -21,7 +21,8 @@ van der Laan (2011) supply the wider CV-TMLE framework. The source boundary is m
 
 Supplying the exact row-to-fold assignment is what makes this a fold-matched comparison. A common
 seed or fold count is not enough when splitters or dependency versions differ. The R runner aborts
-the whole study on any failed fit, changed fold, missing estimand, or dropped replication.
+the whole study on a changed fold, a missing estimand, or a dropped replication. The harness
+records a failed fit, and with no declared failure bound one failure makes its cells red.
 
 The split reads neither the treatment nor the outcome. A split that reads either one makes each
 fold's training rows a function of the rows it predicts. The fit asserts the realized scheme

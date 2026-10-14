@@ -79,13 +79,17 @@ regimen_ltmle_fit <- function(arguments, frame, label) {
   # factor on every fit, and blanket suppression made that notice indistinguishable from a
   # positivity warning about the very quantity these studies report.  Only the known message
   # is muffled; anything else stops the run.
+  #
+  # RM39a2: the ltmle call runs inside `study_stage` (tests/canonical/study_harness.R), so an
+  # error ltmle raises costs one group.  A promoted warning raises `study_fatal_error`, the
+  # class a stage never records (Q-a), so it stops the run wherever the handler sits.
   targeted <- withCallingHandlers(
-    do.call(ltmle, arguments),
+    study_stage("ltmle", do.call(ltmle, arguments)),
     warning = function(condition) {
       if (grepl("Cnodes|censoring", conditionMessage(condition), ignore.case = TRUE)) {
         invokeRestart("muffleWarning")
       }
-      stop(sprintf("unexpected ltmle warning: %s", conditionMessage(condition)))
+      study_fatal_error(sprintf("unexpected ltmle warning: %s", conditionMessage(condition)))
     }
   )
   # The studies supply the exact mechanism, so a cumulative bound that binds is a defect in
@@ -109,10 +113,11 @@ regimen_ltmle_fit <- function(arguments, frame, label) {
       unname(weighted.mean(predictions, arguments$observation.weights))
     }
   }
+  summarised <- study_stage("ltmle", summary(targeted))
   list(
     estimate = unname(targeted$estimates[["tmle"]]),
     initial = initial,
     ic = as.numeric(targeted$IC$tmle),
-    native_standard_error = as.numeric(summary(targeted)$treatment$std.dev)
+    native_standard_error = as.numeric(summarised$treatment$std.dev)
   )
 }

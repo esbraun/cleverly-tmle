@@ -17,12 +17,14 @@
 # * theta is the mean of the shifted first-node prediction, and the unit mean of the
 #   per-copy eif (R/eif.R) is the integrated influence curve.
 #
-# The shared adapter is sourced for lmtp_internal and fold_list only.  Its bytes are
-# unchanged, because its sha256 is in the reference hashes of registered studies.  This
+# The shared adapter is sourced for lmtp_internal and fold_list only.  This
 # adapter never calls cf_density_ratios: the supplied ratio q / g at the natural arm differs
 # from lmtp's own followed-rule ratio on purpose, so that function's screen does not apply.
 # Its own screens run on one row per unit, because replicated copies understate a spread by
 # sqrt(copies).
+#
+# RM39a2: each lmtp estimation call runs inside `study_stage` (tests/canonical/study_harness.R,
+# which every caller sources); every screen and check stays outside a stage and stays fatal.
 
 source("/fixture/lmtp_crossfit_adapter.R")
 
@@ -89,6 +91,11 @@ lmtp_policy_tmle <- function(
   # node, the shifted arm of each copy.  ratios and density_at_observed: n x T, per node,
   # at the natural arm.  Returns the estimate, the unit-level influence curve and the
   # untargeted plug-in.
+  # RM39a2 (M7): every argument is evaluated here, outside any stage.
+  invisible(list(
+    data, draws, ratios, density_at_observed, trt, outcome, baseline, time_vary,
+    fold_assignment, copies, learners_outcome, control
+  ))
   n <- nrow(data)
   if (length(draws) != length(trt)) stop("one draw matrix per treatment node is required")
   for (node in seq_along(draws)) {
@@ -135,7 +142,11 @@ lmtp_policy_tmle <- function(
   )
   task$folds <- fold_list(rep(as.integer(fold_assignment), each = copies))
   progress <- function(...) invisible(NULL)
-  regressions <- lmtp_internal("cf_tmle")(task, replicated, learners_outcome, control, progress)
+  cf_tmle <- lmtp_internal("cf_tmle")
+  theta_dr <- lmtp_internal("theta_dr")
+  regressions <- study_stage(
+    "lmtp tmle", cf_tmle(task, replicated, learners_outcome, control, progress)
+  )
 
   # No prediction may reach lmtp's bound of 1e-5, or cleverly's [0, 1] clip and lmtp's bound
   # would be two different regularisations of one regression.
@@ -149,9 +160,9 @@ lmtp_policy_tmle <- function(
   first_treatment <- lmtp_internal("current_trt")(task$vars$A, 1)
   under_shift <- task$natural[, c("..i..lmtp_id", history)]
   under_shift[, first_treatment] <- task$shifted[, first_treatment]
-  initial <- predict(regressions$fits[[1]][[1]], under_shift, 1e-05)
+  initial <- study_stage("lmtp estimate", predict(regressions$fits[[1]][[1]], under_shift, 1e-05))
 
-  result <- lmtp_internal("theta_dr")(
+  result <- study_stage("lmtp estimate", theta_dr(
     task = task,
     sequential_regressions = list(natural = regressions$natural, shifted = regressions$shifted),
     density_ratios = replicated,
@@ -159,7 +170,7 @@ lmtp_policy_tmle <- function(
     fits_r = NULL,
     shift = "known policy by proportional replication",
     is_sdr = FALSE
-  )
+  ))
   copy_eif <- result$estimate@eif
   unit_ic <- as.numeric(tapply(copy_eif, unit, mean))
   list(

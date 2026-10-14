@@ -90,8 +90,12 @@ fit_scenario <- function(frame) {
       method = "mean", glm.trt = "W1 + W2", glm.ftime = "trt*(W1 + W2)",
       glm.ctime = ctime_formula(t0), verbose = FALSE
     )
-    fitted <- suppressWarnings(do.call(survtmle, c(arguments, list(returnIC = TRUE))))
-    initial <- suppressWarnings(do.call(survtmle, c(arguments, list(Gcomp = TRUE))))
+    fitted <- study_stage(
+      "survtmle", suppressWarnings(do.call(survtmle, c(arguments, list(returnIC = TRUE))))
+    )
+    initial <- study_stage(
+      "survtmle", suppressWarnings(do.call(survtmle, c(arguments, list(Gcomp = TRUE))))
+    )
     for (code in names(causes[[scenario]])) {
       cause <- causes[[scenario]][[code]]
       values <- list()

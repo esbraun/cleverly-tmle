@@ -588,3 +588,137 @@ def test_every_registered_reference_artifact_hook_accepts_the_driver_call() -> N
             signature.bind(**DRIVER_KEYWORDS)
         except TypeError as error:  # pragma: no cover - the assertion names the module
             pytest.fail(f"{module}.reference_artifacts rejects the driver call: {error}")
+
+
+class _Stop(Exception):
+    """Ends a driver run at the point a test inspects."""
+
+
+def _failure_record(implementation: str, replicates: str) -> dict[str, Any]:
+    from tests.studies.evidence import failures
+
+    record: dict[str, Any] = dict.fromkeys(failures.FAILURE_COLUMNS, "")
+    record.update(
+        implementation=implementation,
+        group_id="g000000001",
+        scenarios="scenario",
+        replicates=replicates,
+        attempt=1,
+        seed=1,
+    )
+    return record
+
+
+def test_skip_reference_reads_the_committed_failures_before_any_removal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    """``--skip-reference`` writes into the study directory it reads the failure file from.
+
+    A removal of stale optional files before the reference phase deleted that file first, so
+    the run validated the committed rows without their failure records.
+    """
+    from tests.studies.evidence import failures
+
+    record = dataclasses.replace(canonical_tmle.STUDY, artifacts=tmp_path)
+    reference = str(record.reference)
+    committed = _rows(reference).assign(replicate=0, n=50)
+    committed.to_csv(tmp_path / "replicates.csv.gz", index=False)
+    pd.DataFrame([_failure_record(reference, "1"), _failure_record(reference, "7")]).to_csv(
+        tmp_path / failures.FAILURES, index=False
+    )
+    study = SimpleNamespace(
+        STUDY=record, PRIMARY_REPLICATES=record.replicates, PRIMARY_N=record.n, CONFIGURATION={}
+    )
+    arguments = _arguments(tmp_path, primary_only=False)
+    arguments.skip_reference = True
+    monkeypatch.setattr(regenerate, "_arguments", lambda *args: arguments)
+    monkeypatch.setattr(
+        regenerate,
+        "_python_phase",
+        lambda *args: regenerate._Phase(rows=_rows(record.implementation)),
+    )
+    seen: list[Any] = []
+
+    def validate(rows: pd.DataFrame, **options: Any) -> None:
+        seen.append(options["failures"])
+        raise _Stop
+
+    monkeypatch.setattr(regenerate, "validate_replicates", validate)
+    with pytest.raises(_Stop):
+        regenerate.main(
+            study, SimpleNamespace(), here=tmp_path, reference=regenerate.Reference("i", "r")
+        )
+
+    (recorded,) = seen
+    assert recorded is not None
+    assert recorded["replicates"].tolist() == ["1"], "only replicates below --replicates count"
+    assert (tmp_path / failures.FAILURES).exists()
+
+
+@pytest.mark.parametrize("recorded", [False, True])
+def test_a_run_removes_the_stale_failure_files_only_when_it_writes_none(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any, recorded: bool
+) -> None:
+    from tests.studies.evidence import failures
+
+    record = dataclasses.replace(fold_evaluated_cvtmle.STUDY, artifacts=tmp_path)
+    for name in regenerate.OPTIONAL_ARTIFACT_NAMES:
+        (tmp_path / name).write_text("stale\n", encoding="utf-8")
+    study = SimpleNamespace(
+        STUDY=record, PRIMARY_REPLICATES=record.replicates, PRIMARY_N=record.n, CONFIGURATION={}
+    )
+    monkeypatch.setattr(
+        regenerate, "_arguments", lambda *args: _arguments(tmp_path, primary_only=False)
+    )
+    phase = regenerate._Phase(rows=_rows(record.implementation))
+    if recorded:
+        phase.reference_failures = pd.DataFrame([_failure_record("x", "0")])
+    monkeypatch.setattr(regenerate, "_python_phase", lambda *args: phase)
+    monkeypatch.setattr(regenerate, "validate_replicates", lambda *args, **kwargs: None)
+
+    def write_csv(*args: Any, **kwargs: Any) -> None:
+        raise _Stop
+
+    monkeypatch.setattr(regenerate, "write_csv", write_csv)
+    with pytest.raises(_Stop):
+        regenerate.main(study, SimpleNamespace(), here=tmp_path)
+
+    for name in (failures.FAILURES, failures.ACCOUNTING):
+        assert (tmp_path / name).exists() is recorded
+
+
+def test_failures_below_keeps_the_records_under_the_count() -> None:
+    frame = pd.DataFrame([_failure_record("r", "0"), _failure_record("r", "3")])
+    kept = regenerate._failures_below(frame, 3)
+    assert kept is not None
+    assert kept["replicates"].tolist() == ["0"]
+    assert regenerate._failures_below(frame.iloc[1:], 3) is None
+
+
+def test_failures_below_refuses_a_multi_replicate_record() -> None:
+    frame = pd.DataFrame([_failure_record("r", "0;1")])
+    with pytest.raises(RuntimeError, match="more than one replicate"):
+        regenerate._failures_below(frame, 3)
+
+
+def test_reference_failures_labels_the_harness_records(tmp_path: Any) -> None:
+    """The harness writes no implementation column; the driver adds the reference's name."""
+    from tests.studies.evidence import failures
+
+    results = tmp_path / "reference-results.csv"
+    study = SimpleNamespace(STUDY=canonical_tmle.STUDY)
+    assert regenerate._reference_failures(study, results) is None  # type: ignore[arg-type]
+
+    harness = [c for c in failures.FAILURE_COLUMNS if c != "implementation"]
+    path = regenerate.failures_path(results)
+    pd.DataFrame(columns=harness).to_csv(path, index=False)
+    assert regenerate._reference_failures(study, results) is None  # type: ignore[arg-type]
+
+    rows = [_failure_record("", "4"), {**_failure_record("", "0"), "group_id": "g000000000"}]
+    pd.DataFrame(rows).loc[:, harness].to_csv(path, index=False)
+    frame = regenerate._reference_failures(study, results)  # type: ignore[arg-type]
+    assert frame is not None
+    assert tuple(frame.columns) == failures.FAILURE_COLUMNS
+    assert set(frame["implementation"]) == {str(canonical_tmle.STUDY.reference)}
+    assert frame["group_id"].tolist() == ["g000000000", "g000000001"]
+    assert frame["replicates"].tolist() == ["0", "4"]
