@@ -176,8 +176,10 @@ STUDY = StudyRecord(
     name="outcome-adaptive per-arm C-TMLE with strata and missing data (point estimates)",
     slug="ctmle-oat-per-arm-strata-missing",
     artifacts=ROOT / "tests" / "canonical" / "drtmle_oat_per_arm_strata_missing",
-    document="docs/technical-reference/method-evidence/outcome-adaptive-per-arm-c-tmle.md",
-    anchor="baseline-strata-and-missing-data",
+    document=(
+        "docs/technical-reference/method-evidence/outcome-adaptive-per-arm-c-tmle-strata-missing.md"
+    ),
+    anchor="outcome-adaptive-per-arm-c-tmle-with-strata-and-missing-data",
     scenarios=dict(SCENARIO_ESTIMANDS),
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,
