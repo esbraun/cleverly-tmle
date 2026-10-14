@@ -142,22 +142,30 @@ ipsi_centred_ifvals <- function(fit) {
 }
 
 # One full-grid call per fold assignment.  `print(c(i, j))` of the `sl` path is captured.
-ipsi_fit_grid <- function(frame, deltas, folds, n_times, ipsi_copy) {
+ipsi_arguments <- function(frame, deltas, folds, n_times) {
+  # The arguments of one `ipsi` call over the whole plan grid.  A runner passes them to
+  # `do.call(ipsi_copy, .)` inside its stage, so the stage holds the comparator call only.
   long <- ipsi_long(frame, n_times)
-  splits <- length(unique(folds))
-  fit <- NULL
-  invisible(capture.output(
-    fit <- ipsi_copy(
-      y = long$y, a = long$a, x.trt = long$x.trt, x.out = long$x.out,
-      time = long$time, id = long$id, delta.seq = deltas, nsplits = splits,
-      progress_bar = FALSE, return_ifvals = TRUE, fit = "sl", sl.lib = "SL.cellmeans",
-      folds = folds
-    )
-  ))
+  list(
+    y = long$y, a = long$a, x.trt = long$x.trt, x.out = long$x.out,
+    time = long$time, id = long$id, delta.seq = deltas, nsplits = length(unique(folds)),
+    progress_bar = FALSE, return_ifvals = TRUE, fit = "sl", sl.lib = "SL.cellmeans",
+    folds = folds
+  )
+}
+
+ipsi_grid_result <- function(fit) {
   list(
     estimate = fit$res.ptwise$est,
     sigma = fit$res.ptwise$se,
     calpha = as.numeric(fit$calpha),
     ic = ipsi_centred_ifvals(fit)
   )
+}
+
+ipsi_fit_grid <- function(frame, deltas, folds, n_times, ipsi_copy) {
+  arguments <- ipsi_arguments(frame, deltas, folds, n_times)
+  fit <- NULL
+  invisible(capture.output(fit <- do.call(ipsi_copy, arguments)))
+  ipsi_grid_result(fit)
 }

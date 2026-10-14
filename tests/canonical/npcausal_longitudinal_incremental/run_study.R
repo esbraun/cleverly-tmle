@@ -57,10 +57,10 @@ fit_scenario <- function(frame, scenario) {
   frame <- frame[order(frame$row), ]
   wanted <- truths[truths$scenario == scenario & truths$replicate == replicate, ]
   if (!nrow(wanted)) stop(sprintf("no truth rows for %s replicate %s", scenario, replicate))
-  fit <- study_stage(
-    "ipsi",
-    ipsi_fit_grid(frame, unname(DELTAS), frame$fold + 1L, N_TIMES, ipsi_copy)
-  )
+  arguments <- ipsi_arguments(frame, unname(DELTAS), frame$fold + 1L, N_TIMES)
+  fitted <- NULL
+  invisible(capture.output(fitted <- study_stage("ipsi", do.call(ipsi_copy, arguments))))
+  fit <- ipsi_grid_result(fitted)
   names(fit$estimate) <- names(DELTAS)
   colnames(fit$ic) <- names(DELTAS)
   rows <- lapply(seq_len(nrow(wanted)), function(index) {
