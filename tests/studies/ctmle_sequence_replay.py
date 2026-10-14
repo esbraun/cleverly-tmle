@@ -23,17 +23,32 @@ bounds, which match R's always-penalized construction criterion.  :func:`replay_
 applies the gate per scenario, and ``tests/unit/test_ctmle_sequences_design.py`` recomputes
 it from the committed ``replay.csv``.
 
-One declared deviation: the ``clip`` flag reads the package's targeted fits only, the path and
-every final-step option.  R writes no targeted ``Q``.  Both sides start from the same arrays
-and agree within ``1e-6`` on every unflagged replicate, so a clip on R's side alone would need
-a fit within ``1e-6`` of a bound.
+**The ``alpha`` bound.**  Both sides bound the initial ``Q`` and each accepted update into
+``[1 - alpha, alpha]``.  The package also bounds every candidate's targeted ``Q``, and R does
+not (``functions_general.R``, lines 185 to 201, and the glmnet path alike).  The ``clip`` flag
+leaves out a replicate where that difference can move a compared value:
+
+* ``binary_lasso``: R writes its own unbounded values, so the flag fires when any targeted
+  ``Q`` of the package, on the path or in a final-step option, lies at or outside a bound.
+  Where every value lies strictly inside, neither side's bound acts on a candidate.
+* ``binary_learners``: R writes each candidate's estimate and loss from its own ``Qstars``,
+  bounded the same way, so a bound on a counterfactual arm moves both sides alike.  The
+  flag fires when a targeted ``Q`` of the package on an observed row, a row the fluctuation
+  is fitted on, lies at or outside a bound.  There the package solves the score of the
+  bounded fit, and R's ``glm`` solves the unbounded one, so the two ``epsilon`` differ.  When
+  every observed row lies strictly inside, the package's score is the unbounded score, and
+  both sides solve one equation.  R's construction scores stay unbounded: a bound that moved
+  one of R's acceptance decisions shows as an accepted-index mismatch, which fails the gate.
+
+R writes no targeted ``Q``, so the flag reads the package side.  The pre-flight
+``tests/canonical/ctmle_sequences/preflight.py`` measures both flag rates.
 """
 
 from __future__ import annotations
 
 import math
 import warnings
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -266,7 +281,9 @@ def _replay_one(row: Mapping[str, Any]) -> dict[str, Any]:
         loss_gaps.append(_relative(np.array([float(option.loss) for option in scored]), r_loss))
     out["option_margin"] = min(margins)
     out["near_tie"] = int(min(out["path_margin"], out["option_margin"]) < MARGIN)
-    out["clip"] = int(not harness.interior(path, options))
+    # The two scenarios read the bound differently (see the module docstring).
+    lasso = scenario == "binary_lasso"
+    out["clip"] = int(not harness.interior(path, options, arms=lasso))
     out["final_starts"] = starts
     out["final_index_match"] = int(index_match)
     out["final_est_gap"] = max(est_gaps)
@@ -367,3 +384,31 @@ def replay_summary(compared: pd.DataFrame) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(out, columns=SUMMARY_COLUMNS)
+
+
+def unowned_red_gates(summary: pd.DataFrame, owner_ids: Sequence[str]) -> list[str]:
+    """The red scenarios of ``replay-summary.csv`` that reach no owner.
+
+    Under ``reporting`` a red replay gate is published and the run continues.  The red-cell
+    ledger reads no ``scientific_failures`` hook, so it cannot route a red gate.  The gate
+    reaches its owner, ``RED_CELL_OWNERS["replay"]``, when the roadmap's "Red-cell owners"
+    table lists that ``id``, as the ledger requires of every owner of a red verdict row.
+
+    Parameters
+    ----------
+    summary : DataFrame
+        :func:`replay_summary`, or the committed ``replay-summary.csv``.
+    owner_ids : sequence of str
+        The ``id`` column of the roadmap's owner table.
+
+    Returns
+    -------
+    list of str
+        The red scenarios, or nothing when every gate passed or the owner is listed.
+    """
+    from tests.studies.canonical_ctmle_sequences import RED_CELL_OWNERS
+
+    red = summary.loc[~summary["passed"].astype(bool), "scenario"]
+    if red.empty or RED_CELL_OWNERS["replay"] in owner_ids:
+        return []
+    return [str(scenario) for scenario in red]

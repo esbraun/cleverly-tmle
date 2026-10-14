@@ -578,7 +578,7 @@ def _mle(problem: _Problem) -> tuple[FloatArray, FloatArray, bool]:
             hessian = hessian[np.ix_(index, index)]
         if float(np.max(np.abs(gradient))) < 1e-15:
             return intercept, coef, _bounded(intercept, coef)
-        step = -np.linalg.lstsq(hessian, gradient, rcond=None)[0]
+        step = -np.asarray(np.linalg.lstsq(hessian, gradient, rcond=None)[0], dtype=np.float64)
         scale = max(1.0, abs(current))
         trial_intercept, trial_coef = _moved(problem, intercept, coef, active, step)
         value = problem.objective(trial_intercept, trial_coef, 0.0)

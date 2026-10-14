@@ -39,7 +39,7 @@ by `;`.
 | `q_coef` | both | `coef(glm)`: the intercept, `A`, and `W1` to `W4` |
 | `g_coef` | both | the propensity coefficients of each candidate, candidate first. Lasso: the default path read at each penalty. Learners: the four `SL.glmnet_new` fits, then `SL.glm` |
 | `r_accepted` | both | the accepted candidates, 1-based |
-| `cand_est`, `cand_loss` | both | the estimate and the negative log-likelihood of each candidate |
+| `cand_est`, `cand_loss` | both | the estimate and the negative log-likelihood of each candidate. Lasso: R's own values. Learners: computed from R's `Qstars`, bounded into `[1 - alpha, alpha]` as the package bounds them |
 | `final_r_*` | lasso | R's type-1 final step from `best_k`: the start, the coefficients, the option losses, the final grid index and the estimate. Missing when `best_k` is the last index |
 | `final_pkg_*` | lasso | the same step from the package's cross-validated index, which the sample frame carries in `package_selected`. Missing when that index is the last one |
 
@@ -68,9 +68,25 @@ package's construction and final step on them.
 | counts | at least 400 unflagged replicates, and for `binary_lasso` at least 100 final-step comparisons |
 
 A replicate is flagged and left out when a deciding score gap lies below `1e-6` of the round's
-best score (`near_tie`), or when a targeted `Q` of the package leaves `(0.005, 0.995)` (`clip`).
-R writes no targeted `Q`, so the `clip` flag reads the package side only.
+best score (`near_tie`). The package bounds every targeted `Q` into `[1 - alpha, alpha]`. R
+bounds only the initial `Q` and each accepted update (`functions_general.R`, lines 185 to 218).
+The `clip` flag covers that difference, and it reads the package side, because R writes no
+targeted `Q`.
+
+| scenario | what R writes | `clip` flags a replicate when |
+| --- | --- | --- |
+| `binary_lasso` | R's own unbounded values | a targeted `Q` of the package is not strictly inside `(1 - alpha, alpha)` |
+| `binary_learners` | values from R's `Qstars`, bounded as the package bounds them | a targeted `Q` of the package on an observed row is not strictly inside `(1 - alpha, alpha)`. There the package solves the score of the bounded fit and R's `glm` the unbounded one |
+
+A `binary_learners` flag on every bound would leave too few replicates. The low bound binds on a
+counterfactual arm on 124 of 200 replicates in the design review 2 emulation. A bound on an
+observed row binds on 10 of 200 replicates of the pre-flight in
+[Smoke before the declaration](#smoke-before-the-declaration).
 `tests/unit/test_ctmle_sequence_replay.py` recomputes the verdict from `replay.csv`.
+
+A red replay gate does not stop the run. `test_ctmle_sequence_replay.py` fails on a red gate
+in the committed `replay-summary.csv` until the roadmap's "Red-cell owners" table lists
+`X16-sequence-reading`.
 
 ## Declared differences
 
@@ -138,6 +154,36 @@ To run `make_r_folds.R` by hand, write the seeds first:
 uv run --extra dev python -m tests.canonical.ctmle_sequences.design seeds --output $env:TEMP\seeds.csv
 docker run --rm --entrypoint Rscript -v ${PWD}\tests\canonical\ctmle_sequences:/fixture:ro -v ${env:TEMP}:/work cleverly-ctmle-reference:18de559 /fixture/make_r_folds.R /work/seeds.csv 2000 /work/r_folds.csv.gz
 ```
+
+## Smoke before the declaration
+
+Run the steps below outside the artifact directory before the declaration commit. Stop and
+re-review the plan when a step fails.
+
+| step | command or file | pass rule |
+| --- | --- | --- |
+| Python pre-flight | `uv run --extra dev python -m tests.canonical.ctmle_sequences.preflight --replicates 200` | the unflagged share of each scenario exceeds `MIN_UNFLAGGED / 800`, every unflagged index matches, and every unflagged gap is below `1e-7` |
+| R smoke | the probe command under [Regenerate](#regenerate), 10 replicates | the facts of plan section 3.5 hold. Every unflagged replay gap is below `1e-7`. `replay-summary.csv` records the flag rates |
+| stand-in biases | `DECLARED_GATES` in `tests/unit/test_ctmle_sequences_design.py` | write the smoke-measured bias of each key of `STAND_INS` into `DECLARED_GATES`, then empty `STAND_INS` |
+
+The pre-flight stands in for R. It fits R's arrays with the package. It computes R's values with
+the package's bound on each candidate removed, and it bounds R's written values as the runner
+does. It reports the flag counts and the largest unflagged gaps. It cannot see the tolerance of
+R's `glm`, so a correct replay reads a gap of 0. The pre-flight measured the result below at the
+commit that added it.
+
+| scenario | replicates | `near_tie` | `clip` | unflagged | final-step comparisons | largest unflagged gap |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `binary_lasso` | 200 | 31 | 3 | 166 | 95 | 0 |
+| `binary_learners` | 200 | 4 | 10 | 186 | 0 | 0 |
+
+At 800 replicates these shares give about 664 and 744 unflagged replicates against the 400 that
+the gate needs.
+
+Four keys of `DECLARED_GATES` hold stand-in biases from other studies. They are
+`multi_arm/lasso_treatment_correct`, `multi_arm/empty_control`, and the two
+`double_robustness/*_treatment_correct` cells. A stand-in cannot fail on this study's code.
+The fast tier fails when the study's `manifest.json` exists and `STAND_INS` still names a key.
 
 ## Regenerate
 

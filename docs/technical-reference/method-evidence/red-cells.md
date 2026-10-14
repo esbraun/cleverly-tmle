@@ -31,7 +31,7 @@ fits and publish no verdict cell, so the ledger does not read them.
 | [ordinary missing-outcome natural-course TMLE](ordinary-missing-outcome-natural-course-tmle.md) | `gated` | the exact-equality probe of the scale workaround | `scale-probe.csv`. The test requires every row to pass |
 | [missing-outcome attributable-effect TMLE](missing-outcome-attributable-effects-tmle.md) | `gated` | the exact-equality probe of the scale workaround on both R paths | `scale-probe.csv`. The test requires every row to pass |
 | [stacked arm-indexed missing-outcome CV-TMLE](stacked-arm-indexed-missing-outcome-cvtmle.md) | `gated` | the same probe | `scale-probe.csv`. The test requires every row to pass |
-| [C-TMLE candidate sequences](c-tmle-candidate-sequences.md) | `reporting` | the replay gates that failed: R's selection replayed in `cleverly` on the same rows | the study page and `replay-summary.csv` |
+| [C-TMLE candidate sequences](c-tmle-candidate-sequences.md) | `reporting` | the replay gates that failed: R's selection replayed in `cleverly` on the same rows | the study page and `replay-summary.csv`. The test fails on a red gate until the roadmap's owner table lists `X16-sequence-reading` |
 
 `tests/unit/test_red_cell_ledger.py` fails when a study module defines a hook that this table
 does not list.

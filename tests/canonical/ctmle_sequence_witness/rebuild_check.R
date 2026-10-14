@@ -8,7 +8,8 @@ options(digits = 17)
 # type-1 adapter of the registered study, must agree exactly with `ctmleGlmnet` wherever
 # `ctmleGlmnet` completes.  `regenerate.py` runs this script on each seed where `witness.R`
 # completed and records the result in `manifest.json`.  The call repeats section 5 of
-# `witness.R`, with the same seed and arguments.
+# `witness.R`, with the same arguments.  The folds are given, so neither call draws from R's
+# generator (`functions_glmnet.R`, lines 308 to 309), and the script sets no seed.
 glmnet.control(fdev = 0, devmax = 1)
 source("/shared/rebuild_type1.R")
 
@@ -29,9 +30,7 @@ arguments <- list(
   PEN = FALSE, detailed = TRUE
 )
 
-set.seed(20261612)
 lasso <- do.call(ctmleGlmnet, arguments)
-set.seed(20261612)
 rebuilt <- do.call(rebuild_type1, arguments)
 
 write.csv(

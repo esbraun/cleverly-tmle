@@ -38,6 +38,11 @@ truth_key <- paste(truths$scenario, truths$replicate, sep = "|")
 
 V <- 5L
 GBOUND <- 0.025
+# R `ctmle`'s default `alpha`.  R bounds the initial Q and each accepted update into
+# `c(alpha, 1 - alpha)` (ctmle_general.R:161-162; functions_general.R:218), but not a
+# candidate's `Qstar` (functions_general.R:185-201).  The package bounds every targeted Q.
+ALPHA <- 0.995
+QBOUNDS <- c(ALPHA, 1 - ALPHA)
 # Quirk 5: `evaluate_candidates_general` matches the next accepted column by squared distance
 # below 1e-5 (functions_general.R:209), not by index.  Two candidate columns closer than that
 # could be matched to each other, so the run stops on any such pair.
@@ -182,6 +187,47 @@ fold_labels <- function(folds, n) {
 
 # ---- the two fits ---------------------------------------------------------------------------
 
+# R's `bound` of the initial Q and of each accepted update: values above `max(bounds)` move
+# to it, then values below `min(bounds)`.
+bound_q <- function(x, bounds) {
+  x[x > max(bounds)] <- max(bounds)
+  x[x < min(bounds)] <- min(bounds)
+  x
+}
+
+# The binary_learners candidate estimates and losses that the replay compares (review 2, B1).
+# R's evaluation (functions_general.R:188-196) reads each candidate's `Qstar` unbounded.  The
+# package bounds it into `[1 - alpha, alpha]`.  So the runner reads R's own `Qstars` and bounds
+# them the way R bounds its accepted updates, and both sides compute the same quantity.  Where
+# the bound leaves a candidate unchanged, the result must reproduce R's own `est` and
+# `likelihood` (the check below).
+bounded_candidates <- function(results, y, label) {
+  qstars <- results$Qstars
+  if (length(qstars) != length(results$est)) {
+    stop(sprintf("%s: results.all holds %d Qstars for %d candidates", label,
+                 length(qstars), length(results$est)))
+  }
+  est <- loss <- numeric(length(qstars))
+  for (i in seq_along(qstars)) {
+    raw <- as.matrix(qstars[[i]])
+    if (!all(c("QAW", "Q0W", "Q1W") %in% colnames(raw)) || nrow(raw) != length(y)) {
+      stop(sprintf("%s: Qstars[[%d]] is not an n x (QAW, Q0W, Q1W) matrix", label, i))
+    }
+    q <- bound_q(raw, QBOUNDS)
+    est[i] <- mean(q[, "Q1W"]) - mean(q[, "Q0W"])
+    loss[i] <- -sum(y * log(q[, "QAW"]) + (1 - y) * log(1 - q[, "QAW"]))
+    if (identical(q, raw)) {
+      gaps <- c(abs(est[i] - results$est[i]),
+                abs(loss[i] - results$likelihood[i]) / abs(results$likelihood[i]))
+      if (!all(is.finite(gaps)) || max(gaps) > RECONSTRUCTION_TOLERANCE) {
+        stop(sprintf("%s: candidate %d recomputed from its Qstar misses R by %.3g", label, i,
+                     max(gaps)))
+      }
+    }
+  }
+  list(est = est, loss = loss)
+}
+
 # One vector column: the values printed with `%.17g` and joined by `;`.
 vector_text <- function(values) {
   if (is.null(values)) return(NA_character_)
@@ -293,6 +339,7 @@ fit_lasso <- function(frame, W, Q, label) {
     # is recorded as this group's failure.
     matched <- grepl(QUIRK_7_TEXT, conditionMessage(fit), fixed = TRUE)
     if (!matched || !identical(rebuild_best_k, K)) stop(fit)
+    adapter_error_matched <- as.integer(matched)
     candidates <- rebuilt$candidates
     results <- candidates$results.all
     best_k <- rebuild_best_k
@@ -314,6 +361,7 @@ fit_lasso <- function(frame, W, Q, label) {
     estimate <- as.numeric(fit$est)
     std_error <- sqrt(as.numeric(fit$var.psi))
     adapter_used <- 0L
+    adapter_error_matched <- 0L
     rebuild_agrees <- 1L
   }
   # R's own final step from best_k, and the same step from the package's selected index.
@@ -340,7 +388,7 @@ fit_lasso <- function(frame, W, Q, label) {
       adapter_used = adapter_used,
       path_min_lambda = path_min,
       fold_path_min_lambda = fold_path_min,
-      adapter_error_matched = adapter_used,
+      adapter_error_matched = adapter_error_matched,
       rebuild_best_k = rebuild_best_k,
       rebuild_agrees = rebuild_agrees,
       g_coef = vector_text(g_coef),
@@ -397,6 +445,7 @@ fit_learners <- function(frame, W, Q, seed, folds, label) {
     hits
   })
   results <- fit$candidates$results.all
+  bounded <- bounded_candidates(results, frame$Y, label)
   # R's plain D* variance at the selected candidate, never `var.psi`, which carries the
   # first-covariate ICg term (quirk 6).
   variance <- as.numeric(results$varDstar_origscale[best_k]) / n
@@ -414,8 +463,8 @@ fit_learners <- function(frame, W, Q, seed, folds, label) {
       rebuild_agrees = NA_integer_,
       g_coef = vector_text(g_coef),
       r_accepted = vector_text(accepted),
-      cand_est = vector_text(results$est),
-      cand_loss = vector_text(results$likelihood)
+      cand_est = vector_text(bounded$est),
+      cand_loss = vector_text(bounded$loss)
     ),
     final_fields(NULL, "final_r"),
     final_fields(NULL, "final_pkg")

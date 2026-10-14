@@ -27,6 +27,7 @@ from cleverly.datasets import DGP
 from cleverly.estimators import TMLE
 from cleverly.learners._l1_logistic import penalty_path
 from cleverly.utils.bounds import expit, logit
+from tests.canonical.ctmle_sequence_witness import harness
 from tests.canonical.ctmle_sequences import power_probe
 from tests.studies import bounded_cv_laws, multi_arm_common
 from tests.studies import canonical_ctmle_sequences as study
@@ -90,15 +91,17 @@ def _main_terms_g(w: np.ndarray, g0: np.ndarray) -> np.ndarray:
     return np.asarray(model.predict_proba(w)[:, 1], dtype=float)
 
 
-def _tmle_limit(
+def _fluctuated(
     g0: np.ndarray,
     means: dict[float, np.ndarray],
     q0: np.ndarray,
     q1: np.ndarray,
     g: np.ndarray,
-) -> tuple[float, float]:
-    """One logistic fluctuation of ``(q0, q1)`` along ``g``: the limit and ``Var(D*)``."""
-    g = np.clip(g, *study.G_BOUNDS)
+) -> tuple[np.ndarray, np.ndarray]:
+    """The limit of one logistic fluctuation of ``(q0, q1)`` along ``g``, at both arms.
+
+    ``g`` is bounded already.
+    """
     arms = (
         (1.0, g0, q1, np.column_stack([np.zeros_like(g), 1.0 / g])),
         (0.0, 1.0 - g0, q0, np.column_stack([1.0 / (1.0 - g), np.zeros_like(g)])),
@@ -114,8 +117,19 @@ def _tmle_limit(
         epsilon += step
         if np.max(np.abs(step)) < 1e-13:
             break
-    q1s = expit(logit(q1) + epsilon[1] / g)
-    q0s = expit(logit(q0) + epsilon[0] / (1.0 - g))
+    return expit(logit(q0) + epsilon[0] / (1.0 - g)), expit(logit(q1) + epsilon[1] / g)
+
+
+def _tmle_limit(
+    g0: np.ndarray,
+    means: dict[float, np.ndarray],
+    q0: np.ndarray,
+    q1: np.ndarray,
+    g: np.ndarray,
+) -> tuple[float, float]:
+    """One logistic fluctuation of ``(q0, q1)`` along ``g``: the limit and ``Var(D*)``."""
+    g = np.clip(g, *study.G_BOUNDS)
+    q0s, q1s = _fluctuated(g0, means, q0, q1, g)
     psi = float(np.mean(q1s - q0s))
     centred = q1s - q0s - psi
     residual = g0 / g**2 * (means[1.0] * (1.0 - means[1.0]) + (means[1.0] - q1s) ** 2) + (
@@ -127,6 +141,13 @@ def _tmle_limit(
     return psi, float(np.mean(residual + cross + centred**2))
 
 
+def _columns(scenario: str, w: np.ndarray, g0: np.ndarray) -> list[np.ndarray]:
+    """The population limit of each candidate mechanism, in path order."""
+    if scenario == "binary_lasso":
+        return _lasso(w, g0, (*study.study_lambdas(scenario), 0.0))
+    return [*_lasso(w, g0, study.learner_lambdas()), _main_terms_g(w, g0)]
+
+
 def _limits(scenario: str) -> tuple[np.ndarray, float]:
     """Each candidate's single-fluctuation limit bias, and the GLM plug-in bias, in SD units.
 
@@ -136,11 +157,7 @@ def _limits(scenario: str) -> tuple[np.ndarray, float]:
     truth = truth_for(law)["ate"]
     w, g0, means = _population(law)
     q0, q1 = _outcome_glm(w, g0, means)
-    if scenario == "binary_lasso":
-        columns = _lasso(w, g0, (*study.study_lambdas(scenario), 0.0))
-    else:
-        columns = [*_lasso(w, g0, study.learner_lambdas()), _main_terms_g(w, g0)]
-    fits = [_tmle_limit(g0, means, q0, q1, g) for g in columns]
+    fits = [_tmle_limit(g0, means, q0, q1, g) for g in _columns(scenario, w, g0)]
     sd = math.sqrt(fits[-1][1] / DESIGN_N)
     limits = np.array([(psi - truth) / sd for psi, _ in fits])
     return limits, (float(np.mean(q1 - q0)) - truth) / sd
@@ -207,6 +224,38 @@ def test_the_bounds_bind_on_a_declared_share(scenario: str) -> None:
     low, high = study.G_BOUNDS
     share = float(np.mean((g0 < low) | (g0 > high)))
     assert 0.05 <= share <= 0.15, share
+
+
+def _share_at_alpha(values: Sequence[np.ndarray]) -> float:
+    """The share of ``Q`` values at or outside R's ``[1 - alpha, alpha]``."""
+    stacked = np.concatenate([np.ravel(value) for value in values])
+    low, high = harness.Q_INTERIOR
+    return float(np.mean((stacked <= low) | (stacked >= high)))
+
+
+@pytest.mark.parametrize("scenario", study.SCENARIOS)
+def test_the_share_of_q_at_the_alpha_bounds(scenario: str) -> None:
+    """Where R's ``alpha`` bound acts on each law, at the population limits (review 2, B1).
+
+    Both sides bound the initial ``Q`` and each accepted update, and only the package bounds a
+    candidate's targeted ``Q``.  The initial outcome fit lies inside the bounds on both laws,
+    so the bound acts only through the targeting step.  On the lasso law no candidate's
+    targeted limit reaches a bound, so the replay's ``clip`` flag fires only by sampling.  On
+    the learners law the late candidates reach the low bound on a small share of ``W``, which
+    binds on most samples of 2,000 rows.  R therefore writes its learners candidates bounded.
+    """
+    w, g0, means = _population(study.scenario_law(scenario))
+    q0, q1 = _outcome_glm(w, g0, means)
+    assert _share_at_alpha([q0, q1]) == 0.0
+    targeted = [
+        _share_at_alpha(_fluctuated(g0, means, q0, q1, np.clip(g, *study.G_BOUNDS)))
+        for g in _columns(scenario, w, g0)
+    ]
+    if scenario == "binary_lasso":
+        assert max(targeted) == 0.0, targeted
+    else:
+        # A nonzero witness: the bound binds, on at most 0.1 percent of the arm values.
+        assert 0.0 < max(targeted) <= 1e-3, targeted
 
 
 @pytest.mark.parametrize("scenario", study.SCENARIOS)
@@ -603,7 +652,8 @@ def test_accepted_indices_read_the_blocks_of_n_steps() -> None:
 # --------------------------------------------------------------- pass probability and power
 
 #: The inputs of plan 3.4.3 that the pilot does not rerun: each cell's bias in its own SD and
-#: its replicate count.  A ``discriminated`` control must lie outside the margin.
+#: its replicate count.  A ``discriminated`` control must lie outside the margin.  The keys of
+#: :data:`STAND_INS` hold stand-in values, pending the smoke.
 DECLARED_GATES = {
     "double_robustness/lasso_outcome_correct": (-0.042, 1_200, "equivalent"),
     "double_robustness/learners_outcome_correct": (-0.043, 1_200, "equivalent"),
@@ -615,6 +665,21 @@ DECLARED_GATES = {
     "multi_arm/lasso_treatment_correct": (0.005, 1_200, "equivalent"),
     "multi_arm/empty_control": (2.76, 1_200, "discriminated"),
 }
+#: The keys of :data:`DECLARED_GATES` whose bias is a stand-in and not a measurement of this
+#: study's cell: the TMLE design-review value -0.075 for both treatment-correct cells, and the
+#: ``multi_arm_tmle3`` values 0.005 and 2.76 for the multi-arm cells (plan 3.4.3).  A stand-in
+#: cannot fail on this study's code.  The smoke measures each cell's bias, and the measured value
+#: replaces the stand-in in :data:`DECLARED_GATES` before the declaration commit; the key then
+#: leaves this set (``tests/canonical/ctmle_sequences/README.md``, "Smoke before the
+#: declaration").
+STAND_INS = frozenset(
+    {
+        "double_robustness/lasso_treatment_correct",
+        "double_robustness/learners_treatment_correct",
+        "multi_arm/lasso_treatment_correct",
+        "multi_arm/empty_control",
+    }
+)
 #: The mutations each truth gate must catch, by the pilot row that measures them.  ``no
 #: sequence`` is absent: the replay gates and the structural invariants catch it (plan 3.4.1).
 MUTATIONS = (
@@ -698,3 +763,10 @@ def test_every_mutation_has_power(probe: pd.DataFrame) -> None:
     }
     power["B2"] = 1.0 - pass_probability(B2_MUTATION, properties.ROBUST_REPLICATES)
     assert all(value >= 0.8 for value in power.values()), power
+
+
+def test_no_stand_in_bias_survives_into_the_run() -> None:
+    """The study's manifest exists only after the run, by which time every stand-in is replaced."""
+    assert set(DECLARED_GATES) >= STAND_INS
+    if (study.ARTIFACTS / "manifest.json").exists():
+        assert not STAND_INS, f"these gates still hold stand-in biases: {sorted(STAND_INS)}"

@@ -40,10 +40,12 @@ GRID_SIZE = 20
 GRID_TOP = 0.9
 GRID_BOTTOM = 0.002
 G_BOUNDS = (0.025, 0.975)
-#: R ``ctmle``'s ``alpha``, which bounds ``Q`` into ``[0.005, 0.995]`` (plan finding 7).
+#: R ``ctmle``'s ``alpha``, which bounds ``Q`` into ``[1 - alpha, alpha]`` (plan finding 7).
 ALPHA = 0.995
-#: The interior that keeps both sides' ``Q`` bounds no-ops.
-Q_INTERIOR = (0.005, 0.995)
+#: The open interval that keeps both sides' ``Q`` bounds no-ops: the bounds themselves, as
+#: both sides compute them.  ``1 - ALPHA`` is ``0.0050000000000000044`` in floating point, so
+#: the literal ``0.005`` would pass a value that the low bound clipped.
+Q_INTERIOR = (1.0 - ALPHA, ALPHA)
 #: The range the initial ``Q`` must lie in.
 Q_RANGE = (0.02, 0.98)
 #: The tolerance of the estimates and losses, which inherit R's ``glm`` fluctuation.
@@ -638,15 +640,17 @@ def smallest_margin(path: Path) -> float:
     return smallest
 
 
-def interior(path: Path, extra: Sequence[Any] = ()) -> bool:
+def interior(path: Path, extra: Sequence[Any] = (), *, arms: bool = True) -> bool:
     """Whether every targeted ``Q`` lies strictly inside :data:`Q_INTERIOR`.
 
-    ``extra`` adds candidates outside the path, such as the final step's options.
+    A value at a bound fails, so a value that the package's ``alpha`` bound clipped fails.
+    ``extra`` adds candidates outside the path, such as the final step's options.  With
+    ``arms=False`` only the observed rows are read: the rows the fluctuation is fitted on.
     """
     low, high = Q_INTERIOR
     for candidate in (*path.candidates, *extra):
         fit = candidate.targeted
-        for values in (fit.observed, *fit.arms.values()):
+        for values in (fit.observed, *(fit.arms.values() if arms else ())):
             if not (np.all(values > low) and np.all(values < high)):
                 return False
     return True

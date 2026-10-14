@@ -9,6 +9,7 @@ row recomputes the committed verdict from ``replay.csv``, once the run has writt
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -16,9 +17,11 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LogisticRegression
 
+from cleverly.fluctuation.iterative import InitialFit
 from tests.canonical.ctmle_sequence_witness import harness
 from tests.studies import canonical_ctmle_sequences as study
 from tests.studies import ctmle_sequence_replay as replay
+from tests.studies.evidence import red_cells
 
 
 def _compared(scenario: str, count: int, **values: Any) -> pd.DataFrame:
@@ -75,6 +78,18 @@ class TestTheGateRule:
         lasso.loc[0, column] = value
         verdict = _verdict(lasso)
         assert not verdict["binary_lasso"] and verdict["binary_learners"]
+
+    def test_a_red_gate_needs_its_owner_on_the_roadmap(self) -> None:
+        """S1 of design review 2: a red replay gate is routed, a green one needs no owner."""
+        owner = study.RED_CELL_OWNERS["replay"]
+        lasso = _compared("binary_lasso", replay.MIN_UNFLAGGED + 1)
+        learners = _compared("binary_learners", replay.MIN_UNFLAGGED)
+        green = replay.replay_summary(pd.concat([lasso, learners], ignore_index=True))
+        lasso.loc[0, "est_gap"] = 2e-6
+        red = replay.replay_summary(pd.concat([lasso, learners], ignore_index=True))
+        assert replay.unowned_red_gates(green, []) == []
+        assert replay.unowned_red_gates(red, ["F18"]) == ["binary_lasso"]
+        assert replay.unowned_red_gates(red, ["F18", owner]) == []
 
     @pytest.mark.parametrize("flag", ["near_tie", "clip"])
     def test_a_flagged_miss_is_left_out(self, flag: str) -> None:
@@ -202,6 +217,28 @@ def test_a_wrong_accepted_index_is_caught(lasso_row: dict[str, Any]) -> None:
     assert replay.replay_one(row)["accepted_match"] == 0
 
 
+def _one_candidate(observed: float, arm: float) -> SimpleNamespace:
+    n = 4
+    fit = InitialFit(np.full(n, 0.5), {0.0: np.full(n, 0.5), 1.0: np.full(n, 0.5)})
+    fit.observed[0] = observed
+    fit.arms[1.0][0] = arm
+    return SimpleNamespace(candidates=[SimpleNamespace(targeted=fit)])
+
+
+@pytest.mark.parametrize("value", [1.0 - harness.ALPHA, harness.ALPHA])
+def test_the_clip_flag_reads_a_value_at_a_bound(value: float) -> None:
+    """B1 of design review 2: a value the ``alpha`` bound clipped lies exactly at the bound.
+
+    ``1 - 0.995`` is above ``0.005`` in floating point, so an interior read against the
+    literal ``0.005`` passed it.  The two scenarios read different rows.
+    """
+    assert harness.interior(_one_candidate(0.5, 0.5))
+    arm = _one_candidate(0.5, value)
+    assert not harness.interior(arm)
+    assert harness.interior(arm, arms=False)
+    assert not harness.interior(_one_candidate(value, 0.5), arms=False)
+
+
 def test_a_vector_column_reads_a_single_value_and_a_missing_one() -> None:
     np.testing.assert_array_equal(replay.vector(3), [3.0])
     np.testing.assert_array_equal(replay.vector("1;2.5"), [1.0, 2.5])
@@ -221,3 +258,12 @@ def test_the_committed_replay_verdict_is_the_rule_s_output() -> None:
     pd.testing.assert_frame_equal(
         replay.replay_summary(compared), committed, check_dtype=False, check_exact=False
     )
+
+
+def test_a_red_committed_replay_gate_reaches_its_owner() -> None:
+    """A red gate in the committed summary fails here until the roadmap lists its owner."""
+    summary_path = study.ARTIFACTS / study.REPLAY_SUMMARY_FILE
+    if not summary_path.exists():
+        pytest.skip("replay-summary.csv is written by the study run")
+    committed = pd.read_csv(summary_path, float_precision="round_trip")
+    assert replay.unowned_red_gates(committed, red_cells.owner_ids()) == []

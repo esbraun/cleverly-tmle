@@ -53,9 +53,16 @@ the package's construction and final step on R's arrays and R's initial outcome 
 | counts | at least 400 unflagged replicates, and for `binary_lasso` at least 100 final-step comparisons |
 
 The replay leaves out a flagged replicate. A replicate is flagged when a deciding score gap lies
-below $10^{-6}$ of the round's best score. It is also flagged when a targeted outcome value of
-the package leaves $(0.005, 0.995)$. The file `replay-summary.csv` records the counts, the flags
-and the largest gap of each kind.
+below $10^{-6}$ of the round's best score. The `clip` flag reads the bound
+$[1 - \alpha, \alpha]$, which the package applies to each targeted outcome value. R applies it
+only to the initial fit and to each accepted update.
+
+| scenario | what R writes | `clip` flags a replicate when |
+| --- | --- | --- |
+| `binary_lasso` | unbounded estimates and losses | a targeted value of the package lies at or outside a bound |
+| `binary_learners` | estimates and losses from R's targeted values, bounded as the package bounds them | a targeted value of the package on an observed row lies at or outside a bound. On those rows the two fluctuation fits solve different equations |
+
+The file `replay-summary.csv` records the counts, the flags and the largest gap of each kind.
 
 The property study uses a public nested cross-fit configuration: five outer folds, three
 selection folds, and two inner folds. Every two-arm property cell samples a proportion and
@@ -107,7 +114,7 @@ it. This study has no committed cell yet.
 | R penalizes its construction | R adds $\operatorname{var}(D^*)$ to each construction score, whatever `PEN` is. `cleverly` with `penalty=False` does not. The replay gates use `penalty=True` on both sides for this reason |
 | A green coverage or SE-ratio row says nothing about F18 | Where the outcome model is correct, Ju et al. (2018) Lemma 2 gives $\Delta(P_1) = 0$, so coverage holds conditionally on the outcome fit and its limit, which F18's reopening condition excludes. Where the outcome model is wrong, one law's coverage bounds no remainder term |
 | The multi-arm lasso cell tests the unpenalized end of the path | The cell reported that end on every smoke seed. It does not test interior selection at three arms |
-| The lasso final step returns to the unpenalized end on most fits | On these laws the lasso estimate and plain TMLE are close in distribution. The replay gates, not the truth gates, show that the sequence is built as R builds it |
+| The lasso final step returns to the unpenalized end on most fits | On these laws the lasso estimate and plain TMLE are close in distribution. The replay gates, not the truth gates, show that the sequence is built as R builds it. The `binary_learners` path accepted one candidate on 200 of 200 replicates of the design review 2 emulation, and the terminal on 151. Its replay checks the first round of fluctuations, and one round after one update on the other 49. The `binary_lasso` replay checks the longer update chain: 78 of 160 emulated replicates accepted two or more candidates |
 | The parity claim is narrow | It covers binary, two-arm, complete-outcome, GLM-outcome, non-cross-fitted ATE estimation only |
 
 ## Reproduction
