@@ -103,6 +103,9 @@ categorized API tables.
    cleverly.interventions.IPSISet
    cleverly.interventions.Shift
    cleverly.interventions.Scale
+   cleverly.interventions.DoseQuantile
+   cleverly.interventions.SupportBoundary
+   cleverly.interventions.LinearQuantileRegression
    cleverly.interventions.Piecewise
    cleverly.interventions.Piece
    cleverly.interventions.ModifiedPolicy

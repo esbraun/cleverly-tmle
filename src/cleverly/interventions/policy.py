@@ -123,6 +123,15 @@ from ..exceptions import CapabilityError, DataError, PositivityWarning
 from ..learners.crossfit import Folds
 from ..learners.density import ConditionalDensity, MixedDensity, warn_if_unresolved
 from .support import _intervention_loads, _InterventionLoadRow
+from .tuning import (
+    DoseQuantile,
+    FittedTuner,
+    SupportBoundary,
+    Target,
+    check_target,
+    is_tuner,
+    population_refusal,
+)
 
 if TYPE_CHECKING:
     from .joint_density import JointDensityParts
@@ -142,7 +151,10 @@ __all__ = [
     "Shift",
     "Support",
     "check_policy_support",
+    "refuse_point_tuned_policies",
     "refuse_policy_declarations",
+    "resolve_tuned_policy",
+    "tuned_policy",
 ]
 
 _QUANTILES = (0.01, 0.05, 0.5, 0.95, 0.99)
@@ -205,6 +217,29 @@ _POLICY_DECLARATION = FunctionDeclaration(
 )
 
 
+def _check_declared_target(name: str, target: object, tuned: bool) -> None:
+    """Refuse an unknown ``target`` and a target on a map with a declared cap.
+
+    A tuned map with no target is refused at the fit, before any learner (R-e1), as an
+    undeclared ``policy_kind`` is: :func:`refuse_policy_declarations`.
+    """
+    if target is None:
+        return
+    check_target(name, target, tuned)
+
+
+def _refuse_unresolved(policy: Shift | Scale) -> float | None:
+    """Return the numeric cap, and refuse a cap that is a tuner no fit has resolved."""
+    cap = policy.cap
+    if isinstance(cap, (DoseQuantile, SupportBoundary)):
+        raise CapabilityError(
+            f"policy {policy.name!r} reads its cap from the treatment law "
+            f"({type(cap).__name__}), so it has no map until a fit resolves the tuner "
+            "on the units at risk. Pass it to a fit, which resolves it before any learner"
+        )
+    return None if cap is None else float(cap)
+
+
 # ------------------------------------------------------------- policy objects
 
 
@@ -217,7 +252,7 @@ class Shift:
     delta : float
         How far to move the treatment.  ``0.0`` is the *natural course* -- the policy that
         changes nothing -- whose mean is :math:`E[Y]` and which is the usual reference.
-    cap : float or None
+    cap : float, DoseQuantile, SupportBoundary or None
         The largest treatment value the policy will assign; a unit whose shifted dose would
         exceed it keeps its own.  **Required, with no default**, and it is a declaration
         rather than something estimated.
@@ -232,23 +267,35 @@ class Shift:
         indicator zeroed, and it warns with the share of rows whose shifted dose leaves the
         observed range -- because there :math:`\\bar Q` is being extrapolated and
         identification needs :math:`A + \\delta` to be supported.
+        A tuner, :class:`~cleverly.interventions.tuning.DoseQuantile` or
+        :class:`~cleverly.interventions.tuning.SupportBoundary`, reads the cap from the
+        treatment law; ``target`` then declares the parameter.
     name : str
         What this policy is called in reported parameter names.  Defaults to ``"+0.5"`` /
         ``"-1"`` style, with ``"natural course"`` for ``delta=0``.
+    target : {"population", "fold_average"} or None
+        The parameter of a map whose cap is a tuner, and ``None`` for a declared cap.  A
+        fit refuses a tuned map with no target (:mod:`cleverly.interventions.tuning`).
     """
 
     delta: float
-    cap: float | None
+    cap: float | DoseQuantile | SupportBoundary | None
     name: str = ""
+    target: Target | None = None
 
     def __post_init__(self) -> None:
         if not np.isfinite(self.delta):
             raise DataError(f"a shift's delta must be finite; got {self.delta!r}")
-        if self.cap is not None and not np.isfinite(self.cap):
+        if (
+            self.cap is not None
+            and not is_tuner(self.cap)
+            and not np.isfinite(cast(float, self.cap))
+        ):
             raise DataError(f"a shift's cap must be finite or None; got {self.cap!r}")
         if not self.name:
             default = "natural course" if self.delta == 0.0 else f"{self.delta:+g}"
             object.__setattr__(self, "name", default)
+        _check_declared_target(self.name, self.target, is_tuner(self.cap))
 
     def apply(self, treatment: FloatArray) -> tuple[FloatArray, BoolArray]:
         """``(shifted, capped)`` -- the assigned dose, and which rows the cap held back.
@@ -265,11 +312,12 @@ class Shift:
         capped : ndarray
             ``(n,)`` boolean, true where the cap held the row at its own dose.
         """
+        cap = _refuse_unresolved(self)
         a = np.asarray(treatment, dtype=float).reshape(-1)
         moved = np.asarray(a + self.delta, dtype=float)
-        if self.cap is None:
+        if cap is None:
             return moved, np.zeros(a.size, dtype=bool)
-        held = np.asarray(moved > float(self.cap), dtype=bool)
+        held = np.asarray(moved > cap, dtype=bool)
         return np.asarray(np.where(held, a, moved), dtype=float), held
 
 
@@ -290,17 +338,20 @@ class Scale:
     ----------
     factor : float
         The multiplier.  It is positive; ``1.0`` is the natural course.
-    cap : float or None
+    cap : float, DoseQuantile, SupportBoundary or None
         The largest dose the policy assigns.  A unit whose scaled dose would exceed it
-        keeps its own, as for :class:`Shift`.
+        keeps its own, as for :class:`Shift`.  A tuner reads it from the treatment law.
     name : str
         The report label.  Defaults to ``"x1.25"`` style, with ``"natural course"`` for
         ``factor=1``.
+    target : {"population", "fold_average"} or None
+        The parameter of a map whose cap is a tuner, as for :class:`Shift`.
     """
 
     factor: float
-    cap: float | None
+    cap: float | DoseQuantile | SupportBoundary | None
     name: str = ""
+    target: Target | None = None
 
     def __post_init__(self) -> None:
         if not np.isfinite(self.factor) or self.factor <= 0.0:
@@ -313,11 +364,16 @@ class Scale:
                 "every dose, or collapse the dose into categories and declare the policy on a "
                 "categorical node"
             )
-        if self.cap is not None and not np.isfinite(self.cap):
+        if (
+            self.cap is not None
+            and not is_tuner(self.cap)
+            and not np.isfinite(cast(float, self.cap))
+        ):
             raise DataError(f"a scale's cap must be finite or None; got {self.cap!r}")
         if not self.name:
             default = "natural course" if self.factor == 1.0 else f"x{self.factor:g}"
             object.__setattr__(self, "name", default)
+        _check_declared_target(self.name, self.target, is_tuner(self.cap))
 
     def apply(self, treatment: FloatArray) -> tuple[FloatArray, BoolArray]:
         """``(assigned, held)``: the assigned dose, and which rows the cap held back.
@@ -334,11 +390,12 @@ class Scale:
         held : ndarray
             ``(n,)`` boolean, true where the cap held the row at its own dose.
         """
+        cap = _refuse_unresolved(self)
         a = np.asarray(treatment, dtype=float).reshape(-1)
         moved = np.asarray(a * self.factor, dtype=float)
-        if self.cap is None:
+        if cap is None:
             return moved, np.zeros(a.size, dtype=bool)
-        held = np.asarray(moved > float(self.cap), dtype=bool)
+        held = np.asarray(moved > cap, dtype=bool)
         return np.asarray(np.where(held, a, moved), dtype=float), held
 
 
@@ -919,7 +976,19 @@ def refuse_policy_declarations(policies: Iterable[object]) -> None:
         ``None`` or ``"estimated"``.
     """
     for policy in policies:
+        if isinstance(policy, (Shift, Scale)):
+            refuse_tuned_declarations(policy)
+            continue
         if isinstance(policy, JointPolicy):
+            for component in policy.components.values():
+                if isinstance(component, (Shift, Scale)) and is_tuner(component.cap):
+                    raise CapabilityError(
+                        f"policy {policy.name!r} tunes a component's cap from the treatment "
+                        "law. A tuned cap applies to a Shift or Scale at a node of one dose; "
+                        "inside a JointPolicy the tuner would read one component's law given "
+                        "the others, which this release does not resolve. Declare the "
+                        "component's cap as a number"
+                    )
             refuse_policy_declarations(
                 component
                 for _, components in joint_branches(policy)
@@ -938,6 +1007,159 @@ def refuse_policy_declarations(policies: Iterable[object]) -> None:
             )
 
 
+def refuse_tuned_declarations(policy: Shift | Scale) -> None:
+    """Refuse a tuned map with no target (R-e1), or a population target it lacks (R-e2).
+
+    Parameters
+    ----------
+    policy : Shift or Scale
+        A declared policy.
+
+    Raises
+    ------
+    CapabilityError
+        If the cap is a tuner and ``target`` is ``None``, or ``target="population"`` with a
+        :class:`~cleverly.interventions.tuning.SupportBoundary` whose learner has no
+        finite-dimensional parameter.
+    """
+    tuned = is_tuner(policy.cap)
+    check_target(policy.name, policy.target, tuned)
+    cap = policy.cap
+    if (
+        policy.target == "population"
+        and isinstance(cap, SupportBoundary)
+        and not cap.finite_dimensional
+    ):
+        raise CapabilityError(population_refusal(policy.name, cap))
+
+
+def refuse_point_tuned_policies(policies: Iterable[object]) -> None:
+    """Refuse a tuned cap in a point-treatment fit, which does not resolve one.
+
+    Parameters
+    ----------
+    policies : iterable of object
+        The policies of a point-treatment fit.
+
+    Raises
+    ------
+    CapabilityError
+        If a policy is a :class:`Shift` or :class:`Scale` whose cap is a tuner.
+    """
+    for policy in policies:
+        if tuned_policy(policy):
+            raise CapabilityError(
+                f"policy {getattr(policy, 'name', policy)!r} tunes its cap from the treatment "
+                "law. The point-treatment fit does not resolve a tuned cap in this release, so "
+                "it estimates neither target. Fit the policy as the node of a DynamicRegimen "
+                "with LTMLE or SDR, which resolve the tuner and both targets"
+            )
+
+
+def tuned_policy(policy: object) -> bool:
+    """Whether a policy is a :class:`Shift` or :class:`Scale` whose cap is a tuner.
+
+    Parameters
+    ----------
+    policy : object
+        A declared policy.
+
+    Returns
+    -------
+    bool
+        ``True`` for a data-tuned map.
+    """
+    return isinstance(policy, (Shift, Scale)) and is_tuner(policy.cap)
+
+
+def tuned_cap_parts(
+    policy: Shift | Scale, fitted: FittedTuner, frame: Any, n: int
+) -> tuple[FloatArray, FloatArray, FloatArray, float]:
+    """The boundary, the last moved dose, the gradient and ``|e'|`` of a fitted tuned map.
+
+    Parameters
+    ----------
+    policy : Shift or Scale
+        The tuned map.
+    fitted : FittedTuner
+        Its fitted tuner.
+    frame : object
+        The policy frame.
+    n : int
+        The rows.
+
+    Returns
+    -------
+    tuple
+        ``(c, e, dc/dtheta, |e'|)``: the ``(n,)`` boundary :math:`c(h)`, the ``(n,)`` last
+        dose the cap lets move (:math:`c - \\delta` or :math:`c / f`), the ``(n, p)``
+        gradient, and the slope of :math:`e` in :math:`c`.
+    """
+    boundary = fitted.boundary(frame, n)
+    if isinstance(policy, Shift):
+        edge, slope = boundary - float(policy.delta), 1.0
+    else:
+        edge, slope = boundary / float(policy.factor), 1.0 / float(policy.factor)
+    return boundary, edge, fitted.design(frame, n), slope
+
+
+def resolve_tuned_policy(
+    policy: Shift | Scale, fitted: FittedTuner
+) -> Shift | Scale | ModifiedPolicy:
+    """The map a fitted tuner gives: a declared cap, or pieces with the boundary ``c(h)``.
+
+    A dose quantile gives the same :class:`Shift` or :class:`Scale` with the cap at the
+    fitted quantile, so the shipped closed-form ratio reads it.  A support boundary gives a
+    known :class:`ModifiedPolicy` of two pieces: the moved interval up to the last dose the
+    cap lets move, :math:`e(h)`, and the held interval above it.  That is the map
+    ``apply`` would give with the cap :math:`c(h)` per row.
+
+    Parameters
+    ----------
+    policy : Shift or Scale
+        The tuned map.
+    fitted : FittedTuner
+        Its tuner, fitted on the rows the fit chose.
+
+    Returns
+    -------
+    object
+        The resolved policy, with the same name.
+    """
+    if isinstance(fitted.tuner, DoseQuantile):
+        return replace(policy, cap=float(fitted.theta[0]), target=None)
+    boundary = fitted.boundary
+
+    def edge(h: Any) -> FloatArray:
+        values = boundary(h, len(h))
+        if isinstance(policy, Shift):
+            return np.asarray(values - float(policy.delta), dtype=float)
+        return np.asarray(values / float(policy.factor), dtype=float)
+
+    if isinstance(policy, Shift):
+        delta = float(policy.delta)
+        moved = Piece(
+            -np.inf,
+            edge,
+            lambda a, h: np.asarray(a, dtype=float) + delta,
+            lambda b, h: np.asarray(b, dtype=float) - delta,
+            lambda b, h: 1.0,
+            closed="right",
+        )
+    else:
+        factor = float(policy.factor)
+        moved = Piece(
+            -np.inf,
+            edge,
+            lambda a, h: np.asarray(a, dtype=float) * factor,
+            lambda b, h: np.asarray(b, dtype=float) / factor,
+            lambda b, h: 1.0 / factor,
+            closed="right",
+        )
+    held = Piece(edge, np.inf, closed="right")
+    return ModifiedPolicy(policy.name, pieces=(moved, held), policy_kind="known")
+
+
 def describe_policy(policy: object) -> str:
     """A stable text for one policy, which a result keeps in place of the object.
 
@@ -953,9 +1175,11 @@ def describe_policy(policy: object) -> str:
         its name, because its functions have no stable text.
     """
     if isinstance(policy, Shift):
-        return f"Shift(delta={float(policy.delta)!r}, cap={policy.cap!r})"
+        tail = "" if policy.target is None else f", target={policy.target!r}"
+        return f"Shift(delta={float(policy.delta)!r}, cap={policy.cap!r}{tail})"
     if isinstance(policy, Scale):
-        return f"Scale(factor={float(policy.factor)!r}, cap={policy.cap!r})"
+        tail = "" if policy.target is None else f", target={policy.target!r}"
+        return f"Scale(factor={float(policy.factor)!r}, cap={policy.cap!r}{tail})"
     if isinstance(policy, Piecewise):
         pieces = ", ".join(
             f"({lower!r}, {upper!r}, {describe_policy(mapping)})"
@@ -1312,7 +1536,7 @@ class _ShiftBranch(_Branch):
         self.identity = shift.delta == 0.0
         # The natural course, Shift(0.0, ...), moves no label, so it applies to any node.
         self.arithmetic = not self.identity
-        self.cap = shift.cap
+        self.cap = _refuse_unresolved(shift)
 
     def assign(self, values: Any, frame: FrameSource) -> Any:
         if self.identity and np.asarray(values).dtype == object:
@@ -1327,7 +1551,7 @@ class _ShiftBranch(_Branch):
 
     def lowered(self, frame: FrameSource, n: int) -> LoweredMap:
         delta = float(self.shift.delta)
-        cap = self.shift.cap
+        cap = _refuse_unresolved(self.shift)
         if cap is None:
             return LoweredMap(
                 (_SmoothPiece(np.isfinite, lambda b: b - delta, _constant(1.0, n)),), ()
@@ -1358,8 +1582,9 @@ def _shift_ratio(density: DensityAt, values: FloatArray, shift: Shift) -> FloatA
     # ratio term contributes nothing to the score; min_density reports the denominator.
     safe = np.where(denominator > 0.0, denominator, 1.0)
     covariate = np.where(denominator > 0.0, numerator / safe, 0.0)
-    if shift.cap is not None:
-        cap = float(shift.cap)
+    numeric = _refuse_unresolved(shift)
+    if numeric is not None:
+        cap = numeric
         # Reachable-from-below: a unit can only have been *shifted* to `a` if the shift
         # from `a - delta` was not itself held back, which needs `a <= cap`. Above the cap
         # the only way to be at `a` is to have stayed there, so the ratio term drops out
@@ -1375,7 +1600,7 @@ class _ScaleBranch(_Branch):
     def __init__(self, scale: Scale) -> None:
         self.scale = scale
         self.identity = scale.factor == 1.0
-        self.cap = scale.cap
+        self.cap = _refuse_unresolved(scale)
 
     def assign(self, values: Any, frame: FrameSource) -> Any:
         return self.scale.apply(values)[0]
@@ -1390,8 +1615,9 @@ class _ScaleBranch(_Branch):
         denominator = density(a)
         safe = np.where(denominator > 0.0, denominator, 1.0)
         covariate = np.where(denominator > 0.0, numerator / safe, 0.0)
-        if self.scale.cap is not None:
-            cap = float(self.scale.cap)
+        numeric = _refuse_unresolved(self.scale)
+        if numeric is not None:
+            cap = numeric
             # The held rows are exactly those ``apply`` holds, ``factor * a > cap``, so the
             # identity indicator reads the same expression.
             covariate = covariate * (a <= cap).astype(float)
@@ -1400,7 +1626,7 @@ class _ScaleBranch(_Branch):
 
     def lowered(self, frame: FrameSource, n: int) -> LoweredMap:
         factor = float(self.scale.factor)
-        cap = self.scale.cap
+        cap = _refuse_unresolved(self.scale)
         if cap is None:
             return LoweredMap(
                 (_SmoothPiece(np.isfinite, lambda b: b / factor, _constant(1.0 / factor, n)),),
@@ -1650,6 +1876,8 @@ def policy_branches(policy: object) -> tuple[tuple[float, _Branch], ...]:
     DataError
         If ``policy`` is not one of the policy classes.
     """
+    if isinstance(policy, (Shift, Scale)):
+        _refuse_unresolved(policy)
     if isinstance(policy, Shift):
         return ((1.0, _ShiftBranch(policy)),)
     if isinstance(policy, Scale):

@@ -98,6 +98,7 @@ from .policy import (
     _member,
     _per_row,
     _PieceBranch,
+    _refuse_unresolved,
     dose_order,
     guarded_source,
 )
@@ -251,7 +252,7 @@ def explicit_pieces(policy: object | None) -> tuple[ExplicitPiece, ...]:
         if _is_identity_map(policy):
             return (_EVERYWHERE,)
         forward, inverse, slope = _closed_form(policy)
-        return _capped(forward, inverse, slope, policy.cap)
+        return _capped(forward, inverse, slope, _refuse_unresolved(policy))
     if isinstance(policy, Piecewise):
         out: list[ExplicitPiece] = []
         closed = policy.closed

@@ -184,6 +184,7 @@ from ..interventions.learned import (
 from ..interventions.policy import (
     JointPolicy,
     preflight_point_policies,
+    refuse_point_tuned_policies,
     refuse_policy_declarations,
     vector_msm_refusal,
     vector_route_refusal,
@@ -949,6 +950,7 @@ class TMLE:
         self.incremental = tuple(incremental or ())
         refuse_mixed_interventions(self.policies, kind="policy", holder="policies=")
         refuse_policy_declarations(self.policies)
+        refuse_point_tuned_policies(self.policies)
         _refuse_mixed_tilts(self.policies)
         refuse_mixed_interventions(self.incremental, kind="incremental", holder="incremental=")
         self.msm = msm
