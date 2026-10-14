@@ -999,7 +999,7 @@ PROPERTIES: dict[str, str] = {
     ),
     "single_robustness": (
         "the estimate stays consistent when the treatment mechanism is correct and the "
-        "outcome regressions are constant"
+        "outcome regressions are misspecified linear fits"
     ),
     "censoring_complete_case": (
         "how far a fit to the rows that never drop out sits from the target, reported rather "

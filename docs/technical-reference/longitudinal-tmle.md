@@ -1271,10 +1271,12 @@ messages. `tests/unit/test_ipsi_e2e.py` pins each refusal before any learner run
 | a TMLE for the tilt over time | not offered. The package ships Kennedy's own estimator, which Theorem 3 covers with no extension |
 | separate covariate sets for the mechanism and the regressions | not offered. Each nuisance reads the full history |
 
-Two registered studies are declared and have not run. `longitudinal-incremental` pairs the
-estimator with `npcausal` 0.1.0 `ipsi()` at commit `56a5ac11`. `longitudinal-incremental-dropout`
-calibrates dropout, survival, weights and clusters against exact truths, with no comparator.
-This page claims no result from either study.
+Two registered studies measure the estimator. The
+[complete-data study](method-evidence/longitudinal-incremental-interventions.md) carries Python
+property evidence. Its `npcausal` 0.1.0 comparator runs at commit `56a5ac11` are pending. The
+[dropout study](method-evidence/longitudinal-incremental-interventions-dropout.md) calibrates
+dropout, survival, weights and clusters against exact truths, with no comparator. This page
+claims no result from either study.
 
 The natural-course value is the sample mean of the outcome. A tilt of 1 sets every weight to 1,
 so the correction terms cancel. Each contrast with the natural course is therefore the tilted
