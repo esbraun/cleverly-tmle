@@ -14,6 +14,7 @@ REFERENCE = Reference(
         "study_harness.R",
         "ctmle_sequences/lambdas.csv",
         "ctmle_sequences/make_r_folds.R",
+        "ctmle_sequences/rebuild_type1.R",
         "ctmle_sequences/r_folds.csv.gz",
     ),
     build_context=ROOT / "tests" / "canonical" / "ctmle_selector",

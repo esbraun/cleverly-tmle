@@ -9,8 +9,15 @@ options(digits = 17)
 # R `ctmle` 0.1.2 at 18de559 for the registered study `canonical-ctmle-sequences`.  Line
 # numbers cite the `ctmle` sources at that commit.
 #
-# binary_lasso:    ctmleGlmnet(ctmletype = 1) on the package's own selection folds.
+# binary_lasso:    ctmleGlmnet(ctmletype = 1) on the package's own selection folds, then R's
+#                  type-1 final step from R's best_k and from the package's selected index.
 # binary_learners: build_gn_seq on folds_R, then ctmleGeneral(ctmletype = 1) on folds_R.
+#
+# Beside each row the runner writes what the replay of the X16 plan, 3.4.2, reads: R's
+# outcome and propensity coefficients, the accepted candidates, each candidate's estimate and
+# loss, and the final steps.  A vector is one string of `%.17g` values joined by `;`.  Before
+# it writes them, the runner asserts that `plogis(cbind(1, W) %*% coef)` reproduces each
+# array R used to 1e-12, so the replay can rebuild R's arrays from the coefficients.
 #
 # The declared adapter setting: the default glmnet path runs to lambda_max * 1e-4 instead of
 # stopping early on the deviance (X16 plan, 3.5 fact 3).  `predict(s = 0)` clamps the penalty 0
@@ -36,14 +43,35 @@ GBOUND <- 0.025
 # could be matched to each other, so the run stops on any such pair.
 SEPARATION <- 1e-5
 
-grid <- read.csv("/fixture/ctmle_sequences/lambdas.csv")
-if (!identical(names(grid), c("entry", "lambda")) || nrow(grid) != 20L ||
-    !identical(as.integer(grid$entry), 1:20) || any(diff(grid$lambda) >= 0) ||
-    any(grid$lambda <= 0)) {
-  stop("lambdas.csv must hold entries 1 to 20 of positive, strictly decreasing penalties")
+# The quirk-7 error of ctmleGlmnet type 1 at a selected last penalty (3.5, fact 6).
+QUIRK_7_TEXT <- "length of 'dimnames' [1] not equal to array extent"
+# The largest gap between an array R used and its rebuild from R's coefficients.
+RECONSTRUCTION_TOLERANCE <- 1e-12
+COVARIATES <- c("W1", "W2", "W3", "W4")
+# The 1-based entries of the binary_learners grid the declared candidates use (3.4.1, N2).
+LEARNER_ENTRIES <- c(2L, 4L, 16L, 19L)
+
+# One grid per scenario, 20 penalties each, written by design.py.
+grid <- read.csv("/fixture/ctmle_sequences/lambdas.csv", stringsAsFactors = FALSE)
+if (!identical(names(grid), c("scenario", "entry", "lambda"))) {
+  stop("lambdas.csv must hold the columns scenario, entry, lambda")
 }
-STUDY_LAMBDAS <- grid$lambda
-LEARNER_LAMBDAS <- STUDY_LAMBDAS[c(4L, 8L, 12L, 16L)]
+STUDY_LAMBDAS <- list()
+for (scenario in c("binary_lasso", "binary_learners")) {
+  rows <- grid[grid$scenario == scenario, ]
+  if (nrow(rows) != 20L || !identical(as.integer(rows$entry), 1:20) ||
+      any(diff(rows$lambda) >= 0) || any(rows$lambda <= 0)) {
+    stop(sprintf(
+      "lambdas.csv must hold entries 1 to 20 of positive, strictly decreasing penalties for %s",
+      scenario
+    ))
+  }
+  STUDY_LAMBDAS[[scenario]] <- rows$lambda
+}
+if (!setequal(unique(grid$scenario), names(STUDY_LAMBDAS))) {
+  stop("lambdas.csv must hold exactly the grids of binary_lasso and binary_learners")
+}
+LEARNER_LAMBDAS <- STUDY_LAMBDAS[["binary_learners"]][LEARNER_ENTRIES]
 
 # R's own folds for binary_learners, drawn by make_r_folds.R from the seed this runner sets
 # before each replicate.  `row` is 0-based, in sample order.
@@ -97,63 +125,9 @@ SL.cv4lasso <- function (... , alpha = 1, lambda = lasso_lambdas[4]){
 
 SL.library = c('SL.cv1lasso', 'SL.cv2lasso', 'SL.cv3lasso', 'SL.cv4lasso', 'SL.glm')
 
-# ---- the type-1 adapter ---------------------------------------------------------------------
-# ctmleGlmnet type 1 has no branch for a selected last penalty: `lambdas_remain` is empty at
-# ctmle_glmnet.R:270, and the final step fails (quirk 7).  This function takes ctmleGlmnet's
-# formals (lines 86-95), runs its preamble (lines 97-112) verbatim, and rebuilds R's own
-# construction and cross-validation (lines 213-230).  It returns the pieces ctmleGlmnet would
-# have used, with `varDstar_origscale` as lines 346-347 compute it.
-rebuild_type1 <- function(Y, A, W, Wg = W,
-                          Q, lambdas = NULL,
-                          ctmletype,
-                          V=5, folds = NULL,
-                          alpha=.995, family= "gaussian",
-                          gbound=.025, like_type = "RSS",
-                          fluctuation="logistic", verbose=FALSE,
-                          detailed=FALSE, PEN=FALSE,
-                          g1W = NULL, g1WPrev = NULL,
-                          stopFactor=10^6) {
-      # ctmle_glmnet.R:97-112, verbatim.
-      n <- length(Y)
-      maptoYstar <- fluctuation=="logistic"
-      Qbounds <- range(Y)
-      QAW <- (1 - A) * Q[, 1] + A * Q[, 2]
-      Q <- cbind(QAW, Q0W = Q[, 1], Q1W = Q[, 2])
-      Q <- bound(Q, Qbounds)
-      Ystar <- bound(Y, Qbounds)
-      ab <- range(Ystar, na.rm = TRUE)
-      Ystar[is.na(Ystar)] <- 0
-      Ystar <- (Ystar - ab[1])/diff(ab)
-      Q <- (Q - ab[1])/diff(ab)
-      Qbounds <- c(alpha, 1 - alpha)
-      Q <- bound(Q, Qbounds)
-      Q <- qlogis(Q)
-      family.stage2 <-  "binomial"
-      Qinit<-list(Q=Q, Y=Ystar, Qbounds=Qbounds, ab=ab, family=family.stage2)
-
-      # ctmle_glmnet.R:213-219 and 224-230, with the internal functions named.
-      candidates <- ctmle:::stage2_glmnet(Y=Qinit$Y, X=data.frame(A,Wg), Q=Qinit$Q,
-                                          lambdas = lambdas,ctmletype=ctmletype,
-                                          family=Qinit$family,
-                                          Qbounds=Qinit$Qbounds,ab=Qinit$ab,
-                                          training_set=rep(TRUE,length(Y)),
-                                          like_type=like_type,gbound=gbound, verbose=verbose,
-                                          stopFactor=stopFactor)
-
-      cv.res <- ctmle:::cv_glmnet(Y=Qinit$Y,X=data.frame(A,Wg),
-                                  est.all=candidates$results.all$est,
-                                  Q=Qinit$Q,lambdas=lambdas,ctmletype=ctmletype,
-                                  family=Qinit$family,
-                                  Qbounds=Qinit$Qbounds, ab=Qinit$ab,
-                                  like_type=like_type,gbound=gbound,
-                                  verbose=verbose, PEN=PEN , V=V, folds = folds)
-
-      # ctmle_glmnet.R:346-347, verbatim.
-      candidates$results.all$varDstar_origscale <- candidates$results.all$varDstar *
-            ifelse(maptoYstar, (diff(Qinit$ab))^2, 1)
-
-      list(candidates = candidates, cv.res = cv.res, n = n)
-}
+# ---- the type-1 adapter and the final step from a declared start --------------------------
+# `rebuild_type1` and `final_type1`, shared with the witness's rebuild check.
+source("/fixture/ctmle_sequences/rebuild_type1.R")
 
 # ---- shared pieces --------------------------------------------------------------------------
 
@@ -208,19 +182,83 @@ fold_labels <- function(folds, n) {
 
 # ---- the two fits ---------------------------------------------------------------------------
 
+# One vector column: the values printed with `%.17g` and joined by `;`.
+vector_text <- function(values) {
+  if (is.null(values)) return(NA_character_)
+  paste(sprintf("%.17g", as.numeric(values)), collapse = ";")
+}
+
+# Fatal, outside every stage: a broken reconstruction fails the run (3.4.2).
+check_reconstruction <- function(used, coef, x, what, label) {
+  rebuilt <- plogis(cbind(1, x) %*% as.matrix(coef))
+  used <- as.matrix(used)
+  if (!identical(dim(rebuilt), dim(used))) {
+    stop(sprintf("%s: the rebuilt %s has dimensions %s, not %s", label, what,
+                 paste(dim(rebuilt), collapse = "x"), paste(dim(used), collapse = "x")))
+  }
+  gap <- max(abs(rebuilt - used))
+  if (!is.finite(gap) || gap > RECONSTRUCTION_TOLERANCE) {
+    stop(sprintf("%s: the %s rebuilt from its coefficients misses by %.3g, above %g",
+                 label, what, gap, RECONSTRUCTION_TOLERANCE))
+  }
+  invisible(NULL)
+}
+
+# R's type-1 final step from `start_k`, with its explicit-lambda array checked against its
+# coefficients.  NULL when `start_k` is the last index, where the step does not exist.
+final_columns <- function(arguments, start_k, label) {
+  if (is.na(start_k) || start_k >= length(arguments$lambdas)) return(NULL)
+  final <- study_stage("final_type1", final_type1(
+    Y = arguments$Y, A = arguments$A, W = arguments$W, Q = arguments$Q,
+    lambdas = arguments$lambdas, start_k = start_k, gbound = arguments$gbound,
+    like_type = arguments$like_type
+  ))
+  check_reconstruction(final$response, final$coef, final$lassox,
+                       sprintf("final-step array from start %d", start_k), label)
+  if (length(final$loss) != length(arguments$lambdas) - start_k) {
+    stop(sprintf("%s: the final step from %d scored %d options", label, start_k,
+                 length(final$loss)))
+  }
+  final
+}
+
+final_fields <- function(final, prefix) {
+  out <- list(
+    start = NA_integer_, coef = NA_character_, loss = NA_character_,
+    index = NA_integer_, est = NA_real_
+  )
+  if (!is.null(final)) {
+    out <- list(
+      start = final$start, coef = vector_text(final$coef), loss = vector_text(final$loss),
+      index = final$index, est = final$est
+    )
+  }
+  names(out) <- paste(prefix, names(out), sep = "_")
+  out
+}
+
 fit_lasso <- function(frame, W, Q, label) {
   folds <- selection_folds(frame)
-  lambdas <- c(STUDY_LAMBDAS, 0)
+  lambdas <- c(STUDY_LAMBDAS[["binary_lasso"]], 0)
+  K <- length(lambdas)
   # The default path of the fit's own construction (functions_glmnet.R:130-134): once on all
   # rows, and once on the training rows of each cross-validation fold.
-  lassox <- model.matrix(~ W1 + W2 + W3, W)[, -1]
-  path_minimum <- function(rows) {
-    study_stage("default glmnet path", min(glmnet(
+  lassox <- model.matrix(~ W1 + W2 + W3 + W4, W)[, -1]
+  default_path <- function(rows) {
+    study_stage("default glmnet path", glmnet(
       x = lassox[rows, , drop = FALSE], y = as.factor(frame$A[rows]), family = "binomial"
-    )$lambda))
+    ))
   }
-  path_min <- path_minimum(seq_len(nrow(frame)))
-  fold_path_min <- vapply(folds, function(held) path_minimum(-held), numeric(1))
+  full_path <- default_path(seq_len(nrow(frame)))
+  path_min <- min(full_path$lambda)
+  fold_path_min <- vapply(folds, function(held) min(default_path(-held)$lambda), numeric(1))
+  # The arrays the full-sample construction and evaluation read (functions_glmnet.R:22-25 and
+  # 132-135), and their coefficients, candidate-major.
+  g_coef <- as.matrix(coef(full_path, s = lambdas))
+  check_reconstruction(
+    predict(full_path, newx = lassox, s = lambdas, type = "response"), g_coef, lassox,
+    "lasso candidate array", label
+  )
   arguments <- list(
     Y = frame$Y,
     A = frame$A,
@@ -236,9 +274,9 @@ fit_lasso <- function(frame, W, Q, label) {
     folds = folds,
     detailed = TRUE
   )
-  # A ctmleGlmnet error comes back as a condition, so the adapter below can look at it.  When
-  # the harness records failures, the stage has already made it a study_fitting_failure.  A
-  # fatal error passes through.
+  # A ctmleGlmnet error comes back as a condition, so the adapter below can read it.  When
+  # the harness records failures, the stage has already made it a study_fitting_failure that
+  # keeps the original message.  A fatal error passes through.
   fit <- tryCatch(
     study_stage("ctmleGlmnet", do.call(ctmleGlmnet, arguments)),
     error = function(condition) {
@@ -246,31 +284,73 @@ fit_lasso <- function(frame, W, Q, label) {
       condition
     }
   )
-  if (!inherits(fit, "error")) {
-    return(list(
-      estimate = as.numeric(fit$est),
-      std_error = sqrt(as.numeric(fit$var.psi)),
-      best_k = as.integer(fit$best_k),
-      n_candidates = length(fit$candidates$candidates$lambdas),
-      adapter_used = 0L,
-      path_min_lambda = path_min,
-      fold_path_min_lambda = fold_path_min
-    ))
-  }
-  # Only the quirk-7 failure is adapted: the rebuilt selection must be the last penalty, or
-  # the original ctmleGlmnet error is recorded as this group's failure.
+  # S1: the rebuild runs on every replicate.
   rebuilt <- study_stage("rebuild_type1", do.call(rebuild_type1, arguments))
-  best_k <- rebuilt$cv.res$best_k
-  if (!identical(as.integer(best_k), length(lambdas))) stop(fit)
-  results <- rebuilt$candidates$results.all
-  list(
-    estimate = as.numeric(results$est[best_k]),
-    std_error = sqrt(as.numeric(results$varDstar_origscale[best_k]) / rebuilt$n),
-    best_k = as.integer(best_k),
-    n_candidates = length(rebuilt$candidates$candidates$lambdas),
-    adapter_used = 1L,
-    path_min_lambda = path_min,
-    fold_path_min_lambda = fold_path_min
+  rebuild_best_k <- as.integer(rebuilt$cv.res$best_k)
+  if (inherits(fit, "error")) {
+    # Only the quirk-7 failure is adapted: the message must hold the quirk-7 text and the
+    # rebuilt selection must be the last penalty.  Otherwise the original ctmleGlmnet error
+    # is recorded as this group's failure.
+    matched <- grepl(QUIRK_7_TEXT, conditionMessage(fit), fixed = TRUE)
+    if (!matched || !identical(rebuild_best_k, K)) stop(fit)
+    candidates <- rebuilt$candidates
+    results <- candidates$results.all
+    best_k <- rebuild_best_k
+    estimate <- as.numeric(results$est[best_k])
+    std_error <- sqrt(as.numeric(results$varDstar_origscale[best_k]) / rebuilt$n)
+    adapter_used <- 1L
+    rebuild_agrees <- NA_integer_
+  } else {
+    best_k <- as.integer(fit$best_k)
+    candidates <- fit$candidates
+    if (!identical(rebuild_best_k, best_k) ||
+        !identical(rebuilt$candidates$results.all$est, candidates$results.all$est) ||
+        !identical(rebuilt$candidates$candidates$lambdas, candidates$candidates$lambdas)) {
+      stop(sprintf(
+        "%s: rebuild_type1 disagrees with ctmleGlmnet (best_k %d against %d)",
+        label, rebuild_best_k, best_k
+      ))
+    }
+    estimate <- as.numeric(fit$est)
+    std_error <- sqrt(as.numeric(fit$var.psi))
+    adapter_used <- 0L
+    rebuild_agrees <- 1L
+  }
+  # R's own final step from best_k, and the same step from the package's selected index.
+  final_r <- final_columns(arguments, best_k, label)
+  # A check of the verbatim copy: from best_k it reproduces ctmleGlmnet's own final step.
+  if (!is.null(final_r)) {
+    gaps <- abs(c(final_r$est - estimate, final_r$var.psi - as.numeric(fit$var.psi)))
+    if (!all(is.finite(gaps)) || max(gaps) > RECONSTRUCTION_TOLERANCE) {
+      stop(sprintf("%s: final_type1 from best_k misses ctmleGlmnet by %.3g", label, max(gaps)))
+    }
+  }
+  package_selected <- as.integer(frame$package_selected[[1]])
+  if (is.na(package_selected) || package_selected < 1L || package_selected > K) {
+    stop(sprintf("%s: the package_selected column holds %s", label, package_selected))
+  }
+  final_pkg <- final_columns(arguments, package_selected, label)
+  results <- candidates$results.all
+  c(
+    list(
+      estimate = estimate,
+      std_error = std_error,
+      best_k = best_k,
+      n_candidates = length(candidates$candidates$lambdas),
+      adapter_used = adapter_used,
+      path_min_lambda = path_min,
+      fold_path_min_lambda = fold_path_min,
+      adapter_error_matched = adapter_used,
+      rebuild_best_k = rebuild_best_k,
+      rebuild_agrees = rebuild_agrees,
+      g_coef = vector_text(g_coef),
+      # R marks acceptance at full precision, by exact equality with the grid.
+      r_accepted = vector_text(which(lambdas %in% candidates$candidates$lambdas)),
+      cand_est = vector_text(results$est),
+      cand_loss = vector_text(results$likelihood)
+    ),
+    final_fields(final_r, "final_r"),
+    final_fields(final_pkg, "final_pkg")
   )
 }
 
@@ -284,6 +364,12 @@ fit_learners <- function(frame, W, Q, seed, folds, label) {
   if (ncol(full) != 5L || ncol(cv) != 5L) stop(sprintf("%s: build_gn_seq gave no 5 columns", label))
   check_separation(full, "full", label)
   check_separation(cv, "cv", label)
+  # The full-sample fit of each library entry, in library order: four glmnet fits at one
+  # penalty each, then SL.glm.
+  fits <- gn_seq$details$fitLibrary
+  if (length(fits) != 5L) stop(sprintf("%s: build_gn_seq kept %d fits, not 5", label, length(fits)))
+  g_coef <- vapply(fits, function(fit) as.numeric(as.matrix(coef(fit$object))), numeric(5))
+  check_reconstruction(full, g_coef, as.matrix(W), "learners candidate array", label)
   # The same seed again, so cv_general's redraw at functions_general.R:287 is folds_R.
   set.seed(seed)
   fit <- study_stage("ctmleGeneral", ctmleGeneral(
@@ -303,17 +389,36 @@ fit_learners <- function(frame, W, Q, seed, folds, label) {
     detailed = TRUE
   ))
   best_k <- as.integer(fit$best_k)
+  # The accepted candidates, matched by column, as the witness fixture matches them.
+  same <- function(a, b) isTRUE(all(as.vector(a) == as.vector(b)))
+  accepted <- apply(as.matrix(fit$candidates$candidates$gns), 2, function(column) {
+    hits <- which(apply(full, 2, function(candidate) same(candidate, column)))
+    if (length(hits) != 1L) stop(sprintf("%s: an accepted column matches no single candidate", label))
+    hits
+  })
+  results <- fit$candidates$results.all
   # R's plain D* variance at the selected candidate, never `var.psi`, which carries the
   # first-covariate ICg term (quirk 6).
-  variance <- as.numeric(fit$candidates$results.all$varDstar_origscale[best_k]) / n
-  list(
-    estimate = as.numeric(fit$est),
-    std_error = sqrt(variance),
-    best_k = best_k,
-    n_candidates = NCOL(fit$candidates$candidates$gns),
-    adapter_used = 0L,
-    path_min_lambda = NA_real_,
-    fold_path_min_lambda = rep(NA_real_, V)
+  variance <- as.numeric(results$varDstar_origscale[best_k]) / n
+  c(
+    list(
+      estimate = as.numeric(fit$est),
+      std_error = sqrt(variance),
+      best_k = best_k,
+      n_candidates = NCOL(fit$candidates$candidates$gns),
+      adapter_used = 0L,
+      path_min_lambda = NA_real_,
+      fold_path_min_lambda = rep(NA_real_, V),
+      adapter_error_matched = NA_integer_,
+      rebuild_best_k = NA_integer_,
+      rebuild_agrees = NA_integer_,
+      g_coef = vector_text(g_coef),
+      r_accepted = vector_text(accepted),
+      cand_est = vector_text(results$est),
+      cand_loss = vector_text(results$likelihood)
+    ),
+    final_fields(NULL, "final_r"),
+    final_fields(NULL, "final_pkg")
   )
 }
 
@@ -342,10 +447,23 @@ fit_one <- function(frame) {
   truth_row <- match(paste(scenario, replicate, sep = "|"), truth_key)
   if (is.na(truth_row)) stop(sprintf("no truth for %s replicate %s", scenario, replicate))
   truth <- truths$truth_ate[[truth_row]]
-  W <- frame[c("W1", "W2", "W3")]
-  q_fit <- study_stage("initial glm", glm(Y ~ A + W1 + W2 + W3, data = frame, family = binomial()))
+  W <- frame[COVARIATES]
+  q_fit <- study_stage(
+    "initial glm", glm(Y ~ A + W1 + W2 + W3 + W4, data = frame, family = binomial())
+  )
   q0 <- predict(q_fit, transform(frame, A = 0), type = "response")
   q1 <- predict(q_fit, transform(frame, A = 1), type = "response")
+  # The outcome coefficients read the design (A, W1, ..., W4), as the package's outcome
+  # learner does.
+  q_coef <- coef(q_fit)
+  if (!identical(names(q_coef), c("(Intercept)", "A", COVARIATES))) {
+    stop(sprintf("%s: the outcome glm has coefficients %s", label,
+                 paste(names(q_coef), collapse = ", ")))
+  }
+  w_matrix <- as.matrix(W)
+  check_reconstruction(fitted(q_fit), q_coef, cbind(frame$A, w_matrix), "outcome fit", label)
+  check_reconstruction(q0, q_coef, cbind(0, w_matrix), "outcome fit at A = 0", label)
+  check_reconstruction(q1, q_coef, cbind(1, w_matrix), "outcome fit at A = 1", label)
   Q <- cbind(q0, q1)
   result <- if (scenario == "binary_lasso") {
     fit_lasso(frame, W, Q, label)
@@ -386,6 +504,24 @@ fit_one <- function(frame) {
     path_min_lambda_fold_3 = result$fold_path_min_lambda[[3]],
     path_min_lambda_fold_4 = result$fold_path_min_lambda[[4]],
     path_min_lambda_fold_5 = result$fold_path_min_lambda[[5]],
+    adapter_error_matched = result$adapter_error_matched,
+    rebuild_best_k = result$rebuild_best_k,
+    rebuild_agrees = result$rebuild_agrees,
+    q_coef = vector_text(q_coef),
+    g_coef = result$g_coef,
+    r_accepted = result$r_accepted,
+    cand_est = result$cand_est,
+    cand_loss = result$cand_loss,
+    final_r_start = result$final_r_start,
+    final_r_coef = result$final_r_coef,
+    final_r_loss = result$final_r_loss,
+    final_r_index = result$final_r_index,
+    final_r_est = result$final_r_est,
+    final_pkg_start = result$final_pkg_start,
+    final_pkg_coef = result$final_pkg_coef,
+    final_pkg_loss = result$final_pkg_loss,
+    final_pkg_index = result$final_pkg_index,
+    final_pkg_est = result$final_pkg_est,
     stringsAsFactors = FALSE
   )
 }

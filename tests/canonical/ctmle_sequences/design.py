@@ -2,15 +2,16 @@
 
 The study reads two committed inputs that no replicate writes:
 
-* ``lambdas.csv`` holds the primary penalty grid.  ``python -m
-  tests.canonical.ctmle_sequences.design lambdas`` writes it from the declared grid rule in
-  :func:`tests.studies.canonical_ctmle_sequences.primary_grid`.
+* ``lambdas.csv`` holds one penalty grid per scenario, each on that scenario's law.
+  ``python -m tests.canonical.ctmle_sequences.design lambdas`` writes it from the declared grid
+  rule in :func:`tests.studies.canonical_ctmle_sequences.primary_grid`.
 * ``r_folds.csv.gz`` holds R's selection folds of each ``binary_learners`` replicate.
   ``python -m tests.canonical.ctmle_sequences.design folds`` writes the replication seeds and
   runs ``make_r_folds.R`` in the reference image on them.  ``seeds --output PATH`` writes only
   the seed table, for a manual container run.
 
 Both inputs are committed before the first run, and both are hashed into the run's manifest.
+``power_probe.py`` beside this module writes the pilot table ``power-probe.csv`` (plan 3.4.3).
 """
 
 from __future__ import annotations
@@ -32,16 +33,20 @@ RUNNER_STEM = Path(REFERENCE.runner).stem
 
 
 def write_lambdas(path: Path) -> None:
-    """Write the primary grid, one penalty per row, at full precision.
+    """Write one grid per scenario, one penalty per row, at full precision.
 
     Parameters
     ----------
     path : Path
         The CSV to write.
     """
-    grid = study.primary_grid()
-    frame = pd.DataFrame({"entry": range(1, len(grid) + 1), "lambda": grid})
-    write_csv(frame, path, float_format="%.17g")
+    frames = []
+    for scenario in study.SCENARIOS:
+        grid = study.primary_grid(scenario)
+        frames.append(
+            pd.DataFrame({"scenario": scenario, "entry": range(1, len(grid) + 1), "lambda": grid})
+        )
+    write_csv(pd.concat(frames, ignore_index=True), path, float_format="%.17g")
 
 
 def write_folds(path: Path, *, image: str) -> None:
