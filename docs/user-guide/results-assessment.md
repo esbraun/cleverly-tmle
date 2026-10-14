@@ -579,6 +579,10 @@ linear contrasts. The table gives each missing-outcome fit where both are unavai
 | an incremental fit | its targeting also solves a score in the treatment mechanism, and no derivation covers the tilt of that fixed point |
 | a regime, MSM, or ratio-only fit | the fit reports no arm-indexed mean and no linear contrast |
 
+A per-arm outcome-adaptive `CTMLE` fit regresses its observation factor on the outcome regression
+only. Both methods read the full-covariate model `nuisance.tilt_missingness` on that fit, and no
+targeting step reads it.
+
 Both capability rows read `unavailable` before any call, with the sentence that the call raises. A
 fit with no missing outcome reads `not_applicable`. The combined assessment reports the same row
 instead of substituting an armwise analysis.
