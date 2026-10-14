@@ -383,6 +383,11 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "simultaneous_coverage/categorical_ltmle_crossfit__simultaneous_band",
             "simultaneous_coverage/cde_z0__simultaneous_band",
         ),
+        *_keys(
+            "longitudinal-sdr",
+            "property",
+            "simultaneous_coverage/six_regimens__simultaneous_band",
+        ),
     ),
     # The calibration draws of the multi-arm missing-outcome DR-TMLE study, and the band read
     # off the same fits.  ``tests/unit/test_band_shortfall_reading.py`` rebuilds the reading.
@@ -508,6 +513,14 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "point-treatment-survival-crossfit",
             "property",
             "interval_calibration/three_arm_t3__correctly_specified",
+        ),
+    ),
+    # ``tests/unit/test_sdr_shortfall_reading.py`` rebuilds the reading.
+    "X4-finite-sample": (
+        *_keys(
+            "longitudinal-sdr",
+            "property",
+            "sequential_double_robustness/both_correct__n_2000",
         ),
     ),
 }

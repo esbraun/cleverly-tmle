@@ -767,8 +767,13 @@ class TestPublishedVerdicts:
             )
 
         single = published.loc[published["property"] == "single_robustness"]
-        positive = single.loc[single["role"] == "positive"].sort_values("n")
+        positive = single.loc[single["role"] == "positive"]
         if not positive.empty:
+            # A study with no rows of the family may publish no ``n`` column at all (the
+            # learned-rule boundary study publishes no property rows), but the two-size rule
+            # reads ``n``, so a study that does publish the family has to carry it.
+            assert "n" in positive, f"{study.slug}: single_robustness rows carry no n column"
+            positive = positive.sort_values("n")
             small, large = positive["absolute_bias_bound"].iloc[[0, -1]]
             tolerance = study.properties().ABSOLUTE_BIAS_TOLERANCE
             expected = bool(large < tolerance and large < small)

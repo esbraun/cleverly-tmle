@@ -2383,11 +2383,11 @@ CELLS.update(
         ),
         ("single_robustness", "mechanism_correct__n_6000"): (
             "cell-mean treatment mechanism and constant outcome regressions, at n = 6,000",
-            "|bias| + 2 MCSE at n = 24,000 below 0.01 and below its value at n = 6,000",
+            "absolute bias + 2 MCSE at n = 24,000 below 0.01 and below its value at n = 6,000",
         ),
         ("single_robustness", "mechanism_correct__n_24000"): (
             "cell-mean treatment mechanism and constant outcome regressions, at n = 24,000",
-            "|bias| + 2 MCSE at n = 24,000 below 0.01 and below its value at n = 6,000",
+            "absolute bias + 2 MCSE at n = 24,000 below 0.01 and below its value at n = 6,000",
         ),
         ("single_robustness", "mechanism_constant"): (
             "constant treatment mechanism and cell-mean outcome regressions, beside the "
@@ -2429,17 +2429,17 @@ _SDR_PATTERNS = {
     ),
     "P_A": (
         "both outcome regressions are correct and both mechanisms are wrong",
-        "|bias| + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio "
+        "absolute bias + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio "
         "inside the union-model band",
     ),
     "P_B": (
         "node 1 outcome regression wrong, node 2 mechanism wrong",
-        "|bias| + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio "
+        "absolute bias + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio "
         "inside the union-model band",
     ),
     "P_D": (
         "node 1 mechanism wrong, node 2 outcome regression wrong, the pattern LTMLE misses",
-        "|bias| + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio "
+        "absolute bias + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio "
         "inside the union-model band",
     ),
 }
@@ -2480,7 +2480,8 @@ CELLS.update(
             "reported only",
         ),
         ("sdr_tmle_agreement", "static"): (
-            "|SDR - LTMLE| / SE of SDR for always against never, on the calibration draws",
+            "the absolute difference of SDR and LTMLE over the SE of SDR, for always against never, "
+            "on the calibration draws",
             "reported only",
         ),
         ("clustered_calibration", "known_ratio"): (
