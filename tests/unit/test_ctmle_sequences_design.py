@@ -28,7 +28,7 @@ from cleverly.estimators import TMLE
 from cleverly.learners._l1_logistic import penalty_path
 from cleverly.utils.bounds import expit, logit
 from tests.canonical.ctmle_sequence_witness import harness
-from tests.canonical.ctmle_sequences import power_probe
+from tests.canonical.ctmle_sequences import power_probe, regenerate
 from tests.studies import bounded_cv_laws, multi_arm_common
 from tests.studies import canonical_ctmle_sequences as study
 from tests.studies import ctmle_sequence_properties as properties
@@ -651,35 +651,24 @@ def test_accepted_indices_read_the_blocks_of_n_steps() -> None:
 
 # --------------------------------------------------------------- pass probability and power
 
-#: The inputs of plan 3.4.3 that the pilot does not rerun: each cell's bias in its own SD and
-#: its replicate count.  A ``discriminated`` control must lie outside the margin.  The keys of
-#: :data:`STAND_INS` hold stand-in values, pending the smoke.
+#: The inputs of plan 3.4.3 that the law pilot does not rerun: each cell's bias in its own SD
+#: and its replicate count.  A ``discriminated`` control must lie outside the margin.  The
+#: keys of ``power_probe.PROPERTY_PILOT_CELLS`` hold the property pilot's measurements, which
+#: :func:`test_the_declared_gates_hold_the_property_pilot` reads back from
+#: ``property-pilot.csv``.  The keys of ``study.STAND_INS`` hold stand-ins from other studies.
 DECLARED_GATES = {
     "double_robustness/lasso_outcome_correct": (-0.042, 1_200, "equivalent"),
     "double_robustness/learners_outcome_correct": (-0.043, 1_200, "equivalent"),
-    "double_robustness/lasso_treatment_correct": (-0.075, 1_200, "equivalent"),
-    "double_robustness/learners_treatment_correct": (-0.075, 1_200, "equivalent"),
+    "double_robustness/lasso_treatment_correct": (-0.042, 1_200, "equivalent"),
+    "double_robustness/learners_treatment_correct": (-0.042, 1_200, "equivalent"),
     "double_robustness/both_wrong_lasso": (4.48, 1_200, "discriminated"),
     "double_robustness/both_wrong_learners": (4.27, 1_200, "discriminated"),
     "selector_necessity/empty_control": (5.81, 800, "discriminated"),
-    "multi_arm/lasso_treatment_correct": (0.005, 1_200, "equivalent"),
-    "multi_arm/empty_control": (2.76, 1_200, "discriminated"),
+    "multi_arm/lasso_treatment_correct": (-0.041, 1_200, "equivalent"),
+    "multi_arm/empty_control": (2.761, 1_200, "discriminated"),
 }
-#: The keys of :data:`DECLARED_GATES` whose bias is a stand-in and not a measurement of this
-#: study's cell: the TMLE design-review value -0.075 for both treatment-correct cells, and the
-#: ``multi_arm_tmle3`` values 0.005 and 2.76 for the multi-arm cells (plan 3.4.3).  A stand-in
-#: cannot fail on this study's code.  The smoke measures each cell's bias, and the measured value
-#: replaces the stand-in in :data:`DECLARED_GATES` before the declaration commit; the key then
-#: leaves this set (``tests/canonical/ctmle_sequences/README.md``, "Smoke before the
-#: declaration").
-STAND_INS = frozenset(
-    {
-        "double_robustness/lasso_treatment_correct",
-        "double_robustness/learners_treatment_correct",
-        "multi_arm/lasso_treatment_correct",
-        "multi_arm/empty_control",
-    }
-)
+#: The rounding of a measured bias in :data:`DECLARED_GATES`.
+DECLARED_DIGITS = 3
 #: The mutations each truth gate must catch, by the pilot row that measures them.  ``no
 #: sequence`` is absent: the replay gates and the structural invariants catch it (plan 3.4.1).
 MUTATIONS = (
@@ -767,6 +756,71 @@ def test_every_mutation_has_power(probe: pd.DataFrame) -> None:
 
 def test_no_stand_in_bias_survives_into_the_run() -> None:
     """The study's manifest exists only after the run, by which time every stand-in is replaced."""
-    assert set(DECLARED_GATES) >= STAND_INS
+    assert set(DECLARED_GATES) >= study.STAND_INS
+    assert study.STAND_INS.isdisjoint(power_probe.PROPERTY_PILOT_CELLS)
     if (study.ARTIFACTS / "manifest.json").exists():
-        assert not STAND_INS, f"these gates still hold stand-in biases: {sorted(STAND_INS)}"
+        assert not study.STAND_INS, f"these gates hold stand-in biases: {sorted(study.STAND_INS)}"
+
+
+@pytest.fixture(scope="module")
+def property_pilot() -> pd.DataFrame:
+    if not power_probe.PROPERTY_PILOT_FILE.exists():
+        pytest.skip("property-pilot.csv is written and committed in the declaration step")
+    frame = pd.read_csv(power_probe.PROPERTY_PILOT_FILE)
+    return frame.set_index(frame["property"] + "/" + frame["cell"])
+
+
+def test_the_property_pilot_ran_on_the_declared_budget(property_pilot: pd.DataFrame) -> None:
+    assert list(property_pilot.index) == list(power_probe.PROPERTY_PILOT_CELLS)
+    assert (property_pilot["replicates"] == power_probe.PROPERTY_PILOT_REPLICATES).all()
+    assert (property_pilot["failed_replicates"] == 0).all()
+    cells = {f"{cell.property}/{cell.cell}": cell for cell in power_probe.pilot_cells()}
+    for key, row in property_pilot.iterrows():
+        assert row["role"] == cells[key].role and row["n"] == cells[key].n
+
+
+def test_the_declared_gates_hold_the_property_pilot(property_pilot: pd.DataFrame) -> None:
+    """Each measured bias, rounded, with a Monte Carlo SE below a tenth of its gate margin.
+
+    The gate margin of an equivalent cell is :data:`MARGIN`.  A discriminated control's is
+    its bias's distance outside the margin.
+    """
+    for key, row in property_pilot.iterrows():
+        bias, _, rule = DECLARED_GATES[key]
+        assert bias == round(float(row["bias_sd"]), DECLARED_DIGITS), key
+        gate_margin = MARGIN if rule == "equivalent" else abs(bias) - MARGIN
+        assert row["bias_sd_mc_se"] < gate_margin / 10, key
+
+
+def test_the_pilot_seeds_miss_every_registered_replicate() -> None:
+    registered = power_probe.registered_seeds()
+    for cell in power_probe.pilot_cells():
+        seeds = power_probe.property_pilot_seeds(cell, 50)
+        assert len(set(seeds)) == 50 and registered.isdisjoint(seeds)
+
+
+def test_the_standardized_bias_se_is_the_normal_delta_method() -> None:
+    errors = np.random.default_rng(0).normal(0.5, 1.0, 200_000)
+    expected = math.sqrt((1.0 + 0.5**2 / 2.0) / errors.size)
+    assert power_probe.standardized_bias_se(errors) == pytest.approx(expected, rel=0.02)
+
+
+@pytest.mark.parametrize(
+    "arguments, refused",
+    [
+        ([], True),
+        (["--replicates", str(study.PRIMARY_REPLICATES)], True),
+        (["--skip-r", "--jobs", "4"], True),
+        (["--replicates", "10", "--primary-only"], False),
+        (["--replicates=10"], False),
+        (["--primary-only"], False),
+    ],
+)
+def test_a_full_run_refuses_a_stand_in(arguments: list[str], refused: bool) -> None:
+    stand_ins = frozenset({"multi_arm/empty_control"})
+    if refused:
+        with pytest.raises(SystemExit, match="multi_arm/empty_control"):
+            regenerate.refuse_stand_ins(arguments, stand_ins)
+    else:
+        regenerate.refuse_stand_ins(arguments, stand_ins)
+    regenerate.refuse_stand_ins(arguments, frozenset())

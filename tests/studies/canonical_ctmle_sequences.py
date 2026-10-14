@@ -138,6 +138,13 @@ PROPERTY_CELLS = {
     "multi_arm": ("lasso_treatment_correct", "empty_control"),
 }
 
+#: The ``property/cell`` keys of the design test's ``DECLARED_GATES`` whose bias is a stand-in
+#: from another study and not a measurement of this study's cell.  A stand-in cannot fail on
+#: this study's code, so ``tests/canonical/ctmle_sequences/regenerate.py`` refuses a full run
+#: while this set names a key.  It is empty: the property pilot of
+#: ``tests/canonical/ctmle_sequences/power_probe.py`` measured the four cells that held one.
+STAND_INS: frozenset[str] = frozenset()
+
 #: The owner of each kind of red row, declared before the run (plan 3.4).  F18 owns the
 #: inference the selector paths withhold: every coverage or standard-error-ratio red, of the
 #: truth rows and of the property cells, and every ``selector_necessity`` red.

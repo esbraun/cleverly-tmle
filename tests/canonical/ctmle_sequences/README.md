@@ -78,6 +78,11 @@ targeted `Q`.
 | `binary_lasso` | R's own unbounded values | a targeted `Q` of the package is not strictly inside `(1 - alpha, alpha)` |
 | `binary_learners` | values from R's `Qstars`, bounded as the package bounds them | a targeted `Q` of the package on an observed row is not strictly inside `(1 - alpha, alpha)`. There the package solves the score of the bounded fit and R's `glm` the unbounded one |
 
+The flag reads every try that the construction scores on the analysis sample. This includes a
+try that loses its round and a round-1 try that an acceptance discards. Each of these tries sets
+a score that can decide the path. `replay-summary.csv` also records the largest gaps on the
+flagged replicates in the `flagged_max_*` columns. No gate reads those columns.
+
 A `binary_learners` flag on every bound would leave too few replicates. The low bound binds on a
 counterfactual arm on 124 of 200 replicates in the design review 2 emulation. A bound on an
 observed row binds on 10 of 200 replicates of the pre-flight in
@@ -128,7 +133,7 @@ its interval is conditional on `ctmleGlmnet` completing without the adapter.
 
 ## Declaration inputs
 
-The study reads two committed inputs and one pilot table. Write and commit all three before the
+The study reads two committed inputs and two pilot tables. Write and commit all four before the
 first run. The manifest of the run hashes the two inputs.
 
 | file | content | command |
@@ -136,6 +141,7 @@ first run. The manifest of the run hashes the two inputs.
 | `lambdas.csv` | one grid per scenario: 20 penalties, `scenario`, `entry` and `lambda` | `python -m tests.canonical.ctmle_sequences.design lambdas` |
 | `r_folds.csv.gz` | R's fold of each `binary_learners` row: `replicate`, `row`, `fold` | `python -m tests.canonical.ctmle_sequences.design folds` |
 | `power-probe.csv` | the pilot: 1,200 fits per law on the `pilot` seed stream, with each mutation's bias | `python -m tests.canonical.ctmle_sequences.power_probe` |
+| `property-pilot.csv` | the property pilot: 4,800 fits of each property cell that no other study measures, on the `pilot` seed stream | `python -m tests.canonical.ctmle_sequences.power_probe --properties` |
 
 The grid rule is in `primary_grid()` of `tests/studies/canonical_ctmle_sequences.py`. The
 fast test `tests/unit/test_ctmle_sequences_design.py` recomputes the rule and compares it with
@@ -164,13 +170,13 @@ re-review the plan when a step fails.
 | --- | --- | --- |
 | Python pre-flight | `uv run --extra dev python -m tests.canonical.ctmle_sequences.preflight --replicates 200` | the unflagged share of each scenario exceeds `MIN_UNFLAGGED / 800`, every unflagged index matches, and every unflagged gap is below `1e-7` |
 | R smoke | the probe command under [Regenerate](#regenerate), 10 replicates | the facts of plan section 3.5 hold. Every unflagged replay gap is below `1e-7`. `replay-summary.csv` records the flag rates |
-| stand-in biases | `DECLARED_GATES` in `tests/unit/test_ctmle_sequences_design.py` | write the smoke-measured bias of each key of `STAND_INS` into `DECLARED_GATES`, then empty `STAND_INS` |
+| property pilot | `uv run --extra dev python -m tests.canonical.ctmle_sequences.power_probe --properties` | `DECLARED_GATES` in `tests/unit/test_ctmle_sequences_design.py` holds each measured bias to three decimals. Each gate passes with probability 0.99 or more, and so does the family |
 
 The pre-flight stands in for R. It fits R's arrays with the package. It computes R's values with
 the package's bound on each candidate removed, and it bounds R's written values as the runner
 does. It reports the flag counts and the largest unflagged gaps. It cannot see the tolerance of
-R's `glm`, so a correct replay reads a gap of 0. The pre-flight measured the result below at the
-commit that added it.
+R's `glm`, so a correct replay reads a gap of 0. The pre-flight measured the result below. The
+`clip` flag read every scored try in this run.
 
 | scenario | replicates | `near_tie` | `clip` | unflagged | final-step comparisons | largest unflagged gap |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -180,10 +186,22 @@ commit that added it.
 At 800 replicates these shares give about 664 and 744 unflagged replicates against the 400 that
 the gate needs.
 
-Four keys of `DECLARED_GATES` hold stand-in biases from other studies. They are
-`multi_arm/lasso_treatment_correct`, `multi_arm/empty_control`, and the two
-`double_robustness/*_treatment_correct` cells. A stand-in cannot fail on this study's code.
-The fast tier fails when the study's `manifest.json` exists and `STAND_INS` still names a key.
+The property pilot measures the four property cells that no other study measures. It fits each
+cell 4,800 times on the `pilot` seed stream, which shares no seed with a registered replicate.
+The SE column is the delta-method Monte Carlo SE of the bias in its own SD.
+
+| cell | bias in SD | Monte Carlo SE | rule at 1,200 replicates | pass probability |
+| --- | ---: | ---: | --- | ---: |
+| `double_robustness/lasso_treatment_correct` | -0.042 | 0.014 | inside the margin | 0.999998 |
+| `double_robustness/learners_treatment_correct` | -0.042 | 0.014 | inside the margin | 0.999998 |
+| `multi_arm/lasso_treatment_correct` | -0.041 | 0.014 | inside the margin | 0.999998 |
+| `multi_arm/empty_control` | 2.761 | 0.031 | outside the margin | 1.0 |
+
+The family of every gate passes with probability 0.9995. `STAND_INS` in
+`tests/studies/canonical_ctmle_sequences.py` names the keys of `DECLARED_GATES` that hold a
+bias from another study. It is empty. `regenerate.py` refuses a full run while `STAND_INS` names
+a key. A probe run with another `--replicates` or with `--primary-only` does not need this
+check.
 
 ## Regenerate
 
