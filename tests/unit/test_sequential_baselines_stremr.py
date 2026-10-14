@@ -1,6 +1,6 @@
 """Sequential g-computation and IPW against R ``stremr`` on one long panel.
 
-``tests/canonical/stremr/run_stremr.R`` fits ``stremr`` at osofr/stremr ``e075f719`` on
+``tests/canonical/stremr/generate_reference.R`` fits ``stremr`` at osofr/stremr ``e075f719`` on
 ``long.csv``: two decision times, a survival event after each, and no censoring.
 
 | ``stremr`` estimator | cleverly | relation |

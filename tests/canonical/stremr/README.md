@@ -7,7 +7,7 @@ long panel. `tests/unit/test_sequential_baselines_stremr.py` reads `reference.cs
 | --- | --- |
 | `Dockerfile`, `install_pinned.R` | the pinned `stremr` image |
 | `make_data.py` | draws `long.csv`: 2,000 units, two decision times, an event after each, no censoring |
-| `run_stremr.R` | fits `survNPMSM`, `directIPW` and `fit_GCOMP` for always treat and never treat, and writes `reference.csv` and `versions.txt` |
+| `generate_reference.R` | fits `survNPMSM`, `directIPW` and `fit_GCOMP` for always treat and never treat, and writes `reference.csv` and `versions.txt` |
 
 ## The pinned image
 
@@ -61,5 +61,5 @@ docker build -t cleverly-stremr-reference:e075f71 tests/canonical/stremr
 docker run --rm `
   -v "${PWD}/tests/canonical/stremr:/fixture" `
   cleverly-stremr-reference:e075f71 `
-  /fixture/run_stremr.R /fixture
+  /fixture/generate_reference.R /fixture
 ```
