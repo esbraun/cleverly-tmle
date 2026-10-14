@@ -394,8 +394,11 @@ def measured(
 ) -> tuple[Any, Truth, int]:
     """Fit one sample, run its harness, and count the solver warnings of both.
 
-    Rule L4 stops the run on a raise, on a non-finite estimate or standard error, and on a
-    harness mismatch.  Each of those raises here, so the replication is never replaced.
+    Rule L4 stops the run on a non-finite estimate or standard error and on a harness mismatch.
+    Each of those raises a ``RuntimeError`` here, which the primary phase does not record, so
+    the run stops.  RM39b supersedes L4 for a recordable fitting error from ``cleverly`` or a
+    numerical library: the primary phase records it as one lost replication, which the failure
+    bound counts, and never replaces the replication.
     """
     with solver_warning_count() as count:
         result = fit(frame, learner, fold_seed, mutation=mutation)
