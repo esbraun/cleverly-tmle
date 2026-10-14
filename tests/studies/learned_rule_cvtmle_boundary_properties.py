@@ -14,6 +14,10 @@ from tests.parallel import STUDY_JOBS
 from tests.studies._learned_rule_law import HARNESS_COLUMNS
 from tests.studies.evidence.properties import REPLICATE_COLUMNS
 
+#: The share of a cell's requested replications that the accounting lets a run lose.  Zero: a
+#: single lost replication turns the cell red (RM39 part b2, OQ-3).
+FAILURE_BOUND = 0.0
+
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     """No property cell, so no row."""

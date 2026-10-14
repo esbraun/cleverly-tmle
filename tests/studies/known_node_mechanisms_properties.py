@@ -95,6 +95,11 @@ def declared_truths() -> tuple[tuple[str, str, str, float], ...]:
     return tuple((ACCURACY, cell, ESTIMAND, TRUTH) for cell in STUDY.property_cells[ACCURACY])
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose.  Zero: a
+#: single lost replication turns the cell red (RM39 part b2, OQ-3).
+FAILURE_BOUND = 0.0
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     replicates = ACCURACY_REPLICATES if budget is None else min(budget, ACCURACY_REPLICATES)
     outcomes = fit_properties(

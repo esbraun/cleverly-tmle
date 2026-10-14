@@ -16,6 +16,11 @@ NECESSITY_DISPLACEMENT = shared.NECESSITY_DISPLACEMENT
 CATEGORICAL_PROBABILITY_DISPLACEMENT = shared.CATEGORICAL_PROBABILITY_DISPLACEMENT
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose.  Zero: a
+#: single lost replication turns the cell red (RM39 part b2, OQ-3).
+FAILURE_BOUND = 0.0
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return shared.generate_property_rows(STUDY, cross_fit=True, n_jobs=n_jobs)
 

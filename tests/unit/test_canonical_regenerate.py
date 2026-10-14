@@ -138,7 +138,7 @@ def test_primary_only_stops_before_properties_manifest_and_gates(
             lambda *args, **kwargs: _rows(str(record.reference)),
         )
 
-    regenerate.main(study, SimpleNamespace(), here=tmp_path, reference=reference)
+    regenerate.main(study, SimpleNamespace(FAILURE_BOUND=0.0), here=tmp_path, reference=reference)
 
     assert {path.name for path in tmp_path.iterdir()} == {
         "replicates.csv.gz",
@@ -184,7 +184,7 @@ def test_complete_regeneration_gates_a_failed_joint_property_claim(
     )
 
     with pytest.raises(RuntimeError, match="statistical property gates failed"):
-        regenerate.main(study, SimpleNamespace(), here=tmp_path)
+        regenerate.main(study, SimpleNamespace(FAILURE_BOUND=0.0), here=tmp_path)
 
 
 def test_skip_reference_refuses_to_synthesize_reference_diagnostics(
@@ -208,7 +208,7 @@ def test_skip_reference_refuses_to_synthesize_reference_diagnostics(
     with pytest.raises(RuntimeError, match="cannot rebuild study-specific extra artifacts"):
         regenerate.main(
             study,
-            SimpleNamespace(),
+            SimpleNamespace(FAILURE_BOUND=0.0),
             here=tmp_path,
             reference=regenerate.Reference("image", "runner"),
         )
@@ -240,7 +240,7 @@ def test_skip_reference_refuses_a_study_whose_hook_reads_the_reference_results(
     with pytest.raises(RuntimeError, match="reference_artifacts hook"):
         regenerate.main(
             study,
-            SimpleNamespace(),
+            SimpleNamespace(FAILURE_BOUND=0.0),
             here=tmp_path,
             reference=regenerate.Reference("image", "runner"),
         )
@@ -283,7 +283,7 @@ def test_standard_regeneration_runs_the_declared_reference_artifact_hook(
     )
 
     reference = regenerate.Reference("image", "runner")
-    regenerate.main(study, SimpleNamespace(), here=tmp_path, reference=reference)
+    regenerate.main(study, SimpleNamespace(FAILURE_BOUND=0.0), here=tmp_path, reference=reference)
 
     assert len(calls) == 1
     assert calls[0]["reference"] is reference
@@ -333,7 +333,7 @@ def test_reporting_policy_publishes_failed_scientific_verdicts(
         lambda *args, **kwargs: (pd.DataFrame({"passed": [False], "property_passed": [False]}), ()),
     )
 
-    regenerate.main(study, SimpleNamespace(), here=tmp_path)
+    regenerate.main(study, SimpleNamespace(FAILURE_BOUND=0.0), here=tmp_path)
 
 
 def _toy_properties(bad: set[int]) -> SimpleNamespace:
@@ -382,6 +382,7 @@ def _toy_properties(bad: set[int]) -> SimpleNamespace:
         return property_verdicts.finish(summary, rates)
 
     return SimpleNamespace(
+        FAILURE_BOUND=0.0,
         generate_property_rows=generate_property_rows,
         summarize_properties=summarize_properties,
     )
@@ -519,7 +520,10 @@ def test_an_undeclared_reference_regression_refuses_the_run(
 
     with pytest.raises(RuntimeError, match="reference validity"):
         regenerate.main(
-            study, SimpleNamespace(), here=tmp_path, reference=regenerate.Reference("i", "r")
+            study,
+            SimpleNamespace(FAILURE_BOUND=0.0),
+            here=tmp_path,
+            reference=regenerate.Reference("i", "r"),
         )
 
 
@@ -552,14 +556,20 @@ def test_a_declared_reference_failure_publishes_and_still_gates_the_subject(
         ),
     )
     regenerate.main(
-        study, SimpleNamespace(), here=tmp_path, reference=regenerate.Reference("i", "r")
+        study,
+        SimpleNamespace(FAILURE_BOUND=0.0),
+        here=tmp_path,
+        reference=regenerate.Reference("i", "r"),
     )
 
     refused = pd.DataFrame({"passed": [False], "reference_valid": [False]})
     study = _stub_complete(monkeypatch, tmp_path, record, refused)
     with pytest.raises(RuntimeError, match="paired similarity and non-inferiority"):
         regenerate.main(
-            study, SimpleNamespace(), here=tmp_path, reference=regenerate.Reference("i", "r")
+            study,
+            SimpleNamespace(FAILURE_BOUND=0.0),
+            here=tmp_path,
+            reference=regenerate.Reference("i", "r"),
         )
 
 
@@ -577,7 +587,10 @@ def test_a_stale_accepted_reference_failure_is_refused(
 
     with pytest.raises(RuntimeError, match="stale exception"):
         regenerate.main(
-            study, SimpleNamespace(), here=tmp_path, reference=regenerate.Reference("i", "r")
+            study,
+            SimpleNamespace(FAILURE_BOUND=0.0),
+            here=tmp_path,
+            reference=regenerate.Reference("i", "r"),
         )
 
 
@@ -687,7 +700,7 @@ def test_the_reference_artifact_hook_receives_the_path_the_driver_wrote(
             written.to_csv(output, index=False)
 
     reference = FakeReference()
-    regenerate.main(study, SimpleNamespace(), here=tmp_path, reference=reference)
+    regenerate.main(study, SimpleNamespace(FAILURE_BOUND=0.0), here=tmp_path, reference=reference)
 
     assert len(calls) == 1
     declared = calls[0]["reference_results"]
@@ -775,7 +788,10 @@ def test_skip_reference_reads_the_committed_failures_before_any_removal(
     monkeypatch.setattr(regenerate, "validate_replicates", validate)
     with pytest.raises(_Stop):
         regenerate.main(
-            study, SimpleNamespace(), here=tmp_path, reference=regenerate.Reference("i", "r")
+            study,
+            SimpleNamespace(FAILURE_BOUND=0.0),
+            here=tmp_path,
+            reference=regenerate.Reference("i", "r"),
         )
 
     (recorded,) = seen
@@ -810,7 +826,7 @@ def test_a_run_removes_the_stale_failure_files_only_when_it_writes_none(
 
     monkeypatch.setattr(regenerate, "write_csv", write_csv)
     with pytest.raises(_Stop):
-        regenerate.main(study, SimpleNamespace(), here=tmp_path)
+        regenerate.main(study, SimpleNamespace(FAILURE_BOUND=0.0), here=tmp_path)
 
     for name in (failures.FAILURES, failures.ACCOUNTING):
         assert (tmp_path / name).exists() is recorded

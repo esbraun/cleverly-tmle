@@ -145,6 +145,11 @@ def _overfit_replicate_of(key: tuple[tuple[str, int, int, int, int]]) -> int:
     return int(key[0][1])
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose.  Zero: a
+#: single lost replication turns the cell red (RM39 part b2, OQ-3).
+FAILURE_BOUND = 0.0
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     rows = base.generate_for(
         STUDY, lambda frame, configuration: fit(frame, configuration), n_jobs=n_jobs

@@ -13,10 +13,11 @@ its SE-ratio upper bound must fall below 0.80. ``normal_reference`` (reported) k
 cluster-robust standard error with the normal quantile. The rule is the one
 ``clustered-few-cluster-tmle`` states, applied to this record.
 
-A fit that raises, or that returns a non-finite estimate or standard error, is a failed
-replication. The study publishes the count in ``failed_replicates``, and the framework then
-refuses to summarise the cell. The declared failure-only probe found none (the design test
-pins its record). The policy is ``reporting``, and F28 owns every red cell.
+A fit that raises a recordable error, or that returns a non-finite estimate or standard error,
+is a failed replication. The property loop records it and the accounting reads it. The sample
+is drawn outside the fit, so a sampler error stops the run. The declared failure-only probe
+found none (the design test pins its record). The policy is ``reporting``, and F28 owns every
+red cell.
 """
 
 from __future__ import annotations
@@ -43,6 +44,7 @@ from tests.studies.evidence.property_verdicts import (
     few_cluster_reference_verdicts,
     finish,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.few_cluster_crossfit_ltmle import (
     ARMS,
@@ -116,22 +118,51 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     )
 
 
-def fit_cell(sizes: str, clusters: int, replicate: int) -> tuple[Any, float]:
-    """One replication's estimate of the target, and its truth."""
-    frame, truth = draw(sizes, clusters, _seed(sizes, clusters, replicate))
+_Key = tuple[str, int, int, int]
+_Drawn = tuple[pd.DataFrame, dict[str, float]]
+
+
+def draw_cell(sizes: str, clusters: int, replicate: int) -> _Drawn:
+    """One replication's sample and its truth."""
+    return draw(sizes, clusters, _seed(sizes, clusters, replicate))
+
+
+def fit_drawn(drawn: _Drawn) -> tuple[Any, float]:
+    """The estimate of the target on a drawn sample, and its truth."""
+    frame, truth = drawn
     return fit_cleverly(frame)[TARGET], float(truth[TARGET])
 
 
-def _cell_rows(payload: tuple[str, int, int, int]) -> tuple[list[dict[str, Any]], bool]:
-    """The three arms of one draw, or no rows and a failure."""
-    sizes, clusters, replicate, requested = payload
-    try:
-        estimate, truth = fit_cell(sizes, clusters, replicate)
-        standard_error = estimate.plugin_std_error
-        if not (np.isfinite(estimate.psi) and np.isfinite(standard_error)):
-            raise ValueError("a non-finite estimate or standard error")
-    except Exception:
-        return [], True
+def fit_cell(sizes: str, clusters: int, replicate: int) -> tuple[Any, float]:
+    """One replication's estimate of the target, and its truth."""
+    return fit_drawn(draw_cell(sizes, clusters, replicate))
+
+
+def _draw(key: _Key) -> _Drawn:
+    """The sample a key fits, a function of the key alone."""
+    sizes, clusters, replicate, _ = key
+    return draw_cell(sizes, clusters, replicate)
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The three ``family/cell`` names one draw fills."""
+    sizes, clusters = key[:2]
+    return [f"{FAMILY}/{cell_name(sizes, clusters, arm)}" for arm, _ in ARMS]
+
+
+def _cell_of(key: _Key) -> str:
+    return f"{FAMILY}/{cell_name(key[0], key[1], 't_reference')}"
+
+
+def _replicate_of(key: _Key) -> int:
+    return key[2]
+
+
+def _cell_rows(key: _Key, drawn: _Drawn) -> list[dict[str, Any]]:
+    """The three arms of one draw."""
+    sizes, clusters, replicate, requested = key
+    estimate, truth = fit_drawn(drawn)
+    standard_error = estimate.plugin_std_error
     if estimate.reference_df != clusters - 2:
         raise AssertionError(f"J = {clusters} reports reference_df {estimate.reference_df}")
     n = nominal_n(sizes, clusters)
@@ -165,34 +196,37 @@ def _cell_rows(payload: tuple[str, int, int, int]) -> tuple[list[dict[str, Any]]
             role=DIAGNOSTIC_ROLE,
             **common,
         ),
-    ], False
+    ]
+
+
+#: The share of a cell's requested replications that the accounting lets a run lose.  Zero: a
+#: single lost replication turns the cell red (RM39 part b2, OQ-3).
+FAILURE_BOUND = 0.0
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every replication; ``budget`` caps each cell for a pre-run check.
 
-    The count of failed fits of each ``(sizes, J)`` is written into every row of its three
-    cells, so a cell that lost a replication is refused when it is summarised.
+    A key whose fit fails costs its three cells one replication each. The property loop
+    records the failure, and the accounting reads the records.
     """
     replicates = PROPERTY_REPLICATES if budget is None else budget
-    payloads = [
-        ((sizes, clusters, replicate, replicates),)
+    keys: list[_Key] = [
+        (sizes, clusters, replicate, replicates)
         for sizes in SIZE_LAWS
         for clusters in CLUSTER_COUNTS
         for replicate in range(replicates)
     ]
-    outcomes = map_parallel(_cell_rows, payloads, n_jobs=n_jobs)
-    rows = pd.DataFrame([row for result, _ in outcomes for row in result])
-    failed: dict[tuple[str, int], int] = {}
-    for (payload,), (_, failure) in zip(payloads, outcomes, strict=True):
-        if failure:
-            key = (payload[0], payload[1])
-            failed[key] = failed.get(key, 0) + 1
-    for (sizes, clusters), count in failed.items():
-        for arm, _ in ARMS:
-            mask = rows["cell"] == cell_name(sizes, clusters, arm)
-            rows.loc[mask, "failed_replicates"] = count
-    return rows
+    outcomes = fit_properties(
+        keys,
+        _cell_rows,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        draw=_draw,
+    )
+    return pd.DataFrame([row for result in outcomes for row in result])
 
 
 def failure_probe(draws: int, *, n_jobs: int = 1) -> dict[str, int]:

@@ -1366,8 +1366,8 @@ def property_accounting(
     record : StudyRecord
         The study.
     module : module or None
-        The property module, which declares ``FAILURE_BOUND`` and, for an efficiency claim,
-        ``EFFICIENCY_RATIO_BAND``.
+        The property module, which must declare ``FAILURE_BOUND`` and, for an efficiency claim,
+        ``EFFICIENCY_RATIO_BAND``.  ``None`` means no bound.
     rules : Sequence of FamilyRule or None
         The shared rules; :data:`tests.studies.evidence.property_verdicts.FAMILY_RULES` by
         default.
@@ -1388,7 +1388,7 @@ def property_accounting(
         return pd.DataFrame(columns=columns)
     rules = property_verdicts.FAMILY_RULES if rules is None else rules
     local = STUDY_LOCAL.get(record.slug, frozenset()) if local is None else local
-    bound = float(getattr(module, "FAILURE_BOUND", 0.0))
+    bound = 0.0 if module is None else float(module.FAILURE_BOUND)
     if not 0.0 <= bound <= MAXIMUM_BOUND:
         raise ValueError(f"FAILURE_BOUND {bound} is outside [0, {MAXIMUM_BOUND}]")
     lost = counts(records)

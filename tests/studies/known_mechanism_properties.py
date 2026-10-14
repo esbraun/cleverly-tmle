@@ -40,7 +40,6 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import known_mechanism_law as law
 from tests.studies.canonical_known_mechanism import STUDY, fit_cleverly
@@ -54,13 +53,17 @@ from tests.studies.evidence.property_verdicts import (
     DIAGNOSTIC_ROLE,
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
 )
+from tests.studies.evidence.replication import fit_properties, splat
 from tests.studies.evidence.seeds import stream_seed
 
 ACCURACY = "known_mechanism_accuracy"
 BOOTSTRAP = "bootstrap_coverage"
+#: The side column that carries the draws a bootstrap lost; the generator drops it.
+BOOTSTRAP_LOST = "bootstrap_failed_draws"
 CALIBRATION = "interval_calibration"
 DIRECTION = "variance_direction"
 RATE = "root_n_and_efficiency"
@@ -183,7 +186,8 @@ def _bootstrap(replicate: int) -> list[dict[str, Any]]:
             "replicate": replicate,
             "n": BOOTSTRAP_N,
             "requested_replicates": BOOTSTRAP_REPLICATES,
-            "failed_replicates": int(result.bootstrap.n_failed),
+            "failed_replicates": 0,
+            BOOTSTRAP_LOST: int(result.bootstrap.n_failed),
             "truth": truth,
             "estimate": float(result["ate"].psi),
             "std_error": float(summary.std_error),
@@ -191,6 +195,20 @@ def _bootstrap(replicate: int) -> list[dict[str, Any]]:
             "rejected": int(not (low <= 0.0 <= high)),
         }
     ]
+
+
+def _lost_draws(rows: pd.DataFrame) -> str | None:
+    """The row rule of the bootstrap cell: a bootstrap that lost a draw is not a complete row.
+
+    The bootstrap interval of a row that lost draws is not the declared 200-draw interval.
+    The loop records such a row as an ``invalid_result``.
+    """
+    if BOOTSTRAP_LOST not in rows.columns:
+        return None
+    lost = rows[BOOTSTRAP_LOST].dropna()
+    if (lost == 0).all():
+        return None
+    return f"the bootstrap lost {int(lost.max())} draws"
 
 
 def _calibration(replicate: int) -> list[dict[str, Any]]:
@@ -268,6 +286,42 @@ def _payloads(budget: int | None = None) -> list[tuple[tuple[str, Any]]]:
     return [(payload,) for payload in payloads]
 
 
+#: The calibration positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived(("ate",), positive_suffix=CALIBRATION_ARM)
+
+_Key = tuple[tuple[str, Any]]
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``family/cell`` names the key's rows and derived controls fill."""
+    kind, argument = key[0]
+    if kind == "two_arm":
+        return [f"{ACCURACY}/{cell}" for cell in TWO_ARM_CELLS]
+    if kind == "three_arm":
+        return [f"{ACCURACY}/{cell}" for cell in THREE_ARM_CELLS]
+    if kind == "bootstrap":
+        return [f"{BOOTSTRAP}/ate__known_g__q_wrong__percentile"]
+    if kind == "calibration":
+        positive = f"{CALIBRATION}/ate__{CALIBRATION_ARM}"
+        return [
+            positive,
+            f"{DIRECTION}/ate__known_mechanism",
+            f"{DIRECTION}/ate__parametric_mechanism",
+            *DERIVED_CELLS[positive],
+        ]
+    return [f"{RATE}/n_{argument[0]}"]
+
+
+def _cell_of(key: _Key) -> str:
+    kind, argument = key[0]
+    return f"{kind}/{argument[0]}" if kind == "rate" else _cells_of(key)[0]
+
+
+def _replicate_of(key: _Key) -> int:
+    kind, argument = key[0]
+    return int(argument[1] if kind == "rate" else argument)
+
+
 def declared_truths() -> tuple[tuple[str, str, str, float], ...]:
     """Every ``(family, cell, estimand, truth)`` the replication file carries.
 
@@ -285,9 +339,23 @@ def declared_truths() -> tuple[tuple[str, str, str, float], ...]:
     return tuple(cells)
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose.  Zero: a
+#: single lost replication turns the cell red (RM39 part b2, OQ-3).
+FAILURE_BOUND = 0.0
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Run every declared replication and derive the calibration controls from the same rows."""
-    outcomes = map_parallel(_dispatch, _payloads(budget), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(budget),
+        splat(_dispatch),
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        extra=_lost_draws,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for outcome in outcomes for row in outcome])
     if budget is not None:
         # A capped smoke run requests what it runs, so the summary reads it as complete.

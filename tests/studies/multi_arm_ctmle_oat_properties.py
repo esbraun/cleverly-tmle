@@ -86,6 +86,11 @@ def sampling_batches() -> tuple[PropertyBatch, ...]:
     return (PropertyBatch("properties", cells(), _estimator),)
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose.  Zero: a
+#: single lost replication turns the cell red (RM39 part b2, OQ-3).
+FAILURE_BOUND = 0.0
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return sampling_batches()[0].run(n_jobs=n_jobs)
 

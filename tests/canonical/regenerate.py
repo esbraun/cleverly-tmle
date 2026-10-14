@@ -1281,7 +1281,7 @@ def _regenerate(
     # The list is complete only now: the property phase decides whether its failure files
     # exist.
     artifact_names = (*artifact_names, *property_failure_names)
-    bound = float(getattr(properties, "FAILURE_BOUND", 0.0))
+    bound = float(properties.FAILURE_BOUND)
 
     write_manifest(
         out / "manifest.json",

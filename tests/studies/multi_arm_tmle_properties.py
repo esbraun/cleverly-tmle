@@ -166,6 +166,11 @@ def joint_rows(*, n_jobs: int = STUDY_JOBS, replicates: int = JOINT_REPLICATES) 
     return pd.DataFrame([row for rows in outcomes for row in rows]).loc[:, list(REPLICATE_COLUMNS)]
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose.  Zero: a
+#: single lost replication turns the cell red (RM39 part b2, OQ-3).
+FAILURE_BOUND = 0.0
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return pd.concat(
         [sampling_batches()[0].run(n_jobs=n_jobs), joint_rows(n_jobs=n_jobs)],

@@ -333,7 +333,7 @@ class TestArtifacts:
             assert "failure_bound" not in configuration
         recorded = _recorded_failures(study)
         assert (recorded is None) == (not study.artifact(failures.ACCOUNTING).exists())
-        bound = float(getattr(study.properties(), "FAILURE_BOUND", 0.0))
+        bound = float(study.properties().FAILURE_BOUND)
         if bound:
             assert configuration["property_failure_bound"] == bound
         else:
@@ -2872,7 +2872,7 @@ class TestPropertyFailures:
         )
 
     def test_the_failure_bound_is_inside_its_range(self, study: StudyRecord) -> None:
-        bound = float(getattr(study.properties(), "FAILURE_BOUND", 0.0))
+        bound = float(study.properties().FAILURE_BOUND)
         assert 0.0 <= bound <= property_failures.MAXIMUM_BOUND
 
     def test_every_study_local_pair_names_a_shared_family_the_study_publishes(
@@ -2886,7 +2886,7 @@ class TestPropertyFailures:
         local = property_failures.STUDY_LOCAL.get(study.slug, frozenset())
         published = set(pd.read_csv(study.artifact("properties.csv"))["property"])
         assert local <= SHARED_FAMILIES & published
-        if float(getattr(study.properties(), "FAILURE_BOUND", 0.0)):
+        if float(study.properties().FAILURE_BOUND):
             assert not local, f"{study.slug} declares a bound but computes {sorted(local)} itself"
 
     def test_each_shared_rule_reproduces_the_committed_verdicts(self, study: StudyRecord) -> None:

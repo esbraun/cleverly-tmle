@@ -255,6 +255,11 @@ def _summarize_repeat_stability(rows: pd.DataFrame, columns: pd.Index) -> pd.Dat
     return pd.DataFrame(records, columns=columns)
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose.  Zero: a
+#: single lost replication turns the cell red (RM39 part b2, OQ-3).
+FAILURE_BOUND = 0.0
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     inherited = generate(
         VARIANT,

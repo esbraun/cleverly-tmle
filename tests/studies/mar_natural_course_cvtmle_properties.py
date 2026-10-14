@@ -222,6 +222,11 @@ def _fit(payloads: list[_Key], *, n_jobs: int, label: str, checkpoint: Any) -> p
     return pd.DataFrame([row for result in outcomes for row in result])
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose.  Zero: a
+#: single lost replication turns the cell red (RM39 part b2, OQ-3).
+FAILURE_BOUND = 0.0
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return _fit(_payloads(), n_jobs=n_jobs, label="properties", checkpoint="ambient")
 
