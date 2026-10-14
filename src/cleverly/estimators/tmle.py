@@ -475,6 +475,10 @@ _REPEATED_BANDS_REASON = (
 POINT_BOOTSTRAP_INFERENTIAL = True
 
 
+#: The estimands of the one supported fit of a vector treatment with a dose component.
+VECTOR_ESTIMANDS = frozenset({"ey_policy", "ate_policy"})
+
+
 def _has_no_arms(data: CausalData) -> bool:
     """Whether the treatment carries doses and no arms.
 
@@ -1108,7 +1112,7 @@ class TMLE:
         data: Any,
         *,
         outcome: str | None = None,
-        treatment: str | None = None,
+        treatment: str | Sequence[str] | None = None,
         covariates: Sequence[str] | None = None,
         delta: str | None = None,
         weights: str | None = None,
@@ -1120,6 +1124,7 @@ class TMLE:
         treatment_kind: TreatmentKind | None = None,
         treatment_delta: str | None = None,
         treatment_probabilities: Any = None,
+        continuous_treatment: Sequence[str] = (),
     ) -> TMLEResultSet:
         """Fit the estimator.
 
@@ -1152,6 +1157,10 @@ class TMLE:
             treatment missing at random.  The fit then runs the composite-indicator
             construction of :mod:`cleverly.estimators.composite` for the arm means and
             their contrasts, in sample.  See :meth:`~cleverly.data.CausalData.from_frame`.
+        continuous_treatment:
+            The dose columns of a vector ``treatment=[...]``.  A vector with a dose column
+            is fitted with ``policies=`` of :class:`~cleverly.interventions.JointPolicy` and
+            ``ratio="classifier"`` only.  See :meth:`~cleverly.data.CausalData.from_frame`.
         treatment_probabilities:
             The known treatment mechanism ``P(A = a | W)`` of a randomized design.  The fit
             then divides by it in place of an estimate and fits no treatment learner.  The
@@ -1191,6 +1200,7 @@ class TMLE:
             treatment_kind=treatment_kind,
             treatment_delta=treatment_delta,
             treatment_probabilities=treatment_probabilities,
+            continuous_treatment=continuous_treatment,
         )
         if not prepared.has_intermediate:
             return TMLEResultSet({None: self._fit_single(prepared, intermediate_value=None)})
@@ -1353,7 +1363,7 @@ class TMLE:
         data: Any,
         *,
         outcome: str | None,
-        treatment: str | None,
+        treatment: str | Sequence[str] | None,
         covariates: Sequence[str] | None,
         delta: str | None,
         weights: str | None,
@@ -1365,6 +1375,7 @@ class TMLE:
         treatment_kind: TreatmentKind | None = None,
         treatment_delta: str | None = None,
         treatment_probabilities: Any = None,
+        continuous_treatment: Sequence[str] = (),
     ) -> CausalData:
         """Coerce whatever the caller passed into a validated :class:`CausalData`."""
         if isinstance(data, CausalData):
@@ -1388,7 +1399,7 @@ class TMLE:
                     treatment_kind,
                     treatment_delta,
                 )
-            ):
+            ) or tuple(continuous_treatment):
                 raise ValueError(
                     "column names cannot be combined with a CausalData input; the roles are "
                     "already assigned"
@@ -1417,10 +1428,14 @@ class TMLE:
             strata=strata,
             family=self.family,
             treatment_kind=(
-                _default_treatment_kind(self.policies) if treatment_kind is None else treatment_kind
+                # A vector reads its kind from continuous_treatment=, and refuses this one.
+                treatment_kind
+                if treatment_kind is not None or not isinstance(treatment, str)
+                else _default_treatment_kind(self.policies)
             ),
             treatment_delta=treatment_delta,
             treatment_probabilities=treatment_probabilities,
+            continuous_treatment=continuous_treatment,
         )
 
     def _preflight_fit_configuration(self, data: CausalData) -> tuple[str, ...]:
@@ -1572,6 +1587,21 @@ class TMLE:
                 raise CapabilityError(whole_vector_refusal(policy, name))
         if self.ratio != "classifier":
             raise CapabilityError(vector_density_refusal(name))
+        requested = (
+            ()
+            if self.estimands is None or self.estimands == "all"
+            else (self.estimands,)
+            if isinstance(self.estimands, str)
+            else tuple(self.estimands)
+        )
+        other = [estimand for estimand in requested if estimand not in VECTOR_ESTIMANDS]
+        if other:
+            raise CapabilityError(
+                f"treatment {name!r} is a vector with a continuous component, and estimands= "
+                f"asks for {other}. Its policy fit reports {sorted(VECTOR_ESTIMANDS)} only; "
+                f"every other estimand of such a treatment is docs/roadmap.md "
+                f"{VECTOR_DENSITY_ROW}"
+            )
         for present, role in (
             (data.has_missing_outcome or data.delta_name is not None, "a missing outcome (delta=)"),
             (data.has_strata, "baseline strata (strata=)"),
