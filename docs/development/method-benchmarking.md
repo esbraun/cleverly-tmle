@@ -301,6 +301,29 @@ unsupported estimands. Validate changes with the complete fast suite and every r
 whose evaluated path a result-determining change can affect. Record each selected study and its
 regeneration command in the pull request.
 
+### Comparator runs pending
+
+A method merges when its Python studies pass. The comparator study does not block the merge or a
+dependent row, and a later change registers it. This is the owner's rule, and it applies
+[Theory and comparators](../architecture-invariants.md#theory-and-comparators).
+
+| step | what to do |
+| --- | --- |
+| register | Set `pending_reference` to the declared comparator name and leave `reference=None`. Set `pending_reason` to the reason and the item that owns the runs. Keep passing the `Reference` to `regenerate.main` |
+| regenerate | `regenerate.main` runs no reference process for a pending record. The Python phase, the independent tests, the failure accounting, the property families and every subject gate run as for any study. `equivalence.csv` has no rows |
+| manifest | `generated_with.reference` is `null` and `reference_sha256` is empty. The `comparator` block has `status: pending`, the comparator name, the reason, the reference metadata, and `declared_sources_sha256`. No test compares those digests with the tree |
+| document | The grid's canonical-implementation cell names the pending comparator. That cell, the paired cell and the study section carry the label "Python property evidence, with comparator runs pending". The paired cell reads 0/0 |
+| add the comparator | Move the name from `pending_reference` to `reference`, clear `pending_reason`, and regenerate the study with its reference |
+
+`tests/unit/test_method_evidence.py` asserts the pending state for every registered study through
+`manifest.comparator_findings`. It is a check, not a skip. A pending study that publishes a
+comparator row or a paired row fails, because an empty paired table would otherwise read as passed.
+`tests/unit/test_comparator_pending.py` holds the controls for each part.
+
+To rerun the property families against the committed Python rows, pass `--reuse-subject`. The
+driver offers the flag only when no reference process runs. It checks the committed rows against
+their manifest hash and the declared budget, and then it fits no subject model.
+
 ## Red cells
 
 Diagnose every red cell before you route it. The table gives the route for each diagnosis.
