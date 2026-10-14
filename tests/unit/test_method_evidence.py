@@ -2805,27 +2805,6 @@ class TestTheQuantityVocabulary:
         )
 
 
-#: The families a shared :class:`~tests.studies.evidence.property_failures.FamilyRule` reads.
-SHARED_FAMILIES = frozenset(
-    family for rule in property_verdicts.FAMILY_RULES for family in rule.families
-)
-
-#: The studies the differential test perturbs: for each shared family, the registered study
-#: whose ``summarize_properties`` is cheapest among those that publish it under the shared
-#: rule.  ``test_the_differential_sample_covers_every_shared_family`` keeps it covering.
-DIFFERENTIAL_SAMPLE = (
-    "canonical-multi-arm-tmle",
-    "canonical-cvtmle",
-    "clustered-tmle",
-    "few-cluster-cross-fitted-ltmle",
-    "canonical-multi-arm-ctmle-oat",
-    "canonical-drtmle",
-    "mar-tmle",
-    "cde-tmle",
-    "calibration-slope-warning",
-)
-
-
 def _context(study: StudyRecord, rows: pd.DataFrame, summary: pd.DataFrame):
     return property_failures.Context(
         study, rows, summary, {}, property_failures.module_groups(study.properties())
@@ -2908,37 +2887,158 @@ class TestPropertyFailures:
         assert wrong.empty, wrong.to_string()
 
 
-@pytest.mark.parametrize("kind", property_failures.PERTURBATIONS[1:])
-@pytest.mark.parametrize("slug", DIFFERENTIAL_SAMPLE)
-def test_each_shared_rule_agrees_with_its_study_on_perturbed_rows(slug: str, kind: str) -> None:
-    """F10: a rule missing a conjunct, or reading a moved threshold, disagrees somewhere."""
-    study = STUDY_BY_SLUG[slug]
-    rows = property_failures.perturbed(_property_rows(slug), kind, alpha=study.margins.alpha)
-    summary = study.properties().summarize_properties(rows)
-    assert not (summary["passed"] & summary["property_passed"]).all(), (
-        f"{kind} moved no verdict of {slug}"
-    )
-    wrong = _differential(study, summary, rows)
-    assert wrong.empty, wrong.to_string()
+#: The ``(family, clause)`` pairs that may resolve to not accountable (rev 3 section 2, R3-1).
+#: Each has a stated reason to have no candidate set, and a row of it that lost a replicate
+#: is red at any bound.
+NOT_ACCOUNTABLE_CLAUSES = frozenset(
+    {
+        ("natural_course_identity", "sup-norm identity"),
+        ("static_reduction", "sup-norm identity"),
+        ("correction_necessity", "closed score below the initial"),
+    }
+)
+
+#: The property modules with no committed rows, which declare their cells but publish none.
+UNCOMMITTED_MODULES = (
+    "tests.studies.longitudinal_sdr_properties",
+    "tests.studies.longitudinal_incremental_properties",
+    "tests.studies.longitudinal_incremental_dropout_properties",
+)
 
 
-def test_the_differential_sample_covers_every_shared_family() -> None:
-    """Every shared family some study publishes under its rule is perturbed somewhere."""
+def _property_modules() -> list[Any]:
+    """Every registered study's property module and every uncommitted one, once each."""
+    import importlib
 
-    def ruled(study: StudyRecord) -> set[str]:
+    modules = {study.properties().__name__: study.properties() for study in STUDIES}
+    for name in UNCOMMITTED_MODULES:
+        modules.setdefault(name, importlib.import_module(name))
+    return [modules[name] for name in sorted(modules)]
+
+
+def _verdict_families(module: Any) -> set[str]:
+    """The families a module gives a verdict: declared non-diagnostic cells, and published ones."""
+    families = {
+        cell.property
+        for cell in getattr(module, "declared_cells", tuple)()
+        if cell.role != property_verdicts.DIAGNOSTIC_ROLE
+    }
+    for study in STUDIES:
         path = study.artifact("properties.csv")
-        if not path.exists():
-            return set()
-        module = study.properties()
-        return {
-            family
-            for family in set(pd.read_csv(path)["property"]) & SHARED_FAMILIES
-            if any(
-                property_failures.rule_for(family, module) is rule
-                for rule in property_verdicts.FAMILY_RULES
+        if study.properties() is module and path.exists():
+            published = pd.read_csv(path)
+            families |= set(
+                published.loc[published["role"] != property_verdicts.DIAGNOSTIC_ROLE, "property"]
             )
-        }
+    return families
 
-    covered = set().union(*(ruled(STUDY_BY_SLUG[slug]) for slug in DIFFERENTIAL_SAMPLE))
-    published = set().union(*(ruled(study) for study in STUDIES))
-    assert published <= covered, sorted(published - covered)
+
+class TestDeclaredRules:
+    """Rev 3 section 8: every verdict resolves to a declared rule, and the rule is checked."""
+
+    def test_every_verdict_family_resolves_to_a_rule(self) -> None:
+        missing = sorted(
+            (module.__name__, family)
+            for module in _property_modules()
+            for family in _verdict_families(module)
+            if property_failures.rule_for(family, module) is None
+        )
+        assert missing == [], "verdict families no declared rule restates"
+
+    def test_only_the_stated_clauses_are_not_accountable(self) -> None:
+        rules = [
+            rule for module in _property_modules() for rule in getattr(module, "PROPERTY_RULES", ())
+        ]
+        found = {
+            (family, clause.name)
+            for rule in (*rules, *property_verdicts.FAMILY_RULES)
+            for clause in rule.clauses
+            if not clause.accountable
+            for family in rule.families
+        }
+        assert found <= NOT_ACCOUNTABLE_CLAUSES, sorted(found - NOT_ACCOUNTABLE_CLAUSES)
+
+    def test_a_module_that_writes_a_verdict_declares_its_rules(self) -> None:
+        """L9: the check needs the declaration; the differential checks what it says."""
+        undeclared = {
+            module.__name__: property_failures.undeclared_verdict_writers(module)
+            for module in _property_modules()
+        }
+        assert {name: found for name, found in undeclared.items() if found} == {}
+
+    def test_every_verdict_writer_is_read_by_a_property_module(self) -> None:
+        """A helper that writes a verdict for no property module escapes the check above."""
+        reached = set().union(
+            *(property_failures.verdict_writers(module.__name__) for module in _property_modules())
+        )
+        writers = {
+            f"tests.studies.{path.stem}"
+            for path in (ROOT / "tests" / "studies").glob("*.py")
+            if property_failures.verdict_writes(path.read_text())
+        }
+        assert sorted(writers - reached) == []
+
+
+class TestPropertyDifferential:
+    """R3-2 fallback: the all-study differential runs as a CI job, never as a sample.
+
+    ``tests/canonical/property_differential.py`` measured 4,577 cases at about 40 minutes on
+    four workers, so it is the ``property-differential`` job of ``.github/workflows/ci.yml``.
+    The fast tier checks that the job's parametrization lists every committed study and that
+    its clause-binding witnesses name what exists.
+    """
+
+    @staticmethod
+    def _job() -> Any:
+        from tests.canonical import property_differential
+
+        return property_differential
+
+    def test_the_differential_lists_every_committed_study(self) -> None:
+        job = self._job()
+        committed = {
+            study.slug for study in STUDIES if study.artifact("property-replicates.csv.gz").exists()
+        }
+        parametrized = {
+            value
+            for mark in job.test_the_rules_agree_with_the_study_on_each_perturbation.pytestmark
+            if mark.args[0] == "subject"
+            for value in mark.args[1]
+        }
+        assert parametrized == committed | set(UNCOMMITTED_MODULES)
+        assert set(job.SYNTHETIC_MODULES) == set(UNCOMMITTED_MODULES)
+
+    def test_the_differential_runs_every_perturbation(self) -> None:
+        job = self._job()
+        kinds = {
+            value
+            for mark in job.test_the_rules_agree_with_the_study_on_each_perturbation.pytestmark
+            if mark.args[0] == "kind"
+            for value in mark.args[1]
+        }
+        expected = {
+            *property_failures.PERTURBATIONS,
+            *property_failures.binding_perturbations(),
+        }
+        assert kinds == expected
+        assert {"contract", "pair_collapse", "affine"} <= kinds
+
+    def test_the_ci_job_runs_the_differential(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        assert "property-differential:" in workflow
+        assert "tests/canonical/property_differential.py" in workflow
+
+    def test_each_binding_witness_names_what_exists(self) -> None:
+        job = self._job()
+        table = job.read_bindings()
+        assert not table.duplicated(["property", "clause"]).any()
+        for family, clause, subject, kind in table.itertuples(index=False, name=None):
+            assert subject in job.SUBJECTS, subject
+            module, _ = job.subject_of(subject)
+            rule = property_failures.rule_for(family, module)
+            assert rule is not None, (family, subject)
+            rule.clause(clause)
+            if kind.startswith("extra|"):
+                assert kind.split("|")[2:4] != ["", ""], kind
+            else:
+                assert kind in job.KINDS, kind

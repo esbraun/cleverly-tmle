@@ -18,6 +18,9 @@ lost a replicate (rev 3 D3'f).
 
 from __future__ import annotations
 
+import ast
+import hashlib
+import importlib.util
 import itertools
 import math
 import re
@@ -2604,30 +2607,53 @@ def rule_verdicts(rule: FamilyRule, summary: pd.DataFrame, ctx: Context) -> pd.D
     pandas.DataFrame
         ``property``, ``cell``, ``passed`` and ``property_passed`` per verdict row.
     """
-    from tests.studies.evidence import property_verdicts
-
     out = []
     for family in sorted(rule.families):
-        rows = summary.loc[
-            (summary["property"] == family) & (summary["role"] != property_verdicts.DIAGNOSTIC_ROLE)
-        ]
-        verdicts: dict[str, tuple[bool, bool]] = {}
-        for _, row in rows.iterrows():
-            judged = [
-                (clause, clause.read(ctx, row))
-                for clause in rule.clauses
-                if clause.applies(ctx, row)
-            ]
-            if not judged:
-                continue
-            own = all(value.passed for clause, value in judged if clause.target == "passed")
-            joint = all(value.passed for clause, value in judged if clause.target != "passed")
-            verdicts[str(row["cell"])] = (own, own and joint)
-        for cell, (own, _) in verdicts.items():
-            members = group_members(summary, ctx.groups, family, cell, rule.group)
-            together = all(verdicts[name][1] for name in members if name in verdicts)
-            out.append([family, cell, own, together])
+        out.extend(_combined(rule, family, _judged(rule, family, summary, ctx), summary, ctx))
     return pd.DataFrame(out, columns=["property", "cell", "passed", "property_passed"])
+
+
+def _judged(
+    rule: FamilyRule, family: str, summary: pd.DataFrame, ctx: Context
+) -> dict[str, list[tuple[Clause, Judged]]]:
+    """Each verdict row's applying clauses of ``family`` and their complete-case values."""
+    from tests.studies.evidence import property_verdicts
+
+    rows = summary.loc[
+        (summary["property"] == family) & (summary["role"] != property_verdicts.DIAGNOSTIC_ROLE)
+    ]
+    out: dict[str, list[tuple[Clause, Judged]]] = {}
+    for _, row in rows.iterrows():
+        judged = [
+            (clause, clause.read(ctx, row)) for clause in rule.clauses if clause.applies(ctx, row)
+        ]
+        if judged:
+            out[str(row["cell"])] = judged
+    return out
+
+
+def _combined(
+    rule: FamilyRule,
+    family: str,
+    judged: Mapping[str, Sequence[tuple[Clause, Judged]]],
+    summary: pd.DataFrame,
+    ctx: Context,
+    *,
+    dropped: str | None = None,
+) -> list[list[Any]]:
+    """``[family, cell, passed, property_passed]`` per verdict row, without clause ``dropped``."""
+    verdicts: dict[str, tuple[bool, bool]] = {}
+    for cell, values in judged.items():
+        kept = [(clause, value) for clause, value in values if clause.name != dropped]
+        own = all(value.passed for clause, value in kept if clause.target == "passed")
+        joint = all(value.passed for clause, value in kept if clause.target != "passed")
+        verdicts[cell] = (own, own and joint)
+    out = []
+    for cell, (own, _) in verdicts.items():
+        members = group_members(summary, ctx.groups, family, cell, rule.group)
+        together = all(verdicts[name][1] for name in members if name in verdicts)
+        out.append([family, cell, own, together])
+    return out
 
 
 def read_witnesses(path: Path) -> pd.DataFrame | None:
@@ -2649,27 +2675,109 @@ def read_witnesses(path: Path) -> pd.DataFrame | None:
     return published.loc[:, list(WITNESS_COLUMNS)]
 
 
-#: The perturbations the differential test applies to committed rows (F10).  Each moves the
-#: summary across thresholds a complete run never reaches, so a rule that drops a conjunct or
-#: moves a threshold disagrees with the study's own verdict somewhere.
-PERTURBATIONS = ("none", "se_low", "se_high", "bias")
+#: The perturbations the differential test applies to committed rows (F10, rev 3 section 8).
+#: Each moves the summary across thresholds a complete run never reaches, so a rule that drops
+#: a conjunct or moves a threshold disagrees with the study's own verdict somewhere.
+#: :func:`extra_perturbations` adds, per extra column and per cell, a scaling and a shift (L10).
+PERTURBATIONS = ("none", "se_low", "se_high", "bias", "contract", "pair_collapse", "affine")
+
+#: The standard-error factors of ``se/<f>``.
+SE_FACTORS = (0.05, 0.5, 0.8, 0.9, 0.95, 1.05, 1.1, 1.25, 2.0, 20.0)
+#: The shifts of ``shift/<z>``, in each cell's own spread.
+SHIFT_SIZES = (0.15, 0.7, 1.0, 1.5, 3.0)
+#: The coverage shares of ``coverage/<p>`` and the rejection shares of ``rejection/<p>``.
+COVERAGE_TARGETS = (0.5, 0.8, 0.9, 0.925, 0.94, 0.96, 0.99)
+REJECTION_TARGETS = (0.01, 0.04, 0.06, 0.1, 0.5, 0.8, 0.95)
+#: ``two_point/<g>/<r>`` moves the spread by ``g`` and the SE ratio by ``r``.  Two-point errors
+#: have the least sampling variance of a spread, so the intervals of an SE ratio and of an
+#: efficiency ratio narrow, and their product can leave a band that each of them stays in.
+TWO_POINT_STEPS = ((1.06, 1.05), (0.94, 0.95), (1.08, 1.03), (0.92, 0.97))
+#: The amplitude of each ``mixed/<k>`` draw, and the seed root of the draws.
+MIXED_AMPLITUDES = tuple(float(value) for value in np.geomspace(0.1, 1.0, 16))
+MIXED_SEED = 20_261_015
+
+#: The exponent of ``contract``: each cell's errors scale by ``(n / n_min) ** CONTRACT_POWER``
+#: within its family, which pushes a contracting slope across zero.
+CONTRACT_POWER = 1.5
+
+#: The seed root of the ``affine`` perturbation's per-cell maps.
+AFFINE_SEED = 20_261_014
+
+#: The factor and the additive step of each extra column's per-cell perturbation.  The step is
+#: in units of the cell's largest absolute value of the column, and at least one.
+EXTRA_SCALE = 4.0
+EXTRA_SHIFT = 4.0
+
+
+def cell_key(*labels: str) -> int:
+    """A stable 64-bit integer of ``labels``, for a seed that names a cell.
+
+    Parameters
+    ----------
+    *labels : str
+        The names, such as a family and a cell.
+
+    Returns
+    -------
+    int
+        The first eight bytes of their BLAKE2b digest.
+    """
+    digest = hashlib.blake2b("\x1f".join(labels).encode("utf-8"), digest_size=8).digest()
+    return int.from_bytes(digest, "big")
+
+
+def _retested(out: pd.DataFrame, alpha: float) -> pd.DataFrame:
+    """``covered`` and ``rejected`` recomputed from a Wald interval where the SE is usable."""
+    from scipy.stats import norm
+
+    estimates = out["estimate"].astype(float)
+    std_errors = out["std_error"].astype(float)
+    critical = float(norm.ppf(1.0 - alpha / 2.0))
+    usable = np.isfinite(std_errors) & (std_errors > 0.0)
+    errors = (estimates - out["truth"].astype(float)).abs()
+    out.loc[usable, "covered"] = (errors <= critical * std_errors)[usable].astype(int)
+    out.loc[usable, "rejected"] = ((estimates / std_errors).abs() > critical)[usable].astype(int)
+    return out
+
+
+def _partner(cell: str, positives: Sequence[str]) -> str:
+    """The positive cell whose name shares the longest ``__``-separated prefix with ``cell``."""
+
+    def shared(other: str) -> int:
+        count = 0
+        for left, right in zip(cell.split("__"), other.split("__"), strict=False):
+            if left != right:
+                break
+            count += 1
+        return count
+
+    return max(sorted(positives), key=shared)
 
 
 def perturbed(rows: pd.DataFrame, kind: str, *, alpha: float = 0.05) -> pd.DataFrame:
-    """Replication rows moved by one :data:`PERTURBATIONS` entry, kept coherent.
+    """Replication rows moved by one perturbation kind.
 
-    ``se_low`` scales every standard error by 0.7 and ``se_high`` by 1.45.  ``bias`` shifts
-    each cell's estimates by 0.35 of its own spread.  Where the standard error is finite and
-    positive, ``covered`` and ``rejected`` are recomputed from a Wald interval at ``alpha``,
-    so coverage and rejection move with the change.  The rows are no study's output: the test
-    reads only whether a rule and the study's own code agree on them.
+    | kind | change |
+    | --- | --- |
+    | ``se_low``, ``se_high`` | every standard error times 0.7 or 1.45 |
+    | ``bias`` | each cell's estimates shifted by 0.35 of its own spread |
+    | ``contract`` | each cell's errors times ``(n / n_min) ** CONTRACT_POWER`` in its family |
+    | ``pair_collapse`` | each control cell's estimates and SEs set to its partner positive cell's, by replicate |
+    | ``affine`` | each cell's errors times ``a`` plus ``b`` of its spread, ``a`` and ``b`` seeded by the cell's name |
+
+    For these named kinds, ``covered`` and ``rejected`` are recomputed from a Wald interval at
+    ``alpha`` where the standard error is finite and positive, so coverage and rejection move
+    with the change.  :data:`SE_FACTORS` and the graded kinds say which of those recompute.  The
+    rows are no study's output: the test reads only whether a rule and the study's own code
+    agree on them.
 
     Parameters
     ----------
     rows : pandas.DataFrame
         The replication rows.
     kind : str
-        One of :data:`PERTURBATIONS`.
+        One of :data:`PERTURBATIONS`, of :func:`binding_perturbations` or of
+        :func:`extra_perturbations`.
     alpha : float
         The level of the recomputed interval and test.
 
@@ -2678,29 +2786,270 @@ def perturbed(rows: pd.DataFrame, kind: str, *, alpha: float = 0.05) -> pd.DataF
     pandas.DataFrame
         A perturbed copy.
     """
-    from scipy.stats import norm
-
+    if kind.startswith("extra|"):
+        return _extra(rows, kind)
+    if kind in binding_perturbations():
+        return _graded(rows, kind, alpha)
     if kind not in PERTURBATIONS:
         raise ValueError(f"unknown perturbation {kind!r}")
     out = rows.copy()
     if kind == "none":
         return out
     estimates = out["estimate"].astype(float)
-    std_errors = out["std_error"].astype(float)
+    truth = out["truth"].astype(float)
     if kind == "se_low":
-        std_errors = std_errors * 0.7
+        out["std_error"] = out["std_error"].astype(float) * 0.7
     elif kind == "se_high":
-        std_errors = std_errors * 1.45
-    else:
+        out["std_error"] = out["std_error"].astype(float) * 1.45
+    elif kind == "bias":
         spread = out.groupby(["property", "cell"])["estimate"].transform("std").fillna(0.0)
-        estimates = estimates + 0.35 * spread
+        out["estimate"] = estimates + 0.35 * spread
+    elif kind == "contract":
+        n = out["n"].astype(float)
+        smallest = n.groupby(out["property"]).transform("min")
+        out["estimate"] = truth + (estimates - truth) * (n / smallest) ** CONTRACT_POWER
+    elif kind == "affine":
+        spread = out.groupby(["property", "cell"])["estimate"].transform("std").fillna(0.0)
+        scale = pd.Series(1.0, index=out.index)
+        shift = pd.Series(0.0, index=out.index)
+        for (family, cell), index in out.groupby(["property", "cell"]).groups.items():
+            rng = np.random.default_rng([AFFINE_SEED, cell_key(str(family), str(cell))])
+            scale.loc[index] = rng.uniform(0.6, 1.6)
+            shift.loc[index] = rng.normal(0.0, 0.6)
+        out["estimate"] = truth + scale * (estimates - truth) + shift * spread
+    else:
+        for family, selected in out.groupby("property", sort=False):
+            positives = sorted(set(selected.loc[selected["role"] == "positive", "cell"]))
+            controls = sorted(set(selected.loc[selected["role"] == "control", "cell"]))
+            if not positives:
+                continue
+            for cell in controls:
+                source = selected.loc[selected["cell"] == _partner(cell, positives)]
+                by_replicate = source.set_index("replicate")
+                target = out.index[(out["property"] == family) & (out["cell"] == cell)]
+                replicates = out.loc[target, "replicate"]
+                found = replicates.isin(by_replicate.index)
+                chosen = target[found.to_numpy()]
+                for column in ("estimate", "std_error"):
+                    out.loc[chosen, column] = by_replicate.loc[replicates[found], column].to_numpy(
+                        dtype=float
+                    )
+    return _retested(out, alpha)
+
+
+def binding_perturbations() -> tuple[str, ...]:
+    """The graded :func:`perturbed` kinds the differential adds to :data:`PERTURBATIONS`.
+
+    The named perturbations move every cell one way, so two clauses that read the same change
+    fail together and neither decides a verdict alone.  The clause-binding test needs, for
+    each clause, a perturbation under which that clause alone decides a verdict (rev 3
+    section 8).  These kinds move one quantity at a time, or move the cells of a family apart.
+
+    | kind | change | ``covered``, ``rejected`` |
+    | --- | --- | --- |
+    | ``se/<f>`` | every standard error times ``f`` | kept |
+    | ``shift/<z>`` | each cell's estimates shifted by ``z`` of its own spread | recomputed |
+    | ``coverage/<p>`` | each cell's ``covered`` flipped on its first replicates to a share ``p`` | ``rejected`` kept |
+    | ``rejection/<p>`` | each cell's ``rejected`` flipped on its first replicates to a share ``p`` | ``covered`` kept |
+    | ``control_concentrated`` | positives centred on the truth; each control's spread times 0.05, its bias 0.6 of that spread | recomputed |
+    | ``control_diffuse`` | positives centred on the truth; each control's spread times 10, its bias 0.1 of that spread | recomputed |
+    | ``positive_diffuse`` | positives centred on the truth and their spread times 1,000 | recomputed |
+    | ``dilate/even``, ``dilate/odd`` | positives centred on the truth; the cells at even or odd places of each family's sorted cells dilated 10 times about their mean | recomputed |
+    | ``two_point/<g>/<r>`` | each cell's errors set to their mean plus or minus ``g`` times their spread, by side, and its standard errors times ``g r`` | kept |
+    | ``mixed/<k>`` | each cell's own seeded shift, dilation and SE scale at amplitude ``MIXED_AMPLITUDES[k]`` | recomputed on even ``k``; flipped at random on odd ``k`` |
+
+    Returns
+    -------
+    tuple of str
+        Every ``se/``, ``coverage/``, ``rejection/`` and ``mixed/`` kind, and the two control
+        reshapes.
+    """
+    return (
+        *(f"se/{factor:g}" for factor in SE_FACTORS),
+        *(f"shift/{size:g}" for size in SHIFT_SIZES),
+        *(f"coverage/{share:g}" for share in COVERAGE_TARGETS),
+        *(f"rejection/{share:g}" for share in REJECTION_TARGETS),
+        "control_concentrated",
+        "control_diffuse",
+        "positive_diffuse",
+        "dilate/even",
+        "dilate/odd",
+        *(f"two_point/{spread:g}/{ratio:g}" for spread, ratio in TWO_POINT_STEPS),
+        *(f"mixed/{draw}" for draw in range(len(MIXED_AMPLITUDES))),
+    )
+
+
+def _graded(rows: pd.DataFrame, kind: str, alpha: float) -> pd.DataFrame:
+    """One :func:`binding_perturbations` kind applied to a copy of ``rows``."""
+    out = rows.copy()
+    name, _, level = kind.partition("/")
+    if name == "se":
+        out["std_error"] = out["std_error"].astype(float) * float(level)
+        return out
+    if name == "shift":
+        spread = out.groupby(["property", "cell"])["estimate"].transform("std").fillna(0.0)
+        out["estimate"] = out["estimate"].astype(float) + float(level) * spread
+        return _retested(out, alpha)
+    if name in {"coverage", "rejection"}:
+        column = "covered" if name == "coverage" else "rejected"
+        values = out[column].to_numpy(dtype=float).copy()
+        order = out.sort_values(["property", "cell", "replicate"]).index
+        for _, index in out.loc[order].groupby(["property", "cell"], sort=True).indices.items():
+            positions = out.index.get_indexer(order[index])
+            finite = positions[np.isfinite(values[positions])]
+            wanted = round(float(level) * finite.size)
+            ones = finite[values[finite] == 1.0]
+            zeros = finite[values[finite] == 0.0]
+            if ones.size > wanted:
+                values[ones[: ones.size - wanted]] = 0.0
+            else:
+                values[zeros[: wanted - ones.size]] = 1.0
+        out[column] = values.astype(out[column].dtype)
+        return out
+    if name == "mixed":
+        return _mixed(out, int(level), alpha)
+    if name in {"positive_diffuse", "dilate", "two_point"}:
+        return _dilated(out, name, level, alpha)
+    if name not in {"control_concentrated", "control_diffuse"}:
+        raise ValueError(f"unknown perturbation {kind!r}")
+    spread_factor, bias = (0.05, 0.6) if name == "control_concentrated" else (10.0, 0.1)
+    errors = out["estimate"].astype(float) - out["truth"].astype(float)
+    keys = [out["property"], out["cell"]]
+    centre = errors.groupby(keys).transform("mean")
+    spread = errors.groupby(keys).transform("std").fillna(0.0)
+    sign = np.where(centre < 0.0, -1.0, 1.0)
+    control = (out["role"] == "control").to_numpy()
+    positive = (out["role"] == "positive").to_numpy()
+    moved = errors.to_numpy().copy()
+    moved[positive] = (errors - centre).to_numpy()[positive]
+    reshaped = spread_factor * (errors - centre) + sign * bias * spread_factor * spread
+    moved[control] = reshaped.to_numpy()[control]
+    out["estimate"] = out["truth"].astype(float) + moved
+    return _retested(out, alpha)
+
+
+def _dilated(out: pd.DataFrame, name: str, level: str, alpha: float) -> pd.DataFrame:
+    """``positive_diffuse``, ``dilate/<even|odd>`` or ``two_point/<g>/<r>`` on a copy."""
+    errors = out["estimate"].astype(float) - out["truth"].astype(float)
+    keys = [out["property"], out["cell"]]
+    centre = errors.groupby(keys).transform("mean")
+    positive = out["role"] == "positive"
+    if name == "two_point":
+        spread, ratio = (float(value) for value in level.split("/"))
+        side = np.where(errors < centre, -1.0, 1.0)
+        width = errors.groupby(keys).transform("std").fillna(0.0)
+        out["estimate"] = out["truth"].astype(float) + centre + spread * side * width
+        out["std_error"] = out["std_error"].astype(float) * spread * ratio
+        return out
+    if name == "positive_diffuse":
+        chosen = positive
+    else:
+        place = out.groupby("property")["cell"].transform(
+            lambda cells: cells.map({cell: i for i, cell in enumerate(sorted(set(cells)))})
+        )
+        chosen = place % 2 == (0 if level == "even" else 1)
+    kept = centre.where(~positive, 0.0)
+    wide = 1_000.0 if name == "positive_diffuse" else 10.0
+    factor = pd.Series(np.where(chosen, wide, 1.0), index=out.index)
+    out["estimate"] = out["truth"].astype(float) + kept + factor * (errors - centre)
+    return _retested(out, alpha)
+
+
+def _mixed(out: pd.DataFrame, draw: int, alpha: float) -> pd.DataFrame:
+    """One seeded mixture: each cell's own shift, dilation, SE scale and indicator flips.
+
+    Each cell draws, from a stream of ``(MIXED_SEED, draw, cell)``, whether and how far to
+    shift its estimates (in its own spread), to dilate them about their mean, and to scale its
+    standard errors, at the draw's amplitude.  Even draws recompute ``covered`` and
+    ``rejected`` from a Wald interval.  Odd draws keep them and flip a drawn share of each
+    independently in some cells, so a coverage clause and a rejection or spread clause can
+    fail apart.
+    """
+    amplitude = MIXED_AMPLITUDES[draw]
+    estimates = out["estimate"].astype(float).to_numpy().copy()
+    std_errors = out["std_error"].astype(float).to_numpy().copy()
+    covered = out["covered"].to_numpy(dtype=float).copy()
+    rejected = out["rejected"].to_numpy(dtype=float).copy()
+    for (family, cell), index in out.groupby(["property", "cell"], sort=True).indices.items():
+        rng = np.random.default_rng([MIXED_SEED, draw, cell_key(str(family), str(cell))])
+        values = estimates[index]
+        finite = values[np.isfinite(values)]
+        centre = float(finite.mean()) if finite.size else 0.0
+        spread = float(finite.std(ddof=1)) if finite.size > 1 else 0.0
+        shift = rng.normal(0.0, amplitude) if rng.random() < 0.5 else 0.0
+        dilation = math.exp(rng.normal(0.0, amplitude)) if rng.random() < 0.5 else 1.0
+        scale = math.exp(rng.normal(0.0, amplitude)) if rng.random() < 0.5 else 1.0
+        estimates[index] = centre + dilation * (values - centre) + shift * spread
+        std_errors[index] = std_errors[index] * scale
+        for indicator in (covered, rejected):
+            if draw % 2 and rng.random() < 0.5:
+                flip = rng.random(index.size) < rng.uniform(0.0, 0.15 * amplitude)
+                chosen = index[flip & np.isfinite(indicator[index])]
+                indicator[chosen] = 1.0 - indicator[chosen]
     out["estimate"] = estimates
     out["std_error"] = std_errors
-    critical = float(norm.ppf(1.0 - alpha / 2.0))
-    usable = np.isfinite(std_errors) & (std_errors > 0.0)
-    errors = (estimates - out["truth"].astype(float)).abs()
-    out.loc[usable, "covered"] = (errors <= critical * std_errors)[usable].astype(int)
-    out.loc[usable, "rejected"] = ((estimates / std_errors).abs() > critical)[usable].astype(int)
+    if draw % 2:
+        out["covered"] = covered.astype(out["covered"].dtype)
+        out["rejected"] = rejected.astype(out["rejected"].dtype)
+        return out
+    return _retested(out, alpha)
+
+
+def _extra_columns(rows: pd.DataFrame) -> list[str]:
+    from tests.studies.evidence.properties import REPLICATE_COLUMNS
+
+    return [
+        column
+        for column in rows.columns
+        if column not in REPLICATE_COLUMNS
+        and pd.api.types.is_numeric_dtype(rows[column])
+        and not pd.api.types.is_bool_dtype(rows[column])
+    ]
+
+
+def extra_perturbations(rows: pd.DataFrame) -> tuple[str, ...]:
+    """Per numeric extra column and per cell, a scaling and an additive shift (rev 3 L10).
+
+    An extra column is any numeric column beyond
+    :data:`~tests.studies.evidence.properties.REPLICATE_COLUMNS`, such as the bootstrap counts
+    a cap reads.  The scaling multiplies the cell's values by :data:`EXTRA_SCALE`.  A scaling
+    alone cannot move a column that is zero on every row, so the shift adds
+    :data:`EXTRA_SHIFT` times the cell's largest absolute value, at least one.  A column with
+    no finite value in a cell gives that cell none.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        The replication rows.
+
+    Returns
+    -------
+    tuple of str
+        One :func:`perturbed` kind per perturbation, ``extra|column|property|cell|scale`` or
+        ``...|shift``.
+    """
+    out: list[str] = []
+    for column in _extra_columns(rows):
+        finite = rows[column].astype(float).map(math.isfinite)
+        kept = rows.loc[finite, ["property", "cell"]].drop_duplicates()
+        for family, cell in sorted(kept.itertuples(index=False, name=None)):
+            out.extend(f"extra|{column}|{family}|{cell}|{how}" for how in ("scale", "shift"))
+    return tuple(out)
+
+
+def _extra(rows: pd.DataFrame, kind: str) -> pd.DataFrame:
+    """One :func:`extra_perturbations` kind applied to a copy of ``rows``."""
+    _, column, family, cell, how = kind.split("|")
+    if column not in _extra_columns(rows) or how not in {"scale", "shift"}:
+        raise ValueError(f"unknown perturbation {kind!r}")
+    out = rows.copy()
+    out[column] = out[column].astype(float)
+    index = (out["property"] == family) & (out["cell"] == cell)
+    values = out.loc[index, column]
+    if how == "scale":
+        out.loc[index, column] = values * EXTRA_SCALE
+    else:
+        out.loc[index, column] = values + EXTRA_SHIFT * max(1.0, float(np.nanmax(np.abs(values))))
     return out
 
 
@@ -2785,3 +3134,198 @@ def differential(
         merged["property_passed"] != merged["study_property_passed"].astype(bool)
     )
     return merged.loc[wrong].reset_index(drop=True)
+
+
+def clause_binding(
+    summary: pd.DataFrame,
+    ctx: Context,
+    *,
+    module: Any = None,
+    rules: Sequence[FamilyRule] | None = None,
+) -> tuple[set[tuple[str, str]], set[tuple[str, str]]]:
+    """The ``(family, clause)`` pairs that apply on a summary, and those that decide a verdict.
+
+    A clause is decisive when the rule without it gives some verdict row a different
+    ``passed`` or ``property_passed``: a rule that dropped it would then disagree with the
+    study somewhere, so the differential test binds it.  The clause-binding test requires
+    each applying clause to be decisive under some perturbation (rev 3 section 8).
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        A summary the study's own ``summarize_properties`` computed.
+    ctx : Context
+        The context the clauses read.
+    module : module or None
+        The property module.
+    rules : Sequence of FamilyRule or None
+        The shared rules.
+
+    Returns
+    -------
+    tuple of set
+        The applying pairs and the decisive pairs.
+    """
+    used: set[tuple[str, str]] = set()
+    decisive: set[tuple[str, str]] = set()
+    for family in sorted(set(summary["property"].astype(str))):
+        rule = rule_for(family, module, rules)
+        if rule is None:
+            continue
+        judged = _judged(rule, family, summary, ctx)
+        names = {clause.name for values in judged.values() for clause, _ in values}
+        used.update((family, name) for name in names)
+        full = _combined(rule, family, judged, summary, ctx)
+        for name in sorted(names):
+            if _combined(rule, family, judged, summary, ctx, dropped=name) != full:
+                decisive.add((family, name))
+    return used, decisive
+
+
+def unbound(used: set[tuple[str, str]], decisive: set[tuple[str, str]]) -> list[tuple[str, str]]:
+    """The applying ``(family, clause)`` pairs that no perturbation made decisive.
+
+    Parameters
+    ----------
+    used : set of tuple
+        The union of :func:`clause_binding`'s applying pairs over every perturbation.
+    decisive : set of tuple
+        The union of its decisive pairs.
+
+    Returns
+    -------
+    list of tuple
+        The unbound pairs, sorted.  The clause-binding test fails on any.
+    """
+    return sorted(used - decisive)
+
+
+# ---- the verdict-writer check (rev 3 section 8, L9) ------------------------------------------
+
+#: The summary columns a verdict writes.
+VERDICT_COLUMNS = frozenset({"passed", "property_passed"})
+
+#: The package whose functions are the shared verdicts, which declare their rules themselves.
+SHARED_PACKAGE = "tests.studies.evidence"
+
+
+def verdict_writes(source: str) -> list[int]:
+    """The lines of ``source`` that assign a verdict column.
+
+    A write is an assignment to a subscript that names ``passed`` or ``property_passed``,
+    such as ``summary.loc[mask, "passed"] = ...``, or a call with one of them as a keyword,
+    such as ``frame.assign(passed=...)``.  The check cannot tell which family a dynamic mask
+    writes (L9), so it reports the write and nothing more.
+
+    Parameters
+    ----------
+    source : str
+        A module's source.
+
+    Returns
+    -------
+    list of int
+        The line numbers, sorted.
+    """
+    lines: set[int] = set()
+    for node in ast.walk(ast.parse(source)):
+        targets: list[ast.expr] = []
+        if isinstance(node, ast.Assign):
+            targets = list(node.targets)
+        elif isinstance(node, ast.AugAssign | ast.AnnAssign):
+            targets = [node.target]
+        for target in targets:
+            for sub in ast.walk(target):
+                if isinstance(sub, ast.Subscript) and any(
+                    isinstance(leaf, ast.Constant) and leaf.value in VERDICT_COLUMNS
+                    for leaf in ast.walk(sub.slice)
+                ):
+                    lines.add(target.lineno)
+        if isinstance(node, ast.Call) and any(
+            keyword.arg in VERDICT_COLUMNS for keyword in node.keywords
+        ):
+            lines.add(node.lineno)
+    return sorted(lines)
+
+
+def _imported(source: str) -> list[str]:
+    out: list[str] = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            out.append(node.module)
+            out.extend(f"{node.module}.{alias.name}" for alias in node.names)
+        elif isinstance(node, ast.Import):
+            out.extend(alias.name for alias in node.names)
+    return [name for name in out if name.startswith("tests.studies.")]
+
+
+def _module_source(name: str) -> str | None:
+    try:
+        spec = importlib.util.find_spec(name)
+    except ModuleNotFoundError:
+        # ``from package.module import name`` lists ``package.module.name``, which is an
+        # attribute rather than a module.
+        return None
+    if spec is None or spec.origin is None or not spec.origin.endswith(".py"):
+        return None
+    return Path(spec.origin).read_text()
+
+
+def verdict_writers(
+    name: str, *, source: Callable[[str], str | None] = _module_source
+) -> list[str]:
+    """The modules of ``name``'s ``tests.studies`` imports, itself included, that write a verdict.
+
+    The shared verdict functions of :data:`SHARED_PACKAGE` are left out: their families
+    resolve to the shared rules.  A helper that writes a verdict for its importer is the
+    importer's write, so the importer has to declare the rule.
+
+    Parameters
+    ----------
+    name : str
+        A property module's import name.
+    source : Callable
+        The source of a module name, or ``None`` when it is no Python module.
+
+    Returns
+    -------
+    list of str
+        The writing modules, sorted.
+    """
+    seen: set[str] = set()
+    stack = [name]
+    out: list[str] = []
+    while stack:
+        current = stack.pop()
+        if current in seen or current.startswith(SHARED_PACKAGE):
+            continue
+        seen.add(current)
+        text = source(current)
+        if text is None:
+            continue
+        if verdict_writes(text):
+            out.append(current)
+        stack.extend(_imported(text))
+    return sorted(out)
+
+
+def undeclared_verdict_writers(
+    module: Any, *, source: Callable[[str], str | None] = _module_source
+) -> list[str]:
+    """The verdict writers of a module that declares no ``PROPERTY_RULES`` (rev 3 section 8).
+
+    Parameters
+    ----------
+    module : module
+        A property module.
+    source : Callable
+        As for :func:`verdict_writers`.
+
+    Returns
+    -------
+    list of str
+        Empty when the module declares its rules or nothing it imports writes a verdict.
+    """
+    if hasattr(module, "PROPERTY_RULES"):
+        return []
+    return verdict_writers(module.__name__, source=source)

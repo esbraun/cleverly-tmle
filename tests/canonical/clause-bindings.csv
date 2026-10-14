@@ -1,0 +1,162 @@
+property,clause,subject,perturbation
+bootstrap_coverage,coverage floor,known-treatment-mechanism,se_low
+cap_necessity,bias discriminated,shift-policies,pair_collapse
+cap_necessity,bias equivalent,shift-policies,bias
+cap_necessity,least displacement over labels,shift-policies,control_concentrated
+categorical_probability_necessity,bias discriminated,canonical-categorical-ltmle,pair_collapse
+categorical_probability_necessity,bias equivalent,canonical-categorical-ltmle,bias
+categorical_probability_necessity,least displacement over labels,canonical-categorical-ltmle,control_concentrated
+cde_robustness,bias discriminated,cde-tmle,pair_collapse
+cde_robustness,bias equivalent,cde-tmle,bias
+cde_robustness,se ratio in union band,cde-tmle,se/0.05
+clustered_calibration,coverage in calibration band,tests.studies.longitudinal_sdr_properties,shift/0.7
+clustered_calibration,se ratio below band,tests.studies.longitudinal_sdr_properties,se_high
+clustered_calibration,se ratio in calibration band,tests.studies.longitudinal_sdr_properties,se/0.05
+clustered_inference,control se ratio under its ceiling,clustered-tmle,se_high
+clustered_inference,coverage gain,clustered-tmle,coverage/0.94
+clustered_inference,coverage in calibration band,clustered-tmle,bias
+clustered_inference,se ratio in calibration band,clustered-tmle,se/0.05
+competing_risk_recursion_necessity,bias discriminated,canonical-ltmle-competing-crossfit,pair_collapse
+competing_risk_recursion_necessity,bias equivalent,canonical-ltmle-competing-crossfit,bias
+competing_risk_recursion_necessity,least displacement over labels,canonical-ltmle-competing-crossfit,control_concentrated
+corrected_mar_inference,bias clears the both-wrong floor,composite-missing-drtmle,mixed/3
+corrected_mar_inference,bias discriminated,mar-drtmle,pair_collapse
+corrected_mar_inference,bias equivalent,mar-drtmle,bias
+corrected_mar_inference,coverage floor,mar-drtmle,coverage/0.5
+corrected_mar_inference,se ratio in union band,mar-drtmle,se/0.05
+corrected_mar_inference,se ratio sanity,mar-drtmle,se_high
+correction_necessity,closed score below the initial,mar-drtmle,pair_collapse
+correction_necessity,initial score above its floor,mar-drtmle,pair_collapse
+crossfit_overfitting,control se ratio under its ceiling,stacked-mar-natural-course-cvtmle,se_high
+crossfit_overfitting,coverage gain,stacked-mar-natural-course-cvtmle,coverage/0.5
+crossfit_overfitting,cross-fit se ratio honest,stacked-mar-natural-course-cvtmle,se_low
+density_necessity,bias discriminated,stochastic-regimes,pair_collapse
+density_necessity,bias equivalent,stochastic-regimes,bias
+density_necessity,least displacement over labels,stochastic-regimes,control_concentrated
+double_robust_contraction,bias contracts,canonical-drtmle,contract
+double_robust_contraction,bias does not contract,canonical-drtmle,bias
+double_robust_contraction,rung coverage below floor,canonical-drtmle,pair_collapse
+double_robust_contraction,rung coverage floor,canonical-drtmle,none
+double_robustness,bias discriminated,stacked-mar-natural-course-cvtmle,pair_collapse
+double_robustness,bias equivalent,stacked-mar-natural-course-cvtmle,bias
+double_robustness,se ratio in union band,stacked-mar-natural-course-cvtmle,se/0.05
+estimand_weighting,coverage floor,clustered-unequal-cvtmle,se_low
+estimand_weighting,coverage under the control ceiling,clustered-unequal-cvtmle,pair_collapse
+few_cluster_reference,bias equivalent,few-cluster-cross-fitted-ltmle,bias
+few_cluster_reference,coverage floor,few-cluster-cross-fitted-ltmle,se_low
+few_cluster_reference,iid se ratio under its ceiling,few-cluster-cross-fitted-ltmle,se_high
+fold_locality,bias discriminated,learned-rule-cvtmle,pair_collapse
+fold_locality,bias equivalent,learned-rule-cvtmle,bias
+fold_locality,least displacement over labels,learned-rule-cvtmle,control_concentrated
+generated_design,coverage in calibration band,canonical-ctmle-oat,bias
+generated_design,se ratio in calibration band,canonical-multi-arm-ctmle-oat,none
+interval_calibration,coverage in calibration band,stacked-mar-natural-course-cvtmle,coverage/0.5
+interval_calibration,efficiency above band,point-treatment-survival-policies,pair_collapse
+interval_calibration,efficiency empirical in efficiency band,canonical-stratified-drtmle,coverage/0.94
+interval_calibration,efficiency reported in efficiency band,point-treatment-survival-policies,two_point/1.06/1.05
+interval_calibration,failed bootstrap share under the cap,full-refit-bootstrap-and-derived-contrasts,extra|bootstrap_failed|interval_calibration|boot_ate_end_of_study__correctly_specified|shift
+interval_calibration,noise se ratio below band,learned-weighted-tmle,se_high
+interval_calibration,se ratio above band,mar-attributable-tmle,pair_collapse
+interval_calibration,se ratio below band,stacked-mar-natural-course-cvtmle,se_high
+interval_calibration,se ratio in calibration band,stacked-mar-natural-course-cvtmle,se/0.05
+inverse_necessity,bias discriminated,policy-point-mtp,pair_collapse
+inverse_necessity,bias equivalent,policy-point-mtp,bias
+inverse_necessity,least displacement over labels,policy-point-mtp,positive_diffuse
+known_mechanism_accuracy,bias discriminated,known-treatment-mechanism,pair_collapse
+known_mechanism_accuracy,bias equivalent,known-node-mechanisms,bias
+known_mechanism_accuracy,coverage floor,known-node-mechanisms,coverage/0.5
+known_mechanism_accuracy,se ratio in band,known-node-mechanisms,se_high
+learner_weight_necessity,alternative bias equivalent,learned-weighted-tmle,bias
+learner_weight_necessity,bias discriminated,weighted-ltmle-crossfit,control_diffuse
+learner_weight_necessity,bias equivalent,learned-weighted-tmle,bias
+learner_weight_necessity,least displacement over labels,learned-weighted-tmle,positive_diffuse
+mar_robustness,bias discriminated,mar-tmle,pair_collapse
+mar_robustness,bias equivalent,mar-tmle,bias
+mar_robustness,se ratio in union band,mar-tmle,se/0.05
+mechanism_requirement,bias discriminated,incremental-interventions,pair_collapse
+mechanism_requirement,bias equivalent,incremental-interventions,bias
+mechanism_term_necessity,control below calibration band,tests.studies.longitudinal_incremental_properties,none
+mechanism_term_necessity,full curve in efficiency band,tests.studies.longitudinal_incremental_properties,se_low
+missingness_necessity,bias discriminated,mar-natural-course-tmle,bias
+missingness_necessity,bias equivalent,mar-natural-course-tmle,bias
+missingness_necessity,least displacement over labels,mar-natural-course-tmle,control_concentrated
+natural_course_identity,sup-norm identity,shift-policies,affine
+one_wrong_inference,bias beyond margin on the predicted side,drtmle-one-wrong,bias
+one_wrong_inference,bias equivalent,drtmle-one-wrong,bias
+one_wrong_inference,coverage floor,drtmle-one-wrong,affine
+one_wrong_inference,se ratio above calibration band,drtmle-one-wrong,se/0.05
+one_wrong_inference,se ratio in union band,drtmle-one-wrong,contract
+one_wrong_inference,se ratio sanity,drtmle-one-wrong,se_high
+one_wrong_inference,standardized bias grows,drtmle-one-wrong,pair_collapse
+ordinary_targeting,bias equivalent,composite-missing-drtmle,bias
+ordinary_targeting,coverage floor,composite-missing-drtmle,affine
+ordinary_targeting,se ratio in band,composite-missing-drtmle,se_high
+policy_necessity,bias discriminated,stochastic-categorical-ltmle,pair_collapse
+policy_necessity,bias equivalent,stochastic-categorical-ltmle,bias
+policy_necessity,least displacement over labels,stochastic-categorical-ltmle,control_concentrated
+power,rejection floor,canonical-multi-arm-tmle,rejection/0.01
+projection_necessity,bias discriminated,longitudinal-msm,pair_collapse
+projection_necessity,bias equivalent,longitudinal-msm,bias
+projection_necessity,least displacement over labels,longitudinal-msm,control_concentrated
+randomizer_projection,bias equivalent,stochastic-categorical-ltmle,bias
+randomizer_projection,projection spread ratio under one,stochastic-categorical-ltmle,dilate/even
+ratio_necessity,bias discriminated,shift-policies,pair_collapse
+ratio_necessity,bias equivalent,shift-policies,bias
+ratio_necessity,least displacement over labels,shift-policies,control_concentrated
+repeat_stability,repeat spread ratio under its boundary,repeated-crossfit-tmle,pair_collapse
+robustness_contract,bias discriminated,canonical-multi-arm-ctmle-oat,pair_collapse
+robustness_contract,bias equivalent,canonical-multi-arm-ctmle-oat,bias
+robustness_contract,se ratio in union band,canonical-multi-arm-ctmle-oat,se/0.05
+root_n_and_efficiency,bias equivalent,canonical-multi-arm-tmle,bias
+root_n_and_efficiency,coverage floor,canonical-multi-arm-tmle,coverage/0.5
+root_n_and_efficiency,coverage resolves,policy-point-mtp,coverage/0.925
+root_n_and_efficiency,se ratio sanity,canonical-multi-arm-tmle,se_high
+root_n_rate,slope in root-n band,canonical-multi-arm-tmle,contract
+rule_necessity,bias discriminated,deterministic-regimes,pair_collapse
+rule_necessity,bias equivalent,deterministic-regimes,bias
+rule_necessity,least displacement over labels,deterministic-regimes,control_concentrated
+selector_necessity,bias discriminated,canonical-ctmle-selector,pair_collapse
+selector_necessity,bias equivalent,canonical-ctmle-selector,none
+selector_necessity,largest path rmse ratio under its ceiling,canonical-multi-arm-ctmle-selector,control_concentrated
+selector_necessity,rmse ratio under its ceiling,canonical-ctmle-selector,control_concentrated
+sequential_double_robustness,P_A large-size bias bound under the small,tests.studies.longitudinal_sdr_properties,contract
+sequential_double_robustness,P_A large-size bias bound under the tolerance,tests.studies.longitudinal_sdr_properties,shift/1
+sequential_double_robustness,P_A large-size se ratio in union band,tests.studies.longitudinal_sdr_properties,se/0.05
+sequential_double_robustness,P_B large-size bias bound under the small,tests.studies.longitudinal_sdr_properties,contract
+sequential_double_robustness,P_B large-size bias bound under the tolerance,tests.studies.longitudinal_sdr_properties,shift/1
+sequential_double_robustness,P_B large-size se ratio in union band,tests.studies.longitudinal_sdr_properties,se/0.05
+sequential_double_robustness,P_D large-size bias bound under the small,tests.studies.longitudinal_sdr_properties,contract
+sequential_double_robustness,P_D large-size bias bound under the tolerance,tests.studies.longitudinal_sdr_properties,affine
+sequential_double_robustness,P_D large-size se ratio in union band,tests.studies.longitudinal_sdr_properties,se/0.05
+sequential_double_robustness,bias beyond the control floor,tests.studies.longitudinal_sdr_properties,pair_collapse
+sequential_double_robustness,bias equivalent,tests.studies.longitudinal_sdr_properties,bias
+sequential_double_robustness,coverage floor,tests.studies.longitudinal_sdr_properties,se_low
+sequential_double_robustness,se ratio in union band,tests.studies.longitudinal_sdr_properties,se/0.05
+simultaneous_coverage,joint coverage below nominal,canonical-multi-arm-tmle,se_low
+simultaneous_coverage,joint coverage in calibration band,canonical-multi-arm-tmle,se_low
+single_robustness,large-size bias bound under the small,tests.studies.longitudinal_incremental_properties,contract
+single_robustness,large-size bias bound under the tolerance,tests.studies.longitudinal_incremental_properties,positive_diffuse
+static_reduction,sup-norm identity,deterministic-regimes,affine
+stratum_targeting_necessity,bias discriminated,canonical-stratified-tmle,pair_collapse
+stratum_targeting_necessity,bias equivalent,canonical-stratified-tmle,bias
+stratum_targeting_necessity,least displacement over labels,canonical-stratified-tmle,control_concentrated
+survival_recursion_necessity,bias discriminated,canonical-ltmle-survival,pair_collapse
+survival_recursion_necessity,bias equivalent,canonical-ltmle-survival,bias
+survival_recursion_necessity,least displacement over labels,canonical-ltmle-survival,control_concentrated
+targeting_necessity,bias discriminated,weighted-tmle,pair_collapse
+targeting_necessity,bias equivalent,weighted-tmle,bias
+targeting_necessity,least displacement over labels,weighted-tmle,control_concentrated
+treatment_complete_case,bias discriminated,composite-missing-drtmle,affine
+treatment_score_necessity,control below calibration band,incremental-interventions,se_high
+treatment_score_necessity,full curve in efficiency band,incremental-interventions,se_low
+type_i_error,coverage floor,canonical-multi-arm-tmle,coverage/0.5
+type_i_error,rejection ceiling,canonical-multi-arm-tmle,rejection/0.1
+warning_rate,false warnings under the ceiling,calibration-slope-warning,se_low
+warning_rate,warnings above the ceiling,calibration-slope-warning,se_high
+weight_necessity,alternative bias equivalent,weighted-tmle,bias
+weight_necessity,bias discriminated,weighted-ltmle-crossfit,control_diffuse
+weight_necessity,bias equivalent,weighted-tmle,bias
+weight_necessity,least displacement over labels,weighted-tmle,positive_diffuse
+weighted_calibration,coverage in calibration band,tests.studies.longitudinal_sdr_properties,bias
+weighted_calibration,se ratio below band,tests.studies.longitudinal_sdr_properties,se_high
+weighted_calibration,se ratio in calibration band,tests.studies.longitudinal_sdr_properties,se/0.05

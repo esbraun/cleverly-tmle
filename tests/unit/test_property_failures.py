@@ -1929,6 +1929,92 @@ class TestDifferential:
         wrong = property_failures.differential(summary, context, module=module)
         assert set(wrong["property"]) == {"root_n_and_efficiency"}
 
+    @pytest.mark.parametrize("kind", property_failures.binding_perturbations())
+    def test_the_shared_rules_agree_on_each_graded_perturbation(self, kind: str) -> None:
+        assert self._disagreements(property_verdicts.FAMILY_RULES, kind).empty
+
+    def test_the_graded_perturbations_are_deterministic(self) -> None:
+        _, rows = self._ladder()
+        for kind in ("mixed/3", "mixed/4", "coverage/0.94", "two_point/1.06/1.05"):
+            pd.testing.assert_frame_equal(
+                property_failures.perturbed(rows, kind), property_failures.perturbed(rows, kind)
+            )
+
+    def test_coverage_and_rejection_reach_their_share(self) -> None:
+        _, rows = self._ladder()
+        covered = property_failures.perturbed(rows, "coverage/0.8")
+        shares = covered.groupby(["property", "cell"])["covered"].mean()
+        assert np.allclose(shares, 0.8, atol=1.0 / 380)
+        pd.testing.assert_series_equal(covered["rejected"], rows["rejected"])
+        rejected = property_failures.perturbed(rows, "rejection/0.1")
+        shares = rejected.groupby(["property", "cell"])["rejected"].mean()
+        assert np.allclose(shares, 0.1, atol=1.0 / 380)
+
+    def test_an_extra_column_is_scaled_and_shifted_in_one_cell(self) -> None:
+        _, rows = self._ladder()
+        rows = rows.assign(bootstrap_failed=0)
+        kinds = property_failures.extra_perturbations(rows)
+        cells = rows.groupby(["property", "cell"]).ngroups
+        assert len(kinds) == 2 * cells
+        shifted = property_failures.perturbed(rows, kinds[1])
+        _, column, family, cell, how = kinds[1].split("|")
+        assert (column, how) == ("bootstrap_failed", "shift")
+        inside = (shifted["property"] == family) & (shifted["cell"] == cell)
+        assert (shifted.loc[inside, column] == property_failures.EXTRA_SHIFT).all()
+        assert (shifted.loc[~inside, column] == 0).all()
+
+
+def test_p34_a_module_that_writes_a_verdict_without_rules_is_reported() -> None:
+    """P34: the verdict-writer check reports a module whose write no declared rule restates."""
+    sources = {
+        "tests.studies.toy_properties": (
+            "from tests.studies import toy_helper\n"
+            "def summarize_properties(summary):\n"
+            "    summary.loc[summary['role'] == 'positive', 'passed'] = True\n"
+            "    return summary\n"
+        ),
+        "tests.studies.toy_helper": "def helper(frame):\n    return frame.assign(property_passed=1)\n",
+        "tests.studies.toy_clean": "def summarize_properties(summary):\n    return summary\n",
+    }
+    writes = property_failures.verdict_writes(sources["tests.studies.toy_properties"])
+    assert writes == [3]
+    undeclared = SimpleNamespace(__name__="tests.studies.toy_properties")
+    found = property_failures.undeclared_verdict_writers(undeclared, source=sources.get)
+    assert found == ["tests.studies.toy_helper", "tests.studies.toy_properties"]
+    declared = SimpleNamespace(__name__="tests.studies.toy_properties", PROPERTY_RULES=())
+    assert property_failures.undeclared_verdict_writers(declared, source=sources.get) == []
+    clean = SimpleNamespace(__name__="tests.studies.toy_clean")
+    assert property_failures.undeclared_verdict_writers(clean, source=sources.get) == []
+
+
+def test_p35_a_clause_no_perturbation_moves_is_reported_unbound() -> None:
+    """P35: a clause that holds on every perturbation decides nothing, so it is unbound."""
+    control = _p6_rate(lose=False)
+    rule = _rule("root_n_and_efficiency")
+    inert = property_failures.proportion_clause(
+        "coverage at least zero",
+        statistic="S2",
+        judge=property_failures.floor_judge(lambda ctx: 0.0),
+        applies=property_failures.roles("positive"),
+    )
+    rules = tuple(
+        dataclasses.replace(shared, clauses=(*shared.clauses, inert)) if shared is rule else shared
+        for shared in property_verdicts.FAMILY_RULES
+    )
+    used: set[tuple[str, str]] = set()
+    decisive: set[tuple[str, str]] = set()
+    for kind in (*property_failures.PERTURBATIONS, *property_failures.binding_perturbations()):
+        moved = property_failures.perturbed(control.rows, kind, alpha=control.study.margins.alpha)
+        summary = _shared(moved, control.study)
+        context = property_failures.Context(control.study, moved, summary)
+        applying, deciding = property_failures.clause_binding(summary, context, rules=rules)
+        used |= applying
+        decisive |= deciding
+    unbound = property_failures.unbound(used, decisive)
+    assert ("root_n_and_efficiency", "coverage at least zero") in unbound
+    # The mutation control: the real floor the inert clause sits beside is bound.
+    assert ("root_n_and_efficiency", "coverage floor") in decisive
+
 
 # ---- what each rev 3 control shows beyond its leg ------------------------------------------
 
