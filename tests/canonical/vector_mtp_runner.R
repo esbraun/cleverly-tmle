@@ -1,6 +1,7 @@
 suppressPackageStartupMessages(library(lmtp))
 future::plan(future::sequential)
 source("/fixture/lmtp_vector_adapter.R")
+source("/fixture/vector_mtp_logratio.R")
 source("/fixture/study_harness.R")
 options(digits = 17)
 
@@ -9,19 +10,30 @@ paths <- study_arguments(
 )
 truths <- read.csv(paths$truths, stringsAsFactors = FALSE, check.names = FALSE)
 z <- qnorm(0.975)
-reference <- "natural"
+reference <- "natural course"
 
 # The plans of each scenario, as cleverly labels and the column slugs of the shifted
 # components and ratios.  Transcribed from tests/studies/canonical_vector_mtp.py; a gate test
 # reads these vectors back.
 plans <- list(
-  point_vector_mixed = c(natural = "natural", "dose up" = "dose_up", "flag scaled" = "flag_scaled"),
-  point_vector_categorical = c(natural = "natural", "a2 off" = "a2_off", "a1 on" = "a1_on"),
-  longitudinal_vector_mixed = c(
-    natural = "natural", "dose up" = "dose_up", "flag scaled" = "flag_scaled"
+  point_vector_mixed = c(
+    "natural course" = "natural_course", "dose up" = "dose_up", "flag scaled" = "flag_scaled"
   ),
-  longitudinal_vector_ordered_classifier = c(natural = "natural", ordered = "ordered", full = "full")
+  point_vector_categorical = c(
+    "natural course" = "natural_course", "a2 off" = "a2_off", "a1 on" = "a1_on"
+  ),
+  longitudinal_vector_mixed = c(
+    "natural course" = "natural_course", "dose up" = "dose_up", "flag scaled" = "flag_scaled"
+  ),
+  longitudinal_vector_ordered_classifier = c(
+    "natural course" = "natural_course", ordered = "ordered", full = "full"
+  )
 )
+# The unsupplied pair fits each plan with the reference in its own fit, each with the
+# classifier on that plan's log ratio (vector_mtp_logratio.R).  The reference's mean is the
+# first plan's fit, and each contrast reads its own fit's reference.  Transcribed from
+# tests/studies/canonical_vector_mtp.py:CLASSIFIER_PLANS; a gate test reads this vector back.
+classifier_plans <- c(ordered = "SL.logratio.ordered", full = "SL.logratio.full")
 kinds <- c(
   point_vector_mixed = "policy",
   point_vector_categorical = "policy",
@@ -121,13 +133,8 @@ fit_scenario <- function(frame, scenario) {
   frame <- frame[order(frame$row), ]
   labels <- plans[[scenario]]
   design <- designs[[scenario]]
-  fitter <- if (scenario == "longitudinal_vector_ordered_classifier") {
-    lmtp_vector_classifier_tmle
-  } else {
-    lmtp_vector_tmle
-  }
-  fits <- lapply(names(labels), function(label) {
-    fitter(
+  fit_plan <- function(label, learners_trt = NULL) {
+    arguments <- list(
       frame,
       labels[[label]],
       trt = design$trt,
@@ -136,8 +143,26 @@ fit_scenario <- function(frame, scenario) {
       time_vary = design$time_vary,
       learners_outcome = design$learner
     )
-  })
-  names(fits) <- names(labels)
+    if (is.null(learners_trt)) return(do.call(lmtp_vector_tmle, arguments))
+    do.call(lmtp_vector_classifier_tmle, c(arguments, list(learners_trt = learners_trt)))
+  }
+  if (scenario == "longitudinal_vector_ordered_classifier") {
+    if (!setequal(names(classifier_plans), setdiff(names(labels), reference))) {
+      stop("classifier_plans does not name every plan of the unsupplied pair")
+    }
+    fits <- list()
+    references <- list()
+    for (label in names(classifier_plans)) {
+      references[[label]] <- fit_plan(reference, classifier_plans[[label]])
+      fits[[label]] <- fit_plan(label, classifier_plans[[label]])
+    }
+    fits[[reference]] <- references[[names(classifier_plans)[[1]]]]
+  } else {
+    fits <- lapply(names(labels), fit_plan)
+    names(fits) <- names(labels)
+    references <- lapply(setdiff(names(labels), reference), function(label) fits[[reference]])
+    names(references) <- setdiff(names(labels), reference)
+  }
   kind <- kinds[[scenario]]
   rows <- lapply(names(labels), function(label) {
     fit <- fits[[label]]
@@ -148,7 +173,7 @@ fit_scenario <- function(frame, scenario) {
   })
   for (label in setdiff(names(labels), reference)) {
     left <- fits[[label]]
-    right <- fits[[reference]]
+    right <- references[[label]]
     rows[[length(rows) + 1]] <- row_for(
       scenario,
       replicate,

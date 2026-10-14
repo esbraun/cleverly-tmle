@@ -220,6 +220,10 @@ ARMS: dict[str, str] = {
         "the ordered two-dose node contrast, its ratio a classifier on the true log ratio"
     ),
     "flag_scaled": "the two-node contrast of the flag-scaled plan against the natural course",
+    "ordered_full": "the ordered-law node contrast of the full plan against the natural course",
+    "ordered_crossed": (
+        "the ordered-law node contrast of the crossed plan against the natural course"
+    ),
     "policy_risk_h2": "the cumulative risk at t = 2 of a known policy on the survival law",
     "msm_policy": "the dose coefficient of a working model over low, mix and taper",
     "primary": "every primary estimand of the study",
@@ -837,6 +841,10 @@ REGIMENS: dict[str, str] = {
         "set the flag to one where the first dose is at least 3, scale the first dose where the "
         "flag is one, and move the second dose as in ordered"
     ),
+    "crossed": (
+        "set the flag to one where the first dose is at least 3, and multiply the first dose by "
+        "1.25, capped at 5.5, where the flag is zero"
+    ),
     "a2 off": "set the second component to zero where the first is one",
     "a1 on": "set the first component to one",
 }
@@ -849,7 +857,6 @@ REGIMENS: dict[str, str] = {
 #: ``ey_regimen`` and it is passed in rather than guessed.
 POINT_REGIMENS: dict[str, str] = {
     "never": "assign no treatment",
-    "natural": "leave every treatment component unchanged",
 }
 
 #: What the parameterised estimand names mean once the regimen is resolved.
@@ -968,6 +975,12 @@ PROPERTIES: dict[str, str] = {
     ),
     "preimage_necessity": (
         "every categorical preimage of a vector value enters the joint induced density"
+    ),
+    "jacobian_necessity": (
+        "the inverse derivative of each dose map enters the joint induced density"
+    ),
+    "image_necessity": (
+        "a categorical map in the joint induced density reads the natural doses of each preimage"
     ),
     "randomizer_projection": (
         "the integrated policy estimator is the projection of the estimator that records the "
@@ -1497,6 +1510,24 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("preimage_necessity", "preimage_cut_control"): (
         "the same fit keeps only the preimages in the value's own categorical cell",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("jacobian_necessity", "declared_jacobian"): (
+        "the joint density multiplies each preimage by the inverse derivatives of the dose maps, "
+        "with the outcome misspecified",
+        "bias interval inside the equivalence margin",
+    ),
+    ("jacobian_necessity", "jacobian_drop_control"): (
+        "the same fit drops the inverse derivatives",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("image_necessity", "declared_image"): (
+        "the joint density evaluates the flag map at each preimage's natural first dose, with "
+        "the outcome misspecified",
+        "bias interval inside the equivalence margin",
+    ),
+    ("image_necessity", "shifted_read_control"): (
+        "the same fit evaluates the flag map at the value's own first dose",
         "bias interval must fall entirely outside the margin",
     ),
     ("generated_design", "oracle_design"): (

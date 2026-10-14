@@ -12,6 +12,7 @@ REFERENCE = Reference(
     mount_runner=True,
     extra_files=(
         "lmtp_vector_adapter.R",
+        "vector_mtp_logratio.R",
         "lmtp_policy_adapter.R",
         "lmtp_crossfit_adapter.R",
         "study_harness.R",

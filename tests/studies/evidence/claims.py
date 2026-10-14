@@ -531,6 +531,8 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
     if set(record.property_cells) & {
         "cap_necessity",
         "density_necessity",
+        "image_necessity",
+        "jacobian_necessity",
         "ratio_necessity",
         "rule_necessity",
     }:
