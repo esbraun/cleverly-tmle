@@ -100,7 +100,7 @@ from tests.studies.evidence.simultaneous import joint_coverage_rows, joint_prope
 N_FOLDS = 5
 N = 16_000
 #: A calibration cell whose SE ratio and coverage equal their targets passes with probability
-#: 0.935 at 2,000 replications and 0.996 at 3,000.  Seven labels read the rule, so 3,000.
+#: 0.935 at 2,000 replications and 0.996 at 3,000.  Eight cells read the rule, so 3,000.
 REPLICATES = 3_000
 #: The cluster-robust arm reads the calibration rule, which cannot pass at 1,000 replications
 #: (the 99% intervals are wider than the bands).  ``tests/diagnostics/x19_sizing`` reads the

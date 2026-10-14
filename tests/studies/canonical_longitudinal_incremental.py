@@ -234,7 +234,7 @@ def result_rows(
 def paired_sample(frame: pd.DataFrame, result: Any, scenario: str, replicate: int) -> pd.DataFrame:
     """The replicate as the comparator reads it: the wide nodes, the row and its fold."""
     # The driver holds every replicate's sample until it writes the archive: 2,000 samples of
-    # 96,000 rows.  Compact types keep that near 5 GB rather than 19 GB.  Every column but ``Y``
+    # 96,000 rows.  Compact types keep that near 5 GB, and the concatenation peak near 9 GB.  Every column but ``Y``
     # is a binary node, and the CSV text R reads is the same number either way.
     sample = frame.loc[:, list(SAMPLE_COLUMNS)].astype(dict.fromkeys(SAMPLE_COLUMNS[:-1], np.int8))
     sample.insert(0, "row", np.arange(len(sample), dtype=np.int32))

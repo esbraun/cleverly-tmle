@@ -26,7 +26,7 @@ family                          cells, replications and size
 ``single_robustness``           linear (misspecified) regressions and the mechanism right at
                                 n = 48,000 and 96,000 (positive); the mechanism constant and the
                                 regressions right at n = 48,000 (no verdict); 1,000 each
-``targeting_necessity``         the n = 24,000 draws of ``single_robustness``: the one-step
+``targeting_necessity``         the n = 96,000 draws of ``single_robustness``: the one-step
                                 estimate, and the plug-in mean of the first-node regression
                                 (control)
 ==============================  ===============================================================
@@ -76,9 +76,9 @@ to 48,000 and 96,000, the pair passes with probability at least 0.95.
 design test computes the control's exact SD ratio, 0.78.  ``single_robustness``'s positive
 pair passes when both sizes pass the shared bias-equivalence rule (standardized bias inside
 0.25).  With a correct mechanism the remainder is a product of a fixed outcome error and a
-mechanism error that averages to zero, so its bias is second order.  A linear outcome
-regression keeps the mechanism term nonzero; a constant one would make it vanish and leave a
-weighting estimator.  Its diagnostic cell publishes its bias beside the exact-law limit of
+mechanism error that averages to zero, so its bias is second order.  The outcome regression
+is linear, so its plug-in misses the truth and the weighted residual terms must correct it.  A
+constant regression would leave a plug-in of exactly zero and a weighting estimator.  Its diagnostic cell publishes its bias beside the exact-law limit of
 :func:`~tests.studies.longitudinal_incremental_common.constant_mechanism_limit`.
 ``targeting_necessity`` reads the shared necessity rule at :data:`TARGETING_DISPLACEMENT`.
 

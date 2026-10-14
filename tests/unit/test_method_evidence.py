@@ -769,13 +769,7 @@ class TestPublishedVerdicts:
         single = published.loc[published["property"] == "single_robustness"]
         positive = single.loc[single["role"] == "positive"].sort_values("n")
         if not positive.empty:
-            tolerance = getattr(study.properties(), "ABSOLUTE_BIAS_TOLERANCE", None)
-            if tolerance is None:
-                # The rule of ``longitudinal-incremental``: bias equivalence at every size.
-                expected = bool(positive["bias_equivalent"].all())
-            else:
-                small, large = positive["absolute_bias_bound"].iloc[[0, -1]]
-                expected = bool(large < tolerance and large < small)
+            expected = bool(positive["bias_equivalent"].all())
             assert [bool(value) for value in positive["passed"]] == [expected] * len(positive), (
                 f"{study.slug}: a single_robustness row's verdict is not its declared rule"
             )

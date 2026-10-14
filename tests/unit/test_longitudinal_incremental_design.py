@@ -24,8 +24,8 @@ Every number here was fixed before any registered run.
   ``p0`` from the exact efficient influence functions: 0.811 for S1 and 0.695 for S2.
 * The mechanism-term control's exact SD ratio is 0.78, below the calibration band, and the
   probe reads the published control below it too.
-* The robustness fits use a linear outcome regression, so the mechanism term is nonzero and
-  the targeting control's plug-in sits away from the one-step estimate.
+* The robustness fits use a linear outcome regression.  Its exact plug-in limit misses the
+  truth, so the targeting control has a bias to show and the correction has work to do.
 * The S2 witnesses: the informative weight moves the truth by 5.5 standard errors and the
   first-node propensity by more than 0.05; the independent-unit SE of the clustered cell has
   exact ratio 0.60 and coverage 0.76; the complete-case limit sits 3.6 standard errors from
@@ -519,22 +519,64 @@ def test_the_single_robustness_pair_is_sized_at_its_declared_sizes() -> None:
     assert bias_pass_probability(projected(probed, 24_000)[0], 1_000) < PRIMARY_PASS
 
 
-def test_the_robustness_fits_exercise_the_mechanism_term() -> None:
+def linear_plug_in_limit(target: Any, delta: float) -> float:
+    """The population limit of the plug-in with linear regressions, by exact projection.
+
+    The recursion of :func:`tests.studies.longitudinal_incremental_common.plug_in` on the law
+    itself: at each node a probability-weighted least-squares fit on the history and the arm,
+    predicted at both arms and mixed by the tilted propensity.  Linear regression is
+    affine-equivariant, so the outcome scale does not change the limit.
+    """
+    names = [axis.name for axis in target.axes]
+    assert names == ["W", "A1", "L2", "A2", "L3", "A3"]
+    probs = np.asarray(target.probs, dtype=float)
+    cells = np.array(np.unravel_index(np.arange(probs.size), probs.shape), dtype=float).T
+    weight = probs.reshape(-1)
+    value = np.asarray(target.mu, dtype=float).reshape(-1)
+    for node in (3, 2, 1):
+        arm = 2 * node - 1
+        design = np.column_stack([np.ones(len(cells)), cells[:, : arm + 1]])
+        root = np.sqrt(weight)[:, None]
+        beta = np.linalg.lstsq(design * root, value * root[:, 0], rcond=None)[0]
+        predictions = []
+        for level in (0.0, 1.0):
+            counterfactual = design.copy()
+            counterfactual[:, -1] = level
+            predictions.append(counterfactual @ beta)
+        upper = probs.sum(axis=tuple(range(arm + 1, probs.ndim)))
+        propensity = np.take(upper, 1, axis=arm) / upper.sum(axis=arm)
+        pi = propensity[tuple(cells[:, i].astype(int) for i in range(arm))]
+        tilted = delta * pi / (delta * pi + 1.0 - pi)
+        value = tilted * predictions[1] + (1.0 - tilted) * predictions[0]
+    return float(np.sum(weight * value))
+
+
+def test_the_targeting_control_misses_the_truth_at_its_size() -> None:
     """The witness: a linear outcome regression leaves a plug-in that misses the truth.
 
     A constant regression makes every plan's regression the same mean, so the plug-in
-    contrast is exactly zero and the mechanism term vanishes.  The linear one is
-    misspecified, so the targeting control has a bias to show.  The probe reads the pair at
-    n = 24,000.  The plug-in's bias is a fixed misspecification, so its displacement in
-    standard deviations grows as :math:`\\sqrt n` to the declared size.
+    contrast is exactly zero.  The linear one is misspecified: its plug-in limit sits 0.0012
+    from the truth, and the one-step correction must remove that.  The control's
+    standardized bias at n = 96,000 is read from that limit alone; the probe's spread at
+    24,000 sets the scale, shrunk as :math:`1/\\sqrt n`.
     """
-    one_step = _requirement_probe(24_000, "targeting_necessity/contrast_x2__one_step")
+    limit = linear_plug_in_limit(law.LAW_A, 2.0) - linear_plug_in_limit(law.LAW_A, 1.0)
+    bias = limit - p1.CONTRAST_TRUTH
+    assert bias == pytest.approx(-0.0012058, abs=2e-7)
+    # The probe's plug-in error at 24,000 includes this limit and a finite-sample part.
     plug_in = _requirement_probe(24_000, "targeting_necessity/contrast_x2__plug_in")
-    assert plug_in.bias_se > 0.0
-    spread = one_step.bias_se * np.sqrt(one_step.replicates)
-    displacement = (abs(plug_in.bias - one_step.bias) - 2.0 * plug_in.bias_se) / spread
-    assert displacement >= p1.TARGETING_DISPLACEMENT
-    assert displacement * np.sqrt(p1.REQUIREMENT_SIZES[1] / 24_000) >= 3 * p1.TARGETING_DISPLACEMENT
+    assert plug_in.bias < bias < 0.0
+    size = p1.REQUIREMENT_SIZES[1]
+    spread = plug_in.bias_se * np.sqrt(plug_in.replicates) * np.sqrt(24_000 / size)
+    standardized = abs(bias) / spread
+    assert standardized - 1.0 / np.sqrt(p1.REQUIREMENT_REPLICATES) >= p1.TARGETING_DISPLACEMENT
+    # The control's 99% interval must lie wholly outside the equivalence margin.
+    margins = Margins()
+    replicates = p1.REQUIREMENT_REPLICATES
+    half = float(student.ppf(0.5 + margins.confidence_level / 2.0, replicates - 1))
+    deviation = 1.0 / np.sqrt(replicates)
+    room = margins.standardized_bias + half * deviation
+    assert float(norm.cdf((standardized - room) / deviation)) >= PRIMARY_PASS
 
 
 def test_the_power_cell_is_sized_on_the_exact_law() -> None:
