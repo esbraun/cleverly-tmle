@@ -1690,15 +1690,18 @@ class CausalData:
             assert self.treatment_components is not None
             values = self.treatment_components
         else:
-            values = np.column_stack(
-                [
-                    np.asarray([level[index] for level in self.treatment_levels], dtype=object)[
-                        np.asarray(self.treatment, dtype=np.int64)
-                    ]
-                    for index in range(len(self.component_names))
-                ]
-            )
-            return {name: values[:, index] for index, name in enumerate(self.component_names)}
+            # A row whose treatment is missing (``treatment_delta=``) holds ``NaN`` in every
+            # component, never a level indexed by a cast ``NaN``.
+            codes = np.asarray(self.treatment, dtype=float)
+            recorded = np.isfinite(codes)
+            out_a1: dict[str, Any] = {}
+            for index, name in enumerate(self.component_names):
+                table = np.empty(len(self.treatment_levels), dtype=object)
+                table[:] = [level[index] for level in self.treatment_levels]
+                column = np.full(codes.size, np.nan, dtype=object)
+                column[recorded] = table[codes[recorded].astype(np.int64)]
+                out_a1[name] = column
+            return out_a1
         out: dict[str, Any] = {}
         for index, (name, levels) in enumerate(
             zip(self.component_names, self.component_levels, strict=True)
@@ -1707,7 +1710,10 @@ class CausalData:
             if levels:
                 table = np.empty(len(levels), dtype=object)
                 table[:] = list(levels)
-                out[name] = table[column.astype(np.int64)]
+                labels = np.full(column.size, np.nan, dtype=object)
+                recorded = np.isfinite(column)
+                labels[recorded] = table[column[recorded].astype(np.int64)]
+                out[name] = labels
             else:
                 out[name] = column
         return out

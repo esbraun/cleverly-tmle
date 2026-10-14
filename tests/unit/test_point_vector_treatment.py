@@ -1083,3 +1083,27 @@ def test_the_data_fingerprint_reads_every_vector_component() -> None:
     assert data_fingerprint(scalar) == fingerprint_array(
         scalar.outcome, scalar.treatment, scalar.covariates
     )
+
+
+# ------------------------------------------------------------------ to_frame (review LOW-1)
+
+
+def test_to_frame_keeps_a_missing_tuple_missing() -> None:
+    """(a1) with ``treatment_delta=``: a missing row's components are ``NaN``.
+
+    The frame used to index the level table by ``NaN`` cast to ``int64`` and raised
+    ``IndexError``.
+    """
+    frame = law.mixed_frame()
+    frame["R"] = (np.arange(len(frame)) % 7 != 0).astype(float)
+    frame.loc[frame["R"] == 0.0, ["F", "D"]] = np.nan
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        data = CausalData.from_frame(frame, treatment_delta="R", **COLUMNS)
+    assert data.treatment_kind == "discrete" and data.has_missing_treatment
+    out = data.to_frame()
+    missing = frame["R"].to_numpy() == 0.0
+    for name in ("F", "D"):
+        column = pd.to_numeric(pd.Series(out[name]), errors="coerce").to_numpy(dtype=float)
+        assert np.all(np.isnan(column[missing])), name
+        np.testing.assert_array_equal(column[~missing], frame[name].to_numpy()[~missing])
