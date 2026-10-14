@@ -88,6 +88,12 @@ def _revisions() -> dict[tuple[str, str], str]:
 DETERMINISM = ROOT / "tests" / "canonical" / "harness_fixture" / "determinism.csv"
 
 
+def _witness_step(judgement: str) -> str:
+    """The determinism step a judgement's last ``Witness:`` names, ``a2`` by default."""
+    steps = re.findall(r"Witness: the `([^`]+)` rows", judgement)
+    return steps[-1] if steps else "a2"
+
+
 def test_every_rm39a2_judgement_has_its_determinism_witness() -> None:
     """A result-neutral claim about a stage edit names a run that showed it.
 
@@ -99,23 +105,30 @@ def test_every_rm39a2_judgement_has_its_determinism_witness() -> None:
     witnesses = pd.read_csv(DETERMINISM, dtype=str, keep_default_na=False)
     if "source_sha256" not in witnesses.columns:
         witnesses = witnesses.assign(source="", source_sha256="")
-    a2 = [row for row in witnesses.itertuples(index=False) if row.step == "a2"]
-    witnessed = {(row.source, row.source_sha256) for row in a2 if row.verdict == "identical"}
-    refuted = {(row.source, row.source_sha256) for row in a2 if row.verdict != "identical"}
+    # A judgement names its step ("Witness: the `b1` rows"); RM39a2's rows are step a2.
+    staged = [row for row in witnesses.itertuples(index=False) if row.step in {"a2", "b1"}]
+    witnessed = {
+        (row.step, row.source, row.source_sha256) for row in staged if row.verdict == "identical"
+    }
+    refuted = {
+        (row.step, row.source, row.source_sha256) for row in staged if row.verdict != "identical"
+    }
     claimed = [
-        (row["source"].strip("`"), row["current"].strip("`"))
+        (_witness_step(row["judgement"]), row["source"].strip("`"), row["current"].strip("`"))
         for row in pipe_table(REVISIONS, REVISION_COLUMNS)
         if "Witness:" in row["judgement"]
     ]
     contradicted = [
-        f"{source} at {sha[:12]}" for source, sha in claimed if (source, sha) in refuted
+        f"{source} at {sha[:12]}" for step, source, sha in claimed if (step, source, sha) in refuted
     ]
     assert contradicted == [], (
         f"a2 rows in {DETERMINISM.name} show these result-neutral sources change a result: "
         f"{contradicted}"
     )
     missing = [
-        f"{source} at {sha[:12]}" for source, sha in claimed if (source, sha) not in witnessed
+        f"{source} at {sha[:12]} ({step})"
+        for step, source, sha in claimed
+        if (step, source, sha) not in witnessed
     ]
     assert missing == [], (
         f"{len(missing)} RM39a2 judgements have no identical a2 row in {DETERMINISM.name}; run "
@@ -2093,6 +2106,7 @@ _FAMILY = {
     "mean_oracle_se": "harness",
     # ``failures.csv``: zero for a study whose comparator never failed.
     "reference_failures": "failures",
+    "subject_failures": "failures",
     "failure_rate": "failures",
     "mechanism_": "fit_diagnostics",
 }

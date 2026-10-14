@@ -28,7 +28,8 @@ def test_each_primary_scenario_selects_its_declared_level(
         return original(frame)
 
     monkeypatch.setattr(primary, "fit_cleverly", counted)
-    samples, _, rows = primary.draw_and_fit(replicates=1, n=500, n_jobs=1)
+    phase = primary.draw_and_fit(replicates=1, n=500, n_jobs=1)
+    samples, rows = phase.samples, phase.rows
     assert calls == 1
     effects = rows.loc[rows["estimand"] == "ate"].set_index("scenario")
     assert effects.loc[primary.SCENARIOS[0], "truth"] == pytest.approx(-0.1875)
@@ -41,7 +42,7 @@ def test_each_primary_scenario_selects_its_declared_level(
 
 
 def test_the_r_matrix_columns_follow_tmle_order_and_duplicate_mar_observation() -> None:
-    sample = primary.draw_and_fit(replicates=1, n=200, n_jobs=1)[0]
+    sample = primary.draw_and_fit(replicates=1, n=200, n_jobs=1).samples
     law = cde.DiscreteLaw()
     w = np.rint(sample["W"].to_numpy()).astype(int)
     assert sample[["pzn_a0", "pzn_a1"]].to_numpy() == pytest.approx(law.qz[w])

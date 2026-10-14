@@ -182,6 +182,13 @@ def reproduces_committed(compared: pd.DataFrame) -> tuple[bool, float, int]:
 # --------------------------------------------------------------------- both implementations
 
 
+def _crossfit_replicate(
+    record: Any, key: tuple[str, int, int]
+) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Draw and fit one cross-fitted primary replicate of ``record``."""
+    return primary.replicate(record, key, primary._draw(record, key), cross_fit=True)
+
+
 def draw_both(record: Any, replicates: int, jobs: int) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Fit ``replicates`` primary draws of ``record`` with both implementations.
 
@@ -200,9 +207,9 @@ def draw_both(record: Any, replicates: int, jobs: int) -> tuple[pd.DataFrame, pd
             for start in range(0, replicates, BATCH):
                 stop = min(start + BATCH, replicates)
                 outcomes = map_parallel(
-                    primary._replicate_dispatch,
+                    _crossfit_replicate,
                     [
-                        (record, (primary.SCENARIO, index, primary.PRIMARY_N), True)
+                        (record, (primary.SCENARIO, index, primary.PRIMARY_N))
                         for index in range(start, stop)
                     ],
                     n_jobs=jobs,
