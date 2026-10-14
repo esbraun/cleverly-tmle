@@ -136,8 +136,15 @@ from ..fluctuation.iterative import (
     solve_fluctuation,
 )
 from ..fluctuation.submodel import Submodel
+from ..interventions.joint_density import (
+    JointBranch,
+    JointDensityParts,
+    JointEvaluation,
+    NodeLayout,
+    evaluate_joint_density,
+    warn_unsupported_values,
+)
 from ..interventions.policy import (
-    VECTOR_DENSITY_ROW,
     JointPolicy,
     induced_probabilities,
     joint_branches,
@@ -291,9 +298,12 @@ class Mechanism:
     #: categorical node, and :math:`r_t = g^d_t / g_t` from the out-of-fold density or
     #: classifier at a continuous one.  Empty without a policy node.
     policy_numerators: dict[str, dict[int, FloatArray]] = field(default_factory=dict)
-    #: The out-of-fold conditional density of each continuous node, by node counted from
-    #: one, on the density route.  Empty without a continuous node.
-    densities: dict[int, ConditionalDensity] = field(default_factory=dict)
+    #: The out-of-fold conditional density of each continuous component on the density
+    #: route, keyed by ``(node counted from one, component column)``.  A continuous node
+    #: has one key, its treatment column; a mixed node has one per dose, each the density of
+    #: the dose given the history, the categorical components and the earlier doses.  Empty
+    #: without a continuous component.
+    densities: dict[tuple[int, str], ConditionalDensity] = field(default_factory=dict)
     #: The censoring nodes, counted from one, at which no eligible unit was censored.  The
     #: eligible sample is the rows at risk before the node, with positive weight.  Such a
     #: node's factor is exactly one at every plan, and no learner is fitted there
@@ -817,7 +827,7 @@ def fit_mechanism(
     numerators: dict[str, dict[int, FloatArray]] = {
         plan.label: {} for plan in plans if plan.has_mtp
     }
-    densities: dict[int, ConditionalDensity] = {}
+    densities: dict[tuple[int, str], ConditionalDensity] = {}
     no_censoring_nodes: list[int] = []
     no_censoring_folds: dict[int, tuple[int, ...]] = {}
     known = data.known_mechanisms
@@ -848,6 +858,33 @@ def fit_mechanism(
             _mtp_numerators(
                 data, plans, time, at_risk, {plan.label: declared for plan in plans}, numerators
             )
+        elif data.node_kind(time) == "mixed" and ratio == "density":
+            with phase("mechanism_fit"):
+                parts = _mixed_node_density(
+                    data,
+                    plans,
+                    time,
+                    at_risk,
+                    numerators,
+                    treatment_learner=treatment_learner,
+                    folds=folds,
+                    density_bins=density_bins,
+                    n_jobs=n_jobs,
+                )
+            # The categorical factor goes into the bounded running denominator, as at a
+            # categorical node; the doses' factors sit in the numerator, unbounded.
+            observed_cell = parts.targets[:, 0]
+            rows = np.arange(data.n)
+            g_cell = np.where(
+                observed_cell >= 0,
+                parts.cell_probabilities[rows, np.maximum(observed_cell, 0)],
+                1.0,
+            )
+            treatment.append({plan.label: g_cell for plan in plans})
+            treatment_observed.append(parts.cell_probabilities)
+            treatment_diagnostics.append(parts.cell_diagnostics)
+            for name, component_density in parts.densities.items():
+                densities[(time, name)] = component_density
         elif data.node_kind(time) != "categorical":
             with phase("mechanism_fit"):
                 density = _continuous_node_ratios(
@@ -863,10 +900,11 @@ def fit_mechanism(
                     n_jobs=n_jobs,
                 )
             if density is not None:
-                densities[time] = density
-            # The density ratio is the whole treatment factor at a continuous or mixed node,
-            # carried in the numerator; the denominator's treatment factor is one there, so
-            # the bound applies to the censoring product and the categorical factors only.
+                densities[(time, data.treatment_names[time - 1])] = density
+            # The density ratio is the whole treatment factor at a continuous node, and at a
+            # mixed node on the classifier route, carried in the numerator; the
+            # denominator's treatment factor is one there, so the bound applies to the
+            # censoring product and the categorical factors only.
             treatment.append({plan.label: np.ones(data.n) for plan in plans})
             treatment_observed.append(np.zeros((data.n, 0)))
             treatment_diagnostics.append(())
@@ -1283,9 +1321,10 @@ def _continuous_node_ratios(
     train on it.  Every plan holds a modified treatment policy at a continuous node, since
     :func:`~cleverly.longitudinal.regimen.refuse_continuous_assignments` refuses the rest.
 
-    A mixed node, a vector with a continuous component, takes the classifier route only.
-    Its stacked design is :meth:`~cleverly.longitudinal.LongitudinalData.component_design`
-    of the observed components and of each branch's assigned components: every dose as
+    A mixed node, a vector with a continuous component, reaches this function on the
+    classifier route; :func:`_mixed_node_density` is its density route.  Its stacked
+    design is :meth:`~cleverly.longitudinal.LongitudinalData.component_design` of the
+    observed components and of each branch's assigned components: every dose as
     itself and every categorical component as its own indicators.  The odds of the label
     are then the ratio of the joint law the policy induces to the observed one, with
     respect to counting measure on the categorical cells times Lebesgue measure on the
@@ -1363,12 +1402,12 @@ def _mixed_node_ratios(
     """Each plan's ratio at a mixed node, by one stacked classifier per plan.
 
     The classifier reads :meth:`~cleverly.longitudinal.LongitudinalData.component_design`
-    beside the history, so it sees every component of the node.  The fit refuses the density
-    route at a mixed node before any learner; the check here keeps a direct caller from
-    reaching a density of one column.
+    beside the history, so it sees every component of the node.  The density route is
+    :func:`_mixed_node_density`, which :func:`fit_mechanism` calls instead; the check here
+    keeps a direct caller from reaching a density of one column.
     """
     if ratio != "classifier":
-        raise CapabilityError(mixed_density_refusal(data.treatment_names[time - 1]))
+        raise ValueError("the density route at a mixed node is _mixed_node_density")
     history = data.history_design(time)
     observed = data.component_design(time)
     for plan in plans:
@@ -1395,14 +1434,78 @@ def _mixed_node_ratios(
         numerators[plan.label][time] = np.where(at_risk, numerator, 0.0)
 
 
-def mixed_density_refusal(node: str) -> str:
-    """The refusal of the density route at a mixed node, which names the remedy first."""
-    return (
-        f"node {node!r} is a vector with a continuous component. Pass ratio='classifier': its "
-        "policy ratio is estimated by classification (Díaz et al. 2023, Section 5.4). The "
-        "density route for vector nodes, a post-beta roadmap row, is docs/roadmap.md "
-        f"{VECTOR_DENSITY_ROW}"
+def _mixed_node_density(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    time: int,
+    at_risk: BoolArray,
+    numerators: dict[str, dict[int, FloatArray]],
+    *,
+    treatment_learner: Learner,
+    folds: Folds,
+    density_bins: int | None,
+    n_jobs: int,
+) -> JointDensityParts:
+    r"""A mixed node's law by the chain rule, and each plan's numerator, on the density route.
+
+    The node's law factors as :math:`g_C(c \mid H_t) \prod_k g_k(d_k \mid d_{<k}, c, H_t)`
+    (:mod:`~cleverly.interventions.joint_density`).  The numerator of a plan is
+    :math:`g^d(C_t, D_t \mid H_t) / \prod_k g_k(D_t \mid \ldots)` at the observed value,
+    and :func:`fit_mechanism` puts :math:`g_C(C_t \mid H_t)` into the bounded running
+    denominator, as a categorical node does.  The cumulative weight is then
+    :math:`g^d / g` with the categorical factor bounded.  Each branch's assigned value is
+    also evaluated, for the positivity warning of :func:`warn_unsupported_values`.
+    """
+    components = data.node_components(time)
+    natural = np.nan_to_num(data.node_values(time), nan=0.0)
+    layout = NodeLayout(
+        components,
+        natural,
+        at_risk,
+        lambda extra: data.policy_frame(time, extra),
+        data.history_design(time),
+        f"node {data.treatment_names[time - 1]!r} at time {time}",
     )
+    branches: list[JointBranch] = []
+    owners: list[tuple[str, float, int]] = []
+    for plan in plans:
+        node = plan.regimen.plan[time - 1]  # type: ignore[union-attr]
+        assert isinstance(node, JointPolicy)
+        for probability, mapping in joint_branches(node):
+            owners.append((plan.label, probability, len(branches)))
+            branches.append(JointBranch(node.name, mapping, node.order))
+    targets = [target for plan in plans for target in (plan.carry_targets(time) or ())]
+    evaluations = [JointEvaluation(natural, tuple(range(len(branches))))] + [
+        JointEvaluation(np.asarray(target, dtype=float)) for target in targets
+    ]
+    parts = evaluate_joint_density(
+        layout,
+        branches,
+        evaluations,
+        learner=treatment_learner,
+        weights=data.weights,
+        folds=folds,
+        n_bins=density_bins,
+        groups=data.cluster,
+        n_jobs=n_jobs,
+    )
+    g_cell = parts.cell_probabilities
+    induced = np.einsum("ibk,ik->ib", parts.induced[:, 0], g_cell)
+    doses = parts.observed[:, 0]
+    safe = np.where(doses > 0.0, doses, 1.0)
+    for plan in plans:
+        numerator = np.zeros(data.n)
+        for label, probability, branch in owners:
+            if label == plan.label:
+                numerator = numerator + probability * induced[:, branch]
+        ratio = np.where(doses > 0.0, numerator / safe, 0.0)
+        numerators[plan.label][time] = np.where(at_risk, ratio, 0.0)
+    for (_, _, branch), target, index in zip(
+        owners, targets, range(1, len(targets) + 1), strict=True
+    ):
+        moved = at_risk & np.any(np.asarray(target) != natural, axis=1)
+        warn_unsupported_values(branches[branch].name, parts, index, moved, layout.where)
+    return parts
 
 
 def seed_carried(data: LongitudinalData, scaler: OutcomeScaler) -> FloatArray:

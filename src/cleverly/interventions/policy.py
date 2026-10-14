@@ -105,12 +105,12 @@ in this sense and not a tilt of the mechanism.
 
 from __future__ import annotations
 
+import contextlib
 import warnings
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from functools import partial
 from itertools import pairwise
-from typing import Any, Literal, TypeAlias, cast
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, cast
 
 import numpy as np
 
@@ -123,6 +123,9 @@ from ..exceptions import CapabilityError, DataError, PositivityWarning
 from ..learners.crossfit import Folds
 from ..learners.density import ConditionalDensity, warn_if_unresolved
 from .support import _intervention_loads, _InterventionLoadRow
+
+if TYPE_CHECKING:
+    from .joint_density import JointDensityParts
 
 __all__ = [
     "POLICY_TYPES",
@@ -638,26 +641,31 @@ class JointPolicy:
         )
 
     The rules below make the density ratio exist, and the fit checks them before any
-    learner (their Assumption 4, applied on each categorical cell):
+    learner (their Assumption 4, applied on each categorical cell and each value of the
+    earlier doses):
 
     ======================  =============================================================
     component               policy and what its frame ``h`` holds
     ======================  =============================================================
     continuous              :class:`Shift`, :class:`Scale`, :class:`Piecewise`, or a
                             :class:`ModifiedPolicy` with ``pieces``.  ``h`` holds the
-                            policy frame and the **natural** values of the node's
-                            categorical components, by component name.  It does not hold
-                            another continuous component, so a map reading one raises
-                            :class:`~cleverly.exceptions.DataError`
+                            policy frame, the **natural** values of the node's categorical
+                            components, and the natural values of the doses before it in
+                            ``order``, by component name
     categorical             a :class:`ModifiedPolicy` with ``apply``, or an arithmetic
                             policy on numeric labels.  ``h`` holds the policy frame and the
                             natural values of every other component of the node
     ======================  =============================================================
 
-    A continuous component's map that reads another dose (a triangular map) is valid in
-    theory, and this version refuses it as a scope limit.  A :class:`Randomizer` is
-    declared here, at the level of the joint policy, never inside a component, and a
-    :class:`RiskRatioTilt` is not a component.
+    A read of any other component of the node raises
+    :class:`~cleverly.exceptions.DataError`, ``h.get(...)`` included.  With these rules
+    the map of the doses is triangular for each categorical cell, so its Jacobian
+    determinant is the product of the declared derivatives.  A dose map that reads a later
+    dose is refused with the ``order`` that makes it triangular.  Maps that read each other
+    in a cycle are refused: a joint map that is not triangular has no checkable declaration
+    here, because a determinant checked on a grid does not establish that the map is
+    one-to-one.  A :class:`Randomizer` is declared here, at the level of the joint policy,
+    never inside a component, and a :class:`RiskRatioTilt` is not a component.
 
     Parameters
     ----------
@@ -671,17 +679,37 @@ class JointPolicy:
     policy_kind : {"known", "estimated"} or None
         The declaration that the policy is a known function.  A fit accepts ``"known"``
         only.
+    order : tuple of str or None
+        The order of the doses: the map of each dose reads the natural values of the doses
+        before it.  It lists every continuous component of the node.  A categorical
+        component may be listed and its position has no effect, since a categorical map
+        reads every natural value.  ``None`` takes the node's column order.
     """
 
     name: str
     components: Mapping[Any, Any]
     randomizer: Randomizer | None = None
     policy_kind: FunctionKind | None = None
+    order: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.name, str) or not self.name:
             raise DataError("a joint policy needs a non-empty name")
         _POLICY_DECLARATION.check(self.policy_kind)
+        if self.order is not None:
+            if isinstance(self.order, str):
+                raise DataError(
+                    f"policy {self.name!r}: order= is a tuple of component names; got the "
+                    f"string {self.order!r}"
+                )
+            order = tuple(self.order)
+            if not all(isinstance(item, str) and item for item in order):
+                raise DataError(
+                    f"policy {self.name!r}: order= holds component names; got {order!r}"
+                )
+            if len(set(order)) != len(order):
+                raise DataError(f"policy {self.name!r}: order= names a component twice: {order!r}")
+            object.__setattr__(self, "order", order)
         if self.randomizer is not None and not isinstance(self.randomizer, Randomizer):
             raise CapabilityError(
                 f"policy {self.name!r} draws a continuous randomizer. The estimator "
@@ -1661,7 +1689,9 @@ def joint_assignments(
     values = np.asarray(natural, dtype=float)
     out = []
     for probability, declared in joint_branches(policy):
-        assigned = _joint_branch(policy.name, declared, components, values, frame_with, rows, where)
+        assigned = _joint_branch(
+            policy.name, declared, components, values, frame_with, rows, where, policy.order
+        )
         out.append((probability, np.where(rows[:, None], assigned, 0.0)))
     return tuple(out)
 
@@ -1716,7 +1746,7 @@ def joint_discrete_assignments(
             for index, (component, value) in enumerate(zip(components, level, strict=True)):
                 natural[:, index] = float(component.levels.index(value))
             assigned = _joint_branch(
-                policy.name, declared, components, natural, frame_with, rows, where
+                policy.name, declared, components, natural, frame_with, rows, where, policy.order
             )
             for row in np.flatnonzero(rows):
                 pair = tuple(
@@ -1735,6 +1765,192 @@ def joint_discrete_assignments(
     return tuple(out)
 
 
+def dose_order(
+    name: str, order: Sequence[str] | None, components: Sequence[JointComponent], where: str
+) -> tuple[int, ...]:
+    """The column indices of a node's doses in the order a joint policy declares.
+
+    ``None`` takes the column order.  A declared order lists every dose and may list
+    categorical components, whose position has no effect.
+
+    Parameters
+    ----------
+    name : str
+        The policy's name, for the refusals.
+    order : sequence of str or None
+        The declared order.
+    components : sequence of JointComponent
+        The node's components, in column order.
+    where : str
+        The node, for the refusals.
+
+    Returns
+    -------
+    tuple of int
+        The doses' column indices, in the declared order.
+
+    Raises
+    ------
+    DataError
+        If the order names a column that is not a component of the node, or leaves out a
+        dose.
+    """
+    names = [component.name for component in components]
+    doses = [index for index, component in enumerate(components) if component.continuous]
+    if order is None:
+        return tuple(doses)
+    unknown = [item for item in order if item not in names]
+    if unknown:
+        raise DataError(
+            f"policy {name!r} at {where} declares order={tuple(order)!r}, which names "
+            f"{unknown}; the node's components are {names}"
+        )
+    missing = [names[index] for index in doses if names[index] not in order]
+    if missing:
+        raise DataError(
+            f"policy {name!r} at {where} declares order={tuple(order)!r}, which leaves out the "
+            f"dose(s) {missing}. The order lists every continuous component of the node"
+        )
+    return tuple(names.index(item) for item in order if components[names.index(item)].continuous)
+
+
+class ForbiddenRead(DataError):
+    """A component map read a component of its node that its frame does not hold.
+
+    Parameters
+    ----------
+    column : str
+        The component the map read.
+    """
+
+    def __init__(self, column: str) -> None:
+        super().__init__(f"a component map read {column!r}, which its frame does not hold")
+        self.column = column
+
+
+class GuardedFrame:
+    """A component map's frame, which refuses every read of a component it does not hold.
+
+    A map of a vector node may read the policy frame and some components of the node; the
+    rules are those of :class:`JointPolicy`.  The other components are not columns of the
+    frame, so a plain frame would return a default for ``h.get("D2", 0)``, and a map that
+    caught its own ``KeyError`` would read nothing.  This proxy raises
+    :class:`ForbiddenRead`, a :class:`~cleverly.exceptions.DataError`, on any access by name
+    to such a component: indexing, ``get``, membership and attribute access.  Every other
+    access goes to the frame.
+
+    Parameters
+    ----------
+    frame : object
+        The frame the map reads.
+    forbidden : frozenset of str
+        The components of the node that the map may not read.
+    """
+
+    def __init__(self, frame: Any, forbidden: frozenset[str]) -> None:
+        object.__setattr__(self, "_frame", frame)
+        object.__setattr__(self, "_forbidden", forbidden)
+
+    def _check(self, key: Any) -> None:
+        keys = list(key) if isinstance(key, (list, tuple)) else [key]
+        for item in keys:
+            if isinstance(item, str) and item in self._forbidden:
+                raise ForbiddenRead(item)
+
+    def __getitem__(self, key: Any) -> Any:
+        self._check(key)
+        return self._frame[key]
+
+    def get(self, key: Any, *default: Any) -> Any:
+        """Return a column, or the default, after the read check.
+
+        Parameters
+        ----------
+        key : object
+            The column.
+        *default : object
+            The default, as the frame's own ``get`` takes it.
+
+        Returns
+        -------
+        object
+            The frame's answer.
+        """
+        self._check(key)
+        return self._frame.get(key, *default)
+
+    def __contains__(self, key: Any) -> bool:
+        self._check(key)
+        return key in self._frame
+
+    def __getattr__(self, attribute: str) -> Any:
+        if attribute in self._forbidden:
+            raise ForbiddenRead(attribute)
+        return getattr(self._frame, attribute)
+
+    def __len__(self) -> int:
+        return len(self._frame)
+
+    def __iter__(self) -> Any:
+        return iter(self._frame)
+
+
+class _RecordingFrame(GuardedFrame):
+    """A guarded frame that also records which doses of the node a map reads."""
+
+    def __init__(self, frame: Any, forbidden: frozenset[str], doses: frozenset[str]) -> None:
+        super().__init__(frame, forbidden)
+        object.__setattr__(self, "_doses", doses)
+        object.__setattr__(self, "seen", set())
+
+    def _check(self, key: Any) -> None:
+        keys = list(key) if isinstance(key, (list, tuple)) else [key]
+        self.seen.update(item for item in keys if isinstance(item, str) and item in self._doses)
+        super()._check(key)
+
+    def __getattr__(self, attribute: str) -> Any:
+        if attribute in self._doses:
+            self.seen.add(attribute)
+        return super().__getattr__(attribute)
+
+
+def partial_frame(frame: Any) -> FrameSource:
+    """A frame source that returns ``frame``.
+
+    Parameters
+    ----------
+    frame : object
+        The frame.
+
+    Returns
+    -------
+    callable
+        Returns ``frame``.
+    """
+    return lambda: frame
+
+
+def guarded_source(frame_with: FrameWith, extra: Mapping[str, Any], forbidden: Any) -> FrameSource:
+    """The policy frame with ``extra`` appended, guarded, and built once on first use.
+
+    Parameters
+    ----------
+    frame_with : callable
+        Builds the node's policy frame with extra columns.
+    extra : mapping
+        The component columns the map may read.
+    forbidden : iterable of str
+        The components it may not read.
+
+    Returns
+    -------
+    callable
+        Returns the guarded frame.
+    """
+    blocked = frozenset(forbidden)
+    return lazy_frame(lambda: GuardedFrame(frame_with(extra), blocked))
+
+
 def _joint_branch(
     name: str,
     declared: Mapping[str, Any],
@@ -1743,8 +1959,14 @@ def _joint_branch(
     frame_with: FrameWith,
     rows: BoolArray,
     where: str,
+    order: Sequence[str] | None = None,
 ) -> FloatArray:
-    """One deterministic branch of a joint policy, applied component by component."""
+    """One deterministic branch of a joint policy, applied component by component.
+
+    The categorical maps read the natural value of every other component.  Each dose map
+    reads the natural categorical values and the natural doses before it in ``order``, so a
+    map never reads a value this function has assigned.
+    """
     names = [component.name for component in components]
     unknown = sorted(set(declared) - set(names))
     if unknown:
@@ -1752,83 +1974,178 @@ def _joint_branch(
             f"policy {name!r} at {where} declares component(s) {unknown}, and the node's "
             f"components are {names}"
         )
+    doses = dose_order(name, order, components, where)
     labels = {
         component.name: component.labels(natural[:, index])
         for index, component in enumerate(components)
     }
-    doses = tuple(component.name for component in components if component.continuous)
     assigned = np.array(natural, dtype=float, copy=True)
-    # Categorical components first, so a dose map that read an assigned label would read a
-    # value this loop has already written; the frame below hands it the natural one.
-    order = sorted(range(len(components)), key=lambda index: components[index].continuous)
-    for index in order:
-        component = components[index]
-        if component.name not in declared:
-            continue
-        here = f"component {component.name!r} of {where}"
-        if component.continuous:
-            # A dose map reads the natural categorical values only (the JointPolicy rules).
+    try:
+        for index, component in enumerate(components):
+            if component.continuous or component.name not in declared:
+                continue
+            here = f"component {component.name!r} of {where}"
             readable = {
-                other.name: labels[other.name] for other in components if not other.continuous
+                other.name: labels[other.name] for other in components if other is not component
             }
-            assigned[:, index] = _guarded(
-                name,
-                here,
-                doses,
-                partial(
-                    _continuous_component,
-                    declared[component.name],
-                    natural[:, index],
-                    _frame_source(frame_with, readable),
-                    rows,
-                    here,
-                ),
-            )
-            continue
-        readable = {
-            other.name: labels[other.name] for other in components if other is not component
-        }
-        assigned[:, index] = _guarded(
-            name,
-            here,
-            (),
-            partial(
-                _categorical_component,
+            assigned[:, index] = _categorical_component(
                 name,
                 declared[component.name],
                 component,
                 natural[:, index],
-                _frame_source(frame_with, readable),
+                guarded_source(frame_with, readable, (component.name,)),
                 rows,
                 here,
-            ),
+            )
+        for position, index in enumerate(doses):
+            component = components[index]
+            if component.name not in declared:
+                continue
+            here = f"component {component.name!r} of {where}"
+            earlier = [components[before].name for before in doses[:position]]
+            # The natural categorical values, then the natural doses before this one.
+            readable = {
+                other.name: labels[other.name] for other in components if not other.continuous
+            }
+            readable.update({other: labels[other] for other in earlier})
+            assigned[:, index] = _continuous_component(
+                declared[component.name],
+                natural[:, index],
+                guarded_source(frame_with, readable, set(names) - set(readable)),
+                rows,
+                here,
+            )
+    except ForbiddenRead as error:
+        refusal = read_order_refusal(
+            name, declared, components, natural, frame_with, rows, where, doses
         )
+        raise DataError(refusal) from error
     return assigned
 
 
-def _frame_source(frame_with: FrameWith, extra: Mapping[str, Any]) -> FrameSource:
-    """The policy frame with ``extra`` appended, built once on first use."""
-    return lazy_frame(lambda: frame_with(extra))
+def map_reads(
+    declared: Mapping[str, Any],
+    components: Sequence[JointComponent],
+    natural: FloatArray,
+    frame_with: FrameWith,
+    rows: BoolArray,
+) -> dict[str, set[str]]:
+    """Which other doses each dose map of one branch reads, by running it on a full frame.
+
+    Parameters
+    ----------
+    declared : mapping
+        The branch's component policies.
+    components : sequence of JointComponent
+        The node's components.
+    natural : ndarray
+        ``(n, d)`` natural values.
+    frame_with : callable
+        Builds the node's policy frame with extra columns.
+    rows : ndarray
+        The rows that hold the node.
+
+    Returns
+    -------
+    dict of str to set of str
+        Each declared dose's name, mapped to the other doses its map reads.
+    """
+    labels = {
+        component.name: component.labels(natural[:, index])
+        for index, component in enumerate(components)
+    }
+    doses = frozenset(component.name for component in components if component.continuous)
+    reads: dict[str, set[str]] = {}
+    for index, component in enumerate(components):
+        if not component.continuous or component.name not in declared:
+            continue
+        others = {key: value for key, value in labels.items() if key != component.name}
+        recording = _RecordingFrame(frame_with(others), frozenset({component.name}), doses)
+        # Only the reads are wanted here; the fit reports any error of the map itself.
+        with contextlib.suppress(Exception):
+            _continuous_component(
+                declared[component.name], natural[:, index], partial_frame(recording), rows, ""
+            )
+        reads[component.name] = set(recording.seen) - {component.name}
+    return reads
 
 
-def _guarded(
-    name: str, where: str, forbidden: Sequence[str], evaluate: Callable[[], FloatArray]
-) -> FloatArray:
-    """Evaluate one component's policy, naming the frame rule when a map reads a dose."""
-    try:
-        return evaluate()
-    except (CapabilityError, DataError):
-        raise
-    except Exception as error:
-        read = [column for column in forbidden if column in str(error)]
-        if not read:
-            raise
-        raise DataError(
-            f"policy {name!r} at {where} reads {read[0]!r}, a continuous component of the same "
-            "node. A dose map reads the policy frame and the natural categorical components "
-            "only. A map that reads another dose (a triangular map) is not supported in this "
-            f"version (docs/roadmap.md, {VECTOR_DENSITY_ROW})"
-        ) from error
+def read_order_refusal(
+    name: str,
+    declared: Mapping[str, Any],
+    components: Sequence[JointComponent],
+    natural: FloatArray,
+    frame_with: FrameWith,
+    rows: BoolArray,
+    where: str,
+    doses: Sequence[int],
+) -> str:
+    """The refusal of a map that reads a component its frame does not hold.
+
+    A dose map that reads a later dose is a declaration error: any acyclic read graph has an
+    order that makes the map triangular, and the refusal names one.  A cycle has none, and a
+    joint map that is not triangular has no checkable declaration, because a determinant
+    checked on a grid does not establish that the map is one-to-one.
+
+    Parameters
+    ----------
+    name : str
+        The policy's name.
+    declared : mapping
+        The branch's component policies.
+    components : sequence of JointComponent
+        The node's components.
+    natural : ndarray
+        ``(n, d)`` natural values.
+    frame_with : callable
+        Builds the node's policy frame with extra columns.
+    rows : ndarray
+        The rows that hold the node.
+    where : str
+        The node.
+    doses : sequence of int
+        The doses' column indices in the declared order.
+
+    Returns
+    -------
+    str
+        The refusal.
+    """
+    reads = map_reads(declared, components, natural, frame_with, rows)
+    current = [components[index].name for index in doses]
+    placed: list[str] = []
+    remaining = list(current)
+    while remaining:
+        ready = [dose for dose in remaining if reads.get(dose, set()) <= set(placed)]
+        if not ready:
+            return (
+                f"policy {name!r} at {where}: the maps of the doses {sorted(remaining)} read "
+                "each other in a cycle, so no order makes the joint map triangular. A joint "
+                "map that is not triangular has no checkable declaration: a Jacobian "
+                "determinant checked on a grid does not establish that the map is one-to-one, "
+                "which the density ratio of Díaz et al. (2023), Equation (3), needs. Declare "
+                "dose maps that read earlier doses only"
+            )
+        placed.append(ready[0])
+        remaining.remove(ready[0])
+    offending = [
+        f"{dose!r} reads {sorted(reads[dose] - set(current[: current.index(dose)]))}"
+        for dose in current
+        if reads.get(dose, set()) - set(current[: current.index(dose)])
+    ]
+    if not offending:
+        return (
+            f"policy {name!r} at {where}: a component map reads a component of the node that "
+            "its frame does not hold. A categorical map reads every other component; a dose "
+            "map reads the natural categorical components and the doses before it in order, "
+            "and no map reads its own column, which it receives as its first argument"
+        )
+    return (
+        f"policy {name!r} at {where}: in the dose order {tuple(current)!r}, "
+        f"{'; '.join(offending)}. A dose map reads the policy frame, the natural categorical "
+        "components and the natural doses before it in order. Declare JointPolicy(..., "
+        f"order={tuple(placed)!r}), which puts every dose after the doses its map reads"
+    )
 
 
 def _continuous_component(
@@ -1991,6 +2308,11 @@ class PolicySet:
     capped : ndarray or None
         ``(n, C)`` boolean, whether a declared ``cap`` held the component at that row's own
         dose.  ``None`` on a categorical treatment, where no cap is evaluated.
+    joint : JointDensityParts or None
+        On a vector treatment with a continuous component, fitted on the density route: the
+        factors of the node's law at the observed value and at each branch's assigned
+        value (:mod:`~cleverly.interventions.joint_density`).  :meth:`design_at` rebuilds
+        the ratios from them with the categorical factor bounded.  ``None`` elsewhere.
 
     Attributes
     ----------
@@ -2017,6 +2339,7 @@ class PolicySet:
     component_codes: IntArray | None = None
     observed_codes: IntArray | None = None
     capped: BoolArray | None = None
+    joint: JointDensityParts | None = None
 
     def __post_init__(self) -> None:
         s = len(self.names)
@@ -2267,34 +2590,11 @@ class PolicySet:
         """
         from ..learners.density_ratio import classifier_ratio
 
-        assert data.treatment_components is not None
-        for policy in declared:
-            if not isinstance(policy, JointPolicy):
-                raise CapabilityError(whole_vector_refusal(policy, data.treatment_name))
-        components = tuple(
-            JointComponent(name, levels)
-            for name, levels in zip(data.component_names, data.component_levels, strict=True)
-        )
-        natural = np.asarray(data.treatment_components, dtype=float)
-        everyone = np.ones(data.n, dtype=bool)
-        where = f"treatment {data.treatment_name!r}"
-
-        def frame_with(extra: Mapping[str, Any]) -> Any:
-            payload = {name: data.covariates[:, j] for j, name in enumerate(data.covariate_names)}
-            payload.update(extra)
-            return data.frame_like(payload)
-
-        owners: list[tuple[int, float]] = []
-        branches: list[FloatArray] = []
-        for index, policy in enumerate(declared):
-            assert isinstance(policy, JointPolicy)
-            for probability, values in joint_assignments(
-                policy, components, natural, frame_with, everyone, where=where
-            ):
-                owners.append((index, probability))
-                branches.append(np.asarray(values, dtype=float))
-                _warn_outside_cell_support(policy.name, components, natural, values)
-        shifted = np.stack(branches, axis=1)
+        setup = _vector_setup(declared, data)
+        natural = setup.natural
+        for (_, policy, _), values in zip(setup.owners, setup.assigned, strict=True):
+            _warn_outside_cell_support(policy.name, setup.components, natural, values)
+        shifted = np.stack(setup.assigned, axis=1)
         count = shifted.shape[1]
         observed = data.component_design()
         assigned = [data.component_design(shifted[:, c]) for c in range(count)]
@@ -2315,8 +2615,131 @@ class PolicySet:
             ratio[:, c] = evaluated[0]
             for s in range(count):
                 ratio_at[:, s, c] = evaluated[s + 1]
-        moved = np.asarray(np.any(shifted != natural[:, None, :], axis=2), dtype=bool)
-        mixing = None if count == len(declared) else _mixing(len(declared), owners)
+        return cls._from_vector(declared, names, setup, shifted, ratio, ratio_at, reference)
+
+    @classmethod
+    def evaluate_vector_density(
+        cls,
+        policies: Sequence[object],
+        data: CausalData,
+        learner: Any,
+        folds: Folds,
+        *,
+        reference: str | None = None,
+        n_bins: int | None = None,
+        n_jobs: int = 1,
+    ) -> PolicySet:
+        """Evaluate joint policies at a vector treatment with a continuous component, by density.
+
+        The treatment's law is fitted by the chain rule, and each policy's induced density is
+        the sum over categorical preimages and piece paths of
+        :mod:`~cleverly.interventions.joint_density`.  The ratio of component ``c`` is
+        evaluated at the observed value and at every component's assigned value, from the
+        same out-of-fold factors.  :meth:`design_at` rebuilds both with the categorical
+        factor bounded, as for a categorical treatment.
+
+        Parameters
+        ----------
+        policies : sequence of JointPolicy
+            The policies to evaluate, in the order their codes will follow.
+        data : CausalData
+            Validated study data with a vector treatment.
+        learner : Learner
+            The classifier of the categorical factor and of every dose's hazards.
+        folds : Folds
+            The outer split.
+        reference : str or None
+            Label of the policy contrasts are taken against.
+        n_bins : int or None
+            The bin count of each dose's density.
+        n_jobs : int
+            Parallel workers across the outer folds.
+
+        Returns
+        -------
+        PolicySet
+            Every policy evaluated on the data, with the joint factors kept.
+        """
+        from .joint_density import (
+            JointBranch,
+            JointEvaluation,
+            NodeLayout,
+            evaluate_joint_density,
+            warn_unsupported_values,
+        )
+
+        declared = tuple(policies)
+        if not declared:
+            raise DataError("at least one policy is required")
+        names = tuple(str(getattr(policy, "name", "")) for policy in declared)
+        if len(set(names)) != len(names):
+            raise DataError(f"policy names must be distinct; got {list(names)}")
+        refuse_policy_declarations(declared)
+        setup = _vector_setup(declared, data)
+        shifted = np.stack(setup.assigned, axis=1)
+        count = shifted.shape[1]
+        layout = NodeLayout(
+            setup.components,
+            setup.natural,
+            np.ones(data.n, dtype=bool),
+            setup.frame_with,
+            np.asarray(data.covariates, dtype=float),
+            setup.where,
+        )
+        branches = [
+            JointBranch(policy.name, mapping, policy.order) for _, policy, mapping in setup.owners
+        ]
+        everything = tuple(range(count))
+        evaluations = [JointEvaluation(setup.natural, everything)] + [
+            JointEvaluation(shifted[:, s], everything) for s in range(count)
+        ]
+        parts = evaluate_joint_density(
+            layout,
+            branches,
+            evaluations,
+            learner=learner,
+            weights=data.weights,
+            folds=folds,
+            n_bins=n_bins,
+            groups=data.cluster,
+            n_jobs=n_jobs,
+        )
+        full = parts.ratio()
+        moved = np.any(shifted != setup.natural[:, None, :], axis=2)
+        for c, (_, policy, mapping) in enumerate(setup.owners):
+            if not moved[:, c].any():
+                continue
+            for index, component in enumerate(setup.components):
+                if component.continuous and component.name in mapping:
+                    warn_if_unresolved(
+                        parts.densities[component.name],
+                        shifted[:, c, index],
+                        setup.natural[:, index],
+                    )
+            warn_unsupported_values(policy.name, parts, c + 1, moved[:, c], setup.where)
+        return cls._from_vector(
+            declared, names, setup, shifted, full[:, 0, :], full[:, 1:, :], reference, parts
+        )
+
+    @classmethod
+    def _from_vector(
+        cls,
+        declared: tuple[object, ...],
+        names: tuple[str, ...],
+        setup: _VectorSetup,
+        shifted: FloatArray,
+        ratio: FloatArray,
+        ratio_at: FloatArray,
+        reference: str | None,
+        joint: JointDensityParts | None = None,
+    ) -> PolicySet:
+        """The policy set of a vector treatment from its evaluated ratios."""
+        moved = np.asarray(np.any(shifted != setup.natural[:, None, :], axis=2), dtype=bool)
+        owners = [
+            (index, probability)
+            for (index, _, _), probability in zip(setup.owners, setup.probabilities, strict=True)
+        ]
+        mixing = None if len(owners) == len(declared) else _mixing(len(declared), owners)
         code = 0.0
         if reference is not None:
             if reference not in names:
@@ -2331,6 +2754,7 @@ class PolicySet:
             moved,
             code,
             mixing,
+            joint=joint,
         )
 
     # ----------------------------------------------------------------- access
@@ -2414,24 +2838,38 @@ class PolicySet:
         """
         return np.concatenate([self.ratio[:, None, :], self.ratio_at], axis=1)
 
-    def design_at(self, propensity: FloatArray | None) -> FloatArray:
+    def design_at(
+        self, propensity: FloatArray | None, bounds: tuple[float, float] | None = None
+    ) -> FloatArray:
         """:attr:`design`, rebuilt from a bounded mechanism on a categorical treatment.
 
         On a continuous treatment this is :attr:`design`, since the density ratio is not
         bounded.  On a categorical one the ratio reads the fitted probabilities, and
         targeting passes them bounded by ``g_bounds``, as for every other arm-indexed
-        clever covariate.
+        clever covariate.  On a vector treatment fitted on the density route the
+        categorical factor is bounded into ``bounds`` by the same rule, in the numerator
+        and the denominator, and the doses' factors are not bounded.
 
         Parameters
         ----------
         propensity : ndarray or None
             ``(n, K)`` bounded treatment probabilities.
+        bounds : tuple of float or None
+            The bounds of the categorical factor of a vector treatment.  ``None`` reads
+            the factor unbounded.
 
         Returns
         -------
         ndarray
             ``(n, C + 1, C)``.
         """
+        if self.joint is not None:
+            if bounds is None:
+                return self.design
+            from .joint_density import bound_cells
+
+            full = self.joint.ratio(bound_cells(self.joint.cell_probabilities, bounds))
+            return np.asarray(full, dtype=float)
         if self.component_codes is None or self.observed_codes is None or propensity is None:
             return self.design
         ratio, ratio_at = _discrete_ratios(
@@ -2472,7 +2910,60 @@ class PolicySet:
             capped=None if self.capped is None else self.capped[idx],
             component_codes=None if self.component_codes is None else self.component_codes[idx],
             observed_codes=None if self.observed_codes is None else self.observed_codes[idx],
+            joint=None if self.joint is None else self.joint.subset(idx),
         )
+
+
+@dataclass(frozen=True)
+class _VectorSetup:
+    """A point vector treatment's components and each joint policy branch's assigned values."""
+
+    components: tuple[JointComponent, ...]
+    natural: FloatArray
+    frame_with: FrameWith
+    where: str
+    #: ``(policy index, policy, branch components)`` per branch, in component order.
+    owners: tuple[tuple[int, JointPolicy, Mapping[str, Any]], ...]
+    probabilities: tuple[float, ...]
+    assigned: tuple[FloatArray, ...]
+
+
+def _vector_setup(declared: tuple[object, ...], data: CausalData) -> _VectorSetup:
+    """Apply each joint policy to a point vector treatment, with the observed-frame checks."""
+    assert data.treatment_components is not None
+    for policy in declared:
+        if not isinstance(policy, JointPolicy):
+            raise CapabilityError(whole_vector_refusal(policy, data.treatment_name))
+    components = tuple(
+        JointComponent(name, levels)
+        for name, levels in zip(data.component_names, data.component_levels, strict=True)
+    )
+    natural = np.asarray(data.treatment_components, dtype=float)
+    everyone = np.ones(data.n, dtype=bool)
+    where = f"treatment {data.treatment_name!r}"
+
+    def frame_with(extra: Mapping[str, Any]) -> Any:
+        payload = {name: data.covariates[:, j] for j, name in enumerate(data.covariate_names)}
+        payload.update(extra)
+        return data.frame_like(payload)
+
+    owners: list[tuple[int, JointPolicy, Mapping[str, Any]]] = []
+    probabilities: list[float] = []
+    assigned: list[FloatArray] = []
+    for index, policy in enumerate(declared):
+        assert isinstance(policy, JointPolicy)
+        evaluated = joint_assignments(
+            policy, components, natural, frame_with, everyone, where=where
+        )
+        for (probability, values), (_, mapping) in zip(
+            evaluated, joint_branches(policy), strict=True
+        ):
+            owners.append((index, policy, mapping))
+            probabilities.append(probability)
+            assigned.append(np.asarray(values, dtype=float))
+    return _VectorSetup(
+        components, natural, frame_with, where, tuple(owners), tuple(probabilities), tuple(assigned)
+    )
 
 
 _Components: TypeAlias = tuple[
@@ -2584,22 +3075,12 @@ def _same(values: FloatArray) -> FloatArray:
     return values
 
 
-def vector_density_refusal(treatment: str) -> str:
-    """The refusal of the density route at a point vector treatment with a dose component."""
-    return (
-        f"treatment {treatment!r} is a vector with a continuous component. Pass "
-        "ratio='classifier': its policy ratio is estimated by classification (Díaz et al. "
-        "2023, Section 5.4). The density route for vector treatments, a post-beta roadmap "
-        f"row, is docs/roadmap.md {VECTOR_DENSITY_ROW}"
-    )
-
-
 def vector_route_refusal(treatment: str) -> str:
     """The refusal of every fit of a point vector treatment but its one supported route."""
     return (
         f"treatment {treatment!r} is a vector with a continuous component. The one supported "
-        "fit is TMLE(policies=[JointPolicy(...)], ratio='classifier'), which reports its "
-        "policy means and contrasts. Every other estimator and estimand of such a treatment "
+        "fit is TMLE(policies=[JointPolicy(...)]), on either ratio route, which reports "
+        "its policy means and contrasts. Every other estimator and estimand of such a treatment "
         f"is a post-beta roadmap row, docs/roadmap.md {VECTOR_DENSITY_ROW}"
     )
 
@@ -2936,7 +3417,12 @@ def check_policy_support(
     a = np.asarray(treatment, dtype=float).reshape(-1)
     rows = np.arange(a.size)
     g: FloatArray | None = None
-    if density is not None:
+    joint = None if policies.joint is None else policies.joint.joint()
+    if joint is not None:
+        # A vector treatment on the density route: the joint density of the node, at the
+        # observed value (column 0) and at each component's assigned value.
+        observed_density = joint[:, 0]
+    elif density is not None:
         observed_density = density.density_at(a)
     elif propensity is not None:
         g = np.asarray(propensity, dtype=float)
@@ -2972,8 +3458,10 @@ def check_policy_support(
             if policies.capped is None
             else float(sum(weights[index, c] * np.mean(policies.capped[:, c]) for c in mine))
         )
-        measured = density is not None or g is not None
-        if density is not None:
+        measured = joint is not None or density is not None or g is not None
+        if joint is not None:
+            assigned = [joint[:, c + 1] for c in mine]
+        elif density is not None:
             assigned = [density.density_at(policies.shifted[:, c]) for c in mine]
         elif g is not None:
             assigned = [g[rows, policies.shifted[:, c].astype(np.int64)] for c in mine]

@@ -696,17 +696,43 @@ def _treatment_report(result: Any, time: int, mask: BoolArray) -> NuisanceModelR
     """Observed-law treatment report, including multinomial negative log likelihood.
 
     A continuous node reports the negative log likelihood of its binned density, and
-    ``None`` on the classifier route, which fits no density.  A mixed node takes the
-    classifier route only, so it reports ``None``.
+    ``None`` on the classifier route, which fits no density.  A mixed node on the density
+    route reports the negative log likelihood of its joint law, the categorical factor times
+    each dose's density at the observed value, and ``None`` on the classifier route.
     """
     mechanism = result.mechanism
-    if result.data.node_kind(time) == "mixed":
-        return None
-    if result.data.is_continuous_node(time):
-        density = mechanism.densities.get(time)
+    data = result.data
+    if data.node_kind(time) == "mixed":
+        components = data.node_components(time)
+        doses = [component.name for component in components if component.continuous]
+        if (time, doses[0]) not in mechanism.densities:
+            return None
+        natural = np.nan_to_num(data.node_values(time), nan=0.0)
+        # Every plan's denominator factor at a mixed node on the density route is the
+        # categorical factor at the observed cell.
+        observed = np.array(next(iter(mechanism.treatment[time - 1].values())), dtype=float)
+        for index, component in enumerate(components):
+            if component.continuous:
+                density = mechanism.densities[(time, component.name)]
+                observed = observed * density.density_at(natural[:, index])
+        values = np.clip(observed, 1e-300, None)
+        log_loss = float(-np.average(np.log(values[mask]), weights=data.weights[mask]))
+        learner_weights, learner_risks = _aggregate_learner_info(
+            mechanism.treatment_diagnostics[time - 1]
+        )
+        return NuisanceModelReport(
+            name=f"treatment[t={time}]",
+            kind="conditional density",
+            metrics={"log_loss": log_loss},
+            calibration={},
+            learner_weights=learner_weights,
+            learner_risks=learner_risks,
+        )
+    if data.is_continuous_node(time):
+        density = mechanism.densities.get((time, data.treatment_names[time - 1]))
         if density is None:
             return None
-        dose = np.nan_to_num(result.data.node_codes(time), nan=0.0)
+        dose = np.nan_to_num(data.node_codes(time), nan=0.0)
         values = np.clip(density.density_at(dose), 1e-300, None)
         log_loss = float(-np.average(np.log(values[mask]), weights=result.data.weights[mask]))
         learner_weights, learner_risks = _aggregate_learner_info(())

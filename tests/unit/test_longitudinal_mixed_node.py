@@ -614,16 +614,6 @@ def _joint(label: str, time: int) -> JointPolicy:
     return mtp._joint(label, time)
 
 
-def test_the_density_route_at_a_mixed_node_names_the_classifier_first() -> None:
-    """The density route is the default, so the first fit on a mixed node lands here."""
-    with pytest.raises(CapabilityError) as raised:
-        _refused(mtp.mixed_regimens(("natural",)), ratio="density")
-    message = str(raised.value)
-    assert "ratio='classifier'" in message and VECTOR_DENSITY_ROW in message
-    assert message.index("ratio='classifier'") < message.index(VECTOR_DENSITY_ROW)
-    assert "density route for vector nodes, a post-beta roadmap row" in message
-
-
 @pytest.mark.parametrize(
     "node",
     [
@@ -682,8 +672,12 @@ def test_a_dose_map_that_collapses_an_interval_is_checked_per_component() -> Non
         _refused(_plan(collapsing, _joint("natural", 2)))
 
 
-def test_a_dose_map_that_reads_another_dose_of_the_node() -> None:
-    """A triangular map is valid in theory and refused here as a scope limit."""
+def test_a_dose_map_that_reads_a_later_dose_names_the_order_that_resolves_it() -> None:
+    """A map that reads a dose after it in the declared order is a declaration error.
+
+    Any acyclic read graph has an order that makes the map triangular, so the refusal names
+    it (plan rev 3.1, M6 option B).
+    """
     frame = law.mixed_frame().assign(E1=lambda f: f["D1"] + f["W"])
     reads = ModifiedPolicy(
         "reads E1",
@@ -700,7 +694,7 @@ def test_a_dose_map_that_reads_another_dose_of_the_node() -> None:
         policy_kind="known",
     )
     triangular = JointPolicy("triangular", components={"D1": reads}, policy_kind="known")
-    with pytest.raises(DataError, match=f"reads 'E1'.*{VECTOR_DENSITY_ROW}"):
+    with pytest.raises(DataError, match=r"'D1' reads \['E1'\].*order=\('E1', 'D1'\)"):
         _refused(
             _plan(triangular, _joint("natural", 2)),
             frame=frame,

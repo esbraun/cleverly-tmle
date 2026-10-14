@@ -183,7 +183,6 @@ from ..interventions.learned import (
 from ..interventions.policy import (
     JointPolicy,
     refuse_policy_declarations,
-    vector_density_refusal,
     vector_route_refusal,
     whole_vector_refusal,
 )
@@ -483,7 +482,7 @@ def _has_no_arms(data: CausalData) -> bool:
     """Whether the treatment carries doses and no arms.
 
     A continuous treatment, or a vector treatment with a continuous component, which
-    :meth:`_refuse_vector_compositions` admits on the classifier policy route only.
+    :meth:`_refuse_vector_compositions` admits on the policy route only.
     """
     return data.treatment_kind in ("continuous", "vector")
 
@@ -1159,8 +1158,8 @@ class TMLE:
             their contrasts, in sample.  See :meth:`~cleverly.data.CausalData.from_frame`.
         continuous_treatment:
             The dose columns of a vector ``treatment=[...]``.  A vector with a dose column
-            is fitted with ``policies=`` of :class:`~cleverly.interventions.JointPolicy` and
-            ``ratio="classifier"`` only.  See :meth:`~cleverly.data.CausalData.from_frame`.
+            is fitted with ``policies=`` of :class:`~cleverly.interventions.JointPolicy`
+            only, on either ``ratio`` route.  See :meth:`~cleverly.data.CausalData.from_frame`.
         treatment_probabilities:
             The known treatment mechanism ``P(A = a | W)`` of a randomized design.  The fit
             then divides by it in place of an estimate and fits no treatment learner.  The
@@ -1556,8 +1555,8 @@ class TMLE:
         """Refuse every fit of a vector treatment with a dose component but the supported one.
 
         The supported fit is this estimator with ``policies=`` of
-        :class:`~cleverly.interventions.JointPolicy` and ``ratio="classifier"``: the policy
-        means and contrasts.  Each refusal names what is missing, before any learner.
+        :class:`~cleverly.interventions.JointPolicy`, on either ratio route: the policy means
+        and contrasts.  Each refusal names what is missing, before any learner.
 
         Parameters
         ----------
@@ -1568,7 +1567,7 @@ class TMLE:
         ------
         CapabilityError
             For another estimator, another parameter axis, a policy declared on the vector
-            as a whole, the density route, ``delta=``, ``strata=`` or ``intermediate=``.
+            as a whole, ``delta=``, ``strata=`` or ``intermediate=``.
         """
         if data.treatment_kind != "vector":
             return
@@ -1585,8 +1584,6 @@ class TMLE:
         for policy in self.policies:
             if not isinstance(policy, JointPolicy):
                 raise CapabilityError(whole_vector_refusal(policy, name))
-        if self.ratio != "classifier":
-            raise CapabilityError(vector_density_refusal(name))
         requested = (
             ()
             if self.estimands is None or self.estimands == "all"
@@ -1610,7 +1607,7 @@ class TMLE:
             if present:
                 raise CapabilityError(
                     f"treatment {name!r} is a vector with a continuous component, and the fit "
-                    f"declares {role}. The classifier route at a vector treatment supports "
+                    f"declares {role}. A policy fit at a vector treatment supports "
                     "weights, clusters, cross-fitting and the bootstrap only. This composition "
                     f"is docs/roadmap.md {VECTOR_DENSITY_ROW}"
                 )

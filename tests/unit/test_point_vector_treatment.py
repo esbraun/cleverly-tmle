@@ -649,7 +649,6 @@ def test_every_estimator_and_estimand_but_the_policy_route_refuses_a_vector() ->
                     True,
                 )
             )
-    attempts.append((lambda: TMLE(**learners, policies=[joint("dose up")], cross_fit=False), True))
     for build, named in attempts:
         with pytest.raises(CapabilityError) as caught, warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -779,24 +778,6 @@ def test_cross_fitting_splits_units_not_stacked_rows(monkeypatch: pytest.MonkeyP
 # ------------------------------------------------------------------ refusals
 
 
-def test_the_density_route_names_the_classifier_first() -> None:
-    with pytest.raises(CapabilityError) as caught, warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        TMLE(
-            policies=[joint("dose up")],
-            outcome_learner=CellMeans(),
-            treatment_learner=CellMeans(),
-            cross_fit=False,
-        ).fit(vector_data())
-    message = str(caught.value)
-    assert message == (
-        "treatment 'F+D' is a vector with a continuous component. Pass ratio='classifier': its "
-        "policy ratio is estimated by classification (Díaz et al. 2023, Section 5.4). The "
-        f"density route for vector treatments, a post-beta roadmap row, is {ROW}"
-    )
-    assert message.index("ratio='classifier'") < message.index("X37")
-
-
 @pytest.mark.parametrize(
     ("column", "role"),
     [
@@ -805,7 +786,7 @@ def test_the_density_route_names_the_classifier_first() -> None:
         ("intermediate", "an intermediate (intermediate=)"),
     ],
 )
-def test_a_composition_outside_the_classifier_route_is_refused(column: str, role: str) -> None:
+def test_a_composition_outside_the_policy_route_is_refused(column: str, role: str) -> None:
     frame = law.mixed_frame().assign(
         delta=lambda f: (np.arange(len(f)) % 7 != 0).astype(float),
         strata=lambda f: f["W"],
@@ -817,7 +798,7 @@ def test_a_composition_outside_the_classifier_route_is_refused(column: str, role
         fit(("natural", "dose up"), data=data)
     assert str(caught.value) == (
         f"treatment 'F+D' is a vector with a continuous component, and the fit declares {role}. "
-        "The classifier route at a vector treatment supports weights, clusters, cross-fitting "
+        "A policy fit at a vector treatment supports weights, clusters, cross-fitting "
         f"and the bootstrap only. This composition is {ROW}"
     )
 

@@ -163,7 +163,6 @@ from .sequential import (
     constant_nodes,
     fit_mechanism,
     fit_regimen,
-    mixed_density_refusal,
     node_ratios,
     preflight_known_mechanisms,
     preflight_mechanism_support,
@@ -3037,15 +3036,6 @@ class LTMLE:
             treatment_probabilities=treatment_probabilities,
             censoring_probabilities=censoring_probabilities,
         )
-        if prepared.has_mixed_node and self.ratio != "classifier":
-            # Before any regimen is resolved and before any learner: ratio="density" is the
-            # default, so the first fit on a mixed node lands here and learns the remedy.
-            mixed = [
-                prepared.treatment_names[time - 1]
-                for time in range(1, prepared.n_times + 1)
-                if prepared.node_kind(time) == "mixed"
-            ]
-            raise CapabilityError(mixed_density_refusal(mixed[0]))
         regimens = resolve_regimens(
             self.regimens,
             prepared.n_decisions,

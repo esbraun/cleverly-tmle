@@ -148,8 +148,8 @@ def _vector_refusal(treatment: str, reader: str) -> str:
     """The refusal of a one-column reader at a vector treatment with a dose component."""
     return (
         f"{treatment} is a vector treatment with a continuous component, and {reader} reads "
-        "a treatment of one column. Only TMLE(policies=[JointPolicy(...)], "
-        "ratio='classifier') fits such a treatment: its policy means and contrasts. Every "
+        "a treatment of one column. Only TMLE(policies=[JointPolicy(...)]) fits such a "
+        "treatment: its policy means and contrasts. Every "
         "other estimator, estimand and reader of it is a post-beta roadmap row, "
         f"docs/roadmap.md {VECTOR_DENSITY_ROW}"
     )
@@ -342,8 +342,8 @@ class CausalData:
             its columns: its levels are the tuples, at most
             :data:`~cleverly.data.validate.MAX_TREATMENT_LEVELS` of them, and every
             categorical estimand reads them.  A vector with a column named in
-            ``continuous_treatment`` is fitted by ``TMLE(policies=[JointPolicy(...)],
-            ratio="classifier")`` only.
+            ``continuous_treatment`` is fitted by ``TMLE(policies=[JointPolicy(...)])``
+            only, on either ``ratio`` route.
         continuous_treatment:
             The columns of a vector ``treatment`` that hold a continuous dose.  A treatment
             of one column declares a dose with ``treatment_kind="continuous"`` instead.

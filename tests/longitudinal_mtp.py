@@ -7,7 +7,7 @@ as policy objects, for a fit on a continuous, a categorical or a vector reading 
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any
 
@@ -113,20 +113,26 @@ def scaled_regimens() -> dict[str, Any]:
 
 
 @contextmanager
-def exact_bins() -> Iterator[None]:
+def exact_bins(grids: Mapping[str, Any] | None = None) -> Iterator[None]:
     """Make the binned density read the law's own bins, one support point per bin.
 
     The estimator reads bin edges from sample quantiles, which do not isolate the support
-    points of a coarse law.  The grid is the law's, chosen by the dose values a node holds.
+    points of a coarse law.  ``grids`` maps a dose column to its law grid, and the density
+    of that column reads it by name.  A dose that ``grids`` does not name reads the first
+    law grid that holds its values, so a geometric grid is never displaced by the unit grid
+    for a column it is declared for.
     """
     original = density_module.bin_edges
+    declared = dict(grids or {})
 
-    def law_edges(values: Any, n_bins: int) -> np.ndarray:
+    def law_edges(values: Any, n_bins: int, *, name: str | None = None) -> np.ndarray:
+        if name is not None and name in declared:
+            return np.asarray(declared[name].edges, dtype=float)
         present = set(np.unique(np.asarray(values, dtype=float)).tolist())
         for grid in (law.UNIT_GRID, law.SCALED_GRID):
             if present <= set(grid.doses):
                 return np.asarray(grid.edges, dtype=float)
-        return original(values, n_bins)
+        return original(values, n_bins, name=name)
 
     density_module.bin_edges = law_edges  # type: ignore[assignment]
     try:
