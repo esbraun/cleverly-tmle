@@ -54,16 +54,16 @@ from __future__ import annotations
 
 import math
 import warnings
-from collections.abc import Sequence
+from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, overload
 
 import numpy as np
 
-from .._typing import FloatArray, IntArray, Learner
+from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..exceptions import DataError, MethodConfigurationError
 from ..utils.memory import available_memory
-from ..utils.parallel import map_parallel
+from ..utils.parallel import map_parallel, resolve_n_jobs
 from ._fitting import fit_learner, predict_mean
 from .crossfit import Folds
 from .super_learner import SuperLearnerDiagnostics
@@ -73,6 +73,7 @@ __all__ = [
     "DensityDiagnostics",
     "bin_edges",
     "fit_conditional_density",
+    "preflight_conditional_densities",
     "warn_if_unresolved",
 ]
 
@@ -146,22 +147,35 @@ def hazard_design_bytes(n: int, n_bins: int, n_covariates: int, *, index_only: b
 
 
 def _refuse_unaffordable(
-    records: int, columns: int, n: int, n_bins: int, n_covariates: int, index_only: bool
+    records: int,
+    columns: int,
+    n: int,
+    n_bins: int,
+    n_covariates: int,
+    index_only: bool,
+    *,
+    concurrent: int = 1,
+    retained: int = 0,
 ) -> None:
     """Refuse a hazard design larger than the available memory, before it is allocated.
 
-    A refusal names the design's size, the memory available, and the largest bin count whose
-    design fits in half of it.  Where the platform reports no available memory, nothing is
-    checked.
+    ``concurrent`` is the number of fold fits that hold a long table at the same time, which
+    is the number of parallel workers of a cross-fitted fit.  ``retained`` is the bytes that
+    stay allocated beside the table, such as the evaluated densities of the earlier
+    components of a vector node.  A refusal names the design's size, the memory available,
+    and the largest bin count whose design fits in half of it.  Where the platform reports no
+    available memory, nothing is checked.
     """
     free = available_memory()
-    needed = records * columns * 8
+    table = records * columns * 8
+    needed = table * concurrent + retained
     if free is None or needed <= free:
         return
     fits = [
         k
         for k in range(2, n_bins)
-        if hazard_design_bytes(n, k, n_covariates, index_only=index_only) <= free // 2
+        if hazard_design_bytes(n, k, n_covariates, index_only=index_only) * concurrent + retained
+        <= free // 2
     ]
     advice = (
         f"Pass density_bins={max(fits)} or fewer, whose design takes at most half of it."
@@ -169,15 +183,20 @@ def _refuse_unaffordable(
         else "No bin count fits; fit on fewer rows."
     )
     gib = 1024.0**3
+    held = (
+        ""
+        if concurrent == 1 and not retained
+        else f" ({concurrent} fold fit(s) at once, beside {retained / gib:.1f} GiB already held)"
+    )
     raise MethodConfigurationError(
         f"the binned density's pooled hazard design needs {needed / gib:.1f} GiB "
-        f"({records:,} records x {columns:,} columns x 8 bytes) for {n:,} rows and {n_bins} "
-        f"bins, and {free / gib:.1f} GiB of memory is available. {advice} The default bin "
-        "count grows as 2 n^(1/3), so the design grows as n^(5/3)."
+        f"({records:,} records x {columns:,} columns x 8 bytes{held}) for {n:,} rows and "
+        f"{n_bins} bins, and {free / gib:.1f} GiB of memory is available. {advice} The default "
+        "bin count grows as 2 n^(1/3), so the design grows as n^(5/3)."
     )
 
 
-def bin_edges(values: FloatArray, n_bins: int) -> FloatArray:
+def bin_edges(values: FloatArray, n_bins: int, *, name: str | None = None) -> FloatArray:
     """Equal-mass bin edges for ``values``: ``n_bins + 1`` of them, strictly increasing.
 
     Empirical quantiles, so each bin holds about the same number of observations rather
@@ -186,7 +205,8 @@ def bin_edges(values: FloatArray, n_bins: int) -> FloatArray:
     hazard there is then estimated from a handful of rows.
 
     Ties can make two quantiles coincide; duplicates are dropped and the bin count falls,
-    which is reported rather than worked around.
+    which is reported rather than worked around.  ``name`` is the column the values belong
+    to, which a refusal names; a vector node fits one density per continuous component.
     """
     a = np.asarray(values, dtype=float).reshape(-1)
     if n_bins < 2:
@@ -194,8 +214,9 @@ def bin_edges(values: FloatArray, n_bins: int) -> FloatArray:
     quantiles = np.linspace(0.0, 1.0, n_bins + 1)
     edges = np.unique(np.quantile(a, quantiles))
     if edges.size < 3:
+        what = "the treatment" if name is None else f"the dose {name!r}"
         raise DataError(
-            f"the treatment has too few distinct values to form {n_bins} bins; "
+            f"{what} has too few distinct values to form {n_bins} bins; "
             f"only {edges.size - 1} non-empty bin(s) survive. Reduce n_bins, or model "
             "the treatment as arms."
         )
@@ -511,6 +532,177 @@ def _probabilities_from_hazards(hazards: FloatArray) -> FloatArray:
     )
 
 
+#: Out-of-fold densities at further conditioning designs: by key, ``(design, values)``, with
+#: ``design`` the ``(n, p)`` covariates the density conditions on and ``values`` the ``(n,)``
+#: or ``(n, m)`` doses it is evaluated at.
+PredictDesigns = Mapping[Hashable, tuple[FloatArray, FloatArray]]
+
+
+@dataclass(frozen=True)
+class _Grid:
+    """The bins of one density fit, read from the rows it is fitted on."""
+
+    edges: FloatArray
+    bins: IntArray
+    n_total: int
+    n_hazards: int
+
+
+def _grid(
+    treatment: FloatArray,
+    mask: BoolArray | None,
+    n_bins: int | None,
+    edges: Sequence[float] | None,
+    name: str | None,
+) -> _Grid:
+    """The edges and each row's bin, with the bin count's default and the edges checked."""
+    grid_values = treatment if mask is None else treatment[mask]
+    if n_bins is None:
+        n_bins = default_density_bins(grid_values.size)
+    grid = (
+        bin_edges(grid_values, n_bins, name=name)
+        if edges is None
+        else np.asarray(edges, dtype=float)
+    )
+    if grid.ndim != 1 or grid.size < 3 or np.any(np.diff(grid) <= 0.0):
+        raise DataError("edges= must be a strictly increasing sequence of at least 3 values")
+    n_total = int(grid.size - 1)
+    bins = np.clip(np.digitize(treatment, grid) - 1, 0, n_total - 1).astype(np.int64)
+    return _Grid(grid, bins, n_total, n_total - 1)
+
+
+def _table_size(
+    learner: Learner, n_covariates: int, grid: _Grid, mask: BoolArray | None
+) -> tuple[int, int, int]:
+    """``(records, columns, rows)`` of the pooled hazard table over the fitted rows."""
+    index_only = _index_only(learner)
+    fitted_bins = grid.bins if mask is None else grid.bins[mask]
+    records = int(np.sum(np.minimum(fitted_bins, grid.n_hazards - 1) + 1))
+    columns = (
+        n_covariates + _bin_block(np.zeros(1, dtype=np.int64), grid.n_hazards, index_only).shape[1]
+    )
+    return records, columns, int(fitted_bins.size)
+
+
+def _concurrent_folds(folds: Folds, n_jobs: int) -> int:
+    """How many fold fits hold a long table at once: one, or the parallel workers."""
+    if folds.is_single:
+        return 1
+    return max(1, min(resolve_n_jobs(n_jobs), folds.n_folds))
+
+
+def preflight_conditional_densities(
+    learner: Learner,
+    components: Sequence[tuple[int, FloatArray]],
+    folds: Folds,
+    *,
+    n_bins: int | None = None,
+    fit_mask: Any = None,
+    n_jobs: int = 1,
+    names: Sequence[str | None] = (),
+) -> None:
+    """Refuse a set of densities that one node fits in turn, before the first is fitted.
+
+    A vector node fits one density per continuous component, one after another.  Each fit's
+    long table is freed before the next one is built, and each fit keeps its ``(n, B)`` bin
+    probabilities.  The peak at component ``k`` is therefore the bin probabilities of the
+    components before it plus the table of component ``k`` times the fold fits that run at
+    once.  This checks that peak for every component before any learner runs, so a node never
+    fits its first density and then refuses its second.
+
+    Parameters
+    ----------
+    learner : Learner
+        The hazard learner.
+    components : sequence of tuple
+        ``(n_covariates, dose)`` per component, in fit order.
+    folds : Folds
+        The outer split.
+    n_bins : int or None
+        The bin count, or ``None`` for the default.
+    fit_mask : array_like or None
+        The rows each density is fitted on.
+    n_jobs : int
+        Parallel workers across the folds.
+    names : sequence of str or None
+        The component names, for the refusals.
+
+    Raises
+    ------
+    MethodConfigurationError
+        If a component's peak exceeds the available memory.
+    """
+    mask = None if fit_mask is None else np.asarray(fit_mask, dtype=bool).reshape(-1)
+    concurrent = _concurrent_folds(folds, n_jobs)
+    retained = 0
+    labels = list(names) + [None] * (len(components) - len(names))
+    for (n_covariates, dose), name in zip(components, labels, strict=True):
+        a = np.asarray(dose, dtype=float).reshape(-1)
+        grid = _grid(a, mask, n_bins, None, name)
+        records, columns, rows = _table_size(learner, n_covariates, grid, mask)
+        _refuse_unaffordable(
+            records,
+            columns,
+            rows,
+            grid.n_total,
+            n_covariates,
+            _index_only(learner),
+            concurrent=concurrent,
+            retained=retained,
+        )
+        retained += a.size * grid.n_total * 8
+
+
+def _lookup(probabilities: FloatArray, edges: FloatArray, values: FloatArray) -> FloatArray:
+    """The density of each row's bin probabilities at its ``(m,)`` values: ``(rows, m)``."""
+    widths = np.diff(edges)
+    n_total = widths.size
+    v = np.asarray(values, dtype=float).reshape(probabilities.shape[0], -1)
+    index = np.clip(np.digitize(v, edges) - 1, 0, n_total - 1)
+    inside = (v >= edges[0]) & (v <= edges[-1]) & np.isfinite(v)
+    rows = np.arange(probabilities.shape[0])[:, None]
+    density = probabilities[rows, index] / widths[index]
+    return np.asarray(np.where(inside, density, 0.0), dtype=float)
+
+
+@overload
+def fit_conditional_density(
+    learner: Learner,
+    covariates: FloatArray,
+    treatment: FloatArray,
+    weights: FloatArray,
+    folds: Folds,
+    *,
+    n_bins: int | None = ...,
+    edges: Sequence[float] | None = ...,
+    groups: IntArray | None = ...,
+    n_jobs: int = ...,
+    fit_mask: Any = ...,
+    name: str | None = ...,
+    retained: int = ...,
+    predict_designs: None = ...,
+) -> tuple[ConditionalDensity, DensityDiagnostics]: ...
+
+
+@overload
+def fit_conditional_density(
+    learner: Learner,
+    covariates: FloatArray,
+    treatment: FloatArray,
+    weights: FloatArray,
+    folds: Folds,
+    *,
+    n_bins: int | None = ...,
+    edges: Sequence[float] | None = ...,
+    groups: IntArray | None = ...,
+    n_jobs: int = ...,
+    fit_mask: Any = ...,
+    name: str | None = ...,
+    retained: int = ...,
+    predict_designs: PredictDesigns,
+) -> tuple[ConditionalDensity, DensityDiagnostics, dict[Hashable, FloatArray]]: ...
+
+
 def fit_conditional_density(
     learner: Learner,
     covariates: FloatArray,
@@ -523,7 +715,13 @@ def fit_conditional_density(
     groups: IntArray | None = None,
     n_jobs: int = 1,
     fit_mask: Any = None,
-) -> tuple[ConditionalDensity, DensityDiagnostics]:
+    name: str | None = None,
+    retained: int = 0,
+    predict_designs: PredictDesigns | None = None,
+) -> (
+    tuple[ConditionalDensity, DensityDiagnostics]
+    | tuple[ConditionalDensity, DensityDiagnostics, dict[Hashable, FloatArray]]
+):
     """Cross-fit :math:`g(a \\mid W)` and return it evaluated at every row.
 
     The fold loop is deliberately *not* :func:`cross_fit_predictions`.  That helper's
@@ -539,35 +737,49 @@ def fit_conditional_density(
     from, to the rows that hold a dose: a longitudinal node is fitted on the units still in
     the study before it.  ``None`` reads every row, the point-treatment fit unchanged.
 
+    ``predict_designs`` evaluates the density at further conditioning designs, by key: each
+    entry is ``(design, values)``, and the result holds the density at ``values`` given
+    ``design``, one value per entry of ``values``.  Row ``i`` of every design is predicted by
+    the model of the fold that held row ``i`` out, as
+    :func:`~cleverly.estimators._nuisance.cross_fit_predictions` predicts its designs.  Only
+    these values are kept, not the bin probabilities at each design.  The density of a
+    vector treatment reads a component's density at counterfactual values of the components
+    it conditions on, which is what this is for.  With ``predict_designs`` the function
+    returns the predictions as a third element.
+
     Before any fold allocates its long table, the fit counts the records of the table over
     every fitted row and raises :class:`~cleverly.exceptions.MethodConfigurationError` when
-    the table alone exceeds the available memory.  The message gives the size and a bin count
+    the table, times the fold fits that run at once, plus ``retained`` bytes the caller
+    already holds, exceeds the available memory.  The message gives the size and a bin count
     that fits.  A fold trains on a subset of those rows, so the count bounds every fold.
     """
     w = np.asarray(covariates, dtype=float)
     a = np.asarray(treatment, dtype=float).reshape(-1)
     sample_weight = np.asarray(weights, dtype=float).reshape(-1)
     mask = None if fit_mask is None else np.asarray(fit_mask, dtype=bool).reshape(-1)
-    grid_values = a if mask is None else a[mask]
-    if n_bins is None:
-        n_bins = default_density_bins(grid_values.size)
-    grid = bin_edges(grid_values, n_bins) if edges is None else np.asarray(edges, dtype=float)
-    if grid.ndim != 1 or grid.size < 3 or np.any(np.diff(grid) <= 0.0):
-        raise DataError("edges= must be a strictly increasing sequence of at least 3 values")
-
-    n_total = int(grid.size - 1)
-    n_hazards = n_total - 1
+    grid = _grid(a, mask, n_bins, edges, name)
+    n_total, n_hazards, bins = grid.n_total, grid.n_hazards, grid.bins
     index_only = _index_only(learner)
-    bins = np.clip(np.digitize(a, grid) - 1, 0, n_total - 1).astype(np.int64)
-    fitted_bins = bins if mask is None else bins[mask]
+    records, columns, rows_fitted = _table_size(learner, w.shape[1], grid, mask)
     _refuse_unaffordable(
-        int(np.sum(np.minimum(fitted_bins, n_hazards - 1) + 1)),
-        w.shape[1] + _bin_block(np.zeros(1, dtype=np.int64), n_hazards, index_only).shape[1],
-        int(fitted_bins.size),
+        records,
+        columns,
+        rows_fitted,
         n_total,
         w.shape[1],
         index_only,
+        concurrent=_concurrent_folds(folds, n_jobs),
+        retained=retained,
     )
+    designs = {} if predict_designs is None else dict(predict_designs)
+    for key, (design, values) in designs.items():
+        if np.asarray(design).shape != (a.size, w.shape[1]):
+            raise ValueError(
+                f"predict design {key!r} has shape {np.asarray(design).shape}; the density "
+                f"conditions on {(a.size, w.shape[1])}"
+            )
+        if np.asarray(values).shape[0] != a.size:
+            raise ValueError(f"predict design {key!r} needs one row of values per unit")
 
     def fit_on(rows: IntArray) -> Learner:
         if mask is not None:
@@ -582,43 +794,76 @@ def fit_conditional_density(
             warn_unweighted=False,
         )
 
+    def predicted_at(model: Learner, test: IntArray) -> dict[Hashable, FloatArray]:
+        out = {}
+        for key, (design, values) in designs.items():
+            held_out = np.asarray(design, dtype=float)[test]
+            probabilities = _probabilities_from_hazards(
+                _hazard_matrix(model, held_out, n_hazards, index_only)
+            )
+            out[key] = _lookup(probabilities, grid.edges, np.asarray(values, dtype=float)[test])
+        return out
+
     probabilities = np.empty((a.size, n_total), dtype=float)
+    predictions = {
+        key: np.zeros((a.size, int(np.prod(np.asarray(values).shape[1:], dtype=int))))
+        for key, (_, values) in designs.items()
+    }
     diagnostics: list[SuperLearnerDiagnostics] = []
 
     if folds.is_single:
-        model = fit_on(np.arange(a.size, dtype=np.int64))
+        everyone = np.arange(a.size, dtype=np.int64)
+        model = fit_on(everyone)
         probabilities[:] = _probabilities_from_hazards(
             _hazard_matrix(model, w, n_hazards, index_only)
         )
+        for key, values in predicted_at(model, everyone).items():
+            predictions[key][:] = values
         found = getattr(model, "diagnostics_", None)
         if found is not None:
             diagnostics.append(found)
     else:
 
-        def run_fold(train: IntArray, test: IntArray) -> tuple[IntArray, FloatArray, Any]:
+        def run_fold(
+            train: IntArray, test: IntArray
+        ) -> tuple[IntArray, FloatArray, dict[Hashable, FloatArray], Any]:
             model = fit_on(train)
             hazards = _hazard_matrix(model, w[test], n_hazards, index_only)
-            return test, _probabilities_from_hazards(hazards), getattr(model, "diagnostics_", None)
+            return (
+                test,
+                _probabilities_from_hazards(hazards),
+                predicted_at(model, test),
+                getattr(model, "diagnostics_", None),
+            )
 
-        for test, values, found in map_parallel(
+        for test, values, at_designs, found in map_parallel(
             run_fold, [(train, test) for train, test in folds], n_jobs=n_jobs
         ):
             probabilities[test] = values
+            for key, predicted in at_designs.items():
+                predictions[key][test] = predicted
             if found is not None:
                 diagnostics.append(found)
 
-    density = ConditionalDensity(probabilities, grid)
+    density = ConditionalDensity(probabilities, grid.edges)
     integrated = density.integrated()
     observed = density.density_at(a)
     if mask is not None:
         observed = observed[mask]
-    return density, DensityDiagnostics(
+    report = DensityDiagnostics(
         n_bins=n_total,
-        edges=grid,
+        edges=grid.edges,
         min_density=float(observed.min()),
         integrated=(float(integrated.min()), float(integrated.max())),
         learner=tuple(diagnostics),
     )
+    if predict_designs is None:
+        return density, report
+    shaped = {
+        key: predictions[key].reshape(np.asarray(values).shape)
+        for key, (_, values) in designs.items()
+    }
+    return density, report, shaped
 
 
 def warn_if_unresolved(
