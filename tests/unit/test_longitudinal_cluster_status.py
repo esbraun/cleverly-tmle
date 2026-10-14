@@ -357,7 +357,7 @@ class TestTheMutationsFailTheWitness:
         monkeypatch.setattr(
             longitudinal_estimator,
             "_inference_status",
-            lambda data, folds: "influence_curve",
+            lambda data, folds, **_: "influence_curve",
         )
         # The forced status reaches the t reference, which refuses fewer than 10 clusters.
         with pytest.raises((AssertionError, ValueError)):
@@ -386,7 +386,7 @@ class TestTheMutationsFailTheWitness:
         monkeypatch.setattr(
             longitudinal_estimator,
             "_inference_status",
-            lambda data, folds: cluster_inference_status(data.cluster),
+            lambda data, folds, **_: cluster_inference_status(data.cluster),
         )
         with pytest.raises((AssertionError, ValueError)):
             assert_withholds(

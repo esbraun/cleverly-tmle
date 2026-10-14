@@ -14,6 +14,7 @@ from .learners.library import _validate_learner
 
 __all__ = [
     "BASELINE_NO_FLUCTUATION",
+    "BASELINE_POINT_REFUSAL",
     "DEFAULT_LONGITUDINAL_G_BOUNDS",
     "DEFAULT_LONGITUDINAL_MULTIPLIER",
     "DEFAULT_POINT_MULTIPLIER",
@@ -28,7 +29,9 @@ __all__ = [
     "CrossFitting",
     "DRTMLEMethod",
     "EstimationMethod",
+    "GComputationMethod",
     "IPSIMethod",
+    "IPWMethod",
     "Inference",
     "MethodAvailability",
     "ModelSpec",
@@ -57,6 +60,11 @@ SDR_NO_FLUCTUATION = (
 BASELINE_NO_FLUCTUATION = (
     "the sequential g-computation and IPW estimators fit no fluctuation, so they have no "
     "logistic shrink, iteration limit or score tolerance. LTMLE takes {name}="
+)
+#: Why a point-treatment functional refuses ``method="gcomp"`` and ``method="ipw"``.
+BASELINE_POINT_REFUSAL = (
+    "sequential g-computation and sequential IPW are the baselines of a longitudinal fit; a "
+    "point-treatment functional fits tmle, drtmle or collaborative_tmle"
 )
 #: Why a point-treatment functional refuses ``method="sdr"`` (R4).
 SDR_POINT_REFUSAL = (
@@ -1104,6 +1112,180 @@ class SDRMethod(TMLEMethod):
         kwargs = super().estimator_kwargs(longitudinal=True)
         for engine_name in ("alpha", "max_iter", "tol"):
             del kwargs[engine_name]
+        return kwargs
+
+
+@dataclass(frozen=True)
+class _BaselineMethod(TMLEMethod):
+    """The settings the two sequential baseline methods share.
+
+    The baselines fit in sample, so ``cross_fitting`` defaults to ``enabled=False``.  They fit
+    no fluctuation, so the fluctuation settings of :class:`Targeting` stay at their defaults.
+    """
+
+    cross_fitting: CrossFitting = CrossFitting(enabled=False)
+
+    def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
+        """Translate this configuration for a longitudinal baseline engine.
+
+        Parameters
+        ----------
+        longitudinal : bool
+            Must be true, because the baselines are longitudinal estimators.
+
+        Returns
+        -------
+        dict of str to Any
+            Engine keyword arguments.
+
+        Raises
+        ------
+        MethodConfigurationError
+            When ``longitudinal`` is false, or when a fluctuation setting differs from its
+            default.
+        """
+        if not longitudinal:
+            raise MethodConfigurationError(BASELINE_POINT_REFUSAL)
+        defaults = Targeting()
+        for field_name, engine_name in (
+            ("submodel_alpha", "alpha"),
+            ("max_iter", "max_iter"),
+            ("tol", "tol"),
+        ):
+            if _differs_from_default(
+                getattr(self.targeting, field_name), getattr(defaults, field_name)
+            ):
+                raise MethodConfigurationError(BASELINE_NO_FLUCTUATION.format(name=engine_name))
+        kwargs = super().estimator_kwargs(longitudinal=True)
+        for engine_name in ("alpha", "max_iter", "tol"):
+            del kwargs[engine_name]
+        return kwargs
+
+
+@dataclass(frozen=True)
+class GComputationMethod(_BaselineMethod):
+    """Configure sequential g-computation of a longitudinal regimen.
+
+    The iterated conditional expectation of Bang and Robins (2005, Section 4), fitted by
+    :class:`cleverly.longitudinal.SequentialGComputation`.  The method fits in sample, so
+    ``cross_fitting`` defaults to ``CrossFitting(enabled=False)``, and above one fold the
+    engine refuses.  It fits no fluctuation, so the fluctuation settings of
+    :class:`Targeting` stay at their defaults.  Every learner left at ``None`` is a
+    main-terms GLM.  A point-treatment functional, a working model over regimens, and an
+    odds tilt with an estimated mechanism refuse the method.
+
+    Parameters
+    ----------
+    models : ModelSpec
+        Nuisance learners.  ``outcome_learner`` fits each backward regression.
+    cross_fitting : CrossFitting
+        Sample-splitting settings.  The default is in sample, and the engine refuses more
+        than one fold.
+    targeting : Targeting
+        ``g_bounds`` and ``q_bounds``.  ``g_bounds`` moves the positivity diagnostics only.
+        ``submodel_alpha``, ``max_iter`` and ``tol`` are refused, because the estimator
+        fits no fluctuation.
+    inference : Inference
+        Interval and resampling settings.
+    runtime : Runtime
+        Seed, run identifier, and parallelism.
+    name : str
+        Stable method name.
+
+    See Also
+    --------
+    IPWMethod : The inverse-probability-weighted baseline.
+    SDRMethod : The sequentially doubly robust estimator of the same parameters.
+    cleverly.longitudinal.SequentialGComputation : The engine this configuration is translated for.
+    cleverly.LongitudinalTreatment : The design whose functionals take this method.
+
+    Examples
+    --------
+    >>> from cleverly import GComputationMethod
+    >>> method = GComputationMethod()
+    >>> method.name, method.cross_fitting.enabled
+    ('gcomp', False)
+    >>> kwargs = method.estimator_kwargs(longitudinal=True)
+    >>> kwargs["n_folds"], "alpha" in kwargs
+    (1, False)
+    """
+
+    name: str = "gcomp"
+
+
+@dataclass(frozen=True)
+class IPWMethod(_BaselineMethod):
+    """Configure sequential inverse probability weighting of a longitudinal regimen.
+
+    The estimator fitted by :class:`cleverly.longitudinal.SequentialIPW`.  It reads the
+    treatment and censoring mechanisms only, and fits no outcome regression.  The method
+    fits in sample, so ``cross_fitting`` defaults to ``CrossFitting(enabled=False)``.  It
+    fits no fluctuation, so the fluctuation settings of :class:`Targeting` stay at their
+    defaults.  A point-treatment functional, a working model over regimens, a modified
+    treatment policy, and an odds tilt with an estimated mechanism refuse the method.
+
+    Parameters
+    ----------
+    models : ModelSpec
+        Nuisance learners.  ``treatment_learner`` and ``censoring_learner`` fit the
+        mechanisms.  ``outcome_learner`` and ``pseudo_learner`` are refused.
+    cross_fitting : CrossFitting
+        Sample-splitting settings.  The default is in sample, and the engine refuses more
+        than one fold.
+    targeting : Targeting
+        ``g_bounds`` and ``q_bounds``.  ``submodel_alpha``, ``max_iter`` and ``tol`` are
+        refused, because the estimator fits no fluctuation.
+    inference : Inference
+        Interval and resampling settings.
+    runtime : Runtime
+        Seed, run identifier, and parallelism.
+    name : str
+        Stable method name.
+    normalization : {"hajek", "horvitz_thompson"}, default="hajek"
+        ``"hajek"`` divides the weighted outcome sum by the weight sum.
+        ``"horvitz_thompson"`` divides by ``n``.
+
+    See Also
+    --------
+    GComputationMethod : The outcome-regression baseline.
+    SDRMethod : The sequentially doubly robust estimator of the same parameters.
+    cleverly.longitudinal.SequentialIPW : The engine this configuration is translated for.
+    cleverly.LongitudinalTreatment : The design whose functionals take this method.
+
+    Examples
+    --------
+    >>> from cleverly import IPWMethod
+    >>> method = IPWMethod(normalization="horvitz_thompson")
+    >>> method.name, method.cross_fitting.enabled
+    ('ipw', False)
+    >>> method.estimator_kwargs(longitudinal=True)["normalization"]
+    'horvitz_thompson'
+    """
+
+    name: str = "ipw"
+    normalization: Literal["hajek", "horvitz_thompson"] = "hajek"
+
+    def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
+        """Translate this configuration for the longitudinal IPW engine.
+
+        Parameters
+        ----------
+        longitudinal : bool
+            Must be true, because the estimator is longitudinal.
+
+        Returns
+        -------
+        dict of str to Any
+            IPW engine keyword arguments, with ``normalization``.
+
+        Raises
+        ------
+        MethodConfigurationError
+            When ``longitudinal`` is false, or when a fluctuation setting differs from its
+            default.
+        """
+        kwargs = super().estimator_kwargs(longitudinal=longitudinal)
+        kwargs["normalization"] = self.normalization
         return kwargs
 
 
