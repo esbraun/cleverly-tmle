@@ -7,6 +7,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends git libxml2-dev libcurl4-openssl-dev libssl-dev zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# The h2o binary is large, and R's default 60 s download timeout cuts it off.
+RUN echo 'options(timeout = 3600)' >> "${R_HOME}/etc/Rprofile.site"
+
 RUN install2.r --error --skipinstalled \
         assertthat data.table dplyr magrittr R6 Rcpp speedglm stringr purrr tibble tidyr zoo \
         pander rmarkdown SuperLearner xgboost h2o ggplot2 uuid BBmisc delayed digest Rdpack \
