@@ -1797,15 +1797,14 @@ def one_wrong_inference_verdicts(
     return growth
 
 
-# ---- the failure accounting's family rules (RM39 part b2, D3) ----------------------------------
+# ---- the failure accounting's family rules (RM39 part b2, rev 3 D3') -------------------------
 #
 # One declared clause tree per family whose whole verdict a function above computes.  Each
 # clause reads one statistic type and names its target, and every threshold is the name the
-# verdict function reads, never a copied number.  A study that adds a conjunct after the shared
-# call makes that (study, family) pair study-local, listed in
-# :data:`tests.studies.evidence.property_failures.STUDY_LOCAL`.  The reproduction and
-# differential tests of ``tests/unit/test_method_evidence.py`` hold each rule to the function
-# it restates.
+# verdict function reads, never a copied number.  A module that adds a conjunct, or computes a
+# family itself, declares its own rule in ``PROPERTY_RULES``, which takes precedence over the
+# shared one here (D3'a).  The reproduction and differential tests of
+# ``tests/unit/test_method_evidence.py`` hold each rule to the function it restates.
 
 
 def _union_rule() -> pf.FamilyRule:
@@ -1817,7 +1816,7 @@ def _union_rule() -> pf.FamilyRule:
         shared="robustness_verdicts",
         clauses=(
             pf.bias_clause("bias equivalent", kind="equivalent", applies=pf.roles("positive")),
-            pf.bias_clause("bias discriminated", kind="discriminated", applies=pf.roles("control")),
+            pf.bias_clause("bias discriminated", kind="beyond", applies=pf.roles("control")),
             pf.se_point_clause(
                 "se ratio in union band", band=band, applies=pf.roles("positive", "control")
             ),
@@ -1957,19 +1956,38 @@ def _calibration_kind(row: pd.Series) -> str:
     return str(row["cell"]).rsplit("__", 1)[-1]
 
 
-def _calibration_rule() -> pf.FamilyRule:
+def calibration_rule(*, efficiency_band: tuple[float, float] | None) -> pf.FamilyRule:
+    """The ``interval_calibration`` rule of :func:`calibration_verdicts` (rev 3 D3'd).
+
+    The band is the argument :func:`calibration_verdicts` receives, declared explicitly: a
+    module that passes a band declares ``calibration_rule(efficiency_band=...)`` in its
+    ``PROPERTY_RULES``, and the shared rule has none.
+
+    Parameters
+    ----------
+    efficiency_band : tuple of float or None
+        The study's ``EFFICIENCY_RATIO_BAND``, or ``None`` when the study claims no efficiency.
+
+    Returns
+    -------
+    FamilyRule
+        The rule.
+    """
+
     def seed(ctx: pf.Context, row: pd.Series) -> int:
         return stream_seed(ctx.record, "interval_calibration", str(row["cell"]))
 
     def calibration_ratio(ctx: pf.Context) -> tuple[float, float]:
         return ctx.margins.calibration_se_ratio
 
-    def efficiency_band(ctx: pf.Context) -> tuple[float, float]:
-        return ctx.parameters["efficiency_band"]
+    def band_of(ctx: pf.Context) -> tuple[float, float]:
+        assert efficiency_band is not None
+        return efficiency_band
 
     def kind(name: str, *, band: bool | None = None) -> pf.Applies:
+        declared = efficiency_band is not None
+
         def applies(ctx: pf.Context, row: pd.Series) -> bool:
-            declared = ctx.parameters.get("efficiency_band") is not None
             return _calibration_kind(row) == name and (band is None or band == declared)
 
         return applies
@@ -2000,7 +2018,7 @@ def _calibration_rule() -> pf.FamilyRule:
             pf.se_interval_clause(
                 f"{which.replace('_', ' ')} in efficiency band",
                 which=which,
-                judge=pf.band_judge(efficiency_band),
+                judge=pf.band_judge(band_of),
                 seed=seed,
                 applies=kind("positive", band=True),
             )
@@ -2019,7 +2037,7 @@ def _calibration_rule() -> pf.FamilyRule:
         pf.se_interval_clause(
             "efficiency above band",
             which="efficiency_empirical",
-            judge=pf.above_judge(lambda ctx: efficiency_band(ctx)[1]),
+            judge=pf.above_judge(lambda ctx: band_of(ctx)[1]),
             seed=seed,
             applies=kind("noise_control", band=True),
         ),
@@ -2069,6 +2087,7 @@ def _paired_rule(
     positive: tuple[pf.Clause, ...],
     control_ceiling: float,
     gain_floor: float,
+    group: str = "pair",
 ) -> pf.FamilyRule:
     return pf.FamilyRule(
         families=frozenset({family}),
@@ -2087,9 +2106,10 @@ def _paired_rule(
                 floor=gain_floor,
                 seed=lambda ctx, row: stream_seed(ctx.record, family, "coverage_gain"),
                 applies=pf.roles("positive", "control"),
+                group=group,
             ),
         ),
-        joint="group",
+        group=group,
     )
 
 
@@ -2164,9 +2184,25 @@ def _few_cluster_rule() -> pf.FamilyRule:
     )
 
 
+def _contraction_ladder(row: pd.Series) -> tuple[str, str, str, tuple[str, ...]]:
+    """The ladder, statistic and seed labels of a contraction slope row (:func:`contraction_rates`)."""
+    scenario = str(row["cell"]).removeprefix("rate_")
+    return CONTRACTION_FAMILY, f"{scenario}_n", "bias", (CONTRACTION_FAMILY, scenario)
+
+
+def _is_slope(ctx: pf.Context, row: pd.Series) -> bool:
+    return str(row["cell"]).startswith("rate_")
+
+
 def _contraction_rule() -> pf.FamilyRule:
     def floor(ctx: pf.Context) -> float:
         return ctx.margins.coverage_floor
+
+    def rung(role: str) -> pf.Applies:
+        return lambda ctx, row: str(row["role"]) == role and not _is_slope(ctx, row)
+
+    def slope(role: str) -> pf.Applies:
+        return lambda ctx, row: str(row["role"]) == role and _is_slope(ctx, row)
 
     return pf.FamilyRule(
         families=frozenset({CONTRACTION_FAMILY}),
@@ -2176,28 +2212,39 @@ def _contraction_rule() -> pf.FamilyRule:
                 "rung coverage floor",
                 statistic="S2",
                 judge=pf.floor_judge(floor),
-                applies=pf.roles("positive"),
+                applies=rung("positive"),
             ),
             pf.proportion_clause(
                 "rung coverage below floor",
                 statistic="S2",
                 judge=pf.below_judge(floor),
-                applies=pf.roles("control"),
+                applies=rung("control"),
+            ),
+            # OQ-6'a: each slope clause is one-sided with no complete-case side (L2).
+            pf.rate_slope_clause(
+                "bias contracts",
+                judge=pf.below_judge(lambda ctx: 0.0),
+                ladder=_contraction_ladder,
+                applies=slope("positive"),
+            ),
+            pf.rate_slope_clause(
+                "bias does not contract",
+                judge=lambda ctx, row, iv: pf.Judged(iv.high, bool(iv.high >= 0.0)),
+                ladder=_contraction_ladder,
+                applies=slope("control"),
             ),
         ),
-        # The slope rows are fitted across the rungs with no declared joint rule (F1).
-        accountable=lambda row: not str(row["cell"]).startswith("rate_"),
     )
 
 
-#: The shared families' rules.  Every other family is not accountable until a study declares a
-#: non-zero ``FAILURE_BOUND`` and adds its own rule with its differential test (D3).
+#: The shared families' rules.  A module's ``PROPERTY_RULES`` entry for a family takes
+#: precedence (rev 3 D3'a).
 FAMILY_RULES: tuple[pf.FamilyRule, ...] = (
     _union_rule(),
     _root_n_rule(),
     _rate_rule(),
     *_testing_rules(),
-    _calibration_rule(),
+    calibration_rule(efficiency_band=None),
     _simultaneous_rule(),
     *_paired_rules(),
     _few_cluster_rule(),

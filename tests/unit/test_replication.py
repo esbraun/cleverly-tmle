@@ -418,6 +418,10 @@ def _property_rows(key, drawn):  # type: ignore[no-untyped-def]
     ]
 
 
+def _mean_of(drawn):  # type: ignore[no-untyped-def]
+    return float(np.mean(drawn))
+
+
 def _property_singular_on(bad):  # type: ignore[no-untyped-def]
     def fit(key, drawn):  # type: ignore[no-untyped-def]
         if key in bad:
@@ -461,6 +465,38 @@ class TestFitProperties:
         assert record["replicates"] == "3"
         assert record["class"] == "fitting_failure"
         assert recorded.labels == ["properties"]
+
+    def test_p37_a_lost_key_s_witness_is_its_regenerated_draw_s_statistic(self) -> None:
+        """D3'f: every key of a cell that lost a replicate reports its draw's statistic."""
+        witness = replication.Witness("mean draw", _mean_of)
+        with replication.recording("subject", witness=witness) as recorded:
+            _properties(PROPERTY_KEYS, _property_singular_on({("a", 3)}))
+        values = recorded.witness_values
+        assert values is not None
+        assert list(values.columns) == list(replication.WITNESS_COLUMNS)
+        assert set(values["cell"]) == {"a_left", "a_right"}
+        assert len(values) == 2 * 25
+        lost = values.loc[values["replicate"] == 3, "value"]
+        assert set(lost) == {_mean_of(_draw(("a", 3)))}
+        assert set(values["statistic"]) == {"mean draw"}
+
+    def test_p37_a_loop_with_no_separate_draw_reports_nan_and_its_reason(self) -> None:
+        witness = replication.Witness("mean draw", _mean_of)
+        with replication.recording("subject", witness=witness) as recorded:
+            _properties(
+                PROPERTY_KEYS,
+                lambda key, drawn: _property_singular_on({("b", 4)})(key, _draw(key)),
+                draw=None,
+            )
+        values = recorded.witness_values
+        assert values is not None and values["value"].isna().all()
+        assert set(values["statistic"]) == {replication.DRAW_NOT_SEPARABLE}
+
+    def test_a_run_without_a_failure_has_no_witness_values(self) -> None:
+        witness = replication.Witness("mean draw", _mean_of)
+        with replication.recording("subject", witness=witness) as recorded:
+            _properties(PROPERTY_KEYS, _property_rows)
+        assert recorded.witness_values is None
 
     def test_a_failure_with_no_collector_stops_the_run(self) -> None:
         with pytest.raises(RuntimeError, match="outside the regeneration driver"):

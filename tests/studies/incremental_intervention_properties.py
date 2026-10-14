@@ -14,6 +14,7 @@ from tests import incrementals
 from tests.conftest import OracleOutcome, OracleTreatment
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_incremental_interventions import STUDY
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     control_row,
     payload_cell,
@@ -421,3 +422,8 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     summary.loc[identity, "passed"] = difference < 1e-8
     summary.loc[identity, "property_passed"] = bool(difference < 1e-8)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)

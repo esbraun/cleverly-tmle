@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import dataclasses
 import functools
-from collections.abc import Sequence
+import itertools
+import math
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -20,12 +22,14 @@ from tests.studies.evidence.failures import (
     NOT_ACCOUNTABLE,
     WITHIN_BOUND,
     WORST_CASE_FAILS,
+    filled,
     vertex,
 )
-from tests.studies.evidence.inference import student_interval
+from tests.studies.evidence.inference import clopper_pearson, student_interval
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     coverage_gain_interval,
+    mean_difference_interval,
     paired,
     paired_displacement,
     paired_spread_ratio_interval,
@@ -33,7 +37,7 @@ from tests.studies.evidence.properties import (
     se_ratio_deficit_interval,
 )
 from tests.studies.evidence.registry import StudyRecord
-from tests.studies.evidence.replication import Recording
+from tests.studies.evidence.replication import DRAW_NOT_SEPARABLE, Recording
 
 
 def _record_row(scenarios: str, replicate: int, *, group: str = "properties") -> dict:
@@ -526,6 +530,14 @@ class Control:
     cell: str
     leg: str
     rules: Sequence[property_failures.FamilyRule] = property_verdicts.FAMILY_RULES
+    groups: Mapping[str, Sequence[Sequence[str]]] = dataclasses.field(default_factory=dict)
+
+
+def _module(control: Control) -> SimpleNamespace:
+    """A property module at the largest bound, with the control's declared groups."""
+    return SimpleNamespace(
+        FAILURE_BOUND=property_failures.MAXIMUM_BOUND, PROPERTY_GROUPS=control.groups
+    )
 
 
 def _account(
@@ -538,9 +550,8 @@ def _account(
         records,
         control.summary,
         record=control.study,
-        module=BOUNDED,
+        module=_module(control),
         rules=control.rules if rules is None else rules,
-        local=frozenset(),
     )
 
 
@@ -582,7 +593,7 @@ def _context(control: Control) -> property_failures.Context:
         control.rows,
         control.summary,
         property_failures.counts(_gap_records(control.rows)),
-        {"efficiency_band": None},
+        control.groups,
     )
 
 
@@ -807,8 +818,8 @@ def _p7_coverage_gain(
     )
 
 
-# p8-p10: S8, S9 and S10 have no shared family yet, so each runs as a synthetic family whose
-# summary row a study would compute with the same helper on its survivors.
+# p9, p10 and p33: S9 and S10 run as synthetic families whose summary row a study would
+# compute with the same helper on its survivors.
 
 
 def _synthetic(
@@ -840,61 +851,6 @@ def _synthetic(
     summary["passed"] = [passed] + [True] * (len(summary) - 1)
     summary["property_passed"] = summary["passed"]
     return summary, (rule,)
-
-
-def _p8_deficit(lose: bool = True) -> Control:
-    """S8: a subject 0.05 below its reference; the subject's fills raise its ratio and the
-    reference's widest split lowers its own, and the deficit crosses zero."""
-    study = _study()
-    size = 380 if lose else 400
-    lost = _every(20, 20) if lose else ()
-    reference = _signs(size)
-    reference[0], reference[1] = 1.5, -1.5
-    rows = pd.concat(
-        [
-            _arm(
-                "synthetic_deficit",
-                "subject",
-                "positive",
-                requested=400,
-                lost=lost,
-                estimates=_signs(size),
-                std_errors=0.9,
-            ),
-            _arm(
-                "synthetic_deficit",
-                "reference",
-                "diagnostic",
-                requested=400,
-                lost=lost,
-                estimates=reference,
-                std_errors=0.95,
-            ),
-        ],
-        ignore_index=True,
-    )
-    seed = 7
-    interval = se_ratio_deficit_interval(
-        rows.loc[rows["cell"] == "subject"],
-        rows.loc[rows["cell"] == "reference"],
-        replicates=study.margins.bootstrap_replicates,
-        confidence_level=study.margins.confidence_level,
-        seed=seed,
-    )
-    clause = property_failures.deficit_clause(
-        "deficit below zero",
-        cells=("subject", "reference"),
-        judge=property_failures.below_judge(lambda ctx: 0.0),
-        seed=lambda ctx, row: seed,
-        applies=property_failures.roles("positive"),
-    )
-    summary, rules = _synthetic(
-        "synthetic_deficit",
-        rows,
-        {"se_ratio_deficit_ci_lower": interval.low, "se_ratio_deficit_ci_upper": interval.high},
-        clause,
-    )
-    return Control(rows, summary, study, "synthetic_deficit", "subject", clause.name, rules)
 
 
 def _p9_spread_ratio(lose: bool = True) -> Control:
@@ -952,7 +908,7 @@ def _p9_spread_ratio(lose: bool = True) -> Control:
 
 
 def _p10_extra_mean(lose: bool = True) -> Control:
-    """S10: a share of 0.49 under a 0.5 cap; 20 lost rows at the survivor maximum exceed it."""
+    """S10: a share of 0.49 under a 0.5 cap; 20 lost rows at the support bound 1 exceed it."""
     study = _study()
     size = 380 if lose else 400
     rows = _arm(
@@ -966,16 +922,640 @@ def _p10_extra_mean(lose: bool = True) -> Control:
     rows["share"] = (np.arange(size) < round(0.49 * size)).astype(float)
     clause = property_failures.extra_mean_clause(
         "share under its cap",
-        column="share",
+        value=lambda group: group["share"].to_numpy(dtype=float),
         summary_column="mean_share",
         side="cap",
         limit=0.5,
         applies=property_failures.roles("positive"),
+        support=(0.0, 1.0),
     )
     summary, rules = _synthetic(
         "synthetic_share", rows, {"mean_share": float(rows["share"].mean())}, clause
     )
     return Control(rows, summary, study, "synthetic_share", "subject", clause.name, rules)
+
+
+# ---- rev 3 statistic types (RM39b2-plan-rev3 section 9) ---------------------------------------
+
+
+def _summary_of(
+    family: str,
+    rows: pd.DataFrame,
+    rules: Sequence[property_failures.FamilyRule],
+    *,
+    columns: Mapping[str, Mapping[str, Any]],
+    study: StudyRecord,
+    groups: Mapping[str, Sequence[Sequence[str]]] | None = None,
+) -> pd.DataFrame:
+    """A synthetic family's summary: each cell's published columns, its rule's verdicts.
+
+    The verdicts are the rule's complete case, which is what a study that computes the same
+    statistic on its survivors publishes.
+    """
+    records = []
+    for cell, group in rows.loc[rows["property"] == family].groupby("cell", sort=False):
+        records.append(
+            {
+                "property": family,
+                "cell": cell,
+                "role": str(group["role"].iloc[0]),
+                "replicates": len(group),
+                "failed_replicates": int(group["failed_replicates"].iloc[0]),
+                **columns.get(str(cell), {}),
+            }
+        )
+    summary = pd.DataFrame(records)
+    context = property_failures.Context(study, rows, summary, {}, groups or {})
+    rule = property_failures.rule_for(family, rules=rules)
+    assert rule is not None
+    verdicts = property_failures.rule_verdicts(rule, summary, context)
+    return summary.merge(verdicts, on=["property", "cell"], how="left", validate="one_to_one")
+
+
+def _one_rule(family: str, *clauses: property_failures.Clause, group: str = "row") -> tuple:
+    return (
+        property_failures.FamilyRule(
+            families=frozenset({family}), shared="synthetic", clauses=clauses, group=group
+        ),
+    )
+
+
+def _bias_columns(rows: pd.DataFrame, study: StudyRecord) -> dict[str, float]:
+    errors = (rows["estimate"] - rows["truth"]).to_numpy(dtype=float)
+    interval = student_interval(errors, confidence_level=study.margins.confidence_level)
+    return {
+        "bias_ci_lower": interval.low,
+        "bias_ci_upper": interval.high,
+        "empirical_se": float(np.std(errors, ddof=1)),
+    }
+
+
+def _p18_fixed_floor(lose: bool = True) -> Control:
+    """S1f: a both-wrong control's bias clears a fixed floor of 0.28 at 0.287; 20 fills at the
+    survivor minimum leave it at 0.241."""
+    study = _study()
+    family = "synthetic_corrected_mar_inference"
+    rows = _arm(
+        family,
+        "both_wrong",
+        "control",
+        requested=400,
+        lost=_every(20, 20) if lose else (),
+        estimates=_signs(380 if lose else 400) + 0.42,
+    )
+    clause = property_failures.bias_clause(
+        "bias clears the both-wrong floor",
+        kind="beyond",
+        margin=lambda ctx, row: 0.28,
+        strict=False,
+        statistic="S1f",
+        applies=property_failures.roles("control"),
+    )
+    rules = _one_rule(family, clause)
+    summary = _summary_of(
+        family, rows, rules, columns={"both_wrong": _bias_columns(rows, study)}, study=study
+    )
+    return Control(rows, summary, study, family, "both_wrong", clause.name, rules)
+
+
+def _p32_held_margin(lose: bool = True) -> Control:
+    """S1: an SDR control clears 0.25 times its held ``empirical_se``; a split pulls it back."""
+    study = _study()
+    family = "synthetic_sequential_double_robustness"
+    rows = _arm(
+        family,
+        "p_b_control",
+        "control",
+        requested=400,
+        lost=_every(20, 20) if lose else (),
+        estimates=_signs(380 if lose else 400) + 0.42,
+    )
+    clause = property_failures.bias_clause(
+        "bias beyond the control floor",
+        kind="beyond",
+        margin=lambda ctx, row: 0.25 * float(row["empirical_se"]),
+        applies=property_failures.roles("control"),
+    )
+    rules = _one_rule(family, clause)
+    summary = _summary_of(
+        family, rows, rules, columns={"p_b_control": _bias_columns(rows, study)}, study=study
+    )
+    return Control(rows, summary, study, family, "p_b_control", clause.name, rules)
+
+
+def _p33_floor_mean(lose: bool = True) -> Control:
+    """S10 on an unbounded value: a mean of 0.505 above a 0.5 floor; 20 rows at the survivor
+    minimum 0.305 take it to 0.495."""
+    study = _study()
+    family = "synthetic_floor"
+    size = 380 if lose else 400
+    rows = _arm(
+        family,
+        "subject",
+        "positive",
+        requested=400,
+        lost=_every(20, 20) if lose else (),
+        estimates=_signs(size),
+    )
+    rows["overlap"] = 0.505 + 0.2 * _signs(size)
+    clause = property_failures.extra_mean_clause(
+        "mean overlap above its floor",
+        value=lambda group: group["overlap"].to_numpy(dtype=float),
+        summary_column="mean_overlap",
+        side="floor",
+        limit=0.5,
+        applies=property_failures.roles("positive"),
+    )
+    rules = _one_rule(family, clause)
+    summary = _summary_of(
+        family,
+        rows,
+        rules,
+        columns={"subject": {"mean_overlap": float(rows["overlap"].mean())}},
+        study=study,
+    )
+    return Control(rows, summary, study, family, "subject", clause.name, rules)
+
+
+DISPLACEMENT = "synthetic_necessity"
+
+
+def _displacement(
+    *,
+    shift: float,
+    scale: float,
+    threshold: float,
+    left_lost: Sequence[int],
+    right_lost: Sequence[int],
+) -> Control:
+    study = _study()
+    left = _arm(
+        DISPLACEMENT,
+        "a__targeted",
+        "positive",
+        requested=400,
+        lost=left_lost,
+        estimates=_signs(400 - len(left_lost)),
+    )
+    right = _arm(
+        DISPLACEMENT,
+        "a__untargeted",
+        "control",
+        requested=400,
+        lost=right_lost,
+        estimates=scale * _signs(400 - len(right_lost)) + shift,
+    )
+    rows = pd.concat([left, right], ignore_index=True)
+    clause = property_failures.displacement_clause(
+        "displacement at the threshold",
+        column="displacement",
+        labels=("a",),
+        arms=("targeted", "untargeted"),
+        threshold=threshold,
+    )
+    rules = _one_rule(DISPLACEMENT, clause, group="family")
+    value = paired_displacement(rows, DISPLACEMENT, "a__targeted", "a__untargeted")
+    summary = _summary_of(
+        DISPLACEMENT,
+        rows,
+        rules,
+        columns={cell: {"displacement": value} for cell in ("a__targeted", "a__untargeted")},
+        study=study,
+    )
+    return Control(rows, summary, study, DISPLACEMENT, "a__untargeted", clause.name, rules)
+
+
+def _p20_same_key(lose: bool = True) -> Control:
+    """S12: a displacement of 0.58 over a 0.5 threshold; both arms lose the same 20 keys, and
+    their means at the nearer ends close it to 0.48."""
+    lost = _every(20, 20) if lose else []
+    return _displacement(shift=0.58, scale=1.0, threshold=0.5, left_lost=lost, right_lost=lost)
+
+
+def _p20_cross_key(lose: bool = True) -> Control:
+    """S12: as the same-key case, with the arms losing different keys."""
+    left = _every(20, 20) if lose else []
+    right = [replicate + 1 for replicate in left]
+    return _displacement(shift=0.58, scale=1.0, threshold=0.5, left_lost=left, right_lost=right)
+
+
+def _p20_straddle(lose: bool = True) -> Control:
+    """S12: a wide control arm; the attainable difference of means holds zero, so ``D = 0``."""
+    lost = _every(20, 20) if lose else []
+    return _displacement(shift=0.28, scale=5.0, threshold=0.25, left_lost=lost, right_lost=lost)
+
+
+SELECTOR = "synthetic_selector_necessity"
+
+
+def _rmse_ratio(numerator: pd.DataFrame, denominator: pd.DataFrame) -> float:
+    left, right = paired(numerator, denominator)
+    errors = [(arm["estimate"] - arm["truth"]).to_numpy(dtype=float) for arm in (left, right)]
+    return float(np.sqrt(np.mean(errors[0] ** 2) / np.mean(errors[1] ** 2)))
+
+
+def _selector(*, denominator: np.ndarray | None = None, lose: bool = True) -> Control:
+    study = _study()
+    lost = _every(20, 20) if lose else []
+    numerator = 0.4 * _signs(400 - len(lost))
+    numerator[0] = 2.0
+    rows = pd.concat(
+        [
+            _arm(
+                SELECTOR,
+                "collaborative",
+                "positive",
+                requested=400,
+                lost=lost,
+                estimates=numerator,
+            ),
+            _arm(
+                SELECTOR,
+                "empty_control",
+                "control",
+                requested=400,
+                lost=lost,
+                estimates=_signs(400 - len(lost)) if denominator is None else denominator,
+            ),
+        ],
+        ignore_index=True,
+    )
+    clause = property_failures.rmse_ratio_clause(
+        "rmse ratio under its threshold",
+        paths=[("collaborative", "empty_control")],
+        statistic=_rmse_ratio,
+        threshold=0.5,
+    )
+    rules = _one_rule(SELECTOR, clause, group="family")
+    ratio = _rmse_ratio(
+        rows.loc[rows["cell"] == "collaborative"], rows.loc[rows["cell"] == "empty_control"]
+    )
+    summary = _summary_of(
+        SELECTOR,
+        rows,
+        rules,
+        columns={"collaborative": {"rmse_ratio": ratio}, "empty_control": {"rmse_ratio": np.nan}},
+        study=study,
+    )
+    return Control(rows, summary, study, SELECTOR, "collaborative", clause.name, rules)
+
+
+def _p21_numerator(lose: bool = True) -> Control:
+    """S13: an RMSE ratio of 0.41 under 0.5; the numerator's lost errors at its farther end
+    (2.0) raise it past the threshold."""
+    return _selector(lose=lose)
+
+
+SINGLE = "synthetic_single_robustness"
+
+#: p22's small cell: 37 errors near 0.5 and one at -8, searched so that the least bound over
+#: the box sits at an interior equal fill, away from every split and from the mean fill.
+_SMALL_ERRORS = np.concatenate([np.random.default_rng(1).normal(0.5, 0.5, 37), [-8.0]])
+
+
+def _p22_bias_bound(lose: bool = True) -> Control:
+    """S14: ``B_large = 0.67`` sits below ``B_small``; the small cell's least bound, 0.610 at
+    an interior equal fill, falls under it."""
+    study = _study()
+    small = _SMALL_ERRORS if lose else np.concatenate([_SMALL_ERRORS, [0.5, 0.5]])
+    rows = pd.concat(
+        [
+            _arm(
+                SINGLE,
+                "small",
+                "positive",
+                requested=40,
+                lost=(5, 25) if lose else (),
+                estimates=small,
+                n=1000,
+            ),
+            _arm(
+                SINGLE, "large", "positive", requested=40, estimates=0.51 + 0.5 * _signs(40), n=4000
+            ),
+        ],
+        ignore_index=True,
+    )
+    clause = property_failures.bias_bound_clause(
+        "large bound below the small",
+        small="small",
+        large="large",
+        kind="below small",
+        column="absolute_bias_bound",
+    )
+    rules = _one_rule(SINGLE, clause, group="family")
+    summary = _summary_of(
+        SINGLE,
+        rows,
+        rules,
+        columns={
+            cell: {
+                "absolute_bias_bound": property_failures.absolute_bias_bound(
+                    rows.loc[rows["cell"] == cell, "estimate"].to_numpy(dtype=float)
+                )
+            }
+            for cell in ("small", "large")
+        },
+        study=study,
+    )
+    return Control(rows, summary, study, SINGLE, "small", clause.name, rules)
+
+
+def _p24_contraction(lose: bool = True) -> Control:
+    """S6 ``bias``: biases of 0.08, 0.04 and 0.02 contract.  The smallest rung holds one error
+    at -2, so a fill of its 20 lost rows at -1.52 brings its mean to zero, and the slope no
+    longer falls."""
+    study = _study()
+    family = property_verdicts.CONTRACTION_FAMILY
+    rungs = []
+    for n, bias in ((500, 0.08), (2000, 0.04), (8000, 0.02)):
+        lost = _every(20, 20) if lose and n == 500 else []
+        size = 400 - len(lost)
+        errors = 0.05 * _signs(size)
+        if n == 500:
+            errors[-1] = -2.0
+        errors += bias - float(np.mean(errors))
+        rungs.append(
+            _arm(
+                family,
+                f"outcome_correct_n{n}",
+                "positive",
+                requested=400,
+                lost=lost,
+                estimates=errors,
+                n=n,
+            )
+        )
+    rows = pd.concat(rungs, ignore_index=True)
+    columns = [
+        "property",
+        "cell",
+        "role",
+        "replicates",
+        "failed_replicates",
+        "slope",
+        "slope_ci_lower",
+        "slope_ci_upper",
+        "passed",
+        "property_passed",
+    ]
+    summary = pd.DataFrame(
+        property_verdicts.contraction_rates(rows, study, columns, scenarios=("outcome_correct",))
+    )
+    summary["property_passed"] = summary["passed"]
+    return Control(rows, summary, study, family, "rate_outcome_correct", "bias contracts")
+
+
+def _overfit_pair(prefix: str, *, lose: bool) -> pd.DataFrame:
+    control = _p7_coverage_gain(lose=lose, control_loses=False)
+    rows = control.rows.copy()
+    rows["cell"] = prefix + "__" + rows["cell"]
+    return rows
+
+
+def _p25_pair(lose: bool = True) -> Control:
+    """``group = pair``: two declared crossfit pairs; only the pair that lost reads red."""
+    study = _study()
+    rows = pd.concat(
+        [_overfit_pair("a", lose=lose), _overfit_pair("b", lose=False)], ignore_index=True
+    )
+    pairs = [("a__cross_fit", "a__in_sample_control"), ("b__cross_fit", "b__in_sample_control")]
+    frames = []
+    for positive, control in pairs:
+        arms = rows.loc[rows["cell"].isin([positive, control])]
+        summary, rates = property_verdicts.apply_shared_verdicts(
+            arms,
+            study,
+            rate_labels=(),
+            extra_columns=("coverage_gain_ci_lower", "coverage_gain_ci_upper"),
+        )
+        property_verdicts.crossfit_overfitting_verdicts(
+            summary, arms, study, positive_cell=positive, control_cell=control
+        )
+        frames.append(property_verdicts.finish(summary, rates))
+    return Control(
+        rows,
+        pd.concat(frames, ignore_index=True),
+        study,
+        "crossfit_overfitting",
+        "a__cross_fit",
+        "coverage gain",
+        groups={"crossfit_overfitting": pairs},
+    )
+
+
+def _cap_rule() -> property_failures.FamilyRule:
+    """The ``full_refit_bootstrap`` rule: the shared calibration clauses and the cap (G1)."""
+    from tests.studies.canonical_full_refit_bootstrap import FAILED_REPLICATE_CAP
+
+    shared = property_verdicts.calibration_rule(efficiency_band=None)
+    cap = property_failures.extra_mean_clause(
+        "failed bootstrap share under its cap",
+        value=lambda group: (group["bootstrap_failed"] / group["bootstrap_requested"]).to_numpy(
+            dtype=float
+        ),
+        summary_column="bootstrap_failed_fraction",
+        side="cap",
+        limit=FAILED_REPLICATE_CAP,
+        applies=property_failures.roles("positive"),
+        support=(0.0, 1.0),
+    )
+    return dataclasses.replace(shared, clauses=(*shared.clauses, cap))
+
+
+def _p26_cap(lose: bool = True) -> Control:
+    """S10: a failed-bootstrap share of 0.0095 under the 0.01 cap; 20 lost rows at share 1
+    break it, which the shared calibration rule alone never reads (G1)."""
+    study = _study()
+    size = 4180 if lose else 4200
+    rows = _arm(
+        "interval_calibration",
+        "z0__correctly_specified",
+        "positive",
+        requested=4200,
+        lost=_every(200, 20) if lose else (),
+        estimates=_signs(size),
+        covered=_hits(round(0.95 * size), size),
+    )
+    rows["bootstrap_requested"] = 100
+    rows["bootstrap_failed"] = (np.arange(size) < round(0.95 * size)).astype(int)
+    summary = _shared(rows, study, rate_labels=())
+    share = float((rows["bootstrap_failed"] / rows["bootstrap_requested"]).mean())
+    summary["bootstrap_failed_fraction"] = share
+    return Control(
+        rows,
+        summary,
+        study,
+        "interval_calibration",
+        "z0__correctly_specified",
+        "failed bootstrap share under its cap",
+        (_cap_rule(),),
+    )
+
+
+PROJECTION = "randomizer_projection"
+
+
+def _projection_hook(level: float) -> property_failures.SpreadStatistic:
+    """The verdict's own ``projection_sd_ratio``, its one-sided bound at ``level`` (G6)."""
+    from tests.studies.stochastic_categorical_ltmle_properties import projection_sd_ratio
+
+    def statistic(ctx, row, numerator, denominator):
+        _, upper = projection_sd_ratio(
+            pd.concat([numerator, denominator], ignore_index=True),
+            replicates=ctx.margins.bootstrap_replicates,
+            level=level,
+            seed=17,
+        )
+        return property_failures.Interval(math.nan, upper)
+
+    return statistic
+
+
+def _p27_projection(lose: bool = True) -> Control:
+    """S9 hook: the integrated arm's spread sits under the recorded one's; the numerator's
+    widest split pushes the one-sided bound over one."""
+    from tests.studies.stochastic_categorical_ltmle_properties import projection_sd_ratio
+
+    study = _study()
+    size = 380 if lose else 400
+    lost = _every(20, 20) if lose else ()
+    integrated = 0.9 * _signs(size)
+    integrated[0], integrated[1] = 2.5, -2.5
+    rows = pd.concat(
+        [
+            _arm(
+                PROJECTION,
+                "mix__integrated",
+                "positive",
+                requested=400,
+                lost=lost,
+                estimates=integrated,
+            ),
+            _arm(
+                PROJECTION,
+                "mix__recorded_randomizer",
+                "control",
+                requested=400,
+                lost=lost,
+                estimates=_signs(size),
+            ),
+        ],
+        ignore_index=True,
+    )
+    level = 0.99
+    clause = property_failures.spread_ratio_clause(
+        "projection spread ratio under one",
+        cells=("mix__integrated", "mix__recorded_randomizer"),
+        side="upper",
+        judge=property_failures.below_judge(lambda ctx: 1.0),
+        seed=lambda ctx, row: 17,
+        applies=property_failures.every,
+        statistic=_projection_hook(level),
+        columns=(None, "sd_ratio_upper"),
+        target="property_passed",
+    )
+    rules = _one_rule(PROJECTION, clause, group="family")
+    _, upper = projection_sd_ratio(
+        rows, replicates=study.margins.bootstrap_replicates, level=level, seed=17
+    )
+    summary = _summary_of(
+        PROJECTION,
+        rows,
+        rules,
+        columns={cell: {"sd_ratio_upper": upper} for cell in set(rows["cell"])},
+        study=study,
+    )
+    return Control(rows, summary, study, PROJECTION, "mix__integrated", clause.name, rules)
+
+
+GENERATED = "synthetic_generated_design"
+
+
+def _p31_label(lose: bool = True) -> Control:
+    """``group = label``: a loss in label ``a`` breaks its coverage band; label ``b`` keeps its
+    joint verdict."""
+    study = _study()
+    arms = []
+    for cell in ("a__x", "a__y", "b__x", "b__y"):
+        losing = lose and cell == "a__x"
+        size = 4000 if losing else 4200
+        arms.append(
+            _arm(
+                GENERATED,
+                cell,
+                "positive",
+                requested=4200,
+                lost=_every(21, 200) if losing else (),
+                estimates=_signs(size),
+                covered=_hits(3730 if losing else round(0.95 * size), size),
+            )
+        )
+    rows = pd.concat(arms, ignore_index=True)
+    clause = property_failures.proportion_clause(
+        "coverage in calibration band",
+        statistic="S2",
+        judge=property_failures.band_judge(lambda ctx: ctx.margins.calibration_coverage),
+        applies=property_failures.every,
+    )
+    groups = {GENERATED: [("a__x", "a__y"), ("b__x", "b__y")]}
+    rules = _one_rule(GENERATED, clause, group="label")
+    level = study.margins.confidence_level
+    columns = {}
+    for cell, group in rows.groupby("cell"):
+        interval = clopper_pearson(int(group["covered"].sum()), len(group), confidence_level=level)
+        columns[str(cell)] = {
+            "coverage": float(group["covered"].mean()),
+            "coverage_ci_lower": interval.low,
+            "coverage_ci_upper": interval.high,
+        }
+    summary = _summary_of(GENERATED, rows, rules, columns=columns, study=study, groups=groups)
+    return Control(rows, summary, study, GENERATED, "a__x", clause.name, rules, groups)
+
+
+def _p6_interior(lose: bool = True) -> Control:
+    """S6 (G3): a root-n ladder whose smallest rung lost 20 of 400; the slope interval leaves
+    its band under an interior vertex split alone.  The exponent is tuned to put the band's
+    edge between that split and every rev 2 candidate."""
+    study = _study()
+    rungs = []
+    for n in (250, 1000, 4000):
+        lost = _every(20, 20) if lose and n == 250 else []
+        size = 400 - len(lost)
+        draws = np.random.default_rng(730 + n).standard_t(5, size)
+        rungs.append(
+            _arm(
+                "root_n_and_efficiency",
+                f"n_{n}",
+                "positive",
+                requested=400,
+                lost=lost,
+                estimates=draws * n**-0.49265,
+                std_errors=n**-0.49265,
+                n=n,
+            )
+        )
+    rows = pd.concat(rungs, ignore_index=True)
+    return Control(
+        rows, _shared(rows, study), study, "root_n_rate", "empirical_sd", "slope in root-n band"
+    )
+
+
+LEG_CONTROLS_REV3 = {
+    "p18": _p18_fixed_floor,
+    "p20 same key": _p20_same_key,
+    "p20 cross key": _p20_cross_key,
+    "p20 straddle": _p20_straddle,
+    "p21": _p21_numerator,
+    "p22": _p22_bias_bound,
+    "p24": _p24_contraction,
+    "p25": _p25_pair,
+    "p26": _p26_cap,
+    "p27": _p27_projection,
+    "p31": _p31_label,
+    "p32": _p32_held_margin,
+    "p33": _p33_floor_mean,
+    "p6 interior": _p6_interior,
+}
 
 
 LEG_CONTROLS = {
@@ -987,9 +1567,9 @@ LEG_CONTROLS = {
     "p6": _p6_rate,
     "p7": _p7_coverage_gain,
     "p7 across keys": functools.partial(_p7_coverage_gain, across_keys=True),
-    "p8": _p8_deficit,
     "p9": _p9_spread_ratio,
     "p10": _p10_extra_mean,
+    **LEG_CONTROLS_REV3,
 }
 
 
@@ -1040,7 +1620,7 @@ class TestLegControls:
             dataclasses.replace(
                 control,
                 summary=property_failures.correct_properties(
-                    control.summary, _accounted(name), rules=control.rules
+                    control.summary, _accounted(name), module=_module(control), rules=control.rules
                 ),
             )
         )
@@ -1126,55 +1706,35 @@ def test_p5_the_resolve_rule_fails_between_its_holding_ends() -> None:
     assert not all(value.passed for value in judged.values())
 
 
-class TestNotAccountable:
-    """p11: a family no shared rule computes reads ``failures not accountable``."""
+class TestNoRule:
+    """A family with no declared rule reads ``failures not accountable`` (rev 3 section 7.3)."""
 
-    @staticmethod
-    def _summary(family: str, cell: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+    def test_a_cell_that_passes_its_complete_case_is_red(self) -> None:
+        family, cell = "undeclared_family", "subject"
         rows = _arm(family, cell, "positive", requested=400, lost=(3,), estimates=_signs(399))
         summary = pd.DataFrame(
             [
                 {
                     "property": family,
-                    "cell": cell,
+                    "cell": name,
                     "role": "positive",
-                    "replicates": 399,
-                    "failed_replicates": 1,
+                    "replicates": replicates,
+                    "failed_replicates": failed,
                     "passed": True,
                     "property_passed": True,
-                },
-                {
-                    "property": family,
-                    "cell": "untouched",
-                    "role": "positive",
-                    "replicates": 400,
-                    "failed_replicates": 0,
-                    "passed": True,
-                    "property_passed": True,
-                },
+                }
+                for name, replicates, failed in ((cell, 399, 1), ("untouched", 400, 0))
             ]
         )
-        return rows, summary
-
-    @pytest.mark.parametrize(
-        ("family", "local"),
-        [
-            ("targeting_necessity", frozenset()),
-            ("double_robustness", frozenset({"double_robustness"})),
-        ],
-    )
-    def test_a_cell_that_passes_its_complete_case_is_red(
-        self, family: str, local: frozenset[str]
-    ) -> None:
-        rows, summary = self._summary(family, "subject")
         records = _gap_records(rows)
         accounting = property_failures.property_accounting(
-            rows, records, summary, record=_study(), module=BOUNDED, local=local
+            rows, records, summary, record=_study(), module=BOUNDED
         )
         assert set(accounting["reason"]) == {NOT_ACCOUNTABLE}
         assert list(accounting["leg"]) == [
             property_failures.BOUND_LEG,
             property_failures.NOT_ACCOUNTABLE_LEG,
+            property_failures.WITNESS_LEG,
         ]
         corrected = property_failures.correct_properties(summary, accounting)
         assert list(corrected["passed"]) == [False, True]
@@ -1272,7 +1832,7 @@ class TestDifferential:
         moved = property_failures.perturbed(rows, kind, alpha=study.margins.alpha)
         summary = _shared(moved, study)
         context = property_failures.Context(study, moved, summary)
-        return property_failures.differential(rules, summary, context)
+        return property_failures.differential(summary, context, rules=rules)
 
     @staticmethod
     def _mutated(
@@ -1320,14 +1880,998 @@ class TestDifferential:
         wrong = self._disagreements(rules, "none")
         assert set(wrong["property"]) == {"root_n_and_efficiency"}
 
-    def test_a_study_local_family_is_not_compared(self) -> None:
+    def test_a_module_rule_takes_precedence_over_the_shared_one(self) -> None:
+        """D3'a: a family resolves to the module's rule first, so its clauses are compared."""
         rule = _rule("root_n_and_efficiency")
-        rules = self._mutated("root_n_and_efficiency", rule.clauses[:1])
+        dropped = dataclasses.replace(rule, clauses=rule.clauses[:1])
         study, rows = self._ladder()
         moved = property_failures.perturbed(rows, "se_high")
         summary = _shared(moved, study)
         context = property_failures.Context(study, moved, summary)
-        assert not property_failures.differential(rules, summary, context).empty
-        assert property_failures.differential(
-            rules, summary, context, local=frozenset({"root_n_and_efficiency"})
-        ).empty
+        assert property_failures.differential(summary, context).empty
+        module = SimpleNamespace(PROPERTY_RULES=(dropped,))
+        assert property_failures.rule_for("root_n_and_efficiency", module) is dropped
+        wrong = property_failures.differential(summary, context, module=module)
+        assert set(wrong["property"]) == {"root_n_and_efficiency"}
+
+
+# ---- what each rev 3 control shows beyond its leg ------------------------------------------
+
+
+def _leg(name: str) -> pd.Series:
+    control = _control(name)
+    cell = _of(_accounted(name), control.family, control.cell)
+    return cell.loc[cell["leg"] == control.leg].iloc[0]
+
+
+def _candidates(control: Control) -> dict[str, property_failures.Judged]:
+    rule = next(rule for rule in control.rules if control.family in rule.families)
+    clause = rule.clause(control.leg)
+    assert clause.candidates is not None
+    return dict(clause.candidates(_context(control), _row(control)))
+
+
+def test_p20_an_interval_that_holds_zero_gives_no_displacement() -> None:
+    """S12: ``D_min = 0`` when the attainable difference of means holds zero."""
+    leg = _leg("p20 straddle")
+    assert leg["worst_case"] == pytest.approx(-0.25)
+    low, high, _ = property_failures.displacement_bounds(
+        *(
+            _control("p20 straddle").rows.loc[lambda f, c=cell: f["cell"] == c]
+            for cell in ("a__targeted", "a__untargeted")
+        ),
+        truth_varies=False,
+    )
+    assert low < 0.0 < high
+
+
+def test_p20_the_cross_key_arms_read_every_survivor() -> None:
+    """S12 across keys: each arm's mean reads its own survivors, not only the shared keys."""
+    same, cross = _leg("p20 same key"), _leg("p20 cross key")
+    assert same["worst_case"] < 0.0 and cross["worst_case"] < 0.0
+    assert same["worst_case"] != pytest.approx(cross["worst_case"], abs=1e-12)
+
+
+def test_p21_truth_outside_the_denominator_s_range_is_conservative() -> None:
+    """S13: a denominator whose errors all lie in [0.5, 1.5] is filled at truth, which no
+    completion in its range reaches, so the leg is more adverse than any range completion."""
+    denominator = 1.0 + 0.5 * _signs(380)
+    control = _selector(denominator=denominator)
+    ((_, judged),) = _candidates(control).items()
+    numerator = control.rows.loc[control.rows["cell"] == "collaborative"]
+    lost = sorted(set(range(400)) - set(numerator["replicate"]))
+
+    def completed(frame: pd.DataFrame, fill: float) -> pd.DataFrame:
+        filled_rows = pd.DataFrame(
+            {
+                "replicate": lost,
+                "estimate": fill,
+                "truth": 0.0,
+                "failed_replicates": 0,
+                "requested_replicates": 400,
+            }
+        )
+        whole = pd.concat([frame.assign(failed_replicates=0), filled_rows], ignore_index=True)
+        return whole.sort_values("replicate", ignore_index=True)
+
+    denominator_rows = control.rows.loc[control.rows["cell"] == "empty_control"]
+    in_range = max(
+        _rmse_ratio(completed(numerator, 2.0), completed(denominator_rows, fill))
+        for fill in np.linspace(0.5, 1.5, 21)
+    )
+    assert 0.5 - judged.slack > in_range
+
+
+def test_p22_a_split_search_and_a_mean_fill_both_miss_the_least_small_bound() -> None:
+    """S14: the small cell's least bound sits at an interior equal fill."""
+    control = _control("p22")
+    errors = control.rows.loc[control.rows["cell"] == "small", "estimate"].to_numpy(dtype=float)
+    least, centre = property_failures._equal_fill_bound(errors, 2)
+    splits = min(property_failures.absolute_bias_bound(vertex(errors, 2, j)) for j in range(3))
+    at_mean = property_failures.absolute_bias_bound(
+        np.concatenate([errors, np.full(2, float(np.mean(errors)))])
+    )
+    large = float(_of(control.summary, SINGLE, "large")["absolute_bias_bound"].iloc[0])
+    assert errors.min() < centre < errors.max() and not np.isclose(centre, errors.mean())
+    # The large bound lies between the least small bound and what either search finds, so the
+    # clause fails only under the equal-fill search.
+    assert least < large < min(splits, at_mean)
+    assert _leg("p22")["worst_case"] == pytest.approx(least - large)
+
+
+def test_p24_the_fill_nearest_a_zero_mean_breaks_the_contraction() -> None:
+    judged = _candidates(_control("p24"))
+    zero = [label for label in judged if "nearest a zero mean" in label]
+    assert zero and all(not judged[label].passed for label in zero)
+
+
+def test_p25_only_the_pair_that_lost_turns_red() -> None:
+    control = _control("p25")
+    corrected = property_failures.correct_properties(
+        control.summary, _accounted("p25"), module=_module(control), rules=control.rules
+    ).set_index("cell")
+    assert not corrected.loc[["a__cross_fit", "a__in_sample_control"], "property_passed"].any()
+    assert corrected.loc[["b__cross_fit", "b__in_sample_control"], "property_passed"].all()
+    assert set(_accounted("p25")["cell"]) == {"a__cross_fit", "a__in_sample_control"}
+
+
+def test_p26_the_shared_calibration_rule_alone_stays_green() -> None:
+    """G1: without the module's cap clause the same loss reads within the bound."""
+    control = _control("p26")
+    shared = _account(control, rules=property_verdicts.FAMILY_RULES)
+    assert set(shared["reason"]) == {WITHIN_BOUND}
+    assert set(_accounted("p26")["reason"]) == {WORST_CASE_FAILS}
+    assert _leg("p26")["imputation"].startswith(property_failures.SUPPORT)
+
+
+def test_p27_the_hook_reads_the_verdict_s_own_statistic() -> None:
+    """G6: ``projection_sd_ratio`` and ``paired_spread_ratio_interval`` differ on these rows."""
+    from tests.studies.stochastic_categorical_ltmle_properties import projection_sd_ratio
+
+    control = _control("p27")
+    rows = control.rows
+    _, upper = projection_sd_ratio(
+        rows, replicates=control.study.margins.bootstrap_replicates, level=0.99, seed=17
+    )
+    default = paired_spread_ratio_interval(
+        rows.loc[rows["cell"] == "mix__integrated"],
+        rows.loc[rows["cell"] == "mix__recorded_randomizer"],
+        replicates=control.study.margins.bootstrap_replicates,
+        confidence_level=control.study.margins.confidence_level,
+        seed=17,
+    )
+    assert default.interval.high != pytest.approx(upper, rel=1e-6)
+
+
+def test_p31_only_the_label_that_lost_turns_red() -> None:
+    control = _control("p31")
+    corrected = property_failures.correct_properties(
+        control.summary, _accounted("p31"), module=_module(control), rules=control.rules
+    ).set_index("cell")
+    assert not corrected.loc[["a__x", "a__y"], "property_passed"].any()
+    assert not corrected.loc["a__x", "passed"] and corrected.loc["a__y", "passed"]
+    assert corrected.loc[["b__x", "b__y"], "property_passed"].all()
+
+
+def test_a_label_rule_needs_a_declaration() -> None:
+    control = _control("p31")
+    with pytest.raises(ValueError, match="declares no label groups"):
+        _account(dataclasses.replace(control, groups={}))
+
+
+def test_p7_the_aligned_fill_never_takes_an_infeasible_difference() -> None:
+    """G5: across keys, a lost control arm whose positive survived covered has a difference of
+    0 or 1, so the old fill at -1 is infeasible.  The aligned fill reads 0 there, and still
+    breaks the gain through the lost positive arms whose controls survived covered."""
+    control = _p7_coverage_gain(across_keys=True)
+    rows = control.rows
+    positive = rows.loc[rows["cell"] == "cross_fit"].set_index("replicate")["covered"]
+    negative = rows.loc[rows["cell"] == "in_sample_control"].set_index("replicate")["covered"]
+    control_lost = sorted(set(range(4200)) - set(negative.index))
+    positive_lost = sorted(set(range(4200)) - set(positive.index))
+    infeasible = [replicate for replicate in control_lost if positive.get(replicate) == 1]
+    assert infeasible, "no control-lost key whose positive survived covered"
+    judged = _candidates(dataclasses.replace(control, leg="coverage gain"))
+    assert not any(value.passed for value in judged.values())
+    # The rev 2 fill set every lost difference to -1: strictly more adverse than any completion.
+    kept = sorted(set(positive.index) & set(negative.index))
+    differences = (positive.loc[kept] - negative.loc[kept]).to_numpy(dtype=float)
+    lost = len(set(control_lost) | set(positive_lost))
+    old = np.concatenate([differences, -np.ones(lost)])
+    aligned = np.concatenate(
+        [
+            differences,
+            [
+                positive.get(replicate, 0.0) - negative.get(replicate, 1.0)
+                for replicate in sorted(set(control_lost) | set(positive_lost))
+            ],
+        ]
+    )
+    assert old.mean() < aligned.mean()
+
+
+class TestNotAccountable:
+    """p11 (R3-1): an identity claim or the fit's own numerical success, with a lost
+    replicate, reads ``failures not accountable`` at any bound."""
+
+    @staticmethod
+    def _identity(family: str) -> Control:
+        study = _study()
+        rows = _arm(family, "subject", "positive", requested=400, lost=(3,), estimates=_signs(399))
+        clause = property_failures.unaccountable_clause(
+            "identity within its tolerance",
+            statistic="sup-norm identity",
+            read=lambda ctx, row: property_failures.Judged(math.nan, bool(row["identity"])),
+            applies=property_failures.every,
+        )
+        rules = _one_rule(family, clause)
+        summary = _summary_of(
+            family, rows, rules, columns={"subject": {"identity": True}}, study=study
+        )
+        return Control(rows, summary, study, family, "subject", clause.name, rules)
+
+    @pytest.mark.parametrize("family", ["natural_course_identity", "static_reduction"])
+    def test_an_identity_cell_that_lost_a_replicate_is_red(self, family: str) -> None:
+        control = self._identity(family)
+        assert bool(_row(control)["passed"])
+        accounting = _account(control)
+        assert set(accounting["reason"]) == {NOT_ACCOUNTABLE}
+        legs = accounting.loc[accounting["leg"] == property_failures.NOT_ACCOUNTABLE_LEG]
+        assert list(legs["imputation"]) == ["identity within its tolerance"]
+        corrected = property_failures.correct_properties(
+            control.summary, accounting, module=_module(control), rules=control.rules
+        )
+        assert not corrected["passed"].any()
+
+    @staticmethod
+    def _correction(lost: dict[str, Sequence[int]]) -> Control:
+        """``correction_necessity``: an initial score control (S1f, accountable) and a closed
+        score row that reads the initial row's endpoint (not accountable)."""
+        study = _study()
+        family = "correction_necessity"
+        rows = pd.concat(
+            [
+                _arm(
+                    family,
+                    "ate__initial_score_control",
+                    "control",
+                    requested=400,
+                    lost=lost.get("initial", ()),
+                    estimates=_signs(400 - len(lost.get("initial", ()))) + 2.0,
+                ),
+                _arm(
+                    family,
+                    "ate__closed_score",
+                    "positive",
+                    requested=400,
+                    lost=lost.get("closed", ()),
+                    estimates=0.01 * _signs(400 - len(lost.get("closed", ()))),
+                ),
+            ],
+            ignore_index=True,
+        )
+        initial = property_failures.bias_clause(
+            "initial score above its floor",
+            kind="beyond",
+            side=lambda ctx, row: 1,
+            margin=lambda ctx, row: 1.0,
+            strict=False,
+            statistic="S1f",
+            applies=property_failures.cells("ate__initial_score_control"),
+        )
+
+        def closes(ctx: property_failures.Context, row: pd.Series) -> property_failures.Judged:
+            summary = ctx.summary.set_index("cell")
+            ceiling = 0.1 * float(summary.loc["ate__initial_score_control", "bias_ci_lower"])
+            return property_failures.Judged(
+                ceiling - float(row["bias_ci_upper"]), float(row["bias_ci_upper"]) <= ceiling
+            )
+
+        closed = property_failures.unaccountable_clause(
+            "closed score under the ratio",
+            statistic="numerical success",
+            read=closes,
+            applies=property_failures.cells("ate__closed_score"),
+            reads=lambda ctx, row: [(family, "ate__initial_score_control")],
+        )
+        rules = _one_rule(family, initial, closed)
+        columns = {
+            cell: _bias_columns(rows.loc[rows["cell"] == cell], study)
+            for cell in ("ate__initial_score_control", "ate__closed_score")
+        }
+        summary = _summary_of(family, rows, rules, columns=columns, study=study)
+        assert summary["passed"].all()
+        return Control(rows, summary, study, family, "ate__closed_score", closed.name, rules)
+
+    def test_a_lost_closed_score_replicate_is_red_and_the_initial_row_is_not_read(self) -> None:
+        accounting = _account(self._correction({"closed": (3,)}))
+        assert set(accounting["cell"]) == {"ate__closed_score"}
+        assert set(accounting["reason"]) == {NOT_ACCOUNTABLE}
+
+    def test_a_lost_initial_replicate_leaves_the_initial_row_accountable(self) -> None:
+        accounting = _account(self._correction({"initial": (3,)}))
+        initial = _of(accounting, "correction_necessity", "ate__initial_score_control")
+        closed = _of(accounting, "correction_necessity", "ate__closed_score")
+        assert set(initial["reason"]) == {WITHIN_BOUND}
+        assert "initial score above its floor" in set(initial["leg"])
+        # The closed row reads the initial row's endpoint, so it is red too (R3-1).
+        assert set(closed["reason"]) == {NOT_ACCOUNTABLE}
+        assert set(closed["failed"]) == {0}
+
+
+class TestWitness:
+    """p37 (D3'f): each lost replicate's witness, placed among the cell's survivors."""
+
+    @staticmethod
+    def _accounting(witnesses: pd.DataFrame | None) -> pd.DataFrame:
+        control = _control("p2")
+        return property_failures.property_accounting(
+            control.rows,
+            _gap_records(control.rows),
+            control.summary,
+            record=control.study,
+            module=_module(control),
+            witnesses=witnesses,
+        )
+
+    def test_a_lost_replicate_s_witness_carries_its_survivor_quantile(self) -> None:
+        values = np.arange(400, dtype=float)
+        witnesses = pd.DataFrame(
+            {
+                "property": "double_robustness",
+                "cell": "outcome_correct",
+                "replicate": range(400),
+                "statistic": "mean outcome",
+                "value": values,
+            }
+        )
+        accounting = self._accounting(witnesses)
+        rows = accounting.loc[accounting["leg"] == property_failures.WITNESS_LEG]
+        lost = _every(20, 20)
+        assert list(rows["complete_case"]) == [float(replicate) for replicate in lost]
+        survivors = np.array([v for v in values if int(v) not in set(lost)])
+        expected = [float(np.mean(survivors < value)) for value in rows["complete_case"]]
+        assert list(rows["worst_case"]) == pytest.approx(expected)
+        assert rows["imputation"].iloc[1] == "replicate 20: mean outcome"
+        assert rows["leg_passed"].all()
+        # Reported, never gated: the cell's gate is its legs'.
+        assert set(rows["reason"]) == {WORST_CASE_FAILS}
+
+    def test_a_draw_that_does_not_separate_reports_nan_with_its_reason(self) -> None:
+        witnesses = pd.DataFrame(
+            {
+                "property": "double_robustness",
+                "cell": "outcome_correct",
+                "replicate": range(400),
+                "statistic": DRAW_NOT_SEPARABLE,
+                "value": np.nan,
+            }
+        )
+        rows = self._accounting(witnesses)
+        rows = rows.loc[rows["leg"] == property_failures.WITNESS_LEG]
+        assert rows["complete_case"].isna().all() and rows["worst_case"].isna().all()
+        assert rows["imputation"].str.endswith(DRAW_NOT_SEPARABLE).all()
+
+    def test_mid_rank_ties(self) -> None:
+        assert property_failures._mid_rank(1.0, np.array([0.0, 1.0, 1.0, 2.0])) == 0.5
+        assert math.isnan(property_failures._mid_rank(math.nan, np.array([0.0])))
+
+
+def test_p38_each_type_s_legs_carry_its_label() -> None:
+    """D3'e: bounded types fill over their support, the rest rest on the range assumption."""
+    expected = {
+        "p1": property_failures.SUPPORT,  # S2
+        "p2": property_failures.RANGE,  # S1
+        "p4": property_failures.RANGE,  # S5
+        "p5": property_failures.SUPPORT,  # S2
+        "p6": property_failures.RANGE,  # S6
+        "p7": property_failures.SUPPORT,  # S7
+        "p9": property_failures.RANGE,  # S9
+        "p10": property_failures.SUPPORT,  # S10 on a share
+        "p18": property_failures.RANGE,  # S1f
+        "p20 same key": property_failures.RANGE,  # S12
+        "p21": property_failures.RANGE,  # S13
+        "p22": property_failures.RANGE,  # S14
+        "p33": property_failures.RANGE,  # S10 on an unbounded value
+    }
+    for name, label in expected.items():
+        assert _leg(name)["imputation"].startswith(f"{label}: "), name
+    rule = property_verdicts.FAMILY_RULES
+    for item in rule:
+        for clause in item.clauses:
+            bounded = clause.statistic in {"S2", "S3", "S7"}
+            assert (clause.imputation == property_failures.SUPPORT) is bounded, clause.name
+
+
+GROWTH = "synthetic_one_wrong"
+
+
+def _t_draws(ctx: property_failures.Context, values: np.ndarray, seed: int) -> np.ndarray:
+    """Bootstrap draws of a rung's ``mean / sd``, the verdict's per-rung statistic."""
+    rng = np.random.default_rng(seed)
+    index = rng.integers(0, len(values), size=(ctx.margins.bootstrap_replicates, len(values)))
+    sampled = values[index]
+    return sampled.mean(axis=1) / sampled.std(axis=1, ddof=1)
+
+
+def _growth_clause(*, equal_fill: bool = True) -> property_failures.Clause:
+    return property_failures.growth_clause(
+        "growth above zero",
+        rungs=lambda ctx, row: (("small", 1000), ("large", 8000)),
+        sign=lambda ctx, row: -1.0,
+        seed=lambda ctx, row, size: size,
+        draws=_t_draws,
+        judge=property_failures.above_judge(lambda ctx: 0.0),
+        applies=property_failures.cells("growth"),
+        equal_fill=equal_fill,
+    )
+
+
+def _growth(
+    small: np.ndarray,
+    large: np.ndarray,
+    *,
+    lost_small: Sequence[int],
+    lost_large: Sequence[int],
+    bootstrap: int = 2000,
+    equal_fill: bool = True,
+) -> Control:
+    """A first-order bias that grows with ``n``: ``G = -(t_large - t_small)`` above zero."""
+    study = _study(bootstrap)
+    requested_small = len(small) + len(lost_small)
+    requested_large = len(large) + len(lost_large)
+    rows = pd.concat(
+        [
+            _arm(
+                GROWTH,
+                "small",
+                "control",
+                requested=requested_small,
+                lost=lost_small,
+                estimates=small,
+                n=1000,
+            ),
+            _arm(
+                GROWTH,
+                "large",
+                "control",
+                requested=requested_large,
+                lost=lost_large,
+                estimates=large,
+                n=8000,
+            ),
+        ],
+        ignore_index=True,
+    )
+    clause = _growth_clause(equal_fill=equal_fill)
+    context = property_failures.Context(study, rows, pd.DataFrame())
+    draws = [_t_draws(context, values, size) for values, size in ((small, 1000), (large, 8000))]
+    interval = property_failures.percentile_interval(
+        -(draws[1] - draws[0]), confidence_level=study.margins.confidence_level
+    )
+    growth = {
+        "property": GROWTH,
+        "cell": "growth",
+        "role": "control",
+        "replicates": np.nan,
+        "failed_replicates": np.nan,
+        "growth_ci_lower": interval.low,
+        "growth_ci_upper": interval.high,
+    }
+    rules = _one_rule(GROWTH, clause)
+    summary = pd.DataFrame([growth])
+    summary["passed"] = bool(interval.low > 0.0)
+    summary["property_passed"] = summary["passed"]
+    rule = rules[0]
+    return Control(rows, summary, study, GROWTH, "growth", clause.name, (rule,))
+
+
+def test_p6_only_an_interior_split_leaves_the_band(monkeypatch: pytest.MonkeyPatch) -> None:
+    """G3: the rev 2 set (the point-widest split and the mean fill) stays in the band, an
+    interior split leaves it, and the point slope stays in the band under every fill."""
+    control = _control("p6 interior")
+    values = control.rows.loc[control.rows["cell"] == "n_250", "estimate"].to_numpy(dtype=float)
+    widest = max(range(21), key=lambda j: float(np.std(vertex(values, 20, j), ddof=1)))
+    pruned = _candidates(control)
+    monkeypatch.setattr(
+        property_failures, "prune", lambda options, weight, direction: list(options)
+    )
+    every = _candidates(control)
+    failing = {label for label, judged in every.items() if not judged.passed}
+    assert failing and failing <= set(pruned)
+    splits = {int(label.split("j=")[1].split()[0]) for label in failing}
+    assert all(0 < j < 20 and j != widest for j in splits), (splits, widest)
+    assert every[f"n_250 j={widest} at min"].passed and every["n_250 at survivor mean"].passed
+    sizes = np.array([250.0, 1000.0, 4000.0])
+    others = [
+        float(
+            np.log(np.std(control.rows.loc[control.rows["cell"] == f"n_{n}", "estimate"], ddof=1))
+        )
+        for n in (1000, 4000)
+    ]
+    for _, option in property_failures.rung_options(values, 20, "spread", 0.0):
+        slope = property_failures.log_slope(
+            sizes, np.array([float(np.log(np.std(option, ddof=1))), *others])
+        )
+        assert -0.625 < float(slope) < -0.375
+
+
+#: p23's rungs: standardized normal quantiles, permuted, shifted to a chosen ``t``.
+def _quantiles(size: int, t: float, seed: int) -> np.ndarray:
+    from scipy.stats import norm
+
+    values = norm.ppf((np.arange(size) + 0.5) / size)
+    values = values[np.random.default_rng(seed).permutation(size)]
+    return (values - values.mean()) / values.std(ddof=1) + t
+
+
+def _growth_options_l(control: Control, cell: str, size: int) -> list[tuple[str, np.ndarray]]:
+    values = control.rows.loc[control.rows["cell"] == cell, "estimate"].to_numpy(dtype=float)
+    k = 1000 - len(values)
+    context = _context(control)
+    return [
+        (label, _t_draws(context, option, size))
+        for label, option in property_failures.growth_options(values, k)
+    ]
+
+
+def _lower(small: np.ndarray, large: np.ndarray) -> float:
+    return property_failures.percentile_interval(-(large - small), confidence_level=0.99).low
+
+
+def test_p23_only_the_equal_fill_breaks_the_growth() -> None:
+    """S15 (H1): at ``t = -0.88`` every vertex is less extreme than the complete case and the
+    equal fill near -2.0 is more extreme, so only the equal fill turns ``L > 0`` red."""
+    small = _quantiles(950, -0.88, 0)
+    control = _growth(small, _quantiles(4000, -1.035, 1), lost_small=_every(20, 50), lost_large=[])
+    assert bool(_row(control)["passed"])
+    complete = property_failures.standardized_mean(small)
+    options = property_failures.growth_options(small, 50)
+    vertices = [property_failures.standardized_mean(v) for label, v in options if "j=" in label]
+    least = [property_failures.standardized_mean(v) for label, v in options if "least" in label]
+    assert min(vertices) > complete > least[0]
+    context = _context(control)
+    large = _t_draws(
+        context,
+        control.rows.loc[control.rows["cell"] == "large", "estimate"].to_numpy(dtype=float),
+        8000,
+    )
+    lower = {
+        label: _lower(draws, large) for label, draws in _growth_options_l(control, "small", 1000)
+    }
+    assert all(value > 0.0 for label, value in lower.items() if "j=" in label)
+    assert any(value <= 0.0 for label, value in lower.items() if "least" in label)
+    accounting = _account(control)
+    assert set(accounting["reason"]) == {WORST_CASE_FAILS}
+    # The p30 mutation: without the equal fills the leg reads green.
+    mutated = _account(control, rules=_one_rule(GROWTH, _growth_clause(equal_fill=False)))
+    assert set(mutated["reason"]) == {WITHIN_BOUND}
+
+
+def test_p23_only_the_product_of_both_rungs_breaks_the_growth() -> None:
+    """S15: each rung at its worst with the other at its most favourable fill keeps ``L > 0``;
+    both at their worst do not.  The candidate set is the product across the rungs."""
+    control = _growth(
+        _quantiles(950, -0.3, 0),
+        _quantiles(950, -0.5, 1),
+        lost_small=_every(20, 50),
+        lost_large=_every(20, 50),
+    )
+    assert bool(_row(control)["passed"])
+    small = _growth_options_l(control, "small", 1000)
+    large = _growth_options_l(control, "large", 8000)
+    grid = np.array([[_lower(s, l) for _, l in large] for _, s in small])
+    assert grid.min() <= 0.0
+    assert grid.min(axis=0).max() > 0.0 and grid.min(axis=1).max() > 0.0
+    judged = _candidates(control)
+    failing = [label for label, value in judged.items() if not value.passed]
+    assert failing and all("small" in label and "large" in label for label in failing)
+
+
+# ---- p30: brute-force exactness of every type labelled exact (M7) --------------------------
+
+#: Random completions per case.  Each case also tries every vertex of its box.
+COMPLETIONS = 10_000
+
+
+def _box(rng: np.random.Generator, values: np.ndarray, k: int) -> list[np.ndarray]:
+    """Completions of ``values`` with ``k`` fills in the survivors' range: every vertex, then
+    :data:`COMPLETIONS` uniform draws."""
+    low, high = float(np.min(values)), float(np.max(values))
+    corners = [np.array(corner, dtype=float) for corner in itertools.product((low, high), repeat=k)]
+    draws = list(rng.uniform(low, high, size=(COMPLETIONS, k)))
+    return [np.concatenate([values, fill]) for fill in [*corners, *draws]]
+
+
+def _exact_cell(seed: int, k: int, *, shift: float = 0.0) -> np.ndarray:
+    return np.random.default_rng(seed).normal(shift, 1.0, size=30 - k)
+
+
+def _point_extremes(options: Sequence[np.ndarray], statistic) -> tuple[float, float]:
+    values = [float(statistic(option)) for option in options]
+    return min(values), max(values)
+
+
+CASES = [(seed, k) for seed in (1, 2, 3) for k in (1, 2, 3)]
+
+
+class TestExactness:
+    """p30: for each type labelled exact, no completion in the box is more adverse than the
+    worst candidate, at ``R = 30`` and ``k = 1..3``."""
+
+    @staticmethod
+    def _cell_control(errors: np.ndarray, k: int, clause, columns, *, role="positive") -> Control:
+        study = _study()
+        family = "synthetic_exact"
+        rows = _arm(family, "subject", role, requested=30, lost=range(30 - k, 30), estimates=errors)
+        rules = _one_rule(family, clause)
+        summary = _summary_of(family, rows, rules, columns={"subject": columns}, study=study)
+        return Control(rows, summary, study, family, "subject", clause.name, rules)
+
+    @pytest.mark.parametrize(("seed", "k"), CASES)
+    @pytest.mark.parametrize("kind", ["equivalent", "beyond"])
+    def test_s1(self, seed: int, k: int, kind: str) -> None:
+        errors = _exact_cell(seed, k, shift=0.6 if kind == "beyond" else 0.0)
+        study = _study()
+        clause = property_failures.bias_clause(
+            "bias", kind=kind, margin=lambda ctx, row: 0.3, applies=property_failures.every
+        )
+        control = self._cell_control(
+            errors,
+            k,
+            clause,
+            _bias_columns(_arm("x", "y", "positive", requested=30 - k, estimates=errors), study),
+        )
+        worst = min(judged.slack for judged in _candidates(control).values())
+        side = 1 if np.mean(errors) >= 0 else -1
+        level = study.margins.confidence_level
+        rng = np.random.default_rng(seed)
+        for completed in _box(rng, errors, k):
+            interval = student_interval(completed, confidence_level=level)
+            if kind == "equivalent":
+                slack = 0.3 - max(-interval.low, interval.high)
+            else:
+                slack = interval.low - 0.3 if side > 0 else -0.3 - interval.high
+            assert slack >= worst - 1e-12
+
+    @pytest.mark.parametrize(("seed", "k"), CASES)
+    @pytest.mark.parametrize("statistic", ["S2", "S3"])
+    def test_s2_s3(self, seed: int, k: int, statistic: str) -> None:
+        rng = np.random.default_rng(seed)
+        hits = (rng.random(30 - k) < 0.85).astype(int)
+        column, prefix = ("covered", "coverage") if statistic == "S2" else ("rejected", "rejection")
+        level = _study().margins.confidence_level
+        interval = clopper_pearson(int(hits.sum()), 30 - k, confidence_level=level)
+        rate_column = "coverage" if statistic == "S2" else "rejection_rate"
+        clause = property_failures.proportion_clause(
+            "rate",
+            statistic=statistic,
+            judge=property_failures.band_judge(lambda ctx: (0.7, 0.95)),
+            applies=property_failures.every,
+        )
+        study = _study()
+        family = "synthetic_exact"
+        rows = _arm(
+            family,
+            "subject",
+            "positive",
+            requested=30,
+            lost=range(30 - k, 30),
+            estimates=_signs(30 - k),
+            **{column: hits},
+        )
+        rules = _one_rule(family, clause)
+        summary = _summary_of(
+            family,
+            rows,
+            rules,
+            study=study,
+            columns={
+                "subject": {
+                    rate_column: float(hits.mean()),
+                    f"{prefix}_ci_lower": interval.low,
+                    f"{prefix}_ci_upper": interval.high,
+                }
+            },
+        )
+        control = Control(rows, summary, study, family, "subject", "rate", rules)
+        worst = min(judged.slack for judged in _candidates(control).values())
+        for fill in itertools.product((0, 1), repeat=k):
+            whole = clopper_pearson(int(hits.sum()) + sum(fill), 30, confidence_level=level)
+            assert min(whole.low - 0.7, 0.95 - whole.high) >= worst - 1e-12
+
+    @pytest.mark.parametrize(("seed", "k"), CASES)
+    def test_s4(self, seed: int, k: int) -> None:
+        rng = np.random.default_rng(seed)
+        errors = _exact_cell(seed, k)
+        std_errors = rng.uniform(0.8, 1.2, size=30 - k)
+        study = _study()
+        clause = property_failures.se_point_clause(
+            "ratio", band=lambda ctx: (0.8, 1.2), applies=property_failures.every
+        )
+        family = "synthetic_exact"
+        rows = _arm(
+            family,
+            "subject",
+            "positive",
+            requested=30,
+            lost=range(30 - k, 30),
+            estimates=errors,
+            std_errors=std_errors,
+        )
+        ratio = float(std_errors.mean() / np.std(errors, ddof=1))
+        rules = _one_rule(family, clause)
+        summary = _summary_of(
+            family, rows, rules, study=study, columns={"subject": {"se_ratio": ratio}}
+        )
+        control = Control(rows, summary, study, family, "subject", "ratio", rules)
+        worst = min(judged.slack for judged in _candidates(control).values())
+        fills = _box(rng, errors, k)
+        se_fills = _box(rng, std_errors, k)
+        for completed, ses in zip(fills, se_fills, strict=True):
+            value = float(ses.mean() / np.std(completed, ddof=1))
+            assert min(value - 0.8, 1.2 - value) >= worst - 1e-12
+        # The ratio is extreme at independent ends of the two boxes, so pair them too.
+        for completed in fills[: 2**k]:
+            for ses in se_fills[: 2**k]:
+                value = float(ses.mean() / np.std(completed, ddof=1))
+                assert min(value - 0.8, 1.2 - value) >= worst - 1e-12
+
+    @pytest.mark.parametrize(("seed", "k"), CASES)
+    def test_s7(self, seed: int, k: int) -> None:
+        rng = np.random.default_rng(seed)
+        positive_lost = list(range(30 - k, 30))
+        control_lost = list(range(k))
+        positive_hits = (rng.random(30 - k) < 0.9).astype(int)
+        control_hits = (rng.random(30 - k) < 0.5).astype(int)
+        study = _study()
+        family = "synthetic_exact_pair"
+        rows = pd.concat(
+            [
+                _arm(
+                    family,
+                    "positive",
+                    "positive",
+                    requested=30,
+                    lost=positive_lost,
+                    estimates=_signs(30 - k),
+                    covered=positive_hits,
+                ),
+                _arm(
+                    family,
+                    "control",
+                    "control",
+                    requested=30,
+                    lost=control_lost,
+                    estimates=_signs(30 - k),
+                    covered=control_hits,
+                ),
+            ],
+            ignore_index=True,
+        )
+        clause = property_failures.coverage_gain_clause(
+            "gain", floor=0.2, seed=lambda ctx, row: 9, applies=property_failures.every
+        )
+        kept_p, kept_c = paired(
+            rows.loc[rows["cell"] == "positive"], rows.loc[rows["cell"] == "control"]
+        )
+        interval = mean_difference_interval(
+            kept_p["covered"].to_numpy(float) - kept_c["covered"].to_numpy(float),
+            replicates=study.margins.bootstrap_replicates,
+            confidence_level=study.margins.confidence_level,
+            seed=9,
+        )
+        rules = _one_rule(family, clause, group="pair")
+        summary = _summary_of(
+            family,
+            rows,
+            rules,
+            study=study,
+            columns={
+                cell: {
+                    "coverage_gain_ci_lower": interval.low,
+                    "coverage_gain_ci_upper": interval.high,
+                }
+                for cell in ("positive", "control")
+            },
+        )
+        control = Control(rows, summary, study, family, "positive", "gain", rules)
+        worst = min(judged.slack for judged in _candidates(control).values())
+        positive = dict(zip(range(30 - k), positive_hits, strict=True))
+        negative = dict(zip(range(k, 30), control_hits, strict=True))
+        for fills in itertools.product((0, 1), repeat=2 * k):
+            p = {**positive, **dict(zip(positive_lost, fills[:k], strict=True))}
+            c = {**negative, **dict(zip(control_lost, fills[k:], strict=True))}
+            order = [*range(30 - k), *positive_lost]
+            differences = np.array([p[i] - c[i] for i in order], dtype=float)
+            whole = mean_difference_interval(
+                differences,
+                replicates=study.margins.bootstrap_replicates,
+                confidence_level=study.margins.confidence_level,
+                seed=9,
+            )
+            assert whole.low - 0.2 >= worst - 1e-12
+
+    @pytest.mark.parametrize(("seed", "k"), CASES)
+    def test_s12_under_the_held_scale(self, seed: int, k: int) -> None:
+        rng = np.random.default_rng(seed)
+        left = _exact_cell(seed, k)
+        right = rng.normal(0.8, 1.0, size=30 - k)
+        rows = pd.concat(
+            [
+                _arm(
+                    DISPLACEMENT,
+                    "a__targeted",
+                    "positive",
+                    requested=30,
+                    lost=range(30 - k, 30),
+                    estimates=left,
+                ),
+                _arm(
+                    DISPLACEMENT,
+                    "a__untargeted",
+                    "control",
+                    requested=30,
+                    lost=range(k),
+                    estimates=right,
+                ),
+            ],
+            ignore_index=True,
+        )
+        clause = property_failures.displacement_clause(
+            "d",
+            column="displacement",
+            labels=("a",),
+            arms=("targeted", "untargeted"),
+            threshold=0.5,
+        )
+        rules = _one_rule(DISPLACEMENT, clause, group="family")
+        value = paired_displacement(rows, DISPLACEMENT, "a__targeted", "a__untargeted")
+        summary = _summary_of(
+            DISPLACEMENT,
+            rows,
+            rules,
+            study=_study(),
+            columns={cell: {"displacement": value} for cell in ("a__targeted", "a__untargeted")},
+        )
+        control = Control(rows, summary, _study(), DISPLACEMENT, "a__targeted", "d", rules)
+        worst = min(judged.slack for judged in _candidates(control).values())
+        kept, _ = paired(
+            rows.loc[rows["cell"] == "a__targeted"], rows.loc[rows["cell"] == "a__untargeted"]
+        )
+        held = float(np.std(kept.sort_values("replicate")["estimate"], ddof=1))
+        for completed_left, completed_right in zip(
+            _box(rng, left, k), _box(rng, right, k), strict=True
+        ):
+            moved = abs(float(np.mean(completed_right) - np.mean(completed_left))) / held
+            assert moved - 0.5 >= worst - 1e-12
+
+    @pytest.mark.parametrize(("seed", "k"), CASES)
+    def test_s13_with_truth_in_the_denominator_s_range(self, seed: int, k: int) -> None:
+        rng = np.random.default_rng(seed)
+        numerator = rng.normal(0.0, 0.6, size=30 - k)
+        denominator = rng.normal(0.0, 1.0, size=30 - k)
+        rows = pd.concat(
+            [
+                _arm(
+                    SELECTOR,
+                    "collaborative",
+                    "positive",
+                    requested=30,
+                    lost=range(30 - k, 30),
+                    estimates=numerator,
+                ),
+                _arm(
+                    SELECTOR,
+                    "empty_control",
+                    "control",
+                    requested=30,
+                    lost=range(30 - k, 30),
+                    estimates=denominator,
+                ),
+            ],
+            ignore_index=True,
+        )
+        clause = property_failures.rmse_ratio_clause(
+            "r", paths=[("collaborative", "empty_control")], statistic=_rmse_ratio, threshold=0.5
+        )
+        rules = _one_rule(SELECTOR, clause, group="family")
+        ratio = _rmse_ratio(
+            rows.loc[rows["cell"] == "collaborative"], rows.loc[rows["cell"] == "empty_control"]
+        )
+        summary = _summary_of(
+            SELECTOR,
+            rows,
+            rules,
+            study=_study(),
+            columns={
+                "collaborative": {"rmse_ratio": ratio},
+                "empty_control": {"rmse_ratio": np.nan},
+            },
+        )
+        control = Control(rows, summary, _study(), SELECTOR, "collaborative", "r", rules)
+        worst = min(judged.slack for judged in _candidates(control).values())
+        assert denominator.min() <= 0.0 <= denominator.max()
+        for top, bottom in zip(_box(rng, numerator, k), _box(rng, denominator, k), strict=True):
+            value = float(np.sqrt(np.mean(top**2) / np.mean(bottom**2)))
+            assert 0.5 - value >= worst - 1e-12
+
+    @pytest.mark.parametrize(("seed", "k"), CASES)
+    @pytest.mark.parametrize("kind", ["tolerance", "below small"])
+    def test_s14(self, seed: int, k: int, kind: str) -> None:
+        rng = np.random.default_rng(seed)
+        small = rng.normal(0.3, 1.0, size=30 - k)
+        large = rng.normal(0.1, 0.5, size=30 - k)
+        rows = pd.concat(
+            [
+                _arm(SINGLE, "small", "positive", requested=30, lost=range(k), estimates=small),
+                _arm(
+                    SINGLE,
+                    "large",
+                    "positive",
+                    requested=30,
+                    lost=range(30 - k, 30),
+                    estimates=large,
+                ),
+            ],
+            ignore_index=True,
+        )
+        clause = property_failures.bias_bound_clause(
+            "b",
+            small="small",
+            large="large",
+            kind=kind,
+            column="bound",
+            tolerance=0.5 if kind == "tolerance" else None,
+        )
+        rules = _one_rule(SINGLE, clause, group="family")
+        bound = property_failures.absolute_bias_bound
+        summary = _summary_of(
+            SINGLE,
+            rows,
+            rules,
+            study=_study(),
+            columns={"small": {"bound": bound(small)}, "large": {"bound": bound(large)}},
+        )
+        control = Control(rows, summary, _study(), SINGLE, "large", "b", rules)
+        worst = min(judged.slack for judged in _candidates(control).values())
+        for top, bottom in zip(_box(rng, large, k), _box(rng, small, k), strict=True):
+            limit = 0.5 if kind == "tolerance" else bound(bottom)
+            assert limit - bound(top) >= worst - 1e-12
+
+    @pytest.mark.parametrize(("seed", "k"), CASES)
+    @pytest.mark.parametrize("statistic", ["spread", "bias"])
+    def test_s6_point(self, seed: int, k: int, statistic: str) -> None:
+        values = _exact_cell(seed, k, shift=0.4)
+
+        def point(option: np.ndarray) -> float:
+            if statistic == "spread":
+                return float(np.log(np.std(option, ddof=1)))
+            return float(np.log(max(abs(np.mean(option)), np.finfo(float).tiny)))
+
+        low, high = _point_extremes(
+            [option for _, option in property_failures.rung_options(values, k, statistic, 0.0)],
+            point,
+        )
+        for completed in _box(np.random.default_rng(seed), values, k):
+            assert low - 1e-12 <= point(completed) <= high + 1e-12
+
+    @pytest.mark.parametrize(("seed", "k"), CASES)
+    def test_s9_point(self, seed: int, k: int) -> None:
+        rng = np.random.default_rng(seed)
+        numerator = _exact_cell(seed, k)
+        denominator = rng.normal(0.0, 1.0, size=30 - k)
+        worst = max(
+            float(np.std(vertex(numerator, k, j), ddof=1))
+            / float(np.std(filled(denominator, k, float(np.mean(denominator))), ddof=1))
+            for j in range(k + 1)
+        )
+        for top, bottom in zip(_box(rng, numerator, k), _box(rng, denominator, k), strict=True):
+            assert float(np.std(top, ddof=1) / np.std(bottom, ddof=1)) <= worst + 1e-12
+
+    @pytest.mark.parametrize(("seed", "k"), CASES)
+    def test_s15_point(self, seed: int, k: int) -> None:
+        assert not _s15_violations(seed, k, equal_fill=True)
+
+    def test_the_s15_test_fails_without_the_equal_fill(self) -> None:
+        """The deliberate mutation of M7: drop the equal fills and a completion beats the set."""
+        assert _s15_violations(5, 3, equal_fill=False)
+
+
+def _s15_violations(seed: int, k: int, *, equal_fill: bool) -> list[float]:
+    """Completions whose ``mean / sd`` lies outside the S15 candidates' range, at ``t`` near
+    -0.9, where the extreme is interior (H1)."""
+    values = np.random.default_rng(seed).normal(size=30 - k)
+    values = (values - values.mean()) / values.std(ddof=1) - 0.9
+    low, high = _point_extremes(
+        [
+            option
+            for _, option in property_failures.growth_options(values, k, equal_fill=equal_fill)
+        ],
+        property_failures.standardized_mean,
+    )
+    return [
+        t
+        for completed in _box(np.random.default_rng(seed), values, k)
+        if not low - 1e-12 <= (t := property_failures.standardized_mean(completed)) <= high + 1e-12
+    ]

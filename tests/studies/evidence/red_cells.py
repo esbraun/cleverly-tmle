@@ -715,7 +715,11 @@ def _property_fails_by(accounting: pd.DataFrame) -> tuple[str | None, str]:
     suffix = f", failures {int(first['failed'])} of {int(first['requested'])} ({first['reason']})"
     if bool(first["gate_passed"]) or first["reason"] == failures.COMPLETE_CASE_FAILS:
         return None, suffix
-    legs = (property_failures.BOUND_LEG, property_failures.NOT_ACCOUNTABLE_LEG)
+    legs = (
+        property_failures.BOUND_LEG,
+        property_failures.NOT_ACCOUNTABLE_LEG,
+        property_failures.WITNESS_LEG,
+    )
     failing = accounting.loc[~accounting["leg"].isin(legs) & ~accounting["leg_passed"].astype(bool)]
     if (failing["complete_case"].astype(float) < 0.0).any():
         return None, suffix

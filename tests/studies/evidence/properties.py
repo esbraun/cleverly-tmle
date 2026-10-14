@@ -286,6 +286,33 @@ class _CellFit:
         return row, record.alpha
 
 
+@dataclass(frozen=True)
+class _CellDraw:
+    """Draw one replicate's sample of one cell, outside the fit's classification.
+
+    ``CoverageStudy.run_replication`` draws the same sample again from the same seed, so the
+    rows do not move.  The separate draw puts a defect of the law outside the classifier
+    (RM39b2 F5) and gives the failure accounting a sample to compute the study's
+    ``PROPERTY_WITNESS`` on without a fit.
+    """
+
+    estimator: Callable[[PropertyCell], Callable[[], Any]]
+
+    def __call__(self, key: tuple[PropertyCell, int, int]) -> Any:
+        cell, _, seed = key
+        study = CoverageStudy(
+            dgp=cell.dgp,
+            estimator=self.estimator(cell),
+            n=cell.n,
+            n_replicates=cell.replicates,
+            estimands=(cell.estimand,),
+            fit_kwargs=dict(cell.fit_kwargs),
+            seed=cell.seed,
+            n_jobs=1,
+        )
+        return study._draw(int(validate_sample_seeds((seed,), 1)[0]))
+
+
 def run_cells(
     cells: Sequence[PropertyCell],
     estimator: Callable[[PropertyCell], Callable[[], Any]],
@@ -354,6 +381,7 @@ def run_cells(
         replicate_of=_replicate_of,
         n_jobs=n_jobs,
         label=label,
+        draw=_CellDraw(estimator),
         rows_at=0,
         derived=derived,
         seed_of=_seed_of,
@@ -1144,7 +1172,7 @@ def _positive(values: Any) -> Any:
     return np.maximum(values, np.finfo(float).tiny)
 
 
-def _slope(sizes: np.ndarray, values: np.ndarray) -> np.ndarray:
+def log_slope(sizes: np.ndarray, values: np.ndarray) -> np.ndarray:
     """Least-squares slope of ``values`` on ``log(sizes)``, vectorised over leading axes."""
     x = np.log(sizes)
     centred = x - x.mean()
@@ -1201,28 +1229,15 @@ def rate(
             f"slope is estimated rather than read off one ratio"
         )
     sizes = np.array([size for size, _ in grouped], dtype=float)
-    if statistic != "reported" and truth_varies:
-        # Each row's error, whose truth is zero by construction.
-        samples = [spread_values(group, truth_varies=True) for _, group in grouped]
-        truths = [0.0 for _ in grouped]
-    else:
-        column = "std_error" if statistic == "reported" else "estimate"
-        samples = [group[column].to_numpy(dtype=float) for _, group in grouped]
-        # One truth per rung.  Read per rung rather than once, because a ladder is entitled
-        # to a size-dependent truth and reading the first rung's would silently bias the
-        # others.
-        truths = [float(group["truth"].iloc[0]) for _, group in grouped]
-
-    def observed(values: np.ndarray, truth: float) -> float:
-        if statistic == "spread":
-            return float(np.log(np.std(values, ddof=1)))
-        if statistic == "bias":
-            return float(np.log(_positive(abs(values.mean() - truth))))
-        return float(np.log(values.mean()))
-
-    point = _slope(
+    samples, truths = rate_samples([group for _, group in grouped], statistic, truth_varies)
+    point = log_slope(
         sizes,
-        np.array([observed(values, truth) for values, truth in zip(samples, truths, strict=True)]),
+        np.array(
+            [
+                rate_observed(values, truth, statistic)
+                for values, truth in zip(samples, truths, strict=True)
+            ]
+        ),
     )
 
     draws = np.empty((bootstrap_replicates, len(sizes)), dtype=float)
@@ -1232,20 +1247,112 @@ def rate(
     # exactly what the two published rate rows had -- then share every stream but the first.
     children = np.random.SeedSequence(seed).spawn(len(samples))
     for index, values in enumerate(samples):
-        rng = np.random.default_rng(children[index])
-        filled = 0
-        for resampled in bootstrap_draw_blocks(values, replicates=bootstrap_replicates, rng=rng):
-            stop = filled + len(resampled)
-            if statistic == "spread":
-                draws[filled:stop, index] = np.log(resampled.std(axis=1, ddof=1))
-            elif statistic == "bias":
-                draws[filled:stop, index] = np.log(
-                    _positive(np.abs(resampled.mean(axis=1) - truths[index]))
-                )
-            else:
-                draws[filled:stop, index] = np.log(resampled.mean(axis=1))
-            filled = stop
+        draws[:, index] = rate_draws(
+            values,
+            truths[index],
+            statistic,
+            replicates=bootstrap_replicates,
+            seed=children[index],
+        )
     return Rate(
         slope=float(point),
-        interval=percentile_interval(_slope(sizes, draws), confidence_level=confidence_level),
+        interval=percentile_interval(log_slope(sizes, draws), confidence_level=confidence_level),
     )
+
+
+def rate_samples(
+    groups: Sequence[pd.DataFrame], statistic: str, truth_varies: bool
+) -> tuple[list[np.ndarray], list[float]]:
+    """The values and the truth each rung of a :func:`rate` ladder reads.
+
+    Parameters
+    ----------
+    groups : Sequence of pandas.DataFrame
+        The rungs' rows, in ascending ``n``.
+    statistic : str
+        ``spread``, ``reported`` or ``bias``.
+    truth_varies : bool
+        Whether the rungs read each row's error.
+
+    Returns
+    -------
+    tuple
+        One value array and one truth per rung.
+    """
+    if statistic != "reported" and truth_varies:
+        # Each row's error, whose truth is zero by construction.
+        return [spread_values(group, truth_varies=True) for group in groups], [0.0] * len(groups)
+    column = "std_error" if statistic == "reported" else "estimate"
+    # One truth per rung.  Read per rung rather than once, because a ladder is entitled to a
+    # size-dependent truth and reading the first rung's would silently bias the others.
+    return (
+        [group[column].to_numpy(dtype=float) for group in groups],
+        [float(group["truth"].iloc[0]) for group in groups],
+    )
+
+
+def rate_observed(values: np.ndarray, truth: float, statistic: str) -> float:
+    """One rung's log statistic, the quantity :func:`rate` regresses on ``log(n)``.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The rung's values (:func:`rate_samples`).
+    truth : float
+        The rung's truth; read by ``bias`` only.
+    statistic : str
+        ``spread``, ``reported`` or ``bias``.
+
+    Returns
+    -------
+    float
+        The log statistic.
+    """
+    if statistic == "spread":
+        return float(np.log(np.std(values, ddof=1)))
+    if statistic == "bias":
+        return float(np.log(_positive(abs(values.mean() - truth))))
+    return float(np.log(values.mean()))
+
+
+def rate_draws(
+    values: np.ndarray,
+    truth: float,
+    statistic: str,
+    *,
+    replicates: int,
+    seed: np.random.SeedSequence,
+) -> np.ndarray:
+    """One rung's bootstrap draws of its log statistic, from the rung's own stream.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The rung's values (:func:`rate_samples`).
+    truth : float
+        The rung's truth; read by ``bias`` only.
+    statistic : str
+        ``spread``, ``reported`` or ``bias``.
+    replicates : int
+        Bootstrap replicates.
+    seed : numpy.random.SeedSequence
+        The rung's spawned stream.
+
+    Returns
+    -------
+    numpy.ndarray
+        The ``replicates`` draws.
+    """
+    rng = np.random.default_rng(seed)
+    out = np.empty(replicates, dtype=float)
+    filled = 0
+    for resampled in bootstrap_draw_blocks(values, replicates=replicates, rng=rng):
+        stop = filled + len(resampled)
+        if statistic == "spread":
+            out[filled:stop] = np.log(resampled.std(axis=1, ddof=1))
+        elif statistic == "bias":
+            out[filled:stop] = np.log(_positive(np.abs(resampled.mean(axis=1) - truth)))
+        else:
+            out[filled:stop] = np.log(resampled.mean(axis=1))
+        filled = stop
+    return out

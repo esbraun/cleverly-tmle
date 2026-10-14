@@ -10,10 +10,15 @@ record's ``scenarios`` holds the ``property/cell`` names its key writes, ``;``-j
 The driver is the one writer of ``failed_replicates``: :func:`stamp` sets each cell's count
 from the records, and :func:`reconcile` refuses rows whose gaps the records do not explain.
 With no record, :func:`stamp` returns the rows unchanged, so no artifact moves.
+
+A run with a record also publishes ``property-failure-accounting.csv`` (:func:`property_accounting`)
+and ``property-failure-witnesses.csv``, the draw-level witness of every key of each cell that
+lost a replicate (rev 3 D3'f).
 """
 
 from __future__ import annotations
 
+import itertools
 import math
 import re
 from collections.abc import Callable, Mapping, Sequence
@@ -23,6 +28,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from scipy.optimize import minimize_scalar
 
 from cleverly.utils.parallel import map_parallel
 from tests.studies.evidence.failures import (
@@ -36,17 +42,25 @@ from tests.studies.evidence.failures import (
     filled,
     vertex,
 )
-from tests.studies.evidence.inference import Interval, clopper_pearson, student_interval
+from tests.studies.evidence.inference import (
+    Interval,
+    clopper_pearson,
+    percentile_interval,
+    student_interval,
+)
 from tests.studies.evidence.properties import (
+    log_slope,
     mean_difference_interval,
+    paired,
     paired_spread_ratio_interval,
-    rate,
+    rate_draws,
+    rate_observed,
+    rate_samples,
     ratio_intervals,
-    se_ratio_deficit_interval,
     spread_values,
 )
 from tests.studies.evidence.registry import Margins, StudyRecord
-from tests.studies.evidence.replication import Recording
+from tests.studies.evidence.replication import WITNESS_COLUMNS, Recording
 from tests.studies.evidence.seeds import stream_seed
 
 #: The published record file and the published accounting file of the property phase.  Each
@@ -256,11 +270,15 @@ def reconcile(
         )
 
 
-# ---- the accounting (RM39-plan 4.5, RM39b2-plan section 7) ------------------------------------
+# ---- the accounting (RM39-plan 4.5, RM39b2-plan section 7, rev 3) -----------------------------
 
 #: The columns of ``property-failure-accounting.csv``: one row per cell and clause, after one
-#: ``failure bound`` row.  ``complete_case`` and ``worst_case`` hold the clause's slack, the
-#: distance by which it clears its threshold, so a negative value fails.
+#: ``failure bound`` row, then one witness row per lost replicate of the cell.
+#: ``complete_case`` and ``worst_case`` hold the clause's slack, the distance by which it clears
+#: its threshold, so a negative value fails.  ``imputation`` names the leg's label (``support``
+#: or ``range``, D3'e) and its least favourable candidate.  A witness row holds the lost draw's
+#: statistic in ``complete_case`` and its mid-rank quantile among the survivors' in
+#: ``worst_case``.
 PROPERTY_ACCOUNTING_COLUMNS = (
     "property",
     "cell",
@@ -279,27 +297,10 @@ PROPERTY_ACCOUNTING_COLUMNS = (
     "reason",
 )
 
-#: The largest ``FAILURE_BOUND`` a property module may declare (RM39-plan a2 Q3).
-MAXIMUM_BOUND = 0.05
-
-#: The leg every accounted cell writes first, and the leg of a cell no rule accounts for.
-BOUND_LEG = "failure bound"
-NOT_ACCOUNTABLE_LEG = "failures not accountable"
-
-#: Rounding slack on ``bound * requested``, as :data:`tests.studies.evidence.failures` keeps.
-_FLOOR_SLACK = 1e-9
-
 #: ``(study slug, family)`` pairs whose verdict a study computes itself, beyond a shared
-#: function (D3).  A family listed here is not accountable in that study until the study
-#: declares a non-zero ``FAILURE_BOUND`` and the rule that matches its own code.  The
-#: reproduction and differential tests of ``tests/unit/test_method_evidence.py`` decide each
-#: pair: every pair of a shared family that is not listed must reproduce the committed
-#: verdicts exactly.
-#:
-#: | entries | why the shared rule does not hold |
-#: | --- | --- |
-#: | ``clustered_inference`` and ``crossfit_overfitting`` of the three multi-pair studies | each calls ``_paired_cell_verdicts`` once per pair of its own ``PAIRS`` list, so a joint verdict spans one pair, which the summary does not record |
-#: | ``corrected_mar_inference`` of the three MAR DRTMLE studies | each adds a coverage floor and an SE-ratio sanity conjunct to the positive cells after ``robustness_verdicts`` |
+#: function.  The accounting no longer reads this table: each family resolves through
+#: :func:`rule_for`.  The differential tests of ``tests/unit/test_method_evidence.py`` skip
+#: these pairs until each module declares its own ``PROPERTY_RULES`` (rev 3 commit 7d).
 STUDY_LOCAL: Mapping[str, frozenset[str]] = {
     "clustered-unequal-cvtmle": frozenset({"clustered_inference"}),
     "clustered-cross-fitted-ltmle": frozenset({"clustered_inference"}),
@@ -308,6 +309,34 @@ STUDY_LOCAL: Mapping[str, frozenset[str]] = {
     "multi-arm-mar-drtmle": frozenset({"corrected_mar_inference"}),
     "composite-missing-drtmle": frozenset({"corrected_mar_inference"}),
 }
+
+#: The witness values a run with a property failure publishes beside its records: the
+#: statistic of every key of each cell that lost a replicate (D3'f).
+PROPERTY_WITNESSES = "property-failure-witnesses.csv"
+
+#: The largest ``FAILURE_BOUND`` a property module may declare (RM39-plan a2 Q3).
+MAXIMUM_BOUND = 0.05
+
+#: The leg every accounted cell writes first, the leg of a clause no candidate set accounts
+#: for, and the reported row of a lost replicate's draw-level witness.
+BOUND_LEG = "failure bound"
+NOT_ACCOUNTABLE_LEG = "failures not accountable"
+WITNESS_LEG = "informative-failure witness"
+
+#: The two leg labels (D3'e).  A ``support`` leg fills a bounded variable over its full
+#: support and needs no assumption.  A ``range`` leg rests on B2's assumption that a lost value
+#: lies in the survivors' range, with the margin's scale held at its complete-case value.
+SUPPORT = "support"
+RANGE = "range"
+
+#: How a family's rows share a joint verdict (rev 3 section 5.0).  ``row``: each row's
+#: ``property_passed`` is its own.  ``pair``, ``label`` and ``family``: the members of one
+#: declared group share one, which holds when every member passes and every
+#: ``property_passed`` clause of every member holds.
+GROUPS = ("row", "pair", "label", "family")
+
+#: Rounding slack on ``bound * requested``, as :data:`tests.studies.evidence.failures` keeps.
+_FLOOR_SLACK = 1e-9
 
 
 def allowed(bound: float, requested: int) -> int:
@@ -359,15 +388,17 @@ class Context:
         The complete-case summary the study's own verdicts computed.
     lost : dict
         The replicates the records cost each ``(property, cell)``.
-    parameters : dict
-        Study declarations a rule reads, such as ``efficiency_band``.
+    groups : dict
+        The module's ``PROPERTY_GROUPS``: each family's declared groups of cells, for a rule
+        whose ``group`` is ``pair`` or ``label`` (rev 3 L5).  Pairs are never inferred from
+        cell names.
     """
 
     record: StudyRecord
     rows: pd.DataFrame
     summary: pd.DataFrame
     lost: dict[tuple[str, str], int] = field(default_factory=dict)
-    parameters: dict[str, Any] = field(default_factory=dict)
+    groups: Mapping[str, Sequence[Sequence[str]]] = field(default_factory=dict)
 
     @property
     def margins(self) -> Margins:
@@ -386,9 +417,76 @@ class Context:
             return int(value)
         return sum(self.lost.get(source, 0) for source in sources(row, self.rows))
 
+    def lost_in(self, family: str, cell: str) -> int:
+        """The replicates the records cost one cell."""
+        return self.lost.get((family, cell), 0)
+
+    def members(self, family: str, cell: str, group: str) -> tuple[str, ...]:
+        """The cells that share ``cell``'s joint verdict under a rule of ``group``."""
+        return group_members(self.summary, self.groups, family, cell, group)
+
+
+def group_members(
+    summary: pd.DataFrame,
+    groups: Mapping[str, Sequence[Sequence[str]]],
+    family: str,
+    cell: str,
+    group: str,
+) -> tuple[str, ...]:
+    """The cells of ``family`` that share ``cell``'s joint verdict.
+
+    A ``row`` rule's group is the cell alone.  A declared group (``PROPERTY_GROUPS``) is read
+    as declared.  An undeclared ``pair`` or ``family`` group is the whole family: a family
+    with one pair is that pair.  A ``label`` rule needs a declaration.
+
+    Parameters
+    ----------
+    summary : pandas.DataFrame
+        The summary the family's cells are read from.
+    groups : Mapping
+        The module's ``PROPERTY_GROUPS``.
+    family : str
+        The property family.
+    cell : str
+        One cell of it.
+    group : str
+        The rule's :data:`GROUPS` entry.
+
+    Returns
+    -------
+    tuple of str
+        The member cells, ``cell`` included.
+
+    Raises
+    ------
+    ValueError
+        When a declared family does not place the cell, or a ``label`` rule has no
+        declaration.
+    """
+    from tests.studies.evidence import property_verdicts
+
+    if group not in GROUPS:
+        raise ValueError(f"unknown group {group!r}; expected one of {GROUPS}")
+    if group == "row":
+        return (cell,)
+    declared = groups.get(family)
+    if declared:
+        for members in declared:
+            if cell in members:
+                return tuple(members)
+        raise ValueError(f"{family}/{cell} is in no group the module declares for {family}")
+    if group == "label":
+        raise ValueError(f"{family} groups by label, and the module declares no label groups")
+    selected = summary.loc[
+        (summary["property"] == family) & (summary["role"] != property_verdicts.DIAGNOSTIC_ROLE),
+        "cell",
+    ]
+    return tuple(sorted(str(name) for name in selected))
+
 
 Judge = Callable[[Context, pd.Series, Interval], Judged]
 Applies = Callable[[Context, pd.Series], bool]
+Reads = Callable[[Context, pd.Series], Sequence[tuple[str, str]]]
 
 
 @dataclass(frozen=True)
@@ -400,52 +498,82 @@ class Clause:
     name : str
         The leg name the accounting file publishes.
     statistic : str
-        The statistic type, ``S1`` to ``S10`` (RM39b2-plan section 7.2).
+        The statistic type (rev 3 section 4): ``S1``, ``S1f`` and ``S2`` to ``S15``.
     applies : Callable
         Whether the clause is part of a summary row's verdict.
     read : Callable
         The complete-case value, read off the summary row.
-    candidates : Callable
-        ``(label, value)`` for each candidate imputation of the lost replicates.
+    candidates : Callable or None
+        ``(label, value)`` for each candidate imputation of the lost replicates.  ``None`` for
+        a clause that no candidate set accounts for.
     target : str
         ``passed`` when the clause feeds the row's own verdict, ``property_passed`` when it
-        feeds the family's joint clause alone.
+        feeds the joint verdict alone.
+    imputation : str
+        :data:`SUPPORT` or :data:`RANGE`: whether the leg rests on the range assumption.
+    accountable : bool
+        ``False`` for a clause with a stated reason to have no candidate set (rev 3 section
+        2): a row of it that lost a replicate is red at any bound (R3-1).
+    reads : Callable or None
+        Further ``(property, cell)`` pairs the clause reads beyond the row's own cell, such as
+        the other arm of a pair or another row's endpoint.  A loss in any of them makes the
+        row accounted.
     """
 
     name: str
     statistic: str
     applies: Applies
     read: Callable[[Context, pd.Series], Judged]
-    candidates: Callable[[Context, pd.Series], list[tuple[str, Judged]]]
+    candidates: Callable[[Context, pd.Series], list[tuple[str, Judged]]] | None
     target: str = "passed"
+    imputation: str = RANGE
+    accountable: bool = True
+    reads: Reads | None = None
 
 
 @dataclass(frozen=True)
 class FamilyRule:
-    """The declared clause tree of a family whose whole verdict a shared function computes.
+    """The declared clause tree of one or more property families.
+
+    A shared rule sits in :data:`tests.studies.evidence.property_verdicts.FAMILY_RULES`.  A
+    module that adds a conjunct, or computes a family itself, declares its own in
+    ``PROPERTY_RULES``, which takes precedence (rev 3 D3'a).
 
     Parameters
     ----------
     families : frozenset of str
         The property families the rule reads.
     shared : str
-        The ``property_verdicts`` function that computes the verdict.
+        The function that computes the verdict.
     clauses : tuple of Clause
-        Every clause, each with the rows it applies to.  A row's verdict is their conjunction.
-    joint : str
-        ``row`` when a row's ``property_passed`` is its own verdict.  ``group`` when every row
-        of the family shares one joint verdict: all rows pass and every ``property_passed``
-        clause holds.
-    accountable : Callable
-        Whether a summary row of the family is accountable at all.  The contraction slope rows
-        are not (F1).
+        Every clause, each with the rows it applies to.  A row's verdict is the conjunction of
+        its ``passed`` clauses.
+    group : str
+        How the rows share ``property_passed`` (:data:`GROUPS`).
+    sources : Callable or None
+        The replication cells a summary row with no cell of its own reads; :func:`sources`
+        by default.
     """
 
     families: frozenset[str]
     shared: str
     clauses: tuple[Clause, ...]
-    joint: str = "row"
-    accountable: Callable[[pd.Series], bool] = field(default=lambda row: True)
+    group: str = "row"
+    sources: Callable[[pd.Series, pd.DataFrame], list[tuple[str, str]]] | None = None
+
+    def __post_init__(self) -> None:
+        if self.group not in GROUPS:
+            raise ValueError(f"unknown group {self.group!r}; expected one of {GROUPS}")
+        names = [clause.name for clause in self.clauses]
+        if len(set(names)) != len(names):
+            raise ValueError(f"{sorted(self.families)} names a clause twice: {names}")
+        for clause in self.clauses:
+            if clause.target not in {"passed", "property_passed"}:
+                raise ValueError(f"{clause.name}: unknown target {clause.target!r}")
+            if clause.imputation not in {SUPPORT, RANGE}:
+                raise ValueError(f"{clause.name}: unknown imputation {clause.imputation!r}")
+            if clause.accountable and clause.candidates is None:
+                raise ValueError(f"{clause.name}: an accountable clause needs candidates")
 
     def clause(self, name: str) -> Clause:
         """The clause named ``name``."""
@@ -453,6 +581,39 @@ class FamilyRule:
             if clause.name == name:
                 return clause
         raise KeyError(f"{sorted(self.families)} has no clause {name!r}")
+
+
+def rule_for(
+    family: str,
+    module: Any = None,
+    rules: Sequence[FamilyRule] | None = None,
+) -> FamilyRule | None:
+    """The rule that declares ``family``: the module's own first, then the shared one.
+
+    Parameters
+    ----------
+    family : str
+        The property family.
+    module : module or None
+        The property module, whose ``PROPERTY_RULES`` take precedence (rev 3 D3'a).
+    rules : Sequence of FamilyRule or None
+        The shared rules; :data:`tests.studies.evidence.property_verdicts.FAMILY_RULES` by
+        default.
+
+    Returns
+    -------
+    FamilyRule or None
+        The rule, or ``None`` when no rule declares the family.
+    """
+    from tests.studies.evidence import property_verdicts
+
+    for rule in getattr(module, "PROPERTY_RULES", ()) or ():
+        if family in rule.families:
+            return rule
+    for rule in property_verdicts.FAMILY_RULES if rules is None else rules:
+        if family in rule.families:
+            return rule
+    return None
 
 
 # ---- judges ---------------------------------------------------------------------------------
@@ -501,11 +662,23 @@ def roles(*names: str) -> Applies:
     return lambda ctx, row: str(row["role"]) in names
 
 
+def cells(*names: str) -> Applies:
+    """A clause that applies to rows of the named cells."""
+    return lambda ctx, row: str(row["cell"]) in names
+
+
+def every(ctx: Context, row: pd.Series) -> bool:
+    """A clause that applies to every row of its family."""
+    return True
+
+
 # ---- candidate imputations ------------------------------------------------------------------
 
 
-def _errors(ctx: Context, group: pd.DataFrame) -> np.ndarray:
+def _errors(ctx: Context, group: pd.DataFrame, truth: float | None = None) -> np.ndarray:
     estimates = group["estimate"].to_numpy(dtype=float)
+    if truth is not None:
+        return estimates - truth
     if ctx.record.truth_varies_by_replicate:
         return estimates - group["truth"].to_numpy(dtype=float)
     return estimates - float(group["truth"].iloc[0])
@@ -515,10 +688,8 @@ def _spread_values(group: pd.DataFrame, truth_varies: bool) -> np.ndarray:
     return spread_values(group, truth_varies=truth_varies)
 
 
-def _widest(values: np.ndarray, k: int) -> np.ndarray:
-    """The vertex split of ``k`` fills with the largest standard deviation."""
-    options = [vertex(values, k, j) for j in range(k + 1)]
-    return max(options, key=lambda option: float(np.std(option, ddof=1)))
+def _requested(group: pd.DataFrame) -> int:
+    return int(group["requested_replicates"].iloc[0])
 
 
 def _imputed(
@@ -556,13 +727,44 @@ def _imputed(
     )
 
 
+def _completed(group: pd.DataFrame, estimates: np.ndarray, truth: np.ndarray) -> pd.DataFrame:
+    """Every requested replicate of one arm, ordered by id: survivors real, fills after.
+
+    ``estimates`` and ``truth`` hold the survivors in the group's order, then one value per
+    lost id in ascending id order.  The frame carries complete stamps, so the paired helpers
+    read it as a complete arm (b1 M2's aligned construction).
+    """
+    requested = _requested(group)
+    survived = [int(value) for value in group["replicate"]]
+    missing = sorted(set(range(requested)) - set(survived))
+    frame = pd.DataFrame(
+        {
+            "property": group["property"].iloc[0],
+            "cell": group["cell"].iloc[0],
+            "role": group["role"].iloc[0] if "role" in group else "positive",
+            "replicate": survived + missing,
+            "n": int(group["n"].iloc[0]),
+            "requested_replicates": requested,
+            "failed_replicates": 0,
+            "truth": truth,
+            "estimate": estimates,
+            "std_error": np.concatenate(
+                [group["std_error"].to_numpy(dtype=float), np.ones(len(missing))]
+            ),
+        }
+    )
+    return frame.sort_values("replicate", ignore_index=True)
+
+
 def se_ratio_sets(
     group: pd.DataFrame, k: int, *, truth_varies: bool
 ) -> list[tuple[str, pd.DataFrame]]:
     """The S4 candidate frames of a cell that lost ``k`` replicates (RM39a2's SE-ratio set).
 
     The SEs at the survivor maximum with the spread values at their mean, then the SEs at the
-    survivor minimum with the spread values at each vertex split.
+    survivor minimum with the spread values at each vertex split.  The numerator and the
+    denominator read disjoint fills, the mean SE is linear in its fills and the standard
+    deviation is convex in its own, so the set holds both extremes of the point ratio (G7).
 
     Parameters
     ----------
@@ -611,60 +813,179 @@ def _se_ratio(frame: pd.DataFrame, truth_varies: bool) -> float:
     return float(frame["std_error"].mean() / spread) if spread > 0 else math.nan
 
 
-# ---- statistic types ------------------------------------------------------------------------
+@dataclass(frozen=True)
+class Option:
+    """One candidate fill of one cell: its label, its bootstrap draws and its point value."""
+
+    label: str
+    draws: np.ndarray
+    point: float
 
 
-def bias_clause(name: str, *, kind: str, applies: Applies) -> Clause:
-    """S1: the standardized-bias interval, at every vertex split with the scale held.
+def prune(options: Sequence[Option], weight: float, direction: int) -> list[Option]:
+    """The options no other option dominates in one adverse direction (rev 3 M5).
 
-    ``kind`` is ``equivalent`` (inside the margin) or ``discriminated`` (wholly outside it,
-    on the side of the complete-case bias, m14).
+    A combined statistic ``sum_r w_r X_r`` is monotone in each cell's draw vector.  For
+    ``direction = -1`` the adverse side is a small combination: an option whose ``w X`` is at
+    or above another's on every draw and at the point can never be the worst, so it goes.
+    ``direction = +1`` mirrors it.  Exact: the worst combination survives.
+
+    Parameters
+    ----------
+    options : Sequence of Option
+        One cell's candidate fills, evaluated with common random numbers.
+    weight : float
+        The cell's weight in the combined statistic.
+    direction : int
+        ``-1`` to keep the options that can push the combination down, ``+1`` up.
+
+    Returns
+    -------
+    list of Option
+        The undominated options, in their original order.
+    """
+    if len(options) <= 1:
+        return list(options)
+    if weight == 0.0:
+        return [options[0]]
+    sign = -direction * float(np.sign(weight))
+    # ``score`` is large where the option is adverse.
+    scores = [(sign * option.draws, sign * option.point) for option in options]
+    order = sorted(
+        range(len(options)), key=lambda index: float(np.mean(scores[index][0])), reverse=True
+    )
+    kept: list[int] = []
+    for index in order:
+        draws, point = scores[index]
+        if any(np.all(scores[other][0] >= draws) and scores[other][1] >= point for other in kept):
+            continue
+        kept.append(index)
+    return [options[index] for index in sorted(kept)]
+
+
+def _combinations(
+    per_cell: Sequence[Sequence[Option]], weights: Sequence[float]
+) -> list[tuple[Option, ...]]:
+    """Every combination of the pruned options, in both adverse directions."""
+    seen: set[tuple[int, ...]] = set()
+    out: list[tuple[Option, ...]] = []
+    for direction in (-1, 1):
+        pruned = [
+            prune(options, weight, direction)
+            for options, weight in zip(per_cell, weights, strict=True)
+        ]
+        for chosen in itertools.product(*pruned):
+            key = tuple(id(option) for option in chosen)
+            if key not in seen:
+                seen.add(key)
+                out.append(chosen)
+    return out
+
+
+# ---- statistic types (rev 3 section 4) ----------------------------------------------------
+
+
+def bias_clause(
+    name: str,
+    *,
+    kind: str,
+    applies: Applies,
+    side: Callable[[Context, pd.Series], int] | None = None,
+    margin: Callable[[Context, pd.Series], float] | None = None,
+    strict: bool = True,
+    prefix: str = "bias",
+    truth: Callable[[Context, pd.Series], float] | None = None,
+    statistic: str = "S1",
+    target: str = "passed",
+) -> Clause:
+    """S1: a bias interval against a margin, at every vertex split with the scale held.
+
+    ``kind`` is ``equivalent`` (the interval inside ``[-m, m]``) or ``beyond`` (wholly beyond
+    ``m`` on one side).  The side is ``side(ctx, row)`` when declared, else the complete-case
+    side, the sign of the interval's centre (m14).  The margin is ``margin(ctx, row)``, by
+    default the row's ``<prefix>_margin``, the standardized margin times the complete-case
+    spread held fixed (B2).  A fixed threshold is the ``S1f`` form.  The candidates fill the
+    lost errors at each split ``j`` between the survivor minimum and maximum.  A Student upper
+    endpoint is convex in the fills and a lower one concave, so the set is exact (section 2),
+    and a candidate must clear on the complete case's side (L6).
 
     Parameters
     ----------
     name : str
         The leg name.
     kind : str
-        ``equivalent`` or ``discriminated``.
+        ``equivalent`` or ``beyond``.
     applies : Callable
         The rows the clause is part of.
+    side : Callable or None
+        A declared side, ``+1`` or ``-1``.
+    margin : Callable or None
+        The margin or fixed threshold; ``row[f"{prefix}_margin"]`` by default.
+    strict : bool
+        Whether ``beyond`` needs a strict inequality.
+    prefix : str
+        The interval the row publishes, ``<prefix>_ci_lower`` and ``<prefix>_ci_upper``.
+    truth : Callable or None
+        The truth the errors are measured against; the cell's own by default.
+    statistic : str
+        ``S1``, or ``S1f`` for a fixed threshold.
+    target : str
+        The verdict the clause feeds.
 
     Returns
     -------
     Clause
         The S1 clause.
     """
+    if kind not in {"equivalent", "beyond"}:
+        raise ValueError(f"unknown bias clause kind {kind!r}")
 
-    def judge(row: pd.Series, iv: Interval) -> Judged:
-        margin = float(row["bias_margin"])
+    def threshold(ctx: Context, row: pd.Series) -> float:
+        return float(row[f"{prefix}_margin"]) if margin is None else float(margin(ctx, row))
+
+    def interval(row: pd.Series) -> Interval:
+        return Interval(float(row[f"{prefix}_ci_lower"]), float(row[f"{prefix}_ci_upper"]))
+
+    def sign_of(ctx: Context, row: pd.Series) -> int:
+        if side is not None:
+            return 1 if side(ctx, row) > 0 else -1
+        complete = interval(row)
+        return 1 if (complete.low + complete.high) / 2.0 >= 0.0 else -1
+
+    def judge(m: float, sign: int, iv: Interval) -> Judged:
         if kind == "equivalent":
-            return Judged(margin - max(-iv.low, iv.high), bool(iv.within(-margin, margin)))
-        if float(row["bias"]) >= 0.0:
-            return Judged(iv.low - margin, bool(iv.low > margin))
-        return Judged(-margin - iv.high, bool(iv.high < -margin))
+            return Judged(m - max(-iv.low, iv.high), bool(iv.within(-m, m)))
+        if sign > 0:
+            return Judged(iv.low - m, bool(iv.low > m if strict else iv.low >= m))
+        return Judged(-m - iv.high, bool(iv.high < -m if strict else iv.high <= -m))
 
     def read(ctx: Context, row: pd.Series) -> Judged:
-        return judge(row, Interval(float(row["bias_ci_lower"]), float(row["bias_ci_upper"])))
+        return judge(threshold(ctx, row), sign_of(ctx, row), interval(row))
 
     def candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
-        errors = _errors(ctx, ctx.cell(row["property"], row["cell"]))
+        group = ctx.cell(row["property"], row["cell"])
+        errors = _errors(ctx, group, None if truth is None else truth(ctx, row))
         k = ctx.k(row)
         level = ctx.margins.confidence_level
+        m, sign = threshold(ctx, row), sign_of(ctx, row)
         return [
             (
                 f"j={j} at min",
-                judge(row, student_interval(vertex(errors, k, j), confidence_level=level)),
+                judge(m, sign, student_interval(vertex(errors, k, j), confidence_level=level)),
             )
             for j in range(k + 1)
         ]
 
-    if kind not in {"equivalent", "discriminated"}:
-        raise ValueError(f"unknown bias clause kind {kind!r}")
-    return Clause(name, "S1", applies, read, candidates)
+    return Clause(name, statistic, applies, read, candidates, target=target)
 
 
-def proportion_clause(name: str, *, statistic: str, judge: Judge, applies: Applies) -> Clause:
+def proportion_clause(
+    name: str, *, statistic: str, judge: Judge, applies: Applies, target: str = "passed"
+) -> Clause:
     """S2 (coverage) or S3 (rejection): the exact interval at every split of the lost replicates.
+
+    A Clopper-Pearson endpoint is monotone in the success count, and an indicator's support is
+    ``{0, 1}``, so the set needs no range assumption (``support``).
 
     Parameters
     ----------
@@ -676,6 +997,8 @@ def proportion_clause(name: str, *, statistic: str, judge: Judge, applies: Appli
         The clause's rule on the exact interval.
     applies : Callable
         The rows the clause is part of.
+    target : str
+        The verdict the clause feeds.
 
     Returns
     -------
@@ -704,13 +1027,17 @@ def proportion_clause(name: str, *, statistic: str, judge: Judge, applies: Appli
             for j in range(k + 1)
         ]
 
-    return Clause(name, statistic, applies, read, candidates)
+    return Clause(name, statistic, applies, read, candidates, target=target, imputation=SUPPORT)
 
 
 def se_point_clause(
-    name: str, *, band: Callable[[Context], tuple[float, float]], applies: Applies
+    name: str,
+    *,
+    band: Callable[[Context], tuple[float, float]],
+    applies: Applies,
+    target: str = "passed",
 ) -> Clause:
-    """S4: the point SE ratio inside a band, over the RM39a2 SE-ratio set.
+    """S4: the point SE ratio inside a band, over the RM39a2 SE-ratio set (exact, G7).
 
     Parameters
     ----------
@@ -720,6 +1047,8 @@ def se_point_clause(
         The band the ratio must sit inside.
     applies : Callable
         The rows the clause is part of.
+    target : str
+        The verdict the clause feeds.
 
     Returns
     -------
@@ -742,7 +1071,7 @@ def se_point_clause(
             for label, frame in se_ratio_sets(group, ctx.k(row), truth_varies=varies)
         ]
 
-    return Clause(name, "S4", applies, read, candidates)
+    return Clause(name, "S4", applies, read, candidates, target=target)
 
 
 def se_interval_clause(
@@ -753,6 +1082,8 @@ def se_interval_clause(
     seed: Callable[[Context, pd.Series], int],
     applies: Applies,
     truth_varies: Callable[[Context], bool] | None = None,
+    columns: str | None = None,
+    target: str = "passed",
 ) -> Clause:
     """S5: a bootstrap SE-ratio or efficiency interval over the S4 set, with the verdict's seed.
 
@@ -765,7 +1096,7 @@ def se_interval_clause(
     name : str
         The leg name.
     which : str
-        The interval the clause reads.
+        The interval :func:`~tests.studies.evidence.properties.ratio_intervals` returns.
     judge : Callable
         The clause's rule on the interval.
     seed : Callable
@@ -774,18 +1105,23 @@ def se_interval_clause(
         The rows the clause is part of.
     truth_varies : Callable or None
         Whether the spread reads each row's error; the study's flag by default.
+    columns : str or None
+        The prefix of the summary columns the interval is published in; ``which`` by default.
+    target : str
+        The verdict the clause feeds.
 
     Returns
     -------
     Clause
         The S5 clause.
     """
+    published = which if columns is None else columns
 
     def varies(ctx: Context) -> bool:
         return ctx.record.truth_varies_by_replicate if truth_varies is None else truth_varies(ctx)
 
     def read(ctx: Context, row: pd.Series) -> Judged:
-        iv = Interval(float(row[f"{which}_ci_lower"]), float(row[f"{which}_ci_upper"]))
+        iv = Interval(float(row[f"{published}_ci_lower"]), float(row[f"{published}_ci_upper"]))
         return judge(ctx, row, iv)
 
     def candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
@@ -810,7 +1146,46 @@ def se_interval_clause(
             out.append((label, judge(ctx, row, intervals[which])))
         return out
 
-    return Clause(name, "S5", applies, read, candidates)
+    return Clause(name, "S5", applies, read, candidates, target=target)
+
+
+def rung_options(
+    values: np.ndarray, k: int, statistic: str, truth: float
+) -> list[tuple[str, np.ndarray]]:
+    """The S6 candidate fills of one rung that lost ``k`` replicates (RM39-plan 4.5, G3, G4).
+
+    Every vertex split between the survivor minimum and maximum, plus the survivor mean for a
+    spread or a mean SE, and for ``bias`` the fill nearest a zero mean.  The vertex splits hold
+    the maximum of a convex spread and both extremes of a mean; the mean fill holds the
+    spread's minimum, and the zero-mean fill the minimum of ``|mean - truth|``.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The rung's surviving values (:func:`~tests.studies.evidence.properties.rate_samples`).
+    k : int
+        The rung's lost replicates.
+    statistic : str
+        ``spread``, ``reported`` or ``bias``.
+    truth : float
+        The rung's truth.
+
+    Returns
+    -------
+    list of (str, numpy.ndarray)
+        Each fill's label and its completed values.
+    """
+    if k == 0:
+        return [("survivors", values)]
+    out = [(f"j={j} at min", vertex(values, k, j)) for j in range(k + 1)]
+    if statistic == "bias":
+        total = len(values) + k
+        centre = (total * truth - float(np.sum(values))) / k
+        centre = float(np.clip(centre, np.min(values), np.max(values)))
+        out.append(("nearest a zero mean", filled(values, k, centre)))
+    else:
+        out.append(("at survivor mean", filled(values, k, float(np.mean(values)))))
+    return out
 
 
 def rate_slope_clause(
@@ -819,14 +1194,18 @@ def rate_slope_clause(
     judge: Judge,
     ladder: Callable[[pd.Series], tuple[str, str, str, tuple[str, ...]]],
     applies: Applies,
+    target: str = "passed",
 ) -> Clause:
-    """S6: a fitted rate slope with each lost rung at its attainable extremes.
+    """S6: a fitted rate slope with each lost rung at every candidate fill (G3, G4, M5).
 
     ``ladder(row)`` gives the ladder's property, the cell prefix of its rungs, the statistic
-    (``spread`` or ``reported``) and the seed labels.  Per lost rung the spread sits at its
-    attainable maximum (the widest vertex split) or minimum (the survivor mean); for
-    ``reported`` the SEs sit at the survivor maximum or minimum.  Each rung takes the side
-    that pushes the slope up, then the side that pushes it down.
+    (``spread``, ``reported`` or ``bias``) and the seed labels of
+    :func:`~tests.studies.evidence.properties.rate`.  Each lost rung takes the
+    :func:`rung_options` set.  Each option's rung draws come from the rung's own stream once,
+    so options share common random numbers.  The slope draw is a fixed weighted sum of the
+    rung draws, so :func:`prune` drops the options another dominates in each direction, and
+    the product runs over the survivors.  The point slope is exact; the bootstrap interval is
+    enumerated.
 
     Parameters
     ----------
@@ -838,6 +1217,8 @@ def rate_slope_clause(
         The ladder a rate row is fitted over.
     applies : Callable
         The rows the clause is part of.
+    target : str
+        The verdict the clause feeds.
 
     Returns
     -------
@@ -848,82 +1229,96 @@ def rate_slope_clause(
     def read(ctx: Context, row: pd.Series) -> Judged:
         return judge(ctx, row, Interval(float(row["slope_ci_lower"]), float(row["slope_ci_upper"])))
 
-    def candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
-        family, prefix, statistic, labels = ladder(row)
-        varies = ctx.record.truth_varies_by_replicate
+    def rungs(ctx: Context, row: pd.Series) -> list[tuple[int, str, pd.DataFrame]]:
+        family, prefix, _, _ = ladder(row)
         selected = ctx.rows.loc[
-            (ctx.rows["property"] == family) & ctx.rows["cell"].str.startswith(prefix)
+            (ctx.rows["property"] == family) & ctx.rows["cell"].astype(str).str.startswith(prefix)
         ]
-        rungs = [
+        out = [
             (int(group["n"].iloc[0]), str(cell), group)
             for cell, group in selected.groupby("cell", sort=True)
         ]
-        logs = np.log([size for size, _, _ in rungs])
-        centred = logs - logs.mean()
-        out = []
-        for direction, sign in (("up", 1.0), ("down", -1.0)):
-            frames = []
-            for (_size, cell, group), weight in zip(rungs, centred, strict=True):
-                k = ctx.lost.get((family, cell), 0)
-                if not k:
-                    frames.append(
-                        group.loc[:, ["property", "cell", "n", "truth", "estimate", "std_error"]]
-                    )
-                    continue
-                high = weight * sign >= 0.0
-                values = _spread_values(group, varies and statistic != "reported")
-                std_errors = group["std_error"].to_numpy(dtype=float)
-                if statistic == "reported":
-                    values = filled(values, k, float(np.mean(values)))
-                    std_errors = filled(
-                        std_errors, k, float(np.max(std_errors) if high else np.min(std_errors))
-                    )
-                else:
-                    values = (
-                        _widest(values, k) if high else filled(values, k, float(np.mean(values)))
-                    )
-                    std_errors = filled(std_errors, k, float(np.mean(std_errors)))
-                frames.append(
-                    _imputed(
-                        group, values, std_errors, truth_varies=varies and statistic != "reported"
-                    )
-                )
-            fitted = rate(
-                pd.concat(frames, ignore_index=True),
-                property_name=family,
-                statistic=statistic,
-                bootstrap_replicates=ctx.margins.bootstrap_replicates,
-                confidence_level=ctx.margins.confidence_level,
-                seed=stream_seed(ctx.record, *labels),
-                truth_varies=varies,
-            )
-            out.append((f"lost rungs push the slope {direction}", judge(ctx, row, fitted.interval)))
+        out.sort(key=lambda item: item[0])
         return out
 
-    return Clause(name, "S6", applies, read, candidates)
+    def reads(ctx: Context, row: pd.Series) -> list[tuple[str, str]]:
+        family = ladder(row)[0]
+        return [(family, cell) for _, cell, _ in rungs(ctx, row)]
+
+    def candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
+        family, _, statistic, labels = ladder(row)
+        varies = ctx.record.truth_varies_by_replicate
+        ladder_rows = rungs(ctx, row)
+        sizes = np.array([size for size, _, _ in ladder_rows], dtype=float)
+        samples, truths = rate_samples([group for _, _, group in ladder_rows], statistic, varies)
+        children = np.random.SeedSequence(stream_seed(ctx.record, *labels)).spawn(len(samples))
+        replicates = ctx.margins.bootstrap_replicates
+        per_rung: list[list[Option]] = []
+        for index, (_, cell, _) in enumerate(ladder_rows):
+            k = ctx.lost_in(family, cell)
+            per_rung.append(
+                [
+                    Option(
+                        label if not k else f"{cell} {label}",
+                        rate_draws(
+                            values,
+                            truths[index],
+                            statistic,
+                            replicates=replicates,
+                            seed=children[index],
+                        ),
+                        rate_observed(values, truths[index], statistic),
+                    )
+                    for label, values in rung_options(samples[index], k, statistic, truths[index])
+                ]
+            )
+        logs = np.log(sizes)
+        weights = list(logs - logs.mean())
+        out = []
+        for chosen in _combinations(per_rung, weights):
+            draws = np.column_stack([option.draws for option in chosen])
+            interval = percentile_interval(
+                log_slope(sizes, draws), confidence_level=ctx.margins.confidence_level
+            )
+            label = "; ".join(
+                option.label
+                for option, (_, cell, _) in zip(chosen, ladder_rows, strict=True)
+                if ctx.lost_in(family, cell)
+            )
+            out.append((label or "survivors", judge(ctx, row, interval)))
+        return out
+
+    return Clause(name, "S6", applies, read, candidates, target=target, reads=reads)
 
 
-def _arms(ctx: Context, row: pd.Series) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """The positive and control arms of a two-cell family, from the summary's roles."""
-    family = ctx.summary.loc[ctx.summary["property"] == row["property"]]
-    positive = family.loc[family["role"] == "positive", "cell"]
-    control = family.loc[family["role"] == "control", "cell"]
+def _pair_arms(ctx: Context, row: pd.Series, group: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """The positive and control arms of the row's group, from the summary's roles."""
+    family = str(row["property"])
+    members = ctx.members(family, str(row["cell"]), group)
+    selected = ctx.summary.loc[
+        (ctx.summary["property"] == family) & ctx.summary["cell"].isin(members)
+    ]
+    positive = selected.loc[selected["role"] == "positive", "cell"]
+    control = selected.loc[selected["role"] == "control", "cell"]
     if len(positive) != 1 or len(control) != 1:
-        raise ValueError(f"{row['property']} is not one positive and one control cell")
-    return (
-        ctx.cell(row["property"], positive.iloc[0]),
-        ctx.cell(row["property"], control.iloc[0]),
-    )
+        raise ValueError(f"{family} group {members} is not one positive and one control cell")
+    return ctx.cell(family, positive.iloc[0]), ctx.cell(family, control.iloc[0])
 
 
 def coverage_gain_clause(
-    name: str, *, floor: float, seed: Callable[[Context, pd.Series], int], applies: Applies
+    name: str,
+    *,
+    floor: float,
+    seed: Callable[[Context, pd.Series], int],
+    applies: Applies,
+    group: str = "pair",
 ) -> Clause:
-    """S7: the paired coverage gain with every lost paired difference at -1, then at +1.
+    """S7: the paired coverage gain under the aligned fill (G5).
 
-    A replicate either arm lost is a lost difference.  Exact when both arms lost the same
-    replicates; conservative across keys, where a fill can be infeasible for the arm that
-    survived.  It feeds the family's ``property_passed`` alone.
+    A replicate the positive arm lost is filled uncovered, one the control lost is filled
+    covered, and a replicate an arm kept keeps its real value (b1 M2).  Under the verdict's
+    seed each bootstrap draw is a mean of the paired differences, monotone in each fill, so
+    the one candidate is exact.  It feeds the group's ``property_passed`` alone.
 
     Parameters
     ----------
@@ -935,6 +1330,8 @@ def coverage_gain_clause(
         The verdict's own resampling seed.
     applies : Callable
         The rows the clause is part of.
+    group : str
+        The rule's group, which says which cells form the pair.
 
     Returns
     -------
@@ -950,123 +1347,47 @@ def coverage_gain_clause(
             Interval(float(row["coverage_gain_ci_lower"]), float(row["coverage_gain_ci_upper"]))
         )
 
+    def reads(ctx: Context, row: pd.Series) -> list[tuple[str, str]]:
+        family = str(row["property"])
+        return [(family, cell) for cell in ctx.members(family, str(row["cell"]), group)]
+
     def candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
-        positive, control = _arms(ctx, row)
-        merged = positive[["replicate", "covered"]].merge(
-            control[["replicate", "covered"]], on="replicate", suffixes=("_positive", "_control")
-        )
-        differences = merged["covered_positive"].to_numpy(dtype=float) - merged[
-            "covered_control"
-        ].to_numpy(dtype=float)
-        requested = int(positive["requested_replicates"].iloc[0])
-        k = requested - len(merged)
-        return [
-            (
-                f"lost differences at {value:+.0f}",
-                judge(
-                    mean_difference_interval(
-                        filled(differences, k, value),
-                        replicates=ctx.margins.bootstrap_replicates,
-                        confidence_level=ctx.margins.confidence_level,
-                        seed=seed(ctx, row),
-                    )
-                ),
+        positive, control = _pair_arms(ctx, row, group)
+        requested = _requested(positive)
+        kept = [int(value) for value in positive["replicate"]]
+        ids = kept + sorted(set(range(requested)) - set(kept))
+        positive_hits = dict(zip(kept, positive["covered"].to_numpy(dtype=float), strict=True))
+        control_hits = dict(
+            zip(
+                (int(value) for value in control["replicate"]),
+                control["covered"].to_numpy(dtype=float),
+                strict=True,
             )
-            for value in (-1.0, 1.0)
-        ]
+        )
+        differences = np.array(
+            [positive_hits.get(index, 0.0) - control_hits.get(index, 1.0) for index in ids]
+        )
+        interval = mean_difference_interval(
+            differences,
+            replicates=ctx.margins.bootstrap_replicates,
+            confidence_level=ctx.margins.confidence_level,
+            seed=seed(ctx, row),
+        )
+        return [("lost positive arm uncovered, lost control arm covered", judge(interval))]
 
-    return Clause(name, "S7", applies, read, candidates, target="property_passed")
-
-
-def _aligned(
-    group: pd.DataFrame, requested: int, values: np.ndarray, std_errors: np.ndarray
-) -> pd.DataFrame:
-    """Every requested replicate of one arm: its real row where it survived, a fill where not."""
-    missing = sorted(set(range(requested)) - {int(value) for value in group["replicate"]})
-    fills = pd.DataFrame(
-        {
-            "replicate": missing,
-            "estimate": values[len(group) :],
-            "std_error": std_errors[len(group) :],
-        }
+    return Clause(
+        name,
+        "S7",
+        applies,
+        read,
+        candidates,
+        target="property_passed",
+        imputation=SUPPORT,
+        reads=reads,
     )
-    kept = group.loc[:, ["replicate", "estimate", "std_error"]]
-    return pd.concat([kept, fills], ignore_index=True).sort_values("replicate", ignore_index=True)
 
 
-def deficit_clause(
-    name: str,
-    *,
-    cells: tuple[str, str],
-    judge: Judge,
-    seed: Callable[[Context, pd.Series], int],
-    applies: Applies,
-) -> Clause:
-    """S8: one cell's SE ratio minus a paired cell's, over the product of both S4 sets.
-
-    The arms are aligned by replicate (b1 M2): the real value where an arm survived, its fill
-    where it lost.  The summary row carries ``se_ratio_deficit_ci_lower`` and ``_upper``.
-
-    Parameters
-    ----------
-    name : str
-        The leg name.
-    cells : tuple of str
-        The subject and reference cells of the row's family.
-    judge : Callable
-        The rule on the deficit interval.
-    seed : Callable
-        The verdict's own resampling seed.
-    applies : Callable
-        The rows the clause is part of.
-
-    Returns
-    -------
-    Clause
-        The S8 clause.
-    """
-
-    def read(ctx: Context, row: pd.Series) -> Judged:
-        iv = Interval(
-            float(row["se_ratio_deficit_ci_lower"]), float(row["se_ratio_deficit_ci_upper"])
-        )
-        return judge(ctx, row, iv)
-
-    def sets(ctx: Context, group: pd.DataFrame) -> list[tuple[str, pd.DataFrame]]:
-        requested = int(group["requested_replicates"].iloc[0])
-        k = requested - len(group)
-        return [
-            (
-                label,
-                _aligned(
-                    group,
-                    requested,
-                    frame["estimate"].to_numpy(dtype=float),
-                    frame["std_error"].to_numpy(dtype=float),
-                ),
-            )
-            for label, frame in se_ratio_sets(group, k, truth_varies=False)
-        ]
-
-    def candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
-        subject = ctx.cell(row["property"], cells[0])
-        reference = ctx.cell(row["property"], cells[1])
-        out = []
-        for subject_label, subject_frame in sets(ctx, subject):
-            for reference_label, reference_frame in sets(ctx, reference):
-                iv = se_ratio_deficit_interval(
-                    subject_frame,
-                    reference_frame,
-                    replicates=ctx.margins.bootstrap_replicates,
-                    confidence_level=ctx.margins.confidence_level,
-                    seed=seed(ctx, row),
-                )
-                out.append(
-                    (f"subject {subject_label}; reference {reference_label}", judge(ctx, row, iv))
-                )
-        return out
-
-    return Clause(name, "S8", applies, read, candidates)
+SpreadStatistic = Callable[[Context, pd.Series, pd.DataFrame, pd.DataFrame], Interval]
 
 
 def spread_ratio_clause(
@@ -1077,12 +1398,17 @@ def spread_ratio_clause(
     judge: Judge,
     seed: Callable[[Context, pd.Series], int],
     applies: Applies,
+    statistic: SpreadStatistic | None = None,
+    columns: tuple[str | None, str] = ("spread_ratio_ci_lower", "spread_ratio_ci_upper"),
+    target: str = "passed",
 ) -> Clause:
     """S9: a paired spread ratio, pushed toward the clause's boundary.
 
     For an ``upper`` clause the numerator's lost values sit at each vertex split and the
     denominator's at the survivor mean; a ``lower`` clause reverses the roles.  The arms are
-    aligned by replicate.  The summary row carries ``spread_ratio_ci_lower`` and ``_upper``.
+    completed by replicate (b1 M2).  ``statistic`` is the verdict's own statistic function
+    (G6); :func:`~tests.studies.evidence.properties.paired_spread_ratio_interval` by default.
+    The point ratio is exact; the bootstrap interval is enumerated.
 
     Parameters
     ----------
@@ -1098,6 +1424,13 @@ def spread_ratio_clause(
         The verdict's own resampling seed.
     applies : Callable
         The rows the clause is part of.
+    statistic : Callable or None
+        ``statistic(ctx, row, numerator, denominator)``, the interval the verdict reads.
+    columns : tuple
+        The summary columns of the published interval; ``None`` for an endpoint the verdict
+        does not publish.
+    target : str
+        The verdict the clause feeds.
 
     Returns
     -------
@@ -1107,68 +1440,86 @@ def spread_ratio_clause(
     if side not in {"upper", "lower"}:
         raise ValueError(f"unknown spread ratio side {side!r}")
 
+    def default(
+        ctx: Context, row: pd.Series, numerator: pd.DataFrame, den: pd.DataFrame
+    ) -> Interval:
+        return paired_spread_ratio_interval(
+            numerator,
+            den,
+            replicates=ctx.margins.bootstrap_replicates,
+            confidence_level=ctx.margins.confidence_level,
+            seed=seed(ctx, row),
+        ).interval
+
+    evaluate = default if statistic is None else statistic
+
     def read(ctx: Context, row: pd.Series) -> Judged:
-        iv = Interval(float(row["spread_ratio_ci_lower"]), float(row["spread_ratio_ci_upper"]))
+        low, high = columns
+        iv = Interval(math.nan if low is None else float(row[low]), float(row[high]))
         return judge(ctx, row, iv)
 
+    def reads(ctx: Context, row: pd.Series) -> list[tuple[str, str]]:
+        return [(str(row["property"]), cell) for cell in cells]
+
     def arm(group: pd.DataFrame, spread: bool) -> list[tuple[str, pd.DataFrame]]:
-        requested = int(group["requested_replicates"].iloc[0])
-        k = requested - len(group)
+        k = _requested(group) - len(group)
         values = group["estimate"].to_numpy(dtype=float)
-        std_errors = group["std_error"].to_numpy(dtype=float)
+        truth = group["truth"].to_numpy(dtype=float)
+        fill_truth = np.full(k, float(np.mean(truth)))
         if spread:
             options = [(f"j={j} at min", vertex(values, k, j)) for j in range(k + 1)]
         else:
             options = [("at mean", filled(values, k, float(np.mean(values))))]
         return [
-            (label, _aligned(group, requested, option, filled(std_errors, k, 1.0)))
+            (label, _completed(group, option, np.concatenate([truth, fill_truth])))
             for label, option in options
         ]
 
     def candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
-        numerator = ctx.cell(row["property"], cells[0])
-        denominator = ctx.cell(row["property"], cells[1])
+        family = str(row["property"])
+        numerator = ctx.cell(family, cells[0])
+        denominator = ctx.cell(family, cells[1])
         out = []
         for numerator_label, numerator_frame in arm(numerator, side == "upper"):
             for denominator_label, denominator_frame in arm(denominator, side == "lower"):
-                ratio = paired_spread_ratio_interval(
-                    numerator_frame,
-                    denominator_frame,
-                    replicates=ctx.margins.bootstrap_replicates,
-                    confidence_level=ctx.margins.confidence_level,
-                    seed=seed(ctx, row),
-                )
+                interval = evaluate(ctx, row, numerator_frame, denominator_frame)
                 out.append(
                     (
                         f"numerator {numerator_label}; denominator {denominator_label}",
-                        judge(ctx, row, ratio.interval),
+                        judge(ctx, row, interval),
                     )
                 )
         return out
 
-    return Clause(name, "S9", applies, read, candidates)
+    return Clause(name, "S9", applies, read, candidates, target=target, reads=reads)
 
 
 def extra_mean_clause(
     name: str,
     *,
-    column: str,
+    value: Callable[[pd.DataFrame], np.ndarray],
     summary_column: str,
     side: str,
     limit: float,
     applies: Applies,
+    support: tuple[float, float] | None = None,
+    strict: bool = False,
+    target: str = "passed",
 ) -> Clause:
-    """S10: the mean of an extra row column, with the lost rows at the survivor max or min.
+    """S10: the mean of a per-row value, with the lost rows at their adverse fill.
 
-    A ``cap`` clause needs the mean at or below ``limit`` and fills the lost rows at the
-    survivor maximum.  A ``floor`` clause needs it at or above and fills at the minimum.
+    ``value(group)`` derives the per-row value from a cell's rows, as the verdict does.  A
+    ``cap`` clause needs the mean at or below ``limit``; a ``floor`` clause at or above.  A
+    bounded value (``support``) fills the lost rows at the adverse support bound, a share at 1
+    for a cap, with no range assumption.  Otherwise the lost rows sit at the survivor maximum
+    for a cap or the minimum for a floor.  Exact: a mean is linear in its fills.
 
     Parameters
     ----------
     name : str
         The leg name.
-    column : str
-        The row column the mean reads.
+    value : Callable
+        The per-row value of a cell's rows.
     summary_column : str
         The summary column that publishes the complete-case mean.
     side : str
@@ -1177,6 +1528,12 @@ def extra_mean_clause(
         The declared cap or floor.
     applies : Callable
         The rows the clause is part of.
+    support : tuple of float or None
+        The value's bounded support, when it has one.
+    strict : bool
+        Whether the inequality is strict.
+    target : str
+        The verdict the clause feeds.
 
     Returns
     -------
@@ -1188,19 +1545,572 @@ def extra_mean_clause(
 
     def judge(mean: float) -> Judged:
         if side == "cap":
-            return Judged(limit - mean, bool(mean <= limit))
-        return Judged(mean - limit, bool(mean >= limit))
+            return Judged(limit - mean, bool(mean < limit if strict else mean <= limit))
+        return Judged(mean - limit, bool(mean > limit if strict else mean >= limit))
 
     def read(ctx: Context, row: pd.Series) -> Judged:
         return judge(float(row[summary_column]))
 
     def candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
-        values = ctx.cell(row["property"], row["cell"])[column].to_numpy(dtype=float)
-        fill = float(np.max(values) if side == "cap" else np.min(values))
-        label = "lost rows at survivor max" if side == "cap" else "lost rows at survivor min"
+        values = np.asarray(value(ctx.cell(row["property"], row["cell"])), dtype=float)
+        if support is not None:
+            fill = support[1] if side == "cap" else support[0]
+            label = f"lost rows at the support bound {fill:g}"
+        else:
+            fill = float(np.max(values) if side == "cap" else np.min(values))
+            label = "lost rows at survivor max" if side == "cap" else "lost rows at survivor min"
         return [(label, judge(float(np.mean(filled(values, ctx.k(row), fill)))))]
 
-    return Clause(name, "S10", applies, read, candidates)
+    return Clause(
+        name,
+        "S10",
+        applies,
+        read,
+        candidates,
+        target=target,
+        imputation=SUPPORT if support is not None else RANGE,
+    )
+
+
+def displacement_bounds(
+    left: pd.DataFrame, right: pd.DataFrame, *, truth_varies: bool
+) -> tuple[float, float, float]:
+    """The attainable ``mean(right) - mean(left)`` over complete arms, and the held spread.
+
+    Each arm's lost values lie in its survivors' range, and a surviving value is real.  The
+    held spread is the complete-case one, ``left``'s spread over the replicates both arms kept,
+    as :func:`~tests.studies.evidence.properties.paired_displacement` reads it (B2).
+
+    Parameters
+    ----------
+    left : pandas.DataFrame
+        The positive arm's surviving rows.
+    right : pandas.DataFrame
+        The control arm's surviving rows.
+    truth_varies : bool
+        Whether the arms read each row's error.
+
+    Returns
+    -------
+    tuple of float
+        The lowest and highest attainable difference of means, and the held spread.
+    """
+    kept_left, _ = paired(left, right)
+    held = float(
+        pd.Series(spread_values(kept_left.sort_values("replicate"), truth_varies=truth_varies)).std(
+            ddof=1
+        )
+    )
+    ends = []
+    for arm in (left, right):
+        values = spread_values(arm, truth_varies=truth_varies)
+        total = _requested(arm)
+        k = total - len(values)
+        ends.append(
+            (
+                (float(np.sum(values)) + k * float(np.min(values))) / total,
+                (float(np.sum(values)) + k * float(np.max(values))) / total,
+            )
+        )
+    (left_low, left_high), (right_low, right_high) = ends
+    return right_low - left_high, right_high - left_low, held
+
+
+def displacement_clause(
+    name: str,
+    *,
+    column: str,
+    labels: Sequence[str],
+    arms: tuple[str, str],
+    threshold: float,
+    truth_varies: bool = False,
+    applies: Applies = every,
+) -> Clause:
+    """S12: the least displacement over labels, with each arm's lost values in its range.
+
+    ``D = abs(mean(control) - mean(positive)) / sd(positive)`` with the spread held at its
+    complete-case value (B2).  The attainable difference of means is an interval
+    (:func:`displacement_bounds`); ``D`` is smallest at the end nearer zero, and zero when the
+    interval holds zero.  The family clause reads the minimum over labels (section 2), and
+    feeds ``property_passed``.  Exact under the held scale (L7).
+
+    Parameters
+    ----------
+    name : str
+        The leg name.
+    column : str
+        The summary column the joint displacement is published in.
+    labels : Sequence of str
+        The labels the family reports; cells are ``f"{label}__{arm}"``.
+    arms : tuple of str
+        The positive and control suffixes, in that order.
+    threshold : float
+        The declared minimum displacement.
+    truth_varies : bool
+        Whether each arm reads its errors, as the verdict does.
+    applies : Callable
+        The rows the clause is part of.
+
+    Returns
+    -------
+    Clause
+        The S12 clause.
+    """
+
+    def judge(value: float) -> Judged:
+        return Judged(value - threshold, bool(value >= threshold))
+
+    def read(ctx: Context, row: pd.Series) -> Judged:
+        return judge(float(row[column]))
+
+    def reads(ctx: Context, row: pd.Series) -> list[tuple[str, str]]:
+        family = str(row["property"])
+        return [(family, f"{label}__{arm}") for label in labels for arm in arms]
+
+    def candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
+        family = str(row["property"])
+        least: tuple[float, str] | None = None
+        for label in labels:
+            low, high, held = displacement_bounds(
+                ctx.cell(family, f"{label}__{arms[0]}"),
+                ctx.cell(family, f"{label}__{arms[1]}"),
+                truth_varies=truth_varies,
+            )
+            moved = 0.0 if low <= 0.0 <= high else min(abs(low), abs(high))
+            value = moved / held
+            if least is None or value < least[0]:
+                least = (value, label)
+        assert least is not None
+        return [(f"{least[1]}: means at the ends nearest each other", judge(least[0]))]
+
+    return Clause(name, "S12", applies, read, candidates, target="property_passed", reads=reads)
+
+
+RatioStatistic = Callable[[pd.DataFrame, pd.DataFrame], float]
+
+
+def rmse_ratio_clause(
+    name: str,
+    *,
+    paths: Sequence[tuple[str, str]],
+    statistic: RatioStatistic,
+    threshold: float,
+    column: str = "rmse_ratio",
+    applies: Applies = every,
+) -> Clause:
+    """S13: the largest RMSE ratio over paths, its numerator at its worst and denominator at best.
+
+    Per path the numerator arm's lost errors sit at the survivor end farther from zero, which
+    maximizes its RMSE, and the denominator arm's lost estimates sit at the truth, 4.5's
+    reference best case, which minimizes its RMSE with no range assumption on that arm.  Exact
+    when the truth lies in the denominator's survivor range, conservative otherwise.  The
+    group clause reads the maximum over paths and feeds ``property_passed``.
+
+    Parameters
+    ----------
+    name : str
+        The leg name.
+    paths : Sequence of tuple of str
+        Each ``(numerator cell, denominator cell)`` pair.
+    statistic : Callable
+        The verdict's own ratio of two arms' rows.
+    threshold : float
+        What every ratio must stay at or below.
+    column : str
+        The summary column each numerator row publishes its ratio in.
+    applies : Callable
+        The rows the clause is part of.
+
+    Returns
+    -------
+    Clause
+        The S13 clause.
+    """
+
+    def judge(value: float) -> Judged:
+        return Judged(threshold - value, bool(value <= threshold))
+
+    def read(ctx: Context, row: pd.Series) -> Judged:
+        summary = ctx.summary
+        numerators = [numerator for numerator, _ in paths]
+        selected = summary.loc[
+            (summary["property"] == row["property"]) & summary["cell"].isin(numerators), column
+        ]
+        return judge(float(selected.astype(float).max()))
+
+    def reads(ctx: Context, row: pd.Series) -> list[tuple[str, str]]:
+        family = str(row["property"])
+        return list(dict.fromkeys((family, cell) for path in paths for cell in path))
+
+    def complete(group: pd.DataFrame, *, worst: bool) -> pd.DataFrame:
+        truth = group["truth"].to_numpy(dtype=float)
+        estimates = group["estimate"].to_numpy(dtype=float)
+        k = _requested(group) - len(group)
+        fill_truth = np.full(k, float(np.mean(truth)))
+        if worst:
+            errors = estimates - truth
+            far = max(float(np.min(errors)), float(np.max(errors)), key=abs)
+            fills = fill_truth + far
+        else:
+            fills = fill_truth
+        return _completed(
+            group, np.concatenate([estimates, fills]), np.concatenate([truth, fill_truth])
+        )
+
+    def candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
+        family = str(row["property"])
+        worst = max(
+            (
+                statistic(
+                    complete(ctx.cell(family, numerator), worst=True),
+                    complete(ctx.cell(family, denominator), worst=False),
+                ),
+                numerator,
+            )
+            for numerator, denominator in paths
+        )
+        return [
+            (
+                f"{worst[1]}: numerator at its farther end, denominator at truth",
+                judge(worst[0]),
+            )
+        ]
+
+    return Clause(name, "S13", applies, read, candidates, target="property_passed", reads=reads)
+
+
+def absolute_bias_bound(errors: np.ndarray) -> float:
+    """``abs(mean) + 2 sd / sqrt(R)`` of a cell's errors, the S14 statistic.
+
+    Parameters
+    ----------
+    errors : numpy.ndarray
+        The cell's errors.
+
+    Returns
+    -------
+    float
+        The absolute-bias bound.
+    """
+    errors = np.asarray(errors, dtype=float)
+    return float(abs(np.mean(errors)) + 2.0 * np.std(errors, ddof=1) / np.sqrt(len(errors)))
+
+
+def _equal_fill_bound(errors: np.ndarray, k: int) -> tuple[float, float]:
+    """The minimum of :func:`absolute_bias_bound` over equal fills in the survivors' range.
+
+    The bound is convex and symmetric in the fills, so its minimum over the box sits at equal
+    fills, and over those it is a convex function of one variable.
+    """
+    low, high = float(np.min(errors)), float(np.max(errors))
+    if k == 0 or low == high:
+        return absolute_bias_bound(filled(errors, k, low)), low
+    grid = np.linspace(low, high, 257)
+    values = [absolute_bias_bound(filled(errors, k, float(c))) for c in grid]
+    best = int(np.argmin(values))
+    left, right = grid[max(best - 1, 0)], grid[min(best + 1, len(grid) - 1)]
+    found = minimize_scalar(
+        lambda c: absolute_bias_bound(filled(errors, k, float(c))),
+        bounds=(float(left), float(right)),
+        method="bounded",
+        options={"xatol": 1e-12 * max(1.0, high - low)},
+    )
+    centre = float(found.x)
+    value = absolute_bias_bound(filled(errors, k, centre))
+    if values[best] < value:
+        return float(values[best]), float(grid[best])
+    return value, centre
+
+
+def bias_bound_clause(
+    name: str,
+    *,
+    small: str,
+    large: str,
+    kind: str,
+    column: str,
+    tolerance: float | None = None,
+    applies: Applies = every,
+    target: str = "passed",
+) -> Clause:
+    """S14: a two-size absolute-bias bound, the large size at its worst, the small at its best.
+
+    ``B = abs(mean error) + 2 sd / sqrt(R)`` (:func:`absolute_bias_bound`) is convex and
+    symmetric in the fills.  Its maximum over the box sits at a vertex, and symmetry reduces
+    the vertices to splits; its minimum sits at equal fills, found by a one-dimensional convex
+    search (p22).  ``kind`` is ``tolerance`` (``B_large < tolerance``) or ``below small``
+    (``B_large < B_small``).  Exact.
+
+    Parameters
+    ----------
+    name : str
+        The leg name.
+    small : str
+        The smaller size's cell.
+    large : str
+        The larger size's cell.
+    kind : str
+        ``tolerance`` or ``below small``.
+    column : str
+        The summary column that publishes each cell's bound.
+    tolerance : float or None
+        The tolerance of the ``tolerance`` kind.
+    applies : Callable
+        The rows the clause is part of.
+    target : str
+        The verdict the clause feeds.
+
+    Returns
+    -------
+    Clause
+        The S14 clause.
+    """
+    if kind not in {"tolerance", "below small"}:
+        raise ValueError(f"unknown bias bound kind {kind!r}")
+    if (kind == "tolerance") != (tolerance is not None):
+        raise ValueError("a tolerance clause needs a tolerance, and only it takes one")
+
+    def judge(large_bound: float, small_bound: float) -> Judged:
+        limit = small_bound if tolerance is None else float(tolerance)
+        return Judged(limit - large_bound, bool(large_bound < limit))
+
+    def bound_of(summary: pd.DataFrame, family: str, cell: str) -> float:
+        return float(
+            summary.loc[(summary["property"] == family) & (summary["cell"] == cell), column].iloc[0]
+        )
+
+    def read(ctx: Context, row: pd.Series) -> Judged:
+        family = str(row["property"])
+        return judge(bound_of(ctx.summary, family, large), bound_of(ctx.summary, family, small))
+
+    def reads(ctx: Context, row: pd.Series) -> list[tuple[str, str]]:
+        family = str(row["property"])
+        return [(family, small), (family, large)] if kind != "tolerance" else [(family, large)]
+
+    def candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
+        family = str(row["property"])
+        large_errors = _errors(ctx, ctx.cell(family, large))
+        k_large = ctx.lost_in(family, large)
+        worst_large = max(
+            (absolute_bias_bound(vertex(large_errors, k_large, j)), j) for j in range(k_large + 1)
+        )
+        if kind == "tolerance":
+            small_bound, small_label = math.nan, ""
+        else:
+            small_errors = _errors(ctx, ctx.cell(family, small))
+            small_bound, centre = _equal_fill_bound(small_errors, ctx.lost_in(family, small))
+            small_label = f"; small at equal fill {centre:.6g}"
+        return [
+            (
+                f"large at j={worst_large[1]} at min{small_label}",
+                judge(worst_large[0], small_bound),
+            )
+        ]
+
+    return Clause(name, "S14", applies, read, candidates, target=target, reads=reads)
+
+
+def standardized_mean(values: np.ndarray) -> float:
+    """``mean / sd`` of a rung's errors, the per-rung statistic of S15."""
+    values = np.asarray(values, dtype=float)
+    return float(np.mean(values) / np.std(values, ddof=1))
+
+
+def _equal_fill_t(values: np.ndarray, k: int, *, largest: bool) -> float:
+    """The equal fill ``c`` in the survivors' range that makes ``mean / sd`` largest or least.
+
+    ``t`` is quasi-concave where it is non-negative and quasi-convex where it is negative, so
+    with symmetry its extremes over the box sit at equal fills or at vertex splits (section
+    2).  The search over ``c`` reads a closed form on a fine grid, then refines the best cell.
+    """
+    low, high = float(np.min(values)), float(np.max(values))
+    if low == high:
+        return low
+    total, squares, count = float(np.sum(values)), float(np.sum(values**2)), len(values) + k
+
+    def t_of(c: np.ndarray) -> np.ndarray:
+        mean = (total + k * c) / count
+        variance = (squares + k * c * c - count * mean * mean) / (count - 1)
+        return mean / np.sqrt(np.maximum(variance, np.finfo(float).tiny))
+
+    sign = 1.0 if largest else -1.0
+    grid = np.linspace(low, high, 4097)
+    scores = sign * t_of(grid)
+    best = int(np.argmax(scores))
+    left, right = grid[max(best - 1, 0)], grid[min(best + 1, len(grid) - 1)]
+    found = minimize_scalar(
+        lambda c: -sign * float(t_of(np.array([c]))[0]),
+        bounds=(float(left), float(right)),
+        method="bounded",
+        options={"xatol": 1e-12 * max(1.0, high - low)},
+    )
+    centre = float(found.x)
+    return (
+        centre if sign * float(t_of(np.array([centre]))[0]) >= scores[best] else float(grid[best])
+    )
+
+
+def growth_options(
+    values: np.ndarray, k: int, *, equal_fill: bool = True
+) -> list[tuple[str, np.ndarray]]:
+    """The S15 candidate fills of one rung that lost ``k`` replicates (H1).
+
+    Every vertex split, the equal fill that makes ``mean / sd`` largest and the one that makes
+    it least, each by a one-dimensional search in the survivors' range, and the fill nearest a
+    zero mean when the attainable mean interval holds zero.  ``equal_fill=False`` is the
+    deliberate mutation of p30: without the equal fills the set is not sound.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The rung's surviving errors.
+    k : int
+        The rung's lost replicates.
+    equal_fill : bool
+        Whether to include the two equal-fill extremes.
+
+    Returns
+    -------
+    list of (str, numpy.ndarray)
+        Each fill's label and its completed errors.
+    """
+    if k == 0:
+        return [("survivors", values)]
+    out = [(f"j={j} at min", vertex(values, k, j)) for j in range(k + 1)]
+    if equal_fill:
+        for largest, word in ((True, "largest"), (False, "least")):
+            centre = _equal_fill_t(values, k, largest=largest)
+            out.append((f"equal fill {centre:.6g}, t {word}", filled(values, k, centre)))
+    centre = -float(np.sum(values)) / k
+    if float(np.min(values)) <= centre <= float(np.max(values)):
+        out.append(("nearest a zero mean", filled(values, k, centre)))
+    return out
+
+
+def growth_clause(
+    name: str,
+    *,
+    rungs: Callable[[Context, pd.Series], tuple[tuple[str, int], tuple[str, int]]],
+    sign: Callable[[Context, pd.Series], float],
+    seed: Callable[[Context, pd.Series, int], int],
+    draws: Callable[[Context, np.ndarray, int], np.ndarray],
+    judge: Judge,
+    applies: Applies,
+    columns: tuple[str, str] = ("growth_ci_lower", "growth_ci_upper"),
+    equal_fill: bool = True,
+    target: str = "passed",
+) -> Clause:
+    """S15: a signed growth of standardized bias between two rungs (H1).
+
+    ``G = s (t_large - t_small)`` with ``t = mean / sd`` of a rung's errors.  Each lost rung
+    takes :func:`growth_options`; each option's draws come from the rung's own stream
+    (``draws(ctx, values, seed)``), so options share common random numbers.  :func:`prune` drops
+    the dominated options in each direction, and the product runs over the rest.  The point
+    is exact; the bootstrap interval is enumerated.
+
+    Parameters
+    ----------
+    name : str
+        The leg name.
+    rungs : Callable
+        The ``(cell, size)`` of the smallest and the largest rung.
+    sign : Callable
+        The declared sign ``s``.
+    seed : Callable
+        The verdict's own seed of one rung, by size.
+    draws : Callable
+        The verdict's own per-rung bootstrap draws of ``t``.
+    judge : Callable
+        The rule on the growth interval.
+    applies : Callable
+        The rows the clause is part of.
+    columns : tuple of str
+        The summary columns of the published interval.
+    equal_fill : bool
+        Whether the candidate set includes the equal fills (the p30 mutation turns it off).
+    target : str
+        The verdict the clause feeds.
+
+    Returns
+    -------
+    Clause
+        The S15 clause.
+    """
+
+    def read(ctx: Context, row: pd.Series) -> Judged:
+        return judge(ctx, row, Interval(float(row[columns[0]]), float(row[columns[1]])))
+
+    def reads(ctx: Context, row: pd.Series) -> list[tuple[str, str]]:
+        family = str(row["property"])
+        return [(family, cell) for cell, _ in rungs(ctx, row)]
+
+    def candidates(ctx: Context, row: pd.Series) -> list[tuple[str, Judged]]:
+        family = str(row["property"])
+        s = float(sign(ctx, row))
+        per_rung: list[list[Option]] = []
+        for cell, size in rungs(ctx, row):
+            values = _errors(ctx, ctx.cell(family, cell))
+            k = ctx.lost_in(family, cell)
+            per_rung.append(
+                [
+                    Option(
+                        label if not k else f"{cell} {label}",
+                        draws(ctx, option, seed(ctx, row, size)),
+                        standardized_mean(option),
+                    )
+                    for label, option in growth_options(values, k, equal_fill=equal_fill)
+                ]
+            )
+        out = []
+        for small, large in _combinations(per_rung, [-s, s]):
+            interval = percentile_interval(
+                s * (large.draws - small.draws), confidence_level=ctx.margins.confidence_level
+            )
+            labels = [option.label for option in (small, large) if option.label != "survivors"]
+            out.append(("; ".join(labels) or "survivors", judge(ctx, row, interval)))
+        return out
+
+    return Clause(name, "S15", applies, read, candidates, target=target, reads=reads)
+
+
+def unaccountable_clause(
+    name: str,
+    *,
+    statistic: str,
+    read: Callable[[Context, pd.Series], Judged],
+    applies: Applies,
+    reads: Reads | None = None,
+    target: str = "passed",
+) -> Clause:
+    """A clause with a stated reason to have no candidate set (rev 3 section 2, R3-1).
+
+    A sup-norm identity with a fixed tolerance, or the fit's own numerical success.  The read
+    reproduces the verdict for the differential test.  A row of it that lost a replicate reads
+    ``failures not accountable`` at any bound.
+
+    Parameters
+    ----------
+    name : str
+        The leg name.
+    statistic : str
+        What kind of claim it is, as the declared-rules table names it.
+    read : Callable
+        The complete-case verdict, read off the summary row.
+    applies : Callable
+        The rows the clause is part of.
+    reads : Callable or None
+        Other cells the verdict reads.
+    target : str
+        The verdict the clause feeds.
+
+    Returns
+    -------
+    Clause
+        The clause, marked not accountable.
+    """
+    return Clause(
+        name, statistic, applies, read, None, target=target, accountable=False, reads=reads
+    )
 
 
 # ---- the summary rows a verdict reads -------------------------------------------------------
@@ -1258,23 +2168,23 @@ def sources(row: pd.Series, rows: pd.DataFrame) -> list[tuple[str, str]]:
 # ---- the accounting -------------------------------------------------------------------------
 
 
-def _rule_for(family: str, rules: Sequence[FamilyRule], local: frozenset[str]) -> FamilyRule | None:
-    if family in local:
-        return None
-    for rule in rules:
-        if family in rule.families:
-            return rule
-    return None
-
-
 def _worst(clause: Clause, ctx: Context, row: pd.Series) -> tuple[Leg, bool]:
-    """A clause's leg: its complete case, and its least favourable candidate."""
+    """A clause's leg: its complete case, and its least favourable candidate.
+
+    The leg's ``imputation`` names its label (D3'e) and the candidate.
+    """
+    assert clause.candidates is not None
     complete = clause.read(ctx, row)
     candidates = clause.candidates(ctx, row)
+    if not candidates:
+        raise ValueError(f"{clause.name}: no candidate for {row['property']}/{row['cell']}")
     failing = [item for item in candidates if not item[1].passed]
     label, worst = min(failing or candidates, key=lambda item: item[1].slack)
     passed = complete.passed and not failing
-    return Leg(clause.name, complete.slack, worst.slack, label, passed), complete.passed
+    return (
+        Leg(clause.name, complete.slack, worst.slack, f"{clause.imputation}: {label}", passed),
+        complete.passed,
+    )
 
 
 def _gate(exceeded: bool, legs: Sequence[tuple[Leg, bool]]) -> tuple[bool, str]:
@@ -1293,46 +2203,190 @@ def _gate(exceeded: bool, legs: Sequence[tuple[Leg, bool]]) -> tuple[bool, str]:
     return False, COMPLETE_CASE_FAILS
 
 
-def _account_row(
-    payload: tuple[Context, pd.Series, FamilyRule | None, float, list[tuple[int, int]]],
-) -> list[dict[str, Any]]:
-    ctx, row, rule, bound, cells = payload
+def _unique(pairs: Sequence[tuple[str, str]]) -> list[tuple[str, str]]:
+    return list(dict.fromkeys(pairs))
+
+
+def read_cells(ctx: Context, rule: FamilyRule | None, row: pd.Series) -> list[tuple[str, str]]:
+    """Every replication cell a summary row's verdict reads under its rule.
+
+    The row's own :func:`sources`, then each applying clause's further reads, such as the
+    other arm of a pair or another row's endpoint.
+
+    Parameters
+    ----------
+    ctx : Context
+        The accounting context.
+    rule : FamilyRule or None
+        The row's rule.
+    row : pandas.Series
+        The summary row.
+
+    Returns
+    -------
+    list of tuple
+        The ``(property, cell)`` pairs, in order and without repeats.
+    """
+    own = (rule.sources or sources) if rule is not None else sources
+    out = list(own(row, ctx.rows))
+    if rule is not None:
+        for clause in rule.clauses:
+            if clause.reads is not None and clause.applies(ctx, row):
+                out.extend(clause.reads(ctx, row))
+    return _unique(out)
+
+
+@dataclass(frozen=True)
+class _Accounted:
+    """One summary row to account: its rule, its own cells, and every cell it reads."""
+
+    row: pd.Series
+    rule: FamilyRule | None
+    own: list[tuple[str, str]]
+    cells: list[tuple[tuple[str, str], int, int]]
+
+
+def _account_row(ctx: Context, item: _Accounted, bound: float) -> list[dict[str, Any]]:
+    row, rule = item.row, item.rule
     failed = ctx.k(row)
-    requested = sum(count for count, _ in cells) if cells else failed
+    own = [(requested, lost) for key, requested, lost in item.cells if key in item.own]
+    requested = sum(count for count, _ in own) if own else failed
     if math.isfinite(float(row.get("replicates", math.nan))):
         requested = int(row["replicates"]) + failed
-    allowance = sum(allowed(bound, count) for count, _ in cells)
-    exceeded = any(lost > allowed(bound, count) for count, lost in cells)
-    bound_leg = Leg(BOUND_LEG, float(failed), float(allowance), "", not exceeded)
-    if rule is None or not rule.accountable(row):
-        legs = [(bound_leg, True), (Leg(NOT_ACCOUNTABLE_LEG, math.nan, math.nan, "", False), True)]
+    lost_read = sum(lost for _, _, lost in item.cells)
+    allowance = sum(allowed(bound, count) for _, count, _ in item.cells)
+    exceeded = any(lost > allowed(bound, count) for _, count, lost in item.cells)
+    bound_leg = Leg(BOUND_LEG, float(lost_read), float(allowance), "", not exceeded)
+    applying = [] if rule is None else [c for c in rule.clauses if c.applies(ctx, row)]
+    unaccountable = [clause.name for clause in applying if not clause.accountable]
+    if rule is None or not applying or unaccountable:
+        named = "; ".join(unaccountable) if unaccountable else "no declared clause"
+        legs = [
+            (bound_leg, True),
+            (Leg(NOT_ACCOUNTABLE_LEG, math.nan, math.nan, named, False), True),
+        ]
         gate = (False, BOUND_EXCEEDED if exceeded else NOT_ACCOUNTABLE)
     else:
-        clause_legs = [
-            _worst(clause, ctx, row) for clause in rule.clauses if clause.applies(ctx, row)
-        ]
+        clause_legs = [_worst(clause, ctx, row) for clause in applying]
         legs = [(bound_leg, True), *clause_legs]
         gate = _gate(exceeded, clause_legs)
+    shared = {
+        "property": str(row["property"]),
+        "cell": str(row["cell"]),
+        "role": str(row["role"]),
+        "requested": requested,
+        "failed": failed,
+        "rate": failed / requested if requested else math.nan,
+        "bound": bound,
+        "allowed": allowance,
+        "gate_passed": gate[0],
+        "reason": gate[1],
+    }
     return [
         {
-            "property": str(row["property"]),
-            "cell": str(row["cell"]),
-            "role": str(row["role"]),
-            "requested": requested,
-            "failed": failed,
-            "rate": failed / requested if requested else math.nan,
-            "bound": bound,
-            "allowed": allowance,
+            **shared,
             "leg": leg.name,
             "complete_case": leg.complete_case,
             "worst_case": leg.worst_case,
             "imputation": leg.imputation,
             "leg_passed": leg.passed,
-            "gate_passed": gate[0],
-            "reason": gate[1],
         }
         for leg, _ in legs
     ]
+
+
+def _account_payload(payload: tuple[Context, _Accounted, float]) -> list[dict[str, Any]]:
+    ctx, item, bound = payload
+    return _account_row(ctx, item, bound)
+
+
+def _mid_rank(value: float, survivors: np.ndarray) -> float:
+    """The mid-rank quantile of ``value`` among ``survivors``, or ``nan`` without one."""
+    survivors = survivors[np.isfinite(survivors)]
+    if not math.isfinite(value) or survivors.size == 0:
+        return math.nan
+    below = float(np.sum(survivors < value))
+    tied = float(np.sum(survivors == value))
+    return (below + 0.5 * tied) / float(survivors.size)
+
+
+def witness_rows(
+    lost: pd.DataFrame,
+    witnesses: pd.DataFrame | None,
+    family: str,
+    cell: str,
+) -> list[Leg]:
+    """The reported witness legs of one cell's lost replicates (D3'f).
+
+    Each lost replicate's statistic sits in ``complete_case`` and its mid-rank quantile among
+    the cell's surviving replicates' in ``worst_case``.  The leg is reported, never gated, so it
+    always passes.  A run that published no witness value reports ``nan``.
+
+    Parameters
+    ----------
+    lost : pandas.DataFrame
+        :func:`expand` of the records.
+    witnesses : pandas.DataFrame or None
+        The run's witness values, with
+        :data:`~tests.studies.evidence.replication.WITNESS_COLUMNS`.
+    family : str
+        The property family.
+    cell : str
+        The cell.
+
+    Returns
+    -------
+    list of Leg
+        One leg per lost replicate, by replicate.
+    """
+    replicates = sorted(
+        int(value)
+        for value in lost.loc[(lost["property"] == family) & (lost["cell"] == cell), "replicate"]
+    )
+    if not replicates:
+        return []
+    values: dict[int, float] = {}
+    name = "no witness values"
+    if witnesses is not None and not witnesses.empty:
+        own = witnesses.loc[(witnesses["property"] == family) & (witnesses["cell"] == cell)]
+        values = {int(r): float(v) for r, v in zip(own["replicate"], own["value"], strict=True)}
+        if not own.empty:
+            name = str(own["statistic"].iloc[0])
+    gone = set(replicates)
+    survivors = np.array([v for r, v in values.items() if r not in gone], dtype=float)
+    out = []
+    for replicate in replicates:
+        value = values.get(replicate, math.nan)
+        out.append(
+            Leg(
+                WITNESS_LEG,
+                value,
+                _mid_rank(value, survivors),
+                f"replicate {replicate}: {name}",
+                True,
+            )
+        )
+    return out
+
+
+def module_groups(module: Any) -> Mapping[str, Sequence[Sequence[str]]]:
+    """A module's ``PROPERTY_GROUPS`` declaration, or none.
+
+    The declaration is optional: an undeclared ``pair`` or ``family`` group is the whole
+    family, and a ``label`` rule without one raises in :func:`group_members`, so its absence
+    cannot drop a conjunct silently.
+
+    Parameters
+    ----------
+    module : module or None
+        The property module.
+
+    Returns
+    -------
+    Mapping
+        Each family's declared groups of cells.
+    """
+    return getattr(module, "PROPERTY_GROUPS", None) or {}
 
 
 def property_accounting(
@@ -1343,17 +2397,18 @@ def property_accounting(
     record: StudyRecord,
     module: Any = None,
     rules: Sequence[FamilyRule] | None = None,
-    local: frozenset[str] | None = None,
+    witnesses: pd.DataFrame | None = None,
     n_jobs: int = 1,
 ) -> pd.DataFrame:
-    """The accounting rows of every summary row whose verdict lost a replicate.
+    """The accounting rows of every summary row whose verdict read a lost replicate.
 
     A row is red when a cell it reads lost more replicates than ``FAILURE_BOUND`` allows, or
     when a clause of its family's :class:`FamilyRule` that holds on the complete cases fails
-    under a candidate of its statistic type.  A family with no shared rule, or one the study
-    computes itself (:data:`STUDY_LOCAL`), is not accountable: a row of it that lost a
-    replicate is red.  A diagnostic row gets no accounting row.  The accounting only turns
-    rows red; :func:`correct_properties` applies it.
+    under a candidate of its statistic type.  The rule is the module's ``PROPERTY_RULES`` entry,
+    else the shared one (:func:`rule_for`).  A row that a not-accountable clause reads, or whose
+    family declares no rule, is red at any bound (R3-1).  A diagnostic row gets no accounting
+    row.  After a row's legs come the witness legs of its own cells' lost replicates (D3'f).
+    The accounting only turns rows red; :func:`correct_properties` applies it.
 
     Parameters
     ----------
@@ -1366,13 +2421,13 @@ def property_accounting(
     record : StudyRecord
         The study.
     module : module or None
-        The property module, which must declare ``FAILURE_BOUND`` and, for an efficiency claim,
-        ``EFFICIENCY_RATIO_BAND``.  ``None`` means no bound.
+        The property module: its ``FAILURE_BOUND``, ``PROPERTY_RULES`` and ``PROPERTY_GROUPS``.
+        ``None`` means a bound of zero and the shared rules alone.
     rules : Sequence of FamilyRule or None
         The shared rules; :data:`tests.studies.evidence.property_verdicts.FAMILY_RULES` by
         default.
-    local : frozenset of str or None
-        The families the study computes itself; its :data:`STUDY_LOCAL` entry by default.
+    witnesses : pandas.DataFrame or None
+        The run's witness values (:data:`PROPERTY_WITNESSES`).
     n_jobs : int
         Worker processes; rows run in parallel and candidates in sequence.
 
@@ -1386,47 +2441,60 @@ def property_accounting(
     columns = list(PROPERTY_ACCOUNTING_COLUMNS)
     if records is None or records.empty:
         return pd.DataFrame(columns=columns)
-    rules = property_verdicts.FAMILY_RULES if rules is None else rules
-    local = STUDY_LOCAL.get(record.slug, frozenset()) if local is None else local
     bound = 0.0 if module is None else float(module.FAILURE_BOUND)
     if not 0.0 <= bound <= MAXIMUM_BOUND:
         raise ValueError(f"FAILURE_BOUND {bound} is outside [0, {MAXIMUM_BOUND}]")
     lost = counts(records)
-    ctx = Context(
-        record,
-        rows,
-        summary,
-        lost,
-        {"efficiency_band": getattr(module, "EFFICIENCY_RATIO_BAND", None)},
-    )
+    ctx = Context(record, rows, summary, lost, module_groups(module))
     requested = {
         (str(family), str(cell)): int(group["requested_replicates"].iloc[0])
         for (family, cell), group in rows.groupby(["property", "cell"], sort=True)
     }
     scored = summary.loc[summary["role"] != property_verdicts.DIAGNOSTIC_ROLE]
-    touched_families = set()
-    reads: dict[Any, list[tuple[str, str]]] = {}
-    for index, row in scored.iterrows():
-        reads[index] = sources(row, rows)
-        if ctx.k(row) > 0:
-            touched_families.add(str(row["property"]))
-    payloads = []
-    for index, row in scored.iterrows():
-        rule = _rule_for(str(row["property"]), rules, local)
-        grouped = rule is not None and rule.joint == "group"
-        if ctx.k(row) == 0 and not (grouped and str(row["property"]) in touched_families):
+    items: list[_Accounted] = []
+    for _, row in scored.iterrows():
+        rule = rule_for(str(row["property"]), module, rules)
+        if rule is not None:
+            # A rule's group must resolve before its legs run: a label rule needs its
+            # declaration, and correct_properties reads the same members.
+            ctx.members(str(row["property"]), str(row["cell"]), rule.group)
+        own = (rule.sources or sources) if rule is not None else sources
+        own_cells = _unique(own(row, rows))
+        read = read_cells(ctx, rule, row)
+        if not any(lost.get(key, 0) for key in read) and ctx.k(row) == 0:
             continue
-        cells = [(requested[key], lost.get(key, 0)) for key in reads[index]]
-        if cells and len(cells) == 1 and math.isfinite(float(row["failed_replicates"])):
+        cells = [(key, requested[key], lost.get(key, 0)) for key in read]
+        if len(own_cells) == 1 and math.isfinite(float(row["failed_replicates"])):
             # A cell row's own verdict may read fewer replicates than the cell holds: a
             # contraction rung at its verdict budget publishes its own requested and lost.
-            cells = [(int(row["replicates"]) + ctx.k(row), ctx.k(row))]
-        payloads.append(((ctx, row, rule, bound, cells),))
-    out = [
-        entry
-        for entries in map_parallel(_account_row, payloads, n_jobs=n_jobs)
-        for entry in entries
-    ]
+            key = own_cells[0]
+            cells = [
+                (name, int(row["replicates"]) + ctx.k(row), ctx.k(row))
+                if name == key
+                else (name, count, gone)
+                for name, count, gone in cells
+            ]
+        items.append(_Accounted(row, rule, own_cells, cells))
+    entries = map_parallel(
+        _account_payload, [((ctx, item, bound),) for item in items], n_jobs=n_jobs
+    )
+    expanded = expand(records)
+    out: list[dict[str, Any]] = []
+    for item, legs in zip(items, entries, strict=True):
+        out.extend(legs)
+        first = legs[0]
+        for family, cell in item.own:
+            for leg in witness_rows(expanded, witnesses, family, cell):
+                out.append(
+                    {
+                        **first,
+                        "leg": leg.name,
+                        "complete_case": leg.complete_case,
+                        "worst_case": leg.worst_case,
+                        "imputation": leg.imputation,
+                        "leg_passed": leg.passed,
+                    }
+                )
     return pd.DataFrame.from_records(out, columns=columns)
 
 
@@ -1434,17 +2502,19 @@ def correct_properties(
     summary: pd.DataFrame,
     accounting: pd.DataFrame,
     *,
+    module: Any = None,
     rules: Sequence[FamilyRule] | None = None,
 ) -> pd.DataFrame:
     """``properties.csv`` with each accounting-red row's verdicts set false.
 
-    A red clause sets its targets false: ``passed`` (and the row's ``property_passed``) for a
-    row clause, the family's ``property_passed`` for a joint one.  A row whose cell exceeded
-    its bound sets its own verdicts, and the family's joint verdict where the rule's joint
-    clause follows its cells.  A not-accountable row sets its own verdicts and the family's
-    ``property_passed``, because no rule says which rows its joint claim spans.  A summary row
-    that published no failure count, such as a growth row, takes the accounted count.  No
-    column is added, so a summary with no failure comes back unchanged.
+    The rule is resolved as :func:`property_accounting` resolves it.  A red row sets its own
+    ``passed`` false when a failing leg targets it, or when its bound was exceeded or its
+    failures are not accountable.  Any red row sets ``property_passed`` false on every member
+    of its group (:func:`group_members`), because a group's joint verdict needs every member
+    and every joint clause.  A family with no rule has no declared group, so a red row of it
+    sets the whole family's ``property_passed`` false.  A summary row that published no failure
+    count, such as a growth row, takes the accounted count.  No column is added, so a summary
+    with no failure comes back unchanged.
 
     Parameters
     ----------
@@ -1452,6 +2522,8 @@ def correct_properties(
         The complete-case summary.
     accounting : pandas.DataFrame
         Its :func:`property_accounting` rows.
+    module : module or None
+        The property module, for its ``PROPERTY_RULES`` and ``PROPERTY_GROUPS``.
     rules : Sequence of FamilyRule or None
         The shared rules; :data:`tests.studies.evidence.property_verdicts.FAMILY_RULES` by
         default.
@@ -1461,13 +2533,12 @@ def correct_properties(
     pandas.DataFrame
         The corrected summary.
     """
-    from tests.studies.evidence import property_verdicts
-
     if accounting.empty:
         return summary
-    rules = property_verdicts.FAMILY_RULES if rules is None else rules
+    groups = module_groups(module)
     out = summary.copy()
     for (family, cell), group in accounting.groupby(["property", "cell"], sort=False):
+        family, cell = str(family), str(cell)
         mask = (out["property"] == family) & (out["cell"] == cell)
         if not mask.any():
             raise ValueError(f"the accounting names {family}/{cell}, which the summary lacks")
@@ -1476,36 +2547,35 @@ def correct_properties(
             out.loc[mask, "failed_replicates"] = failed
         if bool(group["gate_passed"].iloc[0]):
             continue
-        whole = out["property"] == family
-        reason = str(group["reason"].iloc[0])
-        rule = (
-            None
-            if (group["leg"] == NOT_ACCOUNTABLE_LEG).any()
-            else _rule_for(family, rules, frozenset())
-        )
+        rule = rule_for(family, module, rules)
         if rule is None:
             out.loc[mask, "passed"] = False
-            out.loc[whole, "property_passed"] = False
+            out.loc[out["property"] == family, "property_passed"] = False
             continue
-        joint = whole if rule.joint == "group" else mask
-        if reason == BOUND_EXCEEDED:
+        members = group_members(summary, groups, family, cell, rule.group)
+        joint = (out["property"] == family) & out["cell"].astype(str).isin(members)
+        reason = str(group["reason"].iloc[0])
+        legs = group.loc[group["leg"] != WITNESS_LEG]
+        whole = reason == BOUND_EXCEEDED or (legs["leg"] == NOT_ACCOUNTABLE_LEG).any()
+        failing = [
+            str(name)
+            for name in legs.loc[~legs["leg_passed"].astype(bool), "leg"]
+            if name not in {BOUND_LEG, NOT_ACCOUNTABLE_LEG}
+        ]
+        if whole or any(rule.clause(name).target == "passed" for name in failing):
             out.loc[mask, "passed"] = False
-            out.loc[joint, "property_passed"] = False
-            continue
-        for name in group.loc[~group["leg_passed"].astype(bool), "leg"]:
-            if name == BOUND_LEG:
-                continue
-            if rule.clause(str(name)).target == "passed":
-                out.loc[mask, "passed"] = False
-            out.loc[joint, "property_passed"] = False
+        out.loc[joint, "property_passed"] = False
     return out
 
 
 def rule_verdicts(rule: FamilyRule, summary: pd.DataFrame, ctx: Context) -> pd.DataFrame:
     """A rule's complete-case verdicts, read off a summary's columns alone.
 
-    The reproduction and differential tests compare these with the study's own ``passed``
-    and ``property_passed`` (F10).
+    A row's ``passed`` is the conjunction of its applying ``passed`` clauses.  Its
+    ``property_passed`` holds when every member of its group (:func:`group_members`) passes
+    and every applying ``property_passed`` clause of every member holds.  A row no clause
+    applies to is not a verdict row of the rule and is left out.  The reproduction and
+    differential tests compare these with the study's own columns (F10).
 
     Parameters
     ----------
@@ -1519,7 +2589,7 @@ def rule_verdicts(rule: FamilyRule, summary: pd.DataFrame, ctx: Context) -> pd.D
     Returns
     -------
     pandas.DataFrame
-        ``property``, ``cell``, ``passed`` and ``property_passed`` per accountable row.
+        ``property``, ``cell``, ``passed`` and ``property_passed`` per verdict row.
     """
     from tests.studies.evidence import property_verdicts
 
@@ -1528,25 +2598,42 @@ def rule_verdicts(rule: FamilyRule, summary: pd.DataFrame, ctx: Context) -> pd.D
         rows = summary.loc[
             (summary["property"] == family) & (summary["role"] != property_verdicts.DIAGNOSTIC_ROLE)
         ]
-        verdicts = []
+        verdicts: dict[str, tuple[bool, bool]] = {}
         for _, row in rows.iterrows():
-            if not rule.accountable(row):
-                continue
             judged = [
                 (clause, clause.read(ctx, row))
                 for clause in rule.clauses
                 if clause.applies(ctx, row)
             ]
+            if not judged:
+                continue
             own = all(value.passed for clause, value in judged if clause.target == "passed")
             joint = all(value.passed for clause, value in judged if clause.target != "passed")
-            verdicts.append([family, str(row["cell"]), own, joint])
-        if rule.joint == "group" and verdicts:
-            together = all(own and joint for _, _, own, joint in verdicts)
-            verdicts = [[family, cell, own, together] for family, cell, own, _ in verdicts]
-        else:
-            verdicts = [[family, cell, own, own and joint] for family, cell, own, joint in verdicts]
-        out.extend(verdicts)
+            verdicts[str(row["cell"])] = (own, own and joint)
+        for cell, (own, _) in verdicts.items():
+            members = group_members(summary, ctx.groups, family, cell, rule.group)
+            together = all(verdicts[name][1] for name in members if name in verdicts)
+            out.append([family, cell, own, together])
     return pd.DataFrame(out, columns=["property", "cell", "passed", "property_passed"])
+
+
+def read_witnesses(path: Path) -> pd.DataFrame | None:
+    """The witness values in ``path``, or ``None`` when the file does not exist.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        A ``property-failure-witnesses.csv``.
+
+    Returns
+    -------
+    pandas.DataFrame or None
+        The values, with :data:`~tests.studies.evidence.replication.WITNESS_COLUMNS`.
+    """
+    if not path.exists():
+        return None
+    published = pd.read_csv(path, dtype={"property": str, "cell": str, "statistic": str})
+    return published.loc[:, list(WITNESS_COLUMNS)]
 
 
 #: The perturbations the differential test applies to committed rows (F10).  Each moves the
@@ -1604,25 +2691,58 @@ def perturbed(rows: pd.DataFrame, kind: str, *, alpha: float = 0.05) -> pd.DataF
     return out
 
 
-def differential(
-    rules: Sequence[FamilyRule],
-    summary: pd.DataFrame,
-    ctx: Context,
-    *,
-    local: frozenset[str] = frozenset(),
-) -> pd.DataFrame:
-    """The accountable rows where a rule's verdict and the study's own disagree.
+def declared_rules(
+    families: Sequence[str],
+    module: Any = None,
+    rules: Sequence[FamilyRule] | None = None,
+) -> list[FamilyRule]:
+    """The distinct rules that ``families`` resolve to, in first-use order.
 
     Parameters
     ----------
-    rules : Sequence of FamilyRule
-        The rules to hold to the summary.
+    families : Sequence of str
+        Property families.
+    module : module or None
+        The property module, whose ``PROPERTY_RULES`` take precedence.
+    rules : Sequence of FamilyRule or None
+        The shared rules.
+
+    Returns
+    -------
+    list of FamilyRule
+        One entry per rule; an undeclared family adds none.
+    """
+    out: list[FamilyRule] = []
+    for family in families:
+        rule = rule_for(family, module, rules)
+        if rule is not None and all(rule is not seen for seen in out):
+            out.append(rule)
+    return out
+
+
+def differential(
+    summary: pd.DataFrame,
+    ctx: Context,
+    *,
+    module: Any = None,
+    rules: Sequence[FamilyRule] | None = None,
+) -> pd.DataFrame:
+    """The verdict rows where a declared rule and the study's own verdict disagree.
+
+    Each family resolves to its rule as the accounting resolves it.  The rule reads only the
+    family it is resolved for, so a shared rule another family of the module overrides is not
+    held to that family.
+
+    Parameters
+    ----------
     summary : pandas.DataFrame
         A summary the study's own ``summarize_properties`` computed.
     ctx : Context
         The context the clauses read.
-    local : frozenset of str
-        The study's :data:`STUDY_LOCAL` families, which no rule is held to.
+    module : module or None
+        The property module.
+    rules : Sequence of FamilyRule or None
+        The shared rules.
 
     Returns
     -------
@@ -1630,13 +2750,18 @@ def differential(
         ``property``, ``cell``, the rule's ``passed`` and ``property_passed`` and the
         study's, one row per disagreement.
     """
-    present = set(summary["property"].astype(str)) - local
-    frames = [rule_verdicts(rule, summary, ctx) for rule in rules if rule.families & present]
     columns = ["property", "cell", "passed", "property_passed"]
+    frames = []
+    for family in sorted(set(summary["property"].astype(str))):
+        rule = rule_for(family, module, rules)
+        if rule is None:
+            continue
+        verdicts = rule_verdicts(rule, summary, ctx)
+        frames.append(verdicts.loc[verdicts["property"] == family])
     if not frames:
         return pd.DataFrame(columns=[*columns, "study_passed", "study_property_passed"])
     verdicts = pd.concat(frames, ignore_index=True)
-    merged = verdicts.loc[~verdicts["property"].isin(local)].merge(
+    merged = verdicts.merge(
         summary[columns].rename(
             columns={"passed": "study_passed", "property_passed": "study_property_passed"}
         ),

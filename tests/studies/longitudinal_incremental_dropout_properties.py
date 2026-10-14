@@ -75,6 +75,7 @@ from tests.studies.canonical_longitudinal_incremental_dropout import (
     REFERENCE,
     STUDY,
 )
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyCell,
@@ -691,3 +692,8 @@ __all__ = [
     "generate_property_rows",
     "summarize_properties",
 ]
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)

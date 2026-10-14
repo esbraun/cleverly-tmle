@@ -637,6 +637,36 @@ class CellsOfMismatch(RuntimeError):
     """
 
 
+#: What a witness row reports when the loop's sample is drawn inside its fit, so no draw
+#: exists to compute a statistic of without fitting (RM39b2 rev 3, D3'f).
+DRAW_NOT_SEPARABLE = "draw not separable"
+
+#: The columns of the witness values a run with a property failure publishes: one row per
+#: key of every cell that lost a replicate, survivors included, so the accounting can place
+#: each lost draw among the draws that survived.
+WITNESS_COLUMNS = ("property", "cell", "replicate", "statistic", "value")
+
+
+@dataclass(frozen=True)
+class Witness:
+    """A draw-level statistic of a property sample, computed without a fit (D3'f).
+
+    A fit that raises is plausibly fitting an extreme draw.  The draw is a function of the key
+    alone, so the accounting can regenerate the sample of every lost replicate and place its
+    statistic among the survivors'.  The statistic is reported, not gated.
+
+    Parameters
+    ----------
+    name : str
+        What the statistic measures, as the accounting publishes it.
+    statistic : Callable
+        ``statistic(drawn)`` of one key's drawn sample, a float.
+    """
+
+    name: str
+    statistic: Callable[[Any], float]
+
+
 @dataclass
 class Recording:
     """The property records of one regeneration run, in the order their loops finished.
@@ -649,11 +679,17 @@ class Recording:
         One frame of records per property loop that recorded a failure.
     labels : list of str
         Every label a property loop used in this run, in order.
+    witness : Witness or None
+        The study's ``PROPERTY_WITNESS``; ``None`` records no witness values.
+    witnesses : list of pandas.DataFrame
+        One frame of :data:`WITNESS_COLUMNS` per loop that recorded a failure.
     """
 
     implementation: str
     frames: list[pd.DataFrame] = field(default_factory=list)
     labels: list[str] = field(default_factory=list)
+    witness: Witness | None = None
+    witnesses: list[pd.DataFrame] = field(default_factory=list)
 
     @property
     def failures(self) -> pd.DataFrame | None:
@@ -663,6 +699,18 @@ class Recording:
             return None
         return pd.concat(present, ignore_index=True).loc[:, list(FAILURE_FIELDS)]
 
+    @property
+    def witness_values(self) -> pd.DataFrame | None:
+        """Every witness value of the run, or ``None`` when no property fit failed."""
+        present = [frame for frame in self.witnesses if not frame.empty]
+        if not present:
+            return None
+        return (
+            pd.concat(present, ignore_index=True)
+            .loc[:, list(WITNESS_COLUMNS)]
+            .sort_values(["property", "cell", "replicate"], ignore_index=True)
+        )
+
 
 _RECORDING: contextvars.ContextVar[Recording | None] = contextvars.ContextVar(
     "cleverly_property_recording", default=None
@@ -670,7 +718,7 @@ _RECORDING: contextvars.ContextVar[Recording | None] = contextvars.ContextVar(
 
 
 @contextlib.contextmanager
-def recording(implementation: str) -> Iterator[Recording]:
+def recording(implementation: str, *, witness: Witness | None = None) -> Iterator[Recording]:
     """Collect the records of every :func:`fit_properties` call inside.
 
     The regeneration driver opens one around its property phase.  Outside it, a recorded
@@ -680,13 +728,16 @@ def recording(implementation: str) -> Iterator[Recording]:
     ----------
     implementation : str
         The subject the records name.
+    witness : Witness or None
+        The study's ``PROPERTY_WITNESS``.  A loop that recorded a failure computes it on the
+        draw of every key of each cell that lost a replicate.
 
     Yields
     ------
     Recording
         The run's records, filled as each property loop finishes.
     """
-    collected = Recording(implementation)
+    collected = Recording(implementation, witness=witness)
     token = _RECORDING.set(collected)
     try:
         yield collected
@@ -899,4 +950,67 @@ def fit_properties(
             first = outcomes.failures.iloc[0]
             raise RuntimeError(f"{NO_COLLECTOR}: {first['group_id']}: {first['message']}")
         collected.frames.append(outcomes.failures)
+        collected.witnesses.append(
+            _witness_values(
+                keys,
+                outcomes.failures,
+                cells_of=lambda key: _cell_names(cells_of(key), declared, key),
+                replicate_of=replicate_of,
+                draw=draw,
+                witness=collected.witness,
+                n_jobs=n_jobs,
+            )
+        )
     return outcomes.values
+
+
+@dataclass(frozen=True)
+class _WitnessOf:
+    """One key's witness value: the statistic of its regenerated draw."""
+
+    draw: Callable[[Any], Any]
+    statistic: Callable[[Any], float]
+
+    def __call__(self, key: Any) -> float:
+        return float(self.statistic(self.draw(key)))
+
+
+def _witness_values(
+    keys: Sequence[Hashable],
+    failures: pd.DataFrame,
+    *,
+    cells_of: Callable[[Any], Sequence[str]],
+    replicate_of: Callable[[Any], int],
+    draw: Callable[[Any], Any] | None,
+    witness: Witness | None,
+    n_jobs: int,
+) -> pd.DataFrame:
+    """The witness value of every key of each cell that a record names (D3'f).
+
+    The draw is a function of the key alone, so a lost key's sample is drawn again, without a
+    fit, beside the samples of the keys that survived.  A loop whose sample is drawn inside its
+    fit has no draw to read, and every value is ``nan`` with :data:`DRAW_NOT_SEPARABLE`.
+    """
+    lost = {
+        name
+        for scenarios in failures["scenarios"].astype(str)
+        for name in scenarios.split(";")
+        if name
+    }
+    affected = [key for key in keys if lost.intersection(cells_of(key))]
+    if witness is None or draw is None:
+        name = "no witness declared" if witness is None else DRAW_NOT_SEPARABLE
+        values = [float("nan")] * len(affected)
+    else:
+        name = witness.name
+        # Wrapped, because ``map_parallel`` splats a tuple payload and a key may be a tuple.
+        values = map_parallel(
+            _WitnessOf(draw, witness.statistic), [(key,) for key in affected], n_jobs=n_jobs
+        )
+    out = [
+        (*cell.split("/"), int(replicate_of(key)), name, float(value))
+        for key, value in zip(affected, values, strict=True)
+        for cell in cells_of(key)
+        if cell in lost
+    ]
+    return pd.DataFrame(out, columns=list(WITNESS_COLUMNS))

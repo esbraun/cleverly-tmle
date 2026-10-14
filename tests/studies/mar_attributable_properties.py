@@ -70,6 +70,7 @@ from tests.studies.canonical_mar_attributable import (
     initial_estimates,
     oracle_learners,
 )
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     PropertyCell,
     ReplicationSpec,
@@ -510,3 +511,8 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     )
     simultaneous_coverage_verdicts(summary, margins=STUDY.margins)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)

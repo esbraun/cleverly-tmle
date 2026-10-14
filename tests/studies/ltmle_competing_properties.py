@@ -37,6 +37,7 @@ from tests import discrete_law_competing as law
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_ltmle_competing as canonical
 from tests.studies.canonical_ltmle import declared_regimens
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
@@ -675,3 +676,8 @@ def summarize_for(
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     return summarize_for(rows, STUDY)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)

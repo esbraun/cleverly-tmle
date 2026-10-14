@@ -14,6 +14,7 @@ from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_ltmle_competing_crossfit as canonical
 from tests.studies import ltmle_competing_properties as base
 from tests.studies.canonical_ltmle import KnownLongitudinalMechanism
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, replicate_row
 from tests.studies.evidence.replication import fit_properties, splat
 from tests.studies.evidence.seeds import stream_seed
@@ -173,3 +174,8 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     return base.summarize_for(rows, STUDY, crossfit_positive_cell=OVERFIT_POSITIVE)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)

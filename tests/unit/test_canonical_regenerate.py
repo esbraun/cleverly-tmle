@@ -436,7 +436,11 @@ def test_a_property_failure_is_recorded_accounted_and_hashed(
 
     regenerate.main(study, _toy_properties({7}), here=tmp_path)
 
-    names = (property_failures.PROPERTY_FAILURES, property_failures.PROPERTY_ACCOUNTING)
+    names = (
+        property_failures.PROPERTY_FAILURES,
+        property_failures.PROPERTY_ACCOUNTING,
+        property_failures.PROPERTY_WITNESSES,
+    )
     assert all((out / name).exists() for name in names)
     assert set(names) <= set(hashed[-1])
     records = property_failures.read(out / property_failures.PROPERTY_FAILURES)
@@ -445,6 +449,8 @@ def test_a_property_failure_is_recorded_accounted_and_hashed(
     assert 7 not in set(rows["replicate"]) and set(rows["failed_replicates"]) == {1}
     accounting = pd.read_csv(out / property_failures.PROPERTY_ACCOUNTING)
     assert set(accounting["reason"]) == {"bound exceeded"}
+    witnesses = property_failures.read_witnesses(out / property_failures.PROPERTY_WITNESSES)
+    assert witnesses is not None and 7 in set(witnesses["replicate"])
     summary = pd.read_csv(out / "properties.csv")
     assert not summary["passed"].any()
 

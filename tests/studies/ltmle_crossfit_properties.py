@@ -18,6 +18,7 @@ from tests import discrete_law_longitudinal as law
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_ltmle import KnownLongitudinalMechanism, declared_regimens
 from tests.studies.canonical_ltmle_crossfit import G_BOUNDS, STUDY
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
@@ -611,3 +612,8 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     )
     crossfit_overfitting_verdicts(summary, rows, STUDY, positive_cell="cross_fitted_ltmle")
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)

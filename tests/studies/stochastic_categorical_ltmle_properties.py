@@ -86,6 +86,7 @@ from tests.studies.canonical_stochastic_categorical_ltmle import (
     TRUTH,
     fit,
 )
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyCell,
@@ -1076,3 +1077,8 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     crossfit_overfitting_verdicts(summary, rows, STUDY, positive_cell="cross_fitted_policy_ltmle")
     simultaneous_coverage_verdicts(summary, margins=STUDY.margins)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)

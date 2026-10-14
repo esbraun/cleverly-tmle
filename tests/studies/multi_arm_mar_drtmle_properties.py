@@ -33,6 +33,7 @@ from scipy.stats import norm
 from tests.parallel import STUDY_JOBS
 from tests.studies import mar_arm_indexed_laws as laws
 from tests.studies.canonical_multi_arm_mar_drtmle import ESTIMANDS, LAW, STUDY, fit_cleverly
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     PropertyCell,
     control_row,
@@ -513,3 +514,8 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
             passed = float(summary.loc[index, "bias_ci_lower"]) >= UNCORRECTED_SCORE_FLOOR
         summary.loc[index, "passed"] = bool(passed)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)

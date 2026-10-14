@@ -227,7 +227,7 @@ def _property_summary(slug: str) -> pd.DataFrame:
     """
     study = STUDY_BY_SLUG[slug]
     return property_failures.correct_properties(
-        _complete_case_summary(slug), _property_accounting(study)
+        _complete_case_summary(slug), _property_accounting(study), module=study.properties()
     )
 
 
@@ -283,13 +283,14 @@ class TestArtifacts:
             "property-replicates.csv.gz",
             "properties.csv",
         } | set(study.extra_artifacts) | {
-            # The failure files exist only when a fit failed, and then both are hashed.
+            # The failure files exist only when a fit failed, and then each is hashed.
             name
             for name in (
                 failures.FAILURES,
                 failures.ACCOUNTING,
                 property_failures.PROPERTY_FAILURES,
                 property_failures.PROPERTY_ACCOUNTING,
+                property_failures.PROPERTY_WITNESSES,
             )
             if study.artifact(name).exists()
         }
@@ -2821,21 +2822,31 @@ DIFFERENTIAL_SAMPLE = (
 
 def _context(study: StudyRecord, rows: pd.DataFrame, summary: pd.DataFrame):
     return property_failures.Context(
-        study,
-        rows,
-        summary,
-        {},
-        {"efficiency_band": getattr(study.properties(), "EFFICIENCY_RATIO_BAND", None)},
+        study, rows, summary, {}, property_failures.module_groups(study.properties())
     )
+
+
+def _differential(study: StudyRecord, summary: pd.DataFrame, rows: pd.DataFrame) -> pd.DataFrame:
+    local = property_failures.STUDY_LOCAL.get(study.slug, frozenset())
+    wrong = property_failures.differential(
+        summary, _context(study, rows, summary), module=study.properties()
+    )
+    return wrong.loc[~wrong["property"].isin(local)]
 
 
 class TestPropertyFailures:
     """RM39 part b2: the property failure records, their stamps and their accounting."""
 
-    def test_the_two_property_failure_files_exist_together(self, study: StudyRecord) -> None:
-        assert study.artifact(property_failures.PROPERTY_FAILURES).exists() == (
-            study.artifact(property_failures.PROPERTY_ACCOUNTING).exists()
-        )
+    def test_the_property_failure_files_exist_together(self, study: StudyRecord) -> None:
+        present = {
+            study.artifact(name).exists()
+            for name in (
+                property_failures.PROPERTY_FAILURES,
+                property_failures.PROPERTY_ACCOUNTING,
+                property_failures.PROPERTY_WITNESSES,
+            )
+        }
+        assert len(present) == 1
 
     def test_the_records_explain_every_gap_in_the_property_rows(self, study: StudyRecord) -> None:
         property_failures.reconcile(
@@ -2866,6 +2877,9 @@ class TestPropertyFailures:
             _complete_case_summary(study.slug),
             record=study,
             module=study.properties(),
+            witnesses=property_failures.read_witnesses(
+                study.artifact(property_failures.PROPERTY_WITNESSES)
+            ),
         )
         pd.testing.assert_frame_equal(
             committed, recomputed, check_dtype=False, check_exact=False, rtol=1e-12
@@ -2896,13 +2910,7 @@ class TestPropertyFailures:
             if _property_accounting(study).empty
             else _complete_case_summary(study.slug)
         )
-        local = property_failures.STUDY_LOCAL.get(study.slug, frozenset())
-        wrong = property_failures.differential(
-            property_verdicts.FAMILY_RULES,
-            summary,
-            _context(study, _property_rows(study.slug), summary),
-            local=local,
-        )
+        wrong = _differential(study, summary, _property_rows(study.slug))
         assert wrong.empty, wrong.to_string()
 
 
@@ -2916,12 +2924,7 @@ def test_each_shared_rule_agrees_with_its_study_on_perturbed_rows(slug: str, kin
     assert not (summary["passed"] & summary["property_passed"]).all(), (
         f"{kind} moved no verdict of {slug}"
     )
-    wrong = property_failures.differential(
-        property_verdicts.FAMILY_RULES,
-        summary,
-        _context(study, rows, summary),
-        local=property_failures.STUDY_LOCAL.get(slug, frozenset()),
-    )
+    wrong = _differential(study, summary, rows)
     assert wrong.empty, wrong.to_string()
 
 

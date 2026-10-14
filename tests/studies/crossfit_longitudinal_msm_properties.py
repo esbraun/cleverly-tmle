@@ -134,6 +134,7 @@ from tests.studies.canonical_longitudinal_msm import (
     REGIMENS as PRIMARY_REGIMENS,
 )
 from tests.studies.canonical_ltmle import KnownLongitudinalMechanism
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyCell,
@@ -955,3 +956,8 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     summary.loc[agreement, "passed"] = True
     summary.loc[agreement, "property_passed"] = True
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)

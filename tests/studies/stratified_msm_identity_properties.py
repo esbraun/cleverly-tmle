@@ -34,6 +34,7 @@ from tests.studies.canonical_stratified_msm_identity import (
     label_name,
     logistic,
 )
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, PropertyCell, replicate_row
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
@@ -195,3 +196,8 @@ def declared_cells() -> tuple[PropertyCell, ...]:
         for label in CALIBRATION_LABELS
         for kind, role in roles.items()
     )
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)

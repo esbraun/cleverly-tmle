@@ -7,6 +7,7 @@ import pandas as pd
 from tests.parallel import STUDY_JOBS
 from tests.studies import weighted_longitudinal_properties_common as shared
 from tests.studies.canonical_weighted_ltmle import STUDY
+from tests.studies.evidence import property_verdicts
 
 DERIVED_CELLS = shared.DERIVED_CELLS
 EFFICIENCY_RATIO_BAND = shared.EFFICIENCY_RATIO_BAND
@@ -27,3 +28,8 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     return shared.summarize_properties(rows, STUDY)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)

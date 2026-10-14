@@ -88,6 +88,7 @@ OPTIONAL_ARTIFACT_NAMES = (failures.FAILURES, failures.ACCOUNTING)
 PROPERTY_FAILURE_FILES = (
     property_failures.PROPERTY_FAILURES,
     property_failures.PROPERTY_ACCOUNTING,
+    property_failures.PROPERTY_WITNESSES,
 )
 
 #: Columns the reference writes as text and the schema requires as numbers.
@@ -1048,7 +1049,7 @@ def _property_artifacts(
     Returns the summary when it was computed, and ``None`` when the artefacts were reused or
     stubbed -- so the failure gate below can tell "every cell passed" from "no cell ran".
     The second item names the property failure files written beside the rows, which the
-    manifest hashes: both when a property fit recorded a failure, none otherwise.
+    manifest hashes: all three when a property fit recorded a failure, none otherwise.
 
     A recorded property failure costs its cells one replicate each.  The rows are stamped
     and reconciled with the records, the summary is the complete-case one, and the
@@ -1057,9 +1058,12 @@ def _property_artifacts(
     """
     out = paths["properties.csv"].parent
     if not arguments.skip_properties:
-        with replication.recording(record.implementation) as recorded:
+        with replication.recording(
+            record.implementation, witness=getattr(properties, "PROPERTY_WITNESS", None)
+        ) as recorded:
             rows = properties.generate_property_rows(n_jobs=arguments.jobs)
         records = property_failures.frame(recorded)
+        witnesses = recorded.witness_values
         rows = property_failures.stamp(rows, records)
         property_failures.reconcile(
             rows, records, derived=getattr(properties, "DERIVED_CELLS", None)
@@ -1069,9 +1073,15 @@ def _property_artifacts(
         )
         summary = properties.summarize_properties(rows)
         accounting = property_failures.property_accounting(
-            rows, records, summary, record=record, module=properties, n_jobs=arguments.jobs
+            rows,
+            records,
+            summary,
+            record=record,
+            module=properties,
+            witnesses=witnesses,
+            n_jobs=arguments.jobs,
         )
-        summary = property_failures.correct_properties(summary, accounting)
+        summary = property_failures.correct_properties(summary, accounting, module=properties)
         write_csv(summary, paths["properties.csv"])
         if records is None:
             # A failure file of an earlier run in this directory would outlive a clean run.
@@ -1082,6 +1092,12 @@ def _property_artifacts(
             print(f"recorded property failure ({count}x): {message}", flush=True)
         write_csv(records, out / property_failures.PROPERTY_FAILURES)
         write_csv(accounting, out / property_failures.PROPERTY_ACCOUNTING)
+        write_csv(
+            pd.DataFrame(columns=list(replication.WITNESS_COLUMNS))
+            if witnesses is None
+            else witnesses,
+            out / property_failures.PROPERTY_WITNESSES,
+        )
         return summary, PROPERTY_FAILURE_FILES
 
     names = ("property-replicates.csv.gz", "properties.csv")

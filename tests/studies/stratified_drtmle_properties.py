@@ -55,6 +55,7 @@ from tests.studies.canonical_stratified_drtmle import (
     draw_from_seed,
     fit_cleverly,
 )
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyCell,
@@ -273,3 +274,8 @@ def declared_cells() -> tuple[PropertyCell, ...]:
                 )
             )
     return tuple(cells)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)
