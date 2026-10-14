@@ -61,10 +61,10 @@ combines the errors of :math:`K + 1` factors, and the density of dose :math:`k` 
 
 from __future__ import annotations
 
+import hashlib
 import warnings
 from collections.abc import Callable, Hashable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from functools import partial
 from typing import Any
 
 import numpy as np
@@ -76,6 +76,7 @@ from ..learners.crossfit import Folds
 from ..learners.density import (
     ConditionalDensity,
     DensityDiagnostics,
+    PredictionMemory,
     bin_edges,
     default_density_bins,
     fit_conditional_density,
@@ -615,27 +616,107 @@ def bound_cells(probabilities: FloatArray, bounds: tuple[float, float]) -> Float
 # ------------------------------------------------------------------ the evaluation
 
 
+@dataclass(frozen=True)
+class _Design:
+    """A conditioning design of one dose's density, kept as the columns it changes.
+
+    The design is :meth:`NodeLayout.dose_design`: the history, the categorical indicators
+    and the earlier doses.  The history is the fitted design's, so only the level codes and
+    the earlier doses are stored, and a fold builds its held-out rows on demand
+    (:class:`~cleverly.learners.density.DesignRows`).  A candidate cell's codes are stored as
+    one row, which every held-out row repeats, so a design holds no ``(n, q)`` array.
+    """
+
+    width: int
+    levels: tuple[int, ...]
+    codes: FloatArray
+    doses: FloatArray
+
+    @property
+    def nbytes(self) -> int:
+        """Bytes the design stores."""
+        return int(self.codes.nbytes + self.doses.nbytes)
+
+    def __call__(self, index: IntArray, fitted: FloatArray) -> FloatArray:
+        if self.codes.shape[0] == self.doses.shape[0]:
+            codes = self.codes[index]
+        else:
+            codes = np.repeat(self.codes, len(index), axis=0)
+        blocks = [arm_indicators(codes[:, j], count) for j, count in enumerate(self.levels)]
+        return np.column_stack([fitted[:, : self.width], *blocks, self.doses[index]])
+
+
+def _digest(values: FloatArray) -> str:
+    return hashlib.sha256(np.ascontiguousarray(values, dtype=float).tobytes()).hexdigest()
+
+
 @dataclass
 class _Requests:
-    """The conditioning designs and evaluation values each dose's density is asked for."""
+    """The conditioning designs and evaluation values each dose's density is asked for.
+
+    A design is keyed by its content: the candidate cell (or a digest of per-row codes)
+    and a digest of the earlier doses.  Two terms that condition on the same values share
+    one design, whichever cell, piece path, branch or evaluation asked for it.  A digest
+    match is confirmed by comparing the stored arrays.
+    """
 
     layout: NodeLayout
-    designs: list[dict[Hashable, FloatArray]]
+    designs: list[dict[Hashable, _Design]]
     values: list[dict[Hashable, list[FloatArray]]]
-    serial: int = 0
 
     def ask(
-        self, position: int, key: Hashable, design: Callable[[], FloatArray], at: FloatArray
+        self,
+        position: int,
+        codes: FloatArray,
+        doses: FloatArray,
+        at: FloatArray,
+        cell: tuple[int, ...] | None = None,
     ) -> tuple[int, Hashable, int]:
-        if key not in self.designs[position]:
-            self.designs[position][key] = design()
+        layout = self.layout
+        earlier = np.asarray(doses, dtype=float)[:, :position]
+        if cell is None:
+            stored = np.asarray(codes, dtype=float).reshape(layout.n, -1)
+            identity: Hashable = ("codes", _digest(stored))
+        else:
+            stored = np.asarray(cell, dtype=float).reshape(1, -1)
+            identity = ("cell", tuple(cell))
+        key: Hashable = (identity, _digest(earlier))
+        designs = self.designs[position]
+        while key in designs and not (
+            np.array_equal(designs[key].codes, stored)
+            and np.array_equal(designs[key].doses, earlier, equal_nan=True)
+        ):
+            key = (key, "collision")
+        if key not in designs:
+            designs[key] = _Design(
+                layout.conditioning.shape[1],
+                tuple(len(layout.components[index].levels) for index in layout.categorical),
+                stored,
+                np.array(earlier, dtype=float),
+            )
             self.values[position][key] = []
         self.values[position][key].append(np.asarray(at, dtype=float))
         return position, key, len(self.values[position][key]) - 1
 
-    def fresh(self) -> int:
-        self.serial += 1
-        return self.serial
+    def memory(self, position: int, n_bins: int, folds: Folds) -> PredictionMemory:
+        """What the designs and values of the dose at ``position`` hold while it is fitted."""
+        n = self.layout.n
+        stored = sum(design.nbytes for design in self.designs[position].values())
+        values = sum(8 * n * len(columns) for columns in self.values[position].values())
+        # The predictions are allocated up front and, across folds, also arrive at once.
+        predictions = values if folds.is_single else 2 * values
+        held_out = n if folds.is_single else max(int(test.size) for _, test in folds)
+        width = self.layout.conditioning.shape[1] + sum(
+            max(len(self.layout.components[index].levels) - 1, 1)
+            for index in self.layout.categorical
+        )
+        rows = 8 * held_out * (width + position + 2 * n_bins)
+        return PredictionMemory(
+            held=stored + values + predictions,
+            shipped=stored + values,
+            rows=rows,
+            kept=values,
+        )
 
 
 @dataclass(frozen=True)
@@ -672,6 +753,65 @@ def _check_preimages(
             )
 
 
+#: How the declaration checks read a counterfactual frame, appended to their refusals.
+_COUNTERFACTUAL_FRAMES = (
+    ". The check reads each frame the density ratio evaluates, which holds a candidate "
+    "categorical cell or the preimages of the earlier doses, over the observed range of the "
+    "dose, because the estimated density can be positive anywhere in that range before any "
+    "learner runs. A map that is monotone only on a narrower true support of the dose on "
+    "such a frame is refused: the check is conservative there"
+)
+
+#: The most observed values of a dose that the coverage check reads at each frame.
+_COVERAGE_POINTS = 64
+
+
+def _coverage_points(values: FloatArray) -> FloatArray:
+    """Observed values of a dose at which every frame's pieces must partition the range.
+
+    Every distinct observed value up to :data:`_COVERAGE_POINTS` of them, else that many
+    observed quantiles.  Each is a value the natural dose takes, so a piece set that leaves
+    one uncovered drops observed mass from the induced density.
+    """
+    distinct = np.unique(values[np.isfinite(values)])
+    if distinct.size <= _COVERAGE_POINTS:
+        return distinct
+    levels = np.linspace(0.0, 1.0, _COVERAGE_POINTS)
+    return np.unique(np.quantile(distinct, levels, method="inverted_cdf"))
+
+
+def _check_coverage(
+    name: str,
+    pieces: Sequence[ExplicitPiece],
+    points: FloatArray,
+    frame: FrameSource,
+    rows: BoolArray,
+    where: str,
+) -> None:
+    """Every observed value of the dose lies in exactly one piece on each counterfactual frame.
+
+    :func:`_check_preimages` sees the values the formula counts, so it finds an overlap
+    but not a gap: a natural value in no piece is never a preimage, and its mass silently
+    leaves the induced density.  This asks the same partition question at the observed
+    values of the dose, on the frames the formula reads.
+    """
+    for point in points:
+        values = np.full(rows.size, float(point))
+        count = np.zeros(rows.size, dtype=np.int64)
+        for piece in pieces:
+            count += piece.member(values, frame).astype(np.int64)
+        wrong = rows & (count != 1)
+        if wrong.any():
+            covered = "no piece" if int(count[np.flatnonzero(wrong)[0]]) == 0 else "two pieces"
+            raise DataError(
+                f"policy {name!r} at {where}: {covered} holds the observed dose {float(point):g} "
+                f"on {int(wrong.sum())} frame(s) that hold a candidate categorical cell or the "
+                "preimages of the earlier doses. The density ratio would drop or double that "
+                "mass. Declare pieces that partition the dose range at every value of the "
+                "components they read, as Assumption 4 of Díaz et al. (2023) requires"
+            )
+
+
 def _enumerate(
     layout: NodeLayout,
     branch: JointBranch,
@@ -679,6 +819,7 @@ def _enumerate(
     cells: Sequence[tuple[int, ...]],
     requests: _Requests,
     observed_range: Sequence[tuple[float, float]],
+    coverage: Sequence[FloatArray] = (),
 ) -> list[_Term]:
     """The terms of the induced density of one branch at one value of the node.
 
@@ -739,6 +880,9 @@ def _enumerate(
                 if isinstance(policy, ModifiedPolicy) and checked.any():
                     here = f"component {names[index]!r} of {where}"
                     _check_preimages(branch.name, pieces[index], preimages, frame, checked, here)
+                    if coverage:
+                        points = coverage[layout.doses.index(index)]
+                        _check_coverage(branch.name, pieces[index], points, frame, checked, here)
                     assert policy.pieces is not None and not isinstance(policy.pieces, Mapping)
                     _check_monotone(
                         branch.name,
@@ -747,7 +891,10 @@ def _enumerate(
                         frame,
                         checked,
                         here,
+                        note=_COUNTERFACTUAL_FRAMES,
                     )
+                # A map that caught its own refused read still refuses.
+                frame.check()
             paths = grown
         for betas, valid, jacobian in paths:
             dose_values = np.column_stack([betas[index] for index in doses])
@@ -756,15 +903,9 @@ def _enumerate(
             weight = np.where(hit, jacobian, 0.0)
             factors = []
             for position in range(len(doses)):
-                key: Hashable = (
-                    ("cell", cell_index) if position == 0 else ("path", requests.fresh())
-                )
                 factors.append(
                     requests.ask(
-                        position,
-                        key,
-                        partial(layout.dose_design, position, cell_codes, dose_values),
-                        dose_values[:, position],
+                        position, cell_codes, dose_values, dose_values[:, position], cell=cell
                     )
                 )
             terms.append(_Term(cell_index, weight, tuple(factors)))
@@ -777,10 +918,12 @@ def _inside(
     observed_range: Sequence[tuple[float, float]],
     layout: NodeLayout,
 ) -> BoolArray:
-    """Rows whose earlier preimages lie inside each dose's observed range.
+    """Rows whose earlier preimages lie inside each dose's bin range.
 
-    A frame outside that range is one where the estimated density is zero, so the formula
-    reads nothing there and the declaration is not checked there.
+    A frame outside that range is one where the estimated density is exactly zero, by the
+    zero contract of :meth:`~cleverly.learners.density.ConditionalDensity.density_at` outside
+    the outer edges, so the formula reads nothing there and the declaration is not checked
+    there.  ``observed_range`` must be those outer edges for the skip to be sound.
     """
     out = np.ones(layout.n, dtype=bool)
     positions = {index: k for k, index in enumerate(layout.doses)}
@@ -801,6 +944,13 @@ def _image(
 
     A categorical map reads the natural value of every other component, which here is the
     candidate cell and the preimage of the doses.  The level check runs on the valid rows.
+
+    The check runs before any learner, so it cannot tell which frames the fitted density
+    will put mass on.  A valid row whose ``(c, beta)`` later has estimated density zero
+    contributes nothing to the ratio, and a map that returns no level there is still
+    refused.  That refusal is conservative and deliberate: a categorical map must return a
+    level at every value of the components it reads (Díaz et al. 2023, Assumption 1), and a
+    frame of zero estimated density can have positive true density.
     """
     names = layout.names
     columns = []
@@ -816,17 +966,19 @@ def _image(
             columns.append(cell_codes[:, j])
             continue
         readable = {key: value for key, value in natural.items() if key != component.name}
+        source = guarded_source(layout.frame_with, readable, (component.name,))
         columns.append(
             _categorical_component(
                 branch.name,
                 policy,
                 component,
                 cell_codes[:, j],
-                guarded_source(layout.frame_with, readable, (component.name,)),
+                source,
                 valid,
                 f"component {component.name!r} of {layout.where}",
             )
         )
+        source.check()
     if not columns:
         return np.zeros((layout.n, 0))
     return np.column_stack(columns)
@@ -893,23 +1045,25 @@ def evaluate_joint_density(
     rows = layout.rows
     train = rows if fit_rows is None else rows & np.asarray(fit_rows, dtype=bool)
     natural_doses = layout.natural[:, doses]
-    # A restricted fit reads its bin edges from every row at risk, as the scalar node does.
-    dose_edges: list[list[float] | None] = [None] * len(doses)
-    if not np.array_equal(train, rows):
-        for k in range(len(doses)):
-            grid_values = natural_doses[rows, k]
-            bins = default_density_bins(grid_values.size) if n_bins is None else n_bins
-            dose_edges[k] = bin_edges(grid_values, bins, name=names[doses[k]]).tolist()
-    observed_range = [
-        (float(np.min(natural_doses[rows, k])), float(np.max(natural_doses[rows, k])))
-        for k in range(len(doses))
-    ]
+    # Each dose's bin edges are read from every row at risk, before any fit, as the fit
+    # itself reads them; a restricted fit (``fit_rows``) keeps them, as the scalar node does.
+    dose_edges: list[list[float]] = []
+    for k in range(len(doses)):
+        grid_values = natural_doses[rows, k]
+        bins = default_density_bins(grid_values.size) if n_bins is None else n_bins
+        dose_edges.append(bin_edges(grid_values, bins, name=names[doses[k]]).tolist())
+    # The range a fitted density can be positive on.  The density lookup returns exactly 0
+    # outside its outer edges (``learners.density._lookup``), so a frame whose earlier
+    # preimages leave this range contributes nothing, and :func:`_inside` skips its checks.
+    # Keep the two in step: a lookup that extrapolated past the edges would need checks there.
+    observed_range = [(float(edges[0]), float(edges[-1])) for edges in dose_edges]
+    coverage = [_coverage_points(natural_doses[rows, k]) for k in range(len(doses))]
     requests = _Requests(layout, [{} for _ in doses], [{} for _ in doses])
     induced_terms: dict[tuple[int, int], list[_Term]] = {}
     for e, evaluation in enumerate(evaluations):
         for b in evaluation.branches:
             induced_terms[(e, b)] = _enumerate(
-                layout, branches[b], evaluation.values, cells, requests, observed_range
+                layout, branches[b], evaluation.values, cells, requests, observed_range, coverage
             )
     observed_factors: list[tuple[tuple[int, Hashable, int], ...]] = []
     targets = np.zeros((n, len(evaluations)), dtype=np.int64)
@@ -920,14 +1074,7 @@ def evaluate_joint_density(
         at = values[:, doses]
         factors = []
         for position in range(len(doses)):
-            factors.append(
-                requests.ask(
-                    position,
-                    ("value", e),
-                    partial(layout.dose_design, position, codes, at),
-                    at[:, position],
-                )
-            )
+            factors.append(requests.ask(position, codes, at, at[:, position]))
         observed_factors.append(tuple(factors))
 
     # Every dose's long table is checked before the first learner runs.
@@ -935,6 +1082,9 @@ def evaluate_joint_density(
         layout.dose_design(position, layout.natural[:, layout.categorical], natural_doses)
         for position in range(len(doses))
     ]
+    # The counterfactual designs and their values count too, with a copy per parallel
+    # worker: a node with many cells, pieces or policies holds more of them than tables.
+    bin_counts = [len(edges) - 1 for edges in dose_edges]
     preflight_conditional_densities(
         learner,
         [(fit_designs[k].shape[1], natural_doses[:, k]) for k in range(len(doses))],
@@ -943,6 +1093,7 @@ def evaluate_joint_density(
         fit_mask=rows,
         n_jobs=n_jobs,
         names=[names[index] for index in doses],
+        predictions=[requests.memory(k, bin_counts[k], folds) for k in range(len(doses))],
     )
     # The categorical factor.
     observed_cells = layout.cell_codes(layout.natural[:, layout.categorical], cells)
@@ -993,7 +1144,9 @@ def evaluate_joint_density(
         )
         densities[names[index]] = density
         diagnostics[names[index]] = report
-        retained += density.bin_probabilities.nbytes
+        retained += density.bin_probabilities.nbytes + sum(
+            values.nbytes for values in predicted_values.values()
+        )
         evaluated.append(predicted_values)
 
     def product(factors: Sequence[tuple[int, Hashable, int]]) -> FloatArray:

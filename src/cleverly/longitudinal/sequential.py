@@ -690,6 +690,7 @@ def _check_categorical_fold_support(
     node_name: str,
     *,
     every_level: bool = False,
+    alternative: str = "collect more observations at the rare level",
 ) -> None:
     """Refuse a mechanism fit whose training law omits an observed treatment level.
 
@@ -734,6 +735,8 @@ def _check_categorical_fold_support(
         The node's name, for the refusal.
     every_level : bool, default=False
         Whether to check a two-level node as well.
+    alternative : str
+        The remedy besides an in-sample fit, in lower case.
     """
     if len(classes) < 3 and not every_level:
         return
@@ -751,11 +754,9 @@ def _check_categorical_fold_support(
         if missing:
             where = "the eligible sample" if folds.is_single else f"training fold {fold}"
             remedy = (
-                "Collect more observations at the rare level"
+                alternative[:1].upper() + alternative[1:]
                 if folds.is_single
-                else _CROSS_FIT_NODE_REMEDY.format(
-                    alternative="collect more observations at the rare level"
-                )
+                else _CROSS_FIT_NODE_REMEDY.format(alternative=alternative)
             )
             raise LongitudinalError(
                 f"treatment node {node_name!r} is missing level(s) {missing!r} in {where}; "
@@ -768,6 +769,8 @@ def preflight_mechanism_support(
     data: LongitudinalData,
     fit_masks: RegimenMasks,
     folds: Folds,
+    *,
+    ratio: str = "density",
 ) -> None:
     """Check every node's mechanism training support before the first learner is fitted.
 
@@ -780,6 +783,12 @@ def preflight_mechanism_support(
     up.  :func:`_check_categorical_fold_support` says why the two differ.  A node whose
     mechanism the data declares known fits no learner and is not checked.
 
+    A mixed node on the density route fits :math:`g_C`, one multinomial over the observed
+    cells of its categorical components (:func:`_mixed_node_density`).  A training fold
+    that lacks a cell predicts probability zero for it, and a plan that moves mass into the
+    cell then gets a zero ratio there.  So each cell is a level, checked at every node
+    with every-level semantics.  The classifier route fits no cell probabilities.
+
     Parameters
     ----------
     data : LongitudinalData
@@ -788,15 +797,23 @@ def preflight_mechanism_support(
         The masks :func:`fit_mechanism` builds for the observed treatment.
     folds : Folds
         The realized outer split.
+    ratio : {"density", "classifier"}
+        The route a mixed node's ratio takes.
     """
     known = data.known_mechanisms
     for time in range(1, data.n_times + 1):
-        if data.node_kind(time) != "categorical" or data.is_held_node(time):
+        if data.is_held_node(time):
             continue
         if known is not None and known.treatment_at(time) is not None:
             # A declared node fits no learner, so no training fold can lack a level there.
             continue
         at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
+        if data.node_kind(time) == "mixed":
+            if ratio == "density":
+                _check_mixed_cell_support(data, time, at_risk, folds)
+            continue
+        if data.node_kind(time) != "categorical":
+            continue
         arm = np.nan_to_num(data.node_codes(time), nan=0.0)
         classes = tuple(float(code) for code in range(len(data.treatment_levels[time - 1])))
         _check_categorical_fold_support(
@@ -808,6 +825,43 @@ def preflight_mechanism_support(
             data.decision_name(time),
             every_level=time == 1 and not folds.is_single,
         )
+
+
+def _check_mixed_cell_support(
+    data: LongitudinalData, time: int, at_risk: BoolArray, folds: Folds
+) -> None:
+    """Refuse a mixed node whose training fold lacks a cell of its categorical components."""
+    levels = data.component_levels[time - 1]
+    categorical = [index for index, labels in enumerate(levels) if labels]
+    if not categorical or not at_risk.any():
+        return
+    codes = np.nan_to_num(data.node_values(time), nan=0.0)[:, categorical].astype(np.int64)
+    cells = np.unique(codes[at_risk], axis=0)
+    lookup = {tuple(int(v) for v in cell): float(k) for k, cell in enumerate(cells)}
+    target = np.array([lookup.get(tuple(int(v) for v in row), -1.0) for row in codes])
+    names = [data.component_names(time)[index] for index in categorical]
+    labels = [
+        "cell ("
+        + ", ".join(
+            f"{name}={levels[index][int(code)]!r}"
+            for name, index, code in zip(names, categorical, cell, strict=True)
+        )
+        + ")"
+        for cell in cells
+    ]
+    _check_categorical_fold_support(
+        target,
+        at_risk,
+        folds,
+        tuple(float(k) for k in range(len(cells))),
+        labels,
+        data.treatment_names[time - 1],
+        every_level=True,
+        alternative=(
+            "collect more observations at the rare cell, or pass ratio='classifier', which "
+            "fits no cell probabilities"
+        ),
+    )
 
 
 def fit_mechanism(
@@ -879,7 +933,7 @@ def fit_mechanism(
     with phase("mask_construction"):
         fit_masks = data.regimen_masks(data.treatment)
     if fit_rows is None:
-        preflight_mechanism_support(data, fit_masks, folds)
+        preflight_mechanism_support(data, fit_masks, folds, ratio=ratio)
     for time in range(1, data.n_times + 1):
         at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
         # The rows a learner trains on.  The same array as ``at_risk`` on a fit of every

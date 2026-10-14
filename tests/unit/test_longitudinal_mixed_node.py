@@ -19,6 +19,7 @@ of plan section 10.6 and the refusals follow.  The mutation controls are in
 from __future__ import annotations
 
 import ast
+import contextlib
 import warnings
 from functools import cache
 from itertools import pairwise
@@ -483,12 +484,41 @@ _DISPATCHING: dict[tuple[str, str], str] = {
 }
 
 
+#: The functions that index ``.treatment_levels[...]``, each with why it cannot read a
+#: mixed node's entry.  The entry raises ``CapabilityError`` on any read, so a reader missed
+#: here fails closed; the list makes each one a reviewed decision (review LOW-6).
+_LEVEL_READERS: dict[tuple[str, str], str] = {
+    ("data/causal_data.py", "CausalData.arm_label"): "point CausalData; refuses a vector first",
+    ("longitudinal/data.py", "LongitudinalData._declare_known"): "a mixed node is refused first",
+    ("longitudinal/data.py", "LongitudinalData.encode_assignment"): "mixed branch first",
+    ("longitudinal/data.py", "LongitudinalData.history_design"): "mixed branch first",
+    ("longitudinal/data.py", "LongitudinalData.observed_labels"): "mixed branch first",
+    ("longitudinal/data.py", "LongitudinalData.policy_frame"): "mixed branch first",
+    ("longitudinal/regimen.py", "DynamicRegimen.policy_density"): "categorical policy node",
+    ("longitudinal/regimen.py", "_categorical_carry"): "categorical policy node",
+    ("longitudinal/regimen.py", "_resolve_mtp_node"): "mixed branch first",
+    ("longitudinal/regimen.py", "refuse_multi_arm_tilt_node"): "a tilt at a mixed node is refused",
+    ("longitudinal/sequential.py", "_categorical_node"): "categorical node",
+    ("longitudinal/sequential.py", "_check_policy_arm_support"): "categorical node guard",
+    ("longitudinal/sequential.py", "_rule_hint"): "a rule at a mixed node is refused",
+    ("longitudinal/sequential.py", "outcome_design"): "mixed branch first",
+    ("longitudinal/sequential.py", "preflight_mechanism_support"): "categorical branch",
+    ("study.py", "BackdoorMeanContrast.expression"): "a point design's own levels",
+    ("study.py", "BackdoorMeanContrast.reference_arm"): "a point design's own levels",
+    ("study.py", "BackdoorMeanContrast.selected_arm"): "a point design's own levels",
+    ("validation/longitudinal.py", "_longitudinal_stagewise"): "skips a mixed node",
+}
+
+
 class _Readers(ast.NodeVisitor):
     """Record each function of ``module`` that reads ``.treatment[...]`` or calls the check."""
 
-    def __init__(self, module: str, found: set[tuple[str, str]]) -> None:
+    def __init__(
+        self, module: str, found: set[tuple[str, str]], attribute: str = "treatment"
+    ) -> None:
         self.module = module
         self.found = found
+        self.attribute = attribute
         self.stack: list[str] = []
 
     def visit_FunctionDef(self, node: Any) -> None:
@@ -500,22 +530,26 @@ class _Readers(ast.NodeVisitor):
     visit_ClassDef = visit_FunctionDef
 
     def visit_Subscript(self, node: ast.Subscript) -> None:
-        if isinstance(node.value, ast.Attribute) and node.value.attr == "treatment":
+        if isinstance(node.value, ast.Attribute) and node.value.attr == self.attribute:
             self.found.add((self.module, ".".join(self.stack)))
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
-        if isinstance(node.func, ast.Attribute) and node.func.attr == "is_continuous_node":
+        if (
+            self.attribute == "treatment"
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "is_continuous_node"
+        ):
             self.found.add((self.module, ".".join(self.stack)))
         self.generic_visit(node)
 
 
-def _one_column_reads() -> set[tuple[str, str]]:
+def _one_column_reads(attribute: str = "treatment") -> set[tuple[str, str]]:
     root = Path(__file__).resolve().parents[2] / "src" / "cleverly"
     found: set[tuple[str, str]] = set()
     for path in sorted(root.rglob("*.py")):
         module = path.relative_to(root).as_posix()
-        _Readers(module, found).visit(ast.parse(path.read_text(encoding="utf-8")))
+        _Readers(module, found, attribute).visit(ast.parse(path.read_text(encoding="utf-8")))
     return found
 
 
@@ -528,6 +562,56 @@ def test_every_one_column_treatment_read_sits_in_a_dispatching_function() -> Non
     found = _one_column_reads()
     assert found - set(_DISPATCHING) == set(), "unreviewed one-column treatment readers"
     assert set(_DISPATCHING) - found == set(), "stale entries in the allow-list"
+
+
+def test_every_level_set_read_sits_in_a_reviewed_function() -> None:
+    """A new reader of ``.treatment_levels[...]`` must be reviewed here (review LOW-6)."""
+    found = _one_column_reads("treatment_levels")
+    assert found - set(_LEVEL_READERS) == set(), "unreviewed treatment_levels readers"
+    assert set(_LEVEL_READERS) - found == set(), "stale entries in the allow-list"
+
+
+def test_a_mixed_node_has_no_level_set_to_read() -> None:
+    """Every read of a mixed node's ``treatment_levels`` entry refuses (review LOW-6).
+
+    It held ``()``, so a reader that skipped the node-kind check read zero levels and went
+    on.  The entry pickles, compares and prints.
+    """
+    import pickle
+
+    data = _exact_fit().data
+    entry = data.treatment_levels[0]
+    for read in (len, list, bool, lambda levels: levels[0], lambda levels: 0 in levels):
+        with pytest.raises(CapabilityError, match="read node_kind"):
+            read(entry)
+    assert pickle.loads(pickle.dumps(data)).treatment_levels == data.treatment_levels
+    assert "mixed node" in repr(entry)
+
+
+def test_every_reader_of_a_mixed_node_result_returns_or_refuses() -> None:
+    """No public member of a mixed-node result fails with an unplanned error.
+
+    A member returns, or raises ``CapabilityError`` or the ``ValueError`` of a request the
+    parameter axis does not carry.  The sweep found the stagewise report reading a mixed
+    node's level set, and ``benchmark()`` reading an arm attribute the panel lacks.
+    """
+    result = _exact_fit()
+    subjects = {"result": result, "diagnostics": result.diagnostics}
+    subjects["sensitivity"] = result.sensitivity
+    for where, subject in subjects.items():
+        for name in sorted(dir(type(subject))):
+            if name.startswith("_") or name == "save":
+                continue
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    value = getattr(subject, name)
+                    if callable(value) and not isinstance(value, type):
+                        value()
+            except (CapabilityError, ValueError):
+                continue
+            except TypeError as error:
+                assert "argument" in str(error), f"{where}.{name}: {error}"
 
 
 # ------------------------------------------------------------------ refusals
@@ -866,3 +950,63 @@ def test_a_restricted_mechanism_trains_a_mixed_node_on_its_fold_rows(ratio: str)
     if ratio == "density":
         for key, density in restricted.densities.items():
             np.testing.assert_array_equal(density.edges, everyone.densities[key].edges)
+
+
+# ------------------------------------------------------------------ SDR (review MEDIUM-2)
+
+
+def _sdr_fit(ratio: str, *, copies: int = 1, monkeypatch: Any = None) -> Any:
+    """SDR at both mixed nodes of the exact law, with ``copies`` copies of the frame.
+
+    With two copies, fold ``k`` holds copy ``k``, so each training complement is one exact
+    copy of the law: the training-fold mechanism (``fit_rows``) and the out-of-fold
+    predictions are then exact too.
+    """
+    from cleverly.learners import Folds
+
+    frame = pd.concat([law.mixed_frame("end")] * copies, ignore_index=True)
+    configuration = settings(ratio=ratio, n_folds=copies)
+    configuration.pop("simultaneous")
+    if copies > 1:
+        size = len(frame) // copies
+        assignment = np.repeat(np.arange(copies), size)
+        monkeypatch.setattr(SDR, "_folds", lambda self, data: Folds(assignment, copies))
+    exact = mtp.exact_bins() if ratio == "density" else contextlib.nullcontext()
+    with warnings.catch_warnings(), exact:
+        warnings.simplefilter("ignore")
+        return SDR(mtp.mixed_regimens(LABELS), reference=LABELS[0], **configuration).fit(
+            frame, **COLUMNS
+        )
+
+
+def sdr_deviation(result: Any, copies: int = 1) -> float:
+    """The largest error of an SDR mean, or of its curve on any copy of the exact frame."""
+    size = len(law.mixed_frame("end"))
+    rows = law.mixed_first_row_of("end")
+    worst = 0.0
+    for name, label, horizon in names(LABELS):
+        worst = max(worst, abs(result.psi(name) - law.mixed_truth(label, "end", horizon)))
+        eif = law.mixed_eif(label, "end", horizon)
+        for copy in range(copies):
+            curve = result.influence_curves[name][copy * size + rows]
+            worst = max(worst, float(np.max(np.abs(curve - eif))))
+    return worst
+
+
+@pytest.mark.parametrize("ratio", ["classifier", "density"])
+def test_sdr_at_both_mixed_nodes_equals_the_g_formula_and_its_gateaux_derivative(
+    ratio: str,
+) -> None:
+    """SDR reads the same mixed-node ratio as LTMLE, on both routes, in sample."""
+    result = _sdr_fit(ratio)
+    assert [result.data.node_kind(time) for time in (1, 2)] == ["mixed", "mixed"]
+    assert sdr_deviation(result) < EXACT
+
+
+@pytest.mark.parametrize("ratio", ["classifier", "density"])
+def test_cross_fitted_sdr_at_mixed_nodes_is_exact_when_each_fold_is_the_law(
+    ratio: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two folds, each one exact copy: the training-fold recursion reads ``fit_rows``."""
+    result = _sdr_fit(ratio, copies=2, monkeypatch=monkeypatch)
+    assert sdr_deviation(result, copies=2) < EXACT

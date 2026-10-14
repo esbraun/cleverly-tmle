@@ -94,9 +94,10 @@ def test_m12_dose_two_conditioned_on_the_value_instead_of_the_preimage_is_caught
 ) -> None:
     """Dose 2's density reads ``b_1`` in place of ``beta_1``.  Measured: 5.25 on both readings."""
     edit = (
-        "partial(layout.dose_design, position, cell_codes, dose_values),",
-        "partial(layout.dose_design, position, cell_codes, "
-        "np.where(np.arange(len(doses)) < position, target[:, doses], dose_values)),",
+        "position, cell_codes, dose_values, dose_values[:, position], cell=cell",
+        "position, cell_codes, "
+        "np.where(np.arange(len(doses)) < position, target[:, doses], dose_values), "
+        "dose_values[:, position], cell=cell",
     )
     mutate(monkeypatch, *_ENUMERATE, [edit])
     assert _geo_ordered() > CAUGHT
@@ -174,17 +175,12 @@ def test_m14_the_identity_piece_shortcut_is_caught(monkeypatch: pytest.MonkeyPat
             "            dose_values",
         ),
         (
-            '("cell", cell_index) if position == 0 else ("path", requests.fresh())',
-            '("path", requests.fresh())',
-        ),
-        (
-            "partial(layout.dose_design, position, cell_codes, dose_values),\n"
-            "                        dose_values[:, position],",
-            "partial(layout.dose_design, position, "
+            "position, cell_codes, dose_values, dose_values[:, position], cell=cell",
+            "position, "
             "target_codes if flags[path_index] else cell_codes, "
-            "target[:, doses] if flags[path_index] else dose_values),\n"
-            "                        (target[:, doses] if flags[path_index] else dose_values)"
-            "[:, position],",
+            "target[:, doses] if flags[path_index] else dose_values, "
+            "(target[:, doses] if flags[path_index] else dose_values)[:, position], "
+            "cell=None if flags[path_index] else cell",
         ),
     ]
     mutate(monkeypatch, *_ENUMERATE, edits)

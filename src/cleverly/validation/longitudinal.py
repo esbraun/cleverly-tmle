@@ -582,7 +582,14 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
     # One column shape for the whole frame rather than one per row: the level sets are a
     # property of the data, so whether a share is answerable by a single number is settled
     # before any node is read.
-    categorical = any(len(levels) > 2 for levels in result.data.treatment_levels)
+    # A mixed node has no level set (its components carry their own), and its policy is a
+    # joint MTP, so it reads no levels below.
+    data = result.data
+    categorical = any(
+        len(levels) > 2
+        for time, levels in enumerate(data.treatment_levels, start=1)
+        if data.node_kind(time) != "mixed"
+    )
     rows = []
     # Read off the fit's own fields rather than the key it is filed under: on a survival fit
     # that key is the regimen *and* the horizon, and a ``regimen`` column carrying both would
@@ -592,7 +599,9 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
             weights = (fit.obs_weights * step.clever)[step.trained_on]
             assigned = fit.assignment[step.at_risk, step.time - 1]
             kind = _node_kind(fit, step.time)
-            levels = result.data.treatment_levels[step.time - 1]
+            levels = (
+                () if data.node_kind(step.time) == "mixed" else data.treatment_levels[step.time - 1]
+            )
             assignment: float | str
             if kind == "mtp":
                 # A modified treatment policy assigns no arm; its column reports the mean

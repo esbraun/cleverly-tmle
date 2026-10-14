@@ -1498,9 +1498,19 @@ def _check_partition(
 
 
 def _check_monotone(
-    name: str, branch: _PieceBranch, a: FloatArray, frame: FrameSource, rows: BoolArray, where: str
+    name: str,
+    branch: _PieceBranch,
+    a: FloatArray,
+    frame: FrameSource,
+    rows: BoolArray,
+    where: str,
+    note: str = "",
 ) -> None:
-    """Each map is strictly monotone on its piece, and its inverse inverts it."""
+    """Each map is strictly monotone on its piece, and its inverse inverts it.
+
+    The grid spans the piece inside the observed range of ``a`` on every row's frame.
+    ``note`` ends each refusal, for a caller whose frames are not the observed ones.
+    """
     if not rows.any():
         return
     low_observed, high_observed = float(a[rows].min()), float(a[rows].max())
@@ -1531,7 +1541,7 @@ def _check_monotone(
                 "is not strictly monotone there. That parameter is not pathwise "
                 "differentiable (Díaz et al. 2023, Section 4, journal page 850), so no root-n "
                 "interval exists. Collapse the dose into categories and declare the policy on "
-                "a categorical node, or use a piecewise shift that moves every dose"
+                "a categorical node, or use a piecewise shift that moves every dose" + note
             )
         for point, image in zip(grid, mapped, strict=True):
             with np.errstate(all="ignore"):
@@ -1544,7 +1554,7 @@ def _check_monotone(
                 raise DataError(
                     f"policy {name!r} at {where}: inverse(apply(a)) differs from a by "
                     f"{float(gap[row]):.3g} at a = {float(point[row]):g} on piece {index}. "
-                    "The density ratio reads the inverse, so it must be exact on every piece"
+                    "The density ratio reads the inverse, so it must be exact on every piece" + note
                 )
             flat_slope = usable & ~(np.isfinite(slope) & (slope != 0.0))
             if flat_slope.any():
@@ -1552,7 +1562,7 @@ def _check_monotone(
                 raise DataError(
                     f"policy {name!r} at {where}: the derivative of the inverse is "
                     f"{float(slope[row])!r} at b = {float(image[row]):g} on piece {index}. "
-                    "It must be finite and nonzero, since the density ratio multiplies by it"
+                    "It must be finite and nonzero, since the density ratio multiplies by it" + note
                 )
             # The declared derivative of the inverse is 1 / d'(a) at b = d(a).  A central
             # difference of the declared map at the same point checks its value, which the
@@ -1571,7 +1581,7 @@ def _check_monotone(
                     f"{float(slope[row]):.6g} at b = {float(image[row]):g} on piece {index}, "
                     f"but 1 / d'(a) from the declared map is {float(expected[row]):.6g} at "
                     f"a = {float(point[row]):g}. The density ratio multiplies by this value, "
-                    "so declare the derivative of the inverse map"
+                    "so declare the derivative of the inverse map" + note
                 )
 
 
@@ -1949,6 +1959,9 @@ class GuardedFrame:
     to such a component: indexing, ``get``, membership and attribute access.  Every other
     access goes to the frame.
 
+    A map can catch the exception, so the proxy also records each refused read in
+    :attr:`violations`, and :class:`GuardedSource` checks the record after the map returns.
+
     Parameters
     ----------
     frame : object
@@ -1960,12 +1973,17 @@ class GuardedFrame:
     def __init__(self, frame: Any, forbidden: frozenset[str]) -> None:
         object.__setattr__(self, "_frame", frame)
         object.__setattr__(self, "_forbidden", forbidden)
+        object.__setattr__(self, "violations", [])
+
+    def _refuse(self, column: str) -> ForbiddenRead:
+        self.violations.append(column)
+        return ForbiddenRead(column)
 
     def _check(self, key: Any) -> None:
         keys = list(key) if isinstance(key, (list, tuple)) else [key]
         for item in keys:
             if isinstance(item, str) and item in self._forbidden:
-                raise ForbiddenRead(item)
+                raise self._refuse(item)
 
     def __getitem__(self, key: Any) -> Any:
         self._check(key)
@@ -1995,7 +2013,7 @@ class GuardedFrame:
 
     def __getattr__(self, attribute: str) -> Any:
         if attribute in self._forbidden:
-            raise ForbiddenRead(attribute)
+            raise self._refuse(attribute)
         return getattr(self._frame, attribute)
 
     def __len__(self) -> int:
@@ -2040,7 +2058,47 @@ def partial_frame(frame: Any) -> FrameSource:
     return lambda: frame
 
 
-def guarded_source(frame_with: FrameWith, extra: Mapping[str, Any], forbidden: Any) -> FrameSource:
+class GuardedSource:
+    """A guarded frame, built once on first use, that can be asked for refused reads later.
+
+    Parameters
+    ----------
+    frame_with : callable
+        Builds the node's policy frame with extra columns.
+    extra : mapping
+        The component columns the map may read.
+    forbidden : frozenset of str
+        The components it may not read.
+    """
+
+    def __init__(
+        self, frame_with: FrameWith, extra: Mapping[str, Any], forbidden: frozenset[str]
+    ) -> None:
+        self._frame_with = frame_with
+        self._extra = extra
+        self._forbidden = forbidden
+        self._frame: GuardedFrame | None = None
+
+    def __call__(self) -> GuardedFrame:
+        if self._frame is None:
+            self._frame = GuardedFrame(self._frame_with(self._extra), self._forbidden)
+        return self._frame
+
+    def check(self) -> None:
+        """Raise the first refused read, which a map that caught it did not let through.
+
+        Raises
+        ------
+        ForbiddenRead
+            If a map read a component that its frame does not hold.
+        """
+        if self._frame is not None and self._frame.violations:
+            raise ForbiddenRead(self._frame.violations[0])
+
+
+def guarded_source(
+    frame_with: FrameWith, extra: Mapping[str, Any], forbidden: Any
+) -> GuardedSource:
     """The policy frame with ``extra`` appended, guarded, and built once on first use.
 
     Parameters
@@ -2054,11 +2112,10 @@ def guarded_source(frame_with: FrameWith, extra: Mapping[str, Any], forbidden: A
 
     Returns
     -------
-    callable
-        Returns the guarded frame.
+    GuardedSource
+        Returns the guarded frame; :meth:`GuardedSource.check` raises a read a map caught.
     """
-    blocked = frozenset(forbidden)
-    return lazy_frame(lambda: GuardedFrame(frame_with(extra), blocked))
+    return GuardedSource(frame_with, extra, frozenset(forbidden))
 
 
 def _joint_branch(
@@ -2098,15 +2155,17 @@ def _joint_branch(
             readable = {
                 other.name: labels[other.name] for other in components if other is not component
             }
+            source = guarded_source(frame_with, readable, (component.name,))
             assigned[:, index] = _categorical_component(
                 name,
                 declared[component.name],
                 component,
                 natural[:, index],
-                guarded_source(frame_with, readable, (component.name,)),
+                source,
                 rows,
                 here,
             )
+            source.check()
         for position, index in enumerate(doses):
             component = components[index]
             if component.name not in declared:
@@ -2118,13 +2177,11 @@ def _joint_branch(
                 other.name: labels[other.name] for other in components if not other.continuous
             }
             readable.update({other: labels[other] for other in earlier})
+            source = guarded_source(frame_with, readable, set(names) - set(readable))
             assigned[:, index] = _continuous_component(
-                declared[component.name],
-                natural[:, index],
-                guarded_source(frame_with, readable, set(names) - set(readable)),
-                rows,
-                here,
+                declared[component.name], natural[:, index], source, rows, here
             )
+            source.check()
     except ForbiddenRead as error:
         refusal = read_order_refusal(
             name, declared, components, natural, frame_with, rows, where, doses
@@ -2417,7 +2474,8 @@ class PolicySet:
         ``(n,)`` observed level codes on a categorical treatment, or ``None``.
     capped : ndarray or None
         ``(n, C)`` boolean, whether a declared ``cap`` held the component at that row's own
-        dose.  ``None`` on a categorical treatment, where no cap is evaluated.
+        dose; on a vector treatment, whether a cap held any of its doses.  ``None`` on a
+        categorical treatment, where no cap is evaluated.
     joint : JointDensityParts or None
         On a vector treatment with a continuous component, fitted on the density route: the
         factors of the node's law at the observed value and at each branch's assigned
@@ -2845,6 +2903,15 @@ class PolicySet:
     ) -> PolicySet:
         """The policy set of a vector treatment from its evaluated ratios."""
         moved = np.asarray(np.any(shifted != setup.natural[:, None, :], axis=2), dtype=bool)
+        # A component's cap holds a row at its own dose, as a scalar branch's ``held`` reads
+        # it; the component is capped at the row when any of its doses is.
+        capped = np.zeros(moved.shape, dtype=bool)
+        for column, (_, _, mapping) in enumerate(setup.owners):
+            for index, component in enumerate(setup.components):
+                mapped = mapping.get(component.name)
+                if component.continuous and isinstance(mapped, (Shift, Scale)):
+                    held = mapped.apply(setup.natural[:, index])[1]
+                    capped[:, column] |= np.asarray(held, dtype=bool)
         owners = [
             (index, probability)
             for (index, _, _), probability in zip(setup.owners, setup.probabilities, strict=True)
@@ -2864,6 +2931,7 @@ class PolicySet:
             moved,
             code,
             mixing,
+            capped=capped,
             joint=joint,
         )
 

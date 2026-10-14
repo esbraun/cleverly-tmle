@@ -488,6 +488,50 @@ def _has_no_arms(data: CausalData) -> bool:
     return data.treatment_kind in ("continuous", "vector")
 
 
+def _fitted_cells(
+    data: CausalData, ratio: str
+) -> tuple[FloatArray, FloatArray, Callable[[float], str]] | None:
+    """The cells a vector fit's categorical factor classifies, when the fit has one.
+
+    The density route at a vector treatment with a dose fits :math:`g_C`, one multinomial
+    over the observed cells of the categorical components
+    (:func:`~cleverly.interventions.joint_density.evaluate_joint_density`).  A training
+    complement that lacks a cell predicts probability zero for it, and the ratio of a
+    policy that moves mass into that cell is then zero on the held-out rows.  So each cell
+    is an arm for the support preflight, with every-level semantics.  The classifier route
+    fits no cell probabilities, and a vector with no categorical component has one cell.
+
+    Returns
+    -------
+    tuple or None
+        ``(cell code per row, cell codes, describe)``, or ``None`` when the fit classifies
+        no cells.
+    """
+    if data.treatment_kind != "vector" or ratio != "density":
+        return None
+    assert data.treatment_components is not None
+    categorical = [index for index, levels in enumerate(data.component_levels) if levels]
+    if not categorical:
+        return None
+    codes = np.asarray(data.treatment_components, dtype=float)[:, categorical]
+    cells, per_row = np.unique(codes.astype(np.int64), axis=0, return_inverse=True)
+    names = [data.component_names[index] for index in categorical]
+
+    def describe(code: float) -> str:
+        cell = cells[round(float(code))]
+        labels = (
+            f"{name}={data.component_levels[index][int(level)]!r}"
+            for name, index, level in zip(names, categorical, cell, strict=True)
+        )
+        return f"cell ({', '.join(labels)})"
+
+    return (
+        np.asarray(per_row, dtype=float).reshape(-1),
+        np.arange(cells.shape[0], dtype=float),
+        describe,
+    )
+
+
 def _all_tilts(policies: Sequence[object]) -> bool:
     """Whether every declared policy is a risk-ratio tilt, which has its own estimands."""
     return bool(policies) and all(isinstance(item, RiskRatioTilt) for item in policies)
@@ -1130,13 +1174,39 @@ class TMLE:
 
         Parameters
         ----------
-        data:
+        data : Any
             A pandas or polars dataframe, or a prepared
             :class:`~cleverly.data.CausalData`.
-        outcome, treatment, covariates, delta, weights, id, intermediate:
-            Column names, when ``data`` is a dataframe.  ``covariates=None`` uses every
+        outcome : str or None
+            The outcome column, when ``data`` is a dataframe.
+        treatment : str or Sequence[str] or None
+            The treatment column, or a list of columns for a vector treatment, when
+            ``data`` is a dataframe.
+        covariates : Sequence[str] or None
+            The covariate columns, when ``data`` is a dataframe.  ``None`` uses every
             column not claimed by another role.
-        treatment_kind:
+        delta : str or None
+            The 0/1 column that is 1 where the outcome is observed, when ``data`` is a
+            dataframe.
+        weights : str or None
+            The weight column, when ``data`` is a dataframe.
+        weights_type : str
+            How to read ``weights``.  Supplying weights changes the estimand to the
+            causal parameter in the weight-tilted population -- see
+            :mod:`cleverly.data.weighting` and
+            :meth:`~cleverly.data.CausalData.from_frame`.
+        weights_estimated : bool
+            Declare that the weights came out of a fitted model.  See
+            :meth:`~cleverly.data.CausalData.from_frame`.
+        id : str or None
+            The cluster identifier column, when ``data`` is a dataframe.
+        intermediate : str or None
+            The intermediate column of a controlled direct effect, when ``data`` is a
+            dataframe.
+        strata : Sequence[str] or None
+            The columns of a finite baseline partition for conditional target
+            parameters, when ``data`` is a dataframe.
+        treatment_kind : TreatmentKind or None
             ``"discrete"`` to code the treatment column into arms, ``"continuous"`` to
             keep its own values and model it with a conditional density.  ``None``
             follows ``policies=``: a modified treatment policy moves a dose and names no
@@ -1147,21 +1217,16 @@ class TMLE:
             :class:`~cleverly.data.CausalData` refuses to guess from the level count for
             exactly that reason.  Pass this explicitly to override, including to get the
             arm-coded refusal for a ``policies=`` fit on a treatment that really has arms.
-        weights_type, weights_estimated:
-            How to read ``weights``.  Supplying weights changes the estimand to the
-            causal parameter in the weight-tilted population -- see
-            :mod:`cleverly.data.weighting` and
-            :meth:`~cleverly.data.CausalData.from_frame`.
-        treatment_delta:
+        treatment_delta : str or None
             The 0/1 column that is 1 where the treatment is recorded, which declares a
             treatment missing at random.  The fit then runs the composite-indicator
             construction of :mod:`cleverly.estimators.composite` for the arm means and
             their contrasts, in sample.  See :meth:`~cleverly.data.CausalData.from_frame`.
-        continuous_treatment:
+        continuous_treatment : Sequence[str]
             The dose columns of a vector ``treatment=[...]``.  A vector with a dose column
             is fitted with ``policies=`` of :class:`~cleverly.interventions.JointPolicy`
             only, on either ``ratio`` route.  See :meth:`~cleverly.data.CausalData.from_frame`.
-        treatment_probabilities:
+        treatment_probabilities : Any
             The known treatment mechanism ``P(A = a | W)`` of a randomized design.  The fit
             then divides by it in place of an estimate and fits no treatment learner.  The
             preferred form maps each level to the frame column that holds its probability,
@@ -2530,6 +2595,20 @@ class TMLE:
                     lambda value: f"row(s) in arm {data.arm_label(value)}",
                 )
             )
+        cells = _fitted_cells(data, self.ratio) if fits_treatment else None
+        if cells is not None:
+            # The density route's categorical factor classifies the cells, so a package
+            # Super Learner there splits on them as it would on arms.
+            per_row, _, describe = cells
+            roles.append(
+                (
+                    "treatment",
+                    self._resolve_learner(self.treatment_learner, task="classification"),
+                    everyone,
+                    per_row,
+                    lambda value: f"row(s) in {describe(value)}",
+                )
+            )
         roles.append(
             (
                 "response",
@@ -2712,16 +2791,28 @@ class TMLE:
         """
         treatment = np.asarray(data.treatment, dtype=float)
         arms = np.asarray(() if _has_no_arms(data) else data.arm_codes, dtype=float)
+
+        def describe_arm(code: float) -> str:
+            return f"arm {data.arm_label(code)}"
+
+        describe: Callable[[float], str] = describe_arm
+        what, noun = "treatment arm", "arm"
+        cells = _fitted_cells(data, self.ratio)
+        if cells is not None:
+            treatment, arms, describe = cells
+            what = f"cell of the categorical components of {data.treatment_name!r}"
+            noun = "cell"
+            remedy = f"{remedy}, or pass ratio='classifier', which fits no cell probabilities"
         observed = np.asarray(data.observed, dtype=bool)
         unit_of, unit = _independent_units(data)
         for arm in arms:
             count = int(np.unique(unit_of[treatment == arm]).size)
             if count < 2:
                 raise DataError(
-                    f"{subject} needs each treatment arm in at least two independent "
-                    f"units, and arm {data.arm_label(arm)} appears in {count} {unit}(s). "
+                    f"{subject} needs each {what} in at least two independent "
+                    f"units, and {describe(arm)} appears in {count} {unit}(s). "
                     f"A split moves whole {unit}s, so every partition leaves some training "
-                    "complement without that arm and no fold count or seed can fit the "
+                    f"complement without that {noun} and no fold count or seed can fit the "
                     f"treatment mechanism; {remedy}"
                 )
         if data.family == "binomial":
@@ -2750,7 +2841,7 @@ class TMLE:
             # asks nothing, because every row is then a respondent.
             ("response", observed, np.array([True])),
         ]
-        if not _has_no_arms(data):
+        if arms.size:
             support.insert(0, ("arm", treatment, arms))
         if data.family == "binomial":
             outcome = np.where(observed, np.asarray(data.outcome, dtype=float), -1.0)
@@ -2762,7 +2853,7 @@ class TMLE:
                 fold, name, missing = gap
                 value = float(missing[0])
                 if name == "arm":
-                    described = f"row in arm {data.arm_label(value)}"
+                    described = f"row in {describe(value)}"
                 elif name == "response":
                     described = "row with an observed outcome"
                 else:

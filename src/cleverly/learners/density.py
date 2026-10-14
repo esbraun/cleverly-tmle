@@ -56,7 +56,7 @@ import math
 import warnings
 from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import Any, overload
+from typing import Any, Protocol, overload
 
 import numpy as np
 
@@ -71,6 +71,8 @@ from .super_learner import SuperLearnerDiagnostics
 __all__ = [
     "ConditionalDensity",
     "DensityDiagnostics",
+    "DesignRows",
+    "PredictionMemory",
     "bin_edges",
     "fit_conditional_density",
     "preflight_conditional_densities",
@@ -156,6 +158,7 @@ def _refuse_unaffordable(
     *,
     concurrent: int = 1,
     retained: int = 0,
+    designs: int = 0,
 ) -> None:
     """Refuse a hazard design larger than the available memory, before it is allocated.
 
@@ -165,16 +168,22 @@ def _refuse_unaffordable(
     components of a vector node.  A refusal names the design's size, the memory available,
     and the largest bin count whose design fits in half of it.  Where the platform reports no
     available memory, nothing is checked.
+
+    ``designs`` is the bytes the counterfactual predictions of a vector node hold beside the
+    table (:class:`PredictionMemory`), which no bin count changes.  When they alone exceed
+    half the memory, the refusal names the ways to shrink them.
     """
     free = available_memory()
     table = records * columns * 8
-    needed = table * concurrent + retained
+    needed = table * concurrent + retained + designs
     if free is None or needed <= free:
         return
     fits = [
         k
         for k in range(2, n_bins)
-        if hazard_design_bytes(n, k, n_covariates, index_only=index_only) * concurrent + retained
+        if hazard_design_bytes(n, k, n_covariates, index_only=index_only) * concurrent
+        + retained
+        + designs
         <= free // 2
     ]
     advice = (
@@ -183,10 +192,21 @@ def _refuse_unaffordable(
         else "No bin count fits; fit on fewer rows."
     )
     gib = 1024.0**3
+    if designs:
+        advice += (
+            f" The counterfactual designs and values of the node hold {designs / gib:.1f} GiB, "
+            "which no bin count changes. To shrink them, declare fewer policies or pieces at "
+            "the node, collapse a categorical component, pass n_jobs=1, or pass "
+            "ratio='classifier', which evaluates no counterfactual design."
+        )
     held = (
         ""
-        if concurrent == 1 and not retained
-        else f" ({concurrent} fold fit(s) at once, beside {retained / gib:.1f} GiB already held)"
+        if concurrent == 1 and not retained and not designs
+        else (
+            f" ({concurrent} fold fit(s) at once, beside {retained / gib:.1f} GiB already held"
+            + (f" and {designs / gib:.1f} GiB of counterfactual designs" if designs else "")
+            + ")"
+        )
     )
     raise MethodConfigurationError(
         f"the binned density's pooled hazard design needs {needed / gib:.1f} GiB "
@@ -532,10 +552,28 @@ def _probabilities_from_hazards(hazards: FloatArray) -> FloatArray:
     )
 
 
+class DesignRows(Protocol):
+    """A conditioning design built on demand, a block of rows at a time.
+
+    A counterfactual design differs from the fitted one in a few columns.  Building it for
+    one fold's held-out rows only, from the columns it changes, keeps no ``(n, p)`` array
+    per design (:mod:`~cleverly.interventions.joint_density`).
+    """
+
+    @property
+    def nbytes(self) -> int:
+        """Bytes the object holds besides the fitted design."""
+        ...
+
+    def __call__(self, index: IntArray, fitted: FloatArray) -> FloatArray:
+        """The design at rows ``index``, given ``fitted``, the fitted design at those rows."""
+        ...
+
+
 #: Out-of-fold densities at further conditioning designs: by key, ``(design, values)``, with
-#: ``design`` the ``(n, p)`` covariates the density conditions on and ``values`` the ``(n,)``
-#: or ``(n, m)`` doses it is evaluated at.
-PredictDesigns = Mapping[Hashable, tuple[FloatArray, FloatArray]]
+#: ``design`` the ``(n, p)`` covariates the density conditions on, or a :class:`DesignRows`
+#: that builds them, and ``values`` the ``(n,)`` or ``(n, m)`` doses it is evaluated at.
+PredictDesigns = Mapping[Hashable, tuple["FloatArray | DesignRows", FloatArray]]
 
 
 @dataclass(frozen=True)
@@ -591,6 +629,47 @@ def _concurrent_folds(folds: Folds, n_jobs: int) -> int:
     return max(1, min(resolve_n_jobs(n_jobs), folds.n_folds))
 
 
+@dataclass(frozen=True)
+class PredictionMemory:
+    """What one density's counterfactual predictions hold beside its long table.
+
+    Parameters
+    ----------
+    held : int
+        Bytes the calling process holds while the density is fitted: the stored columns
+        of every design, the values, and the predictions, counted twice when the fold
+        results arrive at once.
+    shipped : int
+        Bytes each parallel worker receives a copy of: the stored columns and the values.
+    rows : int
+        Bytes one fold builds at once to predict one design: its held-out rows of the
+        design, of the hazards and of the bin probabilities.
+    kept : int
+        Bytes the predictions keep after the fit, which later components see as held.
+    """
+
+    held: int = 0
+    shipped: int = 0
+    rows: int = 0
+    kept: int = 0
+
+    def peak(self, concurrent: int) -> int:
+        """The bytes beside the tables when ``concurrent`` fold fits run at once.
+
+        Parameters
+        ----------
+        concurrent : int
+            The fold fits that run at once.
+
+        Returns
+        -------
+        int
+            The peak.
+        """
+        copies = concurrent * self.shipped if concurrent > 1 else 0
+        return self.held + copies + concurrent * self.rows
+
+
 def preflight_conditional_densities(
     learner: Learner,
     components: Sequence[tuple[int, FloatArray]],
@@ -600,6 +679,7 @@ def preflight_conditional_densities(
     fit_mask: Any = None,
     n_jobs: int = 1,
     names: Sequence[str | None] = (),
+    predictions: Sequence[PredictionMemory] = (),
 ) -> None:
     """Refuse a set of densities that one node fits in turn, before the first is fitted.
 
@@ -626,6 +706,10 @@ def preflight_conditional_densities(
         Parallel workers across the folds.
     names : sequence of str or None
         The component names, for the refusals.
+    predictions : sequence of PredictionMemory
+        What each component's counterfactual predictions hold, in fit order; missing
+        entries hold nothing.  The peak at component ``k`` adds its own
+        :meth:`PredictionMemory.peak` and the predictions the earlier components kept.
 
     Raises
     ------
@@ -636,7 +720,8 @@ def preflight_conditional_densities(
     concurrent = _concurrent_folds(folds, n_jobs)
     retained = 0
     labels = list(names) + [None] * (len(components) - len(names))
-    for (n_covariates, dose), name in zip(components, labels, strict=True):
+    costs = list(predictions) + [PredictionMemory()] * (len(components) - len(predictions))
+    for (n_covariates, dose), name, cost in zip(components, labels, costs, strict=True):
         a = np.asarray(dose, dtype=float).reshape(-1)
         grid = _grid(a, mask, n_bins, None, name)
         records, columns, rows = _table_size(learner, n_covariates, grid, mask)
@@ -649,8 +734,9 @@ def preflight_conditional_densities(
             _index_only(learner),
             concurrent=concurrent,
             retained=retained,
+            designs=cost.peak(concurrent),
         )
-        retained += a.size * grid.n_total * 8
+        retained += a.size * grid.n_total * 8 + cost.kept
 
 
 def _lookup(probabilities: FloatArray, edges: FloatArray, values: FloatArray) -> FloatArray:
@@ -773,9 +859,14 @@ def fit_conditional_density(
     )
     designs = {} if predict_designs is None else dict(predict_designs)
     for key, (design, values) in designs.items():
-        if np.asarray(design).shape != (a.size, w.shape[1]):
+        shape = (
+            (a.size, design(np.zeros(1, dtype=np.int64), w[:1]).shape[1])
+            if callable(design) and a.size
+            else np.asarray(design).shape
+        )
+        if shape != (a.size, w.shape[1]):
             raise ValueError(
-                f"predict design {key!r} has shape {np.asarray(design).shape}; the density "
+                f"predict design {key!r} has shape {shape}; the density "
                 f"conditions on {(a.size, w.shape[1])}"
             )
         if np.asarray(values).shape[0] != a.size:
@@ -797,7 +888,11 @@ def fit_conditional_density(
     def predicted_at(model: Learner, test: IntArray) -> dict[Hashable, FloatArray]:
         out = {}
         for key, (design, values) in designs.items():
-            held_out = np.asarray(design, dtype=float)[test]
+            held_out = (
+                np.asarray(design(test, w[test]), dtype=float)
+                if callable(design)
+                else np.asarray(design, dtype=float)[test]
+            )
             probabilities = _probabilities_from_hazards(
                 _hazard_matrix(model, held_out, n_hazards, index_only)
             )

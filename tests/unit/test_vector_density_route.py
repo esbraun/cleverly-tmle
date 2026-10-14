@@ -41,7 +41,7 @@ import tests.discrete_law_vector_density as geo
 from cleverly.data import CausalData
 from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import DataError, PositivityWarning
+from cleverly.exceptions import CapabilityError, DataError, LongitudinalError, PositivityWarning
 from cleverly.interventions import (
     JointPolicy,
     ModifiedPolicy,
@@ -50,7 +50,7 @@ from cleverly.interventions import (
     Scale,
     Shift,
 )
-from cleverly.longitudinal import LTMLE
+from cleverly.longitudinal import LTMLE, SDR
 
 from .. import discrete_law_longitudinal as binary_law
 from .. import discrete_law_longitudinal_mtp as long_law
@@ -556,7 +556,7 @@ def test_w8_density_a_longitudinal_fit_targets_and_solves_its_score(folds: int) 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         result = LTMLE(mtp.mixed_regimens(labels), reference="natural", **configuration).fit(
-            long_law.mixed_sample(900, 11), **long_tests.COLUMNS
+            long_law.mixed_wide_sample(900, 11), **long_tests.COLUMNS
         )
     for label in labels[1:]:
         steps = result.fits[label].steps
@@ -912,6 +912,31 @@ def test_m7_a_read_through_get_is_refused_and_names_the_order() -> None:
     _fit_geo_policy(ordered)
 
 
+def reads_d2_and_catches(h: Any) -> np.ndarray:
+    """A bound that reads ``D2`` and swallows every exception, falling back to 6."""
+    try:
+        d2 = np.asarray(h["D2"], dtype=float)
+    except Exception:
+        return np.full(len(h), 6.0)
+    return np.where(d2 <= 2.0, 6.0, -INF)
+
+
+@pytest.mark.parametrize("ratio", ["density", "classifier"])
+def test_m7_a_map_that_catches_its_refused_read_is_still_refused(ratio: str) -> None:
+    """The proxy records the read, and the read is refused after the map returns (LOW-7).
+
+    Before, ``except Exception`` swallowed the refusal and the map silently used its
+    fallback on every row.
+    """
+    policy = JointPolicy(
+        "catches",
+        components={"D1": _doubling("d1 catches", reads_d2_and_catches), "D2": DOUBLE},
+        policy_kind="known",
+    )
+    with pytest.raises(DataError, match=r"'D1' reads \['D2'\].*order=\('D2', 'D1'\)"):
+        _fit_geo_policy(policy, ratio=ratio)
+
+
 def test_m7_the_frame_proxy_refuses_every_access_by_name() -> None:
     from cleverly.interventions.policy import ForbiddenRead, GuardedFrame
 
@@ -926,6 +951,7 @@ def test_m7_the_frame_proxy_refuses_every_access_by_name() -> None:
     ):
         with pytest.raises(ForbiddenRead, match="'D2'"):
             access()
+    assert frame.violations == ["D2"] * 5
     assert issubclass(ForbiddenRead, DataError)
 
 
@@ -1110,3 +1136,454 @@ def test_m4_a_vector_fit_refuses_before_any_learner(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(density_module, "fit_learner", refuse)
     with pytest.raises(MethodConfigurationError, match="pooled hazard design"):
         _fit_geo_policy(geo_joint("full"))
+
+
+# ------------------------------------------------------------------ cell support (review HIGH-1)
+
+
+class _NoFit:
+    """A learner that fails if any fit runs, so a refusal is shown to come first."""
+
+    def get_params(self, deep: bool = True) -> dict[str, Any]:
+        return {}
+
+    def set_params(self, **params: Any) -> _NoFit:
+        return self
+
+    def fit(self, *args: Any, **kwargs: Any) -> _NoFit:
+        raise AssertionError("a learner ran before the cell-support refusal")
+
+    def predict_proba(self, x: Any) -> Any:
+        raise AssertionError("a learner ran before the cell-support refusal")
+
+
+def _lone_flag(frame: pd.DataFrame, flag: str) -> pd.DataFrame:
+    """The frame with ``flag = 1`` on exactly one row, which every split leaves out once."""
+    out = frame.copy()
+    out[flag] = 0.0
+    out.loc[out.index[0], flag] = 1.0
+    return out
+
+
+def test_a_point_cell_one_unit_holds_is_refused_before_any_learner() -> None:
+    """The density route's g_C needs every cell in each training complement.
+
+    Without the refusal the fit returned, and the ratio at the lone row was exactly zero:
+    the complement's multinomial gave the cell probability zero (review HIGH-1).
+    """
+    frame = _lone_flag(point_law.mixed_sample(400, 3), "F")
+    data = point_tests.vector_data(frame)
+    estimator = TMLE(
+        policies=[point_joint("dose up")],
+        outcome_learner=_NoFit(),
+        treatment_learner=_NoFit(),
+        ratio="density",
+        cross_fit=True,
+        n_folds=5,
+        random_state=0,
+    )
+    with pytest.raises(DataError) as caught:
+        estimator.fit(data)
+    message = str(caught.value)
+    assert "needs each cell of the categorical components of 'F+D'" in message
+    assert "cell (F=1) appears in 1 row(s)" in message
+    assert "ratio='classifier'" in message
+
+
+def test_a_point_cell_that_one_training_fold_lacks_is_refused() -> None:
+    """Two rows of a cell in one fold leave that fold's complement without the cell."""
+    from cleverly import SplitPlan
+    from cleverly.learners import random_partition
+
+    drawn = random_partition(400, 4, seed=0)
+    first = np.flatnonzero(np.asarray(drawn.assignment) == 0)[:2]
+    frame = point_law.mixed_sample(400, 3)
+    frame["F"] = 0.0
+    frame.loc[frame.index[first], "F"] = 1.0
+    data = point_tests.vector_data(frame)
+    plan = SplitPlan.from_folds([drawn])
+    estimator = TMLE(
+        policies=[point_joint("dose up")],
+        outcome_learner=_NoFit(),
+        treatment_learner=_NoFit(),
+        ratio="density",
+        split_plan=plan,
+    )
+    with pytest.raises(DataError, match=r"contains no row in cell \(F=1\)"):
+        estimator.fit(data)
+
+
+def test_the_classifier_route_fits_no_cell_probabilities_and_is_not_refused() -> None:
+    """The cell check belongs to the density route; the classifier route still fits."""
+    from sklearn.linear_model import LogisticRegression
+
+    frame = _lone_flag(point_law.mixed_sample(400, 3), "F")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = TMLE(
+            policies=[point_joint("dose up")],
+            outcome_learner=LogisticRegression(),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            ratio="classifier",
+            cross_fit=True,
+            n_folds=5,
+            random_state=0,
+        ).fit(point_tests.vector_data(frame))
+    assert np.isfinite(result.single().psi("ey_policy[dose up]"))
+
+
+@pytest.mark.parametrize("estimator", [LTMLE, SDR])
+def test_a_longitudinal_mixed_cell_a_training_fold_lacks_is_refused(estimator: Any) -> None:
+    """At a mixed node the cells of the categorical components are levels of g_C."""
+    frame = _lone_flag(long_law.mixed_sample(400, 3), "F2")
+    configuration = long_tests.settings(
+        outcome_learner=_NoFit(),
+        pseudo_learner=_NoFit(),
+        treatment_learner=_NoFit(),
+        censoring_learner=_NoFit(),
+        n_folds=5,
+        random_state=0,
+        ratio="density",
+    )
+    with pytest.raises(LongitudinalError) as caught:
+        estimator(mtp.mixed_regimens(("natural", "dose up")), **configuration).fit(
+            frame, **long_tests.COLUMNS
+        )
+    message = str(caught.value)
+    assert "is missing level(s) ['cell (F2=1.0)']" in message
+    assert "ratio='classifier'" in message
+
+
+# ------------------------------------------------------------------ design memory (review HIGH-2)
+
+
+def _design_heavy_node(n: int = 1200, width: int = 12, copies: int = 1) -> tuple[Any, ...]:
+    """A node of six cells and two capped doses, under three policies that set the flag.
+
+    Every policy moves both doses with a cap, so dose 2's density is asked for at many
+    counterfactual designs: candidate cell times the pieces of dose 1.  ``copies`` repeats
+    each policy under a new name, which asks for the same designs again.
+    """
+    from cleverly.interventions.joint_density import JointBranch, JointEvaluation, NodeLayout
+    from cleverly.interventions.policy import JointComponent, joint_assignments, joint_branches
+
+    rng = np.random.default_rng(0)
+    natural = np.column_stack(
+        [rng.integers(0, 2, n), rng.integers(0, 3, n), rng.normal(size=n), rng.normal(size=n)]
+    ).astype(float)
+    components = (
+        JointComponent("F", (0, 1)),
+        JointComponent("G", (0, 1, 2)),
+        JointComponent("D1"),
+        JointComponent("D2"),
+    )
+
+    def frame_with(extra: Any) -> pd.DataFrame:
+        return pd.DataFrame({key: np.asarray(value) for key, value in extra.items()})
+
+    policies = [
+        JointPolicy(
+            f"p{i}-{copy}",
+            components={
+                "F": SET_FLAG,
+                "D1": Shift(0.2 * (i + 1), cap=1.5),
+                "D2": Shift(0.1 * (i + 1), cap=1.5),
+            },
+            policy_kind="known",
+        )
+        for i in range(3)
+        for copy in range(copies)
+    ]
+    everyone = np.ones(n, dtype=bool)
+    layout = NodeLayout(
+        components, natural, everyone, frame_with, rng.normal(size=(n, width)), "node"
+    )
+    branches, assigned = [], []
+    for policy in policies:
+        ((_, mapping),) = joint_branches(policy)
+        branches.append(JointBranch(policy.name, mapping, policy.order))
+        ((_, values),) = joint_assignments(
+            policy, components, natural, frame_with, everyone, where="node"
+        )
+        assigned.append(values)
+    every = tuple(range(len(branches)))
+    evaluations = [JointEvaluation(natural, every)] + [
+        JointEvaluation(values, every) for values in assigned
+    ]
+    return layout, branches, evaluations
+
+
+SET_FLAG = ModifiedPolicy("flag", apply=set_flag, policy_kind="known")
+
+
+class _Stop(Exception):
+    pass
+
+
+def _record_preflight(monkeypatch: pytest.MonkeyPatch, **settings: Any) -> dict[str, Any]:
+    """Run the evaluator up to its preflight and return what the preflight is asked."""
+    from sklearn.linear_model import LogisticRegression
+
+    from cleverly.interventions import joint_density as jd
+    from cleverly.learners import Folds
+
+    recorded: dict[str, Any] = {}
+
+    def record(*args: Any, **kwargs: Any) -> None:
+        recorded.update(args=args, kwargs=kwargs)
+        raise _Stop
+
+    monkeypatch.setattr(jd, "preflight_conditional_densities", record)
+    layout, branches, evaluations = _design_heavy_node(**settings)
+    with pytest.raises(_Stop):
+        jd.evaluate_joint_density(
+            layout,
+            branches,
+            evaluations,
+            learner=LogisticRegression(),
+            weights=np.ones(layout.n),
+            folds=Folds(np.arange(layout.n) % 2, 2),
+            n_bins=8,
+        )
+    monkeypatch.undo()
+    return recorded
+
+
+def test_identical_counterfactual_designs_are_stored_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A second copy of every policy asks for the same designs and adds none.
+
+    Before the review a design was keyed by a fresh serial per term, so each copy stored
+    every design again: 1,069 MiB at n = 20,000 in the review's probe.
+    """
+    once = _record_preflight(monkeypatch)["kwargs"]["predictions"]
+    twice = _record_preflight(monkeypatch, copies=2)["kwargs"]["predictions"]
+    for single, double in zip(once, twice, strict=True):
+        # ``shipped`` is the stored columns plus the values, and ``kept`` the values.
+        # The stored columns do not grow; only the values asked at them do.
+        assert double.shipped - double.kept == single.shipped - single.kept
+        assert double.kept > single.kept
+
+
+def test_the_preflight_refuses_designs_the_tables_alone_would_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The counterfactual designs count toward the peak, and the refusal names a remedy.
+
+    The memory below fits every long table beside the earlier doses' bin probabilities,
+    and does not fit the designs and values of the doses besides.  The same check without
+    the designs passes, which is what the preflight did before the review.
+    """
+    from cleverly.exceptions import MethodConfigurationError
+    from cleverly.learners import density as density_module
+    from cleverly.learners.density import _grid, _table_size, preflight_conditional_densities
+
+    recorded = _record_preflight(monkeypatch)
+    learner, components, folds = recorded["args"]
+    kwargs = dict(recorded["kwargs"])
+    predictions = kwargs.pop("predictions")
+    tables, retained = [], 0
+    for n_covariates, dose in components:
+        grid = _grid(np.asarray(dose), None, 8, None, None)
+        records, columns, _ = _table_size(learner, n_covariates, grid, None)
+        tables.append(records * columns * 8 + retained)
+        retained += dose.size * grid.n_total * 8
+    designs = max(cost.peak(1) for cost in predictions)
+    assert designs > 0
+    free = max(tables) + designs // 2
+    monkeypatch.setattr(density_module, "available_memory", lambda: free)
+    preflight_conditional_densities(learner, components, folds, **kwargs)
+    with pytest.raises(MethodConfigurationError) as caught:
+        preflight_conditional_densities(
+            learner, components, folds, predictions=predictions, **kwargs
+        )
+    message = str(caught.value)
+    assert "of counterfactual designs" in message
+    assert "declare fewer policies or pieces at the node" in message
+
+
+def test_a_design_heavy_fit_refuses_before_any_learner(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The evaluator itself refuses, before the categorical factor or a hazard is fitted."""
+    from sklearn.linear_model import LogisticRegression
+
+    from cleverly.estimators import _nuisance
+    from cleverly.exceptions import MethodConfigurationError
+    from cleverly.interventions import joint_density as jd
+    from cleverly.learners import Folds
+    from cleverly.learners import density as density_module
+
+    recorded = _record_preflight(monkeypatch)
+    designs = max(cost.peak(1) for cost in recorded["kwargs"]["predictions"])
+
+    def refuse(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("a learner was fitted before the refusal")
+
+    monkeypatch.setattr(density_module, "available_memory", lambda: designs - 1)
+    monkeypatch.setattr(_nuisance, "cross_fit_predictions", refuse)
+    monkeypatch.setattr(density_module, "fit_learner", refuse)
+    layout, branches, evaluations = _design_heavy_node()
+    with pytest.raises(MethodConfigurationError, match="counterfactual designs"):
+        jd.evaluate_joint_density(
+            layout,
+            branches,
+            evaluations,
+            learner=LogisticRegression(),
+            weights=np.ones(layout.n),
+            folds=Folds(np.arange(layout.n) % 2, 2),
+            n_bins=8,
+        )
+
+
+def test_parallel_workers_each_count_a_copy_of_the_designs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With two fold fits at once, each worker holds the stored columns and the values."""
+    predictions = _record_preflight(monkeypatch)["kwargs"]["predictions"]
+    for cost in predictions:
+        assert cost.shipped > 0
+        assert cost.peak(2) == cost.held + 2 * cost.shipped + 2 * cost.rows
+        assert cost.peak(1) == cost.held + cost.rows
+
+
+# ------------------------------------------------------------------ coverage (review LOW-2)
+
+
+def on_grid_d1(h: Any) -> np.ndarray:
+    """3 where the natural dose 1 is a grid dose, else 1.5: a gap off the grid."""
+    d1 = np.asarray(h["D1"], dtype=float)
+    return np.where(np.isin(d1, geo.DOSES), 3.0, 1.5)
+
+
+GAP_OFF_THE_GRID = JointPolicy(
+    "gap off the grid",
+    components={
+        "D1": Shift(0.5, cap=None),
+        "D2": ModifiedPolicy(
+            "gap", pieces=(Piece(-INF, on_grid_d1), Piece(3.0, INF)), policy_kind="known"
+        ),
+    },
+    policy_kind="known",
+)
+
+
+def test_a_piece_gap_a_counterfactual_frame_reaches_is_refused() -> None:
+    """Dose 2's pieces partition its range at every observed dose 1, and not off the grid.
+
+    Dose 1's shift reads dose 2's density at ``beta_1 = b_1 - 0.5``, which is off the grid,
+    and there ``[1.5, 3)`` holds no piece while dose 2 takes the value 2.  Without the check
+    the fit returned, with that mass dropped from the induced density.
+    """
+    with pytest.raises(DataError, match=r"no piece holds the observed dose 2 on \d+ frame"):
+        _fit_geo_policy(GAP_OFF_THE_GRID)
+
+
+def test_the_same_pieces_without_the_gap_fit() -> None:
+    """Closing the gap with a third identity piece fits: the check reads the gap alone."""
+    closed = JointPolicy(
+        "closed",
+        components={
+            "D1": Shift(0.5, cap=None),
+            "D2": ModifiedPolicy(
+                "closed",
+                pieces=(Piece(-INF, on_grid_d1), Piece(on_grid_d1, 3.0), Piece(3.0, INF)),
+                policy_kind="known",
+            ),
+        },
+        policy_kind="known",
+    )
+    result = _fit_geo_policy(closed)
+    assert np.isfinite(result.psi("ey_policy[closed]"))
+
+
+# ------------------------------------------------------------------ monotonicity (review LOW-5)
+
+
+def double_on_grid(a: Any, h: Any) -> np.ndarray:
+    """Doubles dose 2 where dose 1 is a grid dose, and is flat off the grid."""
+    on = np.isin(np.asarray(h["D1"], dtype=float), geo.DOSES)
+    return np.where(on, 2.0 * np.asarray(a, dtype=float), 3.0)
+
+
+def test_a_map_flat_only_on_a_counterfactual_frame_names_the_conservative_reading() -> None:
+    """The monotonicity check reads counterfactual frames over the observed dose range.
+
+    Dose 1's shift reads dose 2's map at ``beta_1`` off the grid, where the map is flat.
+    The refusal says which frames it read and that the reading is conservative.
+    """
+    policy = JointPolicy(
+        "flat off the grid",
+        components={
+            "D1": Shift(0.5, cap=None),
+            "D2": ModifiedPolicy(
+                "flat",
+                pieces=(Piece(-INF, 6.0, double_on_grid, halve, half_slope), Piece(6.0, INF)),
+                policy_kind="known",
+            ),
+        },
+        policy_kind="known",
+    )
+    with pytest.raises(CapabilityError) as caught:
+        _fit_geo_policy(policy)
+    message = str(caught.value)
+    assert "is not strictly monotone there" in message
+    assert "preimages of the earlier doses" in message
+    assert "the check is conservative there" in message
+
+
+# ------------------------------------------------------------------ the zero contract (review LOW-3)
+
+
+def test_the_lookup_is_exactly_zero_outside_the_outer_edges() -> None:
+    """The contract that lets the declaration checks skip frames outside the bin range."""
+    from cleverly.learners.density import _lookup
+
+    edges = np.array([0.0, 1.0, 3.0])
+    probabilities = np.array([[0.25, 0.75], [0.5, 0.5]])
+    values = np.array([[-1e-12, 0.0, 3.0, 3.0 + 1e-12], [np.nan, 0.5, 2.0, np.inf]])
+    found = _lookup(probabilities, edges, values)
+    assert found[0, 0] == 0.0 and found[0, 3] == 0.0 and found[1, 0] == 0.0
+    assert found[1, 3] == 0.0
+    assert np.all(found[:, 1:3] > 0.0)
+
+
+def test_the_checks_skip_only_frames_outside_the_fitted_bin_range(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The range that ``_inside`` reads is each dose's outer bin edges, as the lookup's.
+
+    The observed minimum and maximum lie strictly inside the padded outer edges, so a frame
+    between them would have been skipped although its density is not zero.
+    """
+    from cleverly.interventions import joint_density as jd
+
+    seen: list[Any] = []
+    original = jd._enumerate
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        seen.append(args[5])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(jd, "_enumerate", spy)
+    from sklearn.linear_model import LogisticRegression
+
+    data = geo_data(geo.sample(400, 3))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = (
+            TMLE(
+                policies=[geo_joint("ordered")],
+                outcome_learner=LogisticRegression(),
+                treatment_learner=LogisticRegression(max_iter=1000),
+                ratio="density",
+                cross_fit=False,
+                density_bins=4,
+            )
+            .fit(data)
+            .single()
+        )
+    densities = result.nuisance.policies.joint.densities
+    expected = [
+        (float(densities[name].edges[0]), float(densities[name].edges[-1])) for name in ("D1", "D2")
+    ]
+    assert seen and all(list(item) == expected for item in seen)
+    natural = np.asarray(data.treatment_components, dtype=float)
+    assert expected[0][0] < natural[:, 1].min()

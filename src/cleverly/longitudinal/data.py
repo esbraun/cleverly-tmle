@@ -194,6 +194,69 @@ def assignment_matrix(assignment: Assignment, n: int, n_times: int) -> FloatArra
     )
 
 
+class _MixedLevels(tuple[object, ...]):
+    """The :attr:`LongitudinalData.treatment_levels` entry of a mixed node.
+
+    A mixed node has no arms: its categorical components carry their own labels in
+    :attr:`LongitudinalData.component_levels`.  Every read of this entry, by length,
+    iteration, index, membership or truth, raises
+    :class:`~cleverly.exceptions.CapabilityError`, so a reader that does not first ask
+    :meth:`LongitudinalData.node_kind` refuses instead of reading zero levels.
+
+    Parameters
+    ----------
+    node : str
+        The node's name, for the refusal.
+    time : int
+        The node, counted from one.
+    """
+
+    node: str
+    time: int
+
+    def __new__(cls, node: str, time: int) -> _MixedLevels:
+        out = super().__new__(cls, ())
+        out.node = str(node)
+        out.time = int(time)
+        return out
+
+    def _refuse(self) -> CapabilityError:
+        return CapabilityError(
+            f"node {self.node!r} at time {self.time} is a vector with a continuous component, "
+            "and treatment_levels reads one column's labels. This path does not support a "
+            "mixed node; read node_kind() and component_levels"
+        )
+
+    def __len__(self) -> int:
+        raise self._refuse()
+
+    def __iter__(self) -> Any:
+        raise self._refuse()
+
+    def __getitem__(self, index: Any) -> Any:
+        raise self._refuse()
+
+    def __contains__(self, value: object) -> bool:
+        raise self._refuse()
+
+    def __bool__(self) -> bool:
+        raise self._refuse()
+
+    def __repr__(self) -> str:
+        return f"<no levels: mixed node {self.node!r}>"
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        return (_MixedLevels, (self.node, self.time))
+
+    def __eq__(self, other: object) -> bool:
+        return (
+            isinstance(other, _MixedLevels) and other.node == self.node and other.time == self.time
+        )
+
+    def __hash__(self) -> int:
+        return hash((_MixedLevels, self.node, self.time))
+
+
 @dataclass(frozen=True)
 class LongitudinalData:
     """Validated inputs for a longitudinal estimator.
@@ -1114,7 +1177,7 @@ class LongitudinalData:
                 stored[at_this_node] = encoded
                 mixed_values[time - 1] = stored
                 mixed_levels[time - 1] = component_sets
-                level_sets.append(())
+                level_sets.append(_MixedLevels(str(name), time))
                 continue
             codes_at_node, levels = _encode_node_treatment(arms[at_this_node], str(name))
             a[at_this_node, time - 1] = codes_at_node

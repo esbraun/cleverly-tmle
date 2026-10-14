@@ -134,11 +134,19 @@ def exact_bins(grids: Mapping[str, Any] | None = None) -> Iterator[None]:
                 return np.asarray(grid.edges, dtype=float)
         return original(values, n_bins, name=name)
 
-    density_module.bin_edges = law_edges  # type: ignore[assignment]
+    # The modules that read edges from every at-risk row for a restricted fit (``fit_rows``)
+    # import the function by name, so each of their references is replaced too.
+    from cleverly.interventions import joint_density
+    from cleverly.longitudinal import sequential
+
+    readers = (density_module, joint_density, sequential)
+    for module in readers:
+        module.bin_edges = law_edges  # type: ignore[attr-defined]
     try:
         yield
     finally:
-        density_module.bin_edges = original  # type: ignore[assignment]
+        for module in readers:
+            module.bin_edges = original  # type: ignore[attr-defined]
 
 
 def _treat_if_l2(a: Any, h: Any) -> Any:

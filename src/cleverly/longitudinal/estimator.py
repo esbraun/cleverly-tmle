@@ -3376,7 +3376,9 @@ class _SequentialEstimator:
         )
 
         horizons = self._horizons(prepared)
-        preflight_mechanism_support(prepared, prepared.regimen_masks(prepared.treatment), folds)
+        preflight_mechanism_support(
+            prepared, prepared.regimen_masks(prepared.treatment), folds, ratio=self.ratio
+        )
         preflight_terminal_outcomes(prepared, plans, horizons, folds)
         treatment_learner = resolve_learner(
             self.treatment_learner,
@@ -3840,7 +3842,14 @@ class _SequentialEstimator:
                 data.weights,
                 *data.time_varying,
                 np.asarray(
-                    [repr(level) for levels in data.treatment_levels for level in levels],
+                    [
+                        repr(level)
+                        for time, levels in enumerate(data.treatment_levels, start=1)
+                        # A mixed node has no levels; _component_fingerprint digests its
+                        # components' labels.
+                        if data.node_kind(time) != "mixed"
+                        for level in levels
+                    ],
                     dtype=str,
                 ),
                 *_component_fingerprint(data),
