@@ -24,7 +24,8 @@ from typing import Any
 import pandas as pd
 
 from tests.studies.evidence import descriptions, property_verdicts
-from tests.studies.evidence.claims import load, value
+from tests.studies.evidence.claims import citation, load
+from tests.studies.evidence.comparison import DESCRIPTIVE_CONCLUSION
 from tests.studies.evidence.manifest import write_lines
 from tests.studies.evidence.registry import StudyRecord, registered
 
@@ -130,7 +131,8 @@ def _comparison_result(row: Any) -> str:
     design limit as a scientific result.
     """
     conclusion = str(getattr(row, "comparison_conclusion", "equivalent"))
-    if bool(row.passed):
+    # A descriptive paired row carries no ``passed`` column and states no verdict.
+    if conclusion == DESCRIPTIVE_CONCLUSION or bool(row.passed):
         return conclusion
     if conclusion == "underpowered":
         return f"*{conclusion}*"
@@ -571,7 +573,7 @@ def fill(record: StudyRecord) -> list[str]:
         if match is None:
             break
         quantity = match.group("quantity").strip("`")
-        rendered_value = render(value(record, quantity, data), record.quoted_decimals.get(quantity))
+        rendered_value = citation(record, quantity, data, render)
         if rendered_value != match.group("value"):
             changed.append(f"{quantity}: {match.group('value')} -> {rendered_value}")
         lines[index] = (
