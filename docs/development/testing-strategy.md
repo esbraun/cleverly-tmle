@@ -117,7 +117,8 @@ Python phase, the calibration and each checkpoint. The rerun prints what it reus
 
 A failure checkpoint is reused like a result: the rerun does not refit a group whose comparator
 call failed. The Python phase stores each replicate as a checkpoint too, so a rerun refits only
-the replicates that the stopped run did not finish. The
+the replicates that the stopped run did not finish. The property phase does the same, with one
+checkpoint for each fit of each property loop. The
 [failure rule](method-benchmarking.md#comparator-fitting-failures) says which errors stop the
 phase.
 
@@ -130,7 +131,7 @@ Python versions. A change to any of these starts a new cache.
 | --- | --- |
 | host scratch | `%LOCALAPPDATA%/cleverly/runs/<slug>/<key>/` on Windows, `~/.cache/cleverly/runs/<slug>/<key>/` elsewhere. `--cache DIR` replaces it |
 | R checkpoints | `/cache/<slug>/<key>/<runner>__<output>/` in the Docker volume `cleverly-cache` |
-| Python checkpoints | `checkpoints/<implementation>/<label>/` in the host scratch |
+| Python checkpoints | `checkpoints/<implementation>/<label>/` in the host scratch. The label is `primary`, `properties`, or `properties/<name>` |
 | discard the cache of this key | add `--fresh` |
 | refit the Python phase | add `--refresh-python`. It also discards the Python checkpoints |
 | host lock | `_lock` in the host scratch. A second driver on one key refuses and names the holder. The driver removes the lock of a dead process |
@@ -172,6 +173,38 @@ Run the RM39 smoke after an edit to `tests/canonical/study_harness.R`, to a fixt
 the `tmle3` Dockerfile. The smoke runs in Docker, because CI installs no R. It commits its results
 and `tests/canonical/harness_fixture/fixture-manifest.json`. The fast suite fails until the
 manifest names the current bytes of each of those files.
+
+## Check that a migration moved no byte
+
+`tests/canonical/python_phase_identity.py` runs each study in two fresh interpreters: one in a
+worktree of the base commit and one in this checkout. Use it when a change moves the fitting
+loops of a study and must leave every committed byte as it was. The primary phase compares the
+samples, the truth rows, and the subject rows. Add `--phase properties` to compare the property
+phase. The head runs with a systematic prefix of one replicate, so the two-call split of
+`fit_replicates` runs at two replicates. Add `--prefix default --budget 21` to run the split as
+a study runs it.
+
+```text
+git worktree add /tmp/base <base commit>
+python -m tests.canonical.python_phase_identity --phase properties --mode budget \
+    --base /tmp/base --out /tmp/identity
+```
+
+| mode | what it compares |
+| --- | --- |
+| `budget` | the rows of each module whose `generate_property_rows` caps its replicates (`budget=`, `replicates=` or `cap=`), byte for byte. The wall-clock columns in `TIMING_COLUMNS` stay out of the comparison |
+| `batches` | the rows of each module that declares `sampling_batches()`, with each cell cut to `--budget` replicates, byte for byte |
+| `payload` | the call sequence of every property loop of every module. The base patches `map_parallel` and the head patches `fit_properties`. The payloads, the `n_jobs` value, and the worker source must agree, except for the modules in `WORKER_EXCEPTIONS`. A `run_cells` loop compares its cells and sample seeds through `CoverageStudy`. A module that re-keys its fits maps both sides to one form first (`KEY_PROJECTIONS`). The mode also compares the rows of the truncated run, and it records an error of the module's post-processing in `note.txt` |
+| `labels` | the labels of the head's `fit_properties` calls: unique, and `properties` or `properties/<name>` |
+| `--fail R` | the head only. Every fit of replicate `R` raises `LinAlgError` inside the driver's collector. The rows must equal the rows of a run with no failure minus the recorded cells. Every other `noise_control` row must stay unchanged. The stamps must equal the records, and `reconcile` must pass |
+
+A study without a committed property artifact is covered by the same runs against the base code.
+Any difference stops the work. Do not record a difference as expected unless the change declares
+it.
+
+The all-study property differential of the failure accounting runs as the `property-differential`
+job of `.github/workflows/ci.yml`. The
+[property failure rules](method-benchmarking.md#property-fitting-failures) describe it.
 
 ## Notebook artifacts
 

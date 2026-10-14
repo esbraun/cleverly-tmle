@@ -351,7 +351,13 @@ PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
-    """Run every declared replication and derive the calibration controls from the same rows."""
+    """Run every declared replication and derive the calibration controls from the same rows.
+
+    A fit that raises a recordable error costs its cells one replication. A bootstrap that lost
+    draws writes ``bootstrap_failed_draws``, and the row rule ``_lost_draws`` records that row as
+    an ``invalid_result``, so the bootstrap's own count never reaches ``failed_replicates``. The
+    driver is the one writer of that column.
+    """
     outcomes = fit_properties(
         _payloads(budget),
         splat(_dispatch),

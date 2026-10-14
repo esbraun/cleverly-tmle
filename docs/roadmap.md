@@ -24,6 +24,8 @@ complete. [The roadmap at commit `6a55f038`](https://github.com/esbraun/cleverly
 holds its questions, and the [natural-extension verdicts](technical-reference/natural-extension-verdicts.md) hold its answers.
 [The roadmap at commit `287a1fb5`](https://github.com/esbraun/cleverly-tmle/blob/287a1fb5385ad2cc0faa75e05672a3233012c236/docs/roadmap.md#rm40-correct-the-dr-tmle-inference-claim-when-one-nuisance-is-wrong)
 holds the record of RM40, the DR-TMLE one-wrong inference correction.
+[The roadmap at commit `2a8ad955`](https://github.com/esbraun/cleverly-tmle/blob/2a8ad9552e7aeb19f171643da5311eb0c6b03a91/docs/roadmap.md#rm39-keep-a-study-run-alive-through-a-failed-replicate)
+holds the record of RM39, the failed-replicate contract.
 
 ## Remediation
 
@@ -39,100 +41,8 @@ A new capability still needs its own contract and evidence, even in this queue.
 
 | priority | item | tier | acceptance |
 | ---: | --- | --- | --- |
-| 0.1 | RM39. Keep a study run alive through a failed replicate | b | the contract in [RM39](#rm39-keep-a-study-run-alive-through-a-failed-replicate), its tests, and passing handoff checks |
-| 0.2 | RM41. Find the DR-TMLE bias with an in-sample flexible mechanism | a | the contract in [RM41](#rm41-find-the-dr-tmle-bias-with-an-in-sample-flexible-mechanism), its tests, and passing handoff checks |
-
-RM39 keeps 0.1 by user decision, although RM41's tier ranks higher.
-
-### RM39. Keep a study run alive through a failed replicate
-
-Status: parts a1 (resilience), a2 (failure recording and accounting) and b1 (the primary
-Python phase) are delivered. Part b2 (the property phase) is open. The section leaves this file
-when b2 merges.
-
-A registered study with a comparator runs in two phases. The Python phase fits `cleverly`. The
-reference phase fits the pinned comparator, usually R in its container. Before RM39, one failed
-replicate stopped a phase, and a killed worker or container lost the whole phase. A run of several
-hours was then lost to one draw.
-
-Goal: one failed replicate costs one replicate. A killed worker costs the group in flight, a crash
-resumes, and the summary accounts for each failure against a declared bound. The row takes tier b,
-because its defect is a crash of a registered study run.
-
-| term | meaning |
-| --- | --- |
-| replicate | one drawn sample and its fits |
-| group | the unit that one fit call takes. A group can hold several scenarios |
-| kill | a group with a start marker and no checkpoint after a pass. Its worker died |
-| incomplete | a group with two kills. The run stops and names the group |
-| checkpoint | the stored result of one group. In part a2, also the failure record of one group |
-| resume key | the fields that two runs must share before they share checkpoints |
-| failure | in part a2, an error inside the declared comparator-fit stage. The run records it and counts it against the bound |
-| fatal error | any other error. It stops the phase |
-
-#### Part a1: resilience
-
-Every error stays fatal in part a1. No summary, published table or verdict changes.
-
-| acceptance | status |
-| --- | --- |
-| each R fit runs in a forked child and writes a checkpoint. No fit runs in the parent R process | delivered |
-| the run fits a killed group once more, alone, after it halves the workers. A second kill stops the run with exit 3 and names the group | delivered |
-| a pass that makes no progress stops the run with exit 3 | delivered |
-| a rerun resumes from the checkpoints and writes the bytes of an uninterrupted run | delivered |
-| the resume key holds the declaration without its output path, `HEAD` and the tree state, the reference sources, the harness, the content of the samples and the truth, n, the replicate count and the Python versions | delivered |
-| the worker count follows measured memory. Calibration fits the first group of each scenario in a fresh fork and measures its peak and its private memory | delivered |
-| the driver runs a container that was killed whole once more, with half the workers. A second kill stops the run | delivered |
-| a host lock and a container name refuse a second driver on one resume key | delivered |
-| `ctmle3_oat`, `ctmle_selector` and `drtmle` stay off the harness. Each carries a byte-identical copy of its RM39 functions | delivered |
-| each fit sets the seed that the driver declares for its replicate | delivered |
-| no study is regenerated, because the edits are result-neutral. A runner that fails the determinism gate stops the row | delivered |
-
-The [testing strategy](development/testing-strategy.md#resume-a-study-run) gives the commands, the
-cache locations and the memory log. `tests/canonical/harness_fixture/determinism.csv` records the
-determinism gate for each runner. `tests/canonical/provenance-revisions.md` declares the changed
-hash of `study_harness.R` and of the three runners outside the harness.
-
-#### Part a2: failure recording and accounting
-
-| acceptance | status |
-| --- | --- |
-| a runner wraps its comparator-fit call, and only that call, in `study_stage`. An error inside the stage is a failure: the run records it and continues. Every other error is fatal | delivered |
-| a failure record holds the group, its scenarios and replicates, the attempt, the class, the stage, the call, the message and the seed | delivered |
-| when each of the first 20 groups fails, the run stops with the class `systematic` and the first message | delivered |
-| `StudyRecord.failure_bound` declares a bound for each implementation before the run. The bound is between 0 and 0.05, and the default is 0 | delivered |
-| `failures.csv` publishes each record, and `failure-accounting.csv` publishes the count and rate of each cell. Each file exists only when a failure exists. The published schema does not change | delivered |
-| a cell is red when its failures exceed the bound times the replicate count, rounded down, or when a worst-case leg fails. The [red-cell rule](development/method-benchmarking.md#red-cells) routes it | delivered |
-| a rate takes every split of the failed replicates. A bias statistic keeps its complete-case scale. A spread statistic also takes the survivor mean. A failed reference replicate in a non-inferiority leg takes the reference's best case | delivered |
-| a paired statistic reads only the replicates where both implementations succeeded, and it reports the dropped replicates | delivered |
-| an informative-failure witness reports the error of the surviving implementation on the failed replicates. It is a report, not the gate | delivered |
-| a study hook defines `account_failures`, or its accounting row reads `failures not accountable` and is red | delivered |
-| property cells, efficiency ratios, spread slopes, simultaneous coverage and the negative-control union read Python-phase rows only, so no a2 failure reaches them | moved to part b2 |
-
-The design treats a failure conservatively. It does not rely on a test that failures are
-independent of the outcome, because that test cannot see the missing outcome. The range-bounded
-worst case can miss a failure whose value falls outside the observed range. A small declared bound
-limits that case.
-
-#### Part b1: the primary Python phase
-
-| acceptance | status |
-| --- | --- |
-| `fit_replicates` gives every primary `draw_and_fit` loop the isolation, the records and the checkpoints of parts a1 and a2. With no failure, each study's Python phase writes the bytes it wrote before | delivered |
-| these exceptions stop the phase: `CapabilityError`, `MethodConfigurationError`, `KeyboardInterrupt`, `SystemExit`, `MemoryError`, `TypeError`, `AttributeError`, `NameError`, `ImportError` and `AssertionError`. An error in the draw also stops it | delivered |
-| the phase records only `DataError`, `LongitudinalError`, `numpy.linalg.LinAlgError`, `FloatingPointError`, `ZeroDivisionError`, `OverflowError`, and a plain `ValueError` or `RuntimeError` that `numpy`, `scipy`, `sklearn` or `statsmodels` raised | delivered |
-| a subject row that breaks a row rule is an `invalid_result` record | delivered |
-| the accounting fills a lost subject value at its worst case, counts each side against its own bound, and charges a `paired_input_missing` reference loss to the subject | delivered |
-| the Python phase checkpoints each replicate under the part a1 resume key. A killed worker costs the replicates in flight, and a second kill of one replicate stops the run | delivered |
-| `CoverageStudy` records the same classes and accepts a `ReplicationCheckpoint` | delivered |
-| the zEpid runner records failures, stops on the systematic prefix and when every group failed, and resumes from the driver's stored reference result. It keeps one container | delivered |
-
-#### Part b2: the property phase
-
-| acceptance |
-| --- |
-| `fit_replicates` gives the property studies the records and the checkpoints of part b1 |
-| property cells, efficiency ratios, spread slopes, simultaneous coverage and the negative-control union account for their lost replicates |
+| 0.1 | RM41. Find the DR-TMLE bias with an in-sample flexible mechanism | a | the contract in [RM41](#rm41-find-the-dr-tmle-bias-with-an-in-sample-flexible-mechanism), its tests, and passing handoff checks |
+| 0.2 | RM42. Declare the primary failure bounds | f | the contract in [RM42](#rm42-declare-the-primary-failure-bounds), its tests, and passing handoff checks |
 
 ### RM41. Find the DR-TMLE bias with an in-sample flexible mechanism
 
@@ -160,6 +70,27 @@ learners.
 | a defect of the code is fixed, with a test that fails before the fix |
 | a property of the method is stated on the [theorem page](technical-reference/dr-tmle/theorem.md), with the measured numbers |
 
+### RM42. Declare the primary failure bounds
+
+Status: open. A plan is needed.
+
+RM39 delivered the failure record and accounting for the primary phase, the reference phase, and
+the property phase. Each property module declares `FAILURE_BOUND = 0.01` for its next run.
+`StudyRecord.failure_bound` for the primary phase stays empty, which is a bound of 0. The primary
+bound enters the published claims (`claims.py` writes `margin:<side>_failure_bound`) and the
+primary manifest (`manifest.py` writes `failure_bound`). A change there moves claim artifacts,
+which RM39 did not regenerate.
+
+At bound 0, one failed primary fit turns its cell red. Seeds are deterministic, so a failing
+replicate fails again on every rerun, and the cell stays red. A declared bound lets the worst case
+of each leg decide the cell.
+
+| acceptance |
+| --- |
+| each registered study declares `failure_bound` for each implementation on the merits of its replicate count, in the range 0 to 0.05 |
+| a study declares its bound before the run that it governs, and no committed run of that study shows a failure |
+| the studies whose claim artifacts and manifests carry the bound are regenerated with their documented commands |
+
 Each row takes a tier by the harm that its defect does to a user today. The table gives the tiers,
 from the most harmful. Inside a tier, a row with a wider reach comes first. A row that another row
 depends on comes before that row.
@@ -167,11 +98,11 @@ depends on comes before that row.
 | tier | reason | rows |
 | --- | --- | --- |
 | a | a published number that is wrong, or that no derivation or read source covers. An anti-conservative number ranks above a conservative one | RM41 |
-| b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | RM39 |
+| b | a crash, an exception that is not a refusal, a capability row that reads available and then raises, or an assessment that returns no report | no open row |
 | c | a correct refusal that arrives late or as the wrong type | no open row |
 | d | a diagnostic or a warning that misleads | no open row |
 | e | a display or a message that misstates a fact that the fit records. By extension, an argument check or a capability row that misstates what a call accepts or needs, when no number moves and nothing raises that is not a refusal | no open row |
-| f | an investigation, a declared design that moves no verdict, or a shipped output that no registered study measures | no open row |
+| f | an investigation, a declared design that moves no verdict, or a shipped output that no registered study measures | RM42 |
 | g | a published method needed to resolve a shipped refusal | no open row |
 
 A priority below 1 is a remediation priority, so it does not collide with a main-roadmap priority.

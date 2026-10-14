@@ -70,7 +70,7 @@ The driver publishes both sides' records as `failures.csv` and the accounting as
 | paired input | A study whose reference input does not need the subject's fit still writes the sample of a replicate that the subject lost, so the reference fits it. A study whose reference input comes from the subject's fit writes no such sample. The driver then writes a `paired_input_missing` reference record, which counts against the subject's bound |
 | Python checkpoints | Under the driver, each Python replicate runs in a worker and leaves a checkpoint. A killed worker costs the replicates in flight. Each one runs once more alone, and a second kill stops the run. A `MemoryError` in a worker's fit is a kill. A `MemoryError` elsewhere in the worker stops the run |
 | zEpid | The zEpid runner records failures with a copy of the Python rule that adds `zepid` to the libraries. It runs in one container, so the driver's stored reference result is its resume |
-| property phase | The property studies record no failure in this release. An error there stops the run |
+| property phase | A recordable error in a property fit costs the cells that the fit writes one replicate each. See [Property fitting failures](#property-fitting-failures) |
 
 The stage covers the comparator call only. These conditions stay fatal and stop the run:
 
@@ -83,6 +83,161 @@ The stage covers the comparator call only. These conditions stay fatal and stop 
 A memory-exhaustion error ends the worker as a kill. The same run then refits that group with
 half the workers.
 A failure message can carry a container path. The record keeps it as written.
+
+### Property fitting failures
+
+A property loop fits through `fit_properties` (`tests/studies/evidence/replication.py`). A
+recordable error in one fit costs the cells that the fit writes one replicate each. The run
+continues. The driver opens `replication.recording()` around the property phase and publishes the
+records. These files exist only when a property fit failed. A study with no failure publishes the
+bytes it published before.
+
+| file | content |
+| --- | --- |
+| `property-failures.csv` | one record for each failed fit, with the columns of `failures.csv`. The `scenarios` field lists the `property/cell` names that the fit writes |
+| `property-failure-accounting.csv` | for each summary row that read a lost replicate: the bound, then one row for each declared clause. Each clause row gives the complete-case slack, the worst-case slack, the label, and the gate |
+| `property-failure-witnesses.csv` | the witness of each draw in each cell that lost a replicate |
+
+#### Record and stamp rules
+
+| rule | statement |
+| --- | --- |
+| multi-cell key | One fit can write several cells. A lost fit costs every cell it writes one replicate. `cells_of` lists those cells. A fit whose rows differ from `cells_of` stops the run |
+| `DERIVED_CELLS` | A module declares each base cell's derived controls (`shrunken_se_control`, `noise_control`). A record of the base names its controls, because they lose the same replicate |
+| stamp | The driver is the only writer of `failed_replicates`. It sets each cell's count from the records. `reconcile` refuses a cell whose missing ids differ from its recorded ids |
+| `require_accounted` | A cell may be short by exactly its stamped failures and must keep two replicates. Any other gap stops the summary |
+| pairing | A paired statistic reads the replicates that both arms kept (`paired`). It refuses a misalignment that no stamp explains. The rule covers cross-key pairs, the selector arms, and `projection_sd_ratio` |
+| derived noise | `calibration_controls` draws `noise_control` over the requested range and indexes the noise by replicate. A lost base replicate changes no other control row |
+| verdict budget | `_at_verdict_budget` keeps the ids below the verdict budget. It never refills a lost id from a later one. It sets `failed_replicates` to the ids lost below the budget. A loss at a higher id shows on the slope row only |
+| rate rows | `fitted_rate_row` stamps the sum of its rungs' failures |
+| draw split | Where a worker's body separates, the sample is drawn in `draw=`, outside the classifier. An error in the draw stops the run. A module whose body does not separate keeps the draw inside the fit, so a recordable error in the draw counts as a fitting failure. This is a declared deviation. `WORKER_EXCEPTIONS` in `tests/canonical/python_phase_identity.py` lists the modules whose worker source changed with the split. The 20-replicate prefix and the bound limit the effect |
+| `known_mechanism` | A bootstrap that lost draws writes the side column `bootstrap_failed_draws`. The row check records that row as an `invalid_result`, and the published row writes 0. This extends the row rules of the `invalid result` rule |
+| memory cap | `longitudinal_mtp` caps its workers for each size. The pool keeps at least two workers, so a size with a cap of 1 can run two fits. The driver retries a worker killed for memory alone |
+| classifier | The classes and the stop conditions of the `subject failures` rule apply to the property phase |
+| no collector | Outside the driver, a recorded property failure raises `RuntimeError`. Tests and diagnostics keep the all-fatal behavior |
+| checkpoints | The property phase checkpoints each fit under `checkpoints/<implementation>/properties[/<name>]/`. A rerun refits only the unfinished fits |
+
+#### The bound
+
+| item | rule |
+| --- | --- |
+| declaration | Every property module declares `FAILURE_BOUND`. The value is 0.01 in every module. The range is 0 to 0.05 |
+| allowance | A cell may lose `floor(b * R)` replicates. The smallest committed cell (`R` = 400) allows 4. A contraction rung of 73,000 replicates allows 730 |
+| gate | A cell above its allowance reads `bound exceeded` before any clause runs. A cell inside it reads `within bound` or `worst case fails`, by its clauses |
+| declared before the run | The value governs a study's next property run. No committed property run lost a replicate, so the value rescues no committed result |
+| raising | Raise the bound only while no committed run of the study shows a property failure |
+| lowering | Lowering is allowed. It changes the `bound` and `allowed` columns, so the property phase reruns in the same change |
+| manifest | A property run writes `configuration.property_failure_bound`. A `--skip-properties` run copies the committed manifest's key, or its absence. The fast tier fails a manifest whose key differs from the module, and failure files without the key |
+| primary phase | The primary phase bounds do not change. [RM42](../roadmap.md#rm42-declare-the-primary-failure-bounds) declares them |
+
+The value 0.01 follows from these facts.
+
+| fact | consequence |
+| --- | --- |
+| Seeds are deterministic, so a pathological replicate fails again on every rerun | At bound 0 the cell stays red. At 0.01 the worst case of the claim decides |
+| At bound 0 the gate returns `bound exceeded` before it reads a clause | At 0.01 every declared clause can act in a real run |
+| A lost fit is plausibly an extreme draw, so its estimate is the least likely to lie in the survivor range | For an unbounded statistic, the worst-case mean shift is about `b * sqrt(R) * range / sd` standard errors. This is about 1 at `R` = 400 and about 3 at `R` = 2,400. Large cells turn red through their clauses before they reach the allowance |
+| A bounded statistic fills its full support | The range assumption does not apply to it |
+
+#### Accounting statistics
+
+Each clause reads one statistic. Each statistic has a candidate set for the `k` lost values. A
+cell is red when a clause that holds on the complete cases fails under one candidate. A
+`support` clause fills a bounded variable over its full support and needs no assumption. A `range`
+clause assumes that a lost value lies inside the survivor range and that the scale of the margin
+stays at its complete-case value. Every bootstrap in a candidate uses the verdict's own seed, so
+the case `k = 0` reproduces the complete case.
+
+| statistic | verdicts it judges | candidate fills | tier | label |
+| --- | --- | --- | --- | --- |
+| S1 bias interval | equivalence, discrimination, and a fixed floor on the bias interval | errors at every vertex split between the survivor minimum and maximum, with the scale held. A sided clause holds on its declared side | exact | `range` |
+| S2 coverage rate | coverage floors, bands, and ceilings | `covered = 1` for `j` of `k` lost values, for every `j` | exact | `support` |
+| S3 rejection rate | type-I error, power, warning rate | `rejected = 1` for `j` of `k`, for every `j` | exact | `support` |
+| S4 SE ratio, point | the SE sanity band | the SEs at the survivor extremes against the estimates at the survivor mean and at each vertex split | exact | `range` |
+| S5 SE and efficiency ratio intervals | calibration bands and controls | the S4 set, through `ratio_intervals` | enumerated | `range` |
+| S6 rate slope | root-n rate, contraction slopes | for each lost rung, every vertex split and the survivor mean, with exact pruning. For a bias slope, also the fill nearest a zero mean | point exact, interval enumerated | `range` |
+| S7 coverage gain | paired overfitting and clustered gain | a lost positive arm at `covered = 0`, a lost control arm at `covered = 1`, the surviving arms at their real values | exact | `support` |
+| S9 paired spread ratio | randomizer projection, repeat stability | the numerator at each vertex split and the denominator at the survivor mean, or the reverse for a lower bound | point exact, interval enumerated | `range` |
+| S10 extra column mean | a cap or a floor on a published column | the lost rows at the adverse support bound for a share, otherwise at the survivor maximum or minimum | exact | `support` for a share, else `range` |
+| S12 paired displacement | the 16 necessity families | the attainable difference of the arm means, with `sd` of the left arm held | exact under the held scale | `range` |
+| S13 RMSE ratio, point | selector necessity | the numerator errors at the farther survivor end, the denominator estimates at the truth | exact when the truth lies in the survivor range | `range` and `support` |
+| S14 two-size absolute-bias bound | single robustness, sequential robustness | the larger size at every vertex split, the smaller size at equal fills | exact | `range` |
+| S15 standardized-bias growth | `one_wrong_inference` rule G | every vertex split, the equal fills that maximize and minimize the ratio, and the fill nearest a zero mean | point exact, interval enumerated | `range` |
+
+"Exact" means that the candidate set reaches the worst value over every completion that the
+label allows. "Enumerated" means that the set is a finite list. The verdict's own bootstrap
+evaluates it. The list does not prove that no other fill is worse.
+
+#### Rule per family
+
+A module declares its rules in `PROPERTY_RULES`, beside `summarize_properties`. A module rule
+takes precedence over the shared `FAMILY_RULES` entry. The fast tier fails a verdict family that
+resolves to no rule. The `group` of a rule names the cells that share a joint verdict: `row`,
+`pair`, `label`, or `family`. A module declares its pairs and labels in `PROPERTY_GROUPS`. The
+rule never infers a pair from a cell name.
+
+| families | clauses | group |
+| --- | --- | --- |
+| `double_robustness`, `cde_robustness`, `mar_robustness`, `robustness_contract` | positive: S1 equivalent, S4 in the union band. control: S1 discriminated, S4 | `row` |
+| `root_n_and_efficiency` | positive: S2 floor, S4 sanity, S1 equivalent. control: S2 resolve rule | `row` |
+| `root_n_rate`, `double_robust_contraction` slopes | S6 slope inside the band, or the sign of the bias slope | `row` |
+| `type_i_error`, `power`, `warning_rate` | S3, with the S2 floor for `type_i_error` | `row` |
+| `interval_calibration` and its controls | S5 in the band, S2 in the band, S5 efficiency where a band is declared | `row` |
+| `simultaneous_coverage` | S2 in the band, or at the ceiling for the control | `row` |
+| `crossfit_overfitting`, `clustered_inference` | S5 and S2 on each cell, S7 gain on the pair | `pair` |
+| `few_cluster_reference` | S1 equivalent, S2 floor, S5 ceiling | `row` |
+| the 16 displacement families | S1 on each cell, S12 minimum over the labels | `family` |
+| `selector_necessity` | S1 on each arm, S13 maximum over the paths | `family` |
+| `generated_design` | S5 and S2 on each cell, then every cell passes | `family`, or `label` in `ctmle_oat_per_arm` |
+| `treatment_score_necessity`, `mechanism_term_necessity` | S5 on each cell, then every cell passes | `family` |
+| `mechanism_requirement` | S1 on each cell, then every cell passes | `family` |
+| `estimand_weighting` | S2 on each cell, then every cell passes | `family` |
+| `known_mechanism_accuracy`, `ordinary_targeting`, `treatment_complete_case` | S1, S2, S4 as the verdict applies them | `row` |
+| `bootstrap_coverage` | S2 floor | `row` |
+| `randomizer_projection` | S1 on each arm, S9 on the pair of projections | `family` |
+| `repeat_stability` | S9 | `row` |
+| `single_robustness` | S14 over the two sizes | `family` |
+| `sequential_double_robustness` | S14 over the two sizes, with S1, S2, S4 on the both-correct pattern | `pair`, `row` |
+| `clustered_calibration`, `weighted_calibration` | S5 and S2 in the band | `row` |
+| `one_wrong_inference` | rules C, V and F with S1, S2, S4, S5, and rule G with S15 | `row` |
+| `corrected_mar_inference`, `correction_necessity` initial score | S1 equivalent or beyond a floor, S2, S4 | `row` |
+
+Three clauses are not accountable, because no sound candidate set exists. A lost replicate in
+one of them turns the cell red at any bound, and the reason reads `failures not accountable`.
+Diagnose the cell, fix the cause, and rerun.
+
+| clause | reason |
+| --- | --- |
+| `natural_course_identity` and `static_reduction` | The clause is a supremum of a difference with a fixed tolerance. One lost value moves a supremum by an order-one amount. A range fill leaves it unchanged, so the leg would pass whenever the complete case passes. A wider fill fails every time |
+| the closed-score clause of `correction_necessity` | The claim is that the fit's score closes. A recorded fit failure is a counterexample, and a range fill assumes it away. No range completion fails the clause, so the leg is vacuous |
+
+Rows with no verdict (`fold_policy`, `cluster_aggregation_rule`, `in_sample_agreement`,
+`variance_direction`, `one_wrong_reported`, `construction_diagnostic`, `sdr_tmle_agreement`,
+`censoring_complete_case`, `in_sample_fit`, and the diagnostic rows of `few_cluster_reference` and
+`single_robustness`) get no accounting row. The stamp is their record.
+
+#### The informative-failure witness
+
+Each module declares `PROPERTY_WITNESS`, a statistic of the draw that needs no fit. A lost
+replicate's draw is regenerated from its deterministic seed. The accounting reports the statistic
+and its quantile among the cell's survivors. The report is not a gate, because no validated
+threshold exists. A draw that does not separate from the fit reports `nan` with the reason
+`draw not separable`.
+
+#### The property differential
+
+A rule restates a verdict that the study's own `summarize_properties` computes. A rule that drops
+a conjunct would let a lost replicate turn a cell green. Two checks guard the rules.
+
+| check | where | content |
+| --- | --- | --- |
+| differential | the `property-differential` job of `.github/workflows/ci.yml`, from `tests/canonical/property_differential.py` | The job perturbs the property rows of every committed study and of three uncommitted modules (on synthetic rows). It summarizes them with the study's own code. The declared rules must give the same `passed` and `property_passed` on every verdict row. The perturbations scale `std_error`, shift `estimate`, flip indicators, push a slope across zero, collapse one arm of a pair, apply a seeded affine map, and scale or shift each extra column |
+| clause binding | the same job | Each declared clause must decide a verdict alone under at least one perturbation of at least one study. `tests/canonical/clause-bindings.csv` names the witness. A clause that no perturbation moves fails the job |
+| fast tier | `tests/unit/test_method_evidence.py` | The job's parametrization lists every committed study. Every verdict family resolves to a rule. A module that writes `passed` outside a shared function declares `PROPERTY_RULES`. Each shared rule reproduces the committed verdicts. The bound and the manifest key agree |
+
+The job needs about 4,700 CPU-seconds, so it does not run in the fast tier. It runs on every pull
+request that touches `tests/studies/` or `tests/canonical/`. Make it a required check. It always
+reports, and it skips its steps on other pull requests.
 
 ### Choose the comparator before you write the runner
 
@@ -282,7 +437,9 @@ replication, invalid schemas, non-finite estimates, or incomplete provenance. Ex
 Published studies retain `replicates.csv.gz`, `property-replicates.csv.gz`, `summary.csv`,
 `performance-tests.csv`, `equivalence.csv`, `properties.csv`, and a provenance- and hash-complete
 `manifest.json`. A run with a recorded comparator failure also retains `failures.csv` and
-`failure-accounting.csv`. Run a disposable smoke study first, then the declared study without permitting
+`failure-accounting.csv`. A run with a recorded property failure also retains
+`property-failures.csv`, `property-failure-accounting.csv`, and `property-failure-witnesses.csv`.
+Run a disposable smoke study first, then the declared study without permitting
 failed replications. The [red cells](#red-cells) section states what may change after a result.
 
 A regeneration owns its declared core budget. Do not run the Python and R full-core phases concurrently. Do not run the fast tests
