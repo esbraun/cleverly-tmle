@@ -488,6 +488,50 @@ def _has_no_arms(data: CausalData) -> bool:
     return data.treatment_kind in ("continuous", "vector")
 
 
+def _fitted_cells(
+    data: CausalData, ratio: str
+) -> tuple[FloatArray, FloatArray, Callable[[float], str]] | None:
+    """The cells a vector fit's categorical factor classifies, when the fit has one.
+
+    The density route at a vector treatment with a dose fits :math:`g_C`, one multinomial
+    over the observed cells of the categorical components
+    (:func:`~cleverly.interventions.joint_density.evaluate_joint_density`).  A training
+    complement that lacks a cell predicts probability zero for it, and the ratio of a
+    policy that moves mass into that cell is then zero on the held-out rows.  So each cell
+    is an arm for the support preflight, with every-level semantics.  The classifier route
+    fits no cell probabilities, and a vector with no categorical component has one cell.
+
+    Returns
+    -------
+    tuple or None
+        ``(cell code per row, cell codes, describe)``, or ``None`` when the fit classifies
+        no cells.
+    """
+    if data.treatment_kind != "vector" or ratio != "density":
+        return None
+    assert data.treatment_components is not None
+    categorical = [index for index, levels in enumerate(data.component_levels) if levels]
+    if not categorical:
+        return None
+    codes = np.asarray(data.treatment_components, dtype=float)[:, categorical]
+    cells, per_row = np.unique(codes.astype(np.int64), axis=0, return_inverse=True)
+    names = [data.component_names[index] for index in categorical]
+
+    def describe(code: float) -> str:
+        cell = cells[round(float(code))]
+        labels = (
+            f"{name}={data.component_levels[index][int(level)]!r}"
+            for name, index, level in zip(names, categorical, cell, strict=True)
+        )
+        return f"cell ({', '.join(labels)})"
+
+    return (
+        np.asarray(per_row, dtype=float).reshape(-1),
+        np.arange(cells.shape[0], dtype=float),
+        describe,
+    )
+
+
 def _all_tilts(policies: Sequence[object]) -> bool:
     """Whether every declared policy is a risk-ratio tilt, which has its own estimands."""
     return bool(policies) and all(isinstance(item, RiskRatioTilt) for item in policies)
@@ -2530,6 +2574,20 @@ class TMLE:
                     lambda value: f"row(s) in arm {data.arm_label(value)}",
                 )
             )
+        cells = _fitted_cells(data, self.ratio) if fits_treatment else None
+        if cells is not None:
+            # The density route's categorical factor classifies the cells, so a package
+            # Super Learner there splits on them as it would on arms.
+            per_row, _, describe = cells
+            roles.append(
+                (
+                    "treatment",
+                    self._resolve_learner(self.treatment_learner, task="classification"),
+                    everyone,
+                    per_row,
+                    lambda value: f"row(s) in {describe(value)}",
+                )
+            )
         roles.append(
             (
                 "response",
@@ -2712,16 +2770,28 @@ class TMLE:
         """
         treatment = np.asarray(data.treatment, dtype=float)
         arms = np.asarray(() if _has_no_arms(data) else data.arm_codes, dtype=float)
+
+        def describe_arm(code: float) -> str:
+            return f"arm {data.arm_label(code)}"
+
+        describe: Callable[[float], str] = describe_arm
+        what, noun = "treatment arm", "arm"
+        cells = _fitted_cells(data, self.ratio)
+        if cells is not None:
+            treatment, arms, describe = cells
+            what = f"cell of the categorical components of {data.treatment_name!r}"
+            noun = "cell"
+            remedy = f"{remedy}, or pass ratio='classifier', which fits no cell probabilities"
         observed = np.asarray(data.observed, dtype=bool)
         unit_of, unit = _independent_units(data)
         for arm in arms:
             count = int(np.unique(unit_of[treatment == arm]).size)
             if count < 2:
                 raise DataError(
-                    f"{subject} needs each treatment arm in at least two independent "
-                    f"units, and arm {data.arm_label(arm)} appears in {count} {unit}(s). "
+                    f"{subject} needs each {what} in at least two independent "
+                    f"units, and {describe(arm)} appears in {count} {unit}(s). "
                     f"A split moves whole {unit}s, so every partition leaves some training "
-                    "complement without that arm and no fold count or seed can fit the "
+                    f"complement without that {noun} and no fold count or seed can fit the "
                     f"treatment mechanism; {remedy}"
                 )
         if data.family == "binomial":
@@ -2750,7 +2820,7 @@ class TMLE:
             # asks nothing, because every row is then a respondent.
             ("response", observed, np.array([True])),
         ]
-        if not _has_no_arms(data):
+        if arms.size:
             support.insert(0, ("arm", treatment, arms))
         if data.family == "binomial":
             outcome = np.where(observed, np.asarray(data.outcome, dtype=float), -1.0)
@@ -2762,7 +2832,7 @@ class TMLE:
                 fold, name, missing = gap
                 value = float(missing[0])
                 if name == "arm":
-                    described = f"row in arm {data.arm_label(value)}"
+                    described = f"row in {describe(value)}"
                 elif name == "response":
                     described = "row with an observed outcome"
                 else:

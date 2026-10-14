@@ -3376,7 +3376,9 @@ class _SequentialEstimator:
         )
 
         horizons = self._horizons(prepared)
-        preflight_mechanism_support(prepared, prepared.regimen_masks(prepared.treatment), folds)
+        preflight_mechanism_support(
+            prepared, prepared.regimen_masks(prepared.treatment), folds, ratio=self.ratio
+        )
         preflight_terminal_outcomes(prepared, plans, horizons, folds)
         treatment_learner = resolve_learner(
             self.treatment_learner,

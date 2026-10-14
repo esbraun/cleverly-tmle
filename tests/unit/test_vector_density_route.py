@@ -41,7 +41,7 @@ import tests.discrete_law_vector_density as geo
 from cleverly.data import CausalData
 from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import DataError, PositivityWarning
+from cleverly.exceptions import DataError, LongitudinalError, PositivityWarning
 from cleverly.interventions import (
     JointPolicy,
     ModifiedPolicy,
@@ -50,7 +50,7 @@ from cleverly.interventions import (
     Scale,
     Shift,
 )
-from cleverly.longitudinal import LTMLE
+from cleverly.longitudinal import LTMLE, SDR
 
 from .. import discrete_law_longitudinal as binary_law
 from .. import discrete_law_longitudinal_mtp as long_law
@@ -1110,3 +1110,119 @@ def test_m4_a_vector_fit_refuses_before_any_learner(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(density_module, "fit_learner", refuse)
     with pytest.raises(MethodConfigurationError, match="pooled hazard design"):
         _fit_geo_policy(geo_joint("full"))
+
+
+# ------------------------------------------------------------------ cell support (review HIGH-1)
+
+
+class _NoFit:
+    """A learner that fails if any fit runs, so a refusal is shown to come first."""
+
+    def get_params(self, deep: bool = True) -> dict[str, Any]:
+        return {}
+
+    def set_params(self, **params: Any) -> _NoFit:
+        return self
+
+    def fit(self, *args: Any, **kwargs: Any) -> _NoFit:
+        raise AssertionError("a learner ran before the cell-support refusal")
+
+    def predict_proba(self, x: Any) -> Any:
+        raise AssertionError("a learner ran before the cell-support refusal")
+
+
+def _lone_flag(frame: pd.DataFrame, flag: str) -> pd.DataFrame:
+    """The frame with ``flag = 1`` on exactly one row, which every split leaves out once."""
+    out = frame.copy()
+    out[flag] = 0.0
+    out.loc[out.index[0], flag] = 1.0
+    return out
+
+
+def test_a_point_cell_one_unit_holds_is_refused_before_any_learner() -> None:
+    """The density route's g_C needs every cell in each training complement.
+
+    Without the refusal the fit returned, and the ratio at the lone row was exactly zero:
+    the complement's multinomial gave the cell probability zero (review HIGH-1).
+    """
+    frame = _lone_flag(point_law.mixed_sample(400, 3), "F")
+    data = point_tests.vector_data(frame)
+    estimator = TMLE(
+        policies=[point_joint("dose up")],
+        outcome_learner=_NoFit(),
+        treatment_learner=_NoFit(),
+        ratio="density",
+        cross_fit=True,
+        n_folds=5,
+        random_state=0,
+    )
+    with pytest.raises(DataError) as caught:
+        estimator.fit(data)
+    message = str(caught.value)
+    assert "needs each cell of the categorical components of 'F+D'" in message
+    assert "cell (F=1) appears in 1 row(s)" in message
+    assert "ratio='classifier'" in message
+
+
+def test_a_point_cell_that_one_training_fold_lacks_is_refused() -> None:
+    """Two rows of a cell in one fold leave that fold's complement without the cell."""
+    from cleverly import SplitPlan
+    from cleverly.learners import random_partition
+
+    drawn = random_partition(400, 4, seed=0)
+    first = np.flatnonzero(np.asarray(drawn.assignment) == 0)[:2]
+    frame = point_law.mixed_sample(400, 3)
+    frame["F"] = 0.0
+    frame.loc[frame.index[first], "F"] = 1.0
+    data = point_tests.vector_data(frame)
+    plan = SplitPlan.from_folds([drawn])
+    estimator = TMLE(
+        policies=[point_joint("dose up")],
+        outcome_learner=_NoFit(),
+        treatment_learner=_NoFit(),
+        ratio="density",
+        split_plan=plan,
+    )
+    with pytest.raises(DataError, match=r"contains no row in cell \(F=1\)"):
+        estimator.fit(data)
+
+
+def test_the_classifier_route_fits_no_cell_probabilities_and_is_not_refused() -> None:
+    """The cell check belongs to the density route; the classifier route still fits."""
+    from sklearn.linear_model import LogisticRegression
+
+    frame = _lone_flag(point_law.mixed_sample(400, 3), "F")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = TMLE(
+            policies=[point_joint("dose up")],
+            outcome_learner=LogisticRegression(),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            ratio="classifier",
+            cross_fit=True,
+            n_folds=5,
+            random_state=0,
+        ).fit(point_tests.vector_data(frame))
+    assert np.isfinite(result.single().psi("ey_policy[dose up]"))
+
+
+@pytest.mark.parametrize("estimator", [LTMLE, SDR])
+def test_a_longitudinal_mixed_cell_a_training_fold_lacks_is_refused(estimator: Any) -> None:
+    """At a mixed node the cells of the categorical components are levels of g_C."""
+    frame = _lone_flag(long_law.mixed_sample(400, 3), "F2")
+    configuration = long_tests.settings(
+        outcome_learner=_NoFit(),
+        pseudo_learner=_NoFit(),
+        treatment_learner=_NoFit(),
+        censoring_learner=_NoFit(),
+        n_folds=5,
+        random_state=0,
+        ratio="density",
+    )
+    with pytest.raises(LongitudinalError) as caught:
+        estimator(mtp.mixed_regimens(("natural", "dose up")), **configuration).fit(
+            frame, **long_tests.COLUMNS
+        )
+    message = str(caught.value)
+    assert "is missing level(s) ['cell (F2=1.0)']" in message
+    assert "ratio='classifier'" in message
