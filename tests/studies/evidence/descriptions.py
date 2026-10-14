@@ -970,10 +970,6 @@ PROPERTIES: dict[str, str] = {
         "the cumulative-incidence recursion uses all-cause survival rather than survival from "
         "the target cause alone"
     ),
-    "horizon_calibration": (
-        "the SE ratio and coverage of the earlier horizons of a repeated outcome, reported "
-        "rather than gated"
-    ),
     "small_sample_calibration": (
         "the SE ratio and coverage of the in-sample fits at n = 2,000, where few units follow "
         "the rule to the last node, reported rather than gated"
@@ -1612,7 +1608,7 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("interval_calibration", "estimated_mechanisms"): (
         "n = 8,000, in sample, main-terms logistic mechanisms estimated, quasibinomial GLM outcome "
-        "regressions",
+        "regressions, every horizon",
         "SE-ratio and coverage intervals inside the calibration bands",
     ),
     ("interval_calibration", "crossfit_glm"): (
@@ -1629,10 +1625,6 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "n = 8,000, the three-value outcome law, least-squares outcome regressions, main-terms logistic "
         "mechanisms estimated",
         "SE-ratio and coverage intervals inside the calibration bands",
-    ),
-    ("horizon_calibration", "estimated_mechanisms"): (
-        "the in-sample calibration fits, read at an earlier horizon",
-        "reported, no verdict",
     ),
     ("small_sample_calibration", "estimated_mechanisms"): (
         "the in-sample binary calibration arm at n = 2,000",

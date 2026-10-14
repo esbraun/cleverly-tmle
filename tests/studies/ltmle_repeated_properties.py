@@ -7,8 +7,9 @@ configuration, replicate)``.  Every truth is enumerated: the binary truths come 
 the control limits and the continuous law.  The labels name the parameters:
 ``never_t3`` is ``ey_regimen[never @ t=3]`` and ``rule_vs_never_t3`` is the rule's contrast
 at ``t = 3``.  The five ``*_t3`` labels are the gated labels.  The ``interval_calibration``
-arms draw ``n = 8,000`` (:data:`CALIBRATION_N`); every other family draws ``n = 2,000``
-(:data:`N`).  Budgets says why.
+arms draw ``n = 8,000`` (:data:`CALIBRATION_N`), and so does
+``repeated_outcome_necessity`` (:data:`ABSORBING_N`).  Every other family draws
+``n = 2,000`` (:data:`N`).  Budgets and the revision note say why.
 
 Declared before any run
 -----------------------
@@ -21,9 +22,9 @@ C1 ``interval_calibration``     ``*_t3__estimated_mechanisms``: in sample, the m
                                 design (correctly specified), quasibinomial GLM outcome
                                 regressions.  ``simultaneous=True``.  3,200 replications.
                                 The derived ``shrunken_se_control`` and ``noise_control``
-                                arms read these rows
-``horizon_calibration``         the same fits read at ``t = 1`` and ``t = 2``.  Role
-                                ``diagnostic``: reported, never gated
+                                arms read these rows.  The same fits read at ``t = 1``
+                                and ``t = 2`` are the C1 cells of the eight earlier-horizon
+                                labels, gated by the same rule
 ``small_sample_calibration``    ``*_t3__{estimated_mechanisms,continuous_gaussian}``: C1
                                 and C6 refitted at ``n = 2,000``.  Role ``diagnostic``:
                                 reported, never gated.  2,000 replications
@@ -63,15 +64,13 @@ ty``                            ``__history_free``, an end-of-study fit with eve
 
 Gating, declared before any run:
 
-* the SE-ratio band gates the ``t = 3`` means and contrasts only.  The earlier horizons
-  publish their calibration under ``horizon_calibration`` with no verdict;
+* the SE-ratio band gates every C1 cell, at every horizon.  The other calibration arms
+  gate the ``t = 3`` labels;
 * every other positive cell answers to its family's shared rule, and each control to the
   opposite direction of the same instrument;
-* a red SE-ratio or coverage row is finite-sample only when its SE-ratio 99% interval
-  contains 1, its coverage interval is consistent with 0.95, and a diagnosis finds no
-  defect.  Such a row then publishes under ``reporting`` with the owner
-  ``X32-finite-sample``, and the run is not repeated.  Any other red row is a defect, which
-  is fixed before a fresh declaration.
+* a red row is diagnosed.  A defect is fixed, and a finite-sample shortfall gets the
+  ``n`` that a pilot shows removes it.  Either change is re-declared and re-run on fresh
+  seeds.  No red row is deferred to a later roadmap item.
 
 Budgets.  The calibration size and budget come from a pilot that ran before this
 declaration (:func:`pilot_se_ratios`, the ``pilot`` stream, which no published cell reads).
@@ -100,13 +99,16 @@ control reaches the limit within 0.001.  The cause is the control's learner.  An
 cell fell back to the training mean, the fallback that :class:`CellMeansBackoff` replaces.
 Over 150 draws at ``n = 2,000`` the backoff leaves a mean bias of 0.0096 for the rule, near
 its margin.  Over 120 draws at ``n = 8,000`` every absorbing control is within 0.001 of its
-limit.  N1 therefore draws ``n = 8,000`` with the backoff learner.  Every other family keeps
-its seeds and size, so the re-run reproduces its rows.
+limit.  N1 therefore draws ``n = 8,000`` with the backoff learner.  The first run also
+read the earlier horizons as a reported diagnostic.  Their intervals ship, so C1 now gates
+them.  The first run's rows informed both changes, so the second declaration draws fresh
+seeds (:data:`~tests.studies.canonical_ltmle_repeated.SEED`) for every family.
 """
 
 from __future__ import annotations
 
 import time
+import warnings
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -126,9 +128,9 @@ from tests.parallel import STUDY_JOBS
 from tests.studies import ltmle_repeated_law as law
 from tests.studies.canonical_ltmle_repeated import (
     COLUMNS,
+    EARLIER_LABELS,
     G_BOUNDS,
     GATED_LABELS,
-    REPORTED_LABELS,
     RULE_LABEL,
     STUDY,
     label_estimand,
@@ -152,7 +154,7 @@ from tests.studies.evidence.property_verdicts import (
 )
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import joint_coverage_rows
-from tests.studies.fractional_glm import QuasiBinomialGLM
+from tests.studies.fractional_glm import QuasiBinomialGLM, QuasiBinomialSeparationWarning
 
 N = 2_000
 #: The sample size of every ``interval_calibration`` arm.  See the module docstring, Budgets.
@@ -275,12 +277,19 @@ class CellMeansBackoff(BaseEstimator):
     ``rule_t3__absorbing_reading`` reached 0.569 against :data:`ABSORBING_LIMIT` 0.615, and
     ``always_t3`` 0.728 against 0.740.  A GLM on the same rows predicts an unseen cell from its
     neighbours, so the fit converges to the same limit with less finite-sample bias.
+
+    The GLM separates by construction.  Once an earlier outcome is 1, the running maximum is 1,
+    so that history column predicts the response exactly.  The last iterate then predicts
+    close to 1 on such a row, which is the limit.  The fit therefore keeps it and drops
+    :class:`QuasiBinomialSeparationWarning`.  A fit whose deviance does not settle still raises.
     """
 
     def fit(self, X: Any, y: Any, sample_weight: Any = None) -> CellMeansBackoff:
         matrix = np.asarray(X, dtype=float)
         self.cells_ = CellMeans().fit(matrix, y, sample_weight=sample_weight)
-        self.backoff_ = QuasiBinomialGLM().fit(matrix, y, sample_weight=sample_weight)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", QuasiBinomialSeparationWarning)
+            self.backoff_ = QuasiBinomialGLM().fit(matrix, y, sample_weight=sample_weight)
         return self
 
     def predict(self, X: Any) -> np.ndarray:
@@ -531,13 +540,13 @@ def _replication(payload: tuple[str, str, int, int, int]) -> list[dict[str, Any]
                 )
             )
         if joint:
-            for label in REPORTED_LABELS:
+            for label in EARLIER_LABELS:
                 name = label_estimand(label)
                 rows.append(
                     _row(
-                        "horizon_calibration",
+                        family,
                         f"{label}__{configuration}",
-                        DIAGNOSTIC_ROLE,
+                        "positive",
                         replicate,
                         requested,
                         TRUTH[name],
@@ -715,7 +724,7 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
 
 
 #: The calibration families reported beside their SE-ratio interval and gated by nothing.
-REPORTED_CALIBRATION = ("horizon_calibration", "small_sample_calibration")
+REPORTED_CALIBRATION = ("small_sample_calibration",)
 
 
 def _calibration_report(summary: pd.DataFrame, rows: pd.DataFrame, name: str) -> None:

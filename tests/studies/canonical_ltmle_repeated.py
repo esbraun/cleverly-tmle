@@ -27,9 +27,11 @@ Declared before any run
 * The paired comparison reads the registered :class:`Margins` defaults.
 * Publication policy ``gated``.  The registry takes one policy per study, and the declared
   reading gates the paired cells and the positive property cells.  A red cell is routed by
-  the rule in ``ltmle_repeated_properties``.  A red cell that the rule reads as
-  finite-sample re-registers the study under ``reporting`` with the owner
-  ``X32-finite-sample``, and the run is not repeated.
+  the rule in ``ltmle_repeated_properties``.  A red cell is diagnosed and fixed before a
+  fresh declaration on fresh seeds.  No red cell is deferred.
+* :data:`SEED` and :data:`RESAMPLING_SEED` belong to the second declaration.  The first
+  declaration ran at 5728c3ce on ``20263201``.  Its rows informed the revisions that
+  ``ltmle_repeated_properties`` records, so no published row reads its draws.
 """
 
 from __future__ import annotations
@@ -61,8 +63,8 @@ from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
 PRIMARY_REPLICATES = 1_600
 PRIMARY_N = 2_000
-SEED = 20263201
-RESAMPLING_SEED = 2026320101
+SEED = 20263202
+RESAMPLING_SEED = 2026320201
 SCENARIO = "censored_repeated_outcome"
 HORIZONS = (1, 2, 3)
 TIMES = 3
@@ -118,12 +120,12 @@ DUPLICATES = (
     f"ate_regimen[{RULE_LABEL} vs never @ t=1]",
 )
 
-#: Property-cell labels of the reported parameters at the last horizon.  The SE-ratio rule
-#: gates these and only these.
+#: Property-cell labels of the reported parameters at the last horizon.  Every property
+#: family reads these.
 GATED_LABELS = ("never_t3", "always_t3", "rule_t3", "always_vs_never_t3", "rule_vs_never_t3")
 
-#: The earlier horizons.  Their calibration is reported under ``horizon_calibration``.
-REPORTED_LABELS = (
+#: The earlier horizons.  The C1 calibration arm gates these beside :data:`GATED_LABELS`.
+EARLIER_LABELS = (
     "never_t1",
     "never_t2",
     "always_t1",
@@ -156,13 +158,13 @@ def _property_cells() -> dict[str, tuple[str, ...]]:
     return {
         "interval_calibration": (
             *(f"{label}__{arm}" for label in GATED_LABELS for arm in calibration),
+            *(f"{label}__estimated_mechanisms" for label in EARLIER_LABELS),
             *(
                 f"{label}__{control}"
                 for label in GATED_LABELS
                 for control in ("shrunken_se_control", "noise_control")
             ),
         ),
-        "horizon_calibration": tuple(f"{label}__estimated_mechanisms" for label in REPORTED_LABELS),
         "small_sample_calibration": tuple(
             f"{label}__{arm}"
             for label in GATED_LABELS

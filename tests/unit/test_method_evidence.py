@@ -1254,9 +1254,6 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         property_verdicts.FOLD_POLICY_FAMILY,
         "cluster_aggregation_rule",
         "construction_diagnostic",
-        # The repeated outcome's earlier horizons: the calibration fits read at t = 1 and 2,
-        # whose SE ratio the study declared reported rather than gated.
-        "horizon_calibration",
         # The repeated outcome's in-sample arms at n = 2,000: few units follow the rule to
         # the last node, so the pilot SE ratio sits below the band (X32 pilot).
         "small_sample_calibration",

@@ -81,9 +81,9 @@ def test_the_primary_study_reports_every_unique_parameter_once() -> None:
     assert set(study.TRUTH) == set(study.ESTIMANDS)
     assert not set(study.DUPLICATES) & set(study.ESTIMANDS)
     gated = {study.label_estimand(label) for label in study.GATED_LABELS}
-    reported = {study.label_estimand(label) for label in study.REPORTED_LABELS}
-    assert gated | reported == set(study.ESTIMANDS)
-    assert not gated & reported
+    earlier = {study.label_estimand(label) for label in study.EARLIER_LABELS}
+    assert gated | earlier == set(study.ESTIMANDS)
+    assert not gated & earlier
 
 
 # ---------------------------------------------------------------------------- the law
