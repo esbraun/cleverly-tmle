@@ -128,6 +128,12 @@ class ModelSpec:
         Number of bins for a continuous-treatment conditional density.  ``None`` grows the
         count with the sample, ``max(20, ceil(2 n^(1/3)))``.  A growing count is necessary for
         a consistent density, and the hazard learner must also be consistent.
+    ratio : {"density", "classifier"}
+        How a modified treatment policy's density ratio is estimated.  ``"density"`` divides
+        two fitted conditional densities.  ``"classifier"`` reads the odds of a stacked
+        classifier (Díaz et al. 2023, Section 5.4).  It applies to a point fit with
+        ``ModifiedTreatmentPolicy`` and to a longitudinal fit with a continuous or vector
+        node.  A study refuses ``"classifier"`` where no policy ratio is estimated.
     screen_treatment : bool
         Whether to screen treatment-mechanism covariates by correlation.
     screen_threshold : float
@@ -157,6 +163,7 @@ class ModelSpec:
     pseudo_learner: Any = None
     censoring_learner: Any = None
     density_bins: int | None = None
+    ratio: Literal["density", "classifier"] = "density"
     screen_treatment: bool = False
     screen_threshold: float = 0.1
     min_retain: int | None = None
@@ -171,6 +178,10 @@ class ModelSpec:
             "censoring_learner",
         ):
             _validate_learner(getattr(self, name), name)
+        if self.ratio not in ("density", "classifier"):
+            raise MethodConfigurationError(
+                f"ratio must be 'density' or 'classifier'; got {self.ratio!r}"
+            )
 
 
 @dataclass(frozen=True)
@@ -492,6 +503,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "pseudo_learner": "pseudo_learner",
         "censoring_learner": "censoring_learner",
         "density_bins": "density_bins",
+        "ratio": "ratio",
         "screen_treatment": "screen_treatment",
         "screen_threshold": "screen_threshold",
         "min_retain": "min_retain",
@@ -537,12 +549,11 @@ SHORTCUTS: dict[str, dict[str, str]] = {
 #: Point-engine settings with no longitudinal implementation. The public names are kept beside
 #: their normalized fields so an error names the declaration the caller wrote. ``cross_fit`` is
 #: deliberately absent: the longitudinal translation supports it by resolving ``False`` to
-#: ``n_folds=1``. All 18 settings below must either acquire a longitudinal derivation or remain
-#: explicit refusals; dropping one from the translation is never a supported interpretation.
+#: ``n_folds=1``. Each setting below must either acquire a longitudinal derivation or remain
+#: an explicit refusal; dropping one from the translation is never a supported interpretation.
 _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("models", "missingness_learner", "missingness_learner"),
     ("models", "intermediate_learner", "intermediate_learner"),
-    ("models", "density_bins", "density_bins"),
     ("models", "screen_treatment", "screen_treatment"),
     ("models", "screen_threshold", "screen_threshold"),
     ("models", "min_retain", "min_retain"),
@@ -611,6 +622,12 @@ class TMLEMethod:
     #: Whether this method can draw collaborative selection folds. The fold-policy
     #: refusal also checks the strategy: OAT selects nothing and draws none of them.
     _collaborative: ClassVar[bool] = False
+    #: Why this method refuses ``ratio="classifier"``: ``None`` where it estimates a policy
+    #: ratio.  A method that fits no policy ratio refuses the setting at construction rather
+    #: than ignore it.
+    _ratio_refusal: ClassVar[str | None] = None
+    #: Why this method refuses ``density_bins=``: ``None`` where it fits a density.
+    _density_bins_refusal: ClassVar[str | None] = None
 
     models: ModelSpec = ModelSpec()
     cross_fitting: CrossFitting = CrossFitting()
@@ -644,6 +661,10 @@ class TMLEMethod:
         )
         if reason is not None:
             raise MethodConfigurationError(reason)
+        if self.models.ratio != "density" and self._ratio_refusal is not None:
+            raise MethodConfigurationError(self._ratio_refusal)
+        if self.models.density_bins is not None and self._density_bins_refusal is not None:
+            raise MethodConfigurationError(self._density_bins_refusal)
 
     def with_overrides(self, **overrides: Any) -> TMLEMethod:
         """Return a copy with flat shortcuts normalized by concern.
@@ -751,6 +772,8 @@ class TMLEMethod:
                     "censoring_learner": models.censoring_learner,
                     "n_bootstrap": inference.n_bootstrap,
                     "bootstrap_resampling": inference.bootstrap_resampling,
+                    "density_bins": models.density_bins,
+                    "ratio": models.ratio,
                 }
             )
             # Longitudinal cumulative bounds have a fixed-pair contract. ``auto`` is a
@@ -768,6 +791,7 @@ class TMLEMethod:
                 "missingness_learner": models.missingness_learner,
                 "intermediate_learner": models.intermediate_learner,
                 "density_bins": models.density_bins,
+                "ratio": models.ratio,
                 "screen_treatment": models.screen_treatment,
                 "screen_threshold": models.screen_threshold,
                 "min_retain": models.min_retain,
@@ -872,6 +896,11 @@ class CollaborativeTMLEMethod(TMLEMethod):
     """
 
     _collaborative: ClassVar[bool] = True
+    _ratio_refusal: ClassVar[str | None] = (
+        "ratio='classifier' sets how a modified treatment policy's density ratio is "
+        "estimated, and collaborative TMLE fits no policies=: its collaborative score is "
+        "derived for arm means. Drop ratio=, or fit ModifiedTreatmentPolicy with TMLEMethod"
+    )
 
     strategy: str = "greedy"
     preorder: str | None = None
@@ -973,6 +1002,13 @@ class DRTMLEMethod(TMLEMethod):
     >>> DRTMLEMethod(guard=("Q",), randomized=True).guard
     ('Q',)
     """
+
+    _ratio_refusal: ClassVar[str | None] = (
+        "ratio='classifier' sets how a modified treatment policy's density ratio is "
+        "estimated, and DR-TMLE fits no policies=: its reduced-dimension regressions are "
+        "derived for counterfactual means under static treatment. Drop ratio=, or fit "
+        "ModifiedTreatmentPolicy with TMLEMethod"
+    )
 
     guard: tuple[str, ...] = ("Q", "g")
     reduction: str = "univariate"
@@ -1146,6 +1182,18 @@ class IPSIMethod(TMLEMethod):
     >>> "alpha" in method.estimator_kwargs(longitudinal=True)
     False
     """
+
+    _ratio_refusal: ClassVar[str | None] = (
+        "ratio='classifier' sets how a modified treatment policy's density ratio is "
+        "estimated, and IPSI estimates none: an odds tilt's ratio is a closed form in the "
+        "fitted propensity of a binary node. Drop ratio=, or fit the policy with TMLEMethod "
+        "or SDRMethod"
+    )
+    _density_bins_refusal: ClassVar[str | None] = (
+        "density_bins= sets the bins of a continuous node's conditional density, and IPSI "
+        "fits no density: it tilts the odds of a binary node. Drop density_bins=, or fit the "
+        "continuous node with TMLEMethod or SDRMethod"
+    )
 
     name: str = "ipsi"
 

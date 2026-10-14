@@ -23,7 +23,6 @@ __all__ = [
     "MISSING_OUTCOME_DECLARATION",
     "MISSING_TREATMENT_DECLARATION",
     "RANDOMIZED_INTERCEPT",
-    "VECTOR_DENSITY_ROW",
     "arm_indicators",
     "check_binary",
     "check_covariates",
@@ -72,12 +71,6 @@ MISSING_TREATMENT_DECLARATION = (
 #: guard against a mis-typed column silently becoming a 200-arm fit, not a statistical
 #: threshold.
 MAX_TREATMENT_LEVELS = 20
-
-#: The roadmap row of what a vector treatment with a continuous component does not support
-#: yet: the density route, triangular dose maps, a randomized component inside a
-#: :class:`~cleverly.interventions.JointPolicy`, and every point-treatment estimator and
-#: estimand beside ``TMLE(policies=..., ratio="classifier")``.
-VECTOR_DENSITY_ROW = "X37"
 
 #: Fewest rows either container will build from.  A guard against a sample so small that
 #: no nuisance fit and no cross-fitting split is meaningful, not a power calculation.

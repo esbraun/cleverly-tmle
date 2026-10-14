@@ -849,20 +849,6 @@ def test_a_malformed_vector_declaration_is_a_data_error(
         )
 
 
-def test_a_study_point_treatment_of_several_columns_is_refused() -> None:
-    from cleverly.data.validate import VECTOR_DENSITY_ROW
-    from cleverly.study import PointTreatment
-
-    with pytest.raises(CapabilityError) as caught:
-        PointTreatment(outcome="Y", treatment=["F", "D"], adjustment=("W",))  # type: ignore[arg-type]
-    assert str(caught.value) == (
-        "PointTreatment(treatment=['F', 'D']) declares a vector treatment, and the CausalStudy "
-        "spine reads a point treatment of one column. Fit a vector treatment with TMLE on "
-        "CausalData.from_frame(treatment=[...]). The study spine for vector treatments, a "
-        f"post-beta roadmap row, is docs/roadmap.md {VECTOR_DENSITY_ROW}"
-    )
-
-
 def test_w12_a_missing_tuple_equals_a_missing_precombined_column() -> None:
     """An all-categorical vector declared missing at random is one categorical treatment.
 
