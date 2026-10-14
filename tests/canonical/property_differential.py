@@ -3,8 +3,10 @@
 Each declared rule restates a verdict that a study's own ``summarize_properties`` computes.
 The differential perturbs every committed study's property rows, summarizes them with the
 study's own code, and requires the declared rules to give the same ``passed`` and
-``property_passed`` on every verdict row.  Three modules have no committed rows, so they run
-on synthetic rows built from their declared cells.
+``property_passed`` on every verdict row.  Two modules have no committed rows, so they run on
+synthetic rows built from their declared cells.  ``longitudinal_sdr_properties`` runs on both
+its committed rows and synthetic rows: its committed rows make no perturbation decide the
+``P_D`` two-size clause alone, and its synthetic rows do.
 
 | subject | rows |
 | --- | --- |
@@ -68,7 +70,9 @@ from tests.studies.evidence.registry import StudyRecord, registered
 #: ``CONTROL_BOOTSTRAP`` of 2,000.
 DIFFERENTIAL_BOOTSTRAP = 200
 
-#: The property modules with no committed rows, which run on :func:`synthetic_rows`.
+#: The property modules that run on :func:`synthetic_rows`: each module with no committed rows,
+#: and ``longitudinal_sdr_properties``, whose committed rows leave the clause
+#: ``P_D large-size bias bound under the small`` without a binding witness.
 SYNTHETIC_MODULES = (
     "tests.studies.longitudinal_sdr_properties",
     "tests.studies.longitudinal_incremental_properties",
@@ -315,9 +319,7 @@ def judge(subject: str, kind: str) -> Judgement:
     with reduced(record) as cheap:
         moved = property_failures.perturbed(rows, kind, alpha=cheap.margins.alpha)
         summary = module.summarize_properties(moved)
-        ctx = property_failures.Context(
-            cheap, moved, summary, {}, property_failures.module_groups(module)
-        )
+        ctx = property_failures.module_context(cheap, moved, summary, {}, module)
         wrong = property_failures.differential(summary, ctx, module=module)
         used, decisive = property_failures.clause_binding(summary, ctx, module=module)
     red = ~(summary["passed"].astype(bool) & summary["property_passed"].astype(bool))

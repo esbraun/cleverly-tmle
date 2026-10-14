@@ -106,6 +106,7 @@ bytes it published before.
 | rule | statement |
 | --- | --- |
 | multi-cell key | One fit can write several cells. A lost fit costs every cell it writes one replicate. `cells_of` lists those cells. A fit whose rows differ from `cells_of` stops the run |
+| `SUMMARY_ROWS` | A module whose `summarize_properties` first rescales its rows declares that function as `SUMMARY_ROWS`. The accounting's candidates then read the same scale, so a `k = 0` candidate equals the complete case. `ctmle_oat_per_arm_strata_missing_properties` puts a ratio cell's standard error on the scale of `psi` |
 | `DERIVED_CELLS` | A module declares each base cell's derived controls (`shrunken_se_control`, `noise_control`). A record of the base names its controls, because they lose the same replicate |
 | stamp | The driver is the only writer of `failed_replicates`. It sets each cell's count from the records. `reconcile` refuses a cell whose missing ids differ from its recorded ids |
 | `require_accounted` | A cell may be short by exactly its stamped failures and must keep two replicates. Any other gap stops the summary |
@@ -234,7 +235,7 @@ a conjunct would let a lost replicate turn a cell green. Two checks guard the ru
 
 | check | where | content |
 | --- | --- | --- |
-| differential | the `property-differential` job of `.github/workflows/ci.yml`, from `tests/canonical/property_differential.py` | The job perturbs the property rows of every committed study and of three uncommitted modules (on synthetic rows). It summarizes them with the study's own code. The declared rules must give the same `passed` and `property_passed` on every verdict row. The perturbations scale `std_error`, shift `estimate`, flip indicators, push a slope across zero, collapse one arm of a pair, apply a seeded affine map, and scale or shift each extra column |
+| differential | the `property-differential` job of `.github/workflows/ci.yml`, from `tests/canonical/property_differential.py` | The job perturbs the property rows of every committed study. It also perturbs synthetic rows of the two uncommitted modules and of `longitudinal_sdr_properties`. The committed `longitudinal-sdr` rows give no witness for one clause. It summarizes them with the study's own code. The declared rules must give the same `passed` and `property_passed` on every verdict row. The perturbations scale `std_error`, shift `estimate`, flip indicators, push a slope across zero, collapse one arm of a pair, apply a seeded affine map, and scale or shift each extra column |
 | clause binding | the same job | Each declared clause must decide a verdict alone under at least one perturbation of at least one study. `tests/canonical/clause-bindings.csv` names the witness. A clause that no perturbation moves fails the job |
 | fast tier | `tests/unit/test_method_evidence.py` | The job's parametrization lists every committed study. Every verdict family resolves to a rule. A module that writes `passed` outside a shared function declares `PROPERTY_RULES`. Each shared rule reproduces the committed verdicts. The bound and the manifest key agree |
 

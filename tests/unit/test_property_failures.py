@@ -3057,3 +3057,54 @@ def _s15_violations(seed: int, k: int, *, equal_fill: bool) -> list[float]:
         for completed in _box(np.random.default_rng(seed), values, k)
         if not low - 1e-12 <= (t := property_failures.standardized_bias(completed)) <= high + 1e-12
     ]
+
+
+class TestSummaryRows:
+    """A module's ``SUMMARY_ROWS`` puts the accounting's candidates on its summary's scale."""
+
+    @staticmethod
+    def _accounting(module: Any) -> pd.DataFrame:
+        from tests.studies import ctmle_oat_per_arm_strata_missing_properties as properties
+        from tests.studies.evidence.registry import registered
+
+        (study,) = [record for record in registered() if record.slug == properties.STUDY.slug]
+        rows = pd.read_csv(study.artifact("property-replicates.csv.gz"))
+        configuration = properties.CONFIGURATION_BY_NAME["missing_outcome_crossfit"]
+        names = ";".join(f"{configuration.family}/{cell}" for cell in configuration.cells)
+        records = _records(_record_row(names, 7, group="properties/missing_outcome_crossfit"))
+        lost = rows["cell"].isin(configuration.cells) & (rows["replicate"] == 7)
+        kept = property_failures.stamp(rows.loc[~lost], records)
+        summary = properties.summarize_properties(kept)
+        accounting = property_failures.property_accounting(
+            kept, records, summary, record=study, module=module
+        )
+        return accounting.loc[
+            accounting["cell"].isin(
+                ["rr__missing_outcome_crossfit", "or__missing_outcome_crossfit"]
+            )
+            & (accounting["leg"] == "se ratio in union band")
+        ]
+
+    def test_a_ratio_cell_s_se_candidates_read_the_estimate_scale(self) -> None:
+        """One lost replicate of 800 moves the SE-ratio slack by order ``1 / R``."""
+        from tests.studies import ctmle_oat_per_arm_strata_missing_properties as properties
+
+        legs = self._accounting(properties)
+        assert len(legs) == 2
+        shift = (legs["complete_case"] - legs["worst_case"]).abs()
+        assert (shift < 0.02).all(), legs.to_string()
+
+    def test_without_the_declaration_the_candidates_read_the_log_scale(self) -> None:
+        """Mutation control: the candidates then compare ``SE(log psi)`` with the spread of psi."""
+        from tests.studies import ctmle_oat_per_arm_strata_missing_properties as properties
+
+        public = {name: value for name, value in vars(properties).items() if name.isupper()}
+        public.pop("SUMMARY_ROWS")
+        legs = self._accounting(SimpleNamespace(**public))
+        shift = (legs["complete_case"] - legs["worst_case"]).abs()
+        assert (shift > 0.25).all(), legs.to_string()
+
+    def test_a_module_without_the_declaration_reads_its_rows_unchanged(self) -> None:
+        rows = _cell("power", "large")
+        assert property_failures.summary_rows(SimpleNamespace(), rows) is rows
+        assert property_failures.summary_rows(None, rows) is rows

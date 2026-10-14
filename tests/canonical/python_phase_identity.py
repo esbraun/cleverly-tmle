@@ -25,8 +25,9 @@ mode       what it compares
 =========  ==================================================================================
 budget     The rows of a module whose ``generate_property_rows`` caps its replicates
            (``budget=``, ``replicates=`` or ``cap=``), at ``--budget`` replicates, byte for
-           byte, without the wall-clock columns in :data:`TIMING_COLUMNS`.  The head runs with
-           ``--prefix`` (default 1), so the two-call split runs.
+           byte, without the wall-clock columns in :data:`TIMING_COLUMNS`.  A module without
+           the cap whose ``generate_smoke_property_rows`` has one runs that function.  The
+           head runs with ``--prefix`` (default 1), so the two-call split runs.
 batches    The rows of a module that declares ``sampling_batches()``, each cell cut to
            ``--budget`` replicates, byte for byte.
 payload    Every property loop of every module.  The base patches ``map_parallel`` and the
@@ -253,6 +254,7 @@ _DRAW = "the draw moves to ``draw=`` and the worker takes the drawn sample (F5)"
 WORKER_EXCEPTIONS: dict[str, str] = {
     "clustered_few_cluster_properties": _E3,
     "few_cluster_crossfit_properties": _E3,
+    "ctmle_oat_per_arm_strata_missing_properties": _E3,
     "multi_arm_tmle_properties": _DRAW,
     "stratified_tmle_properties": _DRAW,
     "stratified_incremental_msm_properties": _DRAW,
@@ -360,6 +362,9 @@ def _projected(items: Sequence[Any], mapping: Callable[[Any], Any]) -> tuple[str
 
 
 _CAPS = ("budget", "replicates", "cap")
+#: The prefix of a cap that ``generate_smoke_property_rows`` takes, in a module whose
+#: ``generate_property_rows`` takes none.
+_SMOKE = "smoke:"
 
 
 def _canon(value: Any, depth: int = 0) -> str:
@@ -733,7 +738,12 @@ def _generate_timed(spec: dict[str, Any], module: Any) -> pd.DataFrame:
     jobs = int(spec["jobs"])
     scope = spec["scope"]
     if scope == "budget":
-        return module.generate_property_rows(n_jobs=jobs, **{spec["kw"]: int(spec["budget"])})
+        kw = str(spec["kw"])
+        if kw.startswith(_SMOKE):
+            return module.generate_smoke_property_rows(
+                n_jobs=jobs, **{kw.removeprefix(_SMOKE): int(spec["budget"])}
+            )
+        return module.generate_property_rows(n_jobs=jobs, **{kw: int(spec["budget"])})
     if scope == "batches":
         frames = []
         for batch in module.sampling_batches():
@@ -879,6 +889,10 @@ def _property_modules(wanted: Sequence[str] | None) -> list[_PropertyModule]:
         module = importlib.import_module(f"tests.studies.{name}")
         parameters = inspect.signature(module.generate_property_rows).parameters
         kw = next((cap for cap in _CAPS if cap in parameters), None)
+        smoke = getattr(module, "generate_smoke_property_rows", None)
+        if kw is None and smoke is not None:
+            smoke_parameters = inspect.signature(smoke).parameters
+            kw = next((_SMOKE + cap for cap in _CAPS if cap in smoke_parameters), None)
         source = inspect.getsource(module)
         calibration = "calibration_controls" in source or any(
             shared in source

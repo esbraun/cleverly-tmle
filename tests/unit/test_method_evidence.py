@@ -2838,9 +2838,7 @@ class TestTheQuantityVocabulary:
 
 
 def _context(study: StudyRecord, rows: pd.DataFrame, summary: pd.DataFrame):
-    return property_failures.Context(
-        study, rows, summary, {}, property_failures.module_groups(study.properties())
-    )
+    return property_failures.module_context(study, rows, summary, {}, study.properties())
 
 
 def _differential(study: StudyRecord, summary: pd.DataFrame, rows: pd.DataFrame) -> pd.DataFrame:
@@ -2908,6 +2906,31 @@ class TestPropertyFailures:
         """D3'f: the regeneration driver reads ``PROPERTY_WITNESS``, a draw-level statistic."""
         assert isinstance(study.properties().PROPERTY_WITNESS, replication.Witness)
 
+    def test_each_se_ratio_candidate_at_no_loss_reproduces_the_published_ratio(
+        self, study: StudyRecord
+    ) -> None:
+        """F18 for S4: the accounting's rows are on the scale the summary read.
+
+        A row whose verdict reads every replicate of its own cell is compared.  A contraction
+        rung publishes its ratio at a smaller verdict budget, so it is not.
+        """
+        rows = _property_rows(study.slug)
+        summary = _complete_case_summary(study.slug)
+        ctx = _context(study, rows, summary)
+        varies = study.truth_varies_by_replicate
+        wrong = []
+        for _, row in summary.iterrows():
+            if not math.isfinite(float(row.get("se_ratio", math.nan))):
+                continue
+            group = ctx.cell(str(row["property"]), str(row["cell"]))
+            if group.empty or len(group) != int(row["replicates"]):
+                continue
+            ((_, frame), *_) = property_failures.se_ratio_sets(group, 0, truth_varies=varies)
+            value = property_failures._se_ratio(frame, varies)
+            if not math.isclose(value, float(row["se_ratio"]), rel_tol=1e-9):
+                wrong.append((row["property"], row["cell"], value, row["se_ratio"]))
+        assert wrong == []
+
     def test_each_shared_rule_reproduces_the_committed_verdicts(self, study: StudyRecord) -> None:
         """Each rule read on the complete-case summary gives every target's published verdict."""
         summary = (
@@ -2932,7 +2955,6 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 
 #: The property modules with no committed rows, which declare their cells but publish none.
 UNCOMMITTED_MODULES = (
-    "tests.studies.longitudinal_sdr_properties",
     "tests.studies.longitudinal_incremental_properties",
     "tests.studies.longitudinal_incremental_dropout_properties",
 )
@@ -3058,8 +3080,8 @@ class TestPropertyDifferential:
             if mark.args[0] == "subject"
             for value in mark.args[1]
         }
-        assert parametrized == committed | set(UNCOMMITTED_MODULES)
-        assert set(job.SYNTHETIC_MODULES) == set(UNCOMMITTED_MODULES)
+        assert parametrized == committed | set(job.SYNTHETIC_MODULES)
+        assert set(UNCOMMITTED_MODULES) <= set(job.SYNTHETIC_MODULES)
 
     def test_the_differential_runs_every_perturbation(self) -> None:
         job = self._job()

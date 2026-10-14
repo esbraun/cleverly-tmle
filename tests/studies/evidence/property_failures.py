@@ -2405,6 +2405,60 @@ def module_groups(module: Any) -> Mapping[str, Sequence[Sequence[str]]]:
     return getattr(module, "PROPERTY_GROUPS", None) or {}
 
 
+def summary_rows(module: Any, rows: pd.DataFrame) -> pd.DataFrame:
+    """The rows a module's ``summarize_properties`` summarizes, from the committed rows.
+
+    A module whose summary reads its rows on another scale declares ``SUMMARY_ROWS``, the
+    function it applies first.  The clauses' candidates must read that scale, or a ``k = 0``
+    candidate would not reproduce the complete case (F18).  Without the declaration the rows
+    come back unchanged.
+
+    Parameters
+    ----------
+    module : module or None
+        The property module.
+    rows : pandas.DataFrame
+        The stamped surviving replication rows.
+
+    Returns
+    -------
+    pandas.DataFrame
+        ``SUMMARY_ROWS(rows)``, or ``rows``.
+    """
+    transform = getattr(module, "SUMMARY_ROWS", None)
+    return rows if transform is None else transform(rows)
+
+
+def module_context(
+    record: StudyRecord,
+    rows: pd.DataFrame,
+    summary: pd.DataFrame,
+    lost: dict[tuple[str, str], int],
+    module: Any,
+) -> Context:
+    """The :class:`Context` of a module: its :func:`summary_rows` and its ``PROPERTY_GROUPS``.
+
+    Parameters
+    ----------
+    record : StudyRecord
+        The study.
+    rows : pandas.DataFrame
+        The stamped surviving replication rows, as committed.
+    summary : pandas.DataFrame
+        The complete-case summary.
+    lost : dict
+        The replicates the records cost each ``(property, cell)``.
+    module : module or None
+        The property module.
+
+    Returns
+    -------
+    Context
+        The context every clause of the module reads.
+    """
+    return Context(record, summary_rows(module, rows), summary, lost, module_groups(module))
+
+
 def property_accounting(
     rows: pd.DataFrame,
     records: pd.DataFrame | None,
@@ -2437,8 +2491,8 @@ def property_accounting(
     record : StudyRecord
         The study.
     module : module or None
-        The property module: its ``FAILURE_BOUND``, ``PROPERTY_RULES`` and ``PROPERTY_GROUPS``.
-        ``None`` means a bound of zero and the shared rules alone.
+        The property module: its ``FAILURE_BOUND``, ``PROPERTY_RULES``, ``PROPERTY_GROUPS``
+        and ``SUMMARY_ROWS``.  ``None`` means a bound of zero and the shared rules alone.
     rules : Sequence of FamilyRule or None
         The shared rules; :data:`tests.studies.evidence.property_verdicts.FAMILY_RULES` by
         default.
@@ -2461,7 +2515,7 @@ def property_accounting(
     if not 0.0 <= bound <= MAXIMUM_BOUND:
         raise ValueError(f"FAILURE_BOUND {bound} is outside [0, {MAXIMUM_BOUND}]")
     lost = counts(records)
-    ctx = Context(record, rows, summary, lost, module_groups(module))
+    ctx = module_context(record, rows, summary, lost, module)
     requested = {
         (str(family), str(cell)): int(group["requested_replicates"].iloc[0])
         for (family, cell), group in rows.groupby(["property", "cell"], sort=True)

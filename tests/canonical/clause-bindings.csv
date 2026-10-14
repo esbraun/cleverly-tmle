@@ -9,9 +9,9 @@ categorical_probability_necessity,least displacement over labels,canonical-categ
 cde_robustness,bias discriminated,cde-tmle,pair_collapse
 cde_robustness,bias equivalent,cde-tmle,bias
 cde_robustness,se ratio in union band,cde-tmle,se/0.05
-clustered_calibration,coverage in calibration band,tests.studies.longitudinal_sdr_properties,shift/0.7
-clustered_calibration,se ratio below band,tests.studies.longitudinal_sdr_properties,se_high
-clustered_calibration,se ratio in calibration band,tests.studies.longitudinal_sdr_properties,se/0.05
+clustered_calibration,coverage in calibration band,longitudinal-sdr,bias
+clustered_calibration,se ratio below band,longitudinal-sdr,se_high
+clustered_calibration,se ratio in calibration band,longitudinal-sdr,se/0.05
 clustered_inference,control se ratio under its ceiling,clustered-tmle,se_high
 clustered_inference,coverage gain,clustered-tmle,coverage/0.94
 clustered_inference,coverage in calibration band,clustered-tmle,bias
@@ -119,19 +119,19 @@ selector_necessity,bias discriminated,canonical-ctmle-selector,pair_collapse
 selector_necessity,bias equivalent,canonical-ctmle-selector,none
 selector_necessity,largest path rmse ratio under its ceiling,canonical-multi-arm-ctmle-selector,control_concentrated
 selector_necessity,rmse ratio under its ceiling,canonical-ctmle-selector,control_concentrated
-sequential_double_robustness,P_A large-size bias bound under the small,tests.studies.longitudinal_sdr_properties,contract
-sequential_double_robustness,P_A large-size bias bound under the tolerance,tests.studies.longitudinal_sdr_properties,shift/1
-sequential_double_robustness,P_A large-size se ratio in union band,tests.studies.longitudinal_sdr_properties,se/0.05
-sequential_double_robustness,P_B large-size bias bound under the small,tests.studies.longitudinal_sdr_properties,contract
-sequential_double_robustness,P_B large-size bias bound under the tolerance,tests.studies.longitudinal_sdr_properties,shift/1
-sequential_double_robustness,P_B large-size se ratio in union band,tests.studies.longitudinal_sdr_properties,se/0.05
+sequential_double_robustness,P_A large-size bias bound under the small,longitudinal-sdr,mixed/7
+sequential_double_robustness,P_A large-size bias bound under the tolerance,longitudinal-sdr,bias
+sequential_double_robustness,P_A large-size se ratio in union band,longitudinal-sdr,se/0.05
+sequential_double_robustness,P_B large-size bias bound under the small,longitudinal-sdr,mixed/5
+sequential_double_robustness,P_B large-size bias bound under the tolerance,longitudinal-sdr,bias
+sequential_double_robustness,P_B large-size se ratio in union band,longitudinal-sdr,se/0.05
 sequential_double_robustness,P_D large-size bias bound under the small,tests.studies.longitudinal_sdr_properties,contract
-sequential_double_robustness,P_D large-size bias bound under the tolerance,tests.studies.longitudinal_sdr_properties,affine
-sequential_double_robustness,P_D large-size se ratio in union band,tests.studies.longitudinal_sdr_properties,se/0.05
-sequential_double_robustness,bias beyond the control floor,tests.studies.longitudinal_sdr_properties,pair_collapse
-sequential_double_robustness,bias equivalent,tests.studies.longitudinal_sdr_properties,bias
-sequential_double_robustness,coverage floor,tests.studies.longitudinal_sdr_properties,se_low
-sequential_double_robustness,se ratio in union band,tests.studies.longitudinal_sdr_properties,se/0.05
+sequential_double_robustness,P_D large-size bias bound under the tolerance,longitudinal-sdr,bias
+sequential_double_robustness,P_D large-size se ratio in union band,longitudinal-sdr,se/0.05
+sequential_double_robustness,bias beyond the control floor,longitudinal-sdr,pair_collapse
+sequential_double_robustness,bias equivalent,longitudinal-sdr,bias
+sequential_double_robustness,coverage floor,longitudinal-sdr,none
+sequential_double_robustness,se ratio in union band,longitudinal-sdr,se/0.05
 simultaneous_coverage,joint coverage below nominal,canonical-multi-arm-tmle,se_low
 simultaneous_coverage,joint coverage in calibration band,canonical-multi-arm-tmle,se_low
 single_robustness,large-size bias bound under the small,tests.studies.longitudinal_incremental_properties,contract
@@ -157,6 +157,6 @@ weight_necessity,alternative bias equivalent,weighted-tmle,bias
 weight_necessity,bias discriminated,weighted-ltmle-crossfit,control_diffuse
 weight_necessity,bias equivalent,weighted-tmle,bias
 weight_necessity,least displacement over labels,weighted-tmle,positive_diffuse
-weighted_calibration,coverage in calibration band,tests.studies.longitudinal_sdr_properties,bias
-weighted_calibration,se ratio below band,tests.studies.longitudinal_sdr_properties,se_high
-weighted_calibration,se ratio in calibration band,tests.studies.longitudinal_sdr_properties,se/0.05
+weighted_calibration,coverage in calibration band,longitudinal-sdr,bias
+weighted_calibration,se ratio below band,longitudinal-sdr,se_high
+weighted_calibration,se ratio in calibration band,longitudinal-sdr,se/0.05
