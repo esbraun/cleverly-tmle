@@ -8,6 +8,7 @@ bound, corrected estimate, test, or sensitivity-adjusted interval.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from itertools import product
 from numbers import Real
@@ -44,29 +45,70 @@ class ConfounderStrengthGrid:
 
     Parameters
     ----------
-    treatment : tuple of float
+    treatment : tuple of float, or mapping of str to tuple of float
         Treatment perturbation strengths. Continuous-treatment values are signed linear
         coefficients. Binary-treatment values are checked as flip probabilities from zero
-        through 0.5 when the surface runs.
+        through 0.5 when the surface runs.  A vector treatment takes a mapping from each
+        component column to its strengths, read by that component's law, and the surface
+        evaluates every combination.  The mapping is stored as ``(column, strengths)``
+        pairs in the declared order.
     outcome : tuple of float
         Outcome perturbation strengths. Gaussian strengths are signed. Binomial
         strengths are checked as flip probabilities when the surface runs.
+
+    Attributes
+    ----------
+    components : tuple of str
+    treatment_points : tuple
 
     See Also
     --------
     simulated_confounding : Evaluate the declared strength pairs.
     """
 
-    treatment: tuple[float, ...]
+    treatment: tuple[float, ...] | tuple[tuple[str, tuple[float, ...]], ...]
     outcome: tuple[float, ...]
 
     def __post_init__(self) -> None:
-        treatment = _numeric_strengths(self.treatment, "treatment")
+        declared = self.treatment
+        if isinstance(declared, Mapping):
+            if not declared:
+                raise ValueError("a treatment strength mapping must name at least one component")
+            axes: list[tuple[str, tuple[float, ...]]] = []
+            for column, values in declared.items():
+                if not isinstance(column, str):
+                    raise TypeError("a treatment strength mapping is keyed by component column")
+                strengths = _numeric_strengths(values, f"treatment component {column!r}")
+                if 0.0 not in strengths:
+                    raise ValueError(f"treatment component {column!r} strengths must contain zero")
+                axes.append((column, strengths))
+            treatment: Any = tuple(axes)
+        else:
+            treatment = _numeric_strengths(declared, "treatment")
+            if 0.0 not in treatment:
+                raise ValueError("treatment and outcome strengths must each contain zero")
         outcome = _numeric_strengths(self.outcome, "outcome")
-        if 0.0 not in treatment or 0.0 not in outcome:
+        if 0.0 not in outcome:
             raise ValueError("treatment and outcome strengths must each contain zero")
         object.__setattr__(self, "treatment", treatment)
         object.__setattr__(self, "outcome", outcome)
+
+    @property
+    def components(self) -> tuple[str, ...]:
+        """The component columns of a per-component grid, or ``()`` for one axis."""
+        return tuple(axis[0] for axis in self.treatment if isinstance(axis, tuple))
+
+    @property
+    def treatment_points(self) -> tuple[float | tuple[float, ...], ...]:
+        """Every treatment strength the surface evaluates, in grid order.
+
+        One float per value of a one-axis grid.  A per-component grid gives one tuple per
+        combination, in the order of :attr:`components`.
+        """
+        if not self.components:
+            return tuple(float(value) for value in self.treatment)  # type: ignore[arg-type]
+        axes = [axis[1] for axis in self.treatment if isinstance(axis, tuple)]
+        return tuple(tuple(point) for point in product(*axes))
 
 
 @dataclass(frozen=True)
@@ -85,6 +127,8 @@ class ObservedConfounderCalibration:
         Prediction-change fraction or signed standardized marginal coefficient.
     method : str
         Finite-sample rule used to calculate ``strength``.
+    component : str or None
+        The component of a vector treatment that a treatment row calibrates, or ``None``.
     """
 
     covariate: str
@@ -92,6 +136,7 @@ class ObservedConfounderCalibration:
     family: Literal["binomial", "gaussian"]
     strength: float
     method: str
+    component: str | None = None
 
 
 @dataclass(frozen=True)
@@ -100,8 +145,9 @@ class SimulatedConfoundingCell:
 
     Parameters
     ----------
-    treatment_strength : float
-        Declared binary flip probability or continuous linear coefficient.
+    treatment_strength : float or tuple of float
+        Declared binary flip probability or continuous linear coefficient.  A vector
+        treatment has one per component, in the grid's component order.
     outcome_strength : float
         Declared outcome perturbation strength.
     estimate : float or None
@@ -109,9 +155,10 @@ class SimulatedConfoundingCell:
     displacement : float or None
         Refitted minus original value on the surface's movement scale. ``None`` when
         the cell failed.
-    induced_treatment_association : float or None
+    induced_treatment_association : float, tuple or None
         Pearson correlation between the shared latent vector and the treatment of this
-        cell, measured within its selected baseline population under the fixed row weights.
+        cell, one per component of a vector treatment. It is measured within the selected
+        baseline population under the fixed row weights.
         Both treatment arms contribute even for ATT or ATC. The anchor cell reports the
         original treatment, which gives the null level of the same data. Every other cell
         reports the perturbed treatment. The value is ``None`` when that treatment has
@@ -124,11 +171,11 @@ class SimulatedConfoundingCell:
         report one. ``None`` means the perturbation failed before the fraction was computed.
     """
 
-    treatment_strength: float
+    treatment_strength: float | tuple[float, ...]
     outcome_strength: float
     estimate: float | None
     displacement: float | None
-    induced_treatment_association: float | None = None
+    induced_treatment_association: float | tuple[float | None, ...] | None = None
     failure: ReplicationFailure | None = None
     target_population_fraction: float | None = None
 
@@ -193,6 +240,10 @@ class SimulatedConfoundingResult:
         treatment group. ATT and ATC use the latter.
     conditioning_arm : Any or None
         Original treatment label defining the ATT or ATC population.
+    treatment_components : tuple of str
+        The component columns of a vector treatment, in the grid's order, or ``()``.  Each
+        cell's ``treatment_strength`` and ``induced_treatment_association`` then hold one
+        value per component in this order.
     known_mechanism_carried : bool
         Whether the fitted data declared a known treatment mechanism.  The flip of
         strength :math:`s` is drawn from a latent normal independent of :math:`W`, so the
@@ -234,6 +285,7 @@ class SimulatedConfoundingResult:
     population: Literal["baseline", "perturbed_treatment_group"] = "baseline"
     conditioning_arm: Any = None
     known_mechanism_carried: bool = False
+    treatment_components: tuple[str, ...] = ()
 
     @property
     def target_measure(self) -> Literal["unweighted", "fixed_empirical_tilt"]:
@@ -316,24 +368,46 @@ class SimulatedConfoundingResult:
             conditioning-arm share that cell targets. A failed cell keeps its fraction,
             because the surface records it before the refit.
         """
-        payload = {
-            "treatment_strength": [cell.treatment_strength for cell in self.cells],
-            "outcome_strength": [cell.outcome_strength for cell in self.cells],
-            "movement_scale": [self.movement_scale for _ in self.cells],
-            "estimate": [cell.estimate for cell in self.cells],
-            "displacement": [cell.displacement for cell in self.cells],
-            "induced_treatment_association": [
+        payload: dict[str, list[Any]] = {}
+        if self.treatment_components:
+            # A vector treatment: one strength and one association column per component.
+            for index, column in enumerate(self.treatment_components):
+                payload[f"treatment_strength[{column}]"] = [
+                    _component(cell.treatment_strength, index) for cell in self.cells
+                ]
+        else:
+            payload["treatment_strength"] = [cell.treatment_strength for cell in self.cells]
+        payload.update(
+            {
+                "outcome_strength": [cell.outcome_strength for cell in self.cells],
+                "movement_scale": [self.movement_scale for _ in self.cells],
+                "estimate": [cell.estimate for cell in self.cells],
+                "displacement": [cell.displacement for cell in self.cells],
+            }
+        )
+        if self.treatment_components:
+            for index, column in enumerate(self.treatment_components):
+                payload[f"induced_treatment_association[{column}]"] = [
+                    _component(cell.induced_treatment_association, index) for cell in self.cells
+                ]
+        else:
+            payload["induced_treatment_association"] = [
                 cell.induced_treatment_association for cell in self.cells
-            ],
-            "association_population": [self.association_population for _ in self.cells],
-            "target_population_fraction": [cell.target_population_fraction for cell in self.cells],
-            "error_type": [
-                None if cell.failure is None else cell.failure.error_type for cell in self.cells
-            ],
-            "message": [
-                None if cell.failure is None else cell.failure.message for cell in self.cells
-            ],
-        }
+            ]
+        payload.update(
+            {
+                "association_population": [self.association_population for _ in self.cells],
+                "target_population_fraction": [
+                    cell.target_population_fraction for cell in self.cells
+                ],
+                "error_type": [
+                    None if cell.failure is None else cell.failure.error_type for cell in self.cells
+                ],
+                "message": [
+                    None if cell.failure is None else cell.failure.message for cell in self.cells
+                ],
+            }
+        )
         return emit_frame(payload, backend=self.backend)
 
     def calibration_frame(self) -> Any:
@@ -347,6 +421,11 @@ class SimulatedConfoundingResult:
         payload = {
             "covariate": [row.covariate for row in self.calibrations],
             "role": [row.role for row in self.calibrations],
+            **(
+                {"component": [row.component for row in self.calibrations]}
+                if self.treatment_components
+                else {}
+            ),
             "family": [row.family for row in self.calibrations],
             "strength": [row.strength for row in self.calibrations],
             "method": [row.method for row in self.calibrations],
@@ -365,14 +444,14 @@ class SimulatedConfoundingResult:
         """
         rows = []
         for cell in self.cells:
-            association = cell.induced_treatment_association
-            reported = "n/a" if association is None else f"{association:+.4f}"
+            reported = _format_values(cell.induced_treatment_association, "+.4f")
             fraction = cell.target_population_fraction
             population_fraction = "n/a" if fraction is None else f"{fraction:.4f}"
+            strength = _format_values(cell.treatment_strength, ".4g")
             if cell.failure is None:
                 rows.append(
                     [
-                        f"{cell.treatment_strength:.4g}",
+                        strength,
                         f"{cell.outcome_strength:.4g}",
                         f"{cell.estimate:.5g}",
                         f"{cell.displacement:+.5g}",
@@ -383,7 +462,7 @@ class SimulatedConfoundingResult:
             else:
                 rows.append(
                     [
-                        f"{cell.treatment_strength:.4g}",
+                        strength,
                         f"{cell.outcome_strength:.4g}",
                         "failed",
                         cell.failure.error_type,
@@ -414,7 +493,12 @@ class SimulatedConfoundingResult:
                 "",
                 format_table(
                     [
-                        "treatment strength",
+                        "treatment strength"
+                        + (
+                            f" ({', '.join(self.treatment_components)})"
+                            if self.treatment_components
+                            else ""
+                        ),
                         "outcome strength",
                         "estimate",
                         f"movement ({self.movement_scale.replace('_', ' ')})",
@@ -441,6 +525,15 @@ class SimulatedConfoundingResult:
 
     def _reading_guard(self) -> tuple[str, ...]:
         """Return the lines that say which cells carry a confounding path."""
+        if self.treatment_family == "vector":
+            return (
+                "Each component's association reports what its perturbation achieved on "
+                "these data: a flip for a binary component, the linear shift for a dose. "
+                "A cell whose outcome strength is zero has no confounding path, whatever "
+                "its associations.",
+                "A cell whose treatment strengths are all zero also has no confounding path. "
+                "Its movement reports the outcome perturbation alone.",
+            )
         if self.treatment_family == "binary":
             if self.population == "perturbed_treatment_group":
                 return (
@@ -472,6 +565,26 @@ class SimulatedConfoundingResult:
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return self.summary()
+
+
+def _component(value: Any, index: int) -> Any:
+    """One component's entry of a per-component cell value, or ``None`` when absent."""
+    return None if value is None else value[index]
+
+
+def _format_values(value: Any, spec: str) -> str:
+    """A cell value for the summary table: one number, or one per component."""
+    if value is None:
+        return "n/a"
+    if isinstance(value, tuple):
+        return "(" + ", ".join("n/a" if v is None else format(v, spec) for v in value) + ")"
+    return format(value, spec)
+
+
+def _is_anchor(strength: float | tuple[float, ...], outcome: float) -> bool:
+    """Whether a grid point moves nothing: every treatment strength and the outcome are zero."""
+    treatment = strength if isinstance(strength, tuple) else (strength,)
+    return outcome == 0.0 and all(value == 0.0 for value in treatment)
 
 
 def _numeric_strengths(values: Any, role: str) -> tuple[float, ...]:
@@ -646,6 +759,58 @@ def _perturb_treatment(
     return _flip_binary(values, _flip_mask(latent, strength))
 
 
+def _perturb_components(
+    data: Any,
+    latent: np.ndarray[Any, Any],
+    strengths: Mapping[str, float],
+) -> np.ndarray[Any, Any]:
+    """Perturb each component of a vector treatment through the one shared latent vector.
+
+    A binary component is flipped in the upper latent tail, and a dose takes
+    ``D' = D + k_D U``, the laws of a one-column treatment.  Every component reads the same
+    ``U``, so one simulated common cause reaches every component and the outcome.
+
+    Parameters
+    ----------
+    data : CausalData
+        The fitted data, with a vector treatment.
+    latent : ndarray
+        The shared latent vector.
+    strengths : mapping of str to float
+        Each component column's strength.
+
+    Returns
+    -------
+    ndarray
+        The ``(n, d)`` perturbed component values, in the data's component order.
+    """
+    values = np.asarray(data.treatment_components, dtype=float).copy()
+    for index, (name, levels) in enumerate(
+        zip(data.component_names, data.component_levels, strict=True)
+    ):
+        family: Literal["binary", "continuous"] = "binary" if levels else "continuous"
+        values[:, index] = _perturb_treatment(values[:, index], latent, strengths[name], family)
+    return values
+
+
+def _component_associations(
+    request: _ValidatedRequest,
+    latent: np.ndarray[Any, Any],
+    data: Any,
+    values: np.ndarray[Any, Any],
+    columns: tuple[str, ...],
+) -> tuple[float | None, ...]:
+    """The induced association of each component, in ``columns`` order."""
+    mask = request.baseline_mask
+    weights = data.weights
+    return tuple(
+        _weighted_correlation(
+            latent[mask], values[mask, data.component_names.index(name)], weights[mask]
+        )
+        for name in columns
+    )
+
+
 def _weights_are_constant(weights: np.ndarray[Any, Any]) -> bool:
     """Return whether weighted calculations must preserve the old arithmetic path."""
     return bool(np.allclose(weights, 1.0))
@@ -742,6 +907,36 @@ def _continuous_calibration(
     return correlation * _weighted_std(target, weights)
 
 
+def _component_calibrations(
+    data: Any, design: np.ndarray[Any, Any], name: str, index: int
+) -> list[ObservedConfounderCalibration]:
+    """The treatment calibration of one covariate against each component of a vector."""
+    rows = []
+    for position, (column, levels) in enumerate(
+        zip(data.component_names, data.component_levels, strict=True)
+    ):
+        values = data.treatment_components[:, position]
+        if levels:
+            strength = _binary_calibration(design, values, index, data.weights)
+            family: Literal["binomial", "gaussian"] = "binomial"
+            method = "logistic class-prediction change fraction"
+        else:
+            strength = _continuous_calibration(data.covariates[:, index], values, data.weights)
+            family = "gaussian"
+            method = "signed standardized marginal coefficient"
+        rows.append(
+            ObservedConfounderCalibration(
+                covariate=name,
+                role="treatment",
+                family=family,
+                strength=strength,
+                method=method,
+                component=column,
+            )
+        )
+    return rows
+
+
 def _calibrate(result: Any, names: tuple[str, ...]) -> tuple[ObservedConfounderCalibration, ...]:
     if not names:
         return ()
@@ -754,25 +949,31 @@ def _calibrate(result: Any, names: tuple[str, ...]) -> tuple[ObservedConfounderC
     rows: list[ObservedConfounderCalibration] = []
     for name in names:
         index = data.covariate_names.index(name)
-        if data.is_continuous_treatment:
-            treatment_strength = _continuous_calibration(
-                data.covariates[:, index], data.treatment, data.weights
-            )
-            treatment_family: Literal["binomial", "gaussian"] = "gaussian"
-            treatment_method = "signed standardized marginal coefficient"
+        if data.treatment_kind == "vector":
+            # One treatment row per component, by that component's law.
+            rows.extend(_component_calibrations(data, design, name, index))
         else:
-            treatment_strength = _binary_calibration(design, data.treatment, index, data.weights)
-            treatment_family = "binomial"
-            treatment_method = "logistic class-prediction change fraction"
-        rows.append(
-            ObservedConfounderCalibration(
-                covariate=name,
-                role="treatment",
-                family=treatment_family,
-                strength=treatment_strength,
-                method=treatment_method,
+            if data.is_continuous_treatment:
+                treatment_strength = _continuous_calibration(
+                    data.covariates[:, index], data.treatment, data.weights
+                )
+                treatment_family: Literal["binomial", "gaussian"] = "gaussian"
+                treatment_method = "signed standardized marginal coefficient"
+            else:
+                treatment_strength = _binary_calibration(
+                    design, data.treatment, index, data.weights
+                )
+                treatment_family = "binomial"
+                treatment_method = "logistic class-prediction change fraction"
+            rows.append(
+                ObservedConfounderCalibration(
+                    covariate=name,
+                    role="treatment",
+                    family=treatment_family,
+                    strength=treatment_strength,
+                    method=treatment_method,
+                )
             )
-        )
         if data.family == "binomial":
             outcome_strength = _binary_calibration(design, data.outcome, index, data.weights)
             method = "logistic class-prediction change fraction"
@@ -939,13 +1140,21 @@ def simulated_confounding(
     original_inference = original_parameter.inference_value
     cells: list[SimulatedConfoundingCell] = []
 
+    data = result.data
+    columns = grid.components
+
+    def diagnostics(values: np.ndarray[Any, Any]) -> tuple[Any, float]:
+        """The cell's association and population fraction, per component on a vector."""
+        if columns:
+            return _component_associations(request, latent, data, values, columns), 1.0
+        return _cell_diagnostics(request, latent, values, data.weights)
+
+    observed = np.asarray(data.treatment_components if columns else data.treatment, dtype=float)
     for cell_index, (treatment_strength, outcome_strength) in enumerate(
-        product(grid.treatment, grid.outcome)
+        product(grid.treatment_points, grid.outcome)
     ):
-        if treatment_strength == 0.0 and outcome_strength == 0.0:
-            anchor_association, anchor_fraction = _cell_diagnostics(
-                request, latent, result.data.treatment, result.data.weights
-            )
+        if _is_anchor(treatment_strength, outcome_strength):
+            anchor_association, anchor_fraction = diagnostics(observed)
             cells.append(
                 SimulatedConfoundingCell(
                     treatment_strength=treatment_strength,
@@ -960,20 +1169,27 @@ def simulated_confounding(
         # A cell reports the association of the treatment the surface built for it, even
         # when the cell later fails.  An arm-loss cell reaches the zero-variance guard and
         # reports ``None``, because a constant treatment has no correlation.
-        association: float | None = None
+        association: Any = None
         population_fraction: float | None = None
         try:
-            treatment = _perturb_treatment(
-                result.data.treatment,
-                latent,
-                treatment_strength,
-                request.treatment_family,
-            )
-            association, population_fraction = _cell_diagnostics(
-                request, latent, treatment, result.data.weights
-            )
+            if isinstance(treatment_strength, tuple):
+                treatment = _perturb_components(
+                    data, latent, dict(zip(columns, treatment_strength, strict=True))
+                )
+            else:
+                treatment = _perturb_treatment(
+                    data.treatment,
+                    latent,
+                    treatment_strength,
+                    request.treatment_family,  # type: ignore[arg-type]
+                )
+            association, population_fraction = diagnostics(treatment)
             replacement = result.data.with_treatment(treatment)
-            if result.data.known_treatment is not None and replacement.known_treatment is None:
+            if (
+                result.data.known_treatment is not None
+                and replacement.known_treatment is None
+                and not isinstance(treatment_strength, tuple)
+            ):
                 # A zero-strength axis keeps the treatment, and with it the declaration.
                 replacement = replacement.with_known_mechanism(
                     flipped_mechanism(result.data.known_treatment.values, treatment_strength)
@@ -1043,6 +1259,10 @@ def simulated_confounding(
         treatment_law=(
             "Treatment is flipped in the declared upper latent-normal tail."
             if request.treatment_family == "binary"
+            else "Each binary component is flipped in the declared upper latent-normal tail, "
+            "and each dose adds signed strength times the shared latent value. Every "
+            "component reads the same latent value."
+            if request.treatment_family == "vector"
             else "Continuous treatment adds signed strength times the shared latent value."
         ),
         outcome_law=(
@@ -1052,6 +1272,7 @@ def simulated_confounding(
         ),
         weight_report=result.data.weight_report(),
         known_mechanism_carried=result.data.known_treatment is not None,
+        treatment_components=columns,
         backend=result.data.backend,
         stratum=request.stratum,
         strata_names=() if request.stratum is None else result.data.strata_names,

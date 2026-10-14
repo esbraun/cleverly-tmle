@@ -787,7 +787,7 @@ def _at_realised_treatment(data: CausalData, mechanism: FloatArray) -> FloatArra
     for.
     """
     values = np.asarray(mechanism, dtype=float)
-    if data.is_continuous_treatment:
+    if not data.has_arms:
         return np.asarray(values[:, 0], dtype=float)
     # Binary-only, as it has always been: a K-armed fit reports arm 0's value for every
     # row outside arms 0 and 1. Pre-existing and out of scope here; named so it is not
@@ -857,7 +857,12 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
     # Two arms read one column only when the mechanism is a distribution over the arms. The
     # per-arm outcome-adaptive mechanism of CTMLE is off the simplex: its arm-0 column is
     # not the complement of its arm-1 column, so each arm takes its own report below.
-    if data.is_binary_treatment and nuisance.fits_treatment and nuisance.propensity.simplex:
+    if (
+        data.has_arms
+        and data.is_binary_treatment
+        and nuisance.fits_treatment
+        and nuisance.propensity.simplex
+    ):
         models.append(
             _binary_report(
                 "propensity",
@@ -871,7 +876,7 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
                 mask=recorded,
             )
         )
-    elif not data.is_continuous_treatment and nuisance.fits_treatment:
+    elif data.has_arms and nuisance.fits_treatment:
         # One one-vs-rest report per arm, rather than a single multi-class summary.
         # Positivity is an arm-by-arm property -- the estimate can rest on a badly
         # calibrated denominator for one arm while the pooled log loss looks fine --
@@ -964,7 +969,7 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
             else "declared_treatment_law"
             if nuisance.treatment_mechanism == "known"
             else "estimated_treatment_law"
-            if not data.is_continuous_treatment
+            if data.has_arms
             else None
         ),
         repeat_spread=spread_rows,

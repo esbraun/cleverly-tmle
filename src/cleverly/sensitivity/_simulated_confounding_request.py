@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 
@@ -56,7 +56,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 class _ValidatedRequest:
     estimator: Any
     calibration_names: tuple[str, ...]
-    treatment_family: Literal["binary", "continuous"]
+    treatment_family: Literal["binary", "continuous", "vector"]
     movement_scale: Literal["estimate_difference", "log_ratio"]
     # Excluded from equality for the reason ``AssessmentItem.arguments`` is: the generated
     # ``__eq__`` would return an array here rather than a bool, and ``__hash__`` would
@@ -189,6 +189,12 @@ def _refuse_longitudinal(result: Any) -> str | None:
 def _refuse_multi_arm(result: Any) -> str | None:
     """Refuse a treatment that is neither binary nor a continuous dose."""
     data = result.data
+    if data.treatment_kind == "vector":
+        # Each component takes its own perturbation law, so every categorical component
+        # must be binary, as a one-column treatment must.
+        if any(len(levels) > 2 for levels in data.component_levels):
+            return _MULTI_ARM_REFUSAL
+        return None
     if not data.is_continuous_treatment and not data.is_binary_treatment:
         return _MULTI_ARM_REFUSAL
     return None
@@ -294,7 +300,7 @@ def _refuse_binary_estimator(result: Any) -> str | None:
     from ..estimators.tmle import TMLE
 
     estimator = result.estimator
-    if not result.data.is_continuous_treatment and type(estimator) not in {TMLE, CTMLE, DRTMLE}:
+    if result.data.has_arms and type(estimator) not in {TMLE, CTMLE, DRTMLE}:
         return (
             "simulated_confounding supports ordinary TMLE, collaborative TMLE, and "
             f"complete-outcome DR-TMLE; got {type(estimator).__name__}"
@@ -307,7 +313,7 @@ def _refuse_continuous_estimator(result: Any) -> str | None:
     from ..estimators.tmle import TMLE
 
     estimator = result.estimator
-    if result.data.is_continuous_treatment and type(estimator) is not TMLE:
+    if not result.data.has_arms and type(estimator) is not TMLE:
         return (
             "continuous simulated_confounding supports exact ordinary TMLE only; "
             f"got {type(estimator).__name__}"
@@ -511,7 +517,7 @@ def _eligible_binary_parameter_names(result: Any) -> tuple[str, ...]:
     from ..study import ParameterKey
 
     data = getattr(result, "data", None)
-    if data is None or not getattr(data, "is_binary_treatment", False):
+    if data is None or not getattr(data, "has_arms", False) or not data.is_binary_treatment:
         return ()
     estimates = getattr(result, "estimates", {})
     keys = getattr(result, "parameter_keys", {})
@@ -719,6 +725,7 @@ def _validate_continuous_policy_state(
     from ..interventions.policy import (
         POLICY_TYPES,
         RiskRatioTilt,
+        _vector_setup,
         describe_policy,
         is_identity_policy,
         lazy_frame,
@@ -765,21 +772,27 @@ def _validate_continuous_policy_state(
     )
     # The replay re-applies each declared policy to the replayed dose, so the stored
     # assignment must be the one the declared policies give on the fitted data.
-    observed_dose = np.asarray(result.data.treatment, dtype=float)
     data = result.data
-    frame = lazy_frame(
-        lambda: data.frame_like(
-            {name: data.covariates[:, j] for j, name in enumerate(data.covariate_names)}
+    if data.treatment_kind == "vector":
+        # Each joint policy, branch by branch, as the fit applied it to the components.
+        setup = _vector_setup(declared_policies, data)
+        expected_shifted = np.stack(setup.assigned, axis=1)
+        expected_moved = np.any(expected_shifted != setup.natural[:, None, :], axis=2)
+    else:
+        observed_dose = np.asarray(data.treatment, dtype=float)
+        frame = lazy_frame(
+            lambda: data.frame_like(
+                {name: data.covariates[:, j] for j, name in enumerate(data.covariate_names)}
+            )
         )
-    )
-    expected_shifted = np.column_stack(
-        [
-            branch.assign(observed_dose, frame)
-            for policy in declared_policies
-            for _, branch in policy_branches(policy)
-        ]
-    )
-    expected_moved = expected_shifted != observed_dose[:, None]
+        expected_shifted = np.column_stack(
+            [
+                branch.assign(observed_dose, frame)
+                for policy in declared_policies
+                for _, branch in policy_branches(policy)
+            ]
+        )
+        expected_moved = expected_shifted != observed_dose[:, None]
     expected_reference = fitted_reference if target == "ate_policy" else None
     if (
         fitted_shifts is None
@@ -1007,15 +1020,51 @@ def _validate_request(
     if fit_wide_refusal is not None:
         raise CapabilityError(fit_wide_refusal)
     data = result.data
+    if data.treatment_kind == "vector":
+        _check_component_grid(data, grid)
+    elif grid.components:
+        raise ValueError(
+            f"ConfounderStrengthGrid(treatment={{...}}) declares one strength axis per "
+            f"component of a vector treatment, and treatment {data.treatment_name!r} is one "
+            "column. Pass its strengths as one sequence, treatment=(0.0, ...)"
+        )
     # The ``multi_arm`` rule already refused every treatment that is neither continuous nor
     # binary, so a treatment that is not continuous is binary here.
-    if not data.is_continuous_treatment and any(
-        value < 0.0 or value > 0.5 for value in grid.treatment
+    elif not data.is_continuous_treatment and any(
+        value < 0.0 or value > 0.5 for value in cast("tuple[float, ...]", grid.treatment)
     ):
         raise ValueError("binary treatment strengths must be between 0 and 0.5")
     if data.family == "binomial" and any(value < 0.0 or value > 0.5 for value in grid.outcome):
         raise ValueError("binomial outcome strengths must be between 0 and 0.5")
     return _validated_parameter(result, estimand, benchmark_covariates)
+
+
+def _check_component_grid(data: Any, grid: ConfounderStrengthGrid) -> None:
+    """Refuse a grid that does not give each component of a vector one strength axis.
+
+    Each component takes its own law, a flip for a binary component and a linear shift for
+    a dose, so one strength cannot serve both: a flip probability and a coefficient are
+    not on one scale.
+    """
+    columns = grid.components
+    if set(columns) != set(data.component_names):
+        raise ValueError(
+            f"treatment {data.treatment_name!r} is a vector, and a flip probability and a "
+            "linear coefficient are not on one scale, so the grid gives each component its "
+            "own strengths: ConfounderStrengthGrid(treatment={"
+            + ", ".join(f"{name!r}: (0.0, ...)" for name in data.component_names)
+            + f"}}, outcome=...). This grid names {list(columns)}"
+        )
+    binary = {
+        name
+        for name, levels in zip(data.component_names, data.component_levels, strict=True)
+        if levels
+    }
+    for column, strengths in grid.treatment:  # type: ignore[misc]
+        if column in binary and any(value < 0.0 or value > 0.5 for value in strengths):
+            raise ValueError(
+                f"binary treatment component {column!r} strengths must be between 0 and 0.5"
+            )
 
 
 def _validated_parameter(
@@ -1034,8 +1083,12 @@ def _validated_parameter(
     names = _calibration_names(data, benchmark_covariates)
     # The ``multi_arm`` rule already refused every treatment that is neither continuous nor
     # binary, so exactly one of the two families holds here.
-    treatment_family: Literal["binary", "continuous"] = (
-        "continuous" if data.is_continuous_treatment else "binary"
+    treatment_family: Literal["binary", "continuous", "vector"] = (
+        "vector"
+        if data.treatment_kind == "vector"
+        else "continuous"
+        if data.is_continuous_treatment
+        else "binary"
     )
     identified = result.identified_effect
     functional = identified.functional
@@ -1049,7 +1102,7 @@ def _validated_parameter(
             "common cause to move. Fit a supported PAR or PAF contrast to compare the "
             "observed mean with a reference intervention"
         )
-    if treatment_family == "continuous" and estimand == "ate":
+    if treatment_family != "binary" and estimand == "ate":
         vacuous = _zero_delta_policy_means(result)
         admissible = [
             name

@@ -75,8 +75,8 @@ def _risk_ratio_refusal(
         return f"derived risk ratios require an arm contrast, not the {key.axis!r} axis"
     if key.reference is None or key.stratum is not None:
         return "derived risk ratios require an unconditioned marginal arm contrast"
-    if result.data.is_continuous_treatment:
-        return "derived risk ratios are unavailable for a continuous treatment"
+    if not result.data.has_arms:
+        return "derived risk ratios are unavailable for a treatment with a continuous dose"
     if result.config.family != "binomial":
         return "derived risk ratios require a binomial outcome"
     method = result.fitted_method

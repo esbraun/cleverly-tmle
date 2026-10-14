@@ -152,7 +152,8 @@ def arm_parameters(result: TMLEResult) -> dict[str, ArmParameter]:
     by an index error here.
     """
     data = result.data
-    if data.is_continuous_treatment:
+    # A longitudinal result has nodes, not arms, and its data has no arm reader at all.
+    if result.assessment_family != "point" or not data.has_arms:
         return {}
     if result.parameter_keys:
         from ..targets import TARGETS
@@ -238,7 +239,7 @@ def arm_parameter_keys(result: TMLEResult) -> dict[str, Any]:
     """Resolve reported arm identities forward, respecting explicit metadata."""
     if result.parameter_keys:
         return result.parameter_keys
-    if result.assessment_family != "point" or result.data.is_continuous_treatment:
+    if result.assessment_family != "point" or not result.data.has_arms:
         return {}
     from ..study import ParameterKey
 

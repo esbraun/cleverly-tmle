@@ -517,6 +517,7 @@ _BIAS_GATED = frozenset(
         "missingness_necessity",
         "robustness_contract",
         "policy_necessity",
+        "preimage_necessity",
         "projection_necessity",
         "randomizer_projection",
         "ratio_necessity",

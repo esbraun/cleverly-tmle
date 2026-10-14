@@ -66,7 +66,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 import numpy as np
 
@@ -77,7 +77,6 @@ from ..data.known_mechanism import (
     probability_columns,
 )
 from ..data.validate import (
-    MAX_TREATMENT_LEVELS,
     MIN_CONTINUOUS_LEVELS,
     MIN_OBSERVATIONS,
     arm_indicators,
@@ -85,6 +84,7 @@ from ..data.validate import (
     check_weights,
     encode_clusters,
     encode_treatment,
+    encode_vector_treatment,
     resolve_family,
 )
 from ..data.weighting import (
@@ -95,6 +95,7 @@ from ..data.weighting import (
     effective_sample_size,
 )
 from ..exceptions import CapabilityError, DataError, DataWarning
+from ..interventions.policy import JointComponent
 from ..utils.frames import (
     as_frame,
     backend_of,
@@ -104,7 +105,17 @@ from ..utils.frames import (
     matrix_from_columns,
 )
 
-__all__ = ["Assignment", "LongitudinalData", "RegimenMasks", "assignment_matrix"]
+__all__ = ["Assignment", "LongitudinalData", "NodeKind", "RegimenMasks", "assignment_matrix"]
+
+#: What a treatment node holds.  A ``"categorical"`` node holds level codes, of one column or
+#: of the observed tuples of a vector's components.  A ``"continuous"`` node holds one dose.
+#: A ``"mixed"`` node is a vector with at least one continuous component: its components
+#: live in :attr:`LongitudinalData.component_values`, and its slot in
+#: :attr:`LongitudinalData.treatment` holds only its presence, ``0.0`` or ``nan``.
+NodeKind: TypeAlias = Literal["categorical", "continuous", "mixed"]
+
+#: One continuous node's kind, to repeat over the nodes of a panel of one dose column each.
+_CONTINUOUS_KIND: tuple[NodeKind] = ("continuous",)
 
 #: The fields :meth:`LongitudinalData.subset` indexes by row.  Every other field is
 #: shared by the subset unchanged and is listed in :data:`_SHARED_FIELDS`.  A test checks
@@ -121,13 +132,15 @@ _ROW_FIELDS: tuple[str, ...] = (
     "cluster",
     "weight_spec",
     "known_mechanisms",
+    "component_values",
 )
 _SHARED_FIELDS: tuple[str, ...] = (
     "baseline_names",
     "treatment_names",
     "treatment_levels",
-    "continuous_nodes",
+    "node_kinds",
     "treatment_components",
+    "component_levels",
     "time_varying_names",
     "family",
     "outcome_name",
@@ -179,6 +192,69 @@ def assignment_matrix(assignment: Assignment, n: int, n_times: int) -> FloatArra
         f"an assignment must be one arm per node or an (n, T) matrix; got {values.ndim} "
         "dimension(s)"
     )
+
+
+class _MixedLevels(tuple[object, ...]):
+    """The :attr:`LongitudinalData.treatment_levels` entry of a mixed node.
+
+    A mixed node has no arms: its categorical components carry their own labels in
+    :attr:`LongitudinalData.component_levels`.  Every read of this entry, by length,
+    iteration, index, membership or truth, raises
+    :class:`~cleverly.exceptions.CapabilityError`, so a reader that does not first ask
+    :meth:`LongitudinalData.node_kind` refuses instead of reading zero levels.
+
+    Parameters
+    ----------
+    node : str
+        The node's name, for the refusal.
+    time : int
+        The node, counted from one.
+    """
+
+    node: str
+    time: int
+
+    def __new__(cls, node: str, time: int) -> _MixedLevels:
+        out = super().__new__(cls, ())
+        out.node = str(node)
+        out.time = int(time)
+        return out
+
+    def _refuse(self) -> CapabilityError:
+        return CapabilityError(
+            f"node {self.node!r} at time {self.time} is a vector with a continuous component, "
+            "and treatment_levels reads one column's labels. This path does not support a "
+            "mixed node; read node_kind() and component_levels"
+        )
+
+    def __len__(self) -> int:
+        raise self._refuse()
+
+    def __iter__(self) -> Any:
+        raise self._refuse()
+
+    def __getitem__(self, index: Any) -> Any:
+        raise self._refuse()
+
+    def __contains__(self, value: object) -> bool:
+        raise self._refuse()
+
+    def __bool__(self) -> bool:
+        raise self._refuse()
+
+    def __repr__(self) -> str:
+        return f"<no levels: mixed node {self.node!r}>"
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        return (_MixedLevels, (self.node, self.time))
+
+    def __eq__(self, other: object) -> bool:
+        return (
+            isinstance(other, _MixedLevels) and other.node == self.node and other.time == self.time
+        )
+
+    def __hash__(self) -> int:
+        return hash((_MixedLevels, self.node, self.time))
 
 
 @dataclass(frozen=True)
@@ -238,21 +314,31 @@ class LongitudinalData:
     #: Name of the dataframe backend the data arrived in; see
     #: :attr:`cleverly.data.CausalData.backend`, which this mirrors exactly.
     backend: str | None = None
-    #: Which nodes hold a continuous dose, one flag per node.  A continuous node keeps the
-    #: raw dose in :attr:`treatment`, has no :attr:`treatment_levels`, and accepts only a
-    #: modified treatment policy.  Empty means that every node is categorical.
-    continuous_nodes: tuple[bool, ...] = ()
+    #: The :data:`NodeKind` of each node.  A continuous node keeps the raw dose in
+    #: :attr:`treatment`, has no :attr:`treatment_levels`, and accepts only a modified
+    #: treatment policy.  A mixed node keeps its components in :attr:`component_values` and
+    #: accepts only a :class:`~cleverly.interventions.JointPolicy`.  Empty means that every
+    #: node is categorical.
+    node_kinds: tuple[NodeKind, ...] = ()
     #: The columns of each node.  A node of one column holds its own name; a vector node,
     #: declared as a list of columns, is one categorical node over the observed tuples of
-    #: its components (Díaz et al. 2023, Section 2: :math:`A_t` may be a vector).
+    #: its components (Díaz et al. 2023, Section 2: :math:`A_t` may be a vector), or a mixed
+    #: node when a component is declared continuous.
     treatment_components: tuple[tuple[str, ...], ...] = ()
+    #: Per node, the ``(n, d_t)`` components of a mixed node, and ``None`` at every other
+    #: node: the level code of a categorical component and the dose of a continuous one,
+    #: ``nan`` where the unit holds no treatment at the node.  Empty without a mixed node.
+    component_values: tuple[FloatArray | None, ...] = ()
+    #: Per node, the labels of each component of a mixed node in code order, ``()`` for a
+    #: continuous component, and ``()`` at every other node.  Empty without a mixed node.
+    component_levels: tuple[tuple[tuple[object, ...], ...], ...] = ()
     #: Whether the design has **one baseline treatment decision held over every node**.
     #: Declared by passing ``treatment=`` as one column name.  Node 1 is the decision.
     #: Every later node is an *identity node*: :attr:`treatment` carries the observed node-1
     #: value there on the rows still in the study, its mechanism factor is exactly one, it
     #: fits no model, it adds no block to any design, and a regimen is resolved on node 1
     #: alone.  :attr:`treatment_names` then has one entry, for the decision, and
-    #: :attr:`treatment_levels` and :attr:`continuous_nodes` repeat node 1's entry per node.
+    #: :attr:`treatment_levels` and :attr:`node_kinds` repeat node 1's entry per node.
     treatment_held: bool = False
     #: The grid times :math:`g_1 < \dots < g_K` of a container built from one time and one
     #: event column (:meth:`from_time_to_event`), and ``None`` on the wide path.  Node
@@ -308,7 +394,8 @@ class LongitudinalData:
         treatment:
             Treatment column per time point, in time order.  Its length declares ``T``.  A
             node may be a list of columns, ``[["A1a", "A1b"], ["A2a", "A2b"]]``: it is then
-            one categorical node whose levels are the observed tuples of its components.
+            one categorical node whose levels are the observed tuples of its components, or
+            a mixed node when ``continuous_treatment`` names one of its components.
             One column name, ``treatment="A"``, declares **one baseline decision held over
             every node** (:attr:`treatment_held`).  ``T`` then comes from the survival
             outcome, else from ``censoring=``, else from ``time_varying=``, else it is one.
@@ -339,7 +426,9 @@ class LongitudinalData:
             The treatment columns that hold a continuous dose.  Such a node keeps its raw
             dose, has a conditional density rather than a multinomial mechanism, and takes a
             modified treatment policy at every regimen (Díaz, Williams, Hoffman and Schenck
-            2023).  A vector node's components are categorical.
+            2023).  A component of a vector node may be named too.  The node is then mixed:
+            it takes a :class:`~cleverly.interventions.JointPolicy` at every regimen, and the
+            fit estimates its policy ratio with ``ratio="classifier"``.
         treatment_probabilities:
             The known treatment mechanism of a sequentially randomized design, which the fit
             then reads in place of a treatment learner.  The preferred form maps each node
@@ -389,16 +478,7 @@ class LongitudinalData:
                 f"continuous_treatment= names {unknown_continuous}, which are not treatment "
                 f"columns; the treatment columns are {flat_treatment}"
             )
-        for node_block in components:
-            if len(node_block) > 1 and set(node_block) & set(continuous_names):
-                raise CapabilityError(
-                    f"node {'+'.join(node_block)!r} is a vector with continuous components "
-                    f"{sorted(set(node_block) & set(continuous_names))!r}. A vector node is one "
-                    "categorical node over the tuples of its components; the density ratio "
-                    "of a vector policy on a continuous component needs a joint density, "
-                    "which this version does not estimate (docs/roadmap.md, X31). Declare the "
-                    "continuous component as its own node, or collapse it into categories"
-                )
+        node_kinds = tuple(_node_kind_of(node_block, continuous_names) for node_block in components)
 
         censor_names = [] if censoring is None else [str(name) for name in censoring]
         if censoring is not None and len(censor_names) != n_times:
@@ -499,8 +579,11 @@ class LongitudinalData:
             baseline_names=baseline_names,
             treatment=np.column_stack([_node_column(frame, block) for block in components]),
             treatment_names=treatment_names,
-            continuous_nodes=tuple(node_block[0] in continuous_names for node_block in components),
+            node_kinds=node_kinds,
             treatment_components=tuple(components),
+            continuous_components=tuple(
+                tuple(name in continuous_names for name in node_block) for node_block in components
+            ),
             censoring=(
                 None
                 if censoring is None
@@ -610,6 +693,7 @@ class LongitudinalData:
         censoring_columns: Mapping[str, str] | None = None,
     ) -> LongitudinalData:
         decisions = self.n_decisions
+        self._refuse_known_mixed_nodes(treatment_probabilities)
         return replace(
             self,
             known_mechanisms=known_node_mechanisms(
@@ -619,7 +703,7 @@ class LongitudinalData:
                 treatment_names=self.treatment_names,
                 treatment_levels=self.treatment_levels[:decisions],
                 continuous_nodes=tuple(
-                    self.is_continuous_node(time) for time in range(1, decisions + 1)
+                    self.node_kind(time) != "categorical" for time in range(1, decisions + 1)
                 ),
                 censoring_names=self.censoring_names,
                 treatment_columns=treatment_columns,
@@ -870,7 +954,7 @@ class LongitudinalData:
             outcome_name=event_names[-1][-1],
             family="binomial",
             backend=backend_of(frame),
-            continuous_nodes=(True,) * n_times if continuous_treatment else (),
+            node_kinds=_CONTINUOUS_KIND * n_times if continuous_treatment else (),
             treatment_held=True,
             time_grid=grid_values,
             time_name=str(time),
@@ -968,8 +1052,9 @@ class LongitudinalData:
         outcome_name: str,
         family: str,
         backend: str | None,
-        continuous_nodes: Sequence[bool] = (),
+        node_kinds: Sequence[NodeKind] = (),
         treatment_components: Sequence[Sequence[str]] = (),
+        continuous_components: Sequence[Sequence[bool]] = (),
         treatment_held: bool = False,
         time_grid: Sequence[float] | None = None,
         time_name: str | None = None,
@@ -1058,6 +1143,8 @@ class LongitudinalData:
             )
         a = np.full((n, n_times), np.nan)
         level_sets: list[tuple[object, ...]] = []
+        mixed_values: list[FloatArray | None] = [None] * n_times
+        mixed_levels: list[tuple[tuple[object, ...], ...]] = [()] * n_times
         for time in range(1, n_times + 1):
             name = treatment_names[0 if treatment_held else time - 1]
             # Named apart from the ``column`` index and ``values`` matrix of the block
@@ -1073,9 +1160,24 @@ class LongitudinalData:
                 level_sets.append(level_sets[0])
                 continue
             _check_presence(arms, at_this_node, str(name))
-            if continuous_nodes and continuous_nodes[time - 1]:
+            kind = node_kinds[time - 1] if node_kinds else "categorical"
+            if kind == "continuous":
                 a[at_this_node, time - 1] = _continuous_dose(arms[at_this_node], str(name))
                 level_sets.append(())
+                continue
+            if kind == "mixed":
+                encoded, component_sets = _encode_mixed_node(
+                    arms[at_this_node],
+                    treatment_components[time - 1],
+                    continuous_components[time - 1],
+                )
+                # The slot holds presence only, so every mask that reads it keeps working.
+                a[at_this_node, time - 1] = 0.0
+                stored = np.full((n, encoded.shape[1]), np.nan)
+                stored[at_this_node] = encoded
+                mixed_values[time - 1] = stored
+                mixed_levels[time - 1] = component_sets
+                level_sets.append(_MixedLevels(str(name), time))
                 continue
             codes_at_node, levels = _encode_node_treatment(arms[at_this_node], str(name))
             a[at_this_node, time - 1] = codes_at_node
@@ -1154,13 +1256,19 @@ class LongitudinalData:
             weight_spec=spec,
             dropped_covariates=tuple(dropped),
             backend=backend,
-            continuous_nodes=(
-                tuple(bool(flag) for flag in continuous_nodes) if any(continuous_nodes) else ()
+            node_kinds=(
+                tuple(node_kinds) if any(kind != "categorical" for kind in node_kinds) else ()
             ),
             treatment_components=(
                 tuple(tuple(block) for block in treatment_components)
                 if any(len(block) > 1 for block in treatment_components)
                 else ()
+            ),
+            component_values=(
+                tuple(mixed_values) if any(v is not None for v in mixed_values) else ()
+            ),
+            component_levels=(
+                tuple(mixed_levels) if any(v is not None for v in mixed_values) else ()
             ),
             treatment_held=bool(treatment_held),
             time_grid=None if time_grid is None else tuple(float(g) for g in time_grid),
@@ -1215,8 +1323,26 @@ class LongitudinalData:
         """
         return self.treatment_held and time > 1
 
+    def node_kind(self, time: int) -> NodeKind:
+        """The :data:`NodeKind` of node ``time``, counted from one.
+
+        Parameters
+        ----------
+        time : int
+            The treatment node, counted from one.
+
+        Returns
+        -------
+        str
+            ``"categorical"``, ``"continuous"`` or ``"mixed"``.
+        """
+        return self.node_kinds[time - 1] if self.node_kinds else "categorical"
+
     def is_continuous_node(self, time: int) -> bool:
-        """Whether node ``time``, counted from one, holds a continuous dose.
+        """Whether node ``time``, counted from one, holds one continuous dose.
+
+        A mixed node has no answer here, so the call raises there rather than let a reader
+        of one column take the categorical branch.  Read :meth:`node_kind` first.
 
         Parameters
         ----------
@@ -1226,14 +1352,192 @@ class LongitudinalData:
         Returns
         -------
         bool
-            ``True`` for a node declared in ``continuous_treatment=``.
+            ``True`` for a node of one column declared in ``continuous_treatment=``.
+
+        Raises
+        ------
+        CapabilityError
+            At a mixed node.
         """
-        return bool(self.continuous_nodes) and self.continuous_nodes[time - 1]
+        kind = self.node_kind(time)
+        if kind == "mixed":
+            raise CapabilityError(_mixed_reader(self, time, "is_continuous_node"))
+        return kind == "continuous"
 
     @property
     def has_continuous_node(self) -> bool:
-        """Whether any node holds a continuous dose."""
-        return any(self.continuous_nodes)
+        """Whether any node holds a continuous dose, alone or as a component."""
+        return any(kind != "categorical" for kind in self.node_kinds)
+
+    @property
+    def continuous_columns(self) -> tuple[str, ...]:
+        """The columns declared continuous, in node order: a dose node or a dose component."""
+        columns: list[str] = []
+        for time in range(1, self.n_decisions + 1):
+            kind = self.node_kind(time)
+            if kind == "continuous":
+                columns.append(self.decision_name(time))
+            elif kind == "mixed":
+                columns.extend(
+                    component.name
+                    for component in self.node_components(time)
+                    if component.continuous
+                )
+        return tuple(columns)
+
+    @property
+    def has_mixed_node(self) -> bool:
+        """Whether any node is a vector with a continuous component."""
+        return "mixed" in self.node_kinds
+
+    def node_present(self, time: int) -> BoolArray:
+        """``(n,)`` whether each unit holds a treatment at node ``time``, for every kind.
+
+        Parameters
+        ----------
+        time : int
+            The treatment node, counted from one.
+
+        Returns
+        -------
+        BoolArray
+            ``False`` on a row censored before the node or past an absorbing event.
+        """
+        return np.asarray(~np.isnan(self.treatment[:, time - 1]), dtype=bool)
+
+    def node_codes(self, time: int) -> FloatArray:
+        """``(n,)`` the one column of node ``time``: level codes, or a dose.
+
+        Parameters
+        ----------
+        time : int
+            The treatment node, counted from one.
+
+        Returns
+        -------
+        FloatArray
+            The column, ``nan`` where the unit holds no treatment.
+
+        Raises
+        ------
+        CapabilityError
+            At a mixed node, whose components :meth:`node_values` returns.
+        """
+        if self.node_kind(time) == "mixed":
+            raise CapabilityError(_mixed_reader(self, time, "node_codes"))
+        return self.treatment[:, time - 1]
+
+    def node_values(self, time: int) -> FloatArray:
+        """``(n, d_t)`` the treatment of node ``time``, one column per component.
+
+        A node of one column returns that column as ``(n, 1)``.  A mixed node returns its
+        component codes and doses.
+
+        Parameters
+        ----------
+        time : int
+            The treatment node, counted from one.
+
+        Returns
+        -------
+        FloatArray
+            The values, ``nan`` where the unit holds no treatment.
+        """
+        if self.node_kind(time) == "mixed":
+            values = self.component_values[time - 1]
+            assert values is not None
+            return values
+        return self.treatment[:, time - 1 : time]
+
+    def component_names(self, time: int) -> tuple[str, ...]:
+        """The columns of node ``time``: its components, or the one column it reads.
+
+        Parameters
+        ----------
+        time : int
+            The treatment node, counted from one.
+
+        Returns
+        -------
+        tuple of str
+            One name per column of :meth:`node_values`.
+        """
+        if self.treatment_components:
+            return self.treatment_components[0 if self.treatment_held else time - 1]
+        return (self.decision_name(time),)
+
+    def node_components(self, time: int) -> tuple[JointComponent, ...]:
+        """The components of mixed node ``time``, as a joint policy reads them.
+
+        Parameters
+        ----------
+        time : int
+            A mixed node, counted from one.
+
+        Returns
+        -------
+        tuple of JointComponent
+            One per column of :meth:`node_values`, with its labels, ``()`` for a dose.
+        """
+        if self.node_kind(time) != "mixed":
+            raise ValueError(f"node {time} is not a mixed node")
+        return tuple(
+            JointComponent(name, levels)
+            for name, levels in zip(
+                self.component_names(time), self.component_levels[time - 1], strict=True
+            )
+        )
+
+    def component_design(self, time: int, values: FloatArray | None = None) -> FloatArray:
+        """The design block of mixed node ``time``: doses as themselves, labels as indicators.
+
+        A continuous component enters as its dose, one column.  A categorical component
+        enters as :func:`~cleverly.data.validate.arm_indicators` of its own codes, drop-first,
+        as a categorical node does in :meth:`history_design`.  The joint level code of the
+        components is never a column.  A missing value fills with zero, on rows no fit
+        reads.
+
+        Parameters
+        ----------
+        time : int
+            A mixed node, counted from one.
+        values : FloatArray or None
+            ``(n, d_t)`` component codes and doses, such as the values a policy assigns.
+            ``None`` reads the observed ones.
+
+        Returns
+        -------
+        FloatArray
+            The block, one row per unit.
+        """
+        observed = self.node_values(time) if values is None else np.asarray(values, dtype=float)
+        columns = []
+        for index, levels in enumerate(self.component_levels[time - 1]):
+            column = np.nan_to_num(observed[:, index], nan=0.0)
+            if not levels:
+                columns.append(column.reshape(-1, 1))
+            else:
+                columns.append(arm_indicators(column, len(levels)))
+        return np.hstack(columns)
+
+    def _refuse_known_mixed_nodes(self, treatment_probabilities: Any) -> None:
+        """Refuse a known treatment mechanism declared at a mixed node, before any learner."""
+        if treatment_probabilities is None or not self.has_mixed_node:
+            return
+        mixed = [
+            self.treatment_names[time - 1]
+            for time in range(1, self.n_times + 1)
+            if self.node_kind(time) == "mixed"
+        ]
+        if isinstance(treatment_probabilities, Mapping):
+            mixed = [name for name in mixed if name in treatment_probabilities]
+        if mixed:
+            raise CapabilityError(
+                f"treatment_probabilities declares the vector node(s) {mixed}, which hold a "
+                "continuous component. A known mechanism is a probability per level, and a "
+                "vector node with a dose has no levels. Estimate that node's policy ratio "
+                "with ratio='classifier'"
+            )
 
     @property
     def n_clusters(self) -> int:
@@ -1330,6 +1634,9 @@ class LongitudinalData:
             outcome=self.outcome[idx],
             baseline=self.baseline[idx],
             treatment=self.treatment[idx],
+            component_values=tuple(
+                None if values is None else values[idx] for values in self.component_values
+            ),
             uncensored=self.uncensored[idx],
             time_varying=tuple(block[idx] for block in self.time_varying),
             weights=check_weights(selected, idx.size),
@@ -1550,8 +1857,17 @@ class LongitudinalData:
         return self.frame_like({name: matrix[:, index] for index, name in enumerate(names)})
 
     def policy_names(self, time: int) -> tuple[str, ...]:
-        """Column names of :meth:`policy_frame`: the history, then the earlier treatments."""
-        return (*self.history_names(time), *self.treatment_names[: min(time - 1, self.n_decisions)])
+        """Column names of :meth:`policy_frame`: the history, then the earlier treatments.
+
+        A mixed node contributes one column per component, under the component's name.
+        """
+        earlier: list[str] = []
+        for node in range(1, min(time, self.n_decisions + 1)):
+            if self.node_kind(node) == "mixed":
+                earlier.extend(self.component_names(node))
+            else:
+                earlier.append(self.treatment_names[node - 1])
+        return (*self.history_names(time), *earlier)
 
     def observed_labels(self, time: int) -> Any:
         """``(n,)`` object array of the label each unit received at ``time``, ``None`` if absent.
@@ -1561,6 +1877,20 @@ class LongitudinalData:
         """
         if not 1 <= time <= self.n_times:
             raise DataError(f"time {time} is outside 1..{self.n_times}")
+        if self.node_kind(time) == "mixed":
+            # One tuple of natural values per unit: labels for the categorical components
+            # and doses for the continuous ones.
+            present_rows = self.node_present(time)
+            parts = [
+                component.labels(values)
+                for component, values in zip(
+                    self.node_components(time), self.node_values(time).T, strict=True
+                )
+            ]
+            tuples = np.empty(self.n, dtype=object)
+            for row in range(self.n):
+                tuples[row] = tuple(part[row] for part in parts) if present_rows[row] else None
+            return tuples
         codes = self.treatment[:, time - 1]
         present = ~np.isnan(codes)
         if self.is_continuous_node(time):
@@ -1574,7 +1904,7 @@ class LongitudinalData:
         labels[~present] = None
         return labels
 
-    def policy_frame(self, time: int) -> Any:
+    def policy_frame(self, time: int, extra: Mapping[str, Any] | None = None) -> Any:
         """:meth:`history_frame` plus the earlier treatments, for a policy node to read.
 
         This is what a known policy density :math:`q_t(\\cdot \\mid H_t)` is handed:
@@ -1594,12 +1924,23 @@ class LongitudinalData:
         fills a missing covariate with zero.  So code such as ``h["A1"].str.startswith(...)``
         cannot raise on a row nobody reads, and the density at such a row is overwritten
         with zero.
+
+        An earlier mixed node contributes one column per component, under the component's
+        name: labels for a categorical component and doses for a continuous one.  ``extra``
+        appends further columns, which a :class:`~cleverly.interventions.JointPolicy` uses
+        to hand a component's map the natural values of the current node's other
+        components.
         """
         history = self.covariate_history(time)
         payload: dict[str, Any] = {
             name: history[:, index] for index, name in enumerate(self.history_names(time))
         }
         for node in range(1, min(time, self.n_decisions + 1)):
+            if self.node_kind(node) == "mixed":
+                values = np.nan_to_num(self.node_values(node), nan=0.0)
+                for component, column in zip(self.node_components(node), values.T, strict=True):
+                    payload[component.name] = component.labels(column)
+                continue
             if self.is_continuous_node(node):
                 payload[self.treatment_names[node - 1]] = np.nan_to_num(
                     self.treatment[:, node - 1], nan=0.0
@@ -1610,6 +1951,14 @@ class LongitudinalData:
             for index, level in enumerate(self.treatment_levels[node - 1]):
                 levels[index] = level
             payload[self.treatment_names[node - 1]] = levels[codes]
+        if extra:
+            clashing = sorted(set(extra) & set(payload))
+            if clashing:
+                raise DataError(
+                    f"the component column(s) {clashing} of node {time} share a name with a "
+                    "column of the policy frame; rename the component"
+                )
+            payload.update(extra)
         return self.frame_like(payload)
 
     def baseline_frame(self) -> Any:
@@ -1701,6 +2050,12 @@ class LongitudinalData:
                 # One block per *decision*: an identity node repeats node 1, so it adds
                 # nothing the node-1 block does not already hold.
                 continue
+            if self.node_kind(t) == "mixed":
+                # Every plan holds a joint policy at a mixed node, whose plan column is the
+                # observed treatment, so the block is the observed components: each dose as
+                # itself and each categorical component as its own indicators.
+                columns.append(self.component_design(t))
+                continue
             if plan is None:
                 codes = np.nan_to_num(self.treatment[:, t - 1], nan=0.0)
             else:
@@ -1750,6 +2105,12 @@ class LongitudinalData:
         for time, levels in enumerate(self.treatment_levels[: self.n_decisions], start=1):
             reachable = self.uncensored_through(time - 1) & self.event_free_through(time - 1)
             column = raw[:, time - 1]
+            if self.node_kind(time) == "mixed":
+                # A mixed node is assigned by a joint policy, which reads the observed
+                # components, so the plan's column is the node's presence slot.
+                # ``refuse_continuous_assignments`` refuses every other plan node there.
+                encoded[reachable, time - 1] = self.treatment[reachable, time - 1]
+                continue
             if self.is_continuous_node(time):
                 # A continuous node is assigned by a policy, which reads the observed dose,
                 # so the plan's column is that dose.
@@ -2010,22 +2371,58 @@ def _encode_vector_node(values: Any, name: str) -> tuple[FloatArray, tuple[objec
 
     A discrete vector is one categorical node over the product of its components' observed
     values (a finite partition), so the level limit of a categorical node applies to the
-    tuples.
+    tuples.  :func:`~cleverly.data.validate.encode_vector_treatment` encodes a point vector
+    treatment the same way.
     """
-    observed = list(values.tolist())
-    try:
-        levels = tuple(sorted(set(observed)))
-    except TypeError:
-        levels = tuple(sorted(set(observed), key=repr))
-    if len(levels) > MAX_TREATMENT_LEVELS:
-        raise DataError(
-            f"vector treatment node {name!r} takes {len(levels)} distinct tuples, more than the "
-            f"{MAX_TREATMENT_LEVELS} levels a categorical node accepts. {_TOO_MANY_LEVELS_REMEDY}"
-        )
-    if len(levels) < 2:
-        raise DataError(f"vector treatment node {name!r} takes a single tuple {levels!r}")
-    lookup = {level: float(code) for code, level in enumerate(levels)}
-    return np.asarray([lookup[value] for value in observed], dtype=float), levels
+    return encode_vector_treatment(
+        values, name, what="vector treatment node", remedy=_TOO_MANY_LEVELS_REMEDY
+    )
+
+
+def _node_kind_of(block: Sequence[str], continuous: Sequence[str]) -> NodeKind:
+    """The kind of a node from its columns and the declared continuous columns.
+
+    Every component is read: a vector node whose first component is categorical and whose
+    second is a dose is mixed, not categorical.
+    """
+    declared = [name in continuous for name in block]
+    if not any(declared):
+        return "categorical"
+    return "continuous" if len(block) == 1 else "mixed"
+
+
+def _encode_mixed_node(
+    values: Any, names: Sequence[str], continuous: Sequence[bool]
+) -> tuple[FloatArray, tuple[tuple[object, ...], ...]]:
+    """Encode a mixed node's tuples component by component, on the rows that hold it.
+
+    A continuous component keeps its dose.  A categorical component is encoded on its own,
+    as a node of one column is, so its codes index its own labels and not the joint tuples.
+    """
+    tuples = list(np.asarray(values, dtype=object).reshape(-1))
+    columns = []
+    level_sets: list[tuple[object, ...]] = []
+    for index, (name, dose) in enumerate(zip(names, continuous, strict=True)):
+        raw = np.empty(len(tuples), dtype=object)
+        for row, value in enumerate(tuples):
+            raw[row] = value[index]
+        if dose:
+            columns.append(_continuous_dose(raw, str(name)))
+            level_sets.append(())
+            continue
+        codes, levels = _encode_node_treatment(raw, str(name))
+        columns.append(np.asarray(codes, dtype=float))
+        level_sets.append(tuple(levels))
+    return np.column_stack(columns), tuple(level_sets)
+
+
+def _mixed_reader(data: LongitudinalData, time: int, reader: str) -> str:
+    """The refusal of a one-column reader at a mixed node."""
+    return (
+        f"node {data.treatment_names[time - 1]!r} at time {time} is a vector with a "
+        f"continuous component, and {reader} reads one column. This path does not support a "
+        "mixed node; read node_kind() and node_values()"
+    )
 
 
 def _node_column(frame: Any, block: Sequence[str]) -> Any:

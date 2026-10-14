@@ -582,7 +582,14 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
     # One column shape for the whole frame rather than one per row: the level sets are a
     # property of the data, so whether a share is answerable by a single number is settled
     # before any node is read.
-    categorical = any(len(levels) > 2 for levels in result.data.treatment_levels)
+    # A mixed node has no level set (its components carry their own), and its policy is a
+    # joint MTP, so it reads no levels below.
+    data = result.data
+    categorical = any(
+        len(levels) > 2
+        for time, levels in enumerate(data.treatment_levels, start=1)
+        if data.node_kind(time) != "mixed"
+    )
     rows = []
     # Read off the fit's own fields rather than the key it is filed under: on a survival fit
     # that key is the regimen *and* the horizon, and a ``regimen`` column carrying both would
@@ -592,7 +599,9 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
             weights = (fit.obs_weights * step.clever)[step.trained_on]
             assigned = fit.assignment[step.at_risk, step.time - 1]
             kind = _node_kind(fit, step.time)
-            levels = result.data.treatment_levels[step.time - 1]
+            levels = (
+                () if data.node_kind(step.time) == "mixed" else data.treatment_levels[step.time - 1]
+            )
             assignment: float | str
             if kind == "mtp":
                 # A modified treatment policy assigns no arm; its column reports the mean
@@ -674,7 +683,7 @@ def _ipsi_node_row(result: Any, fit: Any, step: Any) -> IPSINodeRow | None:
     q = np.asarray(fit.policy[step.time - 1], dtype=float)[step.at_risk, 1]
     # The plan's tilt density inverts to the mechanism: pi = q / (delta (1 - q) + q).
     pi = q / (delta * (1.0 - q) + q)
-    arm = np.nan_to_num(result.data.treatment[step.at_risk, step.time - 1], nan=0.0)
+    arm = np.nan_to_num(result.data.node_codes(step.time)[step.at_risk], nan=0.0)
     factor = (delta * arm + 1.0 - arm) / (delta * pi + 1.0 - pi)
     if not factor.size:
         return IPSINodeRow(float("nan"), float("nan"), share, float("nan"))
@@ -844,14 +853,43 @@ def _treatment_report(result: Any, time: int, mask: BoolArray) -> NuisanceModelR
     """Observed-law treatment report, including multinomial negative log likelihood.
 
     A continuous node reports the negative log likelihood of its binned density, and
-    ``None`` on the classifier route, which fits no density.
+    ``None`` on the classifier route, which fits no density.  A mixed node on the density
+    route reports the negative log likelihood of its joint law, the categorical factor times
+    each dose's density at the observed value, and ``None`` on the classifier route.
     """
     mechanism = result.mechanism
-    if result.data.is_continuous_node(time):
-        density = mechanism.densities.get(time)
+    data = result.data
+    if data.node_kind(time) == "mixed":
+        components = data.node_components(time)
+        doses = [component.name for component in components if component.continuous]
+        if (time, doses[0]) not in mechanism.densities:
+            return None
+        natural = np.nan_to_num(data.node_values(time), nan=0.0)
+        # Every plan's denominator factor at a mixed node on the density route is the
+        # categorical factor at the observed cell.
+        observed = np.array(next(iter(mechanism.treatment[time - 1].values())), dtype=float)
+        for index, component in enumerate(components):
+            if component.continuous:
+                density = mechanism.densities[(time, component.name)]
+                observed = observed * density.density_at(natural[:, index])
+        values = np.clip(observed, 1e-300, None)
+        log_loss = float(-np.average(np.log(values[mask]), weights=data.weights[mask]))
+        learner_weights, learner_risks = _aggregate_learner_info(
+            mechanism.treatment_diagnostics[time - 1]
+        )
+        return NuisanceModelReport(
+            name=f"treatment[t={time}]",
+            kind="conditional density",
+            metrics={"log_loss": log_loss},
+            calibration={},
+            learner_weights=learner_weights,
+            learner_risks=learner_risks,
+        )
+    if data.is_continuous_node(time):
+        density = mechanism.densities.get((time, data.treatment_names[time - 1]))
         if density is None:
             return None
-        dose = np.nan_to_num(result.data.treatment[:, time - 1], nan=0.0)
+        dose = np.nan_to_num(data.node_codes(time), nan=0.0)
         values = np.clip(density.density_at(dose), 1e-300, None)
         log_loss = float(-np.average(np.log(values[mask]), weights=result.data.weights[mask]))
         learner_weights, learner_risks = _aggregate_learner_info(())
@@ -864,7 +902,7 @@ def _treatment_report(result: Any, time: int, mask: BoolArray) -> NuisanceModelR
             learner_risks=learner_risks,
         )
     probabilities = np.asarray(mechanism.treatment_observed[time - 1], dtype=float)
-    actual = np.nan_to_num(result.data.treatment[:, time - 1], nan=0.0).astype(np.int64)
+    actual = np.nan_to_num(result.data.node_codes(time), nan=0.0).astype(np.int64)
     diagnostics = (
         mechanism.treatment_diagnostics[time - 1]
         if time <= len(mechanism.treatment_diagnostics)

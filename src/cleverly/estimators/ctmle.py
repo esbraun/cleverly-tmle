@@ -1852,12 +1852,12 @@ class CTMLE(TMLE):
         ``TMLE._check_policies`` runs first in the preflight, and it answers a dose with no
         ``policies=`` by suggesting one, which CTMLE does not fit.
         """
-        if data.is_continuous_treatment:
+        if not data.has_arms:
             raise CapabilityError(_DISCRETE_TREATMENT_REFUSAL)
         super()._check_policies(data)
 
     def _check_estimands(self, data: CausalData) -> None:
-        if data.is_continuous_treatment:
+        if not data.has_arms:
             raise CapabilityError(_DISCRETE_TREATMENT_REFUSAL)
         if data.has_intermediate:
             raise CapabilityError(

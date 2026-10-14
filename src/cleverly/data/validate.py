@@ -32,6 +32,7 @@ __all__ = [
     "encode_binary",
     "encode_continuous_treatment",
     "encode_treatment",
+    "encode_vector_treatment",
     "infer_family",
     "missing_values",
     "resolve_family",
@@ -201,6 +202,54 @@ def encode_treatment(
     _reject_arm_count(len(levels_obj), name, remedy)
     codes = np.searchsorted(unique_obj, arr).astype(float)
     return _check_arms(codes, levels_obj, name, min_per_arm), levels_obj
+
+
+def encode_vector_treatment(
+    values: np.ndarray, name: str, *, what: str = "vector treatment", remedy: str | None = None
+) -> tuple[FloatArray, tuple[object, ...]]:
+    """Encode the tuples of a categorical vector treatment as one level per observed tuple.
+
+    A vector of categorical components is one categorical treatment over the observed tuples
+    of its components (a finite partition), so the level limit of a categorical treatment
+    applies to the tuples.  The levels are the tuples in sorted order, and a row's code is its
+    tuple's index.
+
+    Parameters
+    ----------
+    values : ndarray
+        ``(n,)`` object array, one tuple of component labels per row.
+    name : str
+        The treatment's name, for the refusals.
+    what : str
+        What the refusals call the treatment.
+    remedy : str or None
+        What to suggest when the tuples exceed :data:`MAX_TREATMENT_LEVELS`.
+
+    Returns
+    -------
+    tuple
+        The ``(n,)`` float codes and the tuple levels.
+
+    Raises
+    ------
+    DataError
+        If the rows take more than :data:`MAX_TREATMENT_LEVELS` tuples, or one tuple only.
+    """
+    observed = list(np.asarray(values, dtype=object).reshape(-1).tolist())
+    try:
+        levels = tuple(sorted(set(observed)))
+    except TypeError:
+        levels = tuple(sorted(set(observed), key=repr))
+    if len(levels) > MAX_TREATMENT_LEVELS:
+        raise DataError(
+            f"{what} {name!r} takes {len(levels)} distinct tuples, more than the "
+            f"{MAX_TREATMENT_LEVELS} levels a categorical node accepts. "
+            + (CONTINUOUS_REMEDY if remedy is None else remedy)
+        )
+    if len(levels) < 2:
+        raise DataError(f"{what} {name!r} takes a single tuple {levels!r}")
+    lookup = {level: float(code) for code, level in enumerate(levels)}
+    return np.asarray([lookup[value] for value in observed], dtype=float), levels
 
 
 #: Below this many distinct values, a treatment declared continuous is *probably* a set of

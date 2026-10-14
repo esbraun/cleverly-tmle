@@ -587,7 +587,7 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
         )
     if (
         family == "point"
-        and result.data.is_continuous_treatment
+        and result.data.treatment_kind == "continuous"
         and result.config.parameter_axis == "msm"
     ):
         # The arm positivity report cannot interpret a continuous density. No
@@ -2504,11 +2504,7 @@ class DiagnosticsFacade(_CapabilityFacade):
                     nuisance.policies,
                     nuisance.density,
                     self._result.data.treatment,
-                    propensity=(
-                        None
-                        if self._result.data.is_continuous_treatment
-                        else nuisance.propensity.values
-                    ),
+                    propensity=(nuisance.propensity.values if self._result.data.has_arms else None),
                     mechanisms=mechanisms,
                     folds=nuisance.folds,
                     **score_arguments("mtp"),
@@ -3357,11 +3353,13 @@ def _conditioning_population(report: Any) -> tuple[float | None, float | None, b
         for cell in report.cells
         if cell.target_population_fraction is not None
     ]
+    from .sensitivity.simulated_confounding import _is_anchor
+
     anchor = next(
         (
             cell.target_population_fraction
             for cell in report.cells
-            if cell.treatment_strength == 0.0 and cell.outcome_strength == 0.0
+            if _is_anchor(cell.treatment_strength, cell.outcome_strength)
         ),
         None,
     )
@@ -3786,7 +3784,9 @@ class SensitivityFacade(_CapabilityFacade):
         # both reads.  Neither one needs a ``getattr`` default: a default would answer for a
         # point result whose data lack the flag, and no such result exists, because both are
         # properties of ``CausalData``.
-        continuous = not longitudinal and bool(self._result.data.is_continuous_treatment)
+        # A vector treatment with a continuous component has no arms either, so it takes
+        # the continuous branch: every eligible parameter is a named policy parameter.
+        continuous = not longitudinal and not self._result.data.has_arms
         from .sensitivity._simulated_confounding_request import (
             _eligible_binary_parameter_names,
             _fit_wide_refusal,

@@ -28,6 +28,7 @@ from .incremental import (
 from .learned import LearnedRule, LearnedRuleRecord
 from .policy import (
     POLICY_TYPES,
+    JointPolicy,
     ModifiedPolicy,
     Piece,
     Piecewise,
@@ -48,6 +49,7 @@ __all__ = [
     "Incremental",
     "IncrementalSupport",
     "Intervention",
+    "JointPolicy",
     "LearnedRule",
     "LearnedRuleRecord",
     "ModifiedPolicy",

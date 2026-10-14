@@ -363,7 +363,7 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
             AssessmentStatus.UNAVAILABLE,
             "no longitudinal sensitivity derivation is registered for an E-value",
         )
-    if result.data.is_continuous_treatment:
+    if not result.data.has_arms:
         raise _EValueRefusal(
             AssessmentStatus.NOT_APPLICABLE, "an E-value requires a discrete arm contrast"
         )
