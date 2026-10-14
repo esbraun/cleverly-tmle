@@ -120,8 +120,9 @@ SUBJECT = (
         ),
         (
             {"n_bootstrap": 2},
-            "No audited bootstrap result covers this fit. F2 in docs/roadmap.md tracks "
-            "this. Set n_bootstrap=0.",
+            "No audited bootstrap result covers this fit. X55 in docs/roadmap.md tracks the "
+            "in-sample bootstrap with finite-dimensional nuisances, and F2 the bootstrap with "
+            "data-adaptive nuisances. Set n_bootstrap=0.",
         ),
     ],
 )
@@ -157,7 +158,8 @@ def test_repeated_splits_refuse_at_the_existing_method_boundary() -> None:
 #: The estimator-variant refusal, after the subject.
 VARIANT_REASON = (
     "The C-TMLE selector strategies, the shared outcome-adaptive design and DR-TMLE need "
-    "separate targeting and inference results. F5 in docs/roadmap.md tracks this. "
+    "separate targeting and inference results. X51 in docs/roadmap.md tracks the C-TMLE "
+    "point estimates, and X50 the DR-TMLE route. "
     "Use ordinary TMLE, or CTMLE(strategy='oat', oat_design='per_arm') for point estimates."
 )
 

@@ -20,7 +20,7 @@ from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from ..estimators.base import MEAN_GROUP_ESTIMANDS, TMLEResult
 from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import CapabilityError
-from ..interventions.learned import LEARNED_RULE_SENSITIVITY_REFUSAL
+from ..interventions.learned import LEARNED_RULE_REPLAY_REFUSAL
 from ..study import (
     ATC,
     ATE,
@@ -119,48 +119,64 @@ _TMLE_ONLY_TARGETS: frozenset[str] = _CONDITIONAL_TARGETS | frozenset(_ATTRIBUTA
 
 
 #: The six missing-science stops, each naming the artifact the surface would need and the
-#: roadmap entry that tracks it.  Named constants rather than inline literals, because the
-#: capability row, the execution refusal, and the roadmap must quote one text.
+#: roadmap rows that track it.  Named constants rather than inline literals, because the
+#: capability row, the execution refusal, and the roadmap must quote one text.  The
+#: hard-stop review (docs/technical-reference/hard-stop-review.md) moved each declarable
+#: law to roadmap X47 or X48.  A stop that keeps a part in the research queue names both
+#: rows and states the condition that keeps that part there.
 _LONGITUDINAL_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
     "simulated_confounding has no time-indexed latent law for longitudinal "
-    "treatments, censoring, histories, outcomes, and contrasts.",
+    "treatments, censoring, histories, outcomes, and contrasts. docs/roadmap.md X48 "
+    "tracks one time-fixed latent on uncensored terminal-outcome fits, and "
+    "docs/roadmap.md F13 tracks censoring, survival outcomes, time-varying covariates "
+    "after the first treatment node, and time-varying latents.",
     alternative=NO_ALTERNATIVE,
-    roadmap="F13",
+    roadmap="X48",
 )
 _MULTI_ARM_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
-    "simulated_confounding has no category-valued perturbation law for a multi-arm treatment.",
+    "simulated_confounding has no category-valued perturbation law for a multi-arm "
+    "treatment. docs/roadmap.md X47 tracks a swap of the two arms of a declared pairwise "
+    "contrast.",
     alternative=(
         "Call evalue(result, '<one two-arm contrast>') or omitted_variable_bounds(result) "
         "on the same multi-arm fit."
     ),
-    roadmap="F8",
+    roadmap="X47",
 )
 _MISSING_OUTCOME_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
     "simulated_confounding has no joint observation, treatment, and outcome "
-    "perturbation law with identified missing-outcome refit semantics.",
+    "perturbation law with identified missing-outcome refit semantics. docs/roadmap.md "
+    "X47 tracks a declared response mechanism that reads the covariates only, and "
+    "docs/roadmap.md F12 tracks a response mechanism that reads the treatment, where a "
+    "treatment perturbation breaks missing at random.",
     alternative=(
         "Call evalue(result) for unmeasured confounding on the same fit, or "
         "missingness_tilt(result) for outcome missingness not at random."
     ),
-    roadmap="F12",
+    roadmap="X47",
 )
 _MISSING_TREATMENT_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
     "simulated_confounding has no joint treatment-observation, treatment, and outcome "
     "perturbation law with identified missing-treatment refit semantics. It refuses a "
-    "declared missing treatment for the reason it refuses a missing outcome.",
+    "declared missing treatment for the reason it refuses a missing outcome. "
+    "docs/roadmap.md X47 tracks declared observation mechanisms that read the covariates "
+    "only, and docs/roadmap.md F12 tracks a mechanism that reads the treatment.",
     alternative="Call evalue(result) on the same fit, which has no missing-treatment rule.",
-    roadmap="F12",
+    roadmap="X47",
 )
 _INTERMEDIATE_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
     "simulated_confounding has no ordered treatment, intermediate, observation, "
-    "and outcome law with a controlled-direct-effect contrast contract.",
+    "and outcome law with a controlled-direct-effect contrast contract. docs/roadmap.md "
+    "X47 tracks outcome-axis cells and an intermediate-axis law that holds the treatment, "
+    "and docs/roadmap.md F15 tracks the treatment axis, because a treatment perturbation "
+    "makes the latent confound the intermediate and the outcome.",
     alternative=NO_ALTERNATIVE,
-    roadmap="F15",
+    roadmap="X47",
 )
 #: The one stop whose message names the fitted result rather than the surface, because the
 #: result is what stores no weight model.  Accuracy over template uniformity: writing this
@@ -168,22 +184,25 @@ _INTERMEDIATE_REFUSAL = Refusal(
 _ESTIMATED_WEIGHT_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
     "simulated_confounding cannot replay estimated observation weights; the fitted result "
-    "stores no weight model, target-population semantics, or regeneration rule.",
+    "stores no weight model, target-population semantics, or regeneration rule. "
+    "docs/roadmap.md X47 tracks a replay that holds the supplied weights fixed and targets "
+    "the fit's weighted population.",
     alternative=(
         "Call evalue(result) or omitted_variable_bounds(result) on the same fit; "
         "neither has a weight rule."
     ),
-    roadmap="F11",
+    roadmap="X47",
 )
 _CLUSTERED_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
     "simulated_confounding has no source-backed choice among row-level, "
-    "cluster-level, and mixed latent causes for clustered fits.",
+    "cluster-level, and mixed latent causes for clustered fits. docs/roadmap.md X47 "
+    "tracks a latent level that the caller declares.",
     alternative=(
         "Call evalue(result) or omitted_variable_bounds(result) on the same fit; "
         "neither has a cluster rule."
     ),
-    roadmap="F9",
+    roadmap="X47",
 )
 
 
@@ -280,10 +299,10 @@ def _refuse_learned_rule(result: Any) -> Refusal | None:
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
         "simulated_confounding does not cover a learned-rule fit: "
-        + LEARNED_RULE_SENSITIVITY_REFUSAL
+        + LEARNED_RULE_REPLAY_REFUSAL
         + ".",
         alternative=NO_ALTERNATIVE,
-        roadmap="F27",
+        roadmap="X11",
     )
 
 
@@ -1017,9 +1036,10 @@ def _calibration_refusal(data: Any, names: tuple[str, ...]) -> Refusal | None:
             return Refusal(
                 RefusalReason.IMPLEMENTATION_GAP,
                 f"simulated_confounding cannot calibrate categorical covariate {name!r}; "
-                "zeroing one encoded column does not define a logical-covariate benchmark.",
-                alternative=NO_ALTERNATIVE,
-                roadmap="F10",
+                "zeroing one encoded column does not define a logical-covariate benchmark. "
+                "docs/roadmap.md X47 tracks a block calibration of the whole covariate.",
+                alternative="Name numeric benchmark covariates only.",
+                roadmap="X47",
             )
         column = data.covariates[:, data.covariate_names.index(name)]
         if _is_constant_under_weights(column, data.weights):

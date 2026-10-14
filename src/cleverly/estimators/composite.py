@@ -426,11 +426,13 @@ _DROP_REMEDY = (
     "completely at random."
 )
 #: Why a learned rule stays refused: its value is identified under the composite conditions,
-#: and no composite derivation is written for it.
+#: but no source read gives a cross-fitted learned-rule fit with a missing treatment (roadmap
+#: F27), as for missing outcomes.
 _LEARNED_RULE_REASON = (
     "A learned-rule value is identified under the composite conditions, but no composite "
     "derivation for a rule learned from the fit is written here, and the value is "
-    "cross-fitted (roadmap F27)."
+    "cross-fitted. No source read here gives a cross-fitted learned-rule fit with a missing "
+    "treatment (roadmap F27)."
 )
 #: Targets that read the treatment law of every row.
 _UNIDENTIFIED_TARGETS = ("att", "atc", "ey_obs", "par", "paf")
@@ -494,12 +496,13 @@ def missing_treatment_refusal(
         return _message(
             data,
             "The C-TMLE selector strategies have no collaborative score for the composite "
-            "indicator (roadmap F5), and the shared outcome-adaptive design "
+            "indicator: a selector point estimate that keeps the observation factors off the "
+            "selection path is open (roadmap X51), and the shared outcome-adaptive design "
             "(oat_design='shared') has no composite construction (roadmap F19).",
             "Fit TMLE or DRTMLE, or fit CTMLE(strategy='oat', oat_design='per_arm') for point "
             "estimates.",
             code=RefusalReason.IMPLEMENTATION_GAP,
-            roadmap="F5",
+            roadmap="X51",
         )
     if method not in ("tmle", "drtmle") and not per_arm_oat:
         return _message(
@@ -520,13 +523,25 @@ def missing_treatment_refusal(
             code=RefusalReason.INVALID_DECLARATION,
         )
     if getattr(estimator, "cross_fit", False):
+        if per_arm_oat:
+            open_row = "F19"
+            reason = (
+                "The composite construction uses the in-sample (Donsker) theorem. The "
+                "cross-fitted outcome-adaptive construction has no theorem (roadmap F19), so "
+                "only an in-sample per-arm fit gives its point estimates."
+            )
+        else:
+            open_row = "F21" if method == "drtmle" else "X53"
+            reason = (
+                "The composite construction uses the in-sample (Donsker) theorem. The "
+                f"cross-fitted composite construction is open (roadmap {open_row})."
+            )
         return _message(
             data,
-            "The composite construction uses the in-sample (Donsker) theorem. The "
-            "cross-fitted missing-data variants are open (roadmap F21).",
+            reason,
             "Pass cross_fit=False (CrossFitting(enabled=False) on a method).",
             code=RefusalReason.IMPLEMENTATION_GAP,
-            roadmap="F21",
+            roadmap=open_row,
         )
     if data.has_intermediate:
         return _message(

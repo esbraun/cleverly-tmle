@@ -41,10 +41,13 @@ from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError, DataError, MethodConfigurationError
 from cleverly.interventions import Incremental, LearnedRule, Shift, Static
 from cleverly.interventions.learned import (
+    LEARNED_RULE_BOUND_REFUSAL,
     LEARNED_RULE_CONFIGURATION,
+    LEARNED_RULE_EVALUE_REFUSAL,
     LEARNED_RULE_REFIT_REFUSAL,
     LEARNED_RULE_REMEDY,
-    LEARNED_RULE_SENSITIVITY_REFUSAL,
+    LEARNED_RULE_REPLAY_REFUSAL,
+    LEARNED_RULE_TILT_REFUSAL,
 )
 from cleverly.learners.crossfit import _LEARNED_RULE_METHOD_CLAUSE, _POST_DRAW_REMEDY
 from cleverly.methods import ModelSpec
@@ -70,7 +73,7 @@ ENGINE_REMEDY = (
 METHOD_REMEDY = "CrossFitting(enabled=True, fold_evaluation=True)"
 
 #: The two routes a learned-rule message must not offer: an in-sample fit, which X11 (a)
-#: refuses, and a shift, which F17 refuses beside ``learned_rule=``.
+#: refuses, and a shift, which X11 (c) holds beside ``learned_rule=``.
 FORBIDDEN = ("cross_fit=False", "CrossFitting(enabled=False)", "policies=[")
 
 
@@ -132,11 +135,11 @@ def _refused(call: Any, item: str) -> str:
 DATA_ROWS: dict[str, str] = {
     "continuous": "F27",
     "multi_arm": "X11 (d)",
-    "delta": "F21",
-    "intermediate": "F27",
-    "weights": "F27",
-    "id": "F27",
-    "strata": "F27",
+    "delta": "F27",
+    "intermediate": "X11 (j)",
+    "weights": "X11 (k)",
+    "id": "X11 (l)",
+    "strata": "X11 (m)",
 }
 
 #: Rows 10 to 14: the settings, each with its item.
@@ -144,7 +147,7 @@ SCHEME_ROWS: dict[str, tuple[dict[str, Any], str]] = {
     "in_sample": ({"cross_fit": False, "cv_evaluation": False}, "X11 (a)"),
     "stacked": ({"cv_evaluation": False}, "X11 (e)"),
     "fold_targeting": ({"targeting_scheme": "fold"}, "X11 (h)"),
-    "repeats": ({"repeats": 2}, "F27"),
+    "repeats": ({"repeats": 2}, "X11 (i)"),
     "bootstrap": ({"n_bootstrap": 10}, "F27"),
 }
 
@@ -169,9 +172,9 @@ class TestEachRowRefusesBeforeAnyLearner:
             ({"interventions": [Static(1)]}, "X11 (c)"),
             ({"reference": "learned rule"}, "X11 (c)"),
             ({"estimands": ("ate",)}, "X11 (c)"),
-            ({"policies": [Shift(0.5, cap=None)]}, "F17"),
-            ({"incremental": [Incremental(2.0)]}, "F17"),
-            ({"msm": MSM.linear()}, "F17"),
+            ({"policies": [Shift(0.5, cap=None)]}, "X11 (c)"),
+            ({"incremental": [Incremental(2.0)]}, "X11 (c)"),
+            ({"msm": MSM.linear()}, "X11 (c)"),
         ],
     )
     def test_row_2_another_axis_or_a_contrast(self, overrides: dict[str, Any], item: str) -> None:
@@ -546,7 +549,7 @@ class TestTheStudyRefusesTheSameRows:
             CapabilityError,
             "X11 (h)",
         ),
-        "repeats": ({"fold_evaluation": True, "repeats": 2}, {}, CapabilityError, "F27"),
+        "repeats": ({"fold_evaluation": True, "repeats": 2}, {}, CapabilityError, "X11 (i)"),
         "bootstrap": ({"fold_evaluation": True}, {"n_bootstrap": 10}, CapabilityError, "F27"),
     }
 
@@ -592,39 +595,41 @@ class TestTheAssessmentRows:
     def test_refute_reads_unavailable_and_refuses(self, result: Any) -> None:
         row = result.diagnostics.capability("refute")
         assert not row.available and row.refusal == LEARNED_RULE_REFIT_REFUSAL
+        assert "X11 (o) in docs/roadmap.md tracks a refutation that freezes" in row.reason
         with pytest.raises(CapabilityError, match="relearns the rule"):
             refute(result, estimand=support.NAME, tests=("random_common_cause",))
 
     @pytest.mark.parametrize(
-        "operation",
+        ("operation", "item"),
         [
-            "omitted_confounding",
-            "robustness_value",
-            "elements",
-            "contour",
-            "benchmark",
-            "evalue",
-            "simulated_confounding",
-            "missingness",
-            "tipping_gamma",
+            ("omitted_confounding", "X11 (n)"),
+            ("robustness_value", "X11 (n)"),
+            ("elements", "X11 (n)"),
+            ("contour", "X11 (n)"),
+            ("benchmark", "X11 (n)"),
+            ("evalue", "F27"),
+            ("simulated_confounding", "X11 (o)"),
+            ("missingness", "F27"),
+            ("tipping_gamma", "F27"),
         ],
     )
-    def test_each_sensitivity_row_reads_unavailable_and_cites_f27(
-        self, result: Any, operation: str
+    def test_each_sensitivity_row_reads_unavailable_and_cites_its_row(
+        self, result: Any, operation: str, item: str
     ) -> None:
         row = result.sensitivity.capability(operation)
         assert not row.available
-        assert "F27" in (row.reason or "")
+        assert f"{item} in docs/roadmap.md" in (row.reason or "")
 
-    def test_each_call_refuses_with_the_same_sentence(self, result: Any) -> None:
-        for reason in (
-            fit_wide_bound_refusal(result),
-            fit_wide_tilt_refusal(result),
-            simulated_confounding_refusal(result, support.NAME),
+    def test_each_call_refuses_with_its_row_sentence(self, result: Any) -> None:
+        for reason, sentence in (
+            (fit_wide_bound_refusal(result), LEARNED_RULE_BOUND_REFUSAL),
+            (fit_wide_tilt_refusal(result), LEARNED_RULE_TILT_REFUSAL),
+            (simulated_confounding_refusal(result, support.NAME), LEARNED_RULE_REPLAY_REFUSAL),
         ):
-            assert reason is not None and LEARNED_RULE_SENSITIVITY_REFUSAL in reason.message()
-        with pytest.raises(CapabilityError, match="F27"):
+            assert reason is not None and sentence in reason.message()
+        with pytest.raises(CapabilityError) as caught:
             evalue(result, support.NAME)
+        assert LEARNED_RULE_EVALUE_REFUSAL in str(caught.value)
 
 
 class TestALearnedRuleIsNotARegime:

@@ -73,7 +73,7 @@ from ..estimators._nuisance import tilt_missingness
 from ..exceptions import CapabilityError, refuse_inference
 from ..inference.delta import wald_ci
 from ..inference.influence import spread_name
-from ..interventions.learned import LEARNED_RULE_SENSITIVITY_REFUSAL
+from ..interventions.learned import LEARNED_RULE_TILT_REFUSAL
 from ..targets.population_intervention import (
     NATURAL_COURSE_TILT_REFUSAL,
     is_natural_course_fit,
@@ -179,9 +179,7 @@ def _refuse_learned_rule(result: Any) -> Refusal | None:
         return None
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
-        "missingness_tilt does not cover a learned-rule fit: "
-        + LEARNED_RULE_SENSITIVITY_REFUSAL
-        + ".",
+        "missingness_tilt does not cover a learned-rule fit: " + LEARNED_RULE_TILT_REFUSAL + ".",
         alternative=NO_ALTERNATIVE,
         roadmap="F27",
     )
@@ -217,12 +215,13 @@ def _refuse_continuous(result: Any) -> Refusal | None:
         "and a shift's plug-in is Qbar at the dose the policy assigns rather than at "
         "an arm. The tilt would have to move pi at that dose too, and whether "
         "the tilted parameter is still the shift parameter under a non-ignorable "
-        "mechanism has not been derived here.",
+        "mechanism has not been derived here. docs/roadmap.md X57 tracks the tilt's "
+        "point curve on a shift fit, with a plug-in spread and no interval.",
         alternative=(
             "Use truncation_curve(mechanism=True) for sensitivity to the missingness bound, "
             "or diagnostics.support() for the overlap question."
         ),
-        roadmap="F6",
+        roadmap="X57",
     )
 
 
@@ -239,11 +238,13 @@ def _refuse_incremental(result: Any) -> Refusal | None:
         "lives in the tangent space of g, which the tilt does not move but which the "
         "alternation re-solves against a Qbar that has. Whether the tilted parameter "
         "is that alternation's fixed point has not been derived, so reporting a curve "
-        "would be guessing.",
+        "would be guessing. docs/roadmap.md X57 tracks the tilt's point curve on an "
+        "incremental fit, with a plug-in spread and no interval.",
         alternative=(
             "Use diagnostics.support() for the overlap question, or "
             "truncation_curve(mechanism=True) for sensitivity to the missingness bound."
         ),
+        roadmap="X57",
     )
 
 

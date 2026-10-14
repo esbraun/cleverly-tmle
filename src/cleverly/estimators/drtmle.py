@@ -514,11 +514,11 @@ class DRTMLE(TMLE):
     ``"estimated_weight_plugin"`` status.  The fit runs and the point estimate stands.
     ``ci``, ``pvalue`` and ``std_error`` raise :class:`~cleverly.exceptions.CapabilityError`,
     and ``plugin_std_error`` and ``plugin_interval`` report the retained diagnostic.
-    Roadmap item F5 holds the influence contribution of the weight estimate that would
-    reopen it.  ``guard=()`` fits the ordinary TMLE, whose interval conditions on the
-    weights, and keeps its interval.  Roadmap item F11 separately tracks the stored model,
-    target-population semantics, and regeneration rule needed by a perturbation refit.
-    ``simulated_confounding`` refuses the composition outright until that replay contract exists.
+    Roadmap item X50 holds the fixed-weight DR-TMLE curve that would reopen it.
+    ``guard=()`` fits the ordinary TMLE, whose interval conditions on the weights, and keeps
+    its interval.  Roadmap item X47 separately holds the replay that keeps the supplied
+    weights fixed.  ``simulated_confounding`` refuses the composition outright until that
+    replay contract exists.
 
     ``tests/unit/test_simulated_confounding.py`` now runs fitted nonuniform-weight
     complete-outcome ``DRTMLE`` refits across every supported binary surface parameter.  Those
@@ -563,9 +563,8 @@ class DRTMLE(TMLE):
     def _inference_status(self, data: CausalData) -> InferenceStatus:
         """Withhold inference on a guarded fit whose weights are declared estimated.
 
-        The argument that an interval conditions on the weights concerns the efficient influence
-        curve, and no result read here gives the reduced-dimension regressions of an estimated
-        weight. So a fit with a non-empty ``guard`` and weights declared estimated takes the
+        No result read here gives the reduced-dimension regressions of an estimated weight.
+        So a fit with a non-empty ``guard`` and weights declared estimated takes the
         ``"estimated_weight_plugin"`` status, as the status table of
         ``docs/technical-reference/inference.md`` states. ``guard=()`` fits the ordinary TMLE, whose
         interval conditions on the weights, so it keeps the ordinary status. The flag changes no
@@ -593,6 +592,28 @@ class DRTMLE(TMLE):
                 super()._inference_status(data),
             ]
         )
+
+    def _bootstrap_inferential(self, data: CausalData) -> bool:
+        """Whether the full-refit bootstrap interval is published as inference.
+
+        ``False`` on every fit, in sample or cross-fitted. The registered study
+        ``full-refit-bootstrap-and-derived-contrasts`` measured the ordinary point-treatment
+        :class:`~cleverly.TMLE` only (``boot_ate_point_tmle``), and no source read here covers
+        the bootstrap of the reduced-dimension regressions. The percentile range prints as a
+        diagnostic. Roadmap F2 holds the claim.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data. It is not read.
+
+        Returns
+        -------
+        bool
+            ``False``.
+        """
+        del data
+        return False
 
     def _refuse_one_step_nested(self) -> None:
         # Asked at the fit and at a guarded truncation curve rather than in the
@@ -763,14 +784,26 @@ class DRTMLE(TMLE):
             )
         for keyword in ("interventions", "policies", "incremental", "msm"):
             if getattr(self, keyword, None):
+                if keyword in ("interventions", "msm"):
+                    open_row = "X50"
+                    status = (
+                        "The indicator reduction for a regime and the projection of the arm "
+                        "or regime means follow from that theorem, but they are not "
+                        "implemented (docs/roadmap.md X50)."
+                    )
+                else:
+                    open_row = "F5"
+                    status = (
+                        "No theorem read here says what its reductions would be "
+                        "(docs/roadmap.md F5)."
+                    )
                 raise CapabilityError(
                     f"DRTMLE and {keyword}= are not combined. The reduced-dimension "
-                    "regressions are derived for counterfactual means under static treatment "
-                    f"treatment; {keyword}= is a different score equation, and no theorem "
-                    "read here says what its reductions would be.",
+                    "regressions are derived for counterfactual means under a static "
+                    f"treatment, and {keyword}= is a different score equation. {status}",
                     reason=RefusalReason.IMPLEMENTATION_GAP,
                     alternative="Fit a plain TMLE, which is derived there.",
-                    roadmap="F5",
+                    roadmap=open_row,
                 )
 
     # --------------------------------------------------------------- the hook

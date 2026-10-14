@@ -413,7 +413,9 @@ def test_combined_reports_distinguish_inapplicable_from_deferred(point_result) -
 def test_longitudinal_sensitivity_is_a_capability_aware_facade(longitudinal_result) -> None:  # type: ignore[no-untyped-def]
     report = longitudinal_result.sensitivity.run_all()
     assert {item.status for item in report.items} == {AssessmentStatus.UNAVAILABLE}
-    with pytest.raises(CapabilityError, match="no longitudinal sensitivity derivation"):
+    with pytest.raises(
+        CapabilityError, match=r"no longitudinal sensitivity derivation.*roadmap\.md F16"
+    ):
         longitudinal_result.sensitivity.omitted_confounding()
 
 
@@ -1985,6 +1987,9 @@ class TestAttributeAccessAnswersExistenceNotAvailability:
         """Existence is not availability: the refusal moves to the call, it does not go."""
         with pytest.raises(CapabilityError, match="no longitudinal sensitivity derivation"):
             longitudinal_result.sensitivity.evalue()
+        row = longitudinal_result.sensitivity.capability("evalue")
+        assert "per-period latent law" in (row.reason or "")
+        assert "docs/roadmap.md F16 tracks this stop" in (row.reason or "")
 
     def test_the_point_facade_still_delegates_and_caches(self, point_result) -> None:  # type: ignore[no-untyped-def]
         """The control: a fit that *can* serve these must be unaffected."""

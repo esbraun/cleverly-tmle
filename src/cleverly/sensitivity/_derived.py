@@ -129,7 +129,6 @@ def _risk_ratio_refusal(
             "derived risk ratios are unavailable for controlled direct effects because "
             "cached-nuisance retargeting does not pass the fitted intermediate intervention level.",
             alternative=NO_ALTERNATIVE,
-            roadmap="F25",
         )
     from ..assessment import replayability
 

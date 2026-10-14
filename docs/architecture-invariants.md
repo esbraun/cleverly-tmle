@@ -42,6 +42,7 @@ availability separately.
 | A comparator exists | Use it where it is informative. Its agreement is acceptance evidence for the claims it covers. Label each such claim as comparator-backed, and state what the comparison establishes and what differences remain. Each changed term keeps its independent check |
 | Fundamental theory is missing | This blocks the affected claim when the gap needs a new identification, regularity, or asymptotic argument. Scope the block to that method, configuration, or inference claim |
 | A comparator and missing theory | A comparator cannot replace missing fundamental theory. The absence of a comparator does not create a theoretical gap |
+| A planned comparator study has not run | This does not block a merge or a release when the method's Python studies pass with their expected properties. Label the evidence "comparator runs pending" beside its property evidence. When the comparator runs, register its results and act on its findings |
 
 A study without a comparator records that absence and names the independent evidence that replaces
 it. Do not invent a reference implementation, and do not claim parity to fill an evidence table.
@@ -198,7 +199,7 @@ it from `NON_INFERENTIAL`. The estimator that stamps a parameter status names it
 `CONSTANT_NODE_STATUS`. [Inference status](technical-reference/inference.md#inference-status)
 gives the public contract. *Reconsider when* [F18](roadmap.md#f18-selector-path-c-tmle-inference)
 supplies the selector paths' influence curve, when a second parameter status is added, or when
-[F31](roadmap.md#f31-inference-at-a-boundary-node-estimate) supplies an interval at a boundary
+[X54](roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) part (i) supplies an interval at a boundary
 node, which would remove the one status that reads a fitted quantity.
 
 Where a configuration group serves more than one engine, a default that differs between them is
@@ -323,8 +324,11 @@ failures derive from `CleverlyError`, so callers never have to catch implementat
 derivation makes a currently point-only setting operational.
 
 Every causal result carries its `IdentifiedEffect`, normalized method, and structured
-`ParameterKey` mapping. Persistence round-trips the complete result graph with joblib, including
-the fitted arrays, estimator configuration, analysis data, and nuisance-estimator templates.
+`ParameterKey` mapping. Persistence round-trips the complete result graph with cloudpickle inside a
+joblib-readable gzip stream, including the fitted arrays, estimator configuration, analysis data,
+nuisance-estimator templates, and the rules and policy densities of each regimen. Importable
+objects are saved by reference. Lambdas, closures, and objects defined in `__main__` are saved by
+value, and they load only under the Python minor version that saved them.
 Loading therefore has pickle's arbitrary-code-execution risk and is restricted to trusted
 artifacts in compatible dependency environments. *Reconsider when* a safe, estimator-agnostic
 format can represent arbitrary third-party sklearn-compatible models without weakening replay.

@@ -496,7 +496,10 @@ class TestTheRuleTableIsOrderedAndEveryRuleIsReachable:
             assessment_family = "longitudinal"
 
         refusal = rules["longitudinal"](Elsewhere())
-        assert refusal.condition == "no longitudinal sensitivity derivation is registered."
+        assert refusal.condition == (
+            "no longitudinal sensitivity derivation is registered: the bound needs a "
+            "per-period latent law that identifies the bias of a sequential g-formula target."
+        )
         assert refusal.reason is RefusalReason.IMPLEMENTATION_GAP
         assert refusal.roadmap == "F16"
 
@@ -951,6 +954,12 @@ class TestThePluginLimitsRefuse:
         """The exact law's plug-in is exact; a learned mechanism is the case F26 is about."""
         bound = omitted_variable_bounds(plain_fit, "ate", nu2_estimator="plugin")
         _assert_the_limits_refuse(bound, "plugin", _PLUGIN_LIMITS_REFUSAL)
+
+    def test_the_refusal_names_the_doubly_robust_alternative(self) -> None:
+        assert (
+            "nu2_estimator='doubly_robust' gives the limits for any mechanism learner at the "
+            "rates of that Theorem 4." in _PLUGIN_LIMITS_REFUSAL
+        )
 
     @pytest.mark.parametrize("estimand", ["ate", "att", "atc"])
     def test_the_doubly_robust_bound_reports_finite_limits(

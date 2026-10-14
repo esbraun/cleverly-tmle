@@ -1112,7 +1112,9 @@ class TestTheRefusals:
         frame = extended_frame(BINARY_ACTIVE, 300, 101, delta=True, treatment_delta=True)
         message = _refusal(frame, cross_fit=True)
         assert "in-sample" in message
-        assert "F21" in message
+        assert "cross-fitted outcome-adaptive construction has no theorem (roadmap F19)" in message
+        assert "only an in-sample per-arm fit gives its point estimates" in message
+        assert "X53" not in message
 
     def test_the_natural_course_with_a_missing_treatment(self) -> None:
         frame = extended_frame(BINARY_ACTIVE, 300, 101, delta=True, treatment_delta=True)
@@ -1126,8 +1128,9 @@ class TestTheRefusals:
             "The selector strategies and the shared outcome-adaptive design "
             "(oat_design='shared') of C-TMLE (CTMLE, or CollaborativeTMLEMethod) have no "
             "audited selection and inference result with cross-fitted arm-indexed missing "
-            "outcomes. F5 in docs/roadmap.md tracks this. Use the ordinary TMLE (TMLE, or "
-            "TMLEMethod), or CTMLE(strategy='oat', oat_design='per_arm') for point estimates."
+            "outcomes. X51 in docs/roadmap.md tracks their point estimates. Use the ordinary "
+            "TMLE (TMLE, or TMLEMethod), or CTMLE(strategy='oat', oat_design='per_arm') for "
+            "point estimates."
         ) in message
 
     def test_the_shared_design_with_the_natural_course(self) -> None:
@@ -1138,7 +1141,8 @@ class TestTheRefusals:
             "TMLE and, for point estimates, the per-arm outcome-adaptive CTMLE under their "
             "audited implementation contracts. The C-TMLE selector strategies, the shared "
             "outcome-adaptive design and DR-TMLE need separate targeting and inference "
-            "results. F5 in docs/roadmap.md tracks this. Use ordinary TMLE, or "
+            "results. X51 in docs/roadmap.md tracks the C-TMLE point estimates, and X50 the "
+            "DR-TMLE route. Use ordinary TMLE, or "
             "CTMLE(strategy='oat', oat_design='per_arm') for point estimates."
         )
 

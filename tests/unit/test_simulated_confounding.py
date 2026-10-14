@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import re
 from copy import copy
 from dataclasses import replace
 from statistics import NormalDist
@@ -54,6 +55,7 @@ from cleverly.sensitivity._simulated_confounding_request import (
     _INTERMEDIATE_REFUSAL,
     _LONGITUDINAL_REFUSAL,
     _MISSING_OUTCOME_REFUSAL,
+    _MISSING_TREATMENT_REFUSAL,
     _MULTI_ARM_REFUSAL,
     _TMLE_ONLY_TARGETS,
     _fit_wide_refusal,
@@ -2281,6 +2283,7 @@ _REFUSAL_WITNESSES: tuple[tuple[str, str], ...] = (
     (_LONGITUDINAL_REFUSAL, "no time-indexed latent law for longitudinal treatments"),
     (_MULTI_ARM_REFUSAL, "no category-valued perturbation law for a multi-arm treatment"),
     (_MISSING_OUTCOME_REFUSAL, "identified missing-outcome refit semantics"),
+    (_MISSING_TREATMENT_REFUSAL, "identified missing-treatment refit semantics"),
     (_INTERMEDIATE_REFUSAL, "controlled-direct-effect contrast contract"),
     (_ESTIMATED_WEIGHT_REFUSAL, "cannot replay estimated observation weights"),
     (_CLUSTERED_REFUSAL, "row-level, cluster-level, and mixed latent causes"),
@@ -2288,7 +2291,7 @@ _REFUSAL_WITNESSES: tuple[tuple[str, str], ...] = (
 
 
 def test_each_missing_science_refusal_says_its_own_thing() -> None:
-    """The deliberate-mutation control for the six refusal constants.
+    """The deliberate-mutation control for the seven refusal constants.
 
     Swapping the bodies of two constants, or blanking one, passes every equality assertion
     in this file, because both sides of those comparisons read the same constant. Each
@@ -2302,6 +2305,40 @@ def test_each_missing_science_refusal_says_its_own_thing() -> None:
     for constant, fragment in _REFUSAL_WITNESSES:
         matched = [other for other, _ in _REFUSAL_WITNESSES if fragment in other.condition]
         assert matched == [constant], fragment
+
+
+#: The roadmap rows each missing-science refusal cites (docs/technical-reference/hard-stop-review.md).
+#: A declarable law cites X47 or X48; a part that stays in the research queue cites its F row.
+_REFUSAL_CITATIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (_LONGITUDINAL_REFUSAL, ("X48", "F13")),
+    (_MULTI_ARM_REFUSAL, ("X47",)),
+    (_MISSING_OUTCOME_REFUSAL, ("X47", "F12")),
+    (_MISSING_TREATMENT_REFUSAL, ("X47", "F12")),
+    (_INTERMEDIATE_REFUSAL, ("X47", "F15")),
+    (_ESTIMATED_WEIGHT_REFUSAL, ("X47",)),
+    (_CLUSTERED_REFUSAL, ("X47",)),
+)
+
+
+@pytest.mark.parametrize(("constant", "rows"), _REFUSAL_CITATIONS)
+def test_each_missing_science_refusal_cites_its_rows(constant: str, rows: tuple[str, ...]) -> None:
+    cited = re.findall(r"docs/roadmap\.md ([A-Z]+\d+)", constant)
+    assert cited == list(rows)
+
+
+def test_a_missing_treatment_fit_refuses_before_calibration_draw_or_refit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base = _fit()
+    recorded = np.ones(base.data.n, dtype=bool)
+    recorded[0] = False
+    result = replace(base, data=replace(base.data, treatment_observed=recorded))
+    assert result.data.has_missing_treatment
+    forbid_draw_and_refit(monkeypatch, base.estimator)
+    assert _fit_wide_refusal(result) == _MISSING_TREATMENT_REFUSAL
+    with pytest.raises(CapabilityError) as refusal:
+        simulated_confounding(result, grid=_grid(), random_state=29)
+    assert str(refusal.value) == _MISSING_TREATMENT_REFUSAL
 
 
 #: Objects that declare a family and nothing the later rules read.  ``CausalResult`` is a
@@ -3919,7 +3956,13 @@ def test_unsupported_compositions_are_refused_before_refit(
 @pytest.mark.parametrize(
     ("change", "benchmark_covariates", "error_type", "message"),
     [
-        ("categorical", ("G",), CapabilityError, "categorical covariate"),
+        (
+            "categorical",
+            ("G",),
+            CapabilityError,
+            r"categorical covariate 'G'; .*\(docs/roadmap\.md X47 tracks a block calibration "
+            r"of the whole covariate\)\. Name numeric benchmark covariates only",
+        ),
         ("constant", ("W1",), CapabilityError, "constant covariate"),
         ("non-string", ("W1", 1), TypeError, "only column names"),
         ("duplicate", ("W1", "W1"), ValueError, "contains duplicates"),

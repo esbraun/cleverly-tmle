@@ -55,7 +55,7 @@ from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from ..assessment import AssessmentStatus
 from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import CapabilityError
-from ..interventions.learned import LEARNED_RULE_SENSITIVITY_REFUSAL
+from ..interventions.learned import LEARNED_RULE_EVALUE_REFUSAL
 from ..targets.population_intervention import (
     NATURAL_COURSE_TARGET,
     POPULATION_INTERVENTION_TARGETS,
@@ -99,7 +99,8 @@ _EVALUE_NEEDS_INFERENCE = "an E-value is built from the reported estimate and it
 #: Why every E-value branch stops on a fit with an intermediate variable. This package
 #: has no implemented bound for its fitted controlled direct effect and confounding model.
 #: The E-value section of ``docs/technical-reference/validation-methods.md`` gives the
-#: support boundary, and F25 in ``docs/roadmap.md`` tracks the gap. Raised in
+#: support boundary, and X49 in ``docs/roadmap.md`` holds the per-arm bound that fills the
+#: gap. Raised in
 #: :func:`_select_evalue` before the
 #: estimand is resolved, so the row reads ``unavailable`` on every such fit with a discrete
 #: treatment, a multi-arm fit included, and no branch computes.  A continuous-treatment fit
@@ -109,9 +110,11 @@ _DIRECT_EFFECT_REFUSAL = Refusal(
     "this package has no implemented E-value bound for the fitted controlled direct "
     "effect and its confounding model. Applying the ordinary E-value conversion does "
     "not establish sensitivity to unmeasured treatment-outcome or intermediate-outcome "
-    "confounding for this target. docs/roadmap.md F25 tracks this support gap.",
+    "confounding for this target, because its bias splits into one bounding factor per "
+    "arm and the ordinary conversion inverts one factor. docs/roadmap.md X49 tracks the "
+    "E-value of their product.",
     alternative=NO_ALTERNATIVE,
-    roadmap="F25",
+    roadmap="X49",
 )
 
 
@@ -397,7 +400,9 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
     if getattr(result, "assessment_family", None) != "point":
         raise _EValueRefusal(
             AssessmentStatus.UNAVAILABLE,
-            "no longitudinal sensitivity derivation is registered for an E-value.",
+            "no longitudinal sensitivity derivation is registered for an E-value: the "
+            "bounding factor needs a per-period latent law for a sequential g-formula "
+            "target.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=NO_ALTERNATIVE,
             roadmap="F16",
@@ -411,9 +416,7 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
     if result.config.parameter_axis == "learned_rule":
         raise _EValueRefusal(
             AssessmentStatus.UNAVAILABLE,
-            "an E-value does not cover a learned-rule fit: "
-            + LEARNED_RULE_SENSITIVITY_REFUSAL
-            + ".",
+            "an E-value does not cover a learned-rule fit: " + LEARNED_RULE_EVALUE_REFUSAL + ".",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=NO_ALTERNATIVE,
             roadmap="F27",

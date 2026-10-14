@@ -96,6 +96,11 @@ A study with no comparator is still eligible to register. It records the indepen
 that replaces the comparison, as [Theory and comparators](../architecture-invariants.md#theory-and-comparators)
 requires.
 
+A comparator phase can finish after the method merges. The method merges when its Python phases
+pass with their expected properties. Until the comparator results are registered, the evidence
+page labels the evidence "comparator runs pending". A later change
+registers the comparator results and fixes each defect that they show.
+
 Prefer the implementation that the governing source publishes. That implementation reports the
 influence curve the source derives. A separate package that reproduces the point estimate does
 not have to report the same influence curve, and one such package does not.

@@ -1663,8 +1663,8 @@ class TMLEResult:
         if self.bootstrap is not None:
             parts.append("")
             # Named by what each replicate does: it refits the whole estimator on the
-            # resample. docs/roadmap.md F2 keeps "targeted bootstrap" for a distinct
-            # procedure.
+            # resample. docs/roadmap.md X55 and F2 keep "targeted bootstrap" for a
+            # distinct procedure.
             parts.append(
                 f"full-refit bootstrap ({self.bootstrap.resampling} resampling, "
                 f"{self.bootstrap.n_requested - self.bootstrap.n_failed} usable replicates):"

@@ -8,7 +8,7 @@ accepts. This module holds the witnesses of the rows that RM16a corrects:
 * the in-sample C-TMLE selection-fold refusal names the selection fold, or the inner fold of
   the nested split, and a remedy that runs as written.  The nuisance-fold backstop names the
   same remedy, and a cross-fitted ``TMLE`` keeps the in-sample remedy;
-* the continuous-treatment ``DataError`` names F21 and the in-sample fit on a cross-fitted
+* the continuous-treatment ``DataError`` names X53 and the in-sample fit on a cross-fitted
   ``TMLE`` with missing outcomes, and the in-sample fit it names runs.  A cross-fitted ``CTMLE``
   or ``DRTMLE`` refuses the dose without shift advice;
 * ``benchmark`` refuses an empty request and an indicator column, accepts the logical name of
@@ -272,7 +272,7 @@ class TestTheSelectionSplitRefusalOffersAnInSampleFitNothing:
         assert "Either fit in sample with cross_fit=False on the engine" in message
 
 
-# -------------------------------------------- row 12: the suggested shift and F21
+# -------------------------------------------- row 12: the suggested shift and X53
 
 
 def _dose_frame() -> pd.DataFrame:
@@ -305,9 +305,9 @@ def _dose_fit(frame: pd.DataFrame, *, cross_fit: bool, missing: bool, **settings
     return estimator.fit(frame, **columns)
 
 
-_F21_SENTENCE = (
+_X53_SENTENCE = (
     " A cross-fitted fit with missing outcomes, declared with missingness=<column> on "
-    "PointTreatment, or delta=<column> on fit() or CausalData, refuses a policy target (F21 "
+    "PointTreatment, or delta=<column> on fit() or CausalData, refuses a policy target (X53 "
     "in docs/roadmap.md). To estimate the natural course, fit in sample with cross_fit=False "
     "on the engine (CrossFitting(enabled=False))."
 )
@@ -316,10 +316,10 @@ _F21_SENTENCE = (
 class TestTheSuggestedShiftNamesTheFitThatRunsIt:
     """Row 12. The natural course is suggested with the fit that can estimate it."""
 
-    def test_a_cross_fitted_fit_with_delta_names_f21_and_the_in_sample_fit(self) -> None:
+    def test_a_cross_fitted_fit_with_delta_names_x53_and_the_in_sample_fit(self) -> None:
         with pytest.raises(DataError) as raised:
             _dose_fit(_dose_frame(), cross_fit=True, missing=True)
-        assert str(raised.value).endswith(_F21_SENTENCE)
+        assert str(raised.value).endswith(_X53_SENTENCE)
 
     @pytest.mark.parametrize(
         ("engine", "settings", "refusal"),
@@ -340,7 +340,7 @@ class TestTheSuggestedShiftNamesTheFitThatRunsIt:
         """The controls: a cross-fitted CTMLE or DRTMLE with ``delta=`` refuses the dose.
 
         Neither engine fits a shift, in sample or cross-fitted, so neither message names a
-        shift, F21 or the in-sample fit.
+        shift, X53 or the in-sample fit.
         """
         estimator = engine(
             outcome_learner=LogisticRegression(max_iter=1000),
@@ -362,7 +362,7 @@ class TestTheSuggestedShiftNamesTheFitThatRunsIt:
             )
         message = str(raised.value)
         assert message.startswith(refusal)
-        for advice in ("Shift(", "F21", "cross_fit=False"):
+        for advice in ("Shift(", "policies=", "F21", "X53", "cross_fit=False"):
             assert advice not in message
 
     def test_the_named_in_sample_fit_reports_the_natural_course(self) -> None:
@@ -382,7 +382,7 @@ class TestTheSuggestedShiftNamesTheFitThatRunsIt:
             _dose_fit(_dose_frame(), cross_fit=cross_fit, missing=missing)
         message = str(raised.value)
         assert message.startswith("D was declared continuous")
-        assert "F21" not in message
+        assert "X53" not in message
 
 
 # ----------------------------------------------------- rows 13 and 14: benchmark names

@@ -466,10 +466,16 @@ _REPEATED_BANDS_TEXT = (
 _REPEATED_BANDS_ALTERNATIVE = "Set simultaneous=False, report one estimate, or fit one split."
 
 
-#: Whether the point-treatment full-refit bootstrap's percentile interval is published as
-#: inference.  It shipped as inference before the registered study
-#: ``full-refit-bootstrap-and-derived-contrasts`` measured it.  A red ``boot_ate_point_tmle``
-#: cell sets this to ``False``, so the interval then publishes as a diagnostic.
+#: Whether the in-sample point-treatment full-refit bootstrap's percentile interval is
+#: published as inference.  The registered study ``full-refit-bootstrap-and-derived-contrasts``
+#: measured it on in-sample ``TMLE`` fits with correctly specified nuisances only
+#: (``boot_ate_point_tmle``).  A cross-fitted fit's bootstrap prints as a diagnostic whatever
+#: this flag says, as the cross-fitted longitudinal kinds do, because no study measures it and
+#: no source covers it (roadmap F2).  Every ``DRTMLE`` and ``CTMLE`` fit prints it as a
+#: diagnostic too, because the study measured neither estimator.  An in-sample ``TMLE`` fit
+#: with a data-adaptive learner keeps the interval, and roadmap F2 holds that gap.
+#: A red ``boot_ate_point_tmle`` cell sets this to ``False``, so the in-sample interval then
+#: publishes as a diagnostic too.
 POINT_BOOTSTRAP_INFERENTIAL = True
 
 
@@ -496,7 +502,7 @@ def _refuse_mixed_tilts(policies: Sequence[object]) -> None:
                 "Fit the tilts and the other policies separately. RiskRatioTilt(1.0) is the "
                 "natural course a tilt fit contrasts against."
             ),
-            roadmap="F17",
+            roadmap="X57",
         )
 
 
@@ -561,7 +567,7 @@ class TMLE:
 
         With missing outcomes, a cross-fitted shift, incremental, regime, MSM, or
         controlled-direct-effect fit is refused before any learner is fitted, because no
-        audited result covers it (F21 in ``docs/roadmap.md``). Fit it in sample.
+        audited result covers it (X53 in ``docs/roadmap.md``). Fit it in sample.
         A continuous-dose MSM with missing outcomes or ``intermediate=`` is refused at
         every setting (X10 in ``docs/roadmap.md``).
     targeting_scheme:
@@ -572,9 +578,9 @@ class TMLE:
         ``tmle3_Update(cvtmle=TRUE)`` requests its ``"validation"`` likelihood; Levy's
         paper, not a moving package version, defines the behavior here.
 
-        ``"fold"`` is an additional finite-sample variant that fits a different
-        coefficient inside every validation fold.  It is retained for diagnostics and
-        comparison, but is not the algorithm those sources define.  In either scheme the
+        ``"fold"`` fits a different coefficient inside every validation fold, on that
+        fold's rows.  It is the fold-specific update of Zheng and van der Laan (2010,
+        Theorem 1), not the stacked update that Levy and ``tmle3`` define.  In either scheme the
         outcomes in a validation fold are used to fit the coefficient that fluctuates
         that fold; sample splitting applies to the initial nuisance fits, not to epsilon.
 
@@ -774,9 +780,14 @@ class TMLE:
         """Whether a registered study licenses the full-refit bootstrap interval as inference.
 
         A hook beside :meth:`_inference_status`, because only the estimator knows which
-        construction the bootstrap reruns. The point-treatment fit returns
-        :data:`POINT_BOOTSTRAP_INFERENTIAL`. :class:`~cleverly.estimators.CTMLE` returns
-        ``False`` for ``strategy="oat"``.
+        construction the bootstrap reruns. An in-sample point-treatment fit returns
+        :data:`POINT_BOOTSTRAP_INFERENTIAL`. A cross-fitted fit returns ``False``: its
+        replicates redraw the split over resampled rows, the registered study measured
+        in-sample fits only, and no source covers the bootstrap with cross-fitted nuisances.
+        The longitudinal rule is the same
+        (:data:`~cleverly.longitudinal.estimator.LICENSED_BOOTSTRAP_DESIGNS`).
+        :class:`~cleverly.DRTMLE` and :class:`~cleverly.CTMLE` return ``False`` on every fit,
+        because the registered study measured the ordinary point-treatment ``TMLE`` only.
 
         Parameters
         ----------
@@ -789,7 +800,7 @@ class TMLE:
             Whether the percentile interval publishes under its inferential name.
         """
         del data
-        return POINT_BOOTSTRAP_INFERENTIAL
+        return POINT_BOOTSTRAP_INFERENTIAL and not self.cross_fit
 
     def _refuse_undeclared_functions(self) -> None:
         """Raise unless every function of the configuration is declared known.
@@ -992,7 +1003,7 @@ class TMLE:
                 "One fluctuation cannot solve their score equations at once.",
                 reason=RefusalReason.IMPLEMENTATION_GAP,
                 alternative="Fit them separately.",
-                roadmap="F17",
+                roadmap="X57",
             )
         if self.incremental and self.g_bounds != "auto":
             raise CapabilityError(
@@ -1036,7 +1047,7 @@ class TMLE:
                         else ""
                     )
                 ),
-                roadmap="F17",
+                roadmap="X57",
             )
         if self.msm is not None and self.reference is not None:
             raise ValueError(
@@ -1987,7 +1998,7 @@ class TMLE:
         interval that no audit read a source for, and a ``Static`` regime or a saturated
         MSM reproduced the arm-indexed fit while it escaped that contract's refusals of
         ``repeats``, fold targeting, ``cv_evaluation``, the linear fluctuation, and
-        ``id=``. F21 in ``docs/roadmap.md`` holds the missing results.
+        ``id=``. X53 in ``docs/roadmap.md`` holds the missing results.
 
         Ordinary TMLE alone reaches this surface. :class:`~cleverly.DRTMLE` refuses the
         four axes at construction and ``intermediate=`` before its nuisances, and
@@ -2011,7 +2022,7 @@ class TMLE:
             "with missing outcomes.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=f"To estimate them, {_IN_SAMPLE_ARM_INDEXED_REMEDY}.",
-            roadmap="F21",
+            roadmap="X53",
         )
 
     def _outcome_scale_refusal(self, data: CausalData) -> Refusal | None:
@@ -2111,11 +2122,12 @@ class TMLE:
                 "The selector strategies and the shared outcome-adaptive design "
                 "(oat_design='shared') of C-TMLE (CTMLE, or CollaborativeTMLEMethod) have no "
                 "audited selection and inference result with "
-                "cross-fitted arm-indexed missing outcomes.",
+                "cross-fitted arm-indexed missing outcomes. X51 in docs/roadmap.md tracks "
+                "their point estimates.",
                 "Use the ordinary TMLE (TMLE, or TMLEMethod), or "
                 "CTMLE(strategy='oat', oat_design='per_arm') for point estimates.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
-                roadmap="F5",
+                roadmap="X51",
             )
         if self.fluctuation != "logistic":
             refuse(
@@ -2185,14 +2197,14 @@ class TMLE:
                 "targeting.",
                 "Set repeats=1 (CrossFitting(repeats=1)).",
                 code=RefusalReason.INFERENCE_GAP,
-                roadmap="F21",
+                roadmap="X53",
             )
         if self.targeting_scheme != "pooled":
             refuse(
-                "No direct interval result covers fold-specific targeting.",
+                "No direct interval result covers fold-specific targeting with missing outcomes.",
                 "Set targeting_scheme='pooled' (CrossFitting(targeting_scheme='pooled')).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
-                roadmap="F21",
+                roadmap="X53",
             )
         if data.weights_name is not None or data.is_weighted:
             refuse(
@@ -2297,10 +2309,11 @@ class TMLE:
                 remedy += " guard=() is the ordinary TMLE, so use TMLE."
             refuse(
                 "The C-TMLE selector strategies, the shared outcome-adaptive design "
-                "and DR-TMLE need separate targeting and inference results.",
+                "and DR-TMLE need separate targeting and inference results. X51 in "
+                "docs/roadmap.md tracks the C-TMLE point estimates, and X50 the DR-TMLE route.",
                 remedy,
                 code=RefusalReason.IMPLEMENTATION_GAP,
-                roadmap="F5",
+                roadmap="X51",
             )
         if self.repeats != 1:
             refuse(
@@ -2353,10 +2366,12 @@ class TMLE:
             )
         if self.n_bootstrap:
             refuse(
-                "No audited bootstrap result covers this fit.",
+                "No audited bootstrap result covers this fit. X55 in docs/roadmap.md tracks "
+                "the in-sample bootstrap with finite-dimensional nuisances, and F2 the "
+                "bootstrap with data-adaptive nuisances.",
                 "Set n_bootstrap=0.",
                 code=RefusalReason.INFERENCE_GAP,
-                roadmap="F2",
+                roadmap="X55",
             )
         if self.cross_fit and (data.weights_name is not None or data.is_weighted):
             refuse(
@@ -2975,16 +2990,17 @@ class TMLE:
         refuse_multi_arm_tilt(data)
         if data.has_intermediate:
             raise CapabilityError(
-                "incremental= and intermediate= are not combined. A controlled direct "
-                "effect under a tilt of the treatment mechanism is a parameter this "
-                "package has not written down, and reporting one would mean guessing at "
-                "its influence function.",
-                reason=RefusalReason.IMPLEMENTATION_GAP,
+                "incremental= and intermediate= are not combined. A point-treatment fit "
+                "has one treatment node, and a controlled direct effect under a tilt "
+                "needs a tilt node and a label node. docs/roadmap.md X57 tracks the "
+                "redirection.",
+                reason=RefusalReason.API_REDIRECTION,
                 alternative=(
-                    "Fit incremental= without intermediate=, or fit interventions= with "
-                    "intermediate=."
+                    "Fit it as a two-node plan: "
+                    "IPSI(regimens=[DynamicRegimen('tilt, Z=z', (Incremental(delta), z))]), "
+                    "fitted on the frame with treatment=[A, Z]."
                 ),
-                roadmap="F6",
+                roadmap="X57",
             )
 
     def _check_policies(self, data: CausalData) -> None:
@@ -3012,12 +3028,12 @@ class TMLE:
                     "probability delta and otherwise sets it to 0"
                 )
         if data.is_continuous_treatment and not self.policies and self.msm is None:
-            # The suggested policy meets the F21 refusal of a cross-fitted fit with missing
+            # The suggested policy meets the X53 refusal of a cross-fitted fit with missing
             # outcomes, so that fit is told which fit estimates the natural course.  The
             # condition is the one ``_refuse_cross_fitted_missing_off_contract`` refuses on.
             in_sample = (
                 " A cross-fitted fit with missing outcomes, declared with "
-                f"{MISSING_OUTCOME_DECLARATION}, refuses a policy target (F21 in "
+                f"{MISSING_OUTCOME_DECLARATION}, refuses a policy target (X53 in "
                 "docs/roadmap.md). To estimate the natural course, "
                 f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}."
                 if self._assessment_method == "tmle" and self.cross_fit and data.has_missing_outcome

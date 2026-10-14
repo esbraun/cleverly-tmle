@@ -35,10 +35,13 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 __all__ = [
     "BLIP_QUANTILE_LEVELS",
+    "LEARNED_RULE_BOUND_REFUSAL",
     "LEARNED_RULE_CONFIGURATION",
+    "LEARNED_RULE_EVALUE_REFUSAL",
     "LEARNED_RULE_REFIT_REFUSAL",
     "LEARNED_RULE_REMEDY",
-    "LEARNED_RULE_SENSITIVITY_REFUSAL",
+    "LEARNED_RULE_REPLAY_REFUSAL",
+    "LEARNED_RULE_TILT_REFUSAL",
     "RULE_CLASS",
     "TARGET_KIND",
     "LearnedRule",
@@ -79,12 +82,37 @@ LEARNED_RULE_REMEDY = (
     "(X11 (a) in docs/roadmap.md)"
 )
 
-#: Why every sensitivity analysis refuses a learned-rule fit.  F27 holds the missing result.
-LEARNED_RULE_SENSITIVITY_REFUSAL = (
-    "no sensitivity derivation for the learned-rule value was reviewed (F27 in "
-    "docs/roadmap.md). The target averages the values of rules learned inside each "
-    "training fold, and a refit relearns those rules, so a refitted or perturbed fit "
-    "estimates a different target"
+#: The reason every sensitivity analysis of a learned-rule fit shares.  Each analysis
+#: appends the roadmap row that holds its own missing work.
+_LEARNED_RULE_TARGET = (
+    "no sensitivity analysis of the learned-rule value is implemented. The target averages "
+    "the values of rules learned inside each training fold, and a refit relearns those "
+    "rules, so a refitted or perturbed fit estimates a different target"
+)
+
+#: Why the omitted-variable bound refuses a learned-rule fit.  With the fold rules frozen,
+#: the value is a linear functional, and the bound of a known regime is X9's open work.
+LEARNED_RULE_BOUND_REFUSAL = (
+    f"{_LEARNED_RULE_TARGET}. X11 (n) in docs/roadmap.md tracks the bound of the frozen "
+    "fold rules, after X9 covers a known regime"
+)
+
+#: Why simulated confounding refuses a learned-rule fit.
+LEARNED_RULE_REPLAY_REFUSAL = (
+    f"{_LEARNED_RULE_TARGET}. X11 (o) in docs/roadmap.md tracks a replay that freezes the "
+    "fold rules"
+)
+
+#: Why the E-value refuses a learned-rule fit.  No E-value of a regime contrast ships.
+LEARNED_RULE_EVALUE_REFUSAL = (
+    f"{_LEARNED_RULE_TARGET}. An E-value reads an arm contrast, and no bound maps a "
+    "learned-rule contrast to one (F27 in docs/roadmap.md)"
+)
+
+#: Why the missingness tilt refuses a learned-rule fit, which refuses missing outcomes.
+LEARNED_RULE_TILT_REFUSAL = (
+    f"{_LEARNED_RULE_TARGET}. A learned-rule fit refuses missing outcomes before any "
+    "learner, so it has no observation mechanism to tilt (F27 in docs/roadmap.md)"
 )
 
 #: Why a refutation refuses a learned-rule fit.
@@ -92,9 +120,10 @@ LEARNED_RULE_REFIT_REFUSAL = Refusal(
     RefusalReason.DIFFERENT_ESTIMAND,
     "A refutation refits the learned-rule value, and a refit relearns the rule inside each "
     "training fold. The refitted estimate therefore has a different target, and its "
-    "comparison with the reported estimate is not defined (F27 in docs/roadmap.md).",
+    "comparison with the reported estimate is not defined. X11 (o) in docs/roadmap.md "
+    "tracks a refutation that freezes the fold rules.",
     alternative=NO_ALTERNATIVE,
-    roadmap="F27",
+    roadmap="X11",
 )
 
 _X11 = "X11 ({part}) in docs/roadmap.md"
@@ -395,7 +424,8 @@ def learned_rule_configuration_refusal(estimator: Any) -> Refusal | None:
     if axes:
         reasons.append(
             f"Another parameter axis ({', '.join(axes)}) needs a fit of its own, because one "
-            "fluctuation cannot solve the score equations of two axes (F17 in docs/roadmap.md)"
+            "fluctuation cannot solve the score equations of two axes, and "
+            f"{_X11.format(part='c')} holds the joint fit"
         )
     # The remedy names what the caller declared: the keywords to drop, estimands=None for
     # an arm estimand, and a fit of its own for another target.  reference= names no target.
@@ -441,38 +471,42 @@ def _data_refusal(data: CausalData) -> Refusal | None:
         return _gap(
             "a learned rule with missing outcomes (delta=) is refused. Van der Laan and "
             "Luedtke (2015) treat complete outcomes, and no audited result covers a "
-            "cross-fitted learned-rule fit with missing outcomes (F21 in docs/roadmap.md). "
+            f"cross-fitted learned-rule fit with missing outcomes ({_F27}). "
             "The learned-rule value needs every outcome observed.",
             f"{_FIXED_RULE} takes delta= for a fixed rule.",
-            "F21",
+            "F27",
         )
     if data.has_intermediate:
         return _gap(
-            "a learned rule with intermediate= is refused. No reviewed source gives a "
-            f"learned rule for a controlled direct effect ({_F27}).",
+            "a learned rule with intermediate= is refused. A learned rule at the treatment and "
+            "the static Z = z at the intermediate form a two-time-point rule pair, which is "
+            f"not implemented ({_X11.format(part='j')}).",
             f"{_FIXED_RULE} takes intermediate= for a fixed rule.",
-            "F27",
+            "X11",
         )
     if data.weights_name is not None or data.is_weighted:
         return _gap(
             "a learned rule with observation weights (weights=) is refused. Van der Laan "
-            f"and Luedtke (2015) treat unweighted iid rows ({_F27}).",
+            "and Luedtke (2015) treat unweighted iid rows, and the chain rule with a known "
+            f"weight is not implemented ({_X11.format(part='k')}).",
             f"{_FIXED_RULE} takes weights= for a fixed rule.",
-            "F27",
+            "X11",
         )
     if data.cluster is not None:
         return _gap(
             "a learned rule with clusters (id=) is refused. Van der Laan and Luedtke (2015) "
-            f"treat iid rows, and no source gives a grouped-split learned-rule result ({_F27}).",
+            "treat iid rows, and a cluster as the unit with whole-cluster folds is not "
+            f"implemented ({_X11.format(part='l')}).",
             f"{_FIXED_RULE} takes id= for a fixed rule.",
-            "F27",
+            "X11",
         )
     if data.has_strata:
         return _gap(
-            "a learned rule with baseline strata (strata=) is refused. No reviewed source "
-            f"gives a stratified learned-rule fluctuation ({_F27}).",
+            "a learned rule with baseline strata (strata=) is refused. The value inside each "
+            "of a fixed number of strata needs fold evaluation with strata, which X28 holds "
+            f"({_X11.format(part='m')}).",
             f"{_FIXED_RULE} takes strata= for a fixed rule.",
-            "F27",
+            "X11",
         )
     return None
 
@@ -525,9 +559,11 @@ def learned_rule_scheme_refusal(estimator: Any) -> Refusal | None:
     if estimator.repeats != 1:
         return _gap(
             "the learned-rule value needs one split (repeats=1). Each split defines a "
-            f"different target, and no source aggregates over targets ({_F27}).",
+            "different target. The mean over a fixed number of splits targets the mean of "
+            f"those targets and is not implemented ({_X11.format(part='i')}), and the median "
+            "has no defined target.",
             remedy,
-            "F27",
+            "X11",
         )
     if estimator.n_bootstrap:
         return Refusal(
@@ -553,18 +589,18 @@ def refuse_learned_rule_composition(data: CausalData, estimator: Any = None) -> 
     order   request                                              item
     ======  ===================================================  ===================
     1       ``CTMLE`` or ``DRTMLE``                              F27
-    2       another axis keyword, ``reference=``, arm estimands  X11 (c), F17
+    2       another axis keyword, ``reference=``, arm estimands  X11 (c)
     3       a continuous treatment                               F27
     4       more than two arms                                   X11 (d)
-    5       missing outcomes, ``delta=``                         F21
-    6       ``intermediate=``                                    F27
-    7       ``weights=``                                         F27
-    8       ``id=``                                              F27
-    9       ``strata=``                                          F27
+    5       missing outcomes, ``delta=``                         F27
+    6       ``intermediate=``                                    X11 (j)
+    7       ``weights=``                                         X11 (k)
+    8       ``id=``                                              X11 (l)
+    9       ``strata=``                                          X11 (m)
     10      ``cross_fit=False``, or one fold                     X11 (a)
     11      ``cv_evaluation=False``                              X11 (e)
     12      ``targeting_scheme="fold"``                          X11 (h)
-    13      ``repeats`` above 1                                  F27
+    13      ``repeats`` above 1                                  X11 (i)
     14      ``n_bootstrap`` above 0                              F27
     ======  ===================================================  ===================
 

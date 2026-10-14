@@ -174,13 +174,14 @@ ROWS: tuple[Row, ...] = (
     ),
     Row(
         "repeats",
-        "Set repeats=1 (CrossFitting(repeats=1))",
+        "(X53 in docs/roadmap.md). Set repeats=1 (CrossFitting(repeats=1))",
         engine={"repeats": 2},
         public={"cross_fitting": {"repeats": 2}},
     ),
     Row(
         "fold-targeting",
-        "Set targeting_scheme='pooled' (CrossFitting(targeting_scheme='pooled'))",
+        "with missing outcomes (X53 in docs/roadmap.md). Set "
+        "targeting_scheme='pooled' (CrossFitting(targeting_scheme='pooled'))",
         engine={"targeting_scheme": "fold"},
         public={"cross_fitting": {"targeting_scheme": "fold"}},
     ),
