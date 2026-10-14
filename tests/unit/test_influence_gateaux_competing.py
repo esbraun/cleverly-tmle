@@ -508,9 +508,10 @@ class TestTheControlsBite:
         """
         frame = law.frame()
         recoded = frame.copy()
-        # Leaving at the competing event, rather than passing through it.
+        # Leaving at the competing event, rather than passing through it.  A censored
+        # unit's event nodes at that time are unobserved, so they are missing too.
         recoded["C1"] = np.where(frame["D1"] == 1.0, 0.0, frame["C1"])
-        for column in ("L2", "A2", "C2", "R2", "D2"):
+        for column in ("R1", "D1", "L2", "A2", "C2", "R2", "D2"):
             recoded[column] = np.where(frame["D1"] == 1.0, np.nan, frame[column])
 
         eliminated = _oracle_fit(

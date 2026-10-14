@@ -168,8 +168,11 @@ class TestDeclaringTheAxis:
 
 class TestTheRefusals:
     def test_shifts_and_interventions_together_are_refused(self) -> None:
-        with pytest.raises(CapabilityError, match="cannot solve their score equations at once"):
+        with pytest.raises(
+            CapabilityError, match="cannot solve their score equations at once"
+        ) as caught:
             estimator(policies=SHIFTS, interventions=[Static(0), Static(1)])
+        assert "docs/roadmap.md X57 tracks the joint fit of several axes" in str(caught.value)
 
     def test_a_shift_off_the_levels_of_an_arm_coded_treatment_is_refused(self) -> None:
         # A shift of 0.5 maps the levels 0 and 1 to 0.5 and 1.5, which are not levels: the
@@ -437,8 +440,11 @@ class TestACoarsenedShiftFit:
 
     def test_the_mnar_tilt_refuses_this_axis_by_name(self) -> None:
         result = self._law_fit()
-        with pytest.raises(ValueError, match="continuous dose with policies="):
+        with pytest.raises(ValueError, match="continuous dose with policies=") as caught:
             result.sensitivity.missingness()
+        assert "docs/roadmap.md X57 tracks the tilt's point curve on a shift fit" in str(
+            caught.value
+        )
 
     def test_the_mechanism_truncation_curve_is_not_flat(self) -> None:
         """The diagnostic that would be vacuous if ``pi`` were baked in at fit time.

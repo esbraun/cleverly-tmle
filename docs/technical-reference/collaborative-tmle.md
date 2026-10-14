@@ -105,7 +105,9 @@ canonical CV-TMLE changes the estimator and needs a separate derivation.
 **Two other refusals reach every collaborative fit.** The first is `id=`: C-TMLE has no clustered
 result. No reviewed result covers clustered inference for the outcome-adaptive mechanism.
 Selector-based fits also lack a result for grouped selection and nested folds or candidate-selection
-variance. The message names two ways out: "Drop id= from fit (PointTreatment(cluster=None)), or use
+variance. [X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets) part (e) holds the
+clustered point estimates, and [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle)
+the clustered intervals. The message names two ways out: "Drop id= from fit (PointTreatment(cluster=None)), or use
 the ordinary TMLE (TMLE, or TMLEMethod), which has a clustered result." `available_methods` reports
 `collaborative_tmle` as unavailable with the same reason when the design declares `cluster=`, so a
 study reader sees it before anyone fits. The second is inherited from ordinary TMLE: a cross-fitted
@@ -394,9 +396,12 @@ reported curve, with the true $g_0$, on the binary law. Its `reading.txt` gives 
 | per-arm, $\bar Q_n$ pinned to the truth | 0.997, 0.938 | 0.988, 0.950 |
 
 The term needs the full mechanism $g_0$ and the influence function of the outcome learner. The
-per-arm design exists to avoid the first, and no source read here gives it for a flexible
-learner. [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) holds it.
-The point estimate stands, so the per-arm design stays the default.
+per-arm design exists to avoid the first, and no source read here gives it for a flexible learner.
+[F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) holds it.
+[X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) plans a
+corrected interval for a regular parametric outcome model. Until it ships, and outside its support
+predicate afterward, a per-arm fit withholds its interval. The point estimate stands, so the per-arm
+design stays the default.
 
 ### Baseline strata and missing data in the per-arm design
 
@@ -448,5 +453,5 @@ folds. Each row of the table is 800 fits of the `strata_missing` law at its n.
 | natural course with a missing outcome | the construction with $\Delta$ as the treatment and the design $(A, \bar Q_n(A, W))$. The fit reads the outcome observation factor at the realised arm. `par` follows by linearity, and `paf` by the delta method on the stack with the arm means. With strata, the stratum step applies on top |
 | identification | $Y(a) \perp A \mid W$; $Y(a) \perp \Delta_A \mid A, W$; $Y \perp \Delta \mid A, \Delta_A = 1, W$; $W$ recorded on every row; positivity $P(C_a = 1 \mid W) > 0$ almost surely, per stratum with strata. The design bounds do not imply positivity |
 | the missingness tilt | `missingness_tilt` and `tipping_gamma` read the full-covariate model $P(\Delta = 1 \mid A, W)$, which the fit stores as `nuisance.tilt_missingness`. No targeting step reads it |
-| refused | a cross-fitted fit with a missing treatment, as for every estimator ([F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants)); `ey_obs`, `par` and `paf` with a missing treatment, which are not identified; a stratum or a training complement in which a factor has no row to fit; with `delta=`, a training complement with no nonrespondent among its recorded rows, because the full-covariate response model of the tilt needs one; and, when the treatment learner is a package classification `SuperLearner`, a factor target with fewer than two rows of a class in a training complement. Each refusal reads the data and every drawn split before any learner. The selector strategies and the shared design keep their refusals |
+| refused | a cross-fitted fit with a missing treatment, as for every estimator ([X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) part (c)); `ey_obs`, `par` and `paf` with a missing treatment, which are not identified; a stratum or a training complement in which a factor has no row to fit; with `delta=`, a training complement with no nonrespondent among its recorded rows, because the full-covariate response model of the tilt needs one; and, when the treatment learner is a package classification `SuperLearner`, a factor target with fewer than two rows of a class in a training complement. Each refusal reads the data and every drawn split before any learner. The selector strategies and the shared design keep their refusals |
 | evidence | `tests/unit/test_outcome_adaptive_per_arm_extensions.py`: in-sample and cross-fitted longhands of the factors and the targeting to `1e-8`, a longhand of `target_weights=True`, each stratum point against a fit on the stratum's rows, the marginal mixture and its mass term, the solved scores, the natural course, the route identity, an exact law on which the factor product is the cell share of $C_a = 1$ and the oracle $\bar Q$ gives the truth, fold-local nesting, fixed weights against duplicated rows, the tilt, the status matrix, and 14 mutation controls. `tests/unit/test_capability_row_sweep.py` sweeps the capability rows of a per-arm fit with missing outcomes. The registered study [`ctmle-oat-per-arm-strata-missing`](method-evidence/outcome-adaptive-per-arm-c-tmle-strata-missing.md) pairs all 31 rows with R `drtmle` and passes every `robustness_contract` cell. F19 owns its short-SE truth rows. The study re-declared its ladder at n = 2,000, 4,000 and 8,000 after the first run. F19 owns the three rungs, which have an equivalent bias and a short standard error |

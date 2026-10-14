@@ -14,14 +14,16 @@ release saves loads in another release with a `VersionMismatchWarning`, and the 
 migrate it. Do not add compatibility code for an earlier release. The "Compatibility" section of
 `CLAUDE.md` states the rule.
 
-The [roadmap](../roadmap.md) is the single planning contract. It puts source-backed work in one
-binding sequence. It keeps work without published theory in a separate future grid. Read its
+The [roadmap](../roadmap.md) is the single planning contract. It orders open work by beta
+milestone. It keeps work that needs new fundamental theory in a separate future grid. Read its
 [eligibility rule](../roadmap.md#eligibility) before you propose a new method. `cleverly`
-implements established statistical methods. It does not use a package feature as the place to
-invent one.
+accepts established methods and natural extensions of established theory.
 
-The eligibility rule admits a trivial or natural extension of a published derivation that needs no
-new fundamental proof. The rule also defines those terms.
+The eligibility rule names three acceptance routes: an established method, an acceptable
+implementation comparison, and a natural extension. A missing comparator never blocks a method,
+as [theory and comparators](../architecture-invariants.md#theory-and-comparators) states. A
+comparator run that has not finished does not block a method either. The method merges when its
+Python studies pass, and a later change registers the comparator results.
 
 ## Set up your environment
 
@@ -151,7 +153,7 @@ is not written. It is earned by registering a study.
 
 | step | where |
 | --- | --- |
-| confirm the method is eligible | [eligibility](../roadmap.md#eligibility) in the roadmap |
+| confirm the method is eligible | [eligibility](../roadmap.md#eligibility) in the roadmap, and [theory and comparators](../architecture-invariants.md#theory-and-comparators) |
 | register the study, with margins declared before the run | `tests/studies/evidence/registry.py` |
 | name every key the study reports | `tests/studies/evidence/descriptions.py` |
 | generate the published tables | `python -m tests.studies.evidence.document` |
