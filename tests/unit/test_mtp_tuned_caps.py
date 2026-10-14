@@ -889,7 +889,9 @@ def _grid_truth(cap: float) -> tuple[float, np.ndarray]:
     return float(np.real(grid.functional_mtp(base, plan))), np.array(curve)
 
 
-def _fold_average_on_two_copies(monkeypatch: pytest.MonkeyPatch, caps: tuple[float, float]) -> Any:
+def _fold_average_on_two_copies(
+    monkeypatch: pytest.MonkeyPatch, caps: tuple[float, float], estimator: type = LTMLE
+) -> Any:
     """The fold average on two copies of the exact grid law, each copy one fold.
 
     Each fold's training rows are the other copy, which realises the law, so the saturated
@@ -932,7 +934,7 @@ def _fold_average_on_two_copies(monkeypatch: pytest.MonkeyPatch, caps: tuple[flo
     }
     with warnings.catch_warnings(), mtp.exact_bins():
         warnings.simplefilter("ignore")
-        return LTMLE([_regimen("fold_average")], **settings).fit(
+        return estimator([_regimen("fold_average")], **settings).fit(
             data,
             outcome="Y",
             treatment=["A1", "A2"],
@@ -959,11 +961,12 @@ def _check_fold_average(result: Any) -> None:
 
 
 @pytest.mark.usefixtures("exact_grid_law")
+@pytest.mark.parametrize("estimator", [LTMLE, SDR])
 def test_t_e1_the_fold_average_is_the_average_of_exact_fold_functionals(
-    monkeypatch: pytest.MonkeyPatch,
+    estimator: type, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """T-e1: each fold's estimate and curve are its own map's functional and derivative."""
-    result = _fold_average_on_two_copies(monkeypatch, FOLD_CAPS)
+    result = _fold_average_on_two_copies(monkeypatch, FOLD_CAPS, estimator)
     _check_fold_average(result)
     # The nonzero witness: the fold caps are more than 0.05 apart, and so are their means.
     assert abs(FOLD_CAPS[1] - FOLD_CAPS[0]) > 0.05
@@ -972,8 +975,11 @@ def test_t_e1_the_fold_average_is_the_average_of_exact_fold_functionals(
 
 
 @pytest.mark.usefixtures("exact_grid_law")
-def test_m_e1_one_fold_map_everywhere_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("estimator", [LTMLE, SDR])
+def test_m_e1_one_fold_map_everywhere_fails(
+    estimator: type, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """M-e1: fold 1's map in every fold, and T-e1 catches it."""
-    result = _fold_average_on_two_copies(monkeypatch, (FOLD_CAPS[0], FOLD_CAPS[0]))
+    result = _fold_average_on_two_copies(monkeypatch, (FOLD_CAPS[0], FOLD_CAPS[0]), estimator)
     with pytest.raises(AssertionError):
         _check_fold_average(result)
