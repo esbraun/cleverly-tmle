@@ -1,0 +1,132 @@
+{
+  "schema_version": 2,
+  "study": "repeated-outcome longitudinal TMLE",
+  "slug": "longitudinal-repeated-outcome",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "9bfa759030b9b2fde673c57563be565c3f6800bb",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.7",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": {
+      "implementation": "ltmle",
+      "ltmle_version": "1.3-0",
+      "ltmle_source_commit": "338c029dae9692ef20714125773da7037688993b",
+      "ltmle_tarball_sha256": "fb31d0dd6ab81687b81f3279b414c21e91c655e10aac12f73fc6723efd848aad",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c"
+    }
+  },
+  "configuration": {
+    "replicates": 1600,
+    "n": 2000,
+    "seed": 20263201,
+    "resampling_seed": 2026320101,
+    "publication_policy": "gated",
+    "scenarios": {
+      "censored_repeated_outcome": [
+        "ey_regimen[never @ t=1]",
+        "ey_regimen[never @ t=2]",
+        "ey_regimen[never @ t=3]",
+        "ey_regimen[always @ t=1]",
+        "ey_regimen[always @ t=2]",
+        "ey_regimen[always @ t=3]",
+        "ey_regimen[treat then treat after an outcome @ t=2]",
+        "ey_regimen[treat then treat after an outcome @ t=3]",
+        "ate_regimen[always vs never @ t=1]",
+        "ate_regimen[always vs never @ t=2]",
+        "ate_regimen[always vs never @ t=3]",
+        "ate_regimen[treat then treat after an outcome vs never @ t=2]",
+        "ate_regimen[treat then treat after an outcome vs never @ t=3]"
+      ]
+    },
+    "construction": "ordinary",
+    "outcome_kind": "repeated",
+    "horizon_mode": "all_prefixes",
+    "r_survival_outcome": false,
+    "cross_fit": false,
+    "simultaneous_intervals": false,
+    "variance_method": "ic",
+    "stratify": true,
+    "g_bounds": [
+      1e-08,
+      1.0
+    ],
+    "horizons": [
+      1,
+      2,
+      3
+    ],
+    "regimens": [
+      "never",
+      "always",
+      "treat then treat after an outcome"
+    ],
+    "q_formulas": [
+      "Q.kplus1 ~ W",
+      "Q.kplus1 ~ W + Y1 + L2",
+      "Q.kplus1 ~ W + Y1 + L2 + Y2 + L3"
+    ],
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_ltmle_repeated.py": "e176811ab5de02d38e684800a72bbbe5fc342a589c7e4ab74c3eaa292b67800e",
+    "tests/studies/ltmle_repeated_properties.py": "e78cc9447d9d7838e717ac63f8d5f0dca34ce9e0026fef65776e3c044250f7c2",
+    "tests/studies/ltmle_repeated_law.py": "0e6fc13a64d0beb34e213e161b5d5a54ded0dd1f3e2f215401f954727feba0a5",
+    "tests/studies/canonical_ltmle.py": "3f15ff47823c8ff791fca05d12511f53786e4d89ad7bac4f954e5d735656ad6c",
+    "tests/discrete_law_longitudinal.py": "39c27bffaafbd8f3aabfe7a5524db21764f7628cb591ceef9efe1af30807e4ad",
+    "tests/studies/fractional_glm.py": "0d1658ccdcde01e0066be685c92c13b8615951913ff9005b1e90871dc7797b44",
+    "src/cleverly/datasets/longitudinal.py": "e76d77ffefeb6437a233df0f4e24b6aa592b7ca4991c4cbb7c4bd6789c4f8b46",
+    "tests/studies/evidence/comparison.py": "cda1befd03a8b7509c8e1310bd911501dc2fd11c91b64451ba2b19476b689d6b",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
+    "tests/studies/evidence/property_verdicts.py": "5e65c9ecce2c7d4e34d5d9bdd825ef7d41cf550c2138fa3d9621c4dd0028a4ef",
+    "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15"
+  },
+  "reference_sha256": {
+    "tests/canonical/ltmle/Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
+    "tests/canonical/ltmle_repeated/run_study.R": "fb07f5689e243c89d849a88c7e73d3ffc6b66ccece5ce87336506eabc52f02bc",
+    "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
+    "tests/canonical/ltmle_repeated_adapter.R": "4f92e157cdb34541c4d9abde2e9fb4f4cd68cc5af0552a717dc516d60445c5c7"
+  },
+  "sha256": {
+    "replicates.csv.gz": "6f48ae37fc99f5cc779604de9e504f296db3ed47f1ff6be143778e6d627d95cc",
+    "summary.csv": "1fb413227aeffbe2b67920d25f9f0ada2b2f63848fca583aa38960827024b1b8",
+    "equivalence.csv": "0df33e150e3aa4dcac9ce14c922424791e4824ca2b4fb706082f19e400714483",
+    "performance-tests.csv": "a9819cb32f799198edb886122430d80a5bb5663a240d61765fb55ffbc51d51cc",
+    "property-replicates.csv.gz": "fd176383ce26a8d489cce860287583453d70d245aa290e23fb096cb44f5bc635",
+    "properties.csv": "62ddfceb27d88fbef4b58d22f3b96de0867aaf7e97ebe926a48d2c2cf44ede66"
+  }
+}
