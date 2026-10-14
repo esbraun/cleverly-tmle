@@ -43,15 +43,19 @@ ftime_formula <- function(t0) {
 counted_call <- function(arguments) {
   # survtmle warns "Fluctuation convergence failure" when one fluctuation glm fails; every
   # warning is counted here rather than suppressed, then muffled so the log stays readable.
+  # Every other warning's text is logged.  This handler raises nothing, so no warning becomes
+  # a record (test_harness_failures.py lists it in COUNTING_HANDLERS).  RM39a2: the survtmle
+  # call runs inside `study_stage`, so an error survtmle raises costs one group.
   failures <- 0L
   others <- 0L
   fitted <- withCallingHandlers(
-    do.call(survtmle, arguments),
+    study_stage("survtmle", do.call(survtmle, arguments)),
     warning = function(w) {
       if (grepl("Fluctuation convergence failure", conditionMessage(w), fixed = TRUE)) {
         failures <<- failures + 1L
       } else {
         others <<- others + 1L
+        message(sprintf("survtmle warning: %s", conditionMessage(w)))
       }
       invokeRestart("muffleWarning")
     }

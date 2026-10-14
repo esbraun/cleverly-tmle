@@ -34,6 +34,15 @@ NO_STAGE = {
     "tmle_mar_natural_course/probe_scale_workaround.R": "probe: every error stays fatal (M3)",
 }
 
+#: Warning handlers that count and log every warning and raise nothing, so no warning becomes a
+#: record, with the reason each one counts rather than promotes.
+COUNTING_HANDLERS = {
+    "point_survival_hazard_runner.R": (
+        "survtmle's fluctuation and glm warnings are tallied per fit for the run log, and the "
+        "pairing's convergence reading comes from meanIC, not from a warning"
+    ),
+}
+
 #: Runner-defined functions that may sit inside a stage argument: each is a comparator wrapper
 #: that calls package code only, with no check of its own.
 STAGE_WRAPPERS = frozenset({"fit_conditional", "fit_cv"})
@@ -178,12 +187,21 @@ def test_every_warning_promotion_raises_the_fatal_class(path: Path) -> None:
         if match is None:
             continue
         handler = argument[match.start() :]
-        assert "study_fatal_error(" in handler, (
-            f"{_label(path)}: a warning handler must raise study_fatal_error"
-        )
+        if _label(path) in COUNTING_HANDLERS:
+            assert "study_fatal_error(" not in handler, (
+                f"{_label(path)}: a counting handler raises; drop it from COUNTING_HANDLERS"
+            )
+        else:
+            assert "study_fatal_error(" in handler, (
+                f"{_label(path)}: a warning handler must raise study_fatal_error"
+            )
         assert not re.search(r"(?<![\w.])stop\(", _without_strings(handler)), (
             f"{_label(path)}: a warning handler raises a plain error, which a stage would record"
         )
+
+
+def test_every_counting_handler_is_a_comparator_file() -> None:
+    assert set(COUNTING_HANDLERS) <= {_label(path) for path in COMPARATOR_FILES}
 
 
 def test_both_known_promotions_are_checked() -> None:

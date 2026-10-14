@@ -187,7 +187,10 @@ def test_the_primary_fit_is_the_paired_construction() -> None:
     """Two replications: every reported name, a monotone curve and a nonzero walk."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        samples, truths, rows = study.draw_and_fit(replicates=2, n=2_000, n_jobs=1)
+        phase = study.draw_and_fit(replicates=2, n=2_000, n_jobs=1)
+    assert phase.failures is None
+    samples, truths, rows = phase.samples, phase.truths, phase.rows
+    assert samples is not None and truths is not None
     assert set(rows["estimand"]) == set(study.ESTIMANDS["survival"])
     assert set(truths["estimand"]) == set(study.ESTIMANDS["survival"])
     assert np.any(np.abs(rows["estimate"] - rows["initial_estimate"]) > 0.0)

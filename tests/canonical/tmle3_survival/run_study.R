@@ -126,7 +126,9 @@ fit_arm <- function(data, arm, replicate) {
     stop(sprintf("the long task's visits are %s, not the declared grid",
                  paste(observed_times, collapse = ", ")))
   }
-  initial <- spec$make_initial_likelihood(task, learners())
+  stack <- learners()
+  # RM39a2: each tmle3 fit runs inside `study_stage`, so an error tmle3 raises costs one group.
+  initial <- study_stage("tmle3 initial likelihood", spec$make_initial_likelihood(task, stack))
   updater <- tmle3_Update_survival_repaired$new(
     maxit = maxit, cvtmle = FALSE, convergence_type = "sample_size",
     delta_epsilon = delta_epsilon, fit_method = "l2", verbose = FALSE
@@ -134,7 +136,9 @@ fit_arm <- function(data, arm, replicate) {
   targeted <- tmle3::Targeted_Likelihood$new(initial, updater)
   parameters <- spec$make_params(task, targeted)
   updater$tmle_params <- parameters
-  printed <- utils::capture.output(fitted <- tmle3::fit_tmle3(task, targeted, parameters, updater))
+  printed <- utils::capture.output(
+    fitted <- study_stage("tmle3", tmle3::fit_tmle3(task, targeted, parameters, updater))
+  )
   errors <- sum(grepl("Error", printed, fixed = TRUE))
 
   final <- parameters[[1]]$estimates(task)

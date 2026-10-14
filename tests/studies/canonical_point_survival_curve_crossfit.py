@@ -28,16 +28,16 @@ from typing import Any
 import pandas as pd
 
 from cleverly.longitudinal import LTMLE
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import point_survival_common as common
 from tests.studies.canonical_ltmle import regimen_rows
 from tests.studies.canonical_point_survival import REFERENCE, REGIMENS, REPORTED, SCENARIOS
 from tests.studies.canonical_point_survival_curve import STEP_SIZE, TOL
 from tests.studies.canonical_point_survival_hazard import initial_estimates
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 from tests.studies.point_survival_hazard_properties import learners
 
 PRIMARY_REPLICATES = 1_600
@@ -165,30 +165,43 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
     return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
-def _replicate(payload: tuple[int, int]) -> list[dict[str, Any]]:
-    replicate, n = payload
-    frame, truth = draw_scenario(SCENARIO, n, replicate)
+def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    scenario, replicate, n = key
+    return draw_scenario(scenario, n, replicate)
+
+
+def _replicate(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
+) -> list[dict[str, Any]]:
+    scenario, replicate, _ = key
+    frame, truth = drawn
     result = fit(frame)
-    names = ESTIMANDS[SCENARIO]
+    names = ESTIMANDS[scenario]
     return regimen_rows(
         STUDY,
         result,
         truth,
         initial_estimates(result, names),
         names,
-        SCENARIO,
+        scenario,
         replicate,
         n=len(frame),
     )
 
 
-def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
     """Every replication's rows; the study has no comparator, so no sample is kept."""
-    outcomes = map_parallel(
-        _replicate, [((replicate, n),) for replicate in range(replicates)], n_jobs=n_jobs
+    outcomes = replication.fit_primary(
+        [(SCENARIO, replicate, n) for replicate in range(replicates)],
+        _replicate,
+        draw=_draw,
+        rows_at=None,
+        n_jobs=n_jobs,
+        implementation=STUDY.implementation,
+        seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
     )
-    rows = pd.DataFrame([row for result in outcomes for row in result])
-    return rows.loc[:, list(REPLICATE_COLUMNS)]
+    rows = pd.DataFrame([row for result in outcomes.kept for row in result])
+    return replication.result(outcomes, rows.loc[:, list(REPLICATE_COLUMNS)])
 
 
 __all__ = ["STUDY", "TRUTH", "draw_and_fit", "fit"]

@@ -335,6 +335,7 @@ the type and the message of each one, with learners that raise if they are fitte
 | H9 | `q_bounds=` with `survival_model="hazard"` | `fit` | `ValueError` | the binary-outcome refusal, "q_bounds does not apply to a binary outcome" |
 | H10 | `survival_model="hazard"` or `isotonic=True` on a point-treatment functional | method configuration | `MethodConfigurationError` | "survival_model= and isotonic= apply to a survival curve over time nodes, and a point-treatment functional has no curve. Remove them, or declare a longitudinal or TimeToEvent design" |
 | H11 | `survival_model="hazard"` with a continuous baseline treatment | `fit` | `ValueError` | "survival_model='hazard' needs a categorical baseline treatment, and treatment {name!r} is continuous. The hazard plug-in would need the treatment density at every dose, and that construction is not built. Use survival_model='iterated_mean'" |
+| H12 | a non-default `survival_model`, `targeting`, `step_size` or `isotonic` on `SDRMethod` or `IPSIMethod` | method configuration | `MethodConfigurationError` | "survival_model=, a hazard targeting= algorithm, step_size= and isotonic= are settings of the targeted fit, method='tmle'. The {method} estimator fits no hazard, and no registered study measures its projected curve. Fit method='tmle', or remove them". The `SDR` and `IPSI` engines do not take these keywords, and raise `TypeError` |
 
 The fit checks H3 first, then H1, H2, H11 and H7. So a continuous treatment meets H11 before a
 modified treatment policy meets H7.

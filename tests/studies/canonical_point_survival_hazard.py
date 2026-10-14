@@ -62,7 +62,6 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression
 
 from cleverly.longitudinal import LTMLE
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import point_survival_common as common
 from tests.studies.canonical_ltmle import R_BASE_IMAGE, regimen_rows
@@ -77,9 +76,10 @@ from tests.studies.canonical_point_survival import (
     SURVTMLE_VERSION,
     TRUTH,
 )
+from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import draw_replicate
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
 PRIMARY_REPLICATES = 1_600
 PRIMARY_N = 2_000
@@ -267,55 +267,70 @@ def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, 
     return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
 
 
-def _replicate(
-    payload: tuple[int, int],
+def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
+    scenario, replicate, n = key
+    return draw_scenario(scenario, n, replicate)
+
+
+def _reference_input(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
 ) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
-    replicate, n = payload
-    samples: list[pd.DataFrame] = []
-    truth_rows: list[dict[str, Any]] = []
-    rows: list[dict[str, Any]] = []
-    for scenario in SCENARIOS:
-        frame, truth = draw_scenario(scenario, n, replicate)
-        result = fit(scenario, frame)
-        sample = frame.loc[:, ["W1", "W2", "A", "time", "event"]].copy()
-        sample.insert(0, "row", np.arange(len(sample)))
-        sample.insert(0, "replicate", replicate)
-        sample.insert(0, "scenario", scenario)
-        samples.append(sample)
-        truth_rows.extend(
-            {"scenario": scenario, "replicate": replicate, "estimand": name, "truth": value}
-            for name, value in truth.items()
-        )
-        rows.extend(
-            regimen_rows(
-                STUDY,
-                result,
-                truth,
-                initial_estimates(result, ESTIMANDS[scenario]),
-                ESTIMANDS[scenario],
-                scenario,
-                replicate,
-                n=len(frame),
-            )
-        )
-    return pd.concat(samples, ignore_index=True), truth_rows, rows
+    """The replicate's sample and truth rows, which need no fit, and no subject rows."""
+    scenario, replicate, _ = key
+    frame, truth = drawn
+    sample = frame.loc[:, ["W1", "W2", "A", "time", "event"]].copy()
+    sample.insert(0, "row", np.arange(len(sample)))
+    sample.insert(0, "replicate", replicate)
+    sample.insert(0, "scenario", scenario)
+    truth_rows = [
+        {"scenario": scenario, "replicate": replicate, "estimand": name, "truth": value}
+        for name, value in truth.items()
+    ]
+    return sample, truth_rows, []
 
 
-def draw_and_fit(
-    *, replicates: int, n: int, n_jobs: int = STUDY_JOBS
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def _replicate(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
+) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
+    scenario, replicate, _ = key
+    frame, truth = drawn
+    sample, truth_rows, _ = _reference_input(key, drawn)
+    result = fit(scenario, frame)
+    rows = regimen_rows(
+        STUDY,
+        result,
+        truth,
+        initial_estimates(result, ESTIMANDS[scenario]),
+        ESTIMANDS[scenario],
+        scenario,
+        replicate,
+        n=len(frame),
+    )
+    return sample, truth_rows, rows
+
+
+def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
     """Every replication of both scenarios, its truth rows and the subject's rows.
 
-    The samples are ordered by replication and then by scenario, so the reference reads one
-    replication's two samples as one contiguous group and splits them by scenario.
+    The keys are ordered by replication and then by scenario, so the reference reads one
+    replication's two samples as one contiguous group and splits them by scenario.  A sample
+    needs no fit, so the reference fits a replicate whose subject fit failed.
     """
-    outcomes = map_parallel(
-        _replicate, [((replicate, n),) for replicate in range(replicates)], n_jobs=n_jobs
+    outcomes = replication.fit_primary(
+        [(scenario, replicate, n) for replicate in range(replicates) for scenario in SCENARIOS],
+        _replicate,
+        draw=_draw,
+        reference_input=_reference_input,
+        n_jobs=n_jobs,
+        implementation=STUDY.implementation,
+        seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
     )
-    samples = pd.concat([sample for sample, _, _ in outcomes], ignore_index=True)
-    truths = pd.DataFrame([row for _, rows, _ in outcomes for row in rows])
-    estimates = pd.DataFrame([row for _, _, rows in outcomes for row in rows])
-    return samples, truths, estimates.loc[:, list(REPLICATE_COLUMNS)]
+    samples = pd.concat([sample for sample, _, _ in outcomes.kept], ignore_index=True)
+    truths = pd.DataFrame([row for _, rows, _ in outcomes.kept for row in rows])
+    estimates = pd.DataFrame([row for _, _, rows in outcomes.kept for row in rows])
+    return replication.result(
+        outcomes, estimates.loc[:, list(REPLICATE_COLUMNS)], samples=samples, truths=truths
+    )
 
 
 def truth_table() -> Mapping[str, Mapping[str, float]]:
