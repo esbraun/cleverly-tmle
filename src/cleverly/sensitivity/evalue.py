@@ -53,7 +53,7 @@ import numpy as np
 from .._inference_status import status_record
 from ..assessment import AssessmentStatus
 from ..estimators.direct_effect import declares_intermediate
-from ..exceptions import CapabilityError
+from ..exceptions import CapabilityError, RefusalReason
 from ..interventions.learned import LEARNED_RULE_SENSITIVITY_REFUSAL
 from ..targets.population_intervention import (
     NATURAL_COURSE_TARGET,
@@ -273,8 +273,17 @@ class _EValueRefusal(CapabilityError):
     import chain reads :mod:`cleverly.sensitivity`.
     """
 
-    def __init__(self, status: AssessmentStatus, reason: str) -> None:
-        super().__init__(reason)
+    def __init__(
+        self,
+        status: AssessmentStatus,
+        text: str,
+        /,
+        *,
+        reason: RefusalReason,
+        alternative: str | None = None,
+        roadmap: str | None = None,
+    ) -> None:
+        super().__init__(text, reason=reason, alternative=alternative, roadmap=roadmap)
         self.status = status
 
 

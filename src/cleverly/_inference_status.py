@@ -8,7 +8,7 @@ name, so a new status is one new entry here and one new member of the Literal. T
 exception is the estimator that stamps a parameter status
 (:data:`PARAMETER_STATUSES`), which names it through :data:`CONSTANT_NODE_STATUS`.
 
-A leaf module. It imports the standard library only, as :mod:`cleverly._typing` does, so
+A leaf module. It imports the standard library and the leaf :mod:`cleverly._refusal` only, so
 :mod:`cleverly.exceptions`, which the rest of the package imports, can read the table at
 module level without an import cycle.
 """
@@ -19,6 +19,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Final, Literal, cast
+
+from ._refusal import NO_ALTERNATIVE
 
 __all__ = [
     "CONSTANT_NODE_STATUS",
@@ -137,6 +139,10 @@ class StatusRecord:
         The noun a coverage-study report uses for the spread it measured.
     reopened_by : str
         The roadmap id whose anchor in ``docs/roadmap.md`` holds the reopen route.
+    alternative : str
+        The sentence a refusal of an inferential operation at this status ends with: the
+        estimator that supplies an interval for the same question, or
+        :data:`~cleverly._refusal.NO_ALTERNATIVE`.
     """
 
     reason: str
@@ -145,6 +151,7 @@ class StatusRecord:
     bootstrap_note: str
     diagnostic_noun: str
     reopened_by: str
+    alternative: str
 
     def summary_note(self) -> str:
         """The paragraph a result summary prints under its table of diagnostics.
@@ -157,11 +164,14 @@ class StatusRecord:
         Returns
         -------
         str
-            :attr:`reason`, then a sentence that names :attr:`summary_label` as that
-            diagnostic.
+            :attr:`reason`, then :attr:`alternative` when one exists, then a sentence that
+            names :attr:`summary_label` as that diagnostic.
         """
+        alternative = "" if self.alternative == NO_ALTERNATIVE else f" {self.alternative}"
         return (
-            self.reason + f' The "{self.summary_label}" column above is that diagnostic, and it '
+            self.reason
+            + alternative
+            + f' The "{self.summary_label}" column above is that diagnostic, and it '
             "is not a standard error for this estimate."
         )
 
@@ -198,6 +208,7 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             diagnostic_noun="working-mechanism plug-in diagnostic",
             reopened_by="F18",
+            alternative="For an interval, fit TMLE or DRTMLE on the same design.",
         ),
         "generated_design_plugin": StatusRecord(
             reason=(
@@ -214,8 +225,7 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "too small in its calibration, primary coverage, estimated-design and band "
                 "cells, flat in n, while its oracle-design cells were calibrated. The point "
                 "estimate stands. The plug-in standard error of the ordinary curve remains as a "
-                "diagnostic under plugin_std_error and plugin_interval. For an interval, fit "
-                "TMLE. F19 in docs/roadmap.md tracks the generated-design term of both designs."
+                "diagnostic under plugin_std_error and plugin_interval. F19 in docs/roadmap.md tracks the generated-design term of both designs."
             ),
             assessment_note=(
                 "the reported curve is a generated-design diagnostic: no confidence interval "
@@ -229,6 +239,7 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             diagnostic_noun="generated-design plug-in diagnostic",
             reopened_by="F19",
+            alternative="For an interval, fit TMLE.",
         ),
         "estimated_weight_plugin": StatusRecord(
             reason=(
@@ -243,8 +254,7 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "estimate to either curve. The point estimate stands. The plug-in standard "
                 "error of that curve remains as a diagnostic under plugin_std_error and "
                 "plugin_interval. F5 in docs/roadmap.md reopens this when a paper supplies "
-                "that contribution. The ordinary TMLE (DRTMLE with guard=(), or TMLE) keeps "
-                "an interval that conditions on the weights."
+                "that contribution."
             ),
             assessment_note=(
                 "the reported curve is a fixed-weight diagnostic: no confidence interval or "
@@ -258,6 +268,10 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             diagnostic_noun="fixed-weight plug-in diagnostic",
             reopened_by="F5",
+            alternative=(
+                "The ordinary TMLE (DRTMLE with guard=(), or TMLE) keeps an interval that "
+                "conditions on the weights."
+            ),
         ),
         "few_cluster_plugin": StatusRecord(
             reason=(
@@ -289,6 +303,7 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             diagnostic_noun="few-cluster plug-in diagnostic",
             reopened_by="F28",
+            alternative=NO_ALTERNATIVE,
         ),
         "constant_node_plugin": StatusRecord(
             reason=(
@@ -317,6 +332,7 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             diagnostic_noun="constant-node plug-in diagnostic",
             reopened_by="F31",
+            alternative=NO_ALTERNATIVE,
         ),
     }
 )
