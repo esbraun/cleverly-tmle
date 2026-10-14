@@ -58,6 +58,7 @@ __all__ = [
     "LongitudinalScoreDiagnostics",
     "LongitudinalScoreRow",
     "LongitudinalStageRow",
+    "SDRNodeRow",
 ]
 
 
@@ -115,6 +116,35 @@ class LongitudinalStageRow:
     share_truncated: float
     epsilon: tuple[float, ...]
     converged: bool
+    #: On an SDR fit, the node's transform diagnostics; ``None`` on a TMLE fit.
+    sdr: SDRNodeRow | None = None
+
+
+@dataclass(frozen=True)
+class SDRNodeRow:
+    """How far one SDR node's regression left the outcome range.
+
+    Parameters
+    ----------
+    target_outside : float
+        The share of the node's regression targets, on its followers, outside ``[0, 1]``.
+    target_min : float
+        The smallest regression target on the followers.
+    target_max : float
+        The largest regression target on the followers.
+    prediction_outside : float
+        The share of the node's predictions at the observed arm, on the rows at risk,
+        outside ``[0, 1]``.
+    bound_binding : float
+        The share of the ``(row, t, s)`` paths where ``g_bounds`` moved a partial path
+        probability.
+    """
+
+    target_outside: float
+    target_min: float
+    target_max: float
+    prediction_outside: float
+    bound_binding: float
 
 
 @dataclass(frozen=True)
@@ -164,6 +194,13 @@ class LongitudinalDiagnostics:
     counts the rows whose *denominator* the bounds replaced, because ``g_bounds`` bounds the
     cumulative mechanism and not the ratio.  A truncated row therefore need not carry a large
     ratio.
+
+    **On an SDR fit** the targeting columns ``epsilon`` and ``converged`` are absent,
+    because the estimator fits no fluctuation.  Five columns take their place.
+    ``target_outside``, ``target_min`` and ``target_max`` describe the node's regression
+    targets on its followers.  ``prediction_outside`` is the share of the node's predictions
+    at the observed arm outside ``[0, 1]``.  ``bound_binding`` is the share of partial
+    paths whose probability ``g_bounds`` moved.
     """
 
     rows: tuple[LongitudinalStageRow, ...]
@@ -191,6 +228,16 @@ class LongitudinalDiagnostics:
             "effective_n": [row.effective_n for row in self.rows],
             "share_truncated": [row.share_truncated for row in self.rows],
         }
+        if self.rows and all(row.sdr is not None for row in self.rows):
+            for name in (
+                "target_outside",
+                "target_min",
+                "target_max",
+                "prediction_outside",
+                "bound_binding",
+            ):
+                payload[name] = [getattr(row.sdr, name) for row in self.rows]
+            return emit_frame(payload, data, backend=self.backend)
         for position, name in enumerate(self.epsilon_names):
             payload[name] = [row.epsilon[position] for row in self.rows]
         payload["converged"] = [row.converged for row in self.rows]
@@ -531,8 +578,13 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
                     max_weight=float(np.max(weights)) if weights.size else float("nan"),
                     effective_n=effective_sample_size(weights, on_degenerate=0.0),
                     share_truncated=float(np.mean(raw != bounded)) if raw.size else float("nan"),
-                    epsilon=tuple(float(value) for value in step.fluctuation.epsilon),
-                    converged=bool(step.fluctuation.converged),
+                    epsilon=(
+                        ()
+                        if step.fluctuation is None
+                        else tuple(float(value) for value in step.fluctuation.epsilon)
+                    ),
+                    converged=step.fluctuation is None or bool(step.fluctuation.converged),
+                    sdr=_sdr_node_row(step),
                 )
             )
     return LongitudinalDiagnostics(
@@ -543,6 +595,28 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
         result.data.is_competing,
         result.data.backend,
     )
+
+
+def _sdr_node_row(step: Any) -> SDRNodeRow | None:
+    """The transform diagnostics of one SDR node, or ``None`` on a targeted node."""
+    if step.fluctuation is not None or step.regression_target is None:
+        return None
+    target = step.regression_target[step.trained_on]
+    predicted = step.initial[step.at_risk]
+    return SDRNodeRow(
+        target_outside=_share_outside(target),
+        target_min=float(np.min(target)) if target.size else float("nan"),
+        target_max=float(np.max(target)) if target.size else float("nan"),
+        prediction_outside=_share_outside(predicted),
+        bound_binding=float("nan") if step.bound_binding is None else float(step.bound_binding),
+    )
+
+
+def _share_outside(values: FloatArray) -> float:
+    """The share of ``values`` outside ``[0, 1]``, ``nan`` on an empty array."""
+    if not values.size:
+        return float("nan")
+    return float(np.mean((values < 0.0) | (values > 1.0)))
 
 
 def _msm_node_contributions(

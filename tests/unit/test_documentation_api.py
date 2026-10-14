@@ -60,6 +60,7 @@ EXAMPLE_TARGETS = (
     "cleverly.TMLEMethod",
     "cleverly.CollaborativeTMLEMethod",
     "cleverly.DRTMLEMethod",
+    "cleverly.SDRMethod",
     "cleverly.ModelSpec",
     "cleverly.CrossFitting",
     "cleverly.SplitPlan",

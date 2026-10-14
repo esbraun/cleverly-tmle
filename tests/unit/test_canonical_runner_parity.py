@@ -53,6 +53,7 @@ ROOT_RUNNERS = tuple(
     for name in (
         "categorical_ltmle_runner.R",
         "longitudinal_mtp_runner.R",
+        "longitudinal_sdr_runner.R",
         "point_survival_policies_runner.R",
         "point_survival_runner.R",
         "policy_point_mtp_runner.R",

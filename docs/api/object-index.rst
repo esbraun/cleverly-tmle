@@ -47,6 +47,7 @@ categorized API tables.
    cleverly.TMLEMethod
    cleverly.CollaborativeTMLEMethod
    cleverly.DRTMLEMethod
+   cleverly.SDRMethod
    cleverly.ModelSpec
    cleverly.CrossFitting
    cleverly.SplitPlan
@@ -72,6 +73,7 @@ categorized API tables.
    cleverly.MethodConfigurationError
    cleverly.NotFittedError
    cleverly.ConvergenceWarning
+   cleverly.ParameterSpaceWarning
    cleverly.PositivityWarning
    cleverly.VersionMismatchWarning
    cleverly.WeightingWarning

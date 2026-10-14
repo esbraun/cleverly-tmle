@@ -335,6 +335,16 @@ ARMS: dict[str, str] = {
     "boot_ey_clustered": "cluster-bootstrap percentile interval of the always mean, 60 clusters",
     "boot_ate_clustered": "cluster-bootstrap percentile interval of the contrast, 60 clusters",
     "boot_ate_point_tmle": "bootstrap percentile interval of the point-treatment ATE",
+    "survival_h2": "difference of always and never in the risk at t = 2, survival law",
+    "competing_h2": "difference of always and never in the death incidence at t = 2",
+    "policy_mix": "contrast of the known policy mix against low, three-level law",
+    "mtp_up": "the shift up at both nodes against the natural course, continuous dose",
+    "msm_identity": "the duration coefficient of the identity-link working model",
+    "msm_logit": "the duration coefficient of the logit-link working model",
+    "selection_weighted": "contrast of always against never on the selected law, with weights",
+    "clusters_200": "contrast of always against never, 200 clusters of 10 rows",
+    "clusters_20": "contrast of always against never, 20 clusters of 100 rows",
+    "six_regimens": "the six regimen means and five contrasts of the two-node law",
 }
 
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
@@ -477,6 +487,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "tmle-r-cde": "R `tmle` controlled direct-effect path",
     "tmle-r-weighted": "R `tmle` with observation weights",
     "tmle-r-learned-weighted": "R `tmle` with learned weighted nuisances",
+    "cleverly-sdr": "`cleverly` sequentially doubly robust (SDR) longitudinal estimator",
     "zepid-single-crossfit-tmle": "Python `zEpid` single-crossfit TMLE",
 }
 
@@ -653,6 +664,11 @@ SCENARIOS: dict[str, str] = {
     "multi_arm_selector_discrete": "three-arm binary-outcome law, discrete selector",
     "multi_arm_selector_greedy": "three-arm binary-outcome law, greedy selector",
     "multi_arm_selector_ordered": "three-arm binary-outcome law, ordered selector",
+    "sdr_end_of_study": "two-node law with monotone censoring, three plans, one fold",
+    "sdr_end_of_study_crossfit": "the same law and plans, five folds",
+    "sdr_survival": "censored survival law, risks at horizons 1 and 2, one fold",
+    "sdr_mtp": "two-node law with a truncated-normal dose at both nodes and four plans",
+    "sdr_policy": "the three-level law with the plans low, mix and taper",
 }
 
 
@@ -921,6 +937,26 @@ PROPERTIES: dict[str, str] = {
     ),
     "weight_necessity": (
         "fixed inverse-selection weights recover the population target from the selected law"
+    ),
+    "sequential_double_robustness": (
+        "the estimate stays consistent when at each node either the outcome regression or "
+        "the treatment and censoring mechanisms are correct"
+    ),
+    "weighted_calibration": (
+        "the interval of a fit with fixed observation weights is calibrated, with no "
+        "efficiency claim"
+    ),
+    "clustered_calibration": (
+        "grouped cross-fitting with cluster-level influence curves calibrates inference under "
+        "within-cluster dependence"
+    ),
+    "construction_diagnostic": (
+        "how two other cross-fit constructions behave on the overfitting draws, reported "
+        "rather than gated"
+    ),
+    "sdr_tmle_agreement": (
+        "how far the SDR estimate sits from the LTMLE estimate on the same draw, in SDR "
+        "standard errors, reported rather than gated"
     ),
 }
 
@@ -2230,4 +2266,99 @@ ARM_CELLS[("interval_calibration", "classifier_route", "correctly_specified")] =
     "the ratio by stacked classification, with a logistic model on the true log ratio, so the "
     "classifier is correctly specified",
     "SE ratio and coverage intervals both inside their calibration bands",
+)
+
+
+#: The ``sequential_double_robustness`` cells of ``longitudinal-sdr``: one pattern of wrong
+#: nuisances per node, at two sizes.  Mirrored from
+#: ``tests.studies.longitudinal_sdr_properties.PATTERN_NUISANCES``.
+_SDR_PATTERNS = {
+    "both_correct": (
+        "every outcome regression and mechanism is correct",
+        "bias inside the margin, SE ratio inside the union-model band, coverage clears the floor",
+    ),
+    "P_C": (
+        "both mechanisms are correct and both outcome regressions are wrong",
+        "bias inside the margin, SE ratio inside the union-model band, coverage clears the floor",
+    ),
+    "P_A": (
+        "both outcome regressions are correct and both mechanisms are wrong",
+        "|bias| + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio "
+        "inside the union-model band",
+    ),
+    "P_B": (
+        "node 1 outcome regression wrong, node 2 mechanism wrong",
+        "|bias| + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio "
+        "inside the union-model band",
+    ),
+    "P_D": (
+        "node 1 mechanism wrong, node 2 outcome regression wrong, the pattern LTMLE misses",
+        "|bias| + 2 MCSE at n = 8,000 below 0.01 and below its value at n = 2,000, SE ratio "
+        "inside the union-model band",
+    ),
+}
+CELLS.update(
+    {
+        ("sequential_double_robustness", f"{pattern}__n_{size}"): (
+            f"{tested}, at n = {size:,}",
+            required,
+        )
+        for pattern, (tested, required) in _SDR_PATTERNS.items()
+        for size in (2_000, 8_000)
+    }
+)
+CELLS.update(
+    {
+        ("sequential_double_robustness", "node2_both_wrong_control"): (
+            "SDR with the outcome regression and the mechanism both wrong at node 2",
+            "bias interval at least 3 empirical standard deviations from zero, SE ratio inside "
+            "the union-model band",
+        ),
+        ("sequential_double_robustness", "ltmle_P_D_control"): (
+            "LTMLE in pattern P_D, where its recursion needs the node 2 outcome regression",
+            "bias interval at least 3 empirical standard deviations from zero, SE ratio inside "
+            "the union-model band",
+        ),
+        ("crossfit_overfitting", "cross_fitted_sdr"): (
+            "five-fold SDR with fully grown outcome trees and the known mechanism",
+            "SE ratio clears the overfitting floor and stays inside the sanity band",
+        ),
+        ("construction_diagnostic", "stitched_cross_fit"): (
+            "the stitched construction: each row's node 2 transform comes from the fold that "
+            "holds it out, and node 1 regresses the stitched transforms",
+            "reported only",
+        ),
+        ("construction_diagnostic", "estimated_flexible_mechanism"): (
+            "the shipped construction with a tree mechanism estimated in each fold",
+            "reported only",
+        ),
+        ("sdr_tmle_agreement", "static"): (
+            "|SDR - LTMLE| / SE of SDR for always against never, on the calibration draws",
+            "reported only",
+        ),
+        ("clustered_calibration", "known_ratio"): (
+            "grouped folds, the known ratio and GLM outcome regressions",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        ),
+        ("weighted_calibration", "correctly_specified"): (
+            "every nuisance is correct; no efficiency ratio is claimed (RM18-fixed-weights)",
+            "SE ratio and coverage intervals both inside their calibration bands",
+        ),
+        ("weighted_calibration", "shrunken_se_control"): (
+            "the reported standard errors are multiplied by a declared factor below one",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+        ("weighted_calibration", "noise_control"): (
+            "one efficiency-bound unit of independent noise is added to each estimate",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+        ("clustered_calibration", "shrunken_se_control"): (
+            "the reported standard errors are multiplied by a declared factor below one",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+        ("clustered_calibration", "noise_control"): (
+            "a declared scale of independent noise is added to each estimate",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+    }
 )

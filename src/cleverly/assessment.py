@@ -315,7 +315,9 @@ def _capability(
         methods=tuple(
             methods
             if methods is not None
-            else (("tmle", "collaborative_tmle", "drtmle") if family == "point" else ("tmle",))
+            else (
+                ("tmle", "collaborative_tmle", "drtmle") if family == "point" else ("tmle", "sdr")
+            )
         ),
         available=available,
         status=status,
@@ -499,6 +501,13 @@ SENSITIVITY_ROUTES: dict[str, SensitivityRoute] = {
 }
 
 
+#: Why an SDR fit has no score-equation report.
+SDR_SCORE_EQUATIONS_REFUSAL = (
+    "the SDR estimator fits no fluctuation, so no node solves a score equation; "
+    "diagnostics.support() reports each node's transform range and bound share"
+)
+
+
 def _family(result: Any) -> str:
     family = getattr(result, "assessment_family", None)
     if not isinstance(family, str) or not family:
@@ -529,6 +538,20 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
                 reason=NATURAL_COURSE_SUPPORT_REFUSAL,
             )
             if row.operation == "support"
+            else row
+            for row in rows
+        )
+    if family == "longitudinal" and getattr(result.config, "estimator", "tmle") == "sdr":
+        # An SDR fit has no fluctuation, so no node solves a score equation.  The
+        # support report carries its transform ranges and bound shares instead.
+        rows = tuple(
+            replace(
+                row,
+                available=False,
+                status=AssessmentStatus.NOT_APPLICABLE,
+                reason=SDR_SCORE_EQUATIONS_REFUSAL,
+            )
+            if row.operation == "score_equations"
             else row
             for row in rows
         )
