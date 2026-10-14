@@ -20,7 +20,6 @@ outcome regression is misspecified and the fluctuation moves.  The mutation cont
 from __future__ import annotations
 
 import inspect
-import re
 import warnings
 from collections.abc import Sequence
 from pathlib import Path
@@ -36,15 +35,14 @@ from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import JointPolicy, ModifiedPolicy, Piece, Randomizer, Shift
-from cleverly.interventions.policy import VECTOR_DENSITY_ROW
 from cleverly.targets import TARGETS
 from tests.discrete_law_longitudinal import CellMeans
 from tests.discrete_law_longitudinal_multivalue import CellProbabilities
 
 pytestmark = pytest.mark.xdist_group("point_vector_treatment")
 
-#: The roadmap row every refusal names, read from the source as the refusals read it.
-ROW = f"docs/roadmap.md {VECTOR_DENSITY_ROW}"
+#: What every one-column reader says at a vector treatment with a continuous component.
+ONE_COLUMN = "reads a treatment of one column. Such a treatment has no arms"
 
 EXACT = 1e-10
 INF = np.inf
@@ -221,7 +219,7 @@ READERS: dict[str, Any] = {
 @pytest.mark.parametrize("reader", sorted(READERS))
 def test_a_one_column_reader_refuses_a_vector_treatment(reader: str) -> None:
     data = vector_data()
-    with pytest.raises(CapabilityError, match=rf"vector treatment.*{re.escape(ROW)}"):
+    with pytest.raises(CapabilityError, match=rf"vector treatment.*{ONE_COLUMN}"):
         READERS[reader](data)
 
 
@@ -435,7 +433,7 @@ def test_a_vector_result_round_trips_through_dumps(reading: str) -> None:
         np.testing.assert_array_equal(
             restored.data.treatment_components, result.data.treatment_components
         )
-        with pytest.raises(CapabilityError, match="X37"):
+        with pytest.raises(CapabilityError, match=ONE_COLUMN):
             restored.data.arm_codes  # noqa: B018
 
 
@@ -574,9 +572,8 @@ def test_h1_every_reader_of_a_vector_result_returns_or_refuses(tmp_path: Path) -
         warnings.simplefilter("ignore")
         assert vector.diagnostics.support() is not None
         assert vector.diagnostics.score_equations() is not None
-        with pytest.raises(CapabilityError, match="X37"):
-            vector.diagnostics.truncation_curve()
-        with pytest.raises(CapabilityError, match="X37"):
+        assert len(vector.diagnostics.truncation_curve()) > 0
+        with pytest.raises(CapabilityError, match="requires a discrete arm contrast"):
             vector.sensitivity.evalue()
     assert vector.bootstrap is not None
     assert vector.bootstrap.n_failed == 0
@@ -608,53 +605,63 @@ def _registered_estimators() -> list[type]:
     return found
 
 
-def test_every_estimator_and_estimand_but_the_policy_route_refuses_a_vector() -> None:
-    """Every registered estimator class and every target refuses, naming the row.
+def test_every_estimator_and_estimand_but_the_policy_route_refuses_as_a_dose_does() -> None:
+    """Every registered estimator class and every target refuses with a dose's reason.
 
-    ``variable_importance`` and the array function ``tmle()`` take no ``CausalData`` and
-    are outside this sweep.
+    A vector with a continuous component has no arms, as a continuous dose has none.  Each
+    request off the policy route must raise the error type that the same request raises
+    on the one-column dose ``D`` with ``F`` among the covariates, and the vector's message
+    must name the vector.  The one exception is an estimand that is not a policy mean or
+    contrast beside ``policies=``, which the vector refuses by name.  ``variable_importance``
+    and the array function ``tmle()`` take no ``CausalData`` and are outside this sweep.
     """
     data = vector_data()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        dose = CausalData.from_frame(
+            law.mixed_frame(),
+            outcome="Y",
+            treatment="D",
+            covariates=["W", "F"],
+            treatment_kind="continuous",
+        )
     estimators = _registered_estimators()
     assert {item.__name__ for item in estimators} >= {"TMLE", "CTMLE", "DRTMLE"}
     learners = {"outcome_learner": CellMeans(), "treatment_learner": CellMeans()}
-    #: ``(build, named)``: ``named`` asks the refusal to name the row.  An estimator that
-    #: refuses ``policies=`` for its own reason, such as DRTMLE, refuses before the vector.
-    attempts: list[tuple[Any, bool]] = []
-    for estimator in estimators:
-        attempts.append((lambda estimator=estimator: estimator(**learners, cross_fit=False), True))
-        if estimator is not TMLE:
-            attempts.append(
-                (
-                    lambda estimator=estimator: estimator(
-                        **learners, policies=[joint("dose up")], ratio="classifier", cross_fit=False
-                    ),
-                    False,
-                )
-            )
-    for target in TARGETS:
-        attempts.append(
-            (lambda target=target: TMLE(**learners, estimands=[target], cross_fit=False), True)
-        )
-        if target not in ("ey_policy", "ate_policy"):
-            attempts.append(
-                (
-                    lambda target=target: TMLE(
-                        **learners,
-                        policies=[joint("dose up")],
-                        ratio="classifier",
-                        estimands=[target],
-                        cross_fit=False,
-                    ),
-                    True,
-                )
-            )
-    for build, named in attempts:
-        with pytest.raises(CapabilityError) as caught, warnings.catch_warnings():
+
+    def attempt(build: Any, target: CausalData) -> BaseException:
+        with pytest.raises(Exception) as caught, warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            build().fit(data)
-        if named:
-            assert ROW in str(caught.value)
+            build(target).fit(target)
+        return caught.value
+
+    def policies(target: CausalData) -> list[object]:
+        return [joint("dose up")] if target is data else [UP]
+
+    builds: list[Any] = []
+    for estimator in estimators:
+        builds.append(lambda target, estimator=estimator: estimator(**learners, cross_fit=False))
+        if estimator is not TMLE:
+            builds.append(
+                lambda target, estimator=estimator: estimator(
+                    **learners, policies=policies(target), ratio="classifier", cross_fit=False
+                )
+            )
+    for target_name in TARGETS:
+        builds.append(
+            lambda target, name=target_name: TMLE(**learners, estimands=[name], cross_fit=False)
+        )
+    for build in builds:
+        vector_error, dose_error = attempt(build, data), attempt(build, dose)
+        assert type(vector_error) is type(dose_error), (vector_error, dose_error)
+        assert isinstance(vector_error, (CapabilityError, DataError))
+        # The estimator's own reason, word for word, or the dose's reason naming the vector.
+        assert str(vector_error) == str(dose_error) or "'F+D'" in str(vector_error)
+    for target_name in TARGETS:
+        if target_name in ("ey_policy", "ate_policy"):
+            continue
+        with pytest.raises(CapabilityError, match="A policy fit reports"):
+            fit(("dose up",), estimands=[target_name])
 
 
 # ------------------------------------------------------------------ subset
@@ -778,31 +785,6 @@ def test_cross_fitting_splits_units_not_stacked_rows(monkeypatch: pytest.MonkeyP
 # ------------------------------------------------------------------ refusals
 
 
-@pytest.mark.parametrize(
-    ("column", "role"),
-    [
-        ("delta", "a missing outcome (delta=)"),
-        ("strata", "baseline strata (strata=)"),
-        ("intermediate", "an intermediate (intermediate=)"),
-    ],
-)
-def test_a_composition_outside_the_policy_route_is_refused(column: str, role: str) -> None:
-    frame = law.mixed_frame().assign(
-        delta=lambda f: (np.arange(len(f)) % 7 != 0).astype(float),
-        strata=lambda f: f["W"],
-        intermediate=lambda f: (np.arange(len(f)) % 2).astype(float),
-    )
-    declared = {column: [column] if column == "strata" else column}
-    data = vector_data(frame, covariates=["W", "strata"], **declared)
-    with pytest.raises(CapabilityError) as caught:
-        fit(("natural", "dose up"), data=data)
-    assert str(caught.value) == (
-        f"treatment 'F+D' is a vector with a continuous component, and the fit declares {role}. "
-        "A policy fit at a vector treatment supports weights, clusters, cross-fitting "
-        f"and the bootstrap only. This composition is {ROW}"
-    )
-
-
 def test_a_known_mechanism_of_a_dose_vector_is_refused() -> None:
     frame = law.mixed_frame().assign(p=0.5)
     with pytest.raises(CapabilityError) as caught, warnings.catch_warnings():
@@ -811,19 +793,24 @@ def test_a_known_mechanism_of_a_dose_vector_is_refused() -> None:
             frame, continuous_treatment=["D"], treatment_probabilities=["p", "p"], **COLUMNS
         )
     assert str(caught.value) == (
-        "treatment 'F+D' is a vector with a continuous component, and treatment_probabilities= "
-        "declares a probability per arm. Such a treatment has no arms, and its known mechanism "
-        f"is a joint density. A known mechanism of a vector treatment is {ROW}"
+        "treatment 'F+D' is a vector with a continuous component. treatment_probabilities= "
+        "gives arm probabilities, and a continuous treatment has a conditional density, not "
+        "arms. A known density is not supported; fit without treatment_probabilities=."
     )
 
 
-def test_a_missing_component_declared_at_random_is_refused() -> None:
+def test_a_missing_treatment_of_a_dose_vector_is_refused_as_a_dose_is() -> None:
     frame = law.mixed_frame().assign(observed=1.0)
-    for continuous in (["D"], []):
-        with pytest.raises(CapabilityError, match=rf"treatment_delta=.*{re.escape(ROW)}"):
-            CausalData.from_frame(
-                frame, continuous_treatment=continuous, treatment_delta="observed", **COLUMNS
-            )
+    with pytest.raises(DataError) as caught:
+        CausalData.from_frame(
+            frame, continuous_treatment=["D"], treatment_delta="observed", **COLUMNS
+        )
+    assert str(caught.value) == (
+        "a missing treatment is supported for an arm-coded treatment only; F+D is a vector "
+        "with a continuous component, and a conditional density fitted on the recorded rows "
+        "has no composite indicator to divide by. Drop observed= or the rows with an "
+        "unrecorded treatment."
+    )
 
 
 def test_a_policy_on_the_whole_vector_is_refused() -> None:
@@ -838,8 +825,9 @@ def test_an_estimand_beside_the_policy_means_is_refused() -> None:
         fit(("natural", "dose up"), estimands=["ey_policy", "ate"])
     assert str(caught.value) == (
         "treatment 'F+D' is a vector with a continuous component, and estimands= asks for "
-        "['ate']. Its policy fit reports ['ate_policy', 'ey_policy'] only; every other "
-        f"estimand of such a treatment is {ROW}"
+        "['ate']. A policy fit reports ['ate_policy', 'ey_policy'], the policy means and "
+        "their contrasts; every other registered estimand names an arm, and this treatment "
+        "has none"
     )
 
 
@@ -862,6 +850,7 @@ def test_a_malformed_vector_declaration_is_a_data_error(
 
 
 def test_a_study_point_treatment_of_several_columns_is_refused() -> None:
+    from cleverly.data.validate import VECTOR_DENSITY_ROW
     from cleverly.study import PointTreatment
 
     with pytest.raises(CapabilityError) as caught:
@@ -870,5 +859,43 @@ def test_a_study_point_treatment_of_several_columns_is_refused() -> None:
         "PointTreatment(treatment=['F', 'D']) declares a vector treatment, and the CausalStudy "
         "spine reads a point treatment of one column. Fit a vector treatment with TMLE on "
         "CausalData.from_frame(treatment=[...]). The study spine for vector treatments, a "
-        f"post-beta roadmap row, is {ROW}"
+        f"post-beta roadmap row, is docs/roadmap.md {VECTOR_DENSITY_ROW}"
     )
+
+
+def test_w12_a_missing_tuple_equals_a_missing_precombined_column() -> None:
+    """An all-categorical vector declared missing at random is one categorical treatment.
+
+    Every seventh row records neither component.  The fit equals the fit on the column
+    ``3 f + d`` with the same rows missing and the same ``treatment_delta=``.
+    """
+    frame = law.mixed_frame().assign(A=lambda f: 3 * f["F"] + f["D"])
+    unrecorded = np.arange(len(frame)) % 7 == 0
+    frame.loc[unrecorded, ["F", "D", "A"]] = np.nan
+    frame = frame.assign(recorded=(~unrecorded).astype(float))
+    vector_data_ = categorical_data(frame, treatment_delta="recorded")
+    assert vector_data_.treatment_kind == "discrete"
+    assert np.isnan(vector_data_.treatment[unrecorded]).all()
+    vector = _categorical_default_fit(vector_data_)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        combined_data = CausalData.from_frame(
+            frame, outcome="Y", treatment="A", covariates=["W"], treatment_delta="recorded"
+        )
+    combined = _categorical_default_fit(combined_data)
+    assert len(vector.estimates) == len(combined.estimates) > 0
+    for (left, first), (right, second) in zip(
+        vector.estimates.items(), combined.estimates.items(), strict=True
+    ):
+        assert left.split("[")[0] == right.split("[")[0]
+        assert first.psi == pytest.approx(second.psi, abs=EXACT)
+        np.testing.assert_allclose(first.influence_curve, second.influence_curve, atol=EXACT)
+
+
+def test_a_recorded_row_with_a_missing_component_is_a_data_error() -> None:
+    frame = law.mixed_frame().assign(recorded=1.0)
+    frame.loc[0, "D"] = np.nan
+    with pytest.raises(
+        DataError, match=r"'D' has 1 missing value\(s\) on rows flagged as recorded"
+    ):
+        categorical_data(frame, treatment_delta="recorded")

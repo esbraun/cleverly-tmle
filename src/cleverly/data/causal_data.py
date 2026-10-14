@@ -53,11 +53,11 @@ from ..utils.frames import (
     is_dataframe,
     matrix_from_columns,
 )
+from .known_mechanism import CONTINUOUS_REFUSAL as KNOWN_CONTINUOUS_REFUSAL
 from .known_mechanism import KnownMechanism, known_mechanism, probability_columns
 from .validate import (
     MIN_OBSERVATIONS,
     MISSING_TREATMENT_DECLARATION,
-    VECTOR_DENSITY_ROW,
     arm_indicators,
     check_covariates,
     check_delta,
@@ -148,10 +148,8 @@ def _vector_refusal(treatment: str, reader: str) -> str:
     """The refusal of a one-column reader at a vector treatment with a dose component."""
     return (
         f"{treatment} is a vector treatment with a continuous component, and {reader} reads "
-        "a treatment of one column. Only TMLE(policies=[JointPolicy(...)]) fits such a "
-        "treatment: its policy means and contrasts. Every "
-        "other estimator, estimand and reader of it is a post-beta roadmap row, "
-        f"docs/roadmap.md {VECTOR_DENSITY_ROW}"
+        "a treatment of one column. Such a treatment has no arms: "
+        "TMLE(policies=[JointPolicy(...)]) fits its policy means and contrasts"
     )
 
 
@@ -635,16 +633,23 @@ class CausalData:
             if len(arr) != n:
                 raise DataError(f"{label} has length {len(arr)}, expected {n}")
 
+        vector_recorded = _vector_recorded(
+            tuple(component_names),
+            tuple(continuous_components),
+            treatment_name,
+            treatment_delta,
+            treatment_delta_name or "treatment_delta",
+        )
         vector = _encode_vector(
             treatment,
             tuple(component_names),
             tuple(continuous_components),
             treatment_name,
-            declared_missing=treatment_delta is not None,
+            recorded=vector_recorded,
             declared_known=treatment_probabilities is not None,
         )
         recorded = (
-            None
+            vector_recorded
             if vector is not None
             else _treatment_recorded(
                 treatment,
@@ -932,6 +937,17 @@ class CausalData:
         components.  A vector with a continuous component has ``treatment_kind == "vector"``.
         """
         return bool(self.component_names)
+
+    @property
+    def has_arms(self) -> bool:
+        """Whether the treatment is arm-coded.
+
+        ``False`` for a continuous dose and for a vector treatment with a continuous
+        component, whose mechanism is a density or a ratio rather than a probability per
+        arm.  Unlike :attr:`is_continuous_treatment`, this reader answers at a vector
+        treatment, so a report that only needs to know whether arms exist can ask it.
+        """
+        return self.treatment_kind == "discrete"
 
     def _refuse_vector(self, reader: str) -> None:
         """Raise when ``reader`` reads a treatment of one column at a vector with a dose."""
@@ -1351,6 +1367,8 @@ class CausalData:
         it replaces.  A permuted or simulated treatment has a mechanism of its own, which the
         declaration does not describe, so a refit on the copy estimates it.
         """
+        if self.treatment_kind == "vector":
+            return self._with_components(treatment)
         a = np.asarray(treatment, dtype=float).reshape(-1)
         if a.size != self.n:
             raise DataError(f"replacement treatment has length {a.size}, expected {self.n}")
@@ -1390,6 +1408,37 @@ class CausalData:
                 "not a null for the same parameter."
             )
         return replace(self, treatment=a, known_treatment=known)
+
+    def _with_components(self, values: FloatArray) -> CausalData:
+        """A copy whose vector treatment takes the ``(n, d)`` component ``values``.
+
+        The vector form of :meth:`with_treatment`.  A dose takes any finite value.  A
+        categorical component takes its declared codes and keeps every level, as an
+        arm-coded replacement must, so a refit estimates the parameter of the same
+        declaration.
+        """
+        assert self.treatment_components is not None
+        components = np.asarray(values, dtype=float)
+        expected = self.treatment_components.shape
+        if components.shape != expected:
+            raise DataError(
+                f"replacement component values have shape {components.shape}; the vector "
+                f"{self.treatment_name!r} reads {expected}"
+            )
+        if not np.all(np.isfinite(components)):
+            raise DataError("replacement component values contain non-finite values")
+        for index, levels in enumerate(self.component_levels):
+            if not levels:
+                continue
+            found = np.unique(components[:, index])
+            declared = np.arange(len(levels), dtype=float)
+            if not np.array_equal(found, declared):
+                raise DataError(
+                    f"replacement component {self.component_names[index]!r} has codes "
+                    f"{found.tolist()}, but the data declares {declared.tolist()} (levels "
+                    f"{list(levels)}). A replacement treatment must keep every level."
+                )
+        return replace(self, treatment_components=components)
 
     def with_outcome(
         self, outcome: Any, *, family: str = "auto", name: str = "replacement outcome"
@@ -1782,6 +1831,31 @@ def _vector_components(
     return names
 
 
+def _vector_recorded(
+    names: tuple[str, ...],
+    continuous: tuple[str, ...],
+    treatment_name: str,
+    treatment_delta: Any,
+    delta_name: str,
+) -> BoolArray | None:
+    """The recorded rows of a vector treatment declared missing at random, or ``None``.
+
+    An all-categorical vector is one categorical treatment over its tuples, so it takes the
+    declaration as a categorical treatment of one column does.  A vector with a continuous
+    component is refused with the reason a continuous dose is refused.
+    """
+    if not names or treatment_delta is None:
+        return None
+    if continuous:
+        raise DataError(
+            "a missing treatment is supported for an arm-coded treatment only; "
+            f"{treatment_name} is a vector with a continuous component, and a conditional "
+            "density fitted on the recorded rows has no composite indicator to divide by. "
+            f"Drop {delta_name}= or the rows with an unrecorded treatment."
+        )
+    return check_delta(treatment_delta, delta_name, role="treatment")
+
+
 #: What :func:`_encode_vector` returns: codes, levels, kind, components and their levels.
 _EncodedVector = tuple[
     FloatArray, tuple[Any, ...], StoredTreatmentKind, FloatArray | None, tuple[tuple[Any, ...], ...]
@@ -1794,7 +1868,7 @@ def _encode_vector(
     continuous: tuple[str, ...],
     treatment_name: str,
     *,
-    declared_missing: bool,
+    recorded: BoolArray | None,
     declared_known: bool,
 ) -> _EncodedVector | None:
     """Encode a vector treatment, or return ``None`` for a treatment of one column.
@@ -1802,22 +1876,18 @@ def _encode_vector(
     All components categorical: the joint level code over the observed tuples, with the
     tuples as levels.  A continuous component: a ``NaN`` placeholder treatment, levels that
     refuse every read, and the ``(n, d)`` component values.
+
+    ``recorded`` marks the rows whose treatment was recorded, for an all-categorical vector
+    declared missing at random.  The tuples, their levels and the component levels then
+    read those rows only, and every other row takes the code ``NaN``, as a categorical
+    treatment of one column does.
     """
     if not names:
         return None
-    if declared_missing:
-        raise CapabilityError(
-            f"treatment {treatment_name!r} is a vector, and a treatment declared missing at "
-            "random (treatment_delta=) is supported for a treatment of one column only. A "
-            "missing component of a vector treatment is docs/roadmap.md "
-            f"{VECTOR_DENSITY_ROW}"
-        )
     if declared_known and continuous:
         raise CapabilityError(
-            f"treatment {treatment_name!r} is a vector with a continuous component, and "
-            "treatment_probabilities= declares a probability per arm. Such a treatment has "
-            "no arms, and its known mechanism is a joint density. A known mechanism of a "
-            f"vector treatment is docs/roadmap.md {VECTOR_DENSITY_ROW}"
+            f"treatment {treatment_name!r} is a vector with a continuous component. "
+            + KNOWN_CONTINUOUS_REFUSAL
         )
     raw = np.asarray(treatment, dtype=object)
     if raw.ndim != 2 or raw.shape[1] != len(names):
@@ -1825,13 +1895,29 @@ def _encode_vector(
             f"treatment {treatment_name!r} has shape {raw.shape}; a vector of {len(names)} "
             f"components is ({raw.shape[0]}, {len(names)})"
         )
+    rows = np.ones(raw.shape[0], dtype=bool) if recorded is None else recorded
     for index, name in enumerate(names):
-        missing = missing_values(raw[:, index])
+        missing = missing_values(raw[:, index]) & rows
         if missing.any():
             raise DataError(
-                f"treatment component {name!r} has {int(missing.sum())} missing value(s). "
-                "Every component of a vector treatment is recorded on every row"
+                f"treatment component {name!r} has {int(missing.sum())} missing value(s)"
+                + (
+                    ". Every component of a vector treatment is recorded on every row"
+                    if recorded is None
+                    else " on rows flagged as recorded. A row whose treatment is recorded "
+                    "records every component"
+                )
             )
+    if recorded is not None:
+        # An all-categorical vector declared missing at random: encode the recorded rows.
+        encoded = _encode_vector(
+            raw[recorded], names, continuous, treatment_name, recorded=None, declared_known=False
+        )
+        assert encoded is not None
+        sub_codes, joint_levels, kind, _, sub_levels = encoded
+        codes = np.full(raw.shape[0], np.nan)
+        codes[recorded] = sub_codes
+        return codes, joint_levels, kind, None, sub_levels
     level_sets: list[tuple[Any, ...]] = []
     columns: list[FloatArray] = []
     for index, name in enumerate(names):

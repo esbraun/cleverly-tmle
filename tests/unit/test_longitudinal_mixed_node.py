@@ -29,6 +29,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from cleverly.data.validate import VECTOR_DENSITY_ROW
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import (
     Incremental,
@@ -40,7 +41,6 @@ from cleverly.interventions import (
     Scale,
     Shift,
 )
-from cleverly.interventions.policy import VECTOR_DENSITY_ROW
 from cleverly.longitudinal import IPSI, LTMLE, SDR, DynamicRegimen, LongitudinalData
 
 from .. import discrete_law_longitudinal as binary_law
@@ -760,17 +760,22 @@ def test_an_undeclared_joint_policy_and_an_undeclared_component() -> None:
         _refused(_plan(undeclared, _joint("natural", 2)))
 
 
-def test_a_randomizer_or_a_tilt_inside_a_component() -> None:
+def test_a_tilt_on_a_dose_component_is_refused_with_the_scalar_reason() -> None:
+    """A component randomizer and a tilt are declarations; a tilt must set a 0/1 label."""
     randomized = ModifiedPolicy(
         "r",
         pieces={"a": (Piece(-INF, INF),), "b": (Piece(-INF, INF),)},
         randomizer=Randomizer(("a", "b"), (0.5, 0.5)),
         policy_kind="known",
     )
-    with pytest.raises(CapabilityError, match="Declare the randomizer on the JointPolicy"):
-        JointPolicy("j", components={"D1": randomized}, policy_kind="known")
-    with pytest.raises(CapabilityError, match=f"risk-ratio tilt.*{VECTOR_DENSITY_ROW}"):
-        JointPolicy("j", components={"F1": RiskRatioTilt(0.5)}, policy_kind="known")
+    JointPolicy("j", components={"D1": randomized}, policy_kind="known")
+    tilt = JointPolicy("tilt dose", components={"D1": RiskRatioTilt(0.5)}, policy_kind="known")
+    with pytest.raises(
+        DataError,
+        match="RiskRatioTilt sets a binary treatment coded 0 and 1, "
+        "but component 'D1' is continuous",
+    ):
+        _refused(_plan(tilt, _joint("natural", 2)))
 
 
 def test_a_known_mechanism_at_a_mixed_node() -> None:

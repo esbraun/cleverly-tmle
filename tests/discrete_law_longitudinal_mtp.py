@@ -632,6 +632,24 @@ MIXED_PLANS: dict[str, tuple[Branches, Branches]] = {
         ((0.25, _mixed1(lambda w, k: _up(k))), (0.75, _mixed1(lambda w, k: k))),
         ((0.25, _mixed2(lambda w, k1, l2, k: _up(k))), (0.75, _mixed2(lambda w, k1, l2, k: k))),
     ),
+    # H5: a risk-ratio tilt of the flag at each node, delta 4 (keep with probability 1/4,
+    # else set to one), crossed with the dose randomizer of "random".  The draws of the two
+    # nodes are independent.
+    "flag tilt up, random dose": tuple(
+        tuple(
+            (p, nest(assign))
+            for p, assign in (
+                (0.25 * 0.25, _up),
+                (0.25 * 0.75, lambda k: k),
+                (0.75 * 0.25, lambda k: _index_of(1, MIXED_CELLS[_up(k)][1])),
+                (0.75 * 0.75, lambda k: _index_of(1, MIXED_CELLS[k][1])),
+            )
+        )
+        for nest in (
+            lambda assign: _mixed1(lambda w, k: assign(k)),
+            lambda assign: _mixed2(lambda w, k1, l2, k: assign(k)),
+        )
+    ),
 }
 
 

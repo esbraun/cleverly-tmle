@@ -106,6 +106,7 @@ in this sense and not a tilt of the mechanism.
 from __future__ import annotations
 
 import contextlib
+import itertools
 import warnings
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -117,7 +118,6 @@ import numpy as np
 from .._declarations import FunctionDeclaration, FunctionKind
 from .._typing import BoolArray, FloatArray, IntArray
 from ..data.causal_data import CausalData
-from ..data.validate import VECTOR_DENSITY_ROW
 from ..data.weighting import effective_sample_size, format_score_load
 from ..exceptions import CapabilityError, DataError, PositivityWarning
 from ..learners.crossfit import Folds
@@ -129,7 +129,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     "POLICY_TYPES",
-    "VECTOR_DENSITY_ROW",
     "JointPolicy",
     "ModifiedPolicy",
     "Piece",
@@ -652,8 +651,9 @@ class JointPolicy:
                             policy frame, the **natural** values of the node's categorical
                             components, and the natural values of the doses before it in
                             ``order``, by component name
-    categorical             a :class:`ModifiedPolicy` with ``apply``, or an arithmetic
-                            policy on numeric labels.  ``h`` holds the policy frame and the
+    categorical             a :class:`ModifiedPolicy` with ``apply``, an arithmetic
+                            policy on numeric labels, or a :class:`RiskRatioTilt` on a
+                            component coded 0 and 1.  ``h`` holds the policy frame and the
                             natural values of every other component of the node
     ======================  =============================================================
 
@@ -664,8 +664,11 @@ class JointPolicy:
     dose is refused with the ``order`` that makes it triangular.  Maps that read each other
     in a cycle are refused: a joint map that is not triangular has no checkable declaration
     here, because a determinant checked on a grid does not establish that the map is
-    one-to-one.  A :class:`Randomizer` is declared here, at the level of the joint policy,
-    never inside a component, and a :class:`RiskRatioTilt` is not a component.
+    one-to-one.  A :class:`Randomizer` may be declared here, on the joint policy, or on a
+    component's :class:`ModifiedPolicy`.  A :class:`RiskRatioTilt` may set a binary
+    component coded 0 and 1, as it sets a binary treatment.  The randomizers are
+    independent, so the fit reads the policy as one joint randomizer over the product of
+    their values, with product probabilities (:func:`joint_branches`).
 
     Parameters
     ----------
@@ -752,26 +755,12 @@ def _check_components(name: str, components: Any) -> dict[str, Any]:
         if isinstance(policy, JointPolicy):
             raise DataError(
                 f"policy {name!r}: component {column!r} holds a joint policy. A component "
-                "takes a Shift, Scale, Piecewise or ModifiedPolicy"
+                "takes a Shift, Scale, Piecewise, ModifiedPolicy or RiskRatioTilt"
             )
-        if isinstance(policy, RiskRatioTilt):
-            raise CapabilityError(
-                f"policy {name!r}: component {column!r} holds a risk-ratio tilt. A tilt "
-                "inside a joint policy is not supported in this version (docs/roadmap.md, "
-                f"{VECTOR_DENSITY_ROW}). Declare the randomizer on the JointPolicy and a "
-                "label map per branch"
-            )
-        if isinstance(policy, ModifiedPolicy) and policy.randomizer is not None:
-            raise CapabilityError(
-                f"policy {name!r}: component {column!r} draws its own randomizer. A "
-                "randomized component is not supported in this version (docs/roadmap.md, "
-                f"{VECTOR_DENSITY_ROW}). Declare the randomizer on the JointPolicy, with "
-                "deterministic component policies per randomizer value"
-            )
-        if not isinstance(policy, (Shift, Scale, Piecewise, ModifiedPolicy)):
+        if not isinstance(policy, (Shift, Scale, Piecewise, ModifiedPolicy, RiskRatioTilt)):
             raise DataError(
                 f"policy {name!r}: component {column!r} holds {policy!r}. A component takes "
-                "a Shift, Scale, Piecewise or ModifiedPolicy"
+                "a Shift, Scale, Piecewise, ModifiedPolicy or RiskRatioTilt"
             )
         checked[column] = policy
     return checked
@@ -1261,8 +1250,72 @@ def policy_branches(policy: object) -> tuple[tuple[float, _Branch], ...]:
     )
 
 
+@dataclass(frozen=True)
+class _DrawnApply:
+    """A randomized label map read at one value of its randomizer: ``apply(a, h, value)``."""
+
+    function: Callable[..., Any]
+    value: object
+
+    def __call__(self, a: Any, h: Any) -> Any:
+        return self.function(a, h, self.value)
+
+
+@dataclass(frozen=True)
+class _SetLabel:
+    """The label map that sets every row to one label."""
+
+    label: float
+
+    def __call__(self, a: Any, h: Any) -> FloatArray:
+        return np.full(len(a), self.label)
+
+
+def _component_draws(policy: object) -> tuple[tuple[float, object | None], ...]:
+    """A component policy as deterministic draws: ``(probability, policy or None)``.
+
+    ``None`` keeps the component at its natural value.  A :class:`RiskRatioTilt` is the
+    two-point randomizer of :func:`policy_branches`: it keeps the label, or sets it to 0
+    (``delta < 1``) or to 1 (``delta > 1``).  A randomized :class:`ModifiedPolicy` gives one
+    deterministic policy per randomizer value.  Every other policy is one draw.
+    """
+    if isinstance(policy, RiskRatioTilt):
+        delta = float(policy.delta)
+        if delta == 1.0:
+            return ((1.0, None),)
+        keep, label = (delta, 0.0) if delta < 1.0 else (1.0 / delta, 1.0)
+        constant = ModifiedPolicy(policy.name, apply=_SetLabel(label), policy_kind="known")
+        return ((keep, None), (1.0 - keep, constant))
+    if isinstance(policy, ModifiedPolicy) and policy.randomizer is not None:
+        law = policy.randomizer
+        draws: list[tuple[float, object | None]] = []
+        for value, probability in zip(law.values, law.probabilities, strict=True):
+            if policy.pieces is not None:
+                assert isinstance(policy.pieces, Mapping)
+                drawn = ModifiedPolicy(
+                    policy.name, pieces=policy.pieces[value], policy_kind=policy.policy_kind
+                )
+            else:
+                assert policy.apply is not None
+                drawn = ModifiedPolicy(
+                    policy.name,
+                    apply=_DrawnApply(policy.apply, value),
+                    policy_kind=policy.policy_kind,
+                )
+            draws.append((float(probability), drawn))
+        return tuple(draws)
+    return ((1.0, policy),)
+
+
 def joint_branches(policy: JointPolicy) -> tuple[tuple[float, Mapping[str, Any]], ...]:
     """Every deterministic branch of a joint policy and the known probability of each.
+
+    A randomizer on a component is a joint randomizer over the product of the components'
+    draws, with product probabilities: the draws are independent of each other and of
+    everything else, so the joint law is the product law (a finite partition).  A
+    :class:`RiskRatioTilt` on a binary component is the two-point randomizer that keeps the
+    label or sets it, and it enters the product the same way.  The joint policy's own
+    randomizer multiplies each of its branches by that product.
 
     Parameters
     ----------
@@ -1277,12 +1330,61 @@ def joint_branches(policy: JointPolicy) -> tuple[tuple[float, Mapping[str, Any]]
         probability one.
     """
     law = policy.randomizer
-    if law is None:
-        return ((1.0, policy.components),)
-    return tuple(
-        (float(p), policy.components[value])
-        for value, p in zip(law.values, law.probabilities, strict=True)
+    declared = (
+        ((1.0, policy.components),)
+        if law is None
+        else tuple(
+            (float(p), policy.components[value])
+            for value, p in zip(law.values, law.probabilities, strict=True)
+        )
     )
+    out: list[tuple[float, Mapping[str, Any]]] = []
+    for probability, components in declared:
+        columns = list(components)
+        for draws in itertools.product(*(_component_draws(components[c]) for c in columns)):
+            mapping = {
+                column: drawn
+                for column, (_, drawn) in zip(columns, draws, strict=True)
+                if drawn is not None
+            }
+            weight = probability
+            for p, _ in draws:
+                weight *= p
+            out.append((weight, mapping))
+    return tuple(out)
+
+
+def _check_tilt_components(
+    policy: JointPolicy, components: Sequence[JointComponent], where: str
+) -> None:
+    """Refuse a risk-ratio tilt on a component that is not binary and coded 0 and 1.
+
+    The reason is the one the scalar route gives: the tilt keeps a treated unit treated
+    with probability ``delta`` and otherwise sets it to 0, so it sets a binary label.
+    """
+    levels = {component.name: component.levels for component in components}
+    branches = (
+        (policy.components,)
+        if policy.randomizer is None
+        else tuple(policy.components[value] for value in policy.randomizer.values)
+    )
+    for branch in branches:
+        for column, component_policy in branch.items():
+            if not isinstance(component_policy, RiskRatioTilt) or column not in levels:
+                continue
+            labels = levels[column]
+            if (
+                labels
+                and _numeric_levels(labels)
+                and sorted(float(cast("float", label)) for label in labels) == [0.0, 1.0]
+            ):
+                continue
+            found = "is continuous" if not labels else f"has levels {list(labels)}"
+            raise DataError(
+                f"policy {policy.name!r} at {where}: RiskRatioTilt sets a binary treatment "
+                f"coded 0 and 1, but component {column!r} {found}. It is lmtp's ipsi(), which "
+                "keeps a treated unit treated with probability delta and otherwise sets it to 0"
+            )
 
 
 def lazy_frame(build: Callable[[], Any]) -> FrameSource:
@@ -1686,6 +1788,7 @@ def joint_assignments(
         If the policy names a column that is not a component of the node, maps a label off
         the component's levels, or a dose map reads another continuous component.
     """
+    _check_tilt_components(policy, components, where)
     values = np.asarray(natural, dtype=float)
     out = []
     for probability, declared in joint_branches(policy):
@@ -1736,6 +1839,7 @@ def joint_discrete_assignments(
     DataError
         If a branch sends a row to a tuple that is not a level of the node.
     """
+    _check_tilt_components(policy, components, where)
     n = int(rows.size)
     lookup = {tuple(level): code for code, level in enumerate(levels)}
     out = []
@@ -3076,12 +3180,29 @@ def _same(values: FloatArray) -> FloatArray:
 
 
 def vector_route_refusal(treatment: str) -> str:
-    """The refusal of every fit of a point vector treatment but its one supported route."""
+    """Why a vector treatment with a continuous component needs ``policies=``.
+
+    It is the reason a continuous dose has: no arms, so no arm-indexed estimand names a
+    parameter of it.
+    """
     return (
-        f"treatment {treatment!r} is a vector with a continuous component. The one supported "
-        "fit is TMLE(policies=[JointPolicy(...)]), on either ratio route, which reports "
-        "its policy means and contrasts. Every other estimator and estimand of such a treatment "
-        f"is a post-beta roadmap row, docs/roadmap.md {VECTOR_DENSITY_ROW}"
+        f"treatment {treatment!r} is a vector with a continuous component, so it has no arms "
+        "and none of the arm-indexed estimands name a parameter it has. Say which values to "
+        "compare with policies=[JointPolicy(name, components={column: policy, ...}, "
+        "policy_kind='known'), ...]; JointPolicy(name, components={}, policy_kind='known') "
+        "is the natural course, whose mean is E[Y]"
+    )
+
+
+def vector_msm_refusal(treatment: str) -> str:
+    """Why ``msm=`` refuses a vector treatment with a continuous component."""
+    return (
+        f"treatment {treatment!r} is a vector with a continuous component, and msm= projects "
+        "the dose-response curve of one dose: MSM(doses=...) declares a grid on one dose "
+        "axis, and the clever covariate integrates over it by the trapezoid rule. A vector "
+        "has no one dose axis, and this package defines no integration grid or cubature "
+        "over a vector. Fit the policy means and contrasts with "
+        "policies=[JointPolicy(...), ...]"
     )
 
 

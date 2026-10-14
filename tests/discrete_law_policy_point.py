@@ -506,6 +506,24 @@ MIXED_POLICIES: dict[str, Branches] = {
     # The static intervention that sets every unit to ``(f, d) = (1, 2)``: its mean is
     # ``E[Y(1, 2)]``, the ``ey`` of that tuple level on an all-categorical reading.
     "static (1, 2)": ((1.0, _mixed_map(lambda k: _index(1, 2))),),
+    # H5: a risk-ratio tilt of the flag is a two-point randomizer.  ``delta = 1/4`` keeps the
+    # flag with probability 1/4 and sets it to zero otherwise; ``delta = 4`` keeps it with
+    # probability 1/4 and sets it to one otherwise.  The last plan is the product of the
+    # tilt up and the dose randomizer of "random", with product probabilities.
+    "flag tilt down": (
+        (0.25, _mixed_map(lambda k: k)),
+        (0.75, _mixed_map(lambda k: _index(0, MIXED_CELLS[k][1]))),
+    ),
+    "flag tilt up": (
+        (0.25, _mixed_map(lambda k: k)),
+        (0.75, _mixed_map(lambda k: _index(1, MIXED_CELLS[k][1]))),
+    ),
+    "flag tilt up, random dose": (
+        (0.25 * 0.25, _mixed_map(_up)),
+        (0.25 * 0.75, _mixed_map(lambda k: k)),
+        (0.75 * 0.25, _mixed_map(lambda k: _index(1, MIXED_CELLS[_up(k)][1]))),
+        (0.75 * 0.75, _mixed_map(lambda k: _index(1, MIXED_CELLS[k][1]))),
+    ),
 }
 
 

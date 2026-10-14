@@ -118,7 +118,7 @@ from ..data.known_mechanism import (
     KNOWN_SCREEN_REFUSAL,
     moved_known_values_refusal,
 )
-from ..data.validate import MISSING_OUTCOME_DECLARATION, VECTOR_DENSITY_ROW
+from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..exceptions import (
     CapabilityError,
     ConvergenceWarning,
@@ -183,6 +183,7 @@ from ..interventions.learned import (
 from ..interventions.policy import (
     JointPolicy,
     refuse_policy_declarations,
+    vector_msm_refusal,
     vector_route_refusal,
     whole_vector_refusal,
 )
@@ -1552,11 +1553,12 @@ class TMLE:
         return estimands
 
     def _refuse_vector_compositions(self, data: CausalData) -> None:
-        """Refuse every fit of a vector treatment with a dose component but the supported one.
+        """Refuse a fit of a vector treatment with a dose that has no estimand, by its reason.
 
-        The supported fit is this estimator with ``policies=`` of
-        :class:`~cleverly.interventions.JointPolicy`, on either ratio route: the policy means
-        and contrasts.  Each refusal names what is missing, before any learner.
+        Such a treatment has no arms, so its parameters are the policy means and contrasts
+        of ``TMLE(policies=[JointPolicy(...)])``, on either ratio route, with the
+        missingness, intermediate and stratum compositions a dose takes.  Every other
+        request meets the reason a continuous dose meets, before any learner.
 
         Parameters
         ----------
@@ -1566,21 +1568,40 @@ class TMLE:
         Raises
         ------
         CapabilityError
-            For another estimator, another parameter axis, a policy declared on the vector
-            as a whole, ``delta=``, ``strata=`` or ``intermediate=``.
+            For ``CTMLE`` and ``DRTMLE``, which a continuous dose refuses; for ``msm=``; for
+            a policy declared on the vector as a whole; and for an estimand that is not a
+            policy mean or contrast.
+        DataError
+            For a fit with no ``policies=``, or one that asks for an arm-indexed axis
+            (``interventions=``, ``incremental=``, a learned rule).
         """
         if data.treatment_kind != "vector":
             return
         name = data.treatment_name
+        if self._assessment_method == "collaborative_tmle":
+            from .ctmle import _DISCRETE_TREATMENT_REFUSAL
+
+            raise CapabilityError(
+                f"treatment {name!r} is a vector with a continuous component. "
+                + _DISCRETE_TREATMENT_REFUSAL
+            )
+        if self._assessment_method == "drtmle":
+            from .drtmle import drtmle_axis_refusal
+            from .reduced import refuse_unsupported
+
+            for keyword in ("interventions", "policies", "incremental", "msm"):
+                if getattr(self, keyword, None):
+                    raise CapabilityError(drtmle_axis_refusal(keyword))
+            refuse_unsupported("continuous")
+        if self.msm is not None:
+            raise CapabilityError(vector_msm_refusal(name))
         if (
-            self._assessment_method != "tmle"
-            or not self.policies
-            or self.msm is not None
+            not self.policies
             or self.interventions
             or self.incremental
             or self.learned_rule is not None
         ):
-            raise CapabilityError(vector_route_refusal(name))
+            raise DataError(vector_route_refusal(name))
         for policy in self.policies:
             if not isinstance(policy, JointPolicy):
                 raise CapabilityError(whole_vector_refusal(policy, name))
@@ -1595,22 +1616,10 @@ class TMLE:
         if other:
             raise CapabilityError(
                 f"treatment {name!r} is a vector with a continuous component, and estimands= "
-                f"asks for {other}. Its policy fit reports {sorted(VECTOR_ESTIMANDS)} only; "
-                f"every other estimand of such a treatment is docs/roadmap.md "
-                f"{VECTOR_DENSITY_ROW}"
+                f"asks for {other}. A policy fit reports {sorted(VECTOR_ESTIMANDS)}, the "
+                "policy means and their contrasts; every other registered estimand names an "
+                "arm, and this treatment has none"
             )
-        for present, role in (
-            (data.has_missing_outcome or data.delta_name is not None, "a missing outcome (delta=)"),
-            (data.has_strata, "baseline strata (strata=)"),
-            (data.has_intermediate, "an intermediate (intermediate=)"),
-        ):
-            if present:
-                raise CapabilityError(
-                    f"treatment {name!r} is a vector with a continuous component, and the fit "
-                    f"declares {role}. A policy fit at a vector treatment supports "
-                    "weights, clusters, cross-fitting and the bootstrap only. This composition "
-                    f"is docs/roadmap.md {VECTOR_DENSITY_ROW}"
-                )
 
     def _refuse_known_compositions(self, data: CausalData) -> None:
         """Refuse a composition that a declared known mechanism does not support.
@@ -4058,7 +4067,13 @@ class TMLE:
         assert data.strata is not None
         lower = self.nuisance_bound if nuisance_bound is None else float(nuisance_bound)
         probabilities = stratum_probabilities(data)
-        reads_shares = not data.is_continuous_treatment and group != "natural_course"
+        # A vector treatment with a continuous component has no arms either; its only
+        # group is the policy group, which reads no arm share.
+        reads_shares = (
+            group != "natural_course"
+            and data.treatment_kind != "vector"
+            and not data.is_continuous_treatment
+        )
         pieces: list[Submodel] = []
         for code in range(data.n_strata):
             mask = data.strata == code

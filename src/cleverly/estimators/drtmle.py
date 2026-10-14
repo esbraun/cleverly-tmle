@@ -287,6 +287,28 @@ class ReducedFit:
         return None if reduction is None else reduction.evaluation
 
 
+def drtmle_axis_refusal(keyword: str) -> str:
+    """Why DRTMLE refuses a parameter axis other than the static arms.
+
+    Parameters
+    ----------
+    keyword : str
+        The declared axis keyword, such as ``"policies"``.
+
+    Returns
+    -------
+    str
+        The refusal sentence.
+    """
+    return (
+        f"DRTMLE and {keyword}= are not combined. The reduced-dimension "
+        "regressions are derived for counterfactual means under static treatment "
+        f"treatment; {keyword}= is a different score equation, and no theorem "
+        "read here says what its reductions would be. Fit a plain TMLE, which "
+        "is derived there."
+    )
+
+
 class DRTMLE(TMLE):
     r"""TMLE with the doubly-robust inference corrections, for a discrete point treatment.
 
@@ -750,13 +772,7 @@ class DRTMLE(TMLE):
             )
         for keyword in ("interventions", "policies", "incremental", "msm"):
             if getattr(self, keyword, None):
-                raise CapabilityError(
-                    f"DRTMLE and {keyword}= are not combined. The reduced-dimension "
-                    "regressions are derived for counterfactual means under static treatment "
-                    f"treatment; {keyword}= is a different score equation, and no theorem "
-                    "read here says what its reductions would be. Fit a plain TMLE, which "
-                    "is derived there."
-                )
+                raise CapabilityError(drtmle_axis_refusal(keyword))
 
     # --------------------------------------------------------------- the hook
 
@@ -1112,7 +1128,7 @@ class DRTMLE(TMLE):
         ``TMLE._check_policies`` runs first in the preflight, and it answers a dose with no
         ``policies=`` by suggesting one, which DRTMLE does not fit.
         """
-        if data.is_continuous_treatment:
+        if not data.has_arms:
             refuse_unsupported("continuous")
         super()._check_policies(data)
 
@@ -1129,7 +1145,7 @@ class DRTMLE(TMLE):
                 "informative, which is precisely the case this variant insures against."
             )
         self._refuse_one_step_nested()
-        if data.is_continuous_treatment:
+        if not data.has_arms:
             refuse_unsupported("continuous")
         if data.has_intermediate:
             raise CapabilityError(
