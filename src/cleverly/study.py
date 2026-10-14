@@ -846,18 +846,21 @@ class LongitudinalTreatment:
             else tuple(tuple(block) for block in self.time_varying)
         )
         repeated = self.outcome.columns if isinstance(self.outcome, Repeated) else ()
-        if repeated and len(repeated) == len(blocks):
-            # The container records Y_s as the first covariate of node s + 1.
-            blocks = (
-                blocks[0],
-                *((repeated[node - 1], *blocks[node]) for node in range(1, len(blocks))),
-            )
+        # The container records Y_s as the first covariate of node s + 1, unless the covariate
+        # screen dropped a constant copy.  The repeated nodes are compared on their own below,
+        # so they are removed from both sides of the covariate comparison.
+        unmatched = {*repeated, *data.repeated_names}
+        blocks = tuple(tuple(name for name in block if name not in unmatched) for block in blocks)
+        prepared_blocks = tuple(
+            tuple(name for name in block if name not in unmatched)
+            for block in data.time_varying_names
+        )
         expected: tuple[tuple[str, Any, Any], ...] = (
             ("treatment", declared_treatment, tuple(data.treatment_names)),
             ("held treatment", held, data.treatment_held),
             ("time grid", None, data.time_grid),
             ("baseline", tuple(self.baseline), tuple(data.baseline_names)),
-            ("time_varying", blocks, tuple(data.time_varying_names)),
+            ("time_varying", blocks, prepared_blocks),
             ("censoring", tuple(self.censoring or ()), tuple(data.censoring_names)),
             ("cluster", self.cluster, data.cluster_name),
             ("weights", self.weights, data.weights_name),

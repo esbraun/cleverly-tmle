@@ -12,7 +12,7 @@ categorized API tables.
    cleverly.StudyProtocol
    cleverly.PointTreatment
    cleverly.LongitudinalTreatment
-   cleverly.longitudinal.Repeated
+   cleverly.Repeated
    cleverly.TimeToEvent
    cleverly.Estimand
    cleverly.IdentificationProvider

@@ -245,6 +245,17 @@ def test_w10_a_study_design_declares_a_repeated_outcome() -> None:
         CausalStudy(data, design=LongitudinalTreatment(**{**ROLES, **blocks}))
 
 
+def test_w10_a_screened_constant_outcome_copy_does_not_refuse_the_design() -> None:
+    frame = panel()
+    # Y1 is zero on every row still under observation, so the covariate screen drops its copy.
+    frame.loc[(frame["C1"] == 1).to_numpy(), "Y1"] = 0.0
+    design = LongitudinalTreatment(**ROLES)
+    data = LongitudinalData.from_frame(frame, **ROLES)
+    assert "Y1" not in data.time_varying_names[1]
+    assert data.repeated_names == ("Y1", "Y2", "Y3")
+    assert CausalStudy(data, design=design).data is data
+
+
 # ---------------------------------------------------------------- W11 and W12
 
 
@@ -307,3 +318,10 @@ def test_w15_a_logit_working_model_reads_every_node() -> None:
             n_folds=1,
             simultaneous=False,
         ).fit(law.frame(), **LAW_COLUMNS)
+
+
+def test_repeated_is_exported_from_the_root_package() -> None:
+    import cleverly
+
+    assert cleverly.Repeated is Repeated
+    assert "Repeated" in cleverly.__all__

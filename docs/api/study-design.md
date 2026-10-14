@@ -11,7 +11,7 @@ Use these objects to declare the observed data, identify a causal quantity, and 
    cleverly.StudyProtocol
    cleverly.PointTreatment
    cleverly.LongitudinalTreatment
-   cleverly.longitudinal.Repeated
+   cleverly.Repeated
    cleverly.TimeToEvent
    cleverly.Estimand
    cleverly.IdentificationProvider

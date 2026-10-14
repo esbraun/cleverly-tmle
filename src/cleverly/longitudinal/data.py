@@ -1014,6 +1014,12 @@ class LongitudinalData:
         DataError
             On a container with one end-of-study outcome.
         """
+        if self.repeated is not None:
+            raise DataError(
+                "a repeated outcome has no event time: it is observed at every node and can "
+                "return to a previous value, so the container has no follow-up time and "
+                "event code to return"
+            )
         if self.event is None:
             raise DataError(
                 f"{self.outcome_name!r} is an end-of-study outcome, so the container has no "
@@ -1115,6 +1121,36 @@ class LongitudinalData:
             [_through(uncensored, t) & _event_free(failed, t) for t in range(n_times)]
         )
 
+        # A repeated outcome is checked first, by its own name and with the outcome's
+        # wording, so that every Y_t -- Y_s for s < T too, which is also the first covariate
+        # of block s + 1 -- is told to encode a missing value as censoring.  The covariate
+        # screen below may still drop the copy while the column stays the outcome of
+        # horizon s.
+        repeated_values: FloatArray | None = None
+        observed_by_node: np.ndarray | None = None
+        if repeated is not None and not survival:
+            repeated_values = np.asarray(repeated, dtype=float)
+            if repeated_values.shape != (n, n_times):
+                raise DataError(
+                    f"a repeated outcome must be ({n}, {n_times}) -- rows by time points -- "
+                    f"but got {repeated_values.shape}"
+                )
+            observed_by_node = np.column_stack(
+                [_through(uncensored, time) for time in range(1, n_times + 1)]
+            )
+            for time, name in enumerate(repeated_names, start=1):
+                _check_presence(
+                    repeated_values[:, time - 1],
+                    observed_by_node[:, time - 1],
+                    str(name),
+                    absent=(
+                        f"unit(s) are uncensored through time {time} but have no {name}. A "
+                        "repeated outcome missing for any other reason is a further node in "
+                        "the likelihood: encode it as censoring at that time point, so that its "
+                        "probability is estimated and enters the clever covariate."
+                    ),
+                )
+
         blocks: list[FloatArray] = []
         names: list[tuple[str, ...]] = []
         for time, (matrix, block_names) in enumerate(
@@ -1199,32 +1235,7 @@ class LongitudinalData:
                     "probability rather than a mean on some other scale"
                 )
             resolved = "binomial"
-        elif repeated is not None:
-            # Y_s for s < T was checked as the first covariate of block s + 1, on the rows
-            # uncensored through s.  Checked again here, by its own name and with the
-            # outcome's wording, because the covariate screen may drop the copy while the
-            # column stays the outcome of horizon s.
-            repeated_values = np.asarray(repeated, dtype=float)
-            if repeated_values.shape != (n, n_times):
-                raise DataError(
-                    f"a repeated outcome must be ({n}, {n_times}) -- rows by time points -- "
-                    f"but got {repeated_values.shape}"
-                )
-            observed_by_node = np.column_stack(
-                [_through(uncensored, time) for time in range(1, n_times + 1)]
-            )
-            for time, name in enumerate(repeated_names, start=1):
-                _check_presence(
-                    repeated_values[:, time - 1],
-                    observed_by_node[:, time - 1],
-                    str(name),
-                    absent=(
-                        f"unit(s) are uncensored through time {time} but have no {name}. A "
-                        "repeated outcome missing for any other reason is a further node in "
-                        "the likelihood: encode it as censoring at that time point, so that its "
-                        "probability is estimated and enters the clever covariate."
-                    ),
-                )
+        elif repeated_values is not None and observed_by_node is not None:
             # One family for the whole curve, resolved over every node's observed values.
             resolved = resolve_family(
                 repeated_values.T.reshape(-1), observed_by_node.T.reshape(-1), family
@@ -1758,10 +1769,11 @@ class LongitudinalData:
     def history_frame(self, time: int) -> Any:
         """:meth:`covariate_history` as a dataframe, in the backend the data came from.
 
-        This is what a dynamic rule :math:`d_t(H_t)` is handed: ``[W, L_1, ..., L_t]``
-        and nothing else.  The final outcome is not in it because reading it is not an
-        intervention.  A repeated outcome's earlier nodes ``Y_s``, ``s < t``, are in it,
-        because each is the first covariate of block ``s + 1``.  The earlier *treatments*
+        This is what a dynamic rule :math:`d_t(H_t)` is handed: ``[W, L_1, ..., L_t]``.
+        The final outcome is not in it because reading it is not an intervention.  A repeated
+        outcome's earlier nodes ``Y_s``, ``s < t``, are in it, because each is the first
+        covariate of block ``s + 1``.  A ``Y_s`` copy that the covariate screen dropped, as
+        a constant column, is absent.  The earlier *treatments*
         are not in it because under the regimen they are what the rule itself assigned --
         passing them would let a rule read the treatment of a unit that deviated, which is a
         different object from the one it is assigning.  The same reasoning, and the same omissions,

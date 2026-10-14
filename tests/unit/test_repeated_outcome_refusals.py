@@ -108,11 +108,11 @@ def test_a_missing_value_on_an_uncensored_row_names_censoring() -> None:
 
 
 def test_a_missing_earlier_value_is_refused_too() -> None:
-    """``Y_1`` is checked as a covariate of node 2 and again as the outcome of horizon 1."""
+    """``Y_1`` is also the first covariate of node 2, yet gets the outcome's censoring wording."""
     frame = panel()
     observed = np.flatnonzero((frame["C1"] == 1).to_numpy())
     frame.loc[observed[0], "Y1"] = np.nan
-    with pytest.raises(DataError, match="Y1"):
+    with pytest.raises(DataError, match=r"no Y1\. .*encode it as censoring"):
         LongitudinalData.from_frame(frame, outcome=OUTCOME, **ROLES)
 
 
@@ -141,8 +141,45 @@ def test_a_survival_functional_is_refused(result: Any, call: Any) -> None:
 
 
 def test_incidence_total_is_refused(result: Any) -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(
+        ValueError, match="the mean of a repeated outcome at each horizon"
+    ) as caught:
         result.incidence_total()
+    assert "competing risks" not in str(caught.value)
+
+
+def test_the_mean_view_of_an_end_of_study_fit_names_the_missing_curve() -> None:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fit = _estimator().fit(panel(), outcome="Y3", **ROLES)
+    with pytest.raises(ValueError, match="one end-of-study outcome") as caught:
+        fit.curve(scale="mean")
+    assert "this fit reports a cumulative risk" not in str(caught.value)
+
+
+def test_a_repeated_container_has_no_event_time(result: Any) -> None:
+    with pytest.raises(DataError, match="repeated outcome has no event time") as caught:
+        result.data.to_time_to_event()
+    assert "end-of-study" not in str(caught.value)
+
+
+def test_a_rule_description_names_the_earlier_outcome() -> None:
+    from .test_repeated_outcome import RULE, regimens
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fit = LTMLE(
+            regimens({"never": (0, 0, 0), **RULE}, 3, held=False),
+            reference="never",
+            outcome_learner=LogisticRegression(),
+            pseudo_learner=LinearRegression(),
+            treatment_learner=LogisticRegression(),
+            censoring_learner=LogisticRegression(),
+            n_folds=1,
+            simultaneous=False,
+        ).fit(panel(), outcome=OUTCOME, **ROLES)
+    lines = fit.config.describe(contrast=False)
+    assert any("Y_{t-1}" in line for line in lines)
 
 
 def test_the_curve_is_a_curve_of_means(result: Any) -> None:

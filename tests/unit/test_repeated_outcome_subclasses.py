@@ -4,7 +4,9 @@ A subclass shares :meth:`LTMLE.fit`, so it would fit a repeated outcome by inher
 whether or not its own estimator reduces per horizon.  ``LTMLE.fit`` refuses a repeated
 container for any estimator kind other than the TMLE, naming roadmap row X32b.  This test
 enumerates ``LTMLE`` and every subclass the package defines and requires, for each one,
-either the TMLE's per-horizon parameters or that refusal before any learner runs.
+either that refusal before any learner runs or, for a TMLE kind, the reduction: the
+estimate and influence curve at each horizon equal those of the same class fitted on the
+end-of-study panel truncated after that horizon.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ import pkgutil
 import warnings
 from typing import Any
 
+import numpy as np
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
@@ -58,7 +61,20 @@ class _Untouchable(LogisticRegression):
         raise AssertionError("a learner ran before the repeated-outcome refusal")
 
 
-def _fit(kind: type[LTMLE], learner: Any) -> Any:
+def _truncated_roles(horizon: int) -> dict[str, Any]:
+    """The end-of-study roles of the panel truncated after ``horizon``."""
+    nodes = range(1, horizon + 1)
+    blocks = [[f"L{t}"] if t == 1 else [f"Y{t - 1}", f"L{t}"] for t in nodes]
+    return {
+        "outcome": f"Y{horizon}",
+        "treatment": [f"A{t}" for t in nodes],
+        "baseline": ["W"],
+        "time_varying": blocks,
+        "censoring": [f"C{t}" for t in nodes],
+    }
+
+
+def _fit(kind: type[LTMLE], learner: Any, roles: dict[str, Any] | None = None) -> Any:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return kind(
@@ -70,14 +86,26 @@ def _fit(kind: type[LTMLE], learner: Any) -> Any:
             censoring_learner=learner,
             n_folds=1,
             simultaneous=False,
-        ).fit(panel(), **ROLES)
+        ).fit(panel(), **(ROLES if roles is None else roles))
 
 
 @pytest.mark.parametrize("kind", _every_subclass(), ids=lambda kind: kind.__qualname__)
 def test_each_estimator_reduces_or_refuses(kind: type[LTMLE]) -> None:
     if getattr(kind, "_estimator", "tmle") == "tmle":
         result = _fit(kind, LogisticRegression())
-        assert {f"ey_regimen[always @ t={h}]" for h in (1, 2, 3)} <= set(result)
+        for horizon in (1, 2, 3):
+            truncated = _fit(kind, LogisticRegression(), _truncated_roles(horizon))
+            for label in ("never", "always"):
+                name = f"ey_regimen[{label} @ t={horizon}]"
+                assert result.psi(name) == pytest.approx(
+                    truncated.psi(f"ey_regimen[{label}]"), rel=1e-10, abs=1e-12
+                )
+                np.testing.assert_allclose(
+                    result.influence_curves[name],
+                    truncated.influence_curves[f"ey_regimen[{label}]"],
+                    rtol=1e-10,
+                    atol=1e-12,
+                )
         return
     with pytest.raises(CapabilityError, match="X32b"):
         _fit(kind, _Untouchable())

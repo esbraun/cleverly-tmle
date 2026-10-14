@@ -444,8 +444,9 @@ def refuse_repeated_outcome(estimator: str, name: str) -> None:
     estimator, fits nothing until its own reduction and evidence exist, so it refuses here,
     before any learner, rather than fitting by inheritance.
     ``tests/unit/test_repeated_outcome_subclasses.py`` fits every subclass of
-    :class:`LTMLE` on a repeated outcome and requires either the TMLE's per-horizon fits or
-    this refusal.
+    :class:`LTMLE` on a repeated outcome and requires either this refusal or, for a TMLE kind,
+    an estimate and influence curve at each horizon equal to the end-of-study fit of the
+    truncated panel.
 
     Parameters
     ----------
@@ -845,8 +846,14 @@ class LongitudinalConfig:
             # how the follower counts below should be read: a static regimen's followers
             # are whoever happened to receive that sequence, and a rule's are whoever the
             # rule would have treated -- a set this sample determines.
+            # A repeated outcome's earlier nodes open the later blocks, so they are in H_t.
+            history = (
+                "L_1, ..., L_t, with Y_{t-1} first in each block L_t, t > 1"
+                if self.outcome_kind == "repeated"
+                else "L_1, ..., L_t"
+            )
             lines.append(
-                "  a 'd' is a rule d_t(H_t) read off [W, L_1, ..., L_t]; its followers "
+                f"  a 'd' is a rule d_t(H_t) read off [W, {history}]; its followers "
                 "are a covariate-dependent set, so the counts below describe this sample"
             )
             # Only for the regimens that have a rule in them, and only when one does:
@@ -1736,6 +1743,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             One row per regimen and horizon, with the incidences summed over causes.
         """
         if not self.data.is_competing:
+            if self.data.is_repeated:
+                raise ValueError(f"this fit reports {REPEATED_NOT_A_RISK}")
             raise ValueError(
                 "this fit reports one parameter per regimen per horizon, so there is "
                 "nothing to sum over. Declare competing risks -- outcome={cause: [...]} "
@@ -1908,11 +1917,6 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             raise ValueError(f"scale must be 'risk', 'survival' or 'mean'; got {scale!r}")
         if repeated and scale != "mean":
             raise ValueError(f"this fit reports {REPEATED_NOT_A_RISK}. Use scale='mean'")
-        if not repeated and scale == "mean":
-            raise ValueError(
-                "scale='mean' is the view of a repeated outcome; this fit reports a "
-                "cumulative risk at every horizon. Use scale='risk' or scale='survival'"
-            )
         if self.msm is not None:
             raise ValueError(
                 "this fit reports the coefficients of a working model, and a coefficient "
@@ -1928,6 +1932,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 "its report is a number and not a curve. Pass one outcome column per "
                 "time point -- outcome=[...] -- to estimate a cumulative risk at every "
                 "horizon; result.to_frame() is the report for this fit"
+            )
+        if not repeated and scale == "mean":
+            raise ValueError(
+                "scale='mean' is the view of a repeated outcome; this fit reports a "
+                "cumulative risk at every horizon. Use scale='risk' or scale='survival'"
             )
         # Gated on how many causes the fit *declared*, not on whether it declared any.
         # ``outcome={"death": [...]}`` is a competing-risks declaration with one cause,
