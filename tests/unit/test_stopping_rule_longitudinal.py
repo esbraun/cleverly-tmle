@@ -744,4 +744,4 @@ class TestRefusals:
 
     def test_ltmle_still_refuses_a_point_option_other_than_the_rule(self) -> None:
         with pytest.raises(MethodConfigurationError, match="point-treatment option"):
-            TMLEMethod(targeting=Targeting(step_size=0.1)).estimator_kwargs(longitudinal=True)
+            TMLEMethod(targeting=Targeting(target_weights=True)).estimator_kwargs(longitudinal=True)
