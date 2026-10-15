@@ -923,3 +923,66 @@ def test_a_to_atom_piece_takes_no_map() -> None:
         Piece(0.0, 1.0, lambda a, h: a, lambda b, h: b, lambda b, h: 1.0, to_atom=1.0)
     with pytest.raises(DataError):
         Piece(0.0, 1.0, to_atom=float("inf"))
+
+
+# ------------------------------------------------------------------ m1: the classifier's atom indicator
+
+
+def _smooth_mixed_law(n: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float]:
+    """``(w, dose, assigned, atom_rows, truth)``: an atom of 40% at 3 and a normal elsewhere.
+
+    The assigned dose sends the continuous interval ``[1.5, 2.5)`` to the atom, so the ratio
+    at the atom is ``(p + (1 - p) P(1.5 <= A < 2.5)) / p`` with ``p = 0.4``, which is above 1
+    on every history.  The learner below is logistic in the dose and the history, so only an
+    indicator column can give its odds a jump at 3.
+    """
+    from scipy import stats
+
+    rng = np.random.default_rng(2)
+    p = 0.4
+    w = rng.normal(size=n)
+    at_atom = rng.uniform(size=n) < p
+    dose = np.where(at_atom, 3.0, rng.normal(size=n) + 1.5)
+    assigned = np.where((dose >= 1.5) & (dose < 2.5), 3.0, dose)
+    inside = stats.norm.cdf(1.0) - stats.norm.cdf(0.0)
+    truth = (p + (1.0 - p) * inside) / p
+    return w, dose, assigned, at_atom, truth
+
+
+def _atom_ratio_at_the_atom(*, patched: bool, monkeypatch: pytest.MonkeyPatch) -> float:
+    from sklearn.linear_model import LogisticRegression
+
+    from cleverly.learners import density_ratio
+    from cleverly.learners.crossfit import Folds
+
+    w, dose, assigned, at_atom, _ = _smooth_mixed_law(6000)
+    if patched:
+        monkeypatch.setattr(density_ratio, "_with_atoms", lambda block, atoms: block)
+    (ratio,) = density_ratio.classifier_ratio(
+        LogisticRegression(max_iter=2000),
+        w.reshape(-1, 1),
+        dose,
+        [(1.0, assigned)],
+        np.ones(dose.size),
+        Folds.single(dose.size),
+        evaluate_at=[dose],
+        atoms=(3.0,),
+    )
+    return float(np.mean(ratio[at_atom]))
+
+
+def test_m1_the_classifier_indicator_lets_a_smooth_learner_see_the_atom_jump(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The atom ratio of a logistic learner is the true ratio within 10% with the indicator."""
+    truth = _smooth_mixed_law(6000)[4]
+    assert truth > 1.2
+    estimate = _atom_ratio_at_the_atom(patched=False, monkeypatch=monkeypatch)
+    assert estimate == pytest.approx(truth, rel=0.1)
+
+
+def test_m1_dropping_the_indicator_moves_the_atom_ratio(monkeypatch: pytest.MonkeyPatch) -> None:
+    """M-c-ind: without the column the same learner misses the atom ratio by more than CAUGHT."""
+    truth = _smooth_mixed_law(6000)[4]
+    estimate = _atom_ratio_at_the_atom(patched=True, monkeypatch=monkeypatch)
+    assert abs(estimate - truth) > 0.1 > CAUGHT
