@@ -13,7 +13,7 @@ Read the pages in this order.
 | [Implementation validation grid](validation-grid.md) | the sixty-eight validation studies in one table, with the counts and the declared limits |
 | [How to read these studies](how-to-read.md) | the three questions, the verdict rules, and the terms every study below applies |
 | [The red-cell ledger](red-cells.md) | every red verdict the studies publish, and the roadmap ask that owns each one |
-| the sixty-nine study pages | one row per committed test, with what it checked and the verdict its own endpoints produced |
+| the seventy study pages | one row per committed test, with what it checked and the verdict its own endpoints produced |
 
 A validation study declares property cells or names a reference. A study that names a reference
 is comparator-backed, and its agreement block names the comparison kind of each row. The
@@ -103,6 +103,7 @@ known-node-mechanisms-ltmle
 sequential-baselines
 repeated-outcome-longitudinal-tmle
 omitted-variable-bound-standard-error
+omitted-variable-bound-plugin-standard-error
 calibration-slope-warning
 default-simultaneous-bands
 full-refit-bootstrap-and-derived-contrasts

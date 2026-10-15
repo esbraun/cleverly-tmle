@@ -74,6 +74,19 @@ TIGHT: dict[str, Any] = {"solver": "newton-cg", "tol": 1e-14, "max_iter": 1000}
 #: Bounds that move no cell of any simulated fit.
 NO_CLIP = (1e-6, 1.0 - 1e-6)
 
+
+@pytest.fixture(scope="module", autouse=True)
+def _no_penalty_gate() -> Iterator[None]:
+    """Lift the ``penalty_bias`` gate, which several ridge witnesses at small n would meet.
+
+    These witnesses test the curve of the penalized functional.  The gate is a separate
+    finite-sample check, and ``test_omitted_variable_plugin_refusals.py`` pins it.
+    """
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(ov, "PENALTY_BIAS_FRACTION", np.inf)
+        yield
+
+
 #: The weight function of the weighted two-arm fits.
 WEIGHTING = "treatment_and_outcome"
 
@@ -415,7 +428,7 @@ def mechanism_term(result: Any, name: str) -> np.ndarray:
         _elements(result, name)
     (term,) = captured
     assert not isinstance(term, ms.MechanismRefusal), term
-    return np.asarray(term)
+    return np.asarray(term.values)
 
 
 # ---------------------------------------------------------------------- simulated sample
@@ -1074,7 +1087,9 @@ class TestTheWitnessHasTeeth:
 
         def dropped(*arguments: Any) -> Any:
             out = original(*arguments)
-            return out if isinstance(out, ms.MechanismRefusal) else np.zeros_like(out)
+            if isinstance(out, ms.MechanismRefusal):
+                return out
+            return ms.MechanismTerm(np.zeros_like(out.values))
 
         monkeypatch.setattr(ov, "plugin_mechanism_term", dropped)
         _fails(_exact_deviations(W1 + W2 + W3), M1_EXACT_FLOOR)

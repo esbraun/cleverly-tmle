@@ -47,6 +47,7 @@ from cleverly.estimators import TMLE
 from cleverly.estimators._mechanism_fit import MechanismFit, ScalerStep, describe_mechanism
 from cleverly.estimators._nuisance import ConstantFit, cross_fit_companion
 from cleverly.exceptions import CapabilityError, RefusalReason
+from cleverly.inference.cluster import influence_variance
 from cleverly.interventions import Incremental
 from cleverly.learners import SuperLearner, random_partition
 from cleverly.sensitivity import omitted_variable
@@ -118,12 +119,12 @@ def full_pattern(before: str, after: str) -> re.Pattern[str]:
 # ------------------------------------------------------------------------------ the fits
 
 
-def binary_frame(n: int = 300, seed: int = 1) -> pd.DataFrame:
+def binary_frame(n: int = 1000, seed: int = 1) -> pd.DataFrame:
     """A two-arm confounded frame with four covariates, ``W1`` to ``W4``."""
     return make_linear_ate(n=n, seed=seed)[0]
 
 
-def three_arm_frame(n: int = 240, seed: int = 5) -> pd.DataFrame:
+def three_arm_frame(n: int = 1000, seed: int = 5) -> pd.DataFrame:
     """A three-arm frame with a binary outcome, whose mechanism is multinomial logistic."""
     rng = np.random.default_rng(seed)
     w = rng.normal(size=(n, 2))
@@ -693,7 +694,8 @@ class TestAKnownMechanismTruncatedByTheBounds:
         assert "the declared known mechanism" in bound.summary()
         term = self.stack(known_fit, (0.0, 1.0))
         assert not isinstance(term, MechanismRefusal)
-        assert term.shape == (known_fit.n,) and not np.any(term)
+        assert term.values.shape == (known_fit.n,) and not np.any(term.values)
+        assert term.penalty_shift == 0.0
 
     def test_known_truncated(self, known_fit: Any) -> None:
         probabilities = known_fit.repeats[0].nuisance.propensity.values
@@ -728,6 +730,74 @@ class TestAKnownMechanismTruncatedByTheBounds:
 
 
 # ------------------------------------------------------------------------- the capture
+
+
+class TestTheRidgeShrinkageGate:
+    """A fixed L2 penalty moves ``nu^2`` by ``O(1/n)``, a bias the limits do not cover.
+
+    The gate refuses when the first-order shift exceeds ``PENALTY_BIAS_FRACTION`` of the
+    standard error of ``nu^2`` (X26 plan check 12).  The shift is a witness of its own: it
+    matches the change of the plug-in when the penalty is lifted.
+    """
+
+    @staticmethod
+    def shift_and_se(result: Any) -> tuple[float, float]:
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(omitted_variable, "PENALTY_BIAS_FRACTION", np.inf)
+            elements = sensitivity_elements(result, "ate", nu2_estimator="plugin")
+        term = plugin_mechanism_term(
+            result,
+            result.repeats[0],
+            resolve_parameter(result, "ate"),
+            elements.riesz_representer,
+            (0.0, 1.0),
+            None,
+        )
+        assert not isinstance(term, MechanismRefusal)
+        assert elements.psi_nu2 is not None
+        return term.penalty_shift, float(
+            np.sqrt(influence_variance(elements.psi_nu2, result.data.cluster))
+        )
+
+    def test_penalty_bias(self) -> None:
+        result = fit_binary(LogisticRegression(C=0.05, max_iter=1000), binary_frame(n=300))
+        assert_refusal(
+            bound_of(result),
+            key="penalty_bias",
+            text=full_pattern(
+                "the fixed L2 penalty moves nu^2 by ",
+                ", which is more than 0.1 of its standard error",
+            ),
+            alternative="Raise C.",
+            roadmap=None,
+        )
+
+    def test_the_remedy_it_names_opens_the_limits(self) -> None:
+        result = fit_binary(LogisticRegression(C=100.0, max_iter=1000), binary_frame(n=300))
+        assert bound_of(result).limit_refusal is None
+
+    def test_the_shift_is_the_change_when_the_penalty_is_lifted(self) -> None:
+        learner = {"solver": "newton-cholesky", "tol": 1e-12}
+        penalized = fit_binary(LogisticRegression(C=10.0, **learner))
+        lifted = fit_binary(LogisticRegression(C=np.inf, **learner))
+        shift, _ = self.shift_and_se(penalized)
+        change = (
+            sensitivity_elements(lifted, "ate", nu2_estimator="plugin").nu2
+            - sensitivity_elements(penalized, "ate", nu2_estimator="plugin").nu2
+        )
+        assert shift > 0.0
+        assert shift == pytest.approx(change, rel=0.02)
+
+    def test_the_gate_reads_the_standard_error_of_nu2(self) -> None:
+        result = fit_binary(LogisticRegression(C=0.5, max_iter=1000), binary_frame(n=300))
+        shift, se = self.shift_and_se(result)
+        ratio = abs(shift) / se
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(omitted_variable, "PENALTY_BIAS_FRACTION", 1.01 * ratio)
+            assert bound_of(result).limit_refusal is None
+            patch.setattr(omitted_variable, "PENALTY_BIAS_FRACTION", 0.99 * ratio)
+            refusal = bound_of(result).limit_refusal
+            assert refusal is not None and refusal.key == "penalty_bias"
 
 
 def assert_same_record(first: MechanismFit, second: MechanismFit) -> None:

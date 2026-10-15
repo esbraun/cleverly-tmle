@@ -109,7 +109,12 @@ from ..targets.population_intervention import natural_course_names, reads_natura
 from ..utils.bounds import g_bounds_for
 from ..utils.random import resolve_assessment_seed
 from ..utils.text import format_table
-from ._mechanism_stack import MechanismRefusal, plugin_mechanism_term
+from ._mechanism_stack import (
+    PENALTY_BIAS_FRACTION,
+    MechanismRefusal,
+    penalty_refusal,
+    plugin_mechanism_term,
+)
 from ._parameters import ArmParameter, reported_arm_parameters, stratum_refusal
 from .missingness import fit_wide_tilt_refusal
 
@@ -806,6 +811,7 @@ def _elements_for(
     limit_refusal: MechanismRefusal | None = None
     plugin_mechanism: str | None = None
     mechanism_term: FloatArray | None = None
+    penalty_shift = 0.0
     if method == "plugin":
         # E_n[alpha_hat^2] moves at first order with the fitted mechanism, so its curve
         # carries the mechanism score's term. Only a declared known mechanism or a fixed
@@ -817,7 +823,8 @@ def _elements_for(
         if isinstance(stacked, MechanismRefusal):
             limit_refusal = stacked
         else:
-            mechanism_term = stacked
+            mechanism_term = stacked.values
+            penalty_shift = stacked.penalty_shift
             plugin_mechanism = repeat.nuisance.treatment_mechanism
             plugin_mechanism = "known" if plugin_mechanism == "known" else "logistic"
     if method == "doubly_robust" or mechanism_term is not None:
@@ -831,10 +838,18 @@ def _elements_for(
             psi_nu2 = psi_nu2 + _conditioning_share_influence(
                 nu2, conditioning_indicator, conditioning_share, weights
             )
-        # The square-root delta method requires a positive product. At sigma2=0 the
-        # point bound is still defined, but its ordinary influence curve is not.
-        if max_bias > 0.0:
-            psi_max_bias = (sigma2 * psi_nu2 + nu2 * psi_sigma2) / (2.0 * max_bias)
+        # A fixed L2 penalty shrinks nu^2 by O(1/n), a finite-sample bias the limits do
+        # not cover. Past PENALTY_BIAS_FRACTION of the standard error, the limits mislead.
+        if mechanism_term is not None and abs(penalty_shift) > PENALTY_BIAS_FRACTION * float(
+            np.sqrt(influence_variance(psi_nu2, result.data.cluster))
+        ):
+            limit_refusal = penalty_refusal(penalty_shift)
+            plugin_mechanism = None
+            psi_nu2 = None
+    # The square-root delta method requires a positive product. At sigma2=0 the
+    # point bound is still defined, but its ordinary influence curve is not.
+    if psi_nu2 is not None and max_bias > 0.0:
+        psi_max_bias = (sigma2 * psi_nu2 + nu2 * psi_sigma2) / (2.0 * max_bias)
     return SensitivityElements(
         estimand=parameter.name,
         sigma2=sigma2,

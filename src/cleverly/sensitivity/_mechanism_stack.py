@@ -32,6 +32,11 @@ That functional equals :math:`\nu_0^2` only when the truncation is asymptoticall
 A declared known mechanism (:class:`~cleverly.data.KnownMechanism`) is the degenerate case:
 :math:`\hat\alpha = \alpha(g_0)`, so the term is zero.
 
+The fixed L2 penalty shrinks :math:`\nu^2` by :math:`\sum_k D_k J_k^{+} P\theta_k / C`, an
+:math:`O(1/n)` bias that the limits do not cover.  :func:`plugin_mechanism_term` returns that
+shift with the term, and the bound refuses its limits (``penalty_bias``) when the shift exceeds
+:data:`PENALTY_BIAS_FRACTION` of the standard error of :math:`\nu^2`.
+
 :func:`plugin_mechanism_term` returns the term, or the reason the fit does not qualify.
 """
 
@@ -52,6 +57,8 @@ __all__ = [
     "PENALTY_BIAS_FRACTION",
     "ROOT_TOLERANCE",
     "MechanismRefusal",
+    "MechanismTerm",
+    "penalty_refusal",
     "plugin_mechanism_term",
 ]
 
@@ -142,6 +149,44 @@ def _refusal(
         text=f"nu2_estimator='plugin': {_STEM}. This fit does not qualify: {clause}.",
         alternative=alternative,
         reason=reason,
+    )
+
+
+@dataclass(frozen=True)
+class MechanismTerm:
+    r"""The mechanism term of the plug-in curve, with the penalty's first-order shift.
+
+    Parameters
+    ----------
+    values : ndarray
+        The ``(n,)`` term :math:`\psi^\gamma`.
+    penalty_shift : float
+        The first-order shrinkage of :math:`\nu^2` by the fixed L2 penalty,
+        :math:`\sum_k D_k J_k^{+} P\theta_k / C`; zero with no penalty.
+    """
+
+    values: FloatArray
+    penalty_shift: float = 0.0
+
+
+def penalty_refusal(shift: float) -> MechanismRefusal:
+    """The refusal of a bound whose fixed L2 penalty moves ``nu^2`` too far.
+
+    Parameters
+    ----------
+    shift : float
+        The first-order shrinkage of ``nu^2`` by the penalty.
+
+    Returns
+    -------
+    MechanismRefusal
+        The ``penalty_bias`` record.
+    """
+    return _refusal(
+        "penalty_bias",
+        f"the fixed L2 penalty moves nu^2 by {abs(shift):.3g}, which is more than "
+        f"{PENALTY_BIAS_FRACTION} of its standard error",
+        "Raise C.",
     )
 
 
@@ -519,7 +564,7 @@ def plugin_mechanism_term(
     representer: FloatArray,
     bounds: tuple[float, float],
     share: float | None,
-) -> FloatArray | MechanismRefusal:
+) -> MechanismTerm | MechanismRefusal:
     r"""The mechanism term :math:`\psi^\gamma` of the plug-in :math:`\nu^2` curve.
 
     Parameters
@@ -539,8 +584,9 @@ def plugin_mechanism_term(
 
     Returns
     -------
-    ndarray or MechanismRefusal
-        The ``(n,)`` term, or the reason the fit does not qualify.
+    MechanismTerm or MechanismRefusal
+        The ``(n,)`` term and the penalty's shift of ``nu^2``, or the reason the fit does
+        not qualify.
     """
     nuisance = repeat.nuisance
     data = result.data
@@ -554,7 +600,7 @@ def plugin_mechanism_term(
                 "Pass g_bounds=(lower, upper) that contains every known probability.",
                 reason=RefusalReason.INVALID_DECLARATION,
             )
-        return np.zeros(data.n)
+        return MechanismTerm(np.zeros(data.n))
     fits: tuple[MechanismFit, ...] | None = nuisance.treatment_fits
     if not fits:
         return _refusal(
@@ -595,6 +641,7 @@ def plugin_mechanism_term(
     weights = np.asarray(data.weights, dtype=float)
     treatment_index = np.searchsorted(np.asarray(arms), np.asarray(data.treatment, dtype=float))
     term = np.zeros(n)
+    shift = 0.0
     for fold in folds:
         stack = fold.stack
         g = stack.probabilities
@@ -607,6 +654,7 @@ def plugin_mechanism_term(
         direction = fold.inverse @ gradient.reshape(-1)
         rows = stack.score(treatment_index, fold.train, weights)
         term[fold.train] += n * rows @ direction
-        allocation = weights / n * float(direction @ (stack.penalty @ stack.theta.reshape(-1)))
-        term -= n * allocation
-    return term
+        fold_shift = float(direction @ (stack.penalty @ stack.theta.reshape(-1)))
+        term -= weights * fold_shift
+        shift += fold_shift
+    return MechanismTerm(term, shift)
