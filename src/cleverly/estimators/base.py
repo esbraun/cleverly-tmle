@@ -23,6 +23,7 @@ from .._inference_status import (
     status_record,
     supplies_inference,
 )
+from .._refusal import NO_ALTERNATIVE
 from .._typing import FloatArray, ParameterAxis
 from ..data.causal_data import CausalData
 from ..exceptions import (
@@ -1630,9 +1631,22 @@ class TMLEResult:
                 if not estimate.supplies_inference:
                     withheld.setdefault(estimate.inference, []).append(name)
             for flagged, names in withheld.items():
+                withheld_record = status_record(flagged)
+                spreads = ", ".join(
+                    f"{name} {self.estimates[name].plugin_std_error:.4g}" for name in names
+                )
+                alternative = (
+                    ""
+                    if withheld_record.alternative == NO_ALTERNATIVE
+                    else f" {withheld_record.alternative}"
+                )
                 parts.append("")
                 parts.append(f"rows withheld ({', '.join(names)}): {flagged}")
-                parts.append(status_record(flagged).summary_note())
+                parts.append(
+                    f"{withheld_record.summary_label} (a diagnostic, not a standard error): "
+                    + spreads
+                )
+                parts.append(withheld_record.reason + alternative)
         if self.n_repeats > 1:
             # Printed under the table rather than left to the scope document, because a
             # reader who subtracts two rows of that table gets a third number the fit

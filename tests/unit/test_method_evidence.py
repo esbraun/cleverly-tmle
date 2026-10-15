@@ -2652,6 +2652,8 @@ MARGIN_SOURCES: dict[str, Any] = {
     "margin:policy_displacement": lambda s: s.properties().POLICY_DISPLACEMENT,
     "margin:inverse_displacement": lambda s: s.properties().INVERSE_DISPLACEMENT,
     "margin:recursion_displacement": lambda s: s.properties().RECURSION_DISPLACEMENT,
+    "margin:subject_failure_bound": lambda s: s.failure_bound[s.implementation],
+    "margin:subject_failures_allowed": lambda s: float(failures.allowed(s, s.implementation)),
 }
 
 

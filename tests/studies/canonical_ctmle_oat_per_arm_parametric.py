@@ -60,8 +60,10 @@ every group at its declared budget on pilot-only seeds) raised no separation ref
 stack failure.
 
 **Sizes.**  Each calibration group is sized so that the whole study passes with probability at
-least 0.95 when nothing is wrong: each of the 12 gated calibration groups gets the per-group
-target ``0.95 ** (1 / 12)``.  The plan's section 11 sized each cell to 0.95 on its own, which
+least 0.95 when nothing is wrong: each gated calibration group gets the per-group target
+``0.95 ** (1 / 12)``.  The declaration counted 12 groups; the study has 11 (the
+``generated_design`` pair among them), so the target is conservative and the study-wise pass
+probability is at least ``0.95 ** (11 / 12)``.  The plan's section 11 sized each cell to 0.95 on its own, which
 gives a study-wise pass probability near 0.63 (pre-queue design review).  The predictive model
 centres each row on its own pilot ratio with variance ``s^2 + tau_80^2``, ``tau_80 = 0.0080``
 pooled over the study's gated rows.  Centring on the row, not on the arm-pooled mean of the
@@ -112,7 +114,7 @@ ARM_ESTIMANDS = ("ey0", "ey1", "ate")
 
 # ---------------------------------------------------------------------------------- the sizes
 
-#: The replicates of each fit group.  The 12 gated calibration groups, ``generated_design``
+#: The replicates of each fit group.  The 11 gated calibration groups, ``generated_design``
 #: among them, are sized by the study-wise rule of the module docstring ("Sizes") from the
 #: pilots, and each was read at its budget on pilot-only seeds before this declaration.  Two
 #: groups are sized below.

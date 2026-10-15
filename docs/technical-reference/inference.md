@@ -100,13 +100,13 @@ Every other status is a non-inferential status.
 
 | status | declared by | `std_error`, `ci`, and `pvalue` | `summary()` column | reopened by |
 | --- | --- | --- | --- | --- |
-| `"influence_curve"` | every estimate except the ones below. This is the constructor default | return the values on this page | `std_err` | not applicable |
+| `"influence_curve"` | every estimate except the ones below. This is the constructor default. It includes a per-arm `CTMLE` fit that `per_arm_parametric_support` admits | return the values on this page | `std_err` | not applicable |
 | `"working_mechanism_plugin"` | a `CTMLE` fit with `strategy="greedy"`, `"ordered"`, or `"discrete"`. A `discrete` fit with one declared candidate, equal to the full adjustment set, takes the TMLE status instead. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `working-mechanism se` | [F18](../roadmap.md#f18-selector-path-c-tmle-inference) |
-| `"generated_design_plugin"` | every `CTMLE` fit with `strategy="oat"`, of either `oat_design=`, including a fit with `strata=`, `delta=` or `treatment_delta=` and a fit that requests one arm mean. [Collaborative TMLE](collaborative-tmle.md#the-applied-revert) gives the reason | raise `CapabilityError` with the reason of the status | `generated-design se` | [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
+| `"generated_design_plugin"` | every `CTMLE` fit with `strategy="oat"` that `per_arm_parametric_support` refuses, of either `oat_design=`. This includes a fit with `strata=`, `delta=` or `treatment_delta=`, a fit with a scikit-learn learner, and a fit that requests one arm mean outside the admitted set. [Collaborative TMLE](collaborative-tmle.md#the-applied-revert) gives the reason | raise `CapabilityError` with the reason of the status | `generated-design se` | [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | `"estimated_weight_plugin"` | a `DRTMLE` fit with a non-empty `guard` and varying weights declared estimated (`weights_estimated=True`). A fit with `guard=()` keeps `"influence_curve"`. Constant weights fit the unweighted estimator, so they keep it too. A per-arm `CTMLE` fit with `strategy="oat"` and estimated weights takes `"generated_design_plugin"`, because `per_arm_parametric_support` refuses observation weights, and F19 holds its interval. [DR-TMLE supported estimands](dr-tmle/supported-estimands.md#refused-by-name) gives the reason | raise `CapabilityError` with the reason of the status | `fixed-weight se` | [X50](../roadmap.md#x50-further-dr-tmle-compositions) |
 | `"few_cluster_plugin"` | a `TMLE` or `DRTMLE` fit with `id=` and fewer than 10 clusters with positive weight mass in the fit or one reported baseline stratum, or an `LTMLE` fit with fewer than 20. The `LTMLE` floor applies in sample and under cross-fitting. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `normal-reference se` | [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) |
 | `"constant_node_plugin"` | an `LTMLE` parameter whose recursion read a node regression as a constant 0 or 1, such as a horizon at a grid node with no event among the regimen's followers at risk, and every contrast or restricted mean that reads it. The simultaneous band leaves it out. The other parameters of the fit keep their status. [A node with no event](longitudinal-tmle.md#a-node-with-no-event) gives the reason | raise `CapabilityError` with the reason of the status | `constant-node se` | [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) |
-| `"stack_failure_plugin"` | an estimate of an admitted per-arm `CTMLE` fit whose arm stack failed on the sample. The arm mean of a sound arm keeps its status. [The per-arm outcome-adaptive design](collaborative-tmle.md#the-per-arm-outcome-adaptive-design) gives the conditions | raise `CapabilityError` with the reason of the status | `stack-failure se` | [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
+| `"stack_failure_plugin"` | an estimate of an admitted per-arm `CTMLE` fit whose arm stack failed on the sample. The arm mean of a sound arm keeps its status. The fit emits a `DataWarning` that names the arm and the failed condition. [Parametric per-arm intervals](collaborative-tmle.md#parametric-per-arm-intervals) gives the three conditions | raise `CapabilityError` with the reason of the status | `stack-failure se` | [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
 
 At every status, `plugin_std_error` and `plugin_interval` return the plug-in spread of the
 reported curve. On `"influence_curve"` they return the numbers of `std_error` and `ci` under names
@@ -128,6 +128,15 @@ node regression, which is a fitted quantity. `CTMLE` stamps `"stack_failure_plug
 estimate that reads a failed arm stack. The other estimates keep the fit status. So read each
 estimate's `supplies_inference` before its `std_error`, `ci` or `pvalue`. The result's
 `inference_status` stays the fit status unless every estimate carries the parameter status.
+
+`summary()` prints a row with a parameter status as withheld. The row shows its estimate and a
+`-` in the `std_err`, interval and `p_value` cells. Below the table, the line
+`rows withheld (<names>): <status>` names the rows and their status.
+
+The next line gives the
+plug-in spread of each withheld row under the label of that status, for example
+`stack-failure se`. The reason of that status follows. A fit with no withheld row prints no such line. When every row carries the same status, the
+table uses the column label of that status, for example `stack-failure se`.
 
 A report that publishes a spread names its columns through `spread_name` in
 `cleverly.inference.influence`. On a non-inferential status, `to_frame()` emits `inference`,

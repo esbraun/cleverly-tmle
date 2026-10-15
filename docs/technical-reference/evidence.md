@@ -107,7 +107,10 @@ registered repeated-sampling records for [ordinary TMLE](method-evidence/ordinar
 outcome-adaptive design has its own record,
 [outcome-adaptive per-arm C-TMLE](method-evidence/outcome-adaptive-per-arm-c-tmle.md), for the
 point estimate only. Its fits with strata and missing data have a second record,
-[per-arm C-TMLE with strata and missing data](method-evidence/outcome-adaptive-per-arm-c-tmle-strata-missing.md). Binary compatibility
+[per-arm C-TMLE with strata and missing data](method-evidence/outcome-adaptive-per-arm-c-tmle-strata-missing.md).
+The per-arm design with `ParametricOutcome` and `ParametricMechanism` has a third record,
+[per-arm C-TMLE with a parametric outcome](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric.md),
+which measures its interval. Binary compatibility
 remains covered by the existing C-TMLE and DR-TMLE rows, which continue down their original
 branches.
 
