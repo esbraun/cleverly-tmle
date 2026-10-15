@@ -131,7 +131,6 @@ not change the package version.
 | B4 | Repeated cross-fitting for longitudinal fits | published support; pending source read | the shipped point-treatment repeats and trajectory-level splits | [X46](#x46-repeated-cross-fitting-for-longitudinal-fits) |
 | BP | Repeated outcomes for SDR and IPSI | published support for the incremental case; a per-horizon reduction for `SDR` | the shipped `LTMLE` repeated outcome | [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi) |
 | BP | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
-| BP | C-TMLE0: one fluctuation with a derivative clever covariate | published support; pending source read | the shipped `lasso` and `learners` C-TMLE paths | [X30](#x30-c-tmle0-one-fluctuation-with-a-derivative-clever-covariate) |
 | BP | Plug-in omitted-variable limits with a declared parametric mechanism | [published support; stacked-equation extension](technical-reference/natural-extension-verdicts.md) | the shipped plug-in bound | [X26](#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism) |
 | BP | Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome, parts (b) to (d) | [natural extension](technical-reference/hard-stop-review.md) candidate; part (a) shipped | RM42; the shipped per-arm design | [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
 | BD | Worked examples for the shipped methods | no new theory | every row of milestones B0 to B4 and BP | [X68](#x68-worked-examples-for-the-shipped-methods) |
@@ -667,26 +666,6 @@ within each draw.
 
 Acceptance: a witness that each draw reproduces a single-draw fit, a mutation control that reuses
 one draw, and a registered study of the median and its variance.
-
-### X30. C-TMLE0: one fluctuation with a derivative clever covariate
-
-R `ctmle` 0.1.2 ships a third type in `ctmleGlmnet` and `ctmleGeneral`: `ctmletype = 3`. It fits
-one TMLE whose submodel adds the derivative columns $1\{A=a\}(g_a - g_a^+)/g_a^2$. The derivative
-is a finite difference between two declared mechanisms, `g1W` and `g1WPrev`. The type has no
-candidate sequence and no cross-validation.
-
-| item | content |
-| --- | --- |
-| published algorithm | Ju, Wyss et al. (2019), *SMMR* 28(4), Appendix B, Algorithm 2; Ju, Chambaz and van der Laan (2018), Section 4.2, LASSO-PSEUDO-C-TMLE |
-| comparator | `ctmleGlmnet` and `ctmleGeneral` with `ctmletype = 3` (`R/ctmle_glmnet.R`, lines 115 to 201; `R/ctmle_general.R`, lines 168 to 252) |
-| work | a `2K`-column submodel for every estimand, arm count, weight and missing-outcome composition, and an input contract for the second mechanism |
-| status | the plug-in diagnostic only, under [F18](#f18-selector-path-c-tmle-inference) |
-
-Acceptance:
-
-- an exact-law witness with a nonzero derivative step, and a mutation control that drops the
-  derivative columns;
-- a fixture against R `ctmle` type 3 in the pattern of `tests/canonical/ctmle_sequence_witness/`.
 
 
 ### X22. Targeting and fitting options
@@ -1514,8 +1493,8 @@ regularity or asymptotic argument.
 [F21](#f21-other-missing-outcome-cv-tmle-variants) keeps `reduced_crossfit="nested"` on the
 randomized missing-outcome `DRTMLE`. X50 and X51 hold the compositions that moved. This item holds
 the other refused compositions of `DRTMLE` and `CTMLE`. `CausalStudy.available_methods()` names
-this item for part (d). `estimators/drtmle.py` and `estimators/composite.py` refuse the other
-parts before any learner.
+this item for part (d). `estimators/drtmle.py`, `estimators/composite.py` and `estimators/ctmle.py`
+refuse the other parts before any learner.
 
 | part | request | step |
 | --- | --- | --- |
@@ -1523,6 +1502,7 @@ parts before any learner.
 | (b) | `evaluation=` on the randomized missing-outcome `DRTMLE` | a diagnostic only, as X50 part (d). No new theory is needed |
 | (c) | the composite missing-data route for a method other than `TMLE`, `DRTMLE` and `CTMLE` | the indicator reduction to $\Delta_A \cdot \Delta \cdot 1\{A = a\}$ for each method whose binary-treatment result ships. No shipped method reaches this refusal |
 | (d) | `NaturalCourseMean`, PAR and PAF with complete outcomes under `CTMLE` or `DRTMLE` | the $\Delta \equiv 1$ case of X50 part (c) and X51 part (a). With complete outcomes the natural-course TMLE returns the sample mean and the curve $Y - E[Y]$, as the `ey_obs` row of the [evidence map](technical-reference/evidence.md) records. C-TMLE gives points only, as X51 states |
+| (e) | baseline strata (`strata=`), and a declared missing treatment, under `CTMLE(strategy="derivative")` | one derivative fit within each stratum, as the ordinary TMLE fits its stratum estimates; a partner mechanism for the composite indicator $\Delta_A \cdot 1\{A = a\}$. `estimators/ctmle.py` and `estimators/composite.py` refuse both before any learner and name this item |
 
 Acceptance needs each check below.
 
@@ -1984,6 +1964,11 @@ $g_n - g_0$ when $\bar Q$ is wrong does not qualify.
 parametric learners, where a stacked estimating equation carries the fixed candidate. This item
 keeps inference after the stopping-index selection. Its kind is adaptive-optimum inference.
 
+C-TMLE0 (`strategy="derivative"`) ships with the TMLE status under a consistent outcome
+regression ([C-TMLE0](technical-reference/collaborative-tmle.md#c-tmle0-the-derivative-covariate)).
+The collaborative reading of Ju et al. (2018), Section 5.3, for an inconsistent outcome regression
+stays here.
+
 F18 also keeps a fold-specific selection and update on the selector paths, which
 `cv_evaluation=True` and `targeting_scheme="fold"` request. No read source derives one. `CTMLE`
 refuses both before any learner, and the refusal names this item.
@@ -2212,7 +2197,9 @@ holds.
 ### F22. Grouped cross-fitting beyond point-treatment TMLE
 
 The package draws whole-cluster outer folds for the ordinary cross-fitted point-treatment TMLE,
-DR-TMLE and longitudinal TMLE. C-TMLE refuses `id=` at every `cross_fit` setting.
+DR-TMLE and longitudinal TMLE. The C-TMLE selector and outcome-adaptive paths refuse `id=` at
+every `cross_fit` setting. `CTMLE(strategy="derivative")` admits `id=` with the TMLE clustered
+result.
 [X51](#x51-c-tmle-point-estimates-for-further-targets) part (e) holds the clustered point
 estimates, with a cluster as the unit and whole-cluster folds. The clustered versions of the
 parametric cells, X58's cells included, move with [X52](#x52-parametric-c-tmle-intervals) part (d). This item keeps every
@@ -2220,7 +2207,7 @@ other clustered C-TMLE interval. Its kind is asymptotic.
 
 | composition | what ships | what a result must supply |
 | --- | --- | --- |
-| a C-TMLE interval with `id=` | refused at every `cross_fit` setting (`CTMLE._resolve_estimands_for_data`) | a split law for the selection folds and the nested selection folds under clustering, and the cluster-robust variance of the candidate the search stops at. [F18](#f18-selector-path-c-tmle-inference) and [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) are open for iid rows, so a clustered result needs them first |
+| a C-TMLE selector or outcome-adaptive interval with `id=` | refused at every `cross_fit` setting (`CTMLE._resolve_estimands_for_data`) | a split law for the selection folds and the nested selection folds under clustering, and the cluster-robust variance of the candidate the search stops at. [F18](#f18-selector-path-c-tmle-inference) and [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) are open for iid rows, so a clustered result needs them first |
 
 The other grouped compositions take the cluster as the sampling unit, and the
 [natural-extension verdicts](technical-reference/natural-extension-verdicts.md) qualify them as

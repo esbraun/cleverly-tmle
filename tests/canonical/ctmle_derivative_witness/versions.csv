@@ -1,0 +1,2 @@
+"ctmle_version","glmnet_version","tmle_version","bound_source","glmnet_fdev","glmnet_devmax","self_gap"
+"0.1.2","4.1.10","2.1.1","ctmle",1e-05,0.999,6.73422428931758e-12

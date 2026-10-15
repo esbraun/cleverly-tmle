@@ -87,7 +87,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
         ValidationReport,
     )
     from ..validation.score import ScoreCheck
-    from .ctmle import CTMLEOutcomeAdaptiveFit, CTMLESelection
+    from .ctmle import CTMLEDerivativeFit, CTMLEOutcomeAdaptiveFit, CTMLESelection
 
 __all__ = [
     "ALL_ESTIMANDS",
@@ -880,7 +880,9 @@ class TMLEResult:
         return value if isinstance(value, CVTargeting) else None
 
     @property
-    def ctmle_selection(self) -> CTMLESelection | CTMLEOutcomeAdaptiveFit | None:
+    def ctmle_selection(
+        self,
+    ) -> CTMLESelection | CTMLEOutcomeAdaptiveFit | CTMLEDerivativeFit | None:
         """The collaborative selection artifact a C-TMLE fit retained, if any.
 
         The sibling of :attr:`cv_targeting` for the ``ctmle`` key, and typed for the same
@@ -893,10 +895,11 @@ class TMLEResult:
         :mod:`cleverly.estimators.ctmle` imports this module, so the dependency only runs
         in the direction the package already has.
         """
-        from .ctmle import CTMLEOutcomeAdaptiveFit, CTMLESelection
+        from .ctmle import CTMLEDerivativeFit, CTMLEOutcomeAdaptiveFit, CTMLESelection
 
         value = self.extra.get("ctmle")
-        return value if isinstance(value, CTMLESelection | CTMLEOutcomeAdaptiveFit) else None
+        kinds = CTMLESelection | CTMLEOutcomeAdaptiveFit | CTMLEDerivativeFit
+        return value if isinstance(value, kinds) else None
 
     # ------------------------------------------------------------- contrasts
 
