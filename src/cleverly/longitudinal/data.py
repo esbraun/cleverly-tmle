@@ -28,6 +28,19 @@ out of the study from then on, so it has no ``L_{t+1}``, no ``A_{t+1}`` and no
 ``outcome=["Y1", "Y2"]``.  The parameter is then a curve, one cumulative risk per
 horizon, rather than a number.
 
+A **repeated** outcome is measured at every node and is not absorbing:
+
+.. math::
+
+    W,\; L_1,\, A_1,\, C_1,\, Y_1,\; L_2,\, A_2,\, C_2,\, Y_2,\; \ldots,\; Y_T
+
+Declare it with ``outcome=Repeated(["Y1", ..., "YT"])``.  ``Y_s`` is the first covariate
+of the history at node ``s + 1``, so each later treatment and censoring mechanism may read
+it.  The parameter is the curve of means ``E[Y_h^d]``, one per horizon ``h``.  Each point
+is the end-of-study parameter of the panel truncated after ``h``, with ``Y_h`` as its
+final outcome.  A ``Y_t`` missing on a unit still under observation at ``t`` is refused,
+with instructions to encode it as censoring at ``t``.
+
 Four conventions are declared rather than inferred, because each one changes the
 estimand if it is read the other way:
 
@@ -64,7 +77,7 @@ results are returned in it.
 from __future__ import annotations
 
 import warnings
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, TypeAlias
 
@@ -105,7 +118,7 @@ from ..utils.frames import (
 )
 from .panel import PanelLayout
 
-__all__ = ["Assignment", "LongitudinalData", "RegimenMasks", "assignment_matrix"]
+__all__ = ["Assignment", "LongitudinalData", "RegimenMasks", "Repeated", "assignment_matrix"]
 
 #: The fields :meth:`LongitudinalData.subset` indexes by row.  Every other field is
 #: shared by the subset unchanged and is listed in :data:`_SHARED_FIELDS`.  A test checks
@@ -119,6 +132,7 @@ _ROW_FIELDS: tuple[str, ...] = (
     "weights",
     "event",
     "cause_event",
+    "repeated",
     "cluster",
     "weight_spec",
     "known_mechanisms",
@@ -145,8 +159,49 @@ _SHARED_FIELDS: tuple[str, ...] = (
     "time_name",
     "event_name",
     "event_codes",
+    "repeated_names",
     "panel",
 )
+
+
+@dataclass(frozen=True)
+class Repeated:
+    """Declare a repeated outcome: one non-absorbing outcome column per time point.
+
+    ``outcome=Repeated(["Y1", "Y2", "Y3"])`` declares that :math:`Y_t` is measured after the
+    treatment and censoring nodes of time ``t`` and before the covariates of time ``t + 1``,
+    and that it may return to an earlier value.  The fit then reports the mean
+    :math:`E[Y_h^d]` of each plan ``d`` at each horizon ``h``.  The shape of ``outcome=``
+    declares the parameter: a name is an end-of-study mean, a sequence is a survival curve,
+    a mapping is one incidence curve per cause, and a ``Repeated`` is a curve of means.
+
+    Parameters
+    ----------
+    columns : sequence of str
+        The outcome column of each time point, in the same order as ``treatment``.
+    """
+
+    columns: tuple[str, ...]
+
+    def __init__(self, columns: Sequence[str]) -> None:
+        if isinstance(columns, str):
+            raise DataError(
+                "Repeated() takes one outcome column per time point, as a list; one column "
+                "name is an end-of-study outcome, declared as outcome='Y'"
+            )
+        names = tuple(str(name) for name in columns)
+        if not names:
+            raise DataError("Repeated() is empty; name one outcome column per time point")
+        if len(set(names)) != len(names):
+            raise DataError(f"Repeated() repeats a column: {list(names)}")
+        object.__setattr__(self, "columns", names)
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.columns)
+
+    def __len__(self) -> int:
+        return len(self.columns)
+
 
 #: What arm a regimen assigns at each node: one arm per node for a static plan, or an
 #: ``(n, T)`` matrix when a dynamic rule assigns a different arm to different units.
@@ -272,6 +327,14 @@ class LongitudinalData:
     #: factor is estimated.  A data field, so a bootstrap replicate carries the rows it drew.
     #: See :class:`~cleverly.data.known_mechanism.KnownNodeMechanisms`.
     known_mechanisms: KnownNodeMechanisms | None = None
+    #: ``(n, T)`` outcome at each node of a repeated outcome (:class:`Repeated`), ``nan``
+    #: where the unit was censored at or before that node, and ``None`` otherwise.  Each
+    #: column is the outcome of one horizon.  Column ``s`` is also the first covariate of
+    #: block ``s + 1`` of :attr:`time_varying`, where the covariate screen may drop it; this
+    #: array keeps every node's outcome whole.
+    repeated: FloatArray | None = None
+    #: The outcome column of each node of a repeated outcome, in node order; empty otherwise.
+    repeated_names: tuple[str, ...] = ()
     #: The long-panel roles of a container built by :meth:`from_long_panel`, else ``None``.
     panel: PanelLayout | None = None
     #: The unit identifier of each row on a container built by :meth:`from_long_panel`, in
@@ -285,7 +348,7 @@ class LongitudinalData:
         cls,
         data: Any,
         *,
-        outcome: str | Sequence[str] | Mapping[str, Sequence[str]],
+        outcome: str | Sequence[str] | Mapping[str, Sequence[str]] | Repeated,
         treatment: str | Sequence[str | Sequence[str]],
         baseline: Sequence[str],
         time_varying: Sequence[Sequence[str]] | None = None,
@@ -307,12 +370,16 @@ class LongitudinalData:
             One column name for an end-of-study outcome; **one per time point** for a
             survival outcome, in the same order as ``treatment``; or a **mapping of cause
             to one column per time point** for competing risks,
-            ``{"relapse": ["R1", "R2"], "death": ["D1", "D2"]}``.  Which of the three is
-            passed declares which parameter the fit answers, so it is read off the shape
-            rather than from a further keyword: a number, a curve and a set of curves are
-            not the same report, and a flag saying which would be a second place for them
-            to disagree.  A mapping with one cause is still competing risks by
-            declaration, and reports a cumulative incidence.
+            ``{"relapse": ["R1", "R2"], "death": ["D1", "D2"]}``; or a :class:`Repeated`
+            of **one non-absorbing outcome per time point**, ``Repeated(["Y1", "Y2"])``.
+            Which of the four is passed declares which parameter the fit answers, so it is
+            read off the shape rather than from a further keyword: a number, a risk curve,
+            a set of incidence curves and a curve of means are not the same report, and a
+            flag saying which would be a second place for them to disagree.  A mapping with
+            one cause is still competing risks by declaration, and reports a cumulative
+            incidence.  A repeated outcome :math:`Y_s` is observed with the covariates of
+            time ``s + 1``, so it is also their first covariate: it enters every history
+            from node ``s + 1`` on.
         treatment:
             Treatment column per time point, in time order.  Its length declares ``T``.  A
             node may be a list of columns, ``[["A1a", "A1b"], ["A2a", "A2b"]]``: it is then
@@ -425,13 +492,39 @@ class LongitudinalData:
                     "treatment node(s); pass one (possibly empty) list per time point"
                 )
 
-        # Three shapes, and which one is passed declares which parameter the fit answers:
-        # a name is a number, a sequence is a curve, a mapping is one curve per cause.
-        # Read off the shape rather than from a further keyword, since a flag saying which
-        # would be a second place for the declaration and the columns to disagree.
+        # Four shapes, and which one is passed declares which parameter the fit answers:
+        # a name is a number, a sequence is a risk curve, a mapping is one curve per cause,
+        # and a ``Repeated`` is a curve of means.  Read off the shape rather than from a
+        # further keyword, since a flag saying which would be a second place for the
+        # declaration and the columns to disagree.
         cause_labels: tuple[str, ...] = ()
-        if isinstance(outcome, str):
-            event_blocks: list[list[str]] = []
+        repeated_names: list[str] = []
+        event_blocks: list[list[str]]
+        if isinstance(outcome, Repeated):
+            event_blocks = []
+            outcome_names = list(outcome.columns)
+            survival = False
+            if len(outcome_names) != n_times:
+                raise DataError(
+                    f"Repeated() names {len(outcome_names)} column(s) but there are "
+                    f"{n_times} treatment node(s); a repeated outcome is one column per time "
+                    "point, in the same order as treatment="
+                )
+            repeated_names = outcome_names
+            declared = sorted({name for block in blocks for name in block} & set(repeated_names))
+            if declared:
+                raise DataError(
+                    f"time_varying= names the outcome column(s) {declared}. A repeated outcome "
+                    "enters the history of every later node by itself, as the first covariate "
+                    "of the next time point; drop it from time_varying="
+                )
+            # Y_s is measured with L_{s+1} and before A_{s+1}, so it is a covariate of node
+            # s + 1.  It joins that block *before* the covariate screen, which makes each
+            # horizon's history exactly the history of the panel truncated after it.
+            for position in range(1, n_times):
+                blocks[position] = [repeated_names[position - 1], *blocks[position]]
+        elif isinstance(outcome, str):
+            event_blocks = []
             outcome_names = [outcome]
             survival = False
         elif isinstance(outcome, Mapping):
@@ -466,7 +559,8 @@ class LongitudinalData:
         baseline_names = [str(name) for name in baseline]
         wanted = [*outcome_names, *flat_treatment, *censor_names, *baseline_names]
         for block in blocks:
-            wanted.extend(block)
+            # A repeated outcome's covariate copy is already in ``outcome_names``.
+            wanted.extend(name for name in block if name not in repeated_names)
         if id is not None:
             wanted.append(id)
         if weights is not None:
@@ -486,7 +580,13 @@ class LongitudinalData:
             raise DataError(f"columns {overlap} are used both as a role and as a known probability")
 
         built = cls._build(
-            outcome=None if survival else column_array(frame, outcome_names[0]),
+            outcome=None if survival else column_array(frame, outcome_names[-1]),
+            repeated=(
+                np.column_stack([column_array(frame, name) for name in repeated_names])
+                if repeated_names
+                else None
+            ),
+            repeated_names=repeated_names,
             # ``(n, T, J)``: a node axis and a cause axis, with ``J = 1`` for a single
             # absorbing event.  One shape rather than two keeps the validating sweep and
             # every mask below written once.
@@ -1117,6 +1217,12 @@ class LongitudinalData:
         DataError
             On a container with one end-of-study outcome.
         """
+        if self.repeated is not None:
+            raise DataError(
+                "a repeated outcome has no event time: it is observed at every node and can "
+                "return to a previous value, so the container has no follow-up time and "
+                "event code to return"
+            )
         if self.event is None:
             raise DataError(
                 f"{self.outcome_name!r} is an end-of-study outcome, so the container has no "
@@ -1151,6 +1257,8 @@ class LongitudinalData:
         cls,
         *,
         outcome: Any,
+        repeated: FloatArray | None = None,
+        repeated_names: Sequence[str] = (),
         event: FloatArray | None = None,
         event_names: Sequence[Sequence[str]] = (),
         cause_labels: Sequence[str] = (),
@@ -1215,6 +1323,36 @@ class LongitudinalData:
         at_risk = np.column_stack(
             [_through(uncensored, t) & _event_free(failed, t) for t in range(n_times)]
         )
+
+        # A repeated outcome is checked first, by its own name and with the outcome's
+        # wording, so that every Y_t -- Y_s for s < T too, which is also the first covariate
+        # of block s + 1 -- is told to encode a missing value as censoring.  The covariate
+        # screen below may still drop the copy while the column stays the outcome of
+        # horizon s.
+        repeated_values: FloatArray | None = None
+        observed_by_node: np.ndarray | None = None
+        if repeated is not None and not survival:
+            repeated_values = np.asarray(repeated, dtype=float)
+            if repeated_values.shape != (n, n_times):
+                raise DataError(
+                    f"a repeated outcome must be ({n}, {n_times}) -- rows by time points -- "
+                    f"but got {repeated_values.shape}"
+                )
+            observed_by_node = np.column_stack(
+                [_through(uncensored, time) for time in range(1, n_times + 1)]
+            )
+            for time, name in enumerate(repeated_names, start=1):
+                _check_presence(
+                    repeated_values[:, time - 1],
+                    observed_by_node[:, time - 1],
+                    str(name),
+                    absent=(
+                        f"unit(s) are uncensored through time {time} but have no {name}. A "
+                        "repeated outcome missing for any other reason is a further node in "
+                        "the likelihood: encode it as censoring at that time point, so that its "
+                        "probability is estimated and enters the clever covariate."
+                    ),
+                )
 
         blocks: list[FloatArray] = []
         names: list[tuple[str, ...]] = []
@@ -1300,6 +1438,12 @@ class LongitudinalData:
                     "probability rather than a mean on some other scale"
                 )
             resolved = "binomial"
+        elif repeated_values is not None and observed_by_node is not None:
+            # One family for the whole curve, resolved over every node's observed values.
+            resolved = resolve_family(
+                repeated_values.T.reshape(-1), observed_by_node.T.reshape(-1), family
+            )
+            y = repeated_values[:, -1]
         else:
             observed_outcome = _through(uncensored, n_times)
             _check_presence(
@@ -1370,6 +1514,16 @@ class LongitudinalData:
             time_name=time_name,
             event_name=event_name,
             event_codes=tuple(int(code) for code in event_codes),
+            repeated=(
+                None
+                if repeated is None
+                else np.where(
+                    np.column_stack([_through(uncensored, t) for t in range(1, n_times + 1)]),
+                    np.asarray(repeated, dtype=float),
+                    np.nan,
+                )
+            ),
+            repeated_names=tuple(str(name) for name in repeated_names),
         )
 
     # ------------------------------------------------------------- properties
@@ -1490,6 +1644,83 @@ class LongitudinalData:
         """
         return bool(self.cause_labels)
 
+    @property
+    def is_repeated(self) -> bool:
+        """Whether the outcome is a non-absorbing :class:`Repeated` outcome at every node."""
+        return self.repeated is not None
+
+    @property
+    def reports_curve(self) -> bool:
+        """Whether every parameter is indexed by a horizon: a survival or a repeated outcome.
+
+        A caller that names, keys or groups parameters by horizon branches on this.  A
+        caller that relies on the absorbing structure -- a risk set, a cumulative risk, a
+        survival complement -- branches on :attr:`is_survival`.
+        """
+        return self.is_survival or self.is_repeated
+
+    def outcome_at(self, time: int) -> FloatArray:
+        """The outcome of horizon ``time``: :math:`Y_t` of a repeated outcome, else ``Y``.
+
+        Parameters
+        ----------
+        time : int
+            The horizon, counted from one.  An end-of-study outcome has only ``T``.
+
+        Returns
+        -------
+        FloatArray
+            One value per unit, ``nan`` where the outcome is not observed.
+
+        Raises
+        ------
+        DataError
+            On a survival outcome, which has event indicators rather than an outcome per
+            horizon, or at a horizon the outcome does not have.
+        """
+        if self.is_survival:
+            raise DataError(
+                "a survival outcome is an event indicator at every node, read through the "
+                "risk sets; it has no outcome value per horizon"
+            )
+        if self.repeated is not None:
+            if not 1 <= time <= self.n_times:
+                raise DataError(f"time {time} is outside 1..{self.n_times}")
+            return np.asarray(self.repeated[:, time - 1], dtype=float)
+        if time != self.n_times:
+            raise DataError(
+                f"{self.outcome_name!r} is an end-of-study outcome, observed only at "
+                f"t={self.n_times}; got t={time}"
+            )
+        return np.asarray(self.outcome, dtype=float)
+
+    def observed_outcomes(self) -> FloatArray:
+        """Every observed outcome value: each horizon's on its own uncensored rows.
+
+        One end-of-study outcome gives its values on the rows never censored.  A repeated
+        outcome pools every node's, so one scale and one support cover the whole curve.
+
+        Returns
+        -------
+        FloatArray
+            The observed values, in node order.
+
+        Raises
+        ------
+        DataError
+            On a survival outcome, whose observed values are event indicators.
+        """
+        if self.is_survival:
+            raise DataError("a survival outcome has event indicators, not outcome values")
+        if self.repeated is None:
+            return np.asarray(self.outcome[self.uncensored_through(self.n_times)], dtype=float)
+        return np.concatenate(
+            [
+                self.repeated[self.uncensored_through(time), time - 1]
+                for time in range(1, self.n_times + 1)
+            ]
+        )
+
     def subset(self, index: Any) -> LongitudinalData:
         """A copy holding only the selected units, each with its whole trajectory.
 
@@ -1548,6 +1779,7 @@ class LongitudinalData:
             weights=check_weights(selected, idx.size),
             event=None if self.event is None else self.event[idx],
             cause_event=None if self.cause_event is None else self.cause_event[idx],
+            repeated=None if self.repeated is None else self.repeated[idx],
             cluster=cluster,
             weight_spec=self.weight_spec.rescaled(self.weight_spec.scale * mean),
             known_mechanisms=(
@@ -1752,12 +1984,15 @@ class LongitudinalData:
     def history_frame(self, time: int) -> Any:
         """:meth:`covariate_history` as a dataframe, in the backend the data came from.
 
-        This is what a dynamic rule :math:`d_t(H_t)` is handed: ``[W, L_1, ..., L_t]``
-        and nothing else.  The outcome is not in it because reading it is not an
-        intervention, and the earlier *treatments* are not in it because under the
-        regimen they are what the rule itself assigned -- passing them would let a rule
-        read the treatment of a unit that deviated, which is a different object from the
-        one it is assigning.  The same reasoning, and the same omissions, as
+        This is what a dynamic rule :math:`d_t(H_t)` is handed: ``[W, L_1, ..., L_t]``.
+        The final outcome is not in it because reading it is not an intervention.  A repeated
+        outcome's earlier nodes ``Y_s``, ``s < t``, are in it, because each is the first
+        covariate of block ``s + 1``.  A ``Y_s`` copy that the covariate screen dropped, as
+        a constant column, is absent.  The earlier *treatments*
+        are not in it because under the regimen they are what the rule itself assigned --
+        passing them would let a rule read the treatment of a unit that deviated, which is a
+        different object from the one it is assigning.  The same reasoning, and the same omissions,
+        as
         :func:`cleverly.interventions.base._covariate_frame` at one time point.
         """
         matrix = self.covariate_history(time)
@@ -2143,9 +2378,10 @@ def _held_node_count(
 ) -> int:
     """The node count of a held design, read from the per-node arguments.
 
-    A survival outcome gives one node per event column.  An end-of-study outcome takes the
-    count from ``censoring=``, else from ``time_varying=``, else it is one.  Every per-node
-    argument that is given must agree, because the decision is held over the same nodes.
+    A survival or repeated outcome gives one node per outcome column.  An end-of-study
+    outcome takes the count from ``censoring=``, else from ``time_varying=``, else it is
+    one.  Every per-node argument that is given must agree, because the decision is held over the
+    same nodes.
     """
     counts: list[tuple[str, int]] = []
     if isinstance(outcome, Mapping):
