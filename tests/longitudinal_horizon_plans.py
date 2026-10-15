@@ -123,10 +123,10 @@ def regimen(name: str, K: int, m: int, nodes: Iterable[int] | None = None) -> An
         )
         return DynamicRegimen(name, rules, rule_kind="known")
     if name in ("mixlast", "coinlast"):
-        nodes_ = (*tuple(_policy(name, t, K, m, every) for t in range(1, K)), 0)
+        nodes_: tuple[Any, ...] = (*(_policy(name, t, K, m, every) for t in range(1, K)), 0)
         return DynamicRegimen(name, nodes_)
     if name == "taper":
-        nodes_ = (top, *tuple(_policy(name, t, K, m, every) for t in range(2, K + 1)))
+        nodes_ = (top, *(_policy(name, t, K, m, every) for t in range(2, K + 1)))
         return DynamicRegimen(name, nodes_)
     if name in POLICY_PLANS:
         return DynamicRegimen(name, tuple(_policy(name, t, K, m, every) for t in range(1, K + 1)))

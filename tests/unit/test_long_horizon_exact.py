@@ -12,6 +12,8 @@ support points, and a known-mechanism fit then misses the truth by 0.016 to 0.03
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -157,7 +159,7 @@ def test_the_weighted_support_realization_is_the_row_realization() -> None:
     rows = two_node.frame()
     points = rows.iloc[two_node.first_row_of()].reset_index(drop=True)
     weighted = points.assign(w=two_node.COUNTS / two_node.N)
-    kwargs = {
+    kwargs: dict[str, Any] = {
         "outcome_learner": QuasiBinomialGLM(),
         "pseudo_learner": QuasiBinomialGLM(),
         "treatment_learner": QuasiBinomialGLM(),
@@ -166,7 +168,7 @@ def test_the_weighted_support_realization_is_the_row_realization() -> None:
         "simultaneous": False,
         "random_state": 0,
     }
-    roles = {
+    roles: dict[str, Any] = {
         "outcome": "Y",
         "treatment": ["A1", "A2"],
         "baseline": ["W"],
