@@ -7,13 +7,17 @@ decimals are also compared against its stored outputs, and every decimal it writ
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from cleverly.datasets import navigation_protocol
 from cleverly.datasets.synthetic import nonlinear_bounded_dgp
+from tests.documents import ROOT
+from tests.studies.canonical_cvtmle import G_BOUNDS
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -61,8 +65,47 @@ UNPRINTED_DECIMALS = {
 }
 
 
+def _assert_committed_numbers() -> None:
+    """Each probe and study number of ``UNPRINTED_DECIMALS`` matches its committed file."""
+    probe = ROOT / _PROBE
+    summary = (probe / "summary.log").read_text(encoding="utf-8")
+    truth = (probe / "truth.log").read_text(encoding="utf-8")
+    plugin = (probe / "plugin.log").read_text(encoding="utf-8")
+
+    def number(text: str, pattern: str) -> float:
+        match = re.search(pattern, text)
+        assert match, pattern
+        return float(match.group(1))
+
+    assert round(number(summary, r"SE/SD (\S+)"), 2) == 0.98
+    assert "coverage 0.945 (MC SE 0.016; 189 of 200)" in summary
+    assert "lin_q_flex_g  coverage 0.975 (MC SE 0.011; 195 of 200)" in summary
+    assert "flex_q_lin_g  coverage 0.950 (MC SE 0.015; 190 of 200)" in summary
+    assert "both_linear   coverage 0.150 (MC SE 0.025; 30 of 200)" in summary
+    assert round(number(summary, r"lin_q_flex_g .*bias (\S+)"), 4) == -0.0022
+    assert round(number(summary, r"flex_q_lin_g .*bias (\S+)"), 4) == -0.0006
+    assert round(number(summary, r"both_linear .*bias (\S+)"), 4) == -0.0218
+    assert "95% limits of the bounds exclude zero: 1.000 (MC SE 0.000; 200 of 200)" in summary
+    assert round(number(summary, r"law +nu\^2 [\d.]+: .*rv (\S+)"), 3) == 0.431
+    assert round(100 * number(truth, r"share g < 0.10 +(\S+)"), 1) == 1.9
+    assert round(number(truth, r"nu2 +(\S+)"), 2) == 4.83
+    assert number(truth, r"min g +(\S+)") >= 0.05
+    assert number(truth, r"max g +(\S+)") <= 0.95
+    assert round(number(plugin, r"bias (\S+)"), 3) == -0.018
+    assert "seeds 6000 to 6199, 200 draws" in plugin
+
+    study = pd.read_csv(ROOT / _STUDY, float_precision="round_trip")
+    cells = study[study["property"] == "crossfit_overfitting"].set_index("cell")
+    assert cells.loc["stacked_cvtmle", "coverage"] == 0.945
+    assert cells.loc["in_sample_control", "coverage"] == 0.5225
+    assert set(cells["n"]) == {500}
+    assert set(cells["replicates"]) == {400}
+    assert G_BOUNDS == (0.025, 0.975)
+
+
 def check(namespace: dict[str, Any]) -> None:
     """The ATE tutorial's graph, estimand, failure mode, diagnostics, and sensitivity claims hold."""
+    _assert_committed_numbers()
     summary = namespace["effect"].summary()
     assert "Discharge-home order" in summary
     assert "scores death before day 30 as the worst transition score" in summary
