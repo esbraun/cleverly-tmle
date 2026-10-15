@@ -469,6 +469,7 @@ def fit(
     weights: str | None = None,
     random_state: int = 0,
     regimens: Mapping[str, Any] | None = None,
+    simultaneous: bool = False,
     **extra: Any,
 ) -> Any:
     """One ``LTMLE`` or ``SDR`` call; the first plan is the reference.
@@ -500,14 +501,14 @@ def fit(
         warnings.simplefilter("ignore")
         # A working model reports coefficients, so it takes no reference.
         if "msm" not in extra:
-            extra["reference"] = next(iter(specs))
+            extra.setdefault("reference", next(iter(specs)))
         model = cls(
             specs,
             outcome_learner=outcome,
             pseudo_learner=pseudo_learner,
             n_folds=n_folds,
             g_bounds=g_bounds,
-            simultaneous=False,
+            simultaneous=simultaneous,
             random_state=random_state,
             **learners,
             **extra,
