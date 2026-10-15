@@ -218,6 +218,16 @@ asymptotically linear, so the difference of the two contrast vectors is asymptot
 Its mean is zero under the structural model. The check reports a joint Wald statistic on that
 difference, with one degree of freedom per contrast.
 
+A cross-fitted check refits both estimators on `n_splits` seeded sample splits (default 5). The
+fit's own split is the first. The statistic reads the mean difference over the splits. Its
+covariance is the mean cross-split covariance of the curves plus the between-split covariance
+divided by `n_splits` (Chernozhukov et al. 2018, Section 3.4).
+
+One split leaves split noise out of
+the covariance. At two folds and `n=1,000` that check rejected a correct model in 18% of 1,000
+draws. With five splits it rejected in 2.2% of 500 draws. `tests/unit/test_structural_model_check.py`
+holds the size checks. An in-sample check uses one fit.
+
 | item | rule |
 | --- | --- |
 | scope | discrete static regimens. The fit must have the `influence_curve` status |

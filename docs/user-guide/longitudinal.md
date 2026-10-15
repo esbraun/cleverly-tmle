@@ -738,8 +738,9 @@ check = result.check_model()
 print(check.summary())
 ```
 
-`check_model()` fits `LTMLE` on the same rows and folds. It reports a joint Wald statistic on the
-difference of the contrasts. A rejection says that the model fails for these contrasts. A
+`check_model()` fits `LTMLE` on the same rows and folds. A cross-fitted check refits both
+estimators on `n_splits` seeded splits (default 5) and averages the difference. It reports a joint
+Wald statistic on the difference of the contrasts. A rejection says that the model fails for these contrasts. A
 non-rejection does not confirm the model.
 
 | the fit | what it reports |
