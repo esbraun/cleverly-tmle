@@ -332,19 +332,20 @@ def make_sequential_offers(
     The law, for weeks :math:`t = 1, 2, 3`, with :math:`L_t` the engagement of week :math:`t` and
     :math:`A_t` the offer:
 
-    ======================= ===================================================================
-    variable                law
-    ======================= ===================================================================
-    ``tenure``              :math:`N(0, 1)`
-    ``engaged`` :math:`L_1` Bernoulli, logit :math:`0.2 + 0.5\,\text{tenure}`
-    ``offer`` :math:`A_t`   logged: engaged (none 0.40, discount 0.25, shipping 0.35); not
-                            engaged (none 0.30, discount 0.45, shipping 0.25)
-    ``engaged`` :math:`L_{t+1}` Bernoulli, logit :math:`-0.4 + 1.0 L_t + 2.2\,[A_t =
-                            \text{discount}] + 0.5\,[A_t = \text{shipping}] + 0.3\,\text{tenure}`
-    ``consent``             Bernoulli, logit :math:`2.6 + 0.8 L_t + 0.3\,\text{tenure}`
-    ``full_price``          Bernoulli, logit :math:`-0.9 + 2.0 L_4 + 0.4\,\text{tenure} - 0.5 D +
-                            0.5 L_4\,\text{tenure}`
-    ======================= ===================================================================
+    ============================ ==============================================================
+    variable                     law
+    ============================ ==============================================================
+    ``tenure``                   :math:`N(0, 1)`
+    ``engaged`` :math:`L_1`      Bernoulli, logit :math:`0.2 + 0.5\,\text{tenure}`
+    ``offer`` :math:`A_t`        logged: engaged (none 0.40, discount 0.25, shipping 0.35); not
+                                 engaged (none 0.30, discount 0.45, shipping 0.25)
+    ``engaged`` :math:`L_{t+1}`  Bernoulli, logit :math:`-0.4 + 1.0 L_t + 2.2\,[A_t =
+                                 \text{discount}] + 0.5\,[A_t = \text{shipping}] +
+                                 0.3\,\text{tenure}`
+    ``consent``                  Bernoulli, logit :math:`2.6 + 0.8 L_t + 0.3\,\text{tenure}`
+    ``full_price``               Bernoulli, logit :math:`-0.9 + 2.0 L_4 + 0.4\,\text{tenure} -
+                                 0.5 D + 0.5 L_4\,\text{tenure}`
+    ============================ ==============================================================
 
     :math:`D` counts the discounts sent to engaged customers.  A discount re-engages a customer
     who is not engaged, and it wears on a customer who already is.  So the ordering of the plans is
