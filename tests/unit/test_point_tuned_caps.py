@@ -635,7 +635,7 @@ def test_point_tuned_compositions_are_refused_before_any_learner(
     ("estimator", "named"),
     [
         (DRTMLE, "DRTMLE and policies= are not combined"),
-        (CTMLE, "CTMLE strategies require a discrete treatment"),
+        (CTMLE, "CTMLE and policies= are not combined"),
     ],
 )
 def test_point_tuned_caps_refuse_a_variant(estimator: type, named: str, frame: Any) -> None:
