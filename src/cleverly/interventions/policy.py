@@ -274,7 +274,9 @@ class Shift:
         ``"-1"`` style, with ``"natural course"`` for ``delta=0``.
     target : {"population", "fold_average"} or None
         The parameter of a map whose cap is a tuner, and ``None`` for a declared cap.  A
-        fit refuses a tuned map with no target (:mod:`cleverly.interventions.tuning`).
+        fit refuses a tuned map with no target (:mod:`cleverly.interventions.tuning`).  The
+        interval of the ``"population"`` target needs a consistent outcome regression near
+        the boundary at each tuned node: the variance term of the tuner reads it.
     """
 
     delta: float

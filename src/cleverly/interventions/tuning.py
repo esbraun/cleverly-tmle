@@ -51,6 +51,14 @@ dose :math:`e_t(h)` (:math:`c - \delta` for a shift, :math:`c / f` for a scale) 
 which :func:`cap_derivative` estimates by a normal kernel average in :math:`A_t - e_t(H_t)`,
 so it needs no density value and runs on both ratio routes.
 
+The kernel average reads the outcome regression :math:`m_t` at the boundary and at the last
+moved dose. The variance of the population target is valid when :math:`m_t` is consistent
+near the boundary at each tuned node. It is not doubly robust in that term. If the
+regression is inconsistent there, the derivative is biased and the interval can be too
+narrow or too wide. A correctly specified regression, or a flexible learner, meets the
+condition. A tuned cap at a node with declared atoms is refused, because the quantile of a
+law with an atom is not differentiable at the edge of the atom's jump.
+
 ``bandwidth="undersmoothed"`` is the declared fallback for the kernel estimates: half of
 Silverman's bandwidth for :math:`f` and :math:`\partial\Phi`, and :math:`(C/2) n^{-1/3}` for
 :math:`J`.  Both bandwidths keep :math:`h \to 0` and :math:`n h \to \infty` (and
