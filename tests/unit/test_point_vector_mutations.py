@@ -33,7 +33,12 @@ from .test_point_vector_treatment import (
     misspecified_settings,
 )
 
-pytestmark = pytest.mark.xdist_group("point_vector_mutations")
+#: The mixed laws put every dose on a grid, so R-b4 would refuse each fit; the
+#: fixture turns that refusal off and leaves every other check on (X40 step H).
+pytestmark = [
+    pytest.mark.xdist_group("point_vector_mutations"),
+    pytest.mark.usefixtures("exact_grid_law"),
+]
 
 CAUGHT = 1e-4
 #: The module, which the function ``cleverly.estimators.tmle`` shadows as an attribute.

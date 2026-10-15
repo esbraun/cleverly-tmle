@@ -3082,10 +3082,13 @@ class TMLE:
         if tuned:
             refuse_tuned_compositions(self, data)
         if data.treatment_kind == "vector":
-            # :meth:`_refuse_vector_compositions` admits joint policies only.  A declared
-            # component support is checked here, before any learner (X40 part (a)).
-            if data.component_supports and self.policies:
-                preflight_vector_policies(tuple(self.policies), data)
+            # :meth:`_refuse_vector_compositions` admits joint policies only.  The
+            # undeclared atoms (R-b4) and a declared component support are checked here,
+            # before any learner (X40 parts (a) and (b)).
+            if self.policies:
+                preflight_vector_policies(
+                    tuple(self.policies), data, ratio=self.ratio, density_bins=self.density_bins
+                )
             return
         if self.policies and any(isinstance(item, RiskRatioTilt) for item in self.policies):
             levels = [] if data.is_continuous_treatment else list(data.treatment_levels)

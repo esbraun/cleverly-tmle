@@ -40,7 +40,12 @@ from cleverly.targets import TARGETS
 from tests.discrete_law_longitudinal import CellMeans
 from tests.discrete_law_longitudinal_multivalue import CellProbabilities
 
-pytestmark = pytest.mark.xdist_group("point_vector_treatment")
+#: The mixed laws put every dose on a grid, so R-b4 would refuse each fit; the
+#: fixture turns that refusal off and leaves every other check on (X40 step H).
+pytestmark = [
+    pytest.mark.xdist_group("point_vector_treatment"),
+    pytest.mark.usefixtures("exact_grid_law"),
+]
 
 #: What every one-column reader says at a vector treatment with a continuous component.
 ONE_COLUMN = "reads a treatment of one column. Such a treatment has no arms"

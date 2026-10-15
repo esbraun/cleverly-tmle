@@ -182,6 +182,7 @@ def _exact_point(**declared: Any) -> Any:
     return [result.estimates[f"ey_policy[{label}]"].psi for label in labels]
 
 
+@pytest.mark.usefixtures("exact_grid_law")
 def test_a_support_that_does_not_bind_leaves_the_estimate_bit_identical() -> None:
     assert _exact_point(treatment_support={"D": Support(-1.0, 3.0)}) == _exact_point()
 
@@ -267,6 +268,7 @@ def test_the_mixed_node_declarations() -> None:
         data.with_dose_declarations({}, {"D2": (0.5,)})
 
 
+@pytest.mark.usefixtures("exact_grid_law")
 def test_a_support_that_does_not_bind_leaves_the_mixed_node_bit_identical() -> None:
     labels = ("natural", "dose up", "flag gated")
 
@@ -333,3 +335,92 @@ def test_the_sequence_design_carries_the_component_supports() -> None:
     CausalStudy(study.data, design=design(PANEL_SUPPORT))
     with pytest.raises(DataError, match="declared dose supports"):
         CausalStudy(study.data, design=design(["D1", "D2"]))
+
+
+# ------------------------------------------------------------------ undeclared atoms (R-b4)
+
+GRID = "of a vector treatment records"
+
+
+def _rounded(data: pd.DataFrame, column: str) -> pd.DataFrame:
+    """The dose on a grid of 0.25: a record whose every dose is a point mass."""
+    return data.assign(**{column: np.round(data[column] * 4.0) / 4.0})
+
+
+def test_r_b4_refuses_a_recorded_atom_at_a_dose_of_a_point_vector() -> None:
+    """A gridded dose is refused wherever a policy moves a component, before any learner."""
+    grid = _rounded(frame(), "D")
+    with pytest.raises(DataError, match=f"^component 'D' {GRID}") as caught:
+        point_fit([NATURAL, FLAG_ON], data=grid)
+    assert "Code the component as categorical" in str(caught.value)
+    # A flag move alone evaluates the dose factor at a counterfactual cell.
+    with pytest.raises(DataError, match=f"^component 'D' {GRID}"):
+        point_fit([NATURAL, FLAG_OFF], data=grid)
+    # The controls: the natural course moves nothing, and an unrounded dose has no atom.
+    with pytest.raises(AssertionError, match=REACHED):
+        point_fit([NATURAL], data=grid)
+    with pytest.raises(AssertionError, match=REACHED):
+        point_fit([NATURAL, FLAG_ON])
+
+
+def test_r_b4_at_a_point_vector_is_the_seam(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The mutation: with the seam off, the gridded fit reaches the learners."""
+    monkeypatch.setattr(policy_module, "_ATOM_CHECK", False)
+    with pytest.raises(AssertionError, match=REACHED):
+        point_fit([NATURAL, FLAG_ON], data=_rounded(frame(), "D"))
+
+
+def test_r_b4_refuses_a_recorded_atom_at_a_dose_of_a_mixed_node(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = JointPolicy("natural", components={}, policy_kind="known")
+    regimens = {
+        "natural": DynamicRegimen("natural", (first, first)),
+        "flag on": DynamicRegimen("flag on", (first, PANEL_ON)),
+    }
+    never = {**NEVER, "pseudo_learner": NeverFit(), "censoring_learner": NeverFit()}
+    columns = {
+        "outcome": "Y",
+        "treatment": [["F1", "D1"], ["F2", "D2"]],
+        "baseline": ["W"],
+        "time_varying": [[], ["L2"]],
+        "continuous_treatment": ["D1", "D2"],
+    }
+
+    def run(data: pd.DataFrame) -> Any:
+        return LTMLE(regimens, n_folds=1, ratio="classifier", **never).fit(data, **columns)
+
+    with pytest.raises(DataError, match=f"^component 'D2' {GRID}"):
+        run(_rounded(_panel_frame(), "D2"))
+    with pytest.raises(AssertionError, match=REACHED):
+        run(_panel_frame())
+    monkeypatch.setattr(policy_module, "_ATOM_CHECK", False)
+    with pytest.raises(AssertionError, match=REACHED):
+        run(_rounded(_panel_frame(), "D2"))
+
+
+@pytest.mark.parametrize("ratio", ["classifier", "density"])
+def test_the_spine_routes_ratio_and_the_component_checks(ratio: str) -> None:
+    """``estimate(ratio=...)`` reaches the fit, and the checks precede every learner there."""
+    from cleverly import CausalStudy, ModifiedTreatmentPolicy, PointTreatment
+
+    design = PointTreatment(
+        outcome="Y",
+        treatment=["F", "D"],
+        adjustment=("W",),
+        continuous_treatment=["D"],
+        treatment_support={"D": SUPPORT},
+    )
+
+    def estimate(data: pd.DataFrame, policies: list[Any]) -> Any:
+        study = CausalStudy(data, design=design)
+        return study.identify(ModifiedTreatmentPolicy(policies=policies)).estimate(
+            cross_fit=False, ratio=ratio, simultaneous=False, **NEVER
+        )
+
+    with pytest.raises(DataError, match=REFUSED):
+        estimate(frame(), [NATURAL, FLAG_OFF])
+    with pytest.raises(DataError, match=f"^component 'D' {GRID}"):
+        estimate(_rounded(frame(), "D"), [NATURAL, FLAG_ON])
+    with pytest.raises(AssertionError, match=REACHED):
+        estimate(frame(), [NATURAL, FLAG_ON])

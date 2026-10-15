@@ -156,9 +156,11 @@ from ..interventions.policy import (
     check_observed_support,
     induced_probabilities,
     joint_branches,
+    joint_policy_moves,
     lazy_frame,
     policy_branches,
     policy_moves_dose,
+    refuse_component_atoms,
 )
 from ..learners.crossfit import Folds
 from ..learners.density import (
@@ -913,7 +915,26 @@ def preflight_declared_doses(
         If a declaration contradicts the data, or a node has an undeclared atom.
     """
     for time in range(1, data.n_times + 1):
-        if data.is_held_node(time) or data.node_kind(time) != "continuous":
+        if data.is_held_node(time):
+            continue
+        if data.node_kind(time) == "mixed":
+            # Each dose of a mixed node takes no declared atom, so R-b4 refuses a recorded
+            # one wherever some regimen moves a component of the node.
+            refuse_component_atoms(
+                np.nan_to_num(data.node_values(time), nan=0.0),
+                data.node_components(time),
+                data.uncensored_through(time - 1) & data.event_free_through(time - 1),
+                moved=any(
+                    joint_policy_moves(regimen.plan[time - 1])
+                    for regimen in regimens
+                    if isinstance(regimen, DynamicRegimen)
+                    and isinstance(regimen.plan[time - 1], JointPolicy)
+                ),
+                ratio=ratio,
+                density_bins=density_bins,
+            )
+            continue
+        if data.node_kind(time) != "continuous":
             continue
         reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
         dose = np.nan_to_num(data.node_codes(time), nan=0.0)

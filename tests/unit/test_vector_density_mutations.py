@@ -31,7 +31,12 @@ from cleverly.learners import density as density_module
 from . import test_vector_density_route as route
 from ._source_mutation import mutate
 
-pytestmark = pytest.mark.xdist_group("vector_density_mutations")
+#: The mixed laws put every dose on a grid, so R-b4 would refuse each fit; the
+#: fixture turns that refusal off and leaves every other check on (X40 step H).
+pytestmark = [
+    pytest.mark.xdist_group("vector_density_mutations"),
+    pytest.mark.usefixtures("exact_grid_law"),
+]
 
 CAUGHT = 1e-4
 _ENUMERATE = (joint_density, joint_density, "_enumerate")

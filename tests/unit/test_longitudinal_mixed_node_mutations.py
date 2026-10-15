@@ -38,7 +38,12 @@ from .test_longitudinal_mixed_node import (
     settings,
 )
 
-pytestmark = pytest.mark.xdist_group("longitudinal_mixed_node_mutations")
+#: The mixed laws put every dose on a grid, so R-b4 would refuse each fit; the
+#: fixture turns that refusal off and leaves every other check on (X40 step H).
+pytestmark = [
+    pytest.mark.xdist_group("longitudinal_mixed_node_mutations"),
+    pytest.mark.usefixtures("exact_grid_law"),
+]
 
 CAUGHT = 1e-4
 

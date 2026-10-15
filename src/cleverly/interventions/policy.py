@@ -2356,6 +2356,12 @@ def check_component_supports(
     of Díaz et al. (2023) asks that the assigned vector lie in the support of the vector
     given the history.
 
+    The density route also reads counterfactual frames, which hold a candidate cell and the
+    preimages of the earlier doses (:mod:`~cleverly.interventions.joint_density`).  There the
+    value the formula evaluates is the observed vector, which R-a2 puts inside its support,
+    so the assigned side needs no further check.  A preimage outside the support of its own
+    frame has true density zero and adds nothing to the induced density.
+
     Parameters
     ----------
     policy : str
@@ -2619,6 +2625,7 @@ def _refuse_undeclared_atoms(
     bins: int | None,
     where: str,
     remedy: str | None = None,
+    component: bool = False,
 ) -> None:
     r"""Refuse a continuous node whose recorded doses hold an undeclared atom (R-b4).
 
@@ -2650,6 +2657,9 @@ def _refuse_undeclared_atoms(
     remedy : str or None
         The declaration the refusal suggests, with ``{values}`` for the flagged doses.
         ``None`` gives the longitudinal mapping form.
+    component : bool
+        Whether ``where`` is a continuous component of a vector, which takes no declared
+        atoms, so the refusal names the categorical coding as the remedy.
 
     Raises
     ------
@@ -2663,6 +2673,16 @@ def _refuse_undeclared_atoms(
         return
     finding, values = found
     doses_text = _format_doses(values)
+    if component:
+        raise DataError(
+            f"component {where!r} of a vector treatment records {finding}. A continuous dose "
+            "with a recorded point mass needs that mass declared: a density has no mass at a "
+            "point, so a ratio that treats the atom as density is wrong at every row a policy "
+            "moves to or from it. Declared atoms apply to a dose of one column in this "
+            "release: an atom makes the factor of the component in the joint density mixed, "
+            "which the joint density evaluator does not build. Code the component as "
+            f"categorical if every dose sits on a grid (the flagged doses: {doses_text})"
+        )
     declare = (
         f"dose_atoms={{{where!r}: ({doses_text})}}"
         if remedy is None
@@ -4546,12 +4566,18 @@ class _VectorSetup:
     assigned: tuple[FloatArray, ...]
 
 
-def preflight_vector_policies(policies: Sequence[object], data: CausalData) -> None:
+def preflight_vector_policies(
+    policies: Sequence[object],
+    data: CausalData,
+    *,
+    ratio: str,
+    density_bins: int | None,
+) -> None:
     """Apply each joint policy to a point vector before any learner, with every check.
 
-    The maps, Assumption 4 of each dose map and the declared support of each continuous
-    component (R-a2, R-a1) read observed values only, so the fit runs them before its first
-    learner.
+    The undeclared-atom check of each continuous component (R-b4), the maps, Assumption 4
+    of each dose map and the declared support of each continuous component (R-a2, R-a1)
+    read observed values only, so the fit runs them before its first learner.
 
     Parameters
     ----------
@@ -4559,6 +4585,10 @@ def preflight_vector_policies(policies: Sequence[object], data: CausalData) -> N
         The declared policies.
     data : CausalData
         The validated data, with a vector treatment.
+    ratio : {"density", "classifier"}
+        The ratio route, which decides whether the bin count rule applies.
+    density_bins : int or None
+        The declared bin count of the density route, or ``None`` for the default.
 
     Raises
     ------
@@ -4566,9 +4596,95 @@ def preflight_vector_policies(policies: Sequence[object], data: CausalData) -> N
         If a policy is not a :class:`JointPolicy`, or a dose map fails
         :func:`check_continuous_policy`.
     DataError
-        If a map is malformed, or a dose leaves its declared support.
+        If a dose records an undeclared atom, a map is malformed, or a dose leaves its
+        declared support.
     """
-    _vector_setup(tuple(policies), data)
+    assert data.treatment_components is not None
+    components = tuple(
+        JointComponent(name, levels)
+        for name, levels in zip(data.component_names, data.component_levels, strict=True)
+    )
+    if all(isinstance(policy, JointPolicy) for policy in policies):
+        refuse_component_atoms(
+            np.asarray(data.treatment_components, dtype=float),
+            components,
+            np.ones(data.n, dtype=bool),
+            moved=any(joint_policy_moves(policy) for policy in policies),
+            ratio=ratio,
+            density_bins=density_bins,
+        )
+    if data.component_supports:
+        _vector_setup(tuple(policies), data)
+
+
+def joint_policy_moves(policy: object) -> bool:
+    """Whether some branch of a joint policy moves a component by its declaration.
+
+    At a vector the ratio is one only when no component moves: a moved categorical
+    component evaluates every dose factor at a counterfactual cell.
+
+    Parameters
+    ----------
+    policy : object
+        A declared policy.
+
+    Returns
+    -------
+    bool
+        ``False`` for a :class:`JointPolicy` whose every component policy is the identity.
+    """
+    if not isinstance(policy, JointPolicy):
+        return True
+    return any(
+        policy_moves_dose(component)
+        for _, components in joint_branches(policy)
+        for component in components.values()
+    )
+
+
+def refuse_component_atoms(
+    natural: FloatArray,
+    components: Sequence[JointComponent],
+    rows: BoolArray,
+    *,
+    moved: bool,
+    ratio: str,
+    density_bins: int | None,
+) -> None:
+    """R-b4 at each continuous component of a vector, which takes no declared atoms.
+
+    Parameters
+    ----------
+    natural : ndarray
+        ``(n, d)`` natural values: level codes and doses.
+    components : sequence of JointComponent
+        The node's components, in column order.
+    rows : ndarray
+        ``(n,)`` the rows that hold the node.
+    moved : bool
+        Whether some policy at the node moves a component.
+    ratio : {"density", "classifier"}
+        The ratio route, which decides whether the bin count rule applies.
+    density_bins : int or None
+        The declared bin count of the density route, or ``None`` for the default.
+
+    Raises
+    ------
+    DataError
+        If any rule flags a continuous component.
+    """
+    from ..learners.density import default_density_bins
+
+    for index, component in enumerate(components):
+        if not component.continuous:
+            continue
+        doses = np.asarray(natural[rows, index], dtype=float)
+        bins: int | None = None
+        if ratio == "density":
+            bins = density_bins if density_bins is not None else default_density_bins(doses.size)
+        _refuse_undeclared_atoms(
+            doses, atoms=(), moved=moved, bins=bins, where=component.name, component=True
+        )
 
 
 def _vector_setup(declared: tuple[object, ...], data: CausalData) -> _VectorSetup:

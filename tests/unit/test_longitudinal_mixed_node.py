@@ -48,6 +48,10 @@ from .. import discrete_law_longitudinal_mtp as law
 from .. import discrete_law_longitudinal_multivalue as multivalue
 from .. import longitudinal_mtp as mtp
 
+#: The mixed law puts every dose on a grid, so R-b4 would refuse each fit; the fixture
+#: turns that refusal off and leaves every other check on (X40 step H).
+pytestmark = pytest.mark.usefixtures("exact_grid_law")
+
 NO_TRUNCATION = (1e-8, 1.0)
 EXACT = 1e-10
 LABELS = ("natural", "dose up", "flag gated", "dose gated", "random")
