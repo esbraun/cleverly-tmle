@@ -7,6 +7,7 @@ decimals are also compared against its stored outputs.
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from typing import Any
 
@@ -16,6 +17,7 @@ import pandas as pd
 from cleverly.datasets import navigation_protocol
 from cleverly.datasets.synthetic import nonlinear_bounded_dgp
 from cleverly.inference import median_estimates
+from tests.documents import ROOT
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -63,8 +65,49 @@ def _teams_spanned(result: Any, teams: pd.Series) -> int:
     return int(labels.groupby(teams).nunique().max())
 
 
+def _assert_unprinted_sources() -> None:
+    """Each repeated-draw and study number the prose quotes equals its committed source."""
+    summary = (ROOT / _PROBE / "summary.log").read_text()
+    truth = (ROOT / _PROBE / "truth.log").read_text()
+    fits = summary[summary.index("  cross-fitted\n") : summary.index("Step 9,")]
+    cross_fitted, in_sample = fits.split("  in-sample\n")[:2]
+    # Steps 5 and 6: SE/SD 0.93 and 0.70, bias +0.0003 and -0.0024, coverage 188 and 153 of 200,
+    # and the in-sample/cross-fitted SE ratio between 0.68 and 0.73 on 90% of draws.
+    assert "bias +0.0003 " in cross_fitted and "SE/SD 0.93" in cross_fitted
+    assert "188 of 200" in cross_fitted
+    assert "bias -0.0024 " in in_sample and "SE/SD 0.70" in in_sample
+    assert "153 of 200" in in_sample
+    assert "in-sample SE / cross-fitted SE, 5% / 50% / 95%: [0.68, 0.71, 0.73]" in summary
+    # Step 9: slope 0.90 to 1.01; fitted tail share under the law's on 196 draws; in-sample
+    # minimum ESS ratio above the cross-fitted one on all 200.
+    assert "propensity calibration slope, 5% / 50% / 95%: [0.9, 0.96, 1.01]" in summary
+    assert re.search(r"under the law's share, 0\.0188 .*196 of 200", summary)
+    assert re.search(
+        r"in-sample minimum ESS ratio above the cross-fitted one: .*200 of 200", summary
+    )
+    # Step 10: mean nu^2 4.50, the law's 4.83, and the shown draw's RV 0.409 at the law's nu^2.
+    assert "nu^2 (doubly robust) mean 4.504" in summary
+    assert re.search(r"law +nu\^2 4\.8287: .*rv 0\.409", summary)
+    # The law's quantities: share below 0.1 is 1.9%, nu^2 is 4.83, 46% of teams lose.
+    assert re.search(r"navigation nu2 +4\.828", truth)
+    assert re.search(r"navigation share g < 0\.10 +0\.0188", truth)
+    assert "P(u < -0.1000): 0.4602" in truth
+    # The registered cells and their coverage.
+    for path, cell, coverage, n, replicates in (
+        (_STUDY, "in_sample_control", 0.5225, 500, 400),
+        (_STUDY, "stacked_cvtmle", 0.945, 500, 400),
+        (_CLUSTERED, "cluster_robust", 0.9475, 2000, 2400),
+        (_CLUSTERED, "iid_control", 0.84125, 2000, 2400),
+    ):
+        table = pd.read_csv(ROOT / path, float_precision="round_trip")
+        row = table.loc[table["cell"] == cell].iloc[0]
+        assert np.isclose(row["coverage"], coverage, rtol=0.0, atol=1e-12)
+        assert (row["n"], row["replicates"]) == (n, replicates)
+
+
 def check(namespace: dict[str, Any]) -> None:
     """The seeded relations the cross-fitting notebook narrates, at its documented size."""
+    _assert_unprinted_sources()
     first = namespace["cross_fitted"]
     cross_fitted = first["ate"]
     in_sample = namespace["in_sample"]["ate"]
