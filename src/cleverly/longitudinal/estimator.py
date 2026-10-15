@@ -1490,6 +1490,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     replay_recipe : object
         Unfitted recursive learner templates and resolved plans for deterministic refits.
         Keyword-only.
+    simulation : GFormulaReport or None
+        On a :class:`ParametricGFormula` fit, what the forward simulation drew: the draws, the
+        models, the Monte Carlo share of each parameter and the fixed-dose model reliance.
+        ``None`` on every other fit.  Keyword-only.
 
     Attributes
     ----------

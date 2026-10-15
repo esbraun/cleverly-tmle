@@ -139,7 +139,6 @@ not change the package version.
 | BD | Documentation review for new and changed methods | no new theory | every row of milestones B0 to B4 and BP; X68 | [X69](#x69-documentation-review-for-new-and-changed-methods) |
 | B5 | Learned-policy follow-ups | published support for parts (g) and (h); natural extension for parts (i) and (k) to (o); published support; pending source read for parts (a), (b), (e) and (f); source audit for parts (c), (d) and (j) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
 | B5 | Structural dynamic treatment effects | source audit | X41 | [X44](#x44-structural-dynamic-treatment-effects) |
-| B5 | Parametric forward-simulation g-formula | source audit | X41 | [X45](#x45-parametric-forward-simulation-g-formula) |
 | B5 | Longitudinal simulated-confounding replay with a time-fixed latent | natural extension | the shipped point-treatment replay | [X48](#x48-longitudinal-simulated-confounding-replay-with-a-time-fixed-latent) |
 | after beta | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
 | after beta | Efficient known-score ATT and ATC | published support; pending source read | the shipped known treatment mechanism | [X35](#x35-efficient-known-score-att-and-atc) |
@@ -168,6 +167,7 @@ not change the package version.
 | after beta | Simulated confounding beyond X47 and X48 | natural extension | X47; X57 for part (c); X50, X51 and X62 for part (h); F5 for a continuous fit in part (f) | [X66](#x66-simulated-confounding-beyond-x47-and-x48) |
 | after beta | Refutation and assessment adapters | no new theory | the shipped `refute` catalog | [X67](#x67-refutation-and-assessment-adapters) |
 | after beta | Repeated outcomes for the sequential baselines | no new theory | the shipped `LTMLE` repeated outcome; X41 | [X71](#x71-repeated-outcomes-for-the-sequential-baselines) |
+| after beta | Pooled-over-time parametric g-formula models | no new theory; the stacked equations of the shipped `ParametricGFormula`, with unit-summed scores | the shipped `ParametricGFormula` | [X72](#x72-pooled-over-time-parametric-g-formula-models) |
 | after beta | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts; a concrete analysis need | [P1](#p1-ep-learner) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -632,18 +632,6 @@ shared target only where the structural model makes the targets equal, and do no
 structural coefficient as an unrestricted policy value.
 
 Acceptance: a written map of the targets and the assumptions, and the decision whether to ship.
-
-### X45. Parametric forward-simulation g-formula
-
-The NICE Monte Carlo g-formula models and simulates covariate trajectories. It differs from
-backward sequential regression. McGrath et al. (2020), *Patterns*, describe `gfoRmula`, and
-`pygformula` implements it in Python.
-
-Keep it as an optional integration. Compare a shared target
-under correctly specified laws, and account for the simulation error. A model-based fixed
-continuous path states its model reliance and its extrapolation assumptions.
-
-Acceptance: a registered study on a shared target, with the Monte Carlo error declared.
 
 ### X46. Repeated cross-fitting for longitudinal fits
 
@@ -1646,10 +1634,26 @@ as it covers several plans.
 | part | what to add | evidence |
 | --- | --- | --- |
 | (a) | `gcomp` and `ipw` in `REPEATED_OUTCOME_KINDS`, with the per-horizon fit of the truncated panel | `tests/unit/test_repeated_outcome_subclasses.py` requires each horizon's estimate and curve to equal the end-of-study fit of the truncated panel |
-| (b) | `gformula` in `REPEATED_OUTCOME_KINDS`, with one simulation of the truncated panel per horizon. Each horizon fits the covariate and outcome models of its own truncated panel | the same reduction test, which exempts `ParametricGFormula` until this part ships |
+| (b) | `parametric_gformula` in `REPEATED_OUTCOME_KINDS`, with one simulation of the truncated panel per horizon. Each horizon fits the covariate and outcome models of its own truncated panel | the same reduction test, which exempts `ParametricGFormula` until this part ships |
 
 Acceptance: the exact reduction test for all three estimators, and a registered property study of the
 repeated-outcome cells.
+
+### X72. Pooled-over-time parametric g-formula models
+
+`ParametricGFormula` fits one model per node and covariate. `gfoRmula` and `pygformula` fit one
+pooled model per covariate over all time rows, with lag and cumulative-average terms of the
+history. A pooled model restricts the node-specific models, so it needs fewer parameters and it
+extrapolates over time. This row adds the pooled form to the shipped estimator.
+
+| part | what to add | evidence |
+| --- | --- | --- |
+| (a) | a pooled `GLM` for each covariate and for the outcome or hazard, fitted on long rows. Each row carries the time, the lag and the cumulative-average terms of the history that the caller declares. The score of a unit is the sum over its rows, and the information is the sum over all rows. The stacked equations, the score-function derivative and the simulation error stay as in [the shipped page](technical-reference/parametric-gformula.md) | exact laws on which the pooled model is correct, with the complex-step Gateaux check of the curve, and a mutation control that scores each row as a unit. A nonzero witness for each history term |
+| (b) | a rule that sets a continuous dose from the simulated history, in place of the refusal of such a rule | the closed form of a linear-Gaussian law with a history-dependent dose, and the Gateaux check |
+| (c) | the comparator run against `pygformula` 1.2.0 in its own environment, on fixtures whose model statements equal the shipped models. Node-specific models need two-node fixtures for the covariate laws, because `pygformula` pools the covariate models and the residual standard deviation | the gate of the registered study `parametric-gformula`: the difference of the estimates within 4 standard errors of the two simulations. A pending comparator never blocks the shipped estimator |
+
+Acceptance: the exact-law witnesses of part (a), the mutation controls, and a registered study
+cell for a law with a lag term.
 
 ### P1. EP learner
 

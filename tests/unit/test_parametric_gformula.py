@@ -823,7 +823,9 @@ class TestShareAgainstTheSeeds:
 
     The data are fixed and only the seed moves, so the across-seed variance of the estimate is
     its simulation variance.  The reported ``se^2 * share`` predicts it, for the levels and for
-    the paired contrast.
+    the paired contrasts.  The regimens "always" and "respond" differ at node 2 only, so their
+    copies move together: their contrast has a simulation variance thousands of times smaller
+    than a level, and a share that read one regimen's copies alone would miss it.
     """
 
     SEEDS = 300
@@ -834,22 +836,28 @@ class TestShareAgainstTheSeeds:
         implied: dict[str, list[float]] = {}
         for seed in range(self.SEEDS):
             result = fit_with(
-                frame, regimens_b("never", "always"), ROLES_B, n_draws=1, random_state=seed
+                frame,
+                regimens_b("always", "respond", "never"),
+                ROLES_B,
+                n_draws=1,
+                random_state=seed,
             )
             for name, estimate in result.estimates.items():
                 estimates.setdefault(name, []).append(result.psi(name))
                 share = result.simulation.monte_carlo_share[name]
                 implied.setdefault(name, []).append(estimate.std_error**2 * share)
         assert set(estimates) == {
-            "ey_regimen[never]",
             "ey_regimen[always]",
-            "ate_regimen[always vs never]",
+            "ey_regimen[respond]",
+            "ey_regimen[never]",
+            "ate_regimen[respond vs always]",
+            "ate_regimen[never vs always]",
         }
         tolerance = 4.0 * np.sqrt(2.0 / (self.SEEDS - 1))
         for name, values in estimates.items():
             observed, predicted = np.var(values, ddof=1), np.mean(implied[name])
             # The nonzero witness: the simulation moves the estimate at this size.
-            assert observed > 1e-6, name
+            assert observed > (1e-10 if "respond vs" in name else 1e-6), name
             assert abs(observed / predicted - 1.0) < tolerance, (name, observed, predicted)
 
 
@@ -1653,41 +1661,56 @@ def panel_f(n: int, seed: int, dose_scale: float = 1.0) -> pd.DataFrame:
     return frame
 
 
-def exact_support(frame: pd.DataFrame, d1: float, d2: float) -> dict[str, float]:
-    """The support diagnostic of the doses ``(d1, d2)`` of law F, by plain least squares.
+def exact_support(
+    frame: pd.DataFrame, d1: float, d2: float, weights: np.ndarray | None = None
+) -> dict[str, float]:
+    """The support diagnostic of the doses ``(d1, d2)`` of law F, by weighted least squares.
 
     The window shares are the observed doses within two fitted standard deviations of the dose.
     The off-support share at node 1 depends on the baseline alone.  At node 2 the history draws
     ``L2`` from its Gaussian law, so the share integrates the normal distribution function.
-    The second value is the standard error of the simulated share at node 2 per unit of
-    ``1 / sqrt(draws)``.
+    ``off2_se`` is the standard error of the simulated share at node 2 for one draw per unit.
+    The ``unweighted`` and ``variance`` entries are the shares of a reading that drops the
+    weights, and of a window read in variance units.
     """
     z = gf.SUPPORT_Z
     n = len(frame)
+    w = np.ones(n) if weights is None else np.asarray(weights, dtype=float)
     w1, a1 = frame["W1"].to_numpy(), frame["A1"].to_numpy()
     rows = frame["C1"].to_numpy() == 1
     l2, a2 = frame["L2"].to_numpy(), frame["A2"].to_numpy()
+
+    def fit(x: np.ndarray, y: np.ndarray, use: np.ndarray) -> tuple[np.ndarray, float]:
+        root = np.sqrt(w[use])
+        coef, *_ = np.linalg.lstsq(x[use] * root[:, None], y[use] * root, rcond=None)
+        residual = y[use] - x[use] @ coef
+        return coef, float(np.sqrt(np.sum(w[use] * residual**2) / np.sum(w[use])))
+
+    def share(flag: np.ndarray, use: np.ndarray) -> float:
+        return float(np.sum(w[use] * flag[use]) / np.sum(w[use]))
+
+    everyone = np.ones(n, dtype=bool)
     x1 = np.column_stack([np.ones(n), w1])
-    b1, *_ = np.linalg.lstsq(x1, a1, rcond=None)
-    s1 = np.sqrt(np.mean((a1 - x1 @ b1) ** 2))
+    b1, s1 = fit(x1, a1, everyone)
     xl = np.column_stack([np.ones(n), w1, a1])
-    bl, *_ = np.linalg.lstsq(xl[rows], l2[rows], rcond=None)
-    sl = np.sqrt(np.mean((l2[rows] - xl[rows] @ bl) ** 2))
+    bl, sl = fit(xl, np.nan_to_num(l2), rows)
     x2 = np.column_stack([np.ones(n), w1, a1, np.nan_to_num(l2)])
-    b2, *_ = np.linalg.lstsq(x2[rows], a2[rows], rcond=None)
-    s2 = np.sqrt(np.mean((a2[rows] - x2[rows] @ b2) ** 2))
+    b2, s2 = fit(x2, np.nan_to_num(a2), rows)
     mean_l2 = bl[0] + bl[1] * w1 + bl[2] * d1
     centre = d2 - (b2[0] + b2[1] * w1 + b2[2] * d1) - b2[3] * mean_l2
     spread = abs(b2[3]) * sl
     inside = norm.cdf((centre + z * s2) / spread) - norm.cdf((centre - z * s2) / spread)
+    off1 = np.abs(d1 - x1 @ b1) / s1 > z
+    near2 = np.abs(np.nan_to_num(a2) - d2) <= z * s2
     return {
-        "off1": float(np.mean(np.abs(d1 - x1 @ b1) / s1 > z)),
-        "window1": float(np.mean(np.abs(a1 - d1) <= z * s1)),
-        "window1_variance": float(np.mean(np.abs(a1 - d1) <= z * s1**2)),
-        "off2": float(np.mean(1.0 - inside)),
-        "off2_se": float(np.sqrt(np.sum(inside * (1.0 - inside))) / n),
-        "window2": float(np.mean(np.abs(a2[rows] - d2) <= z * s2)),
-        "window2_variance": float(np.mean(np.abs(a2[rows] - d2) <= z * s2**2)),
+        "off1": share(off1, everyone),
+        "off1_unweighted": float(np.mean(off1)),
+        "window1": share(np.abs(a1 - d1) <= z * s1, everyone),
+        "window1_variance": share(np.abs(a1 - d1) <= z * s1**2, everyone),
+        "off2": share(1.0 - inside, everyone),
+        "off2_se": float(np.sqrt(np.sum(w**2 * inside * (1.0 - inside))) / np.sum(w)),
+        "window2": share(near2, rows),
+        "window2_variance": share(np.abs(np.nan_to_num(a2) - d2) <= z * s2**2, rows),
     }
 
 
@@ -1814,6 +1837,34 @@ class TestFixedDose:
         assert rows[("far", 1)].off_support > 0.9
         assert rows[("far", 2)].off_support > 0.9
         assert "model reliance" in result.summary()
+
+    def test_the_support_shares_are_weighted(self) -> None:
+        """A weighted fit weights the fitted law, the window and the off-support share."""
+        frame = panel_f(self.N, seed=23, dose_scale=0.6)
+        rng = np.random.default_rng(4)
+        frame["wt"] = 0.3 + rng.uniform(size=self.N) * (1.0 + 2.0 * (frame["W1"] < 0.0))
+        draws = 200
+        doses = {**self.DOSES, "edge": (1.2, 1.0)}
+        result = fit_with(
+            frame,
+            [dose_plan(label, *pair) for label, pair in doses.items()],
+            dict(ROLES_F, weights="wt"),
+            covariate_types={"L2": "normal"},
+            q_bounds=BOUNDS_F,
+            n_draws=draws,
+        )
+        rows = {(row.plan, row.node): row for row in result.simulation.support}
+        weights = frame["wt"].to_numpy()
+        for label, (d1, d2) in doses.items():
+            exact = exact_support(frame, d1, d2, weights)
+            assert rows[(label, 1)].off_support == pytest.approx(exact["off1"], abs=1e-12)
+            assert rows[(label, 1)].window == pytest.approx(exact["window1"], abs=1e-12)
+            assert rows[(label, 2)].window == pytest.approx(exact["window2"], abs=1e-12)
+            band = 5.0 * exact["off2_se"] / np.sqrt(draws) + 1e-12
+            assert abs(rows[(label, 2)].off_support - exact["off2"]) <= band
+        # The nonzero witness: dropping the weights moves the share at node 1.
+        edge = exact_support(frame, *doses["edge"], weights)
+        assert abs(edge["off1"] - edge["off1_unweighted"]) > 0.05
 
 
 # ------------------------------------------------------------------------- the random numbers
