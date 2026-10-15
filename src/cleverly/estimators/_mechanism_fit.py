@@ -166,8 +166,12 @@ def describe_mechanism(model: Any) -> MechanismFit:
                 records.append(
                     ScalerStep(
                         kind="scaler",
-                        mean=None if mean is None else np.array(mean, dtype=float),
-                        scale=None if scale is None else np.array(scale, dtype=float),
+                        mean=None
+                        if mean is None or not step.with_mean
+                        else np.array(mean, dtype=float),
+                        scale=None
+                        if scale is None or not step.with_std
+                        else np.array(scale, dtype=float),
                     )
                 )
             else:

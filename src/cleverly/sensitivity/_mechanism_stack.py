@@ -129,13 +129,19 @@ def _refusal(
     learner: bool = False,
     reason: RefusalReason = RefusalReason.INFERENCE_GAP,
 ) -> MechanismRefusal:
-    stem = _STEM + (_UNCITED if learner else "")
+    if learner:
+        return MechanismRefusal(
+            key=key,
+            text=f"nu2_estimator='plugin': {_STEM}{_UNCITED}. This fit does not qualify: {clause}.",
+            alternative=alternative,
+            reason=reason,
+            roadmap="F26",
+        )
     return MechanismRefusal(
         key=key,
-        text=f"nu2_estimator='plugin': {stem}. This fit does not qualify: {clause}.",
+        text=f"nu2_estimator='plugin': {_STEM}. This fit does not qualify: {clause}.",
         alternative=alternative,
         reason=reason,
-        roadmap="F26" if learner else None,
     )
 
 
