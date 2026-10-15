@@ -719,6 +719,13 @@ so the fit refuses before any learner. The message names `g_bounds` and the node
 first leaves the bounds. Products fall fast: 0.5 at each node reaches 0.01 near the seventh node.
 Pass a lower bound below the smallest declared product, such as `g_bounds=(1e-8, 1.0)`.
 
+`truncation_curve()` runs the same check on each pair of its grid before any replay. A pair that
+the fit refuses is refused with the fit's sentence and the `invalid_declaration` code. A curve
+row therefore never truncates a declared product. With every factor declared, the curve over
+admitted pairs is flat. With the censoring estimated, an admitted pair can still truncate the
+estimated factor, and the curve reports that movement. `tests/unit/test_known_node_mechanisms.py`
+pins the refusal, the flat curve and the estimated-censoring case.
+
 | composition | result |
 | --- | --- |
 | static, dynamic and known stochastic plans, `msm=`, cross-fitting, clusters, survival and competing risks, held and time-to-event designs, `n_bootstrap=` | supported. A bootstrap replicate carries the declared values of its own rows |
@@ -908,6 +915,7 @@ refusals that are statements about the question, the construction, or coverage.
 | --- | --- | --- |
 | eliminating the competing events | `different_estimand` | what is reported is the cause-specific cumulative incidence with the competing causes *left alone*, so a competing event is part of the history. Removing it makes it an intervened node: a further factor per node in the denominator, and its own no-unmeasured-confounding and positivity assumptions |
 | `intermediate=` | `different_estimand` | a controlled direct effect fixes a mediator at one time point. Over a sequence, with mediators that are themselves time-varying, that is a different identification rather than a further column |
+| a `truncation_curve()` pair that truncates a declared cumulative product | `invalid_declaration` | the fit refuses the same pair as `g_bounds`, because truncating a known product moves the estimate with no variance reason. A curve row at that pair would show a movement that no admitted fit has. Remove the pair from the grid. A pair `(lower, 1)` with `lower` below the smallest declared product is admitted |
 | `mechanism=True` on `truncation_curve()` | `invalid_declaration` | a longitudinal fit holds one cumulative treatment-and-censoring bound, and it fits no separate observation mechanism to sweep. The option names a point-treatment axis, so the call raises `CapabilityError` rather than sweeping the cumulative bound under another name |
 | a callable node that is not declared `"known"`, or that is declared `"estimated"` | `invalid_declaration` when undeclared, `implementation_gap` when `"estimated"` | the fit treats each rule as fixed. A rule learned from the analysis sample needs a learned-policy estimand and its own inference. `LTMLE.fit` raises `CapabilityError` before any learner. Declare a rule fixed before the fit with `DynamicRegimen(label, plan, rule_kind="known")` |
 | a callable written inline in a `regimens=` mapping | `invalid_declaration` | an inline callable carries no declaration, so the fit refuses it before any learner. Write the plan as a `DynamicRegimen` declared `rule_kind="known"`, with `(rule,) * T` for one rule at every node |

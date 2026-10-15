@@ -197,6 +197,7 @@ from .sequential import (
     constant_nodes,
     fit_mechanism,
     fit_regimen,
+    known_product_refusal,
     node_ratios,
     preflight_known_mechanisms,
     preflight_mechanism_support,
@@ -6186,8 +6187,9 @@ def longitudinal_truncation_curve(
     CapabilityError
         When a regimen of the result has a rule node that is not declared
         ``rule_kind="known"``, when the grid is empty or holds a bound this package cannot
-        resolve, when it names an estimand this fit does not report, or when the stored
-        artifacts cannot replay the recursion.
+        resolve, when it names an estimand this fit does not report, when a pair truncates
+        the declared factors' cumulative product that the fit refuses to truncate, or when
+        the stored artifacts cannot replay the recursion.
     DataError
         When a regimen of the result carries a ``rule_kind`` outside the three states.
 
@@ -6239,6 +6241,25 @@ def longitudinal_truncation_curve(
             "the requested grid is empty.",
             reason=RefusalReason.INVALID_DECLARATION,
         )
+    # A pair the fit refuses on its declared factors is refused here too, before any replay.
+    # Such a pair truncates a known product, so its row would report a movement that no
+    # admitted fit can show and that reflects no variance trade.
+    for pair in grid:
+        refusal = known_product_refusal(result.data, recipe.plans, pair)
+        if refusal is not None:
+            raise CapabilityError.from_refusal(
+                replace(
+                    refusal,
+                    condition=(
+                        "a longitudinal truncation curve replays only the bound pairs that a "
+                        "fit admits, and a fit refuses this one: " + refusal.condition
+                    ),
+                    alternative=(
+                        "Remove the pair from the bounds grid. A pair (lower, 1) with lower "
+                        "below the smallest declared cumulative probability is admitted."
+                    ),
+                )
+            )
     try:
         reported = select_estimates(result.estimates, estimands)
     except (KeyError, ValueError) as error:

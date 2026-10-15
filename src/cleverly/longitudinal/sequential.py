@@ -126,6 +126,7 @@ from typing import Any
 
 import numpy as np
 
+from .._refusal import Refusal
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.validate import arm_indicators
 from ..data.weighting import effective_sample_size
@@ -172,6 +173,7 @@ __all__ = [
     "StitchedInitial",
     "fit_mechanism",
     "fit_regimen",
+    "known_product_refusal",
     "outcome_design",
     "preflight_known_mechanisms",
     "preflight_mechanism_support",
@@ -1126,6 +1128,44 @@ def preflight_known_mechanisms(
                     "the data contradicts the declared mechanism"
                 )
     _refuse_unidentified_regimens(data, plans)
+    refusal = known_product_refusal(data, plans, bounds)
+    if refusal is not None:
+        raise CapabilityError.from_refusal(refusal)
+
+
+def known_product_refusal(
+    data: LongitudinalData, plans: Sequence[Plan], bounds: tuple[float, float]
+) -> Refusal | None:
+    """Return the refusal a cumulative bound pair meets on the declared factors, if any.
+
+    The running product of the declared factors on every row that follows a plan must lie
+    inside ``bounds``, because truncating a known product moves the estimate with no
+    variance reason.  An odds tilt node's factor is never bounded, so it is not part of that
+    product.  With estimated factors beside declared ones, the product is over the declared
+    factors alone, and the estimated factors keep the shipped truncation.
+
+    :func:`preflight_known_mechanisms` raises this refusal for the fit's ``g_bounds``.
+    :func:`~cleverly.longitudinal.estimator.longitudinal_truncation_curve` raises it for
+    each pair of its grid, so the curve never replays a pair that the fit refuses.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    plans : sequence of Plan
+        The resolved plans.
+    bounds : tuple of float
+        The cumulative bound pair.
+
+    Returns
+    -------
+    Refusal or None
+        The refusal, or ``None`` when the panel declares no factor or every declared product
+        lies inside ``bounds``.
+    """
+    known = data.known_mechanisms
+    if known is None:
+        return None
     lower, upper = bounds
     for plan in plans:
         masks = plan.masks(data)
@@ -1143,18 +1183,19 @@ def preflight_known_mechanisms(
             moved = rows & ((running < lower) | (running > upper))
             if np.any(moved):
                 values = running[rows]
-                raise CapabilityError(
+                return Refusal(
+                    RefusalReason.INVALID_DECLARATION,
                     f"the declared mechanism's cumulative probability under regimen "
                     f"{plan.label!r} leaves the truncation bounds g_bounds=[{lower:.4g}, "
                     f"{upper:.4g}] first at node {time} on {int(np.count_nonzero(moved))} "
                     f"following row(s) (smallest {float(np.min(values)):.4g}). Truncating a "
                     "known design mechanism moves the estimate with no variance reason.",
-                    reason=RefusalReason.INVALID_DECLARATION,
                     alternative=(
                         "Pass g_bounds=(lower, upper) that contains every declared cumulative "
                         "probability, such as a lower bound below the smallest one."
                     ),
                 )
+    return None
 
 
 def _refuse_unidentified_regimens(data: LongitudinalData, plans: Sequence[Plan]) -> None:
