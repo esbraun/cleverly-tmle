@@ -413,6 +413,9 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_ctmle_oat import STUDY as CANONICAL_CTMLE_OAT
     from tests.studies.canonical_ctmle_oat_per_arm import STUDY as CTMLE_OAT_PER_ARM
+    from tests.studies.canonical_ctmle_oat_per_arm_parametric import (
+        STUDY as CTMLE_OAT_PER_ARM_PARAMETRIC,
+    )
     from tests.studies.canonical_ctmle_oat_per_arm_strata_missing import (
         STUDY as CTMLE_OAT_PER_ARM_STRATA_MISSING,
     )
@@ -575,6 +578,7 @@ def registered() -> tuple[StudyRecord, ...]:
         DRTMLE_ONE_WRONG,
         KNOWN_NODE_MECHANISMS,
         CTMLE_OAT_PER_ARM,
+        CTMLE_OAT_PER_ARM_PARAMETRIC,
         CTMLE_OAT_PER_ARM_STRATA_MISSING,
         OMITTED_VARIABLE_BOUND_SE,
         CALIBRATION_SLOPE_WARNING,
