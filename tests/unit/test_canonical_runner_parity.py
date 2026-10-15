@@ -58,6 +58,7 @@ ROOT_RUNNERS = tuple(
         "point_survival_runner.R",
         "policy_point_mtp_runner.R",
         "stochastic_categorical_ltmle_runner.R",
+        "vector_mtp_runner.R",
     )
 )
 

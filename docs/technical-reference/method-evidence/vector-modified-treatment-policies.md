@@ -43,8 +43,9 @@ The four scenarios draw 1,000 samples of 2,000 rows each.
 The comparator adapter is `tests/canonical/lmtp_vector_adapter.R`. It builds an `LmtpTask` whose
 treatment nodes are vectors, such as `trt = list(c("F", "D"))`. With `mtp = FALSE`, `lmtp` 1.5.4
 multiplies each ratio by the indicator that no component moved (`R/density_ratios.R`, lines 58 to
-61). That indicator is zero on every row that a plan moves, so the adapter sets `mtp = TRUE`. The
-parity check requires that the share of positive `lmtp` ratios equal the package's share. Under
+61). That indicator is zero on every row that a plan moves, so the adapter sets `mtp = TRUE`.
+
+The parity check requires that the share of positive `lmtp` ratios equal the package's share. Under
 `mtp = TRUE` both shares are 1, because neither classifier predicts 0. Under `mtp = FALSE` the
 `lmtp` share falls to the share of unmoved rows, and the check fails.
 
