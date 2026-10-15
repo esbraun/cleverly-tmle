@@ -48,7 +48,7 @@ Each code cell is followed by a markdown cell that starts with `**What this outp
 
 | order | cell id | type | contents | the output it shows |
 | --- | --- | --- | --- | --- |
-| 1 | `title` | markdown | the title as the only level-one heading, then the situation: the setting, the data, the treatment, the outcome, the time order, and which quantities are counterfactual. Add a compact causal graph where one applies, as [the situation step](#the-situation-step) describes. End with a "What you will learn" table | none |
+| 1 | `title` | markdown | the title as the only level-one heading, then the situation: the setting, the data, the treatment, the outcome, the time order, and which quantities are counterfactual. Add a compact causal graph where one applies, as [the situation step](#the-situation-step) describes. The learning table is optional. If you add one, list the decisions the problem teaches, not the features the page calls | none |
 | 2 | `plan` | markdown | the question, the target population, the intervention, and the estimand, before any code. The identification assumptions, each marked as checkable from data or as scientific judgment. "Why this method", with each method feature tied to a feature of the problem. A table of the terms the page uses most | none |
 | 3 | `setup` | code | the imports and the installed `cleverly` version | the version |
 | 4 | `data` | code | the data under the program's column names, as [the data step](#the-data-step) describes | the shape, the column names, the first rows, and the known truth of the synthetic law |
@@ -59,8 +59,9 @@ Each code cell is followed by a markdown cell that starts with `**What this outp
 | 9 | `failure-mode` | code | the failure mode the [examples index](../examples/index.md#the-program) names for this tutorial. Before the code, name the mechanism that causes the difference and the estimand of each method, as [comparisons](#comparisons) requires | the numbers that show the failure |
 | 10 | `assessment` | code | `result.assess()` and the retained reports the page reads | the assessment summary and each report summary |
 | 11 | `sensitivity` | code | the sensitivity analysis that is derived for the fitted estimator and runs on this fit. [The sensitivity table](#sensitivity-analysis-for-each-kind-of-fit) names one for each kind of fit | the robustness value and the bounds, the E-value, the stress surface, the tipping point, or the benchmark refits |
-| 12 | `trust` | markdown | "How far to trust this": the validation evidence, the layer table, and the registered study that covers the construction. [The trust step](#the-trust-step) lists what each cited study row names. Then the interpretation: what the estimate means, for which population and intervention, which assumptions stay unverified, and which conclusions the analysis does not support | none |
-| 13 | `where-next` | markdown | the next tutorial and the related reference entries | none |
+| 12 | `trust` | markdown | "How far to trust this": the validation evidence, the layer table, and the registered study that covers the construction. [The trust step](#the-trust-step) lists what each cited study row names | none |
+| 13 | `interpret` | markdown | the answer to the question of row 2: what the estimate means, for which population and intervention, the reported interval, the evidence behind the reading, the assumptions that stay unverified, and the conclusions the analysis does not support | none |
+| 14 | `where-next` | markdown | the next tutorial and the related reference entries | none |
 
 A tutorial can add steps between rows 8 and 11, such as a second population or a truncation curve.
 Give each added step a heading, a code cell, and its reading. Keep every scientific claim of the
