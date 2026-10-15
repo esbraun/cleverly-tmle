@@ -21,6 +21,7 @@ set                what it reads
 ``stability_d``    one fixed law-D sample, paired three-draw and first-draw fits per trial
 ``stability_i``    one fixed law-I sample, the same pairing
 ``i@80000``        law I at n = 80,000, after the 40,000 reading failed the sizing rule
+``i@70000``        law I at n = 70,000, the next smaller size the 80,000 projection admits
 ``stability_i@``   the law-I stability pairing on one fixed sample of 80,000
 ``80000``
 =================  ==========================================================================
@@ -73,6 +74,9 @@ SETS: dict[str, tuple[int, str, tuple[str, ...], int, int]] = {
     # Law I at the size the 40,000 reading failed to support (``X46-progress.md``, stage 2).
     "i@80000": (11, "law", ("law_i",), 80_000, 1_200),
     "stability_i@80000": (12, "stability", ("law_i",), 80_000, STABILITY_TRIALS),
+    # The 80,000 reading passed; 70,000 is the next smaller size its projection admits.
+    "i@70000": (13, "law", ("law_i",), 70_000, 1_200),
+    "stability_i@70000": (14, "stability", ("law_i",), 70_000, STABILITY_TRIALS),
 }
 
 #: The names each stability set reads, by scenario.
