@@ -121,6 +121,9 @@ def test_the_fixture_records_the_files_that_made_it() -> None:
     fixture = _fixture()
     assert fixture["econml_version"] == "0.17.0"
     assert fixture["wheel_sha256"] == WHEEL_SHA256
+    environment = fixture["environment"]
+    assert set(environment) == {"python", "route"}
+    assert environment["route"] != "unrecorded", "the fixture names the route that wrote it"
     for key, file in (
         ("generator_sha256", "generate_parity_fixture.py"),
         ("dockerfile_sha256", "Dockerfile"),

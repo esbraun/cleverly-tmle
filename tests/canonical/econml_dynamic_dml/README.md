@@ -14,9 +14,16 @@ This directory holds the comparator for `StructuralNestedMean`. The comparator i
 ## Regenerating the fixture
 
 Run `./run_generator.sh`. The generator records its own sha256, the Dockerfile sha256, the
-requirements sha256, and the wheel sha256 in the fixture. The test
-`tests/unit/test_structural_nested_mean.py` fails when the committed generator differs from the
-recorded one. Regenerate the fixture after any edit to the generator.
+requirements sha256, and the wheel sha256 in the fixture. It also records the Python version and
+the route under `environment`. The test `tests/unit/test_structural_econml_parity.py` fails when
+the committed generator differs from the recorded one. Regenerate the fixture after any edit to
+the generator.
+
+The committed fixture did not come from the container. Its `environment` entry names a virtual
+environment whose installed distributions equal the pins of `requirements.txt`, on Python 3.13.16.
+A second run in that environment reproduces the committed numbers byte for byte. The container
+has not been built. Build it once and regenerate the fixture before the comparator phase, so that
+the recorded route is `container`.
 
 The fixture holds no study replicates. The full comparator study runs later and has its own
 manifest.

@@ -3,8 +3,12 @@
 Run this file inside the pinned environment of ``requirements.txt`` (see ``README.md``).  It
 draws each parity case from a seeded generator, fits EconML 0.17.0 on the case with the setup
 below, and writes the inputs, the folds, and EconML's coefficients and covariance to
-``parity_fixture.json``.  The fast test ``tests/unit/test_structural_nested_mean.py`` reads that
-file.  No test and no library module imports EconML.
+``parity_fixture.json``.  The fast test ``tests/unit/test_structural_econml_parity.py`` reads
+that file.  No test and no library module imports EconML.
+
+The fixture records the route that wrote it under ``environment``.  ``run_generator.sh`` sets
+``PARITY_ENVIRONMENT=container``.  A run in a virtual environment sets it to a sentence that
+says how the environment was built.  A run that sets nothing records ``unrecorded``.
 
 Parity setup.  The two sides must share every choice that is not the algorithm.
 
@@ -28,6 +32,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import platform
 import re
 from pathlib import Path
 from typing import Any
@@ -401,6 +407,10 @@ def build_fixture() -> dict[str, Any]:
         "wheel_sha256": _pinned_wheel_hash(),
         "generator_sha256": _sha256(Path(__file__)),
         "dockerfile_sha256": _sha256(HERE / "Dockerfile"),
+        "environment": {
+            "python": platform.python_version(),
+            "route": os.environ.get("PARITY_ENVIRONMENT", "unrecorded"),
+        },
         "requirements_sha256": _sha256(HERE / "requirements.txt"),
         "cases": cases,
     }

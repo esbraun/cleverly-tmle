@@ -4,4 +4,5 @@
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 docker build -t cleverly-econml-parity "$here"
-docker run --rm -v "$here":/work cleverly-econml-parity generate_parity_fixture.py
+docker run --rm -e PARITY_ENVIRONMENT=container -v "$here":/work cleverly-econml-parity \
+    generate_parity_fixture.py
