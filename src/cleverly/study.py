@@ -449,6 +449,13 @@ class PointTreatment:
         unavailable on such a design, because there is no mechanism to select.
     continuous_treatment : sequence of str
         The columns of a vector ``treatment`` that hold a continuous dose.
+    treatment_support : Support or None
+        The declared conditional support of a continuous dose, as
+        :meth:`cleverly.TMLE.fit` takes it.  A modified treatment policy must assign each
+        row a dose inside it.
+    dose_atoms : sequence of float
+        The doses of a continuous treatment with a recorded point mass, as
+        :meth:`cleverly.TMLE.fit` takes them.
 
     Attributes
     ----------
@@ -503,10 +510,13 @@ class PointTreatment:
     treatment_missingness: str | None = None
     treatment_probabilities: Any = None
     continuous_treatment: Sequence[str] = field(default_factory=tuple)
+    treatment_support: Any = None
+    dose_atoms: Sequence[float] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "adjustment", tuple(self.adjustment))
         object.__setattr__(self, "strata", tuple(self.strata))
+        object.__setattr__(self, "dose_atoms", tuple(float(atom) for atom in self.dose_atoms))
         continuous = self.continuous_treatment
         object.__setattr__(
             self,
@@ -611,7 +621,7 @@ class PointTreatment:
             treatment_probabilities=(
                 None if self.treatment_probabilities is None else dict(self.treatment_probabilities)
             ),
-        )
+        ).with_dose_declarations(self.treatment_support, self.dose_atoms)
 
     def _check_prepared(self, data: CausalData) -> None:
         """Reconcile an already-built container with the roles this design declares.
@@ -645,6 +655,8 @@ class PointTreatment:
             ("weights", self.weights, data.weights_name),
             ("strata", tuple(self.strata), tuple(data.strata_names)),
             ("treatment_kind", self.support, data.treatment_kind),
+            ("treatment_support", self.treatment_support, data.treatment_support),
+            ("dose_atoms", tuple(sorted(self.dose_atoms)), tuple(data.dose_atoms)),
             # Not role names, but they change what the reported variance means, so a
             # disagreement here is as consequential as a mis-named column.
             ("weights_type", self.weights_type, data.weight_spec.kind),
@@ -773,9 +785,14 @@ class LongitudinalTreatment:
         Whether the supplied weights were estimated from these data.
     outcome_family : {"auto", "gaussian", "binomial"}
         Outcome family used by the sequential regressions.
-    continuous_treatment : sequence of str
+    continuous_treatment : sequence of str, or mapping of str to Support or None
         The treatment nodes that hold a continuous dose.  Each such node takes a modified
-        treatment policy, such as :class:`~cleverly.interventions.Shift`.
+        treatment policy, such as :class:`~cleverly.interventions.Shift`.  A mapping
+        also declares the conditional support of each dose, as
+        :meth:`cleverly.longitudinal.LTMLE.fit` takes it.
+    dose_atoms : mapping of str to sequence of float, or None
+        The doses of each continuous node with a recorded point mass, as
+        :meth:`cleverly.longitudinal.LTMLE.fit` takes them.
     treatment_probabilities : mapping or None
         The known treatment mechanism of a sequentially randomized design: each treatment
         node mapped to a mapping of its levels to the column of
@@ -824,12 +841,29 @@ class LongitudinalTreatment:
     weights_type: Literal["probability"] = "probability"
     weights_estimated: bool = False
     outcome_family: Family = "auto"
-    continuous_treatment: Sequence[str] = ()
+    continuous_treatment: Sequence[str] | Mapping[str, Any] = ()
     treatment_probabilities: Any = None
     censoring_probabilities: Any = None
+    dose_atoms: Mapping[str, Sequence[float]] | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "continuous_treatment", tuple(self.continuous_treatment))
+        continuous = self.continuous_treatment
+        object.__setattr__(
+            self,
+            "continuous_treatment",
+            tuple((str(name), support) for name, support in continuous.items())
+            if isinstance(continuous, Mapping)
+            else tuple(continuous),
+        )
+        if self.dose_atoms is not None:
+            object.__setattr__(
+                self,
+                "dose_atoms",
+                tuple(
+                    (str(name), tuple(sorted(float(atom) for atom in atoms)))
+                    for name, atoms in dict(self.dose_atoms).items()
+                ),
+            )
         if self.treatment_probabilities is not None:
             object.__setattr__(
                 self,
@@ -882,7 +916,7 @@ class LongitudinalTreatment:
             weights_type=self.weights_type,
             weights_estimated=self.weights_estimated,
             family=self.outcome_family,
-            continuous_treatment=self.continuous_treatment,
+            continuous_treatment=_declared_continuous(self.continuous_treatment),
             treatment_probabilities=(
                 None
                 if self.treatment_probabilities is None
@@ -891,6 +925,7 @@ class LongitudinalTreatment:
             censoring_probabilities=(
                 None if self.censoring_probabilities is None else dict(self.censoring_probabilities)
             ),
+            dose_atoms=None if self.dose_atoms is None else dict(self.dose_atoms),
         )
 
     def _outcome_roles(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
@@ -944,8 +979,18 @@ class LongitudinalTreatment:
             ("outcome causes", causes, tuple(data.cause_labels)),
             (
                 "continuous_treatment",
-                tuple(self.continuous_treatment),
+                _continuous_names(self.continuous_treatment),
                 data.continuous_columns,
+            ),
+            (
+                "the declared dose supports",
+                _named_declarations(self.continuous_treatment),
+                _held_supports(data),
+            ),
+            (
+                "dose_atoms",
+                dict(self.dose_atoms or ()),
+                _held_atoms(data),
             ),
             (
                 "treatment_probabilities",
@@ -1028,6 +1073,10 @@ class TimeToEvent:
         divides by these probabilities and fits no treatment learner.  A design names
         columns, so the array forms of :meth:`cleverly.longitudinal.LTMLE.fit` are refused
         here.
+    treatment_support : Support or None
+        The declared conditional support of a continuous treatment.
+    dose_atoms : sequence of float
+        The doses of a continuous treatment with a recorded point mass.
 
     Attributes
     ----------
@@ -1062,8 +1111,11 @@ class TimeToEvent:
     time_varying: None = None
     continuous_treatment: bool = False
     treatment_probabilities: Any = None
+    treatment_support: Any = None
+    dose_atoms: Sequence[float] = ()
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "dose_atoms", tuple(float(atom) for atom in self.dose_atoms))
         if self.treatment_probabilities is not None:
             columns = probability_columns(self.treatment_probabilities)
             if columns is None:
@@ -1112,7 +1164,7 @@ class TimeToEvent:
         if isinstance(data, LongitudinalData):
             self._check_prepared(data)
             return data
-        return LongitudinalData.from_time_to_event(
+        built = LongitudinalData.from_time_to_event(
             data,
             time=self.time,
             event=self.event,
@@ -1129,6 +1181,7 @@ class TimeToEvent:
                 None if self.treatment_probabilities is None else dict(self.treatment_probabilities)
             ),
         )
+        return _declare_every_node(built, self.treatment_support, self.dose_atoms)
 
     def _check_prepared(self, data: LongitudinalData) -> None:
         """Reconcile an already-built container with the roles this design declares."""
@@ -1145,6 +1198,8 @@ class TimeToEvent:
             ("weights_type", self.weights_type, data.weight_spec.kind),
             ("weights_estimated", self.weights_estimated, data.weight_spec.estimated),
             ("continuous_treatment", self.continuous_treatment, data.is_continuous_node(1)),
+            ("treatment_support", self.treatment_support, data.node_support(1)),
+            ("dose_atoms", tuple(sorted(self.dose_atoms)), data.node_atoms(1)),
         )
         for role, declared, held in expected:
             if declared != held:
@@ -1224,6 +1279,10 @@ class LongPanel:
         Outcome family used by the sequential regressions.
     continuous_treatment : bool
         Whether the treatment holds a continuous dose at every node.
+    treatment_support : Support or None
+        The declared conditional support of the dose at every node.
+    dose_atoms : sequence of float
+        The doses with a recorded point mass at every node.
     treatment_probabilities : mapping of level to str, or None
         The known treatment mechanism: each level mapped to the column that holds
         ``P(A_t = level | past)`` on each row.
@@ -1269,8 +1328,11 @@ class LongPanel:
     continuous_treatment: bool = False
     treatment_probabilities: Mapping[Any, str] | None = None
     censoring_probabilities: str | None = None
+    treatment_support: Any = None
+    dose_atoms: Sequence[float] = ()
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "dose_atoms", tuple(float(atom) for atom in self.dose_atoms))
         if (self.outcome is None) == (self.event is None):
             raise DataError(
                 "LongPanel declares exactly one of outcome= (one end-of-study value per unit) "
@@ -1312,7 +1374,7 @@ class LongPanel:
         if isinstance(data, LongitudinalData):
             self._check_prepared(data)
             return data
-        return LongitudinalData.from_long_panel(
+        built = LongitudinalData.from_long_panel(
             data,
             unit=self.unit,
             time=self.time,
@@ -1334,6 +1396,7 @@ class LongPanel:
             ),
             censoring_probabilities=self.censoring_probabilities,
         )
+        return _declare_every_node(built, self.treatment_support, self.dose_atoms)
 
     def _check_prepared(self, data: LongitudinalData) -> None:
         """Reconcile an already-built container with the roles this design declares."""
@@ -1377,6 +1440,8 @@ class LongPanel:
             ("weights_type", self.weights_type, data.weight_spec.kind),
             ("weights_estimated", self.weights_estimated, data.weight_spec.estimated),
             ("continuous_treatment", self.continuous_treatment, data.is_continuous_node(1)),
+            ("treatment_support", self.treatment_support, data.node_support(1)),
+            ("dose_atoms", tuple(sorted(self.dose_atoms)), data.node_atoms(1)),
         )
         if self.times is not None:
             expected += (("times", tuple(self.times), layout.decision_times),)
@@ -1389,6 +1454,62 @@ class LongPanel:
                     f"design declares {role}={declared!r}; build the data from this design, "
                     "or correct the design"
                 )
+
+
+def _continuous_names(declared: tuple[Any, ...]) -> tuple[str, ...]:
+    """The node names of a normalized ``continuous_treatment``: names, or (name, support)."""
+    return tuple(item[0] if isinstance(item, tuple) else item for item in declared)
+
+
+def _named_declarations(declared: tuple[Any, ...]) -> dict[str, Any]:
+    """The declared supports of a normalized ``continuous_treatment``, without ``None``."""
+    return {
+        item[0]: item[1] for item in declared if isinstance(item, tuple) and item[1] is not None
+    }
+
+
+def _declared_continuous(declared: tuple[Any, ...]) -> Sequence[str] | Mapping[str, Any]:
+    """A normalized ``continuous_treatment`` in the form ``from_frame`` reads."""
+    if declared and isinstance(declared[0], tuple):
+        return dict(declared)
+    return declared
+
+
+def _held_supports(data: LongitudinalData) -> dict[str, Any]:
+    """The declared support of each continuous node of ``data``, by node name."""
+    if data.treatment_held:
+        support = data.node_support(1)
+        return {} if support is None else {data.treatment_names[0]: support}
+    return {
+        name: data.node_support(time)
+        for time, name in enumerate(data.treatment_names, start=1)
+        if data.node_support(time) is not None
+    }
+
+
+def _held_atoms(data: LongitudinalData) -> dict[str, tuple[float, ...]]:
+    """The declared atoms of each continuous node of ``data``, by node name."""
+    if data.treatment_held:
+        atoms = data.node_atoms(1)
+        return {data.treatment_names[0]: atoms} if atoms else {}
+    return {
+        name: data.node_atoms(time)
+        for time, name in enumerate(data.treatment_names, start=1)
+        if data.node_atoms(time)
+    }
+
+
+def _declare_every_node(
+    data: LongitudinalData, support: Any, atoms: tuple[float, ...]
+) -> LongitudinalData:
+    """Declare one support and one atom set at every treatment node of ``data``."""
+    if support is None and not atoms:
+        return data
+    names = tuple(dict.fromkeys(data.treatment_names))
+    return data.with_dose_declarations(
+        {} if support is None else dict.fromkeys(names, support),
+        {} if not atoms else dict.fromkeys(names, atoms),
+    )
 
 
 def _default_grid(data: LongitudinalData) -> tuple[float, ...]:
