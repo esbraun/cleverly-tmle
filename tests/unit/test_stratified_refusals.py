@@ -51,7 +51,7 @@ def test_the_cross_fitted_arm_indexed_contract_refuses_strata() -> None:
     with pytest.raises(CapabilityError) as caught:
         _fit(cross_fit=True, estimands=("ate",))
     assert str(caught.value).endswith(
-        "No audited result covers baseline strata. F21 in docs/roadmap.md tracks this. "
+        "No audited result covers baseline strata. X53 in docs/roadmap.md tracks this. "
         "Drop strata= from fit (PointTreatment(strata=()))."
     )
     assert NeverFit.calls == 0

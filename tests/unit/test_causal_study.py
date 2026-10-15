@@ -3,6 +3,7 @@
 import dataclasses
 import inspect
 import pickle
+import warnings
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from typing import Any
@@ -52,7 +53,7 @@ from cleverly.datasets import (
     make_shift_dose,
 )
 from cleverly.estimators import TMLE
-from cleverly.exceptions import RefusalReason
+from cleverly.exceptions import PositivityWarning, RefusalReason
 from cleverly.inference.results import reported_status
 from cleverly.interventions import Shift, Stochastic
 from cleverly.longitudinal import LTMLE, LongitudinalData
@@ -1015,11 +1016,11 @@ def test_a_continuous_dose_refuses_by_axis_and_admits_a_working_model() -> None:
 
     known = Stochastic(lambda frame: np.full((len(frame), 2), 0.5), "coin", density_kind="known")
     for refused, fragment, code in (
-        (ATE(), "ATE is indexed by treatment arm", RefusalReason.INFERENCE_GAP),
+        (ATE(), "ATE is indexed by treatment arm", RefusalReason.DIFFERENT_ESTIMAND),
         (
             RegimeMean(regimens=()),
             "sets the continuous dose by a fixed value or a deterministic rule",
-            RefusalReason.INFERENCE_GAP,
+            RefusalReason.DIFFERENT_ESTIMAND,
         ),
         (
             RegimeMean(regimens=(known,)),
@@ -1031,6 +1032,79 @@ def test_a_continuous_dose_refuses_by_axis_and_admits_a_working_model() -> None:
             study.identify(refused)
         assert raised.value.refusal.reason is code
         assert "ModifiedTreatmentPolicy" in str(raised.value)
+
+
+#: The calls that each continuous-dose alternative writes, read back out of the message.
+_STUDY_ALTERNATIVES = (
+    "ModifiedTreatmentPolicy([Shift(0.5, cap=None)])",
+    "MSMProjection(MSM.linear(doses=[0.0, 0.5, 1.0]))",
+)
+_ENGINE_ALTERNATIVES = ("policies=[Shift(0.5, cap=None)]", "msm=MSM.linear(doses=[0.0, 0.5, 1.0])")
+
+
+def test_an_arm_target_on_a_continuous_dose_has_one_code_at_both_entry_points() -> None:
+    """The ATE of a dose is a different question at the study and at the engine.
+
+    The mean under one fixed dose is not pathwise differentiable, so both entry points refuse
+    it as ``different_estimand``. Each alternative is a call that the message writes out, and
+    the test runs that exact text.
+    """
+    rng = np.random.default_rng(11)
+    n = 180
+    w = rng.normal(size=n)
+    a = 0.4 * w + rng.normal(size=n)
+    frame = pd.DataFrame({"Y": 1.0 + 2.0 * a + 0.3 * w, "A": a, "W": w})
+    study = CausalStudy(
+        frame,
+        design=PointTreatment(
+            outcome="Y", treatment="A", adjustment=("W",), treatment_kind="continuous"
+        ),
+    )
+    learners = {
+        "outcome_learner": sklearn.linear_model.LinearRegression(),
+        "treatment_learner": sklearn.linear_model.LogisticRegression(max_iter=1000),
+        "cross_fit": False,
+        "density_bins": 8,
+        "random_state": 3,
+    }
+    names = {
+        "ModifiedTreatmentPolicy": ModifiedTreatmentPolicy,
+        "MSMProjection": MSMProjection,
+        "MSM": MSM,
+        "Shift": Shift,
+    }
+
+    with pytest.raises(CapabilityError) as from_study:
+        study.estimate(ATE(), **learners)
+    with pytest.raises(cleverly.CleverlyError) as from_engine:
+        TMLE(**learners).fit(
+            frame, outcome="Y", treatment="A", covariates=["W"], treatment_kind="continuous"
+        )
+    for raised, calls in ((from_study, _STUDY_ALTERNATIVES), (from_engine, _ENGINE_ALTERNATIVES)):
+        record = raised.value.refusal
+        assert record.reason is RefusalReason.DIFFERENT_ESTIMAND
+        assert record.roadmap is None
+        assert "not pathwise differentiable" in record.condition
+        assert record.alternative is not None
+        assert "answers a different question" in record.alternative
+        for call in calls:
+            assert call in record.alternative
+
+    with warnings.catch_warnings():
+        # cap=None lets a shifted dose pass the largest observed one, which warns.
+        warnings.simplefilter("ignore", PositivityWarning)
+        policy = study.estimate(eval(_STUDY_ALTERNATIVES[0], names), **learners)
+    assert np.isfinite(policy["ey_policy[+0.5]"].psi)
+    working = study.estimate(eval(_STUDY_ALTERNATIVES[1], names), simultaneous=False, **learners)
+    assert working["msm[a]"].psi == pytest.approx(2.0, abs=1e-6)
+    for call in _ENGINE_ALTERNATIVES:
+        keyword, _, value = call.partition("=")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", PositivityWarning)
+            fitted = TMLE(**learners, **{keyword: eval(value, names)}).fit(
+                frame, outcome="Y", treatment="A", covariates=["W"], treatment_kind="continuous"
+            )
+        assert fitted is not None
 
 
 def test_keyword_shortcuts_normalize_to_the_same_typed_method() -> None:

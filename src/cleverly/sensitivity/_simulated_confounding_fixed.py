@@ -53,11 +53,15 @@ def fixed_replay_refusal(estimator: Any, target: str) -> Refusal | None:
     if fixed_axis(target) is None:
         return None
     if type(estimator) is not TMLE:
+        # X50 holds the DR-TMLE regimes and MSMs, and X51 the C-TMLE ones.
+        roadmap = {"drtmle": "X50", "collaborative_tmle": "X51"}.get(
+            getattr(estimator, "_assessment_method", "")
+        )
         return Refusal(
             RefusalReason.IMPLEMENTATION_GAP,
             "simulated_confounding supports fixed regimes and MSMs under exact ordinary TMLE only.",
             alternative="Fit the regimes or the MSM with the ordinary TMLE and replay that fit.",
-            roadmap="F5",
+            roadmap=roadmap,
         )
     if target == "msm":
         model = estimator.msm

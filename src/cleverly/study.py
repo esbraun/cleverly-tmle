@@ -69,6 +69,7 @@ from .targets.builtin import (
     TWO_ARM_POSITIVITY_PREFIX,
 )
 from .targets.population_intervention import (
+    NATURAL_COURSE_TARGET,
     POPULATION_INTERVENTION_TARGETS,
 )
 from .utils.frames import as_frame
@@ -952,7 +953,8 @@ class TimeToEvent:
         Whether the supplied weights were estimated from these data.
     time_varying : None
         Not accepted.  One row per unit holds no covariate measured after baseline, so any
-        other value raises :class:`TypeError`.
+        other value raises :class:`~cleverly.exceptions.CapabilityError` with code
+        ``api_redirection``.
     continuous_treatment : bool
         Whether the treatment is a continuous dose.  A regimen is then a modified treatment
         policy at baseline.
@@ -1009,10 +1011,13 @@ class TimeToEvent:
                 )
             object.__setattr__(self, "treatment_probabilities", columns)
         if self.time_varying is not None:
-            raise TypeError(
+            raise CapabilityError(
                 "TimeToEvent reads one row per unit, so it has no covariate measured after "
-                "baseline. Use LongitudinalTreatment(treatment='A', time_varying=...) on the "
-                "wide layout"
+                "baseline.",
+                reason=RefusalReason.API_REDIRECTION,
+                alternative=(
+                    "Use LongitudinalTreatment(treatment='A', time_varying=...) on the wide layout."
+                ),
             )
         if not isinstance(self.treatment, str):
             raise TypeError(
@@ -2805,8 +2810,10 @@ def _method_refusal(method: str, estimand: str, declared: Refusal | None) -> Ref
 
 
 _CONTINUOUS_DOSE_ALTERNATIVE = (
-    "Ask for a modified treatment policy, such as ModifiedTreatmentPolicy([Shift(delta, "
-    "cap=...)]), or an MSM projection of the dose-response curve, MSMProjection(MSM.linear())."
+    "Each of these pathwise-differentiable targets answers a different question. "
+    "ModifiedTreatmentPolicy([Shift(0.5, cap=None)]) is the mean outcome when every received "
+    "dose rises by 0.5. MSMProjection(MSM.linear(doses=[0.0, 0.5, 1.0])) projects the "
+    "dose-response curve at those doses onto a line."
 )
 
 
@@ -2823,19 +2830,19 @@ def _continuous_dose_refusal(actual: Any, axis: str) -> Refusal:
     Returns
     -------
     Refusal
-        One record: a fixed dose or a deterministic rule has no root-n interval, a known
-        stochastic density has no estimator here, and an odds tilt, a risk-ratio tilt or
-        another axis cannot index a dose at all.
+        One record: the mean under a fixed dose or a deterministic rule is not pathwise
+        differentiable, a known stochastic density has no estimator here, and an odds tilt,
+        a risk-ratio tilt or another axis cannot index a dose at all.
     """
     name = type(actual).__name__
     declared = _declared_interventions(actual)
     items = () if declared is None else tuple(getattr(actual, declared[0]))
     if axis == "arm":
         return Refusal(
-            RefusalReason.INFERENCE_GAP,
+            RefusalReason.DIFFERENT_ESTIMAND,
             f"{name} is indexed by treatment arm, and on a continuous dose an arm is one "
             "fixed dose. The mean outcome under a fixed dose is not pathwise differentiable, "
-            "so no root-n interval exists for it.",
+            "so no regular estimator of it exists.",
             alternative=_CONTINUOUS_DOSE_ALTERNATIVE,
         )
     if axis == "regime" and any(isinstance(item, Stochastic) for item in items):
@@ -2848,14 +2855,14 @@ def _continuous_dose_refusal(actual: Any, axis: str) -> Refusal:
                 "A randomized modified policy with a finite known randomizer is supported: "
                 "ModifiedTreatmentPolicy([ModifiedPolicy(name, pieces={...}, "
                 "randomizer=Randomizer(values, probabilities), policy_kind='known')]). "
-                "MSMProjection(MSM.linear()) is the other route."
+                "MSMProjection(MSM.linear(doses=[0.0, 0.5, 1.0])) is the other route."
             ),
         )
     if axis == "regime":
         return Refusal(
-            RefusalReason.INFERENCE_GAP,
+            RefusalReason.DIFFERENT_ESTIMAND,
             f"{name} sets the continuous dose by a fixed value or a deterministic rule. That "
-            "parameter is not pathwise differentiable, so no root-n interval exists for it.",
+            "parameter is not pathwise differentiable, so no regular estimator of it exists.",
             alternative=_CONTINUOUS_DOSE_ALTERNATIVE,
         )
     if axis == "ipsi":
@@ -2885,6 +2892,39 @@ def _continuous_dose_refusal(actual: Any, axis: str) -> Refusal:
         f"{name} is indexed by {axis}, which a continuous dose does not provide; a "
         "continuous-dose design supports modified treatment policies and MSM projections.",
     )
+
+
+def _variant_roadmap(method: str, functional: Any, design: Any) -> str | None:
+    """The roadmap item that holds a DR-TMLE or C-TMLE fit of a functional, or ``None``.
+
+    Parameters
+    ----------
+    method : {"drtmle", "collaborative_tmle"}
+        The refused variant.
+    functional : Any
+        The identified functional, with its ``axis``, ``target`` and ``longitudinal``.
+    design : Any
+        The declared design, or ``None`` for an effect built without a study.
+
+    Returns
+    -------
+    str or None
+        F5 for the compositions it keeps, X50 or X51 for the ones that moved there, and
+        ``None`` when no item holds the request.
+    """
+    if functional.longitudinal or getattr(design, "treatment_kind", None) == "continuous":
+        return None
+    axis, target = functional.axis, functional.target
+    # F5 keeps ATT, ATC, incremental and modified-policy fits under both variants.
+    if axis in {"ipsi", "policy"} or (axis == "arm" and target in {"att", "atc"}):
+        return "F5"
+    moved = {"drtmle": "X50", "collaborative_tmle": "X51"}[method]
+    if axis in {"regime", "msm"}:
+        return moved
+    natural_course = target == NATURAL_COURSE_TARGET or target in POPULATION_INTERVENTION_TARGETS
+    if natural_course and getattr(design, "missingness", None) is not None:
+        return moved
+    return None
 
 
 def _point_functional(
@@ -3577,6 +3617,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         clustered = getattr(design, "cluster", None) is not None
         # A design that declares its mechanism leaves C-TMLE nothing to select.
         known = getattr(design, "treatment_probabilities", None) is not None
+        collaborative_item = _variant_roadmap("collaborative_tmle", self.functional, design)
+        drtmle_item = _variant_roadmap("drtmle", self.functional, design)
         collaborative_blocker = (
             KNOWN_CTMLE_REFUSAL
             if known
@@ -3593,7 +3635,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 RefusalReason.IMPLEMENTATION_GAP,
                 "no collaborative score is evidenced for this functional.",
                 alternative="Fit method='tmle'.",
-                roadmap="F5",
+                roadmap=collaborative_item,
             )
         )
         collaborative = variants and not clustered and not known
@@ -3615,7 +3657,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                     RefusalReason.IMPLEMENTATION_GAP,
                     "no reduced-dimension correction is evidenced for this functional.",
                     alternative="Fit method='tmle'.",
-                    roadmap="F5",
+                    roadmap=drtmle_item,
                 ),
             ),
             MethodAvailability("sdr", sdr, sdr_reason),
@@ -3636,12 +3678,12 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 False,
                 Refusal(
                     RefusalReason.DIFFERENT_ESTIMAND,
-                    "EP requires a conditional-contrast estimand and its distinct result family.",
+                    "EP requires a conditional-contrast estimand and its distinct result family. "
+                    "P1 in docs/roadmap.md proposes the EP learner and that estimand.",
                     alternative=(
                         "To estimate the ATE inside each level of a discrete baseline "
                         "modifier, declare PointTreatment(..., strata=['V']) and request ATE()."
                     ),
-                    roadmap="P1",
                 ),
             ),
         )

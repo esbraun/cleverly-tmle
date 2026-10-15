@@ -443,10 +443,6 @@ def simultaneous_bands(
     ValueError
         If ``estimates`` is empty, or if the influence curves have different lengths.
     ValueError
-        If any estimate declares ``covariance_rule="second_moment"``. The multiplier
-        draws center each influence curve, which matches the raw second moment only on a
-        mean-zero curve, and this function does not check the mean.
-    ValueError
         If ``cluster`` has a different length from the influence curves, or if ``kind``
         is not a supported multiplier, when two or more estimates are banded.
     CapabilityError
@@ -454,7 +450,10 @@ def simultaneous_bands(
         a confidence statement, and the package supplies no inference for such an
         estimate. Also if any estimate carries a Student t reference
         (:attr:`~cleverly.inference.ParameterEstimate.reference_df`), because no source
-        gives a t-calibrated band.
+        gives a t-calibrated band. Also, with code ``inference_gap``, if any estimate
+        declares ``covariance_rule="second_moment"``. The multiplier draws center each
+        influence curve, which matches the raw second moment only on a mean-zero curve,
+        and this function does not check the mean.
     """
     items = (
         list(estimates.items())
@@ -474,11 +473,16 @@ def simultaneous_bands(
         name for name, estimate in items if estimate.covariance_rule == "second_moment"
     ]
     if second_moment:
-        raise ValueError(
-            f"simultaneous_bands cannot band {second_moment}, which declare "
+        raise CapabilityError(
+            f"simultaneous_bands() cannot band {second_moment}, which declare "
             "covariance_rule='second_moment'. The multiplier draws center each influence "
             "curve, which matches the raw second moment only on a mean-zero curve, and "
-            "simultaneous_bands does not check the mean"
+            "simultaneous_bands() does not check the mean.",
+            reason=RefusalReason.INFERENCE_GAP,
+            alternative=(
+                "Report the pointwise interval of each named estimate, or pass the other "
+                "estimates to simultaneous_bands() without them."
+            ),
         )
     lengths = {estimate.influence_curve.shape[0] for _, estimate in items}
     if len(lengths) != 1:

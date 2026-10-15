@@ -47,10 +47,12 @@ DEFAULT_POINT_MULTIPLIER = 1000
 DEFAULT_LONGITUDINAL_MULTIPLIER = 2000
 DEFAULT_LONGITUDINAL_G_BOUNDS = (0.01, 1.0)
 
-#: Why the SDR estimator refuses a fluctuation setting. The alternative holds ``{name}``, the
-#: engine's own name for the setting, which :func:`sdr_no_fluctuation_refusal` fills in.
+#: Why the SDR estimator refuses a fluctuation setting. The setting has no meaning on an
+#: estimator with no fluctuation, so the code is the one :data:`IPSI_NO_FLUCTUATION` takes.
+#: The alternative holds ``{name}``, the engine's own name for the setting, which
+#: :func:`sdr_no_fluctuation_refusal` fills in.
 _SDR_NO_FLUCTUATION = Refusal(
-    RefusalReason.API_REDIRECTION,
+    RefusalReason.INVALID_DECLARATION,
     "the SDR estimator fits no fluctuation, so it has no logistic shrink, iteration limit or "
     "score tolerance.",
     alternative="LTMLE takes {name}=, so pass the setting there.",
@@ -107,8 +109,9 @@ def sdr_no_fluctuation_refusal(name: str) -> Refusal:
     Returns
     -------
     Refusal
-        An :attr:`~cleverly.exceptions.RefusalReason.API_REDIRECTION` record that names
-        ``name`` as the setting ``LTMLE`` takes.
+        An :attr:`~cleverly.exceptions.RefusalReason.INVALID_DECLARATION` record, as
+        :data:`IPSI_NO_FLUCTUATION` is, whose alternative names ``name`` as the setting
+        ``LTMLE`` takes.
     """
     return replace(
         _SDR_NO_FLUCTUATION,
@@ -713,7 +716,7 @@ class TMLEMethod:
         if unknown:
             raise MethodConfigurationError(
                 f"unsupported tmle option(s): {unknown}.",
-                reason=RefusalReason.API_REDIRECTION,
+                reason=RefusalReason.INVALID_DECLARATION,
                 alternative=(
                     "Study-design roles belong on PointTreatment; advanced method options "
                     "require a typed method object."

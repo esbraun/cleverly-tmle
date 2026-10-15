@@ -322,7 +322,7 @@ def refuse_unsupported(kind: str, detail: str = "") -> None:
 #: ``refuse_unsupported("estimated_weights")``.  It is the public named refusal, and it shares
 #: this text so that the two cannot drift apart.
 _ESTIMATED_WEIGHTS = Refusal(
-    RefusalReason.INFERENCE_GAP,
+    RefusalReason.IMPLEMENTATION_GAP,
     "an estimated MSM projection weight (a 'stabilised' MSM) is refused. h(a, V) is then "
     "a functional of P, so the efficient influence function carries a further term for "
     "the pathwise derivative through the estimated mechanism or arm shares, and the "
@@ -364,7 +364,7 @@ _WEIGHTS_DECLARATION = FunctionDeclaration(
 )
 
 _ESTIMATED_DESIGN = Refusal(
-    RefusalReason.INFERENCE_GAP,
+    RefusalReason.IMPLEMENTATION_GAP,
     "an estimated MSM design is refused. A design computed from the sample, such as a "
     "covariate centred at its sample mean, can define a population-law target where phi "
     "is a functional of P. Its influence function can need a further term for the "

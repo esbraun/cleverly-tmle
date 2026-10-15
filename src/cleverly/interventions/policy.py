@@ -176,13 +176,15 @@ _POLICY_DECLARATION = FunctionDeclaration(
         ),
     ),
     estimated=Refusal(
-        RefusalReason.INFERENCE_GAP,
+        RefusalReason.IMPLEMENTATION_GAP,
         "A policy fitted to the analysis sample makes the estimand data-dependent. Díaz et "
         "al. (2023) Theorem 2 assumes d does not depend on P.",
         alternative=(
             "For an odds tilt of the fitted mechanism, put Incremental nodes in "
             "IPSI(regimens=...) from cleverly.longitudinal."
         ),
+        # X40 part (e) holds a data-tuned modification built on training rows.
+        roadmap="X40",
     ),
 )
 
@@ -1236,12 +1238,13 @@ def _check_monotone(
                 f"policy {name!r} at {where} maps the interval [{start[row]:g}, {stop[row]:g}) to "
                 f"the single dose {float(np.median(values)):g} on a continuous treatment, or "
                 "is not strictly monotone there. That parameter is not pathwise "
-                "differentiable (Díaz et al. 2023, Section 4, journal page 850), so no root-n "
-                "interval exists.",
-                reason=RefusalReason.INFERENCE_GAP,
+                "differentiable (Díaz et al. 2023, Section 4, journal page 850), so no "
+                "regular estimator of it exists.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
                 alternative=(
-                    "Collapse the dose into categories and declare the policy on a "
-                    "categorical node, or use a piecewise shift that moves every dose."
+                    "Each of these targets answers a different question. Collapse the dose "
+                    "into categories and declare the policy on a categorical node, or use a "
+                    "piecewise shift that moves every dose."
                 ),
             )
         for point, image in zip(grid, mapped, strict=True):
@@ -1312,9 +1315,12 @@ def _check_ties(
             f"policy {name!r} at {where} sends {share:.1%} of rows to the single dose {value:g}, "
             "more than any dose holds in the data. A policy that collapses an interval of a "
             "continuous dose to one value is not pathwise differentiable (Díaz et al. 2023, "
-            "Section 4), so no root-n interval exists.",
-            reason=RefusalReason.INFERENCE_GAP,
-            alternative="Use a piecewise shift that moves every dose, or a categorical node.",
+            "Section 4), so no regular estimator of it exists.",
+            reason=RefusalReason.DIFFERENT_ESTIMAND,
+            alternative=(
+                "Each of these targets answers a different question. Use a piecewise shift "
+                "that moves every dose, or a categorical node."
+            ),
         )
 
 

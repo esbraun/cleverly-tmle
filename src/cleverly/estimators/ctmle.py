@@ -499,7 +499,7 @@ _DISCRETE_TREATMENT_REFUSAL = Refusal(
 #: shift declares its treatment a dose even when the column holds two arms, and the dose
 #: refusal would then give the wrong reason on a binary treatment.
 _POLICIES_REFUSAL = Refusal(
-    RefusalReason.DIFFERENT_ESTIMAND,
+    RefusalReason.IMPLEMENTATION_GAP,
     "CTMLE and policies= are not combined. A modified treatment policy's mean averages "
     "Qbar at the dose the policy assigns over the treatment law, so it reads g, and each "
     "candidate g of the collaborative search defines a different parameter, as under "
@@ -1872,7 +1872,7 @@ class CTMLE(TMLE):
                 "parameter: Psi(delta) is built out of g. The search would be selecting "
                 "between estimands rather than between estimators of one, and the risk "
                 "it minimises would have no fixed target. docs/roadmap.md F5 tracks this stop.",
-                reason=RefusalReason.DIFFERENT_ESTIMAND,
+                reason=RefusalReason.IMPLEMENTATION_GAP,
                 alternative="Use a plain TMLE.",
                 roadmap="F5",
             )

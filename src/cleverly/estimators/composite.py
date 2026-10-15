@@ -65,6 +65,7 @@ __all__ = [
     "composite_bounds",
     "composite_clipping_mask",
     "composite_mechanism",
+    "composite_nested_refusal",
     "composite_state",
     "composite_view",
     "missing_data_route",
@@ -81,15 +82,36 @@ __all__ = [
 MissingDataRoute = Literal["complete", "missing_outcome", "randomized_missing_outcome", "composite"]
 
 #: The refusal of ``evaluation=`` and ``reduced_crossfit="nested"`` on a composite
-#: DR-TMLE fit, with or without a missing treatment.
+#: DR-TMLE fit, with or without a missing treatment. X50 part (d) holds ``evaluation=``;
+#: :func:`composite_nested_refusal` names F21 instead when the request is the nested
+#: construction alone.
 COMPOSITE_NESTED_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
     "The nested construction and the evaluation companion carry one fold-free treatment "
     "mechanism. The composite mechanism has up to three factors, and neither construction "
     "carries them.",
     alternative="Use the default pooled reductions and no evaluation=.",
-    roadmap="F5",
+    roadmap="X50",
 )
+
+
+def composite_nested_refusal(estimator: Any) -> Refusal:
+    """The composite refusal, with the roadmap item that holds the refused setting.
+
+    Parameters
+    ----------
+    estimator : Any
+        The DR-TMLE estimator whose ``evaluation=`` or ``reduced_crossfit=`` is refused.
+
+    Returns
+    -------
+    Refusal
+        :data:`COMPOSITE_NESTED_REFUSAL`. It names X50 when ``evaluation=`` is set, and F21,
+        which keeps the nested construction, otherwise.
+    """
+    if getattr(estimator, "evaluation", None) is not None:
+        return COMPOSITE_NESTED_REFUSAL
+    return replace(COMPOSITE_NESTED_REFUSAL, roadmap="F21")
 
 
 def missing_data_route(estimator: Any, data: CausalData) -> MissingDataRoute:
@@ -589,12 +611,13 @@ def missing_treatment_refusal(
             or getattr(estimator, "reduced_crossfit", "pooled") != "pooled"
         )
     ):
+        refusal = composite_nested_refusal(estimator)
         return _message(
             data,
-            COMPOSITE_NESTED_REFUSAL.condition,
-            COMPOSITE_NESTED_REFUSAL.alternative or "",
-            code=COMPOSITE_NESTED_REFUSAL.reason,
-            roadmap=COMPOSITE_NESTED_REFUSAL.roadmap,
+            refusal.condition,
+            refusal.alternative or "",
+            code=refusal.reason,
+            roadmap=refusal.roadmap,
         )
     return None
 

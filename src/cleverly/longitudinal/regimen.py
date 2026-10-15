@@ -1143,9 +1143,13 @@ def refuse_continuous_assignments(regimen: RegimenSpec, data: LongitudinalData) 
                 f"regimen {regimen.label!r} sets the continuous node "
                 f"{data.treatment_names[time - 1]!r} to a fixed dose or rule. A static dose on "
                 "a continuous treatment is not pathwise differentiable (Díaz et al. 2023, "
-                "Section 4), so no root-n interval exists for it.",
-                reason=RefusalReason.INFERENCE_GAP,
-                alternative="Declare a modified treatment policy at that node.",
+                "Section 4), so no regular estimator of it exists.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
+                alternative=(
+                    "Declare a modified treatment policy at that node. It answers a "
+                    "different question: the mean outcome when the policy moves each "
+                    "received dose."
+                ),
             )
 
 

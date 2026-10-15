@@ -77,7 +77,7 @@ CONTINUOUS_REFUSAL = Refusal(
 )
 #: The refusal of C-TMLE on data that declares the mechanism.
 KNOWN_CTMLE_REFUSAL = Refusal(
-    RefusalReason.DIFFERENT_ESTIMAND,
+    RefusalReason.API_REDIRECTION,
     "CTMLE selects the treatment mechanism, and the data declares it known, so there is "
     "nothing to select.",
     alternative="Fit TMLE or DRTMLE on the declared data.",

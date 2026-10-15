@@ -117,7 +117,7 @@ LEARNED_RULE_TILT_REFUSAL = (
 
 #: Why a refutation refuses a learned-rule fit.
 LEARNED_RULE_REFIT_REFUSAL = Refusal(
-    RefusalReason.DIFFERENT_ESTIMAND,
+    RefusalReason.IMPLEMENTATION_GAP,
     "A refutation refits the learned-rule value, and a refit relearns the rule inside each "
     "training fold. The refitted estimate therefore has a different target, and its "
     "comparison with the reported estimate is not defined. X11 (o) in docs/roadmap.md "

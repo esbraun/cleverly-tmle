@@ -523,7 +523,9 @@ def refuse_mixed_interventions(
     One fit estimates one intervention kind.  ``_KIND_TEXT`` gives, for each kind, what a
     set accepts, the typed estimands that hold it, and the ``TMLE`` keyword that takes it.
     The message names the holder, the position and the item.  For an item of another kind
-    it names that kind's typed estimands and keyword, and X57 for a joint request.  In a set
+    it names that kind's typed estimands and keyword.  A set that also holds an item of its
+    own kind is a joint request, an ``implementation_gap`` that names X57; otherwise the
+    refusal is an ``api_redirection``.  In a set
     of regimes it also says why the item is not a regime.  A
     :class:`~cleverly.interventions.LearnedRule` is refused in every set, with the estimand
     and the keyword that take it.  A bare value in a shift or
@@ -550,6 +552,7 @@ def refuse_mixed_interventions(
     from .learned import LEARNED_RULE_CONFIGURATION, LearnedRule
 
     text = _KIND_TEXT[kind]
+    items = list(items)
     for position, item in enumerate(items, start=1):
         if isinstance(item, LearnedRule):
             # Not wrapped as a Static level: a learned rule has no fixed density, and its
@@ -577,16 +580,29 @@ def refuse_mixed_interventions(
             )
         other = _KIND_TEXT[found]
         why = _NOT_A_REGIME.get(found, "") if kind == "regime" else ""
-        raise CapabilityError(
+        alternative = (
+            f"{other.estimands} hold that kind in a CausalStudy, and {other.keyword} "
+            "takes it on the estimator."
+        )
+        condition = (
             f"{holder} accepts {text.accepts}, such as {text.example}, and item {position}, "
-            f"{item!r}, is {other.item}.{why} One fit estimates one intervention kind, and "
-            "docs/roadmap.md X57 tracks a joint request.",
+            f"{item!r}, is {other.item}.{why} One fit estimates one intervention kind"
+        )
+        if any(
+            not isinstance(entry, LearnedRule) and _intervention_kind(entry) == kind
+            for entry in items
+        ):
+            # Items of both kinds: a joint fit of two axes, which X57 part (a) holds.
+            raise CapabilityError(
+                f"{condition}, and docs/roadmap.md X57 tracks a joint request.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=f"Fit each kind separately. {alternative}",
+                roadmap="X57",
+            )
+        raise CapabilityError(
+            f"{condition}.",
             reason=RefusalReason.API_REDIRECTION,
-            alternative=(
-                f"{other.estimands} hold that kind in a CausalStudy, and {other.keyword} "
-                "takes it on the estimator."
-            ),
-            roadmap="X57",
+            alternative=alternative,
         )
 
 
@@ -595,7 +611,7 @@ def refuse_mixed_interventions(
 #: refusal serves a population odds tilt and any other estimated density, because the
 #: declaration sees only ``density_kind == "estimated"``, so it names both alternatives.
 _ESTIMATED_DENSITY = Refusal(
-    RefusalReason.INFERENCE_GAP,
+    RefusalReason.IMPLEMENTATION_GAP,
     "a Stochastic regime with an estimated density is refused. For a population-law target "
     "whose g*(a | W) depends on P, the regime influence curve omits its pathwise derivative; "
     "an exact-law odds-tilt witness understates that target's standard error. A realized learned "
@@ -656,7 +672,7 @@ _UNDECLARED_RULE = Refusal(
 
 #: Why a learned treatment rule is refused.  ``_RULE_DECLARATION`` reads it.
 _ESTIMATED_RULE = Refusal(
-    RefusalReason.INFERENCE_GAP,
+    RefusalReason.IMPLEMENTATION_GAP,
     "a treatment rule learned from the analysis sample is refused. A realized learned rule "
     "defines a data-adaptive target, and inference for it needs conditions this API does "
     "not check. For a population-indexed rule, such as a threshold at a sample mean, the "
@@ -704,7 +720,7 @@ _UNDECLARED_INTERVENTION = Refusal(
 #: Why a user-written intervention with an estimated density is refused.
 #: ``_INTERVENTION_DECLARATION`` reads it.
 _ESTIMATED_INTERVENTION = Refusal(
-    RefusalReason.INFERENCE_GAP,
+    RefusalReason.IMPLEMENTATION_GAP,
     "a user-written Intervention with an estimated density is refused. For a population-law "
     "target whose g*(a | W) depends on P, the regime influence curve omits its pathwise "
     "derivative; on an exact witness law, a class that computes the sample-mechanism odds "

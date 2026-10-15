@@ -586,7 +586,6 @@ def _replay_refusal(estimator: Any, estimand: str) -> Refusal | None:
             "the identified effect's method catalog evidences no collaborative score and "
             "no reduced-dimension correction for these observed-law contrasts.",
             alternative="Fit the data with TMLE and replay that fit.",
-            roadmap="F5",
         )
     return None
 

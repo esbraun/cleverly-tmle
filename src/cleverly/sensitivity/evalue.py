@@ -560,23 +560,30 @@ def _reject_unusable_baseline(
     the contrast arm, which is outside the risk-ratio parameter space. Both are refused
     by name rather than reported as an ordinary approximate E-value.
     """
+    # The inner record keeps its code, alternative and roadmap id: the fallback adds a
+    # reason why the approximate route fails too, and the exact route stays the remedy.
     error = baseline.std_error
     if not np.isfinite(error) or baseline.psi <= error:
-        raise _EValueRefusal(
+        raise _refuse(
             AssessmentStatus.UNAVAILABLE,
-            f"{refusal.condition.rstrip('.')}; the reported reference-arm mean "
-            f"{baseline.psi:.4g} is not separated from zero by its own standard error "
-            f"{error:.4g}, so the fixed-baseline conversion has no stable denominator",
-            reason=RefusalReason.INVALID_DECLARATION,
+            replace(
+                refusal,
+                condition=f"{refusal.condition.rstrip('.')}; the reported reference-arm mean "
+                f"{baseline.psi:.4g} is not separated from zero by its own standard error "
+                f"{error:.4g}, so the fixed-baseline conversion has no stable denominator.",
+            ),
         )
     ratio = (baseline.psi + estimate.psi) / baseline.psi
     if not np.isfinite(ratio) or ratio <= 0:
-        raise _EValueRefusal(
+        raise _refuse(
             AssessmentStatus.UNAVAILABLE,
-            f"{refusal.condition.rstrip('.')}; the reported difference {estimate.psi:.4g} "
-            f"against the reference-arm mean {baseline.psi:.4g} implies a nonpositive risk "
-            "in the contrast arm, which no risk ratio describes",
-            reason=RefusalReason.INVALID_DECLARATION,
+            replace(
+                refusal,
+                condition=f"{refusal.condition.rstrip('.')}; the reported difference "
+                f"{estimate.psi:.4g} against the reference-arm mean {baseline.psi:.4g} "
+                "implies a nonpositive risk in the contrast arm, which no risk ratio "
+                "describes.",
+            ),
         )
 
 

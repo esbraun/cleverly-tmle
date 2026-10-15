@@ -163,7 +163,7 @@ from ._nuisance import NuisanceEstimates, fit_inner_designs
 from ._strata import refuse_untrainable_stratum_folds
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .composite import (
-    COMPOSITE_NESTED_REFUSAL,
+    composite_nested_refusal,
     composite_state,
     missing_data_route,
     unidentified_targets,
@@ -1177,7 +1177,6 @@ class DRTMLE(TMLE):
                 "informative, which is precisely the case this variant insures against.",
                 reason=RefusalReason.IMPLEMENTATION_GAP,
                 alternative="Fit DRTMLE or CTMLE alone.",
-                roadmap="F5",
             )
         self._refuse_one_step_nested()
         if data.is_continuous_treatment:
@@ -1244,19 +1243,19 @@ class DRTMLE(TMLE):
                     "evaluation= and nested reduced cross-fitting are not certified.",
                     reason=RefusalReason.IMPLEMENTATION_GAP,
                     alternative="Drop evaluation= and reduced_crossfit='nested'.",
-                    roadmap="F5",
                 )
         if (
             route == "composite"
             and self.guard
             and (self.evaluation is not None or self.reduced_crossfit != "pooled")
         ):
+            refusal = composite_nested_refusal(self)
             raise CapabilityError(
                 "the composite-indicator DR-TMLE for an observational missing outcome or "
-                f"treatment does not take these settings. {COMPOSITE_NESTED_REFUSAL.condition}",
-                reason=COMPOSITE_NESTED_REFUSAL.reason,
-                alternative=COMPOSITE_NESTED_REFUSAL.alternative,
-                roadmap=COMPOSITE_NESTED_REFUSAL.roadmap,
+                f"treatment does not take these settings. {refusal.condition}",
+                reason=refusal.reason,
+                alternative=refusal.alternative,
+                roadmap=refusal.roadmap,
             )
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms)
         if data.has_missing_treatment and (self.estimands is None or self.estimands == "all"):

@@ -198,7 +198,7 @@ _DRTMLE_BOUND_REFUSAL = Refusal(
     "mechanism is wrong, which is the case DR-TMLE guards against. The bound would be too "
     "narrow and the robustness value too large. " + _NO_NU2_DERIVATION,
     alternative="Fit the ordinary TMLE on the same data for the bound.",
-    roadmap="F5",
+    roadmap="X50",
 )
 
 _CTMLE_BOUND_REFUSAL = Refusal(
@@ -212,7 +212,7 @@ _CTMLE_BOUND_REFUSAL = Refusal(
     "declared covariate. The product sigma^2 nu^2 belongs to no single conditioning set, "
     "and the collaborative robustness value is optimistic by construction. " + _NO_NU2_DERIVATION,
     alternative="Fit the ordinary TMLE on the same data for the bound.",
-    roadmap="F5",
+    roadmap="X51",
 )
 
 #: The same refusal for the one collaborative fit that selects nothing. Its mechanism is
@@ -413,6 +413,7 @@ _MISSING_TREATMENT_BOUND_REFUSAL = Refusal(
     "whose representer and confounding strengths are not derived. Roadmap X9 owns the "
     "representers that carry a second mechanism.",
     alternative="Call evalue(result) on the same fit, which has no missing-treatment rule.",
+    roadmap="X9",
 )
 
 

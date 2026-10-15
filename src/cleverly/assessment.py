@@ -3890,6 +3890,9 @@ class SensitivityFacade(_CapabilityFacade):
                 RefusalReason.IMPLEMENTATION_GAP,
                 "no longitudinal benchmarking derivation is registered",
                 alternative=NO_ALTERNATIVE,
+                # F16 part (c) holds the omitted-variable bound on a longitudinal fit,
+                # which a benchmark calibrates.
+                roadmap="F16",
             )
             if longitudinal
             else declared_refusal

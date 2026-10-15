@@ -130,7 +130,8 @@ def point_study_or_refuse(result: Any, error: ReplayError) -> Any:
     except DataError as cause:
         # Only data-contract failures describe corrupted provenance. Programming errors
         # and user-callback exceptions must retain their original type and traceback.
-        context = error.condition if isinstance(error, Refusal) else error
+        # A record's condition ends with a full stop, and the join adds a colon.
+        context = error.condition.rstrip(".") if isinstance(error, Refusal) else error
         raise CapabilityError(
             f"{context}: {cause.refusal.condition}",
             reason=cause.refusal.reason,

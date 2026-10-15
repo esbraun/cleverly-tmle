@@ -155,13 +155,16 @@ CASES = {
     ),
     RefusalReason.INFERENCE_GAP: Case(
         RefusalReason.INFERENCE_GAP,
-        lambda: _estimate(
-            RegimeMean((Rule(_treat_when_w1_is_high, name="learned", rule_kind="estimated"),))
+        lambda: _missing_outcome_study().estimate(
+            ATE(),
+            missingness_learner=CountingLogistic(max_iter=200),
+            n_bootstrap=20,
+            **{**_learners(), "cross_fit": True},
         ),
-        "a treatment rule learned from the analysis sample is refused.",
-        "Fix the rule before the fit, or learn it on data independent of the analysis "
-        "sample, and declare rule_kind='known'.",
-        "X11",
+        "Cross-fitted TMLE of arm-indexed means and contrasts with missing outcomes supports "
+        "one audited stacked CV-TMLE contract. No audited result covers bootstrap inference.",
+        "Set n_bootstrap=0 (Inference(n_bootstrap=0)).",
+        "F2",
         whole=False,
     ),
     RefusalReason.API_REDIRECTION: Case(
@@ -172,6 +175,13 @@ CASES = {
         "A point-treatment functional fits tmle, drtmle or collaborative_tmle.",
     ),
 }
+
+
+def _missing_outcome_study() -> CausalStudy:
+    return CausalStudy(
+        discrete_law_mar.frame(),
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",), missingness="Delta"),
+    )
 
 
 def _incremental() -> Any:
@@ -241,6 +251,22 @@ class TestOneRefusalPerCodeBeforeAnyFit:
         assert Counting.calls > 0
         assert result is not None
 
+    def test_an_estimated_rule_is_an_implementation_gap_that_names_its_roadmap_item(
+        self,
+    ) -> None:
+        """No estimator of a sample-learned regime runs, so the code is a gap, not inference."""
+        error = _refused(
+            lambda: _estimate(
+                RegimeMean((Rule(_treat_when_w1_is_high, name="learned", rule_kind="estimated"),))
+            )
+        )
+        assert Counting.calls == 0
+        assert error.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+        assert error.refusal.roadmap == "X11"
+        assert error.refusal.condition.startswith(
+            "a treatment rule learned from the analysis sample is refused."
+        )
+
     def test_a_stratified_cross_fitted_fit_with_missing_outcomes_names_its_roadmap_item(
         self,
     ) -> None:
@@ -265,10 +291,10 @@ class TestOneRefusalPerCodeBeforeAnyFit:
         )
         assert Counting.calls == 0
         assert error.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
-        assert error.refusal.roadmap == "F21"
+        assert error.refusal.roadmap == "X53"
         assert error.refusal.alternative == "Drop strata= from fit (PointTreatment(strata=()))."
         assert str(error).endswith(
-            "No audited result covers baseline strata. F21 in docs/roadmap.md tracks this. "
+            "No audited result covers baseline strata. X53 in docs/roadmap.md tracks this. "
             "Drop strata= from fit (PointTreatment(strata=()))."
         )
 
@@ -308,7 +334,7 @@ class TestTheSensitivityWrappersKeepTheInnerCode:
         monkeypatch.setattr(PointTreatment, "_check_prepared", refuse)
         with pytest.raises(CapabilityError) as raised:
             common_replay.point_study_or_refuse(result, context)
-        _assert_carries(raised.value, inner, prefix="The context record.: ")
+        _assert_carries(raised.value, inner, prefix="The context record: ")
 
     def test_the_provenance_wrapper_leaves_other_errors_alone(
         self, monkeypatch: pytest.MonkeyPatch

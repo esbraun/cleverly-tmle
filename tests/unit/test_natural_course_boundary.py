@@ -106,23 +106,22 @@ SUBJECT = (
         (
             {"fluctuation": "linear"},
             "No audited result covers a fluctuation other than the logistic one here. "
-            "F21 in docs/roadmap.md tracks this. Set fluctuation='logistic'.",
+            "Set fluctuation='logistic'.",
         ),
         (
             {"targeting": "one_step"},
             "No audited result covers a targeting algorithm other than the iterative one "
-            "here. F21 in docs/roadmap.md tracks this. Set targeting='iterative'.",
+            "here. Set targeting='iterative'.",
         ),
         (
             {"target_weights": True},
-            "No audited result covers the weighted fluctuation here. F21 in docs/roadmap.md "
-            "tracks this. Set target_weights=False.",
+            "No audited result covers the weighted fluctuation here. Set target_weights=False.",
         ),
         (
             {"n_bootstrap": 2},
             "No audited bootstrap result covers this fit. X55 in docs/roadmap.md tracks the "
             "in-sample bootstrap with finite-dimensional nuisances, and F2 the bootstrap with "
-            "data-adaptive nuisances. Set n_bootstrap=0.",
+            "data-adaptive or cross-fitted nuisances. Set n_bootstrap=0.",
         ),
     ],
 )
@@ -325,7 +324,7 @@ def test_a_stacked_attributable_fit_meets_the_arm_indexed_strata_refusal(
             _frame(), strata=("stratum",), **STRATA_ROLES
         )
     assert str(caught.value).endswith(
-        "No audited result covers baseline strata. F21 in docs/roadmap.md tracks this. "
+        "No audited result covers baseline strata. X53 in docs/roadmap.md tracks this. "
         "Drop strata= from fit (PointTreatment(strata=()))."
     )
     assert NeverFit.calls == 0
@@ -337,13 +336,12 @@ def test_a_stacked_attributable_fit_meets_the_arm_indexed_strata_refusal(
     [
         (
             {"weights": "weight"},
-            "The stacked contract covers unweighted iid rows. F21 in docs/roadmap.md tracks "
-            "this. Drop weights= from fit, or fit in sample.",
+            "The stacked contract covers unweighted iid rows. Drop weights= from fit, or fit "
+            "in sample.",
         ),
         (
             {"id": "id"},
-            "The stacked contract covers unweighted iid rows. F21 in docs/roadmap.md tracks "
-            "this. Drop id= from fit, or fit in sample.",
+            "The stacked contract covers unweighted iid rows. Drop id= from fit, or fit in sample.",
         ),
     ],
     ids=("weighted", "clustered"),

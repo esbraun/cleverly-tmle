@@ -2135,21 +2135,18 @@ class TMLE:
                 "No audited result covers the linear fluctuation.",
                 "Set fluctuation='logistic' (Targeting(fluctuation='logistic')).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
-                roadmap="F21",
             )
         if self.targeting != "iterative":
             refuse(
                 "No audited result covers the one-step update.",
                 "Set targeting='iterative' (Targeting(algorithm='iterative')).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
-                roadmap="F21",
             )
         if self.target_weights:
             refuse(
                 "No audited result covers the weighted fluctuation.",
                 "Set target_weights=False (Targeting(target_weights=False)).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
-                roadmap="F21",
             )
         if self.cv_evaluation:
             refuse(
@@ -2157,7 +2154,7 @@ class TMLE:
                 "variance law.",
                 "Set cv_evaluation=False (CrossFitting(fold_evaluation=False)).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
-                roadmap="F21",
+                roadmap="X53",
             )
         conditional = [name for name in estimands if name in ("att", "atc")]
         if conditional:
@@ -2175,7 +2172,6 @@ class TMLE:
                 "estimand silently.",
                 f"Request estimands from {admitted}.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
-                roadmap="F21",
             )
         if data.family != "binomial" and self.q_bounds is None:
             refuse(
@@ -2190,14 +2186,13 @@ class TMLE:
                 "Leave split_plan=None (CrossFitting(split_plan=None)) for package-generated "
                 "folds.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
-                roadmap="F21",
+                roadmap="X53",
             )
         if self.repeats != 1:
             refuse(
-                "No direct interval result covers the repeated-split report after CV-TMLE "
-                "targeting.",
+                "No audited result covers the median over repeated splits after CV-TMLE targeting.",
                 "Set repeats=1 (CrossFitting(repeats=1)).",
-                code=RefusalReason.INFERENCE_GAP,
+                code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X53",
             )
         if self.targeting_scheme != "pooled":
@@ -2213,7 +2208,6 @@ class TMLE:
                 "Drop weights= from fit (PointTreatment(weights=None)), or "
                 f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
-                roadmap="F21",
             )
         if data.cluster is not None:
             refuse(
@@ -2221,14 +2215,13 @@ class TMLE:
                 "Drop id= from fit (PointTreatment(cluster=None)), or "
                 f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
-                roadmap="F21",
             )
         if data.has_strata:
             refuse(
                 "No audited result covers baseline strata.",
                 "Drop strata= from fit (PointTreatment(strata=())).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
-                roadmap="F21",
+                roadmap="X53",
             )
         if self.n_bootstrap:
             refuse(
@@ -2308,85 +2301,84 @@ class TMLE:
             )
             if self._assessment_method == "drtmle" and not getattr(self, "guard", True):
                 remedy += " guard=() is the ordinary TMLE, so use TMLE."
+            # X50 part (c) holds the DR-TMLE route, and X51 part (a) the C-TMLE points.
+            variant_item = "X50" if self._assessment_method == "drtmle" else "X51"
             refuse(
                 "The C-TMLE selector strategies, the shared outcome-adaptive design "
                 "and DR-TMLE need separate targeting and inference results. X51 in "
                 "docs/roadmap.md tracks the C-TMLE point estimates, and X50 the DR-TMLE route.",
                 remedy,
                 code=RefusalReason.IMPLEMENTATION_GAP,
-                roadmap="X51",
+                roadmap=variant_item,
             )
         if self.repeats != 1:
             refuse(
-                "The repeated-split report has no audited interval for this fit.",
+                "No audited result covers the median over repeated splits for this fit.",
                 "Set repeats=1.",
-                code=RefusalReason.INFERENCE_GAP,
-                roadmap="F21",
+                code=RefusalReason.IMPLEMENTATION_GAP,
+                roadmap="X53",
             )
         if self.cross_fit and self.targeting_scheme != "pooled":
             refuse(
                 "The cross-fitted estimator requires targeting_scheme='pooled'.",
                 "Set targeting_scheme='pooled'.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
-                roadmap="F21",
+                roadmap="X53",
             )
         if self.cross_fit and self.cv_evaluation:
             refuse(
                 "The cross-fitted estimator requires cv_evaluation=False.",
                 "Set cv_evaluation=False.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
-                roadmap="F21",
+                roadmap="X53",
             )
         if self.cross_fit and self.split_plan is not None:
             refuse(
                 "The cross-fitted estimator requires package-generated folds.",
                 "Leave split_plan=None.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
-                roadmap="F21",
+                roadmap="X53",
             )
         if self.fluctuation != "logistic":
             refuse(
                 "No audited result covers a fluctuation other than the logistic one here.",
                 "Set fluctuation='logistic'.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
-                roadmap="F21",
             )
         if self.targeting != "iterative":
             refuse(
                 "No audited result covers a targeting algorithm other than the iterative one here.",
                 "Set targeting='iterative'.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
-                roadmap="F21",
             )
         if self.target_weights:
             refuse(
                 "No audited result covers the weighted fluctuation here.",
                 "Set target_weights=False.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
-                roadmap="F21",
             )
         if self.n_bootstrap:
+            # X55 part (a) holds the in-sample bootstrap, and F2 the cross-fitted one.
+            bootstrap_item = "F2" if self.cross_fit else "X55"
             refuse(
                 "No audited bootstrap result covers this fit. X55 in docs/roadmap.md tracks "
                 "the in-sample bootstrap with finite-dimensional nuisances, and F2 the "
-                "bootstrap with data-adaptive nuisances.",
+                "bootstrap with data-adaptive or cross-fitted nuisances.",
                 "Set n_bootstrap=0.",
                 code=RefusalReason.INFERENCE_GAP,
-                roadmap="X55",
+                roadmap=bootstrap_item,
             )
         if self.cross_fit and (data.weights_name is not None or data.is_weighted):
             refuse(
                 "The stacked contract covers unweighted iid rows.",
                 "Drop weights= from fit, or fit in sample.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
-                roadmap="F21",
             )
         if self.cross_fit and data.cluster is not None:
             refuse(
                 "The stacked contract covers unweighted iid rows.",
                 "Drop id= from fit, or fit in sample.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
-                roadmap="F21",
             )
         if data.has_intermediate:
             refuse(
@@ -2400,7 +2392,7 @@ class TMLE:
                     "The cross-fitted estimator requires a binary outcome.",
                     "Fit in sample with cross_fit=False and declare q_bounds.",
                     code=RefusalReason.IMPLEMENTATION_GAP,
-                    roadmap="F21",
+                    roadmap="X53",
                 )
             if self.q_bounds is None:
                 refuse(
@@ -3001,7 +2993,6 @@ class TMLE:
                     "IPSI(regimens=[DynamicRegimen('tilt, Z=z', (Incremental(delta), z))]), "
                     "fitted on the frame with treatment=[A, Z]."
                 ),
-                roadmap="X57",
             )
 
     def _check_policies(self, data: CausalData) -> None:
@@ -3041,14 +3032,17 @@ class TMLE:
                 else ""
             )
             raise DataError(
-                f"{data.treatment_name} was declared continuous, so it has no arms and "
-                "none of the arm-indexed estimands name a parameter it has.",
-                reason=RefusalReason.API_REDIRECTION,
+                f"{data.treatment_name} was declared continuous, so an arm-indexed estimand "
+                "names one fixed dose. The mean outcome under a fixed dose is not pathwise "
+                "differentiable, so no regular estimator of it exists.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
                 alternative=(
-                    "Say which doses to compare with policies=[Shift(delta, cap=...), ...]; "
-                    "Shift(0.0, cap=None) is the natural course, whose mean is E[Y]. Or, "
-                    "with every outcome observed and no intermediate=, declare an MSM with a "
-                    f"dose integration grid.{in_sample}"
+                    "Each of these pathwise-differentiable targets answers a different "
+                    "question. policies=[Shift(0.5, cap=None)] is the mean outcome when every "
+                    "received dose rises by 0.5, and Shift(0.0, cap=None) is the natural "
+                    "course, whose mean is E[Y]. With every outcome observed and no "
+                    "intermediate=, msm=MSM.linear(doses=[0.0, 0.5, 1.0]) projects the "
+                    f"dose-response curve at those doses onto a line.{in_sample}"
                 ),
             )
 

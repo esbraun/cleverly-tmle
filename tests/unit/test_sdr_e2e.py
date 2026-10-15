@@ -144,7 +144,7 @@ def test_r2_refuses_each_fluctuation_setting_by_name(setting: str) -> None:
     with pytest.raises(MethodConfigurationError) as raised:
         SDR(PAIR, **{setting: 0.1})
     assert str(raised.value) == sdr_no_fluctuation_refusal(setting).message()
-    assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
+    assert raised.value.refusal.reason is RefusalReason.INVALID_DECLARATION
 
 
 def test_r2_leaves_an_unknown_keyword_to_the_shared_refusal() -> None:
