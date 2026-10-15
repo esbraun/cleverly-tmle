@@ -54,6 +54,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-mar-drtmle",
     reference="drtmle-r-mar",
+    comparison="different estimator",
     modules=(
         "tests/studies/canonical_mar_drtmle.py",
         "tests/studies/mar_drtmle_properties.py",

@@ -9,7 +9,9 @@
 pins these things:
 
 * ``identify`` refuses an item of another kind with ``CapabilityError``, names the field, the
-  item and the typed estimands for its kind, and cites X57;
+  item and the typed estimands for its kind. A set that mixes two kinds is a joint request,
+  an ``implementation_gap`` that cites X57; a set of the other kind alone is an
+  ``api_redirection`` with no roadmap item;
 * ``identify`` refuses a mapping, a string or a bare item as a point set with ``DataError``;
 * no learner fits before either refusal;
 * the estimator keeps a second guard on ``interventions=``, ``policies=`` and ``incremental=``;
@@ -40,7 +42,7 @@ from cleverly import (
 )
 from cleverly.datasets import make_shift_dose
 from cleverly.estimators import TMLE
-from cleverly.exceptions import CapabilityError, DataError
+from cleverly.exceptions import CapabilityError, DataError, RefusalReason
 from cleverly.interventions import Incremental, Rule, Shift, Static, Stochastic
 from cleverly.interventions import base as base_module
 from cleverly.interventions.base import _NOT_A_REGIME
@@ -140,7 +142,7 @@ MIXED = {
         IncrementalMean((Static(1),)),
         CapabilityError,
         "IncrementalMean.interventions",
-        ("item 1", REGIME, X57),
+        ("item 1", REGIME),
         1,
     ),
     "shift in an incremental set": Request(
@@ -299,6 +301,21 @@ class TestAMixedRequestIsRefusedAtIdentify:
         for why in _NOT_A_REGIME.values():
             assert why.strip() not in str(raised.value)
 
+    def test_a_mixed_set_is_a_gap_and_a_misplaced_set_is_a_redirection(self) -> None:
+        for name, row in MIXED.items():
+            if "Write it as an object" in " ".join(row.route):
+                continue
+            with pytest.raises(CapabilityError) as raised:
+                identify(row)
+            record = raised.value.refusal
+            if name == "regime alone in an incremental set":
+                assert record.reason is RefusalReason.API_REDIRECTION
+                assert record.roadmap is None
+                assert "X57" not in str(raised.value)
+            else:
+                assert record.reason is RefusalReason.IMPLEMENTATION_GAP, name
+                assert record.roadmap == "X57", name
+
     def test_no_message_calls_an_intervention_something_else(self) -> None:
         for row in MIXED.values():
             with pytest.raises(CapabilityError) as raised:
@@ -319,7 +336,7 @@ class TestTheEstimatorKeepsASecondGuard:
             (
                 "interventions",
                 (Shift(0.5, cap=None),),
-                ("interventions=", "item 1", SHIFT, "TMLE(policies=...)", X57),
+                ("interventions=", "item 1", SHIFT, "TMLE(policies=...)"),
             ),
             (
                 "incremental",

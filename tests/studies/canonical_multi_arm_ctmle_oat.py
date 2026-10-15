@@ -51,6 +51,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-multi-arm-ctmle-oat",
     reference="ctmle3-multi-arm-oat",
+    comparison="matching implementation",
     publication_policy="reporting",
     modules=(
         "tests/studies/multi_arm_common.py",

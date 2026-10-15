@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cleverly.exceptions import CapabilityError, DataError, NotFittedError
+from cleverly.exceptions import CapabilityError, DataError, NotFittedError, RefusalReason
 from cleverly.utils.parallel import map_parallel
 from cleverly.validation._failures import failure_call, recordable
 from tests.studies.evidence import replication
@@ -123,7 +123,12 @@ def test_a_rejected_row_is_an_invalid_result() -> None:
 
 @pytest.mark.parametrize(
     "error",
-    [TypeError("bug"), KeyError("bug"), ValueError("ours"), CapabilityError("no")],
+    [
+        TypeError("bug"),
+        KeyError("bug"),
+        ValueError("ours"),
+        CapabilityError("no", reason=RefusalReason.INVALID_DECLARATION),
+    ],
     ids=lambda error: type(error).__name__,
 )
 def test_a_non_recordable_error_stops_the_run_with_its_class(error: BaseException) -> None:
@@ -292,7 +297,7 @@ class TestTheClassifier:
     def test_cleverly_runtime_errors_and_subclasses_are_fatal(self) -> None:
         assert not recordable(_raised(lambda: (_ for _ in ()).throw(RuntimeError("ours"))))
         assert not recordable(NotFittedError("x"))
-        assert not recordable(CapabilityError("x"))
+        assert not recordable(CapabilityError("x", reason=RefusalReason.INVALID_DECLARATION))
 
     def test_a_numpy_error_raised_in_c_under_our_frame_is_fatal(self) -> None:
         def ours() -> None:
@@ -382,6 +387,7 @@ def test_induced_records_name_the_subject_group() -> None:
         n=50,
         seed=1,
         reference="R ref",
+        comparison="matching implementation",
     )
     outcomes = _call(KEYS, _singular_on({("a", 4)}), seed_of=lambda key: 7)
     subject = outcomes.failures.assign(scenarios="law")
@@ -395,4 +401,6 @@ def test_induced_records_name_the_subject_group() -> None:
     ]
     assert "test/a/r000000004" in induced.loc[0, "message"]
     with pytest.raises(ValueError, match="no reference"):
-        failures.induced(subject, record=dataclasses.replace(record, reference=None))
+        failures.induced(
+            subject, record=dataclasses.replace(record, reference=None, comparison=None)
+        )

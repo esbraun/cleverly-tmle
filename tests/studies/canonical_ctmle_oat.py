@@ -64,6 +64,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-ctmle-oat",
     reference="tlverse-ctmle3-oat",
+    comparison="matching implementation",
     publication_policy="reporting",
     modules=(
         "tests/studies/canonical_ctmle_oat.py",

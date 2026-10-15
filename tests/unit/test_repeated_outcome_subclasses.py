@@ -23,7 +23,7 @@ import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 import cleverly
-from cleverly.exceptions import CapabilityError
+from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.interventions import Incremental
 from cleverly.longitudinal import LTMLE, Repeated
 from cleverly.longitudinal import estimator as sequential
@@ -197,14 +197,14 @@ def test_an_allowlist_that_accepts_every_kind_lets_a_foreign_kind_through(
 
 def test_the_refusal_names_the_kinds_of_the_allowlist(monkeypatch: Any) -> None:
     monkeypatch.setattr(sequential, "REPEATED_OUTCOME_KINDS", frozenset({"tmle"}))
-    assert sequential.repeated_outcome_refusal("SDR") == (
+    refusal = sequential.repeated_outcome_refusal("SDR")
+    assert refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+    assert refusal.message() == (
         "SDR has no per-horizon reduction for a repeated outcome (outcome=Repeated([...])). "
-        "LTMLE fits one; each horizon is the end-of-study fit of the panel truncated after it"
+        "X32b in docs/roadmap.md tracks this. LTMLE fits one. Each horizon is the "
+        "end-of-study fit of the panel truncated after it."
     )
     monkeypatch.setattr(sequential, "REPEATED_OUTCOME_KINDS", frozenset({"tmle", "ipsi"}))
-    assert sequential.repeated_outcome_refusal("SDR").startswith(
-        "SDR has no per-horizon reduction for a repeated outcome"
-    )
-    assert "IPSI and LTMLE fit one;" in sequential.repeated_outcome_refusal("SDR")
+    assert "IPSI and LTMLE fit one." in sequential.repeated_outcome_refusal("SDR").message()
     monkeypatch.setattr(sequential, "REPEATED_OUTCOME_KINDS", frozenset({"tmle", "ipsi", "sdr"}))
-    assert "IPSI, LTMLE and SDR fit one;" in sequential.repeated_outcome_refusal("X")
+    assert "IPSI, LTMLE and SDR fit one." in sequential.repeated_outcome_refusal("X").message()

@@ -49,7 +49,7 @@ from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
 COVARIATES = ["W1", "W2", "W3"]
 DOSES = (-1.0, 0.0, 0.5, 1.0, 2.0)
-X10 = "docs/roadmap.md X10"
+X10 = "X10 in docs/roadmap.md"
 GRID = "at each dose of the integration grid"
 RESPONSE = "P(Delta = 1 | dose, W)"
 INTERMEDIATE = "P(Z = z | dose, W)"

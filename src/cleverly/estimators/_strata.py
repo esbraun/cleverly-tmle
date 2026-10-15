@@ -10,6 +10,7 @@ root.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -325,8 +326,13 @@ def check_stratified_msm_design(msm: object, data: CausalData) -> None:
         try:
             evaluated.subset(rows)
         except DataError as error:
-            raise DataError(
-                f"inside baseline stratum {data.stratum_label(code)}: {error}"
+            inner = error.refusal
+            raise DataError.from_refusal(
+                replace(
+                    inner,
+                    condition=f"inside baseline stratum {data.stratum_label(code)}: "
+                    f"{inner.condition}",
+                )
             ) from error
 
 

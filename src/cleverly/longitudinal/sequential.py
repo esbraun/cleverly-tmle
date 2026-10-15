@@ -129,7 +129,7 @@ from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.validate import arm_indicators
 from ..data.weighting import effective_sample_size
 from ..estimators._nuisance import cross_fit_predictions
-from ..exceptions import CapabilityError, DataError, LongitudinalError
+from ..exceptions import CapabilityError, DataError, LongitudinalError, RefusalReason
 from ..fluctuation.iterative import (
     Fluctuation,
     InitialFit,
@@ -1111,9 +1111,12 @@ def preflight_known_mechanisms(
                     f"{plan.label!r} leaves the truncation bounds g_bounds=[{lower:.4g}, "
                     f"{upper:.4g}] first at node {time} on {int(np.count_nonzero(moved))} "
                     f"following row(s) (smallest {float(np.min(values)):.4g}). Truncating a "
-                    "known design mechanism moves the estimate with no variance reason. Pass "
-                    "g_bounds=(lower, upper) that contains every declared cumulative "
-                    "probability, such as a lower bound below the smallest one."
+                    "known design mechanism moves the estimate with no variance reason.",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                    alternative=(
+                        "Pass g_bounds=(lower, upper) that contains every declared cumulative "
+                        "probability, such as a lower bound below the smallest one."
+                    ),
                 )
 
 

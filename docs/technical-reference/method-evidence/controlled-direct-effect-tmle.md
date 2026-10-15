@@ -41,18 +41,20 @@ inference scales.
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome MAR observed law, intervention sets the intermediate to zero | `ate` | average treatment effect | -3.126e-10 | 3.927e-08 | 1.0000 | 0 | 2.202e-09 vs 0.0500 | equivalent |
-| binary-outcome MAR observed law, intervention sets the intermediate to zero | `ey0` | counterfactual mean under no treatment | 3.204e-10 | 4.988e-08 | 1.0000 | 0 | 3.398e-09 vs 0.0500 | equivalent |
-| binary-outcome MAR observed law, intervention sets the intermediate to zero | `ey1` | counterfactual mean under treatment | 7.840e-12 | 1.735e-09 | 1.0000 | 0 | 7.079e-11 vs 0.0500 | equivalent |
-| binary-outcome MAR observed law, intervention sets the intermediate to zero | `or` | marginal odds ratio, reported on the log scale | -6.157e-10 | 3.543e-08 | 1.0000 | 0 | 3.092e-09 vs 0.0500 | equivalent |
-| binary-outcome MAR observed law, intervention sets the intermediate to zero | `rr` | marginal risk ratio, reported on the log scale | -2.613e-10 | 2.896e-08 | 1.0000 | 0 | 1.672e-09 vs 0.0500 | equivalent |
-| binary-outcome MAR observed law, intervention sets the intermediate to one | `ate` | average treatment effect | 5.451e-13 | 7.861e-11 | 1.0000 | 0 | 5.265e-10 vs 0.0500 | equivalent |
-| binary-outcome MAR observed law, intervention sets the intermediate to one | `ey0` | counterfactual mean under no treatment | -9.426e-12 | 2.230e-09 | 1.0000 | 0 | 7.966e-10 vs 0.0500 | equivalent |
-| binary-outcome MAR observed law, intervention sets the intermediate to one | `ey1` | counterfactual mean under treatment | -8.881e-12 | 1.625e-09 | 1.0000 | 0 | 3.178e-10 vs 0.0500 | equivalent |
-| binary-outcome MAR observed law, intervention sets the intermediate to one | `or` | marginal odds ratio, reported on the log scale | 8.124e-11 | 6.819e-10 | 1.0000 | 0 | 6.197e-10 vs 0.0500 | equivalent |
-| binary-outcome MAR observed law, intervention sets the intermediate to one | `rr` | marginal risk ratio, reported on the log scale | 6.593e-11 | 1.992e-09 | 1.0000 | 0 | 9.517e-10 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `tmle-r-cde` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome MAR observed law, intervention sets the intermediate to zero | `ate` | average treatment effect | -3.126e-10 | 3.927e-08 | 1.0000 | 0 | matching implementation | 2.202e-09 vs 0.0500 | equivalent |
+| binary-outcome MAR observed law, intervention sets the intermediate to zero | `ey0` | counterfactual mean under no treatment | 3.204e-10 | 4.988e-08 | 1.0000 | 0 | matching implementation | 3.398e-09 vs 0.0500 | equivalent |
+| binary-outcome MAR observed law, intervention sets the intermediate to zero | `ey1` | counterfactual mean under treatment | 7.840e-12 | 1.735e-09 | 1.0000 | 0 | matching implementation | 7.079e-11 vs 0.0500 | equivalent |
+| binary-outcome MAR observed law, intervention sets the intermediate to zero | `or` | marginal odds ratio, reported on the log scale | -6.157e-10 | 3.543e-08 | 1.0000 | 0 | matching implementation | 3.092e-09 vs 0.0500 | equivalent |
+| binary-outcome MAR observed law, intervention sets the intermediate to zero | `rr` | marginal risk ratio, reported on the log scale | -2.613e-10 | 2.896e-08 | 1.0000 | 0 | matching implementation | 1.672e-09 vs 0.0500 | equivalent |
+| binary-outcome MAR observed law, intervention sets the intermediate to one | `ate` | average treatment effect | 5.451e-13 | 7.861e-11 | 1.0000 | 0 | matching implementation | 5.265e-10 vs 0.0500 | equivalent |
+| binary-outcome MAR observed law, intervention sets the intermediate to one | `ey0` | counterfactual mean under no treatment | -9.426e-12 | 2.230e-09 | 1.0000 | 0 | matching implementation | 7.966e-10 vs 0.0500 | equivalent |
+| binary-outcome MAR observed law, intervention sets the intermediate to one | `ey1` | counterfactual mean under treatment | -8.881e-12 | 1.625e-09 | 1.0000 | 0 | matching implementation | 3.178e-10 vs 0.0500 | equivalent |
+| binary-outcome MAR observed law, intervention sets the intermediate to one | `or` | marginal odds ratio, reported on the log scale | 8.124e-11 | 6.819e-10 | 1.0000 | 0 | matching implementation | 6.197e-10 vs 0.0500 | equivalent |
+| binary-outcome MAR observed law, intervention sets the intermediate to one | `rr` | marginal risk ratio, reported on the log scale | 6.593e-11 | 1.992e-09 | 1.0000 | 0 | matching implementation | 9.517e-10 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 R `tmle` 2.1.1 constructs the observed outcome offset for its native second controlled-effect
@@ -64,7 +66,7 @@ The registered adapter recodes each requested intermediate level to level zero,
 transforms `Z` and `pZ1` together, and selects the first result. The
 [`native-result2-defect.csv`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_cde/native-result2-defect.csv)
 artifact freezes the upstream failure. The standard regeneration command recreates it from the
-generated sample and truth. The manifest hashes both the probe and the artifact. The paired table
+generated sample and truth. The manifest hashes both the probe and the artifact. The comparator-backed paired table
 above validates the recoded result.
 
 ## Theory properties
