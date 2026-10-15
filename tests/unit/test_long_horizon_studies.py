@@ -110,3 +110,19 @@ def test_the_declared_runner_is_a_stub_that_stops(study: object) -> None:
     text = source.decode("utf-8")
     assert "X59" in text
     assert re.search(r"^stop\(", text, re.M)
+
+
+@pytest.mark.parametrize("study", STUDIES[1:], ids=lambda module: module.STUDY.slug)
+def test_the_cross_fitted_scenario_compares_a_different_estimator(study: object) -> None:
+    """The shipped SDR study and S2 label their cross-fitted scenario so (review minor 4).
+
+    The comparison label enters the declaration hash, so it is set before the declaration.
+    """
+    record = study.STUDY  # type: ignore[attr-defined]
+    crossfit = next(s for s in study.SCENARIOS if s.name.endswith("k5_crossfit"))  # type: ignore[attr-defined]
+    for estimand in record.scenarios[crossfit.name]:
+        assert record.comparison_kind(crossfit.name, estimand) == "different estimator"
+    others = [s for s in study.SCENARIOS if s is not crossfit]  # type: ignore[attr-defined]
+    for scenario in others:
+        for estimand in record.scenarios[scenario.name]:
+            assert record.comparison_kind(scenario.name, estimand) == "matching implementation"

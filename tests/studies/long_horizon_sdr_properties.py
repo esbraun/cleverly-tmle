@@ -18,7 +18,8 @@ family                                   cells
                                          controls, and each paired policy contrast with its
                                          ``inflated_se_control``
 ``root_n_and_efficiency``, rate rows     ``respond_vs_ref__k4__n_{4000, 12000, 48000}``, three
-                                         arms, on ``L_R``; 4,000 is the control rung
+                                         arms, on ``L_R``; 4,000 is the control rung and
+                                         carries no claim
 ``sequential_double_robustness``         ``P_odd`` and ``P_even`` at 56,000 (gated bias) and at
                                          4,000 (reporting); ``odd_nodes_both_wrong_control``
                                          at 56,000 and ``ltmle_P_odd_control`` at 72,000
@@ -42,13 +43,72 @@ family                                   cells
 **Budgets.**  The replicate counts below are provisional.  The declaration commit sets them from
 the pilots.
 
-**Declared red-cell reading.**  A red calibration positive is a
-finite-sample red only when its 99 percent SE-ratio interval contains 1, its coverage interval
-contains 0.95, and the diagnosis finds no defect; it then goes to an owner row.  Any other red
-calibration row is a defect suspect: diagnose, fix, and re-run under a fresh declaration.  A
-control that passes is a design defect, because its exact displacement is at least 3 sampling
-SDs.  A reporting cell has no verdict; the page prints it beside the exact-law prediction.  A
-recorded fitting failure is accounted under :data:`FAILURE_BOUND`.
+**Declared red-cell reading** (plan section 5.6, before any run).  The study publishes under
+``reporting``.  Its gated truth rows (``GATED_ROWS``) and gated property cells (``GATED_CELLS``)
+are listed in :mod:`tests.long_horizon_design`.  ``tests/unit/test_long_horizon_design.py`` fails
+on any red member of either list once the study commits its summaries.  A row applies to the
+study that declares its family.
+
+=====================================  =========================================================
+red cell                               reading
+=====================================  =========================================================
+a primary truth row                    Only a gated row blocks: a row gates in its gating
+                                       scenario alone, and the same quantity in another
+                                       scenario reports.  Diagnose.  A defect is fixed and the
+                                       run repeats under a fresh declaration.
+a calibration positive                 Finite-sample only when its 99 percent SE-ratio interval
+(``interval_calibration``)             contains 1, its coverage interval contains 0.95, and the
+                                       diagnosis finds no defect; it then goes to an owner row.
+                                       Any other red calibration row is a defect suspect:
+                                       diagnose, fix, re-run under a fresh declaration.  An
+                                       unfixed defect never ends as an owner row.
+a bias-family positive                 Its 99 percent standardized-bias interval does not lie
+(the necessity families,               inside the margin.  Defect suspect: diagnose the
+``sequential_double_robustness``,      estimator, then the law and the learner rung of the
+``double_robustness``)                 design test.  Finite-sample only when the diagnosis finds
+                                       no defect and the interval is wider than the margin
+                                       through R alone; it then goes to an owner row.  The run
+                                       never adds replicates to a red positive.
+a control that passes                  A design defect, because its exact displacement is at
+                                       least 3 sampling SDs.  Diagnose the estimator and the
+                                       design test first.  Fix the control or the law under a
+                                       fresh declaration, never by buying replications or
+                                       lowering its floor.
+the simultaneous band                  Its 99 percent joint-coverage interval leaves (0.92,
+(``simultaneous_coverage``)            0.98).  Defect suspect on either side: below, the critical
+                                       value or the tail regime is wrong; above, the band is
+                                       conservative and the diagnosis names why.  The pointwise
+                                       control must stay below nominal.
+the overfitting positive               Its SE-ratio interval leaves [0.85, 1.20], or the coverage
+(``crossfit_overfitting``)             gain over the in-sample control falls short.  Defect
+                                       suspect: own-row reuse across the K nodes.  The in-sample
+                                       control must fall below the SE-ratio ceiling.
+a root-n rung or slope row             A positive rung (12,000 and 48,000) is red when its
+(``root_n_and_efficiency``,            coverage lower limit is below 0.90, its SE-ratio interval
+``root_n_rate``)                       leaves (0.80, 1.20), or its bias is not established
+                                       inside the margin.  A slope row is red when its interval
+                                       is not within 0.125 of -0.5 or reaches -0.25.  Defect
+                                       suspect, with the rung pilots read first.  The 4,000 rung
+                                       carries no claim at R = 1,000, because its Clopper-
+                                       Pearson interval is narrower than the 0.05 gap between
+                                       the coverage floor and nominal; the page does not list it
+                                       as a control.
+type I error and power                 Size is red when the upper limit of its rejection
+(``type_i_error``, ``power``)          interval exceeds 0.10 or its coverage lower limit falls
+                                       below 0.90.  Power is red when the lower limit of its
+                                       rejection rate is below 0.80.  Defect suspect; the sharp
+                                       null has truth 0 exactly.
+a ``support_loss`` or                  Reporting; no verdict.  The page states the measured
+``learned_mechanism`` cell             values, with the measured binding share per node, beside
+                                       the exact-law prediction.  The two-sided tripwire of the
+                                       plan makes a cell a defect suspect.
+a recorded fitting failure             Accounted by RM39b2's ``require_accounted`` under
+                                       ``FAILURE_BOUND`` = 0.01 and the module's declared clause
+                                       tree.  A cell over the bound is red and diagnosed.
+=====================================  =========================================================
+
+No budget, margin, law, learner, fold count or seed moves after a verdict is seen, except under
+the diagnosed-defect route with a fresh declaration commit.
 """
 
 from __future__ import annotations
