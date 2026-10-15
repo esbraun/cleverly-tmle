@@ -718,7 +718,7 @@ def _solve_fluctuation_ruled(
     if stop is None:
         raise ValueError(STOP_CONTEXT_MISSING)
     if kind == "linear":
-        raise MethodConfigurationError(LINEAR_RULE_REFUSAL)
+        raise MethodConfigurationError.from_refusal(LINEAR_RULE_REFUSAL)
     y = np.asarray(outcome, dtype=float).reshape(-1)
     n = y.shape[0]
     mask = np.ones(n, dtype=bool) if observed is None else np.asarray(observed, dtype=bool)

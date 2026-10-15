@@ -26,6 +26,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .._refusal import Refusal, RefusalReason
 from .._typing import BoolArray, FloatArray, FluctuationKind, IntArray
 from ..exceptions import MethodConfigurationError
 
@@ -52,11 +53,11 @@ STOPPING_RULES = ("relative", "scaled_var", "sample_size")
 
 #: The refusal of a stopping rule (and, once they exist, an iterate or a step bound) beside
 #: ``fluctuation="linear"``, which solves the score equation in one closed-form step.
-# RefusalReason: INVALID_DECLARATION
-LINEAR_RULE_REFUSAL = (
+LINEAR_RULE_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
     "fluctuation='linear' solves the score equation in one closed-form step, so it has no "
     "iterate, stopping rule or step bound to choose. Remove iterate=, stopping= and "
-    "step_bound=, or use fluctuation='logistic'"
+    "step_bound=, or use fluctuation='logistic'",
 )
 
 #: Raised by a solver that is asked to judge a declared rule and holds no
@@ -145,7 +146,7 @@ def check_stopping_rule(stopping: object, fluctuation: FluctuationKind | str) ->
             f"stopping must be 'relative', 'scaled_var' or 'sample_size'; got {stopping!r}"
         )
     if stopping != "relative" and fluctuation == "linear":
-        raise MethodConfigurationError(LINEAR_RULE_REFUSAL)
+        raise MethodConfigurationError.from_refusal(LINEAR_RULE_REFUSAL)
 
 
 @dataclass(frozen=True)

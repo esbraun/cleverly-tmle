@@ -23,6 +23,7 @@ import pandas as pd
 import pytest
 
 from cleverly import Targeting
+from cleverly._refusal import RefusalReason
 from cleverly.estimators import TMLE
 from cleverly.estimators.targeting import TargetingSpec, solve_submodel
 from cleverly.exceptions import ConvergenceWarning, MethodConfigurationError
@@ -713,7 +714,8 @@ class TestRefusals:
             "has no iterate, stopping rule or step bound to choose. Remove iterate=, "
             "stopping= and step_bound=, or use fluctuation='logistic'"
         )
-        assert expected == LINEAR_RULE_REFUSAL
+        assert expected == LINEAR_RULE_REFUSAL.message()
+        assert LINEAR_RULE_REFUSAL.reason is RefusalReason.INVALID_DECLARATION
         for rule in ("scaled_var", "sample_size"):
             with pytest.raises(MethodConfigurationError, match=re.escape(expected)):
                 Targeting(fluctuation="linear", stopping=rule)  # type: ignore[arg-type]

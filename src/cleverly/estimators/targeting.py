@@ -522,7 +522,7 @@ def _solve_submodel_ruled(
     """:func:`solve_submodel` under a declared stopping rule."""
     if spec.targeting == "one_step":
         if carry:
-            raise CapabilityError(ONE_STEP_NESTED_REFUSAL)
+            raise CapabilityError.from_refusal(ONE_STEP_NESTED_REFUSAL)
         return solve_one_step(
             scaled,
             initial,
