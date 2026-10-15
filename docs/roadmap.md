@@ -138,7 +138,6 @@ not change the package version.
 | BD | Worked examples for the shipped methods | no new theory | every row of milestones B0 to B4 and BP | [X68](#x68-worked-examples-for-the-shipped-methods) |
 | BD | Documentation review for new and changed methods | no new theory | every row of milestones B0 to B4 and BP; X68 | [X69](#x69-documentation-review-for-new-and-changed-methods) |
 | B5 | Learned-policy follow-ups | published support for parts (g) and (h); natural extension for parts (i) and (k) to (o); published support; pending source read for parts (a), (b), (e) and (f); source audit for parts (c), (d) and (j) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
-| B5 | Structural dynamic treatment effects | source audit | X41 | [X44](#x44-structural-dynamic-treatment-effects) |
 | B5 | Parametric forward-simulation g-formula | source audit | X41 | [X45](#x45-parametric-forward-simulation-g-formula) |
 | B5 | Longitudinal simulated-confounding replay with a time-fixed latent | natural extension | the shipped point-treatment replay | [X48](#x48-longitudinal-simulated-confounding-replay-with-a-time-fixed-latent) |
 | after beta | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
@@ -168,6 +167,7 @@ not change the package version.
 | after beta | Simulated confounding beyond X47 and X48 | natural extension | X47; X57 for part (c); X50, X51 and X62 for part (h); F5 for a continuous fit in part (f) | [X66](#x66-simulated-confounding-beyond-x47-and-x48) |
 | after beta | Refutation and assessment adapters | no new theory | the shipped `refute` catalog | [X67](#x67-refutation-and-assessment-adapters) |
 | after beta | Repeated outcomes for the sequential baselines | no new theory | the shipped `LTMLE` repeated outcome; X41 | [X71](#x71-repeated-outcomes-for-the-sequential-baselines) |
+| after beta | Static regimen values from structural blips with time-varying features | published support for identification; the inference result is a preprint | the shipped `StructuralNestedMean`; the shipped `LTMLE` | [X72](#x72-static-regimen-values-from-structural-blips-with-time-varying-features) |
 | after beta | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts; a concrete analysis need | [P1](#p1-ep-learner) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -622,16 +622,6 @@ longitudinal support, before using it as a comparator.
 
 Acceptance: a written derivation of the changed terms under the [Eligibility](#eligibility)
 conditions, identity and treatment-score witnesses, a dropout control, and a registered study.
-
-### X44. Structural dynamic treatment effects
-
-EconML's `DynamicDML` estimates sequential treatment effects under structural assumptions that
-differ from general policy-value estimation. Lewis and Syrgkanis (2021), *NeurIPS*, give the
-targets and the assumptions. Assess it as a separate optional method or integration. Compare a
-shared target only where the structural model makes the targets equal, and do not treat a
-structural coefficient as an unrestricted policy value.
-
-Acceptance: a written map of the targets and the assumptions, and the decision whether to ship.
 
 ### X45. Parametric forward-simulation g-formula
 
@@ -1649,6 +1639,28 @@ as it covers several plans.
 
 Acceptance: the exact reduction test for both baselines, and a registered property study of the
 repeated-outcome cells.
+
+### X72. Static regimen values from structural blips with time-varying features
+
+`StructuralNestedMean` fits blips whose features read baseline columns, earlier treatments and
+time-varying covariates. A feature that reads a time-varying covariate allows the blip coefficients
+and the reference mean `ey_reference` only. The estimator refuses a static level, a static
+contrast and `check_model` for such a fit with `IMPLEMENTATION_GAP` and this item.
+
+The static value needs the regimen mean of the feature, $E[\phi_t(H_t(\bar a))]$. That mean
+depends on the law of the covariates under the regimen, which the estimator does not fit.
+Lewis and Syrgkanis (2021), supplement Lemma 6, identifies the value from the blips and that law.
+Their arXiv version, Corollary 9, gives the inference. The proceedings version has no such result.
+
+| part | what to add | published source |
+| --- | --- | --- |
+| (a) | static levels and contrasts when a feature reads a time-varying covariate | the supplement, Lemma 6, and the arXiv version, Corollary 9 |
+| (b) | a stack of the blip coefficients with the `LTMLE` intermediate means $E[\phi_t(H_t(\bar a))]$, as an alternative route to part (a) | a natural extension of the sequential regression of [`LTMLE`](technical-reference/longitudinal-tmle.md) |
+| (c) | the model check for the contrasts of parts (a) and (b) | the same joint Wald construction as the shipped check |
+
+Acceptance: a written derivation of the influence curve under the [Eligibility](#eligibility)
+conditions, an exact-law witness whose feature reads a covariate with a nonzero effect on the
+contrast, a mutation control that drops the covariate-law term, and a registered study cell.
 
 ### P1. EP learner
 

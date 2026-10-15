@@ -266,7 +266,9 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "generated_design_plugin status while OAT_PER_ARM_INFERENTIAL is False, and "
                 "F19 in docs/roadmap.md holds its interval. A sequential g-computation or IPW "
                 "fit with estimated weights takes this status too, because its stacked "
-                "estimating-equation curve conditions on the weights."
+                "estimating-equation curve conditions on the weights. A StructuralNestedMean "
+                "fit with estimated weights takes it for the same reason: its curve treats the "
+                "weights as known."
             ),
             assessment_note=(
                 "the reported curve is a fixed-weight diagnostic: no confidence interval or "
@@ -298,7 +300,11 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "plugin_interval: for g-computation it is the efficient influence curve at the "
                 "untargeted fits, and for IPW it is the fixed-mechanism curve. F35 in "
                 "docs/roadmap.md reopens this when a result supplies the asymptotic linearity "
-                "of these estimators with data-adaptive nuisances."
+                "of these estimators with data-adaptive nuisances. A StructuralNestedMean fit "
+                "with n_folds=1 and a learner other than GLM takes this status too, because no "
+                "result read here covers in-sample adaptive nuisances in a g-estimating "
+                "equation. Cross-fitting, which is the default, gives that estimator its "
+                "interval."
             ),
             assessment_note=(
                 "the reported curve is a baseline diagnostic: no confidence interval or "
