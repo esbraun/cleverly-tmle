@@ -7,7 +7,6 @@ decimals are also compared against its stored outputs.
 
 from __future__ import annotations
 
-from itertools import pairwise
 from typing import Any
 
 import numpy as np
@@ -81,6 +80,9 @@ UNPRINTED_DECIMALS = {
         "coverage of ate_ipsi[odds x2 vs natural course]: "
         "tests/canonical/npcausal_incremental/summary.csv"
     ),
+    "3.2": "a section number of Kennedy (2019), docs/references.md#incremental-interventions",
+    "3.3": "a section number of Kennedy (2019), docs/references.md#incremental-interventions",
+    "4.5": "the capacity of 5 minus the raise of 0.5, the threshold the cap acts on",
     "0.15": "the shift study's curvature, PRIMARY_CURVATURE: tests/studies/canonical_shift_policies.py",
     "0.25": "the curvature of shift_dgp(): src/cleverly/datasets/synthetic.py",
 }
@@ -94,7 +96,7 @@ IPSI = "ate_ipsi[double odds vs current odds]"
 
 
 def check(namespace: dict[str, Any]) -> None:
-    """The three-axis tutorial's truths, support figures, and draw-specific claims hold."""
+    """The three-proposal tutorial's truths, support figures, and draw-specific claims hold."""
     offer_all, screen = namespace["truth"]["ate"], namespace["screen_truth"]
     assert 0.5 * offer_all < screen < offer_all
     # The incremental truth carries g, so it moved when the law's g was bounded. truth.py
@@ -165,6 +167,12 @@ def check(namespace: dict[str, Any]) -> None:
     assert covers(regimes[OFFER_ALL], offer_all)
     assert covers(regimes[SCREEN], screen)
     assert 0.0 < screen - regimes[SCREEN].ci[0] < 0.001
+    # "offer to all minus screen: 0.056 (0.048, 0.065) ... population value 0.057": the gap
+    # comes from the joint influence curve, so its interval is narrower than either contrast's.
+    given_up = namespace["given_up"]
+    assert given_up.psi == pytest.approx(regimes[OFFER_ALL].psi - regimes[SCREEN].psi)
+    assert covers(given_up, offer_all - screen)
+    assert given_up.std_error < min(regimes[OFFER_ALL].std_error, regimes[SCREEN].std_error)
 
     # "`needs attention` is empty" on the regime fit.
     assert not namespace["regime_assessment"].attention
@@ -187,8 +195,11 @@ def check(namespace: dict[str, Any]) -> None:
     smallest = rows["offer to all"].min_support_propensity
     assert smallest < TRUNCATION < 0.05
     assert smallest < 0.01 / rows["offer to all"].max_ratio
-    # "The screen assigns a different arm from the observed arm in 1205 rows ... the same count."
-    assert namespace["screen_load"]["zero_load"] == namespace["off_plan"] > 0
+    # "The screen asks for offers where current practice already offers more often, and its
+    # effective sample size is the largest."
+    assert rows["screen on risk"].effective_sample_size == max(
+        row.effective_sample_size for row in rows.values()
+    )
 
     # Two warnings, for the uncapped policies; the cap of 5 lies below the largest dose, so
     # the capped policy moves no row past it and raises none.
@@ -256,9 +267,6 @@ def check(namespace: dict[str, Any]) -> None:
     assert gap.ci[0] > 0.0
     # "below the standard error of each estimate": the correlation is load-bearing.
     assert gap.std_error < min(shift_result[CAPPED].std_error, shift_result[UNCAPPED].std_error)
-    # "The count is 2 for +0.5 and 3 for +1.0."
-    beyond = {delta: int(np.sum(dose + delta > dose.max())) for delta in (0.5, 1.0)}
-    assert beyond == {0.5: 2, 1.0: 3}
 
     # The incremental interval contains its population value on this draw, 0.9 SE away.
     tilt = namespace["incremental_result"][IPSI]
@@ -271,52 +279,24 @@ def check(namespace: dict[str, Any]) -> None:
     score_rows = incremental.report("score_equations").rows
     assert {row.name for row in score_rows} >= {"ipsi", "ipsi (mechanism)"}
     assert all(row.passed and row.ratio < 0.01 for row in score_rows)
-    # "the outcome-targeting score weight stays between one half and two"; the load describes
-    # the outcome equations only, so the mechanism equation has no row-level load in the report.
-    assert "covariate in [0.5, 2]" in stored_output(NOTEBOOK, "incremental-support")
+    # "the clever covariate stays between one half and two for this multiplier".
     tilts = incremental.report("support")
     assert tilts["double odds"].guaranteed == pytest.approx((0.5, 2.0))
-    assert all(item.score_load["equation"].startswith("h_ipsi") for item in tilts.values())
-    # "The smallest fitted g is 2.66e-06, the same fitted value as in Step 6."
-    assert tilts["double odds"].min_propensity == pytest.approx(smallest, rel=1e-6)
 
-    # The status table of Step 14 prints only the operations that ran or can run.
-    status = namespace["status"]
-    printed = status[namespace["ran"]]
-    assert list(printed.index) == [
-        "validation.score_equations",
-        "validation.support",
-        "validation.nuisance_models",
-        "diagnostics.refute",
-        "sensitivity.simulated_confounding",
-    ]
-    assert printed.loc["validation.support"].to_dict() == {
-        "known regime": "completed",
-        "modified treatment policy": "warning",
-        "incremental intervention": "completed",
-    }
-    assert set(printed.loc["validation.score_equations"]) == {"passed"}
-    assert set(printed.loc["validation.nuisance_models"]) == {"completed"}
-    assert set(printed.loc["sensitivity.simulated_confounding"]) == {"deferred"}
-    assert "unavailable" not in stored_output(NOTEBOOK, "assessment")
-
-    # The treatment-only stress surface: every cell returns, and each flip strength moves the
-    # screen estimate further down.
+    # The treatment-only stress surface: both cells return, and the flip moves the screen
+    # estimate down by 0.029037 (-6.1 standard errors) with a small induced association.
     surface = namespace["surface"]
     cells = sorted(surface.cells, key=lambda cell: cell.treatment_strength)
-    assert [cell.treatment_strength for cell in cells] == [0.0, 0.05, 0.1, 0.2]
+    assert [cell.treatment_strength for cell in cells] == [0.0, 0.1]
     assert all(cell.outcome_strength == 0.0 and cell.failure is None for cell in cells)
-    estimates = [cell.estimate for cell in cells]
-    assert all(later < earlier for earlier, later in pairwise(estimates))
-    assert cells[2].displacement == pytest.approx(-0.0290, abs=0.001)
-    # "The induced association ... stays small in every cell."
+    assert cells[1].estimate < cells[0].estimate
+    assert cells[1].displacement == pytest.approx(-0.0290, abs=0.001)
     for cell in cells:
         assert cell.induced_treatment_association is not None
         assert abs(cell.induced_treatment_association) < 0.1
-    # "A strength of 0.5 sends this score outside the declared support of 0 to 1": the
+    # "An outcome strength ... moves the score outside its declared range of 0 to 1": the
     # witness for why the grid has no outcome axis.
     assert namespace["regime_result"].estimator.q_bounds == (0.0, 1.0)
     latent = np.random.default_rng(surface.latent_seed).normal(size=len(namespace["frame"]))
     perturbed = namespace["frame"]["transition_score"].to_numpy() - 0.5 * latent
     assert perturbed.min() < 0.0 or perturbed.max() > 1.0
-    assert "robustness value refused" not in stored_output(NOTEBOOK, "sensitivity")
