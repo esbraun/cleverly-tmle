@@ -25,6 +25,7 @@ __all__ = [
     "Learner",
     "ParameterAxis",
     "StoppingRule",
+    "SurvivalModel",
     "TargetingMethod",
     "TargetingScheme",
 ]
@@ -52,6 +53,10 @@ StoppingRule = Literal["relative", "scaled_var", "sample_size"]
 #: Which iterate of a targeting walk is reported: the last, or the one of smallest raw score
 #: norm (``tmle3``'s ``use_best``).
 IterateChoice = Literal["last", "best"]
+
+#: How a longitudinal fit models a survival curve.
+SurvivalModel = Literal["iterated_mean", "hazard"]
+
 TargetingScheme = Literal["pooled", "fold"]
 
 #: What the outer cross-fitting folds are balanced on.  ``"none"`` draws a split that

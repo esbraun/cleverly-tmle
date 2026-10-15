@@ -182,7 +182,7 @@ rebuilds this reading from the committed rows.
 
 The default band stays on, and
 [`band-finite-sample`](../../roadmap.md#red-cell-owners) owns the cell.
-[X14](../../roadmap.md#x14-hazard-based-and-monotone-survival-curves) part (b) is a different
+The one-step fit of [hazard-based survival targeting](../longitudinal-tmle.md#hazard-based-survival-targeting) is a different
 construction that supplies a band over the whole curve.
 
 ## Measured values

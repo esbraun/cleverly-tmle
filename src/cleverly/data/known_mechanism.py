@@ -79,8 +79,9 @@ CONTINUOUS_REFUSAL = Refusal(
 #: The refusal of C-TMLE on data that declares the mechanism.
 KNOWN_CTMLE_REFUSAL = Refusal(
     RefusalReason.API_REDIRECTION,
-    "CTMLE selects the treatment mechanism, and the data declares it known, so there is "
-    "nothing to select.",
+    "CTMLE fits the treatment mechanism: its selector strategies select one, and "
+    "strategy='derivative' fits one with a partner mechanism. The data declares it known, so "
+    "there is nothing to select or fit.",
     alternative="Fit TMLE or DRTMLE on the declared data.",
 )
 #: The refusal of the classifier ratio route beside a declared mechanism.

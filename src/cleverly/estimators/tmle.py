@@ -1171,8 +1171,8 @@ class TMLE:
                 self._assessment_method == "collaborative_tmle"
                 # Only a ``CTMLE`` reports this method, and its constructor sets
                 # ``strategy`` before the base constructor asks this policy. The
-                # outcome-adaptive strategy draws no selector folds.
-                and cast("Any", self).strategy != "oat"
+                # outcome-adaptive and derivative strategies draw no selector folds.
+                and cast("Any", self).strategy not in ("oat", "derivative")
             ),
             option_name="cross_fit",
             learned_rule=self.learned_rule is not None,

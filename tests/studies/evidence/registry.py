@@ -434,6 +434,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_crossfit_longitudinal_msm import (
         STUDY as CROSSFIT_LONGITUDINAL_MSM,
     )
+    from tests.studies.canonical_ctmle_derivative import STUDY as CANONICAL_CTMLE_DERIVATIVE
     from tests.studies.canonical_ctmle_oat import STUDY as CANONICAL_CTMLE_OAT
     from tests.studies.canonical_ctmle_oat_per_arm import STUDY as CTMLE_OAT_PER_ARM
     from tests.studies.canonical_ctmle_oat_per_arm_strata_missing import (
@@ -498,6 +499,11 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_point_survival_crossfit import (
         STUDY as POINT_SURVIVAL_CROSSFIT,
     )
+    from tests.studies.canonical_point_survival_curve import STUDY as POINT_SURVIVAL_CURVE
+    from tests.studies.canonical_point_survival_curve_crossfit import (
+        STUDY as POINT_SURVIVAL_CURVE_CROSSFIT,
+    )
+    from tests.studies.canonical_point_survival_hazard import STUDY as POINT_SURVIVAL_HAZARD
     from tests.studies.canonical_point_survival_policies import (
         STUDY as POINT_SURVIVAL_POLICIES,
     )
@@ -556,6 +562,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_CTMLE_SELECTOR,
         CANONICAL_MULTI_ARM_CTMLE_SELECTOR,
         CANONICAL_CTMLE_SEQUENCES,
+        CANONICAL_CTMLE_DERIVATIVE,
         CANONICAL_CTMLE_OAT,
         CANONICAL_MULTI_ARM_CTMLE_OAT,
         CANONICAL_DRTMLE,
@@ -595,6 +602,9 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_LTMLE_REPEATED,
         POINT_SURVIVAL,
         POINT_SURVIVAL_CROSSFIT,
+        POINT_SURVIVAL_HAZARD,
+        POINT_SURVIVAL_CURVE,
+        POINT_SURVIVAL_CURVE_CROSSFIT,
         POINT_SURVIVAL_POLICIES,
         KNOWN_MECHANISM,
         KNOWN_MECHANISM_DRTMLE,
