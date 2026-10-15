@@ -2000,7 +2000,7 @@ class StructuralNestedMeanResult:
             )
             # The split is this fit's own, so both estimators hold out the same rows.
             shared = self.folds
-            nonparametric_fit._folds = lambda _data: shared  # type: ignore[method-assign]
+            nonparametric_fit._folds = lambda _data: shared  # type: ignore[assignment]
             fit = nonparametric_fit.fit(data)
         names = tuple(name for name, kind in self.kinds.items() if kind == "contrast")
         for name in names:
