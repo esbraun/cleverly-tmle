@@ -42,11 +42,26 @@ prognosis, U-shaped, steep, the bounded outcome ``Y = 2 + 8 B``, and ``binary_ac
   enters the gate through the ATE row of the shared-prognosis cell, which the dropped cross term
   moves from 1.007 to 1.238.
 
-**Failures.**  Neither phase tolerates a failed replicate: an error stops the run
+**Failures.**  The record declares no ``failure_bound``, so the primary phase runs at bound 0:
+the harness records a failed primary replicate, and the primary cell is then red.  The property
+phase accepts no failed replicate: a failure stops the run after its group finishes
 (``docs/development/method-benchmarking.md``, "Failed replicates").  ``FAILURE_BOUND`` is the
-project's declared bound of 0.01, recorded for the harness that reads it once RM39b2 merges;
-this record declares no ``failure_bound``, so the harness applies none.  The pilot of
-5,000 draws per cell raised no separation refusal and no stack failure.
+project's declared bound of 0.01, recorded for the harness that applies it after RM39b2; it is
+not applied here, and no bound is raised after a run shows a failure.  A fit that raises, and an
+admitted fit whose stack fails (``fit_cleverly`` raises on any status other than
+``"influence_curve"``), both count as failures.  Dropping such a replicate would select on
+success, and substituting the shipped standard error would mix two estimators.  A stop is
+itself a finding: the run reports the status, the seed and the group, the failure is diagnosed,
+and the study is declared again.  The pilots (5,000 draws per cell, then every group at its
+declared budget on pilot-only seeds) raised no separation refusal and no stack failure.
+
+**Sizes.**  Each calibration group is sized so that the whole study passes with probability at
+least 0.95 when nothing is wrong: each of the 12 gated calibration groups gets the per-group
+target ``0.95 ** (1 / 12)``.  The plan's section 11 sized each cell to 0.95 on its own, which
+gives a study-wise pass probability near 0.63 (pre-queue design review).  The predictive model
+centres each row on its own pilot ratio with variance ``s^2 + tau_80^2``, ``tau_80 = 0.0080``
+pooled over the study's gated rows.  Centring on the row, not on the arm-pooled mean of the
+project rule, is the more conservative choice for a low row.
 """
 
 from __future__ import annotations
@@ -77,8 +92,8 @@ PRIMARY_REPLICATES = 800
 PRIMARY_N = 1_500
 #: Fresh entropy: no registered study uses either number, and
 #: ``tests/unit/test_ctmle_oat_per_arm_parametric_study_design.py`` checks that.
-SEED = 20261058
-RESAMPLING_SEED = 2026105801
+SEED = 20261158
+RESAMPLING_SEED = 2026115801
 IMPLEMENTATION = "cleverly-ctmle-oat-per-arm-parametric"
 SCENARIO = "binary_active"
 #: The share of primary replicates that may fail, declared before the first run.  The property
@@ -92,28 +107,27 @@ ARM_ESTIMANDS = ("ey0", "ey1", "ate")
 
 # ---------------------------------------------------------------------------------- the sizes
 
-#: The replicates of each fit group.  Section 11 of the plan sets the calibration budgets with
-#: the arm-pooled predictive rule at ``tau_80 = 0.0080`` over 33 gated rows.  Three groups are
-#: not in that table and take the sizes below.
+#: The replicates of each fit group.  The 12 gated calibration groups, ``generated_design``
+#: among them, are sized by the study-wise rule of the module docstring ("Sizes") from the
+#: pilots, and each was read at its budget on pilot-only seeds before this declaration.  Two
+#: groups are sized below.
 #:
-#: * ``generated_design``: 4,400, the smallest budget of the table, for a pair that gates one
-#:   estimand per arm of the pair.
 #: * ``sharp_null``: 800, the registered null size at ``n = 1,000``.
 #: * ``power``: 1,200 at ``n = 800``.  The exact-law power there is 0.8475, and the chance that
 #:   the lower Clopper-Pearson endpoint of the rejection rate clears 0.80 is 0.957 at 1,200
 #:   replicates (0.800 at 800, 0.991 at 1,600).
 BUDGETS: Mapping[str, int] = {
-    "binary_active": 6_800,
-    "ladder_500": 14_400,
-    "ladder_2000": 4_400,
-    "ladder_8000": 4_400,
-    "shared_prognosis": 4_800,
-    "kappa_law": 8_400,
-    "bounds_active": 5_200,
-    "auto_bounds": 4_400,
-    "bounded_outcome": 6_800,
-    "pseudo_true": 4_400,
-    "generated_design": 4_400,
+    "binary_active": 17_200,
+    "ladder_500": 63_600,
+    "ladder_2000": 8_400,
+    "ladder_8000": 9_200,
+    "shared_prognosis": 10_000,
+    "kappa_law": 19_600,
+    "bounds_active": 12_400,
+    "auto_bounds": 9_200,
+    "bounded_outcome": 16_400,
+    "pseudo_true": 7_600,
+    "generated_design": 9_200,
     "sharp_null": 800,
     "power": 1_200,
 }
@@ -524,13 +538,18 @@ CONFIGURATION: dict[str, Any] = {
     ),
     "budgets": dict(BUDGETS),
     "budget_rule": (
-        "plan section 11: arm-pooled predictive rule, tau_80 = 0.0080 over 33 gated rows, "
-        "smallest multiple of 400 with family-wise pass probability >= 0.95; generated_design, "
-        "sharp_null and power are sized in this module's BUDGETS comment"
+        "predictive rule with tau_80 = 0.0080 pooled over the study's gated rows; each row "
+        "centred on its own pilot SE ratio with variance s^2 + tau_80^2; each of the 12 gated "
+        "calibration groups sized to the smallest multiple of 400 with pass probability >= "
+        "0.95 ** (1 / 12), so the study passes with probability >= 0.95; sharp_null and power "
+        "are sized in this module's BUDGETS comment"
     ),
     "failure_bounds": {
         "declared": FAILURE_BOUND,
-        "applied": "none: an error in either phase stops the run",
+        "applied": (
+            "0: a failed primary replicate makes the primary cell red; a failed property "
+            "replicate stops the run. A stack failure counts as a failure"
+        ),
     },
     "shrunken_se_factor": SHRUNKEN_SE_FACTOR,
     "calibration_efficiency_ratio": (

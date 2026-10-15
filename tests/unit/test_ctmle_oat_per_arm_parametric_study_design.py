@@ -27,23 +27,23 @@ from tests.studies.evidence.property_verdicts import (
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
 
-#: Plan 5.2 cell -> (replicates, n).  The replicates are the budgets of plan section 11, except
-#: the three cells that section does not size (see ``runner.BUDGETS``).
+#: Plan 5.2 cell -> (replicates, n).  The replicates are the study-wise budgets of
+#: ``runner.BUDGETS``, which replace the per-cell budgets of plan section 11.
 PLAN = {
-    "binary_active__corrected": (6_800, 1_500),
-    "shipped_curve_control": (6_800, 1_500),
-    "n_500": (14_400, 500),
-    "n_2000": (4_400, 2_000),
-    "n_8000": (4_400, 8_000),
-    "shared_prognosis__corrected": (4_800, 1_500),
-    "cross_term_dropped_control": (4_800, 1_500),
-    "shared_prognosis__ratios": (4_800, 1_500),
-    "kappa_law__corrected": (8_400, 1_500),
-    "bounds_active__corrected": (5_200, 1_500),
-    "auto_bounds__corrected": (4_400, 1_500),
-    "bounded_outcome__corrected": (6_800, 1_500),
-    "pseudo_true__corrected": (4_400, 1_500),
-    "oracle_design_against_estimated": (4_400, 1_500),
+    "binary_active__corrected": (17_200, 1_500),
+    "shipped_curve_control": (17_200, 1_500),
+    "n_500": (63_600, 500),
+    "n_2000": (8_400, 2_000),
+    "n_8000": (9_200, 8_000),
+    "shared_prognosis__corrected": (10_000, 1_500),
+    "cross_term_dropped_control": (10_000, 1_500),
+    "shared_prognosis__ratios": (10_000, 1_500),
+    "kappa_law__corrected": (19_600, 1_500),
+    "bounds_active__corrected": (12_400, 1_500),
+    "auto_bounds__corrected": (9_200, 1_500),
+    "bounded_outcome__corrected": (16_400, 1_500),
+    "pseudo_true__corrected": (7_600, 1_500),
+    "oracle_design_against_estimated": (9_200, 1_500),
     "sharp_null": (800, 1_000),
     "alternative": (1_200, 800),
 }
@@ -247,9 +247,9 @@ def test_a_replicate_reads_every_cell_of_its_group_and_the_shipped_curve_is_narr
         se["binary_active__ate__shipped_curve__shrunken_se_control"]
         < se["binary_active__ate__corrected"]
     )
-    rows = properties._rows(runner.GROUPS["binary_active"], 0, measured, 6_800)
+    rows = properties._rows(runner.GROUPS["binary_active"], 0, measured, 17_200)
     assert [row["cell"] for row in rows] == names
-    assert {row["requested_replicates"] for row in rows} == {6_800}
+    assert {row["requested_replicates"] for row in rows} == {17_200}
     assert {row["failed_replicates"] for row in rows} == {0}
     roles = {row["cell"]: row["role"] for row in rows}
     assert roles["binary_active__ate__shipped_curve__shrunken_se_control"] == "control"
