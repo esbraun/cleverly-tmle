@@ -95,7 +95,7 @@ from ..exceptions import (
     Refusal,
     RefusalReason,
 )
-from ..fluctuation._score import check_stopping_rule
+from ..fluctuation._score import check_stopping_rule, residual_line, rule_failure_line
 from ..inference.bootstrap import BootstrapResult, Resampling, run_bootstrap
 from ..inference.cluster import (
     cluster_inference_status,
@@ -2662,9 +2662,58 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             for name, estimate in self.estimates.items():
                 if estimate.bootstrap is not None:
                     lines.append(f"    {name}  {bootstrap_line(estimate)}")
+        rule = self._declared_rule()
+        if rule != "relative":
+            # Under a declared stopping rule the largest score residual in standard errors,
+            # beside the coverage a Wald interval keeps at it.
+            residual = residual_line(self.estimates, rule, self.config.alpha_sig)
+            if residual:
+                lines.append("")
+                lines.append(f"  {residual}")
         if not self.converged:
-            lines.append("  warning: at least one node's targeting step did not converge")
+            if rule == "relative":
+                lines.append("  warning: at least one node's targeting step did not converge")
+            else:
+                missed = self._rule_misses()
+                detail = (
+                    "; ".join(missed) + ". See res.fits"
+                    if missed
+                    else "at least one node's targeting step did not converge. See res.fits"
+                )
+                lines.append(f"  {rule_failure_line(rule, detail)}")
         return "\n".join(lines)
+
+    def _declared_rule(self) -> str:
+        """The stopping rule the fit declared, ``"relative"`` when it declared none."""
+        for fit in self.fits.values():
+            for step in fit.steps:
+                if step.fluctuation is not None and step.fluctuation.stopping != "relative":
+                    return step.fluctuation.stopping
+        return "relative"
+
+    def _rule_misses(self) -> list[str]:
+        """Each node whose largest score over its threshold is above one, once per solve.
+
+        A working model solves one stacked fluctuation per node for every cell it holds, so
+        the cells share the solve and it is named once.
+        """
+        seen: set[int] = set()
+        missed: list[str] = []
+        for key, fit in self.fits.items():
+            for step in fit.steps:
+                fluctuation = step.fluctuation
+                if (
+                    fluctuation is None
+                    or id(fluctuation) in seen
+                    or fluctuation.rule_ratio is None
+                    or fluctuation.rule_ratio <= 1.0
+                ):
+                    continue
+                seen.add(id(fluctuation))
+                missed.append(
+                    f"{key} at t={step.time} is {fluctuation.rule_ratio:.3g} times its threshold"
+                )
+        return missed
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"LongitudinalResult({', '.join(self.estimates)})"

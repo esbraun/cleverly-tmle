@@ -1681,6 +1681,13 @@ class TMLEResult:
         # every transcript in the README and the guide is a passing fit, and a line there
         # would be noise on the common path and easier to stop reading.
         verdict = self.score_verdict
+        # Under a declared stopping rule the largest score residual, in standard errors, with the
+        # coverage a Wald interval keeps at it.  Empty under the shipped rule, so an ordinary fit
+        # prints what it always printed.
+        residual = verdict.rule_line()
+        if residual:
+            parts.append("")
+            parts.append(residual)
         if not verdict.passed:
             parts.append("")
             parts.append(verdict.one_line())

@@ -21,17 +21,25 @@ which every solver and every outer loop that judges a score calls.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from .._refusal import Refusal, RefusalReason
 from .._typing import BoolArray, FloatArray, FluctuationKind, IntArray
 from ..exceptions import MethodConfigurationError
+from ..inference.delta import reference_quantile
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..inference.influence import ParameterEstimate
 
 __all__ = [
     "LINEAR_RULE_REFUSAL",
+    "RESIDUAL_LINE",
+    "RULE_FAILURE_LINE",
     "STOPPING_RULES",
     "STOP_CONTEXT_MISSING",
     "StopContext",
@@ -39,13 +47,17 @@ __all__ = [
     "check_stopping_rule",
     "quasi_loglik",
     "relative_score",
+    "residual_line",
+    "residual_se",
     "rule_contributions",
+    "rule_failure_line",
     "rule_ratio_at",
     "rule_thresholds",
     "ruled_warning",
     "score_columns",
     "score_scale",
     "unit_influence",
+    "wald_coverage_bound",
 ]
 
 #: The values of ``Targeting(stopping=)``, shipped rule first.
@@ -311,3 +323,105 @@ def ruled_warning(stopping: str, steps: int, ratio: float, cause: str) -> str:
         f"targeting step did not meet the {stopping} stopping rule after {steps} "
         f"iteration(s) (largest score over its threshold = {ratio:.3g}): {cause}"
     )
+
+
+#: The line a result prints under a declared stopping rule: the largest score residual in
+#: standard errors, and the coverage a Wald interval keeps at that residual.
+RESIDUAL_LINE = (
+    "stopping rule {rule}: the largest score residual is {b:.3g} standard errors, on {name}. "
+    "At that residual a {level:.0%} Wald interval keeps at least {bound:.4f} coverage."
+)
+
+#: The line a result prints when the targeting did not meet its declared stopping rule.
+RULE_FAILURE_LINE = "the targeting did not meet the {rule} stopping rule; {detail}"
+
+
+def wald_coverage_bound(residual: float, alpha: float) -> float:
+    r"""Coverage a Wald interval keeps when its estimate carries a bias of ``residual`` SE.
+
+    :math:`\Phi(z - b) - \Phi(-z - b)` with :math:`z = \Phi^{-1}(1 - \alpha/2)`.  It is the
+    coverage of the interval :math:`\hat\psi \pm z\,\widehat{se}` when
+    :math:`(\hat\psi - \psi) / \widehat{se}` is normal with mean :math:`b` and unit variance.
+    A Student t reference (few clusters) has a larger critical value, so the coverage it keeps
+    is at least this one.
+
+    Parameters
+    ----------
+    residual : float
+        The bias, in standard errors.  The sign does not matter.
+    alpha : float
+        The significance level of the interval.
+
+    Returns
+    -------
+    float
+        The coverage, ``nan`` for a non-finite residual.
+
+    Examples
+    --------
+    >>> from cleverly.fluctuation._score import wald_coverage_bound
+    >>> f"{wald_coverage_bound(0.0, 0.05):.4f}"
+    '0.9500'
+    >>> f"{wald_coverage_bound(0.1, 0.05):.4f}"
+    '0.9489'
+    """
+    if not np.isfinite(residual):
+        return float("nan")
+    b = abs(float(residual))
+    z = reference_quantile(alpha)
+    return float(_normal_cdf(z - b) - _normal_cdf(-z - b))
+
+
+def _normal_cdf(x: float) -> float:
+    """The standard normal distribution function, from the complementary error function."""
+    return 0.5 * math.erfc(-x / math.sqrt(2.0))
+
+
+def residual_se(estimate: ParameterEstimate) -> float:
+    """The mean of an estimate's influence curve, in its own standard errors.
+
+    ``|P_n IC| / se`` on the scale the estimate is inferred on.  It is the bias that an
+    unsolved score equation leaves, expressed so that it compares with an interval's half
+    width.  ``nan`` when the standard error is zero or not finite.
+    """
+    error = estimate.plugin_std_error
+    if not (np.isfinite(error) and error > 0.0):
+        return float("nan")
+    return float(abs(estimate.score) / error)
+
+
+def residual_line(estimates: Mapping[str, ParameterEstimate], rule: str, alpha: float) -> str:
+    """The pinned line of a result under a declared stopping rule.
+
+    Parameters
+    ----------
+    estimates : mapping of str to ParameterEstimate
+        The result's estimates.
+    rule : str
+        The declared rule, ``"scaled_var"`` or ``"sample_size"``.
+    alpha : float
+        The significance level of the result's intervals.
+
+    Returns
+    -------
+    str
+        :data:`RESIDUAL_LINE` filled at the estimand with the largest residual, or the empty
+        string when no estimate has a finite residual.
+    """
+    residuals = {name: residual_se(estimate) for name, estimate in estimates.items()}
+    finite = {name: value for name, value in residuals.items() if np.isfinite(value)}
+    if not finite:
+        return ""
+    name = max(finite, key=lambda key: finite[key])
+    return RESIDUAL_LINE.format(
+        rule=rule,
+        b=finite[name],
+        name=name,
+        level=1.0 - alpha,
+        bound=wald_coverage_bound(finite[name], alpha),
+    )
+
+
+def rule_failure_line(rule: str, detail: str) -> str:
+    """The pinned line of a result whose targeting did not meet its declared rule."""
+    return RULE_FAILURE_LINE.format(rule=rule, detail=detail)
