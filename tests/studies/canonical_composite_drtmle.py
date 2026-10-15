@@ -120,6 +120,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-composite-drtmle",
     reference="drtmle-r-composite",
+    failure_bound={"cleverly-composite-drtmle": 0.01, "drtmle-r-composite": 0.01},
     comparison="matching implementation",
     publication_policy="reporting",
     extra_artifacts=("fit-exits.csv",),

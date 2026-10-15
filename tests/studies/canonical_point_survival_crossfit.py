@@ -104,6 +104,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-cross-fitted-point-survival",
     reference=None,
+    failure_bound={"cleverly-cross-fitted-point-survival": 0.01},
     modules=(
         "tests/studies/canonical_point_survival_crossfit.py",
         "tests/studies/point_survival_crossfit_properties.py",
