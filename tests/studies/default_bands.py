@@ -237,6 +237,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-default-bands",
     reference=None,
+    failure_bound={"cleverly-default-bands": 0.01},
     modules=(
         "tests/conftest.py",
         "tests/discrete_law.py",

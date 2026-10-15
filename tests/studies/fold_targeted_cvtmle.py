@@ -70,6 +70,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-fold-targeted-cvtmle",
     reference="zepid-single-crossfit-tmle",
+    failure_bound={"cleverly-fold-targeted-cvtmle": 0.01, "zepid-single-crossfit-tmle": 0.01},
     comparison="matching implementation",
     modules=(
         "tests/studies/fold_targeted_cvtmle.py",

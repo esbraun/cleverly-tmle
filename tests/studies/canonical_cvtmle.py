@@ -94,6 +94,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-stacked-cvtmle",
     reference="tmle3-cvtmle",
+    failure_bound={"cleverly-stacked-cvtmle": 0.01, "tmle3-cvtmle": 0.01},
     comparison="matching implementation",
     comparison_overrides={
         "binary:paf": "related target",

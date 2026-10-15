@@ -40,10 +40,10 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import known_mechanism_law as law
 from tests.studies.canonical_known_mechanism import STUDY, fit_cleverly
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.inference import percentile_interval
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
@@ -54,13 +54,17 @@ from tests.studies.evidence.property_verdicts import (
     DIAGNOSTIC_ROLE,
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
 )
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 
 ACCURACY = "known_mechanism_accuracy"
 BOOTSTRAP = "bootstrap_coverage"
+#: The side column that carries the draws a bootstrap lost; the generator drops it.
+BOOTSTRAP_LOST = "bootstrap_failed_draws"
 CALIBRATION = "interval_calibration"
 DIRECTION = "variance_direction"
 RATE = "root_n_and_efficiency"
@@ -127,8 +131,11 @@ def _row(
     )
 
 
-def _two_arm(replicate: int) -> list[dict[str, Any]]:
-    frame = law.sample(ACCURACY_N, _seed(ACCURACY, "two_arm", replicate))
+def _two_arm_draw(replicate: int) -> Any:
+    return law.sample(ACCURACY_N, _seed(ACCURACY, "two_arm", replicate))
+
+
+def _two_arm(replicate: int, frame: Any) -> list[dict[str, Any]]:
     fits = {
         "q_correct": fit_cleverly(frame, outcome="correct", estimands=("ate",)),
         "q_wrong": fit_cleverly(frame, outcome="wrong", estimands=("ate", "att", "atc")),
@@ -153,8 +160,11 @@ def _two_arm(replicate: int) -> list[dict[str, Any]]:
     ]
 
 
-def _three_arm(replicate: int) -> list[dict[str, Any]]:
-    frame = law.sample(ACCURACY_N, _seed(ACCURACY, "three_arm", replicate), arms=3)
+def _three_arm_draw(replicate: int) -> Any:
+    return law.sample(ACCURACY_N, _seed(ACCURACY, "three_arm", replicate), arms=3)
+
+
+def _three_arm(replicate: int, frame: Any) -> list[dict[str, Any]]:
     result = fit_cleverly(frame, outcome="wrong", estimands=("ey", "ate"), arms=3)
     return [
         _row(cell, "positive", replicate, ACCURACY_N, ACCURACY_REPLICATES, truth, result[name])
@@ -162,9 +172,12 @@ def _three_arm(replicate: int) -> list[dict[str, Any]]:
     ]
 
 
-def _bootstrap(replicate: int) -> list[dict[str, Any]]:
+def _bootstrap_draw(replicate: int) -> Any:
+    return law.sample(BOOTSTRAP_N, _seed(BOOTSTRAP, "percentile", replicate))
+
+
+def _bootstrap(replicate: int, frame: Any) -> list[dict[str, Any]]:
     seed = _seed(BOOTSTRAP, "percentile", replicate)
-    frame = law.sample(BOOTSTRAP_N, seed)
     result = fit_cleverly(
         frame,
         outcome="wrong",
@@ -183,7 +196,8 @@ def _bootstrap(replicate: int) -> list[dict[str, Any]]:
             "replicate": replicate,
             "n": BOOTSTRAP_N,
             "requested_replicates": BOOTSTRAP_REPLICATES,
-            "failed_replicates": int(result.bootstrap.n_failed),
+            "failed_replicates": 0,
+            BOOTSTRAP_LOST: int(result.bootstrap.n_failed),
             "truth": truth,
             "estimate": float(result["ate"].psi),
             "std_error": float(summary.std_error),
@@ -193,8 +207,25 @@ def _bootstrap(replicate: int) -> list[dict[str, Any]]:
     ]
 
 
-def _calibration(replicate: int) -> list[dict[str, Any]]:
-    frame = law.sample(CALIBRATION_N, _seed(CALIBRATION, "paired", replicate))
+def _lost_draws(rows: pd.DataFrame) -> str | None:
+    """The row rule of the bootstrap cell: a bootstrap that lost a draw is not a complete row.
+
+    The bootstrap interval of a row that lost draws is not the declared 200-draw interval.
+    The loop records such a row as an ``invalid_result``.
+    """
+    if BOOTSTRAP_LOST not in rows.columns:
+        return None
+    lost = rows[BOOTSTRAP_LOST].dropna()
+    if (lost == 0).all():
+        return None
+    return f"the bootstrap lost {int(lost.max())} draws"
+
+
+def _calibration_draw(replicate: int) -> Any:
+    return law.sample(CALIBRATION_N, _seed(CALIBRATION, "paired", replicate))
+
+
+def _calibration(replicate: int, frame: Any) -> list[dict[str, Any]]:
     truth = TWO_ARM["ate"]
     known = fit_cleverly(frame, outcome="wrong", estimands=("ate",))
     parametric = fit_cleverly(frame, outcome="wrong", mechanism="correct", estimands=("ate",))
@@ -219,9 +250,13 @@ def _calibration(replicate: int) -> list[dict[str, Any]]:
     return rows
 
 
-def _rate(payload: tuple[int, int]) -> list[dict[str, Any]]:
+def _rate_draw(payload: tuple[int, int]) -> Any:
     size, replicate = payload
-    frame = law.sample(size, _seed(RATE, f"n_{size}", replicate))
+    return law.sample(size, _seed(RATE, f"n_{size}", replicate))
+
+
+def _rate(payload: tuple[int, int], frame: Any) -> list[dict[str, Any]]:
+    size, replicate = payload
     result = fit_cleverly(frame, outcome="wrong", estimands=("ate",))
     return [
         replicate_row(
@@ -238,19 +273,24 @@ def _rate(payload: tuple[int, int]) -> list[dict[str, Any]]:
     ]
 
 
-def _dispatch(payload: tuple[str, Any]) -> list[dict[str, Any]]:
+#: Each payload kind's draw and fit.
+_KINDS: dict[str, tuple[Any, Any]] = {
+    "two_arm": (_two_arm_draw, _two_arm),
+    "three_arm": (_three_arm_draw, _three_arm),
+    "bootstrap": (_bootstrap_draw, _bootstrap),
+    "calibration": (_calibration_draw, _calibration),
+    "rate": (_rate_draw, _rate),
+}
+
+
+def _dispatch_draw(payload: tuple[str, Any]) -> Any:
     kind, argument = payload
-    if kind == "two_arm":
-        return _two_arm(argument)
-    if kind == "three_arm":
-        return _three_arm(argument)
-    if kind == "bootstrap":
-        return _bootstrap(argument)
-    if kind == "calibration":
-        return _calibration(argument)
-    if kind == "rate":
-        return _rate(argument)
-    raise KeyError(kind)
+    return _KINDS[kind][0](argument)
+
+
+def _dispatch(payload: tuple[str, Any], drawn: Any) -> list[dict[str, Any]]:
+    kind, argument = payload
+    return _KINDS[kind][1](argument, drawn)
 
 
 def _payloads(budget: int | None = None) -> list[tuple[tuple[str, Any]]]:
@@ -266,6 +306,42 @@ def _payloads(budget: int | None = None) -> list[tuple[tuple[str, Any]]]:
     payloads += [("calibration", r) for r in range(count(CALIBRATION_REPLICATES))]
     payloads += [("rate", (size, r)) for size in RATE_SIZES for r in range(count(RATE_REPLICATES))]
     return [(payload,) for payload in payloads]
+
+
+#: The calibration positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived(("ate",), positive_suffix=CALIBRATION_ARM)
+
+_Key = tuple[tuple[str, Any]]
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``family/cell`` names the key's rows and derived controls fill."""
+    kind, argument = key[0]
+    if kind == "two_arm":
+        return [f"{ACCURACY}/{cell}" for cell in TWO_ARM_CELLS]
+    if kind == "three_arm":
+        return [f"{ACCURACY}/{cell}" for cell in THREE_ARM_CELLS]
+    if kind == "bootstrap":
+        return [f"{BOOTSTRAP}/ate__known_g__q_wrong__percentile"]
+    if kind == "calibration":
+        positive = f"{CALIBRATION}/ate__{CALIBRATION_ARM}"
+        return [
+            positive,
+            f"{DIRECTION}/ate__known_mechanism",
+            f"{DIRECTION}/ate__parametric_mechanism",
+            *DERIVED_CELLS[positive],
+        ]
+    return [f"{RATE}/n_{argument[0]}"]
+
+
+def _cell_of(key: _Key) -> str:
+    kind, argument = key[0]
+    return f"{kind}/{argument[0]}" if kind == "rate" else _cells_of(key)[0]
+
+
+def _replicate_of(key: _Key) -> int:
+    kind, argument = key[0]
+    return int(argument[1] if kind == "rate" else argument)
 
 
 def declared_truths() -> tuple[tuple[str, str, str, float], ...]:
@@ -285,9 +361,35 @@ def declared_truths() -> tuple[tuple[str, str, str, float], ...]:
     return tuple(cells)
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
-    """Run every declared replication and derive the calibration controls from the same rows."""
-    outcomes = map_parallel(_dispatch, _payloads(budget), n_jobs=n_jobs)
+    """Run every declared replication and derive the calibration controls from the same rows.
+
+    A fit that raises a recordable error costs its cells one replication. A bootstrap that lost
+    draws writes ``bootstrap_failed_draws``, and the row rule ``_lost_draws`` records that row as
+    an ``invalid_result``, so the bootstrap's own count never reaches ``failed_replicates``. The
+    driver is the one writer of that column.
+    """
+    outcomes = fit_properties(
+        _payloads(budget),
+        splat_drawn(_dispatch),
+        cells_of=_cells_of,
+        draw=splat_draw(_dispatch_draw),
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        extra=_lost_draws,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for outcome in outcomes for row in outcome])
     if budget is not None:
         # A capped smoke run requests what it runs, so the summary reads it as complete.
@@ -372,3 +474,10 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     calibration_verdicts(summary, margins=STUDY.margins, positive_suffix=CALIBRATION_ARM)
     _direction_report(summary, rows)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = (
+    property_verdicts.accuracy_rule(ACCURACY, shared="_accuracy_verdicts"),
+    property_verdicts.coverage_floor_rule(BOOTSTRAP, shared="_accuracy_verdicts"),
+)
