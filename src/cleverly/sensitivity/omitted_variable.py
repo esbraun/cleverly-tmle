@@ -1415,6 +1415,15 @@ def omitted_variable_bounds(
         On every refusal :func:`sensitivity_elements` raises: a fit the rule table
         refuses, an estimand the bound does not cover, or a doubly robust estimate of
         ``nu^2`` that is not positive.
+
+    Notes
+    -----
+    A fit made with ``treatment_adjustment=`` (``treatment_covariates=`` in
+    :meth:`cleverly.TMLE.fit`) lets the treatment mechanism read a subset of the adjustment
+    set. The Riesz representer of the bound uses that fitted mechanism. So the bound reads the
+    statistical-model restriction that the fit's summary prints, and it is claimed only under
+    that restriction. Collaborative fits stay refused. If a later release admits a collaborative
+    fit that selects nothing, the same statement covers it.
     """
     _one_sided_quantile(level)
     elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)

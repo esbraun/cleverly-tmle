@@ -324,6 +324,7 @@ from sklearn.linear_model import LogisticRegression
 from .._inference_status import InferenceStatus, precedent_status
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
+from ..data.treatment_covariates import pool_line
 from ..exceptions import CapabilityError, Refusal, RefusalReason
 from ..fluctuation.iterative import InitialFit, apply_logistic, check_matching_arms
 from ..fluctuation.submodel import Submodel, restrict, weighted_form
@@ -449,7 +450,9 @@ def declares_no_selection(
     treatment_candidates : sequence or None
         The declared ``treatment_candidates=`` list.
     covariate_names : sequence of str
-        The prepared covariate names, :attr:`~cleverly.data.CausalData.covariate_names`.
+        The covariates the treatment mechanism reads,
+        :attr:`~cleverly.data.CausalData.mechanism_covariate_names`: the prepared covariate
+        names, or the subset a design declares with ``treatment_adjustment=``.
 
     Returns
     -------
@@ -464,6 +467,34 @@ def declares_no_selection(
     if strategy != "discrete" or candidates is None or len(candidates) != 1:
         return False
     return len(covariate_names) > 0 and sorted(candidates[0]) == sorted(covariate_names)
+
+
+def _refuse_names_outside_pool(data: CausalData, argument: str, names: Sequence[str]) -> None:
+    """Refuse a candidate or an ordering name that lies outside the treatment-mechanism covariates.
+
+    The default design reads every covariate, so nothing lies outside it and this refuses
+    nothing.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data.
+    argument : str
+        The estimator argument that holds the names, for the message.
+    names : sequence of str
+        The names the argument holds.
+
+    Raises
+    ------
+    ValueError
+        If a name is a covariate of the design that the treatment mechanism does not read.
+    """
+    if data.treatment_covariate_names is None:
+        return
+    pool = set(data.mechanism_covariate_names)
+    outside = list(dict.fromkeys(name for name in names if name not in pool))
+    if outside:
+        raise ValueError(f"{argument} names {outside} outside treatment_adjustment=")
 
 
 @dataclass(frozen=True, eq=False)
@@ -778,7 +809,8 @@ class CTMLESelection:
     selected : int
         The index into :attr:`path` that the cross-validated risk chose.
     covariates : tuple of str
-        Every covariate of the fit, in data order.
+        The covariates the search drew from, in data order: every covariate, or the subset a
+        design declares with ``treatment_adjustment=``.
     folds : Folds
         The realized selection split :attr:`cv_risk` was scored over. This is the partition
         the fit used, so a paired study can hand another implementation the same fold
@@ -792,6 +824,9 @@ class CTMLESelection:
     final : int or None
         The candidate the ``"lasso"`` final step reported, or ``None`` when no final step
         ran.
+    restricted_pool : tuple of str or None
+        The subset of covariates the design declares with ``treatment_adjustment=``, or
+        ``None`` for a design that declares none. :meth:`summary` names it.
     """
 
     strategy: CTMLEStrategy
@@ -812,6 +847,7 @@ class CTMLESelection:
     folds: Folds
     labels: tuple[str, ...] = ()
     final: int | None = None
+    restricted_pool: tuple[str, ...] | None = None
 
     @property
     def reported(self) -> int:
@@ -930,6 +966,8 @@ class CTMLESelection:
             f"criterion = cross-validated {criterion}{loss_name} loss",
             "",
         ]
+        if self.restricted_pool is not None:
+            header.insert(-1, pool_line(self.restricted_pool))
         chosen = self.selected_covariates
         footer = [""]
         if indexed:
@@ -1257,7 +1295,10 @@ class CTMLE(TMLE):
             ``"generated_design_plugin"`` for every other ``"oat"`` fit.
         """
         if declares_no_selection(
-            self.strategy, self.candidates, self.treatment_candidates, data.covariate_names
+            self.strategy,
+            self.candidates,
+            self.treatment_candidates,
+            data.mechanism_covariate_names,
         ):
             return super()._inference_status(data)
         if is_selector_strategy(self.strategy):
@@ -1693,9 +1734,12 @@ class CTMLE(TMLE):
             cv_risk=cv_risk,
             selected=selected,
             folds=selection_folds,
-            covariates=data.covariate_names,
+            covariates=data.mechanism_covariate_names,
             labels=tuple(candidate.label for candidate in path) if indexed else (),
             final=final,
+            restricted_pool=(
+                None if data.treatment_covariate_names is None else data.mechanism_covariate_names
+            ),
         )
         return nuisance, {"ctmle": selection}
 
@@ -2326,7 +2370,7 @@ class CTMLE(TMLE):
             )
         if self.strategy == "discrete" and self.candidates is not None:
             recorded = set(data.added_covariates)
-            added = tuple(name for name in data.covariate_names if name in recorded)
+            added = tuple(name for name in data.mechanism_covariate_names if name in recorded)
             extended = [
                 (*candidate, *(name for name in added if name not in candidate))
                 for candidate in self.candidates
@@ -2341,7 +2385,7 @@ class CTMLE(TMLE):
         if self.ordering is None:
             return self
         declared = tuple(self.ordering)
-        added = tuple(name for name in data.covariate_names if name not in declared)
+        added = tuple(name for name in data.mechanism_covariate_names if name not in declared)
         if not added:
             return self
         configured = copy.copy(self)
@@ -2392,8 +2436,46 @@ class CTMLE(TMLE):
                 ),
                 roadmap="F22",
             )
+        self._check_treatment_pool(data)
         self._check_estimands(data)
         return super()._resolve_estimands_for_data(data)
+
+    def _check_treatment_pool(self, data: CausalData) -> None:
+        """Refuse a pool that a design's treatment-mechanism covariates leave empty of its names.
+
+        Runs before any split is drawn and before any learner.  ``strategy="oat"`` fits its
+        mechanism on the outcome predictions and no covariate, so there is nothing for
+        ``treatment_adjustment=`` to restrict (R-h2).  An explicit ``candidates=`` or
+        ``ordering=`` names the covariates the search draws from, so a name outside the
+        design's subset is refused (R-h5).
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+
+        Raises
+        ------
+        CapabilityError
+            For ``strategy="oat"`` beside a declared subset.
+        ValueError
+            For a candidate or an ordering that names a covariate outside the subset.
+        """
+        if data.treatment_covariate_names is None:
+            return
+        if self.strategy == "oat":
+            raise CapabilityError(
+                "strategy='oat' fits the treatment mechanism on the outcome predictions, so "
+                "treatment_adjustment= has no covariates to restrict.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Use another strategy, or omit treatment_adjustment=.",
+            )
+        if self.candidates is not None:
+            _refuse_names_outside_pool(
+                data, "candidates", [name for names in self.candidates for name in names]
+            )
+        if self.ordering is not None:
+            _refuse_names_outside_pool(data, "ordering", self.ordering)
 
     def _check_policies(self, data: CausalData) -> None:
         """Refuse each intervention keyword, then a continuous dose, before the shift check.
@@ -2522,7 +2604,7 @@ class _Selector:
             self.lambdas = (
                 check_penalty_grid(estimator.lambdas)
                 if estimator.lambdas is not None
-                else default_penalty_grid(data.covariates, data.treatment, data.weights)
+                else default_penalty_grid(data.mechanism_covariates, data.treatment, data.weights)
             )
 
     # ------------------------------------------------------------ propensities
@@ -2811,7 +2893,7 @@ class _Selector:
         tuple
             The propensities, the covariates of each candidate and the label of each.
         """
-        names = tuple(self.data.covariate_names)
+        names = tuple(self.data.mechanism_covariate_names)
         if self.est.strategy == "lasso":
             assert self.lambdas is not None
             propensities = self._lasso_propensities(train, tag)
@@ -2887,6 +2969,7 @@ class _Selector:
         """One warm-started penalty path for each training set, cached per branch."""
         assert self.lambdas is not None
         data = self.data
+        design = data.mechanism_covariates
         count = self.lambdas.size
         keys = [(tag, ("lasso", k)) for k in range(count)]
         if all(key in self._cache for key in keys):
@@ -2895,7 +2978,7 @@ class _Selector:
         active: list[set[int]] = [set() for _ in range(count)]
         for fit_rows, predict_rows, layer in self._fit_rows(train, tag):
             fits = penalty_path(
-                data.covariates[fit_rows],
+                design[fit_rows],
                 data.treatment[fit_rows],
                 data.weights[fit_rows],
                 self.lambdas,
@@ -2903,13 +2986,13 @@ class _Selector:
                 layer=layer,
             )
             for k, fit in enumerate(fits):
-                values[k, predict_rows] = fit.predict_proba(data.covariates[predict_rows])
+                values[k, predict_rows] = fit.predict_proba(design[predict_rows])
                 active[k].update(fit.active)
         out = []
         for k, key in enumerate(keys):
             self._cache[key] = np.clip(values[k], 0.0, 1.0)
             self._active[key] = tuple(
-                name for j, name in enumerate(data.covariate_names) if j in active[k]
+                name for j, name in enumerate(data.mechanism_covariate_names) if j in active[k]
             )
             out.append(Propensity(self._cache[key], data.arm_codes))
         return out
@@ -2991,7 +3074,7 @@ class _Selector:
         The two searches differ only in how the next covariate is picked; both retry from
         one further targeted fit before forcing the best available addition.
         """
-        pool = list(order) if order is not None else list(self.data.covariate_names)
+        pool = list(order) if order is not None else list(self.data.mechanism_covariate_names)
         first = self._candidate((), self.base.outcome, rows, train, tag, 1)
         path = [first]
 
@@ -3074,15 +3157,17 @@ class _Selector:
         train: IntArray | None,
     ) -> tuple[str, ...]:
         """Published logistic or partial-correlation order for the scalable search."""
+        pool = self.data.mechanism_covariate_names
         if self.est.ordering is not None:
             names = tuple(self.est.ordering)
+            _refuse_names_outside_pool(self.data, "ordering", names)
             unknown = [name for name in names if name not in self.data.covariate_names]
             if unknown:
                 raise ValueError(
                     f"ordering names unknown covariate(s) {unknown}; "
                     f"available: {list(self.data.covariate_names)}"
                 )
-            missing = [name for name in self.data.covariate_names if name not in set(names)]
+            missing = [name for name in pool if name not in set(names)]
             if missing:
                 raise ValueError(
                     f"ordering must cover every covariate; missing {missing}. Use "
@@ -3093,7 +3178,7 @@ class _Selector:
         if self.est.preorder == "logistic":
             score_values = []
             logistic = LogisticRegression(C=1e6, max_iter=1000, random_state=self.seed)
-            for name in self.data.covariate_names:
+            for name in pool:
                 propensity = self._fit_propensity_with(logistic, (name,), train)
                 submodel = self.submodel(propensity)
                 targeted, _ = self.target(self.base.outcome, submodel, rows)
@@ -3108,6 +3193,7 @@ class _Selector:
                 [(treatment == arm).astype(float) for arm in self.data.arm_codes[1:]]
             )
             weights = self.data.weights[usable]
+            columns = [self.data.covariate_names.index(name) for name in pool]
             scores = np.array(
                 [
                     abs(
@@ -3118,11 +3204,11 @@ class _Selector:
                             weights,
                         )
                     )
-                    for column in range(self.data.covariates.shape[1])
+                    for column in columns
                 ]
             )
             order = np.argsort(-scores, kind="stable")
-        return tuple(self.data.covariate_names[j] for j in order)
+        return tuple(pool[j] for j in order)
 
     # -------------------------------------------------------------- selection
 

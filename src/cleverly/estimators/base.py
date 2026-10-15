@@ -25,7 +25,10 @@ from .._inference_status import (
 )
 from .._typing import FloatArray, ParameterAxis
 from ..data.causal_data import CausalData
-from ..data.treatment_covariates import treatment_mechanism_restriction
+from ..data.treatment_covariates import (
+    drtmle_restriction_line,
+    treatment_mechanism_restriction,
+)
 from ..exceptions import (
     CapabilityError,
     RefusalReason,
@@ -1557,6 +1560,8 @@ class TMLEResult:
         reduced = self.extra.get("drtmle")
         if reduced is not None:
             facts.append(reduced.describe())
+            if data.treatment_adjustment_sources is not None:
+                facts.append(drtmle_restriction_line(data.treatment_adjustment_sources))
         # The same for the learned-rule record, which states the data-adaptive target.
         learned = self.extra.get("learned_rule")
         if learned is not None:

@@ -28,9 +28,13 @@ from collections.abc import Sequence
 from ..exceptions import DataError
 
 __all__ = [
+    "DRTMLE_LINE_TEMPLATE",
+    "POOL_LINE_TEMPLATE",
     "RESTRICTION_TEMPLATE",
     "check_treatment_covariates",
+    "drtmle_restriction_line",
     "known_and_restricted",
+    "pool_line",
     "treatment_mechanism_restriction",
 ]
 
@@ -49,6 +53,56 @@ RESTRICTION_TEMPLATE = (
 )
 
 
+#: The result-summary line of a DR-TMLE fit with treatment-mechanism covariates.  It points to
+#: the one-wrong table of the DR-TMLE theorem page, whose mechanism-wrong rows decide the
+#: interval when the restriction fails.
+DRTMLE_LINE_TEMPLATE = (
+    "DRTMLE with treatment-mechanism covariates {Wg}: when the restriction fails, the "
+    "treatment mechanism is inconsistent, and the mechanism-wrong rows of the one-wrong "
+    "table in docs/technical-reference/dr-tmle/theorem.md decide the interval."
+)
+
+#: The line a collaborative selection summary prints when its pool is a subset of the
+#: adjustment set.
+POOL_LINE_TEMPLATE = "collaborative candidate pool: {Wg}"
+
+
+def _braced(names: Sequence[str]) -> str:
+    return "{" + ", ".join(names) + "}"
+
+
+def drtmle_restriction_line(names: Sequence[str]) -> str:
+    """Return the pinned DR-TMLE summary line for a set of treatment-mechanism covariates.
+
+    Parameters
+    ----------
+    names : sequence of str
+        The covariates the treatment mechanism reads, as the caller named them.
+
+    Returns
+    -------
+    str
+        :data:`DRTMLE_LINE_TEMPLATE` with ``{Wg}`` written as ``{name, name}``.
+    """
+    return DRTMLE_LINE_TEMPLATE.replace("{Wg}", _braced(names))
+
+
+def pool_line(names: Sequence[str]) -> str:
+    """Return the selection-summary line that names a restricted candidate pool.
+
+    Parameters
+    ----------
+    names : sequence of str
+        The covariates the candidate path draws from.
+
+    Returns
+    -------
+    str
+        :data:`POOL_LINE_TEMPLATE` with ``{Wg}`` written as ``{name, name}``.
+    """
+    return POOL_LINE_TEMPLATE.replace("{Wg}", _braced(names))
+
+
 def treatment_mechanism_restriction(names: Sequence[str]) -> str:
     """Return the pinned restriction text for a set of treatment-mechanism covariates.
 
@@ -62,7 +116,7 @@ def treatment_mechanism_restriction(names: Sequence[str]) -> str:
     str
         :data:`RESTRICTION_TEMPLATE` with ``{Wg}`` written as ``{name, name}``.
     """
-    return RESTRICTION_TEMPLATE.replace("{Wg}", "{" + ", ".join(names) + "}")
+    return RESTRICTION_TEMPLATE.replace("{Wg}", _braced(names))
 
 
 def check_treatment_covariates(

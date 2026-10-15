@@ -1452,17 +1452,26 @@ class CausalData:
                 )
 
     def with_extra_covariate(self, values: FloatArray, name: str) -> CausalData:
-        """A copy with one extra covariate column appended, and recorded as added."""
+        """A copy with one extra covariate column appended, and recorded as added.
+
+        The column joins :attr:`treatment_covariate_names` when the design declares a subset,
+        so the refit reads the same restriction on the covariates it had, and the new column
+        as well.
+        """
         column = np.asarray(values, dtype=float).reshape(-1, 1)
         if column.shape[0] != self.n:
             raise DataError(f"extra covariate has length {column.shape[0]}, expected {self.n}")
         if name in self.covariate_names:
             raise DataError(f"covariate {name!r} already exists")
+        mechanism = self.treatment_covariate_names
         return replace(
             self,
             covariates=np.hstack([self.covariates, column]),
             covariate_names=(*self.covariate_names, name),
             added_covariates=(*self.added_covariates, name),
+            # The new column joins the treatment mechanism's covariates, so a refit that adds
+            # a covariate (the common-cause refutation) keeps the restriction on the rest.
+            treatment_covariate_names=None if mechanism is None else (*mechanism, name),
         )
 
     def without_covariates(self, names: Sequence[str]) -> CausalData:
