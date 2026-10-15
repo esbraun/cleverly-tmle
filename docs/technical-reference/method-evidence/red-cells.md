@@ -291,6 +291,7 @@ row. A move to `gated` is a separate registry decision.
 | [outcome-adaptive point-treatment C-TMLE](outcome-adaptive-point-treatment-c-tmle.md) | 29 | 0 |
 | [cross-fitted end-of-study longitudinal TMLE](cross-fitted-end-of-study-longitudinal-tmle.md) | 47 | 0 |
 | [point-treatment survival, per-horizon hazard targeting](point-survival-hazard.md) | 39 | 0 |
+| [cross-fitted point-treatment survival, hazard targeting](point-survival-curve-crossfit.md) | 24 | 0 |
 | [policies at a held baseline treatment](point-treatment-survival-policies.md) | 60 | 0 |
 | [TMLE on a declared known treatment mechanism](known-treatment-mechanism.md) | 57 | 0 |
 | [DR-TMLE on a declared known treatment mechanism](known-mechanism-dr-tmle.md) | 55 | 0 |

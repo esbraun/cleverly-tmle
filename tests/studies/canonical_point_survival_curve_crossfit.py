@@ -9,8 +9,10 @@ cross-fitted nuisances for a held baseline treatment, so the study has no compar
 publishes an empty equivalence table.
 
 The primary scenario is ``survival`` (five visits; the risks of both arms and their difference at
-visits 1, 3 and 5), one step, at n = 2,000 with 1,600 replications.  The learners are the saturated
-cell means, which are correct on this finite law.  The property cells are in
+visits 1, 3 and 5), one step, at n = 2,000 with 1,600 replications.  The learners are
+``learners("both_correct")`` of :mod:`tests.studies.point_survival_hazard_properties`: an additive
+logistic hazard and saturated cell fits for the treatment and the censoring, each correct on this
+finite law.  The property cells are in
 :mod:`tests.studies.point_survival_curve_crossfit_properties`.
 
 Publication policy is ``reporting``.  The red-cell route was declared before any run.  A band
@@ -127,7 +129,7 @@ CONFIGURATION = {
     "targeting": ALGORITHM,
     "cross_fit": True,
     "n_folds": N_FOLDS,
-    "learners": "saturated cell means for every nuisance",
+    "learners": "an additive logistic hazard; saturated cell fits for treatment and censoring",
     "reported_nodes": list(REPORTED[SCENARIO]),
 }
 

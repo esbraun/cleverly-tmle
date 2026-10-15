@@ -127,6 +127,8 @@ The point-treatment survival survey covers one baseline treatment and an event o
 It also covers the hazard-based and monotone curves of
 [hazard-based survival targeting](../technical-reference/longitudinal-tmle.md#hazard-based-survival-targeting).
 The study `point-survival-hazard` is registered, and its `survtmle` comparator is pending.
+The study `point-survival-curve-crossfit` is registered and has no comparator, because no
+maintained package ships hazard targeting with cross-fitted nuisances.
 The study `point-survival-curve` is planned and not yet registered. Its row states the planned
 settings.
 

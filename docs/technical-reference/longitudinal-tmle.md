@@ -685,7 +685,7 @@ that draw no random number.
 | remainder | the second-order remainder is $o_P(n^{-1/2})$. Its terms are products of $\hat g - g_0$ or $\hat G - G_0$ with $\hat\lambda - \lambda_0$. Donsker classes or cross-fitting control the empirical-process term | Moore and van der Laan (2009), Section 4.1.2 and Appendix E. Cai and van der Laan (2020), Section 4.3 |
 | grid | the reported horizons are a finite grid fixed before the sample, so the band is over a stack of fixed dimension | the refining-grid Theorem 1 of Rytgaard and van der Laan (2024), Section 4.2, is not claimed |
 | solver | every relative score is at most `tol`. Otherwise `converged` is false, and the fit warns | the shipped solver rule |
-| cross-fitting | the out-of-fold nuisances and one pooled targeting solve every component score | Zheng and van der Laan (2011), Section 2, applied to each algorithm's endpoint. No registered study measures a cross-fitted hazard fit yet |
+| cross-fitting | the out-of-fold nuisances and one pooled targeting solve every component score | Zheng and van der Laan (2011), Section 2, applied to each algorithm's endpoint. The [cross-fitted hazard study](method-evidence/point-survival-curve-crossfit.md) measures the one-step walk and one per-horizon cell at five folds |
 
 No registered study measures the coverage of a hazard fit yet. The evidence today is the exact-law
 and mutation tests below.
@@ -741,6 +741,9 @@ report shows `LONGITUDINAL_CONSTANT_TARGET` in place of its `hazard` row.
 The registered study [point survival hazard](method-evidence/point-survival-hazard.md) validates
 the per-horizon algorithm on repeated samples of two exact laws. Its `survtmle` comparator runs
 are pending.
+
+The registered study [point survival curve crossfit](method-evidence/point-survival-curve-crossfit.md)
+validates the one-step walk at five folds on the same exact laws. It has no comparator.
 
 ### The isotonic projection
 

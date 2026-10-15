@@ -88,6 +88,7 @@ cross-fitted-competing-risk-longitudinal-tmle
 point-treatment-survival
 cross-fitted-point-treatment-survival
 point-survival-hazard
+point-survival-curve-crossfit
 point-treatment-survival-policies
 known-treatment-mechanism
 known-mechanism-dr-tmle

@@ -69,6 +69,10 @@ ARMS: dict[str, str] = {
     "ate_2_vs_0": "difference of arm 2 and arm 0",
     "ate_regimen": "contrast of always against never",
     "survival_t5": "difference of arm 1 and arm 0 at visit 5, five-visit held law",
+    "survival_t5_per_horizon": (
+        "difference of arm 1 and arm 0 at visit 5, five-visit held law, targeted one horizon "
+        "at a time"
+    ),
     "rmst_5": "RMST difference up to visit 5, five-visit held law",
     "competing_t4": "difference in the death incidence at visit 4, two causes",
     "three_arm_t3": "difference of arm 2 and arm 0 at visit 3, three arms with L_t",
@@ -147,6 +151,8 @@ ARMS: dict[str, str] = {
     "regimens": "the three regimen means and their two contrasts",
     "all_reported": "every parameter the calibration fit reports",
     "curve_always": "the always plan alone, at every declared horizon",
+    "curve_arm1": "the arm-1 risk curve alone, at the five visits",
+    "curve_arm0": "the arm-0 risk curve alone, at the five visits",
     "strata": "the six marginal and eighteen stratum parameters of the in-sample fit",
     "crossfit_strata": "the three marginal and nine stratum parameters of the cross-fitted fit",
     "default_fit": "the shipped TMLE() defaults on the binary law",
@@ -425,6 +431,9 @@ IMPLEMENTATIONS: dict[str, str] = {
     "ltmle-known-gform": "R `ltmle` with the known factors as a numeric `gform`",
     "cleverly": "`cleverly`",
     "cleverly-cross-fitted-point-survival": "`cleverly` cross-fitted point-treatment survival",
+    "cleverly-cross-fitted-hazard-survival": (
+        "`cleverly` cross-fitted point-treatment survival with hazard targeting"
+    ),
     "cleverly-held-policy-ltmle": "`cleverly` LTMLE with a policy at a held baseline treatment",
     "survtmle": 'R `survtmle`, `method="mean"`',
     "cleverly-categorical-ltmle": "`cleverly` ordinary categorical LTMLE",
