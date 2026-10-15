@@ -176,6 +176,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-mtp-boundaries",
     pending_reference="lmtp",
+    comparison="matching implementation",
     pending_reason=(
         "the lmtp 1.5.4 runs have not run: they need R in the lmtp container, which this "
         "container lacks. The X40 plan's step J owns them: the 3-replicate R smoke under "
