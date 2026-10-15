@@ -7,6 +7,8 @@ decimals are also compared against its stored outputs.
 
 from __future__ import annotations
 
+import csv
+import re
 from typing import Any
 
 import numpy as np
@@ -15,6 +17,7 @@ import pytest
 from cleverly.datasets import navigation_protocol
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
+    ROOT,
     assert_protocol_recorded,
     changed_fields,
     covers,
@@ -92,6 +95,131 @@ UNPRINTED_DECIMALS = {
     "0.25": "the curvature of shift_dgp(): src/cleverly/datasets/synthetic.py",
 }
 
+#: Where each probe or study decimal of ``UNPRINTED_DECIMALS`` lives: the committed file, a
+#: pattern whose first group is the number, and the decimals the prose rounds it to.
+_SUMMARY = f"{_PROBE}/summary.log"
+_ROW = r"\| {row} \| (\d+)/120 = [\d.]+ \| ([+-][\d.]+) \(([\d.]+)\) \| [\d.]+ \| [\d.]+ \| ([\d.]+) \|"
+_SECTIONS = {
+    "poly2": r"### treatment learner: poly2",
+    "booster": r"### treatment learner: booster",
+    "quad40": r"### configuration: quad40 ",
+    "quad_oracle320": r"### configuration: quad_oracle320",
+    "quad_rboost40": r"### configuration: quad_rboost40",
+}
+#: (prose decimal, section, row, column) where column 1 is the coverage count, 2 the mean
+#: error, 3 its Monte Carlo SE, and 4 the mean SE over the empirical SD.
+_PROBE_CELLS = (
+    ("-0.00029", "poly2", "all", 2),
+    ("0.00054", "poly2", "all", 3),
+    ("1.07", "poly2", "all", 4),
+    ("-0.00028", "poly2", "screen", 2),
+    ("0.00037", "poly2", "screen", 3),
+    ("1.10", "poly2", "screen", 4),
+    ("+0.00011", "poly2", "ipsi", 2),
+    ("0.00008", "poly2", "ipsi", 3),
+    ("1.08", "poly2", "ipsi", 4),
+    ("+0.00066", "booster", "ipsi", 2),
+    ("0.00008", "booster", "ipsi", 3),
+    ("-0.0004", "quad_rboost40", "capped", 2),
+    ("0.0010", "quad_rboost40", "capped", 3),
+    ("1.17", "quad_rboost40", "capped", 4),
+    ("+0.0002", "quad_rboost40", "uncapped", 2),
+    ("0.0010", "quad_rboost40", "uncapped", 3),
+    ("1.16", "quad_rboost40", "uncapped", 4),
+    ("-0.0005", "quad_rboost40", "one", 2),
+    ("0.0025", "quad_rboost40", "one", 3),
+    ("0.95", "quad_rboost40", "one", 4),
+    ("+0.0006", "quad_rboost40", "gap", 2),
+    ("0.0005", "quad_rboost40", "gap", 3),
+    ("0.93", "quad_rboost40", "gap", 4),
+    ("0.93", "quad_oracle320", "capped", 4),
+    ("1.01", "quad_oracle320", "uncapped", 4),
+    ("0.73", "quad40", "capped", 4),
+    ("0.57", "quad40", "one", 4),
+)
+#: Coverage counts the trust section quotes, by (section, row).
+_PROBE_COVERAGE = {
+    ("poly2", "all"): 117,
+    ("poly2", "screen"): 117,
+    ("poly2", "ipsi"): 116,
+    ("booster", "ipsi"): 110,
+    ("quad_rboost40", "capped"): 117,
+    ("quad_rboost40", "uncapped"): 117,
+    ("quad_rboost40", "one"): 114,
+    ("quad_rboost40", "gap"): 112,
+}
+
+
+def _read(path: str) -> str:
+    return (ROOT / path).read_text(encoding="utf-8")
+
+
+def _probe_row(section: str, row: str) -> tuple[str, ...]:
+    text = _read(_SUMMARY)
+    start = text.index(_SECTIONS[section])
+    match = re.search(_ROW.format(row=row), text[start:])
+    assert match is not None, (section, row)
+    return match.groups()
+
+
+def _rounds_to(value: float, prose: str) -> bool:
+    places = len(prose.split(".")[1])
+    return f"{value:.{places}f}" == prose.lstrip("+")
+
+
+def _summary_csv(study: str, estimand: str, column: str) -> float:
+    with (ROOT / f"tests/canonical/{study}/summary.csv").open(encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            if row["implementation"] == "cleverly" and row["estimand"] == estimand:
+                return float(row[column])
+    raise AssertionError((study, estimand))
+
+
+def check_sources() -> None:
+    """Each unprinted probe or study decimal equals its committed source, rounded as written."""
+    for prose, section, row, column in _PROBE_CELLS:
+        assert prose in UNPRINTED_DECIMALS
+        assert _rounds_to(float(_probe_row(section, row)[column - 1]), prose), (prose, section)
+    for (section, row), count in _PROBE_COVERAGE.items():
+        assert int(_probe_row(section, row)[0]) == count, (section, row)
+    # The median calibration slopes of the two treatment models.
+    summary = _read(_SUMMARY)
+    slopes = re.findall(r"calibration slope 5%, 50%, 95%: [\d.]+, ([\d.]+), ", summary)
+    assert [round(float(value), 2) for value in slopes] == [0.94, 0.93]  # booster, poly2
+    # Density-ratio means: 1.03 to 1.05 with this density, 1.00 to 1.01 with the exact one.
+    for section, low, high in (("quad_rboost40", 1.03, 1.05), ("quad_oracle320", 1.00, 1.01)):
+        part = summary[summary.index(_SECTIONS[section]) :]
+        means = re.search(r"capped ([\d.]+) \(.*?uncapped ([\d.]+) \(.*?one ([\d.]+) \(", part)
+        assert means is not None
+        values = [round(float(value), 2) for value in means.groups()]
+        assert (min(values), max(values)) == (low, high), section
+    # Coverage of the default booster density: 87 to 104 of 120 draws.
+    quad40 = [int(_probe_row("quad40", row)[0]) for row in ("capped", "uncapped", "one")]
+    assert (min(quad40), max(quad40)) == (87, 104)
+    truth = _read(f"{_PROBE}/truth.log")
+    assert re.search(r"ipsi x2 vs x1\s+0\.024137 ", truth)
+    assert re.search(r"P\(A < 0\)\s+0\.0557", truth)  # 5.6%
+    # The registered coverages and the shift study's curvature.
+    assert _summary_csv("lmtp_regimes", "ate_regime[rule vs never]", "coverage") == 0.9525
+    assert _summary_csv("lmtp_shift", "ate_policy[+0.5 capped vs natural course]", "coverage") == (
+        0.9625
+    )
+    assert (
+        _summary_csv("npcausal_incremental", "ate_ipsi[odds x2 vs natural course]", "coverage")
+        == 0.94625
+    )
+    assert "PRIMARY_CURVATURE = 0.15" in _read("tests/studies/canonical_shift_policies.py")
+    # The cross-fitted shift probe of the technical reference: 3.91 and 0.98.
+    reference = _read("docs/technical-reference/point-treatment-tmle.md")
+    assert re.search(r"default settings \| 40 \| cross-fitted \| 3\.91 \|", reference)
+    assert re.search(r"exact law \| 320 \| cross-fitted \| 0\.98 \|", reference)
+    # The Kennedy locators, and the threshold the cap acts on.
+    kennedy = _read("docs/references.md")
+    assert "| Section 3.2, Assumptions 1 and 2, Theorem 1 |" in kennedy
+    assert "| Section 3.3, Theorem 2," in kennedy
+    assert 5.0 - 0.5 == 4.5
+
+
 SCREEN = "ate_regime[screen on risk vs offer to none]"
 OFFER_ALL = "ate_regime[offer to all vs offer to none]"
 CAPPED = "ate_policy[+0.5 capped at 5 vs current practice]"
@@ -102,6 +230,7 @@ IPSI = "ate_ipsi[double odds vs current odds]"
 
 def check(namespace: dict[str, Any]) -> None:
     """The three-proposal tutorial's truths, support figures, and draw-specific claims hold."""
+    check_sources()
     offer_all, screen = namespace["truth"]["ate"], namespace["screen_truth"]
     assert 0.5 * offer_all < screen < offer_all
     # The incremental truth carries g, so it moved when the law's g was bounded. truth.py
