@@ -34,6 +34,11 @@ _DOSE = f"{_PROBE}/summary.log, sweep_dose.csv (seeds 9000 to 9119)"
 UNPRINTED_DECIMALS = {
     "1.07": f"regime offer-to-all mean SE over empirical SD, degree-2 logistic g: {_BINARY}",
     "1.10": f"regime screen mean SE over empirical SD, degree-2 logistic g: {_BINARY}",
+    "-0.00029": f"regime offer-to-all mean error, degree-2 logistic g: {_BINARY}",
+    "0.00054": f"MC SE of the regime offer-to-all mean error, degree-2 logistic g: {_BINARY}",
+    "-0.00028": f"regime screen mean error, degree-2 logistic g: {_BINARY}",
+    "0.00037": f"MC SE of the regime screen mean error, degree-2 logistic g: {_BINARY}",
+    "1.08": f"incremental mean SE over empirical SD, degree-2 logistic g: {_BINARY}",
     "5.6": f"the law's share of intensities below zero, 0.055784: {_PROBE}/truth.log",
     # The shown dose configuration, quad_rboost40.
     "-0.0004": f"+0.5 capped mean error, quad_rboost40 (-0.00040): {_DOSE}",
