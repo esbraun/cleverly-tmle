@@ -3181,9 +3181,11 @@ def untargeted_fold_recursions(
         constant_folds: dict[int, list[int]] = {}
         probes: dict[int, FloatArray] = {}
         for fold, (test, outputs, _) in enumerate(outcomes):
-            for time, (held_out, target, fold_diagnostics, arms, constant, probe) in outputs[
-                position
-            ].items():
+            for time, entry in outputs[position].items():
+                # The probes are the sixth entry of a population-target node, and an entry
+                # without one reads as a node with no probes.
+                held_out, target, fold_diagnostics, arms, constant, *rest = entry
+                probe = rest[0] if rest else None
                 initial[time][test] = held_out
                 regression_target[time][test] = target
                 diagnostics[time].extend(fold_diagnostics)
