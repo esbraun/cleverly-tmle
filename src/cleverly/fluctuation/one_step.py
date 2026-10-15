@@ -36,16 +36,25 @@ import numpy as np
 from .._typing import BoolArray, FloatArray
 from ..exceptions import ConvergenceWarning
 from ._score import (
+    STOP_CONTEXT_MISSING,
+    StopContext,
     absolute_score_weights,
     quasi_loglik,
     relative_score,
+    ruled_warning,
     score_columns,
     score_scale,
 )
 from .iterative import (
     _SEPARATION_EPSILON as SEPARATION_EPSILON,
 )
-from .iterative import Fluctuation, InitialFit, TargetingFailure, apply_logistic
+from .iterative import (
+    Fluctuation,
+    InitialFit,
+    TargetingFailure,
+    _rule_state,
+    apply_logistic,
+)
 from .submodel import Submodel, weighted_form
 
 __all__ = ["solve_one_step"]
@@ -64,6 +73,8 @@ def solve_one_step(
     max_steps: int = 20_000,
     tol: float = 1e-10,
     warn: bool = True,
+    stopping: str = "relative",
+    stop: StopContext | None = None,
 ) -> Fluctuation:
     """Walk the universal least-favorable submodel until the score vanishes.
 
@@ -76,7 +87,30 @@ def solve_one_step(
     max_steps:
         Safety cap.  Exceeding it warns rather than raising, and the partially
         targeted fit is returned so the caller can inspect the trace.
+    stopping : {"relative", "scaled_var", "sample_size"}
+        The rule that ends the walk.  ``"relative"`` runs the shipped walk below, untouched.
+        A declared rule runs :func:`_solve_one_step_ruled`, which takes the same steps and
+        ends at the first step the rule is met.
+    stop : StopContext, optional
+        The units and outcome range a declared rule computes its threshold from.  A
+        declared rule without one raises ``ValueError``.
     """
+    if stopping != "relative":
+        return _solve_one_step_ruled(
+            outcome,
+            initial,
+            submodel,
+            weights,
+            observed,
+            target_weights=target_weights,
+            alpha=alpha,
+            step_size=step_size,
+            max_steps=max_steps,
+            tol=tol,
+            warn=warn,
+            stopping=stopping,
+            stop=stop,
+        )
     y = np.asarray(outcome, dtype=float).reshape(-1)
     n = y.shape[0]
     mask = np.ones(n, dtype=bool) if observed is None else np.asarray(observed, dtype=bool)
@@ -152,6 +186,115 @@ def solve_one_step(
         ),
         loglik=loglik,
         absolute_score_weights=absolute_score_weights(scoring_h, w, mask),
+    )
+
+
+def _solve_one_step_ruled(
+    outcome: FloatArray,
+    initial: InitialFit,
+    submodel: Submodel,
+    weights: FloatArray,
+    observed: BoolArray | None,
+    *,
+    target_weights: bool,
+    alpha: float,
+    step_size: float,
+    max_steps: int,
+    tol: float,
+    warn: bool,
+    stopping: str,
+    stop: StopContext | None,
+) -> Fluctuation:
+    """:func:`solve_one_step` with the stop test replaced by a declared stopping rule.
+
+    The walk is the shipped one, step for step, including the halving on an overshoot.  It
+    ends at the first accepted step where the largest score over its threshold is at most
+    one, so a rule that is looser than ``tol`` stops the same walk earlier.  ``tol`` is not
+    read.
+    """
+    if stop is None:
+        raise ValueError(STOP_CONTEXT_MISSING)
+    y = np.asarray(outcome, dtype=float).reshape(-1)
+    n = y.shape[0]
+    mask = np.ones(n, dtype=bool) if observed is None else np.asarray(observed, dtype=bool)
+    w = np.asarray(weights, dtype=float).reshape(-1)
+    if step_size <= 0:
+        raise ValueError(f"step_size must be positive; got {step_size}")
+
+    scoring_h = submodel.observed
+    fit_submodel, fit_weights = weighted_form(submodel, w) if target_weights else (submodel, w)
+
+    current = initial.shrunk(alpha)
+    epsilon = np.zeros(fit_submodel.dim)
+    dx = float(step_size)
+    scale = score_scale(scoring_h, w, mask)
+    trace: list[float] = []
+    loglik = quasi_loglik(y[mask], current.observed[mask], fit_weights[mask])
+    steps = 0
+
+    score = score_columns(y, current.observed, scoring_h, w, mask)
+    score_before = score
+    norm = float(np.linalg.norm(score))
+    trace.append(relative_score(score, scale))
+    thresholds, ratio = _rule_state(y, current, submodel, w, mask, score, stop, stopping)
+
+    while steps < max_steps and ratio > 1.0:
+        if norm == 0.0:
+            break
+        direction = score / norm
+        candidate_epsilon = epsilon + dx * direction
+        candidate = apply_logistic(current, fit_submodel, dx * direction, alpha)
+        candidate_score = score_columns(y, candidate.observed, scoring_h, w, mask)
+        candidate_norm = float(np.linalg.norm(candidate_score))
+
+        if candidate_norm > norm:
+            dx *= 0.5
+            if dx < 1e-14:
+                break
+            continue
+
+        epsilon = candidate_epsilon
+        current = candidate
+        score = candidate_score
+        norm = candidate_norm
+        loglik = quasi_loglik(y[mask], current.observed[mask], fit_weights[mask])
+        trace.append(relative_score(score, scale))
+        thresholds, ratio = _rule_state(y, current, submodel, w, mask, score, stop, stopping)
+        steps += 1
+
+    converged = bool(ratio <= 1.0)
+    if not converged and warn:
+        warnings.warn(
+            ruled_warning(
+                stopping,
+                steps,
+                ratio,
+                f"the walk took steps of at most {step_size:g}. Try a smaller step_size, or "
+                "check res.diagnostics.support() for a positivity violation.",
+            ),
+            ConvergenceWarning,
+            stacklevel=3,
+        )
+    return Fluctuation(
+        epsilon=epsilon,
+        targeted=current,
+        score=score,
+        converged=converged,
+        n_iter=steps,
+        trace=tuple(trace),
+        method="one_step",
+        names=submodel.names,
+        score_scale=scale,
+        score_initial=score_before,
+        failure=(
+            None
+            if converged
+            else _classify_one_step(epsilon, current, alpha, steps, max_steps, mask)
+        ),
+        loglik=loglik,
+        absolute_score_weights=absolute_score_weights(scoring_h, w, mask),
+        stopping=stopping,
+        thresholds=thresholds,
     )
 
 

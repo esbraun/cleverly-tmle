@@ -5,8 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, ClassVar, Literal, Protocol, runtime_checkable
 
-from ._typing import FluctuationKind, FoldStrata, GBounds, TargetingMethod, TargetingScheme
+from ._typing import (
+    FluctuationKind,
+    FoldStrata,
+    GBounds,
+    StoppingRule,
+    TargetingMethod,
+    TargetingScheme,
+)
 from .exceptions import MethodConfigurationError
+from .fluctuation._score import check_stopping_rule
 from .inference.bootstrap import Resampling
 from .inference.multiplier import MultiplierKind
 from .learners.crossfit import SplitPlan, _cross_fit_policy_refusal
@@ -293,7 +301,17 @@ class Targeting:
     max_iter : int, default=20
         Maximum targeting iterations.
     tol : float, default=1e-10
-        Score-equation convergence tolerance.
+        Score-equation convergence tolerance. It is the bar of ``stopping="relative"``,
+        and the tolerance of the inner Newton solve under every rule.
+    stopping : {"relative", "scaled_var", "sample_size"}, default="relative"
+        The rule that decides the score equation is solved. ``"relative"`` is the
+        shipped test: the largest score over the mean absolute clever covariate is at
+        most ``tol``. ``"scaled_var"`` and ``"sample_size"`` are the ``tmle3``
+        ``convergence_type`` rules. Each compares the score, in the outcome's units, with
+        ``sd / (sqrt(n_u) * min(log(n_u), 10))`` or ``1 / n_u``, where ``n_u`` counts the
+        distinct units among the rows the solver receives and ``sd`` is the sample SD of
+        the column's per-unit influence curve. A declared rule is refused beside
+        ``fluctuation="linear"``, which has no iteration to stop.
 
     See Also
     --------
@@ -311,6 +329,12 @@ class Targeting:
 
     >>> Targeting().g_bounds
     'auto'
+
+    Stop the targeting step by the ``tmle3`` ``scaled_var`` rule instead of the shipped
+    relative score:
+
+    >>> Targeting(stopping="scaled_var").stopping
+    'scaled_var'
     """
 
     fluctuation: FluctuationKind = "logistic"
@@ -323,6 +347,10 @@ class Targeting:
     step_size: float = 1e-3
     max_iter: int = 20
     tol: float = 1e-10
+    stopping: StoppingRule = "relative"
+
+    def __post_init__(self) -> None:
+        check_stopping_rule(self.stopping, self.fluctuation)
 
 
 @dataclass(frozen=True)
@@ -524,6 +552,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "step_size": "step_size",
         "max_iter": "max_iter",
         "tol": "tol",
+        "stopping": "stopping",
     },
     "inference": {
         "alpha": "alpha",
@@ -544,7 +573,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
 #: Point-engine settings with no longitudinal implementation. The public names are kept beside
 #: their normalized fields so an error names the declaration the caller wrote. ``cross_fit`` is
 #: deliberately absent: the longitudinal translation supports it by resolving ``False`` to
-#: ``n_folds=1``. All 18 settings below must either acquire a longitudinal derivation or remain
+#: ``n_folds=1``. Every setting below must either acquire a longitudinal derivation or remain
 #: explicit refusals; dropping one from the translation is never a supported interpretation.
 _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("models", "missingness_learner", "missingness_learner"),
@@ -563,6 +592,9 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("targeting", "nuisance_bound", "nuisance_bound"),
     ("targeting", "target_weights", "target_weights"),
     ("targeting", "step_size", "step_size"),
+    # Removed when the sequential engines apply the rule per node (X22 G4); until then a
+    # declared rule is refused rather than dropped.
+    ("targeting", "stopping", "stopping"),
 )
 
 
@@ -789,6 +821,7 @@ class TMLEMethod:
                 "nuisance_bound": targeting.nuisance_bound,
                 "target_weights": targeting.target_weights,
                 "step_size": targeting.step_size,
+                "stopping": targeting.stopping,
                 "n_bootstrap": inference.n_bootstrap,
                 "bootstrap_resampling": inference.bootstrap_resampling,
             }

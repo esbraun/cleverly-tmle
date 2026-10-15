@@ -29,10 +29,25 @@ from typing import Any, Literal
 
 import numpy as np
 
-from .._typing import BoolArray, FloatArray, FluctuationKind, IntArray, TargetingMethod
+from .._typing import (
+    BoolArray,
+    FloatArray,
+    FluctuationKind,
+    IntArray,
+    StoppingRule,
+    TargetingMethod,
+)
 from ..data.causal_data import CausalData
 from ..exceptions import CapabilityError, DataError
-from ..fluctuation._score import quasi_loglik, relative_score, score_columns, score_scale
+from ..fluctuation._score import (
+    STOP_CONTEXT_MISSING,
+    StopContext,
+    check_stopping_rule,
+    quasi_loglik,
+    relative_score,
+    score_columns,
+    score_scale,
+)
 from ..fluctuation.iterative import (
     CarryItem,
     Fluctuation,
@@ -276,6 +291,13 @@ class TargetingSpec:
     max_iter: int = 20
     tol: float = 1e-10
     step_size: float = 1e-3
+    #: The rule the outer test of a targeting step applies.  ``"relative"`` is the shipped
+    #: test against ``tol``.  A declared rule needs a
+    #: :class:`~cleverly.fluctuation._score.StopContext` at every solve.
+    stopping: StoppingRule = "relative"
+
+    def __post_init__(self) -> None:
+        check_stopping_rule(self.stopping, self.fluctuation)
 
 
 def build_submodel(
@@ -424,6 +446,7 @@ def solve_submodel(
     *,
     warn: bool = True,
     carry: Sequence[CarryItem] = (),
+    stop: StopContext | None = None,
 ) -> Fluctuation:
     """Solve the fluctuation on the given rows, by whichever method ``spec`` names.
 
@@ -435,7 +458,18 @@ def solve_submodel(
     and the one caller that passes ``carry`` is a reference construction rather than a
     production path.  ``DRTMLE._check_drtmle`` refuses the nested composition before any
     learner, so for that composition this raise is a backstop.
+
+    ``stop`` carries the units and the outcome range a declared ``spec.stopping`` computes its
+    threshold from.  Under ``stopping="relative"`` it is not read.  Under a declared rule a
+    missing ``stop`` raises ``ValueError``, so a call site that does not build the context
+    fails loudly instead of judging the score on a threshold it had to invent.
     """
+    if spec.stopping != "relative":
+        if stop is None:
+            raise ValueError(STOP_CONTEXT_MISSING)
+        return _solve_submodel_ruled(
+            scaled, initial, submodel, weights, observed, spec, warn, carry, stop
+        )
     if spec.targeting == "one_step":
         if carry:
             raise CapabilityError(ONE_STEP_NESTED_REFUSAL)
@@ -464,6 +498,53 @@ def solve_submodel(
         tol=spec.tol,
         warn=warn,
         carry=carry,
+    )
+
+
+def _solve_submodel_ruled(
+    scaled: FloatArray,
+    initial: InitialFit,
+    submodel: Submodel,
+    weights: FloatArray,
+    observed: BoolArray,
+    spec: TargetingSpec,
+    warn: bool,
+    carry: Sequence[CarryItem],
+    stop: StopContext,
+) -> Fluctuation:
+    """:func:`solve_submodel` under a declared stopping rule."""
+    if spec.targeting == "one_step":
+        if carry:
+            raise CapabilityError(ONE_STEP_NESTED_REFUSAL)
+        return solve_one_step(
+            scaled,
+            initial,
+            submodel,
+            weights,
+            observed,
+            target_weights=spec.target_weights,
+            alpha=spec.alpha,
+            step_size=spec.step_size,
+            tol=spec.tol,
+            warn=warn,
+            stopping=spec.stopping,
+            stop=stop,
+        )
+    return solve_fluctuation(
+        scaled,
+        initial,
+        submodel,
+        weights,
+        observed,
+        kind=spec.fluctuation,
+        target_weights=spec.target_weights,
+        alpha=spec.alpha,
+        max_iter=spec.max_iter,
+        tol=spec.tol,
+        warn=warn,
+        carry=carry,
+        stopping=spec.stopping,
+        stop=stop,
     )
 
 

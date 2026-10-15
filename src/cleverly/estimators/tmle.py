@@ -108,6 +108,7 @@ from .._typing import (
     IntArray,
     Learner,
     ParameterAxis,
+    StoppingRule,
     TargetingMethod,
     TargetingScheme,
 )
@@ -127,7 +128,12 @@ from ..exceptions import (
     WeightingWarning,
     refuse_after_repeats,
 )
-from ..fluctuation._score import relative_score, score_columns, score_scale
+from ..fluctuation._score import (
+    check_stopping_rule,
+    relative_score,
+    score_columns,
+    score_scale,
+)
 from ..fluctuation.iterative import (
     Fluctuation,
     FoldFluctuation,
@@ -720,6 +726,10 @@ class TMLE:
         under weak overlap.  See :mod:`cleverly.inference.multiplier`.
     step_size, max_iter, tol:
         Targeting-step controls.
+    stopping:
+        The rule that decides the score equation is solved: ``"relative"`` (default),
+        ``"scaled_var"`` or ``"sample_size"``; see :class:`cleverly.Targeting`.
+        ``"relative"`` tests the relative score norm against ``tol``, as before.
     run_id:
         An identifier of your own -- an experiment id, a ticket number -- recorded on
         :attr:`TMLEResult.provenance`.  The library records no git commit of its own:
@@ -857,6 +867,7 @@ class TMLE:
         step_size: float = 1e-3,
         max_iter: int = 20,
         tol: float = 1e-10,
+        stopping: StoppingRule = "relative",
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -911,6 +922,7 @@ class TMLE:
         self.step_size = step_size
         self.max_iter = max_iter
         self.tol = tol
+        self.stopping = stopping
         self.random_state = random_state
         self.n_jobs = n_jobs
         self._validate_settings()
@@ -967,6 +979,7 @@ class TMLE:
                 "targeting='one_step' walks a logistic submodel and cannot be combined with "
                 "fluctuation='linear'"
             )
+        check_stopping_rule(self.stopping, self.fluctuation)
         if not 0.0 < self.alpha_sig < 1.0:
             raise ValueError(f"alpha_sig must lie in (0, 1); got {self.alpha_sig}")
         if not 0.0 < self.nuisance_bound < 0.5:
@@ -3809,6 +3822,7 @@ class TMLE:
             max_iter=self.max_iter,
             tol=self.tol,
             step_size=self.step_size,
+            stopping=self.stopping,
         )
 
     def _fold_strata(self, data: CausalData) -> FloatArray | None:
