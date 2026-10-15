@@ -2835,6 +2835,8 @@ def _matches_registered_point_identification(
         expected = _point_identification(registered, design, expected_functional)
     except (AttributeError, CapabilityError, DataError, KeyError, TypeError, ValueError):
         return False
+    # ``actual == expected`` compares every field of the record, ``model_restrictions``
+    # included, so a design-level restriction dropped or added after the fact is refused.
     return functional == expected_functional and actual == expected
 
 
@@ -3537,6 +3539,14 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             A printable block naming the estimand, the functional, and the assumptions.
         """
         assumptions = "\n".join(f"  - {item}" for item in self.identification.assumptions)
+        restrictions = (
+            [
+                "model restrictions:",
+                *(f"  - {item}" for item in self.identification.model_restrictions),
+            ]
+            if self.identification.model_restrictions
+            else []
+        )
         history = self.functional.history
         # A longitudinal functional conditions each node's mechanism on its own history,
         # so one list of the baseline covariates would understate every later node.
@@ -3552,6 +3562,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 *adjustment,
                 f"required nuisances: {list(self.identification.required_nuisances)}",
                 f"assumptions:\n{assumptions}",
+                *restrictions,
                 *protocol_summary_lines(self.protocol, protocol),
             ]
         )
@@ -3575,6 +3586,11 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             f"identification: {self.provider.name}; {self.functional.expression}",
             "required nuisances: " + ", ".join(self.identification.required_nuisances),
             "identification assumptions: " + "; ".join(self.identification.assumptions),
+            *(
+                ("model restrictions: " + "; ".join(self.identification.model_restrictions),)
+                if self.identification.model_restrictions
+                else ()
+            ),
             *protocol_summary_lines(self.protocol, protocol),
         )
 
