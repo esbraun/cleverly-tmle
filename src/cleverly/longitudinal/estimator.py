@@ -149,6 +149,7 @@ from ..targets.base import parameter_name
 from ..utils.bounds import (
     DEFAULT_LTMLE_G_BOUNDS,
     OutcomeScaler,
+    policy_scale_refusal,
     resolve_cumulative_g_bounds,
 )
 from ..utils.phases import PhaseProfile, phase, profile_phases
@@ -3371,6 +3372,7 @@ class _SequentialEstimator:
         # Every declared factor is checked against the bounds before any learner.
         preflight_known_mechanisms(prepared, plans, resolve_cumulative_g_bounds(self.g_bounds))
 
+        self._refuse_undeclared_policy_scale(prepared, plans)
         self._refuse_unbounded_cross_fitted_scale(prepared)
         if self.n_bootstrap and self.bootstrap_resampling == "cluster" and prepared.cluster is None:
             # The refusal ``run_bootstrap`` would raise after the fit, raised before any
@@ -3930,6 +3932,33 @@ class _SequentialEstimator:
                 "fit reports the fold-average variance of Hubbard, Kherad-Pajouh and van der "
                 "Laan (2016), Theorem 1"
             )
+
+    def _refuse_undeclared_policy_scale(
+        self, data: LongitudinalData, plans: Sequence[Plan]
+    ) -> None:
+        """Refuse a continuous outcome under a modified treatment policy with no ``q_bounds``.
+
+        R-f1 of X40, in sample as well as cross-fitted.  It runs before the cross-fitted
+        scale refusal, so a policy fit reads the reason that applies to it.  A static or
+        dynamic regimen with no policy node keeps the padded in-sample scale.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        plans : sequence of Plan
+            The resolved plans.
+
+        Raises
+        ------
+        LongitudinalError
+            If some plan holds a modified treatment policy, the outcome is not binary and
+            ``q_bounds`` is ``None``.
+        """
+        if data.family == "binomial" or self.q_bounds is not None:
+            return
+        if any(plan.has_mtp for plan in plans):
+            raise LongitudinalError(policy_scale_refusal(str(data.outcome_name)))
 
     def _refuse_unbounded_cross_fitted_scale(self, data: LongitudinalData) -> None:
         """Refuse a cross-fitted continuous outcome without a declared ``q_bounds``.
