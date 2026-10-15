@@ -47,7 +47,7 @@ print(
     f" {share(rows['is_miss_in_se'] > rows['cf_miss_in_se'])}"
 )
 print()
-print("Step 11, the assessment of the cross-fitted fit")
+print("Step 9, the assessment of the cross-fitted fit")
 print(f"  no attention row: {share(rows['attention'].isna())}")
 print(f"  propensity calibration slope, 5% / 50% / 95%: {quantiles('cal_slope')}")
 print(f"  no unit truncated at the default bound: {share(rows['truncated'] == 0)}")
@@ -58,7 +58,7 @@ print(f"  treated is the smaller ESS ratio: {share(rows['cf_ess_treated'] < rows
 cf_min = np.minimum(rows["cf_ess_treated"], rows["cf_ess_control"])
 print(f"  in-sample minimum ESS ratio above the cross-fitted one: {share(rows['is_ess_min'] > cf_min)}")
 print()
-print("Step 13, the sensitivity analysis of the cross-fitted fit")
+print("Step 10, the sensitivity analysis of the cross-fitted fit")
 print(f"  rv 5% / 50% / 95%: {quantiles('rv', 3)}")
 print(f"  rva 5% / 50% / 95%: {quantiles('rva', 3)}")
 print(
@@ -77,8 +77,8 @@ print(
     f" {share(rows['share_g_below_0.1'] < 0.0188)}"
 )
 print()
-print("Step 13, the shown draw (seed 34) at the law's nu^2 (truth.py)")
-# Printed by the notebook's Step 13 cell: the estimate, sigma^2 and nu^2 of the fit, at the
+print("Step 10, the shown draw (seed 34) at the law's nu^2 (truth.py)")
+# Printed by the notebook's Step 10 cell: the estimate, sigma^2 and nu^2 of the fit, at the
 # default strengths cf_y = cf_d = 0.03.  Bound and robustness value follow omitted_variable.py:
 # bias <= sqrt(sigma^2 nu^2) * |rho| sqrt(cf_y cf_d / (1 - cf_d)), and at rho = 1 the equal
 # strength r solving sqrt(sigma^2 nu^2) * r / sqrt(1 - r) = estimate.
