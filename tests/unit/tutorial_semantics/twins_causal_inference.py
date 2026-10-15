@@ -10,6 +10,7 @@ number that the next networked execution can move.
 
 from __future__ import annotations
 
+import csv
 import re
 
 import nbformat
@@ -18,10 +19,13 @@ from tests.notebooks import code_cells
 from tests.unit.tutorial_semantics import EXAMPLES, markdown_text, notebook_code, stored_output
 
 NOTEBOOK = EXAMPLES / "twins-causal-inference.ipynb"
+_STUDY = "tests/canonical/tmle3_cvtmle"
 
 #: Decimals the prose writes that no stored output prints, each with the reason.
 UNPRINTED_DECIMALS = {
     "0.5": "a value of the outcome, the share of two twins who die, not a result",
+    "0.9425": f"coverage of the cleverly continuous att row: {_STUDY}/summary.csv",
+    "0.9956": f"se_ratio of the same row: {_STUDY}/summary.csv",
 }
 
 #: A printed residual such as 3.79e-13 is machine noise that changes between machines.
@@ -110,6 +114,10 @@ def check_stored() -> None:
     assert "CrossFitting(n_folds=3, learner_folds=3)" in code["att-fit"]
     assert "stacked CV-TMLE (Levy): nuisances cross-fitted over 3 folds" in fit_text
     assert "clusters =" not in fit_text
+    # The bounded-outcome reading: the share is continuous, and the initial fit stays in [0, 1].
+    assert "outcome family: gaussian; fluctuation: logistic" in fit_text
+    low, high = re.search(r"initial outcome predictions: (\S+) to (\S+)", fit_text).groups()
+    assert 0.0 <= float(low) <= float(high) <= 1.0
 
     # The ATT and the crude difference share the observed risk of the smoking pairs.
     observed = _number(fit_text, r"observed risk, smoking pairs:\s+(\S+)")
@@ -132,7 +140,7 @@ def check_stored() -> None:
     # Assessment: the score check passed, and the reading explains every attention item.
     diagnostics = stored_output(NOTEBOOK, "assessment")
     assert re.search(r"validation\s+score_equations\s+passed", diagnostics)
-    assert "|score| / threshold = 0.0000" in diagnostics
+    assert diagnostics.count("|score| / threshold = 0.0000") == 1
     assert not _MACHINE_NOISE.search(diagnostics)
     attention = re.search(r"needs attention: \(([^)]*)\)", diagnostics)
     assert attention, "the assessment no longer prints its attention list"
@@ -142,7 +150,9 @@ def check_stored() -> None:
 
     # Overlap: no smoking pair reaches the upper bound, and the bound does not carry the estimate.
     overlap = stored_output(NOTEBOOK, "overlap")
-    assert _number(overlap, r"largest fitted propensity of a smoking pair: (\S+)") < 0.975
+    assert _number(overlap, r"largest fitted propensity: (\S+)") < 0.975
+    below = re.search(r"lower ATT bound 0.025: non-smoking ([\d,]+), smoking ([\d,]+)", overlap)
+    assert below and int(below[1].replace(",", "")) > 50 * int(below[2].replace(",", ""))
     curve = [
         float(match.group(1))
         for match in re.finditer(r"(?m)^\s*0\.0\d+\s+\S+\s+(\S+)\s+\S+\s+\S+\s*$", overlap)
@@ -154,8 +164,27 @@ def check_stored() -> None:
     # smallest grid value, and the grid bounds read as the prose says.
     sensitivity = stored_output(NOTEBOOK, "sensitivity")
     assert _number(sensitivity, r"the estimate moved by (\S+) when") > 0
-    assert _number(sensitivity, r"implied cf_y = (\S+),") < 0.001
-    smallest = _row(sensitivity, "0.001")
-    largest = _row(sensitivity, "0.010")
-    assert smallest[0] > att, "the bias bound at cf_y = 0.001 no longer exceeds the estimate"
-    assert largest[-1] > crude, "the bound at cf_y = 0.010 no longer admits the crude difference"
+    implied = re.search(r"implied cf_y = (\S+),", sensitivity)
+    assert implied and float(implied[1]) < 0.001
+    assert "cf_d=benchmark.cf_d" in code["sensitivity"]
+    at_benchmark = _row(sensitivity, implied[1])
+    assert at_benchmark[0] > att, "the bias bound at the benchmark no longer exceeds the estimate"
+    assert at_benchmark[-1] > crude, "the benchmark bound no longer admits the crude difference"
+
+    # Over-adjustment: dropping the three doubtful items moves the ATT by under half an SE.
+    refit = stored_output(NOTEBOOK, "over-adjustment")
+    shift = _number(refit, r"without the three items: (\S+)") - _number(
+        refit, r"with the three items:\s+(\S+)"
+    )
+    assert 0 < shift < 0.5 * _number(refit, r"standard error of the ATT:\s+(\S+)")
+
+    # The study numbers that the trust table quotes.
+    with (EXAMPLES.parents[1] / _STUDY / "summary.csv").open(encoding="utf-8") as handle:
+        (study_row,) = [
+            row
+            for row in csv.DictReader(handle)
+            if (row["implementation"], row["scenario"], row["estimand"])
+            == ("cleverly-stacked-cvtmle", "continuous", "att")
+        ]
+    assert f"{float(study_row['coverage']):.4f}" == "0.9425"
+    assert f"{float(study_row['se_ratio']):.4f}" == "0.9956"
