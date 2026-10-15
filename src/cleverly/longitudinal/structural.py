@@ -1033,6 +1033,43 @@ class StructuralDiagnostics:
     learner_diagnostics: tuple[Any, ...] = ()
 
 
+def _split_seeds(random_state: int | None, count: int) -> list[int]:
+    """The seeds of the further fold splits of a model check.
+
+    A seeded fit derives them from its seed, so the check is reproducible.  An unseeded fit
+    draws them from operating-system entropy.
+    """
+    if random_state is None:
+        return [_fresh_seed() for _ in range(count)]
+    sequence = np.random.SeedSequence([int(random_state), 0x5EED])
+    return [int(seed) % (2**31 - 1) for seed in sequence.generate_state(count)]
+
+
+def _split_covariance(
+    differences: FloatArray, curves: Sequence[FloatArray], cluster: Any
+) -> FloatArray:
+    """The covariance of the split-averaged difference of a model check.
+
+    ``differences`` is the ``(S, k)`` difference of the contrasts on each split, and
+    ``curves`` holds the ``(n, k)`` difference curve of each split.  Given the data, the
+    splits are independent, so the variance of the mean difference is the variance of its
+    conditional mean plus the between-split covariance over ``S``.  The first part is the
+    mean covariance of curves from two different splits: each curve's own split noise is
+    independent of the other's, so the cross terms do not carry it.  One split reads its
+    own curve.
+    """
+    count = len(curves)
+    if count == 1:
+        return influence_covariance(curves[0], cluster)
+    total = influence_covariance(np.sum(curves, axis=0), cluster)
+    own = np.sum([influence_covariance(curve, cluster) for curve in curves], axis=0)
+    first_order = (total - own) / (count * (count - 1))
+    k = differences.shape[1]
+    between = np.cov(differences, rowvar=False, ddof=1).reshape(k, k)
+    covariance = first_order + between / count
+    return np.asarray((covariance + covariance.T) / 2.0, dtype=float)
+
+
 def _smallest_eigenvalue(block: FloatArray) -> float:
     """The smallest eigenvalue of ``block`` standardized to unit diagonal."""
     diagonal = np.diag(block)
@@ -1628,18 +1665,22 @@ class StructuralModelCheck:
 
     The difference of the two contrast vectors has mean zero when the structural model holds.
     The statistic is a joint Wald statistic over the contrasts against the reference.  It is a
-    necessary-condition check and not a test of the model.
+    necessary-condition check and not a test of the model.  On a cross-fitted fit, every
+    estimate is the mean over ``n_splits`` fold splits, the first of which is the fit's own.
 
     Parameters
     ----------
     names : tuple of str
         The contrasts, ``ate_regimen[<regimen> vs <reference>]``.
     structural : ndarray
-        The structural point estimates.
+        The structural point estimates, averaged over the splits.
     nonparametric : ndarray
-        The :class:`~cleverly.longitudinal.LTMLE` point estimates on the same rows and folds.
+        The :class:`~cleverly.longitudinal.LTMLE` point estimates on the same rows and
+        splits, averaged over the splits.
     covariance : ndarray
-        The covariance of the difference of the two estimators.
+        The covariance of the split-averaged difference: the cross-split covariance of the
+        difference curves plus the between-split covariance of the difference over
+        ``n_splits``.
     statistic : float
         The Wald statistic, ``nan`` when no test is reported.
     df : int
@@ -1649,7 +1690,9 @@ class StructuralModelCheck:
     reason : str or None
         Why no test is reported, or ``None``.
     ltmle : LongitudinalResult
-        The nonparametric fit, which used the folds of the structural fit.
+        The nonparametric fit on the folds of the structural fit.
+    n_splits : int
+        The fold splits behind the estimates: ``1`` for an in-sample fit.
     """
 
     names: tuple[str, ...]
@@ -1661,6 +1704,7 @@ class StructuralModelCheck:
     pvalue: float
     reason: str | None
     ltmle: Any
+    n_splits: int
 
     @property
     def difference(self) -> FloatArray:
@@ -1703,6 +1747,8 @@ class StructuralModelCheck:
             )
         else:
             tail = f"no test is reported: {self.reason}"
+        if self.n_splits > 1:
+            tail += f"\nestimates and covariance over {self.n_splits} fold splits"
         return "\n".join(
             [
                 "Structural model check (a necessary condition, not a test of the model)",
@@ -1934,6 +1980,7 @@ class StructuralNestedMeanResult:
         *,
         q_bounds: tuple[float, float] | None = None,
         rank_floor: float = RANK_FLOOR,
+        n_splits: int = 5,
     ) -> StructuralModelCheck:
         """Compare the structural contrasts with the nonparametric contrasts.
 
@@ -1943,6 +1990,18 @@ class StructuralNestedMeanResult:
         difference of the two curves.  The mean is zero under the structural model.  The
         joint Wald statistic has one degree of freedom per contrast.  A rejection says that
         the model fails for these contrasts.  A non-rejection does not confirm the model.
+
+        The two contrasts nearly cancel, so the difference has a much smaller variance than
+        either estimator.  On a cross-fitted fit, the second-order remainder of each
+        estimator depends on the fold split, and the curves do not carry it.  It is
+        negligible against either estimator but not against the difference, so at 2 folds a
+        check on one split rejects a correct model too often.  The check therefore
+        refits both estimators on ``n_splits - 1`` further splits and tests the mean
+        difference (Chernozhukov et al. 2018, *Econometrics Journal* 21(1), Section 3.4).
+        Given the data, the splits are independent draws, so the between-split covariance
+        over ``n_splits`` is the split part of the variance.  The covariance of curves from
+        two different splits estimates the first-order part, free of each curve's own split
+        noise.  An in-sample fit has no split, and its check reads the curves of the fit.
 
         Parameters
         ----------
@@ -1954,6 +2013,10 @@ class StructuralNestedMeanResult:
             eigenvalue of the two contrast covariances, below which the check reports no
             test.  A feature map that saturates the contrasts makes the two curves nearly
             equal.
+        n_splits : int, default=5
+            The fold splits of a cross-fitted check, the fit's own included.  It must be at
+            least 2, because one split cannot estimate the between-split covariance.  Each
+            further split refits both estimators.  An in-sample fit ignores it.
 
         Returns
         -------
@@ -1967,7 +2030,11 @@ class StructuralNestedMeanResult:
             time-varying covariate (``IMPLEMENTATION_GAP``), a status that supplies no
             inference (``INFERENCE_GAP``), fewer than two regimens, or a cross-fitted
             continuous outcome with no ``q_bounds``.
+        ValueError
+            For ``n_splits`` below 2.
         """
+        if isinstance(n_splits, bool) or not isinstance(n_splits, int) or n_splits < 2:
+            raise ValueError(f"n_splits must be an integer of at least 2; got {n_splits!r}")
         data = self.data
         if self.config.reads_covariates:
             raise CapabilityError.from_refusal(_COVARIATE_FEATURE_REFUSAL)
@@ -1997,44 +2064,56 @@ class StructuralNestedMeanResult:
                 "outcome support",
                 alternative="Pass q_bounds=(lower, upper) to check_model.",
             )
-        settings = self.estimator
-        regimens = [Regimen(r.label, r.values) for r in self.static_regimens]
-        reference = self.config.reference
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            nonparametric_fit = LTMLE(
-                regimens,
-                reference=reference,
-                outcome_learner=settings.outcome_learner,
-                treatment_learner=settings.treatment_learner,
-                n_folds=self.folds.n_folds,
-                learner_folds=settings.learner_folds,
-                q_bounds=q_bounds,
-                alpha_sig=settings.alpha_sig,
-                simultaneous=False,
-                random_state=settings.random_state,
-                n_jobs=settings.n_jobs,
-            )
-            # The split is this fit's own, so both estimators hold out the same rows.
-            shared = self.folds
-            nonparametric_fit._folds = lambda _data: shared  # type: ignore[assignment]
-            fit = nonparametric_fit.fit(data)
         names = tuple(name for name, kind in self.kinds.items() if kind == "contrast")
-        for name in names:
-            if not fit[name].supplies_inference:
-                raise CapabilityError(
-                    f"the nonparametric fit takes the {fit[name].inference!r} status, so its "
-                    "curve supplies no interval to compare with.",
-                    reason=RefusalReason.INFERENCE_GAP,
-                    alternative="Fit LTMLE with more clusters, or compare the point estimates.",
+        splits = [self.folds]
+        if not self.folds.is_single:
+            splits += [
+                random_partition(data.n, self.folds.n_folds, cluster=data.cluster, seed=seed)
+                for seed in _split_seeds(self.estimator.random_state, n_splits - 1)
+            ]
+        structural_rows: list[FloatArray] = []
+        nonparametric_rows: list[FloatArray] = []
+        curves: list[FloatArray] = []
+        first: Any = None
+        for index, folds in enumerate(splits):
+            try:
+                structural_fit = self if index == 0 else self._refit(folds)
+                fit = self._nonparametric(folds, q_bounds)
+            except DataError as error:
+                if index == 0:
+                    raise
+                raise DataError(
+                    f"the model check refits both estimators on {len(splits) - 1} further "
+                    f"fold splits, and split {index + 1} failed: {error}"
+                ) from error
+            for name in names:
+                if not fit[name].supplies_inference:
+                    raise CapabilityError(
+                        f"the nonparametric fit takes the {fit[name].inference!r} status, so "
+                        "its curve supplies no interval to compare with.",
+                        reason=RefusalReason.INFERENCE_GAP,
+                        alternative=(
+                            "Fit LTMLE with more clusters, or compare the point estimates."
+                        ),
+                    )
+            if index == 0:
+                first = fit
+            structural_rows.append(np.array([structural_fit[name].psi for name in names]))
+            nonparametric_rows.append(np.array([fit[name].psi for name in names]))
+            curves.append(
+                np.column_stack(
+                    [
+                        structural_fit[name].influence_curve - fit[name].influence_curve
+                        for name in names
+                    ]
                 )
-        structural = np.array([self[name].psi for name in names])
-        nonparametric = np.array([fit[name].psi for name in names])
-        difference = np.column_stack(
-            [self[name].influence_curve - fit[name].influence_curve for name in names]
-        )
+            )
+        structural = np.mean(structural_rows, axis=0)
+        nonparametric = np.mean(nonparametric_rows, axis=0)
         cluster = data.cluster
-        covariance = influence_covariance(difference, cluster)
+        covariance = _split_covariance(
+            np.asarray(structural_rows) - np.asarray(nonparametric_rows), curves, cluster
+        )
         scale = max(
             float(
                 np.linalg.eigvalsh(
@@ -2046,12 +2125,12 @@ class StructuralNestedMeanResult:
             float(
                 np.linalg.eigvalsh(
                     influence_covariance(
-                        np.column_stack([fit[n].influence_curve for n in names]), cluster
+                        np.column_stack([first[n].influence_curve for n in names]), cluster
                     )
                 )[-1]
             ),
         )
-        eigenvalues = np.linalg.eigvalsh((covariance + covariance.T) / 2.0)
+        eigenvalues = np.linalg.eigvalsh(covariance)
         reason: str | None = None
         statistic = pvalue = float("nan")
         if not eigenvalues[0] > rank_floor * scale:
@@ -2061,6 +2140,11 @@ class StructuralNestedMeanResult:
                 "blip features make the structural contrasts nearly equal to the "
                 "nonparametric ones, so the difference carries no information"
             )
+            if len(splits) > 1:
+                reason += (
+                    f", or {len(splits)} splits estimate the covariance too coarsely. "
+                    "Pass a larger n_splits to tell the two apart"
+                )
         else:
             gap = structural - nonparametric
             statistic = float(gap @ np.linalg.solve(covariance, gap))
@@ -2074,8 +2158,41 @@ class StructuralNestedMeanResult:
             df=len(names),
             pvalue=pvalue,
             reason=reason,
-            ltmle=fit,
+            ltmle=first,
+            n_splits=len(splits),
         )
+
+    def _refit(self, folds: Folds) -> StructuralNestedMeanResult:
+        """Refit the structural estimator on these rows with another fold split."""
+        settings = copy.copy(self.estimator)
+        # The check reads the curves and the estimates; a band would be discarded.
+        settings.simultaneous = False
+        settings._folds = lambda _data: folds  # type: ignore[method-assign, assignment]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return settings.fit(self.data)
+
+    def _nonparametric(self, folds: Folds, q_bounds: tuple[float, float] | None) -> Any:
+        """Fit LTMLE for the static regimens on these rows with this fold split."""
+        settings = self.estimator
+        nonparametric_fit = LTMLE(
+            [Regimen(r.label, r.values) for r in self.static_regimens],
+            reference=self.config.reference,
+            outcome_learner=settings.outcome_learner,
+            treatment_learner=settings.treatment_learner,
+            n_folds=folds.n_folds,
+            learner_folds=settings.learner_folds,
+            q_bounds=q_bounds,
+            alpha_sig=settings.alpha_sig,
+            simultaneous=False,
+            random_state=settings.random_state,
+            n_jobs=settings.n_jobs,
+        )
+        # The split is the structural fit's own, so both estimators hold out the same rows.
+        nonparametric_fit._folds = lambda _data: folds  # type: ignore[assignment]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return nonparametric_fit.fit(self.data)
 
     # ----------------------------------------------------------------- reports
 
