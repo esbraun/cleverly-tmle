@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly-ctmle-sequences",
       "cleverly_version": "0.1.3",
-      "cleverly_commit": "d106a6379db682b11468d385180e07223a6011c5",
+      "cleverly_commit": "c8aa6e651fd0109ae3037e2e5ed3e8d73279e631",
       "cleverly_worktree_clean": true,
       "python": "3.13.16",
       "numpy": "2.4.6",
@@ -52,6 +52,7 @@
     "inference": "package: plug-in D* diagnostic (plugin_std_error); R: var.psi of the type-1 final step for binary_lasso and varDstar_origscale[best_k] / n for binary_learners",
     "failure_rule": "a failed or dropped replication, a non-finite estimate, an R error outside the type-1 adapter, a quirk-5 separation violation, a rebuild disagreement, a coefficient reconstruction mismatch, or a broken structural invariant of a package fit fails the run",
     "red_cell_owners": {
+      "truth/binary_lasso/coverage": "X16-plugin-variance",
       "truth/coverage": "F18",
       "truth/se_ratio": "F18",
       "truth/bias": "X16-sequence-reading",
@@ -63,6 +64,12 @@
       "property/multi_arm/positive/coverage": "F18",
       "property/multi_arm/positive/se_ratio": "F18"
     },
+    "expected_red": [
+      "cleverly-ctmle-sequences/binary_lasso/ate",
+      "selector_necessity/learners_collaborative",
+      "selector_necessity/lasso_collaborative",
+      "selector_necessity/empty_control"
+    ],
     "comparison_scope": "binary ATE, two arms, complete outcomes, in-sample nuisances",
     "margins": {
       "confidence_level": 0.99,
@@ -91,8 +98,8 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_ctmle_sequences.py": "fe26e051effad98f37007ec762de15eff7458db630d5b547f35b9db94e849c84",
-    "tests/studies/ctmle_sequence_properties.py": "70dd23cece6d80967641c32ab233303c992ca482dd94c5f97b447ab9eeede7fe",
+    "tests/studies/canonical_ctmle_sequences.py": "e418347e6b4d863e7773797cd39c89ef39377d17a26e15dbfcbc6b00539f1324",
+    "tests/studies/ctmle_sequence_properties.py": "2c6b48a7665b615e8b6f2f62acd3a6938f7f245e299fc1240a0cefeab0bbe376",
     "tests/studies/ctmle_sequence_replay.py": "7a11aeff2e2580caacbad6501eae924bc73eb8f387bf56164b85ae817b178ea3",
     "tests/canonical/ctmle_sequence_witness/harness.py": "4176ba51fc8ad9aa240f58efa19f65ca01695c44cf8f739c786454c95d45a718",
     "tests/studies/canonical_ctmle_selector.py": "d13a9f8e2213cca5186100962fadfd96055c0ac1d49b5549f60674101cf7e40d",
@@ -118,9 +125,9 @@
     "summary.csv": "cca7b1c679e48a676b35f79ea1be1b16403af75a68f0cd5bb585b1ed6e04a5bf",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
     "performance-tests.csv": "758bf95393e5143c75400179e0dd5905610ac9fff92f760f28bf095f01054c04",
-    "property-replicates.csv.gz": "2133c4af25b8691c08d4c3f74e94037b80d25543cca9ec9c66ca0fda5a763c44",
-    "properties.csv": "5bbeeab581d45b83f761a87cf9396511c8663c572aee3b76ee02b040f8a2eeb4",
-    "property-selection.csv": "f1ad51e7d99ca370de32c3e60f613f0b81ca7afdbc4e8705052b16f62d03e6b0"
+    "property-replicates.csv.gz": "fccb32e6545d16972cabdb9d608e8c441949cb4b554543700946ed51d6912402",
+    "properties.csv": "157b037ce9e5d807052ac4bc3c86bc87f730aeadf3dcf592e180188d9fe823d8",
+    "property-selection.csv": "e51f7966397c60b34871466f2c52ccf59035de5b5aec45c9181030d874a275a9"
   },
   "comparator": {
     "status": "pending",
@@ -137,6 +144,7 @@
       "replay_outputs": "coef(glm), coef(gbw, s = lambdas) of the full-sample default path, coef of each build_gn_seq full fit, the accepted candidates, results.all est and likelihood, and the type-1 final step from R's best_k and from the package's selected index (ctmle_glmnet.R:248-327); every coefficient set reproduces R's arrays to 1e-12",
       "outcome_regression": "glm(Y ~ A + W1 + W2 + W3 + W4, family = binomial())",
       "red_cell_owners": {
+        "truth/binary_lasso/coverage": "X16-plugin-variance",
         "truth/coverage": "F18",
         "truth/se_ratio": "F18",
         "truth/bias": "X16-sequence-reading",
