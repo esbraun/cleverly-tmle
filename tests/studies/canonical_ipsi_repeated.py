@@ -272,6 +272,8 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly",
     reference=None,
+    # RM39b2 rev 3 section 6: the primary bound the next run applies.
+    failure_bound={"cleverly": 0.01},
     modules=(
         "tests/studies/canonical_ipsi_repeated.py",
         "tests/studies/ipsi_repeated_properties.py",

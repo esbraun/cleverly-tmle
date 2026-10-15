@@ -3118,6 +3118,7 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 UNCOMMITTED_MODULES = (
     "tests.studies.longitudinal_incremental_properties",
     "tests.studies.longitudinal_incremental_dropout_properties",
+    "tests.studies.ipsi_repeated_properties",
 )
 
 

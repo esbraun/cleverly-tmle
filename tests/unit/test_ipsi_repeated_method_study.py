@@ -18,14 +18,16 @@ import pandas as pd
 import pytest
 from scipy.stats import norm
 
+from tests.canonical import property_differential
 from tests.canonical.ipsi_repeated import pilot
 from tests.studies import canonical_ipsi_repeated as study
 from tests.studies import ipsi_repeated_properties as properties
 from tests.studies import ltmle_repeated_law as law
 from tests.studies import repeated_sizing as sizing
-from tests.studies.evidence import replication
+from tests.studies.evidence import property_failures, property_verdicts, replication
 from tests.studies.evidence.registry import registered
 from tests.studies.fractional_glm import QuasiBinomialGLM
+from tests.unit.test_method_evidence import UNCOMMITTED_MODULES
 
 pytestmark = pytest.mark.filterwarnings("ignore")
 
@@ -472,17 +474,103 @@ def test_draw_and_fit_returns_a_phase_result_with_every_estimand() -> None:
         assert set(rows.loc[rows["scenario"] == scenario, "estimand"]) == set(study.ESTIMANDS)
 
 
-def test_the_fit_sets_emit_exactly_the_declared_cells() -> None:
-    outcomes = [
-        properties._replication((family, configuration, replicate, 2, 11 + replicate, SMALL_N))
-        for family, configuration, _ in properties.FIT_SETS
-        for replicate in range(2)
-    ]
+def test_the_fit_sets_emit_exactly_the_declared_cells(
+    small_declared: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fit_sets = tuple((family, configuration, 2) for family, configuration, _ in properties.FIT_SETS)
+    keys = properties._payloads(fit_sets)
+    outcomes = [properties._replication(payload) for (payload,) in keys]
+    # ``fit_properties`` stops the run unless each key's rows name exactly its ``_cells_of``
+    # without the derived calibration controls, so the declaration is checked fit set by fit set.
+    controls = {name for names in properties.DERIVED_CELLS.values() for name in names}
+    for key, emitted_rows in zip(keys, outcomes, strict=True):
+        named = {f"{row['property']}/{row['cell']}" for row in emitted_rows}
+        cells = properties._cells_of(key)
+        assert len(cells) == len(set(cells))
+        assert set(cells) - controls == named, key
+        assert set(cells) & controls == {
+            control for name in named for control in properties.DERIVED_CELLS.get(name, ())
+        }
     rows = properties.assemble_property_rows(outcomes)
+    # The property loop runs the same keys through ``fit_properties`` with the draw split, and
+    # publishes the same rows.
+    monkeypatch.setattr(properties, "_payloads", lambda: keys)
+    monkeypatch.setattr(properties, "require_recorded_pilots", lambda what: None)
+    with replication.recording("subject") as recorded:
+        looped = properties.generate_property_rows(n_jobs=1)
+    assert recorded.failures is None
+    pd.testing.assert_frame_equal(looped, rows)
     emitted: dict[str, set[str]] = {}
     for family, cell in set(zip(rows["property"], rows["cell"], strict=True)):
         emitted.setdefault(family, set()).add(cell)
     assert {family: set(cells) for family, cells in study.STUDY.property_cells.items()} == emitted
+
+
+# ---------------------------------------------------------------------------- the failure contract
+#
+# RM39b2 (#304) checks the contract of a registered study: the bound, the declared rules and the
+# clause-binding witnesses.  This study is not registered yet, so those checks skip it.  The tests
+# below hold it to the same contract until the registering change.
+
+
+def test_the_property_module_declares_the_failure_bound_and_the_witness() -> None:
+    assert properties.FAILURE_BOUND == 0.01
+    assert 0.0 <= properties.FAILURE_BOUND <= property_failures.MAXIMUM_BOUND
+    assert isinstance(properties.PROPERTY_WITNESS, replication.Witness)
+
+
+def test_the_record_declares_the_primary_bound_of_each_side() -> None:
+    sides = {
+        study.STUDY.implementation,
+        *filter(None, [study.STUDY.reference, study.STUDY.pending_reference]),
+    }
+    assert dict(study.STUDY.failure_bound) == dict.fromkeys(sides, 0.01)
+
+
+def test_every_verdict_family_resolves_to_a_declared_rule() -> None:
+    families = {
+        cell.property
+        for cell in properties.declared_cells()
+        if cell.role != property_verdicts.DIAGNOSTIC_ROLE
+    }
+    missing = [f for f in sorted(families) if property_failures.rule_for(f, properties) is None]
+    assert missing == []
+    assert property_failures.undeclared_verdict_writers(properties) == []
+    own = {family for rule in properties.PROPERTY_RULES for family in rule.families}
+    assert own <= families
+
+
+def test_the_necessity_rules_read_the_declarations_the_verdicts_read() -> None:
+    for necessity in properties.NECESSITIES:
+        rule = property_failures.rule_for(necessity.family, properties)
+        assert rule is not None
+        clause = rule.clause("least displacement over labels")
+        assert clause.statistic == "S12"
+        assert rule.group == "family"
+
+
+def test_the_failure_differential_covers_the_unregistered_module() -> None:
+    """Without a committed run, the job reads the module's synthetic rows (``SYNTHETIC_MODULES``)."""
+    assert properties.__name__ in property_differential.SYNTHETIC_MODULES
+    assert properties.__name__ in UNCOMMITTED_MODULES
+
+
+def test_each_clause_the_module_uses_has_a_witness_in_the_binding_table() -> None:
+    subject = properties.__name__
+    judged = property_differential.judge(subject, "none")
+    assert judged.wrong.empty, judged.wrong.to_string()
+    bound = property_differential._pairs(property_differential.read_bindings(), subject)
+    reasoned = property_differential._pairs(property_differential.read_reasons(), subject)
+    assert sorted(judged.used - bound - reasoned) == []
+    witnesses = property_differential.read_bindings()
+    named = witnesses.loc[witnesses["subject"] == subject]
+    assert not named.empty
+    for _, family, clause, kind in named.itertuples(index=False, name=None):
+        assert (family, clause) in property_differential.judge(subject, kind).decisive, (
+            family,
+            clause,
+            kind,
+        )
 
 
 # ---------------------------------------------------------------------------- the pilot driver

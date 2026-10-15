@@ -109,6 +109,7 @@ import functools
 import time
 import warnings
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -119,7 +120,6 @@ from sklearn.utils.metaestimators import available_if
 
 from cleverly.datasets import make_longitudinal_repeated
 from cleverly.longitudinal import IPSI
-from cleverly.utils.parallel import map_parallel
 from tests.discrete_law_longitudinal import CellMeans
 from tests.parallel import STUDY_JOBS
 from tests.studies import ltmle_repeated_law as law
@@ -150,23 +150,35 @@ from tests.studies.canonical_ipsi_repeated import (
     require_recorded_pilots,
 )
 from tests.studies.canonical_ltmle import G_BOUNDS
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
+    PropertyCell,
     control_row,
+    payload_cell,
+    payload_replicate,
     replicate_row,
     se_ratio_interval,
 )
 from tests.studies.evidence.property_verdicts import (
     DIAGNOSTIC_ROLE,
+    Necessity,
     alternative_target_necessity_verdicts,
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     simultaneous_coverage_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
-from tests.studies.evidence.simultaneous import joint_coverage_rows
+from tests.studies.evidence.simultaneous import FAMILY as JOINT_FAMILY
+from tests.studies.evidence.simultaneous import (
+    joint_cells,
+    joint_coverage_rows,
+    joint_property_cells,
+)
 from tests.studies.fractional_glm import QuasiBinomialGLM
 from tests.studies.ltmle_repeated_properties import CellMeansBackoff, booster
 
@@ -555,9 +567,23 @@ def _row(
     )
 
 
-def _replication(payload: tuple[str, str, int, int, int, int]) -> list[dict[str, Any]]:
-    family, configuration, replicate, requested, seed, n = payload
-    frame = sample(configuration, seed, n)
+_Payload = tuple[str, str, int, int, int, int]
+
+
+def _draw(payload: _Payload) -> pd.DataFrame:
+    """One replication's sample, drawn outside the fit."""
+    _, configuration, _, _, seed, n = payload
+    return sample(configuration, seed, n)
+
+
+def _replication(payload: _Payload) -> list[dict[str, Any]]:
+    """One replication's rows, drawn and fitted in one call: the pilots' and the timer's form."""
+    return _fit_drawn(payload, _draw(payload))
+
+
+def _fit_drawn(payload: _Payload, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    """One replication's rows from its drawn sample."""
+    family, configuration, replicate, requested, _, n = payload
     rows: list[dict[str, Any]] = []
     if family in {"interval_calibration", "small_sample_calibration", "booster_calibration"}:
         calibration = family == "interval_calibration"
@@ -691,7 +717,7 @@ FIT_SETS: tuple[tuple[str, str, int], ...] = (
 
 def _payloads(
     fit_sets: tuple[tuple[str, str, int], ...] = FIT_SETS,
-) -> list[tuple[tuple[str, str, int, int, int, int]]]:
+) -> list[tuple[_Payload]]:
     payloads = []
     for family, configuration, replicates in fit_sets:
         for replicate in range(replicates):
@@ -739,10 +765,126 @@ def assemble_property_rows(outcomes: Sequence[Sequence[Mapping[str, Any]]]) -> p
     )
 
 
+#: The calibration positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived(LABELS, positive_suffix="in_sample")
+
+#: Each paired family's labels and arms, for :func:`_cells_of`.
+_PAIRED_CELLS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "single_robustness": (SINGLE_ROBUSTNESS_LABELS, SINGLE_ROBUSTNESS_ARMS),
+    "repeated_outcome_necessity": (ABSORBING_LABELS, ABSORBING_ARMS),
+    "outcome_history_necessity": (HISTORY_FREE_LABELS, HISTORY_FREE_ARMS),
+}
+
+
+def _cells_of(key: tuple[_Payload]) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    family, configuration = key[0][:2]
+    if family in _PAIRED_CELLS:
+        labels, arms = _PAIRED_CELLS[family]
+        return [f"{family}/{label}__{arm}" for label in labels for arm in arms]
+    joint = family == "interval_calibration" and configuration == "in_sample"
+    names = [f"{family}/{label}__{configuration}" for label in (LABELS if joint else GATED_LABELS)]
+    if joint:
+        names += [f"{JOINT_FAMILY}/{name}" for name in joint_cells(JOINT_LABEL)]
+    for name in list(names):
+        names += DERIVED_CELLS.get(name, ())
+    return names
+
+
+@dataclass(frozen=True)
+class DeclaredLaw:
+    """The law one fit set draws, by its name, with the exact truth of each estimand it reports.
+
+    Parameters
+    ----------
+    name : str
+        The fit set, as ``family__configuration``.
+    truths : Mapping[str, float]
+        Each reported estimand's exact truth.
+    """
+
+    name: str
+    truths: Mapping[str, float]
+
+    def truth(self) -> dict[str, float]:
+        return dict(self.truths)
+
+
+def declared_cells() -> tuple[PropertyCell, ...]:
+    """Every sampled cell with its law, role, size, replicates and seed.
+
+    The calibration controls are derived from the positive arm's rows, so they are not here
+    (:data:`DERIVED_CELLS`).  The failure differential
+    (``tests/canonical/property_differential.py``) reads this list to build synthetic rows
+    while the study holds no committed rows.
+    """
+    cells: list[PropertyCell] = []
+    controls = {name for names in DERIVED_CELLS.values() for name in names}
+    for family, configuration, replicates in FIT_SETS:
+        seed = stream_seed(STUDY, "property_sample", family, configuration, 0)
+        n = fit_n(family, configuration)
+        key = ((family, configuration, 0, replicates, seed, n),)
+        for name in _cells_of(key):
+            if name in controls or name.startswith(f"{JOINT_FAMILY}/"):
+                continue
+            _, cell = name.split("/", 1)
+            label, arm = cell.split("__", 1)
+            if family in _PAIRED_CELLS:
+                role = ("positive", "control")[_PAIRED_CELLS[family][1].index(arm)]
+            elif family == "interval_calibration":
+                role = "positive"
+            else:
+                role = DIAGNOSTIC_ROLE
+            estimand = label_estimand(label)
+            truth = CONTINUOUS_TRUTH[label] if arm == "continuous" else TRUTH[estimand]
+            cells.append(
+                PropertyCell(
+                    property=family,
+                    cell=cell,
+                    dgp=DeclaredLaw(f"{family}__{configuration}", {estimand: truth}),
+                    outcome_learner=lambda: None,
+                    treatment_learner=lambda: None,
+                    n=n,
+                    replicates=replicates,
+                    seed=seed,
+                    role=role,
+                    estimand=estimand,
+                )
+            )
+    cells.extend(
+        joint_property_cells(
+            JOINT_LABEL,
+            n=CALIBRATION_N,
+            replicates=CALIBRATION_REPLICATES,
+            seed=stream_seed(STUDY, "property_sample", "interval_calibration", "in_sample", 0),
+        )
+    )
+    return tuple(cells)
+
+
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6).  Up to ``floor(0.01 R)`` lost
+#: replicates are judged by the worst case of each clause; one more is ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     """The declared property study.  Refused while the pilot tables are placeholders."""
     require_recorded_pilots("the declared property run")
-    return assemble_property_rows(map_parallel(_replication, _payloads(), n_jobs=n_jobs))
+    outcomes = fit_properties(
+        _payloads(),
+        splat_drawn(_fit_drawn),
+        draw=splat_draw(_draw),
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        derived=DERIVED_CELLS,
+    )
+    return assemble_property_rows(outcomes)
 
 
 # ---------------------------------------------------------------------------- verdicts
@@ -769,6 +911,42 @@ def _calibration_report(summary: pd.DataFrame, rows: pd.DataFrame, name: str) ->
     summary.loc[family, "property_passed"] = True
 
 
+def _necessity(
+    family: str, labels: Sequence[str], arms: tuple[str, str], limits: Mapping[str, float]
+) -> Necessity:
+    return Necessity(
+        family=family,
+        labels=tuple(labels),
+        arms=arms,
+        column="necessity_displacement",
+        threshold=NECESSITY_DISPLACEMENT,
+        alternative_truths=limits,
+    )
+
+
+#: Every necessity family's declaration, read by its verdict and its rule.  Each control reads
+#: its exact limit.
+NECESSITIES = (
+    _necessity(
+        "single_robustness", SINGLE_ROBUSTNESS_LABELS, SINGLE_ROBUSTNESS_ARMS, ONE_STEP_LIMIT
+    ),
+    _necessity("repeated_outcome_necessity", ABSORBING_LABELS, ABSORBING_ARMS, ABSORBING_LIMIT),
+    _necessity(
+        "outcome_history_necessity", HISTORY_FREE_LABELS, HISTORY_FREE_ARMS, HISTORY_FREE_LIMIT
+    ),
+)
+
+
+#: The centre of each control cell in the failure differential's synthetic rows: the exact
+#: limit that the control must reach (``tests/canonical/property_differential.py``).
+SYNTHETIC_CENTRES = {
+    f"{necessity.family}/{label}__{necessity.arms[1]}": float(necessity.alternative_truths[label])
+    for necessity in NECESSITIES
+    if necessity.alternative_truths is not None
+    for label in necessity.labels
+}
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     summary, rates = apply_shared_verdicts(
         rows, STUDY, extra_columns=("necessity_displacement",), rate_labels=()
@@ -787,28 +965,14 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         _calibration_report(summary, rows, name)
     simultaneous_coverage_verdicts(summary, margins=MARGINS)
 
-    for family, labels, arms, limits in (
-        (
-            "single_robustness",
-            SINGLE_ROBUSTNESS_LABELS,
-            SINGLE_ROBUSTNESS_ARMS,
-            ONE_STEP_LIMIT,
-        ),
-        ("repeated_outcome_necessity", ABSORBING_LABELS, ABSORBING_ARMS, ABSORBING_LIMIT),
-        ("outcome_history_necessity", HISTORY_FREE_LABELS, HISTORY_FREE_ARMS, HISTORY_FREE_LIMIT),
-    ):
-        alternative_target_necessity_verdicts(
-            summary,
-            rows,
-            STUDY,
-            family=family,
-            labels=labels,
-            arms=arms,
-            alternative_truths=limits,
-            column="necessity_displacement",
-            threshold=NECESSITY_DISPLACEMENT,
-        )
+    for necessity in NECESSITIES:
+        alternative_target_necessity_verdicts(summary, rows, STUDY, necessity)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  Each necessity family reads
+#: its declaration.  The calibration and simultaneous-coverage clauses are the shared rules'.
+PROPERTY_RULES = property_verdicts.necessity_rules(*NECESSITIES)
 
 
 # ---------------------------------------------------------------------------- label correlations
