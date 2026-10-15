@@ -47,6 +47,20 @@ gets a diagnosis.  A red property cell that reads as a finite-sample limit is re
 redrawn: the failing cell drops to its owner with its failure count stated as a page limit,
 and the run repeats without it.  No budget, margin, law, learner, fold count or seed moves
 after a verdict is seen.  Controls carry the verdict their family states.
+
+**Run reading.**  The declared run (HEAD ``340fcd6a``) passed 40 of 40 truth tests and 25 of 26
+property cells.  ``interval_calibration/competing_contrast_x2_h3__correctly_specified`` failed
+its SE-ratio band on the conservative side: 1.047, with an interval of 1.012 to 1.083 against
+an upper bound of 1.07.  Its coverage is 0.959 and its bias is -0.02 standardized units.  Its
+reported efficiency ratio is 1.0006, so the reported standard error matches the exact efficient
+influence-function standard deviation of the law, which
+``tests.studies.longitudinal_incremental_common.eif_sd`` computes apart from the estimator.  The
+empirical spread sits 4.4% below that bound (interval 0.924 to 0.988).  No regular estimator
+stays below the bound as n grows, so the gap is a finite-sample or Monte Carlo reading, not a
+defect of the interval.  The design probes on other draws read SE ratios of 0.948 at n = 32,000 and 0.980 at
+n = 64,000.  The diagnosis finds no defect, so by the route above the study moves to
+``reporting`` with the owner row ``X19-competing-calibration``.  The committed rows are
+summarized again with no new fit (``--reuse-subject --skip-properties``).
 """
 
 from __future__ import annotations
@@ -149,7 +163,7 @@ STUDY = StudyRecord(
     runner_module="tests.studies.canonical_longitudinal_incremental_dropout",
     properties_module="tests.studies.longitudinal_incremental_dropout_properties",
     property_cells=PROPERTY_CELLS,
-    publication_policy="gated",
+    publication_policy="reporting",
 )
 
 CONFIGURATION = {

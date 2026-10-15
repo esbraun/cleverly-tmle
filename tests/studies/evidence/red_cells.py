@@ -504,6 +504,13 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     "mtp-point-calibration": (
         *_keys("policy-point-mtp", "property", "interval_calibration/halve__correctly_specified"),
     ),
+    "X19-competing-calibration": (
+        *_keys(
+            "longitudinal-incremental-dropout",
+            "property",
+            "interval_calibration/competing_contrast_x2_h3__correctly_specified",
+        ),
+    ),
     "X13-finite-sample": (
         *_keys(
             "point-treatment-survival",
