@@ -592,6 +592,13 @@ estimate is the mean of $\varphi_1$ over every row. `tests/unit/test_sdr_constru
 the longhand and the two rejected constructions. *Reconsider when* a published result certifies
 the stitched transform of Section 5.3, Step 2, or the recombined ratio that `lmtp` reads.
 
+The sequential g-computation and IPW estimators share plan resolution, masks, designs and the
+mechanism fit with LTMLE. `SequentialGComputation` reads `untargeted_recursion`, the recursion
+that LTMLE fits before its fluctuation, on every row. `SequentialIPW` reads the cumulative
+mechanism product and the clever covariate of LTMLE. Neither fits a fluctuation, and both fit in
+sample only. `tests/unit/test_sequential_baselines.py` checks that the g-computation estimate is
+the first-node mean of the shared recursion (W8).
+
 The incremental estimator `IPSI` shares plan resolution, masks, designs and the mechanism fit
 with LTMLE. An odds-tilt node's factor is computed in the cancelled form
 $(\delta A + 1 - A)/(\delta\pi + 1 - \pi)$. It is never divided by a bounded mechanism.

@@ -317,6 +317,22 @@ def measured(row: Any) -> str:
         return measured
     if family == "root_n_rate":
         return f"slope {_interval(row.slope_ci_lower, row.slope_ci_upper)}"
+    if family == "misspecification_control":
+        # The control fails on its bias and its coverage while the standard error stays right,
+        # so the row prints all three: the failure is the estimate's, not the interval's width.
+        return (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"margin {render(float(row.bias_margin))}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}"
+        )
+    if family == "adaptive_learners":
+        # Reported with no verdict: the bias interval and the coverage of a plug-in diagnostic.
+        return (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}"
+        )
     if family == "double_robust_contraction":
         # Two shapes in one family, and the split is the verdict's rather than the table's: a
         # fitted rate answers to its slope and a ladder rung to its coverage.  Printing the
