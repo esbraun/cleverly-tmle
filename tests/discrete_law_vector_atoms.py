@@ -24,8 +24,11 @@ The nonzero requirements (``test_t_b1_the_component_witnesses_are_nonzero``):
   reads the natural dose 1, so the atoms of dose 1 reach dose 2's frame and the flag's map.
 
 "collapse to atom" sends the doses 2 and 4 of dose 1 to the atom 1 by
-``Piece(1.5, 6, to_atom=1)``.  The density route refuses it at a vector, and the classifier
-route fits it.
+``Piece(1.5, 6, to_atom=1)``.  The density route refuses it at a vector, because dose 2's
+factor conditions on dose 1, and the classifier route fits it.  "collapse last dose" sends
+the doses 2 and 4 of dose 2, the last dose, to its atom 8 by ``Piece(1.5, 6, to_atom=8)``.
+The interval ``[1.5, 6)`` is the union of the bins of 2 and 4, so the integral of the binned
+density over it is the law's mass there, and both routes are exact.
 
 ``ALL_ATOMS`` declares every grid dose of dose 1 an atom.  Then dose 1's factor is the
 discrete formula, and every plan of the geometric law is exact again: the vector analog of
@@ -97,6 +100,11 @@ def _collapse(f: int, i1: int, i2: int) -> int:
     return _index(f, 0 if i1 in (1, 2) else i1, i2)
 
 
+def _collapse_last(f: int, i1: int, i2: int) -> int:
+    """Dose 2 sends the interval ``[1.5, 6)`` (the doses 2 and 4) to its atom 8."""
+    return _index(f, i1, 3 if i2 in (1, 2) else i2)
+
+
 def _map(assign: Callable[[int, int, int], int]) -> tuple[tuple[int, ...], ...]:
     return tuple(tuple(assign(*CELLS[k]) for k in range(len(CELLS))) for _ in range(2))
 
@@ -111,7 +119,10 @@ POLICIES: dict[str, Branches] = {
     "random": ((0.3, _map(_flag_up_atom_up)), (0.7, _map(_atoms_held))),
 }
 #: A collapse of an interval onto an atom: the classifier route alone fits it at a vector.
-COLLAPSE: dict[str, Branches] = {"collapse to atom": ((1.0, _map(_collapse)),)}
+COLLAPSE: dict[str, Branches] = {
+    "collapse to atom": ((1.0, _map(_collapse)),),
+    "collapse last dose": ((1.0, _map(_collapse_last)),),
+}
 LABELS = tuple(POLICIES)
 
 

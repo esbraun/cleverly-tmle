@@ -1263,7 +1263,7 @@ class TMLE:
             ``Piece(lower, upper, to_atom=value)``.  A dose with an undeclared point mass is
             refused before any learner.  A vector treatment maps each continuous component
             to its atoms, and that component's factor of the joint density is then mixed;
-            the density route refuses a ``to_atom`` piece there.
+            the density route takes a ``to_atom`` piece at the last dose alone.
         treatment_probabilities : Any
             The known treatment mechanism ``P(A = a | W)`` of a randomized design.  The fit
             then divides by it in place of an estimate and fits no treatment learner.  The
