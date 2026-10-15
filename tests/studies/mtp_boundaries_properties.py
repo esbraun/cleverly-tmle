@@ -308,8 +308,11 @@ def _seed(family: str, label: str, replicate: int) -> int:
     return stream_seed(STUDY, "property_sample", family, label, replicate)
 
 
-def _pilot_seed(family: str, label: str, replicate: int) -> int:
-    return stream_seed(STUDY, "diagnostic", "pilot", family, label, replicate)
+def _pilot_seed(family: str, label: str, replicate: int, n: int = CALIBRATION_N) -> int:
+    # A re-pilot at another size (plan rule 2) draws fresh seeds, disjoint from the first.
+    if n == CALIBRATION_N:
+        return stream_seed(STUDY, "diagnostic", "pilot", family, label, replicate)
+    return stream_seed(STUDY, "diagnostic", "pilot", family, label, n, replicate)
 
 
 def _plan_of(family: str, label: str) -> str:
@@ -488,7 +491,7 @@ def _pilot_rows(
 ) -> list[dict[str, Any]]:
     started = time.perf_counter()
     rows = fit_set_rows(
-        family, label, replicate, n, requested, seed=_pilot_seed(family, label, replicate)
+        family, label, replicate, n, requested, seed=_pilot_seed(family, label, replicate, n)
     )
     seconds = time.perf_counter() - started
     for row in rows:
@@ -497,7 +500,12 @@ def _pilot_rows(
 
 
 def calibration_pilot(
-    parts: Path, *, draws: int = PILOT_DRAWS, n_jobs: int = 1, labels: tuple[str, ...] = ()
+    parts: Path,
+    *,
+    draws: int = PILOT_DRAWS,
+    n_jobs: int = 1,
+    labels: tuple[str, ...] = (),
+    n: int = CALIBRATION_N,
 ) -> dict[str, Any]:
     """The calibration pilot: ``draws`` per positive on the ``diagnostic`` stream, in parts.
 
@@ -507,20 +515,20 @@ def calibration_pilot(
     chosen = labels or tuple(CELLS)
     out: dict[str, Any] = {"arms": {}}
     for label in chosen:
-        keys = [("interval_calibration", label, r, CALIBRATION_N, draws) for r in range(draws)]
-        rows = tools.run_in_parts(
-            _pilot_rows, keys, label=f"pilot__{label}", root=parts, n_jobs=n_jobs
-        )
+        keys = [("interval_calibration", label, r, n, draws) for r in range(draws)]
+        part = f"pilot__{label}" if n == CALIBRATION_N else f"pilot__{label}__n{n}"
+        rows = tools.run_in_parts(_pilot_rows, keys, label=part, root=parts, n_jobs=n_jobs)
         error = rows["estimate"] - rows["truth"]
         spread = float(rows["estimate"].std(ddof=1))
         out["arms"][label] = {
             "draws": len(rows),
+            "n": n,
             "se_ratio": float(rows["std_error"].mean() / spread),
             "standardized_bias": float(error.mean() / spread),
             "coverage": float(rows["covered"].mean()),
             "seconds": float(rows["seconds"].mean()),
         }
-    if len(chosen) == len(CELLS):
+    if len(chosen) == len(CELLS) and n == CALIBRATION_N:
         ratios = [out["arms"][label]["se_ratio"] for label in CELLS]
         out["rule"] = tools.replicates_from_pilot(ratios, draws)
     return out
@@ -615,6 +623,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--jobs", type=int, default=1)
     parser.add_argument("--draws", type=int, default=None)
     parser.add_argument("--labels", nargs="*", default=())
+    parser.add_argument("--n", type=int, default=CALIBRATION_N)
     arguments = parser.parse_args(argv)
     if arguments.pilot == "calibration":
         result = calibration_pilot(
@@ -622,6 +631,7 @@ def main(argv: list[str] | None = None) -> None:
             draws=arguments.draws or PILOT_DRAWS,
             n_jobs=arguments.jobs,
             labels=tuple(arguments.labels),
+            n=arguments.n,
         )
     else:
         result = necessity_pilot(
