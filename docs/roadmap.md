@@ -1432,7 +1432,7 @@ registered study.
 
 | part | request | step |
 | --- | --- | --- |
-| (a) | `targeting_scheme="fold"` with missing outcomes | Zheng and van der Laan (2010), WP 273, Theorem 1, with the composite indicator reduction. The coefficient is fit on the validation rows |
+| (a) | `targeting_scheme="fold"` with missing outcomes | Montoya et al. (2023), Section 3.2, Step 2(c), with the composite indicator reduction. The coefficient is fit on the validation rows |
 | (b) | `repeats` above 1 with the median | base: the shipped stacked contract (Zheng and van der Laan 2010, WP 273, Theorem 1, with the composite indicator reduction), for a fixed number of splits. Each draw is $\psi_0 + P_n D + o_P(n^{-1/2})$ with common nuisance limits, so the median is too. No independence between draws is needed. The split-dispersion term is $o_P(n^{-1})$, so its benefit is a finite-sample evidence claim |
 | (c) | a cross-fitted `TMLE` with a missing treatment | a product of fold-local factors estimates $P(C_a = 1 \mid W)$ |
 | (d) | shift, regime, controlled-direct-effect and MSM targets, cross-fitted with missing outcomes | Díaz, Williams, Hoffman and Schenck (2023), Theorem 3 (arXiv:2006.01366v4), with $(A, \Delta)$ as the exposure. An MSM adds the projection. The incremental and risk-ratio tilt axes are pending a source read of Kennedy (2019) and Kim et al. (2021), because Theorem 2 assumes that the regime does not depend on $P$ |
