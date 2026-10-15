@@ -1,6 +1,6 @@
 # Parametric g-formula evidence (`parametric-gformula`)
 
-This study fits `ParametricGFormula` (NICE) on four exact laws. The comparator `pygformula`
+This study fits `ParametricGFormula` (NICE) on five exact laws. The comparator `pygformula`
 1.2.0 is pending, and a follow-up PR from X45 registers it. `tests/studies/canonical_parametric_gformula.py`
 states the primary scenarios and the reading rule. `tests/studies/parametric_gformula_properties.py`
 states the property families. `tests/studies/parametric_gformula_laws.py` holds the laws and
@@ -20,6 +20,15 @@ python -m tests.studies.evidence.document --slug parametric-gformula
 ```
 
 Do not start the declared run before the design review of the pilot has closed.
+
+## Red-cell reading
+
+The module `tests/studies/canonical_parametric_gformula.py` declares the reading before any run.
+Each gated cell is sized for a pass chance of at least 0.90 under perfect calibration. The
+expected count of finite-sample reds is 1.07, and the chance of at least one is 0.66. A red
+calibration row is a finite-sample red only when its 99% SE-ratio interval contains 1, its
+coverage is consistent with 0.95, and the diagnosis finds no defect. Any other red row is a
+defect suspect. The `mc_removed` cells report and carry no verdict.
 
 ## Pending comparator
 

@@ -27,29 +27,41 @@ law      structure and plans
          baseline-category multinomial.  Plans: ``treat_all_4`` and ``treat_none_4``, at the
          horizons 2 and 4
 ``G4``   :math:`T = 3`, a Gaussian covariate and a continuous dose per node, a continuous outcome.
-         Plans: the additive shift ``shift_half`` against ``natural course``, and the fixed
-         dose ``dose_half``
+         Plans: the additive shift ``shift_half`` against ``natural course``, the fixed dose
+         ``dose_half``, and the rule-set dose ``rule_dose`` :math:`A_t = 0.5 + 0.5 L_t`
 ``G4Q``  ``G4`` with a quadratic dose term in the outcome.  A main-terms fit extrapolates; the
          bias is reported
+``G5``   :math:`T = 3`, a binary then a three-level categorical covariate per node, a binary
+         treatment and a continuous outcome with a small residual SD.  Plans: ``treat_all``,
+         ``treat_none`` and the odds tilt ``odds x2``.  The law lifts the binary-covariate,
+         categorical-covariate and tilt terms of the influence curve
 =======  ==========================================================================================
 
 **Primary scenarios.**  One scenario per law at :data:`PRIMARY_N` with
 :data:`PRIMARY_REPLICATES` replicates.  The shared independent-performance tests read each
 row: the standardized bias inside 0.25 SD, the coverage floor 0.90 and the SE sanity band.
 
-**Streams.**  The sampling stream of a replicate and the simulation stream of the estimator are
-separate.  The estimator's ``random_state`` is derived from the replicate's own seed, so the
-Monte Carlo error of the simulation is independent across replicates.  A fixed seed in every
-replicate would correlate that error across the whole study.
+**Streams.**  The sampling stream of a replicate comes from :func:`replicate_seed`.  The
+estimator's ``random_state`` comes from the study's own ``primary_simulation`` stream, keyed by
+scenario and replicate, so the simulation error is independent of the sample and across
+replicates.  A fixed seed in every replicate would correlate that error across the whole study.
 
 **Red-cell reading** (declared before any run).  The study publishes under ``reporting``.  The
 declared red set is empty: no cell is expected to fail.  The reported cells (the ICE contrast
-where not powered, the shared-target ``LTMLE`` and ``IPSI`` fits, ``G4Q``) carry no verdict.  A
-red row is a defect suspect.  It is a finite-sample red only when its SE-ratio interval
-contains 1, its coverage is consistent with 0.95 and the diagnosis finds no defect.  A
-replicate that raises a recordable error is recorded and never redrawn; the declared failure
-bound is :data:`FAILURE_BOUND` per cell.  No budget, margin, law, learner or seed moves after a
-verdict is seen.
+where not powered, the shared-target ``LTMLE`` and ``IPSI`` fits, ``G4Q``, and every
+``mc_removed`` cell) carry no verdict.  Each gated cell is sized for a pass chance of at least
+0.90 under perfect calibration, so some finite-sample reds are expected even for a perfect
+estimator.  The design test computes the count over the :data:`GATED_CELLS` gated cells, with the
+SE ratio of every cell at 1: :data:`EXPECTED_RED_COUNT` = 1.07 reds, and a chance of
+:data:`PROBABILITY_OF_A_RED` = 0.66 of at least one.  A red is therefore not a surprise.  No
+replicate count rises to hide it.
+
+A red row is a defect suspect.  It is a finite-sample red only when all three hold: its 99%
+SE-ratio interval contains 1, its coverage is consistent with 0.95, and the diagnosis finds no
+defect.  It then goes to ``reporting`` with an owner, declared before any repeat run.  A defect
+is fixed and the study re-runs under a fresh declaration.  A replicate that raises a recordable
+error is recorded and never redrawn; the declared failure bound is :data:`FAILURE_BOUND` per
+cell.  No budget, margin, law, learner or seed moves after a verdict is seen.
 """
 
 from __future__ import annotations
@@ -76,7 +88,7 @@ from tests.studies import parametric_gformula_laws as laws
 from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
-from tests.studies.evidence.seeds import draw_replicate, replicate_seed
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed, stream_seed
 
 SEED = 20264501
 RESAMPLING_SEED = 2026450101
@@ -97,6 +109,13 @@ REFERENCE = "pygformula"
 PYGFORMULA = "1.2.0"
 PENDING_REASON = "pygformula comparator run, follow-up PR from X45"
 
+#: The expected count of finite-sample reds under perfect calibration, over :data:`GATED_CELLS`
+#: gated cells, and the chance of at least one.  The design test recomputes both from the
+#: replicates and the pilot noise of each cell (``expected_reds``).
+EXPECTED_RED_COUNT = 1.07
+PROBABILITY_OF_A_RED = 0.66
+GATED_CELLS = 72
+
 #: The simulated histories per unit behind each estimate: the estimator's default, declared.
 N_DRAWS = 10
 #: The Monte Carlo accounting cell: one history per unit, and the independent stream of
@@ -104,7 +123,7 @@ N_DRAWS = 10
 N_DRAWS_ONE = 1
 M_PRIME = 500
 
-LAWS = ("G1", "G2", "G3", "G4")
+LAWS = ("G1", "G2", "G3", "G4", "G5")
 #: The plan labels of the shared-target and paired ICE fits, which read static plans.
 STATIC_PLANS = ("treat_all", "treat_none")
 
@@ -135,6 +154,16 @@ def _policy(node: int) -> Stochastic:
     return Stochastic(probabilities, f"policy_b{node}", density_kind="known")
 
 
+def _rule_dose(node: int) -> Any:
+    column = f"L{node}"
+    intercept, slope = laws.G4_RULE_DOSE
+
+    def rule(history: Any) -> Any:
+        return intercept + slope * np.asarray(history[column], dtype=float)
+
+    return rule
+
+
 def regimens(law: str, *, static_only: bool = False, with_rule: bool = False) -> dict[str, Any]:
     """The plans of one law.
 
@@ -156,11 +185,16 @@ def regimens(law: str, *, static_only: bool = False, with_rule: bool = False) ->
         }
     elif law == "G3":
         plans = {"treat_all_4": 1, "treat_none_4": 0}
+    elif law == "G5":
+        plans = {"treat_all": 1, "treat_none": 0, "odds x2": Incremental(2.0, name="odds x2")}
     elif law in ("G4", "G4Q"):
         plans = {
             "natural course": Shift(0.0, cap=None),
             "shift_half": Shift(0.5, cap=None),
             "dose_half": 0.5,
+            "rule_dose": DynamicRegimen(
+                "rule_dose", tuple(_rule_dose(t) for t in (1, 2, 3)), rule_kind="known"
+            ),
         }
         if law == "G4Q":
             # The squared dose term has a closed form only under a fixed dose.
@@ -179,6 +213,7 @@ REFERENCES = {
     "G3": "treat_none_4",
     "G4": "natural course",
     "G4Q": None,
+    "G5": "treat_none",
 }
 COVARIATE_TYPES = {
     "G1": None,
@@ -186,13 +221,21 @@ COVARIATE_TYPES = {
     "G3": None,
     "G4": {"L2": "normal", "L3": "normal"},
     "G4Q": {"L2": "normal", "L3": "normal"},
+    "G5": {"S2": "categorical", "S3": "categorical"},
 }
 HORIZONS = {"G3": [2, 4]}
 
 
 def law_of(name: str) -> laws.Law:
     """The law object of a law name."""
-    return {"G1": laws.G1, "G2": laws.G2, "G3": laws.G3, "G4": laws.G4, "G4Q": laws.G4Q}[name]
+    return {
+        "G1": laws.G1,
+        "G2": laws.G2,
+        "G3": laws.G3,
+        "G4": laws.G4,
+        "G4Q": laws.G4Q,
+        "G5": laws.G5,
+    }[name]
 
 
 # ---------------------------------------------------------------------------------- fits
@@ -338,7 +381,10 @@ def _node_plans(law: str, label: str) -> dict[int, laws.NodePlan]:
     raise KeyError(label)
 
 
-def _linear_plan(label: str) -> dict[int, tuple[str, float]]:
+def _linear_plan(label: str) -> dict[int, tuple[str, Any]]:
+    if label == "rule_dose":
+        intercept, slope = laws.G4_RULE_DOSE
+        return {t: ("rule", (intercept, slope, f"L{t}")) for t in range(1, 4)}
     kind, value = {
         "natural course": ("shift", 0.0),
         "shift_half": ("shift", 0.5),
@@ -418,7 +464,14 @@ ESTIMANDS: dict[str, tuple[str, ...]] = {
     "G4": (
         "ey_regimen[shift_half]",
         "ey_regimen[dose_half]",
+        "ey_regimen[rule_dose]",
         "ate_regimen[shift_half vs natural course]",
+    ),
+    "G5": (
+        "ey_regimen[treat_all]",
+        "ey_regimen[treat_none]",
+        "ey_regimen[odds x2]",
+        "ate_regimen[treat_all vs treat_none]",
     ),
 }
 
@@ -450,7 +503,14 @@ KEYS: dict[str, dict[str, str]] = {
     "G4": {
         "shift": "ey_regimen[shift_half]",
         "dose": "ey_regimen[dose_half]",
+        "rule_dose": "ey_regimen[rule_dose]",
         "contrast": "ate_regimen[shift_half vs natural course]",
+    },
+    "G5": {
+        "treat_all": "ey_regimen[treat_all]",
+        "treat_none": "ey_regimen[treat_none]",
+        "odds_x2": "ey_regimen[odds x2]",
+        "contrast": "ate_regimen[treat_all vs treat_none]",
     },
 }
 
@@ -471,10 +531,14 @@ LADDER_LABELS: tuple[str, ...] = (
 )
 #: The levels the Monte Carlo accounting reads, by law.
 MC_KEYS: dict[str, tuple[str, ...]] = {
-    "G1": ("treat_all", "treat_none"),
     "G2": ("treat_all", "treat_none"),
     "G4": ("shift", "dose"),
+    "G5": ("treat_all", "treat_none", "odds_x2"),
 }
+#: The laws whose accounting fit set also fits the independent ``m'`` stream and reports the
+#: ``mc_removed`` cell.  ``G5`` reports the ``n_draws_1`` cell only: its ``m'`` fit costs 2.2 s per
+#: replicate for a cell that carries no verdict.
+MC_REMOVED_LAWS: tuple[str, ...] = ("G2", "G4")
 MC_LABELS: tuple[str, ...] = tuple(
     label_of(law, key) for law, keys in MC_KEYS.items() for key in keys
 )
@@ -533,7 +597,13 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
         for suffix in ("empirical_sd", "reported_se")
     ),
     "monte_carlo_accounting": tuple(
-        f"{label}__{kind}" for label in MC_LABELS for kind in ("n_draws_1", "mc_removed")
+        f"{label}__{kind}"
+        for label in MC_LABELS
+        for kind in (
+            ("n_draws_1", "mc_removed")
+            if label.split("_")[1].upper() in MC_REMOVED_LAWS
+            else ("n_draws_1",)
+        )
     ),
     "ice_necessity": tuple(f"{label}__{arm}" for label in ICE_GATED for arm in ("nice", "ice")),
     "ice_reported": tuple(
@@ -655,7 +725,7 @@ def _replicate(
     scenario, replicate, _ = key
     frame, truth = drawn
     law = scenario.split("_", 1)[0].upper()
-    seed = replicate_seed(STUDY, scenario, replicate)
+    seed = stream_seed(STUDY, "primary_simulation", scenario, replicate)
     result = fit("nice", law, frame, seed=seed)
     require_status(result, SCENARIOS[scenario])
     return result_rows(result, truth, scenario, replicate)

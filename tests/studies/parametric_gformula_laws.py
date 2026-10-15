@@ -28,6 +28,11 @@ law     structure
         :math:`A_t` per node, a Gaussian :math:`Y`.  Linear throughout, so every truth is a
         closed form
 ``G4Q`` ``G4`` with :math:`q A_3^2` in the mean of :math:`Y`: a main-terms fit extrapolates
+``G5``  :math:`T = 3`.  Continuous :math:`W`; at node 1 a binary :math:`L_1`; at nodes 2 and 3 a
+        binary :math:`L_t` and then a three-level categorical :math:`S_t`; a binary
+        :math:`A_t`; a Gaussian end-of-study :math:`Y` with a small residual SD.  The outcome
+        reads the three levels of :math:`S_t` non-monotonically in the code.  The law lifts the
+        binary-covariate, categorical-covariate and tilt terms of the curve
 ======  ======================================================================================
 
 **Truths.**  The binary laws sum over every branch, with Gauss-Hermite nodes for a Gaussian
@@ -76,7 +81,9 @@ class Var:
         cause (``columns``).
     kind : {"gauss", "bern", "cat"}
         A Gaussian variable (mean linear, residual SD ``sd``), a binary one (logistic), or a
-        baseline-category multinomial one over the labels ``0..K``.
+        baseline-category multinomial one over the labels ``0..K``.  A categorical covariate is
+        one integer column of codes; later models read its drop-first indicators ``S2=1``,
+        ``S2=2`` (:attr:`design`), the coding of the estimator.
     role : {"baseline", "covariate", "treatment", "censor", "event", "outcome"}
         What the variable is.  ``censor`` is a retention indicator (1 retained).
     node : int
@@ -103,6 +110,27 @@ class Var:
     sd: float = 1.0
     columns: tuple[str, ...] = ()
     quad: Mapping[str, float] = field(default_factory=dict)
+
+    @property
+    def design(self) -> tuple[str, ...]:
+        """The design-table columns the variable writes.
+
+        A categorical covariate writes one indicator per non-reference label (``S2=1``,
+        ``S2=2``), the drop-first coding of the estimator.  Any other variable writes itself.
+        """
+        if self.kind == "cat" and self.role == "covariate":
+            return tuple(f"{self.name}={j}" for j in range(1, len(self.intercept) + 1))
+        return (self.name,)
+
+    def entries(self, value: np.ndarray) -> dict[str, np.ndarray]:
+        """The design-table columns of a drawn ``value`` (codes for a categorical covariate)."""
+        if self.kind == "cat" and self.role == "covariate":
+            missing = np.isnan(value)
+            return {
+                name: np.where(missing, np.nan, (value == j).astype(float))
+                for j, name in enumerate(self.design, start=1)
+            }
+        return {self.name: value}
 
     def eta(self, table: Mapping[str, np.ndarray], n: int) -> np.ndarray:
         """The linear predictor: ``(n,)``, or ``(n, K)`` with a zero first column for ``cat``."""
@@ -236,7 +264,10 @@ class Law:
     def table_names(self) -> tuple[str, ...]:
         """The design table's columns: baseline, then each node's covariates and treatment."""
         return tuple(
-            v.name for v in self.variables if v.role in ("baseline", "covariate", "treatment")
+            name
+            for v in self.variables
+            if v.role in ("baseline", "covariate", "treatment")
+            for name in v.design
         )
 
     def var(self, name: str) -> Var:
@@ -260,7 +291,7 @@ class Law:
         """The frame's columns, in data order."""
         out: list[str] = []
         for v in self.variables:
-            out += list(v.columns) if v.kind == "cat" else [v.name]
+            out += list(v.columns) if v.kind == "cat" and v.role == "event" else [v.name]
         return out
 
     def fit_columns(self, *, continuous_treatment: bool = False) -> dict[str, Any]:
@@ -316,7 +347,7 @@ class Law:
         if v.role in ("baseline",):
             return ()
         if v.role in ("covariate", "treatment"):
-            return names[: names.index(v.name)]
+            return names[: names.index(v.design[0])]
         if v.role == "censor":
             # Retention reads the history through the node's treatment.
             last = self.var(f"A{v.node}").name
@@ -355,7 +386,7 @@ class Law:
                 )
             drawn[v.name] = value
             if v.role in ("baseline", "covariate", "treatment"):
-                table[v.name] = value
+                table.update(v.entries(value))
         return self._frame(drawn)
 
     def _frame(self, drawn: Mapping[str, np.ndarray]) -> pd.DataFrame:
@@ -377,7 +408,7 @@ class Law:
             else:
                 visible = start & retained
             value = np.asarray(drawn[v.name], dtype=float)
-            if v.kind == "cat":
+            if v.kind == "cat" and v.role == "event":
                 for index, column in enumerate(v.columns):
                     out[column] = np.where(visible, (value == index + 1).astype(float), np.nan)
             else:
@@ -409,7 +440,7 @@ class Law:
             if v.kind == "gauss" and v.role == "outcome":
                 cols[v.name] = np.where(active, eta, np.nan)
                 continue
-            k = {"gauss": order, "bern": 2, "cat": 3}[v.kind]
+            k = order if v.kind == "gauss" else (2 if v.kind == "bern" else len(v.intercept) + 1)
             index = np.flatnonzero(active)
             dead = np.flatnonzero(~active)
             reps = np.repeat(index, k)
@@ -421,11 +452,13 @@ class Law:
                 values = np.tile([0.0, 1.0], index.size)
                 probs = np.column_stack([1.0 - p, p]).ravel()
             else:
-                values = np.tile(np.arange(3, dtype=float), index.size)
+                values = np.tile(np.arange(k, dtype=float), index.size)
                 probs = _softmax(eta[index]).ravel()
             take = np.concatenate([dead, reps])
             cols = {name: a[take] for name, a in cols.items()}
             cols[v.name] = np.concatenate([np.full(dead.size, np.nan), values])
+            if v.role in ("baseline", "covariate", "treatment"):
+                cols.update(v.entries(cols[v.name]))
             w = np.concatenate([w[dead], w[reps] * probs])
             active = np.concatenate(
                 [np.zeros(dead.size, dtype=bool), np.ones(reps.size, dtype=bool)]
@@ -440,7 +473,7 @@ class Law:
         out: dict[str, np.ndarray] = {}
         for v in self.variables:
             value = cols[v.name]
-            if v.kind == "cat":
+            if v.kind == "cat" and v.role == "event":
                 for index, column in enumerate(v.columns):
                     out[column] = np.where(np.isnan(value), np.nan, (value == index + 1) * 1.0)
             else:
@@ -520,6 +553,9 @@ class Law:
                 else:
                     values = eta[:, None] + v.sd * nodes[None, :]
                     probs = np.tile(weights, (n, 1))
+            elif v.kind == "cat":
+                probs = _softmax(eta)
+                values = np.tile(np.arange(probs.shape[1], dtype=float), (n, 1))
             else:
                 p = expit(eta)
                 values = np.tile([0.0, 1.0], (n, 1))
@@ -528,6 +564,7 @@ class Law:
             reps = np.repeat(np.arange(n), k)
             cols = {name: a[reps] for name, a in cols.items()}
             cols[v.name] = values.ravel()
+            cols.update(v.entries(cols[v.name]))
             w = w[reps] * probs.ravel()
             n = w.size
         return self._incidence(cols, w, n, horizons)
@@ -576,6 +613,12 @@ class Law:
                 table[v.name] = plan[v.node].draw(table, v, n, rng)
             elif v.kind == "gauss":
                 table[v.name] = eta + v.sd * rng.standard_normal(n)
+            elif v.kind == "cat":
+                cumulative = np.cumsum(_softmax(eta), axis=1)
+                code = np.minimum(
+                    (rng.random(n)[:, None] >= cumulative).sum(axis=1), float(len(v.intercept))
+                )
+                table.update(v.entries(code.astype(float)))
             else:
                 table[v.name] = (rng.random(n) < expit(eta)).astype(float)
         # survival: draw the events along the path
@@ -866,21 +909,84 @@ def _g4(quadratic: float = 0.0) -> Law:
 
 
 G4 = _g4()
+#: The rule-set dose of ``G4``: :math:`A_t = 0.5 + 0.5 L_t`, read from the simulated covariate.
+#: The nonzero intercept keeps the truth away from the trivial value of a zero-intercept rule.
+G4_RULE_DOSE = (0.5, 0.5)
 #: The quadratic-dose law: :math:`q A_3^2` in the mean of :math:`Y`, which a main-terms fit misses.
 G4_QUADRATIC = 0.3
 G4Q = _g4(G4_QUADRATIC)
 
+
+# ---------------------------------------------------------------------------------- law G5
+
+
+def _g5() -> Law:
+    """Law ``G5``: binary and three-level categorical covariates, binary treatment, Gaussian outcome.
+
+    The treatment raises the next binary covariate (log odds 1.5) and moves the categorical one
+    between its levels (log odds 1 and -1).  The outcome reads the binary covariates strongly
+    and the categorical levels non-monotonically in the code (level 1 at 1.5, level 2 at 0.3),
+    with a residual SD of 0.5.  So the binary-covariate, categorical-covariate and tilt terms
+    carry large shares of the standard error (the design test pins them).
+    """
+    v: list[Var] = [Var("W", "gauss", "baseline", 0, 0.0)]
+    v += [
+        Var("L1", "bern", "covariate", 1, -0.3, {"W": 0.4}),
+        Var("A1", "bern", "treatment", 1, 0.0, {"W": 0.3, "L1": 0.5}),
+    ]
+    for t in (2, 3):
+        history: dict[str, Any] = {"W": 0.4, f"L{t - 1}": 0.8, f"A{t - 1}": 1.5}
+        if t == 3:
+            history["L1"] = 0.3
+        v.append(Var(f"L{t}", "bern", "covariate", t, -0.3, history))
+        v.append(
+            Var(
+                f"S{t}",
+                "cat",
+                "covariate",
+                t,
+                (-0.2, -0.4),
+                {"W": (0.2, -0.2), f"A{t - 1}": (1.0, -1.0), f"L{t}": (0.3, -0.3)},
+            )
+        )
+        v.append(
+            Var(
+                f"A{t}",
+                "bern",
+                "treatment",
+                t,
+                0.0,
+                {
+                    "W": 0.3,
+                    f"L{t}": 0.5,
+                    f"A{t - 1}": 0.4,
+                    f"S{t}=1": 0.3,
+                    f"S{t}=2": -0.3,
+                },
+            )
+        )
+    outcome: dict[str, Any] = {"W": 0.2, "L1": 1.5, "A1": 1.0}
+    for t in (2, 3):
+        outcome |= {f"L{t}": 1.5, f"S{t}=1": 1.5, f"S{t}=2": 0.3, f"A{t}": 1.0}
+    v.append(Var("Y", "gauss", "outcome", 3, 0.0, outcome, sd=0.5))
+    return Law("G5", 3, tuple(v))
+
+
+G5 = _g5()
+
 # ------------------------------------------------------------------- linear means (law G4)
 
 
-def linear_means(law: Law, plan: Mapping[int, tuple[str, float]]) -> float:
+def linear_means(law: Law, plan: Mapping[int, tuple[str, Any]]) -> float:
     """The regimen mean of a linear-Gaussian law by propagating means through the recursion.
 
     Every conditional mean is linear in the earlier columns, so the mean of a column under a
     plan is its intercept plus the coefficients times the means of its parents.  A plan node is
-    ``("dose", d)`` (assign ``d``) or ``("shift", delta)`` (the natural dose plus ``delta``; the
-    natural dose is the law's own, given the intervened history).  A squared term of the
-    outcome needs a fixed dose, whose square is that of the dose.
+    ``("dose", d)`` (assign ``d``), ``("shift", delta)`` (the natural dose plus ``delta``; the
+    natural dose is the law's own, given the intervened history) or
+    ``("rule", (intercept, slope, column))`` (assign ``intercept + slope * column``, a rule
+    that reads one earlier column of the simulated history).  A squared term of the outcome
+    needs a fixed dose, whose square is that of the dose.
     """
     means: dict[str, float] = {}
     for v in law.variables:
@@ -893,6 +999,9 @@ def linear_means(law: Law, plan: Mapping[int, tuple[str, float]]) -> float:
                 means[v.name] = float(value)
             elif kind == "shift":
                 means[v.name] = base + float(value)
+            elif kind == "rule":
+                intercept, slope, column = value
+                means[v.name] = float(intercept) + float(slope) * means[column]
             else:
                 raise ValueError(f"unknown plan kind {kind!r}")
         elif v.role == "outcome":
@@ -913,6 +1022,7 @@ def linear_gaussian_plan(kind: str, value: float, n_times: int) -> dict[int, tup
 
 
 __all__ = [
+    "G5",
     "GH_ORDER",
     "Fixed",
     "Law",

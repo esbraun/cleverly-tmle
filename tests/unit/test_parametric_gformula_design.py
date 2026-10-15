@@ -5,23 +5,36 @@ replicates per label on an independent stream, see ``DESIGN_PILOT``) supplied th
 facts; the laws supply the rest.  Each test below proves one item of the design.
 
 * **Specification.**  The main-terms models are the law.  A fit on the exact support of the
-  law (a weighted population fit) recovers every coefficient of ``G1``, ``G3`` and ``G4``.  On
-  ``G2``, whose Gaussian support is not finite, a large sample sits within the sampling error
-  of the law.  A deliberate mutation of a coefficient is detected by the same check.
+  law (a weighted population fit) recovers every coefficient of ``G1``, ``G3``, ``G4`` and
+  ``G5``.  On ``G2``, whose Gaussian support is not finite, a large sample sits within the
+  sampling error of the law.  A deliberate mutation of a coefficient is detected by the same
+  check.
 * **Truths.**  Binary and categorical paths are enumerated, each Gaussian variable is
   integrated by Gauss-Hermite, and ``G4`` has a closed form.  A forward simulation, sized so
   its standard error is at most 5% of the bias tolerance (a quarter of a sampling SD at the
   calibration size), agrees with every truth.
-* **Existence of the MLE.**  The probability that every GLM of a fit set exists, from
-  the pinned probe, is at least 0.999 at the first rung of the shared ladder.
-* **The D-terms.**  Each kind of derivative term (covariate, outcome, treatment and censoring
-  models) carries a share of the standard error at the calibration size.
+* **Existence of the MLE.**  The probability that every model of the NICE book exists, from
+  the pinned probe, is at least 0.999 at the first rung of the shared ladder.  A second probe
+  covers the whole fit set of each reported family, whose ``LTMLE`` and ``ICE`` fits can
+  separate on a draw; its rate stays under the declared failure bound.
+* **The D-terms.**  Each kind of derivative term (covariate, outcome, hazard, treatment and
+  plug-in) carries a share of the standard error in some calibration label (contrasts
+  included).  Dropping the term from that label's curve fails the calibration rule with chance
+  at least 0.95, with the uncertainty of the label's base SE ratio counted.
 * **The ICE limit.**  The main-terms ICE fit converges to a value away from the truth on
   ``G2``, by an amount the paired fit set detects with power at least 0.95.
-* **The Monte Carlo control.**  The ``n_draws`` 1 control predicts an SE ratio below the
-  calibration band wherever the simulation term carries a large share of the variance.
+* **The Monte Carlo accounting.**  The positive ``n_draws_1`` cells are calibration cells.  A
+  pinned catch table gives the chance that each fails without the simulation term.  The
+  ``mc_removed`` cells report, because none has a predictive power of 0.95.
 * **Sizing.**  The replicates of each calibration label give a pass probability of at least
   0.90 under the SE-ratio rule.
+* **The red-cell reading.**  The expected count of finite-sample reds under perfect
+  calibration is computed and declared.
+
+Pilot scripts and outputs: ``cleverly-beta-plans/reviews/x45/design-pilot/`` (the first design
+pilot), its ``review-probes/`` (the pre-queue review) and ``design-remediation/`` (the pilots of
+the labels added after the review: ``pilot.py``, ``pilot_n1.py``, ``term_shares_labels.py``,
+``mle_probe.py`` and ``mle_models.py``).
 
 Seeds: ``SEED`` and ``RESAMPLING_SEED`` are new, and no other registered study uses either.
 """
@@ -97,7 +110,14 @@ def test_the_declared_numbers() -> None:
         "G4": (
             "ey_regimen[shift_half]",
             "ey_regimen[dose_half]",
+            "ey_regimen[rule_dose]",
             "ate_regimen[shift_half vs natural course]",
+        ),
+        "G5": (
+            "ey_regimen[treat_all]",
+            "ey_regimen[treat_none]",
+            "ey_regimen[odds x2]",
+            "ate_regimen[treat_all vs treat_none]",
         ),
     }
 
@@ -260,7 +280,7 @@ def _distance(target: laws.Law, book: Any) -> dict[str, float]:
     return out
 
 
-@pytest.mark.parametrize(("law", "order"), [("G1", 12), ("G3", 12), ("G4", 3)])
+@pytest.mark.parametrize(("law", "order"), [("G1", 12), ("G3", 12), ("G4", 3), ("G5", 12)])
 def test_an_exact_support_fit_recovers_the_law(law: str, order: int) -> None:
     """The main-terms models are the law: a weighted fit on its support returns every term."""
     target = study.law_of(law)
@@ -271,9 +291,11 @@ def test_an_exact_support_fit_recovers_the_law(law: str, order: int) -> None:
         "G1": 6,
         "G3": 7,
         "G4": 6,
+        "G5": 8,
     }[law]
-    # Covariate models of nodes 2 to T, the natural-treatment models, the outcome or the
-    # hazards.  Censoring is handled by the risk set, so it has no model.
+    # Covariate models of nodes 2 to T (a categorical covariate is one multinomial model), the
+    # natural-treatment models, the outcome or the hazards.  Censoring is handled by the risk
+    # set, so it has no model.
     assert len(gaps) == expected
     assert max(gaps.values()) < 1e-6, gaps
 
@@ -326,8 +348,9 @@ SIMULATED_PLANS = {
     "G1": ("treat_all", "treat_none", "rule", "odds x2"),
     "G2": ("treat_all", "treat_none", "policy_b"),
     "G3": ("treat_all_4", "treat_none_4"),
-    "G4": ("natural course", "shift_half", "dose_half"),
+    "G4": ("natural course", "shift_half", "dose_half", "rule_dose"),
     "G4Q": ("dose_half",),
+    "G5": ("treat_all", "treat_none", "odds x2"),
 }
 #: The bias tolerance of each law, from its smallest calibration SD at the calibration size.
 BATCH = 500_000
@@ -348,6 +371,13 @@ def _simulated_plan(law: str, label: str) -> dict[int, laws.NodePlan]:
     if law in ("G4", "G4Q"):
         if label == "dose_half":
             return {t: laws.Fixed(0.5) for t in nodes}
+        if label == "rule_dose":
+            intercept, slope = laws.G4_RULE_DOSE
+
+            def rule_at(t: int) -> laws.Rule:
+                return laws.Rule(lambda table: intercept + slope * table[f"L{t}"])
+
+            return {t: rule_at(t) for t in nodes}
         return {t: laws.ShiftPlan(0.5 if label == "shift_half" else 0.0) for t in nodes}
     return study._node_plans(law, label)
 
@@ -358,7 +388,7 @@ def _truth_name(law: str, label: str, cause: str = "relapse", horizon: int = 4) 
     return f"ey_regimen[{label}]"
 
 
-@pytest.mark.parametrize("law", ["G1", "G2", "G3", "G4", "G4Q"])
+@pytest.mark.parametrize("law", ["G1", "G2", "G3", "G4", "G4Q", "G5"])
 def test_every_law_names_only_earlier_columns(law: str) -> None:
     study.law_of(law).check()
 
@@ -370,6 +400,8 @@ def test_the_gauss_hermite_truths_have_converged() -> None:
         ("G1", "odds x2"),
         ("G3", "treat_all_4"),
         ("G2", "policy_b"),
+        ("G5", "treat_all"),
+        ("G5", "odds x2"),
     ):
         target = study.law_of(law)
         plan = _simulated_plan(law, label)
@@ -392,7 +424,7 @@ def test_the_closed_forms_are_the_enumerated_means(law: str) -> None:
     assert integrated == pytest.approx(closed, abs=1e-9)
 
 
-@pytest.mark.parametrize("law", ["G1", "G2", "G3", "G4", "G4Q"])
+@pytest.mark.parametrize("law", ["G1", "G2", "G3", "G4", "G4Q", "G5"])
 def test_a_forward_simulation_agrees_with_every_truth(law: str) -> None:
     """The simulation is a different program from the sums, so a sign or a mask shows here.
 
@@ -447,7 +479,12 @@ DESIGN_PILOT: dict[str, tuple[int, float, float, float]] = {
     "nice_g3_contrast_h4": (1200, 0.9691, 0.0314, 1.725),
     "nice_g4_shift": (1200, 1.0095, 0.0170, 3.889),
     "nice_g4_dose": (1200, 1.0220, 0.0233, 1.760),
+    "nice_g4_rule_dose": (1200, 1.0242, 0.0192, 2.491),
     "nice_g4_contrast": (1200, 1.0318, 0.0267, 1.168),
+    "nice_g5_treat_all": (1200, 1.0170, 0.0245, 2.281),
+    "nice_g5_treat_none": (1200, 1.0196, 0.0228, 3.175),
+    "nice_g5_odds_x2": (1200, 1.0126, 0.0177, 2.509),
+    "nice_g5_contrast": (1200, 1.0087, 0.0220, 3.873),
 }
 
 
@@ -457,22 +494,28 @@ def test_the_noise_scale_is_the_pilot_spread() -> None:
         assert properties.NOISE_SD[label] == pytest.approx(spread, abs=1e-3), label
 
 
-def _shrunk_ratios() -> dict[str, float]:
+def _shrink(table: dict[str, tuple[int, float, float]]) -> dict[str, float]:
     """Each label's SE ratio shrunk toward the pooled mean, by the pilot's own spread.
 
-    The ratios of 16 labels spread more than their sampling errors say (``tau`` below), so each
-    label is pulled toward the precision-weighted mean by the share of its variance that is
-    sampling error.  This is the empirical-Bayes estimate of the true ratio of the label.
+    ``table`` maps a label to ``(replicates, SE ratio, relative SD of the SE)``.  The ratios of
+    several labels spread more than their sampling errors say (``tau`` below), so each label is
+    pulled toward the precision-weighted mean by the share of its variance that is sampling
+    error.  This is the empirical-Bayes estimate of the true ratio of the label.
     """
-    labels = list(DESIGN_PILOT)
-    ratio = np.array([DESIGN_PILOT[x][1] for x in labels])
-    count = np.array([DESIGN_PILOT[x][0] for x in labels], dtype=float)
-    noise = np.array([DESIGN_PILOT[x][2] for x in labels])
+    labels = list(table)
+    ratio = np.array([table[x][1] for x in labels])
+    count = np.array([table[x][0] for x in labels], dtype=float)
+    noise = np.array([table[x][2] for x in labels])
     sampling = ratio**2 * (1.0 / (2.0 * (count - 1.0)) + noise**2 / count)
     pooled = float(np.average(ratio, weights=1.0 / sampling))
     tau2 = max(0.0, float(np.var(ratio, ddof=1)) - float(sampling.mean()))
     weight = tau2 / (tau2 + sampling)
     return dict(zip(labels, pooled + weight * (ratio - pooled), strict=True))
+
+
+def _shrunk_ratios() -> dict[str, float]:
+    """The shrunk SE ratio of each calibration label (``n_draws`` 10)."""
+    return _shrink({x: (v[0], v[1], v[2]) for x, v in DESIGN_PILOT.items()})
 
 
 def _pass_probability(replicates: int, label: str, ratio: float) -> float:
@@ -488,11 +531,12 @@ def _pass_probability(replicates: int, label: str, ratio: float) -> float:
 
 
 def test_each_calibration_label_is_sized_for_its_pass_probability() -> None:
-    """A label passes the SE-ratio rule with probability at least 0.90 at its law's replicates.
+    """A label passes the SE-ratio rule with probability at least 0.95 at its law's replicates.
 
     The true ratio of each label is its empirical-Bayes estimate from the pilot, and the SE
-    noise is the pilot's.  The next smaller multiple of 400 fails somewhere, so the size is not
-    padded.
+    noise is the pilot's.  The floor of the brief is 0.90.  The next smaller multiple of 400
+    clears 0.90 only by 0.005 at its worst label and falls under 0.95 at every label, which
+    leaves no room for the spread of the pilot ratios, so the declared size is 2,400.
     """
     shrunk = _shrunk_ratios()
     worst = {}
@@ -500,9 +544,9 @@ def test_each_calibration_label_is_sized_for_its_pass_probability() -> None:
         law = label.split("_")[1].upper()
         replicates = properties.CALIBRATION_REPLICATES[law]
         probability = _pass_probability(replicates, label, shrunk[label])
-        assert probability >= 0.90, (label, replicates, probability)
+        assert probability >= 0.95, (label, replicates, probability)
         worst[label] = _pass_probability(replicates - 400, label, shrunk[label])
-    assert min(worst.values()) < 0.90
+    assert max(worst.values()) < 0.95
     assert set(properties.CALIBRATION_REPLICATES.values()) == {2_400}
 
 
@@ -515,61 +559,196 @@ def test_the_pilot_shows_no_calibration_cell_outside_the_band() -> None:
 
 # ------------------------------------------------------------------------- (c) the D-terms
 
-#: The largest mean SE share of each kind of derivative term over the labels of a law, from 40
-#: design draws of n = 2,000.  The share of a kind is one minus the SE of the stacked curve
-#: without the kind over the SE of the curve.
+# A derivative term is evidenced by a calibration label when dropping it moves the label's SE
+# ratio out of the calibration band with chance at least 0.95 at the label's replicates.  The
+# share of a kind is one minus the SE of the stacked curve without the kind over the SE of the
+# curve, so dropping the kind scales the SE ratio by one minus the share.
+
+#: The chance that dropping a term kind must be caught with, at the label's replicates.
+CATCH_FLOOR = 0.95
+#: The nodes of the quadrature that integrates the uncertainty of a base SE ratio.
+_BASE_NODES, _BASE_WEIGHTS = np.polynomial.hermite_e.hermegauss(21)
+_BASE_WEIGHTS = _BASE_WEIGHTS / _BASE_WEIGHTS.sum()
+
+
+def _se_leg_pass(replicates: int, ratio: float, noise: float) -> float:
+    """The chance that the 99% interval of the SE ratio lies inside the calibration band."""
+    low, high = study.STUDY.margins.calibration_se_ratio
+    z = float(norm.ppf(0.5 + study.STUDY.margins.confidence_level / 2.0))
+    spread = ratio * math.sqrt(1.0 / (2.0 * (replicates - 1)) + noise**2 / replicates)
+    inside = norm.cdf((high - z * spread - ratio) / spread) - norm.cdf(
+        (low + z * spread - ratio) / spread
+    )
+    return float(max(inside, 0.0))
+
+
+def _base_sd(label: str) -> float:
+    """The sampling SD of the pilot's SE ratio of a label: the uncertainty of its base ratio."""
+    count, ratio, noise, _ = DESIGN_PILOT[label]
+    return ratio * math.sqrt(1.0 / (2.0 * (count - 1.0)) + noise**2 / count)
+
+
+def _catch(replicates: int, factor: float, centre: float, spread: float, noise: float) -> float:
+    """The chance that a curve scaled by ``factor`` fails the SE-ratio leg of the rule.
+
+    The true ratio of the label is not known: it is ``centre`` with the sampling SD ``spread`` of
+    its pilot.  The catch integrates over that uncertainty, so a label whose base ratio could sit
+    on the other side of a band edge does not look better powered than it is.
+    """
+    passed = sum(
+        float(w) * _se_leg_pass(replicates, factor * (centre + spread * float(x)), noise)
+        for x, w in zip(_BASE_NODES, _BASE_WEIGHTS, strict=True)
+    )
+    return 1.0 - passed
+
+
+def mutant_catch(label: str, replicates: int, factor: float) -> float:
+    """The chance that a calibration label fails the rule when its curve is scaled by ``factor``."""
+    return _catch(
+        replicates, factor, _shrunk_ratios()[label], _base_sd(label), DESIGN_PILOT[label][2]
+    )
+
+
+def term_floor(label: str) -> float:
+    """The smallest share whose removal the label's calibration rule catches at 0.95.
+
+    Found by bisection on the share ``s`` of ``mutant_catch(label, R, 1 - s)``.
+    """
+    replicates = properties.CALIBRATION_REPLICATES[label.split("_")[1].upper()]
+    low, high = 0.0, 0.5
+    for _ in range(40):
+        mid = 0.5 * (low + high)
+        if mutant_catch(label, replicates, 1.0 - mid) >= CATCH_FLOOR:
+            high = mid
+        else:
+            low = mid
+    return high
+
+
+#: The mean SE share of each kind of derivative term in the curve of each calibration label, from
+#: 40 design draws of n = 2,000 per law.  A contrast label is the difference of two plan curves.
+#: ``tests/unit/test_parametric_gformula_design.py::label_shares`` computes it.
 TERM_SHARES: dict[str, dict[str, float]] = {
-    "G1": {
-        "plug-in": 0.039,
+    "nice_g1_treat_all": {
+        "covariate/binary": 0.015,
+        "outcome": 0.727,
+        "plug-in": 0.024,
+        "treatment/binary": 0.0,
+    },
+    "nice_g1_treat_none": {
         "covariate/binary": 0.026,
+        "outcome": 0.721,
+        "plug-in": 0.013,
+        "treatment/binary": 0.0,
+    },
+    "nice_g1_rule": {
+        "covariate/binary": 0.003,
+        "outcome": 0.739,
+        "plug-in": 0.031,
+        "treatment/binary": 0.0,
+    },
+    "nice_g1_odds_x2": {
+        "covariate/binary": 0.015,
+        "outcome": 0.66,
+        "plug-in": 0.039,
         "treatment/binary": 0.005,
-        "outcome": 0.737,
     },
-    "G2": {
-        "plug-in": 0.357,
-        "covariate/normal": 0.294,
-        "covariate/binary": 0.035,
-        "outcome": 0.054,
+    "nice_g1_contrast": {
+        "covariate/binary": 0.02,
+        "outcome": 0.798,
+        "plug-in": 0.0,
+        "treatment/binary": 0.0,
     },
-    "G3": {"plug-in": 0.013, "covariate/binary": 0.007, "hazard": 0.949},
-    "G4": {
-        "plug-in": 0.520,
+    "nice_g2_treat_all": {
+        "covariate/binary": 0.033,
+        "covariate/normal": 0.262,
+        "outcome": 0.032,
+        "plug-in": 0.238,
+    },
+    "nice_g2_treat_none": {
+        "covariate/binary": 0.034,
+        "covariate/normal": 0.296,
+        "outcome": 0.051,
+        "plug-in": 0.18,
+    },
+    "nice_g2_policy_b": {
+        "covariate/binary": 0.022,
+        "covariate/normal": 0.183,
+        "outcome": 0.016,
+        "plug-in": 0.361,
+    },
+    "nice_g2_contrast": {
+        "covariate/binary": 0.05,
+        "covariate/normal": 0.491,
+        "outcome": 0.085,
+        "plug-in": 0.0,
+    },
+    "nice_g3_relapse_h2": {"covariate/binary": 0.002, "hazard": 0.831, "plug-in": 0.011},
+    "nice_g3_relapse_h4": {"covariate/binary": 0.007, "hazard": 0.818, "plug-in": 0.011},
+    "nice_g3_death_h4": {"covariate/binary": 0.001, "hazard": 0.937, "plug-in": 0.001},
+    "nice_g3_contrast_h4": {"covariate/binary": 0.006, "hazard": 0.889, "plug-in": 0.0},
+    "nice_g4_shift": {
+        "covariate/normal": 0.056,
+        "outcome": 0.058,
+        "plug-in": 0.451,
+        "treatment/normal": 0.041,
+    },
+    "nice_g4_dose": {
         "covariate/normal": 0.061,
-        "treatment/normal": 0.040,
-        "outcome": 0.225,
+        "outcome": 0.22,
+        "plug-in": 0.287,
+        "treatment/normal": 0.0,
+    },
+    "nice_g4_rule_dose": {
+        "covariate/normal": 0.099,
+        "outcome": 0.112,
+        "plug-in": 0.369,
+        "treatment/normal": 0.0,
+    },
+    "nice_g4_contrast": {
+        "covariate/normal": 0.15,
+        "outcome": 0.303,
+        "plug-in": -0.0,
+        "treatment/normal": 0.109,
+    },
+    "nice_g5_treat_all": {
+        "covariate/binary": 0.163,
+        "covariate/multi": 0.184,
+        "outcome": 0.061,
+        "plug-in": 0.133,
+        "treatment/binary": 0.0,
+    },
+    "nice_g5_treat_none": {
+        "covariate/binary": 0.238,
+        "covariate/multi": 0.147,
+        "outcome": 0.066,
+        "plug-in": 0.095,
+        "treatment/binary": 0.0,
+    },
+    "nice_g5_odds_x2": {
+        "covariate/binary": 0.096,
+        "covariate/multi": 0.09,
+        "outcome": 0.024,
+        "plug-in": 0.209,
+        "treatment/binary": 0.119,
+    },
+    "nice_g5_contrast": {
+        "covariate/binary": 0.256,
+        "covariate/multi": 0.199,
+        "outcome": 0.094,
+        "plug-in": 0.009,
+        "treatment/binary": 0.0,
     },
 }
-TERM_FLOOR = 0.03
-#: A kind whose share stays below the floor in every law is covered by an exact-law witness
-#: (``TestExactTermsLawB`` of ``tests/unit/test_parametric_gformula.py``), not by the SE.
-WITNESS_ONLY = {"treatment/binary"}
+
+#: The kinds an exact-law witness covers alone: none, because every kind below reaches the floor.
+WITNESS_ONLY: set[str] = set()
 
 
-def test_every_derivative_term_kind_carries_a_share_or_a_named_witness() -> None:
-    best: dict[str, float] = {}
-    for kinds in TERM_SHARES.values():
-        for kind, share in kinds.items():
-            best[kind] = max(best.get(kind, 0.0), share)
-    assert set(best) == {
-        "plug-in",
-        "covariate/binary",
-        "covariate/normal",
-        "treatment/binary",
-        "treatment/normal",
-        "outcome",
-        "hazard",
-    }
-    for kind, share in best.items():
-        if kind in WITNESS_ONLY:
-            assert share < TERM_FLOOR, kind
-        else:
-            assert share >= TERM_FLOOR, (kind, share)
-
-
-def _curve_blocks(
+def _blocks_of(
     law: str, frame: pd.DataFrame, seed: int
 ) -> dict[tuple[Any, ...], dict[str, np.ndarray]]:
-    """Each estimand's influence curve split into the plug-in and one block per model kind."""
+    """Each plan curve of a fit split into the plug-in and one block per model kind."""
     captured: list[tuple[Any, Any, list[Any], Any]] = []
     original = gf._simulate_plan
 
@@ -602,6 +781,32 @@ def _curve_blocks(
     return out
 
 
+def _label_blocks(law: str, frame: pd.DataFrame, seed: int) -> dict[str, dict[str, np.ndarray]]:
+    """The curve blocks of every calibration label of a law, a contrast as a difference."""
+    plans = _blocks_of(law, frame, seed)
+    out: dict[str, dict[str, np.ndarray]] = {}
+    for key, estimand in study.KEYS[law].items():
+        level = re.fullmatch(r"(?:ey|cif)_regimen\[([^,\]]+?)(?:, (\w+) @ t=(\d+))?\]", estimand)
+        pair = re.fullmatch(r"ate_regimen\[(.+?) vs (.+?)(?:, (\w+) @ t=(\d+))?\]", estimand)
+        if level:
+            cause = level.group(2)
+            horizon = int(level.group(3)) if level.group(3) else None
+            if law != "G3":
+                horizon = study.law_of(law).n_times
+            out[study.label_of(law, key)] = plans[(level.group(1), cause, horizon)]
+        else:
+            assert pair is not None, estimand
+            cause = pair.group(3)
+            horizon = int(pair.group(4)) if pair.group(4) else study.law_of(law).n_times
+            first = plans[(pair.group(1), cause, horizon)]
+            second = plans[(pair.group(2), cause, horizon)]
+            difference: dict[str, np.ndarray] = {}
+            for kind in {*first, *second}:
+                difference[kind] = np.asarray(first.get(kind, 0.0) - second.get(kind, 0.0))
+            out[study.label_of(law, key)] = difference
+    return out
+
+
 def _shares(blocks: dict[str, np.ndarray]) -> dict[str, float]:
     total = sum(blocks.values())
     se = np.sqrt(np.mean(total**2))
@@ -611,22 +816,65 @@ def _shares(blocks: dict[str, np.ndarray]) -> dict[str, float]:
     }
 
 
-@pytest.mark.parametrize("law", ["G1", "G2", "G3", "G4"])
-def test_a_recomputed_draw_shows_the_pinned_term_shares(law: str) -> None:
-    """Four fresh draws give each kind's largest share within 0.07 of the 40-draw table."""
-    draws = 4
-    largest: dict[str, list[float]] = {}
+def label_shares(law: str, draws: int, first_seed: int) -> dict[str, dict[str, float]]:
+    """The mean share of every kind in every calibration label of ``law`` over ``draws`` draws."""
+    totals: dict[str, dict[str, list[float]]] = {}
     for r in range(draws):
-        frame = properties.draw(law, study.CALIBRATION_N, 90_000 + r)
-        per_kind: dict[str, float] = {}
-        for blocks in _curve_blocks(law, frame, seed=r).values():
+        frame = properties.draw(law, study.CALIBRATION_N, first_seed + r)
+        for label, blocks in _label_blocks(law, frame, seed=r).items():
             for kind, share in _shares(blocks).items():
-                per_kind[kind] = max(per_kind.get(kind, 0.0), share)
-        for kind, share in per_kind.items():
-            largest.setdefault(kind, []).append(share)
-    assert set(largest) == set(TERM_SHARES[law])
-    for kind, values in largest.items():
-        assert float(np.mean(values)) == pytest.approx(TERM_SHARES[law][kind], abs=0.07), kind
+                totals.setdefault(label, {}).setdefault(kind, []).append(share)
+    return {
+        label: {kind: float(np.mean(v)) for kind, v in kinds.items()}
+        for label, kinds in totals.items()
+    }
+
+
+def test_every_derivative_term_kind_is_evidenced_by_a_label_that_would_catch_its_removal() -> None:
+    best: dict[str, tuple[str, float]] = {}
+    margin: dict[str, float] = {}
+    for label, kinds in TERM_SHARES.items():
+        floor = term_floor(label)
+        for kind, share in kinds.items():
+            if share - floor > margin.get(kind, -1.0):
+                margin[kind] = share - floor
+                best[kind] = (label, share)
+    assert set(best) == {
+        "plug-in",
+        "covariate/binary",
+        "covariate/multi",
+        "covariate/normal",
+        "treatment/binary",
+        "treatment/normal",
+        "outcome",
+        "hazard",
+    }
+    assert not WITNESS_ONLY
+    for kind, (label, share) in best.items():
+        law = label.split("_")[1].upper()
+        replicates = properties.CALIBRATION_REPLICATES[law]
+        assert share >= term_floor(label), (kind, label, share, term_floor(label))
+        assert mutant_catch(label, replicates, 1.0 - share) >= CATCH_FLOOR, (kind, label)
+
+
+def test_the_term_floor_is_the_share_the_rule_can_see() -> None:
+    """At 2,400 replicates a label with an ordinary pilot spread needs a share near 0.07 to 0.08."""
+    floors = {label: term_floor(label) for label in TERM_SHARES}
+    assert min(floors.values()) > 0.04 and max(floors.values()) < 0.09, floors
+    # A share of 0.03 (the former floor) is caught with a chance well under 0.95.
+    assert mutant_catch("nice_g2_treat_all", 2_400, 1.0 - 0.03) < 0.6
+
+
+@pytest.mark.parametrize("law", ["G1", "G2", "G3", "G4", "G5"])
+def test_a_recomputed_draw_shows_the_pinned_term_shares(law: str) -> None:
+    """Four fresh draws give each kind's share in each label within 0.07 of the 40-draw table."""
+    found = label_shares(law, 4, 90_000)
+    pinned = {x: TERM_SHARES[x] for x in TERM_SHARES if x.split("_")[1].upper() == law}
+    assert set(found) == set(pinned)
+    for label, kinds in found.items():
+        assert set(kinds) == set(pinned[label]), label
+        for kind, share in kinds.items():
+            assert share == pytest.approx(pinned[label][kind], abs=0.07), (label, kind)
 
 
 # ------------------------------------------------------------------- (d) the ICE limit
@@ -755,22 +1003,24 @@ def test_the_contrast_is_unpowered_at_the_ladder_top_so_the_paired_size_is_large
     assert properties.ICE_NECESSITY.threshold == properties.ICE_DISPLACEMENT == 0.35
 
 
-# ------------------------------------------------------------- (e) the Monte Carlo control
+# ------------------------------------------------------------- (e) the Monte Carlo accounting
 
-#: The mean reported Monte Carlo share of the variance at ``n_draws`` 1 (200 design draws).
-MC_SHARE = {
-    "nice_g1_treat_all": 0.0114,
-    "nice_g1_treat_none": 0.0123,
-    "nice_g2_treat_all": 0.2018,
-    "nice_g2_treat_none": 0.1643,
-    "nice_g4_shift": 0.1260,
-    "nice_g4_dose": 0.0862,
+#: The ``n_draws`` 1 pilot at n = 2,000 (1,200 draws on the ``design_pilot_n1`` stream): per
+#: positive ``n_draws_1`` label ``(replicates, SE ratio, relative SD of the SE, mean reported
+#: Monte Carlo share of the variance)``.  The share is the term the accounting cell keeps in the
+#: curve.  ``G1`` has no row: its share is 1% to 1.2%, so its cell measures nothing for the term.
+N1_PILOT: dict[str, tuple[int, float, float, float]] = {
+    "nice_g2_treat_all": (1200, 0.9729, 0.0181, 0.2013),
+    "nice_g2_treat_none": (1200, 1.0329, 0.0196, 0.1649),
+    "nice_g4_shift": (1200, 1.0270, 0.0174, 0.1268),
+    "nice_g4_dose": (1200, 1.0072, 0.0238, 0.0861),
+    "nice_g5_treat_all": (1200, 0.9797, 0.0241, 0.2388),
+    "nice_g5_treat_none": (1200, 1.0153, 0.0225, 0.1851),
+    "nice_g5_odds_x2": (1200, 0.9776, 0.0186, 0.3823),
 }
-#: The accounting pilot at n = 2,000 (400 replicates): the SE ratio of the ``n_draws`` 1 fit and
-#: of the ``mc_removed`` control that takes the SE of the independent ``m'`` fit.
+#: The accounting pilot at n = 2,000 (400 draws): the SE ratio of the ``n_draws`` 1 fit and of the
+#: ``mc_removed`` cell, which takes the SE of the independent ``m'`` fit.  The cell is reported.
 ACCOUNTING_PILOT = {
-    "nice_g1_treat_all": (1.0338, 1.0278),
-    "nice_g1_treat_none": (1.0130, 1.0066),
     "nice_g2_treat_all": (0.9549, 0.8538),
     "nice_g2_treat_none": (1.0457, 0.9570),
     "nice_g4_shift": (0.9865, 0.9218),
@@ -778,21 +1028,86 @@ ACCOUNTING_PILOT = {
 }
 
 
+def _n1_shrunk() -> dict[str, float]:
+    """The shrunk SE ratio of each ``n_draws_1`` cell, pooled with the calibration labels.
+
+    All cells are SE ratios of the same estimator on the same laws, so the pool shares one
+    spread ``tau``; the ``n_draws_1`` cells keep their own pilot points.
+    """
+    table = {x: (v[0], v[1], v[2]) for x, v in DESIGN_PILOT.items()}
+    table |= {f"n1:{x}": (v[0], v[1], v[2]) for x, v in N1_PILOT.items()}
+    shrunk = _shrink(table)
+    return {x: shrunk[f"n1:{x}"] for x in N1_PILOT}
+
+
+def _n1_pass_probability(replicates: int, label: str) -> float:
+    margins = study.STUDY.margins
+    return calibration_pass_probability(
+        replicates,
+        true_se_ratio=_n1_shrunk()[label],
+        se_noise=N1_PILOT[label][2],
+        confidence_level=margins.confidence_level,
+        se_band=margins.calibration_se_ratio,
+        coverage_band=margins.calibration_coverage,
+    )
+
+
+def mc_catch(label: str, replicates: int) -> float:
+    """The chance that the positive ``n_draws_1`` cell fails when its curve lacks the simulation term.
+
+    Removing a share ``s`` of the variance scales the SE ratio by ``sqrt(1 - s)``.  The base ratio
+    carries the sampling SD of its pilot, which the catch integrates over (:func:`_catch`).
+    """
+    count, ratio, noise, share = N1_PILOT[label]
+    spread = ratio * math.sqrt(1.0 / (2.0 * (count - 1.0)) + noise**2 / count)
+    return _catch(replicates, math.sqrt(1.0 - share), _n1_shrunk()[label], spread, noise)
+
+
 def predicted_ratio(label: str, base: float) -> float:
     """The SE ratio of the control: the fit's ratio times the root of what is left of the variance."""
-    share = MC_SHARE[label]
+    share = N1_PILOT[label][3]
     return base * math.sqrt(1.0 - share * (1.0 - 1.0 / study.M_PRIME))
 
 
 def control_power(label: str, replicates: int) -> float:
-    """The chance that the whole 99% SE-ratio interval of ``mc_removed`` lies below the band."""
-    base = _shrunk_ratios()[label]
-    ratio = predicted_ratio(label, base)
-    noise = DESIGN_PILOT[label][2]
-    spread = ratio * math.sqrt(1.0 / (2.0 * (replicates - 1)) + noise**2 / replicates)
+    """The predictive chance that the whole 99% SE-ratio interval of ``mc_removed`` is below the band.
+
+    The base ratio of the label is uncertain by the sampling SD of its pilot, so the power
+    averages over it.  Treating the shrunk ratio as known would overstate the power.
+    """
+    count, ratio, noise, _ = N1_PILOT[label]
+    base_sd = ratio * math.sqrt(1.0 / (2.0 * (count - 1.0)) + noise**2 / count)
     z = float(norm.ppf(0.5 + study.STUDY.margins.confidence_level / 2.0))
     low_edge = study.STUDY.margins.calibration_se_ratio[0]
-    return float(norm.cdf((low_edge - z * spread - ratio) / spread))
+    total = 0.0
+    for x, w in zip(_BASE_NODES, _BASE_WEIGHTS, strict=True):
+        mean = predicted_ratio(label, _n1_shrunk()[label] + base_sd * float(x))
+        spread = mean * math.sqrt(1.0 / (2.0 * (replicates - 1)) + noise**2 / replicates)
+        total += float(w) * float(norm.cdf((low_edge - z * spread - mean) / spread))
+    return total
+
+
+#: The chance that each positive ``n_draws_1`` cell fails without the simulation term, at the
+#: declared replicates, with the uncertainty of its base ratio counted.  A label is evidence for the
+#: term where the catch is at least :data:`CATCH_FLOOR`.
+MC_CATCH: dict[str, float] = {
+    "nice_g2_treat_all": 1.0,
+    "nice_g2_treat_none": 0.972,
+    "nice_g4_shift": 0.859,
+    "nice_g4_dose": 0.626,
+    "nice_g5_treat_all": 1.0,
+    "nice_g5_treat_none": 0.995,
+    "nice_g5_odds_x2": 1.0,
+}
+#: The labels whose catch reaches the floor.  The two ``G4`` cells are positive calibration cells at
+#: ``n_draws`` 1 and are not evidence for the term: the simulation share is 13% and 9%.
+MC_EVIDENCE = {
+    "nice_g2_treat_all",
+    "nice_g2_treat_none",
+    "nice_g5_treat_all",
+    "nice_g5_treat_none",
+    "nice_g5_odds_x2",
+}
 
 
 def test_the_pilot_ratios_follow_the_predicted_ratio_of_ratios() -> None:
@@ -801,52 +1116,63 @@ def test_the_pilot_ratios_follow_the_predicted_ratio_of_ratios() -> None:
         assert removed / base == pytest.approx(predicted_ratio(label, 1.0), abs=0.012), label
 
 
-def test_only_labels_with_power_at_least_95_percent_are_gated() -> None:
-    gated = {
-        cell.removesuffix("__mc_removed")
-        for cell, side in properties.GATED_DIRECTIONS.items()
-        if side == "below"
-    }
-    assert set(properties.GATED_DIRECTIONS.values()) <= {"below"}
-    for label in MC_SHARE:
+def test_the_mc_removed_cells_report_because_none_is_powered() -> None:
+    """With the base ratio uncertain, no ``mc_removed`` control reaches a predictive power of 0.95.
+
+    The control is a property of the law, so its red would be a finite-sample red.  Every cell
+    reports and none gates.
+    """
+    for label in N1_PILOT:
         law = label.split("_")[1].upper()
-        power = control_power(label, properties.ACCOUNTING_REPLICATES[law])
-        assert (label in gated) == (power >= 0.95), (label, power)
-    assert gated == {"nice_g2_treat_all"}
-    assert tuple(MC_SHARE) == study.MC_LABELS
+        if law not in study.MC_REMOVED_LAWS:
+            continue
+        assert control_power(label, properties.ACCOUNTING_REPLICATES[law]) < CATCH_FLOOR, label
+    assert {label.split("_")[1].upper() for label in N1_PILOT} - set(study.MC_REMOVED_LAWS) == {
+        "G5"
+    }
+    assert not hasattr(properties, "GATED_DIRECTIONS")
 
 
-def test_the_gated_control_is_powered_only_at_the_larger_size() -> None:
-    """The interval is too wide to clear the band at 2,400 replicates, and at 6,000 by a hair."""
-    assert control_power("nice_g2_treat_all", 2_400) < 0.8
-    assert (
-        control_power("nice_g2_treat_all", 6_000)
-        < 0.95
-        <= control_power("nice_g2_treat_all", 6_400)
-    )
-    assert properties.ACCOUNTING_REPLICATES == {"G1": 2_400, "G2": 6_400, "G4": 2_400}
+def test_the_mutation_catch_table_of_the_n_draws_1_cells() -> None:
+    """The positive cells that catch a curve without the Monte Carlo term, and the ones that do not."""
+    found = {
+        label: mc_catch(label, properties.ACCOUNTING_REPLICATES[label.split("_")[1].upper()])
+        for label in N1_PILOT
+    }
+    for label, pinned in MC_CATCH.items():
+        assert found[label] == pytest.approx(pinned, abs=0.01), label
+    assert set(found) == set(MC_CATCH)
+    assert {x for x, v in found.items() if v >= CATCH_FLOOR} == MC_EVIDENCE
+    assert tuple(N1_PILOT) == study.MC_LABELS
+    # A G1 accounting cell would remove 1.1% to 1.2% of the variance, which moves the ratio by 0.6%
+    # and is caught with a chance of about 0.03, so the fit set is dropped.
+    assert math.sqrt(1.0 - 0.0123) > 0.99
 
 
 def test_the_one_draw_positive_cell_is_sized_like_a_calibration_cell() -> None:
-    shrunk = _shrunk_ratios()
-    for label in MC_SHARE:
+    """Every positive ``n_draws_1`` cell passes with chance at least 0.95 at the declared size.
+
+    The smaller size of 2,000 passes at 0.90 to 0.93, which is the bare floor, so the size is the
+    next multiple of 400 that clears 0.95 with room for the spread of the pilot.
+    """
+    for label in N1_PILOT:
         law = label.split("_")[1].upper()
-        assert (
-            _pass_probability(properties.ACCOUNTING_REPLICATES[law], label, shrunk[label]) >= 0.90
-        )
+        assert _n1_pass_probability(properties.ACCOUNTING_REPLICATES[law], label) >= 0.95, label
+    assert set(properties.ACCOUNTING_REPLICATES.values()) == {2_400}
 
 
 # ------------------------------------------------------------- (f) existence of the MLE
 
 #: ``(law, n) -> (draws, failures)``: draws of the law on which a model of the NICE book raised
 #: the GLM's ``DataError`` (a probability within ``1e-13`` of 0 or 1, or a singular information
-#: matrix).  Only the models are fitted.  ``G4Q`` is the quadratic-dose law fitted main-terms.
+#: matrix).  Only the NICE models are fitted.  ``G4Q`` is the quadratic-dose law fitted main-terms.
 MLE_PROBE: dict[tuple[str, int], tuple[int, int]] = {
     ("G1", 2_000): (4_000, 0),
     ("G2", 2_000): (4_000, 0),
     ("G3", 2_000): (4_000, 0),
     ("G4", 2_000): (4_000, 0),
     ("G4Q", 2_000): (4_000, 0),
+    ("G5", 2_000): (4_000, 0),
     ("G1", 4_000): (2_000, 0),
     ("G2", 4_000): (2_000, 0),
     ("G3", 4_000): (2_000, 0),
@@ -855,7 +1181,19 @@ MLE_PROBE: dict[tuple[str, int], tuple[int, int]] = {
     ("G2", 8_000): (2_000, 0),
     ("G3", 8_000): (2_000, 0),
     ("G4", 8_000): (2_000, 0),
+    ("G5", 8_000): (1_000, 0),
     ("G2", 32_000): (400, 0),
+}
+#: ``fit set -> (draws, failures)``: draws on which any fit of the whole fit set raised a
+#: recordable error (``DataError``).  These are the fit sets that fit a method beside NICE: the
+#: ``LTMLE`` and ``IPSI`` fits of the shared-target sets and the ICE fit of the paired sets.  The
+#: ``G1`` shared-target failures are the ``LTMLE`` fit, whose ``treat_none`` follower regression
+#: separates on about 0.7% of draws (``arm_failures.py``).
+FIT_SET_PROBE: dict[str, tuple[int, int]] = {
+    "shared_g1": (3_000, 20),
+    "paired_g1": (3_000, 0),
+    "shared_g2": (800, 0),
+    "paired_g2": (200, 0),
 }
 
 
@@ -864,7 +1202,7 @@ def test_the_mle_exists_with_probability_at_least_0_999_at_every_rung() -> None:
 
     The larger rungs have fewer draws, so they show a point estimate at or below 0.001.  A
     failure is a recordable error that the accounting counts against the 1% bound, never a
-    redraw.
+    redraw.  The probe fits the models of the NICE book only.
     """
     for (law, n), (draws, failures) in MLE_PROBE.items():
         assert failures / draws <= 0.001, (law, n)
@@ -873,7 +1211,32 @@ def test_the_mle_exists_with_probability_at_least_0_999_at_every_rung() -> None:
             assert upper <= 0.001, (law, upper)
     assert study.LADDER[0] == 2_000
     assert {n for _, n in MLE_PROBE if n in study.LADDER} == set(study.LADDER)
-    assert {law for law, _ in MLE_PROBE} == {"G1", "G2", "G3", "G4", "G4Q"}
+    assert {law for law, _ in MLE_PROBE} == {"G1", "G2", "G3", "G4", "G4Q", "G5"}
+
+
+def test_the_baseline_fits_of_the_reported_sets_fail_only_where_nothing_is_gated() -> None:
+    """The ``LTMLE`` and ICE fits can separate; the sets they sit in report or stay under the bound.
+
+    ``shared_g1`` fails on 0.67% of draws, from the ``LTMLE`` fit.  Every cell of that fit set is
+    a diagnostic row, which the failure accounting does not score, so no gated cell loses a
+    replicate to it.  A fit set with a gated cell (``paired_g2``) shows no failure.
+    """
+    assert set(FIT_SET_PROBE) == {
+        x for x in properties.FIT_SETS if x.split("_")[0] in ("shared", "paired")
+    }
+    gated_sets = {f"paired_{label.split('_')[1]}" for label in study.ICE_GATED}
+    for name, (draws, failures) in FIT_SET_PROBE.items():
+        rate = failures / draws
+        if name in gated_sets:
+            assert failures == 0, name
+        else:
+            assert rate <= study.FAILURE_BOUND, name
+        cells = properties.FIT_SET_CELLS[name]
+        scored = [c for c in cells if c.split("/")[0] in ("ice_necessity",)]
+        assert bool(scored) == (name in gated_sets), name
+    assert FIT_SET_PROBE["shared_g1"][1] / FIT_SET_PROBE["shared_g1"][0] == pytest.approx(
+        0.0067, abs=1e-4
+    )
 
 
 def test_the_probe_can_fail_on_a_separated_draw() -> None:
@@ -906,15 +1269,15 @@ def test_the_pilot_at_the_paired_size_shows_the_predicted_ice_bias() -> None:
 
 
 def test_the_declared_replicates() -> None:
-    assert dict.fromkeys(("G1", "G2", "G3", "G4"), 2_400) == properties.CALIBRATION_REPLICATES
-    assert properties.ACCOUNTING_REPLICATES == {"G1": 2_400, "G2": 6_400, "G4": 2_400}
+    assert dict.fromkeys(("G1", "G2", "G3", "G4", "G5"), 2_400) == properties.CALIBRATION_REPLICATES
+    assert properties.ACCOUNTING_REPLICATES == {"G2": 2_400, "G4": 2_400, "G5": 2_400}
     assert properties.PAIRED_REPLICATES == {"G1": 1_200, "G2": 1_200}
     assert properties.LADDER_REPLICATES == 1_000
     assert properties.EXTRAPOLATION_REPLICATES == 1_000
     assert properties.SHARED_N == {"G1": 2_000, "G2": 8_000}
     assert set(properties.FIT_SETS) == {
-        *(f"calibration_g{i}" for i in (1, 2, 3, 4)),
-        *(f"accounting_g{i}" for i in (1, 2, 4)),
+        *(f"calibration_g{i}" for i in (1, 2, 3, 4, 5)),
+        *(f"accounting_g{i}" for i in (2, 4, 5)),
         *(f"ladder_g{i}_n_{n}" for i in (1, 2, 3, 4) for n in study.LADDER),
         "paired_g1",
         "paired_g2",
@@ -925,16 +1288,18 @@ def test_the_declared_replicates() -> None:
 
 
 #: Wall-clock seconds per replicate on four workers (the best 50-replicate chunk of the pilot,
-#: divided by 50), by fit set.  The primary phase fits the four laws at n = 8,000, one
-#: replicate of every scenario at a time, at 3.9 seconds on four workers.
+#: divided by 50), by fit set.  ``accounting_g5`` fits the one-history curve only.  The primary
+#: phase fits the five laws at n = 8,000, one replicate of every scenario at a time, at 1.71
+#: seconds on four workers (60 replicates of ``draw_and_fit``).
 SECONDS_PER_REPLICATE: dict[str, float] = {
     "calibration_g1": 0.056,
     "calibration_g2": 0.062,
     "calibration_g3": 0.116,
-    "calibration_g4": 0.034,
-    "accounting_g1": 0.56,
+    "calibration_g4": 0.044,
+    "calibration_g5": 0.076,
     "accounting_g2": 1.23,
-    "accounting_g4": 1.14,
+    "accounting_g4": 1.316,
+    "accounting_g5": 0.07,
     "ladder_g1_n_2000": 0.048,
     "ladder_g1_n_4000": 0.102,
     "ladder_g1_n_8000": 0.22,
@@ -944,21 +1309,23 @@ SECONDS_PER_REPLICATE: dict[str, float] = {
     "ladder_g3_n_2000": 0.12,
     "ladder_g3_n_4000": 0.25,
     "ladder_g3_n_8000": 0.54,
-    "ladder_g4_n_2000": 0.034,
-    "ladder_g4_n_4000": 0.078,
-    "ladder_g4_n_8000": 0.17,
+    "ladder_g4_n_2000": 0.042,
+    "ladder_g4_n_4000": 0.088,
+    "ladder_g4_n_8000": 0.198,
     "paired_g1": 0.28,
     "paired_g2": 1.64,
     "shared_g1": 0.23,
     "shared_g2": 0.354,
     "extrapolation_g4q": 0.034,
 }
-PRIMARY_SECONDS_PER_REPLICATE = 3.9
+PRIMARY_SECONDS_PER_REPLICATE = 1.71
+#: The budget of the declared run after the review: wall-clock hours on four workers.
+BUDGET_HOURS = 3.9
+#: The budget of the declared run before this design review: 6.0 hours on four workers.
+BUDGET_BEFORE_REVIEW_HOURS = 6.0
 
 
-def test_the_budget_of_the_declared_run() -> None:
-    """About 6.0 hours on four vCPUs, 24 CPU-hours, if the best-case chunk times hold."""
-    assert set(SECONDS_PER_REPLICATE) == set(properties.FIT_SETS)
+def _budget_hours() -> float:
     seconds = (
         sum(
             SECONDS_PER_REPLICATE[name] * replicates
@@ -966,5 +1333,78 @@ def test_the_budget_of_the_declared_run() -> None:
         )
         + PRIMARY_SECONDS_PER_REPLICATE * study.PRIMARY_REPLICATES
     )
-    assert seconds / 3600.0 == pytest.approx(6.0, abs=0.1)
-    assert 4 * seconds / 3600.0 == pytest.approx(24.0, abs=0.4)
+    return seconds / 3600.0
+
+
+def test_the_budget_of_the_declared_run() -> None:
+    """BUDGET_HOURS on four vCPUs, four times that in CPU-hours, if the best-case chunk times hold."""
+    assert set(SECONDS_PER_REPLICATE) == set(properties.FIT_SETS)
+    assert _budget_hours() == pytest.approx(BUDGET_HOURS, abs=0.1)
+    assert _budget_hours() < BUDGET_BEFORE_REVIEW_HOURS
+
+
+# ------------------------------------------------------------ (h) the declared red-cell reading
+
+
+def expected_reds() -> tuple[float, float, int]:
+    """The expected count of finite-sample reds under a perfectly calibrated estimator.
+
+    Returns ``(expected count, chance of at least one, cells counted)``.  Each positive calibration
+    label and each positive ``n_draws_1`` cell passes with the chance of its replicates at a true
+    SE ratio of 1 and its own SE noise.  Each ``ice_necessity`` label passes with its two powers.
+    The ladder rungs and rate cells (20) and the primary rows (21) each pass at 0.99 or better by
+    their tolerance rules, so they count at 0.99 here, which overstates their share of reds.
+    """
+    margins = study.STUDY.margins
+    passes: list[float] = []
+    for label, (_, _, noise, _) in DESIGN_PILOT.items():
+        replicates = properties.CALIBRATION_REPLICATES[label.split("_")[1].upper()]
+        passes.append(
+            calibration_pass_probability(
+                replicates,
+                true_se_ratio=1.0,
+                se_noise=noise,
+                confidence_level=margins.confidence_level,
+                se_band=margins.calibration_se_ratio,
+                coverage_band=margins.calibration_coverage,
+            )
+        )
+    for label, (_, _, noise, _) in N1_PILOT.items():
+        replicates = properties.ACCOUNTING_REPLICATES[label.split("_")[1].upper()]
+        passes.append(
+            calibration_pass_probability(
+                replicates,
+                true_se_ratio=1.0,
+                se_noise=noise,
+                confidence_level=margins.confidence_level,
+                se_band=margins.calibration_se_ratio,
+                coverage_band=margins.calibration_coverage,
+            )
+        )
+    for label in study.ICE_GATED:
+        discriminated, displaced = ice_power(
+            label, properties.PAIRED_N["G2"], properties.PAIRED_REPLICATES["G2"]
+        )
+        passes.append(discriminated * displaced)
+    passes += [0.99] * (20 + sum(len(x) for x in study.ESTIMANDS.values()))
+    expected = sum(1.0 - x for x in passes)
+    return expected, 1.0 - float(np.prod(passes)), len(passes)
+
+
+def test_the_declared_count_of_expected_reds() -> None:
+    """The study module declares the expected reds under perfect calibration before any run."""
+    expected, at_least_one, cells = expected_reds()
+    assert (expected, at_least_one) == pytest.approx(
+        (study.EXPECTED_RED_COUNT, study.PROBABILITY_OF_A_RED), abs=0.02
+    )
+    assert cells == study.GATED_CELLS
+    assert f"{study.EXPECTED_RED_COUNT:.2f}" in str(study.__doc__)
+    assert f"{study.PROBABILITY_OF_A_RED:.2f}" in str(study.__doc__)
+
+
+def test_the_two_derived_controls_are_caught_with_certainty() -> None:
+    """A shrunken SE (ratio 0.7) and added noise (ratio 0.71) leave the band for every label."""
+    for label, (_, _, noise, _) in DESIGN_PILOT.items():
+        replicates = properties.CALIBRATION_REPLICATES[label.split("_")[1].upper()]
+        for ratio in (properties.SHRUNKEN_SE_FACTOR, 1.0 / math.sqrt(2.0)):
+            assert 1.0 - _se_leg_pass(replicates, ratio, noise) > 0.999, label

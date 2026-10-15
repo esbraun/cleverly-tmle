@@ -443,7 +443,12 @@ _PGF_TARGETS = {
     "g3_contrast_h4": "law G3, relapse incidence by t = 4, treatment at all four times against none",
     "g4_shift": "law G4, mean under a dose raised by 0.5 at each of the three times",
     "g4_dose": "law G4, mean under the fixed dose 0.5 at each of the three times",
+    "g4_rule_dose": "law G4, mean under the dose 0.5 + 0.5 L_t set by a rule at each time",
     "g4_contrast": "law G4, the raised dose against the natural course",
+    "g5_treat_all": "law G5, mean under treatment at all three times",
+    "g5_treat_none": "law G5, mean under no treatment",
+    "g5_odds_x2": "law G5, mean under the odds tilt of two",
+    "g5_contrast": "law G5, treatment at all three times against none",
 }
 _PGF_PAIRS = {
     "g1_treat_all": _PGF_TARGETS["g1_treat_all"],
@@ -2866,6 +2871,10 @@ SCENARIOS.update(
             "law G4: three nodes, a Gaussian covariate and a continuous dose per node, and a "
             "continuous outcome"
         ),
+        "g5_nice": (
+            "law G5: three nodes, a binary and a three-level categorical covariate, a binary "
+            "treatment and a continuous outcome"
+        ),
     }
 )
 REGIMENS.update(
@@ -2875,6 +2884,7 @@ REGIMENS.update(
         "policy_b": "treat with probability 0.3 + 0.4 B_t at each of the three times",
         "shift_half": "add 0.5 to the dose at each of the three times",
         "dose_half": "assign the fixed dose 0.5 at each of the three times",
+        "rule_dose": "assign the dose 0.5 + 0.5 L_t at each of the three times",
     }
 )
 PROPERTIES.update(
@@ -2911,8 +2921,7 @@ CELLS.update(
         ("monte_carlo_accounting", "mc_removed"): (
             "the estimate of the one-history fit, with the standard error of an independent fit "
             "of 500 histories per unit, so the simulation term is absent from the curve",
-            "where gated, the SE-ratio interval must fall below the calibration band; otherwise "
-            "reported",
+            "reported only: the SE-ratio interval, with no verdict",
         ),
         ("ice_necessity", "nice"): (
             "the parametric g-formula with main-terms models",

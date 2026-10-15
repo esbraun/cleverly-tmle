@@ -8,19 +8,19 @@ estimator's ``random_state`` comes from the replicate's own stream
 =============================  ===================================================================
 family                         cells, size and replications
 =============================  ===================================================================
-``interval_calibration``       the 15 labels of :data:`study.CALIBRATION_LABELS` at n = 2,000 with
+``interval_calibration``       the labels of :data:`study.CALIBRATION_LABELS` at n = 2,000 with
                                ``n_draws`` 10, :data:`CALIBRATION_REPLICATES` of each law, and the
                                two derived controls of each label (a shrunken standard error and
                                added noise)
 ``root_n_and_efficiency``      the four contrast labels of :data:`study.LADDER_LABELS` at n = 2,000, 4,000
                                and 8,000, :data:`LADDER_REPLICATES` each
 ``monte_carlo_accounting``     the levels of :data:`study.MC_LABELS` at ``n_draws`` 1.  The positive cell
-                               passes the calibration rule.  The ``mc_removed`` cell keeps the
-                               estimate of the one-history fit and takes the standard error of an
-                               independent fit with :data:`~tests.studies.canonical_parametric_
-                               gformula.M_PRIME` histories per unit, so the simulation term is
-                               absent from the curve.  Its SE ratio is predicted to fall below
-                               the calibration band
+                               passes the calibration rule, and the design test pins the chance
+                               that it fails without the simulation term.  The ``mc_removed`` cell
+                               keeps the estimate of the one-history fit and takes the standard
+                               error of an independent fit with :data:`~tests.studies.canonical_
+                               parametric_gformula.M_PRIME` histories per unit.  It is reported,
+                               with no verdict
 ``ice_necessity``              the labels of :data:`study.ICE_GATED` on ``G2`` at n = 32,000: the
                                parametric g-formula is unbiased, and the main-terms ICE fit is
                                biased by a declared margin, on the same draws
@@ -37,10 +37,10 @@ with the bias leg on each positive cell.  There is no efficiency band: a paramet
 not the efficient estimator of the nonparametric model, so
 :attr:`StudyRecord.calibration_efficiency_ratio` is ``False``, and the noise control's scale is
 :data:`NOISE_SD`, one pilot sampling SD at the cell's size.  ``root_n_and_efficiency`` reads the
-shared ladder rule.  ``monte_carlo_accounting`` positive cells read the calibration rule, and a
-``mc_removed`` cell in :data:`GATED_DIRECTIONS` passes when its whole SE-ratio interval leaves
-the band below.  The design test gates a cell only where its predictive power is at least 0.95.
-``ice_necessity`` reads :data:`ICE_NECESSITY`.  The reported families carry no verdict.
+shared ladder rule.  ``monte_carlo_accounting`` positive cells read the calibration rule, and the
+``mc_removed`` cells report.  Their predictive power is below 0.95 once the uncertainty of the
+base SE ratio is counted (``tests/unit/test_parametric_gformula_design.py``), so no verdict
+reads them.  ``ice_necessity`` reads :data:`ICE_NECESSITY`.  The reported families carry no verdict.
 
 Every fit's inference status is checked before its row is written.
 
@@ -53,11 +53,12 @@ cell at the declared bound :data:`FAILURE_BOUND` under :data:`PROPERTY_RULES`.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 import pandas as pd
 from scipy.stats import norm
 
+from cleverly.exceptions import DataError
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_parametric_gformula as study
 from tests.studies.evidence import property_failures as pf
@@ -79,7 +80,6 @@ from tests.studies.evidence.property_verdicts import (
     finish,
     necessity_rules,
     necessity_verdicts,
-    se_ratio_leaves_band,
 )
 from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
@@ -91,13 +91,20 @@ LADDER = study.LADDER
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 SHRUNKEN_SE_FACTOR = 0.70
 
-#: The replicates of each law's calibration fit set: the smallest multiple of 200 at which every
-#: label of the law passes the calibration rule with chance at least 0.90
+#: The replicates of each law's calibration fit set: the smallest multiple of 400 at which every
+#: label of the law passes the calibration rule with chance at least 0.95, above the floor of 0.90
 #: (``tests/unit/test_parametric_gformula_design.py``).
-CALIBRATION_REPLICATES: dict[str, int] = {"G1": 2_400, "G2": 2_400, "G3": 2_400, "G4": 2_400}
+CALIBRATION_REPLICATES: dict[str, int] = {
+    "G1": 2_400,
+    "G2": 2_400,
+    "G3": 2_400,
+    "G4": 2_400,
+    "G5": 2_400,
+}
 LADDER_REPLICATES = 1_000
-#: The replicates of each law's ``n_draws`` 1 fit set.
-ACCOUNTING_REPLICATES: dict[str, int] = {"G1": 2_400, "G2": 6_400, "G4": 2_400}
+#: The replicates of each law's ``n_draws`` 1 fit set: the smallest multiple of 400 at which every
+#: positive ``n_draws_1`` label of the law passes the calibration rule with chance at least 0.95.
+ACCOUNTING_REPLICATES: dict[str, int] = {"G2": 2_400, "G4": 2_400, "G5": 2_400}
 #: The replicates of the paired fit sets.
 PAIRED_REPLICATES: dict[str, int] = {"G1": 1_200, "G2": 1_200}
 EXTRAPOLATION_REPLICATES = 1_000
@@ -126,12 +133,13 @@ NOISE_SD: dict[str, float] = {
     "nice_g3_contrast_h4": 1.725,
     "nice_g4_shift": 3.889,
     "nice_g4_dose": 1.76,
+    "nice_g4_rule_dose": 2.491,
     "nice_g4_contrast": 1.168,
+    "nice_g5_treat_all": 2.281,
+    "nice_g5_treat_none": 3.175,
+    "nice_g5_odds_x2": 2.509,
+    "nice_g5_contrast": 3.873,
 }
-#: Every ``mc_removed`` cell whose predicted side of the calibration band the design test shows
-#: powered (predictive power >= 0.95 at :data:`ACCOUNTING_REPLICATES`).  The others report.
-GATED_DIRECTIONS: dict[str, Literal["below", "above"]] = {"nice_g2_treat_all__mc_removed": "below"}
-
 # ------------------------------------------------------------------------------ the truths
 
 
@@ -235,10 +243,22 @@ def _names(labels: Any) -> list[str]:
 
 
 def _check_dose_reliance(result: Any) -> None:
-    """A fixed dose carries the model-reliance statement and a support diagnostic."""
+    """A fixed or rule-set dose carries the model-reliance statement and a support diagnostic.
+
+    The support rows name the fixed dose of ``dose_half`` and the rule of ``rule_dose`` at
+    every node, and the rule rows hold no fixed dose.
+    """
     report = result.simulation
     if report.model_reliance is None or not report.support:
         raise study.StatusMismatch("a fixed dose fit carries no model-reliance statement")
+    found = {(row.plan, row.node): row.dose is None for row in report.support}
+    wanted = {
+        (plan, node): rule
+        for plan, rule in (("dose_half", False), ("rule_dose", True))
+        for node in (1, 2, 3)
+    }
+    if found != wanted:
+        raise study.StatusMismatch(f"support rows {sorted(found)} differ from {sorted(wanted)}")
 
 
 def fit_set_rows(fit_set: str, replicate: int, frame: pd.DataFrame) -> list[dict[str, Any]]:
@@ -271,24 +291,28 @@ def fit_set_rows(fit_set: str, replicate: int, frame: pd.DataFrame) -> list[dict
         study.require_status(result, _names([label]))
         add("root_n_and_efficiency", f"{label}__n_{n}", "positive", label, result)
     elif kind == "accounting":
-        static = law != "G4"
+        static = law == "G2"
         one = study.fit(
             "nice", law, frame, seed=seed, n_draws=study.N_DRAWS_ONE, static_only=static
         )
-        many = study.fit(
-            "nice",
-            law,
-            frame,
-            seed=simulation_seed(fit_set, replicate, "m_prime"),
-            n_draws=study.M_PRIME,
-            n_derivative_draws=study.N_DRAWS,
-            static_only=static,
-        )
+        many = None
+        if law in study.MC_REMOVED_LAWS:
+            many = study.fit(
+                "nice",
+                law,
+                frame,
+                seed=simulation_seed(fit_set, replicate, "m_prime"),
+                n_draws=study.M_PRIME,
+                n_derivative_draws=study.N_DRAWS,
+                static_only=static,
+            )
         for label in (study.label_of(law, key) for key in study.MC_KEYS[law]):
             name, truth = TARGETS[label]
             study.require_status(one, [name])
-            study.require_status(many, [name])
             add("monte_carlo_accounting", f"{label}__n_draws_1", "positive", label, one)
+            if many is None:
+                continue
+            study.require_status(many, [name])
             rows.append(
                 control_row(
                     property_name="monte_carlo_accounting",
@@ -316,6 +340,7 @@ def fit_set_rows(fit_set: str, replicate: int, frame: pd.DataFrame) -> list[dict
             add(family, f"{label}__ice", "control" if gated else DIAGNOSTIC_ROLE, label, ice)
     elif kind == "shared":
         nice = study.fit("nice", law, frame, seed=seed, static_only=False)
+        study.require_status(nice, [name for name, _ in study.SHARED_KEYS[law].values()])
         others = {
             method: study.fit(method, law, frame)
             for method in sorted({m for _, m in study.SHARED_KEYS[law].values()})
@@ -323,8 +348,13 @@ def fit_set_rows(fit_set: str, replicate: int, frame: pd.DataFrame) -> list[dict
         for key, (name, method) in study.SHARED_KEYS[law].items():
             label = f"target_{law.lower()}_{key}"
             other = others[method]
-            study.require_status(other, [name])
-            study.require_status(nice, [name])
+            try:
+                study.require_status(other, [name])
+            except study.StatusMismatch as error:
+                # A reported baseline arm carries no verdict.  A change of its status is a
+                # recorded failure of the replicate, never a stop of the run.  The NICE arm
+                # above stops the run.
+                raise DataError(f"the {method} arm: {error}") from error
             add("shared_target", f"{label}__nice", DIAGNOSTIC_ROLE, label, nice)
             add("shared_target", f"{label}__{method}", DIAGNOSTIC_ROLE, label, other)
     elif kind == "extrapolation":
@@ -421,13 +451,14 @@ def _cells_and_fit_sets() -> list[tuple[PropertyCell, str]]:
     for label in study.MC_LABELS:
         law = label.split("_")[1]
         add("monte_carlo_accounting", f"{label}__n_draws_1", "positive", f"accounting_{law}", label)
-        add(
-            "monte_carlo_accounting",
-            f"{label}__mc_removed",
-            DIAGNOSTIC_ROLE,
-            f"accounting_{law}",
-            label,
-        )
+        if law.upper() in study.MC_REMOVED_LAWS:
+            add(
+                "monte_carlo_accounting",
+                f"{label}__mc_removed",
+                DIAGNOSTIC_ROLE,
+                f"accounting_{law}",
+                label,
+            )
     for label in study.PAIR_LABELS:
         law = label.split("_")[1]
         gated = label in study.ICE_GATED
@@ -611,14 +642,8 @@ def _own_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
                 and bool(summary.loc[index, "bias_equivalent"])
             )
             continue
-        side = GATED_DIRECTIONS.get(cell)
-        # A gated cell must leave the calibration band on its predicted side, so it shows that
-        # the calibration instrument would catch a curve without the simulation term.
-        summary.loc[index, "passed"] = (
-            True
-            if side is None
-            else se_ratio_leaves_band(ratio, margins.calibration_se_ratio, side)
-        )
+        # An ``mc_removed`` cell reports its SE-ratio interval and carries no verdict.
+        summary.loc[index, "passed"] = True
     reported = summary["property"].isin(REPORTED_FAMILIES)
     summary.loc[reported, "passed"] = True
     # An unpowered ICE label reports: its two arms are diagnostic rows.
@@ -646,16 +671,7 @@ def _calibration_rule() -> pf.FamilyRule:
 
 
 def _accounting_rule() -> pf.FamilyRule:
-    """The simulation term's rule: the positive calibration rule, then the gated directions."""
-
-    def leaves(side: Literal["below", "above"]) -> pf.Judge:
-        def judge(ctx: pf.Context, row: pd.Series, iv: Any) -> pf.Judged:
-            low, high = ctx.margins.calibration_se_ratio
-            slack = low - iv.high if side == "below" else iv.low - high
-            return pf.Judged(slack, se_ratio_leaves_band(iv, (low, high), side))
-
-        return judge
-
+    """The simulation term's rule: the positive calibration rule on the ``n_draws_1`` cells."""
     return pf.FamilyRule(
         families=frozenset({"monte_carlo_accounting"}),
         shared="summarize_properties",
@@ -674,16 +690,6 @@ def _accounting_rule() -> pf.FamilyRule:
                 applies=pf.roles("positive"),
             ),
             pf.bias_clause("bias equivalent", kind="equivalent", applies=pf.roles("positive")),
-            *(
-                pf.se_interval_clause(
-                    f"se ratio {side} band",
-                    which="se_ratio",
-                    judge=leaves(side),
-                    seed=_own_seed,
-                    applies=pf.cells(*(cell for cell, s in GATED_DIRECTIONS.items() if s == side)),
-                )
-                for side in sorted(set(GATED_DIRECTIONS.values()))
-            ),
         ),
     )
 
