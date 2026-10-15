@@ -13,8 +13,10 @@ the truncated end-of-study fit that W1 compares with is the reference and stays 
 * ``M2``  every horizon is seeded at ``Y_T``.
 * ``M3``  ``covariate_history`` omits ``Y_s``.
 * ``M5'`` the node-``h`` fit mask reads ``uncensored_through(h - 1)``.
-* ``M6``  a working model seeds every cell at the last horizon.  The ``IPSI`` cells come
-  from the ``IPSI`` recursion, so this fault and ``M2`` patch the same seed.
+* ``M6``  the working-model projection takes, for every cell, the fit of the last horizon of
+  its label.  The ``IPSI`` cells come from the ``IPSI`` recursion and not from ``msm.py``, so a
+  seed fault would repeat ``M2``.  This fault patches ``project_sdr_cells``, which the ``IPSI``
+  and ``SDR`` working models share.
 * ``M7``  the band treats the horizons as independent.
 * ``M8``  block ``t`` includes ``Y_t``, which leaks the outcome into the node-``t`` regression
   and mechanisms.
@@ -41,8 +43,8 @@ from cleverly.longitudinal.data import LongitudinalData
 
 from .. import discrete_law_repeated as laws
 from .test_influence_gateaux_repeated import (
-    CONTRASTED,
     MULTIPLIERS,
+    TILTS,
     BaselineAndArm,
     _mean,
     check_e5,
@@ -101,13 +103,29 @@ def absorbing_seed(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def seed_at_the_last_node(monkeypatch: pytest.MonkeyPatch) -> None:
-    """M2 and M6: every horizon, and every cell of a working model, is seeded at ``Y_T``."""
+    """M2: every horizon is seeded at ``Y_T``."""
     original = sequential.seed_carried
 
     def mutated(data: Any, scaler: Any, *, horizon: int) -> Any:
         return original(data, scaler, horizon=data.n_times if data.is_repeated else horizon)
 
     _patch_everywhere(monkeypatch, "seed_carried", mutated)
+
+
+def msm_cells_from_the_last_horizon(monkeypatch: pytest.MonkeyPatch) -> None:
+    """M6: each cell of the working model projects the fit of its label's last horizon."""
+    original = msm_module.project_sdr_cells
+
+    def mutated(data: Any, model: Any, fits: Any, scaler: Any, **kwargs: Any) -> Any:
+        last: dict[str, Any] = {}
+        for cell, cell_fit in zip(model.cells, fits, strict=True):
+            if cell.label not in last or cell.horizon > last[cell.label][0]:
+                last[cell.label] = (cell.horizon, cell_fit)
+        moved = [last[cell.label][1] for cell in model.cells]
+        return original(data, model, moved, scaler, **kwargs)
+
+    monkeypatch.setattr(msm_module, "project_sdr_cells", mutated)
+    monkeypatch.setattr(estimator_module, "project_sdr_cells", mutated)
 
 
 def history_without_the_earlier_outcome(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -290,8 +308,11 @@ def e8() -> None:
     check_e8(ipsi_fit(BINARY, simultaneous=True, n_multiplier=MULTIPLIERS, random_state=0))
 
 
-def w7i() -> None:
+def w7i_saturated() -> None:
     check_w7_saturated(IPSI_GRID)
+
+
+def w7i_trend() -> None:
     check_w7_trend(IPSI_GRID)
 
 
@@ -311,7 +332,7 @@ CONTROLS: dict[str, tuple[Mutation, dict[str, Witness]]] = {
     "M2": (seed_at_the_last_node, {**_both((1, 2)), "E6": e6}),
     "M3": (history_without_the_earlier_outcome, {**_both((2, 3)), "E5": e5}),
     "M5'": (fit_mask_through_the_previous_node, {**_both((1, 2, 3)), "E5": e5}),
-    "M6": (seed_at_the_last_node, {"W7i": w7i}),
+    "M6": (msm_cells_from_the_last_horizon, {"W7i": w7i_saturated}),
     "M7": (horizons_treated_as_independent, {"E8": e8}),
     "M8": (block_includes_the_current_outcome, {"E5": e5}),
     "N3": (mechanism_term_dropped, {"E5": e5}),
@@ -320,8 +341,23 @@ CONTROLS: dict[str, tuple[Mutation, dict[str, Witness]]] = {
     "N9": (dropout_factor_replaced_by_one, {"E5": e5, "E6": e6}),
 }
 
+#: The quantity that the first failing assertion of a witness names.  A witness checks the
+#: estimate before the curve, so a fault that leaves the estimate exact fails on the curve.
+#: Pinning it keeps a control from passing because of a precondition or a crash that raises
+#: ``AssertionError`` for another reason.  Every other pair fails on the estimate.
+REASONS = {
+    ("M5'", "E5"): "curve:",
+    ("N3", "E5"): "curve:",
+    ("N9", "E5"): "curve:",
+    ("N9", "E6"): "curve:",
+    ("M7", "E8"): "critical value",
+    ("N7", "WC"): "reported names",
+}
+
 PAIRS = [
-    pytest.param(apply, witness, id=f"{control}-{label}")
+    pytest.param(
+        apply, witness, REASONS.get((control, label), "estimate:"), id=f"{control}-{label}"
+    )
     for control, (apply, witnesses) in CONTROLS.items()
     for label, witness in witnesses.items()
 ]
@@ -337,12 +373,12 @@ def test_every_witness_passes_on_the_unmutated_library(label: str) -> None:
     UNMUTATED[label]()
 
 
-@pytest.mark.parametrize(("apply", "witness"), PAIRS)
+@pytest.mark.parametrize(("apply", "witness", "reason"), PAIRS)
 def test_each_fault_fails_each_listed_witness(
-    apply: Mutation, witness: Witness, monkeypatch: pytest.MonkeyPatch
+    apply: Mutation, witness: Witness, reason: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     apply(monkeypatch)
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError, match=reason):
         witness()
 
 
@@ -361,7 +397,7 @@ def test_n9_moves_the_curve_of_every_tilted_cell_by_at_least_one_half(
     dropout_factor_replaced_by_one(monkeypatch)
     fitted = ipsi_fit(law)
     rows = law.first_row_of()
-    for delta in CONTRASTED:
+    for delta in TILTS:
         for horizon in laws.HORIZONS:
             name = _mean(delta, horizon)
             assert fitted.psi(name) == pytest.approx(

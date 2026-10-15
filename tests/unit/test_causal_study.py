@@ -53,7 +53,7 @@ from cleverly.datasets import (
 )
 from cleverly.estimators import TMLE
 from cleverly.inference.results import reported_status
-from cleverly.interventions import Shift
+from cleverly.interventions import Incremental, Shift
 from cleverly.longitudinal import LTMLE, LongitudinalData
 from cleverly.longitudinal.estimator import DEFAULT_LTMLE_G_BOUNDS
 from cleverly.methods import (
@@ -67,6 +67,8 @@ from cleverly.study import (
     _ARM_STATEMENTS,
     _LONGITUDINAL_IDENTIFICATION,
     BackdoorMeanContrast,
+    IncrementalEffect,
+    IncrementalMean,
     _arm_scope,
     _matches_registered_point_identification,
     _point_identification,
@@ -960,6 +962,8 @@ def test_a_string_contrast_on_a_controlled_direct_effect_is_refused_at_construct
         (RegimeMean(regimens=(), horizons=(1, 2)), "one time point"),
         (RegimeContrast(regimens=(), horizons=(1,)), "one time point"),
         (MSMProjection(MSM.linear(), horizons=(1,)), "one time point"),
+        (IncrementalMean(interventions=[Incremental(2.0)], horizons=(1,)), "one time point"),
+        (IncrementalEffect(interventions=[Incremental(2.0)], horizons=(1,)), "one time point"),
         (MSMProjection(MSM.linear(), regimens={"always": 1}), "longitudinal regimen cells"),
     ],
 )

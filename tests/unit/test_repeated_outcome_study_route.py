@@ -127,12 +127,16 @@ def check_wc_incremental_horizons() -> None:
     result = _by_study(IncrementalMean(TILTS, horizons=[1, 3]))
     direct = _direct([1, 3])
     assert result.config.estimator == "ipsi"
-    assert set(result) == _kind(direct, "ey_regimen[")
-    assert {name.rsplit("@ ", 1)[1] for name in result} == {"t=1]", "t=3]"}
+    assert set(result) == _kind(direct, "ey_regimen["), "reported names"
+    assert {name.rsplit("@ ", 1)[1] for name in result} == {"t=1]", "t=3]"}, "reported horizons"
     for name in result:
-        assert result.psi(name) == pytest.approx(direct.psi(name), abs=1e-12)
+        assert result.psi(name) == pytest.approx(direct.psi(name), abs=1e-12), f"estimate: {name}"
         np.testing.assert_allclose(
-            result.influence_curves[name], direct.influence_curves[name], atol=1e-12, rtol=0
+            result.influence_curves[name],
+            direct.influence_curves[name],
+            atol=1e-12,
+            rtol=0,
+            err_msg=f"curve: {name}",
         )
 
 

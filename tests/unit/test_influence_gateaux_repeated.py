@@ -371,15 +371,14 @@ def check_e5(law: laws.RepeatedLaw, fit: Any) -> None:
         for delta in TILTS:
             truth = law.tilt_functional(law.probs, delta, horizon)
             assert fit.psi(_mean(delta, horizon)) == pytest.approx(truth, abs=1e-12), (
-                delta,
-                horizon,
+                f"estimate: delta={delta}, h={horizon}"
             )
             np.testing.assert_allclose(
                 fit.influence_curves[_mean(delta, horizon)][rows],
                 eif[delta],
                 atol=1e-11,
                 rtol=0,
-                err_msg=f"delta={delta}, h={horizon}",
+                err_msg=f"curve: delta={delta}, h={horizon}",
             )
         for delta in CONTRASTED:
             name = _contrast(delta, horizon)
@@ -387,13 +386,13 @@ def check_e5(law: laws.RepeatedLaw, fit: Any) -> None:
                 law.tilt_functional(law.probs, delta, horizon)
                 - law.tilt_functional(law.probs, 1.0, horizon),
                 abs=1e-12,
-            )
+            ), f"estimate: {name}"
             np.testing.assert_allclose(
                 fit.influence_curves[name][rows],
                 eif[delta] - eif[1.0],
                 atol=1e-11,
                 rtol=0,
-                err_msg=name,
+                err_msg=f"curve: {name}",
             )
 
 
@@ -477,12 +476,15 @@ def check_e6(law: laws.RepeatedLaw, fit: Any) -> None:
         for horizon in laws.HORIZONS:
             truth = law.tilt_functional(law.probs, delta, horizon)
             assert fit.psi(_mean(delta, horizon)) == pytest.approx(truth, abs=1e-12), (
-                delta,
-                horizon,
+                f"estimate: delta={delta}, h={horizon}"
             )
             _, curve = law.ipsi_population(delta, horizon, key="W")
             np.testing.assert_allclose(
-                fit.influence_curves[_mean(delta, horizon)][rows], curve, atol=1e-11, rtol=0
+                fit.influence_curves[_mean(delta, horizon)][rows],
+                curve,
+                atol=1e-11,
+                rtol=0,
+                err_msg=f"curve: delta={delta}, h={horizon}",
             )
 
 
@@ -569,7 +571,9 @@ def check_e8(fit: Any) -> None:
     """
     estimates = {name: fit.estimates[name] for name in fit.estimates}
     joint = simultaneous_bands(estimates, alpha=0.05, n_replicates=MULTIPLIERS, random_state=0)
-    assert fit.simultaneous.critical_value == pytest.approx(joint.critical_value, abs=0)
+    assert fit.simultaneous.critical_value == pytest.approx(joint.critical_value, abs=0), (
+        "critical value"
+    )
     order = np.random.default_rng(1).permutation(laws.N)
     shuffled = {
         name: (
