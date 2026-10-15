@@ -49,7 +49,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from scipy.special import ndtri
@@ -832,7 +832,7 @@ def _fit_response(
     fit_weights = np.where(use, weights, 0.0)
     xs, ys, ws = x[use], y[use], weights[use]
     prefix = int(x.shape[1])
-    common = {
+    common: dict[str, Any] = {
         "key": key,
         "label": label,
         "role": role,
@@ -846,7 +846,7 @@ def _fit_response(
     }
     try:
         if response in ("binary", "multi"):
-            labels = ys.astype(np.int64)
+            labels = cast(FloatArray, ys.astype(np.int64))
             present = tuple(int(value) for value in np.unique(labels))
             target = np.where(use, y, 0.0).astype(np.int64)
             if len(present) == 1:
@@ -887,14 +887,14 @@ def _fit_response(
         learner = _instance(
             template, template.family if isinstance(template, GLM) else outcome_family
         )
-        target = np.where(use, y, 0.0)
+        values = np.where(use, y, 0.0)
         if task == "classification":
-            target = as_target(target, "classification")
+            values = as_target(values, "classification")
         if isinstance(learner, GLM):
-            learner.fit(xs, target[use], ws)
+            learner.fit(xs, values[use], ws)
         else:
-            learner = fit_learner(learner, xs, target[use], ws, copy=False)
-        return FittedModel(**common, learner=learner, present=(), sigma2=0.0, target=target)
+            learner = fit_learner(learner, xs, values[use], ws, copy=False)
+        return FittedModel(**common, learner=learner, present=(), sigma2=0.0, target=values)
     except DataError as error:
         raise DataError(f"{label}: {error}") from error
 
@@ -1468,7 +1468,9 @@ class _Simulator:
         if continuous:
             paths.labels[node] = value
         else:
-            paths.labels[node] = self._levels[node - 1][value.astype(np.int64)]
+            levels = self._levels[node - 1]
+            assert levels is not None
+            paths.labels[node] = levels[value.astype(np.int64)]
 
     def _policy_density(self, paths: _Paths, node: int, declared: Stochastic) -> FloatArray:
         data = self.data
@@ -2124,8 +2126,7 @@ def run_gformula(
                 data, plan, mechanism, g_bounds, cell, float(psi[index]), curve, simulation
             )
     report = _report(book, settings, support, fixed_doses)
-    fits = {
-        key: replace(fit, simulation=replace(fit.simulation, report=report))
-        for key, fit in fits.items()
-    }
+    for fit_key, fit in fits.items():
+        assert fit.simulation is not None
+        fits[fit_key] = replace(fit, simulation=replace(fit.simulation, report=report))
     return fits, report

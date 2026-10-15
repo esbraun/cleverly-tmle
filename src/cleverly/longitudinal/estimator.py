@@ -134,6 +134,7 @@ from ..inference.results import (
     sole_estimate,
     with_derived_bootstrap,
 )
+from ..interventions import RiskRatioTilt
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..assessment import AssessmentReport
@@ -175,6 +176,7 @@ from .gformula import (
     has_fixed_dose,
     monte_carlo_share,
     normal_learner_refusal,
+    plan_node,
     resolve_covariates,
     run_gformula,
 )
@@ -314,6 +316,16 @@ GFORMULA_PSEUDO_REFUSAL = Refusal(
     "has nothing to fit. The estimate reads the covariate, outcome (or hazard) and "
     "natural-treatment models.",
     alternative="Pass covariate_learner=, outcome_learner= or hazard_learner= instead.",
+)
+#: Why a parametric g-formula fit refuses a risk-ratio tilt.
+GFORMULA_RR_TILT_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "the parametric g-formula simulates an odds tilt (Kennedy 2019) and a modified treatment "
+    "policy that moves a drawn dose, and no exact law checks its draw of a risk-ratio tilt.",
+    alternative=(
+        "Declare the tilt as Incremental(delta), whose draw is validated, or fit LTMLE or SDR "
+        "for a risk-ratio tilt."
+    ),
 )
 #: Why a truncation curve refuses a parametric g-formula result.
 GFORMULA_TRUNCATION_REFUSAL = Refusal(
@@ -6172,7 +6184,7 @@ class ParametricGFormula(_Baseline):
         #: A test hook that replaces the simulation with exact terms.
         self._exact: Callable[..., Any] | None = None
         super().__init__(
-            regimens,
+            _tilt_shorthand(regimens),
             outcome_learner=GLM() if outcome_learner is None else outcome_learner,
             **kwargs,
         )
@@ -6207,10 +6219,16 @@ class ParametricGFormula(_Baseline):
         Raises
         ------
         CapabilityError
-            When a covariate is untyped, a learner is declared that nothing reads, a learner
-            carries a family the fit overrides, a Gaussian covariate has a learner that is
-            not a GLM, or a binomial GLM meets a continuous outcome with no declared scale.
+            When a plan holds a risk-ratio tilt, a covariate is untyped, a learner is declared
+            that nothing reads, a learner carries a family the fit overrides, a Gaussian
+            covariate has a learner that is not a GLM, or a binomial GLM meets a continuous
+            outcome with no declared scale.
         """
+        for plan in plans:
+            for node in range(1, data.n_times + 1):
+                kind, spec = plan_node(plan.regimen, node)
+                if kind == "mtp" and isinstance(spec, RiskRatioTilt):
+                    raise CapabilityError(refusal=GFORMULA_RR_TILT_REFUSAL)
         variables = resolve_covariates(data, self.covariate_types)
         for argument, learner in (
             ("covariate_learner", self.covariate_learner),
