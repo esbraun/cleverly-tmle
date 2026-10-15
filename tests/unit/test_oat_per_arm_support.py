@@ -127,7 +127,7 @@ class TestTheAllowList:
             ("outcome_learner", _SubclassedOutcome()),
             ("treatment_learner", LogisticRegression()),
             ("fluctuation", "linear"),
-            ("cross_fit", True),
+            ("n_folds", 2),
             ("repeats", 2),
             ("simultaneous", True),
             ("target_weights", True),
@@ -137,14 +137,14 @@ class TestTheAllowList:
     )
     def test_each_refused_option_names_its_axis(self, option: str, value: Any) -> None:
         options = _options(**{option: value})
-        if option == "cross_fit":
-            options["n_folds"] = 2
+        if option in ("n_folds", "repeats"):
+            options["cross_fit"] = True
         if option == "repeats":
-            options.update(cross_fit=True, n_folds=2)
+            options["n_folds"] = 5
         estimator = CTMLE(**options)
         verdict = per_arm_parametric_support(estimator, _prepared(estimator))
         assert not verdict.admitted
-        assert verdict.axis == ("cross_fit" if option == "repeats" else option)
+        assert verdict.axis == option
         assert verdict.detail.startswith("the stacked interval needs")
 
     def test_the_refused_option_keeps_the_generated_design_status(self) -> None:
@@ -209,9 +209,10 @@ class TestTheDataAxes:
 
     def test_a_continuous_outcome_needs_q_bounds(self) -> None:
         frame = quad.sample(quad.BINARY_ACTIVE, 1500, 33, bounded=(2.0, 10.0))
-        bare = CTMLE(**_options())
+        means = ("ey0", "ey1", "ate")
+        bare = CTMLE(**_options(estimands=means))
         assert per_arm_parametric_support(bare, _prepared(bare, frame)).axis == "q_bounds"
-        bounded = CTMLE(**_options(q_bounds=(2.0, 10.0)))
+        bounded = CTMLE(**_options(q_bounds=(2.0, 10.0), estimands=means))
         assert per_arm_parametric_support(bounded, _prepared(bounded, frame)).admitted
 
     def test_one_estimand_named_by_a_string(self) -> None:

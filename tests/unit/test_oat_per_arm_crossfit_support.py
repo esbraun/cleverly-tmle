@@ -1,0 +1,326 @@
+"""The support predicate, statuses and persistence of the cross-fitted stacked interval (X58b1).
+
+Until the support rows of RM42b label an unstudied configuration, the predicate admits a
+cross-fitted per-arm fit only at the values the study ``ctmle-oat-per-arm-parametric-crossfit``
+measures: ``n_folds=5`` and a binary outcome. The fold-count cap
+(at most 20 folds, held-out folds of at least 30 rows) holds always.
+"""
+
+from __future__ import annotations
+
+import warnings
+from typing import Any
+
+import numpy as np
+import pandas as pd
+import pytest
+
+import cleverly
+from cleverly.estimators import CTMLE, _oat_stack
+from cleverly.estimators.ctmle import (
+    MAX_STACK_FOLDS,
+    MIN_STACK_FOLD_ROWS,
+    CTMLEOutcomeAdaptiveFit,
+    per_arm_parametric_support,
+)
+from cleverly.exceptions import CapabilityError, DataError, MethodConfigurationError
+from cleverly.learners import ParametricMechanism, ParametricOutcome, random_partition
+from cleverly.learners.crossfit import SplitPlan
+from tests.studies import oat_parametric_quadrature as quad
+from tests.studies import oat_per_arm_laws as laws
+from tests.unit._inference_status_support import assert_round_trips
+
+pytestmark = pytest.mark.xdist_group("oat_per_arm_crossfit_support")
+
+ESTIMANDS = ("ey0", "ey1", "ate", "rr", "or")
+
+
+def _options(**overrides: Any) -> dict[str, Any]:
+    options: dict[str, Any] = {
+        "strategy": "oat",
+        "outcome_learner": ParametricOutcome(),
+        "treatment_learner": ParametricMechanism(),
+        "cross_fit": True,
+        "n_folds": 5,
+        "simultaneous": False,
+        "estimands": ESTIMANDS,
+        "g_bounds": laws.G_BOUNDS,
+        "max_iter": 100,
+        "tol": 1e-10,
+        "random_state": 0,
+    }
+    options.update(overrides)
+    return options
+
+
+def _frame(n: int = 1500, seed: int = 31) -> pd.DataFrame:
+    return laws.BINARY_ACTIVE.sample(n, seed)[0]
+
+
+def _prepared(estimator: CTMLE, frame: pd.DataFrame | None = None) -> Any:
+    return estimator._prepare(
+        _frame() if frame is None else frame,
+        outcome="Y",
+        treatment="A",
+        covariates=["W1", "W2", "W3"],
+        delta=None,
+        weights=None,
+        id=None,
+        intermediate=None,
+        strata=None,
+    )
+
+
+def _verdict(frame: pd.DataFrame | None = None, **overrides: Any) -> Any:
+    estimator = CTMLE(**_options(**overrides))
+    return per_arm_parametric_support(estimator, _prepared(estimator, frame))
+
+
+def _fit(frame: pd.DataFrame | None = None, **overrides: Any) -> Any:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return (
+            CTMLE(**_options(**overrides))
+            .fit(
+                _frame() if frame is None else frame,
+                outcome="Y",
+                treatment="A",
+                covariates=["W1", "W2", "W3"],
+            )
+            .single()
+        )
+
+
+@pytest.fixture(scope="module")
+def crossfit() -> Any:
+    return _fit()
+
+
+class TestTheAdmittedValues:
+    def test_cross_fitting_at_five_folds(self) -> None:
+        verdict = _verdict()
+        assert verdict.admitted
+        assert "cross-fitted over 5 folds" in verdict.detail
+
+    def test_in_sample_is_unchanged(self) -> None:
+        verdict = _verdict(cross_fit=False, n_folds=7)
+        assert verdict.admitted
+        assert verdict.detail.startswith("the in-sample per-arm fit")
+
+    def test_every_estimate_supplies_inference(self, crossfit: Any) -> None:
+        for name in ESTIMANDS:
+            assert crossfit[name].inference == "influence_curve", name
+            assert crossfit[name].plugin_std_error == crossfit[name].std_error
+
+    def test_the_arm_means_read_the_v_fold_stack(self, crossfit: Any) -> None:
+        stack = _oat_stack.fitted_stack(crossfit)
+        assert stack.problem.n_folds == 5
+        curves = _oat_stack.corrected_curves(stack.problem, stack.theta).curves
+        for j, name in enumerate(("ey0", "ey1")):
+            expected = np.std(curves[:, j], ddof=1) / np.sqrt(crossfit.n)
+            assert crossfit[name].std_error == pytest.approx(expected, rel=1e-9)
+
+    def test_a_pipeline_fit_keeps_the_generated_design_status(self) -> None:
+        result = _fit(
+            outcome_learner=laws.interaction_outcome(2),
+            treatment_learner=laws.cubic_logit_learner(),
+        )
+        assert result["ate"].inference == "generated_design_plugin"
+        assert "stack" not in result.nuisance.diagnostics
+
+
+class TestTheStudiedValues:
+    """Refused before RM42b: values the crossfit study does not measure."""
+
+    @pytest.mark.parametrize("folds", [2, 10])
+    def test_another_fold_count(self, folds: int) -> None:
+        verdict = _verdict(n_folds=folds)
+        assert verdict.axis == "n_folds"
+        assert "n_folds=5" in verdict.detail
+        assert "RM42b" in verdict.detail
+
+    def test_three_repeats(self) -> None:
+        verdict = _verdict(repeats=3)
+        assert verdict.axis == "repeats"
+        assert "repeats=1" in verdict.detail
+
+    def test_a_cross_fitted_bounded_outcome(self) -> None:
+        frame = quad.sample(quad.BINARY_ACTIVE, 1500, 33, bounded=(2.0, 10.0))
+        verdict = _verdict(frame, q_bounds=(2.0, 10.0), estimands=("ey0", "ey1", "ate"))
+        assert verdict.axis == "cross_fit"
+        assert "binary outcome" in verdict.detail
+        in_sample = _verdict(
+            frame, q_bounds=(2.0, 10.0), estimands=("ey0", "ey1", "ate"), cross_fit=False
+        )
+        assert in_sample.admitted
+
+
+class TestTheFoldCap:
+    """Refused always: the V-fold stack needs a fixed fold count and folds of 30 rows."""
+
+    def test_the_constants(self) -> None:
+        assert (MAX_STACK_FOLDS, MIN_STACK_FOLD_ROWS) == (20, 30)
+
+    def test_twenty_one_folds(self) -> None:
+        verdict = _verdict(n_folds=21)
+        assert verdict.axis == "n_folds"
+        assert "fold count fixed as n grows" in verdict.detail
+        assert "n_folds=21" in verdict.detail
+
+    def test_held_out_folds_below_thirty_rows(self) -> None:
+        verdict = _verdict(_frame(250), n_folds=10)
+        assert verdict.axis == "n_folds"
+        assert "held-out fold of 25 rows" in verdict.detail
+
+    def test_five_folds_of_twenty_rows(self) -> None:
+        verdict = _verdict(_frame(100))
+        assert verdict.axis == "n_folds"
+        assert "held-out fold of 20 rows" in verdict.detail
+
+    def test_the_capped_fit_keeps_its_point_estimate(self) -> None:
+        result = _fit(_frame(250), n_folds=10)
+        assert {estimate.inference for estimate in result.estimates.values()} == {
+            "generated_design_plugin"
+        }
+        assert np.isfinite(result["ate"].psi)
+
+
+class TestTheNamedRefusals:
+    """Each refusal names what the stack is missing."""
+
+    @staticmethod
+    def _declared(option: str, value: Any) -> Any:
+        """The verdict on a value :class:`CTMLE` refuses at construction, set afterwards.
+
+        The engine refusal comes first on a fit; the predicate still names the missing piece.
+        """
+        estimator = CTMLE(**_options())
+        data = _prepared(estimator)
+        setattr(estimator, option, value)
+        return per_arm_parametric_support(estimator, data)
+
+    def test_cv_evaluation(self) -> None:
+        with pytest.raises(CapabilityError, match="cv_evaluation"):
+            CTMLE(**_options(cv_evaluation=True))
+        verdict = self._declared("cv_evaluation", True)
+        assert verdict.axis == "cv_evaluation"
+        assert "not implemented in the stack" in verdict.detail
+
+    def test_fold_targeting(self) -> None:
+        with pytest.raises(CapabilityError, match="targeting_scheme"):
+            CTMLE(**_options(targeting_scheme="fold"))
+        verdict = self._declared("targeting_scheme", "fold")
+        assert verdict.axis == "targeting_scheme"
+        assert "eps_{a,k}" in verdict.detail
+
+    def test_a_split_plan(self) -> None:
+        plan = SplitPlan.from_folds([random_partition(1500, 5, seed=3)])
+        verdict = _verdict(split_plan=plan)
+        assert verdict.axis == "split_plan"
+        assert "independent of the data" in verdict.detail
+
+    def test_target_weights(self) -> None:
+        verdict = _verdict(target_weights=True)
+        assert verdict.axis == "target_weights"
+        assert "w H" in verdict.detail
+
+    def test_a_simultaneous_band(self) -> None:
+        verdict = _verdict(simultaneous=True)
+        assert verdict.axis == "simultaneous"
+
+
+class TestTheEngineRefusalsComeFirst:
+    def test_stratified_folds(self) -> None:
+        with pytest.raises((MethodConfigurationError, CapabilityError, ValueError)):
+            _fit(stratify_folds="treatment")
+
+    def test_repeats_in_sample(self) -> None:
+        with pytest.raises((MethodConfigurationError, CapabilityError, ValueError)):
+            _fit(cross_fit=False, repeats=3)
+
+
+class TestTheEstimandResolution:
+    """m5: the predicate reads the pure resolution, never the refusing one."""
+
+    def test_unresolvable_estimands_are_refused_not_raised(self) -> None:
+        frame = quad.sample(quad.BINARY_ACTIVE, 1500, 33, bounded=(2.0, 10.0))
+        verdict = _verdict(frame, q_bounds=(2.0, 10.0), cross_fit=False)
+        assert not verdict.admitted
+        assert verdict.axis == "estimands"
+        assert "resolve" in verdict.detail
+
+    def test_the_binary_default_is_refused_by_the_estimator_first(self) -> None:
+        verdict = _verdict(estimands=None)
+        assert verdict.axis == "estimands"
+        with pytest.raises(Exception, match="att"):
+            _fit(estimands=None)
+
+
+def _separated_frame(seed: int) -> pd.DataFrame:
+    """Outcomes separated by ``W1`` everywhere but on three rows of fold 0."""
+    frame = _frame(600, 13)
+    estimator = CTMLE(**_options())
+    folds = estimator._folds(_prepared(estimator, frame), seed)
+    frame["Y"] = (frame["W1"] > 0.0).astype(int)
+    fold_zero = np.flatnonzero(folds.assignment == 0)
+    positive = fold_zero[frame["W1"].to_numpy()[fold_zero] > 0.5][:3]
+    frame.loc[frame.index[positive], "Y"] = 0
+    return frame
+
+
+def test_a_separated_fold_refuses_with_the_learners_data_error() -> None:
+    frame = _separated_frame(0)
+    with pytest.raises(DataError, match="separation"):
+        CTMLE(**_options()).fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
+
+
+class TestTheRecord:
+    def test_the_fit_records_its_folds(self, crossfit: Any) -> None:
+        fit = crossfit.extra["ctmle"]
+        assert isinstance(fit, CTMLEOutcomeAdaptiveFit)
+        assert (fit.stacked_folds, fit.stacked_repeats) == (5, 1)
+
+    def test_the_summary_names_the_folds(self, crossfit: Any) -> None:
+        assert "cross-fitted over 5 folds in the exact V-fold stack" in crossfit.summary()
+
+    def test_the_fit_records_its_fold_coefficients(self, crossfit: Any) -> None:
+        assert crossfit.nuisance.diagnostics["stack"].folds == 5
+
+
+class TestPersistence:
+    @pytest.mark.parametrize("route", ["save", "pickle"])
+    def test_a_cross_fitted_fit_round_trips(self, crossfit: Any, route: str, tmp_path: Any) -> None:
+        if route == "save":
+            restored = cleverly.load(crossfit.save(tmp_path / "fit.pkl"))
+        else:
+            restored = assert_round_trips(crossfit, "influence_curve", "pickle")
+        for name in ESTIMANDS:
+            assert restored[name].std_error == crossfit[name].std_error
+        assert restored.summary() == crossfit.summary()
+        assert restored.nuisance.diagnostics["stack"] == crossfit.nuisance.diagnostics["stack"]
+
+
+class TestRetarget:
+    def test_a_retarget_rereads_its_own_fold_record(self) -> None:
+        estimator = CTMLE(**_options())
+        data = _prepared(estimator)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            fit = estimator.fit(data).single()
+            again, _ = estimator.retarget(data, fit.nuisance, estimands=("ate",))
+        assert again["ate"].inference == "influence_curve"
+        assert again["ate"].std_error == pytest.approx(fit["ate"].std_error, rel=1e-12)
+
+    def test_a_retarget_without_the_record_fails_every_arm(self) -> None:
+        from dataclasses import replace
+
+        estimator = CTMLE(**_options())
+        data = _prepared(estimator)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            fit = estimator.fit(data).single()
+            diagnostics = dict(fit.nuisance.diagnostics)
+            del diagnostics["stack"]
+            bare = replace(fit.nuisance, diagnostics=diagnostics)
+            out, _ = estimator.retarget(data, bare, estimands=("ate",))
+        assert out["ate"].inference == "stack_failure_plugin"
