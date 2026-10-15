@@ -126,8 +126,7 @@ not change the package version.
 | B1 | Targeting and fitting options | no new theory; each option keeps its default bit-identical | none | [X22](#x22-targeting-and-fitting-options) |
 | B2 | Continuous vector components at a node | published support; pending source read | shipped longitudinal modified treatment policies | [X31](#x31-continuous-vector-components-at-a-node) |
 | B2 | Continuous-policy validation and support checks | published support | shipped longitudinal modified treatment policies | [X40](#x40-continuous-policy-validation-and-support-checks) |
-| B3 | Sequential g-computation and IPW baselines | published support; pending source read | the shipped `LTMLE` plan resolution | [X41](#x41-sequential-g-computation-and-ipw-baselines) |
-| B3 | Applied tutorials for offers and pricing | no new theory | X40, X41 | [X42](#x42-applied-tutorials-for-offers-and-pricing) |
+| B3 | Applied tutorials for offers and pricing | no new theory | X40; the shipped `SequentialGComputation` and `SequentialIPW` | [X42](#x42-applied-tutorials-for-offers-and-pricing) |
 | B4 | Categorical incremental policies | natural extension candidate; source audit | the shipped binary `IPSI` estimator | [X43](#x43-categorical-incremental-policies) |
 | B4 | Repeated cross-fitting for longitudinal fits | published support; pending source read | the shipped point-treatment repeats and trajectory-level splits | [X46](#x46-repeated-cross-fitting-for-longitudinal-fits) |
 | BP | Repeated outcomes for SDR and IPSI | published support for the incremental case; a per-horizon reduction for `SDR` | the shipped `LTMLE` repeated outcome | [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi) |
@@ -168,6 +167,7 @@ not change the package version.
 | after beta | Sensitivity analyses beyond the shipped scope | natural extension for parts (a), (b), (f), (h) and (i); no new theory for parts (c) to (e), (g) and (j) | the shipped sensitivity analyses; X61 part (c) and X63 part (c); a continuous natural-course mean for part (a) | [X65](#x65-sensitivity-analyses-beyond-the-shipped-scope) |
 | after beta | Simulated confounding beyond X47 and X48 | natural extension | X47; X57 for part (c); X50, X51 and X62 for part (h); F5 for a continuous fit in part (f) | [X66](#x66-simulated-confounding-beyond-x47-and-x48) |
 | after beta | Refutation and assessment adapters | no new theory | the shipped `refute` catalog | [X67](#x67-refutation-and-assessment-adapters) |
+| after beta | Repeated outcomes for the sequential baselines | no new theory | the shipped `LTMLE` repeated outcome; X41 | [X71](#x71-repeated-outcomes-for-the-sequential-baselines) |
 | after beta | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts; a concrete analysis need | [P1](#p1-ep-learner) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -258,6 +258,7 @@ It moved each part that an established method or a natural extension carries to 
 | Fold policies that read the treatment or the outcome | outer folds stratified on the treatment or the outcome | asymptotic | unstratified folds, `stratify_by="none"`, which is the default. A split that reads $A$ or $Y$ refuses before any learner | [F32](#f32-fold-policies-that-read-the-treatment-or-the-outcome) |
 | Other intervention and design compositions | the composite missing-treatment indicator with a controlled direct effect; an `IPSI` plan with a modified-policy or risk-ratio-tilt node; an MSM weight from a learned mechanism; automatic cumulative-bound selection for `LTMLE` | identification; regularity; adaptive-optimum inference | named pre-fit refusals. [X63](#x63-missing-data-intermediates-and-designs) and [X64](#x64-intervention-and-policy-declarations) hold the declarations that a natural extension carries | [F33](#f33-other-intervention-and-design-compositions) |
 | E-values beyond the total-population arm contrast | the ATT and ATC E-value on a binomial outcome; the E-value of a regime, policy or incremental contrast, with the derived risk ratio off the arm axis | identification | E-values of total-population arm contrasts, and the standardized ATT and ATC E-value on a gaussian outcome. [X49](#x49-e-value-for-a-controlled-direct-effect) holds the controlled direct effect, and [X65](#x65-sensitivity-analyses-beyond-the-shipped-scope) the other sensitivity requests | [F34](#f34-e-values-beyond-the-total-population-arm-contrast) |
+| Inference for sequential baselines with data-adaptive nuisances | an asymptotic-linearity result for longitudinal sequential g-computation or IPW whose nuisances are fitted by a data-adaptive learner | asymptotic | the point estimate stands. A fit that reads a regression fitted by a learner other than `GLM` takes the `adaptive_baseline_plugin` status and reports a plug-in diagnostic only | [F35](#f35-inference-for-sequential-baselines-with-data-adaptive-nuisances) |
 
 ## Eligibility
 
@@ -442,6 +443,10 @@ the `RM18-` owners, they are standing records of a reading. They do not gate the
 The `X20-bootstrap` owner holds the bootstrap kinds that stay diagnostic. It does not gate the
 beta release either.
 
+The `X41-negative-control` owner holds the three `misspecification_control` cells of the
+`sequential-baselines` study. They are a declared negative control and not a defect. On law `X`
+every main-terms `GLM` is wrong, so the rule must fail. No work is owed.
+
 The `F4-calibration-draws` owner holds two cells that read one draw set of the multi-arm
 missing-outcome DR-TMLE study. It is a standing record of a reading, and it does not gate the
 beta release.
@@ -498,6 +503,7 @@ owners do the same for the stratified DR-TMLE study.
 | `X13-finite-sample` | the `interval_calibration/weighted_t5__correctly_specified` cell of `point-treatment-survival` and the `interval_calibration/three_arm_t3__correctly_specified` cell of `point-treatment-survival-crossfit` | reading `finite-sample`. The weighted cell's SE ratio is 1.027, with a 99% interval of 0.981 to 1.076 against an upper bound of 1.07. Its reported standard error equals the weighted efficiency bound (ratio 1.0007), and the interval of its empirical efficiency ratio, 0.930 to 1.020, contains one. A diagnostic on 1,000 fresh draws ([`tests/diagnostics/x13_weighted_calibration/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x13_weighted_calibration)) reads an SE ratio of 1.022 and a coverage of 0.957. The cross-fitted three-arm cell's empirical efficiency interval is 1.010 to 1.108 against 1.10, with an SE ratio of 1.008. A diagnostic on fresh draws ([`tests/diagnostics/x13_crossfit_three_arm/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x13_crossfit_three_arm)) put its reported standard error over the bound at 1.0003 in sample, 1.082 at five folds and 1.055 at ten folds at n = 2,000, and 1.0085 at five folds at n = 8,000, so the excess is the finite-sample cost of cross-fitting saturated cell means. The owner closes when a cell is re-declared with its size and replication count chosen before its run by a stated sizing rule, such as a pass probability of at least 0.90 under exact calibration, and that cell passes. A larger run that happens to pass does not close it. Until then each cell stays published red under `reporting` |
 | `F28` | [X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) parts (d), (f) and (g), for the finite-sample limits of clustered intervals: the fold-evaluated covariate pair of `clustered-unequal-cvtmle`, and the fold-evaluated bias cells and cross-fitted `DRTMLE` IID controls of `clustered-few-cluster-tmle` | each group closes on its own registered study that passes. The fold-evaluated pair of `clustered-unequal-cvtmle` at 40 clusters in 10 folds: a fold-evaluated degrees-of-freedom rule $t(\min(J-2, J-V))$ at 40 clusters or more. The three `tmle_cv_evaluation__unequal_informative` cells: a cluster-size-weighted fold average or another fold-evaluated point whose bias stays inside the margin. The stacked report is the remedy today. The four `drtmle_crossfit` `iid_t_control` cells: a calibrated cross-fitted `DRTMLE` cluster variance, or an IID control that compares the two SEs and not the IID SE with the empirical SD ([X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes)) |
 | `X20-bootstrap` | the `interval_calibration` cells `boot_ey_crossfit__correctly_specified`, `boot_ate_crossfit__correctly_specified` and `boot_ate_clustered__correctly_specified` of `full-refit-bootstrap-and-derived-contrasts` | the declared rule 3 keeps the `end_of_study/cross_fit` and `end_of_study/cluster` kinds out of `LICENSED_BOOTSTRAP_DESIGNS`, so their bootstrap prints as a diagnostic. A diagnostic reading, not a registered result: on this cell the cross-fitted estimator is heavy-tailed. Its 4,000 committed estimates have excess kurtosis 6.7, and about 5% of them lie at the probability boundary, because `g_bounds=(1e-8, 1)` with saturated cell means leaves sparse training cells unbounded. A bootstrap resample holds about 63% unique units, so more replicates reach the boundary and the replicate spread exceeds the sampling spread (SE ratios 1.23 and 1.27). A probe that kept each unit's copies in one fold raised the SE ratio to about 1.65, so the split of copies across folds is not the cause. The cluster contrast covers 0.924 with a calibrated SE ratio (0.977), a finite-sample shortfall of the percentile interval at 60 clusters. The owner closes when a re-declared cell for the kind, with its law, size, nuisance bounds or resampling scheme declared before its run, passes a registered cell |
+| `X41-negative-control` | the three `misspecification_control/*_x_contrast__main_terms` cells of `sequential-baselines` (Hajek, Horvitz-Thompson and ICE) | none. The study declares the cells red before the run (`EXPECTED_RED` in `tests/studies/canonical_sequential_baselines.py`). A law whose nuisances are all wrong must fail the calibration rule, and `tests/unit/test_sequential_baselines_design.py` computes the power of that failure. The cells read a standardized bias of 1.7 to 2.0 and a coverage of 0.48 to 0.61, with an SE ratio near 1. A pass would mean the rule cannot detect a misspecified fit |
 
 ## Detailed implementation contracts
 
@@ -582,36 +588,6 @@ Acceptance:
   wrong-ratio controls;
 - learned-ratio studies beside oracle-ratio parity, with price-feedback confounding and several
   follow-up lengths.
-
-### X41. Sequential g-computation and IPW baselines
-
-`cleverly` has no longitudinal plug-in or inverse-probability-weighted estimator. This row adds
-sequential g-computation and IPW over the targets that `LTMLE` supports: static, dynamic, and
-known stochastic policies. They let a user compare model reliance and weight instability, and they
-verify policy semantics independently.
-
-Declare the IPW normalization, the treatment and censoring weights, and the uncertainty from
-nuisance estimation. An interval needs parametric nuisance models, with the stacked estimating
-equation or the bootstrap. With a data-adaptive learner, each baseline reports a point estimate
-only, under a status that withholds the interval.
-
-Do not copy the TMLE uncertainty into either
-baseline without justification.
-Do not describe longitudinal g-computation as one regression on every treatment and confounder.
-`stremr` fits static, dynamic, and stochastic regimes with categorical exposures from long-form
-input ([comparator survey](development/method-benchmarking.md#choose-the-comparator-before-you-write-the-runner)).
-Its long-form input matches `LongitudinalData.from_long_panel`. Use it for the overlapping cases, and audit its category-valued policy support before
-a multi-arm parity claim. For finite-category extensions, combine the
-established stochastic intervention argument with exact enumeration and independent influence
-function checks.
-
-Acceptance:
-
-- exact-law witnesses for both baselines, including a three-arm witness with nonzero mass on the
-  third arm;
-- a deterministic-policy reduction to the shipped regimen targets;
-- a registered study with a declared interval rule for each baseline, or a points-only status
-  where no interval contract applies.
 
 ### X42. Applied tutorials for offers and pricing
 
@@ -1658,6 +1634,22 @@ needs an exact calculation and no new theory.
 Acceptance: each process's effect checked against an exact calculation; a pre-fit refusal test
 for each request that stays refused.
 
+### X71. Repeated outcomes for the sequential baselines
+
+`SequentialGComputation` and `SequentialIPW` refuse a repeated outcome, declared with
+`outcome=Repeated([...])`, before any learner. `LTMLE` fits one: each horizon is the
+end-of-study fit of the panel truncated after it
+([repeated outcomes](technical-reference/longitudinal-tmle.md#repeated-outcomes)). The same
+reduction applies to each baseline, and its stacked estimating equation covers several horizons
+as it covers several plans.
+
+| part | what to add | evidence |
+| --- | --- | --- |
+| (a) | `gcomp` and `ipw` in `REPEATED_OUTCOME_KINDS`, with the per-horizon fit of the truncated panel | `tests/unit/test_repeated_outcome_subclasses.py` requires each horizon's estimate and curve to equal the end-of-study fit of the truncated panel |
+
+Acceptance: the exact reduction test for both baselines, and a registered property study of the
+repeated-outcome cells.
+
 ### P1. EP learner
 
 Van der Laan, Carone and Luedtke (2024), arXiv:2402.01972, govern this item. After first-hand
@@ -2360,6 +2352,19 @@ direct effect. The requests below refuse before any computation.
 | --- | --- | --- |
 | the ATT and ATC E-value on a binomial outcome | identification | a cited bound for the causal risk ratio among the treated or the controls, with its reading of the strengths. Among the treated only the control-arm counterfactual is confounded, so the total-population factor does not carry over by name. No source read here states that bound. `sensitivity/evalue.py` refuses the request |
 | the E-value of a regime, policy or incremental contrast, and the derived risk ratio off the arm axis | identification | a regime contrast is not a contrast of two exposure levels, so the bound needs its own mapping, as [F27](#f27-learned-policy-value-outside-the-published-conditions) records for a learned rule. The derived ratio off the arm axis has no consumer until that mapping exists. `sensitivity/_derived.py` refuses it |
+
+### F35. Inference for sequential baselines with data-adaptive nuisances
+
+`SequentialGComputation` and `SequentialIPW` report an interval only when every regression they
+read is a `GLM`. The interval is then the stacked estimating equation of the parametric fits.
+With another learner the estimator solves no efficient influence-curve equation. Its first-order
+bias is then of the order of the learner's error.
+
+| kept claim | kind | missing argument |
+| --- | --- | --- |
+| an interval for sequential g-computation with a data-adaptive outcome learner | asymptotic | an asymptotic-linearity theorem for the iterated conditional expectation plug-in over several time points, such as an undersmoothing result. No source read here derives one |
+| an interval for longitudinal IPW with a data-adaptive mechanism learner | asymptotic | the same result for the cumulative weights. Ertefaie, Hejazi and van der Laan (2023), Section 3, Theorem 1, cover IPW with an undersmoothed highly adaptive lasso propensity at a single time point only |
+| a cross-fitted baseline, `n_folds` above 1 | asymptotic | the same result for cross-fitted nuisances. Cross-fitting does not remove the first-order bias of a plug-in or IPW estimate, so the in-sample result does not carry over |
 
 ## Reading a gap correctly
 
