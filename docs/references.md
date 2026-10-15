@@ -1711,9 +1711,11 @@ sizes only the cluster sum is the delta-method variance of the row mean
   | Appendix F, Lemmas F.2 to F.5 | proofs of Kennedy's Lemmas 2 to 4 with dropout, for a general intervention distribution |
 
   Theorem 3.1 at one horizon also identifies the mean of a non-absorbing outcome $Y_t$. The
-  repeated-outcome curve of `LTMLE` cites the paper as context only. That curve rests on the
-  end-of-study results of Bang & Robins (2005) and van der Laan & Gruber (2012).
-  [X32b](roadmap.md#x32b-repeated-outcomes-for-sdr-and-ipsi) reads the paper for `IPSI`. Kim's research code,
+  repeated-outcome curve of `IPSI` rests on Theorems 3.1, 4.1 and 5.1: the functional at
+  horizon $h$, its influence function, and the joint process over $\delta$ and $t$, which the
+  package reports on the finite grid of declared tilts and horizons. The repeated-outcome
+  curve of `LTMLE` cites the paper as context only. That curve rests on the end-of-study
+  results of Bang & Robins (2005) and van der Laan & Gruber (2012). Kim's research code,
   `kwangho-joshua-kim/Incremental-dropout` at commit `6dc23fb4`, has no package and no tag. It is
   provenance only and no comparator.
 - Pinned `npcausal` 0.1.0
