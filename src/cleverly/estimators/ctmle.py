@@ -778,6 +778,18 @@ def per_arm_parametric_support(estimator: Any, data: CausalData) -> SupportVerdi
     for name, admits_data, text in _PER_ARM_PARAMETRIC_DATA:
         if not admits_data(data):
             return SupportVerdict(False, name, f"the stacked interval needs {text}")
+    arm_columns = data.n_arms - 1
+    outcome = estimator.outcome_learner
+    # The option allow-list above admits exactly ParametricOutcome; the type check keeps this
+    # data check independent of that list.
+    if isinstance(outcome, ParametricOutcome) and outcome.arm_columns != arm_columns:
+        return SupportVerdict(
+            False,
+            "outcome_learner",
+            f"the stacked interval needs ParametricOutcome(arm_columns={arm_columns}), the "
+            f"{arm_columns} arm indicator column(s) of the design; got arm_columns="
+            f"{outcome.arm_columns!r}",
+        )
     if data.family != "binomial" and estimator.q_bounds is None:
         return SupportVerdict(
             False,
@@ -1727,7 +1739,14 @@ default="greedy"
             _REQUESTED.reset(token)
         if report is None or not report.failures:
             return estimates
-        held = {f"ey{arm:g}" for arm in data.arm_codes if float(arm) not in report.failures}
+        # An arm mean has two reported forms: ``ey1`` from the arm-code targets and
+        # ``ey[<label>]`` from the ``ey`` target. Both name the arm they read.
+        held = {
+            name
+            for arm in data.arm_codes
+            if float(arm) not in report.failures
+            for name in (f"ey{arm:g}", parameter_name("ey", arm=data.arm_label(arm)))
+        }
         warnings.warn(
             "the stacked per-arm interval failed on this sample: "
             + "; ".join(
