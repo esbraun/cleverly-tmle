@@ -168,10 +168,15 @@ the replicate distribution, and the status decides only the published name.
 `tests/unit/test_summary_and_message_accuracy.py` checks both names on a selector fit and an
 ordinary fit.
 
-Under `nu2_estimator="plugin"` an omitted-variable bound refuses its limits at every status, for a
-different reason. No derivation in a source this package cites gives their standard error. `to_dict()` then omits the three limit
-keys and carries `nu2_estimator`, and `robustness_value()` omits `rva` under every name. The
-[standard error of the omitted-variable bound](validation-methods.md#standard-error-of-the-omitted-variable-bound) gives the rule.
+Under `nu2_estimator="plugin"` an omitted-variable bound follows the rules above in two cases.
+The first case is a declared known treatment mechanism. The second case is a scikit-learn
+`LogisticRegression`, binary or multinomial, with no penalty or a fixed L2 penalty, fitted bare or
+after `StandardScaler` steps, and fitted in sample. Every other fit refuses its limits at every status, for a different
+reason. No source this package cites gives their standard error for another learner. `to_dict()`
+then omits the three limit keys and carries `nu2_estimator` and `limit_refusal`. `robustness_value()`
+omits `rva` under every name. The
+[plug-in learner rule](validation-methods.md#plug-in-limits-and-the-learner-rule) gives the rule,
+the reason codes, and the checks on each fold.
 
 `CVTargeting.inference` reads the status from the two fold-level reports. The fit stamps those
 reports where it stamps its own estimates. `SensitivityBounds.inference` carries the status of the

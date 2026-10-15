@@ -569,6 +569,47 @@ methods are explicit: `omitted_confounding()`, `robustness_value()`, `elements()
 `contour()`, `evalue()`, `missingness()`, `tipping_gamma()`, and `simulated_confounding()`. A
 simulated surface needs an explicit strength grid, so `run_all()` never starts it.
 
+The omitted-variable bound has two estimators of $\nu^2$. The default is doubly robust, and its
+one-sided limits hold for any treatment learner. The plug-in estimator gives the limits for a
+declared known mechanism and for an in-sample fit with a scikit-learn `LogisticRegression`, with no
+penalty or a fixed L2 penalty. A cross-fitted fit refuses the limits. The example fits one, with the default `C=1`, and reads the limits.
+
+```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+from cleverly import ATE, CausalStudy, PointTreatment
+from cleverly.datasets import make_linear_ate
+
+linear_frame, _ = make_linear_ate(1000, seed=1)
+linear_study = CausalStudy(
+    linear_frame,
+    design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")),
+)
+plugin_fit = linear_study.estimate(
+    ATE(),
+    outcome_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    cross_fit=False,
+    random_state=1,
+)
+plugin_bounds = plugin_fit.sensitivity.omitted_confounding(
+    cf_y=0.05, cf_d=0.05, nu2_estimator="plugin"
+)
+print(plugin_bounds.summary())
+print(plugin_bounds.ci_lower, plugin_bounds.robustness_value_ci)
+```
+
+The summary names the mechanism whose score the standard error carries. A treatment learner
+outside the admitted set, such as a random forest, makes `ci_lower`, `ci_upper`,
+`robustness_value_ci` and `rva` raise `CapabilityError` with the roadmap item F26. The bounds and
+`robustness_value` stay available.
+
+A fixed L2 penalty shrinks $\nu^2$ by an amount of order $1/n$. The bound refuses its limits with
+the key `penalty_bias` when that shrinkage exceeds a tenth of the standard error of $\nu^2$. A
+larger `C`, or more rows, clears the gate. The
+[learner rule](../technical-reference/validation-methods.md#plug-in-limits-and-the-learner-rule)
+lists every key.
+
 The `missingness()` tilt and the `tipping_gamma()` search perturb the arm-indexed means and their
 linear contrasts. The table gives each missing-outcome fit where both are unavailable.
 

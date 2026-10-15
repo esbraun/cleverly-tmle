@@ -50,9 +50,9 @@ Appendix A, "Statistical Inference", Equation (15)).  :func:`_conditioning_share
 holds this package's derivation.
 The plug-in estimator of ``nu^2`` squares the fitted representer, so its curve needs the score
 of the fitted treatment mechanism.  Its bounds publish limits when the mechanism is declared
-known, or is a scikit-learn ``LogisticRegression`` with no penalty or a fixed L2 penalty
-(:mod:`cleverly.sensitivity._mechanism_stack`).  For any other learner they publish no limits
-(docs/roadmap.md F26).
+known, or is a scikit-learn ``LogisticRegression`` with no penalty or a fixed L2 penalty,
+fitted in sample (:mod:`cleverly.sensitivity._mechanism_stack`).  For any other learner they
+publish no limits (docs/roadmap.md F26).
 
 Scope: the bound applies to the linear functionals this library estimates -- the
 counterfactual means, their contrasts against the reference arm, and the two conditional
@@ -570,7 +570,7 @@ class SensitivityElements:
         of Chernozhukov et al. (2026), plus the influence of the conditioning share for the
         ATT and the ATC.  Under the plug-in estimator it adds the term of the fitted mechanism.
         ``None`` under the plug-in estimator when the mechanism is neither declared known nor
-        a qualifying ``LogisticRegression`` (docs/roadmap.md F26).
+        a qualifying ``LogisticRegression`` fitted in sample (docs/roadmap.md F26).
     psi_max_bias : ndarray or None
         Influence curve of ``max_bias``, as in Theorem 4 of the same paper, so the
         bias-adjusted bounds get confidence limits rather than being treated as known
@@ -627,7 +627,7 @@ def sensitivity_elements(
         form, which is all of :data:`LINEAR_ESTIMANDS`.  Only the doubly robust form has
         a derived influence curve for any mechanism learner.  The plug-in form gives the
         bounds confidence limits only for a declared known mechanism or a qualifying
-        ``LogisticRegression``.
+        ``LogisticRegression`` fitted in sample.
 
     Returns
     -------
@@ -1053,7 +1053,8 @@ class SensitivityBounds:
         Lower one-sided confidence limit of the adjusted bound. It refuses at a
         non-inferential status, where :attr:`plugin_interval_lower` keeps the diagnostic.
         It refuses under the plug-in estimator of ``nu^2`` for a mechanism that is neither
-        declared known nor a qualifying ``LogisticRegression`` (docs/roadmap.md F26).
+        declared known nor a qualifying ``LogisticRegression`` fitted in sample
+        (docs/roadmap.md F26).
     ci_upper : float
         Upper one-sided confidence limit of the adjusted bound. It follows ``ci_lower``.
     level : float
