@@ -427,7 +427,7 @@ A node can hold several treatment columns. A list of columns is one entry of `tr
 column is a *mixed node*. Díaz, Williams, Hoffman and Schenck (2023), Section 2, let the
 treatment at a node be a vector $A_t = (C_t, D_t)$, and Theorem 1 identifies the mean for it.
 
-```python
+```text
 LTMLE(regimens, ratio="classifier", ...).fit(
     frame,
     outcome="Y",
