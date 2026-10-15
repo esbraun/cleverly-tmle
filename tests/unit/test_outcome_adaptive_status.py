@@ -9,15 +9,14 @@ roadmap holds its reopen route.
 prediction, and Theorem 1 of Benkeser, Cai and van der Laan (2020) states its curve. That
 theorem needs its condition (v), which fails for an estimated outcome regression, and the
 registered study ``ctmle-oat-per-arm`` found the reported standard errors 8 to 24 percent
-too small. The declared revert is applied:
-:data:`~cleverly.estimators.ctmle.OAT_PER_ARM_INFERENTIAL` is ``False``, so every per-arm fit
-withholds too.
+too small. So a per-arm fit takes ``"generated_design_plugin"`` unless
+:func:`~cleverly.estimators.ctmle.per_arm_parametric_support` admits it. The predicate admits
+an in-sample fit with ``ParametricOutcome`` and ``ParametricMechanism`` on a binary treatment
+with complete, unweighted, unstratified data. Its stacked curve includes the generated-design
+term, and the status follows the verdict.
 
-The key :func:`~cleverly.estimators.ctmle.per_arm_design_admits` still decides which per-arm
-fits the theorem would cover: complete data without baseline strata, at any arm count, in
-sample or cross-fitted, with fixed weights and repeated splits. The classes marked "with the
-flag set" undo the revert by ``monkeypatch`` and check that path, so the flag stays the one
-switch, and its mutation control still fails.
+The class marked "parametric" fits that admitted design and checks its outputs. Every
+sklearn-learner fit stays withheld, and the predicate names the axis that refuses it.
 
 The control is the ordinary TMLE on the same frames. Each mutation control restores one
 wrong status and must fail the check its cases pass.
@@ -31,13 +30,14 @@ from typing import Any
 import numpy as np
 import pytest
 
-from cleverly import variable_importance
 from cleverly._inference_status import NON_INFERENTIAL
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_binary_outcome, make_missing_outcome, make_multi_arm
 from cleverly.estimators import CTMLE, TMLE
 from cleverly.estimators import ctmle as ctmle_module
+from cleverly.estimators.ctmle import SupportVerdict, per_arm_parametric_support
 from cleverly.exceptions import CapabilityError
+from cleverly.learners import ParametricMechanism, ParametricOutcome
 from tests.conftest import linear_in_sample
 from tests.unit._inference_status_support import (
     ROUTES,
@@ -95,9 +95,24 @@ CASES: dict[str, tuple[Any, dict[str, Any], dict[str, Any]]] = {
     ),
 }
 
-#: The cases the per-arm design admits, and the two it withholds.
-ADMITTED = ("binary", "multi_arm", "ey1_only", "cross_fitted", "weighted", "repeats")
+#: The per-arm cases whose data the old key admitted, fitted with sklearn learners, and the two
+#: whose data it withheld. The predicate refuses all of them, the first six on the learners.
+PER_ARM = ("binary", "multi_arm", "ey1_only", "cross_fitted", "weighted", "repeats")
 WITHHELD = ("missing_outcome", "strata")
+
+
+def _parametric(**settings: Any) -> CTMLE:
+    """The per-arm estimator the predicate admits on binary, complete, in-sample data."""
+    options: dict[str, Any] = {
+        "strategy": "oat",
+        "outcome_learner": ParametricOutcome(),
+        "treatment_learner": ParametricMechanism(),
+        "cross_fit": False,
+        "simultaneous": False,
+        "random_state": 0,
+        **settings,
+    }
+    return CTMLE(**options)
 
 
 def fit(estimator: type, case: str, design: str | None = None) -> Any:
@@ -166,13 +181,7 @@ class TestEverySharedDesignFitReportsNoInterval:
             assert_evalue_unavailable(shared_result, STATUS)
 
 
-@pytest.fixture
-def flag_set(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Undo the declared revert, to check the path the flag switches off."""
-    monkeypatch.setattr(ctmle_module, "OAT_PER_ARM_INFERENTIAL", True)
-
-
-@pytest.mark.parametrize("admitted", ADMITTED)
+@pytest.mark.parametrize("admitted", PER_ARM)
 class TestEveryPerArmFitWithholdsItsInterval:
     def test_the_estimates_withhold_their_inference(self, admitted: str) -> None:
         result = fit(CTMLE, admitted)
@@ -182,15 +191,14 @@ class TestEveryPerArmFitWithholdsItsInterval:
         assert "condition (v)" in RECORD.reason
         assert "ctmle-oat-per-arm" in RECORD.reason
 
-    def test_with_the_flag_set_the_fit_takes_the_ordinary_status(
-        self, admitted: str, flag_set: None
-    ) -> None:
-        """The flag is the one switch: undone, the key admits the case as TMLE would."""
+    def test_the_predicate_refuses_the_sklearn_learners(self, admitted: str) -> None:
+        """The status follows the verdict, and the first unmet axis is the outcome learner."""
         result = fit(CTMLE, admitted)
-        assert_keeps_inference(result)
         estimator = CTMLE(strategy="oat", **linear_in_sample(**CASES[admitted][2]))
-        ordinary = fit(TMLE, admitted)
-        assert estimator._inference_status(ordinary.data) == ordinary.inference_status
+        verdict = per_arm_parametric_support(estimator, result.data)
+        assert verdict.admitted is False
+        assert verdict.axis == "outcome_learner"
+        assert estimator._inference_status(result.data) == STATUS
 
 
 class TestTheWithheldOutputs:
@@ -225,32 +233,19 @@ class TestTheWithheldOutputs:
         assert_withholds(_estimated_weight_fit(), STATUS)
 
 
-@pytest.mark.usefixtures("flag_set")
-class TestTheOutputsWithTheFlagSet:
-    def test_the_default_band_is_built_at_one_split(self) -> None:
-        result = (
-            CTMLE(strategy="oat", **linear_in_sample(estimands=("ey", "ate"), simultaneous=True))
-            .fit(_binary(), outcome="Y", treatment="A")
-            .single()
-        )
-        assert result.inference_status == "influence_curve"
-        assert result.simultaneous is not None
-        assert result.simultaneous.critical_value > 1.96
+class TestAParametricPerArmFitReportsItsInterval:
+    """The admitted fit: the stacked curve gives every accessor under ``influence_curve``."""
 
-    def test_a_default_band_beside_repeats_raises_the_repeat_refusal(self) -> None:
-        estimator = CTMLE(
-            strategy="oat",
-            **linear_in_sample(
-                estimands=("ey", "ate"), simultaneous=True, cross_fit=True, n_folds=3, repeats=3
-            ),
-        )
-        with pytest.raises(CapabilityError, match="simultaneous=True"):
-            estimator.fit(_binary(), outcome="Y", treatment="A")
+    def test_the_verdict_admits_the_fit_and_the_estimates_keep_inference(self) -> None:
+        estimator = _parametric(estimands=("ate", "ey0"))
+        result = estimator.fit(_binary(), outcome="Y", treatment="A").single()
+        assert per_arm_parametric_support(estimator, result.data).admitted is True
+        assert_keeps_inference(result)
 
     def test_the_evalue_carries_its_interval(self) -> None:
         # The ATE E-value reads the reported reference-arm mean, so the fit reports it.
         result = (
-            CTMLE(strategy="oat", **linear_in_sample(estimands=("ate", "ey0")))
+            _parametric(estimands=("ate", "ey0"))
             .fit(_binary(), outcome="Y", treatment="A")
             .single()
         )
@@ -258,37 +253,14 @@ class TestTheOutputsWithTheFlagSet:
         report = result.sensitivity.evalue("ate")
         assert np.isfinite(report.limit)
 
-    def test_variable_importance_reports_inference(self) -> None:
-        importance = variable_importance(
-            _binary(),
-            outcome="Y",
-            candidates=["A"],
-            covariates=["W1", "W2", "W3"],
-            estimator=CTMLE(strategy="oat", **linear_in_sample(estimands=("ate",))),
-        )
-        assert {"std_err", "ci_lower", "ci_upper", "p_value"} <= set(importance.to_frame().columns)
-
-    def test_estimated_weights_withhold_the_interval(self) -> None:
-        """The conditioning argument concerns the efficient curve, and this curve is not."""
-        estimated = _estimated_weight_fit()
-        assert_withholds(estimated, "estimated_weight_plugin")
-        # The control: the same frame with the weights declared fixed keeps its interval.
-        fixed = fit(CTMLE, "weighted")
-        assert_keeps_inference(fixed)
-
-    def test_a_hook_that_ignores_the_declaration_fails_the_check(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The mutation control: estimated weights given the ordinary status."""
-
-        def mutant(self: CTMLE, data: Any) -> str:
-            if ctmle_module.per_arm_design_admits(self, data):
-                return str(TMLE._inference_status(self, data))
-            return STATUS
-
-        monkeypatch.setattr(CTMLE, "_inference_status", mutant)
-        with pytest.raises(AssertionError):
-            assert_withholds(_estimated_weight_fit(), "estimated_weight_plugin")
+    def test_a_default_band_is_refused_by_the_verdict_and_not_built(self) -> None:
+        """``simultaneous=True`` leaves the allow-list, so the fit withholds and builds no band."""
+        estimator = _parametric(estimands=("ey", "ate"), simultaneous=True)
+        result = estimator.fit(_binary(), outcome="Y", treatment="A").single()
+        verdict = per_arm_parametric_support(estimator, result.data)
+        assert verdict.axis == "simultaneous"
+        assert result.inference_status == STATUS
+        assert result.simultaneous is None
 
 
 def _estimated_weight_fit() -> Any:
@@ -311,6 +283,15 @@ class TestAPerArmFitOutsideTheResultWithholds:
         estimator = CTMLE(strategy="oat", **linear_in_sample(**settings, **never_fit_learners()))
         assert estimator._inference_status(_prepared(estimator, withheld)) == STATUS
         assert NeverFit.calls == 0
+
+    def test_the_predicate_names_the_data_axis_for_the_parametric_learners(
+        self, withheld: str
+    ) -> None:
+        estimator = _parametric(estimands=("ate",))
+        verdict = per_arm_parametric_support(estimator, _prepared(estimator, withheld))
+        assert verdict.admitted is False
+        assert verdict.axis == withheld
+        assert estimator._inference_status(_prepared(estimator, withheld)) == STATUS
 
 
 class TestTheOrdinaryTMLEKeepsItsInterval:
@@ -349,65 +330,82 @@ def _without(data: Any, **fields: Any) -> Any:
     return clone
 
 
-class TestTheStatusIsTheHooksToWithhold:
-    def test_a_hook_that_admits_the_shared_design_fails_the_check(
+class TestTheStatusFollowsThePredicate:
+    """Each mutant predicate gives a status the check rejects.
+
+    The mutants act on the status hook alone, so no stack runs on a case the predicate
+    refuses. The sklearn-learner fit would start the stack with learners it cannot read.
+    """
+
+    def test_a_predicate_that_admits_the_shared_design_fails_the_check(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The mutation control: the shared design given the ordinary status."""
-        monkeypatch.setattr(ctmle_module, "per_arm_design_admits", lambda estimator, data: True)
-        mutant = fit(CTMLE, "binary", "shared")
-        with pytest.raises(AssertionError):
-            assert_withholds(mutant, STATUS)
+        estimator = CTMLE(
+            strategy="oat",
+            oat_design="shared",
+            outcome_learner=ParametricOutcome(),
+            treatment_learner=ParametricMechanism(),
+            cross_fit=False,
+            simultaneous=False,
+        )
+        data = _prepared(estimator, "binary")
+        assert estimator._inference_status(data) == STATUS
+        monkeypatch.setattr(
+            ctmle_module,
+            "per_arm_parametric_support",
+            lambda estimator, data: SupportVerdict(True, None, "mutant"),
+        )
+        assert estimator._inference_status(data) != STATUS
 
-    def test_a_hook_that_withholds_the_admitted_per_arm_fit_fails_the_check(
-        self, monkeypatch: pytest.MonkeyPatch, flag_set: None
+    def test_a_predicate_that_withholds_the_admitted_per_arm_fit_fails_the_check(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(ctmle_module, "per_arm_design_admits", lambda estimator, data: False)
-        mutant = fit(CTMLE, "binary")
+        monkeypatch.setattr(
+            ctmle_module,
+            "per_arm_parametric_support",
+            lambda estimator, data: SupportVerdict(False, "outcome_learner", "mutant"),
+        )
+        mutant = _parametric(estimands=("ate",)).fit(_binary(), outcome="Y", treatment="A").single()
         with pytest.raises(AssertionError):
             assert_keeps_inference(mutant)
 
     @pytest.mark.parametrize("ignored", WITHHELD)
-    def test_a_key_that_ignores_a_withheld_input_fails_the_check(
-        self, monkeypatch: pytest.MonkeyPatch, ignored: str, flag_set: None
+    def test_a_predicate_that_ignores_a_withheld_input_fails_the_check(
+        self, monkeypatch: pytest.MonkeyPatch, ignored: str
     ) -> None:
-        """The key with one of its data reads dropped admits the withheld case."""
-        original = ctmle_module.per_arm_design_admits
+        """The predicate with one of its data reads dropped admits the withheld case."""
+        # The missing-outcome frame is continuous, so a declared range keeps that axis out of play.
+        estimator = _parametric(estimands=("ate",), q_bounds=(-6.0, 6.0))
+        data = _prepared(estimator, ignored)
+        assert estimator._inference_status(data) == STATUS
+        original = ctmle_module.per_arm_parametric_support
 
-        def mutant(estimator: Any, data: Any) -> bool:
+        def mutant(estimator: Any, data: Any) -> SupportVerdict:
             if ignored == "strata":
                 data = _without(data, strata=None)
             else:
                 data = _without(data, observed=np.ones(data.n, dtype=bool))
             return original(estimator, data)
 
-        monkeypatch.setattr(ctmle_module, "per_arm_design_admits", mutant)
-        result = fit(CTMLE, ignored)
-        with pytest.raises(AssertionError):
-            assert_withholds(result, STATUS)
+        monkeypatch.setattr(ctmle_module, "per_arm_parametric_support", mutant)
+        assert estimator._inference_status(data) != STATUS
 
-    def test_a_key_that_ignores_the_revert_flag_fails_the_check(
+    def test_a_predicate_that_drops_the_option_allow_list_fails_the_check(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The key with its read of the flag dropped keeps the interval after a revert."""
+        """The predicate that skips every unmet option admits an sklearn-learner fit."""
+        estimator = CTMLE(strategy="oat", **linear_in_sample(estimands=("ate",)))
+        data = _prepared(estimator, "binary")
+        assert estimator._inference_status(data) == STATUS
         mutate(
             monkeypatch,
             ctmle_module,
             ctmle_module,
-            "per_arm_design_admits",
-            [("OAT_PER_ARM_INFERENTIAL\n        and ", "")],
+            "per_arm_parametric_support",
+            [("        if not ok:\n", "        if False:\n")],
         )
-        monkeypatch.setattr(ctmle_module, "OAT_PER_ARM_INFERENTIAL", False)
-        with pytest.raises(AssertionError):
-            assert_withholds(fit(CTMLE, "binary"), STATUS)
-
-    @pytest.mark.parametrize("admitted", ADMITTED)
-    def test_the_revert_flag_withholds_every_admitted_case(
-        self, monkeypatch: pytest.MonkeyPatch, admitted: str
-    ) -> None:
-        """With the declared revert applied, every per-arm fit takes the withheld status."""
-        monkeypatch.setattr(ctmle_module, "OAT_PER_ARM_INFERENTIAL", False)
-        assert_withholds(fit(CTMLE, admitted), STATUS)
+        assert estimator._inference_status(data) != STATUS
 
 
 class TestASavedResultLoadsAsSaved:

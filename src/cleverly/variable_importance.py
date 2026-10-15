@@ -19,7 +19,7 @@ from ._inference_status import supplies_inference
 from .data.causal_data import CausalData
 from .estimators.base import TMLEResult
 from .estimators.tmle import TMLE
-from .exceptions import DataError, refuse_inference
+from .exceptions import CapabilityError, DataError, RefusalReason, refuse_inference
 from .inference.influence import ParameterEstimate
 from .inference.results import reported_status
 from .targets import parameter_stem
@@ -169,13 +169,15 @@ def variable_importance(
 
     Refuses, before the first fit, when the estimator's inference status on any
     candidate's prepared data supplies no inference. A
-    :class:`~cleverly.estimators.CTMLE` whose ``strategy`` is ``"greedy"``, ``"ordered"``
-    or ``"discrete"`` is one such case, and the
+    :class:`~cleverly.estimators.CTMLE` whose ``strategy`` is ``"greedy"``, ``"ordered"``,
+    ``"discrete"``, ``"lasso"`` or ``"learners"`` is one such case, and the
     :doc:`inference reference </technical-reference/inference>` lists each status. The
     adjustment above needs one p-value per candidate, and such a fit supplies none, so
-    this procedure has no diagnostic form to fall back to. Before that check, an estimator
-    with a rule, a regime density or an MSM function that is not declared known meets the
-    refusal that its own fit gives.
+    this procedure has no diagnostic form to fall back to. A ``"derivative"`` fit
+    (C-TMLE0) supplies inference and is admitted, unless it declares propensity arrays,
+    which describe one treatment only. Before that check, an estimator with a rule, a
+    regime density or an MSM function that is not declared known meets the refusal that its
+    own fit gives.
 
     Parameters
     ----------
@@ -228,6 +230,15 @@ def variable_importance(
     # ``fit``, so a copied or modified estimator meets the refusal that names its remedy.
     template._refuse_fold_policy()
     template._refuse_undeclared_functions()
+    if getattr(template, "_has_derivative_arrays", lambda: False)():
+        # Each candidate becomes the treatment, and a declared propensity array describes
+        # the treatment it was fitted for.
+        raise CapabilityError(
+            "The refit changes the data (the covariates, the treatment or the rows), and a "
+            "propensity array entry was fitted without that change.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative="Pass learners to refit.",
+        )
     # Every candidate's data is prepared, and its status asked, before the first fit.
     # This procedure ends in a Benjamini--Hochberg adjustment of one p-value per
     # candidate, so an estimator that supplies no p-value leaves it with nothing to

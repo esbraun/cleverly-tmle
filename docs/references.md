@@ -1007,6 +1007,22 @@ sizes only the cluster sum is the delta-method variance of the row mean
   product-rate regime. Separately, the estimator solves extra derivative-score equations and uses
   an undersmoothing condition. It does not cover the package's discrete selector paths, nested
   folds, or joint target vectors.
+  Corollary 4 (Section 3.6, preprint page 15) gives the expansion of the paper's LASSO-C-TMLE. Its
+  extra term $\Delta(P_1)$ is zero by Lemma 2 under a consistent outcome regression and a product
+  rate. The paper gives no estimator of the term otherwise. Section 5.3 estimates the variance with
+  the empirical variance of $D^*$, and Section 5.4 reports that those intervals fail to cover
+  except at large `n`. The `lasso` strategy lies outside the corollary's conditions: its index is a
+  discrete grid, and its stop rule, index rule and final step are the package's own.
+  Section 4.2 (preprint page 17) states the goal of the derivative strategy of `CTMLE`. The first
+  display solves $P_n d_h D^*(\bar{Q}^*, G_{n,\cdot}) = 0$ together with $P_n D^* = 0$. Steps 1 to 3
+  define LASSO-PSEUDO-C-TMLE: the cross-validated penalty, its nearest grid neighbour, and one
+  fluctuation along display (33). Display (33) prints the second direction as $C(G)\,G'$. The goal
+  needs $d_h C(G_h)$, which display (19) gives as $-G'/\ell G^2$. The two directions differ by a
+  row-varying factor. The package fits the derivative of the clever covariate, as R `ctmle` does,
+  and the [C-TMLE0 section](technical-reference/collaborative-tmle.md#c-tmle0-the-derivative-covariate)
+  records this as reading D2. Section 5.3 applies Corollary 4 to the pseudo estimator, but that
+  estimator uses the cross-validated penalty and a finite difference, which Corollary 4 does not
+  cover.
 - Ju, Gruber, Lendle, Chambaz, Franklin, Wyss, Schneeweiss & van der Laan (2019), [*Scalable
   collaborative targeted learning for high-dimensional data*](https://pmc.ncbi.nlm.nih.gov/articles/PMC6086775/),
   *Statistical Methods in Medical Research* 28(2):532-554, DOI 10.1177/0962280217729845,
@@ -1042,6 +1058,18 @@ sizes only the cluster sum is the delta-method variance of the row mean
   Section 4.2 states that the C-TMLE estimator is asymptotically linear under regularity
   conditions and cites earlier work for it. The data analysis in Section 7 forms its intervals from
   the analytic influence curve. The paper states no post-selection theorem.
+  The section 4.2 display (preprint page 7) defines the lasso candidate. Appendix A, Algorithm 1
+  (preprint page 23), gives the indexed construction rule in steps 5 to 12 and the final step in
+  steps 13 to 16. That final step fluctuates the selected candidate's initial fit. The `lasso`
+  strategy of `CTMLE` follows steps 5 to 12. In the final step it fluctuates the targeted fit, as R
+  `ctmleGlmnet` does.
+  The second bullet of Section 4.2, equation (6) (preprint page 8), defines C-TMLE0. It is the TMLE
+  with one extra fluctuation direction, the derivative of the clever covariate in the penalty.
+  Appendix B, Algorithm 2 (preprint pages 23 to 24), states the same steps with a finite
+  difference. Its printed treated-arm term lacks the square that equation (6) carries. The
+  derivative strategy follows equation (6). Its interval rests on the TMLE results of van der Laan
+  and Rubin (2006) and Zheng and van der Laan (2011), because the extra columns leave the
+  efficient influence curve equation solved.
 - Liu (2018), [*Contributions to evolutionary dynamics and causal
   inference*](https://nrs.harvard.edu/urn-3:HUL.InstRepos:41129186), Harvard University
   dissertation. Chapter 2 derives asymptotic laws for C-TMLE coefficients, squared errors,
@@ -1349,6 +1377,15 @@ sizes only the cluster sum is the delta-method variance of the row mean
   an observation weight, and no fit, sum, mean, or variance in them applies one. This source
   supplies no fixed-weight comparison.
 
+  `R/functions_general.R` gives the indexed construction rule that the `lasso` and `learners`
+  strategies follow: the argmin on line 81, the jump on line 124 and the stop on line 129.
+  `R/functions_glmnet.R` gives the same rule over a penalty grid, on lines 184, 253 and 256.
+  [`ctmleGlmnet`, lines 265-325](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/ctmle_glmnet.R#L265-L325)
+  is the type-1 final step. `R/build_gn_seq.R` builds the `gn_candidates` and `gn_candidates_cv`
+  pair that `PropensityArrays` mirrors. The
+  [collaborative TMLE page](technical-reference/collaborative-tmle.md#candidate-sequences) lists
+  the R behaviors the package does not reproduce.
+
   [`calc_varIC`, lines 39-60](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/functions.R#L39-L60)
   adds a binary logistic parameter-estimation term to each candidate's ATE curve.
   [`ctmleDiscrete`, lines 173-185](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/ctmle_discrete.R#L173-L185)
@@ -1512,6 +1549,54 @@ sizes only the cluster sum is the delta-method variance of the row mean
   sets `G_dC = 1` at `t = 1`, and takes a `noCens` branch when no censoring is observed.
   `checkInputs.R` refuses more than two treatment values. The registered study
   `point-treatment-survival` pairs with it.
+- Moore & van der Laan (2009), *Increasing power in randomized trials with right censored
+  outcomes through covariate adjustment*, *Journal of Biopharmaceutical Statistics*
+  19(6):1099–1131, DOI [10.1080/10543400903243017](https://doi.org/10.1080/10543400903243017).
+  Read first-hand in the PubMed Central author manuscript, PMC2895464. The equation numbers below
+  are those of the manuscript. This is a different paper from the Moore & van der Laan (2009) entry
+  in [known treatment mechanisms](#known-treatment-mechanisms). Section 2 defines the visits, the
+  baseline treatment and the coarsening at random. Section 4 gives the log-likelihood (9) and the
+  logistic hazard fluctuation (10). Section 4.1 gives the clever covariates (11) and (12), the joint
+  targeting of both arms (13), and the efficient influence curve (15) and (16). Section 4.1.2 gives
+  the double robustness. `survival_model="hazard"` with `targeting="iterative"` follows Section 4.1.
+- Cai & van der Laan (2020), [*One-step targeted maximum likelihood estimation for time-to-event
+  outcomes*](https://doi.org/10.1111/biom.13172), *Biometrics* 76(3):722–733, DOI
+  10.1111/biom.13172. Read first-hand in [arXiv:1802.09479v3](https://arxiv.org/abs/1802.09479v3),
+  because the journal version is not open access. The locators are those of arXiv v3. This is a
+  different paper from the Cai & van der Laan (2020) bootstrap paper in
+  [collaborative TMLE](#collaborative-tmle). Section 2.1, (2) and (3), gives the efficient influence
+  curve and the clever covariate of a survival probability. Section 4.3 and Algorithm 1 give the
+  per-horizon TMLE and say why its curve is not monotone. Section 5, (12) and Algorithm 2, give
+  the universal least favorable submodel and the one-step TMLE of the whole curve.
+  `targeting="one_step"` follows Algorithm 2.
+- Rytgaard & van der Laan (2024), [*One-step targeted maximum likelihood estimation for targeting
+  cause-specific absolute risks and survival curves*](https://doi.org/10.1093/biomet/asad033),
+  *Biometrika* 111(1):129–145, DOI 10.1093/biomet/asad033. Read first-hand in
+  [arXiv:2107.01537v2](https://arxiv.org/abs/2107.01537v2). The locators are those of arXiv v2.
+  Section 3.1 gives the efficient influence curve and the clever covariates of several causes.
+  Section 3.3, Definition 1, and Section 3.4 give the one-step walk. Remark 2 fixes the metric
+  $\hat\sigma^2 = P_n D^2$ at the initial estimator. Assumption 1 is the positivity condition. The
+  paper works in continuous time, and `cleverly` uses its discrete-time special case. Theorem 1 of
+  Section 4.2 assumes a refining grid, and `cleverly` does not claim it.
+- Westling, van der Laan & Carone (2020), [*Correcting an estimator of a multivariate monotone
+  function with isotonic regression*](https://doi.org/10.1214/20-EJS1740), *Electronic Journal of
+  Statistics* 14(2), DOI 10.1214/20-EJS1740. Read first-hand in
+  [arXiv:1810.09022v2](https://arxiv.org/abs/1810.09022v2). The locators are those of arXiv v2.
+  Section 2.1 projects an estimate onto a monotone function on a grid, which is PAVA in one
+  dimension, and projects both band limits by the same procedure. Theorem 1 (i) bounds the sup
+  error of the projection by that of the estimate. Theorem 1 (iv) keeps the band's coverage, and
+  Theorem 1 (v) keeps its widths. Theorem 2, Corollary 1 and the sentence after it give the
+  pointwise limit under a strictly increasing truth. `isotonic=True` follows Section 2.1.
+- R `survtmle` 1.1.1, `method = "hazard"`, from the archive above. Its file `tmle_hazard.R`
+  targets one `t0` per call and loops while `any(abs(meanIC) > tol) & ct <= maxIter`. The file
+  `hazards_estimate.R` fits the sequential pseudo-hazards
+  $\lambda_j = \rho_j (1 - \sum_{i < j} \lambda_i)$, which the initial fit of
+  `survival_model="hazard"` follows. The file `hazards_fluctuate.R` fluctuates one cause at a time
+  on the scale $1 - \lambda_{\neg j}$. The file `survtmle.R` exports `tol = 1/sqrt(n)` and
+  `maxIter = 10`.
+- The `lmtp` 1.5.4 snapshot above, `R/lmtp_survival.R`. Its function `isotonic_projection` runs
+  `isotone::gpava(1:K, 1 - estimate)` with unit weights over every grid time, and keeps each
+  influence function. `isotonic=True` applies the same arithmetic over the reported horizons.
 - Díaz, Hoffman, Hejazi & Williams (2024), [*Causal survival analysis under competing risks
   using longitudinal modified treatment policies*](https://doi.org/10.1007/s10985-023-09606-7),
   *Lifetime Data Analysis* 30:213–236. The corrected
@@ -1800,6 +1885,17 @@ sizes only the cluster sum is the delta-method variance of the row mean
   main text, so this package did not read it. The main-text locators follow v6. The published
   appendix cites "C.7. Proof of Theorem 2" and "C.10. Proof of Lemma 3 and Theorem 4", which
   match v6.
+- Stefanski & Boos (2002), *The calculus of M-estimation*, *The American Statistician* 56(1):29-38.
+  Section 1 treats a partial M-estimator as an M-estimator by stacking. Section 3 gives the
+  two-stage instrumental-variable example and its lower-triangular Jacobian. This package read the
+  submitted version, so it cites sections and no pages. [Parametric per-arm
+  intervals](technical-reference/collaborative-tmle.md#parametric-per-arm-intervals) uses the
+  triangular structure.
+- van der Vaart (1998), *Asymptotic Statistics*, Cambridge University Press, Section 5.3, Theorem
+  5.21 (p. 52). A Z-estimator is asymptotically linear under a Lipschitz condition on the estimating
+  function, differentiability of the mean estimating function at the limit with a nonsingular
+  derivative, consistency, and a near-zero sample equation. This package read the theorem through
+  secondary sources, not the book, and it quotes no wording.
 - Saul & Hudgens (2020), [*The Calculus of M-Estimation in R with geex*](https://www.jstatsoft.org/article/view/v092i02),
   *Journal of Statistical Software* 92(2), DOI 10.18637/jss.v092.i02. Its general stacked
   estimating-equation method computes a sandwich variance for specified smooth equations. It
