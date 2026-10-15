@@ -43,6 +43,7 @@ from cleverly.data.known_mechanism import (
 )
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.estimators.tmle import correction_parts
+from cleverly.exceptions import RefusalReason
 from cleverly.inference.bootstrap import run_bootstrap
 from cleverly.interventions import Incremental, LearnedRule, Stochastic
 from cleverly.validation import refute
@@ -627,6 +628,65 @@ def test_a_bound_that_contains_every_known_value_reaches_the_learners() -> None:
                 frame, outcome="Y", treatment="A", covariates=["W1"], treatment_probabilities=g1
             )
         assert NeverFit.calls > 0
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda **settings: _tmle(**settings),
+        lambda **settings: _tmle(estimands=("att",), **settings),
+        lambda **settings: _tmle(repeats=2, cross_fit=True, **settings),
+        lambda **settings: _drtmle(guard=("Q",), **settings),
+    ],
+    ids=["ate", "att", "repeats", "drtmle_q_guard"],
+)
+def test_the_truncation_curve_refuses_a_bound_that_moves_a_known_value(build: Any) -> None:
+    """A swept bound that moves a declared value is a bound the fit refuses.
+
+    The law's mechanism lies in [0.25, 0.75], so the symmetric pair at 0.3 moves every unit
+    whose declared value is 0.25 or 0.75.  Before this refusal the curve retargeted at that
+    pair and moved the ATE by about 0.003 from the exact truth.
+    """
+    frame = law.point_frame(2)
+    with pytest.raises(CapabilityError) as fitted:
+        build(g_bounds=0.3).fit(frame, **ROLES, treatment_probabilities=_columns(2))
+    result = build().fit(frame, **ROLES, treatment_probabilities=_columns(2)).single()
+    with pytest.raises(CapabilityError) as raised:
+        result.diagnostics.truncation_curve([0.01, 0.3])
+    assert raised.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+    message = str(raised.value)
+    assert "a fit refuses this one" in message
+    assert "outside the truncation bounds [0.3, 0.7]" in message
+    # The curve quotes the fit's own sentence, so the two cannot disagree.
+    assert fitted.value.refusal.condition in message
+    # The bound at the edge of the declaration moves nothing and is admitted.
+    curve = result.diagnostics.truncation_curve([0.25])
+    np.testing.assert_allclose(curve["delta_from_fitted"], 0.0, atol=1e-12)
+
+
+def test_the_default_truncation_curve_omits_the_pairs_that_move_a_known_value() -> None:
+    """The default grid keeps the canned pairs below the smallest declared value, 0.04."""
+    n = 2000
+    rng = np.random.default_rng(2)
+    w1 = rng.normal(size=n)
+    g1 = np.where(np.arange(n) < 200, 0.04, 0.5)
+    frame = pd.DataFrame(
+        {
+            "W1": w1,
+            "A": rng.binomial(1, g1).astype(float),
+            "Y": rng.binomial(1, expit(0.3 * w1)).astype(float),
+        }
+    )
+    result = (
+        _tmle(estimands=("ate",))
+        .fit(frame, outcome="Y", treatment="A", covariates=["W1"], treatment_probabilities=g1)
+        .single()
+    )
+    curve = result.diagnostics.truncation_curve()
+    fitted = float(curve["fitted_lower_bound"][0])
+    assert sorted(set(curve["bound"])) == sorted({0.001, 0.005, 0.01, 0.025, fitted})
+    assert max(curve["truncated_fraction"]) == 0.0
+    assert set(curve["treatment_mechanism"]) == {"known"}
 
 
 # ----------------------------------------------------------------------------- readers

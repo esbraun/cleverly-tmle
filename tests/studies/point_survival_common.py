@@ -63,6 +63,8 @@ class Scenario:
         The grid the long layout is declared on.
     wide : bool
         Whether to draw the wide layout, with one censoring and one event column per node.
+    hazard_scale : tuple of tuple
+        ``(node, factor)`` pairs: the factor on the all-cause hazard at each listed node.
     """
 
     name: str
@@ -75,6 +77,7 @@ class Scenario:
     end_of_study: bool = False
     grid: tuple[float, ...] = ()
     wide: bool = False
+    hazard_scale: tuple[tuple[int, float], ...] = ()
 
     @property
     def layout(self) -> str:
@@ -97,6 +100,7 @@ class Scenario:
             "continuous_event_time": self.continuous_event_time,
             "dose": self.dose,
             "end_of_study": self.end_of_study,
+            "hazard_scale": dict(self.hazard_scale) if self.hazard_scale else None,
         }
 
     def draw(
@@ -252,7 +256,8 @@ def _hazard(scenario: Scenario, node: int, a: int, w1: int, w2: int, l: int) -> 
         grid = (0.0, *scenario.grid)
         rate = float(law_module._rate(a, w1, w2, scenario.arms, scenario.dose))
         return float(1.0 - np.exp(-rate * (grid[node] - grid[node - 1])))
-    return float(law_module._hazard(node, a, w1, w2, l, scenario.arms, scenario.dose))
+    scale = dict(scenario.hazard_scale) if scenario.hazard_scale else None
+    return float(law_module._hazard(node, a, w1, w2, l, scenario.arms, scenario.dose, scale))
 
 
 def _split(scenario: Scenario, a: int, w1: int) -> tuple[float, ...]:

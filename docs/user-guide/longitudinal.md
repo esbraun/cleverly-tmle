@@ -128,7 +128,8 @@ print(long_study.data.history_names(2), long_study.data.panel.decision_times)
 The panel holds 400 customers over weeks 10, 20 and 30. A customer who leaves has `active` equal to
 0 on its last row, and no outcome. `history_names(2)` returns `('age', 'eng@1', 'eng@2')`. The
 design hands the frame to `CausalStudy`, and `from_long_panel` takes the same arguments if you
-want the container first.
+want the container first. The [sequential offers tutorial](../examples/sequential-offers.ipynb)
+reads a long panel with a three-level offer and declared offer probabilities.
 
 ### Put each measurement on the right row
 
@@ -508,6 +509,74 @@ changes the treatment after baseline is refused, because the design holds one de
 [One baseline treatment held over the nodes](../technical-reference/longitudinal-tmle.md#one-baseline-treatment-held-over-the-nodes)
 gives the contract and its evidence.
 
+## A survival curve that never decreases
+
+The default survival fit targets each horizon in its own backward pass, so its curve can decrease
+by a small amount. Two options give a non-decreasing curve.
+
+| option | what it does | what it needs |
+| --- | --- | --- |
+| `survival_model="hazard", targeting="one_step"` | fits the cause-specific hazard at every node, and targets one set of hazards for every horizon together | one categorical treatment at baseline, held over every node, and no covariate after baseline |
+| `isotonic=True` | projects each fitted curve and its band limits onto a non-decreasing curve | any survival or competing-risk fit |
+
+Pass the hazard learner as `outcome_learner`. A hazard fit does not use `pseudo_learner`.
+
+```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
+from cleverly import CausalStudy, RegimeMean, TimeToEvent
+from cleverly.datasets import make_point_survival
+
+frame, truth = make_point_survival(n=1_000, seed=4, n_times=4)
+study = CausalStudy(
+    frame,
+    design=TimeToEvent(
+        time="time", event="event", treatment="A", baseline=("W1", "W2"), grid=(1, 2, 3, 4)
+    ),
+)
+hazard_curve = study.estimate(
+    RegimeMean({"arm1": 1, "arm0": 0}),
+    survival_model="hazard",
+    targeting="one_step",
+    outcome_learner=LogisticRegression(max_iter=1000),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    censoring_learner=LogisticRegression(max_iter=1000),
+    cross_fit=False,
+)
+print(hazard_curve.curve()[["estimand", "psi", "ci_lower", "ci_upper"]])
+```
+
+The risks of each arm do not decrease over the four grid times. Call `summary()` to see the walk: the
+parameter count, the step count, the largest relative score, and whether the walk converged.
+
+`targeting="iterative"`, the default, targets the hazards at each horizon on its own. That curve is
+not guaranteed to be monotone.
+
+To keep the iterated-mean fit and project its curve, pass `isotonic=True`.
+
+```python
+projected = study.estimate(
+    RegimeMean({"arm1": 1, "arm0": 0}),
+    isotonic=True,
+    outcome_learner=LinearRegression(),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    cross_fit=False,
+)
+print(projected.isotonic_moves)
+```
+
+`isotonic_moves` lists each level the projection moved. On this sample it is empty, because the
+fitted curve already does not decrease. The projection keeps every influence curve and standard
+error. A pointwise interval at a moved level is valid only where the true curve strictly
+increases. [The isotonic projection](../technical-reference/longitudinal-tmle.md#the-isotonic-projection)
+states each claim and its condition.
+
+The hazard model refuses a treatment at several nodes, a covariate after baseline, a continuous
+treatment, and a modified treatment policy. Each message names the iterated-mean route.
+[Hazard-based survival targeting](../technical-reference/longitudinal-tmle.md#hazard-based-survival-targeting)
+gives the contract, both algorithms, and the evidence. No registered study measures the coverage
+of a hazard fit or a projected fit yet.
+
 ## Fit the sequentially doubly robust estimator
 
 Pass `method="sdr"` to `estimate()` to fit the sequentially doubly robust estimator. It reports
@@ -603,7 +672,9 @@ The answers can differ from `LTMLE` for three reasons.
 
 With the same outcome learner, the g-computation estimate equals the untargeted first step of
 `LTMLE`. [Sequential g-computation and IPW](../technical-reference/sequential-baselines.md) gives
-the estimators, the stacked influence curve, the settings, and the refusals.
+the estimators, the stacked influence curve, the settings, and the refusals. The
+[sequential offers tutorial](../examples/sequential-offers.ipynb) fits both baselines beside
+`LTMLE` and `SDR` on one campaign.
 
 ## Simulate the parametric g-formula
 

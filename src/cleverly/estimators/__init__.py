@@ -14,11 +14,13 @@ from .base import (
 )
 from .ctmle import (
     CTMLE,
+    CTMLEDerivativeFit,
     CTMLEOutcomeAdaptiveFit,
     CTMLEPreorder,
     CTMLESelection,
     CTMLEStrategy,
     LogisticPlugin,
+    PropensityArrays,
     logistic_plugin,
 )
 from .drtmle import DRTMLE, ReducedFit
@@ -30,6 +32,7 @@ __all__ = [
     "DEFAULT_ESTIMANDS",
     "DRTMLE",
     "TMLE",
+    "CTMLEDerivativeFit",
     "CTMLEOutcomeAdaptiveFit",
     "CTMLEPreorder",
     "CTMLESelection",
@@ -37,6 +40,7 @@ __all__ = [
     "CVTargeting",
     "LogisticPlugin",
     "NuisanceEstimates",
+    "PropensityArrays",
     "ReducedFit",
     "TMLEConfig",
     "TMLEResult",

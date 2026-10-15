@@ -1,0 +1,32 @@
+draws 400, seeds 2000 to 2399, n = 20000 customers each
+
+ltmle: the four contrasts against none
+  discount                           bias -0.0029 (MC SE 0.0015, z -2.00); SD 0.0295; interval covers 0.968
+  shipping                           bias -0.0012 (MC SE 0.0014, z -0.83); SD 0.0287; interval covers 0.955
+  win_back                           bias -0.0017 (MC SE 0.0010, z -1.63); SD 0.0206; interval covers 0.953
+  win_back_ship                      bias -0.0010 (MC SE 0.0012, z -0.84); SD 0.0236; interval covers 0.948
+ltmle: the five levels
+  none                               bias +0.0013 (MC SE 0.0009, z +1.41); SD 0.0181; interval covers 0.953
+  discount                           bias -0.0017 (MC SE 0.0012, z -1.36); SD 0.0245; interval covers 0.932
+  shipping                           bias +0.0001 (MC SE 0.0011, z +0.07); SD 0.0219; interval covers 0.960
+  win_back                           bias -0.0004 (MC SE 0.0007, z -0.59); SD 0.0140; interval covers 0.943
+  win_back_ship                      bias +0.0003 (MC SE 0.0008, z +0.37); SD 0.0153; interval covers 0.965
+
+ipw: the four contrasts against none
+  discount                           bias -0.0028 (MC SE 0.0016, z -1.71); SD 0.0327; interval covers 0.948
+  shipping                           bias -0.0017 (MC SE 0.0016, z -1.09); SD 0.0319; interval covers 0.943
+  win_back                           bias -0.0014 (MC SE 0.0011, z -1.24); SD 0.0218; interval covers 0.943
+  win_back_ship                      bias -0.0015 (MC SE 0.0013, z -1.19); SD 0.0250; interval covers 0.955
+ipw: the five levels
+  none                               bias +0.0013 (MC SE 0.0010, z +1.38); SD 0.0193; interval covers 0.935
+  discount                           bias -0.0015 (MC SE 0.0013, z -1.10); SD 0.0267; interval covers 0.938
+  shipping                           bias -0.0004 (MC SE 0.0012, z -0.34); SD 0.0237; interval covers 0.945
+  win_back                           bias -0.0000 (MC SE 0.0007, z -0.03); SD 0.0147; interval covers 0.940
+  win_back_ship                      bias -0.0002 (MC SE 0.0008, z -0.19); SD 0.0160; interval covers 0.960
+
+ltmle: correlation of the four contrast estimates across draws
+               discount  shipping  win_back  win_back_ship
+discount           1.00      0.37      0.45           0.41
+shipping           0.37      1.00      0.51           0.61
+win_back           0.45      0.51      1.00           0.55
+win_back_ship      0.41      0.61      0.55           1.00
