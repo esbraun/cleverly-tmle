@@ -89,6 +89,9 @@ categorized API tables.
    cleverly.exceptions.RefusalReason
    cleverly.learners.SuperLearnerDiagnostics
    cleverly.learners.CorrelationScreener
+   cleverly.learners.ParametricOutcome
+   cleverly.learners.ParametricMechanism
+   cleverly.learners.ParametricFitDiagnostics
    cleverly.learners.CrossFitPlan
    cleverly.learners.Folds
    cleverly.learners.FoldOrigin

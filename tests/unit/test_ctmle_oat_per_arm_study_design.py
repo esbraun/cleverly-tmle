@@ -14,7 +14,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from cleverly.estimators import ctmle as ctmle_module
+from cleverly.inference.multiplier import multiplier_critical_value
 from tests.studies import canonical_ctmle_oat_per_arm as study
 from tests.studies import ctmle_oat_per_arm_properties as properties
 from tests.studies import oat_per_arm_laws as laws
@@ -112,9 +112,10 @@ def test_the_revert_cells_are_declared_positive_cells() -> None:
     declared = {(cell.property, cell.cell): cell.role for cell in properties.declared_cells()}
     for family, cell in study.REVERT_CELLS:
         assert declared[family, cell] == "positive"
-    assert study.REFERENCE_METADATA["revert_flag"].endswith("OAT_PER_ARM_INFERENTIAL")
-    # The study's revert cells were red, so the declared revert is applied.
-    assert ctmle_module.OAT_PER_ARM_INFERENTIAL is False
+    assert study.REFERENCE_METADATA["band_source"] == (
+        "cleverly.inference.multiplier.simultaneous_bands"
+    )
+    assert "per_arm_parametric_support" in study.REFERENCE_METADATA["revert_applied"]
 
 
 def test_the_expected_red_rows_are_declared_rows() -> None:
@@ -168,18 +169,34 @@ def test_the_oracle_design_rows_pass_their_own_rule() -> None:
     assert set(red) == set(study.EXPECTED_RED)
 
 
-def test_the_joint_fit_builds_the_band_and_leaves_the_flag_unset() -> None:
-    """Option (A): the joint cell sets the flag for its own fit and restores it."""
+def test_the_joint_fit_builds_the_band_from_the_plugin_curves() -> None:
+    """The joint cell fits as the shipped fit does, then builds the band with the public function."""
     frame, _ = laws.THREE_ARM_ACTIVE.sample(400, 5)
     result = properties.fit_joint(frame)
-    assert result.inference_status == "influence_curve"
+    assert result.inference_status == "generated_design_plugin"
     assert result.simultaneous is not None
-    assert ctmle_module.OAT_PER_ARM_INFERENTIAL is False
-    # The control: the same fit without the context withholds and builds no band.
-    withheld = properties._fit_joint(frame)
-    assert withheld.inference_status == "generated_design_plugin"
-    assert withheld.simultaneous is None
-    assert withheld["ey[1]"].psi == result["ey[1]"].psi
+    assert set(result.simultaneous.bands) == set(properties.JOINT_NAMES)
+    shipped = properties._fit_joint(frame)
+    # The control: the shipped fit withholds and builds no band, with the same point estimates.
+    assert shipped.inference_status == "generated_design_plugin"
+    assert shipped.simultaneous is None
+    assert shipped["ey[1]"].psi == result["ey[1]"].psi
+    estimates = list(result.estimates.values())
+    curves = np.column_stack([np.asarray(e.influence_curve) for e in estimates])
+    errors = np.array([e.plugin_std_error for e in estimates])
+    estimator = result.estimator
+    expected = multiplier_critical_value(
+        curves,
+        errors,
+        n=result.data.n,
+        alpha=estimator.alpha_sig,
+        n_replicates=estimator.n_multiplier,
+        kind=estimator.multiplier_kind,
+        random_state=estimator.random_state,
+    )
+    assert result.simultaneous.critical_value == pytest.approx(expected, rel=1e-12)
+    for name, (low, high) in result.simultaneous.bands.items():
+        assert low < result[name].psi < high
 
 
 @pytest.mark.parametrize("law", list(laws.LAWS.values()), ids=lambda law: law.name)
