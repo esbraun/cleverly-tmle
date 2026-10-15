@@ -832,8 +832,9 @@ A rule node in the window adds its arm. The rule reads the full history, so the 
 covariates do not determine the arm. Indices below 1 are dropped.
 
 When the restriction is false, the nuisance fits converge to projections on the window. The fit
-then stays consistent only if the restriction holds for one nuisance family. The interval needs
-both families right. The restriction text that a fit records is `markov_restriction(k)` in
+is consistent when one nuisance family, fitted on the window, is consistent. That family needs the
+restriction to hold for it. The interval needs the restriction and a consistent fit for both
+families, at the usual product rate. The restriction text that a fit records is `markov_restriction(k)` in
 `cleverly.longitudinal.data`.
 
 | condition | refusal |

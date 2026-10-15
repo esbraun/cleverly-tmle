@@ -384,6 +384,9 @@ def test_the_restriction_text_is_pinned() -> None:
         "statistical-model restriction, Markov order 1: at every node the outcome regression "
         "and the treatment and censoring mechanisms depend on the history only through W and "
         "the last 2 nodes. It restricts the observed-data model and does not change the "
-        "estimand. The fit is consistent when the restriction holds for the outcome "
-        "regressions or for the mechanisms. The interval needs it for both."
+        "estimand. The fit is consistent when the outcome regressions fitted on the window "
+        "are consistent, which needs the restriction for them, or when the treatment and "
+        "censoring mechanisms fitted on the window are consistent, which needs the restriction "
+        "for them. The interval needs the restriction for both families and both families "
+        "consistent at the usual product rate."
     )
