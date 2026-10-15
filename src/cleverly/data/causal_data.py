@@ -43,7 +43,7 @@ import narwhals as nw
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray
-from ..exceptions import DataError
+from ..exceptions import DataError, RefusalReason
 from ..utils.frames import (
     as_frame,
     backend_of,
@@ -292,8 +292,9 @@ class CausalData:
         """
         if not is_dataframe(data):
             raise DataError(
-                "from_frame expects a pandas or polars DataFrame; "
-                "use CausalData.from_arrays for numpy input"
+                "from_frame expects a pandas or polars DataFrame.",
+                reason=RefusalReason.API_REDIRECTION,
+                alternative="Use CausalData.from_arrays for numpy input.",
             )
         frame = as_frame(data)
         columns = list(frame.columns)
@@ -1451,10 +1452,12 @@ def _treatment_recorded(
         return None
     if treatment_kind != "discrete":
         raise DataError(
-            "a missing treatment is supported for an arm-coded treatment only; "
-            f"{treatment_name} is declared {treatment_kind}, and a conditional density "
-            "fitted on the recorded rows has no composite indicator to divide by. Drop "
-            f"{delta_name}= or the rows with an unrecorded treatment."
+            f"When the missingness of {treatment_name} may depend on {treatment_name}, the "
+            f"law of {treatment_name} given W is not identified; only its law given "
+            f"Delta_A = 1 and W is. A {treatment_kind}-treatment target reads the law of "
+            f"{treatment_name} given W.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative=f"Drop {delta_name}= or the rows with an unrecorded treatment.",
         )
     recorded = check_delta(treatment_delta, delta_name, role="treatment")
     if recorded.shape[0] != missing.shape[0]:

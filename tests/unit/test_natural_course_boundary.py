@@ -95,7 +95,7 @@ STRATA_ROLES = {"outcome": "Y", "treatment": "A", "covariates": ("W", "stratum")
 SUBJECT = (
     "NaturalCourseMean, PAR and PAF with missing outcomes currently support ordinary TMLE "
     "and, for point estimates, the per-arm outcome-adaptive CTMLE under their audited "
-    "implementation contracts; "
+    "implementation contracts. "
 )
 
 
@@ -103,14 +103,26 @@ SUBJECT = (
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
-        ({"fluctuation": "linear"}, "set fluctuation='logistic'"),
-        ({"targeting": "one_step"}, "set targeting='iterative'"),
-        ({"target_weights": True}, "set target_weights=False"),
+        (
+            {"fluctuation": "linear"},
+            "No audited result covers a fluctuation other than the logistic one here. "
+            "X60 in docs/roadmap.md tracks this. Set fluctuation='logistic'.",
+        ),
+        (
+            {"targeting": "one_step"},
+            "No audited result covers a targeting algorithm other than the iterative one "
+            "here. X60 in docs/roadmap.md tracks this. Set targeting='iterative'.",
+        ),
+        (
+            {"target_weights": True},
+            "No audited result covers the weighted fluctuation here. X60 in docs/roadmap.md "
+            "tracks this. Set target_weights=False.",
+        ),
         (
             {"n_bootstrap": 2},
-            "set n_bootstrap=0; no audited bootstrap result covers this fit. X55 in "
-            "docs/roadmap.md tracks the in-sample bootstrap with finite-dimensional "
-            "nuisances, and F2 the bootstrap with data-adaptive nuisances",
+            "No audited bootstrap result covers this fit. X55 in docs/roadmap.md tracks the "
+            "in-sample bootstrap with finite-dimensional nuisances, and F2 the bootstrap with "
+            "data-adaptive or cross-fitted nuisances. Set n_bootstrap=0.",
         ),
     ],
 )
@@ -145,10 +157,10 @@ def test_repeated_splits_refuse_at_the_existing_method_boundary() -> None:
 
 #: The estimator-variant refusal, after the subject.
 VARIANT_REASON = (
-    "use ordinary TMLE, or CTMLE(strategy='oat', oat_design='per_arm') for point estimates; "
-    "the C-TMLE selector strategies, the shared outcome-adaptive design and DR-TMLE need "
-    "separate targeting and inference results (X51 in docs/roadmap.md tracks the C-TMLE "
-    "point estimates, and X50 the DR-TMLE route)"
+    "The C-TMLE selector strategies, the shared outcome-adaptive design and DR-TMLE need "
+    "separate targeting and inference results. X51 in docs/roadmap.md tracks the C-TMLE "
+    "point estimates, and X50 the DR-TMLE route. "
+    "Use ordinary TMLE, or CTMLE(strategy='oat', oat_design='per_arm') for point estimates."
 )
 
 
@@ -176,7 +188,7 @@ VARIANT_REASON = (
             lambda estimands: DRTMLE(
                 estimands=estimands, guard=(), cross_fit=False, **never_fit_learners()
             ),
-            ". guard=() is the ordinary TMLE; use TMLE",
+            " guard=() is the ordinary TMLE, so use TMLE.",
             id="drtmle-unguarded",
         ),
     ],
@@ -257,7 +269,13 @@ ESTIMATORS = [
 @pytest.mark.parametrize("build", ESTIMATORS)
 @pytest.mark.parametrize(
     ("fit_roles", "message"),
-    [({"intermediate": "Z"}, "intermediate= is not implemented")],
+    [
+        (
+            {"intermediate": "Z"},
+            "intermediate= is not implemented for these targets. X60 in docs/roadmap.md "
+            "tracks this. Fit the natural-course target without intermediate=.",
+        )
+    ],
     ids=("intermediate",),
 )
 def test_unsupported_data_compositions_refuse_before_fitting(
@@ -307,8 +325,8 @@ def test_a_stacked_attributable_fit_meets_the_arm_indexed_strata_refusal(
             _frame(), strata=("stratum",), **STRATA_ROLES
         )
     assert str(caught.value).endswith(
-        "no audited result covers baseline strata. Drop strata= from fit "
-        "(PointTreatment(strata=()))"
+        "No audited result covers baseline strata. X53 in docs/roadmap.md tracks this. "
+        "Drop strata= from fit (PointTreatment(strata=()))."
     )
     assert NeverFit.calls == 0
 
@@ -319,12 +337,13 @@ def test_a_stacked_attributable_fit_meets_the_arm_indexed_strata_refusal(
     [
         (
             {"weights": "weight"},
-            "the stacked contract covers unweighted iid rows. Drop weights= from fit, "
-            "or fit in sample",
+            "The stacked contract covers unweighted iid rows. X60 in docs/roadmap.md tracks "
+            "this. Drop weights= from fit, or fit in sample.",
         ),
         (
             {"id": "id"},
-            "the stacked contract covers unweighted iid rows. Drop id= from fit, or fit in sample",
+            "The stacked contract covers unweighted iid rows. X60 in docs/roadmap.md tracks "
+            "this. Drop id= from fit, or fit in sample.",
         ),
     ],
     ids=("weighted", "clustered"),

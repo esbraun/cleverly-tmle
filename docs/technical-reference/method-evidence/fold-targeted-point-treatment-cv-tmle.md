@@ -43,9 +43,11 @@ the outcome scaler is the identity on both sides and neither implementation decl
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome law | `ate` | average treatment effect | 3.689e-07 | 0.000081 | 1.0000 | -0.000625 | 0.0019 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `zepid-single-crossfit-tmle` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law | `ate` | average treatment effect | 3.689e-07 | 0.000081 | 1.0000 | -0.000625 | matching implementation | 0.0019 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties

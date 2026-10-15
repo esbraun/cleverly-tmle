@@ -331,7 +331,7 @@ def test_w10_the_study_withholds_the_kinds_that_have_no_reduction() -> None:
     methods = {record.name: record for record in effect.available_methods()}
     assert methods["tmle"].available and methods["sdr"].available
     assert not methods["ipsi"].available
-    assert methods["ipsi"].reason == sequential.repeated_outcome_refusal("IPSI")
+    assert methods["ipsi"].refusal == sequential.repeated_outcome_refusal("IPSI")
 
 
 # ---------------------------------------------------------------- W11 and W12

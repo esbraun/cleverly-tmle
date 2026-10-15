@@ -797,6 +797,7 @@ class TestScoreAuditAccounting:
         return _seed_record(
             artifacts=directory,
             reference="reference",
+            comparison="matching implementation",
             extra_artifacts=(claims.FIT_DIAGNOSTICS_FILE,),
         )
 
@@ -851,6 +852,7 @@ class TestMechanismDiagnostics:
         return _seed_record(
             artifacts=directory,
             reference="reference",
+            comparison="matching implementation",
             extra_artifacts=(claims.FIT_DIAGNOSTICS_FILE,),
         )
 

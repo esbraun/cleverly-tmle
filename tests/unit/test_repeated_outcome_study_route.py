@@ -44,8 +44,8 @@ def test_wc_the_listing_withholds_every_kind_outside_the_allowlist() -> None:
     for name in ("tmle", "sdr"):
         assert methods[name].available and methods[name].reason is None
     assert not methods["ipsi"].available
-    assert methods["ipsi"].reason == sequential.repeated_outcome_refusal("IPSI")
-    assert "LTMLE and SDR fit one" in methods["ipsi"].reason
+    assert methods["ipsi"].refusal == sequential.repeated_outcome_refusal(TITLES["ipsi"])
+    assert "LTMLE and SDR fit one." in methods["ipsi"].reason
 
 
 @pytest.mark.parametrize("kinds", [{"tmle"}, {"tmle", "sdr"}, {"tmle", "ipsi"}, {"sdr", "ipsi"}])
@@ -60,7 +60,7 @@ def test_wc_the_listing_follows_the_allowlist(
         if name in kinds:
             assert methods[name].reason is None
         else:
-            assert methods[name].reason == sequential.repeated_outcome_refusal(TITLES[name])
+            assert methods[name].refusal == sequential.repeated_outcome_refusal(TITLES[name])
 
 
 def test_wc_the_fit_refuses_with_the_reason_of_the_listing() -> None:

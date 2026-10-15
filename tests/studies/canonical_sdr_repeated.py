@@ -261,6 +261,7 @@ STUDY = StudyRecord(
     # the change registering the lmtp rows (X32b PR C, TRACKER row 12c) adds.  It does not block
     # the merge, and that change moves this name to ``reference``.
     pending_reference="lmtp",
+    comparison="matching implementation",
     pending_reason=(
         "the R lmtp 1.5.4 paired runs (cf_sdr, one call per plan and horizon on the truncated "
         "prefix, on the draws and pairing columns committed here) run on the owner's machine as "

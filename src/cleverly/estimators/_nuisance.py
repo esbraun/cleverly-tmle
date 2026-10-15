@@ -32,6 +32,7 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
+from ..exceptions import CapabilityError, RefusalReason
 from ..fluctuation.iterative import Fluctuation, InitialFit
 from ..interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet
 from ..learners._fitting import (
@@ -1580,17 +1581,26 @@ def _check_companion(data: CausalData, companion: CausalData) -> None:
     function that would otherwise return an array for a fit nobody ran.
     """
     if data.is_continuous_treatment or companion.is_continuous_treatment:
-        raise NotImplementedError(
+        raise CapabilityError(
             "an evaluation companion reads a per-arm mechanism g(a | W), and a continuous "
             "dose has none: its mechanism is a conditional density and evaluating it at "
-            "new rows is a different object from predicting a probability."
+            "new rows is a different object from predicting a probability.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Fit TMLE on the continuous dose.",
+            roadmap="F5",
         )
     if data.has_missing_outcome or data.has_intermediate:
-        raise NotImplementedError(
+        # F5 keeps the DR-TMLE controlled direct effect, and X50 part (d) holds evaluation=
+        # on the composite missing-outcome fit.
+        roadmap = "F5" if data.has_intermediate else "X50"
+        raise CapabilityError(
             "an evaluation companion is not built for a fit with delta= or intermediate=: "
             "the curve at the companion rows would need the missingness and intermediate "
-            "mechanisms there too, and DRTMLE -- the only estimator that asks for one -- "
-            "refuses both by name."
+            "mechanisms there too, and DRTMLE, the only estimator that asks for one, "
+            "refuses both by name.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Fit DRTMLE without evaluation=.",
+            roadmap=roadmap,
         )
     if tuple(companion.covariate_names) != tuple(data.covariate_names):
         raise ValueError(
@@ -1641,7 +1651,12 @@ def fit_inner_designs(
     what it costs on a pooled fit.
     """
     if data.is_continuous_treatment:
-        raise ValueError("the nested construction reads a per-arm mechanism; a dose has none")
+        raise CapabilityError(
+            "the nested construction reads a per-arm mechanism, and a continuous dose has none.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Fit TMLE on the continuous dose.",
+            roadmap="F5",
+        )
     folds = nuisance.folds
     if folds.n_folds < 3:
         raise ValueError(

@@ -123,17 +123,19 @@ as an established property.
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| paper binary law, both nuisances correct | `ate` | average treatment effect | -0.000002 | 0.000593 | 1.0058 | -0.0012 | 0.0032 vs 0.0500 | equivalent |
-| paper binary law, both nuisances correct | `ey0` | counterfactual mean under no treatment | 0.000018 | 0.0091 | 1.0041 | 0.0025 | 0.0039 vs 0.0500 | equivalent |
-| paper binary law, both nuisances correct | `ey1` | counterfactual mean under treatment | 0.000016 | 0.0077 | 1.0050 | -0.0025 | 0.0034 vs 0.0500 | equivalent |
-| paper binary law, outcome regression correct | `ate` | average treatment effect | -0.000092 | 0.0329 | 1.0145 | -0.0087 | 0.0184 vs 0.0500 | equivalent |
-| paper binary law, outcome regression correct | `ey0` | counterfactual mean under no treatment | 0.000059 | 0.0296 | 1.0086 | -0.0013 | 0.0135 vs 0.0500 | equivalent |
-| paper binary law, outcome regression correct | `ey1` | counterfactual mean under treatment | -0.000032 | 0.0151 | 1.0126 | 0.0013 | 0.0094 vs 0.0500 | equivalent |
-| paper binary law, treatment mechanism correct | `ate` | average treatment effect | 0.0010 | 0.3362 | 1.0467 | 0.0050 | 0.0403 vs 0.0500 | equivalent |
-| paper binary law, treatment mechanism correct | `ey0` | counterfactual mean under no treatment | -0.000415 | 0.1864 | 1.0378 | 0.0062 | 0.0468 vs 0.0500 | equivalent |
-| paper binary law, treatment mechanism correct | `ey1` | counterfactual mean under treatment | 0.000590 | 0.2587 | 1.0326 | -0.0075 | 0.0370 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `drtmle-r` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| paper binary law, both nuisances correct | `ate` | average treatment effect | -0.000002 | 0.000593 | 1.0058 | -0.0012 | matching implementation | 0.0032 vs 0.0500 | equivalent |
+| paper binary law, both nuisances correct | `ey0` | counterfactual mean under no treatment | 0.000018 | 0.0091 | 1.0041 | 0.0025 | matching implementation | 0.0039 vs 0.0500 | equivalent |
+| paper binary law, both nuisances correct | `ey1` | counterfactual mean under treatment | 0.000016 | 0.0077 | 1.0050 | -0.0025 | matching implementation | 0.0034 vs 0.0500 | equivalent |
+| paper binary law, outcome regression correct | `ate` | average treatment effect | -0.000092 | 0.0329 | 1.0145 | -0.0087 | matching implementation | 0.0184 vs 0.0500 | equivalent |
+| paper binary law, outcome regression correct | `ey0` | counterfactual mean under no treatment | 0.000059 | 0.0296 | 1.0086 | -0.0013 | matching implementation | 0.0135 vs 0.0500 | equivalent |
+| paper binary law, outcome regression correct | `ey1` | counterfactual mean under treatment | -0.000032 | 0.0151 | 1.0126 | 0.0013 | matching implementation | 0.0094 vs 0.0500 | equivalent |
+| paper binary law, treatment mechanism correct | `ate` | average treatment effect | 0.0010 | 0.3362 | 1.0467 | 0.0050 | matching implementation | 0.0403 vs 0.0500 | equivalent |
+| paper binary law, treatment mechanism correct | `ey0` | counterfactual mean under no treatment | -0.000415 | 0.1864 | 1.0378 | 0.0062 | matching implementation | 0.0468 vs 0.0500 | equivalent |
+| paper binary law, treatment mechanism correct | `ey1` | counterfactual mean under treatment | 0.000590 | 0.2587 | 1.0326 | -0.0075 | matching implementation | 0.0370 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Repeated-sampling properties

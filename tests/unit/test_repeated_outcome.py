@@ -351,7 +351,7 @@ def test_w1_a_refused_composition_refuses_like_the_end_of_study_fit(kind: type[A
             refused.add(composition.name)
             assert len(errors) == 2, composition.name
             assert errors[0] == errors[1], composition.name
-            assert errors[0] == SDR_TILT_REFUSAL, composition.name
+            assert errors[0] == SDR_TILT_REFUSAL.message(), composition.name
     assert refused == REFUSED[kind]
 
 
