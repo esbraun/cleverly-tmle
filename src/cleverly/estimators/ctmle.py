@@ -2270,6 +2270,9 @@ default="greedy"
         Its targeted fit is the state the ordinary continuation starts from.
         """
         arms = data.arm_codes
+        # The columns the treatment mechanism reads: every covariate, or the subset the design
+        # declares with ``treatment_adjustment=``.
+        design = data.mechanism_covariates
         seed_value = self.random_state if seed is None else seed
         everything: IntArray = np.arange(data.n)
         if base.folds.is_single:
@@ -2287,12 +2290,12 @@ default="greedy"
             mechanism = np.empty((data.n, len(arms)))
             partner = np.empty((data.n, len(arms)))
             grid = (
-                default_penalty_grid(data.covariates, data.treatment, data.weights)
+                default_penalty_grid(design, data.treatment, data.weights)
                 if self.lambdas is None
                 else None
             )
             for train, test, layer in sets:
-                x, a, w = data.covariates[train], data.treatment[train], data.weights[train]
+                x, a, w = design[train], data.treatment[train], data.weights[train]
                 if grid is None:
                     pair = _check_penalty_pair(self.lambdas)
                 else:
@@ -2310,8 +2313,8 @@ default="greedy"
                     chosen_risks.append(float(risk[index]))
                 fits = penalty_path(x, a, w, sorted(pair, reverse=True), classes=arms, layer=layer)
                 by_penalty = {fit.penalty: fit for fit in fits}
-                mechanism[test] = by_penalty[pair[0]].predict_proba(data.covariates[test])
-                partner[test] = by_penalty[pair[1]].predict_proba(data.covariates[test])
+                mechanism[test] = by_penalty[pair[0]].predict_proba(design[test])
+                partner[test] = by_penalty[pair[1]].predict_proba(design[test])
                 penalties.append(pair)
             values = [mechanism, partner]
         else:
@@ -2330,12 +2333,12 @@ default="greedy"
                 )
                 predictions, _ = cross_fit_predictions(
                     learner,
-                    data.covariates,
+                    design,
                     data.treatment,
                     data.weights,
                     base.folds,
                     task="classification",
-                    predict_designs={"g": data.covariates},
+                    predict_designs={"g": design},
                     groups=data.cluster,
                     clip=(0.0, 1.0),
                     classes=arms,
@@ -2349,7 +2352,7 @@ default="greedy"
             base,
             propensity=propensity,
             treatment_partner=Propensity(np.clip(values[1], 0.0, 1.0), arms),
-            treatment_covariates=data.covariate_names,
+            treatment_covariates=data.mechanism_covariate_names,
         )
         update = fitted_update(
             data,
@@ -2358,6 +2361,7 @@ default="greedy"
             nuisance_bound=self.nuisance_bound,
             intermediate_value=intermediate_value,
             spec=self.targeting_spec(),
+            stop=self._stop_context(data, nuisance),
         )
         if chosen_risks:
             treatment_risk = float(np.mean(chosen_risks))
@@ -2743,6 +2747,7 @@ default="greedy"
                 intermediate_value=kwargs.get("intermediate_value"),
                 spec=self.targeting_spec(),
                 missingness=kwargs.get("missingness"),
+                stop=self._stop_context(data, nuisance),
             )
             working = replace(nuisance, outcome=update.targeted, targeting_outcome=None)
             return super()._retarget_detailed(data, working, **kwargs)
