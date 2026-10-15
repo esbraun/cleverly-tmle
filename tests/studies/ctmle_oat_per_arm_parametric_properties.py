@@ -47,9 +47,14 @@ the families it knows, and the shared calibration verdict reads one estimand per
   the gated row reads it.
 * ``clipped_share`` on the steep cell.
 
-A replicate that raises is not redrawn and the property phase accepts no failure: the run
-stops after the group that lost one.  Each finished replicate is checkpointed under the driver,
-so a killed run resumes.
+A replicate that raises is not redrawn.  :func:`group_rows` fits through
+:func:`~tests.studies.evidence.replication.fit_properties`, so one failed fit costs the cells
+that its key writes one replicate each, and the run continues.  An admitted fit whose stack
+status is not ``"influence_curve"`` raises in ``fit_cleverly`` and counts the same way.  :data:`FAILURE_BOUND` lets a cell lose ``floor(0.01 R)`` replicates,
+and the accounting judges each clause by its worst case over the lost values.  A lost
+``binary_active`` fit also costs the two controls derived from its ``ate`` row
+(:data:`DERIVED_CELLS`).  Each finished replicate is checkpointed under the driver, so a killed
+run resumes.
 """
 
 from __future__ import annotations
@@ -69,7 +74,6 @@ from tests.studies.canonical_ctmle_oat_per_arm_parametric import (
     CELLS,
     CONTROL_LABELS,
     GROUPS,
-    IMPLEMENTATION,
     SHRUNKEN_SE_FACTOR,
     STUDY,
     Cell,
@@ -80,10 +84,7 @@ from tests.studies.canonical_ctmle_oat_per_arm_parametric import (
     sample,
     truth,
 )
-from tests.studies.canonical_ctmle_oat_per_arm_parametric import (
-    FAILURE_BOUND as DECLARED_FAILURE_BOUND,
-)
-from tests.studies.evidence import replication
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.inference import Interval, clopper_pearson
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
@@ -95,16 +96,21 @@ from tests.studies.evidence.properties import (
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 
-#: The project's declared failure bound, equal to the runner's. No phase applies it yet:
-#: :func:`group_rows` raises on the first failed replicate.
+#: The share of a cell's requested replicates that the accounting lets a run lose, declared for
+#: the study's next property run (RM39b2).  Up to ``floor(0.01 R)`` lost replicates are judged by
+#: the worst case of each clause; one more is ``bound exceeded``.  The runner's
+#: ``STUDY.failure_bound`` carries the same value.
 FAILURE_BOUND = 0.01
-if FAILURE_BOUND != DECLARED_FAILURE_BOUND:
-    raise AssertionError("the property module and the runner declare different failure bounds")
+
+#: The draw-level statistic the accounting reports for each lost replicate.
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 
@@ -142,21 +148,24 @@ RATIO_ESTIMATES = {"log_rr": "rr", "log_or": "or"}
 
 # ------------------------------------------------------------------------------ one replicate
 
+#: ``(group, replicate)``, or ``(group, replicate, requested)`` in the property loop.
+Key = tuple[Any, ...]
 
-def _sample_seed(key: tuple[str, int]) -> int:
+
+def _sample_seed(key: Key) -> int:
     return stream_seed(STUDY, "property_sample", key[0], key[1])
 
 
-def _draw(key: tuple[str, int]) -> pd.DataFrame:
+def _draw(key: Key) -> pd.DataFrame:
     group = GROUPS[key[0]]
     return sample(group.law, group.n, _sample_seed(key))
 
 
-def _group_of(key: tuple[str, int]) -> str:
+def _group_of(key: Key) -> str:
     return key[0]
 
 
-def _replicate_of(key: tuple[str, int]) -> int:
+def _replicate_of(key: Key) -> int:
     return key[1]
 
 
@@ -206,7 +215,7 @@ def _measure_cell(cell: Cell, result: Any, parts: dict[str, Any]) -> dict[str, A
     return measured
 
 
-def _measure(key: tuple[str, int], frame: pd.DataFrame) -> list[dict[str, Any]]:
+def _measure(key: Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
     """Fit every configuration of the key's group on one sample and read every cell."""
     group = GROUPS[key[0]]
     results = {fit.name: fit_cleverly(frame, fit) for fit in group.fits}
@@ -223,11 +232,6 @@ def _measure(key: tuple[str, int], frame: pd.DataFrame) -> list[dict[str, Any]]:
             parts["stack"] = stacks[cell.fit]
         out.append(_measure_cell(cell, result, parts))
     return out
-
-
-def _valid(measured: list[dict[str, Any]]) -> str | None:
-    """The first row rule a replicate's measurements break."""
-    return replication.invalid_rows(measured, coverage=False)
 
 
 def _rows(
@@ -262,38 +266,54 @@ def _rows(
     return rows
 
 
+#: The derived controls of each base cell, as ``property/cell`` names: a lost ``binary_active``
+#: fit also costs the ``shrunken_se_control`` and the ``noise_control`` of its ``ate`` row.
+DERIVED_CELLS = calibration_derived(CONTROL_LABELS, positive_suffix="corrected")
+
+
+def _cells_of(key: Key) -> list[str]:
+    """The ``property/cell`` names that one fit writes, its derived controls included."""
+    names = [f"{cell.family}/{cell.name}" for cell in cells_of(key[0])]
+    for base, controls in DERIVED_CELLS.items():
+        if base in names:
+            names.extend(controls)
+    return names
+
+
+def _replication(key: Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    """Fit one key's sample and return the rows of its cells: ``(group, replicate, requested)``."""
+    return _rows(GROUPS[key[0]], key[1], _measure(key, frame), key[2])
+
+
 def group_rows(group: Group, *, n_jobs: int, replicates: int | None = None) -> pd.DataFrame:
     """Fit ``group`` for ``replicates`` (default its budget) and return its rows.
 
-    Under the regeneration driver, each finished replicate is checkpointed under the label
-    ``property-<group>``, and a rerun fits only the replicates without a checkpoint.  The
-    property phase accepts no failed replicate: a failure raises after the group finishes.
+    The loop runs through :func:`~tests.studies.evidence.replication.fit_properties`, under the
+    label ``properties/<group>``.  Under the regeneration driver, each finished replicate is
+    checkpointed, and a rerun fits only the replicates without a checkpoint.  A failed fit costs
+    the cells of its key one replicate each, and the driver records it.  Outside the driver, a
+    failed fit raises ``RuntimeError``.
     """
     requested = group.replicates if replicates is None else replicates
-    outcomes = replication.fit_replicates(
-        [(group.name, replicate) for replicate in range(requested)],
-        _measure,
-        draw=_draw,
-        validate=_valid,
-        n_jobs=n_jobs,
-        label=f"property-{group.name}",
-        implementation=IMPLEMENTATION,
+    # The truth of each cell is a cached quadrature: compute it here, so that an error in it
+    # stops the run before any fit and each worker reads the cache.
+    for cell in cells_of(group.name):
+        truth(cell.truth, cell.estimand)
+        if cell.report == "psi0":
+            truth("binary_active", cell.estimand)
+    outcomes = fit_properties(
+        [(group.name, replicate, requested) for replicate in range(requested)],
+        _replication,
+        cells_of=_cells_of,
         cell_of=_group_of,
         replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        label=f"properties/{group.name}",
+        draw=_draw,
+        derived=DERIVED_CELLS,
         seed_of=_sample_seed,
     )
-    if outcomes.failed:
-        first = outcomes.failures.iloc[0]
-        raise RuntimeError(
-            f"{group.name}: {len(outcomes.failed)} of {requested} property replicates failed; "
-            f"the property phase accepts no failure. First: {first['message']}"
-        )
-    rows = [
-        row
-        for key, measured in zip(outcomes.keys, outcomes.fitted, strict=True)
-        for row in _rows(group, key[1], measured, requested)
-    ]
-    return pd.DataFrame(rows)
+    return pd.DataFrame([row for rows in outcomes for row in rows])
 
 
 # ------------------------------------------------------------------------------- the whole run
@@ -467,9 +487,19 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     return finish(summary, rates)
 
 
+#: The failure accounting's declared rule for the one verdict the module writes outside a shared
+#: function.  The oracle-design and estimated cells share one verdict, so the group is the family.
+PROPERTY_RULES = (
+    property_verdicts.generated_design_rule(group="family", shared="_generated_design_verdicts"),
+)
+
+
 __all__ = [
     "BUDGETS",
+    "DERIVED_CELLS",
     "FAILURE_BOUND",
+    "PROPERTY_RULES",
+    "PROPERTY_WITNESS",
     "generate_property_rows",
     "generate_smoke_property_rows",
     "group_rows",

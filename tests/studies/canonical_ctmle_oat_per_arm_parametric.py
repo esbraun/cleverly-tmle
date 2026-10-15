@@ -36,24 +36,28 @@ prognosis, U-shaped, steep, the bounded outcome ``Y = 2 + 8 B``, and ``binary_ac
   the declared side.  A control whose interval stays inside the band, or straddles it, publishes
   ``passed = False``.  Its cell then cannot see its term, the study is invalid, and it is
   redesigned before any reading.  The policy is ``gated``, so such a row blocks publication.
-* The coverage of ``psi_0`` in the pseudo-true cell, the ``sqrt(n)`` SD of the ladder against the
+* The coverage of ``psi_0`` in the pseudo-true cell (expected near 0.56 for ``ey0``, 0.58 for
+  ``ey1`` and 0.31 for ``ate``, from the declared-size pilot on pilot-only seeds), the ``sqrt(n)`` SD of the ladder against the
   quadrature SD, the clipped share of the steep cell, and the Monte Carlo covariance of the two
   arm means against the mean reported covariance are reported and gate nothing.  The covariance
   enters the gate through the ATE row of the shared-prognosis cell, which the dropped cross term
   moves from 1.007 to 1.238.
 
-**Failures.**  The record declares no ``failure_bound``, so the primary phase runs at bound 0:
-the harness records a failed primary replicate, and the primary cell is then red.  The property
-phase accepts no failed replicate: a failure stops the run after its group finishes
-(``docs/development/method-benchmarking.md``, "Failed replicates").  ``FAILURE_BOUND`` is the
-project's declared bound of 0.01, recorded for the harness that applies it after RM39b2; it is
-not applied here, and no bound is raised after a run shows a failure.  A fit that raises, and an
-admitted fit whose stack fails (``fit_cleverly`` raises on any status other than
-``"influence_curve"``), both count as failures.  Dropping such a replicate would select on
-success, and substituting the shipped standard error would mix two estimators.  A stop is
-itself a finding: the run reports the status, the seed and the group, the failure is diagnosed,
-and the study is declared again.  The pilots (5,000 draws per cell, then every group at its
-declared budget on pilot-only seeds) raised no separation refusal and no stack failure.
+**Failures.**  The record declares ``failure_bound={IMPLEMENTATION: 0.01}`` and the property
+module declares ``FAILURE_BOUND = 0.01``, in the form ``docs/development/method-benchmarking.md``
+("Property fitting failures", "The bound") defines.  A failed replicate is recorded and not
+redrawn, and the run continues: the primary phase records it through ``fit_primary`` and the
+property phase through ``fit_properties``.  A fit that raises, and an admitted fit whose stack
+fails (``fit_cleverly`` raises on any status other than ``"influence_curve"``), both count as
+failed replicates.  Dropping such a replicate would select on success, and substituting the
+shipped standard error would mix two estimators.  A cell may lose ``floor(0.01 R)`` replicates
+of its ``R``.  Each clause of a cell inside that allowance is judged by its worst case over the
+lost values (``property-failure-accounting.csv``), and one more lost replicate reads ``bound
+exceeded`` before any clause runs.  The run reports the status, the seed and the group of each
+failure (``failures.csv`` and ``property-failures.csv``), and the failure is diagnosed.  A bound
+is raised only while no committed run shows a failure.  The pilots (5,000 draws per cell, then
+every group at its declared budget on pilot-only seeds) raised no separation refusal and no
+stack failure.
 
 **Sizes.**  Each calibration group is sized so that the whole study passes with probability at
 least 0.95 when nothing is wrong: each of the 12 gated calibration groups gets the per-group
@@ -96,8 +100,9 @@ SEED = 20261158
 RESAMPLING_SEED = 2026115801
 IMPLEMENTATION = "cleverly-ctmle-oat-per-arm-parametric"
 SCENARIO = "binary_active"
-#: The share of primary replicates that may fail, declared before the first run.  The property
-#: phase accepts none.
+#: The share of a cell's replicates that a run may lose, declared before the first run.  The
+#: record carries it as ``failure_bound={IMPLEMENTATION: FAILURE_BOUND}`` and the property module
+#: declares the same value.
 FAILURE_BOUND = 0.01
 #: The factor of ``shrunken_se_control``.  The shared ``calibration_controls`` value.
 SHRUNKEN_SE_FACTOR = 0.70
@@ -480,6 +485,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation=IMPLEMENTATION,
     reference=None,
+    failure_bound={IMPLEMENTATION: FAILURE_BOUND},
     modules=(
         "tests/studies/canonical_ctmle_oat_per_arm_parametric.py",
         "tests/studies/ctmle_oat_per_arm_parametric_properties.py",
@@ -547,8 +553,10 @@ CONFIGURATION: dict[str, Any] = {
     "failure_bounds": {
         "declared": FAILURE_BOUND,
         "applied": (
-            "0: a failed primary replicate makes the primary cell red; a failed property "
-            "replicate stops the run. A stack failure counts as a failure"
+            "0.01 in both phases: a cell may lose floor(0.01 R) replicates, and each clause "
+            "is judged by its worst case over the lost values; one more lost replicate reads "
+            "bound exceeded. A fit that raises, and an admitted fit whose stack status is not "
+            "influence_curve, both count as failed replicates"
         ),
     },
     "shrunken_se_factor": SHRUNKEN_SE_FACTOR,

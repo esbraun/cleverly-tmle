@@ -18,6 +18,7 @@ from tests.studies import canonical_ctmle_oat_per_arm_parametric as runner
 from tests.studies import ctmle_oat_per_arm_parametric_properties as properties
 from tests.studies import oat_parametric_quadrature as quad
 from tests.studies import oat_per_arm_laws as laws
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.property_verdicts import (
     MINIMUM_POWER,
     SE_CONTROL_SIDES,
@@ -190,7 +191,8 @@ def test_the_seeds_are_fresh() -> None:
 def test_the_failure_bound_is_one_percent_in_every_module() -> None:
     assert runner.FAILURE_BOUND == 0.01
     assert properties.FAILURE_BOUND == 0.01
-    assert not runner.STUDY.failure_bound
+    assert dict(runner.STUDY.failure_bound) == {runner.IMPLEMENTATION: 0.01}
+    assert properties.PROPERTY_WITNESS is property_verdicts.SAMPLE_WITNESS
 
 
 @pytest.mark.parametrize(
@@ -254,6 +256,25 @@ def test_a_replicate_reads_every_cell_of_its_group_and_the_shipped_curve_is_narr
     roles = {row["cell"]: row["role"] for row in rows}
     assert roles["binary_active__ate__shipped_curve__shrunken_se_control"] == "control"
     assert roles["binary_active__ate__corrected"] == "positive"
+
+
+def test_a_key_names_its_cells_and_the_controls_derived_from_them() -> None:
+    names = properties._cells_of(("binary_active", 0, 5))
+    positives = [f"{cell.family}/{cell.name}" for cell in runner.cells_of("binary_active")]
+    derived = [f"interval_calibration/{name}" for name in runner.DERIVED_CONTROLS]
+    assert names == [*positives, *derived]
+    assert {name for controls in properties.DERIVED_CELLS.values() for name in controls} == set(
+        derived
+    )
+    assert set(properties.DERIVED_CELLS) <= set(positives)
+    assert properties._cells_of(("sharp_null", 0, 5)) == ["type_i_error/sharp_null"]
+
+
+def test_the_property_loop_runs_through_fit_properties_and_writes_the_cells_of_its_keys() -> None:
+    rows = properties.group_rows(runner.GROUPS["sharp_null"], n_jobs=1, replicates=2)
+    assert set(rows["cell"]) == {"sharp_null"}
+    assert rows["replicate"].tolist() == [0, 1]
+    assert set(rows["requested_replicates"]) == {2}
 
 
 def test_the_primary_phase_draws_from_the_published_seed() -> None:
