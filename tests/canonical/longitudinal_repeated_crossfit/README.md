@@ -26,13 +26,19 @@ Run from a clean, pushed commit with every thread variable set to 1. Set `LOCALA
 persistent directory: the run keeps its scratch and checkpoints at
 `$LOCALAPPDATA/cleverly/runs/longitudinal-repeated-crossfit/<key>`.
 
+The resume key holds `HEAD` and the Python, numpy, scipy, pandas and scikit-learn versions.
+Build the environment from `uv.lock`, so that a rebuilt environment gives the same key:
+
 ```bash
-export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
-python -m tests.canonical.longitudinal_repeated_crossfit.regenerate --jobs 16 --output ~/scratch/x46-run-1
+UV_PROJECT_ENVIRONMENT=~/x46-venv uv sync --frozen --extra dev --python 3.13.16
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+~/x46-venv/bin/python -m tests.canonical.longitudinal_repeated_crossfit.regenerate --jobs 4 --output ~/scratch/x46-run-1
 ```
 
 A stopped run resumes from the same commit with a new empty `--output`. Every finished primary
-and property replicate is a checkpoint, and the run fits only the rest.
+and property replicate is a checkpoint, and the run fits only the rest. A checkpoint holds a
+recorded fitting failure too, so a resume replays it; the summary counts it against
+`FAILURE_BOUND` and does not refit it.
 
 ## Running in parts
 
@@ -41,9 +47,13 @@ declared run then reuses those checkpoints. Every part must run from the same co
 the same `LOCALAPPDATA` as the declared run.
 
 ```bash
-python -m tests.canonical.longitudinal_repeated_crossfit.part --part primary --jobs 16
-python -m tests.canonical.longitudinal_repeated_crossfit.part --part calibration_i --first 1500 --jobs 16
+python -m tests.canonical.longitudinal_repeated_crossfit.part --part primary --jobs 4
+python -m tests.canonical.longitudinal_repeated_crossfit.part --part calibration_i --first 1200 --jobs 4
 ```
+
+Copy each part's finished checkpoints (`*.pkl.gz`) and `_key.json` out of the scratch when the
+machine can be lost. To resume elsewhere, put them back under the same key, delete `_lock` and
+every `.started`, `.kills` and `.tmp` marker, and run the part again.
 
 The parts are `primary`, `calibration_d`, `calibration_i`, `calibration_s`, `calibration_c`,
 `calibration_m`, `rate_2000`, `rate_8000`, `rate_32000`, `ipsi_primary`, `stability_d` and

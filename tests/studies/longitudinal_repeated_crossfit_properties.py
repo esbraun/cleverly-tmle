@@ -43,27 +43,44 @@ increment is below :data:`INCREMENT_CEILING`; its control passes when its own en
 above it.  ``ipsi_primary`` reads the three primary rules: the bias interval inside the margin,
 the coverage lower endpoint above the floor, and the SE-ratio interval inside the sanity band.
 
-**Declared red-cell reading** (``X46-plan.md`` 5.6, declared before the run).  A red
-calibration or band row is finite-sample only when its SE-ratio 99% interval contains 1, its
-coverage is consistent with 0.95, and the diagnosis finds no defect.  The diagnosis compares
-the label's ``single_draw_reading`` row with its median row.  A red median row whose draw-0 row
-is green is a defect suspect in the repeat layer.  A red median row whose draw-0 row is equally
-red is a single-draw suspect, and it still has to meet the three conditions.  A red
-``repeat_increment`` cell is a defect suspect in the repeat layer and is never parked on an
-owner row.  A red control is a design defect and is fixed before any rerun.  Margins, sizes
-and laws never move after a verdict.
+**What each family can see.**  The split adjustment of (3.14) moves a reported SE by at most
+half of the median displacement share, which the pilot reads at 1.2e-4 to 0.0050 on the
+calibration labels (``tests/diagnostics/x46_sizing/reading.csv``, column ``share``).  So
+``interval_calibration``, ``ipsi_primary`` and ``simultaneous_coverage`` would pass with draw
+0's variance alone, or with (3.14) less its displacement term.  They are evidence for the
+median's inference, not for the displacement term.  Only ``repeat_stability`` (spread ratios
+0.62 to 0.73 against exactly 1 when every draw reuses one split) and ``repeat_increment`` at
+horizon 3 (share 0.0077, increment +0.0165) read the repeat layer.  The unit witnesses of
+``X46-plan.md`` 4.2 and 4.3 carry the exact check of the displacement term.
+
+**The ladder's 2,000 rung.**  The rung keeps the shared ``control`` role and rule, but at 800
+replications the rule's two regions cover every count, so the rung cannot fail.  It is not a
+slow-convergence control and is never counted as evidence.  The ``root_n_rate`` slope rows
+carry that check: the slope interval must lie within 0.125 of -0.5 and exclude -0.25.
+
+**Failures.**  A fit that raises a recordable error, or returns a row with a non-finite
+estimate or a non-positive standard error, is recorded by
+:func:`tests.studies.evidence.replication.fit_replicates` and costs its replicate; the run goes
+on.  Every row of the fit set publishes the count in ``failed_replicates``.  The summary reads
+each cell's survivors, and a cell whose fit set lost more than
+``floor(FAILURE_BOUND * replicates)`` replicates is red (:func:`summarize_properties`).  A
+checkpointed failure replays on resume, so the summary can be re-read without refitting.
+
+**Declared red-cell reading.**  :data:`RED_CELL_POLICY`, declared before the run; the owner of
+every reported red cell is :data:`RED_CELL_OWNER`.  :data:`PASS_PROBABILITIES` states the
+declared pass probability that a verdict is read beside.
 
 **Resuming.**  Every fit set goes through
 :func:`tests.studies.evidence.replication.fit_replicates`, which checkpoints each replicate
 under the regeneration driver's scratch.  A stopped run resumes at the replicates it had not
 finished.  :func:`fit_part` fits one fit set, or its first replicates, into the same
 checkpoints, so ``tests/canonical/longitudinal_repeated_crossfit/part.py`` can run the study in
-parts before the declared run collects them.  A recorded fitting failure stops the summary: :data:`FAILURE_BOUND` is the share
-the property-failure accounting of RM39b2 will apply when it lands.
+parts before the declared run collects them.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from typing import Any
 
@@ -96,8 +113,106 @@ from tests.studies.evidence.simultaneous import joint_coverage_rows
 
 STUDY = study.STUDY
 
-#: The share of a cell's replicates that may fail before it is red, for RM39b2's accounting.
+#: The share of a fit set's replicates that may record a fitting failure.  A cell whose fit
+#: set lost more than ``floor(FAILURE_BOUND * replicates)`` is red (RM39 part a2's count).
 FAILURE_BOUND = 0.01
+#: Rounding slack on ``FAILURE_BOUND * replicates``, as ``tests.studies.evidence.failures``.
+_FLOOR_SLACK = 1e-9
+
+#: The owner of every red cell that the declared reading reports (``X46-plan.md`` 5).
+RED_CELL_OWNER = "X46-finite-sample"
+
+#: The red-cell reading, declared before the run (AGENT-BRIEF "Reading a red calibration
+#: row"; ``X46-plan.md`` 5.6).  ``tests/unit/test_longitudinal_repeated_crossfit_design.py``
+#: checks the numbers it states.
+RED_CELL_POLICY = (
+    "1. The policy is reporting. No size, margin, law, learner or rule changes after a verdict "
+    "is seen.",
+    "2. Every red row is first a defect suspect. The diagnosis below runs; a defect found is "
+    "fixed and the study re-runs under a fresh declaration. A red row is reported with owner "
+    f"{RED_CELL_OWNER} only when the diagnosis finds no defect. An unfixed defect never ends "
+    "as an owner row.",
+    "3. Calibration and band diagnosis: compare the label's single_draw_reading row with its "
+    "median row, read its split_displacement share, and compare both with the pilot reading in "
+    "tests/diagnostics/x46_sizing/reading.csv. A red median row whose draw-0 row is green is a "
+    "repeat-layer defect suspect. A red median row whose draw-0 row is off by the same amount, "
+    "with a share below 0.01, is a single-draw reading: the repeat layer did not cause it.",
+    "4. A red calibration or band row whose SE-ratio 99% interval contains 1, whose coverage "
+    "interval contains 0.95, and whose diagnosis finds no defect is a finite-sample red, "
+    f"reported with owner {RED_CELL_OWNER}.",
+    "5. A red calibration row whose SE-ratio 99% interval excludes 1 is the most probable red "
+    "mode: a true ratio near 1.05 reads an interval near [1.03, 1.07]. It stays a defect "
+    "suspect until rule 3 reads a single-draw reading that agrees with the pilot within its "
+    "Monte Carlo error, and the unit witnesses of X46-plan.md 4.2 and 4.3 pass at the run's "
+    f"commit. It is then reported with owner {RED_CELL_OWNER} as a single-draw finite-sample "
+    "shortfall, and the evidence page states the ratio. A disagreement is a defect suspect.",
+    "6. A red ipsi_primary row is diagnosed against the calibration_i median and draw-0 rows of "
+    "the same law and size, and against the pilot bias (+0.067 and -0.077 SD on the contrasts). "
+    "A bias that the draw-0 rows share and that agrees with the pilot is a second-order "
+    f"finite-sample bias, reported with owner {RED_CELL_OWNER}. Otherwise it is a defect "
+    "suspect.",
+    "7. A red repeat_stability or repeat_increment row is a repeat-layer defect suspect and is "
+    "never reported on an owner row. A stability row whose one-draw split variance is at or "
+    "below STABILITY_SPREAD_FLOOR reads rounding noise; that is a design defect.",
+    "8. A red root_n_rate row is diagnosed against the per-rung rows and the pilot segment slope "
+    "of -0.587 between 2,000 and 8,000. A slope that the positive rungs and the pilot both "
+    f"explain is a finite-sample curvature, reported with owner {RED_CELL_OWNER}. The 2,000 "
+    "rung cannot fail at 800 replications and is not evidence.",
+    "9. A recorded fitting failure is a defect suspect. The failure records in run.log are "
+    "diagnosed and the summary is re-read from the checkpoints without refitting. A cell whose "
+    "fit set lost at most floor(0.01 * replicates) replicates keeps the verdict of its "
+    "survivors. More than that is red; with no defect found it is reported with owner "
+    f"{RED_CELL_OWNER}.",
+    "10. A control that does not fail where it is declared to have power is a design defect "
+    "and is fixed before any rerun.",
+    "11. Each verdict is read beside its declared pass probability (PASS_PROBABILITIES). The "
+    "nine calibration cells pass jointly with probability 0.98 at the pilot reading and 0.55 "
+    "predictively, with the pilot's correlated errors. A red calibration row is therefore "
+    "likely and is read by rules 3 to 5.",
+)
+
+#: The declared predictive pass probability of each gated cell, rounded to two decimals:
+#: the pilot reading's uncertainty is integrated out.  ``calibration_family`` is the joint
+#: probability of the nine calibration cells, by a bootstrap of the pilot samples.
+PASS_PROBABILITIES: dict[str, float] = {
+    "interval_calibration/d_ltmle_static": 0.92,
+    "interval_calibration/d_ltmle_dynamic": 0.97,
+    "interval_calibration/d_sdr_static": 0.92,
+    "interval_calibration/d_sdr_dynamic": 0.97,
+    "interval_calibration/i_contrast_x2": 0.88,
+    "interval_calibration/i_contrast_x0_5": 0.86,
+    "interval_calibration/s_contrast_h2": 0.89,
+    "interval_calibration/c_static": 0.97,
+    "interval_calibration/m_duration": 0.97,
+    "interval_calibration/calibration_family": 0.55,
+    "simultaneous_coverage/d_ltmle": 1.00,
+    "simultaneous_coverage/d_sdr": 1.00,
+    "simultaneous_coverage/i_ipsi": 0.99,
+    "simultaneous_coverage/s_ltmle": 1.00,
+    "simultaneous_coverage/c_ltmle": 0.99,
+    "simultaneous_coverage/m_ltmle": 1.00,
+    "repeat_increment/h3": 0.96,
+    "repeat_stability/d_ltmle_static": 1.00,
+    "repeat_stability/d_ltmle_dynamic": 1.00,
+    "repeat_stability/d_sdr_static": 1.00,
+    "repeat_stability/d_sdr_dynamic": 1.00,
+    "repeat_stability/i_contrast_x2": 1.00,
+    "root_n_rate/ltmle_static__empirical_sd": 0.87,
+    "root_n_rate/sdr_static__empirical_sd": 0.86,
+    "root_n_rate/ltmle_static__reported_se": 1.00,
+    "root_n_rate/sdr_static__reported_se": 1.00,
+    "ipsi_primary/mean_x0_5": 1.00,
+    "ipsi_primary/mean_x1": 1.00,
+    "ipsi_primary/mean_x2": 1.00,
+    "ipsi_primary/contrast_x0_5": 1.00,
+    "ipsi_primary/contrast_x2": 1.00,
+}
+
+#: The smallest one-draw split variance, as a share of the mean reported variance, that a
+#: stability label must show.  On the pilot's fixed samples the share is 4.1e-26 for the
+#: natural course at 80,000, which no draw moves (rounding), and at least 3.5e-4 for the
+#: declared names.  1e-8 is far above the first and more than four orders below the second.
+STABILITY_SPREAD_FLOOR = 1e-8
 
 CALIBRATION_REPLICATES = 6_000
 CALIBRATION_N = study.PRIMARY_N
@@ -380,12 +495,30 @@ def stability_rows(key: tuple[str, int, int], drawn: Any = None) -> list[dict[st
 # ------------------------------------------------------------------------------ the run
 
 
+def allowed_failures(replicates: int) -> int:
+    """How many replicates of one fit set may fail before every cell it feeds is red."""
+    return math.floor(FAILURE_BOUND * replicates + _FLOOR_SLACK)
+
+
+def invalid_rows(rows: list[dict[str, Any]]) -> str | None:
+    """The first row with a non-finite estimate or a non-positive standard error, if any."""
+    for row in rows:
+        estimate, std_error = float(row["estimate"]), float(row["std_error"])
+        if not (np.isfinite(estimate) and np.isfinite(std_error) and std_error > 0):
+            return (
+                f"{row['property']}/{row['cell']} replicate {row['replicate']}: estimate "
+                f"{estimate}, std_error {std_error}"
+            )
+    return None
+
+
 def _fit(
     label: str,
     worker: Callable[[tuple[str, int, int], Any], list[dict[str, Any]]],
     keys: list[tuple[str, int, int]],
     n_jobs: int,
 ) -> list[dict[str, Any]]:
+    """The rows of every replicate that succeeded; each row carries the fit set's failures."""
     outcomes = replication.fit_replicates(
         keys,
         worker,
@@ -395,14 +528,20 @@ def _fit(
         implementation=STUDY.implementation,
         cell_of=lambda key: str(key[0]),
         replicate_of=lambda key: int(key[1]),
+        validate=invalid_rows,
     )
-    if outcomes.failed:
-        records = outcomes.failures.to_string(index=False)
-        raise RuntimeError(
-            f"{label}: {len(outcomes.failed)} property fits failed; the property phase has no "
-            f"failure accounting before RM39b2 lands (bound {FAILURE_BOUND}):\n{records}"
+    rows = [row for value in outcomes.values for row in value]
+    failed = len(outcomes.failed)
+    if failed:
+        print(
+            f"{label}: {failed} of {len(keys)} replicates recorded a fitting failure; "
+            f"{allowed_failures(keys[0][2])} may fail before its cells are red:\n"
+            f"{outcomes.failures.to_string(index=False)}",
+            flush=True,
         )
-    return [row for value in outcomes.values for row in value]
+        for row in rows:
+            row["failed_replicates"] = failed
+    return rows
 
 
 def plan(budget: int | None = None) -> dict[str, list[tuple[str, int, int]]]:
@@ -593,7 +732,13 @@ def stability_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
             seed=stream_seed(STUDY, "repeat_stability", "bootstrap", label),
         )
         mask = family & summary["cell"].str.startswith(f"{label}__")
-        passed = bool(result.interval.high < MAX_REPEAT_SPREAD_RATIO)
+        # A one-draw spread at rounding level makes the ratio a ratio of noise (rule 7).
+        spread = float(one["estimate"].var(ddof=1) / np.mean(one["std_error"] ** 2))
+        passed = bool(
+            result.interval.high < MAX_REPEAT_SPREAD_RATIO and spread > STABILITY_SPREAD_FLOOR
+        )
+        if spread <= STABILITY_SPREAD_FLOOR:
+            print(f"{label}: one-draw split variance share {spread:.3g} is rounding", flush=True)
         summary.loc[mask, "spread_ratio"] = result.ratio
         summary.loc[mask, "spread_ratio_ci_lower"] = result.interval.low
         summary.loc[mask, "spread_ratio_ci_upper"] = result.interval.high
@@ -647,8 +792,88 @@ def ipsi_primary_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
         )
 
 
+def failure_counts(rows: pd.DataFrame) -> dict[tuple[str, str], tuple[int, int]]:
+    """``(requested, failed)`` of each ``(property, cell)``, checked against its rows.
+
+    A cell whose rows and failures do not add up to its requested count lost a replicate that
+    no failure record accounts for, which is a defect of the run, not a failure.
+    """
+    counts: dict[tuple[str, str], tuple[int, int]] = {}
+    for (family, cell), group in rows.groupby(["property", "cell"], sort=True):
+        requested = group["requested_replicates"].unique()
+        failed = group["failed_replicates"].unique()
+        if len(requested) != 1 or len(failed) != 1:
+            raise ValueError(f"{family}/{cell} has inconsistent replication counts")
+        total, lost = int(requested[0]), int(failed[0])
+        if len(group) + lost != total:
+            raise ValueError(
+                f"{family}/{cell} has {len(group)} rows and {lost} recorded failures of {total} "
+                f"replicates; the difference is not accounted for"
+            )
+        counts[(str(family), str(cell))] = (total, lost)
+    return counts
+
+
+def survivors(rows: pd.DataFrame) -> pd.DataFrame:
+    """The rows a summary reads: each cell's survivors as a complete table of their own.
+
+    Every cell of one fit set loses the same replicates, so renumbering each cell's survivors
+    in replicate order keeps every pairing.  With no failure the rows come back unchanged.
+    """
+    out = rows.copy()
+    keys = ["property", "cell"]
+    out["replicate"] = (
+        out.groupby(keys)["replicate"].rank(method="first").astype(rows["replicate"].dtype) - 1
+    )
+    out["requested_replicates"] = (
+        out.groupby(keys)["replicate"].transform("size").astype(rows["requested_replicates"].dtype)
+    )
+    out["failed_replicates"] = 0
+    out["failed_replicates"] = out["failed_replicates"].astype(rows["failed_replicates"].dtype)
+    return out
+
+
+def apply_failure_bound(
+    summary: pd.DataFrame, counts: dict[tuple[str, str], tuple[int, int]]
+) -> pd.DataFrame:
+    """Publish each cell's failures, and turn red every cell whose fit set lost too many.
+
+    A ``root_n_rate`` row reads every rung of its ladder, so it takes the rungs' failures and
+    is red when any rung is.
+    """
+    summary = summary.copy()
+    over: set[tuple[str, str]] = set()
+    for (family, cell), (requested, failed) in counts.items():
+        mask = (summary["property"] == family) & (summary["cell"] == cell)
+        summary.loc[mask, "failed_replicates"] = failed
+        if failed > allowed_failures(requested):
+            over.add((family, cell))
+            summary.loc[mask, ["passed", "property_passed"]] = False
+    for index in summary.index[summary["property"] == "root_n_rate"]:
+        label = str(summary.loc[index, "cell"]).split("__", 1)[0]
+        rungs = [
+            key
+            for key in counts
+            if key[0] == "root_n_and_efficiency" and key[1].startswith(f"{label}__")
+        ]
+        summary.loc[index, "failed_replicates"] = sum(counts[key][1] for key in rungs)
+        if any(key in over for key in rungs):
+            summary.loc[index, ["passed", "property_passed"]] = False
+    return summary
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    """The shared verdicts and the study's own declared rules."""
+    """The shared verdicts and the study's own declared rules, with failures accounted.
+
+    Each cell is summarized on its survivors (:func:`survivors`), and
+    :func:`apply_failure_bound` then publishes the failures and applies
+    :data:`FAILURE_BOUND`.
+    """
+    counts = failure_counts(rows)
+    return apply_failure_bound(_summarize(survivors(rows)), counts)
+
+
+def _summarize(rows: pd.DataFrame) -> pd.DataFrame:
     require_complete(rows)
     summary, rates = apply_shared_verdicts(
         rows,
@@ -669,7 +894,12 @@ __all__ = [
     "BANDS",
     "CALIBRATION",
     "FIT_SETS",
+    "PASS_PROBABILITIES",
+    "RED_CELL_POLICY",
+    "apply_failure_bound",
+    "failure_counts",
     "generate_property_rows",
     "plan",
     "summarize_properties",
+    "survivors",
 ]

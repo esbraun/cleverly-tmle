@@ -16,6 +16,15 @@ repeated fits on seeds outside every declared stream.
   probability at least 0.95 at 1,600 replications.  Every calibration cell passes with
   probability at least 0.90 at 6,000, and the nine pass jointly, as the independent product,
   with probability at least 0.95.  3,600 and 4,800 replications fail the family rule.
+* **The joint predictive family.**  A bootstrap of the pilot samples draws the nine readings
+  jointly, so the D pairs and the two law-I contrasts keep their correlation.  The nine
+  cells then pass together with probability about 0.55 at 6,000 replications.  That is
+  declared, with the red-cell reading of
+  :data:`~tests.studies.longitudinal_repeated_crossfit_properties.RED_CELL_POLICY`; it is not
+  a sizing rule, because its shortfall is pilot uncertainty that replications cannot remove.
+* **The ladder.**  The 2,000 rung's control rule cannot fail at 800 replications.  The slope
+  rows carry the check, and their pass probability is computed from the pilot's 2,000 and
+  8,000 readings.
 * **Law I's size.**  At n = 40,000 the probe read law I's contrasts at +0.138 and -0.124 SD of
   bias, so the primary rule passed with 0.61 and the family with 0.64.  A direct reading at
   80,000 (1,200 samples) passes every law-I cell, and the family with 0.98.
@@ -23,7 +32,9 @@ repeated fits on seeds outside every declared stream.
   power at least 0.90.  The ``repeat_increment`` gate passes with probability at least 0.95,
   at the reading and predictively, and its inflated-SE control has power at least 0.90.
 * **Predictive probabilities** (rule 7).  Each pass probability is also averaged over a normal
-  draw of the reading about its value with its Monte Carlo SE.  :func:`declaration` prints both.
+  draw of the reading about its value with its Monte Carlo SE.  :func:`declaration` prints both,
+  and :data:`~tests.studies.longitudinal_repeated_crossfit_properties.PASS_PROBABILITIES`
+  declares the predictive ones.
 """
 
 from __future__ import annotations
@@ -46,12 +57,20 @@ from tests.studies import longitudinal_repeated_crossfit as s
 from tests.studies import longitudinal_repeated_crossfit_properties as p
 from tests.studies.canonical_full_refit_bootstrap import calibration_pass_probability
 from tests.studies.evidence import clopper_pearson
+from tests.studies.evidence.property_verdicts import (
+    EXCLUDED_SLOPE,
+    ROOT_N_SLOPE,
+    ROOT_N_SLOPE_MARGIN,
+)
 from tests.studies.evidence.registry import ROOT, Margins, registered
 from tests.studies.evidence.seeds import replicate_seed
 
 pytestmark = pytest.mark.xdist_group("longitudinal_repeated_crossfit_design")
 
-READING = pd.read_csv(ROOT / "tests" / "diagnostics" / "x46_sizing" / "reading.csv")
+SIZING = ROOT / "tests" / "diagnostics" / "x46_sizing"
+READING = pd.read_csv(SIZING / "reading.csv")
+#: The pilot's per-sample readings: the median and draw-0 estimates and SEs of every name.
+ROWS = pd.read_csv(SIZING / "rows.csv.gz")
 MARGINS = Margins()
 PRIMARY_PASS = 0.95
 CALIBRATION_PASS = 0.90
@@ -62,6 +81,12 @@ INCREMENT_PASS = 0.95
 NODES = 24
 #: Two-sided 99% normal quantile: the half-width multiplier of every bootstrap interval.
 Z99 = float(norm.ppf(0.5 + MARGINS.confidence_level / 2.0))
+#: The pilot bootstrap of the joint predictive family: draws and seed.
+JOINT_DRAWS = 2_000
+JOINT_SEED = 46
+#: How far a declared probability may sit from the computed one: its two-decimal rounding,
+#: plus the Monte Carlo error of the joint bootstrap.
+DECLARED_TOLERANCE = 0.02
 
 
 def test_the_declared_numbers() -> None:
@@ -407,6 +432,81 @@ def test_the_calibration_family_passes_jointly() -> None:
     assert float(np.prod(list(calibration_cells().values()))) >= FAMILY_PASS
 
 
+def calibrated_many(bias: np.ndarray, ratio: np.ndarray, replicates: int) -> np.ndarray:
+    """:func:`calibrated_at` over arrays: the same normal approximation, vectorized.
+
+    ``test_the_vectorized_calibration_rule_is_the_scalar_one`` pins it to the scalar rule.
+    """
+    z = Z99
+    coverage = norm.cdf(norm.ppf(0.975) * ratio - bias) - norm.cdf(-norm.ppf(0.975) * ratio - bias)
+    spread = ratio * np.sqrt(1.0 / (2.0 * (replicates - 1)))
+    low, high = MARGINS.calibration_se_ratio
+    inside = norm.cdf((high - z * spread - ratio) / spread) - norm.cdf(
+        (low + z * spread - ratio) / spread
+    )
+    width = np.sqrt(coverage * (1.0 - coverage) / replicates)
+    floor, ceiling = MARGINS.calibration_coverage
+    covered = norm.cdf((ceiling - z * width - coverage) / width) - norm.cdf(
+        (floor + z * width - coverage) / width
+    )
+    return np.clip(inside, 0.0, None) * np.clip(covered, 0.0, None)
+
+
+def test_the_vectorized_calibration_rule_is_the_scalar_one() -> None:
+    bias = np.array([0.0, 0.03, 0.08, 0.2])
+    ratio = np.array([1.0, 1.02, 0.97, 1.06])
+    for replicates in (3_600, 6_000):
+        scalar = [calibrated_at(b, r, replicates) for b, r in zip(bias, ratio, strict=True)]
+        np.testing.assert_allclose(calibrated_many(bias, ratio, replicates), scalar, atol=1e-12)
+
+
+@functools.cache
+def joint_predictive_family(replicates: int = p.CALIBRATION_REPLICATES) -> float:
+    """The chance the nine calibration cells pass together, with correlated pilot errors.
+
+    Each probe set's samples are resampled jointly, so labels read off one sample keep their
+    correlation: D-``LTMLE`` with D-``SDR`` (1.000 on the SE ratio) and the two law-I contrasts
+    (0.595).  Each draw gives every label its standardized bias and SE ratio, and the cells'
+    pass probabilities multiply within the draw.  The sets are independent seed streams, so
+    the family is the product of the sets' mean products.  The readings are at the declared
+    sizes, so nothing is projected.
+    """
+    rng = np.random.default_rng(JOINT_SEED)
+    by_set: dict[str, list[tuple[str, str]]] = {}
+    for _, scenario, name in p.CALIBRATION.values():
+        by_set.setdefault(SETS[scenario], []).append((scenario, name))
+    family = 1.0
+    for cell_set, members in by_set.items():
+        sample = ROWS.loc[ROWS["set"] == cell_set]
+        order = np.sort(sample["replicate"].unique())
+        index = rng.integers(0, len(order), size=(JOINT_DRAWS, len(order)))
+        product = np.ones(JOINT_DRAWS)
+        for scenario, name in members:
+            rows = sample.loc[(sample["scenario"] == scenario) & (sample["name"] == name)]
+            rows = rows.set_index("replicate").loc[order]
+            errors = (rows["psi_med"] - rows["truth"]).to_numpy()[index]
+            spread = errors.std(axis=1, ddof=1)
+            bias = np.abs(errors.mean(axis=1)) / spread
+            ratio = rows["se_med"].to_numpy()[index].mean(axis=1) / spread
+            product *= calibrated_many(bias, ratio, replicates)
+        family *= float(product.mean())
+    return family
+
+
+def test_the_joint_predictive_family_is_declared() -> None:
+    """About 0.55 at 6,000: declared beside the red-cell reading, not used to size the study.
+
+    The correlation credit is the witness that the draws are joint: the independent product
+    of the nine predictive cells is lower.
+    """
+    joint = joint_predictive_family()
+    declared = p.PASS_PROBABILITIES["interval_calibration/calibration_family"]
+    assert abs(joint - declared) <= DECLARED_TOLERANCE
+    assert joint > float(np.prod(list(predictive_cells().values())))
+    assert joint < FAMILY_PASS
+    assert "0.55 predictively" in " ".join(p.RED_CELL_POLICY)
+
+
 @pytest.mark.parametrize("replicates", [3_600, 4_800])
 def test_fewer_calibration_replications_fail_the_family_rule(replicates: int) -> None:
     """The witness that 6,000 is the smallest multiple of 1,200 the family rule admits."""
@@ -545,15 +645,137 @@ def stability_pass(value: float, se: float) -> float:
 def test_every_stability_label_has_split_spread_and_power(label: str) -> None:
     """A nonzero split spread, and a spread ratio whose 99% upper endpoint clears one."""
     row = stability_reading(label)
-    assert row.share > 0
+    assert row.share > p.STABILITY_SPREAD_FLOOR
+    assert one_draw_share(*p.STABILITY[label]) > p.STABILITY_SPREAD_FLOOR
     se = float(row.value_se * np.sqrt(row.replicates / p.STABILITY_TRIALS))
     assert stability_pass(row.value, se) >= PRIMARY_PASS
 
 
+def one_draw_share(law: str, scenario: str, name: str) -> float:
+    """The pilot's one-draw split variance over the mean reported variance on a fixed sample.
+
+    The quantity ``stability_verdicts`` checks against ``STABILITY_SPREAD_FLOOR`` at run time.
+    The reported SEs come from the calibration pilot at the same law and size.
+    """
+    trials = pd.read_csv(SIZING / "stability.csv.gz")
+    one = trials.loc[
+        (trials["set"] == STABILITY_SETS[law])
+        & (trials["scenario"] == scenario)
+        & (trials["name"] == name),
+        "one",
+    ]
+    errors = ROWS.loc[
+        (ROWS["set"] == SETS[scenario]) & (ROWS["scenario"] == scenario) & (ROWS["name"] == name),
+        "se_med",
+    ]
+    return float(one.var(ddof=1) / np.mean(errors**2))
+
+
 def test_the_natural_course_has_no_split_spread() -> None:
-    """Why ``ey_regimen[natural course]`` is not a stability name: no draw moves it."""
+    """Why ``ey_regimen[natural course]`` is not a stability name: no draw moves it.
+
+    It is also the witness that the floor is not vacuous: both of its readings, the median
+    displacement share (1.7e-15) and the one-draw split variance (4.1e-26), fall below it.
+    """
     name = f"ey_regimen[{s.I_REFERENCE}]"
-    assert probe(STABILITY_SETS["i"], "law_i", name, "stability").share < 1e-12
+    assert probe(STABILITY_SETS["i"], "law_i", name, "stability").share < p.STABILITY_SPREAD_FLOOR
+    assert one_draw_share("i", "law_i", name) < p.STABILITY_SPREAD_FLOOR
+
+
+# ---------------------------------------------------------------------------- the ladder
+
+
+def test_the_smallest_rung_cannot_fail() -> None:
+    """At 800 replications the control rule's two regions cover every count.
+
+    A rung passes when its exact 99% upper bound is below 0.95 or its lower bound is at least
+    0.90.  Every interval at 800 is narrower than the 0.05 between them, so no count fails.
+    The rung is therefore not a slow-convergence control (``RED_CELL_POLICY`` rule 8).
+    """
+
+    def resolves(interval: Any) -> bool:
+        return bool(interval.high < 1.0 - MARGINS.alpha or interval.low >= MARGINS.coverage_floor)
+
+    assert len(accepted(p.RATE_REPLICATES, resolves)) == p.RATE_REPLICATES + 1
+    assert "cannot fail" in " ".join(p.RED_CELL_POLICY)
+
+
+def rung_reading(scenario: str, cell_set: str, column: str) -> tuple[float, float, int]:
+    """``(log statistic, its variance per replicate, samples)`` of one pilot rung.
+
+    ``psi_med`` reads the log empirical SD of the error, whose variance is about
+    ``(kurtosis - 1) / (4 R)``; ``se_med`` reads the log mean reported SE, whose variance is
+    about ``cv**2 / R``.
+    """
+    name = s.D_CONTRASTS["static"]
+    rows = ROWS.loc[(ROWS["set"] == cell_set) & (ROWS["scenario"] == scenario)]
+    rows = rows.loc[rows["name"] == name]
+    if column == "psi_med":
+        errors = (rows["psi_med"] - rows["truth"]).to_numpy()
+        centred = errors - errors.mean()
+        kurtosis = float(np.mean(centred**4) / np.mean(centred**2) ** 2)
+        return float(np.log(errors.std(ddof=1))), (kurtosis - 1.0) / 4.0, len(rows)
+    values = rows["se_med"].to_numpy()
+    return float(np.log(values.mean())), float(values.var(ddof=1) / values.mean() ** 2), len(rows)
+
+
+def projected_slope(at_2000: float, at_8000: float) -> float:
+    """The three-rung OLS slope, with the 32,000 rung projected from the 2,000 and 8,000 rungs.
+
+    The statistic times root n is ``a (1 + b / sqrt(n))``: the excess over its limit decays as
+    ``n**-0.5``.  That is the slowest of the decays the two rungs admit (an excess decaying as
+    ``1/n``, or none past 8,000, projects a slope closer to -0.5), so it is the conservative
+    reading.
+    """
+    scaled = np.exp(np.array([at_2000, at_8000]) + 0.5 * np.log([2_000.0, 8_000.0]))
+    ratio = scaled[0] / scaled[1]
+    b = (ratio - 1.0) / (1.0 / np.sqrt(2_000.0) - ratio / np.sqrt(8_000.0))
+    a = scaled[1] / (1.0 + b / np.sqrt(8_000.0))
+    at_32000 = np.log(a * (1.0 + b / np.sqrt(32_000.0))) - 0.5 * np.log(32_000.0)
+    return float((at_32000 - at_2000) / np.log(32_000.0 / 2_000.0))
+
+
+def slope_pass(slope: float, se: float) -> float:
+    """The chance the slope's 99% interval lies within 0.125 of -0.5 and excludes -0.25."""
+    half = Z99 * se
+    low, high = ROOT_N_SLOPE - ROOT_N_SLOPE_MARGIN, ROOT_N_SLOPE + ROOT_N_SLOPE_MARGIN
+    inside = norm.cdf((min(high, EXCLUDED_SLOPE) - half - slope) / se) - norm.cdf(
+        (low + half - slope) / se
+    )
+    return float(max(inside, 0.0))
+
+
+def ladder_probabilities(scenario: str, column: str) -> tuple[float, float]:
+    """The slope row's pass probability at the pilot reading and predictively."""
+    log_2000, unit_2000, pilot_2000 = rung_reading(scenario, "d@2000", column)
+    log_8000, unit_8000, pilot_8000 = rung_reading(scenario, "d@8000", column)
+    # The fitted slope of three equally spaced log sizes reads only the end rungs; the
+    # 32,000 rung takes the 8,000 rung's unit variance.
+    se = float(np.sqrt((unit_2000 + unit_8000) / p.RATE_REPLICATES) / np.log(32_000.0 / 2_000.0))
+
+    def at(first: float, second: float) -> float:
+        return slope_pass(projected_slope(first, second), se)
+
+    return at(log_2000, log_8000), predictive(
+        at,
+        (log_2000, float(np.sqrt(unit_2000 / pilot_2000))),
+        (log_8000, float(np.sqrt(unit_8000 / pilot_8000))),
+    )
+
+
+LADDER = {
+    f"{label}__{suffix}": (scenario, column)
+    for label, scenario in zip(s.RATE_LABELS, ("law_d_ltmle", "law_d_sdr"), strict=True)
+    for suffix, column in (("empirical_sd", "psi_med"), ("reported_se", "se_med"))
+}
+
+
+@pytest.mark.parametrize("cell", list(LADDER))
+def test_every_slope_row_is_sized(cell: str) -> None:
+    """The pilot's slope projects near -0.57 for the spread; each row passes at the reading."""
+    reading, forecast = ladder_probabilities(*LADDER[cell])
+    assert reading >= PRIMARY_PASS
+    assert abs(forecast - p.PASS_PROBABILITIES[f"root_n_rate/{cell}"]) <= DECLARED_TOLERANCE
 
 
 # ---------------------------------------------------------------------- the declaration
@@ -585,9 +807,9 @@ def declaration() -> pd.DataFrame:
     records.append(
         {
             "rule": "calibration family",
-            "cell": "independent product",
+            "cell": "independent product (pass); joint bootstrap (predictive)",
             "pass": float(np.prod(list(point.values()))),
-            "predictive": float(np.prod(list(forecast.values()))),
+            "predictive": joint_predictive_family(),
         }
     )
     for label in p.BANDS:
@@ -640,6 +862,9 @@ def declaration() -> pd.DataFrame:
                 ),
             }
         )
+    for cell, (scenario, column) in LADDER.items():
+        reading, ahead = ladder_probabilities(scenario, column)
+        records.append({"rule": "root_n_rate", "cell": cell, "pass": reading, "predictive": ahead})
     return pd.DataFrame(records)
 
 
@@ -647,6 +872,36 @@ def test_the_declaration_states_every_probability() -> None:
     table = declaration()
     assert table[["pass", "predictive"]].notna().all().all()
     assert ((table["pass"] >= 0) & (table["pass"] <= 1 + 1e-12)).all()
+
+
+def declared_key(rule: str, cell: str) -> str | None:
+    """The ``PASS_PROBABILITIES`` key of one declaration row, if the row is declared there."""
+    family = {
+        "calibration": "interval_calibration",
+        "band": "simultaneous_coverage",
+        "repeat_increment": "repeat_increment",
+        "repeat_stability": "repeat_stability",
+        "root_n_rate": "root_n_rate",
+    }
+    if rule == "calibration family":
+        return "interval_calibration/calibration_family"
+    if rule == "primary bias" and cell.startswith("law_i/"):
+        names = {name: label for label, name in s.IPSI_PRIMARY_LABELS.items()}
+        return f"ipsi_primary/{names[cell.split('/', 1)[1]]}"
+    return f"{family[rule]}/{cell}" if rule in family else None
+
+
+def test_every_declared_pass_probability_is_the_computed_one() -> None:
+    """``PASS_PROBABILITIES`` states each gated cell's predictive probability, to 0.02."""
+    table = declaration()
+    computed = {
+        key: float(row.predictive)
+        for row in table.itertuples()
+        if (key := declared_key(str(row.rule), str(row.cell))) is not None
+    }
+    assert set(computed) == set(p.PASS_PROBABILITIES)
+    for key, value in computed.items():
+        assert abs(value - p.PASS_PROBABILITIES[key]) <= DECLARED_TOLERANCE, (key, value)
 
 
 if __name__ == "__main__":  # pragma: no cover - prints the declaration
