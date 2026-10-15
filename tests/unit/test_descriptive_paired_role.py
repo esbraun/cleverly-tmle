@@ -46,6 +46,7 @@ def _record(tmp_path: Path, role: str) -> StudyRecord:
         n=500,
         seed=11,
         reference=REFERENCE,
+        comparison="matching implementation",
         margins=Margins(bootstrap_replicates=200),
         paired_role=role,  # type: ignore[arg-type]
     )
@@ -159,7 +160,7 @@ def test_no_paired_accounting_for_a_descriptive_row(tmp_path: Path) -> None:
 
 def test_a_descriptive_record_needs_a_reference(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="needs a reference"):
-        dataclasses.replace(_record(tmp_path, "descriptive"), reference=None)
+        dataclasses.replace(_record(tmp_path, "descriptive"), reference=None, comparison=None)
 
 
 def test_a_descriptive_record_has_no_pass_count(tmp_path: Path) -> None:
