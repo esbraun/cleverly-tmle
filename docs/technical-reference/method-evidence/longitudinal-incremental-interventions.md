@@ -113,7 +113,7 @@ falls as $1/\sqrt n$. The bias rule passes a row only when the 99% interval of i
 inside 0.25 empirical standard deviations. The sizing probe in `tests/diagnostics/x19_sizing/`
 measured the bias at n = 8,000, and each size below projects it.
 
-| quantity | value | source |
+| sizing input | value | source |
 | --- | --- | --- |
 | standardized bias at n = 8,000, five-fold contrasts | 0.27 | `tests/studies/canonical_longitudinal_incremental.py` |
 | standardized bias at n = 8,000, two-fold contrasts | 0.35 | the same |
