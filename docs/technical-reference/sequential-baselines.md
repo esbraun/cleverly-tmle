@@ -177,3 +177,11 @@ g-computation fit. The fit warns with `PositivityWarning`, and the diagnostics r
 | W5, W6, three arms | the multinomial mechanism term, a known rule and a known policy, off a saturated law | `test_w5_w6_hold_on_multinomial_nodes` |
 | scale | the Horvitz-Thompson estimate does not move with `q_bounds=` or with the outcome of a unit that does not follow the regimen | `test_horvitz_thompson_reads_the_outcome_scale` |
 | status | a data-adaptive pseudo-outcome learner gives every cell the diagnostic curve | `test_the_status_and_every_cell_curve_agree` |
+
+The registered study `sequential-baselines` adds repeated-sampling evidence. It is Python property
+evidence. The [method-evidence page](method-evidence/sequential-baselines.md) reports 27 of 27
+primary tests against known truth and 159 of 162 property cells. The three red cells are a declared
+negative control on a law where every main-terms `GLM` is wrong. The R comparator parity is
+fixture-level, not a registered comparator study. The tests `test_sequential_baselines_ltmle_r.py`
+(R `ltmle`, witness W9) and `test_sequential_baselines_stremr.py` (R `stremr`) compare the estimate on
+one panel each.

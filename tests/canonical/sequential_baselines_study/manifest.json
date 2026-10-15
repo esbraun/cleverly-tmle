@@ -30,7 +30,9 @@
       "g_ht": "g_ice"
     },
     "publication_policy": "reporting",
-    "failure_bound": 0.01,
+    "failure_bound": {
+      "cleverly-sequential-baselines": 0.01
+    },
     "scenarios": {
       "d2_ice": [
         "ey_regimen[static_12]",

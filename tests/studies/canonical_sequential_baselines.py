@@ -483,7 +483,6 @@ CONFIGURATION = {
     },
     "ladder": list(LADDER),
     "calibration_n": CALIBRATION_N,
-    "failure_bound": FAILURE_BOUND,
     "expected_red": list(EXPECTED_RED),
     "reference": "none; the R ltmle parity is a separate study",
 }

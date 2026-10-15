@@ -63,6 +63,7 @@ under its rule.  No size, law or seed moves.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import numpy as np
@@ -223,20 +224,24 @@ def _d2w_names() -> dict[str, tuple[str, float]]:
     return {"static_12": ("ey_regimen[static_12]", value)}
 
 
+#: ``prefix -> {key: (estimand, truth)}``: the exact truths of each law a label prefix reads.
+PREFIX_TRUTHS: dict[str, dict[str, tuple[str, float]]] = {
+    "d2": _d2_names(),
+    "g": _g_names(laws.G),
+    "d2s": _d2s_names(),
+    "d2c": _d2c_names(),
+    "gm": _gm_names(),
+    "d2w": _d2w_names(),
+    "x": _g_names(laws.X),
+}
+
 #: ``label -> (estimand, truth)`` for every calibration label.
-TARGETS: dict[str, tuple[str, float]] = {}
-for _estimator in ESTIMATORS:
-    for _prefix, _names in (
-        ("d2", _d2_names()),
-        ("g", _g_names(laws.G)),
-        ("d2s", _d2s_names()),
-        ("d2c", _d2c_names()),
-        ("gm", _gm_names()),
-        ("d2w", _d2w_names()),
-        ("x", _g_names(laws.X)),
-    ):
-        for _key, _target in _names.items():
-            TARGETS[f"{_estimator}_{_prefix}_{_key}"] = _target
+TARGETS: dict[str, tuple[str, float]] = {
+    f"{_estimator}_{_prefix}_{_key}": _target
+    for _estimator in ESTIMATORS
+    for _prefix, _names in PREFIX_TRUTHS.items()
+    for _key, _target in _names.items()
+}
 
 # ------------------------------------------------------------------------------- fit sets
 
@@ -430,17 +435,46 @@ def fit_set_rows(fit_set: str, replicate: int, frame: pd.DataFrame) -> list[dict
 # ------------------------------------------------------------------------------ the grid
 
 
+@dataclass(frozen=True)
+class DeclaredLaw:
+    """The law a declared cell reads, by name, with its exact truth of every estimand.
+
+    Parameters
+    ----------
+    name : str
+        The law's name.  A diagnostic family that reads the fits of another family carries
+        the family in its name, so the collision gate keys its stream apart from the claim.
+    prefix : str
+        The label prefix whose truths :data:`PREFIX_TRUTHS` holds for this law.
+    """
+
+    name: str
+    prefix: str
+
+    def truth(self) -> dict[str, float]:
+        """Return ``estimand -> truth`` for every estimand of this law."""
+        return dict(PREFIX_TRUTHS[self.prefix].values())
+
+
+#: The families that report a diagnostic on the fits of a claim family.
+SHARED_STREAM_FAMILIES = frozenset({"fixed_mechanism_se", "first_node_se"})
+
+
 def declared_cells() -> tuple[PropertyCell, ...]:
     """Every sampled cell, with its law, estimand, size and stream root."""
     cells: list[PropertyCell] = []
 
     def add(family: str, cell: str, role: str, fit_set: str, label: str) -> None:
         law, n, replicates = FIT_SETS[fit_set]
+        prefix = label.split("_")[1]
+        name = f"{law}_weighted" if prefix == "d2w" else law
+        if family in SHARED_STREAM_FAMILIES:
+            name = f"{name}_{family}"
         cells.append(
             PropertyCell(
                 property=family,
                 cell=cell,
-                dgp=law,
+                dgp=DeclaredLaw(name, prefix),
                 outcome_learner=lambda: None,
                 treatment_learner=lambda: None,
                 n=n,
@@ -455,9 +489,12 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     sets |= {"d2c": "calibration_d2c", "gm": "calibration_gm", "d2w": "calibration_d2"}
     for label in study.CALIBRATION_LABELS:
         prefix = label.split("_")[1]
-        add(
-            "interval_calibration", f"{label}__correctly_specified", "positive", sets[prefix], label
-        )
+        for kind, role in (
+            ("correctly_specified", "positive"),
+            ("shrunken_se_control", "control"),
+            ("noise_control", "control"),
+        ):
+            add("interval_calibration", f"{label}__{kind}", role, sets[prefix], label)
     for label in study.LADDER_LABELS:
         prefix = label.split("_")[1]
         for size in LADDER:
