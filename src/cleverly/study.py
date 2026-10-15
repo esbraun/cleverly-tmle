@@ -455,7 +455,8 @@ class PointTreatment:
         in-sample per-arm outcome-adaptive CTMLE. It also identifies regime means and arm
         MSMs on in-sample TMLE fits.
     treatment_probabilities : mapping of level to str, or None
-        The known treatment mechanism of a randomized design: each treatment level mapped to
+        The known treatment mechanism of a randomized design (a tuple of ``(level, column)``
+        pairs, the form the design stores, is also accepted): each treatment level mapped to
         the column that holds ``P(A = level | W)``.  Every method then divides by these
         probabilities in place of an estimate, and the columns are not adjustment
         covariates.  A design names columns, so the array forms of
@@ -648,11 +649,26 @@ def _stored_pairs(supplied: Any) -> Any:
 
     A frozen design stores each declared mapping as a tuple of pairs, so that the design is
     hashable.  ``dataclasses.replace`` hands every stored field back to ``__init__``, so each
-    normalizer has to read the form it stores.  Any other value is returned unchanged.
+    normalizer has to read the form it stores.  Any other value is returned unchanged.  Pairs
+    that repeat a key, or hold an unhashable key, say what a mapping cannot say, so they raise
+    :class:`~cleverly.exceptions.DataError`.
     """
     if isinstance(supplied, tuple) and all(
         isinstance(pair, tuple) and len(pair) == 2 for pair in supplied
     ):
+        keys = [key for key, _ in supplied]
+        try:
+            distinct = len(set(keys))
+        except TypeError:
+            raise DataError(
+                f"a mechanism declared as pairs needs hashable keys; got {keys!r}"
+            ) from None
+        if distinct != len(keys):
+            repeated = next(key for key in keys if keys.count(key) > 1)
+            raise DataError(
+                f"a mechanism declared as pairs repeats the key {repeated!r}; a mapping "
+                "holds one column for each key"
+            )
         return dict(supplied)
     return supplied
 
@@ -749,12 +765,14 @@ class LongitudinalTreatment:
         The treatment nodes that hold a continuous dose.  Each such node takes a modified
         treatment policy, such as :class:`~cleverly.interventions.Shift`.
     treatment_probabilities : mapping or None
-        The known treatment mechanism of a sequentially randomized design: each treatment
+        The known treatment mechanism (a tuple of pairs, the form the design stores, is also
+        accepted) of a sequentially randomized design: each treatment
         node mapped to a mapping of its levels to the column of
         ``P(A_t = level | observed past)``.  A declared node fits no treatment learner.
     censoring_probabilities : mapping or None
-        The known retention probabilities: each censoring column mapped to the column of
-        ``P(C_t = 1 | observed past)``.  A declared node fits no censoring learner.
+        The known retention probabilities (a tuple of pairs is also accepted): each censoring
+        column mapped to the column of ``P(C_t = 1 | observed past)``.  A declared node fits no
+        censoring learner.
 
     See Also
     --------
@@ -1006,7 +1024,8 @@ class TimeToEvent:
         Whether the treatment is a continuous dose.  A regimen is then a modified treatment
         policy at baseline.
     treatment_probabilities : mapping of level to str, or None
-        The known baseline treatment mechanism of a randomized design: each treatment level
+        The known baseline treatment mechanism (a tuple of ``(level, column)`` pairs is also
+        accepted) of a randomized design: each treatment level
         mapped to the column that holds :math:`P(A = \text{level} \mid W)`.  The fit then
         divides by these probabilities and fits no treatment learner.  A design names
         columns, so the array forms of :meth:`cleverly.longitudinal.LTMLE.fit` are refused
@@ -1213,7 +1232,8 @@ class LongPanel:
         Whether the treatment holds a continuous dose at every node.
     treatment_probabilities : mapping of level to str, or None
         The known treatment mechanism: each level mapped to the column that holds
-        ``P(A_t = level | past)`` on each row.
+        ``P(A_t = level | past)`` on each row.  A tuple of ``(level, column)`` pairs, the form
+        the design stores, is also accepted.
     censoring_probabilities : str or None
         The column that holds ``P(C_t = 1 | past)`` on each row.
 

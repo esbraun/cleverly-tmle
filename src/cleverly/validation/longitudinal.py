@@ -233,9 +233,10 @@ class LongitudinalDiagnostics:
     **On a fit with no fluctuation** the targeting columns ``epsilon`` and ``converged`` are
     absent, because no node holds a fluctuation parameter or a solver verdict.  This holds
     for ``SequentialGComputation`` and ``SequentialIPW``, whose nodes are untargeted, and for
-    SDR.  A row of such a node has ``epsilon=()`` and ``converged=None``.
+    SDR and IPSI.  A row of such a node has ``epsilon=()`` and ``converged=None``.  A frame
+    that mixes such rows with targeted rows holds ``nan`` and ``None`` in the bare rows.
 
-    **On an SDR fit** five columns take their place.
+    **On an SDR fit** five columns replace the targeting columns.
     ``target_outside``, ``target_min`` and ``target_max`` describe the node's regression
     targets on its followers.  ``prediction_outside`` is the share of the node's predictions
     at the observed arm outside ``[0, 1]``.  ``bound_binding`` is the share of partial

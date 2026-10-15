@@ -219,6 +219,50 @@ def test_a_value_that_is_not_a_declaration_is_still_refused() -> None:
         dataclasses.replace(_wide(), treatment_probabilities={"a1": [0.5]})
 
 
+PAIR_DESIGNS = [
+    ("treatment_probabilities", _point),
+    ("treatment_probabilities", _time_to_event),
+    ("treatment_probabilities", _panel),
+]
+
+
+@pytest.mark.parametrize(("field", "build"), PAIR_DESIGNS)
+def test_pairs_with_a_repeated_key_are_refused_by_name(field: str, build: Any) -> None:
+    """A mapping holds one column for each key, so pairs that repeat one say two things."""
+    with pytest.raises(DataError, match=r"repeats the key 0"):
+        dataclasses.replace(build(), **{field: ((0, "p0"), (1, "p1"), (0, "q0"))})
+
+
+@pytest.mark.parametrize(("field", "build"), PAIR_DESIGNS)
+def test_pairs_with_an_unhashable_key_are_refused(field: str, build: Any) -> None:
+    with pytest.raises(DataError, match="hashable keys"):
+        dataclasses.replace(build(), **{field: (([0], "p0"), ([1], "p1"))})
+
+
+def test_repeated_and_unhashable_keys_are_refused_on_the_wide_design() -> None:
+    wide = _wide()
+    with pytest.raises(DataError, match=r"repeats the key 'a1'"):
+        dataclasses.replace(wide, treatment_probabilities=(("a1", ((0, "p"),)), ("a1", ())))
+    with pytest.raises(DataError, match=r"repeats the key 0"):
+        dataclasses.replace(wide, treatment_probabilities=(("a1", ((0, "p"), (0, "q"))),))
+    with pytest.raises(DataError, match="hashable keys"):
+        dataclasses.replace(wide, treatment_probabilities=(("a1", (([0], "p"),)),))
+    with pytest.raises(DataError, match=r"repeats the key 'c1'"):
+        dataclasses.replace(wide, censoring_probabilities=(("c1", "q1"), ("c1", "q2")))
+    with pytest.raises(DataError, match="hashable keys"):
+        dataclasses.replace(wide, censoring_probabilities=(([1], "q1"),))
+
+
+def test_pairs_whose_values_are_not_columns_are_still_refused() -> None:
+    """A tuple of triples is not pairs, and a tuple of pairs holding arrays is no column map."""
+    with pytest.raises(DataError, match="treatment_probabilities"):
+        dataclasses.replace(_point(), treatment_probabilities=((0, [0.5]), (1, [0.5])))
+    with pytest.raises(DataError, match="treatment_probabilities"):
+        dataclasses.replace(_point(), treatment_probabilities=((0, "a", 1),))
+    with pytest.raises(DataError, match="treatment_probabilities"):
+        dataclasses.replace(_point(), treatment_probabilities=())
+
+
 def _ipw_psi(panel: Any, design: LongPanel) -> dict[str, float]:
     plans = {name: (name,) * OFFER_WEEKS for name in ("none", "discount")}
     effect = CausalStudy(panel, design=design).identify(RegimeContrast(plans, reference="none"))
