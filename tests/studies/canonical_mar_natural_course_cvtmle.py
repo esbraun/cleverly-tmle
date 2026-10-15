@@ -99,6 +99,7 @@ STUDY = StudyRecord(
         "cleverly-stacked-mar-natural-course-cvtmle": 0.01,
         "tmle-r-population-mean": 0.01,
     },
+    comparison="matching implementation",
 )
 
 REFERENCE_METADATA = {

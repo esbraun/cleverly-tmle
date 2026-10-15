@@ -52,6 +52,7 @@ STUDY = StudyRecord(
     implementation="cleverly-multi-arm-ctmle-oat",
     reference="ctmle3-multi-arm-oat",
     failure_bound={"cleverly-multi-arm-ctmle-oat": 0.01, "ctmle3-multi-arm-oat": 0.01},
+    comparison="matching implementation",
     publication_policy="reporting",
     modules=(
         "tests/studies/multi_arm_common.py",

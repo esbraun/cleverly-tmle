@@ -67,6 +67,7 @@ STUDY = StudyRecord(
     implementation="cleverly-mar-natural-course-tmle",
     reference="tmle-r-population-mean",
     failure_bound={"cleverly-mar-natural-course-tmle": 0.01, "tmle-r-population-mean": 0.01},
+    comparison="matching implementation",
     modules=(
         "tests/studies/canonical_mar_natural_course.py",
         "tests/studies/mar_natural_course_properties.py",

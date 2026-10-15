@@ -31,7 +31,7 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, FluctuationKind, IntArray, TargetingMethod
 from ..data.causal_data import CausalData
-from ..exceptions import CapabilityError, DataError
+from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
 from ..fluctuation._score import quasi_loglik, relative_score, score_columns, score_scale
 from ..fluctuation.iterative import (
     CarryItem,
@@ -108,11 +108,12 @@ ONE_STEP_CARRY_COST = (
 #: The refusal of ``targeting="one_step"`` beside ``reduced_crossfit="nested"``.
 #: ``DRTMLE._check_drtmle`` raises it before any learner, and :func:`solve_submodel`
 #: raises it again as the backstop of a direct ``carry``.
-ONE_STEP_NESTED_REFUSAL = (
+ONE_STEP_NESTED_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
     "targeting='one_step' and reduced_crossfit='nested' are not combined. The "
-    f"nested construction moves its fold-free designs {ONE_STEP_CARRY_COST} "
-    "-- so this is a cost decision rather than a derivation. "
-    "Use targeting='iterative', which is the default."
+    f"nested construction moves its fold-free designs {ONE_STEP_CARRY_COST}. "
+    "This is a cost decision rather than a derivation.",
+    alternative="Use targeting='iterative', which is the default.",
 )
 
 #: A round that leaves the mechanism score above this share of the previous round's has
@@ -317,10 +318,16 @@ def build_submodel(
         if nuisance.density is None:
             raise ValueError("a continuous MSM needs the fitted conditional treatment density")
         if missingness_override is not None or data.has_missing_outcome or data.has_intermediate:
-            raise NotImplementedError(
+            raise CapabilityError(
                 "continuous-treatment MSMs do not yet combine with delta= or intermediate=: "
                 "those mechanisms must be evaluated at both the observed dose and every "
-                "quadrature dose in the outcome score"
+                "quadrature dose in the outcome score.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=(
+                    "Discretize the dose and fit the arm MSM with delta= in sample, with "
+                    "TMLE(msm=MSM(...), cross_fit=False)."
+                ),
+                roadmap="X10",
             )
         observed_numerator, grid_numerator = nuisance.msm.continuous_clever_design_at(msm_beta)
         observed_density = nuisance.density.density_at(data.treatment)
@@ -438,7 +445,7 @@ def solve_submodel(
     """
     if spec.targeting == "one_step":
         if carry:
-            raise CapabilityError(ONE_STEP_NESTED_REFUSAL)
+            raise CapabilityError.from_refusal(ONE_STEP_NESTED_REFUSAL)
         return solve_one_step(
             scaled,
             initial,

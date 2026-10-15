@@ -48,6 +48,7 @@ STUDY = StudyRecord(
     implementation="cleverly-mar-tmle",
     reference="tmle-r",
     failure_bound={"cleverly-mar-tmle": 0.01, "tmle-r": 0.01},
+    comparison="matching implementation",
     modules=(
         "tests/studies/canonical_mar_tmle.py",
         "tests/studies/mar_tmle_properties.py",

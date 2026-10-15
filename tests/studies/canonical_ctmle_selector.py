@@ -78,6 +78,7 @@ STUDY = StudyRecord(
     implementation="cleverly-ctmle-selector",
     reference="r-ctmle",
     failure_bound={"cleverly-ctmle-selector": 0.01, "r-ctmle": 0.01},
+    comparison="matching implementation",
     # Reporting rather than gated, declared before the run that measured the red cells.
     # Two property cells fail on the bounded laws under unstratified folds, and every
     # margin here is interval-shaped, so a larger budget makes a verdict easier: raising

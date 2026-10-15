@@ -200,6 +200,10 @@ STUDY = StudyRecord(
     implementation=IMPLEMENTATION,
     reference=REFERENCE,
     failure_bound={IMPLEMENTATION: 0.01, REFERENCE: 0.01},
+    comparison="matching implementation",
+    comparison_overrides={
+        "strata:*": "related target",
+    },
     extra_artifacts=("design-gap.csv", "fit-diagnostics.csv"),
     modules=(
         "tests/studies/canonical_ctmle_oat_per_arm_strata_missing.py",

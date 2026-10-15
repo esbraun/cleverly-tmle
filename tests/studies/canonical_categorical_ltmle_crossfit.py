@@ -45,6 +45,7 @@ STUDY = StudyRecord(
     implementation="cleverly-cross-fitted-categorical-ltmle",
     reference="lmtp",
     failure_bound={"cleverly-cross-fitted-categorical-ltmle": 0.01, "lmtp": 0.01},
+    comparison="different estimator",
     modules=(
         "tests/studies/canonical_categorical_ltmle_crossfit.py",
         "tests/studies/categorical_ltmle_crossfit_properties.py",

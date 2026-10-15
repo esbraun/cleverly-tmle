@@ -44,6 +44,7 @@ STUDY = StudyRecord(
     implementation="cleverly-cross-fitted-competing-ltmle",
     reference="lmtp",
     failure_bound={"cleverly-cross-fitted-competing-ltmle": 0.01, "lmtp": 0.01},
+    comparison="different estimator",
     modules=(
         "tests/studies/canonical_ltmle_competing_crossfit.py",
         "tests/studies/ltmle_competing_crossfit_properties.py",

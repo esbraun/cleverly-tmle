@@ -80,6 +80,7 @@ STUDY = StudyRecord(
     implementation="cleverly-multi-arm-mar-drtmle",
     reference="drtmle-r-multi-arm-mar",
     failure_bound={"cleverly-multi-arm-mar-drtmle": 0.01, "drtmle-r-multi-arm-mar": 0.01},
+    comparison="different estimator",
     publication_policy="reporting",
     modules=(
         "tests/studies/canonical_multi_arm_mar_drtmle.py",

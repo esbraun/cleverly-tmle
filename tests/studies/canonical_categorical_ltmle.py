@@ -39,6 +39,7 @@ STUDY = StudyRecord(
     implementation="cleverly-categorical-ltmle",
     reference="lmtp",
     failure_bound={"cleverly-categorical-ltmle": 0.01, "lmtp": 0.01},
+    comparison="matching implementation",
     modules=(
         "tests/studies/canonical_categorical_ltmle.py",
         "tests/studies/categorical_ltmle_properties.py",

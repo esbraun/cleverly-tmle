@@ -110,6 +110,7 @@ STUDY = StudyRecord(
     implementation=IMPLEMENTATION,
     reference=REFERENCE,
     failure_bound={IMPLEMENTATION: 0.01, REFERENCE: 0.01},
+    comparison="matching implementation",
     modules=(
         "tests/studies/canonical_known_node_mechanisms.py",
         "tests/studies/known_node_mechanisms_properties.py",

@@ -30,7 +30,13 @@ REASON = "the R runs wait in the local queue; owner X99"
 def _uncompared() -> StudyRecord:
     """``COMPARED`` with no comparator, so with no bound for one."""
     bounds = {COMPARED.implementation: COMPARED.failure_bound[COMPARED.implementation]}
-    return dataclasses.replace(COMPARED, reference=None, failure_bound=bounds)
+    return dataclasses.replace(
+        COMPARED,
+        reference=None,
+        comparison=None,
+        comparison_overrides={},
+        failure_bound=bounds,
+    )
 
 
 def _pending(**changes: Any) -> Any:

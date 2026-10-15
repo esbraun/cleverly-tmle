@@ -302,6 +302,7 @@ STUDY = StudyRecord(
     # The R ltmle 1.3-0 comparator runs on the owner's machine (TRACKER Study queue item 14(c))
     # and does not block the merge; its change moves this name to ``reference``.
     pending_reference="ltmle",
+    comparison="matching implementation",
     pending_reason=(
         "the R ltmle 1.3-0 paired runs at n = 3,000 run on the owner's machine as TRACKER "
         "Study queue item 14(c); the X32a follow-up change registers them"

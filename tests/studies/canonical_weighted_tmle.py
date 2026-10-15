@@ -60,6 +60,7 @@ STUDY = StudyRecord(
     implementation=IMPLEMENTATION,
     reference=REFERENCE,
     failure_bound={IMPLEMENTATION: 0.01, REFERENCE: 0.01},
+    comparison="matching implementation",
     modules=(
         "tests/studies/canonical_weighted_tmle.py",
         "tests/studies/weighted_point_common.py",

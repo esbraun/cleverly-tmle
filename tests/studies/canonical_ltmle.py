@@ -90,6 +90,7 @@ STUDY = StudyRecord(
     implementation="cleverly",
     reference="ltmle",
     failure_bound={"cleverly": 0.01, "ltmle": 0.01},
+    comparison="matching implementation",
     modules=(
         "tests/studies/canonical_ltmle.py",
         "tests/studies/ltmle_properties.py",

@@ -95,6 +95,17 @@ STUDY = StudyRecord(
         "cleverly-stacked-mar-arm-indexed-cvtmle": 0.01,
         "tmle-r-stitched-arm-indexed": 0.01,
     },
+    comparison="matching implementation",
+    comparison_overrides={
+        "binary_mar_three_arm_stacked:ate[low vs high]": "related target",
+        "binary_mar_three_arm_stacked:ate[mid vs high]": "related target",
+        "binary_mar_three_arm_stacked:or[low vs high]": "related target",
+        "binary_mar_three_arm_stacked:or[mid vs high]": "related target",
+        "binary_mar_three_arm_stacked:rr[low vs high]": "related target",
+        "binary_mar_three_arm_stacked:rr[mid vs high]": "related target",
+        "continuous_mar_three_arm_stacked:ate[low vs high]": "related target",
+        "continuous_mar_three_arm_stacked:ate[mid vs high]": "related target",
+    },
     modules=(
         "tests/studies/canonical_mar_arm_indexed_cvtmle.py",
         "tests/studies/mar_arm_indexed_cvtmle_properties.py",

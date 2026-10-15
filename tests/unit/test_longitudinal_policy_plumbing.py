@@ -206,7 +206,7 @@ def test_r7_an_undeclared_policy_names_the_node_case() -> None:
     with pytest.raises(CapabilityError) as caught:
         _fit_refused(plan)
     assert "q_t(a | H_t) at a longitudinal node" in str(caught.value)
-    assert _UNDECLARED_DENSITY in str(caught.value)
+    assert _UNDECLARED_DENSITY.message() in str(caught.value)
 
 
 def test_r8_an_estimated_policy_names_ipsi() -> None:
@@ -215,7 +215,7 @@ def test_r8_an_estimated_policy_names_ipsi() -> None:
     object.__setattr__(node, "density_kind", "estimated")
     with pytest.raises(CapabilityError) as caught:
         _fit_refused(plan)
-    assert _ESTIMATED_DENSITY in str(caught.value)
+    assert _ESTIMATED_DENSITY.message() in str(caught.value)
     assert str(caught.value).endswith(
         "For an odds tilt of the mechanism at each node of a longitudinal fit, put "
         "Incremental nodes in IPSI(regimens=...) from cleverly.longitudinal."
@@ -232,11 +232,11 @@ def test_r9_a_static_regimen_cannot_hold_a_policy() -> None:
 
 
 def test_r10_interventions_points_to_a_policy_node() -> None:
-    with pytest.raises(TypeError) as caught:
+    with pytest.raises(CapabilityError) as caught:
         LTMLE({"low": "low"}, interventions=[])
     assert str(caught.value).endswith(
         "A node that draws its arm from a known distribution is a Stochastic node in that "
-        "plan: DynamicRegimen('mix', (Stochastic(q1, 'q1', density_kind='known'), 'low'))"
+        "plan: DynamicRegimen('mix', (Stochastic(q1, 'q1', density_kind='known'), 'low'))."
     )
 
 

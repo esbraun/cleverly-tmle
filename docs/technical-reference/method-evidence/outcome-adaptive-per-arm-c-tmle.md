@@ -93,24 +93,26 @@ variance of Theorem 1's curve over the variance of the efficient influence funct
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| two arms, an arm-specific outcome index, an instrument, correct outcome regression | `ate` | average treatment effect | 1.809e-10 | 4.183e-08 | 1.0000 | 0 | 6.837e-09 vs 0.0500 | equivalent |
-| two arms, an arm-specific outcome index, an instrument, correct outcome regression | `ey0` | counterfactual mean under no treatment | -6.747e-11 | 2.215e-08 | 1.0000 | 0 | 5.179e-09 vs 0.0500 | equivalent |
-| two arms, an arm-specific outcome index, an instrument, correct outcome regression | `ey1` | counterfactual mean under treatment | 1.134e-10 | 3.691e-08 | 1.0000 | 0 | 3.063e-09 vs 0.0500 | equivalent |
-| two arms, an arm-specific outcome index, an instrument, correct outcome regression | `or` | marginal odds ratio, reported on the log scale | 1.175e-09 | 4.064e-08 | 1.0000 | 0 | 6.885e-09 vs 0.0500 | equivalent |
-| two arms, an arm-specific outcome index, an instrument, correct outcome regression | `paf` | population attributable fraction | 1.375e-10 | 2.758e-08 | 1.0000 | 0 | 3.761e-09 vs 0.0500 | equivalent |
-| two arms, an arm-specific outcome index, an instrument, correct outcome regression | `par` | population attributable risk | 6.747e-11 | 2.702e-08 | 1.0000 | 0 | 3.051e-09 vs 0.0500 | equivalent |
-| two arms, an arm-specific outcome index, an instrument, correct outcome regression | `rr` | marginal risk ratio, reported on the log scale | 4.586e-10 | 4.061e-08 | 1.0000 | 0 | 7.033e-09 vs 0.0500 | equivalent |
-| three arms, an arm-specific outcome index, an instrument, correct outcome regression | `ate[1 vs 0]` | difference in counterfactual means, 1 versus 0 | 2.357e-09 | 4.145e-07 | 1.0000 | 0 | 1.347e-07 vs 0.0500 | equivalent |
-| three arms, an arm-specific outcome index, an instrument, correct outcome regression | `ate[2 vs 0]` | difference in counterfactual means, 2 versus 0 | -4.589e-11 | 8.271e-09 | 1.0000 | 0 | 5.229e-09 vs 0.0500 | equivalent |
-| three arms, an arm-specific outcome index, an instrument, correct outcome regression | `ey[0]` | counterfactual mean under treatment arm '0' | 1.237e-11 | 3.177e-09 | 1.0000 | 0 | 2.161e-09 vs 0.0500 | equivalent |
-| three arms, an arm-specific outcome index, an instrument, correct outcome regression | `ey[1]` | counterfactual mean under treatment arm '1' | 2.369e-09 | 5.857e-07 | 1.0000 | 0 | 1.805e-07 vs 0.0500 | equivalent |
-| three arms, an arm-specific outcome index, an instrument, correct outcome regression | `ey[2]` | counterfactual mean under treatment arm '2' | -3.352e-11 | 8.294e-09 | 1.0000 | 0 | 8.831e-09 vs 0.0500 | equivalent |
-| three arms, an arm-specific outcome index, an instrument, correct outcome regression | `or[1 vs 0]` | marginal odds ratio, 1 versus 0, reported on the log scale | 9.058e-09 | 2.777e-07 | 1.0000 | 0 | 1.341e-07 vs 0.0500 | equivalent |
-| three arms, an arm-specific outcome index, an instrument, correct outcome regression | `or[2 vs 0]` | marginal odds ratio, 2 versus 0, reported on the log scale | -1.735e-10 | 3.794e-09 | 1.0000 | 0 | 5.147e-09 vs 0.0500 | equivalent |
-| three arms, an arm-specific outcome index, an instrument, correct outcome regression | `rr[1 vs 0]` | marginal risk ratio, 1 versus 0, reported on the log scale | 5.324e-09 | 3.524e-07 | 1.0000 | 0 | 1.413e-07 vs 0.0500 | equivalent |
-| three arms, an arm-specific outcome index, an instrument, correct outcome regression | `rr[2 vs 0]` | marginal risk ratio, 2 versus 0, reported on the log scale | -9.641e-11 | 5.893e-09 | 1.0000 | 0 | 4.436e-09 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `drtmle-r-oat-per-arm` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| two arms, an arm-specific outcome index, an instrument, correct outcome regression | `ate` | average treatment effect | 1.809e-10 | 4.183e-08 | 1.0000 | 0 | matching implementation | 6.837e-09 vs 0.0500 | equivalent |
+| two arms, an arm-specific outcome index, an instrument, correct outcome regression | `ey0` | counterfactual mean under no treatment | -6.747e-11 | 2.215e-08 | 1.0000 | 0 | matching implementation | 5.179e-09 vs 0.0500 | equivalent |
+| two arms, an arm-specific outcome index, an instrument, correct outcome regression | `ey1` | counterfactual mean under treatment | 1.134e-10 | 3.691e-08 | 1.0000 | 0 | matching implementation | 3.063e-09 vs 0.0500 | equivalent |
+| two arms, an arm-specific outcome index, an instrument, correct outcome regression | `or` | marginal odds ratio, reported on the log scale | 1.175e-09 | 4.064e-08 | 1.0000 | 0 | matching implementation | 6.885e-09 vs 0.0500 | equivalent |
+| two arms, an arm-specific outcome index, an instrument, correct outcome regression | `paf` | population attributable fraction | 1.375e-10 | 2.758e-08 | 1.0000 | 0 | related target | 3.761e-09 vs 0.0500 | equivalent |
+| two arms, an arm-specific outcome index, an instrument, correct outcome regression | `par` | population attributable risk | 6.747e-11 | 2.702e-08 | 1.0000 | 0 | related target | 3.051e-09 vs 0.0500 | equivalent |
+| two arms, an arm-specific outcome index, an instrument, correct outcome regression | `rr` | marginal risk ratio, reported on the log scale | 4.586e-10 | 4.061e-08 | 1.0000 | 0 | matching implementation | 7.033e-09 vs 0.0500 | equivalent |
+| three arms, an arm-specific outcome index, an instrument, correct outcome regression | `ate[1 vs 0]` | difference in counterfactual means, 1 versus 0 | 2.357e-09 | 4.145e-07 | 1.0000 | 0 | matching implementation | 1.347e-07 vs 0.0500 | equivalent |
+| three arms, an arm-specific outcome index, an instrument, correct outcome regression | `ate[2 vs 0]` | difference in counterfactual means, 2 versus 0 | -4.589e-11 | 8.271e-09 | 1.0000 | 0 | matching implementation | 5.229e-09 vs 0.0500 | equivalent |
+| three arms, an arm-specific outcome index, an instrument, correct outcome regression | `ey[0]` | counterfactual mean under treatment arm '0' | 1.237e-11 | 3.177e-09 | 1.0000 | 0 | matching implementation | 2.161e-09 vs 0.0500 | equivalent |
+| three arms, an arm-specific outcome index, an instrument, correct outcome regression | `ey[1]` | counterfactual mean under treatment arm '1' | 2.369e-09 | 5.857e-07 | 1.0000 | 0 | matching implementation | 1.805e-07 vs 0.0500 | equivalent |
+| three arms, an arm-specific outcome index, an instrument, correct outcome regression | `ey[2]` | counterfactual mean under treatment arm '2' | -3.352e-11 | 8.294e-09 | 1.0000 | 0 | matching implementation | 8.831e-09 vs 0.0500 | equivalent |
+| three arms, an arm-specific outcome index, an instrument, correct outcome regression | `or[1 vs 0]` | marginal odds ratio, 1 versus 0, reported on the log scale | 9.058e-09 | 2.777e-07 | 1.0000 | 0 | matching implementation | 1.341e-07 vs 0.0500 | equivalent |
+| three arms, an arm-specific outcome index, an instrument, correct outcome regression | `or[2 vs 0]` | marginal odds ratio, 2 versus 0, reported on the log scale | -1.735e-10 | 3.794e-09 | 1.0000 | 0 | matching implementation | 5.147e-09 vs 0.0500 | equivalent |
+| three arms, an arm-specific outcome index, an instrument, correct outcome regression | `rr[1 vs 0]` | marginal risk ratio, 1 versus 0, reported on the log scale | 5.324e-09 | 3.524e-07 | 1.0000 | 0 | matching implementation | 1.413e-07 vs 0.0500 | equivalent |
+| three arms, an arm-specific outcome index, an instrument, correct outcome regression | `rr[2 vs 0]` | marginal risk ratio, 2 versus 0, reported on the log scale | -9.641e-11 | 5.893e-09 | 1.0000 | 0 | matching implementation | 4.436e-09 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties

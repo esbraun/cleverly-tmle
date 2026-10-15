@@ -65,6 +65,7 @@ STUDY = StudyRecord(
     implementation="cleverly-ctmle-oat",
     reference="tlverse-ctmle3-oat",
     failure_bound={"cleverly-ctmle-oat": 0.01, "tlverse-ctmle3-oat": 0.01},
+    comparison="matching implementation",
     publication_policy="reporting",
     modules=(
         "tests/studies/canonical_ctmle_oat.py",

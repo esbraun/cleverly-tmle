@@ -253,6 +253,10 @@ STUDY = StudyRecord(
     implementation="cleverly-sdr",
     reference="lmtp",
     failure_bound={"cleverly-sdr": 0.01, "lmtp": 0.01},
+    comparison="matching implementation",
+    comparison_overrides={
+        "sdr_end_of_study_crossfit:*": "different estimator",
+    },
     modules=(
         "tests/studies/canonical_longitudinal_sdr.py",
         "tests/studies/longitudinal_sdr_properties.py",

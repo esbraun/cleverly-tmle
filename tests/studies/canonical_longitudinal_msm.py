@@ -60,6 +60,7 @@ STUDY = StudyRecord(
     implementation="cleverly",
     reference="ltmle projected regimen fits",
     failure_bound={"cleverly": 0.01, "ltmle projected regimen fits": 0.01},
+    comparison="related target",
     modules=(
         "tests/studies/canonical_longitudinal_msm.py",
         "tests/studies/longitudinal_msm_properties.py",

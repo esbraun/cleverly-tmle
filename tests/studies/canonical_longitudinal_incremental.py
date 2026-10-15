@@ -124,6 +124,7 @@ STUDY = StudyRecord(
     implementation="cleverly-ipsi",
     reference="npcausal",
     failure_bound={"cleverly-ipsi": 0.01, "npcausal": 0.01},
+    comparison="matching implementation",
     efficiency_bounds=EFFICIENCY_SD,
     modules=(
         "tests/studies/canonical_longitudinal_incremental.py",

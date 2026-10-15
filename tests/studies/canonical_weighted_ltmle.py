@@ -35,6 +35,7 @@ STUDY = StudyRecord(
     implementation="cleverly-weighted-ltmle",
     reference="ltmle-weighted",
     failure_bound={"cleverly-weighted-ltmle": 0.01, "ltmle-weighted": 0.01},
+    comparison="matching implementation",
     publication_policy="reporting",
     modules=(
         "tests/studies/canonical_weighted_ltmle.py",

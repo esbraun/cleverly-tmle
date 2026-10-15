@@ -125,6 +125,7 @@ STUDY = StudyRecord(
     implementation="cleverly-cross-fitted-ltmle-msm",
     reference=REFERENCE,
     failure_bound={"cleverly-cross-fitted-ltmle-msm": 0.01, REFERENCE: 0.01},
+    comparison="related target",
     modules=(
         "tests/studies/canonical_crossfit_longitudinal_msm.py",
         "tests/studies/crossfit_longitudinal_msm_properties.py",

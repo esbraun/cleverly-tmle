@@ -50,6 +50,7 @@ STUDY = StudyRecord(
     implementation="cleverly",
     reference="npcausal",
     failure_bound={"cleverly": 0.01, "npcausal": 0.01},
+    comparison="different estimator",
     modules=(
         "tests/studies/canonical_incremental_interventions.py",
         "tests/studies/incremental_intervention_properties.py",

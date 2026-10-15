@@ -57,6 +57,7 @@ STUDY = StudyRecord(
     implementation="cleverly-cde-tmle",
     reference="tmle-r-cde",
     failure_bound={"cleverly-cde-tmle": 0.01, "tmle-r-cde": 0.01},
+    comparison="matching implementation",
     modules=(
         "tests/studies/canonical_cde_tmle.py",
         "tests/studies/cde_tmle_properties.py",
