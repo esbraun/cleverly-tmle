@@ -88,6 +88,11 @@ STUDY = StudyRecord(
     modules=(
         "tests/studies/canonical_long_horizon_ltmle.py",
         "tests/studies/long_horizon_ltmle_properties.py",
+        "tests/studies/long_horizon_properties.py",
+        "tests/studies/canonical_long_horizon_categorical_ltmle.py",
+        "tests/studies/canonical_long_horizon_sdr.py",
+        "tests/long_horizon_design.py",
+        "tests/long_horizon_sampling_sd.py",
         "tests/studies/long_horizon_primary.py",
         "tests/studies/long_horizon_common.py",
         "tests/studies/fractional_glm.py",
@@ -100,6 +105,7 @@ STUDY = StudyRecord(
     runner_module="tests.studies.canonical_long_horizon_ltmle",
     properties_module="tests.studies.long_horizon_ltmle_properties",
     publication_policy="reporting",
+    failure_bound={"cleverly-long-horizon-ltmle": 0.01, "ltmle": 0.01},
 )
 
 CONFIGURATION = {
