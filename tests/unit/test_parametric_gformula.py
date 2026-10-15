@@ -610,6 +610,35 @@ class TestExactTermsClusterLawB:
         assert abs(expected - unit) > 0.02 * unit
 
 
+class TestClusterMonteCarloShare:
+    """The Monte Carlo share divides by the clustered variance of the curve."""
+
+    def test_the_share_reads_the_cluster_sums(self) -> None:
+        frame = panel_b(400, seed=17, clustered=True)
+        result = fit_with(
+            frame,
+            regimens_b("always"),
+            dict(ROLES_B, id="cl"),
+            n_draws=3,
+            n_derivative_draws=12,
+        )
+        name = "ey_regimen[always]"
+        fit = result.fits["always"]
+        curve = result.influence_curves[name]
+        copies = np.asarray(fit.simulation.copy_values, dtype=float)
+        per_unit = copies.var(axis=1, ddof=1) / 3
+        weights = np.asarray(result.data.weights, dtype=float)
+        scaled = weights / weights.mean()
+        simulated = float(np.sum(scaled**2 * per_unit))
+        by_cluster = float(np.sum(np.bincount(result.data.cluster, weights=curve) ** 2))
+        by_unit = float(np.sum(curve**2))
+        assert result.simulation.monte_carlo_share[name] == pytest.approx(
+            simulated / by_cluster, rel=1e-10
+        )
+        # The nonzero witness: the two denominators differ, so unit sums would move the share.
+        assert abs(by_cluster - by_unit) > 0.05 * by_unit
+
+
 class TestProductionLawB:
     """W2, W3b, W4, W5, W6 on law B."""
 
@@ -805,6 +834,75 @@ class TestProductionLawR:
         keys = {model.key for model in store["book"].stacked}
         assert keys == {"covariate:2:L2", "covariate:3:L3", "outcome"}
         assert_production_matches_exact(store, phi_r, replicates=60, n_derivative_draws=10)
+
+
+# ------------------------------------------------ law O: node-1 covariate and a within-node order
+#
+#   W -> L1 -> A1 -> Z2 -> L2 -> A2 -> Y        Z2 and L2 share node 2, and L2 reads Z2
+
+ROLES_O: dict[str, Any] = {
+    "outcome": "Y",
+    "treatment": ["A1", "A2"],
+    "baseline": ["W"],
+    "time_varying": [["L1"], ["Z2", "L2"]],
+}
+
+
+def panel_o(n: int, seed: int) -> pd.DataFrame:
+    """Law O: ``L2`` depends on ``Z2`` through an interaction, so main-terms models are order-bound."""
+    rng = np.random.default_rng(seed)
+    w = rng.normal(size=n)
+    l1 = rng.binomial(1, expit(0.5 * w)).astype(float)
+    a1 = rng.binomial(1, expit(0.3 * w - 0.4 * l1)).astype(float)
+    z2 = rng.binomial(1, expit(-0.2 + 0.8 * a1 + 0.6 * l1 - 0.4 * w)).astype(float)
+    l2 = rng.binomial(1, expit(-0.3 + 1.5 * z2 - 1.8 * z2 * a1 + 0.5 * a1 + 0.5 * w)).astype(float)
+    a2 = rng.binomial(1, expit(0.2 + 0.5 * z2 - 0.5 * l2)).astype(float)
+    eta = -0.4 + 0.6 * a1 + 1.2 * z2 + 0.9 * l2 - 0.4 * z2 * l2 + 0.5 * a2 + 0.4 * l1 + 0.4 * w
+    y = rng.binomial(1, expit(eta)).astype(float)
+    return pd.DataFrame({"W": w, "L1": l1, "A1": a1, "Z2": z2, "L2": l2, "A2": a2, "Y": y})
+
+
+PLANS_O: dict[str, Any] = {
+    "always": Regimen("always", (1, 1)),
+    "rule": DynamicRegimen("rule", (lambda h: h["L1"], lambda h: 1.0 - h["Z2"]), rule_kind="known"),
+}
+
+
+def phi_o(book: gf.ModelBook, plan: Any, theta: dict[str, np.ndarray]) -> np.ndarray:
+    """Law O by enumeration over ``Z2`` then ``L2``, in the declared order."""
+    data = book.data
+    w = data.baseline[:, 0]
+    l1 = np.asarray(data.time_varying[0], dtype=float)[:, 0]
+    start = {"W": w, "L1": l1}
+    a1 = assigned(plan, data, 1, start)
+    pz = expit(
+        linear(book, "covariate:2:Z2", theta["covariate:2:Z2"], np.column_stack([w, l1, a1]))
+    )
+    total = np.zeros(data.n, dtype=complex)
+    for z, prob_z in ((0.0, 1.0 - pz), (1.0, pz)):
+        zc = np.full(data.n, z)
+        x_l = np.column_stack([w, l1, a1, zc])
+        pl = expit(linear(book, "covariate:2:L2", theta["covariate:2:L2"], x_l))
+        for value, prob_l in ((0.0, 1.0 - pl), (1.0, pl)):
+            lc = np.full(data.n, value)
+            history = {**start, "A1": a1, "Z2": zc, "L2": lc}
+            a2 = assigned(plan, data, 2, history)
+            x = np.column_stack([w, l1, a1, zc, lc, a2])
+            total = total + prob_z * prob_l * expit(linear(book, "outcome", theta["outcome"], x))
+    return total[:, None]
+
+
+class TestOrderAndNodeOne:
+    """W2: the draw order within a node and the observed node-1 covariates are part of the law."""
+
+    def test_the_production_terms_are_the_exact_terms(self) -> None:
+        frame = panel_o(200, seed=9)
+        _, store = run_exact(frame, [PLANS_O["always"], PLANS_O["rule"]], ROLES_O, phi_o, n_draws=2)
+        keys = {model.key for model in store["book"].stacked}
+        assert keys == {"covariate:2:Z2", "covariate:2:L2", "outcome"}
+        assert_production_matches_exact(
+            store, phi_o, replicates=60, n_derivative_draws=10, nonzero=3e-3
+        )
 
 
 # ------------------------------------------------------- law M: a modified treatment policy
