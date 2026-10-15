@@ -508,6 +508,7 @@ _BIAS_GATED = frozenset(
         "double_robustness",
         "mechanism_requirement",
         "atom_necessity",
+        "classifier_split",
         "branch_necessity",
         "cap_necessity",
         "competing_risk_recursion_necessity",

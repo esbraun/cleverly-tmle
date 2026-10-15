@@ -1185,6 +1185,7 @@ BIAS_GATED_PROPERTIES = frozenset(
         "jacobian_necessity",
         "branch_necessity",
         "atom_necessity",
+        "classifier_split",
         "projection_necessity",
         "randomizer_projection",
         "ratio_necessity",

@@ -887,6 +887,10 @@ def _recompute_interval_columns(rows: pd.DataFrame, critical: float) -> pd.DataF
 SE_CONTROL_SIDES: dict[str, Literal["below", "above"]] = {
     "shrunken_se_control": "below",
     "inflated_se_control": "above",
+    # X40 law Q: the curve without the tuning term, and the fold-average rows scored on the
+    # population target.  Both report an SE below the spread they claim to describe.
+    "term_dropped_control": "below",
+    "population_truth_control": "below",
 }
 
 
