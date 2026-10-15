@@ -8,21 +8,29 @@ estimator are shared, because every method that gets an evidence row needs the s
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Sequence
+import dataclasses
+import math
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from cleverly.validation import CoverageStudy, ReplicationRecord, summarize_replications
-from cleverly.validation._seeds import sample_seed_streams
+from cleverly.validation import (
+    CoverageStudy,
+    ReplicationFailure,
+    ReplicationRecord,
+    summarize_replications,
+)
+from cleverly.validation._seeds import sample_seed_streams, validate_sample_seeds
 from tests.studies.evidence.inference import (
     Interval,
     clopper_pearson,
     percentile_interval,
     standardized_bias_verdict,
 )
+from tests.studies.evidence.replication import _Recorded, fit_properties
 from tests.studies.evidence.schema import reported_inference, reported_pvalue
 
 REPLICATE_COLUMNS = (
@@ -172,6 +180,16 @@ def replication_payloads(
     return out
 
 
+def payload_cell(key: Sequence[Any]) -> str:
+    """The ``property/cell`` of a :func:`replication_payloads` key, for the systematic prefix."""
+    return f"{key[0][0]}/{key[0][1]}"
+
+
+def payload_replicate(key: Sequence[Any]) -> int:
+    """The replicate index of a :func:`replication_payloads` key."""
+    return int(key[0][2])
+
+
 #: The absolute floor a property truth is read back at, beside a relative tolerance.
 #:
 #: A relative tolerance alone cannot read a truth that is zero by construction, such as a
@@ -215,10 +233,86 @@ class PropertyBatch:
     name: str
     cells: tuple[PropertyCell, ...]
     estimator: Callable[[PropertyCell], Callable[[], Any]]
+    #: Each base cell's derived controls as ``property/cell`` names (``DERIVED_CELLS``).
+    derived: Mapping[str, Sequence[str]] = field(default_factory=dict)
 
     def run(self, *, n_jobs: int) -> pd.DataFrame:
         """Run the complete declared batch."""
-        return run_cells(self.cells, self.estimator, n_jobs=n_jobs)
+        return run_cells(
+            self.cells,
+            self.estimator,
+            n_jobs=n_jobs,
+            label=f"properties/{self.name}",
+            derived=self.derived,
+        )
+
+
+@dataclass(frozen=True)
+class _CellFit:
+    """Fit one replicate of one cell and return its row with the alpha it reported."""
+
+    estimator: Callable[[PropertyCell], Callable[[], Any]]
+
+    def __call__(
+        self, key: tuple[PropertyCell, int, int], drawn: Any
+    ) -> tuple[dict[str, Any], float]:
+        cell, replicate, seed = key
+        study = CoverageStudy(
+            dgp=cell.dgp,
+            estimator=self.estimator(cell),
+            n=cell.n,
+            n_replicates=cell.replicates,
+            estimands=(cell.estimand,),
+            fit_kwargs=dict(cell.fit_kwargs),
+            seed=cell.seed,
+            n_jobs=1,
+        )
+        outcome = study.run_replication(replicate, seed)
+        if isinstance(outcome, ReplicationFailure):
+            raise _Recorded(outcome)
+        (record,) = [record for record in outcome if record.estimand == cell.estimand]
+        row = {
+            "property": cell.property,
+            "cell": cell.cell,
+            "role": cell.role,
+            "replicate": record.replicate,
+            "n": cell.n,
+            "requested_replicates": cell.replicates,
+            "failed_replicates": 0,
+            "truth": record.truth,
+            "estimate": record.estimate,
+            "std_error": record.std_error,
+            "covered": int(record.covered),
+            "rejected": int(record.rejected),
+        }
+        return row, record.alpha
+
+
+@dataclass(frozen=True)
+class _CellDraw:
+    """Draw one replicate's sample of one cell, outside the fit's classification.
+
+    ``CoverageStudy.run_replication`` draws the same sample again from the same seed, so the
+    rows do not move.  The separate draw puts a defect of the law outside the classifier
+    (RM39b2 F5) and gives the failure accounting a sample to compute the study's
+    ``PROPERTY_WITNESS`` on without a fit.
+    """
+
+    estimator: Callable[[PropertyCell], Callable[[], Any]]
+
+    def __call__(self, key: tuple[PropertyCell, int, int]) -> Any:
+        cell, _, seed = key
+        study = CoverageStudy(
+            dgp=cell.dgp,
+            estimator=self.estimator(cell),
+            n=cell.n,
+            n_replicates=cell.replicates,
+            estimands=(cell.estimand,),
+            fit_kwargs=dict(cell.fit_kwargs),
+            seed=cell.seed,
+            n_jobs=1,
+        )
+        return study._draw(int(validate_sample_seeds((seed,), 1)[0]))
 
 
 def run_cells(
@@ -226,63 +320,110 @@ def run_cells(
     estimator: Callable[[PropertyCell], Callable[[], Any]],
     *,
     n_jobs: int,
+    label: str = "properties",
+    derived: Mapping[str, Sequence[str]] | None = None,
 ) -> pd.DataFrame:
     """Run every cell and return the per-replication rows.
 
-    Cells run one at a time with the whole core budget handed to the replication loop inside
-    each, rather than several cells at once each with a slice.  Two levels of process pool
-    over the same cores oversubscribe every one of them; a single level with a few hundred
+    One :func:`~tests.studies.evidence.replication.fit_properties` call fits every
+    ``(cell, replicate, seed)`` key, so the whole core budget feeds one replication loop
+    rather than several cells at once each with a slice.  Two levels of process pool over
+    the same cores oversubscribe every one of them; a single level with a few hundred
     independent fits already keeps every worker fed.
 
     ``requested_replicates`` and ``failed_replicates`` travel on every row.  A replication
-    whose fit raises is dropped by :class:`~cleverly.validation.CoverageStudy` -- correctly,
-    so one bad draw cannot kill a study -- and a dropped replication silently widens the
-    Monte Carlo error of every cell it touches.  Recording the count is what lets the
-    verdicts refuse to be computed on a study that quietly shrank.
+    whose fit raises a recordable error costs that cell one replicate: inside the regeneration
+    driver the loss is recorded and the driver stamps ``failed_replicates``; elsewhere it
+    stops the run.  The rows write ``failed_replicates = 0``, because the driver is the one
+    writer of the column.  Recording the count is what lets the verdicts refuse to be computed
+    on a study that quietly shrank.
 
     Distinct root seeds receive distinct sample seeds across the cells.  Equal roots share
     one prefix, including when their budgets differ, to retain intentionally paired draws.
     Planning by replication index preserves the old prefix when a rung budget increases.
+
+    Parameters
+    ----------
+    cells : Sequence of PropertyCell
+        The cells to fit, in the order their rows are published.
+    estimator : Callable
+        Maps a cell to the zero-argument factory of its estimator.
+    n_jobs : int
+        Worker processes.
+    label : str
+        The loop's label in the run's records and checkpoints.
+    derived : Mapping or None
+        Each base cell's derived controls as ``property/cell`` names.  A record of a base
+        replicate names its controls as well, because the controls lose the replicate with it.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per surviving replication, with the columns of ``REPLICATE_COLUMNS``.
+
+    Raises
+    ------
+    RuntimeError
+        If every replication of a cell failed, or if the replications of a cell report more
+        than one alpha.
     """
     budgets: dict[int, int] = {}
     for cell in cells:
         budgets[cell.seed] = max(budgets.get(cell.seed, 0), cell.replicates)
     sample_seeds = sample_seed_streams(budgets)
-    frames: list[pd.DataFrame] = []
+    keys: list[tuple[PropertyCell, int, int]] = []
     for cell in cells:
-        result = CoverageStudy(
-            dgp=cell.dgp,
-            estimator=estimator(cell),
-            n=cell.n,
-            n_replicates=cell.replicates,
-            estimands=(cell.estimand,),
-            fit_kwargs=dict(cell.fit_kwargs),
-            seed=cell.seed,
-            sample_seeds=sample_seeds[cell.seed][: cell.replicates],
-            n_jobs=n_jobs,
-        ).run()
-        records = tuple(
-            record for record in result.replications if record.estimand == cell.estimand
-        )
-        frames.append(
-            pd.DataFrame(
-                {
-                    "property": cell.property,
-                    "cell": cell.cell,
-                    "role": cell.role,
-                    "replicate": [record.replicate for record in records],
-                    "n": cell.n,
-                    "requested_replicates": cell.replicates,
-                    "failed_replicates": result.n_failed,
-                    "truth": [record.truth for record in records],
-                    "estimate": [record.estimate for record in records],
-                    "std_error": [record.std_error for record in records],
-                    "covered": [int(record.covered) for record in records],
-                    "rejected": [int(record.rejected) for record in records],
-                }
+        seeds = validate_sample_seeds(sample_seeds[cell.seed][: cell.replicates], cell.replicates)
+        keys.extend((cell, replicate, int(seed)) for replicate, seed in enumerate(seeds))
+    values = fit_properties(
+        keys,
+        _CellFit(estimator),
+        cells_of=_CellsOf(dict(derived or {})),
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        label=label,
+        draw=_CellDraw(estimator),
+        rows_at=0,
+        derived=derived,
+        seed_of=_seed_of,
+    )
+    rows = pd.DataFrame([row for row, _ in values])
+    alphas: dict[tuple[str, str], set[float]] = {}
+    for row, alpha in values:
+        alphas.setdefault((row["property"], row["cell"]), set()).add(alpha)
+    for cell in cells:
+        name = (cell.property, cell.cell)
+        if name not in alphas:
+            raise RuntimeError(f"every replication of {cell.property}/{cell.cell} failed")
+        if len(alphas[name]) != 1:
+            raise RuntimeError(
+                f"replications returned inconsistent alpha levels: {sorted(alphas[name])}"
             )
-        )
-    return pd.concat(frames, ignore_index=True).loc[:, list(REPLICATE_COLUMNS)]
+    return rows.loc[:, list(REPLICATE_COLUMNS)]
+
+
+def _cell_of(key: tuple[PropertyCell, int, int]) -> str:
+    return f"{key[0].property}/{key[0].cell}"
+
+
+@dataclass(frozen=True)
+class _CellsOf:
+    """The cells a ``(cell, replicate, seed)`` key writes: its own and its derived controls."""
+
+    derived: Mapping[str, Sequence[str]]
+
+    def __call__(self, key: tuple[PropertyCell, int, int]) -> tuple[str, ...]:
+        name = _cell_of(key)
+        return (name, *self.derived.get(name, ()))
+
+
+def _replicate_of(key: tuple[PropertyCell, int, int]) -> int:
+    return key[1]
+
+
+def _seed_of(key: tuple[PropertyCell, int, int]) -> int:
+    return key[2]
 
 
 def coverage_gain_interval(
@@ -296,16 +437,48 @@ def coverage_gain_interval(
     """Resampling interval for the coverage a positive cell buys over its paired control.
 
     Paired on ``replicate``, because the two cells are run on the same draws precisely so
-    this difference is not two independent rates subtracted.  Shared rather than owned by
+    this difference is not two independent rates subtracted.  :func:`paired` reads the
+    replications both cells kept.  Shared rather than owned by
     one study family: two of them now make a claim about a pair of cells, and a statistic
     written twice is a statistic that can be changed once.
     """
-    paired = positive[["replicate", "covered"]].merge(
+    positive, control = paired(positive, control)
+    paired_rows = positive[["replicate", "covered"]].merge(
         control[["replicate", "covered"]], on="replicate", suffixes=("_positive", "_control")
     )
-    differences = paired["covered_positive"].to_numpy(dtype=float) - paired[
+    differences = paired_rows["covered_positive"].to_numpy(dtype=float) - paired_rows[
         "covered_control"
     ].to_numpy(dtype=float)
+    interval = mean_difference_interval(
+        differences, replicates=replicates, confidence_level=confidence_level, seed=seed
+    )
+    return interval.low, interval.high
+
+
+def mean_difference_interval(
+    differences: np.ndarray, *, replicates: int, confidence_level: float, seed: int
+) -> Interval:
+    """The percentile-bootstrap interval of the mean of paired differences.
+
+    The statistic behind :func:`coverage_gain_interval`, kept apart so the failure accounting
+    can evaluate it on imputed differences with the verdict's own seed.
+
+    Parameters
+    ----------
+    differences : numpy.ndarray
+        One paired difference per replication, in the order the pair was merged.
+    replicates : int
+        Bootstrap replicates.
+    confidence_level : float
+        Two-sided level of the interval.
+    seed : int
+        The resampling seed.
+
+    Returns
+    -------
+    Interval
+        The interval of the mean difference.
+    """
     rng = np.random.default_rng(seed)
     means = np.concatenate(
         [
@@ -313,8 +486,7 @@ def coverage_gain_interval(
             for block in bootstrap_draw_blocks(differences, replicates=replicates, rng=rng)
         ]
     )
-    interval = percentile_interval(means, confidence_level=confidence_level)
-    return interval.low, interval.high
+    return percentile_interval(means, confidence_level=confidence_level)
 
 
 def replicate_row(
@@ -447,16 +619,22 @@ def paired_displacement(
 
     Refuses arms that are not aligned on ``replicate`` rather than subtracting two means that
     came off different draws, which is the whole reason the two arms are emitted from one
-    replication.
+    replication.  Arms that a recorded failure shortened read the replications both kept
+    (:func:`paired`).
     """
+    selected = [
+        rows.loc[(rows["property"] == family) & (rows["cell"] == cell)] for cell in (left, right)
+    ]
+    try:
+        kept = paired(*selected)
+    except ValueError as error:
+        raise ValueError(
+            f"the {family} arms {left} and {right} are not paired on replication: {error}"
+        ) from error
     arms = {
-        name: rows.loc[(rows["property"] == family) & (rows["cell"] == cell)].sort_values(
-            "replicate"
-        )
-        for name, cell in (("left", left), ("right", right))
+        name: arm.sort_values("replicate")
+        for name, arm in zip(("left", "right"), kept, strict=True)
     }
-    if not np.array_equal(arms["left"]["replicate"], arms["right"]["replicate"]):
-        raise ValueError(f"the {family} arms {left} and {right} are not paired on replication")
     if truth_varies:
         values = {
             name: pd.Series(spread_values(arm, truth_varies=True)) for name, arm in arms.items()
@@ -468,63 +646,137 @@ def paired_displacement(
     return abs(moved) / spread
 
 
-def require_complete(rows: pd.DataFrame) -> None:
-    """Refuse a property table that lost replications.
+def _count(value: Any, *, field: str, name: str) -> int:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{name} has a non-integer {field}: {value!r}") from error
+    if not np.isfinite(numeric) or not numeric.is_integer() or numeric < 0:
+        raise ValueError(f"{name} has a non-integer {field}: {value!r}")
+    return int(numeric)
+
+
+def _accounted_cell(group: pd.DataFrame, name: str) -> tuple[int, int]:
+    """One cell's ``(requested, failed)``, refused unless its stamp explains every gap."""
+    counts = []
+    for column, label in (
+        ("requested_replicates", "requested replication count"),
+        ("failed_replicates", "failed replication count"),
+    ):
+        values = group[column].unique()
+        if len(values) != 1:
+            raise ValueError(
+                f"{name} has inconsistent {label.split()[0]} replication counts: "
+                f"{sorted(int(value) for value in values)}"
+            )
+        counts.append(_count(values[0], field=label, name=name))
+    requested, failed = counts
+    if len(group) + failed != requested:
+        raise ValueError(
+            f"{name} has {len(group)} of {requested} replications and {failed} recorded "
+            f"failures; a cell whose gap its failure records do not explain cannot be "
+            f"summarised"
+        )
+    if failed and len(group) < 2:
+        raise ValueError(
+            f"{name} kept {len(group)} of {requested} replications; a cell that lost "
+            f"replications needs two survivors for a spread"
+        )
+    ids = group["replicate"].to_numpy()
+    as_float = ids.astype(float)
+    whole = np.isfinite(as_float).all() and bool(np.all(as_float == np.round(as_float)))
+    if (
+        not whole
+        or len(np.unique(as_float)) != len(ids)
+        or (len(ids) and (as_float.min() < 0 or as_float.max() > requested - 1))
+    ):
+        raise ValueError(
+            f"{name} has duplicate or missing replicate ids; expected each of "
+            f"0..{requested - 1} at most once"
+        )
+    return requested, failed
+
+
+def require_accounted(rows: pd.DataFrame) -> None:
+    """Refuse a property table whose lost replications its failure records do not explain.
 
     Every verdict below standardizes by a spread or a rate estimated from these rows, so a
-    cell that lost replications is not merely noisier -- for a bias claim it is *easier*,
-    because the interval it has to sit inside is estimated from the same shrunken sample.
+    cell that silently lost replications is not merely noisier -- for a bias claim it is
+    *easier*, because the interval it has to sit inside is estimated from the same shrunken
+    sample.  A cell may be short only by its stamped ``failed_replicates``, which the
+    regeneration driver writes from the failure records (RM39 part b2).  Per cell, the
+    requested and failed counts are each one integer, the replicate ids are unique and in
+    range, and ``replicates + failed == requested``.  A cell that lost replications keeps at
+    least two.  The failure accounting then judges the complete-case verdict
+    (:mod:`tests.studies.evidence.property_failures`).
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        The replication rows, with ``property``, ``cell``, ``replicate``,
+        ``requested_replicates`` and ``failed_replicates``.
+
+    Raises
+    ------
+    ValueError
+        When a cell breaks any of the rules above.
     """
-
-    def count(value: Any, *, field: str, property_name: str, cell: str) -> int:
-        try:
-            numeric = float(value)
-        except (TypeError, ValueError) as error:
-            raise ValueError(
-                f"{property_name}/{cell} has a non-integer {field}: {value!r}"
-            ) from error
-        if not np.isfinite(numeric) or not numeric.is_integer() or numeric < 0:
-            raise ValueError(f"{property_name}/{cell} has a non-integer {field}: {value!r}")
-        return int(numeric)
-
     for (property_name, cell), group in rows.groupby(["property", "cell"], sort=True):
-        requested_values = group["requested_replicates"].unique()
-        if len(requested_values) != 1:
-            raise ValueError(
-                f"{property_name}/{cell} has inconsistent requested replication counts: "
-                f"{sorted(int(value) for value in requested_values)}"
+        _accounted_cell(group, f"{property_name}/{cell}")
+
+
+def paired(left: pd.DataFrame, right: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """The replications two arms of a paired statistic both kept, each in its own order.
+
+    Arms that carry ``requested_replicates`` and ``failed_replicates`` are each checked by
+    :func:`require_accounted` and must request the same budget.  A recorded failure may then
+    cost the two arms different replications, and the pair reads the ones both kept.  Arms
+    without those columns must hold the same replication ids exactly once.  A misalignment
+    that no stamp explains is refused either way.
+
+    Parameters
+    ----------
+    left : pandas.DataFrame
+        One arm's rows, with a ``replicate`` column.
+    right : pandas.DataFrame
+        The other arm's rows, with a ``replicate`` column.
+
+    Returns
+    -------
+    tuple of pandas.DataFrame
+        ``left`` and ``right`` restricted to the shared replications, rows in their own order.
+
+    Raises
+    ------
+    ValueError
+        When the arms are not paired on replication.
+    """
+    stamps = {"requested_replicates", "failed_replicates"}
+    if stamps <= set(left.columns) and stamps <= set(right.columns):
+        budgets = []
+        for name, arm in (("left", left), ("right", right)):
+            if arm.empty:
+                raise ValueError(f"the {name} arm holds no replication to pair")
+            label = (
+                f"{arm['property'].iloc[0]}/{arm['cell'].iloc[0]}"
+                if {"property", "cell"} <= set(arm.columns)
+                else f"the {name} arm"
             )
-        failed_values = group["failed_replicates"].unique()
-        if len(failed_values) != 1:
+            budgets.append(_accounted_cell(arm, label)[0])
+        if budgets[0] != budgets[1]:
             raise ValueError(
-                f"{property_name}/{cell} has inconsistent failed replication counts: "
-                f"{sorted(int(value) for value in failed_values)}"
+                f"the two arms are not paired on replication: they request {budgets[0]} and "
+                f"{budgets[1]} replications"
             )
-        requested = count(
-            requested_values[0],
-            field="requested replication count",
-            property_name=str(property_name),
-            cell=str(cell),
+        shared = np.intersect1d(left["replicate"].to_numpy(), right["replicate"].to_numpy())
+        return (
+            left.loc[left["replicate"].isin(shared)],
+            right.loc[right["replicate"].isin(shared)],
         )
-        failed = count(
-            failed_values[0],
-            field="failed replication count",
-            property_name=str(property_name),
-            cell=str(cell),
-        )
-        if failed or len(group) != requested:
-            raise ValueError(
-                f"{property_name}/{cell} has {len(group)} of {requested} replications "
-                f"({failed} fits failed); a study that lost replications cannot be summarised "
-                f"as though it had not"
-            )
-        replicate_ids = np.sort(group["replicate"].to_numpy())
-        expected_ids = np.arange(requested)
-        if not np.array_equal(replicate_ids, expected_ids):
-            raise ValueError(
-                f"{property_name}/{cell} has duplicate or missing replicate ids; expected "
-                f"0..{requested - 1} exactly once"
-            )
+    ids = [np.sort(arm["replicate"].to_numpy()) for arm in (left, right)]
+    if not np.array_equal(ids[0], ids[1]) or len(np.unique(ids[0])) != len(ids[0]):
+        raise ValueError("the two arms are not paired on replication")
+    return left, right
 
 
 def error_summary(
@@ -579,7 +831,7 @@ def summarize_cells(
     the spread, the SE ratio and the RMSE read each row's error, ``truth`` publishes the mean
     truth, and ``truth_min`` and ``truth_max`` follow it.
     """
-    require_complete(rows)
+    require_accounted(rows)
     records: list[dict[str, Any]] = []
     for (property_name, cell), group in rows.groupby(["property", "cell"], sort=True):
         estimates = group["estimate"].to_numpy(dtype=float)
@@ -786,8 +1038,10 @@ def se_ratio_deficit_interval(
     is not.
 
     Negative values mean ``subject`` reports a smaller standard error, relative to its own
-    spread, than ``reference`` does.
+    spread, than ``reference`` does.  Cells that a recorded failure shortened read the
+    replications both kept (:func:`paired`).
     """
+    subject, reference = paired(subject, reference)
     merged = subject[["replicate", "estimate", "std_error"]].merge(
         reference[["replicate", "estimate", "std_error"]],
         on="replicate",
@@ -828,7 +1082,8 @@ def paired_spread_ratio_interval(
     """Bootstrap one ratio of paired across-replication standard deviations.
 
     The two inputs must contain each replication exactly once and must have identical
-    replication keys. The bootstrap samples paired rows with one shared index matrix. This
+    replication keys, or carry failure stamps that explain the replications one of them lost
+    (:func:`paired`). The bootstrap samples paired rows with one shared index matrix. This
     preserves any dependence between the two estimates instead of resampling two marginal
     spreads independently.
 
@@ -843,6 +1098,7 @@ def paired_spread_ratio_interval(
         if frame["replicate"].duplicated().any():
             raise ValueError(f"the {label} contains duplicate replication keys")
 
+    numerator, denominator = paired(numerator, denominator)
     ordered_numerator = numerator.sort_values("replicate")
     ordered_denominator = denominator.sort_values("replicate")
     numerator_keys = ordered_numerator["replicate"].to_numpy()
@@ -918,7 +1174,134 @@ def _positive(values: Any) -> Any:
     return np.maximum(values, np.finfo(float).tiny)
 
 
-def _slope(sizes: np.ndarray, values: np.ndarray) -> np.ndarray:
+def _columns(value: Any, depth: int = 0) -> list[np.ndarray]:
+    """Every numeric column of a drawn sample, found by walking its containers."""
+    if depth > 6 or value is None or isinstance(value, str | bytes | float | int | bool):
+        return []
+    if isinstance(value, pd.DataFrame):
+        numeric = value.select_dtypes(include=["number", "bool"])
+        return [numeric[name].to_numpy(dtype=float) for name in numeric.columns]
+    if isinstance(value, pd.Series):
+        return _columns(value.to_numpy(), depth + 1)
+    if isinstance(value, np.ndarray):
+        if value.dtype.kind not in "biuf" or value.ndim == 0:
+            return []
+        if value.ndim == 1:
+            return [value.astype(float)]
+        flat = value.reshape(value.shape[0], -1).astype(float)
+        return [flat[:, j] for j in range(flat.shape[1])]
+    if isinstance(value, Mapping):
+        return [column for item in value.values() for column in _columns(item, depth + 1)]
+    if isinstance(value, list | tuple):
+        return [column for item in value for column in _columns(item, depth + 1)]
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return [
+            column
+            for item in dataclasses.fields(value)
+            for column in _columns(getattr(value, item.name), depth + 1)
+        ]
+    return []
+
+
+def largest_standardized_value(drawn: Any) -> float:
+    """The most extreme observation of a drawn sample, in its column's standard deviations.
+
+    The property phase's informative-failure witness (RM39b2 rev 3, D3'f).  It reads the
+    sample alone, with no fit, so the accounting can compute it for a replicate whose fit
+    raised.  Every numeric column of the draw counts: a data frame's columns, an array's
+    columns, and the arrays of a data container such as
+    :class:`~cleverly.data.CausalData`, found by walking tuples, mappings and dataclass fields.
+    A binary column with minority share ``p`` reads ``sqrt((1 - p) / p)``, so a draw with a
+    nearly empty arm is as extreme as a continuous outlier.
+
+    Parameters
+    ----------
+    drawn : object
+        One key's drawn sample, as a study's ``draw`` returns it.
+
+    Returns
+    -------
+    float
+        ``max |x - mean| / sd`` over every column with a positive spread, or ``nan`` when no
+        column has one.
+    """
+    largest = math.nan
+    for column in _columns(drawn):
+        finite = column[np.isfinite(column)]
+        if len(finite) < 2:
+            continue
+        spread = float(np.std(finite, ddof=1))
+        if not spread > 0.0:
+            continue
+        value = float(np.max(np.abs(finite - float(np.mean(finite)))) / spread)
+        largest = value if math.isnan(largest) else max(largest, value)
+    return largest
+
+
+def standardized_bias(errors: np.ndarray) -> float:
+    """``mean / sd`` of a cell's errors, the per-rung statistic of a bias-growth row.
+
+    Parameters
+    ----------
+    errors : numpy.ndarray
+        The cell's errors.
+
+    Returns
+    -------
+    float
+        The standardized bias.
+    """
+    errors = np.asarray(errors, dtype=float)
+    return float(np.mean(errors) / np.std(errors, ddof=1))
+
+
+def standardized_bias_draws(errors: np.ndarray, *, replicates: int, seed: int) -> np.ndarray:
+    """Bootstrap draws of :func:`standardized_bias`, resampling the cell's replicates.
+
+    Parameters
+    ----------
+    errors : numpy.ndarray
+        The cell's errors.
+    replicates : int
+        The bootstrap draws.
+    seed : int
+        The rung's own stream.
+
+    Returns
+    -------
+    numpy.ndarray
+        One standardized bias per draw.
+    """
+    rng = np.random.default_rng(seed)
+    return np.concatenate(
+        [
+            block.mean(axis=1) / block.std(axis=1, ddof=1)
+            for block in bootstrap_draw_blocks(
+                np.asarray(errors, dtype=float), replicates=replicates, rng=rng
+            )
+        ]
+    )
+
+
+def absolute_bias_bound(bias: float, bias_se: float) -> float:
+    """``|bias| + 2 bias_se``: a cell's absolute-bias bound, read against a tolerance.
+
+    Parameters
+    ----------
+    bias : float
+        The cell's mean error.
+    bias_se : float
+        Its Monte Carlo standard error.
+
+    Returns
+    -------
+    float
+        The bound.
+    """
+    return float(abs(bias) + 2.0 * bias_se)
+
+
+def log_slope(sizes: np.ndarray, values: np.ndarray) -> np.ndarray:
     """Least-squares slope of ``values`` on ``log(sizes)``, vectorised over leading axes."""
     x = np.log(sizes)
     centred = x - x.mean()
@@ -975,28 +1358,15 @@ def rate(
             f"slope is estimated rather than read off one ratio"
         )
     sizes = np.array([size for size, _ in grouped], dtype=float)
-    if statistic != "reported" and truth_varies:
-        # Each row's error, whose truth is zero by construction.
-        samples = [spread_values(group, truth_varies=True) for _, group in grouped]
-        truths = [0.0 for _ in grouped]
-    else:
-        column = "std_error" if statistic == "reported" else "estimate"
-        samples = [group[column].to_numpy(dtype=float) for _, group in grouped]
-        # One truth per rung.  Read per rung rather than once, because a ladder is entitled
-        # to a size-dependent truth and reading the first rung's would silently bias the
-        # others.
-        truths = [float(group["truth"].iloc[0]) for _, group in grouped]
-
-    def observed(values: np.ndarray, truth: float) -> float:
-        if statistic == "spread":
-            return float(np.log(np.std(values, ddof=1)))
-        if statistic == "bias":
-            return float(np.log(_positive(abs(values.mean() - truth))))
-        return float(np.log(values.mean()))
-
-    point = _slope(
+    samples, truths = rate_samples([group for _, group in grouped], statistic, truth_varies)
+    point = log_slope(
         sizes,
-        np.array([observed(values, truth) for values, truth in zip(samples, truths, strict=True)]),
+        np.array(
+            [
+                rate_observed(values, truth, statistic)
+                for values, truth in zip(samples, truths, strict=True)
+            ]
+        ),
     )
 
     draws = np.empty((bootstrap_replicates, len(sizes)), dtype=float)
@@ -1006,20 +1376,112 @@ def rate(
     # exactly what the two published rate rows had -- then share every stream but the first.
     children = np.random.SeedSequence(seed).spawn(len(samples))
     for index, values in enumerate(samples):
-        rng = np.random.default_rng(children[index])
-        filled = 0
-        for resampled in bootstrap_draw_blocks(values, replicates=bootstrap_replicates, rng=rng):
-            stop = filled + len(resampled)
-            if statistic == "spread":
-                draws[filled:stop, index] = np.log(resampled.std(axis=1, ddof=1))
-            elif statistic == "bias":
-                draws[filled:stop, index] = np.log(
-                    _positive(np.abs(resampled.mean(axis=1) - truths[index]))
-                )
-            else:
-                draws[filled:stop, index] = np.log(resampled.mean(axis=1))
-            filled = stop
+        draws[:, index] = rate_draws(
+            values,
+            truths[index],
+            statistic,
+            replicates=bootstrap_replicates,
+            seed=children[index],
+        )
     return Rate(
         slope=float(point),
-        interval=percentile_interval(_slope(sizes, draws), confidence_level=confidence_level),
+        interval=percentile_interval(log_slope(sizes, draws), confidence_level=confidence_level),
     )
+
+
+def rate_samples(
+    groups: Sequence[pd.DataFrame], statistic: str, truth_varies: bool
+) -> tuple[list[np.ndarray], list[float]]:
+    """The values and the truth each rung of a :func:`rate` ladder reads.
+
+    Parameters
+    ----------
+    groups : Sequence of pandas.DataFrame
+        The rungs' rows, in ascending ``n``.
+    statistic : str
+        ``spread``, ``reported`` or ``bias``.
+    truth_varies : bool
+        Whether the rungs read each row's error.
+
+    Returns
+    -------
+    tuple
+        One value array and one truth per rung.
+    """
+    if statistic != "reported" and truth_varies:
+        # Each row's error, whose truth is zero by construction.
+        return [spread_values(group, truth_varies=True) for group in groups], [0.0] * len(groups)
+    column = "std_error" if statistic == "reported" else "estimate"
+    # One truth per rung.  Read per rung rather than once, because a ladder is entitled to a
+    # size-dependent truth and reading the first rung's would silently bias the others.
+    return (
+        [group[column].to_numpy(dtype=float) for group in groups],
+        [float(group["truth"].iloc[0]) for group in groups],
+    )
+
+
+def rate_observed(values: np.ndarray, truth: float, statistic: str) -> float:
+    """One rung's log statistic, the quantity :func:`rate` regresses on ``log(n)``.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The rung's values (:func:`rate_samples`).
+    truth : float
+        The rung's truth; read by ``bias`` only.
+    statistic : str
+        ``spread``, ``reported`` or ``bias``.
+
+    Returns
+    -------
+    float
+        The log statistic.
+    """
+    if statistic == "spread":
+        return float(np.log(np.std(values, ddof=1)))
+    if statistic == "bias":
+        return float(np.log(_positive(abs(values.mean() - truth))))
+    return float(np.log(values.mean()))
+
+
+def rate_draws(
+    values: np.ndarray,
+    truth: float,
+    statistic: str,
+    *,
+    replicates: int,
+    seed: np.random.SeedSequence,
+) -> np.ndarray:
+    """One rung's bootstrap draws of its log statistic, from the rung's own stream.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The rung's values (:func:`rate_samples`).
+    truth : float
+        The rung's truth; read by ``bias`` only.
+    statistic : str
+        ``spread``, ``reported`` or ``bias``.
+    replicates : int
+        Bootstrap replicates.
+    seed : numpy.random.SeedSequence
+        The rung's spawned stream.
+
+    Returns
+    -------
+    numpy.ndarray
+        The ``replicates`` draws.
+    """
+    rng = np.random.default_rng(seed)
+    out = np.empty(replicates, dtype=float)
+    filled = 0
+    for resampled in bootstrap_draw_blocks(values, replicates=replicates, rng=rng):
+        stop = filled + len(resampled)
+        if statistic == "spread":
+            out[filled:stop] = np.log(resampled.std(axis=1, ddof=1))
+        elif statistic == "bias":
+            out[filled:stop] = np.log(_positive(np.abs(resampled.mean(axis=1) - truth)))
+        else:
+            out[filled:stop] = np.log(resampled.mean(axis=1))
+        filled = stop
+    return out

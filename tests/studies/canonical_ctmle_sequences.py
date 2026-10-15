@@ -298,6 +298,7 @@ STUDY = StudyRecord(
     seed=SEED,
     margins=Margins(),
     implementation=IMPLEMENTATION,
+    failure_bound={IMPLEMENTATION: 0.01, REFERENCE: 0.01},
     # The replay gates check the same construction in R ctmle (Roadmap "Comparisons").
     comparison="matching implementation",
     # The R ctmle runs are pending.  The change that registers them moves REFERENCE to
