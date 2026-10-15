@@ -85,7 +85,13 @@ fit_scenario <- function(frame, scenario) {
   if (!nrow(wanted)) stop(sprintf("no truth rows for %s replicate %s", scenario, replicate))
   fits <- list()
   get_fit <- function(label) {
-    if (is.null(fits[[label]])) fits[[label]] <<- fit_plan(frame, estimator, label)
+    # Each lmtp fit is one declared comparator stage, so an lmtp error is a recorded failure
+    # under the failure bound, not a fatal one.
+    if (is.null(fits[[label]])) {
+      fits[[label]] <<- study_stage(
+        sprintf("%s %s", scenario, label), fit_plan(frame, estimator, label)
+      )
+    }
     fits[[label]]
   }
   rows <- lapply(seq_len(nrow(wanted)), function(index) {
@@ -115,5 +121,6 @@ fit_one <- function(frame) {
 }
 
 expected <- length(unique(truths$replicate))
-results <- study_stream(paths$samples, fit_one, expected)
+# Several replicates per read, so the local workers stay busy (design review m5).
+results <- study_stream(paths$samples, fit_one, expected, chunk_lines = 256000L)
 study_collect(results, expected, paths$output, versions = study_version("lmtp"))
