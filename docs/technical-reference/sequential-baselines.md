@@ -15,7 +15,9 @@ targeted estimate.
 Both intervals hold for the target only when every `GLM` that the estimate reads is correctly
 specified. Under misspecification the interval covers the limit of the misspecified fit, which
 differs from the target. A targeted estimator has no such condition on one of its two models.
-Fit `LTMLE` or `SDR` when the models are not known to be correct.
+Fit `LTMLE` or `SDR` when the models are not known to be correct. The
+[sequential offers tutorial](../examples/sequential-offers.ipynb) fits both baselines beside
+`LTMLE` and `SDR` on a three-level offer campaign.
 
 ```python
 from cleverly.datasets import make_longitudinal

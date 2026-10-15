@@ -573,7 +573,7 @@ especially important unresolved regime.
 
 | design | treatment mechanism | status |
 | --- | --- | --- |
-| `"per_arm"`, the default | for each arm $a$, a binary regression of $1\{A = a\}$ on the one column $\bar Q_n(a, W)$. Column $a$ holds $P(A = a \mid \bar Q_n(a, W))$, so the rows are not a distribution over the arms | `"generated_design_plugin"` on every fit. See [the applied revert](#the-applied-revert) |
+| `"per_arm"`, the default | for each arm $a$, a binary regression of $1\{A = a\}$ on the one column $\bar Q_n(a, W)$. Column $a$ holds $P(A = a \mid \bar Q_n(a, W))$, so the rows are not a distribution over the arms | `"generated_design_plugin"` on every fit that `per_arm_parametric_support` refuses. See [the applied revert](#the-applied-revert). An admitted fit reports `"influence_curve"`. See [parametric per-arm intervals](#parametric-per-arm-intervals) |
 | `"shared"` | one categorical regression of $A$ on the vector $[\bar Q_n(a, W) : a]$, as the archived `ctmle3` `LF_oat` fits it | `"generated_design_plugin"` on every fit |
 
 Both designs use the ordinary $K$-column mean fluctuation. Its columns $1\{A = a\}/g_a$ have
@@ -588,9 +588,10 @@ appendices inconsistently: the text cites "Appendix G" for the conditions, which
 Appendix F, and the Remark cites "Appendix F" for the direct ATE estimator, which is in
 Appendix D.
 
-The table states the construction of the per-arm curve. `plugin_std_error` and
-`plugin_interval` report it as a diagnostic. No fit reports it as an interval, because condition
-(v) fails for an estimated outcome regression.
+The table states the construction of the per-arm curve of Theorem 1. `plugin_std_error` and
+`plugin_interval` report it as a diagnostic. No fit that the predicate refuses reports it as an
+interval, because condition (v) fails for an estimated outcome regression. An admitted fit reports
+the [stacked curve](#parametric-per-arm-intervals) instead.
 
 | item | content |
 | --- | --- |
@@ -607,10 +608,10 @@ The table states the construction of the per-arm curve. `plugin_std_error` and
 | variance | in sample, the empirical variance of the reported curve. Cross-fitted, the variance of the stacked out-of-fold curve |
 | conditions | (i) the curve equation is solved to $o_P(n^{-1/2})$. (ii) $\bar Q_n$ and $Q^*_n$ converge at $o_P(n^{-1/4})$ in $L_2(P_0)$. (iii) the treatment learner is consistent for $P(A = a \mid \bar Q_n(a, W))$ at $o_P(n^{-1/4})$. A misspecified learner makes $R_{23}$ first order whenever $Q^*_n - \bar Q_0 = O_P(n^{-1/2})$, which includes every correctly specified parametric outcome model. (iv) the curve converges in $L_2$, and in sample its class is Donsker. (v) $G_0(\cdot \mid \bar Q_n, \bar Q_0)$ is differentiable in $\bar Q_0$ with a bounded derivative. This condition fails for a root-$n$ outcome regression on a continuous $W$, as the next section states. (vi) the term from fitting $G$ on the initial $\bar Q_n$ is negligible. Positivity: the projection $P(A = a \mid \bar Q_0(a, W))$ lies inside `g_bounds`. Also iid rows, or fixed known weights, and a consistent outcome regression. A correct $g$ alone does not give consistency |
 | the source's warnings | Section 4.1 (p. 12): "the estimated standard errors of CTMLE had poor performance, often underestimating the true variability of the estimator". The Discussion (pp. 17-18) calls the CTMLE "an irregular estimator, it may perform poorly for certain data generating distributions", and notes "the poor behavior of the confidence intervals in both simulations". The limit is pointwise at a fixed law. It is not locally uniform |
-| the key's cases | `strategy="oat"`, `oat_design="per_arm"`, complete outcomes and treatment, no `strata=`, no weights or fixed weights, and `repeats >= 1`. In sample and cross-fitted, at any arm count. Estimands `ey`, `ey1`, `ey0`, `ate`, `rr`, `or`, `ey_obs`, `par` and `paf`. These fits withhold their interval while the revert flag is `False` |
-| withheld | every `strategy="oat"` fit, of either design. [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) holds the generated-design term of both designs. A per-arm fit with `strata=`, `delta=` or `treatment_delta=` reports a point estimate under [the contract below](#baseline-strata-and-missing-data-in-the-per-arm-design), and the key excludes it even with the flag set |
+| the diagnostic's cases | `strategy="oat"`, `oat_design="per_arm"`, complete outcomes and treatment, no `strata=`, no weights or fixed weights, and `repeats >= 1`. In sample and cross-fitted, at any arm count. Estimands `ey`, `ey1`, `ey0`, `ate`, `rr`, `or`, `ey_obs`, `par` and `paf`. These fits report the diagnostic curve, and they withhold their interval unless `per_arm_parametric_support` admits them |
+| withheld | every `strategy="oat"` fit of either design that `per_arm_parametric_support` refuses. [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) holds the generated-design term of both designs. A per-arm fit with `strata=`, `delta=` or `treatment_delta=` reports a point estimate under [the contract below](#baseline-strata-and-missing-data-in-the-per-arm-design), and the predicate refuses it on the `strata`, `missing_outcome` or `missing_treatment` axis |
 | bootstrap | `n_bootstrap=` is a diagnostic on every `oat` fit. Theorem 1 does not cover the bootstrap of a superefficient estimator |
-| key | `per_arm_design_admits(estimator, data)` in `cleverly.estimators.ctmle`. It reads the strategy, the design, the missing outcomes and treatment, the strata and the revert flag, and never a fitted array |
+| predicate | `per_arm_parametric_support(estimator, data)` in `cleverly.estimators.ctmle` returns a `SupportVerdict` with `admitted`, `axis` and `detail`. It admits an in-sample per-arm fit with `outcome_learner` exactly `ParametricOutcome` and `treatment_learner` exactly `ParametricMechanism`, on a binary treatment with complete, unweighted and unstratified data. `axis` names the first unmet requirement. The predicate reads the configuration and the prepared data, and never a fitted array. An admitted fit reports `"influence_curve"` with the stacked-equation curve of [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome). An arm whose stack fails takes `"stack_failure_plugin"` on the estimates that read it |
 
 **The shared design publishes no inference.** It fits one categorical mechanism on the outcome
 predictions of every arm. Theorem 1 covers one scalar design, and no reviewed result supplies the
@@ -648,7 +649,8 @@ result cited in the audit fixes its data-adaptive complexity bound rather than r
 | [selector-based point-treatment C-TMLE](method-evidence/selector-based-point-treatment-c-tmle.md) | greedy, ordered, and discrete selectors, comparator-backed against R `ctmle` 0.1.2, with a forced-selection versus empty-path control. Parity is unpenalized, non-cross-fitted, and binary-ATE only |
 | [C-TMLE0 derivative covariate](method-evidence/ctmle-derivative.md) | `strategy="derivative"` on three binary scenarios, at a declared penalty pair, at the package's own penalty cross-validation, and with a constant outcome regression. The R `ctmle` `ctmletype = 3` comparator is declared and its runs are pending. All three truth tests and all 21 property cells pass |
 | [outcome-adaptive point-treatment C-TMLE](method-evidence/outcome-adaptive-point-treatment-c-tmle.md) | the shared design, comparator-backed against the archived `ctmle3`, including a pinned-versus-estimated design pair that measures the finite-sample cost of estimating the design |
-| [outcome-adaptive per-arm C-TMLE](method-evidence/outcome-adaptive-per-arm-c-tmle.md) | the per-arm design, comparator-backed against R `drtmle` 1.1.2 with `adapt_g = TRUE`, by a binary recode per arm, on two laws with an arm-specific outcome index and an instrument. Its declared revert cells are red, so every per-arm fit withholds its interval. [The applied revert](#the-applied-revert) gives the cells |
+| [outcome-adaptive per-arm C-TMLE](method-evidence/outcome-adaptive-per-arm-c-tmle.md) | the per-arm design, comparator-backed against R `drtmle` 1.1.2 with `adapt_g = TRUE`, by a binary recode per arm, on two laws with an arm-specific outcome index and an instrument. Its declared revert cells are red, so every per-arm fit with a scikit-learn learner withholds its interval. [The applied revert](#the-applied-revert) gives the cells |
+| [outcome-adaptive per-arm C-TMLE (parametric)](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric.md) | the stacked interval of the in-sample per-arm fit with `ParametricOutcome` and `ParametricMechanism`. Python property evidence, no comparator. Calibration on six laws, two negative controls that read red, the sharp null and power |
 | `tests/diagnostics/x17_generated_design/` | the generated-design term $c^\top \mathrm{IF}_\beta$ restores the standard-error ratio on the binary law |
 | `tests/unit/test_outcome_adaptive_per_arm.py` | an exact law on which the two designs differ, the curve of Theorem 1 row by row, in-sample and cross-fitted longhands to `1e-8`, the joint covariance, and fixed weights against duplicated rows. Its class `TestEachMutationFailsItsCheck` applies 13 mutations by `monkeypatch`, and each one fails its check |
 | `tests/unit/test_shared_oat_replay.py` | the shared design refits replication 0 of each registered `ctmle3` study to its committed rows |
@@ -656,12 +658,15 @@ result cited in the audit fixes its data-adaptive complexity bound rather than r
 
 ### The applied revert
 
-`OAT_PER_ARM_INFERENTIAL` in `cleverly.estimators.ctmle` is `False`. Every per-arm fit takes
-`"generated_design_plugin"`, and the reason names condition (v) and the registered study.
+A per-arm fit takes `"generated_design_plugin"` unless `per_arm_parametric_support` in
+`cleverly.estimators.ctmle` admits it. The predicate replaced the global per-arm
+flag. Every fit with a scikit-learn learner takes the status, and the reason
+names condition (v) and the registered study.
 
-The study `ctmle-oat-per-arm` declared its positive coverage and calibration cells as the cells
-that the flag reads. Before the run, it declared that a red cell with no defect sets the flag to
-`False`. The table gives the run at the declared budgets.
+The study `ctmle-oat-per-arm` fits scikit-learn learners. It declared its positive coverage and
+calibration cells as the revert cells. Before the run, it declared that a red cell with no defect
+withholds the interval of every fit the study measures. The table gives the run at the declared
+budgets.
 
 | cells | standard-error ratio | coverage |
 | --- | --- | --- |
@@ -674,8 +679,8 @@ that the flag reads. Before the run, it declared that a red cell with no defect 
 | type I error at the sharp null | 0.88 | 0.904 |
 | the default band over the three-arm family | not applicable | 0.871 joint coverage |
 
-The shipped fit builds no band. The study's band cell sets the flag for its own fit only, so it
-measures the band that the per-arm design would build from its stacked curves.
+The shipped fit builds no band. The study's band cell calls `simultaneous_bands` on the plug-in
+curves of its own fit. It measures the band that the per-arm design would build from those curves.
 
 The deficit does not shrink with $n$. The comparator-backed comparison with R `drtmle` 1.1.2, with
 `adapt_g = TRUE`, shows agreement with `cleverly` to `1e-8` in each estimate and standard error. The bias is equivalent to zero in each
@@ -702,10 +707,215 @@ reported curve, with the true $g_0$, on the binary law. Its `reading.txt` gives 
 The term needs the full mechanism $g_0$ and the influence function of the outcome learner. The
 per-arm design exists to avoid the first, and no source read here gives it for a flexible learner.
 [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) holds it.
-[X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) plans a
-corrected interval for a regular parametric outcome model. Until it ships, and outside its support
-predicate afterward, a per-arm fit withholds its interval. The point estimate stands, so the per-arm
-design stays the default.
+
+[X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) part (a)
+ships a corrected interval for a regular parametric outcome model. See
+[parametric per-arm intervals](#parametric-per-arm-intervals). Outside its support predicate, a
+per-arm fit withholds its interval. The point estimate stands, so the per-arm design stays the
+default.
+
+### Parametric per-arm intervals
+
+An in-sample per-arm fit with `ParametricOutcome` and `ParametricMechanism` reports an interval.
+`per_arm_parametric_support` admits the fit. The reported curve is the curve of one stacked
+Z-estimator. It is not the curve of Theorem 1, and it carries the generated-design term that
+condition (v) lets Theorem 1 drop. The registered study
+[`ctmle-oat-per-arm-parametric`](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric.md)
+measures it, and [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome)
+part (a) delivered it. The module `cleverly.estimators._oat_stack` computes the curve.
+
+**The stack.** Let $x(A, W)$ be the declared outcome feature row, $x_a(W) = x(a, W)$, and
+$\phi$ the declared mechanism basis. Write $q_a = \operatorname{expit}(x_a^\top \beta)$,
+$R_a = 1\{A = a\}$ and $G_a = \operatorname{expit}(\phi(q_a)^\top \gamma_a)$. The bounds $(lo, hi)$
+clip $G_a$ to $\tilde G_a$, and $H_a = 1 / \tilde G_a$. The fit has four stages.
+
+| stage | parameter | estimating function for one row |
+| --- | --- | --- |
+| outcome GLM | $\beta$ | $x(A, W)\,(Y - \operatorname{expit}(x(A, W)^\top \beta))$ |
+| mechanism of arm $a$ | $\gamma_a$ | $\phi(q_a)\,(R_a - G_a)$ |
+| fluctuation of arm $a$ | $\epsilon_a$ | $R_a H_a (Y - Q^*_a)$, with $Q^*_a = \operatorname{clip}\big(\operatorname{expit}(\operatorname{logit}(\operatorname{clip}(q_a, 1 - \alpha, \alpha)) + \epsilon_a H_a),\, 1 - \alpha,\, \alpha\big)$ |
+| mean of arm $a$ | $\psi_a$ | $Q^*_a - \psi_a$ |
+
+The parameter $\theta = (\beta, \gamma_0, \epsilon_0, \gamma_1, \epsilon_1, \psi_0, \psi_1)$ solves
+$P_n U(\theta) = 0$, a square system of fixed dimension. Its Jacobian
+$A = E[\partial U / \partial \theta^\top]$ is block lower triangular in that order
+(Stefanski and Boos, 2002, Section 3). The curve of $\psi_a$ is the $\psi_a$ row of
+$-A_n^{-1} U_i(\theta_n)$, with every block of $A_n$ analytic and evaluated at $\theta_n$ (Saul and
+Hudgens, 2020, equation 2). The ATE curve is the difference of the two arm rows. `rr` and `or`
+apply the delta method to the two rows, and the arm covariance is the sample covariance of the two
+rows over $n$.
+
+No block reads $g_0$. Each block is a sample average of observed quantities. Where a population
+term reads $g_0(a \mid W)$, the sample block reads $R_a$, whose conditional mean is $g_0(a \mid W)$.
+So the correction needs no full-mechanism model. The full-mechanism route, which would add
+$c_a^\top \mathrm{IF}_\beta$ from a declared $g_0$, is dominated: it is correct only when the
+outcome model is correct and $\kappa_a = 1$. It is not built, and the refusal of a declared
+`treatment_probabilities=` by `CTMLE` stays.
+
+**The closed form.** Write $q = q_a(W)$, $v = q(1 - q)$ and $G = \tilde G_a$ at the limit. Define
+$d_a = E[v\, x_a]$ and $e_a = E[(g_0 / G)\, v\, x_a]$. The sample form of $e_a$ is
+$P_n[R_a H_a v x_a]$. Define
+
+$$
+\kappa_a = \frac{E[v / G]}{E[g_0\, v / G^2]},
+$$
+
+with the sample form $P_n[v H_a] / P_n[R_a v H_a^2]$.
+
+When the outcome model is correct, $\bar Q_0(a, W) = \operatorname{expit}(x_a^\top \beta^*)$, so
+$\epsilon_a^* = 0$ and $Q^*_a = q$. The blocks that carry a factor $\epsilon^*$ or
+$E[Y - q \mid A = a, W]$ vanish. The block $A_{\epsilon, \beta}$ equals $-e_a$ exactly. The
+triangular solve then gives
+
+$$
+\mathrm{IF}_{\psi_a} = (q - \psi_a) + \kappa_a R_a H_a (Y - q) + (d_a - \kappa_a e_a)^\top \mathrm{IF}_\beta .
+$$
+
+When the mechanism model holds for the projection and no bound binds, $G = P(A = a \mid q)$. The
+tower property gives $\kappa_a = 1$, and $d_a - e_a = E[(1 - g_0 / G)\, v\, x_a] = c_a$. The curve
+is then the oracle diagnostic of [the applied revert](#the-applied-revert), with the observed $R_a$
+in place of $g_0$. When the outcome model is wrong, $\epsilon_a^* \ne 0$, every block enters, and
+the curve is the general $-A^{-1} U$.
+
+The generated-design term $c_a^\top \mathrm{IF}_\beta$ is large when the outcome design holds a
+covariate that predicts treatment and not the outcome. The instrument $W_3$ of `binary_active` is
+one. The study's shipped-curve control reads a standard-error ratio of 0.85 on that law. The
+quadrature module `tests/studies/oat_parametric_quadrature.py` and `tests/unit/test_oat_stack.py`
+give each block a witness on a law where the block is nonzero.
+
+**Conditions.** The claim holds under the conditions of van der Vaart (1998), Theorem 5.21
+(Section 5.3, p. 52) for the stacked equations.
+
+| condition | text |
+| --- | --- |
+| C-model | The feature map and the basis are fixed before the fit, from a fixed vocabulary. They have fixed dimension, and the GLMs are unpenalized |
+| C-id | A unique $\theta^*$ solves $P U(\theta) = 0$. $A(\theta^*)$ is nonsingular. The maximum likelihood fits exist with probability tending to one, so there is no separation |
+| C-consistency | $\theta_n \to \theta^*$ in probability. Each stage is a concave log-likelihood or a monotone one-dimensional score, so consistency follows stage by stage under C-id |
+| C-Lipschitz | On a neighbourhood of $\theta^*$, $\lVert U_{t_1} - U_{t_2} \rVert \le \dot U \lVert t_1 - t_2 \rVert$ with $P \dot U^2 < \infty$, and $P \lVert U_{\theta^*} \rVert^2 < \infty$. The outcome score needs $E\lVert x \rVert^4 < \infty$ and $E\lVert \phi \rVert^4 < \infty$. With `g_bounds="auto"`, $G^*_a$ stays away from 0 and 1 |
+| C-clip | No clip has positive probability at $\theta^*$. The paragraph on clips below states the cases |
+| C-solve | Each fluctuation score is solved to $o_P(n^{-1/2})$. The fit tests `Fluctuation.converged` |
+| C-psi0 | For coverage of $\psi_0$, the outcome model is correct, or $\tilde G^*_a = g_0(a \mid \cdot)$ for each arm |
+
+C-id and C-solve can fail on one sample. The failure status below handles each failure.
+
+**What the interval covers.** The limit is $\psi^*_a = E[Q^*_a(W)]$ at $\theta^*$, where
+$\epsilon^*_a$ solves $E[(g_0 / \tilde G^*_a)(\bar Q_0(a, \cdot) - Q^*_a)] = 0$. So
+
+$$
+\psi^*_a - \psi_{0,a} = E\big[(1 - g_0 / \tilde G^*_a)\,(Q^*_a - \bar Q_0(a, \cdot))\big].
+$$
+
+The gap is zero when the outcome model is correct, because then $Q^*_a = \bar Q_0$. It is also zero
+when $\tilde G^*_a = g_0(a \mid \cdot)$ after the clip. Otherwise it is nonzero. The interval covers
+the arm mean $\psi_0$ when the outcome model is correct, and its limit $\psi^*$ otherwise. Dropping
+$W_1$ from the outcome features of `binary_active` moves the arm means from $\psi_0 = (0.4407, 0.5593)$
+to $\psi^* = (0.4041, 0.5959)$. The pseudo-true cells of the study cover $\psi^*$ at the nominal
+rate and cover $\psi_0$ at 0.31 to 0.57.
+
+The map $\psi^*(P)$ is defined by smooth equations. It is pathwise differentiable in the
+nonparametric model under the conditions above, and the stack is asymptotically linear with that
+gradient. So the estimator is regular for $\psi^*$, and its coverage of $\psi^*$ is locally uniform
+near each law that meets the conditions. For $\psi_0$ off the outcome model, the claim is regular
+only inside the model where the outcome GLM holds.
+
+The interval is pointwise. F19 keeps uniformity over the nonparametric model. The package claims no
+efficiency gain. Inside the parametric outcome
+model, the g-computation plug-in has the curve $(q - \psi) + d_a^\top \mathrm{IF}_\beta$, so this
+estimator is not more efficient than it there.
+
+**The clips and the `"auto"` bound.** Four clips act on the stack: `g_bounds` on $G_a$, `alpha` on
+$q_a$ before the logit, the outer re-shrink of $Q^*_a$, and the basis clip of $\operatorname{logit} q$.
+Each clip is Lipschitz, and its derivative is 0 or 1 off the kink. The Jacobian carries the
+indicator of the unclipped side. A binding `g_bounds` limit is inside the theory, because it only
+changes $\kappa_a$. The study cell `bounds_active` measures calibration with a limit that clips a
+share of the rows.
+
+Condition C-clip needs $P(\tilde G_{\gamma^*}(q^*) \in \{lo, hi\}) = 0$, $P(q^* \in \{1 - \alpha, \alpha\}) = 0$
+and $P(Q^*_a \in \{1 - \alpha, \alpha\}) = 0$, and the same for the basis clip. A continuous $W$
+and a nonconstant index meet it. A discrete $W$ can fail it. Under C-clip the map
+$\theta \mapsto P U_\theta$ is differentiable at $\theta^*$, and $A_n$ is consistent for $A$.
+
+`g_bounds="auto"` resolves to $lo_n = 5 / (\sqrt{n} \log n)$ and its complement. The stack treats
+the resolved bounds as constants of the fit. This is exact for the fit.
+
+Two consequences follow. The limit needs $G^*_a$ bounded away from 0 and 1, because $lo_n \to 0$.
+With a wrong outcome model, $\psi^*_n$ can move with $n$ while a bound binds, and the summary says
+so. The study cell `auto_bounds` runs the default on `binary_active` at $n = 1500$.
+
+**The alpha caveat.** When the inner `alpha` clip binds with positive probability and the outcome
+model is correct, $\epsilon^*_a = 0$. On those rows the pre-clip value of $Q^*_a$ equals the outer
+bound $\alpha$. The rows sit on the kink of the outer re-shrink at the limit, so C-clip fails. The
+Jacobian takes one side of the kink on each such row. The sign of the solved $\epsilon_a$ decides
+which side, and that value is zero only to the solver tolerance.
+
+The effect scales with $\alpha(1 - \alpha)$, the slope of $Q^*_a$ on the logit scale at the bound.
+At the default $\alpha = 0.9995$ the factor is about $5 \times 10^{-4}$, and the effect is
+negligible. For a user value such as $\alpha = 0.9$ the factor is 0.09, and the effect is not
+negligible. The registered study runs the default $\alpha$ only, so no cell measures a user
+$\alpha$.
+
+**The support predicate.** `per_arm_parametric_support(estimator, data)` returns a
+`SupportVerdict`. The verdict holds `admitted`, `axis` and `detail`. The predicate is an
+allow-list over every constructor option of `TMLE` and `CTMLE`, in `PER_ARM_PARAMETRIC_OPTIONS`,
+and over the data properties in the table. `axis` names the first unmet requirement. The predicate
+reads the configuration and the prepared data. It never reads a fitted array. It checks the
+learner classes exactly, with `type(learner) is ParametricOutcome`, so a subclass is refused.
+`tests/unit/test_oat_per_arm_support.py` fails when an option has no entry.
+
+| axis | admitted value | owner of the refused value |
+| --- | --- | --- |
+| `strategy`, `oat_design` | `"oat"` and `"per_arm"` | F19 for the shared design |
+| `outcome_learner`, `treatment_learner` | exactly `ParametricOutcome` and exactly `ParametricMechanism` | F19 for a flexible learner |
+| `cross_fit`, `repeats`, `split_plan`, `cv_evaluation`, `targeting_scheme` | `False`, 1, `None`, `False`, `"pooled"` | X58 part (c) |
+| `simultaneous` | `False` | X58 part (b) |
+| `family`, `fluctuation`, `targeting` | `"auto"`, `"binomial"` or `"gaussian"`; `"logistic"`; `"iterative"` | none |
+| `q_bounds` | a declared tuple for an outcome that is not binary, checked on the data | none |
+| `target_weights`, `screen_treatment` | `False` | none |
+| `stopping`, `step_bound`, `iterate`, `outcome_by_arm`, `patience` | `"relative"`, `None`, `"last"`, `False`, `None`. The stacked equations assume the solved fluctuation and one outcome model | none |
+| `interventions`, `policies`, `incremental`, `msm`, `learned_rule`, `density_bins` | none declared | none. `CTMLE` does not combine them with this design |
+| `preorder`, `ordering`, `candidates`, `ctmle_estimand` | `None`, `None`, `None`, `"ate"` | none |
+| `estimands` | a subset of `ate`, `rr`, `or`, `ey`, `ey0` and `ey1` | X58 part (b) for `ey_obs`, `par` and `paf` |
+| `treatment` | binary | X58 part (b) |
+| `weights` | none | X58 part (d) |
+| `strata`, `missing_outcome` | none | X52 part (b) |
+| `cluster` | none | X52 part (d) |
+| `missing_treatment`, `intermediate`, `known_treatment` | none | none |
+
+Every other option accepts any value, because the in-sample fit never reads it. `g_bounds`,
+`alpha`, `nuisance_bound`, `n_bootstrap` and `max_iter` are examples. A fit outside the allow-list
+takes `"generated_design_plugin"`, with the axis in the reason.
+
+**The failure status.** A failed stack on one arm is not a refusal of the fit. It gives the
+estimates that read the arm the parameter status `"stack_failure_plugin"`. The arm stack fails when
+one of three conditions holds.
+
+| condition | test |
+| --- | --- |
+| the fluctuation did not converge | `Fluctuation.converged` is false |
+| a diagonal block is singular | the equilibrated reciprocal condition number of the $\beta$, $\gamma_a$ or $\epsilon_a$ block of the Jacobian is below $10^{-12}$ |
+| the solver path met the outer re-shrink | $Q^*_a$ recomputed from $\epsilon_a$ differs from the fit's targeted predictions by more than $10^{-10}$, or a `retarget` moved `g_bounds` away from the declared bounds |
+
+A fit whose nuisances lack the learner coefficients, such as one that a `retarget` perturbed, fails
+on every arm. A row on which the outer re-shrink binds, with a recomputed $Q^*_a$ that matches, is a
+clip and not a failure. Its indicator is in the Jacobian.
+
+The status keeps the point estimate. `plugin_std_error` and `plugin_interval` report the shipped
+curve, which omits the generated-design term.
+
+The fit emits a `DataWarning` that names the arm and the failed condition. The arm mean of a sound
+arm keeps `"influence_curve"`. Every contrast of a binary fit reads both arms, so `ate`, `rr` and
+`or` take the status. A learner that cannot converge, or that meets separation, raises `DataError`
+before the stack. That error is a refusal of the fit.
+[Inference status](inference.md#inference-status) gives the reports that withhold the interval.
+
+**Evidence.** The table lists the instruments and what each cannot see.
+
+| instrument | what it checks | what it cannot see |
+| --- | --- | --- |
+| `tests/unit/test_oat_stack.py` | the stacked equations at the fitted $\theta_n$ to solver tolerance, the analytic Jacobian against a central finite difference, the curve against an exact-law quadrature, and deliberate-mutation controls that fail when a block, a clip mask or an arm index is wrong | the sampling distribution |
+| `tests/unit/test_parametric_learners.py` | the point estimate against the `ctmle-oat-per-arm` pipelines to `4e-14` | the uncertainty |
+| `tests/unit/test_oat_per_arm_support.py` | the predicate on each axis, the status of a failed stack, and the round trip through `save()` and `load()` | the sampling distribution |
+| the registered [parametric study](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric.md) | calibration of the SE ratio and coverage on six laws, two negative controls, the sharp null and power. Python property evidence, no comparator | cross-fitting, repeats, weights, strata, missing data, more than two arms, the band, a user `alpha` |
 
 ### Baseline strata and missing data in the per-arm design
 
