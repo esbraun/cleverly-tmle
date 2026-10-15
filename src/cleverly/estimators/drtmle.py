@@ -860,6 +860,7 @@ class DRTMLE(TMLE):
                         self.treatment_learner, task="classification", seed=seed
                     ),
                     n_jobs=self.n_jobs,
+                    outcome_by_arm=self.outcome_by_arm,
                 ),
             )
         if not self.guard:

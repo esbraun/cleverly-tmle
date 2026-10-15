@@ -313,7 +313,17 @@ from ..targets.base import parameter_name
 from ..utils.bounds import OutcomeScaler, resolve_g_bounds
 from ..utils.parallel import map_parallel
 from ..utils.text import format_table
-from ._nuisance import NuisanceEstimates, Propensity, cross_fit_predictions, fit_on_rows
+from ._nuisance import (
+    ArmQuery,
+    NuisanceEstimates,
+    Propensity,
+    _arm_codes_by_row,
+    _fit_arm_models,
+    _fit_outcome_by_arm,
+    _predict_by_arm,
+    cross_fit_predictions,
+    fit_on_rows,
+)
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .targeting import build_submodel, solve_submodel
 from .tmle import TMLE
@@ -1695,20 +1705,50 @@ class CTMLE(TMLE):
                     "(cross_fit=False on the engine, CrossFitting(enabled=False)), or "
                     "collect more observed outcomes"
                 )
-            outcome_model = fit_on_rows(
-                outcome_learner,
-                outcome_design,
-                scaled,
-                data.weights,
-                outcome_rows,
-                outcome_task,
-                data.cluster,
-            )
-            observed = predict_outcome(outcome_model, outcome_design)
-            by_arm = {
-                arm: predict_outcome(outcome_model, design)
-                for arm, design in counterfactual.items()
-            }
+            outcome_diagnostic: Any
+            if self.outcome_by_arm:
+                # One model per arm, each on the arm's rows of this fold's training set.
+                arm_models = _fit_arm_models(
+                    outcome_learner,
+                    data,
+                    data.covariates,
+                    scaled,
+                    outcome_rows,
+                    task=outcome_task,
+                    where=f"training fold {fold + 1}",
+                )
+                observed = _predict_by_arm(
+                    arm_models,
+                    data.covariates,
+                    _arm_codes_by_row(data, data.treatment),
+                    task=outcome_task,
+                    clip=(0.0, 1.0),
+                )
+                by_arm = {
+                    arm: _predict_by_arm(
+                        arm_models, data.covariates, arm, task=outcome_task, clip=(0.0, 1.0)
+                    )
+                    for arm in arms
+                }
+                outcome_diagnostic = [
+                    getattr(model, "diagnostics_", None) for model in arm_models.values()
+                ]
+            else:
+                outcome_model = fit_on_rows(
+                    outcome_learner,
+                    outcome_design,
+                    scaled,
+                    data.weights,
+                    outcome_rows,
+                    outcome_task,
+                    data.cluster,
+                )
+                observed = predict_outcome(outcome_model, outcome_design)
+                by_arm = {
+                    arm: predict_outcome(outcome_model, design)
+                    for arm, design in counterfactual.items()
+                }
+                outcome_diagnostic = getattr(outcome_model, "diagnostics_", None)
             generated = np.column_stack([by_arm[arm] for arm in arms])
             fold_factors: dict[str, FloatArray]
             fold_diagnostics: dict[str, Any]
@@ -1738,7 +1778,7 @@ class CTMLE(TMLE):
                 observed[test],
                 {arm: values[test] for arm, values in by_arm.items()},
                 fold_factors,
-                getattr(outcome_model, "diagnostics_", None),
+                outcome_diagnostic,
                 fold_diagnostics,
             )
 
@@ -1763,7 +1803,9 @@ class CTMLE(TMLE):
                 factors[name][test] = values
             for arm in arms:
                 by_arm[arm][test] = fold_arms[arm]
-            if q_diagnostic is not None:
+            if self.outcome_by_arm:
+                outcome_diagnostics.extend(item for item in q_diagnostic if item is not None)
+            elif q_diagnostic is not None:
                 outcome_diagnostics.append(q_diagnostic)
             for name, entry in fold_diagnostics.items():
                 if per_arm:
@@ -2510,23 +2552,39 @@ class _Selector:
             self.est.outcome_learner, task=outcome_task, seed=self.seed
         )
         design = data.treatment_design()
-        outcome_out, _ = cross_fit_predictions(
-            learner,
-            design,
-            scaled,
-            data.weights,
-            train_folds,
-            task=outcome_task,
-            predict_designs={
-                "observed": design,
-                **{f"arm@{arm}": data.counterfactual_design(arm) for arm in data.arm_codes},
-            },
-            fit_mask=train_mask & data.observed,
-            groups=data.cluster,
-            clip=(0.0, 1.0),
-            n_jobs=self.est.n_jobs,
-            remedy=_SELECTION_SPLIT_BACKSTOP,
-        )
+        if self.est.outcome_by_arm:
+            outcome_out, _, _ = _fit_outcome_by_arm(
+                learner,
+                data,
+                scaled,
+                train_folds,
+                task=outcome_task,
+                queries={
+                    "observed": ArmQuery(_arm_codes_by_row(data, data.treatment)),
+                    **{f"arm@{arm}": ArmQuery(arm) for arm in data.arm_codes},
+                },
+                fit_mask=train_mask & data.observed,
+                n_jobs=self.est.n_jobs,
+                remedy=_SELECTION_SPLIT_BACKSTOP,
+            )
+        else:
+            outcome_out, _ = cross_fit_predictions(
+                learner,
+                design,
+                scaled,
+                data.weights,
+                train_folds,
+                task=outcome_task,
+                predict_designs={
+                    "observed": design,
+                    **{f"arm@{arm}": data.counterfactual_design(arm) for arm in data.arm_codes},
+                },
+                fit_mask=train_mask & data.observed,
+                groups=data.cluster,
+                clip=(0.0, 1.0),
+                n_jobs=self.est.n_jobs,
+                remedy=_SELECTION_SPLIT_BACKSTOP,
+            )
         outcome = InitialFit(
             outcome_out["observed"],
             {arm: outcome_out[f"arm@{arm}"] for arm in data.arm_codes},

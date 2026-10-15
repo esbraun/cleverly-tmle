@@ -165,6 +165,9 @@ class TMLEConfig:
     #: (:attr:`~cleverly.data.CausalData.known_treatment`), else ``"estimated"``.  Recorded
     #: so a result read back from disk says which one its interval rests on.
     treatment_mechanism: str = "estimated"
+    #: Whether the outcome regression was fitted once per treatment arm
+    #: (``outcome_by_arm=True``) rather than once on the covariates and the treatment.
+    outcome_by_arm: bool = False
     #: Whether the treatment is a continuous dose, whose policy ratio reads a density that
     #: no bound truncates.  A categorical treatment's policy ratio reads the bounded
     #: propensity, so its summary prints the bound.

@@ -226,7 +226,13 @@ from ..targets.population_intervention import (
 )
 from ..utils.bounds import OutcomeScaler, g_bounds_for, resolve_g_bounds
 from ..utils.frames import is_dataframe
-from ._nuisance import KnownPropensity, NuisanceEstimates, RepeatFit, fit_nuisances
+from ._nuisance import (
+    KnownPropensity,
+    NuisanceEstimates,
+    RepeatFit,
+    _refuse_by_arm_dose,
+    fit_nuisances,
+)
 from ._strata import (
     absent_arm_error,
     check_stratified_targets,
@@ -722,6 +728,15 @@ class TMLE:
     screen_treatment, screen_threshold, min_retain:
         Pre-screen covariates for the treatment model (R's ``prescreenW.g``).  Refused
         beside a declared known mechanism, which replaces the treatment model.
+    outcome_by_arm:
+        Fit one outcome regression per treatment arm (R's ``drtmle(stratify=TRUE)``).  Each
+        fold fits a learner on the covariates alone for each arm, on that arm's rows with an
+        observed outcome.  A prediction at row ``i`` comes from the model of the arm it is
+        for: the row's own arm when observed, arm ``a`` for the counterfactual ``a``, and
+        the shifted arm for an arm-coded modified treatment policy.  The default fits one
+        regression on the covariates and the treatment.  An arm with no training row in a
+        fold raises :class:`~cleverly.exceptions.DataError`.  A continuous dose has no arms
+        and is refused.
     estimands:
         Which estimands to report; ``"all"`` requests everything the outcome type
         supports.
@@ -870,6 +885,7 @@ class TMLE:
         screen_treatment: bool = False,
         screen_threshold: float = 0.1,
         min_retain: int | None = None,
+        outcome_by_arm: bool = False,
         estimands: Sequence[EstimandName] | str | None = None,
         interventions: Sequence[Any] | None = None,
         policies: Sequence[Policy] | None = None,
@@ -896,6 +912,12 @@ class TMLE:
         run_id: str | None = None,
         n_jobs: int = 1,
     ) -> None:
+        if not isinstance(outcome_by_arm, (bool, np.bool_)):
+            raise MethodConfigurationError(
+                f"outcome_by_arm must be True or False; got {outcome_by_arm!r}.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Pass outcome_by_arm=True for one outcome regression per arm.",
+            )
         _validate_learner(outcome_learner, "outcome_learner")
         _validate_learner(treatment_learner, "treatment_learner")
         _validate_learner(missingness_learner, "missingness_learner")
@@ -924,6 +946,7 @@ class TMLE:
         self.screen_treatment = screen_treatment
         self.screen_threshold = screen_threshold
         self.min_retain = min_retain
+        self.outcome_by_arm = outcome_by_arm
         self.estimands = estimands
         self.interventions = as_interventions(interventions)
         self.policies = tuple(policies or ())
@@ -1500,6 +1523,8 @@ class TMLE:
         :meth:`_refuse_moved_known_values` once the targets are resolved.
         """
         self._refuse_known_compositions(data)
+        if self.outcome_by_arm:
+            _refuse_by_arm_dose(data)
         if data.has_missing_treatment:
             named = None if self.estimands is None or self.estimands == "all" else self.estimands
             refusal = missing_treatment_refusal(
@@ -2629,6 +2654,28 @@ class TMLE:
                 lambda value: f"respondent(s) with outcome {scaler.unscale_level(value):g}",
             ),
         ]
+        if self.outcome_by_arm and not data.is_continuous_treatment:
+            # One outcome learner per arm: each trains on the arm's rows with an observed
+            # outcome, so the split rule is asked of those rows and not of the pooled ones.
+            treatment = np.asarray(data.treatment, dtype=float)
+            learner = roles[0][1]
+
+            def arm_label(arm: float) -> Callable[[float], str]:
+                return lambda value: (
+                    f"respondent(s) in arm {data.arm_label(arm)} with outcome "
+                    f"{scaler.unscale_level(value):g}"
+                )
+
+            roles[:1] = [
+                (
+                    "outcome",
+                    learner,
+                    observed & (treatment == arm),
+                    scaler.scale(data.outcome),
+                    arm_label(arm),
+                )
+                for arm in data.arm_codes
+            ]
         if fits_treatment and not data.is_continuous_treatment:
             roles.append(
                 (
@@ -3348,6 +3395,7 @@ class TMLE:
             n_jobs=self.n_jobs,
             fit_treatment=fit_treatment,
             fit_treatment_observation=fit_treatment_observation,
+            outcome_by_arm=self.outcome_by_arm,
         )
         # Evaluated once and carried with the fits, so that every reuse -- retarget, and
         # so the truncation curve, the MNAR tilt, the omitted-variable bound -- targets
@@ -3501,6 +3549,7 @@ class TMLE:
             continuous_treatment=data.is_continuous_treatment,
             q_bounds=None if scaler.is_identity else (scaler.lower, scaler.upper),
             screen_treatment=self.screen_treatment,
+            outcome_by_arm=self.outcome_by_arm,
             estimands=estimands,
             alpha_sig=self.alpha_sig,
             random_state=self.random_state,

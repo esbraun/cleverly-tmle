@@ -197,6 +197,11 @@ class ModelSpec:
         Absolute correlation threshold used by screening.
     min_retain : int or None
         Minimum number of covariates retained by screening.
+    outcome_by_arm : bool
+        Whether to fit one outcome regression per treatment arm, each on the arm's rows and
+        the covariates alone (R's ``drtmle(stratify=TRUE)``).  The default fits one regression
+        on the covariates and the treatment.  A continuous dose has no arms and is refused,
+        and so is a longitudinal design.
 
     See Also
     --------
@@ -223,6 +228,7 @@ class ModelSpec:
     screen_treatment: bool = False
     screen_threshold: float = 0.1
     min_retain: int | None = None
+    outcome_by_arm: bool = False
 
     def __post_init__(self) -> None:
         for name in (
@@ -613,6 +619,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "screen_treatment": "screen_treatment",
         "screen_threshold": "screen_threshold",
         "min_retain": "min_retain",
+        "outcome_by_arm": "outcome_by_arm",
     },
     "cross_fitting": {
         "cross_fit": "enabled",
@@ -668,6 +675,7 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("models", "screen_treatment", "screen_treatment"),
     ("models", "screen_threshold", "screen_threshold"),
     ("models", "min_retain", "min_retain"),
+    ("models", "outcome_by_arm", "outcome_by_arm"),
     ("cross_fitting", "repeats", "repeats"),
     ("cross_fitting", "stratify_by", "stratify_folds"),
     ("cross_fitting", "targeting_scheme", "targeting_scheme"),
@@ -901,6 +909,7 @@ class TMLEMethod:
                 "screen_treatment": models.screen_treatment,
                 "screen_threshold": models.screen_threshold,
                 "min_retain": models.min_retain,
+                "outcome_by_arm": models.outcome_by_arm,
                 "cross_fit": cross.enabled,
                 "repeats": cross.repeats,
                 "split_plan": split_plan,
