@@ -89,6 +89,9 @@ categorized API tables.
    cleverly.exceptions.RefusalReason
    cleverly.learners.SuperLearnerDiagnostics
    cleverly.learners.CorrelationScreener
+   cleverly.learners.ParametricOutcome
+   cleverly.learners.ParametricMechanism
+   cleverly.learners.ParametricFitDiagnostics
    cleverly.learners.CrossFitPlan
    cleverly.learners.Folds
    cleverly.learners.FoldOrigin
@@ -119,6 +122,7 @@ categorized API tables.
    cleverly.interventions.ModifiedPolicy
    cleverly.interventions.Randomizer
    cleverly.interventions.RiskRatioTilt
+   cleverly.interventions.JointPolicy
    cleverly.interventions.PolicySet
    cleverly.interventions.SupportReport
    cleverly.interventions.RegimeSupport
@@ -189,6 +193,7 @@ categorized API tables.
    cleverly.datasets.make_shift_dose
    cleverly.datasets.make_missing_outcome
    cleverly.datasets.make_missing_outcome_binary
+   cleverly.datasets.make_missing_outcome_bounded
    cleverly.datasets.make_cde
    cleverly.datasets.make_clustered
    cleverly.datasets.make_biased_sample
@@ -203,3 +208,8 @@ categorized API tables.
    cleverly.datasets.navigation_data
    cleverly.datasets.navigation_protocol
    cleverly.datasets.longitudinal_navigation_protocol
+   cleverly.datasets.make_sequential_offers
+   cleverly.datasets.offers_truth
+   cleverly.datasets.offers_protocol
+   cleverly.datasets.win_back
+   cleverly.datasets.win_back_then_ship

@@ -10,10 +10,10 @@ Read the pages in this order.
 
 | page | what it gives you |
 | --- | --- |
-| [Implementation validation grid](validation-grid.md) | the sixty-seven validation studies in one table, with the counts and the declared limits |
+| [Implementation validation grid](validation-grid.md) | the sixty-eight validation studies in one table, with the counts and the declared limits |
 | [How to read these studies](how-to-read.md) | the three questions, the verdict rules, and the terms every study below applies |
 | [The red-cell ledger](red-cells.md) | every red verdict the studies publish, and the roadmap ask that owns each one |
-| the sixty-eight study pages | one row per committed test, with what it checked and the verdict its own endpoints produced |
+| the sixty-nine study pages | one row per committed test, with what it checked and the verdict its own endpoints produced |
 
 A validation study declares property cells or names a reference. A study that names a reference
 is comparator-backed, and its agreement block names the comparison kind of each row. The
@@ -49,10 +49,12 @@ repeated-cross-fitting
 selector-based-point-treatment-c-tmle
 selector-based-multi-arm-c-tmle
 c-tmle-candidate-sequences
+ctmle-derivative
 outcome-adaptive-point-treatment-c-tmle
 outcome-adaptive-multi-arm-c-tmle
 outcome-adaptive-per-arm-c-tmle
 outcome-adaptive-per-arm-c-tmle-strata-missing
+outcome-adaptive-per-arm-c-tmle-parametric
 canonical-dr-tmle
 multi-arm-dr-tmle
 ordinary-missing-outcome-tmle
@@ -77,6 +79,7 @@ ordinary-weighted-end-of-study-longitudinal-tmle
 ordinary-categorical-longitudinal-tmle
 stochastic-categorical-longitudinal-tmle
 longitudinal-modified-treatment-policies
+vector-modified-treatment-policies
 sequentially-doubly-robust-estimation
 ordinary-longitudinal-msm-projection
 cross-fitted-longitudinal-msm-projection

@@ -273,17 +273,6 @@ def test_r5_an_undeclared_policy() -> None:
         _refused({"u": undeclared}, continuous_treatment=())
 
 
-def test_r13_a_vector_node_with_a_continuous_component() -> None:
-    frame = law.frame(vector=True).assign(A1a=lambda f: f["A1a"] + 0.25)
-    with pytest.raises(CapabilityError, match="vector with continuous components"):
-        _refused(
-            {"natural": Shift(0.0, cap=None)},
-            frame=frame,
-            treatment=[["A1a", "A1b"], ["A2a", "A2b"]],
-            continuous_treatment=["A1a"],
-        )
-
-
 def test_the_point_working_model_refusal_names_the_longitudinal_route() -> None:
     from cleverly.estimators import TMLE
     from cleverly.msm import MSM

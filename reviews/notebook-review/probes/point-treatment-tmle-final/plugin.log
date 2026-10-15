@@ -1,0 +1,4 @@
+seeds 6000 to 6199, 200 draws
+plug-in, linear Q: bias -0.0182 (MC SE 0.0005)
+  empirical SD 0.0071; mean |miss| 0.0182
+  error below zero: 0.995 (199 of 200)

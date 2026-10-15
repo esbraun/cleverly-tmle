@@ -3,7 +3,7 @@
 Each declared rule restates a verdict that a study's own ``summarize_properties`` computes.
 The differential perturbs every committed study's property rows, summarizes them with the
 study's own code, and requires the declared rules to give the same ``passed`` and
-``property_passed`` on every verdict row.  Two modules have no committed rows, so they run on
+``property_passed`` on every verdict row.  Three modules have no committed rows, so they run on
 synthetic rows built from their declared cells.  ``longitudinal_sdr_properties`` runs on both
 its committed rows and synthetic rows: its committed rows make no perturbation decide the
 ``P_D`` two-size clause alone, and its synthetic rows do.
@@ -76,12 +76,21 @@ DIFFERENTIAL_BOOTSTRAP = 200
 #: The property modules that run on :func:`synthetic_rows`: each module with no committed rows,
 #: and ``longitudinal_sdr_properties``, whose committed rows leave the clause
 #: ``P_D large-size bias bound under the small`` without a binding witness.
+#: ``vector_mtp_properties`` stays here until its declared run commits its rows.
 SYNTHETIC_MODULES = (
     "tests.studies.longitudinal_sdr_properties",
     "tests.studies.longitudinal_incremental_properties",
     "tests.studies.longitudinal_incremental_dropout_properties",
+    "tests.studies.vector_mtp_properties",
     "tests.studies.structural_nested_mean_properties",
 )
+
+#: The synthetic modules whose ``interval_calibration`` cells draw at the module's own
+#: efficiency bound, ``EFFICIENCY_SD[label] / sqrt(n)``, instead of ``n ** -0.5``.  At
+#: ``n ** -0.5`` every calibration positive of ``vector_mtp_properties`` reads an empirical
+#: efficiency ratio of 1.09 to 2.05, outside its band of 0.90 to 1.10, so no perturbation lets
+#: ``coverage in calibration band`` decide a verdict alone.
+EFFICIENCY_SCALED = frozenset({"tests.studies.vector_mtp_properties"})
 
 #: The seed root of :func:`synthetic_rows`, and a control cell's bias in standard errors.
 SYNTHETIC_SEED = 20_261_016
@@ -174,7 +183,8 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
     The module's ``fit_properties`` is replaced by a function that returns, for each key, one
     row per cell the key fills, at the declared budget.  Each row's truth is zero and its
     estimate a seeded normal draw with standard error ``n ** -0.5``, centred on zero in a
-    positive cell and on :data:`SYNTHETIC_CONTROL_BIAS` standard errors in a control.  The
+    positive cell and on :data:`SYNTHETIC_CONTROL_BIAS` standard errors in a control.  A module
+    of :data:`EFFICIENCY_SCALED` draws its calibration cells at its efficiency bound.  The
     module's own code then derives its calibration controls and orders the rows, so the rows
     have the shape a run publishes.  They are no run's output: the differential reads only
     whether a rule and the module agree on them.
@@ -190,6 +200,7 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
         The rows.
     """
     declared = {(cell.property, cell.cell): cell for cell in module.declared_cells()}
+    bounds = module.EFFICIENCY_SD if module.__name__ in EFFICIENCY_SCALED else {}
     critical = float(norm.ppf(1.0 - module.STUDY.margins.alpha / 2.0))
 
     def fit_properties(
@@ -212,7 +223,11 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
                 rng = np.random.default_rng(
                     [SYNTHETIC_SEED, property_failures.cell_key(family, cell), replicate]
                 )
-                scale = float(spec.n) ** -0.5
+                label = cell.rsplit("__", 1)[0]
+                if family == "interval_calibration" and label in bounds:
+                    scale = float(bounds[label]) * float(spec.n) ** -0.5
+                else:
+                    scale = float(spec.n) ** -0.5
                 centre = SYNTHETIC_CONTROL_BIAS * scale if spec.role == "control" else 0.0
                 estimate = rng.normal(centre, scale)
                 std_error = scale * rng.uniform(0.9, 1.1)

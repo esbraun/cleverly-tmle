@@ -13,7 +13,7 @@ Steps 5 and 6, the cross-fitted and the in-sample fit
   |in-sample psi - cross-fitted psi| < 0.01: 1.000 (MC SE 0.000; 200 of 200)
   in-sample miss in its SEs exceeds the cross-fitted miss in its SEs: 0.675 (MC SE 0.033; 135 of 200)
 
-Step 11, the assessment of the cross-fitted fit
+Step 9, the assessment of the cross-fitted fit
   no attention row: 0.995 (MC SE 0.005; 199 of 200)
   propensity calibration slope, 5% / 50% / 95%: [0.9, 0.96, 1.01]
   no unit truncated at the default bound: 1.000 (MC SE 0.000; 200 of 200)
@@ -23,7 +23,7 @@ Step 11, the assessment of the cross-fitted fit
   treated is the smaller ESS ratio: 0.995 (MC SE 0.005; 199 of 200)
   in-sample minimum ESS ratio above the cross-fitted one: 1.000 (MC SE 0.000; 200 of 200)
 
-Step 13, the sensitivity analysis of the cross-fitted fit
+Step 10, the sensitivity analysis of the cross-fitted fit
   rv 5% / 50% / 95%: [0.4, 0.426, 0.449]
   rva 5% / 50% / 95%: [0.379, 0.404, 0.424]
   nu^2 (doubly robust) mean 4.504, 5% / 95%: [4.19, 4.78]
@@ -33,6 +33,6 @@ Step 13, the sensitivity analysis of the cross-fitted fit
   their 95% limits exclude zero: 1.000 (MC SE 0.000; 200 of 200)
   fitted share of g below 0.1 under the law's share, 0.0188 (truth.py): 0.980 (MC SE 0.010; 196 of 200)
 
-Step 13, the shown draw (seed 34) at the law's nu^2 (truth.py)
+Step 10, the shown draw (seed 34) at the law's nu^2 (truth.py)
   fitted nu^2 4.5363: bias scale 0.28649; bias <= 0.00873; bounds (0.1486, 0.1660); rv 0.419
   law    nu^2 4.8287: bias scale 0.29558; bias <= 0.00900; bounds (0.1483, 0.1663); rv 0.409

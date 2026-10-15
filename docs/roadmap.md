@@ -124,16 +124,14 @@ not change the package version.
 | B0 | Experimental status and support rows | no new theory | none | [RM42](#rm42-experimental-status-and-support-rows) |
 | B1 | Longitudinal evidence over three to five decisions | published support | the shipped `LTMLE` and `SDR` | [X39](#x39-longitudinal-evidence-over-three-to-five-decisions) |
 | B1 | Targeting and fitting options | no new theory; each option keeps its default bit-identical | none | [X22](#x22-targeting-and-fitting-options) |
-| B2 | Continuous vector components at a node | published support; pending source read | shipped longitudinal modified treatment policies | [X31](#x31-continuous-vector-components-at-a-node) |
 | B2 | Continuous-policy validation and support checks | published support | shipped longitudinal modified treatment policies | [X40](#x40-continuous-policy-validation-and-support-checks) |
 | B3 | Applied tutorials for offers and pricing | no new theory | X40; the shipped `SequentialGComputation` and `SequentialIPW` | [X42](#x42-applied-tutorials-for-offers-and-pricing) |
 | B4 | Categorical incremental policies | natural extension candidate; source audit | the shipped binary `IPSI` estimator | [X43](#x43-categorical-incremental-policies) |
 | B4 | Repeated cross-fitting for longitudinal fits | published support; pending source read | the shipped point-treatment repeats and trajectory-level splits | [X46](#x46-repeated-cross-fitting-for-longitudinal-fits) |
 | BP | Repeated outcomes for SDR and IPSI | published support for the incremental case; a per-horizon reduction for `SDR` | the shipped `LTMLE` repeated outcome | [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi) |
 | BP | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
-| BP | C-TMLE0: one fluctuation with a derivative clever covariate | published support; pending source read | the shipped `lasso` and `learners` C-TMLE paths | [X30](#x30-c-tmle0-one-fluctuation-with-a-derivative-clever-covariate) |
 | BP | Plug-in omitted-variable limits with a declared parametric mechanism | [published support; stacked-equation extension](technical-reference/natural-extension-verdicts.md) | the shipped plug-in bound | [X26](#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism) |
-| BP | Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome | [natural extension](technical-reference/hard-stop-review.md) candidate; oracle diagnostic | RM42; the shipped per-arm design | [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
+| BP | Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome, parts (b) to (d) | [natural extension](technical-reference/hard-stop-review.md) candidate; part (a) shipped | RM42; the shipped per-arm design | [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
 | BD | Worked examples for the shipped methods | no new theory | every row of milestones B0 to B4 and BP | [X68](#x68-worked-examples-for-the-shipped-methods) |
 | BD | Documentation review for new and changed methods | no new theory | every row of milestones B0 to B4 and BP; X68 | [X69](#x69-documentation-review-for-new-and-changed-methods) |
 | B5 | Learned-policy follow-ups | published support for parts (g) and (h); natural extension for parts (i) and (k) to (o); published support; pending source read for parts (a), (b), (e) and (f); source audit for parts (c), (d) and (j) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
@@ -601,20 +599,24 @@ Acceptance:
 
 ### X42. Applied tutorials for offers and pricing
 
-Publish two tutorials that run through the public API.
+Publish one tutorial that runs through the public API. The
+[sequential offers tutorial](examples/sequential-offers.ipynb) covers categorical and dynamic
+rules, randomized offers with declared probabilities, treatment-confounder feedback, censoring, a
+contrast of LTMLE and g-computation under a wrong outcome model, and paired policy comparisons. The
+pricing tutorial remains.
 
 | tutorial | required content |
 | --- | --- |
-| sequential customer offers | categorical and dynamic rules, randomized offers, treatment-confounder feedback, censoring, and paired policy comparisons |
 | sequential pricing | continuous modified treatment policies, support boundaries, price-induced engagement changes, and contrasts against a declared reference policy |
 
-Each tutorial states time zero, eligibility, treatment versions, available history, confounders,
+The tutorial states time zero, eligibility, treatment versions, available history, confounders,
 outcome horizon, and interference assumptions. Use synthetic laws with known truth, and a held-out
-applied pilot where data access permits. Explain when TMLE, `SDR`, g-computation, or IPW is
-appropriate, and why their answers can differ. Keep the stagewise support and truncation
-diagnostics, and label a truncation curve as a descriptive estimator change.
+applied pilot where data access permits. The offers tutorial states when g-computation, IPW, and
+LTMLE are consistent, and it reads the stagewise support and one truncated weight. The pricing
+tutorial explains when TMLE, `SDR`, g-computation, or IPW is appropriate, and why their answers can
+differ. It keeps the stagewise support diagnostics, covers positivity and truncation, and labels a truncation curve as a descriptive estimator change.
 
-Acceptance: both notebooks execute in the documentation build.
+Acceptance: the notebook executes in the documentation build.
 
 ### X43. Categorical incremental policies
 
@@ -660,26 +662,6 @@ within each draw.
 
 Acceptance: a witness that each draw reproduces a single-draw fit, a mutation control that reuses
 one draw, and a registered study of the median and its variance.
-
-### X30. C-TMLE0: one fluctuation with a derivative clever covariate
-
-R `ctmle` 0.1.2 ships a third type in `ctmleGlmnet` and `ctmleGeneral`: `ctmletype = 3`. It fits
-one TMLE whose submodel adds the derivative columns $1\{A=a\}(g_a - g_a^+)/g_a^2$. The derivative
-is a finite difference between two declared mechanisms, `g1W` and `g1WPrev`. The type has no
-candidate sequence and no cross-validation.
-
-| item | content |
-| --- | --- |
-| published algorithm | Ju, Wyss et al. (2019), *SMMR* 28(4), Appendix B, Algorithm 2; Ju, Chambaz and van der Laan (2018), Section 4.2, LASSO-PSEUDO-C-TMLE |
-| comparator | `ctmleGlmnet` and `ctmleGeneral` with `ctmletype = 3` (`R/ctmle_glmnet.R`, lines 115 to 201; `R/ctmle_general.R`, lines 168 to 252) |
-| work | a `2K`-column submodel for every estimand, arm count, weight and missing-outcome composition, and an input contract for the second mechanism |
-| status | the plug-in diagnostic only, under [F18](#f18-selector-path-c-tmle-inference) |
-
-Acceptance:
-
-- an exact-law witness with a nonzero derivative step, and a mutation control that drops the
-  derivative columns;
-- a fixture against R `ctmle` type 3 in the pattern of `tests/canonical/ctmle_sequence_witness/`.
 
 
 ### X22. Targeting and fitting options
@@ -770,6 +752,14 @@ flexible outcome learner, the shared design, local uniformity, and the compositi
 contract. F19 also keeps the committed red cells. Every configuration outside the support predicate
 below keeps the `generated_design_plugin` status.
 
+**Part (a) shipped.** The in-sample fit with `ParametricOutcome` and `ParametricMechanism` reports
+a stacked-equation interval for `ey0`, `ey1`, `ate`, `rr` and `or`. The binary `rr` and `or` moved
+into part (a) because `ratio()` and `contrast()` inherit the status. The
+[evidence page](technical-reference/method-evidence/outcome-adaptive-per-arm-c-tmle-parametric.md) states the registered study, which is Python property evidence with no
+comparator. [Parametric per-arm intervals](technical-reference/collaborative-tmle.md#parametric-per-arm-intervals)
+states the contract. Parts (b) to (d) stay open. The text below keeps the part (a) scope for
+reference and states what each open part still needs.
+
 **What is known.** [The applied revert](technical-reference/collaborative-tmle.md#the-applied-revert)
 and the [per-arm evidence page](technical-reference/method-evidence/outcome-adaptive-per-arm-c-tmle.md)
 give the cells.
@@ -794,10 +784,13 @@ c_a = E\left[\left(1 - \frac{g_{0,a}(W)}{G_a(\bar Q_a(W))}\right)
 $$
 
 $\mathrm{IF}_\beta$ is the influence function of the fitted outcome coefficients. The formula
-summarizes the diagnosis. It is not the inference contract. With a parametric adaptive mechanism,
-the $\gamma$ and $\epsilon$ terms also enter. This item derives the complete first-order
-expansion of the fitted estimator, with the outcome fit, the adaptive mechanism fit, the targeting
-step and the final average.
+summarizes the diagnosis. It is not the inference contract.
+
+With a parametric adaptive mechanism, the $\gamma$ and $\epsilon$ terms also enter, as follows.
+With a correct outcome model, the $\gamma$ terms vanish, and the fluctuation term enters with the factor $\kappa_a$. The factor is 1
+when the mechanism model holds for the projection and no bound binds. With a wrong outcome model,
+every block enters. Part (a) derived the complete first-order expansion of the fitted estimator,
+with the outcome fit, the adaptive mechanism fit, the targeting step and the final average.
 
 **Readiness.** This item is a natural extension candidate with an oracle diagnostic. The
 [hard-stop review](technical-reference/hard-stop-review.md) reads the in-sample parametric stack
@@ -811,7 +804,7 @@ equation, the chain rule for influence functions, the delta method, and a fixed-
 This item must confirm that every step is in the standard-step table of
 [Eligibility](#eligibility). A step outside that table returns its claim to F19.
 
-**First scope.** Each extension enters through its own acceptance cells.
+**First scope, shipped as part (a).** Each extension enters through its own acceptance cells.
 
 | axis | first implementation |
 | --- | --- |
@@ -820,37 +813,40 @@ This item must confirm that every step is in the standard-step table of
 | treatment | binary |
 | outcome learner | a declared regular parametric model that exposes its score, its derivative and its coefficient influence function |
 | adaptive mechanism | a declared smooth parametric fit. The contract states its assumptions and the behavior of `g_bounds` |
-| target | the two arm means and the ATE, with their joint covariance |
+| target | the two arm means, the ATE, `rr` and `or`, with their joint covariance |
 | fitting | in sample |
 | inference | a corrected pointwise covariance and a Wald interval, inside the declared model and its regularity conditions |
 
 | part | extension | entry condition |
 | --- | --- | --- |
 | (a) | the first scope above | the acceptance list below |
-| (b) | more than two arms, and `rr`, `or`, `par` and `paf` by the delta method | a map of the changed contributions, and their own witnesses and cells |
+| (b) | more than two arms, `ey_obs`, `par` and `paf` by the delta method, `rr` and `or` at more than two arms, and the simultaneous band | a map of the changed contributions, and their own witnesses and cells |
 | (c) | cross-fitting with parametric learners, and `repeats` above 1 | an explicit map of the fold-specific coefficient contributions, and a written expansion. Without one, the claim stays in F19 |
 | (d) | fixed known weights | the weight-tilted law of the shipped per-arm contract, with its own witness and cell |
 
-The `ctmle-oat-per-arm` revert cells split by part. Part (a) takes the binary primary rows of
-`ey1`, `ey0` and `ate`, `interval_calibration/binary_active__correctly_specified` and the binary
-`generated_design` pair. Part (b) takes the other primary rows, the three-arm cells and the
-simultaneous band. Part (c) takes `binary_repeats__correctly_specified`, and part (d) takes
-`binary_weighted__correctly_specified`. A cell stays with F19 until its part passes.
+The `ctmle-oat-per-arm` revert cells split by part. Part (a) took the in-sample binary primary
+rows. The cross-fitted cells `interval_calibration/binary_active__correctly_specified` and the
+binary `generated_design` pair belong to part (c), because those cells cross-fit. Part (b) takes
+the other primary rows, the three-arm cells and the simultaneous band. Part (c) also takes
+`binary_repeats__correctly_specified`, and part (d) takes `binary_weighted__correctly_specified`.
+A cell stays with F19 until its part passes.
 
-**Routes to compare.** This item evaluates each route, then implements the smallest justified route
-with reliable behavior.
+**Routes compared in part (a).** Part (a) evaluated each route, then implemented the smallest
+justified route. It chose the joint estimating equation. The full-mechanism route is dominated and
+is not built. It is correct only when the outcome model is correct and $\kappa_a = 1$, and it needs
+a declared $g_0$.
 
 | route | what it estimates | conditions to state |
 | --- | --- | --- |
-| a full mechanism | $c_a^\top \mathrm{IF}_\beta$, plus the $\gamma$ and $\epsilon$ terms of the parametric adaptive mechanism, with a declared known $g_0$ or with a correctly specified parametric mechanism whose score enters the stack. `CTMLE` refuses a declared `treatment_probabilities=` today (`KNOWN_CTMLE_REFUSAL`). This route lifts that refusal for the per-arm correction only, with $g_0$ an input to the curve and not to the design, and updates [scope and refusals](technical-reference/scope-and-refusals.md) | the full mechanism is known or consistently estimated |
-| a joint estimating equation | the sandwich over $\beta$, the adaptive mechanism $\gamma$, the fluctuation $\epsilon$ and $\psi$, as [X52](#x52-parametric-c-tmle-intervals) describes | the outcome model is correct for coverage of $\psi_0$. The sample Jacobian may estimate $c_a$ from the observed treatment without a full mechanism. The derivation must confirm this |
+| a full mechanism | $c_a^\top \mathrm{IF}_\beta$, plus the $\gamma$ and $\epsilon$ terms of the parametric adaptive mechanism, with a declared known $g_0$ or with a correctly specified parametric mechanism whose score enters the stack. `CTMLE` refuses a declared `treatment_probabilities=` today (`KNOWN_CTMLE_REFUSAL`). This route lifts that refusal for the per-arm correction only, with $g_0$ an input to the curve and not to the design. Part (a) evaluated this route and did not build it, so the refusal stays | the full mechanism is known or consistently estimated |
+| a joint estimating equation, chosen | the sandwich over $\beta$, the adaptive mechanism $\gamma$, the fluctuation $\epsilon$ and $\psi$, as [X52](#x52-parametric-c-tmle-intervals) describes | the outcome model is correct for coverage of $\psi_0$, or the clipped mechanism limit equals $g_0$. The sample Jacobian estimates $c_a$ from the observed treatment without a full mechanism, as the derivation confirms |
 
 A consistent full mechanism is an acceptable cost for valid restricted inference. Avoiding that
 mechanism is a further objective, and F19 keeps it. A correct outcome model alone does not
 establish calibrated uncertainty. This item claims no superefficiency and no efficiency gain over
 ordinary TMLE without a separate argument.
 
-**Implementation sequence.**
+**Implementation sequence.** Part (a) completed steps 1 to 7. Step 8 remains.
 
 1. Derive the complete first-order expansion for the fitted estimator and the learner contract.
 2. Name each oracle quantity, and specify an estimable or declared replacement.
@@ -861,19 +857,19 @@ ordinary TMLE without a separate argument.
    ATE.
 7. Implement the support predicate, and restrict the inferential status to the configurations that
    meet it.
-8. Add parts (b) and (c) only after their changed contributions are mapped and tested.
+8. Add parts (b) to (d) only after their changed contributions are mapped and tested.
 
-**Release gate.** A support predicate replaces the global flag `OAT_PER_ARM_INFERENTIAL`. The
-predicate reads the outcome learner, the mechanism learner, the design, the fitting, the target and
-the inference request. It never reads a fitted array. One passed study does not open every per-arm
-fit.
+**Release gate.** A support predicate, `per_arm_parametric_support`, replaced the global per-arm
+flag. The predicate reads the outcome learner, the mechanism learner, the design, the fitting, the
+target and the inference request. It never reads a fitted array. One passed study does not open every per-arm
+fit. Each open part widens the predicate only after its own study passes.
 
 The corrected status, the covariance and the method declaration survive `result.save()`,
 `cleverly.load()`, contrasts and summaries. [RM42](#rm42-experimental-status-and-support-rows)
 part (c) supplies the support rows. `plugin_std_error`, `plugin_interval` and the bootstrap spread
 stay diagnostics. Ordinary TMLE stays the inference alternative under its own assumptions.
 
-**Acceptance.**
+**Acceptance for each open part.**
 
 | criterion | evidence |
 | --- | --- |
@@ -1174,28 +1170,6 @@ Acceptance:
 - an exact-law test of each stratum curve;
 - a registered calibration cell.
 
-### X31. Continuous vector components at a node
-
-`LTMLE` takes a vector of categorical columns as one node, and the discrete formula gives its
-ratio. `LongitudinalData.from_frame` refuses a vector node with a continuous component, before any
-learner. `CausalData` takes one treatment column, so a point treatment has no vector node at all.
-The pinned `lmtp` 1.5.4 accepts a list of columns as one node of `trt`, so this is a parity gap.
-
-| part | what to add | published source | comparator |
-| --- | --- | --- | --- |
-| (a) a point vector treatment | `CausalData(treatment=["A1", "A2"])` with a joint policy, on the routes the longitudinal vector node uses | Hoffman et al. (2024), *Epidemiology* 35(5). This locator is pending its source read | `lmtp` 1.5.4 with one node of two columns |
-| (b) a continuous component | the ratio of a joint policy when one column is a dose | the same source, and Section 5.4 of Díaz, Williams, Hoffman and Schenck (2023) for the classifier route | the same |
-
-The classifier route (`ratio="classifier"`) needs only the joint policy and the stacked fit, so it
-is the first route to build. A density route needs a joint conditional density, or declared
-per-component pieces whose Jacobian is the product of the component Jacobians.
-
-Acceptance:
-
-- exact-law Gateaux witnesses for each part on a coarse discrete law;
-- a mutation control that drops one component's ratio;
-- a registered study against the pinned `lmtp` 1.5.4, with the ratio supplied to both sides.
-
 ### X32b. Repeated outcomes for SDR and IPSI
 
 `LTMLE` fits a repeated outcome, declared with `outcome=Repeated([...])`. Each horizon is the
@@ -1493,8 +1467,8 @@ regularity or asymptotic argument.
 [F21](#f21-other-missing-outcome-cv-tmle-variants) keeps `reduced_crossfit="nested"` on the
 randomized missing-outcome `DRTMLE`. X50 and X51 hold the compositions that moved. This item holds
 the other refused compositions of `DRTMLE` and `CTMLE`. `CausalStudy.available_methods()` names
-this item for part (d). `estimators/drtmle.py` and `estimators/composite.py` refuse the other
-parts before any learner.
+this item for part (d). `estimators/drtmle.py`, `estimators/composite.py` and `estimators/ctmle.py`
+refuse the other parts before any learner.
 
 | part | request | step |
 | --- | --- | --- |
@@ -1502,6 +1476,7 @@ parts before any learner.
 | (b) | `evaluation=` on the randomized missing-outcome `DRTMLE` | a diagnostic only, as X50 part (d). No new theory is needed |
 | (c) | the composite missing-data route for a method other than `TMLE`, `DRTMLE` and `CTMLE` | the indicator reduction to $\Delta_A \cdot \Delta \cdot 1\{A = a\}$ for each method whose binary-treatment result ships. No shipped method reaches this refusal |
 | (d) | `NaturalCourseMean`, PAR and PAF with complete outcomes under `CTMLE` or `DRTMLE` | the $\Delta \equiv 1$ case of X50 part (c) and X51 part (a). With complete outcomes the natural-course TMLE returns the sample mean and the curve $Y - E[Y]$, as the `ey_obs` row of the [evidence map](technical-reference/evidence.md) records. C-TMLE gives points only, as X51 states |
+| (e) | baseline strata (`strata=`), and a declared missing treatment, under `CTMLE(strategy="derivative")` | one derivative fit within each stratum, as the ordinary TMLE fits its stratum estimates; a partner mechanism for the composite indicator $\Delta_A \cdot 1\{A = a\}$. `estimators/ctmle.py` and `estimators/composite.py` refuse both before any learner and name this item |
 
 Acceptance needs each check below.
 
@@ -1514,10 +1489,11 @@ Acceptance needs each check below.
 
 ### X63. Missing data, intermediates and designs
 
-`CausalData`, the declarations of `data/validate.py` and `data/known_mechanism.py`, and the
-natural-course support report refuse the requests below. A missing treatment beside a continuous
-treatment or a categorical modified treatment policy is an `invalid_declaration`, not a gap. The
-recording may depend on the treatment, so the law of $A$ given $W$ is not identified.
+`CausalData`, `LongitudinalData`, the declarations of `data/validate.py` and
+`data/known_mechanism.py`, and the natural-course support report refuse the requests below. A
+missing treatment beside a continuous treatment or a categorical modified treatment policy is an
+`invalid_declaration`, not a gap. The recording may depend on the treatment, so the law of $A$
+given $W$ is not identified.
 [F33](#f33-other-intervention-and-design-compositions) keeps the composite indicator with a
 controlled direct effect.
 
@@ -1525,13 +1501,14 @@ controlled direct effect.
 | --- | --- | --- |
 | (a) | a declared known density for a continuous treatment | a declared conditional density in place of the fitted one in the density ratio, for a policy whose definition does not read $g$. Base: Díaz, Williams, Hoffman and Schenck (2023), Theorem 3, whose remainder is a product of the ratio error and the outcome error. A declared $g_0$ makes the ratio error zero, as the [known treatment mechanism](technical-reference/point-treatment-tmle.md#known-treatment-mechanism) section states for discrete policies. The curve stays valid at $g_0$. The part claims no efficiency in the known-$g$ model, as that section states for the ATT |
 | (b) | a multi-valued intermediate variable | the controlled direct effect at each level $z$, through the indicator $1\{Z = z\}$. The step is an indicator reduction |
-| (c) | a fit with no covariates | an intercept-only nuisance design. The arm mean then reduces to the unadjusted mean. No new theory is needed |
+| (c) | a fit with no covariates, which includes `baseline=()` on `LongitudinalTreatment`, `LongPanel` and `TimeToEvent` | an intercept-only nuisance design. The arm mean then reduces to the unadjusted mean. No new theory is needed. The three longitudinal layouts share one container, so one refusal in `LongitudinalData` covers them |
 | (d) | a support report of the response mechanism for the natural course with missing outcomes | a diagnostic over the fitted response probabilities. It makes no estimator claim |
 
 Acceptance needs each check below.
 
 - a two-level intermediate equals the shipped binary controlled direct effect;
 - a fit with no covariates equals the unadjusted arm means exactly;
+- a long panel with no baseline covariate equals the equivalent wide frame exactly;
 - a declared density equal to the fitted one reproduces the fitted-density fit;
 - a nonzero witness for each changed term;
 - a pre-fit refusal test for each request that stays refused;
@@ -1999,6 +1976,11 @@ $g_n - g_0$ when $\bar Q$ is wrong does not qualify.
 parametric learners, where a stacked estimating equation carries the fixed candidate. This item
 keeps inference after the stopping-index selection. Its kind is adaptive-optimum inference.
 
+C-TMLE0 (`strategy="derivative"`) ships with the TMLE status under a consistent outcome
+regression ([C-TMLE0](technical-reference/collaborative-tmle.md#c-tmle0-the-derivative-covariate)).
+The collaborative reading of Ju et al. (2018), Section 5.3, for an inconsistent outcome regression
+stays here.
+
 F18 also keeps a fold-specific selection and update on the selector paths, which
 `cv_evaluation=True` and `targeting_scheme="fold"` request. No read source derives one. `CTMLE`
 refuses both before any learner, and the refusal names this item.
@@ -2100,7 +2082,7 @@ side. A mutation test changes every evaluation outcome without moving either nui
 rows.
 
 [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) holds the per-arm design with a regular parametric outcome model:
-a corrected curve, its covariance and its Wald interval under a declared support predicate.
+a corrected curve, its covariance and its Wald interval under a declared support predicate. Part (a) shipped, and parts (b) to (d) stay open.
 [X52](#x52-parametric-c-tmle-intervals) part (b) holds the composite per-arm cells, and part (c)
 holds the shared design with a parametric outcome and design. This item keeps five claims. The table gives the kind of
 argument that each one needs.
@@ -2130,8 +2112,8 @@ order.
 For a parametric outcome model, the term is $c^\top \mathrm{IF}_\beta$, with
 $c = E[(1 - g_0 / G)\, \partial \bar Q / \partial \beta]$, when the design learner is consistent
 for $G = P(A = a \mid \bar Q(a, W))$. With a parametric design learner, the $\epsilon$ and
-$\gamma$ terms also enter. [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) plans to derive and implement the
-complete term. The x17
+$\gamma$ terms also enter. [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) part (a) derived and implemented the
+complete term for the admitted configuration. The x17
 ratios below measure the omission on one law. They do not show that it is zero.
 
 The registered study
@@ -2184,9 +2166,9 @@ is further outside Theorem 1, because Appendix D only outlines its proof.
 - A result covers the exact cross-fitted multi-arm construction, and it separates a fixed target
   from a target conditional on the learned design.
 - For the per-arm design, the revert cells of `ctmle-oat-per-arm` pass their declared bands under
-  a fresh declaration. A support predicate for the validated configurations replaces the flag
-  `OAT_PER_ARM_INFERENTIAL`. [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) plans this for its
-  scope.
+  a fresh declaration. The support predicate `per_arm_parametric_support` replaced the global per-arm
+  flag, and it admits the validated configurations only.
+  [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) part (a) shipped its first scope.
 - It establishes whether the current curve suffices or an added representation contribution is
   needed.
 - It covers the requested joint means or contrasts and their covariance. It states the remainder,
@@ -2227,7 +2209,9 @@ holds.
 ### F22. Grouped cross-fitting beyond point-treatment TMLE
 
 The package draws whole-cluster outer folds for the ordinary cross-fitted point-treatment TMLE,
-DR-TMLE and longitudinal TMLE. C-TMLE refuses `id=` at every `cross_fit` setting.
+DR-TMLE and longitudinal TMLE. The C-TMLE selector and outcome-adaptive paths refuse `id=` at
+every `cross_fit` setting. `CTMLE(strategy="derivative")` admits `id=` with the TMLE clustered
+result.
 [X51](#x51-c-tmle-point-estimates-for-further-targets) part (e) holds the clustered point
 estimates, with a cluster as the unit and whole-cluster folds. The clustered versions of the
 parametric cells, X58's cells included, move with [X52](#x52-parametric-c-tmle-intervals) part (d). This item keeps every
@@ -2235,7 +2219,7 @@ other clustered C-TMLE interval. Its kind is asymptotic.
 
 | composition | what ships | what a result must supply |
 | --- | --- | --- |
-| a C-TMLE interval with `id=` | refused at every `cross_fit` setting (`CTMLE._resolve_estimands_for_data`) | a split law for the selection folds and the nested selection folds under clustering, and the cluster-robust variance of the candidate the search stops at. [F18](#f18-selector-path-c-tmle-inference) and [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) are open for iid rows, so a clustered result needs them first |
+| a C-TMLE selector or outcome-adaptive interval with `id=` | refused at every `cross_fit` setting (`CTMLE._resolve_estimands_for_data`) | a split law for the selection folds and the nested selection folds under clustering, and the cluster-robust variance of the candidate the search stops at. [F18](#f18-selector-path-c-tmle-inference) and [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) are open for iid rows, so a clustered result needs them first |
 
 The other grouped compositions take the cluster as the sampling unit, and the
 [natural-extension verdicts](technical-reference/natural-extension-verdicts.md) qualify them as

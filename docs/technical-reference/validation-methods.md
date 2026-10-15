@@ -789,7 +789,7 @@ matching capability row therefore carry one reason.
 | refused fit | the result the package does not have |
 | --- | --- |
 | a `drtmle` fit | an estimate of $\nu^2$ for an estimator that does not assume a consistent treatment mechanism. $E[2 m(\hat\alpha) - \hat\alpha^2]$ equals $\nu_0^2 - \lVert \hat\alpha - \alpha_0 \rVert^2$, so it falls where that mechanism is wrong |
-| a `collaborative_tmle` fit | the same estimate. The working mechanism conditions on a function $V$ of the covariates. $V$ is the selected set $W_S$ on the greedy, ordered, and discrete paths, and the fitted outcome regression under `strategy="oat"`. Where the working mechanism is $P(A \mid V)$ in the limit, the representer is $E[\alpha_W \mid A, V]$. Its second moment cannot exceed that of $\alpha_W$, while $\sigma^2$ reads every declared covariate |
+| a `collaborative_tmle` fit | the same estimate. The working mechanism conditions on a function $V$ of the covariates. $V$ is the selected set $W_S$ on the greedy, ordered, and discrete paths, and the fitted outcome regression under `strategy="oat"`. Where the working mechanism is $P(A \mid V)$ in the limit, the representer is $E[\alpha_W \mid A, V]$. Its second moment cannot exceed that of $\alpha_W$, while $\sigma^2$ reads every declared covariate. `CTMLE(strategy="derivative")` is not refused. Its mechanism reads every declared covariate, as a `TMLE` mechanism does |
 | a fit with a response mechanism | an implementation. The identified mean is a linear functional of the regression of $\Delta Y$ on $(A, \Delta, W)$, so Theorem 2 of the cited paper covers it. The implemented representer omits $\Delta$. $\sigma^2$ averages the respondents, and the theorem needs $E[\Delta (Y - \bar{Q})^2]$. $c_D$ would combine the treatment and response mechanisms. The missingness tilt remains the sensitivity analysis for response |
 | a fit with a declared missing treatment | a derivation. The representer of the implemented bound is derived for a recorded treatment. This fit divides by the composite mechanism $P(A = a, \Delta_A = 1 \mid W)$, or $P(A = a, \Delta_A = 1, \Delta = 1 \mid W)$ with `delta=`, and no representer or confounding strength is derived for it. See [X9](../roadmap.md#x9-omitted-variable-bounds-on-the-other-linear-functionals) |
 | a fit with an intermediate variable | an implementation. Each estimand at the level $z$ is a linear functional of the regression of $Y$ on $(A, Z, W)$, so Theorem 2 covers it. The representer carries the weight $1\{Z = z\} / P(Z = z \mid A, W)$, so $c_D$ would combine the treatment and intermediate mechanisms |
@@ -821,6 +821,31 @@ indicator keeps the Riesz identity above. `TestTheConditionalEffectScoreReadsThe
 `robustness_value()` inverts the bound for the single strength that flips the conclusion.
 `benchmark()` drops each named observed covariate, refits, and calibrates the strength scale
 against what that covariate was worth. `contour()` returns the grid a contour plot needs.
+
+`benchmark()` reports two gain statistics. The table defines them and the share that each
+stands for. Here "short" is the refit without the named covariates.
+
+| strength | `BenchmarkResult` field | bound parameter it stands for |
+| --- | --- | --- |
+| `cf_y` | `gain_y` $= \sigma^2_{\text{short}} / \sigma^2 - 1$, clipped to $[0, 1]$ | $\eta^2_{Y \sim U \mid D, X}$, in $[0, 1]$ |
+| `cf_d` | `gain_d` $= \nu^2 / \nu^2_{\text{short}} - 1$, clipped to $[0, 1]$ | $1 - R^2_{\alpha \sim \alpha_s}$, in $[0, 1)$ |
+
+Pass the gains to the bound unchanged. Remark 8 of Appendix E.5 of the cited paper states that the
+gains serve as proxies for the two shares when $k_Y = k_D = 1$. DoubleML uses the same
+convention. Do not convert a gain to the form $G / (1 + G)$. That form is a narrower calibration
+that the cited paper does not give.
+
+`omitted_variable_bounds(result, benchmark=record)` reads `cf_y` and `cf_d` from the record. It
+refuses a record of another estimand or another fit, and it refuses explicit `cf_y=` or `cf_d=`
+beside the record. The benchmark does not set `rho`. Pass `rho=record.rho` to use its alignment.
+
+| benchmark | what the bound does |
+| --- | --- |
+| `gain_y` above 1 | uses `cf_y = 1`. The bound is finite at $\eta^2 = 1$, which is the largest share. The summary of the record prints the unclipped gain |
+| `gain_d` of 1 or more | raises `ValueError`. The bound is unbounded at `cf_d = 1`, so this record calibrates no finite bound |
+
+`tests/unit/test_omitted_variable_benchmark_handoff.py` checks the hand-off against explicit
+strengths and against the share form.
 
 `benchmark()` is the only member of this group that refits. It reads the refusals above before it
 refits, so a refused fit pays for no second fit.

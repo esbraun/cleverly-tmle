@@ -68,7 +68,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..data.causal_data import CausalData
     from ..estimators._nuisance import NuisanceEstimates
     from ..estimators.base import TMLEResult
-    from ..estimators.ctmle import CTMLEOutcomeAdaptiveFit, CTMLESelection
+    from ..estimators.ctmle import CTMLEDerivativeFit, CTMLEOutcomeAdaptiveFit, CTMLESelection
 
 __all__ = [
     "NUISANCE_SELECTION_MISSING",
@@ -394,10 +394,11 @@ class NuisanceDiagnostics:
         Cross-fitting draws the fit combined. The reports describe the first.
     backend : str or None
         Dataframe backend :meth:`to_frame` returns when ``data`` is omitted.
-    selection : CTMLESelection or CTMLEOutcomeAdaptiveFit or None
-        The fitted :class:`~cleverly.estimators.CTMLESelection` or
-        :class:`~cleverly.estimators.CTMLEOutcomeAdaptiveFit`. ``None`` means the method
-        is not collaborative, or the stored artifact is unavailable.
+    selection : CTMLESelection or CTMLEOutcomeAdaptiveFit or CTMLEDerivativeFit or None
+        The fitted :class:`~cleverly.estimators.CTMLESelection`,
+        :class:`~cleverly.estimators.CTMLEOutcomeAdaptiveFit` or
+        :class:`~cleverly.estimators.CTMLEDerivativeFit`. ``None`` means the method is
+        not collaborative, or the stored artifact is unavailable.
     treatment_role : str or None
         One of ``"estimated_treatment_law"``, ``"declared_treatment_law"`` and
         ``"collaborative_working_model"``, or ``None``: the statistical role of the
@@ -437,7 +438,9 @@ class NuisanceDiagnostics:
     backend: str | None = None
     #: The exact method object already retained by the fitted result. Selector paths keep
     #: every candidate and risk rather than flattening the selected index into prose.
-    selection: CTMLESelection | CTMLEOutcomeAdaptiveFit | None = field(default=None, compare=False)
+    selection: CTMLESelection | CTMLEOutcomeAdaptiveFit | CTMLEDerivativeFit | None = field(
+        default=None, compare=False
+    )
     #: The propensity report's role. The role changes its interpretation, not its values.
     treatment_role: TreatmentModelRole | None = None
     #: Unlike the nuisance models and selection, these rows read every retained draw.
@@ -787,7 +790,7 @@ def _at_realised_treatment(data: CausalData, mechanism: FloatArray) -> FloatArra
     for.
     """
     values = np.asarray(mechanism, dtype=float)
-    if data.is_continuous_treatment:
+    if not data.has_arms:
         return np.asarray(values[:, 0], dtype=float)
     # Binary-only, as it has always been: a K-armed fit reports arm 0's value for every
     # row outside arms 0 and 1. Pre-existing and out of scope here; named so it is not
@@ -811,6 +814,8 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
     data = result.data
     nuisance = result.nuisance
     models: list[NuisanceModelReport] = []
+    from ..estimators.ctmle import CTMLEDerivativeFit
+
     selection = result.ctmle_selection
     collaborative = result.fitted_method == "collaborative_tmle" or selection is not None
     selection_omission = NUISANCE_SELECTION_MISSING if collaborative and selection is None else None
@@ -857,7 +862,12 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
     # Two arms read one column only when the mechanism is a distribution over the arms. The
     # per-arm outcome-adaptive mechanism of CTMLE is off the simplex: its arm-0 column is
     # not the complement of its arm-1 column, so each arm takes its own report below.
-    if data.is_binary_treatment and nuisance.fits_treatment and nuisance.propensity.simplex:
+    if (
+        data.has_arms
+        and data.is_binary_treatment
+        and nuisance.fits_treatment
+        and nuisance.propensity.simplex
+    ):
         models.append(
             _binary_report(
                 "propensity",
@@ -871,7 +881,7 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
                 mask=recorded,
             )
         )
-    elif not data.is_continuous_treatment and nuisance.fits_treatment:
+    elif data.has_arms and nuisance.fits_treatment:
         # One one-vs-rest report per arm, rather than a single multi-class summary.
         # Positivity is an arm-by-arm property -- the estimate can rest on a badly
         # calibrated denominator for one arm while the pooled log loss looks fine --
@@ -960,11 +970,12 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
             None
             if not nuisance.fits_treatment
             else "collaborative_working_model"
-            if collaborative
+            # A C-TMLE0 mechanism is fitted for the treatment law, as the ordinary TMLE's.
+            if collaborative and not isinstance(selection, CTMLEDerivativeFit)
             else "declared_treatment_law"
             if nuisance.treatment_mechanism == "known"
             else "estimated_treatment_law"
-            if not data.is_continuous_treatment
+            if data.has_arms
             else None
         ),
         repeat_spread=spread_rows,

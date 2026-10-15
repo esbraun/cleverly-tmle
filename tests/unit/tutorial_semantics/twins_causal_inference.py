@@ -10,7 +10,7 @@ number that the next networked execution can move.
 
 from __future__ import annotations
 
-import math
+import csv
 import re
 
 import nbformat
@@ -19,19 +19,13 @@ from tests.notebooks import code_cells
 from tests.unit.tutorial_semantics import EXAMPLES, markdown_text, notebook_code, stored_output
 
 NOTEBOOK = EXAMPLES / "twins-causal-inference.ipynb"
-
-_PROBE = "reviews/notebook-review/probes/twins-causal-inference-final"
+_STUDY = "tests/canonical/tmle3_cvtmle"
 
 #: Decimals the prose writes that no stored output prints, each with the reason.
 UNPRINTED_DECIMALS = {
-    "4.3": "a section number of the cited Louizos et al. (2017) paper, not a result",
-    "4.091": f"smallest nu^2 over 31 pair samples, shallow booster: {_PROBE}/summary.log",
-    "4.224": f"largest nu^2 over 31 pair samples, shallow booster: {_PROBE}/summary.log",
-    "0.0019": f"largest benchmark cf_y over 31 pair samples: {_PROBE}/summary.log",
-    "0.0023": f"smallest benchmark cf_d over 31 pair samples: {_PROBE}/summary.log",
-    "0.0225": f"largest benchmark cf_d over 31 pair samples: {_PROBE}/summary.log",
-    "0.0163": f"mean naive-contrast error over 60 synthetic draws: {_PROBE}/summary.log",
-    "0.0134": f"mean LTMLE standard error over 60 synthetic draws: {_PROBE}/summary.log",
+    "0.5": "a value of the outcome, the share of two twins who die, not a result",
+    "0.9425": f"coverage of the cleverly continuous att row: {_STUDY}/summary.csv",
+    "0.9956": f"se_ratio of the same row: {_STUDY}/summary.csv",
 }
 
 #: A printed residual such as 3.79e-13 is machine noise that changes between machines.
@@ -45,11 +39,17 @@ def _number(text: str, pattern: str) -> float:
     return float(match.group(1))
 
 
+def _row(text: str, label: str) -> list[float]:
+    """The numbers of the printed table row that starts with ``label``."""
+    match = re.search(rf"(?m)^\s*{re.escape(label)}\s+(.+)$", text)
+    assert match, f"the TWINS notebook no longer prints the row {label!r}"
+    return [float(value) for value in match.group(1).split()]
+
+
 def check_stored() -> None:
     """The TWINS artifact retains the outputs and the relations its readings narrate."""
     notebook = nbformat.read(NOTEBOOK, as_version=4)
     code = dict(notebook_code(NOTEBOOK))
-    source = "\n".join(str(cell["source"]) for cell in notebook.cells)
     prose = markdown_text(NOTEBOOK)
     figures = [
         output
@@ -57,7 +57,7 @@ def check_stored() -> None:
         for output in cell.get("outputs", ())
         if "image/png" in output.get("data", {})
     ]
-    assert len(figures) >= 3, "the TWINS notebook lost one or more evidence figures"
+    assert len(figures) == 2, "the TWINS notebook has a birth-weight figure and an overlap figure"
 
     # Every code cell is followed by its reading.
     cells = notebook.cells
@@ -67,145 +67,124 @@ def check_stored() -> None:
             assert following is not None and following.cell_type == "markdown", cell.id
             assert str(following.source).startswith("**What this output tells you.**"), cell.id
 
-    # Setup: no global warning filter hides the library's positivity or convergence warnings.
-    assert "filterwarnings" not in code["setup"]
-    assert "from cleverly.learners import thread_limit" in code["setup"]
+    # The situation states a causal graph with one row per arrow or absent arrow.
+    assert "```text" in prose and "| arrow or absent arrow | what it asserts |" in prose
+    assert "no U → A" in prose and "A → M ← U → Y" in prose
 
-    # Data: first-year outcome, and no variable that the birth itself determines.
+    # Setup: no global warning filter hides the library's warnings.
+    assert "filterwarnings" not in code["setup"]
+
+    # Data: the pinned source, the state-year rule, and the counts the reading quotes.
+    load = code["load-data"]
+    assert "AMLab-Amsterdam/CEVAE/{COMMIT}" in load
+    assert 'COMMIT = "9081f863e24ce21bd34c8d6a41bf0edc7d1b65dd"' in load
+    assert 'groupby(state_year).transform("mean")' in load and "missing_share <= 0.5" in load
     load_text = stored_output(NOTEBOOK, "load-data")
-    assert "mortality_3y" not in source and "three-year mortality" not in load_text
-    assert "first-year mortality" in load_text
-    assert "birth_order" not in code["load-data"]
-    assert "birth_order" not in stored_output(NOTEBOOK, "identify")
-    assert "encoded adjustment columns: 47" in load_text and "47 adjustment columns" in prose
-    # The source file removed equal-weight pairs; the eligibility and the readings say so.
-    assert "pairs in the source file:   71,345" in load_text and "71,345 pairs" in prose
-    assert "equal-weight source pairs:  0" in load_text
-    # The stress test needs no model, so it runs on every discordant pair of the full file.
-    association = stored_output(NOTEBOOK, "association-stress-test")
-    assert "14,870 pairs, full file" in association and "14,870" in prose
-    assert 'raw["T"]' in code["association-stress-test"]
+    for count in ("71,345", "16,739", "2,732", "51,874"):
+        assert count in load_text and count in prose, count
+    # The excluded residence-state codes are the states that the NCHS guides name.
+    excluded = {int(code) for code in re.findall(r"(?m)^\s+(\d+)\s+19\d\d", load_text)}
+    assert {5, 15, 19, 28, 33, 37, 42} <= excluded, excluded
+    # No mediator enters the adjustment set.
+    for mediator in ("dbirwt", "gestat10", "phyper", "eclamp", "nprevistq", "adequacy"):
+        assert mediator not in load, mediator
+
+    # Association: the two conditions of a confounder hold for marital status and education.
+    association = stored_output(NOTEBOOK, "association")
+    for label in ("unmarried", "mother_education 1-2"):
+        smoking, non_smoking, with_it, without_it = _row(association, label)
+        assert smoking > non_smoking and with_it > without_it, label
+    crude = _number(association, r"crude difference: (\S+),")
 
     # Protocol: printed in its own step, and carried by the identified effect and the fit.
     protocol_text = stored_output(NOTEBOOK, "protocol")
     match = re.search(r"causal study protocol: schema \d+; ([0-9a-f]{16})", protocol_text)
     assert match, "the protocol step no longer prints its fingerprint"
     fingerprint = match.group(1)
-    assert "the source file removed equal-weight pairs" in protocol_text
     identify_text = stored_output(NOTEBOOK, "identify")
-    assert f"causal study protocol: schema 1; {fingerprint}" in identify_text
-    assert "causal study protocol: absent" not in identify_text
-    # The later summaries print the fingerprint line of the record and none of its fields.
-    production = stored_output(NOTEBOOK, "production-fit")
-    assert f"causal study protocol: schema 1; {fingerprint}" in production
-    assert "assumption rationale:" not in identify_text + production
+    fit_text = stored_output(NOTEBOOK, "att-fit")
+    for text in (identify_text, fit_text):
+        assert f"causal study protocol: schema 1; {fingerprint}" in text
+        assert "assumption rationale:" not in text
     assert f"`{fingerprint}`" in prose
 
-    # Hand-built TMLE: the package construction, with the nonzero witnesses the reading narrates.
-    manual = code["manual-estimators"]
-    assert "LogisticRegression(max_iter=3_000, random_state=SEED)" in manual
-    assert manual.count("with thread_limit():") == 2
-    assert "np.where(A == 1, q1_star, q0_star)" in manual
-    assert "H = np.column_stack([A / g1, (1 - A) / (1 - g1)])" in manual
-    assert "G_BOUND = 5 / (np.sqrt(n) * np.log(n))" in manual and "Q_BOUND = 0.0005" in manual
-    assert "np.abs(initial_scores).max() > 1e-5" in manual
-    ladder = stored_output(NOTEBOOK, "manual-estimators")
-    assert "g bound:  [0.004859, 0.9951]" in ladder and "Q bound:  [0.0005, 0.9995]" in ladder
-    assert _number(ladder, r"the Q bound raises: (\d+)") > 0
-    before = [_number(ladder, rf"score before targeting, arm {arm}:\s+(\S+)") for arm in (1, 0)]
-    epsilon = [_number(ladder, rf"fluctuation epsilon, arm {arm}:\s+(\S+)") for arm in (1, 0)]
-    assert max(abs(value) for value in before) > 1e-5 and min(map(abs, epsilon)) > 0
-    assert "both scores after targeting below 1e-10: True" in ladder
-    assert not _MACHINE_NOISE.search(ladder)
+    # Design: the pair is the unit, so no cluster; the ATT; the declared outcome support.
+    assert "cluster=" not in code["identify"] and "ATT(reference=0)" in code["identify"]
+    assert "Targeting(q_bounds=(0.0, 1.0))" in code["att-fit"]
+    assert "CrossFitting(n_folds=3, learner_folds=3)" in code["att-fit"]
+    assert "stacked CV-TMLE (Levy): nuisances cross-fitted over 3 folds" in fit_text
+    assert "clusters =" not in fit_text
+    # The bounded-outcome reading: the share is continuous, and the initial fit stays in [0, 1].
+    assert "outcome family: gaussian; fluctuation: logistic" in fit_text
+    initial = re.search(r"initial outcome predictions: (\S+) to (\S+)", fit_text)
+    assert initial and 0.0 <= float(initial[1]) <= float(initial[2]) <= 1.0
 
-    # Package agreement: the gap is below a thousandth of the package standard error.
-    package = _number(production, r"ordinary package TMLE:\s+(\S+)")
-    hand = _number(production, r"hand-built TMLE:\s+(\S+)")
-    assert package == hand, (package, hand)
-    assert "|gap| / standard error below 0.001: True" in production
-    assert _number(production, r"\|gap\| / standard error, rounded:\s+(\S+)") < 1e-3
-    assert "assert gap_ratio < 1e-3" in code["production-fit"]
-    assert "clusters = 6000 (cluster-robust variance)" in production
-    # The booster is regularized: scikit-learn stops it early only above 10,000 rows.
-    assert "max_depth=2" in code["production-fit"]
-    assert "l2_regularization=1.0" in code["production-fit"]
+    # The ATT and the crude difference share the observed risk of the smoking pairs.
+    observed = _number(fit_text, r"observed risk, smoking pairs:\s+(\S+)")
+    counterfactual = _number(fit_text, r"estimated risk had they not smoked:\s+(\S+)")
+    reference = _number(fit_text, r"risk, non-smoking pairs:\s+(\S+)")
+    att = _number(fit_text, r"ATT: (\S+),")
+    assert abs(observed - counterfactual - att) <= 1.5e-4
+    # "Adjustment for C moves that risk from 0.0348 to 0.0412."
+    assert counterfactual > reference and att < crude
 
-    ordinary_tmle_row = next(
-        line
-        for line in stored_output(NOTEBOOK, "comparison-figure").splitlines()
-        if "ordinary package TMLE" in line
-    )
-    assert "NaN" not in ordinary_tmle_row, (
-        "the ordinary package TMLE lost its confidence interval in the comparison figure"
-    )
+    # Birth weight: smoking shifts weight down, and the within-band contrast changes sign.
+    paradox = stored_output(NOTEBOOK, "birth-weight-paradox")
+    shares = re.search(r"non-smoking (\S+), smoking (\S+)", paradox)
+    assert shares and float(shares.group(2)) > float(shares.group(1))
+    lightest = _row(paradox, "under 1500 g")
+    heaviest = _row(paradox, "3000 g or more")
+    assert lightest[1] < lightest[0] and heaviest[1] > heaviest[0]
+    assert "kwj275" in (EXAMPLES.parent / "references.md").read_text(encoding="utf-8")
 
-    # Assessment: one assess() call, and the verdicts the readings quote.
-    assert ".assess(" in code["diagnostics"] and "run_all" not in code["diagnostics"]
-    diagnostics = stored_output(NOTEBOOK, "diagnostics")
-    assert "needs attention: ()" in diagnostics
-    # The status table prints only the rows that ran or run on request.
+    # Assessment: the score check passed, and the reading explains every attention item.
+    diagnostics = stored_output(NOTEBOOK, "assessment")
     assert re.search(r"validation\s+score_equations\s+passed", diagnostics)
-    assert re.search(r"sensitivity\s+benchmark\s+deferred", diagnostics)
-    assert "unavailable" not in diagnostics and "not_applicable" not in diagnostics
-    assert "simulated_confounding" not in diagnostics
-    # "The rule flags neither model on this pair sample."
-    assert "VERDICT: nuisance fits look reasonable." in diagnostics
-    assert "more extreme than the observed rates (" not in diagnostics
-    assert "rm15-calibration-slope-warning-rule" in prose, (
-        "the reading must send the calibration flag to the roadmap item that replaced the band"
-    )
-    # The score check prints pass or fail and a rounded ratio, never a raw residual.
-    assert diagnostics.count("passed=True; |score| / threshold = 0.0000") == 2
+    assert diagnostics.count("|score| / threshold = 0.0000") == 1
     assert not _MACHINE_NOISE.search(diagnostics)
+    attention = re.search(r"needs attention: \(([^)]*)\)", diagnostics)
+    assert attention, "the assessment no longer prints its attention list"
+    for name in re.findall(r"'(\w+)'", attention.group(1)):
+        assert f"| `{name}` |" in prose, f"the reading does not explain {name}"
+    assert "unavailable" not in diagnostics and "not_applicable" not in diagnostics
+
+    # Overlap: no smoking pair reaches the upper bound, and the bound does not carry the estimate.
     overlap = stored_output(NOTEBOOK, "overlap")
-    assert "n = 12000; propensity truncated to [0.004859, 0.9951]" in overlap
-    assert re.search(r"^0\.05\s+0\.0000\s+0\.0000\s*$", overlap, re.MULTILINE)
-    assert re.search(r"^0\.1\s+0\.0000\s+0\.0002\s*$", overlap, re.MULTILINE)
-    assert "truncated: 0 unit(s) (0.00%)" in overlap
-    # "The maximum clever covariate is 1/(1 - g) for the largest control propensity."
-    largest_control = _number(overlap, r"(?m)^control(?:\s+\S+){8}\s+(\S+)\s*$")
-    clever = _number(overlap, r"max \|clever covariate\| \(mean\): (\S+)")
-    assert math.isclose(clever, 1 / (1 - largest_control), abs_tol=0.01), (clever, largest_control)
+    assert _number(overlap, r"largest fitted propensity: (\S+)") < 0.975
+    below = re.search(r"lower ATT bound 0.025: non-smoking ([\d,]+), smoking ([\d,]+)", overlap)
+    assert below and int(below[1].replace(",", "")) > 50 * int(below[2].replace(",", ""))
+    curve = [
+        float(match.group(1))
+        for match in re.finditer(r"(?m)^\s*0\.0\d+\s+\S+\s+(\S+)\s+\S+\s+\S+\s*$", overlap)
+    ]
+    assert len(curve) == 5, curve
+    assert max(curve) - min(curve) <= 1e-4, curve
 
-    # Sensitivity: the bound runs on a nonnegative nu^2, the sign survives, and the benchmark
-    # gives no outcome-side scale.
+    # Sensitivity: the benchmark moves the estimate up, its outcome-side strength is below the
+    # smallest grid value, and the grid bounds read as the prose says.
     sensitivity = stored_output(NOTEBOOK, "sensitivity")
-    assert "(the sign of the effect survives)" in sensitivity
-    assert _number(diagnostics, r"nu2=(\S+),") > 0
-    cf_y = _number(sensitivity, r"implied cf_y = (\S+),")
-    cf_d = _number(sensitivity, r"implied cf_y = \S+, cf_d = (\S+),")
-    assert 0 <= cf_y < cf_d < 0.05, (cf_y, cf_d)
-    sigma = re.search(r"(?m)^sigma\^2\s+(\S+)\s+(\S+)\s*$", sensitivity)
-    assert sigma, "the benchmark no longer prints sigma^2 with and without the covariates"
-    assert 0 <= float(sigma.group(2)) - float(sigma.group(1)) < 1e-4
-    assert "about four times" not in prose
+    assert _number(sensitivity, r"the estimate moved by (\S+) when") > 0
+    implied = re.search(r"implied cf_y = (\S+),", sensitivity)
+    assert implied and float(implied[1]) < 0.001
+    assert "cf_d=benchmark.cf_d" in code["sensitivity"]
+    at_benchmark = _row(sensitivity, implied[1])
+    assert at_benchmark[0] > att, "the bias bound at the benchmark no longer exceeds the estimate"
+    assert at_benchmark[-1] > crude, "the benchmark bound no longer admits the crude difference"
 
-    # Scales: the ratio interval is symmetric on the log scale, and the E-value follows the ratio.
-    scales = stored_output(NOTEBOOK, "effect-scales")
-    assert "risk ratio" in scales and "not shown" not in scales
-    upper = _number(scales, r"to its upper limit: (\S+)")
-    lower = _number(scales, r"to its lower limit: (\S+)")
-    assert math.isclose(upper, lower, abs_tol=1e-4)
-    ratio = _number(scales, r"risk ratio\s+(\S+)")
-    evalue = _number(diagnostics, r"evalue: point=(\S+),")
-    assert math.isclose(ratio + math.sqrt(ratio * (ratio - 1)), evalue, abs_tol=0.1)
+    # Over-adjustment: dropping the three doubtful items moves the ATT by under half an SE.
+    refit = stored_output(NOTEBOOK, "over-adjustment")
+    shift = _number(refit, r"without the three items: (\S+)") - _number(
+        refit, r"with the three items:\s+(\S+)"
+    )
+    assert 0 < shift < 0.5 * _number(refit, r"standard error of the ATT:\s+(\S+)")
 
-    # LTMLE: the seeded relations the reading states, printed so this module can read them.
-    ltmle = stored_output(NOTEBOOK, "semisynthetic-fit")
-    assert "LTMLE interval contains the exact truth: True" in ltmle
-    assert "LTMLE interval contains the naive contrast: True" in ltmle
-    assert "method=sequential_method" in code["semisynthetic-fit"]
-    # "The interval contains the exact truth on 55 of the 60 draws and the naive contrast on 56
-    # of them": both counts come from the committed sweep summary.
-    sweep = (EXAMPLES.parents[1] / _PROBE / "summary.log").read_text(encoding="utf-8")
-    assert "interval contains the truth: 55/60" in sweep
-    assert "interval contains the naive contrast: 56/60" in sweep
-    assert re.search(r"exact truth on 55\s+of the 60 draws and the naive contrast on 56", prose)
-    long_diagnostics = stored_output(NOTEBOOK, "ltmle-diagnostics")
-    assert "1 role omission(s) are recorded" in long_diagnostics
-    # "The status table lists the four diagnostics that run."
-    long_status = long_diagnostics.split("\n\n", 1)[0]
-    assert len(re.findall(r"(?m)^\w+\s+(passed|completed|warning|deferred)\s*$", long_status)) == 4
-    assert "unavailable" not in long_diagnostics and "not_applicable" not in long_diagnostics
-    assert len(re.findall(r"solver\s+True\s+0\.0000", long_diagnostics)) == 4
-    assert not _MACHINE_NOISE.search(long_diagnostics)
+    # The study numbers that the trust table quotes.
+    with (EXAMPLES.parents[1] / _STUDY / "summary.csv").open(encoding="utf-8") as handle:
+        (study_row,) = [
+            row
+            for row in csv.DictReader(handle)
+            if (row["implementation"], row["scenario"], row["estimand"])
+            == ("cleverly-stacked-cvtmle", "continuous", "att")
+        ]
+    assert f"{float(study_row['coverage']):.4f}" == "0.9425"
+    assert f"{float(study_row['se_ratio']):.4f}" == "0.9956"

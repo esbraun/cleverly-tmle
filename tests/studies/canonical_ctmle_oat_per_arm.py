@@ -34,14 +34,16 @@ per-arm mechanism sits at either declared bound.  The laws keep the projection i
 bounds, so the expected count is zero, and a nonzero count is reported, not dropped.
 
 **The applied revert.**  The first declaration published under ``gated``, with
-:data:`REVERT_CELLS` as the cells that the flag
-:data:`~cleverly.estimators.ctmle.OAT_PER_ARM_INFERENTIAL` reads.  The gated run at
+:data:`REVERT_CELLS` as the cells that decided whether a per-arm fit publishes inference.  The
+gated run at
 ``ad722652`` read them red: standard errors 8 to 24 percent too small, flat in ``n``, while the
 oracle-design cells were calibrated and R ``drtmle`` agreed to ``1e-8``.  The diagnosis found no
 defect in the code.  Condition (v) of Theorem 1 (preprint Appendix F, the remainder ``R24``)
 fails for an estimated outcome regression, so the curve omits a first-order generated-design
-term (``tests/diagnostics/x17_generated_design/``).  The flag is now ``False``, and every per-arm
-fit withholds its interval.  Each cell still reads ``plugin_std_error`` and
+term (``tests/diagnostics/x17_generated_design/``).  The revert applies to every per-arm fit
+that :func:`~cleverly.estimators.ctmle.per_arm_parametric_support` refuses, and the study fits
+sklearn learners, which the predicate refuses.  Each study fit withholds its interval.  Each cell
+still reads ``plugin_std_error`` and
 ``plugin_interval`` through :func:`~tests.studies.evidence.schema.reported_inference`, so it
 measures the withheld diagnostic with the same arithmetic.
 
@@ -50,9 +52,9 @@ red cell.  Three things changed, and no seed, budget, law or margin did:
 
 * the policy, from ``gated`` to ``reporting``;
 * the joint cell.  The withheld status builds no band, so
-  :func:`~tests.studies.ctmle_oat_per_arm_properties.fit_joint` sets the flag inside the study
-  only, for that one fit.  The cell then measures the band the per-arm design would build from
-  its stacked curves, which is what it measured before;
+  :func:`~tests.studies.ctmle_oat_per_arm_properties.fit_joint` builds it from the fit's
+  plug-in curves with the public ``simultaneous_bands``.  The cell then measures the band the
+  per-arm design would build from its curves, which is what it measured before, bit for bit;
 * ``calibration_efficiency_ratio=False``.  The estimator is superefficient by design, so the
   calibration cells claim no ratio against the efficient bound.  The first declaration left the
   default, and the shared claims reader then asked for an efficiency band that the study never
@@ -154,8 +156,8 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     ),
 }
 
-#: The revert flag's cells, declared before the first run.  They were red with no defect, so
-#: ``OAT_PER_ARM_INFERENTIAL`` is ``False`` and the study publishes under ``reporting``.  The
+#: The revert cells, declared before the first run.  They were red with no defect, so the
+#: study's fits withhold their interval and the study publishes under ``reporting``.  The
 #: primary coverage of every estimand of both scenarios belongs to the list as well;
 #: :data:`REVERT_PRIMARY` names it.
 REVERT_CELLS: tuple[tuple[str, str], ...] = (
@@ -286,12 +288,13 @@ REFERENCE_METADATA = {
         "wrongly (line 351)"
     ),
     "red_cell_owner": RED_CELL_OWNER,
-    "revert_flag": "cleverly.estimators.ctmle.OAT_PER_ARM_INFERENTIAL",
+    "band_source": "cleverly.inference.multiplier.simultaneous_bands",
     "revert_cells": [f"{family}/{cell}" for family, cell in REVERT_CELLS] + [REVERT_PRIMARY],
     "revert_applied": (
         "the gated run at ad722652 read the revert cells red with no code defect: condition (v) "
-        "of Theorem 1 fails for an estimated outcome regression. OAT_PER_ARM_INFERENTIAL is "
-        "False, and this declaration publishes under reporting with F19 as the owner"
+        "of Theorem 1 fails for an estimated outcome regression. A per-arm fit that "
+        "cleverly.estimators.ctmle.per_arm_parametric_support refuses withholds its interval, "
+        "and this declaration publishes under reporting with F19 as the owner"
     ),
     "expected_red": list(EXPECTED_RED),
 }
@@ -302,9 +305,9 @@ CONFIGURATION = {
     "cross_fit": False,
     "simultaneous_intervals": False,
     "joint_cell": (
-        "fitted with OAT_PER_ARM_INFERENTIAL set inside the study only, for that one fit, so it "
-        "measures the band the per-arm design would build from its stacked curves; the shipped "
-        "fit withholds the band"
+        "fitted as the shipped fit is, then banded by cleverly.inference.multiplier."
+        "simultaneous_bands on the fit's plug-in curves, so it measures the band the per-arm "
+        "design would build from its curves; the shipped fit withholds the band"
     ),
     "calibration_efficiency_ratio": (
         "False: the estimator is superefficient, so no calibration cell claims a ratio against "

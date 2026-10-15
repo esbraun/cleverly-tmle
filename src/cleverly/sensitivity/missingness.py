@@ -206,13 +206,18 @@ def _refuse_complete_outcome(result: Any) -> Refusal | None:
 
 
 def _refuse_continuous(result: Any) -> Refusal | None:
-    """Refuse a continuous dose, whose plug-in reads ``Qbar`` at a policy's dose."""
-    if not result.data.is_continuous_treatment:
+    """Refuse a treatment with a dose, whose plug-in reads ``Qbar`` at a policy's dose."""
+    if result.data.has_arms:
         return None
+    dose = (
+        "a vector treatment with a continuous component"
+        if result.data.treatment_kind == "vector"
+        else "a continuous dose"
+    )
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
         "missingness_tilt is written for the arm-indexed estimands; this fit declared "
-        "a continuous dose with policies= and reports ey_policy/ate_policy. The tilt "
+        f"{dose} with policies= and reports ey_policy/ate_policy. The tilt "
         "re-mixes the targeted Qbar at each arm under a moved missingness mechanism, "
         "and a shift's plug-in is Qbar at the dose the policy assigns rather than at "
         "an arm. The tilt would have to move pi at that dose too, and whether "

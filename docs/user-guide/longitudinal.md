@@ -67,7 +67,7 @@ container that `LongitudinalTreatment` builds from a wide frame. The reshape end
 | `unit=` | the customer identifier. One value is one trajectory | the row of the container, kept in `unit_ids` |
 | `time=` | the decision time. Values must sort | the node index `t`, counted from 1 |
 | `treatment=` | the decision at that row. A list of columns is one vector node | `"offer@t"` |
-| `baseline=` | unit-level covariates, measured before the first decision | the original name |
+| `baseline=` | unit-level covariates, measured before the first decision. Name at least one column | the original name |
 | `time_varying=` | covariates measured at that row, before its decision | `"eng@t"` |
 | `censoring=` | `1` while the customer stays observed after the row's decision, `0` on the last row of a customer who left | `"active@t"` |
 | `outcome=` | an end-of-study outcome, one value per customer, on any of its rows | the original name |
@@ -128,7 +128,8 @@ print(long_study.data.history_names(2), long_study.data.panel.decision_times)
 The panel holds 400 customers over weeks 10, 20 and 30. A customer who leaves has `active` equal to
 0 on its last row, and no outcome. `history_names(2)` returns `('age', 'eng@1', 'eng@2')`. The
 design hands the frame to `CausalStudy`, and `from_long_panel` takes the same arguments if you
-want the container first.
+want the container first. The [sequential offers tutorial](../examples/sequential-offers.ipynb)
+reads a long panel with a three-level offer and declared offer probabilities.
 
 ### Put each measurement on the right row
 
@@ -223,6 +224,7 @@ Each refusal raises `DataError` before any learner. A message about one unit nam
 | `outcome=Repeated([...])` | a long panel takes one outcome column. Declare a repeated outcome on a wide frame |
 | one column in two roles, or a covariate that equals the outcome or the row's event | a rule could read the outcome under another name |
 | a time-varying column with no value at a node after its first recorded node | the column would leave that node's adjustment set |
+| `baseline=` with no column | the package fits no intercept-only nuisance design. The refusal has code `implementation_gap`, and [X63](../roadmap.md#x63-missing-data-intermediates-and-designs) part (c) tracks it. The wide layout refuses the same declaration |
 | a treatment that never changes within a customer | that is one baseline decision held over every node. Build the wide frame and declare `treatment="A"` |
 | a column named like a generated name, such as `eng@1` | the name collides with a generated column. Rename it |
 
@@ -671,7 +673,9 @@ The answers can differ from `LTMLE` for three reasons.
 
 With the same outcome learner, the g-computation estimate equals the untargeted first step of
 `LTMLE`. [Sequential g-computation and IPW](../technical-reference/sequential-baselines.md) gives
-the estimators, the stacked influence curve, the settings, and the refusals.
+the estimators, the stacked influence curve, the settings, and the refusals. The
+[sequential offers tutorial](../examples/sequential-offers.ipynb) fits g-computation and `LTMLE`
+with the same misspecified outcome model on one campaign.
 
 ## Estimate structural blips
 

@@ -434,8 +434,12 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_crossfit_longitudinal_msm import (
         STUDY as CROSSFIT_LONGITUDINAL_MSM,
     )
+    from tests.studies.canonical_ctmle_derivative import STUDY as CANONICAL_CTMLE_DERIVATIVE
     from tests.studies.canonical_ctmle_oat import STUDY as CANONICAL_CTMLE_OAT
     from tests.studies.canonical_ctmle_oat_per_arm import STUDY as CTMLE_OAT_PER_ARM
+    from tests.studies.canonical_ctmle_oat_per_arm_parametric import (
+        STUDY as CTMLE_OAT_PER_ARM_PARAMETRIC,
+    )
     from tests.studies.canonical_ctmle_oat_per_arm_strata_missing import (
         STUDY as CTMLE_OAT_PER_ARM_STRATA_MISSING,
     )
@@ -522,6 +526,7 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_stratified_tmle import STUDY as CANONICAL_STRATIFIED_TMLE
     from tests.studies.canonical_tmle import STUDY as CANONICAL_TMLE
+    from tests.studies.canonical_vector_mtp import STUDY as VECTOR_MTP
     from tests.studies.canonical_weighted_ltmle import STUDY as CANONICAL_WEIGHTED_LTMLE
     from tests.studies.canonical_weighted_ltmle_crossfit import (
         STUDY as CANONICAL_WEIGHTED_LTMLE_CROSSFIT,
@@ -561,6 +566,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_CTMLE_SELECTOR,
         CANONICAL_MULTI_ARM_CTMLE_SELECTOR,
         CANONICAL_CTMLE_SEQUENCES,
+        CANONICAL_CTMLE_DERIVATIVE,
         CANONICAL_CTMLE_OAT,
         CANONICAL_MULTI_ARM_CTMLE_OAT,
         CANONICAL_DRTMLE,
@@ -587,6 +593,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_CATEGORICAL_LTMLE,
         STOCHASTIC_CATEGORICAL_LTMLE,
         LONGITUDINAL_MTP,
+        VECTOR_MTP,
         LONGITUDINAL_SDR,
         CANONICAL_LONGITUDINAL_MSM,
         CROSSFIT_LONGITUDINAL_MSM,
@@ -610,6 +617,7 @@ def registered() -> tuple[StudyRecord, ...]:
         KNOWN_NODE_MECHANISMS,
         SEQUENTIAL_BASELINES,
         CTMLE_OAT_PER_ARM,
+        CTMLE_OAT_PER_ARM_PARAMETRIC,
         CTMLE_OAT_PER_ARM_STRATA_MISSING,
         OMITTED_VARIABLE_BOUND_SE,
         CALIBRATION_SLOPE_WARNING,
