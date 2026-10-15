@@ -1256,12 +1256,14 @@ class TMLE:
             component to its support, given the covariates, the categorical components and
             the doses before it in column order.  Each branch of a joint policy is checked
             on the components it assigns.
-        dose_atoms : sequence of float
+        dose_atoms : sequence of float, or mapping of str to sequence of float
             The doses with a recorded point mass, such as a list price.  The policy ratio
             is then taken against Lebesgue plus counting measure on these doses, on both
             ``ratio`` routes, and a piece may send an interval to one of them with
             ``Piece(lower, upper, to_atom=value)``.  A dose with an undeclared point mass is
-            refused before any learner.
+            refused before any learner.  A vector treatment maps each continuous component
+            to its atoms, and that component's factor of the joint density is then mixed;
+            the density route refuses a ``to_atom`` piece there.
         treatment_probabilities : Any
             The known treatment mechanism ``P(A = a | W)`` of a randomized design.  The fit
             then divides by it in place of an estimate and fits no treatment learner.  The
