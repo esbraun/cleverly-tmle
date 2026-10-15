@@ -146,7 +146,11 @@ def test_the_clustered_law_keeps_the_primary_marginals() -> None:
 
 
 def test_the_declared_pair_is_the_lower_median_design_draw_and_reproduces() -> None:
-    """``penalties.csv`` is the median draw's pair, and refitting that draw returns it exactly."""
+    """``penalties.csv`` is the median draw's pair, and refitting that draw returns it.
+
+    The refit agrees to a relative ``1e-12``: the cross-validated glmnet path moves in the last
+    bit between platforms and Python builds (seen on the CI Python 3.12 job).
+    """
     design = pd.read_csv(study.PENALTY_DESIGN, float_precision="round_trip")
     assert len(design) == study.PENALTY_DRAWS
     assert list(design["seed"]) == [study.PENALTY_SEED + draw for draw in design["draw"]]
@@ -155,7 +159,7 @@ def test_the_declared_pair_is_the_lower_median_design_draw_and_reproduces() -> N
     mechanism, partner = study.declared_pair()
     assert 0.0 < partner < mechanism
     refit = study._penalty_draw(int(chosen["draw"]))
-    assert (refit["lambda_cv"], refit["partner"]) == (mechanism, partner)
+    assert (refit["lambda_cv"], refit["partner"]) == pytest.approx((mechanism, partner), rel=1e-12)
 
 
 def test_the_cells_carry_the_declared_budgets() -> None:
