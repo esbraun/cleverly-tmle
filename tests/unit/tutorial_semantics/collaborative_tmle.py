@@ -7,13 +7,12 @@ decimals are also compared against its stored outputs, and every decimal it writ
 
 from __future__ import annotations
 
-import re
-from itertools import pairwise
 from typing import Any
 
 import numpy as np
 
 from cleverly.datasets import navigation_protocol
+from tests.studies.oat_per_arm_laws import BINARY_ACTIVE
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -24,250 +23,133 @@ from tests.unit.tutorial_semantics import (
 
 NOTEBOOK = EXAMPLES / "collaborative-tmle.ipynb"
 
-_PROBE = "reviews/notebook-review/probes/collaborative-tmle-final"
-_SELECTOR = "tests/canonical/ctmle_selector/properties.csv"
-_OAT = "tests/canonical/ctmle3_oat/properties.csv"
+_PROBE = "reviews/notebook-review/probes/collaborative-tmle-oat/summary.log"
+_TRUTH = "reviews/notebook-review/probes/collaborative-tmle-oat/truth.log"
+_STUDY = "tests/canonical/ctmle_oat_per_arm_parametric/properties.csv"
+
+# Integer counts the readings quote, which the decimal gate does not read:
+# 1,857, 1,881 and 1,963 of 2,000 draws come from _PROBE; 9,200 and 17,200 replications are the
+# `replicates` of the auto_bounds and shipped-curve cells in _STUDY.
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
-    "0.003": f"largest move of either estimate between in-sample and five-fold fits of this "
-    f"draw (0.0020, plain TMLE): {_PROBE}/crossfit_check.log",
-    "0.048": f"design-based plain TMLE empirical SD (0.0479), 600 draws: {_PROBE}/summary.log",
-    "0.97": f"design-based plain TMLE mean SE over empirical SD (0.973), 600 draws: "
-    f"{_PROBE}/summary.log",
-    "4.357": f"population nu2 of the design-based set, by quadrature: {_PROBE}/truth.log",
-    "4.164": f"smallest design-based nu2 over 600 draws: {_PROBE}/summary.log",
-    "4.702": f"largest design-based nu2 over 600 draws: {_PROBE}/summary.log",
-    "0.069": f"all-three plain TMLE empirical SD (0.0694), 600 draws: {_PROBE}/summary.log",
-    "0.055": f"C-TMLE empirical SD (0.0554), 600 draws: {_PROBE}/summary.log",
-    "0.92": f"all-three plain TMLE mean SE over empirical SD (0.919), 600 draws: {_PROBE}/summary.log; "
-    f"and coverage of crossfit_overfitting/cross_fitted_oat (0.9200): {_OAT}",
-    "0.81": f"C-TMLE mean plug-in SE over empirical SD (0.813), 600 draws: {_PROBE}/summary.log",
-    "0.1": f"constant-Q plain TMLE mean error (+0.1109), 600 draws: {_PROBE}/summary.log",
-    "0.98": f"mean HC0 SE over the empirical SD of the C-TMLE estimate (0.976), 600 draws: "
-    f"{_PROBE}/summary.log",
-    "0.241": f"rmse_ratio of selector_necessity/collaborative (0.241034): {_SELECTOR}",
-    "0.0037": f"bias_ci_upper of selector_necessity/collaborative (0.003711): {_SELECTOR}",
-    "0.0030": f"bias_margin of selector_necessity/collaborative (0.003007): {_SELECTOR}",
-    "0.80": f"se_ratio of selector_necessity/collaborative (0.801055): {_SELECTOR}",
-    "0.0495": f"bias_ci_lower of selector_necessity/empty_control (0.049506): {_SELECTOR}",
-    "0.0511": f"bias_ci_upper of selector_necessity/empty_control (0.051086): {_SELECTOR}",
-    "0.0022": f"bias_margin of selector_necessity/empty_control (0.002164): {_SELECTOR}",
-    "0.99": f"se_ratio of crossfit_overfitting/cross_fitted_oat (0.991589): {_OAT}",
-    "0.54": f"coverage of crossfit_overfitting/in_sample_control (0.54): {_OAT}",
-    "0.47": f"se_ratio of crossfit_overfitting/in_sample_control (0.472781): {_OAT}",
+    "0.015": "the gap between the two printed estimates, 0.16289 - 0.1483 = 0.0146",
+    "+0.0006": f"mean error of both fits (+0.00055), 2,000 draws: {_PROBE}",
+    "0.0358": f"ordinary TMLE empirical SD (0.03583), 2,000 draws: {_PROBE}",
+    "0.0297": f"OAT C-TMLE empirical SD (0.02969), 2,000 draws: {_PROBE}",
+    "0.93": f"ordinary TMLE mean SE over SD (0.9333), 2,000 draws: {_PROBE}",
+    "0.98": f"OAT C-TMLE mean SE over SD (0.9759), 2,000 draws: {_PROBE}",
+    "0.0134": f"median |OAT - TMLE| (0.0134), 2,000 draws: {_PROBE}",
+    "0.0381": f"95th percentile of |OAT - TMLE| (0.0381), 2,000 draws: {_PROBE}",
+    "0.0016": f"twice the Monte Carlo SE of the mean error (2 x 0.0358 / sqrt(2000)): {_PROBE}",
+    "+0.0009": f"mean error of tmle_main and oat_main (+0.00090, +0.00086): {_PROBE}",
+    "10.14": f"population nu2 of the full set (10.136): {_TRUTH}",
+    "9.14": f"population nu2 of the full set, g clipped at the page bounds (9.142): {_TRUTH}",
+    "4.12": f"population nu2 without staffing (4.122): {_TRUTH}",
+    "0.99": "upper declared g_bounds of the binary_active group (G_BOUNDS = (0.01, 0.99)), "
+    "tests/studies/oat_per_arm_laws.py",
+    "0.193": f"ordinary TMLE mean share of g outside (0.1, 0.9) (0.1933): {_PROBE}",
+    "0.0002": f"OAT C-TMLE mean share of g outside (0.1, 0.9) (0.0002): {_PROBE}",
+    "0.951": f"coverage of interval_calibration/auto_bounds__ate__corrected (0.95065): {_STUDY}",
+    "1.002": f"se_ratio of interval_calibration/auto_bounds__ate__corrected (1.00239): {_STUDY}",
+    "0.900": "coverage of interval_calibration/binary_active__ate__shipped_curve__shrunken_se_"
+    f"control (0.90047): {_STUDY}",
+    "0.848": "se_ratio of interval_calibration/binary_active__ate__shipped_curve__shrunken_se_"
+    f"control (0.84756): {_STUDY}",
+    "0.192": f"truth (psi*) of interval_calibration/pseudo_true__ate__corrected (0.19183): {_STUDY}",
+    "0.948": f"coverage of interval_calibration/pseudo_true__ate__corrected (0.94803): {_STUDY}",
+    "0.305": f"psi0_coverage of interval_calibration/pseudo_true__ate__corrected (0.30526): {_STUDY}",
 }
 
 
 def check(namespace: dict[str, Any]) -> None:
-    """A selector report describes its loss without assigning causal roles to omissions."""
-    truth = namespace["truth"]
-    # "the population ate, att, and atc all equal 1.000".
-    assert truth["ate"] == truth["att"] == truth["atc"] == 1.0
+    """Both fits target one ATE; staffing makes only the ordinary g extreme."""
+    frame, truth = namespace["frame"], namespace["truth"]
 
-    # The rename is load-bearing: a stale column name would make the exclusion vacuous.
-    frame = namespace["frame"]
-    assert {"baseline_readiness", "queue_lottery_draw", "social_support"} <= set(frame.columns)
-    # "The score of this page has Gaussian noise, so it has no documented range": the draw
-    # leaves the program's share scale of 0 to 1 on both sides.
-    score = frame["transition_score"]
-    assert score.min() < 0.0 and score.max() > 1.0
+    # "This is the law `binary_active` of the registered study ... at the same sample size":
+    # the page's sampler reproduces the registered sampler row for row, and its quadrature
+    # reproduces the registered truth.
+    registered, registered_truth = BINARY_ACTIVE.sample(1_500, 44)
+    page = frame[["baseline_readiness", "coordination_need", "navigator_staffing"]].to_numpy()
+    np.testing.assert_array_equal(page, registered[["W1", "W2", "W3"]].to_numpy())
+    np.testing.assert_array_equal(frame["transition_navigation"], registered["A"])
+    np.testing.assert_array_equal(frame["transition_success"], registered["Y"])
+    for key in ("ey0", "ey1", "ate"):
+        assert abs(truth[key] - registered_truth[key]) < 1e-12
 
-    # "The arms differ before the offer" on both the confounder and the instrument.
+    # Step 3: the crude contrast overstates the effect, and both readiness and staffing differ
+    # between arms while need does not.
     by_arm = namespace["by_arm"]
-    assert namespace["unadjusted"] > truth["ate"] + 0.5
-    for column in ("baseline_readiness", "queue_lottery_draw"):
-        assert by_arm.loc[1.0, column] > by_arm.loc[0.0, column] + 0.5
+    assert namespace["unadjusted"] > truth["ate"] + 0.03
+    gap = by_arm.loc[1.0] - by_arm.loc[0.0]
+    assert gap["navigator_staffing"] > gap["baseline_readiness"] > 0.2
+    assert abs(gap["coordination_need"]) < 0.1
 
-    # The protocol step prints the record, and every fit carries its digest.  "This page
-    # changes four fields": the outcome, the death rule, time zero, and the rationale.
-    base = navigation_protocol()
-    protocol = namespace["protocol"]
+    # Step 4: three fields change.
+    base, protocol = navigation_protocol(), namespace["protocol"]
     assert changed_fields(protocol, base) == {
         "outcome",
         "intercurrent_event_handling",
-        "time_zero",
         "assumption_rationale",
     }
-    assert "no documented range" in protocol.outcome
-    # Only the death entry changes, and it no longer presupposes a worst score.
-    assert protocol.intercurrent_event_handling[:2] == base.intercurrent_event_handling[:2]
-    assert "worst transition score" in base.intercurrent_event_handling[2]
-    assert "hypothetical strategy" in protocol.intercurrent_event_handling[2]
-    assert protocol.assumption_rationale[3:] == base.assumption_rationale[1:]
-    # "This score has no documented range to declare, so Step 6 fits in sample."
-    assert not namespace["collaborative_method"].cross_fitting.enabled
-    assert "in-sample nuisances" in namespace["collaborative"].summary()
-    assert_protocol_recorded(
-        NOTEBOOK,
-        "protocol",
-        protocol,
-        namespace["collaborative"],
-        namespace["reported"],
-        namespace["plain"],
-        namespace["weak_plain"],
-        namespace["weak_collaborative"],
+    assert "composite strategy" in protocol.intercurrent_event_handling[2]
+    assert protocol.intercurrent_event_handling[1] == base.intercurrent_event_handling[1]
+    assert protocol.assumption_rationale[2:] == base.assumption_rationale[1:]
+    tmle, collaborative = namespace["tmle"], namespace["collaborative"]
+    assert_protocol_recorded(NOTEBOOK, "protocol", protocol, tmle, collaborative)
+
+    # Both fits read one design, so one estimand; both report an influence-curve interval.
+    assert tmle.identified_effect is collaborative.identified_effect
+    ordinary, oat = tmle["ate"], collaborative["ate"]
+    assert ordinary.inference == "influence_curve"
+    assert oat.inference == "influence_curve"
+    assert "Its intervals read the stacked parametric curve" in stored_output(
+        NOTEBOOK, "collaborative"
     )
+    assert not namespace["in_sample"].enabled
+    # "The interval contains the true 0.1186 on this draw", for each fit.
+    assert covers(ordinary, truth["ate"])
+    assert covers(oat, truth["ate"])
+    # "The two estimates differ by about 0.015 on this draw."
+    assert 0.01 < abs(ordinary.psi - oat.psi) < 0.02
 
-    # The reported design leaves the queue draw out by design; C-TMLE searches all three.
-    assert namespace["design_set"] == ("baseline_readiness", "social_support")
-    assert set(namespace["approved_set"]) == set(namespace["covariates"])
-
-    # "The last line lists `collaborative_tmle` beside `tmle` and `drtmle`."
-    assert namespace["available"] == ["tmle", "collaborative_tmle", "drtmle"]
-    assert "available=False" not in stored_output(NOTEBOOK, "identify")
-
-    selection = namespace["selection"]
-    assert selection.selected_covariates == ("social_support",)
-    assert selection.path[-1] == ("social_support", "baseline_readiness", "queue_lottery_draw")
-    # "On this draw ... it left out both the confounder and the instrument."
-    assert "baseline_readiness" not in selection.selected_covariates
-    assert "queue_lottery_draw" not in selection.selected_covariates
-    # "The first two candidates are nearly tied", and the second one wins by that margin.
-    assert -1e-3 < selection.cv_risk[1] - selection.cv_risk[0] < 0.0
-    # "`risk` can rise along the path": the greedy search adds a variable after a step that
-    # did not lower the in-sample loss.  Nonzero witness for the forced addition.
-    assert any(later > earlier for earlier, later in pairwise(selection.train_risk))
-    assert max(selection.n_steps) > 1
-    summary = selection.summary().lower()
-    assert "cross-validated" in summary and "loss" in summary
-    assert "does not determine why" in summary
-    # Whole words, because a substring test reads a footer that says "covariance" as a
-    # footer that says "variance", and the report would then fail for a word it never used.
-    for unsupported in ("bias", "variance", "confounder", "instrument"):
-        assert not re.search(rf"\b{unsupported}\b", summary)
-
-    # Step 6: the greedy path reports a point estimate and a diagnostic pair.  "The estimate
-    # table has no interval column": the diagnostic column is named for what it is.  A
-    # mutation that restored the Wald accessors would print an interval here again.
-    plain, collaborative = namespace["plain"]["ate"], namespace["collaborative"]["ate"]
-    reported = namespace["reported"]["ate"]
-    assert collaborative.inference == "working_mechanism_plugin"
-    assert plain.inference == "influence_curve" and reported.inference == "influence_curve"
-    estimate_table = stored_output(NOTEBOOK, "collaborative")
-    assert "working-mechanism se" in estimate_table
-    assert "95% CI" not in estimate_table.split("estimand  psi", 1)[1].split("\n\n", 1)[0]
-    assert "refused" not in estimate_table
-    # "The interval contains the true value of 1.000 on this draw", and "Its estimate of 0.955
-    # lies inside the reported interval": the C-TMLE check agrees with the design-based fit.
-    assert covers(reported, truth["ate"])
-    assert covers(reported, collaborative.psi)
-    assert covers(plain, truth["ate"])
-    assert covers(collaborative.plugin_interval, truth["ate"])
-    assert collaborative.plugin_std_error < plain.std_error
-    # The instrument in g costs precision on this draw.
-    assert reported.std_error < plain.std_error
-
-    # The all-three fit's tails against none in the design-based and collaborative fits.
-    tails = namespace["tail_table"]
-    assert tails.loc["share of g below 0.1", "all-three TMLE"] > 0.05
-    assert tails.loc["share of g above 0.9", "all-three TMLE"] > 0.05
-    for column in ("design-based TMLE", "collaborative TMLE"):
-        assert tails.loc["share of g below 0.1", column] == 0.0
-        assert tails.loc["share of g above 0.9", column] == 0.0
-    # "because readiness still moves this g": nonzero witness that the design-based g is not
-    # an empty g, and that its ratios sit between the all-three fit and the flat C-TMLE g.
-    for arm in ("treated ESS / n", "control ESS / n"):
-        assert tails.loc[arm, "all-three TMLE"] < tails.loc[arm, "design-based TMLE"] < 0.95
-    assert tails.loc["share of g below 0.1", "collaborative TMLE"] == 0.0
-    assert tails.loc["share of g above 0.9", "collaborative TMLE"] == 0.0
-    assert tails.loc["truncated fraction", "collaborative TMLE"] == 0.0
-    # "every row in an arm carries nearly the same weight" under a g that does not move
-    # assignment.  The forced control below is the nonzero witness: its g does move, and both
-    # ratios fall below 0.95 there.
-    assert tails.loc["treated ESS / n", "collaborative TMLE"] > 0.99
-    assert tails.loc["control ESS / n", "collaborative TMLE"] > 0.99
-    overall = namespace["plain"].diagnostics.support().propensity_quantiles["overall"]
-    assert overall[0.05] < 0.1 and overall[0.95] > 0.9
-    # "The plain g has an AUC of 0.844, so it predicts the offer well."
-    assert namespace["plain_auc"] > 0.8
-
-    weak_selection = namespace["weak_selection"]
-    assert weak_selection.selected_covariates == ("baseline_readiness", "social_support")
-    weak_plain, weak_collaborative = namespace["weak_plain"], namespace["weak_collaborative"]
-    assert weak_collaborative["ate"].plugin_std_error < 0.5 * weak_plain["ate"].std_error
-    # "The plain interval and the C-TMLE plug-in spread both contain 1.000 on this draw."
-    assert covers(weak_plain["ate"], truth["ate"])
-    assert covers(weak_collaborative["ate"].plugin_interval, truth["ate"])
-    # Leaving out only the draw removes the tails; readiness still moves g.  The ESS ratios
-    # below 1 and the clever covariate above the intercept-only value are the nonzero witness
-    # that the remaining weight variation is real, not an empty g in disguise.
-    weak_tails = namespace["weak_tail_table"]
-    plain_column, collaborative_column = "constant Q, plain", "constant Q, C-TMLE"
-    for tail in ("share of g below 0.1", "share of g above 0.9"):
-        assert weak_tails.loc[tail, plain_column] == tails.loc[tail, "all-three TMLE"]
-        assert weak_tails.loc[tail, collaborative_column] == 0.0
-    for arm in ("treated ESS / n", "control ESS / n"):
-        assert weak_tails.loc[arm, collaborative_column] < 0.95
+    # Step 8: staffing puts the ordinary g in the tails, and the OAT g has none there.
+    weights = {name: fit.diagnostics.support() for name, fit in namespace["fits"].items()}
+    ordinary_support, oat_support = weights["TMLE"], weights["OAT C-TMLE"]
+    assert ordinary_support.tail_mass[0.1]["below"] > 0.05
+    assert ordinary_support.tail_mass[0.1]["above"] > 0.05
+    assert ordinary_support.truncated["fraction"] > 0.0
+    assert oat_support.tail_mass[0.1]["below"] == oat_support.tail_mass[0.1]["above"] == 0.0
+    assert oat_support.truncated["fraction"] == 0.0
+    # "The remaining weight variation comes from readiness": the OAT ESS ratios are below 1 in
+    # at least one arm, the nonzero witness that the OAT g is not an empty g.
+    oat_ess = oat_support.effective_sample_size
+    assert min(oat_ess["treated"]["ratio"], oat_ess["control"]["ratio"]) < 0.99
+    assert oat_support.clever_covariate_max["mean"] > 2.0
+    for arm in ("treated", "control"):
+        ordinary_ratio = ordinary_support.effective_sample_size[arm]["ratio"]
+        assert ordinary_ratio < 0.75 < oat_ess[arm]["ratio"]
     assert (
-        weak_tails.loc["max |clever covariate|", collaborative_column]
-        > 2 * tails.loc["max |clever covariate|", "collaborative TMLE"]
+        ordinary_support.clever_covariate_max["mean"] > 5 * oat_support.clever_covariate_max["mean"]
     )
+    assert namespace["se_ratio"] < 0.9
 
+    # Step 9: the working mechanisms read the outcome prediction only, so they discriminate
+    # the offer weakly.  The ordinary g, which holds staffing, discriminates it well.
     assessment = namespace["assessment"]
     assert tuple(assessment.attention) == ()
-    assert namespace["nuisance"].treatment_role == "collaborative_working_model"
-    # "no row is truncated" in the support report of the collaborative fit.
-    assert namespace["support"].truncated["fraction"] == 0.0
-    # "its AUC sits near 0.5 and its calibration slope near 1" for a working model built on a
-    # variable that does not move assignment.
-    metrics = namespace["nuisance"]["propensity"].metrics
-    assert 0.45 < metrics["auc"] < 0.55
-    assert 0.9 < metrics["calibration_slope"] < 1.1
-    # The status table prints only the rows that ran or run on request:
-    # "`simulated_confounding`, a `deferred` row here".
+    nuisance = namespace["nuisance"]
+    assert nuisance.treatment_role == "collaborative_working_model"
+    for arm in (0, 1):
+        assert 0.5 < nuisance[f"propensity[{arm}]"].metrics["auc"] < 0.6
+    ordinary_auc = tmle.diagnostics.nuisance_models()["propensity"].metrics["auc"]
+    assert ordinary_auc > 0.8
     ledger = assessment.to_frame().set_index(["surface", "check"])["status"]
     assert ledger[("validation", "score_equations")] == "passed"
-    assert ledger[("validation", "support")] == "completed"
-    assert ledger[("validation", "nuisance_models")] == "completed"
-    assert ledger[("sensitivity", "simulated_confounding")] == "deferred"
     stored = stored_output(NOTEBOOK, "assessment")
     assert "unavailable" not in stored and "not_applicable" not in stored
-    assert re.search(r"simulated_confounding\s+deferred", stored)
 
-    # Step 11: the omitted-variable bound on the reported fit, beside the all-three fit.
-    # "`nu2` explains the difference": the draw in g inflates nu2 and lowers the robustness
-    # value; sigma2 barely moves, so the witness is the nu2 gap itself.
-    bounds = namespace["bound_table"]
-    reported_bounds, plain_bounds = bounds["design-based TMLE"], bounds["all-three TMLE"]
-    assert plain_bounds["nu2"] > 10.0 and reported_bounds["nu2"] < 0.5 * plain_bounds["nu2"]
-    assert abs(reported_bounds["sigma2"] - plain_bounds["sigma2"]) < 0.05
-    assert 0.0 < plain_bounds["robustness value"] < reported_bounds["robustness value"] < 1.0
-    assert plain_bounds["confidence-limit value"] < reported_bounds["confidence-limit value"]
-    sensitivity_output = stored_output(NOTEBOOK, "sensitivity")
-    assert sensitivity_output.count("nu2") == 1
-    for column in (reported_bounds, plain_bounds):
-        assert f"{column['nu2']:.3f}" in sensitivity_output
-    assert "refused" not in sensitivity_output
-
-    # Step 11, collaborative fit: the stress surface starts from the C-TMLE estimate, and
-    # every cell returns.
-    point = namespace["collaborative"]["ate"]
-    surface = namespace["surface"]
-    cells = {(cell.treatment_strength, cell.outcome_strength): cell for cell in surface.cells}
-    assert set(cells) == {(0.0, 0.0), (0.0, 0.5), (0.1, 0.0), (0.1, 0.5)}
-    assert all(cell.failure is None for cell in cells.values())
-    assert cells[0.0, 0.0].estimate == point.psi and cells[0.0, 0.0].displacement == 0.0
-    # "The latent value is drawn independently of the data.  At treatment strength 0, its
-    # association of -0.0480 is therefore a chance correlation on this draw": the latent
-    # vector redrawn from its seed reproduces the printed association.  Nonzero witness: the
-    # association is not zero, which is what lets the outcome axis move the estimate.
-    latent = np.random.default_rng(surface.latent_seed).normal(size=len(frame))
-    chance = np.corrcoef(latent, frame["transition_navigation"])[0, 1]
-    association = cells[0.0, 0.0].induced_treatment_association
-    assert association is not None and abs(association - chance) < 1e-9
-    assert -0.06 < association < -0.03
-    # "The outcome strength alone moves the estimate by +0.068278 through that small
-    # correlation": the score loses 0.5 times a latent value that runs slightly against the
-    # offer, so the contrast rises.
-    assert cells[0.0, 0.5].displacement > 0.0 > association
-    # "The treatment flips move the estimate down by about a third."
-    for outcome in (0.0, 0.5):
-        share = -cells[0.1, outcome].displacement / point.psi
-        assert 0.25 < share < 0.4
-    assert "It is not a bound" in sensitivity_output
-
-    # "The regression gives the same estimate" with a larger robust standard error on this
-    # draw than the plug-in diagnostic of the selected fit.
-    assert abs(namespace["coefficient"] - point.psi) < 5e-4
-    assert namespace["robust_se"] > 1.1 * point.plugin_std_error
+    # Step 10: the bound on the declared set, with nu2 above the 4 of a g near one half.
+    elements, robustness = namespace["elements"], namespace["robustness"]
+    assert elements.nu2 > 6.0
+    assert 0.0 < robustness["rva"] < robustness["rv"] < 1.0
