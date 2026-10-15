@@ -84,6 +84,7 @@ from .._inference_status import (
     status_record,
     supplies_inference,
 )
+from .._support import record_fit, start_longitudinal_record
 from .._typing import BoolArray, CumulativeGBounds, FloatArray, Learner
 from ..exceptions import (
     CapabilityError,
@@ -3553,6 +3554,9 @@ class _SequentialEstimator:
     #: ``"tmle"``, ``"sdr"`` or ``"ipsi"``: the recursion :func:`_run_recursion` runs.
     _estimator: ClassVar[str]
 
+    #: Whether a fit classifies itself for the support record. A bootstrap replicate sets it off.
+    _record_support: bool = True
+
     def __init__(
         self,
         regimens: Any,
@@ -4022,6 +4026,21 @@ class _SequentialEstimator:
         horizons = self._horizons(prepared)
         preflight_mechanism_support(prepared, prepared.regimen_masks(prepared.treatment), folds)
         preflight_terminal_outcomes(prepared, plans, horizons, folds)
+        # A bootstrap replicate carries its fit's label and never classifies.
+        classification = (
+            start_longitudinal_record(
+                self,
+                prepared,
+                source=f"{type(self).__name__}.fit",
+                outcome_kind=outcome_kind(prepared),
+                cross_fitted=not folds.is_single,
+                known_factors=_known_factors(prepared),
+                has_msm=self.msm is not None,
+                has_policy=any(plan.has_mtp for plan in plans),
+            )
+            if self._record_support
+            else None
+        )
         treatment_learner = resolve_learner(
             self.treatment_learner,
             task="classification",
@@ -4201,6 +4220,7 @@ class _SequentialEstimator:
             result = attach_bootstrap(
                 result, bootstrap, inferential=kind in LICENSED_BOOTSTRAP_DESIGNS
             )
+        record_fit(classification, result, source=f"{type(self).__name__}.fit")
         return result
 
     def _replicate_estimator(self) -> _SequentialEstimator:
@@ -4212,6 +4232,7 @@ class _SequentialEstimator:
         everything.
         """
         replicate = copy.copy(self)
+        replicate._record_support = False
         replicate.n_bootstrap = 0
         replicate.simultaneous = False
         replicate.n_jobs = 1

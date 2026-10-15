@@ -322,6 +322,7 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 
 from .._inference_status import InferenceStatus, precedent_status
+from .._support import record_refusal_site
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
 from ..exceptions import CapabilityError, Refusal, RefusalReason
@@ -2343,6 +2344,9 @@ class CTMLE(TMLE):
                     "and no reviewed result covers a grouped draw of those splits or the "
                     "cluster-robust variance of the candidate the search then stops at"
                 )
+            )
+            record_refusal_site(
+                "ctmle.clustered", RefusalReason.IMPLEMENTATION_GAP, "F22", flagged=True
             )
             raise CapabilityError(
                 f"C-TMLE has no clustered result. {reason}. docs/roadmap.md X51 tracks the "

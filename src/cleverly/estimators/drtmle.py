@@ -151,6 +151,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, cast
 
 from .._inference_status import InferenceStatus, precedent_status
+from .._support import record_refusal_site
 from ..data.causal_data import CausalData
 from ..data.known_mechanism import KNOWN_EVALUATION_REFUSAL
 from ..exceptions import CapabilityError, CleverlyError, Refusal, RefusalReason
@@ -1235,6 +1236,11 @@ class DRTMLE(TMLE):
             )
         if route == "randomized_missing_outcome" and self.guard:
             if data.is_weighted:
+                record_refusal_site(
+                    "drtmle.weight_tilted_missing_outcome",
+                    RefusalReason.IMPLEMENTATION_GAP,
+                    "X62",
+                )
                 raise CapabilityError(
                     "missing-outcome DRTMLE is not certified for a weight-tilted target law.",
                     reason=RefusalReason.IMPLEMENTATION_GAP,

@@ -52,6 +52,7 @@ import numpy as np
 
 from .._inference_status import status_record
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
+from .._support import record_refusal_site
 from ..assessment import AssessmentStatus
 from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import CapabilityError
@@ -122,6 +123,7 @@ _DIRECT_EFFECT_REFUSAL = Refusal(
 def _evalue_inference_refusal(status: str) -> Refusal:
     """The E-value refusal at a non-inferential status, built on that status's reason."""
     record = status_record(status)
+    record_refusal_site("evalue.inference_status", RefusalReason.INFERENCE_GAP, record.reopened_by)
     return Refusal(
         RefusalReason.INFERENCE_GAP,
         _EVALUE_NEEDS_INFERENCE + record.reason,

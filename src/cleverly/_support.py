@@ -1,0 +1,892 @@
+"""The support label, the key a fit is classified by, and the phase-1 record switch.
+
+A fit is *supported* when a registered study covers its configuration, and *experimental*
+otherwise. This module holds the pieces of that decision that do not depend on any fitted
+estimate: the :class:`Support` record, the :class:`SupportKey` read from an estimator and its
+data before any learner runs, :func:`classify`, which matches a key against :data:`ROWS`, and
+:func:`combine_support`, which says what a derived estimate carries.
+
+Nothing here changes an output. The only effect of the module is the record switch. When the
+environment variable :data:`RECORD_ENVIRONMENT_VARIABLE` names a directory, each
+classification and each refusal site that a later change will move appends one JSON line to
+``<directory>/<pid>.jsonl``. With the variable unset, no classification runs and no call here
+touches an estimator.
+
+The module imports the standard library, :mod:`cleverly._refusal` and
+:mod:`cleverly._inference_status` at module level. The key readers import the cluster counter
+inside the function, so the estimate classes can import this module without a cycle.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Final, Literal
+
+from ._inference_status import (
+    FEW_CLUSTER_THRESHOLD,
+    MINIMUM_INTERVAL_CLUSTERS,
+    MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
+    supplies_inference,
+)
+from ._refusal import Refusal
+
+__all__ = [
+    "RECORD_ENVIRONMENT_VARIABLE",
+    "ROWS",
+    "UNCLASSIFIED",
+    "Classification",
+    "Kind",
+    "Support",
+    "SupportKey",
+    "SupportLabel",
+    "SupportRow",
+    "classify",
+    "classify_key",
+    "combine_support",
+    "longitudinal_key",
+    "point_key",
+    "record_fit",
+    "record_refusal_site",
+    "recording_directory",
+    "start_longitudinal_record",
+    "start_point_record",
+]
+
+#: The environment variable that turns the phase-1 record on. Its value is a directory.
+RECORD_ENVIRONMENT_VARIABLE: Final[str] = "CLEVERLY_SUPPORT_RECORD"
+
+SupportLabel = Literal["supported", "experimental"]
+
+#: What a support row can license for an estimate: a point estimate, a Wald interval on the
+#: normal or the t reference, a simultaneous band, a bootstrap interval, a derived estimate,
+#: or a hypothesis test.
+Kind = Literal["point", "wald", "wald_t", "band", "bootstrap", "derived", "test"]
+
+
+@dataclass(frozen=True)
+class Support:
+    """What the package states about the evidence behind one estimate.
+
+    Parameters
+    ----------
+    label : {"supported", "experimental"}
+        ``"supported"`` when a registered study covers the configuration.
+    reason : str
+        Whole sentences that say why.
+    evidence : tuple of str
+        Study slugs when supported, and roadmap ids when experimental.
+    row : str or None
+        The id of the support row that matched, or ``None``.
+    limits : tuple of str
+        The stated limits of the row and its assumptions.
+    """
+
+    label: SupportLabel
+    reason: str
+    evidence: tuple[str, ...] = ()
+    row: str | None = None
+    limits: tuple[str, ...] = ()
+
+
+#: The support of an estimate built outside a classified fit.
+UNCLASSIFIED: Final[Support] = Support(
+    "experimental", "This estimate was built outside a classified fit."
+)
+
+_TWO_ROWS_REASON: Final[str] = "This estimate combines estimates of two support rows."
+
+
+def _unique(items: Iterable[str]) -> tuple[str, ...]:
+    """The distinct items in first-seen order."""
+    return tuple(dict.fromkeys(items))
+
+
+def combine_support(supports: Iterable[Support]) -> Support:
+    """The support of an estimate built from several estimates.
+
+    Equal records stay as they are. When any input is experimental, the result is
+    experimental and joins the reasons and the evidence of every experimental input, in first-seen
+    order. Two supported inputs of different rows give an experimental result.
+
+    Parameters
+    ----------
+    supports : iterable of Support
+        The support of each input estimate. At least one is required.
+
+    Returns
+    -------
+    Support
+        The combined record.
+
+    Raises
+    ------
+    ValueError
+        When ``supports`` is empty.
+
+    Examples
+    --------
+    >>> from cleverly._support import Support, combine_support
+    >>> a = Support("supported", "A study covers it.", ("study-a",), row="R1")
+    >>> combine_support([a, a]) == a
+    True
+    >>> combine_support([a, Support("supported", "Covered.", ("study-b",), row="R2")]).label
+    'experimental'
+    """
+    records = tuple(supports)
+    if not records:
+        raise ValueError("combine_support needs at least one Support")
+    first = records[0]
+    if all(record == first for record in records[1:]):
+        return first
+    experimental = [record for record in records if record.label == "experimental"]
+    if experimental:
+        return Support(
+            "experimental",
+            " ".join(_unique(record.reason for record in experimental)),
+            _unique(item for record in experimental for item in record.evidence),
+            limits=_unique(item for record in records for item in record.limits),
+        )
+    return Support(
+        "experimental",
+        _TWO_ROWS_REASON,
+        limits=_unique(item for record in records for item in record.limits),
+    )
+
+
+# ----------------------------------------------------------------------- the key
+
+#: The axes of a key, in the order a nearest-row report names them.
+KEY_AXES: Final[tuple[str, ...]] = (
+    "kind",
+    "engine",
+    "family",
+    "outcome",
+    "missing",
+    "treatment",
+    "weighting",
+    "splitting",
+    "dependence",
+    "qualifiers",
+    "options",
+)
+
+
+@dataclass(frozen=True)
+class SupportKey:
+    """The configuration of a fit, read before any learner runs.
+
+    Every field is hashable, so two keys compare by value. The learner classes are not part
+    of the key. A row names them separately, and :class:`Classification` carries them.
+
+    Parameters
+    ----------
+    kind : {"point", "longitudinal"}
+        The estimator family.
+    engine : tuple of str
+        The estimation procedure: the assessment method and, for C-TMLE, its strategy and design.
+        A longitudinal key holds the recursion name.
+    family : tuple of str
+        The parameter axis and the requested estimand names, sorted. A longitudinal key holds
+        the outcome kind, the working-model flag and the regimen-kind flags.
+    outcome : tuple of str
+        The outcome family and whether a continuous outcome declares its bounds.
+    missing : tuple of str
+        The missing-data structure: ``"complete"`` or the names of what is missing, and
+        ``"intermediate"`` for a declared intermediate.
+    treatment : tuple of str
+        The treatment kind and arm count. A longitudinal key holds the level count of each node.
+    weighting : {"none", "fixed", "estimated"}
+        How the observation weights are read.
+    splitting : tuple of str
+        ``in_sample``, ``stacked``, ``fold_evaluated``, ``fold_targeted``, or ``cross_fitted``,
+        followed by ``repeated`` and ``supplied_plan`` where they apply.
+    dependence : {"iid", "clustered", "t", "below_floor"}
+        ``clustered`` from 40 clusters with positive weight mass, ``t`` from the interval floor
+        to 39, ``below_floor`` under the floor. The floor is 10 for a point fit and 20 for a
+        longitudinal one.
+    qualifiers : frozenset of str
+        Strata, a known mechanism, a named reference arm. A longitudinal key holds the known
+        factors.
+    options : tuple of tuple
+        Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic.
+    """
+
+    kind: str
+    engine: tuple[str, ...]
+    family: tuple[str, ...]
+    outcome: tuple[str, ...]
+    missing: tuple[str, ...]
+    treatment: tuple[str, ...]
+    weighting: str
+    splitting: tuple[str, ...]
+    dependence: str
+    qualifiers: frozenset[str]
+    options: tuple[tuple[str, Any], ...]
+
+    def axes(self) -> dict[str, Any]:
+        """The value of each axis, by name, in :data:`KEY_AXES` order.
+
+        Returns
+        -------
+        dict of str to Any
+            The axis values. A frozenset appears as a sorted tuple, so the mapping is stable.
+        """
+        values: dict[str, Any] = {}
+        for name in KEY_AXES:
+            value = getattr(self, name)
+            values[name] = tuple(sorted(value)) if isinstance(value, frozenset) else value
+        return values
+
+    def differing_axes(self, other: SupportKey) -> tuple[str, ...]:
+        """The names of the axes on which this key and ``other`` differ.
+
+        Parameters
+        ----------
+        other : SupportKey
+            The key to compare with.
+
+        Returns
+        -------
+        tuple of str
+            The axis names, in :data:`KEY_AXES` order.
+        """
+        mine, theirs = self.axes(), other.axes()
+        return tuple(name for name in KEY_AXES if mine[name] != theirs[name])
+
+    def to_json(self) -> dict[str, Any]:
+        """The key as a JSON-ready mapping.
+
+        Returns
+        -------
+        dict of str to Any
+            Each axis as a string, a list, or a list of pairs.
+        """
+        return json.loads(json.dumps(self.axes(), default=_jsonable))
+
+
+def _jsonable(value: Any) -> Any:
+    """Serialise a value a key can hold that the json module does not."""
+    if isinstance(value, (set, frozenset)):
+        return sorted(value, key=repr)
+    if isinstance(value, type):
+        return f"{value.__module__}.{value.__qualname__}"
+    return repr(value)
+
+
+def _dependence(clusters: int | None, floor: int) -> str:
+    """The dependence tier of a fit that reads ``clusters`` positive-mass clusters."""
+    if clusters is None:
+        return "iid"
+    if clusters >= FEW_CLUSTER_THRESHOLD:
+        return "clustered"
+    if clusters >= floor:
+        return "t"
+    return "below_floor"
+
+
+def _positive_mass_clusters(data: Any) -> int | None:
+    """The fewest positive-mass clusters one estimate reads, or ``None`` without clusters."""
+    cluster = getattr(data, "cluster", None)
+    if cluster is None:
+        return None
+    from .inference.cluster import fewest_clusters
+
+    return int(fewest_clusters(cluster, getattr(data, "strata", None), data.weights))
+
+
+def _weighting(data: Any) -> str:
+    """``"estimated"``, ``"fixed"`` or ``"none"``, as the data declares its weights."""
+    if not data.is_weighted:
+        return "none"
+    return "estimated" if data.weight_spec.estimated else "fixed"
+
+
+def _option(value: Any) -> Any:
+    """A hashable stand-in for an option value."""
+    if isinstance(value, (bool, int, float, str, type(None))):
+        return value
+    if isinstance(value, (tuple, list)):
+        return tuple(_option(item) for item in value)
+    return repr(value)
+
+
+def _learner_type(learner: Any) -> type | None:
+    """The class of a learner, or ``None`` when the estimator uses its default."""
+    return None if learner is None else type(learner)
+
+
+def point_key(
+    estimator: Any, data: Any, estimands: Sequence[str]
+) -> tuple[SupportKey, dict[str, type | None]]:
+    """The key and the learner classes of a point-treatment fit.
+
+    Parameters
+    ----------
+    estimator : TMLE
+        The estimator, as constructed. It is read and never modified.
+    data : CausalData
+        The prepared data.
+    estimands : sequence of str
+        The resolved estimand names the fit reports.
+
+    Returns
+    -------
+    tuple of SupportKey and dict
+        The key, and the learner class per nuisance role (``None`` for a default learner).
+    """
+    method = str(getattr(estimator, "_assessment_method", type(estimator).__name__))
+    engine: tuple[str, ...] = (method,)
+    if method == "collaborative_tmle":
+        engine += (str(estimator.strategy), str(estimator.oat_design))
+
+    if estimator.cross_fit:
+        if estimator.cv_evaluation:
+            scheme = "fold_evaluated"
+        elif estimator.targeting_scheme != "pooled":
+            scheme = "fold_targeted"
+        else:
+            scheme = "stacked"
+    else:
+        scheme = "in_sample"
+    splitting = [scheme]
+    if estimator.repeats != 1:
+        splitting.append("repeated")
+    if estimator.split_plan is not None:
+        splitting.append("supplied_plan")
+
+    missing: list[str] = []
+    if data.has_missing_outcome:
+        missing.append("outcome")
+    if data.has_missing_treatment:
+        missing.append("treatment")
+    if data.has_intermediate:
+        missing.append("intermediate")
+
+    if data.is_continuous_treatment:
+        treatment = ("continuous",)
+    else:
+        treatment = ("binary",) if data.n_arms == 2 else (f"arms{data.n_arms}",)
+
+    qualifiers = set()
+    if data.has_strata:
+        qualifiers.add("strata")
+    if data.known_treatment is not None:
+        qualifiers.add("known_mechanism")
+    if getattr(estimator, "reference", None) is not None:
+        qualifiers.add("reference_arm")
+
+    options: dict[str, Any] = {
+        "fluctuation": estimator.fluctuation,
+        "targeting": estimator.targeting,
+        "target_weights": estimator.target_weights,
+        "multiplier_kind": estimator.multiplier_kind,
+    }
+    if method == "drtmle":
+        for name in ("guard", "reduction", "reduced_crossfit", "update_order", "randomized"):
+            options[name] = getattr(estimator, name)
+        options["evaluation"] = estimator.evaluation is not None
+
+    key = SupportKey(
+        kind="point",
+        engine=engine,
+        family=(str(estimator._axis), *sorted(str(name) for name in estimands)),
+        outcome=(str(data.family), "bounded" if estimator.q_bounds is not None else "unbounded"),
+        missing=tuple(missing) or ("complete",),
+        treatment=treatment,
+        weighting=_weighting(data),
+        splitting=tuple(splitting),
+        dependence=_dependence(_positive_mass_clusters(data), MINIMUM_INTERVAL_CLUSTERS),
+        qualifiers=frozenset(qualifiers),
+        options=tuple(sorted((name, _option(value)) for name, value in options.items())),
+    )
+    learners = {
+        "outcome": _learner_type(estimator.outcome_learner),
+        "treatment": _learner_type(estimator.treatment_learner),
+        "missingness": _learner_type(estimator.missingness_learner),
+        "intermediate": _learner_type(estimator.intermediate_learner),
+    }
+    return key, learners
+
+
+def longitudinal_key(
+    estimator: Any,
+    data: Any,
+    *,
+    outcome_kind: str,
+    cross_fitted: bool,
+    known_factors: Iterable[str],
+    has_msm: bool,
+    has_policy: bool,
+) -> tuple[SupportKey, dict[str, type | None]]:
+    """The key and the learner classes of a longitudinal fit.
+
+    Parameters
+    ----------
+    estimator : LTMLE
+        The estimator. It is read and never modified.
+    data : LongitudinalData
+        The prepared panel.
+    outcome_kind : str
+        ``"end_of_study"``, ``"survival"``, ``"competing"`` or ``"repeated"``.
+    cross_fitted : bool
+        Whether the outer split holds more than one fold.
+    known_factors : iterable of str
+        The treatment and censoring columns whose factor the data declares known.
+    has_msm : bool
+        Whether the fit reports working-model coefficients.
+    has_policy : bool
+        Whether any regimen is a modified treatment policy.
+
+    Returns
+    -------
+    tuple of SupportKey and dict
+        The key, and the learner class per nuisance role (``None`` for a default learner).
+    """
+    continuous = tuple(data.continuous_nodes)
+    levels = tuple(
+        "continuous" if index < len(continuous) and continuous[index] else str(len(node))
+        for index, node in enumerate(data.treatment_levels)
+    )
+    key = SupportKey(
+        kind="longitudinal",
+        engine=(str(estimator._estimator),),
+        family=(outcome_kind, "msm" if has_msm else "regimens", "mtp" if has_policy else "static"),
+        outcome=(str(data.family), "bounded" if estimator.q_bounds is not None else "unbounded"),
+        missing=("censoring",) if data.has_censoring else ("complete",),
+        treatment=levels,
+        weighting=_weighting(data),
+        splitting=("cross_fitted",) if cross_fitted else ("in_sample",),
+        dependence=_dependence(
+            _positive_mass_clusters(data), MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
+        ),
+        qualifiers=frozenset(known_factors),
+        options=(("multiplier_kind", _option(estimator.multiplier_kind)),),
+    )
+    learners = {
+        "outcome": _learner_type(estimator.outcome_learner),
+        "pseudo": _learner_type(estimator.pseudo_learner),
+        "treatment": _learner_type(estimator.treatment_learner),
+        "censoring": _learner_type(estimator.censoring_learner),
+    }
+    return key, learners
+
+
+# ------------------------------------------------------------------ rows and classify
+
+
+@dataclass(frozen=True)
+class SupportRow:
+    """One configuration a registered study covers.
+
+    Parameters
+    ----------
+    id : str
+        The row id.
+    key : SupportKey
+        The configuration, as one explicit key.
+    kinds : frozenset of str
+        What the row licenses: members of :data:`Kind`.
+    evidence : tuple of str
+        Registered study slugs.
+    cells : tuple of str
+        The licensing cells or truth rows.
+    learners : mapping of str to type or None, default None
+        The exact learner class per nuisance role, where the row needs one.
+    limits : tuple of str, default ()
+        The stated limits of the row.
+    """
+
+    id: str
+    key: SupportKey
+    kinds: frozenset[str]
+    evidence: tuple[str, ...]
+    cells: tuple[str, ...] = ()
+    learners: Mapping[str, type] | None = None
+    limits: tuple[str, ...] = ()
+
+    def matches(self, key: SupportKey, learners: Mapping[str, type | None]) -> bool:
+        """Whether a fit with ``key`` and ``learners`` falls inside this row.
+
+        Parameters
+        ----------
+        key : SupportKey
+            The key of the fit.
+        learners : mapping of str to type or None
+            The learner class per nuisance role. A role the row names compares with ``is``.
+
+        Returns
+        -------
+        bool
+            ``True`` when the keys are equal and every learner the row names is the fit's.
+        """
+        if self.key != key:
+            return False
+        return all(learners.get(role) is cls for role, cls in (self.learners or {}).items())
+
+
+#: The registered rows. Empty until the row table lands, so every fit classifies as unmatched.
+ROWS: tuple[SupportRow, ...] = ()
+
+
+@dataclass(frozen=True)
+class Classification:
+    """The outcome of matching one fit against the rows.
+
+    Parameters
+    ----------
+    key : SupportKey
+        The key of the fit.
+    learners : mapping of str to type or None
+        The learner class per nuisance role.
+    row : SupportRow or None
+        The matching row, or ``None``.
+    nearest : tuple of str and tuple of str, or None
+        With no match, the id of the row that differs on the fewest axes and the names of those
+        axes. ``None`` when there are no rows.
+    conditions : tuple of Refusal
+        The group-A conditions the fit meets. Each one makes the fit experimental.
+    """
+
+    key: SupportKey
+    learners: Mapping[str, type | None] = field(default_factory=dict)
+    row: SupportRow | None = None
+    nearest: tuple[str, tuple[str, ...]] | None = None
+    conditions: tuple[Refusal, ...] = ()
+
+    @property
+    def label(self) -> SupportLabel:
+        """``"supported"`` when a row matched and no condition applies."""
+        return "supported" if self.row is not None and not self.conditions else "experimental"
+
+
+def classify_key(
+    key: SupportKey,
+    learners: Mapping[str, type | None],
+    conditions: Sequence[Refusal] = (),
+    *,
+    rows: Sequence[SupportRow] | None = None,
+) -> Classification:
+    """Match a key against the rows. It never raises for an unmatched key.
+
+    Parameters
+    ----------
+    key : SupportKey
+        The key of the fit.
+    learners : mapping of str to type or None
+        The learner class per nuisance role.
+    conditions : sequence of Refusal, default ()
+        The group-A conditions the fit meets.
+    rows : sequence of SupportRow or None, default None
+        The rows to match. ``None`` reads :data:`ROWS`.
+
+    Returns
+    -------
+    Classification
+        The matching row, or the nearest row and its differing axes.
+
+    Raises
+    ------
+    RuntimeError
+        When two rows match. The row tests make this unreachable.
+    """
+    table = ROWS if rows is None else tuple(rows)
+    matched = [row for row in table if row.matches(key, learners)]
+    if len(matched) > 1:
+        raise RuntimeError(f"support rows {[row.id for row in matched]} all match one fit")
+    if matched:
+        return Classification(key, learners, matched[0], None, tuple(conditions))
+    nearest: tuple[str, tuple[str, ...]] | None = None
+    for row in table:
+        differing = row.key.differing_axes(key)
+        if (
+            learners
+            and row.learners
+            and any(learners.get(role) is not cls for role, cls in row.learners.items())
+        ):
+            differing = (*differing, "learners")
+        if nearest is None or len(differing) < len(nearest[1]):
+            nearest = (row.id, differing)
+    return Classification(key, learners, None, nearest, tuple(conditions))
+
+
+def classify(
+    estimator: Any,
+    data: Any,
+    estimands: Sequence[str],
+    conditions: Sequence[Refusal] = (),
+) -> Classification:
+    """Classify a point-treatment fit before any learner runs.
+
+    Parameters
+    ----------
+    estimator : TMLE
+        The estimator. It is read and never modified.
+    data : CausalData
+        The prepared data.
+    estimands : sequence of str
+        The resolved estimand names.
+    conditions : sequence of Refusal, default ()
+        The group-A conditions the fit meets.
+
+    Returns
+    -------
+    Classification
+        The row or the nearest row, with the key and the conditions.
+    """
+    key, learners = point_key(estimator, data, estimands)
+    return classify_key(key, learners, conditions)
+
+
+# --------------------------------------------------------------------- record switch
+
+
+def recording_directory() -> Path | None:
+    """The directory the record switch names, or ``None`` when it is off.
+
+    Returns
+    -------
+    Path or None
+        The value of :data:`RECORD_ENVIRONMENT_VARIABLE` as a path, or ``None`` when it is
+        unset or empty.
+    """
+    value = os.environ.get(RECORD_ENVIRONMENT_VARIABLE, "")
+    return Path(value) if value else None
+
+
+def _first_test_frame() -> str | None:
+    """The first caller frame in a ``tests`` directory, as ``file:line``."""
+    frame = sys._getframe(2)
+    while frame is not None:
+        name = frame.f_code.co_filename
+        if f"{os.sep}tests{os.sep}" in name:
+            return f"{name}:{frame.f_lineno}"
+        frame = frame.f_back  # type: ignore[assignment]
+    return None
+
+
+def _append(directory: Path, payload: dict[str, Any]) -> None:
+    """Append one JSON line with the context every record shares."""
+    payload = {
+        **payload,
+        "pytest": os.environ.get("PYTEST_CURRENT_TEST"),
+        "test_frame": _first_test_frame(),
+        "argv0": sys.argv[0] if sys.argv else None,
+        "subdirectory": directory.name,
+        "pid": os.getpid(),
+    }
+    directory.mkdir(parents=True, exist_ok=True)
+    with (directory / f"{os.getpid()}.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, default=_jsonable, sort_keys=True) + "\n")
+
+
+def record_refusal_site(
+    site: str, refusal_code: str, roadmap: str | None, *, flagged: bool = False
+) -> None:
+    """Record that a group-A or flagged refusal site was reached. A no-op with the switch off.
+
+    Call it where the refusal is built, before the raise. It never changes the raise.
+
+    Parameters
+    ----------
+    site : str
+        A literal id written at the call site.
+    refusal_code : str
+        The reason code of the refusal.
+    roadmap : str or None
+        The roadmap id the refusal names.
+    flagged : bool, default False
+        Whether the plan holds the site as a refusal until the owner decides.
+    """
+    directory = recording_directory()
+    if directory is None:
+        return
+    _append(
+        directory,
+        {
+            "record": "refusal_site",
+            "site": site,
+            "code": str(refusal_code),
+            "roadmap": roadmap,
+            "flagged": flagged,
+        },
+    )
+
+
+def _fit_outcome(result: Any, estimates: Mapping[str, Any], key: SupportKey) -> dict[str, Any]:
+    """What a finished fit shows today, in the terms the phase-1 tables need."""
+    statuses = sorted({str(estimate.inference) for estimate in estimates.values()})
+    clusters_known = key.dependence != "iid"
+    bootstrap = [
+        getattr(estimate.bootstrap, "inferential", None)
+        for estimate in estimates.values()
+        if getattr(estimate, "bootstrap", None) is not None
+    ]
+    return {
+        "statuses": statuses,
+        "supplies_inference": [bool(supplies_inference(s)) for s in statuses],
+        "clustered": clusters_known,
+        "bootstrap_attached": bool(bootstrap),
+        "bootstrap_inferential_today": bool(bootstrap) and all(bootstrap),
+        "band_built_today": getattr(result, "simultaneous", None) is not None,
+        "n_estimates": len(estimates),
+    }
+
+
+def record_fit(
+    classification: Classification | None,
+    result: Any = None,
+    *,
+    estimates: Mapping[str, Any] | None = None,
+    source: str = "fit",
+) -> None:
+    """Record one classification, with what the finished fit shows today.
+
+    A no-op with the switch off. Call it once with the classification when the fit starts,
+    and again with the result when it ends.
+
+    Parameters
+    ----------
+    classification : Classification or None
+        The classification, or ``None`` when it could not be computed.
+    result : Any, default None
+        The finished result. ``None`` records the classification alone, unless ``estimates``
+        is given.
+    estimates : mapping of str to ParameterEstimate or None, default None
+        The estimates of a call that returns no result, such as ``retarget``.
+    source : str, default "fit"
+        The entry point that classified.
+    """
+    directory = recording_directory()
+    if directory is None or classification is None:
+        return
+    outcome = estimates if estimates is not None else getattr(result, "estimates", None)
+    payload: dict[str, Any] = {
+        "record": "classification" if outcome is None else "fit_outcome",
+        "source": source,
+        "key": classification.key.to_json(),
+        "learners": {
+            role: None if cls is None else f"{cls.__module__}.{cls.__qualname__}"
+            for role, cls in classification.learners.items()
+        },
+        "label": classification.label,
+        "row": None if classification.row is None else classification.row.id,
+        "nearest": classification.nearest,
+        "conditions": [condition.roadmap for condition in classification.conditions],
+    }
+    if outcome is not None:
+        payload.update(_fit_outcome(result, outcome, classification.key))
+    _append(directory, payload)
+
+
+def _record_error(directory: Path, source: str, error: Exception) -> None:
+    """Record that the classifier failed, so a measurement run shows the failure."""
+    _append(
+        directory,
+        {"record": "classification_error", "source": source, "error": repr(error)[:500]},
+    )
+
+
+def start_point_record(
+    estimator: Any,
+    data: Any,
+    estimands: Sequence[str],
+    *,
+    source: str,
+    conditions: Sequence[Refusal] = (),
+) -> Classification | None:
+    """Classify a point-treatment fit and record it. Returns ``None`` with the switch off.
+
+    With the switch off this reads one environment variable and touches nothing else, so a
+    fit runs exactly as it did before. A classifier failure is recorded and swallowed.
+
+    Parameters
+    ----------
+    estimator : TMLE
+        The estimator.
+    data : CausalData
+        The prepared data.
+    estimands : sequence of str
+        The resolved estimand names.
+    source : str
+        The entry point, such as ``"TMLE._fit_single"``.
+    conditions : sequence of Refusal, default ()
+        The group-A conditions the fit meets.
+
+    Returns
+    -------
+    Classification or None
+        The classification, to pass to :func:`record_fit` with the finished result.
+    """
+    directory = recording_directory()
+    if directory is None:
+        return None
+    try:
+        classification = classify(estimator, data, estimands, conditions)
+    except Exception as error:
+        _record_error(directory, source, error)
+        return None
+    record_fit(classification, source=source)
+    return classification
+
+
+def start_longitudinal_record(
+    estimator: Any,
+    data: Any,
+    *,
+    source: str,
+    outcome_kind: str,
+    cross_fitted: bool,
+    known_factors: Iterable[str],
+    has_msm: bool,
+    has_policy: bool,
+) -> Classification | None:
+    """Classify a longitudinal fit and record it. Returns ``None`` with the switch off.
+
+    Parameters
+    ----------
+    estimator : LTMLE
+        The estimator.
+    data : LongitudinalData
+        The prepared panel.
+    source : str
+        The entry point.
+    outcome_kind : str
+        ``"end_of_study"``, ``"survival"``, ``"competing"`` or ``"repeated"``.
+    cross_fitted : bool
+        Whether the outer split holds more than one fold.
+    known_factors : iterable of str
+        The known treatment and censoring factors.
+    has_msm : bool
+        Whether the fit reports working-model coefficients.
+    has_policy : bool
+        Whether any regimen is a modified treatment policy.
+
+    Returns
+    -------
+    Classification or None
+        The classification, to pass to :func:`record_fit` with the finished result.
+    """
+    directory = recording_directory()
+    if directory is None:
+        return None
+    try:
+        key, learners = longitudinal_key(
+            estimator,
+            data,
+            outcome_kind=outcome_kind,
+            cross_fitted=cross_fitted,
+            known_factors=known_factors,
+            has_msm=has_msm,
+            has_policy=has_policy,
+        )
+        classification = classify_key(key, learners)
+    except Exception as error:
+        _record_error(directory, source, error)
+        return None
+    record_fit(classification, source=source)
+    return classification

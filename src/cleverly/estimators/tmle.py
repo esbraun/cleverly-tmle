@@ -97,6 +97,7 @@ from .._inference_status import (
     InferenceStatus,
     supplies_inference,
 )
+from .._support import record_fit, record_refusal_site, start_point_record
 from .._typing import (
     BoolArray,
     EstimandName,
@@ -1674,6 +1675,7 @@ class TMLE:
         builds no band, so it is allowed.
         """
         estimands = self._preflight_fit_configuration(data)
+        classification = start_point_record(self, data, estimands, source="TMLE._fit_single")
 
         extra: dict[str, Any] = {}
         if shared is not None:
@@ -1813,6 +1815,7 @@ class TMLE:
                 result, bootstrap, inferential=self._bootstrap_inferential(data)
             )
 
+        record_fit(classification, result, source="TMLE._fit_single")
         return result
 
     def _cv_detail(
@@ -2021,6 +2024,9 @@ class TMLE:
             parts.append(_OFF_CONTRACT_AXIS_NAMES[self._axis])
         if data.has_intermediate:
             parts.append("controlled-direct-effect")
+        record_refusal_site(
+            "tmle.off_contract_axes", RefusalReason.IMPLEMENTATION_GAP, "X53", flagged=True
+        )
         raise CapabilityError(
             _CROSS_FITTED_MISSING_CONTRACTS
             + f"No audited result covers {' and '.join(parts)} targets under cross-fitting "
@@ -2116,8 +2122,16 @@ class TMLE:
             return
 
         def refuse(
-            text: str, remedy: str, *, code: RefusalReason, roadmap: str | None = None
+            text: str,
+            remedy: str,
+            *,
+            code: RefusalReason,
+            roadmap: str | None = None,
+            site: str | None = None,
+            flagged: bool = False,
         ) -> None:
+            if site is not None:
+                record_refusal_site(site, code, roadmap, flagged=flagged)
             raise CapabilityError(
                 _ARM_INDEXED_CONTRACT + text, reason=code, alternative=remedy, roadmap=roadmap
             )
@@ -2140,6 +2154,7 @@ class TMLE:
                 "Set fluctuation='logistic' (Targeting(fluctuation='logistic')).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
+                site="arm.linear_fluctuation",
             )
         if self.targeting != "iterative":
             refuse(
@@ -2147,6 +2162,7 @@ class TMLE:
                 "Set targeting='iterative' (Targeting(algorithm='iterative')).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
+                site="arm.one_step",
             )
         if self.target_weights:
             refuse(
@@ -2154,6 +2170,7 @@ class TMLE:
                 "Set target_weights=False (Targeting(target_weights=False)).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
+                site="arm.weighted_fluctuation",
             )
         if self.cv_evaluation:
             refuse(
@@ -2162,6 +2179,7 @@ class TMLE:
                 "Set cv_evaluation=False (CrossFitting(fold_evaluation=False)).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X53",
+                site="arm.fold_evaluated",
             )
         conditional = [name for name in estimands if name in ("att", "atc")]
         if conditional:
@@ -2180,6 +2198,7 @@ class TMLE:
                 f"Request estimands from {admitted}.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
+                site="arm.att_atc",
             )
         if data.family != "binomial" and self.q_bounds is None:
             refuse(
@@ -2195,6 +2214,7 @@ class TMLE:
                 "folds.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X53",
+                site="arm.split_plan",
             )
         if self.repeats != 1:
             refuse(
@@ -2202,6 +2222,7 @@ class TMLE:
                 "Set repeats=1 (CrossFitting(repeats=1)).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X53",
+                site="arm.repeats",
             )
         if self.targeting_scheme != "pooled":
             refuse(
@@ -2209,6 +2230,8 @@ class TMLE:
                 "Set targeting_scheme='pooled' (CrossFitting(targeting_scheme='pooled')).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X53",
+                site="arm.fold_targeting",
+                flagged=True,
             )
         if data.weights_name is not None or data.is_weighted:
             refuse(
@@ -2217,6 +2240,7 @@ class TMLE:
                 f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
+                site="arm.weights",
             )
         if data.cluster is not None:
             refuse(
@@ -2225,6 +2249,7 @@ class TMLE:
                 f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
+                site="arm.clusters",
             )
         if data.has_strata:
             refuse(
@@ -2232,6 +2257,7 @@ class TMLE:
                 "Drop strata= from fit (PointTreatment(strata=())).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X53",
+                site="arm.strata",
             )
         if self.n_bootstrap:
             refuse(
@@ -2239,6 +2265,7 @@ class TMLE:
                 "Set n_bootstrap=0 (Inference(n_bootstrap=0)).",
                 code=RefusalReason.INFERENCE_GAP,
                 roadmap="F2",
+                site="arm.bootstrap",
             )
 
     def _design_factor_labels(self, data: CausalData) -> tuple[str, str] | None:
@@ -2293,8 +2320,16 @@ class TMLE:
             return estimands
 
         def refuse(
-            text: str, remedy: str, *, code: RefusalReason, roadmap: str | None = None
+            text: str,
+            remedy: str,
+            *,
+            code: RefusalReason,
+            roadmap: str | None = None,
+            site: str | None = None,
+            flagged: bool = False,
         ) -> None:
+            if site is not None:
+                record_refusal_site(site, code, roadmap, flagged=flagged)
             raise CapabilityError(
                 "NaturalCourseMean, PAR and PAF with missing outcomes currently support "
                 "ordinary TMLE and, for point estimates, the per-arm outcome-adaptive CTMLE "
@@ -2327,6 +2362,7 @@ class TMLE:
                 "Set repeats=1.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X53",
+                site="nc.repeats",
             )
         if self.cross_fit and self.targeting_scheme != "pooled":
             refuse(
@@ -2334,6 +2370,8 @@ class TMLE:
                 "Set targeting_scheme='pooled'.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X53",
+                site="nc.fold_targeting",
+                flagged=True,
             )
         if self.cross_fit and self.cv_evaluation:
             refuse(
@@ -2341,6 +2379,7 @@ class TMLE:
                 "Set cv_evaluation=False.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X53",
+                site="nc.fold_evaluated",
             )
         if self.cross_fit and self.split_plan is not None:
             refuse(
@@ -2348,6 +2387,7 @@ class TMLE:
                 "Leave split_plan=None.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X53",
+                site="nc.split_plan",
             )
         if self.fluctuation != "logistic":
             refuse(
@@ -2355,6 +2395,7 @@ class TMLE:
                 "Set fluctuation='logistic'.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
+                site="nc.linear_fluctuation",
             )
         if self.targeting != "iterative":
             refuse(
@@ -2362,6 +2403,7 @@ class TMLE:
                 "Set targeting='iterative'.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
+                site="nc.one_step",
             )
         if self.target_weights:
             refuse(
@@ -2369,6 +2411,7 @@ class TMLE:
                 "Set target_weights=False.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
+                site="nc.weighted_fluctuation",
             )
         if self.n_bootstrap:
             # X55 part (a) holds the in-sample bootstrap, and F2 the cross-fitted one.
@@ -2380,6 +2423,7 @@ class TMLE:
                 "Set n_bootstrap=0.",
                 code=RefusalReason.INFERENCE_GAP,
                 roadmap=bootstrap_item,
+                site="nc.bootstrap",
             )
         if self.cross_fit and (data.weights_name is not None or data.is_weighted):
             refuse(
@@ -2387,6 +2431,7 @@ class TMLE:
                 "Drop weights= from fit, or fit in sample.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
+                site="nc.weights",
             )
         if self.cross_fit and data.cluster is not None:
             refuse(
@@ -2394,6 +2439,7 @@ class TMLE:
                 "Drop id= from fit, or fit in sample.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
+                site="nc.clusters",
             )
         if data.has_intermediate:
             refuse(
@@ -2409,6 +2455,7 @@ class TMLE:
                     "Fit in sample with cross_fit=False and declare q_bounds.",
                     code=RefusalReason.IMPLEMENTATION_GAP,
                     roadmap="X53",
+                    site="nc.binary_outcome",
                 )
             if self.q_bounds is None:
                 refuse(
@@ -3613,6 +3660,7 @@ class TMLE:
         mechanisms, which is the other denominator in the clever covariate and so the
         other bound whose influence on the answer is worth sweeping.
         """
+        classification = start_point_record(self, data, tuple(estimands), source="TMLE.retarget")
         estimates, fluctuations, _ = self._retarget_detailed(
             data,
             nuisance,
@@ -3624,6 +3672,7 @@ class TMLE:
             nuisance_bound=nuisance_bound,
             alpha_sig=alpha_sig,
         )
+        record_fit(classification, estimates=estimates, source="TMLE.retarget")
         return estimates, fluctuations
 
     def _retarget_detailed(
@@ -4943,7 +4992,8 @@ class TMLE:
             nuisance, _ = self._nuisances(
                 data, folds, scaler, config, intermediate_value, seed=seed
             )
-            estimates, _ = self.retarget(
+            # Not the public ``retarget``: a replicate never classifies, it carries its fit's label.
+            estimates, _, _ = self._retarget_detailed(
                 data,
                 nuisance,
                 estimands=estimands,
