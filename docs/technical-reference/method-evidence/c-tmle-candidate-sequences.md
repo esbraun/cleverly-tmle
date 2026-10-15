@@ -149,6 +149,8 @@ they run when a later change registers the R runs.
 | `margin:root_n_slope_upper` | -0.3750 | upper contraction band |
 | `margin:excluded_slope` | -0.2500 | slower rate the interval must exclude |
 | `margin:selector_rmse_ratio` | 0.5000 | required bound on each collaborative-to-control RMSE ratio |
+| `margin:union_model_se_lower` | 0.1000 | union-model SE-ratio screen, lower limit |
+| `margin:union_model_se_upper` | 10 | union-model SE-ratio screen, upper limit |
 
 ## Declared design
 
