@@ -109,6 +109,7 @@ from ..targets.population_intervention import natural_course_names, reads_natura
 from ..utils.bounds import g_bounds_for
 from ..utils.random import resolve_assessment_seed
 from ..utils.text import format_table
+from ._mechanism_stack import MechanismRefusal, plugin_mechanism_term
 from ._parameters import ArmParameter, reported_arm_parameters, stratum_refusal
 from .missingness import fit_wide_tilt_refusal
 
@@ -236,29 +237,6 @@ _THEOREM_2_COVERS = (
     "and the bound is well posed here."
 )
 
-#: Why the plug-in estimator of nu^2 publishes no confidence limit.  One text for the six
-#: guarded accessors of :class:`SensitivityBounds`, its summary line and the robustness row
-#: of the assessment, which all read it through :func:`limit_refusal_reason`.
-#: ``tests/unit/test_documentation_links.py`` checks that it cites F26.
-_PLUGIN_LIMITS_REFUSAL = (
-    "no derivation in a source this package cites gives the standard error of a bound built "
-    "on the plug-in nu^2. E_n[alpha_hat^2] squares the fitted Riesz representer, so it moves "
-    "at first order with the fitted treatment mechanism, and its curve alpha_hat^2 - nu^2 has "
-    "no term for that fit. Lemma 3 and Theorem 4 of Chernozhukov, Cinelli, Newey, Sharma and "
-    "Syrgkanis (2026) give the limits for the doubly robust estimator only. The bias-adjusted "
-    "bounds, rv, max_bias, benchmark() and contour() remain available, and "
-    "nu2_estimator='doubly_robust' gives the limits for any mechanism learner at the rates "
-    "of that Theorem 4. "
-    "docs/roadmap.md F26 tracks this stop, and docs/roadmap.md X26 tracks the limits for a "
-    "fit whose own treatment learner is a declared unpenalized logistic or multinomial model"
-)
-
-#: The estimators of nu^2 whose bounds refuse their limits, and why.  The doubly robust
-#: estimator is absent: its limits are the ones Theorem 4 derives.
-_ESTIMATOR_LIMIT_REFUSALS: dict[str, str] = {
-    "plugin": _PLUGIN_LIMITS_REFUSAL,
-}
-
 _ZERO_BIAS_LIMITS_REFUSAL = (
     "max_bias is zero: sqrt(sigma^2 nu^2) has no ordinary influence curve at "
     "sigma^2 = 0, so the one-sided limits and confidence-limit robustness value "
@@ -266,28 +244,6 @@ _ZERO_BIAS_LIMITS_REFUSAL = (
 )
 
 _UNREACHABLE_RV = "no equal strength reaches the null"
-
-
-def limit_refusal_reason(nu2_estimator: str) -> str | None:
-    """Why a bound built by ``nu2_estimator`` publishes no limit, or ``None`` when it does.
-
-    The accessors of :class:`SensitivityBounds`, its summary and the robustness row of the
-    assessment each prefix their own subject to this one text, so the three cannot disagree.
-
-    Parameters
-    ----------
-    nu2_estimator : str
-        The resolved estimator a bound or a robustness report records.
-
-    Returns
-    -------
-    str or None
-        ``"nu2_estimator='plugin': <reason>."``, or ``None`` for the doubly robust estimator.
-    """
-    reason = _ESTIMATOR_LIMIT_REFUSALS.get(nu2_estimator)
-    if reason is None:
-        return None
-    return f"nu2_estimator={nu2_estimator!r}: {reason}."
 
 
 _RESPONSE_BOUND_REFUSAL = (
@@ -615,6 +571,8 @@ class SensitivityElements:
         ``(n,)`` values of :math:`\\alpha(A, W)` for the targeted functional.
     nu2_estimator : str
         Which estimator of ``nu2`` produced these values.
+    limit_refusal : MechanismRefusal or None
+        Why the plug-in estimator gives ``nu2`` no curve on this fit, or ``None``.
     """
 
     estimand: str
@@ -626,6 +584,7 @@ class SensitivityElements:
     psi_max_bias: FloatArray | None
     riesz_representer: FloatArray
     nu2_estimator: str
+    limit_refusal: MechanismRefusal | None = None
 
 
 def sensitivity_elements(
@@ -840,12 +799,24 @@ def _elements_for(
     max_bias = float(np.sqrt(sigma2 * nu2))
     psi_nu2: FloatArray | None = None
     psi_max_bias: FloatArray | None = None
-    # The plug-in keeps no curve: E_n[alpha_hat^2] moves at first order with the fitted
-    # mechanism and no derivation in a source this package cites gives its influence
-    # function (docs/roadmap.md F26), so an
-    # array here would be a curve for a different estimator under this one's name.
-    if method == "doubly_robust":
+    limit_refusal: MechanismRefusal | None = None
+    mechanism_term: FloatArray | None = None
+    if method == "plugin":
+        # E_n[alpha_hat^2] moves at first order with the fitted mechanism, so its curve
+        # carries the mechanism score's term. Only a declared known mechanism or a fixed
+        # logistic model gives that term (docs/roadmap.md F26); for any other learner an
+        # array here would be a curve for a different estimator under this one's name.
+        stacked = plugin_mechanism_term(
+            result, repeat, parameter, representer, bounds, conditioning_share
+        )
+        if isinstance(stacked, MechanismRefusal):
+            limit_refusal = stacked
+        else:
+            mechanism_term = stacked
+    if method == "doubly_robust" or mechanism_term is not None:
         psi_nu2 = (nu2_element - nu2) * weights
+        if mechanism_term is not None:
+            psi_nu2 = psi_nu2 + mechanism_term
         if conditioning_indicator is not None:
             # The estimate divides by the estimated share of the conditioning arm, so its
             # curve carries that share's influence. See _conditioning_share_influence.
@@ -867,6 +838,7 @@ def _elements_for(
         psi_max_bias=psi_max_bias,
         riesz_representer=representer,
         nu2_estimator=method,
+        limit_refusal=limit_refusal,
     )
 
 
@@ -1095,6 +1067,7 @@ class SensitivityBounds:
     null_hypothesis: float
     inference: InferenceStatus = "influence_curve"
     nu2_estimator: str = "doubly_robust"
+    limit_refusal: MechanismRefusal | None = None
 
     @_accepts_stored_limit_names
     def __init__(
@@ -1116,6 +1089,7 @@ class SensitivityBounds:
         null_hypothesis: float,
         inference: InferenceStatus = "influence_curve",
         nu2_estimator: str = "doubly_robust",
+        limit_refusal: MechanismRefusal | None = None,
     ) -> None:
         # Preserve the public constructor while guarding its inferential values.
         for name, value in (
@@ -1136,19 +1110,19 @@ class SensitivityBounds:
             ("null_hypothesis", null_hypothesis),
             ("inference", inference),
             ("nu2_estimator", nu2_estimator),
+            ("limit_refusal", limit_refusal),
         ):
             object.__setattr__(self, name, value)
 
     @property
     def _limits_derived(self) -> bool:
         """Whether a derivation gives the standard error of these limits."""
-        return self.nu2_estimator not in _ESTIMATOR_LIMIT_REFUSALS and self.max_bias > 0.0
+        return self.limit_refusal is None and self.max_bias > 0.0
 
     def _limit_reason(self) -> str | None:
         """The estimator or zero-bias reason for withholding limit inference."""
-        reason = limit_refusal_reason(self.nu2_estimator)
-        if reason is not None:
-            return reason
+        if self.limit_refusal is not None:
+            return self.limit_refusal.text
         if self.max_bias == 0.0:
             return _ZERO_BIAS_LIMITS_REFUSAL + "."
         return None
@@ -1166,14 +1140,11 @@ class SensitivityBounds:
             refuse_inference(self.inference, operation=operation)
         reason = self._limit_reason()
         if reason is not None:
-            if self.nu2_estimator in _ESTIMATOR_LIMIT_REFUSALS:
+            if self.limit_refusal is not None:
                 raise CapabilityError(
                     f"{operation} is not defined under {reason}",
                     reason=RefusalReason.INFERENCE_GAP,
-                    alternative=(
-                        "Fit the bound with nu2_estimator='doubly_robust', which has "
-                        "derived limits."
-                    ),
+                    alternative=self.limit_refusal.alternative,
                     roadmap="F26",
                 )
             raise CapabilityError(
@@ -1250,10 +1221,11 @@ class SensitivityBounds:
         row: dict[str, Any] = {"estimand": self.estimand}
         if not supplies_inference(status):
             row["inference"] = status
-        if not self._limits_derived:
+        if self.nu2_estimator != "doubly_robust":
             row["nu2_estimator"] = self.nu2_estimator
-            if self.max_bias == 0.0 and self.nu2_estimator == "doubly_robust":
-                row["limit_refusal"] = _ZERO_BIAS_LIMITS_REFUSAL
+        reason = self._limit_reason()
+        if reason is not None:
+            row["limit_refusal"] = reason
         row |= {
             "psi": self.psi,
             "cf_y": self.cf_y,
@@ -1464,6 +1436,7 @@ def omitted_variable_bounds(
         null_hypothesis=null_hypothesis,
         inference=estimate.inference,
         nu2_estimator=elements.nu2_estimator,
+        limit_refusal=elements.limit_refusal,
     )
 
 
@@ -1970,14 +1943,17 @@ def robustness_value(
     )
     status = estimate.inference
     values: dict[str, Any] = {} if supplies_inference(status) else {"inference": status}
+    if elements.nu2_estimator != "doubly_robust":
+        values["nu2_estimator"] = elements.nu2_estimator
     if elements.psi_max_bias is None:
+        refusal = elements.limit_refusal
         values |= {
-            "nu2_estimator": elements.nu2_estimator,
             "rv": rv,
             "max_bias": elements.max_bias,
+            "limit_refusal": (
+                refusal.text if refusal is not None else _ZERO_BIAS_LIMITS_REFUSAL + "."
+            ),
         }
-        if elements.max_bias == 0.0 and elements.nu2_estimator == "doubly_robust":
-            values["limit_refusal"] = _ZERO_BIAS_LIMITS_REFUSAL
         return values
     values |= {"rv": rv, spread_name("rva", status): rva, "max_bias": elements.max_bias}
     return values
