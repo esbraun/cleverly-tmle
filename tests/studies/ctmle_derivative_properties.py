@@ -10,8 +10,7 @@ family                     cells
 ``interval_calibration``   ``in_sample``; ``cross_fitted`` (five folds); ``multi_arm`` (the
                            three-arm law, multinomial lasso, ``ate[1.0 vs 0.0]``);
                            ``missing_outcome`` (``delta=`` with a correct response learner).
-                           Each cell also publishes its SDs against the law's efficiency
-                           bound (:data:`EFFICIENCY_BOUNDS`)
+                           No cell claims an efficiency ratio (see :data:`EFFICIENCY_BOUNDS`)
 ``clustered_inference``    ``cluster_robust`` (the clustered law, 100 clusters of 20, ``id=``,
                            cross-fitted) and its ``iid_control``: the same fits, with the IID
                            variance of the same influence curve
@@ -136,7 +135,10 @@ NECESSITY_REPLICATES = 1_200
 #: the targeted arm's empirical spread.  The design test checks it against the exact limit
 #: bias of the GLM without ``W2`` on the primary law, about 2.5 spreads.
 TARGETING_DISPLACEMENT = 1.5
-#: The efficiency bound of each calibration cell's law and contrast.
+#: The efficiency bound of each calibration cell's law and contrast.  No verdict reads it:
+#: the study claims no efficiency ratio, because no cited result gives C-TMLE0 with a selected
+#: lasso propensity the efficient influence curve, so the summary publishes no efficiency
+#: columns.  The design test keeps the values reproducible for the plan's sizing arithmetic.
 EFFICIENCY_BOUNDS = {
     "in_sample": laws.PRIMARY_EIF_SD,
     "cross_fitted": laws.PRIMARY_EIF_SD,
@@ -456,7 +458,6 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         shared,
         STUDY,
         extra_columns=("targeting_displacement",),
-        efficiency_bounds=EFFICIENCY_BOUNDS,
     )
     clustered_inference_verdicts(summary, shared, STUDY)
     necessity_verdicts(
