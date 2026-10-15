@@ -31,10 +31,10 @@ threshold of another.  :data:`BINDINGS` names one perturbation for each subject 
 :data:`REASONS` instead, with a reason in :data:`REASON_CHECKS` that this module verifies.
 ``--bindings`` searches the subjects, and ``--write`` rewrites the witness table.
 
-Commit 7e measured the pass at 4,700 CPU-seconds, about 20 minutes on four workers, against
-a fast-tier budget of about 120 seconds.  So it runs as the ``property-differential`` job of
-``.github/workflows/ci.yml`` on every pull request that touches ``tests/studies/`` or
-``tests/canonical/``.  Its file name is not a test file name, so the fast tier does not collect
+The RM39b2 remediation measured the pass at 5,797 cases, about 6,400 CPU-seconds and about 30 minutes on four workers, against a
+fast-tier budget of about 120 seconds.  So it runs as the ``property-differential`` job of
+``.github/workflows/ci.yml`` on every pull request that touches ``tests/studies/``,
+``tests/canonical/``, ``src/cleverly/``, ``pyproject.toml``, ``uv.lock`` or the workflow.  Its file name is not a test file name, so the fast tier does not collect
 it.  ``tests/unit/test_method_evidence.py`` checks that :data:`SUBJECTS` lists every committed
 study, and that :data:`BINDINGS` names only subjects, perturbations and clauses that exist.
 

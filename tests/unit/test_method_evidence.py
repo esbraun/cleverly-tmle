@@ -3088,8 +3088,9 @@ class TestDeclaredRules:
 class TestPropertyDifferential:
     """R3-2 fallback: the all-study differential runs as a CI job, never as a sample.
 
-    ``tests/canonical/property_differential.py`` measured 4,577 cases at about 40 minutes on
-    four workers, so it is the ``property-differential`` job of ``.github/workflows/ci.yml``.
+    ``tests/canonical/property_differential.py`` measured 5,797 cases, about 6,400 CPU-seconds
+    and about 30 minutes on four workers, so it is the ``property-differential`` job of
+    ``.github/workflows/ci.yml``.
     The fast tier checks that the job's parametrization lists every committed study and that
     its clause-binding witnesses name what exists.
     """
@@ -3133,6 +3134,13 @@ class TestPropertyDifferential:
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
         assert "property-differential:" in workflow
         assert "tests/canonical/property_differential.py" in workflow
+        job = workflow.split("property-differential:", 1)[1].split("\n  # ", 1)[0]
+        # M3: a change to the package or its dependencies can move a verdict, a failed diff
+        # fails the job rather than skip it, and the job cannot hang.
+        for path in ("tests/(studies|canonical)/", "src/cleverly/", "pyproject", "uv"):
+            assert path in job, path
+        assert "timeout-minutes:" in job
+        assert '="$(git diff' in job and "|| git diff" not in job
 
     def test_each_binding_witness_names_what_exists(self) -> None:
         job = self._job()
