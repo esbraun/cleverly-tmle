@@ -498,7 +498,7 @@ Each refusal of the input is raised before any learner.
 | a grid that is not strictly increasing, positive and finite | `ValueError` |
 | an event code that is missing, negative, not an integer, or not named by `causes=`; a cause with no event at or before $g_K$ | `DataError` |
 | a horizon or an RMST time off the grid, or past $g_K$ on a declared grid | `ValueError` |
-| `time_varying=` on `TimeToEvent` | `TypeError` |
+| `time_varying=` on `TimeToEvent` | `CapabilityError`, code `api_redirection` |
 | a censoring time between two grid times | `DataError` |
 
 `to_time_to_event()` returns each unit's grid time and event code. It is the inverse map on a law
@@ -848,7 +848,7 @@ refusals that are statements about the question, the construction, or coverage.
 | eliminating the competing events | `different_estimand` | what is reported is the cause-specific cumulative incidence with the competing causes *left alone*, so a competing event is part of the history. Removing it makes it an intervened node: a further factor per node in the denominator, and its own no-unmeasured-confounding and positivity assumptions |
 | `intermediate=` | `different_estimand` | a controlled direct effect fixes a mediator at one time point. Over a sequence, with mediators that are themselves time-varying, that is a different identification rather than a further column |
 | `mechanism=True` on `truncation_curve()` | `invalid_declaration` | a longitudinal fit holds one cumulative treatment-and-censoring bound, and it fits no separate observation mechanism to sweep. The option names a point-treatment axis, so the call raises `CapabilityError` rather than sweeping the cumulative bound under another name |
-| a callable node that is not declared `"known"`, or that is declared `"estimated"` | `invalid_declaration` when undeclared, `inference_gap` when `"estimated"` | the fit treats each rule as fixed. A rule learned from the analysis sample needs a learned-policy estimand and its own inference. `LTMLE.fit` raises `CapabilityError` before any learner. Declare a rule fixed before the fit with `DynamicRegimen(label, plan, rule_kind="known")` |
+| a callable node that is not declared `"known"`, or that is declared `"estimated"` | `invalid_declaration` when undeclared, `implementation_gap` when `"estimated"` | the fit treats each rule as fixed. A rule learned from the analysis sample needs a learned-policy estimand and its own inference. `LTMLE.fit` raises `CapabilityError` before any learner. Declare a rule fixed before the fit with `DynamicRegimen(label, plan, rule_kind="known")` |
 | a callable written inline in a `regimens=` mapping | `invalid_declaration` | an inline callable carries no declaration, so the fit refuses it before any learner. Write the plan as a `DynamicRegimen` declared `rule_kind="known"`, with `(rule,) * T` for one rule at every node |
 | an outcome missing for a reason other than censoring | `api_redirection` | left as it is, the probability of observing it is silently taken to be one. Encode it as a final censoring column, so it is estimated and enters the cumulative product |
 | longitudinal sensitivity-bound estimation | `implementation_gap` | a sample estimator and sampling theory for its bound functionals. [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) holds the stop |
@@ -1049,7 +1049,7 @@ mechanism.
 
 | choice | `SDR` | reason |
 | --- | --- | --- |
-| fluctuation | none. `alpha=`, `max_iter=` and `tol=` raise `TypeError` | the transform replaces the targeting step |
+| fluctuation | none. `alpha=`, `max_iter=` and `tol=` raise `MethodConfigurationError` with code `invalid_declaration` | the transform replaces the targeting step |
 | regression clip | none. The default `pseudo_learner` is `SuperLearner(task="regression", clip=None)` | a transform can leave $[0, 1]$, and `lmtp` predicts it unbounded. A clipping pseudo learner is accepted and moves the estimate away from `lmtp_sdr` (`tests/unit/test_sdr_bounds_and_clipping.py`) |
 | `g_bounds=` | bounds each partial path probability $\prod_{k=t}^{s} p_k$ | at $t = 1$ this is the cumulative product that LTMLE divides by, equal to rounding. Where a bound binds, the bounded weight is a misspecified ratio on that path, and no SDR property is claimed there. `diagnostics.support()` reports the binding share per node, over the paths that the estimate reads. A cross-fitted fit counts the held-out rows of each fold |
 | a level outside the outcome range | reported as computed, with `ParameterSpaceWarning` | an average of transforms can leave $[0, 1]$, or $[q_\text{lo}, q_\text{hi}]$ on a continuous outcome (page 854) |
@@ -1230,7 +1230,7 @@ cancelled tilt factor and needs no such bound.
 
 | choice | `IPSI` | reason |
 | --- | --- | --- |
-| fluctuation | none. `alpha=`, `max_iter=`, `tol=`, `targeting=` and `fluctuation=` raise `TypeError` | the estimator averages the influence function at the fitted nuisances |
+| fluctuation | none. `alpha=`, `max_iter=`, `tol=`, `targeting=` and `fluctuation=` raise `MethodConfigurationError` with code `invalid_declaration` | the estimator averages the influence function at the fitted nuisances |
 | `g_bounds=` | bounds the cumulative censoring, label, rule and policy product. The tilt product multiplies in after the bound | the tilt factor lies in $[\min(\delta, 1/\delta), \max(\delta, 1/\delta)]$ and divides by no mechanism |
 | regression clip | none. The default `pseudo_learner` is a regression Super Learner with `clip=None` | `npcausal` predicts the targets unbounded |
 | a level outside the outcome range | reported as computed, with `ParameterSpaceWarning` | an average of $\varphi$ can leave $[0, 1]$, or the `q_bounds` range of a continuous outcome |
