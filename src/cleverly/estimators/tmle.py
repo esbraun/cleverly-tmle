@@ -3345,6 +3345,13 @@ class TMLE:
         # A data-tuned cap is fitted here, on the realised split and before any learner
         # (X40 part (e)), and the expanded policies are what the nuisances evaluate.
         tuned = resolve_point_policies(self.policies, data, folds) if self.policies else None
+        if tuned is not None:
+            # Each fold's map, and each fold-average component, meets R-a1, R-b1 and R-b3
+            # before any learner, as the map at theta_n did in ``fit`` (X40 plan section 3.2).
+            for fold_policies in (tuned.expanded, *(tuned.by_fold or ())):
+                preflight_point_policies(
+                    fold_policies, data, ratio=self.ratio, density_bins=self.density_bins
+                )
         reference = None if self.reference is None else str(self.reference)
         estimates = fit_nuisances(
             data,

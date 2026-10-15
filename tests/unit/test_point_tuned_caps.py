@@ -809,3 +809,62 @@ def test_m3_a_point_tuned_cap_with_declared_atoms_is_refused_before_any_learner(
             "density of the dose at the cap, and this release does not derive them at an atom. "
             "Declare the cap as a number, or tune the cap at a node with no declared atoms"
         )
+
+
+# ------------------------------------------------------------------ m2: fold maps meet the pre-fit checks
+
+
+def _support_for_the_fold_test() -> Any:
+    """An upper support of 3 read off the policy frame; the largest recorded dose is 2.91."""
+    from cleverly.interventions import Support
+
+    return Support(-10.0, lambda frame: np.full(len(frame), 3.0 + 0.0 * frame["W"].to_numpy()))
+
+
+def _fold_cap_at(theta: float, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every outer fold's tuner returns the cap ``theta``; the tuner on all rows is unchanged."""
+    from cleverly.interventions.tuning import FittedTuner
+
+    fit_tuner = tuned_module.fit_tuner
+
+    def fold_only(tuner: Any, doses: Any, frame: Any, rows: Any, weights: Any = None) -> Any:
+        fitted = fit_tuner(tuner, doses, frame, rows, weights)
+        if np.all(rows):
+            return fitted
+        return FittedTuner(tuner, np.array([theta]), n_fitted=fitted.n_fitted)
+
+    monkeypatch.setattr(tuned_module, "fit_tuner", fold_only)
+
+
+def test_m2_a_fold_map_that_leaves_the_support_is_refused_before_any_learner(
+    frame: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R-a1 on a fold map: the map at theta_n passes, a fold's cap of 50 moves rows out.
+
+    A quantile cap stays inside the recorded doses, so a fold map can leave the support
+    only through a boundary that extrapolates; the test fixes the fold's cap instead.  The
+    learners raise, so the refusal precedes the density fit that used to meet it first.
+    """
+    from cleverly.estimators import TMLE
+
+    _fold_cap_at(50.0, monkeypatch)
+    with pytest.raises(DataError, match="not identified under the declared support"):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            TMLE(
+                policies=_policies("population"),
+                n_folds=2,
+                **_settings(**_raising(), cross_fit=True),
+            ).fit(frame, treatment_support=_support_for_the_fold_test(), **COLUMNS)
+
+
+def test_m2_the_same_fit_without_the_fold_cap_reaches_the_learners(frame: Any) -> None:
+    """The control: with the real fold caps the support check passes and the learners run."""
+    from cleverly.estimators import TMLE
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = TMLE(policies=_policies("population"), n_folds=2, **_settings(cross_fit=True)).fit(
+            frame, treatment_support=_support_for_the_fold_test(), **COLUMNS
+        )
+    assert np.isfinite(result.single().psi(NAME))
