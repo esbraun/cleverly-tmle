@@ -11,8 +11,8 @@ document in the same change. Superseded rationale belongs in Git history.
 
 Validate each derivation independently. A comparison against a canonical implementation is
 acceptance evidence for the numerical and repeated-sampling claims it covers.
-[RM42](roadmap.md#rm42-acceptance-status-and-refusal-reasons) part (e) adds the comparator-backed
-label to those claims on the evidence pages.
+The evidence pages mark a study that names a reference as comparator-backed. Each such study
+declares its comparison kind in the study registry.
 
 A comparison does not replace an independent check of a changed term. Implementations descended
 from one source share transcription errors. Derivative, exact-law, remainder, mutation, and score
@@ -42,6 +42,7 @@ availability separately.
 | A comparator exists | Use it where it is informative. Its agreement is acceptance evidence for the claims it covers. Label each such claim as comparator-backed, and state what the comparison establishes and what differences remain. Each changed term keeps its independent check |
 | Fundamental theory is missing | This blocks the affected claim when the gap needs a new identification, regularity, or asymptotic argument. Scope the block to that method, configuration, or inference claim |
 | A comparator and missing theory | A comparator cannot replace missing fundamental theory. The absence of a comparator does not create a theoretical gap |
+| A planned comparator study has not run | This does not block a merge or a release when the method's Python studies pass with their expected properties. Label the evidence "comparator runs pending" beside its property evidence. When the comparator runs, register its results and act on its findings |
 
 A study without a comparator records that absence and names the independent evidence that replaces
 it. Do not invent a reference implementation, and do not claim parity to fill an evidence table.
@@ -198,7 +199,7 @@ it from `NON_INFERENTIAL`. The estimator that stamps a parameter status names it
 `CONSTANT_NODE_STATUS`. [Inference status](technical-reference/inference.md#inference-status)
 gives the public contract. *Reconsider when* [F18](roadmap.md#f18-selector-path-c-tmle-inference)
 supplies the selector paths' influence curve, when a second parameter status is added, or when
-[F31](roadmap.md#f31-inference-at-a-boundary-node-estimate) supplies an interval at a boundary
+[X54](roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) part (i) supplies an interval at a boundary
 node, which would remove the one status that reads a fitted quantity.
 
 Where a configuration group serves more than one engine, a default that differs between them is
@@ -618,6 +619,13 @@ For competing risks, use a cause-specific event numerator with the all-cause sur
 Competing events affect the at-risk population but do not add a denominator factor unless a new
 estimand explicitly intervenes on them. Cause-specific estimates need not be renormalized to a
 simplex.
+
+A repeated outcome is not an event. It has no risk set and no survival complement. Each horizon
+$h$ seeds its own observed $Y_h$, so horizon $h$ is the end-of-study fit of the panel truncated
+after $h$. The container puts $Y_s$ first in block $s + 1$, so $Y_s$ precedes $L_{s+1}$ in every
+history. A caller that keys or groups parameters by horizon reads `reports_curve`. A caller that
+uses the absorbing structure reads `is_survival`. `tests/unit/test_repeated_outcome.py` checks the
+reduction, and a permuted `outcome` field changes no estimate of a repeated fit.
 
 A held design has one treatment decision, at node 1, held over every node. Each later node is an
 identity node. Its plan value is the observed node-1 value, its factor is exactly one in the ratio

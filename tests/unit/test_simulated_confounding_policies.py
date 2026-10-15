@@ -20,7 +20,7 @@ from cleverly import (
 )
 from cleverly.estimators import DRTMLE, TMLE
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import CapabilityError, DataError
+from cleverly.exceptions import CapabilityError, DataError, RefusalReason
 from cleverly.interventions import Incremental, Static, Stochastic
 from cleverly.msm import MSMSet
 from cleverly.sensitivity import _simulated_confounding_fixed as fixed_replay
@@ -521,9 +521,12 @@ def test_bare_regime_levels_replay_and_assess(regimens: tuple[Any, ...]) -> None
 
 @pytest.mark.parametrize("target", ["ey_regime", "ate_regime", "msm"])
 def test_fixed_replay_requires_exact_ordinary_tmle(target: str) -> None:
-    assert fixed_replay.fixed_replay_refusal(DRTMLE(), target) == (
-        "simulated_confounding supports fixed regimes and MSMs under exact ordinary TMLE only"
+    refusal = fixed_replay.fixed_replay_refusal(DRTMLE(), target)
+    assert refusal is not None
+    assert refusal.condition == (
+        "simulated_confounding supports fixed regimes and MSMs under exact ordinary TMLE only."
     )
+    assert refusal.reason is RefusalReason.IMPLEMENTATION_GAP
 
 
 @pytest.mark.parametrize("component", ["density", "design", "weights"])

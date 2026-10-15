@@ -612,7 +612,7 @@ class TestEveryTargetKind:
                 _ = estimate.ci
         reason = NON_INFERENTIAL["few_cluster_plugin"].reason
         assert "fewer than 20 on a longitudinal fit" in reason
-        assert "F28" in reason
+        assert "X54" in reason and "F28" in reason
         assert fit_law(19, n_folds=1).inference_status == "few_cluster_plugin"
         in_sample = fit_law(20, n_folds=1)
         assert {e.reference_df for e in in_sample.estimates.values()} == {18}

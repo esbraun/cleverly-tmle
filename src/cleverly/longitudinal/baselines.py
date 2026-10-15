@@ -599,7 +599,7 @@ def fit_ipw_cell(
             ):
                 constant.append(time)
     if not survival:
-        terms[horizon] = seed_carried(data, scaler)
+        terms[horizon] = seed_carried(data, scaler, horizon=horizon)
         if constant_target(terms[horizon], masks.following(horizon)) is not None:
             constant.append(horizon)
         psi, curve = _end_of_study(

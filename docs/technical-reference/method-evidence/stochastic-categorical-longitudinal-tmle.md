@@ -51,13 +51,15 @@ default paired margins, as in the [categorical study](ordinary-categorical-longi
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| the three-level law with known stochastic policies at both nodes | `ate_regimen[mix vs low]` | difference in mean outcome between the plans "draw each arm from a known policy at both times" against "assign the low arm at both times" | -0.000593 | 0.1109 | 0.9860 | -0.0025 | 0.0144 vs 0.0500 | equivalent |
-| the three-level law with known stochastic policies at both nodes | `ate_regimen[taper vs low]` | difference in mean outcome between the plans "assign the high arm first, then draw from a known policy" against "assign the low arm at both times" | -0.0011 | 0.1691 | 0.9884 | 0.0050 | 0.0129 vs 0.0500 | equivalent |
-| the three-level law with known stochastic policies at both nodes | `ey_regimen[low]` | mean outcome under the plan assign the low arm at both times | 0.000593 | 0.1136 | 0.9776 | -0.0030 | 0.0148 vs 0.0500 | equivalent |
-| the three-level law with known stochastic policies at both nodes | `ey_regimen[mix]` | mean outcome under the plan draw each arm from a known policy at both times | -4.892e-11 | 2.285e-08 | 1.0000 | 0 | 3.839e-10 vs 0.0500 | equivalent |
-| the three-level law with known stochastic policies at both nodes | `ey_regimen[taper]` | mean outcome under the plan assign the high arm first, then draw from a known policy | -0.000478 | 0.1343 | 1.0195 | -0.0050 | 0.0069 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `lmtp` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| the three-level law with known stochastic policies at both nodes | `ate_regimen[mix vs low]` | difference in mean outcome between the plans "draw each arm from a known policy at both times" against "assign the low arm at both times" | -0.000593 | 0.1109 | 0.9860 | -0.0025 | matching implementation | 0.0144 vs 0.0500 | equivalent |
+| the three-level law with known stochastic policies at both nodes | `ate_regimen[taper vs low]` | difference in mean outcome between the plans "assign the high arm first, then draw from a known policy" against "assign the low arm at both times" | -0.0011 | 0.1691 | 0.9884 | 0.0050 | matching implementation | 0.0129 vs 0.0500 | equivalent |
+| the three-level law with known stochastic policies at both nodes | `ey_regimen[low]` | mean outcome under the plan assign the low arm at both times | 0.000593 | 0.1136 | 0.9776 | -0.0030 | matching implementation | 0.0148 vs 0.0500 | equivalent |
+| the three-level law with known stochastic policies at both nodes | `ey_regimen[mix]` | mean outcome under the plan draw each arm from a known policy at both times | -4.892e-11 | 2.285e-08 | 1.0000 | 0 | matching implementation | 3.839e-10 vs 0.0500 | equivalent |
+| the three-level law with known stochastic policies at both nodes | `ey_regimen[taper]` | mean outcome under the plan assign the high arm first, then draw from a known policy | -0.000478 | 0.1343 | 1.0195 | -0.0050 | matching implementation | 0.0069 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties

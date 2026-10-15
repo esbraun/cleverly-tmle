@@ -54,17 +54,19 @@ reduced regressions on the stratum's rows, which is the construction the subject
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Benkeser et al. (2017) binary law with three baseline strata, correct GLM nuisances | `ate[V=0]` | average treatment effect, in stratum V=0 | 0.000339 | 0.0715 | 1.0052 | 0.0062 | 0.0121 vs 0.0500 | superior |
-| Benkeser et al. (2017) binary law with three baseline strata, correct GLM nuisances | `ate[V=1]` | average treatment effect, in stratum V=1 | 0.000652 | 0.1025 | 1.0093 | 0.0012 | 0.0118 vs 0.0500 | equivalent |
-| Benkeser et al. (2017) binary law with three baseline strata, correct GLM nuisances | `ate[V=2]` | average treatment effect, in stratum V=2 | 0.000169 | 0.0203 | 1.0251 | -0.0100 | 0.0404 vs 0.0500 | equivalent |
-| Benkeser et al. (2017) binary law with three baseline strata, correct GLM nuisances | `ey[0][V=0]` | counterfactual mean under treatment arm '0', in stratum V=0 | -0.000248 | 0.0608 | 1.0073 | 0.0088 | 0.0135 vs 0.0500 | equivalent |
-| Benkeser et al. (2017) binary law with three baseline strata, correct GLM nuisances | `ey[0][V=1]` | counterfactual mean under treatment arm '0', in stratum V=1 | -0.000066 | 0.0141 | 1.0146 | -0.0013 | 0.0112 vs 0.0500 | equivalent |
-| Benkeser et al. (2017) binary law with three baseline strata, correct GLM nuisances | `ey[0][V=2]` | counterfactual mean under treatment arm '0', in stratum V=2 | -0.000126 | 0.0276 | 1.0098 | 0.0012 | 0.0105 vs 0.0500 | equivalent |
-| Benkeser et al. (2017) binary law with three baseline strata, correct GLM nuisances | `ey[1][V=0]` | counterfactual mean under treatment arm '1', in stratum V=0 | 0.000091 | 0.0292 | 1.0050 | -0.0012 | 0.0047 vs 0.0500 | equivalent |
-| Benkeser et al. (2017) binary law with three baseline strata, correct GLM nuisances | `ey[1][V=1]` | counterfactual mean under treatment arm '1', in stratum V=1 | 0.000587 | 0.1212 | 1.0089 | 0.0050 | 0.0123 vs 0.0500 | equivalent |
-| Benkeser et al. (2017) binary law with three baseline strata, correct GLM nuisances | `ey[1][V=2]` | counterfactual mean under treatment arm '1', in stratum V=2 | 0.000043 | 0.0058 | 1.0238 | 0.0075 | 0.0277 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `drtmle-r-stratified` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Benkeser et al. (2017) binary law with three baseline strata, correct GLM nuisances | `ate[V=0]` | average treatment effect, in stratum V=0 | 0.000339 | 0.0715 | 1.0052 | 0.0062 | related target | 0.0121 vs 0.0500 | superior |
+| Benkeser et al. (2017) binary law with three baseline strata, correct GLM nuisances | `ate[V=1]` | average treatment effect, in stratum V=1 | 0.000652 | 0.1025 | 1.0093 | 0.0012 | related target | 0.0118 vs 0.0500 | equivalent |
+| Benkeser et al. (2017) binary law with three baseline strata, correct GLM nuisances | `ate[V=2]` | average treatment effect, in stratum V=2 | 0.000169 | 0.0203 | 1.0251 | -0.0100 | related target | 0.0404 vs 0.0500 | equivalent |
+| Benkeser et al. (2017) binary law with three baseline strata, correct GLM nuisances | `ey[0][V=0]` | counterfactual mean under treatment arm '0', in stratum V=0 | -0.000248 | 0.0608 | 1.0073 | 0.0088 | related target | 0.0135 vs 0.0500 | equivalent |
+| Benkeser et al. (2017) binary law with three baseline strata, correct GLM nuisances | `ey[0][V=1]` | counterfactual mean under treatment arm '0', in stratum V=1 | -0.000066 | 0.0141 | 1.0146 | -0.0013 | related target | 0.0112 vs 0.0500 | equivalent |
+| Benkeser et al. (2017) binary law with three baseline strata, correct GLM nuisances | `ey[0][V=2]` | counterfactual mean under treatment arm '0', in stratum V=2 | -0.000126 | 0.0276 | 1.0098 | 0.0012 | related target | 0.0105 vs 0.0500 | equivalent |
+| Benkeser et al. (2017) binary law with three baseline strata, correct GLM nuisances | `ey[1][V=0]` | counterfactual mean under treatment arm '1', in stratum V=0 | 0.000091 | 0.0292 | 1.0050 | -0.0012 | related target | 0.0047 vs 0.0500 | equivalent |
+| Benkeser et al. (2017) binary law with three baseline strata, correct GLM nuisances | `ey[1][V=1]` | counterfactual mean under treatment arm '1', in stratum V=1 | 0.000587 | 0.1212 | 1.0089 | 0.0050 | related target | 0.0123 vs 0.0500 | equivalent |
+| Benkeser et al. (2017) binary law with three baseline strata, correct GLM nuisances | `ey[1][V=2]` | counterfactual mean under treatment arm '1', in stratum V=2 | 0.000043 | 0.0058 | 1.0238 | 0.0075 | related target | 0.0277 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Repeated-sampling properties

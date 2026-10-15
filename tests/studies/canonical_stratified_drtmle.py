@@ -152,6 +152,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-stratified-drtmle",
     reference="drtmle-r-stratified",
+    comparison="related target",
     publication_policy="reporting",
     modules=(
         "tests/studies/canonical_stratified_drtmle.py",

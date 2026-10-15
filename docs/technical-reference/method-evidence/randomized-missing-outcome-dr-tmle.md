@@ -28,11 +28,13 @@ directly.
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome randomized law with MAR outcomes | `ate` | average treatment effect | -0.000009 | 0.0018 | 1.0022 | -0.0012 | 0.0038 vs 0.0500 | equivalent |
-| binary-outcome randomized law with MAR outcomes | `ey0` | counterfactual mean under no treatment | -0.000015 | 0.0040 | 1.0016 | -0.0037 | 0.0035 vs 0.0500 | equivalent |
-| binary-outcome randomized law with MAR outcomes | `ey1` | counterfactual mean under treatment | -0.000023 | 0.0073 | 1.0021 | 0.0013 | 0.0030 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `drtmle-r-mar` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome randomized law with MAR outcomes | `ate` | average treatment effect | -0.000009 | 0.0018 | 1.0022 | -0.0012 | different estimator | 0.0038 vs 0.0500 | equivalent |
+| binary-outcome randomized law with MAR outcomes | `ey0` | counterfactual mean under no treatment | -0.000015 | 0.0040 | 1.0016 | -0.0037 | different estimator | 0.0035 vs 0.0500 | equivalent |
+| binary-outcome randomized law with MAR outcomes | `ey1` | counterfactual mean under treatment | -0.000023 | 0.0073 | 1.0021 | 0.0013 | different estimator | 0.0030 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Repeated-sampling properties

@@ -416,7 +416,6 @@ def test_the_declared_cells_are_the_cells_the_properties_draw() -> None:
         for family, cells in study.PROPERTY_CELLS.items()
         if family not in {"root_n_rate"}
         for cell in cells
-        if not cell.endswith(("__shrunken_se_control", "__noise_control"))
     }
     assert declared == published
     calibration = list(study.CALIBRATION_LABELS)

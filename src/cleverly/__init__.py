@@ -55,6 +55,7 @@ from .exceptions import (
 )
 from .inference import ParameterEstimate
 from .learners import SplitPlan, SuperLearner
+from .longitudinal import Repeated
 from .methods import (
     CollaborativeTMLEMethod,
     CrossFitting,
@@ -164,6 +165,7 @@ __all__ = [
     "Provenance",
     "RegimeContrast",
     "RegimeMean",
+    "Repeated",
     "Replayability",
     "RiskRatio",
     "Runtime",

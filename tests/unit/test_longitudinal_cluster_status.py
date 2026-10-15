@@ -3,7 +3,7 @@
 The point-treatment few-cluster status applies to the longitudinal path too, with the floor of
 :data:`~cleverly._inference_status.MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS`. A fit with fewer
 positive-mass clusters stamps ``"few_cluster_plugin"`` on every mean, contrast and MSM
-coefficient, and F28 owns those fits. From 20 to 39 such clusters every estimate keeps its
+coefficient, and X54 holds the evidence for those fits. From 20 to 39 such clusters every estimate keeps its
 interval on a Student t reference with ``J - 2`` degrees of freedom. The witness and the control
 run in sample and at five whole-cluster folds, for every kind but the working model, which
 ``LTMLE`` refuses above one fold for every fit.

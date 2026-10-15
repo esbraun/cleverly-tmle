@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cleverly.exceptions import CapabilityError, DataError
+from cleverly.exceptions import CapabilityError, DataError, MethodConfigurationError
 from cleverly.learners import GLM
 from cleverly.longitudinal import (
     LTMLE,
@@ -810,7 +810,7 @@ def test_a_data_adaptive_learner_withholds_the_interval() -> None:
         estimate = result.estimates["ey_regimen[always]"]
         assert estimate.inference == "adaptive_baseline_plugin"
         assert np.isfinite(estimate.plugin_std_error)
-        with pytest.raises(CapabilityError, match="F32"):
+        with pytest.raises(CapabilityError, match="F35"):
             _ = estimate.std_error
 
 
@@ -884,10 +884,14 @@ def test_an_ipw_node_with_no_event_takes_the_constant_node_status() -> None:
         (lambda: SequentialIPW({"a": 1}, n_folds=5), CapabilityError, "fits in sample"),
         (
             lambda: SequentialGComputation({"a": 1}, alpha=0.99),
-            TypeError,
+            MethodConfigurationError,
             "fit no fluctuation",
         ),
-        (lambda: SequentialIPW({"a": 1}, max_iter=3), TypeError, "fit no fluctuation"),
+        (
+            lambda: SequentialIPW({"a": 1}, max_iter=3),
+            MethodConfigurationError,
+            "fit no fluctuation",
+        ),
         (
             lambda: SequentialIPW({"a": 1}, outcome_learner=GLM()),
             CapabilityError,

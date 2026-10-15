@@ -111,7 +111,13 @@ from scipy.special import expit
 from ._declarations import FunctionDeclaration, FunctionKind
 from ._typing import FloatArray
 from .data.causal_data import CausalData
-from .exceptions import CapabilityError, DataError
+from .exceptions import (
+    CapabilityError,
+    DataError,
+    MethodConfigurationError,
+    Refusal,
+    RefusalReason,
+)
 from .interventions.base import _as_array, _covariate_frame
 
 __all__ = [
@@ -295,18 +301,18 @@ def refuse_unsupported(kind: str, detail: str = "") -> None:
     Kept beside the constructors a user would reach for, and worded to say what the
     estimator would *need*: "not implemented" invites the reader to assume the gap is
     effort rather than a missing derivation.  An unknown link is a malformed value, so it
-    raises ``ValueError``, as each other unknown-name check does.
+    raises ``MethodConfigurationError``, a ``ValueError``, as each other unknown-name check does.
     """
     if kind == "link":
-        raise ValueError(
+        raise MethodConfigurationError(
             f"link={detail!r} is not a link this package knows; the registered ones are "
             f"{sorted(LINKS)}. A link is declared by its mean function and two "
-            "derivatives of it -- see cleverly.msm.Link and register_link -- and needs a "
+            "derivatives of it. See cleverly.msm.Link and register_link. A new link needs a "
             "branch in tests/discrete_law.py before it can be trusted, since the "
             "projection it defines is solved by Newton rather than in closed form."
         )
     if kind == "estimated_weights":
-        raise CapabilityError(_ESTIMATED_WEIGHTS)
+        raise CapabilityError.from_refusal(_ESTIMATED_WEIGHTS)
     raise ValueError(f"unknown refusal {kind!r}")
 
 
@@ -315,26 +321,33 @@ def refuse_unsupported(kind: str, detail: str = "") -> None:
 #: checks a model, and :func:`refuse_unsupported`.  No source path calls
 #: ``refuse_unsupported("estimated_weights")``.  It is the public named refusal, and it shares
 #: this text so that the two cannot drift apart.
-_ESTIMATED_WEIGHTS = (
+_ESTIMATED_WEIGHTS = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
     "an estimated MSM projection weight (a 'stabilised' MSM) is refused. h(a, V) is then "
     "a functional of P, so the efficient influence function carries a further term for "
     "the pathwise derivative through the estimated mechanism or arm shares, and the "
     "influence curve reported here does not have it. The reported standard error can "
     "be too small, as an exact-law witness shows; its direction is not universal. "
     "docs/technical-reference/msm-projections.md (Variations) records the "
-    "refusal and its reason. Pass weights= as a known "
-    "function of the arm and the covariates with weights_kind='known', or leave "
-    "weights=None for uniform weights."
+    "refusal and its reason.",
+    alternative=(
+        "Pass weights= as a known function of the arm and the covariates with "
+        "weights_kind='known', or leave weights=None for uniform weights."
+    ),
+    roadmap="X64",
 )
 
-_UNDECLARED_WEIGHTS = (
-    "MSM weights= needs a declaration of what the callable is. Pass weights_kind='known' "
-    "when h(a, V) is a fixed function of the arm and the covariates, chosen without "
-    "reading the data. A weight computed from the sample, such as arm shares or a fitted "
-    "mechanism, is estimated: h is then a functional of P, the reported influence curve "
-    "omits its pathwise derivative, so its standard error can be wrong "
-    "(docs/technical-reference/msm-projections.md, Variations). weights_kind='estimated' is "
-    "refused for that reason."
+_UNDECLARED_WEIGHTS = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "MSM weights= needs a declaration of what the callable is. A weight computed from the "
+    "sample, such as arm shares or a fitted mechanism, is estimated: h is then a functional "
+    "of P, the reported influence curve omits its pathwise derivative, so its standard "
+    "error can be wrong (docs/technical-reference/msm-projections.md, Variations). "
+    "weights_kind='estimated' is refused for that reason.",
+    alternative=(
+        "Pass weights_kind='known' when h(a, V) is a fixed function of the arm and the "
+        "covariates, chosen without reading the data."
+    ),
 )
 
 #: The projection-weight declaration: the field ``weights_kind``, and the texts of its
@@ -351,7 +364,8 @@ _WEIGHTS_DECLARATION = FunctionDeclaration(
     estimated=_ESTIMATED_WEIGHTS,
 )
 
-_ESTIMATED_DESIGN = (
+_ESTIMATED_DESIGN = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
     "an estimated MSM design is refused. A design computed from the sample, such as a "
     "covariate centred at its sample mean, can define a population-law target where phi "
     "is a functional of P. Its influence function can need a further term for the "
@@ -359,21 +373,28 @@ _ESTIMATED_DESIGN = (
     "The standard error can be wrong in either direction; an exact-law witness "
     "shows one that is too small. A realized learned-design target instead needs inference "
     "conditions that this API does not establish. docs/technical-reference/msm-projections.md "
-    "(Variations) records the refusal and its reason. "
-    "Choose any centre independently of the analysis sample, then pass design_kind='known'."
+    "(Variations) records the refusal and its reason.",
+    alternative=(
+        "Choose any centre independently of the analysis sample, then pass "
+        "design_kind='known'. MSM.linear needs no declaration."
+    ),
+    roadmap="X64",
 )
 
-_UNDECLARED_DESIGN = (
-    "MSM design= needs a declaration of what the callable is. Pass design_kind='known' "
-    "when phi is a fixed function of the arm (or the regimen and horizon) and the "
-    "covariates, chosen without reading the data. A design computed from the sample, such "
-    "as a covariate centred at its sample mean, is estimated. For a population-law target, "
-    "phi is then a functional of P and the reported influence curve can omit its pathwise "
-    "derivative, so its standard error can be wrong "
+_UNDECLARED_DESIGN = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "MSM design= needs a declaration of what the callable is. A design computed from the "
+    "sample, such as a covariate centred at its sample mean, is estimated. For a "
+    "population-law target, phi is then a functional of P and the reported influence curve "
+    "can omit its pathwise derivative, so its standard error can be wrong "
     "(docs/technical-reference/msm-projections.md, Variations). A realized "
     "learned-design target needs separate inference conditions that this API does not "
-    "establish. design_kind='estimated' is refused for these reasons. MSM.linear needs no "
-    "declaration: the design it builds is known by construction."
+    "establish. design_kind='estimated' is refused for these reasons.",
+    alternative=(
+        "Pass design_kind='known' when phi is a fixed function of the arm (or the regimen "
+        "and horizon) and the covariates, chosen without reading the data. MSM.linear needs "
+        "no declaration: the design it builds is known by construction."
+    ),
 )
 
 #: The working-design declaration: the field ``design_kind``, and the texts of its
@@ -449,8 +470,10 @@ def refuse_continuous_msm_mechanisms(data: CausalData, *, subject: str, missingn
         "by the treatment density at the observed dose and at each dose of the integration "
         "grid. In that construction the covariate must also divide by "
         f"{' and '.join(mechanisms)} at each of those doses. No targeting step or evidence "
-        "for this composition is written here. "
-        "docs/roadmap.md X10 tracks it."
+        "for this composition is written here.",
+        reason=RefusalReason.IMPLEMENTATION_GAP,
+        alternative="Discretize the dose and fit the arm MSM with delta=.",
+        roadmap="X10",
     )
 
 
@@ -534,7 +557,9 @@ def refuse_msm_functions(model: MSM) -> None:
             "(regimen_label, horizon, baseline_frame) -> (n,) for a longitudinal regimen "
             f"MSM; got {type(weights).__name__}. An array is one evaluation of h(a, V), "
             "and nothing here can show that it was not estimated from the sample, so it is "
-            "refused as an estimated weight would be: " + _ESTIMATED_WEIGHTS
+            f"refused as an estimated weight would be. {_ESTIMATED_WEIGHTS.condition}",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative=_ESTIMATED_WEIGHTS.alternative,
         )
     if weights is not None:
         _WEIGHTS_DECLARATION.refuse(kind)

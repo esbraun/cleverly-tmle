@@ -12,6 +12,7 @@ categorized API tables.
    cleverly.StudyProtocol
    cleverly.PointTreatment
    cleverly.LongitudinalTreatment
+   cleverly.Repeated
    cleverly.TimeToEvent
    cleverly.LongPanel
    cleverly.longitudinal.PanelLayout
@@ -84,6 +85,8 @@ categorized API tables.
    cleverly.PositivityWarning
    cleverly.VersionMismatchWarning
    cleverly.WeightingWarning
+   cleverly.exceptions.Refusal
+   cleverly.exceptions.RefusalReason
    cleverly.learners.SuperLearnerDiagnostics
    cleverly.learners.CorrelationScreener
    cleverly.learners.CrossFitPlan
@@ -192,6 +195,7 @@ categorized API tables.
    cleverly.datasets.make_weak_overlap
    cleverly.datasets.make_longitudinal
    cleverly.datasets.make_longitudinal_survival
+   cleverly.datasets.make_longitudinal_repeated
    cleverly.datasets.make_longitudinal_competing
    cleverly.datasets.make_longitudinal_weighted
    cleverly.datasets.make_point_survival

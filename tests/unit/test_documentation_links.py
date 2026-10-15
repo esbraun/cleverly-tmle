@@ -41,6 +41,7 @@ from pathlib import Path
 
 import pytest
 
+from cleverly.exceptions import Refusal
 from tests.documents import DOCUMENTS, NOTEBOOKS, ROOT
 
 #: Every Python file that may carry a cross-reference in a docstring or comment.  These are not
@@ -289,8 +290,20 @@ def rule_texts(rule: object) -> list[str]:
     code = rule.__code__  # type: ignore[attr-defined]
     module = importlib.import_module(rule.__module__)  # type: ignore[attr-defined]
     found = [constant for constant in code.co_consts if isinstance(constant, str)]
+    for name in code.co_names:
+        value = getattr(module, name, None)
+        if isinstance(value, str):
+            found.append(value)
+        elif isinstance(value, Refusal):
+            found.append(value.message())
+            if value.roadmap is not None:
+                found.append(f"docs/roadmap.md {value.roadmap}")
+    # A rule that builds its record inline names the item as a ``roadmap=`` literal, which
+    # the compiled code holds as a short string beside the other constants.
     found.extend(
-        value for name in code.co_names if isinstance(value := getattr(module, name, None), str)
+        f"docs/roadmap.md {constant}"
+        for constant in code.co_consts
+        if isinstance(constant, str) and re.fullmatch(r"[A-Z]+\d+", constant)
     )
     return found
 
@@ -298,7 +311,7 @@ def rule_texts(rule: object) -> list[str]:
 def test_every_roadmap_item_a_refusal_cites_exists() -> None:
     """A refusal that cites a roadmap item cites one the roadmap still declares.
 
-    ``simulated_confounding`` refuses six compositions by naming the artifact each one needs
+    ``simulated_confounding`` refuses seven compositions by naming the artifact each one needs
     and the roadmap item that tracks it.  The citation is prose, so
     :func:`test_every_documentation_link_in_source_resolves` does not see it, and renaming an
     item leaves the user an id that resolves to nothing.  This pull request renamed ``F14`` to
@@ -318,7 +331,9 @@ def test_every_roadmap_item_a_refusal_cites_exists() -> None:
 
     # The negative control.  A rule table read through the wrong attribute, or a citation
     # reworded past ``ROADMAP_CITATION``, would make the assertion below vacuously true.
-    assert len(cited) >= 6, f"only {sorted(cited)} matched; check ROADMAP_CITATION"
+    # The floor is five: the rules cite X47, X48, F12, F13 and F15, because RM43 moved the
+    # F8, F9, F10 and F11 citations into the one row X47.
+    assert len(cited) >= 5, f"only {sorted(cited)} matched; check ROADMAP_CITATION"
     missing = sorted(item for item in cited if item not in ROADMAP_ITEMS)
     assert not missing, (
         f"refusal messages cite roadmap item(s) docs/roadmap.md does not declare: {missing}. "
@@ -334,8 +349,8 @@ def test_the_evalue_refusal_cites_a_roadmap_item_that_exists() -> None:
     """
     from cleverly.sensitivity.evalue import _DIRECT_EFFECT_REFUSAL
 
-    cited = ROADMAP_CITATION.findall(_DIRECT_EFFECT_REFUSAL)
-    assert cited == ["F25"]
+    cited = ROADMAP_CITATION.findall(_DIRECT_EFFECT_REFUSAL.message())
+    assert cited == ["X49"]
     assert set(cited) <= set(ROADMAP_ITEMS)
 
 

@@ -70,13 +70,15 @@ nothing else.
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome law | `ate` | average treatment effect | 0.000005 | 0.0011 | 1.0003 | 0 | 0.000826 vs 0.0500 | equivalent |
-| binary-outcome law | `ey0` | counterfactual mean under no treatment | 3.839e-08 | 0.000012 | 1.0005 | 0 | 0.000388 vs 0.0500 | equivalent |
-| binary-outcome law | `ey1` | counterfactual mean under treatment | 0.000005 | 0.0016 | 1.0002 | 0 | 0.000605 vs 0.0500 | equivalent |
-| binary-outcome law | `or` | marginal odds ratio, reported on the log scale | 0.000043 | 0.0011 | 1.0004 | 0 | 0.000804 vs 0.0500 | equivalent |
-| binary-outcome law | `rr` | marginal risk ratio, reported on the log scale | 0.000014 | 0.000940 | 1.0004 | 0.0012 | 0.000755 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `tlverse-ctmle3-oat` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law | `ate` | average treatment effect | 0.000005 | 0.0011 | 1.0003 | 0 | matching implementation | 0.000826 vs 0.0500 | equivalent |
+| binary-outcome law | `ey0` | counterfactual mean under no treatment | 3.839e-08 | 0.000012 | 1.0005 | 0 | matching implementation | 0.000388 vs 0.0500 | equivalent |
+| binary-outcome law | `ey1` | counterfactual mean under treatment | 0.000005 | 0.0016 | 1.0002 | 0 | matching implementation | 0.000605 vs 0.0500 | equivalent |
+| binary-outcome law | `or` | marginal odds ratio, reported on the log scale | 0.000043 | 0.0011 | 1.0004 | 0 | matching implementation | 0.000804 vs 0.0500 | equivalent |
+| binary-outcome law | `rr` | marginal risk ratio, reported on the log scale | 0.000014 | 0.000940 | 1.0004 | 0.0012 | matching implementation | 0.000755 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties

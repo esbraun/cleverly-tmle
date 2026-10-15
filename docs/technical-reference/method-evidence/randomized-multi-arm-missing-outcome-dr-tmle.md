@@ -45,17 +45,19 @@ this estimator. The `default-simultaneous-bands` study measures the two-arm band
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| L3: three-arm binary-outcome law with MAR outcomes and known W-stratified assignment | `ate[low vs high]` | difference in counterfactual means, low versus high | -0.000019 | 0.0033 | 1.0021 | 0.0013 | 0.0016 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes and known W-stratified assignment | `ate[mid vs high]` | difference in counterfactual means, mid versus high | 9.748e-07 | 0.000181 | 1.0011 | 0.0012 | 0.0015 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes and known W-stratified assignment | `ey[high]` | counterfactual mean under treatment arm 'high' | 0.000027 | 0.0067 | 1.0011 | -0.0013 | 0.0014 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes and known W-stratified assignment | `ey[low]` | counterfactual mean under treatment arm 'low' | 0.000008 | 0.0019 | 1.0028 | 0 | 0.0021 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes and known W-stratified assignment | `ey[mid]` | counterfactual mean under treatment arm 'mid' | 0.000028 | 0.0079 | 1.0014 | 0 | 0.0017 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes and known W-stratified assignment | `or[low vs high]` | marginal odds ratio, low versus high, reported on the log scale | -0.000023 | 0.0032 | 1.0024 | 0.0012 | 0.0016 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes and known W-stratified assignment | `or[mid vs high]` | marginal odds ratio, mid versus high, reported on the log scale | -0.000009 | 0.000705 | 1.0016 | 0.0012 | 0.0015 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes and known W-stratified assignment | `rr[low vs high]` | marginal risk ratio, low versus high, reported on the log scale | -0.000010 | 0.0015 | 1.0026 | 0 | 0.0018 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes and known W-stratified assignment | `rr[mid vs high]` | marginal risk ratio, mid versus high, reported on the log scale | 0.000009 | 0.0012 | 1.0012 | 0 | 0.0015 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `drtmle-r-multi-arm-mar` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| L3: three-arm binary-outcome law with MAR outcomes and known W-stratified assignment | `ate[low vs high]` | difference in counterfactual means, low versus high | -0.000019 | 0.0033 | 1.0021 | 0.0013 | different estimator | 0.0016 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes and known W-stratified assignment | `ate[mid vs high]` | difference in counterfactual means, mid versus high | 9.748e-07 | 0.000181 | 1.0011 | 0.0012 | different estimator | 0.0015 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes and known W-stratified assignment | `ey[high]` | counterfactual mean under treatment arm 'high' | 0.000027 | 0.0067 | 1.0011 | -0.0013 | different estimator | 0.0014 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes and known W-stratified assignment | `ey[low]` | counterfactual mean under treatment arm 'low' | 0.000008 | 0.0019 | 1.0028 | 0 | different estimator | 0.0021 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes and known W-stratified assignment | `ey[mid]` | counterfactual mean under treatment arm 'mid' | 0.000028 | 0.0079 | 1.0014 | 0 | different estimator | 0.0017 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes and known W-stratified assignment | `or[low vs high]` | marginal odds ratio, low versus high, reported on the log scale | -0.000023 | 0.0032 | 1.0024 | 0.0012 | different estimator | 0.0016 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes and known W-stratified assignment | `or[mid vs high]` | marginal odds ratio, mid versus high, reported on the log scale | -0.000009 | 0.000705 | 1.0016 | 0.0012 | different estimator | 0.0015 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes and known W-stratified assignment | `rr[low vs high]` | marginal risk ratio, low versus high, reported on the log scale | -0.000010 | 0.0015 | 1.0026 | 0 | different estimator | 0.0018 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes and known W-stratified assignment | `rr[mid vs high]` | marginal risk ratio, mid versus high, reported on the log scale | 0.000009 | 0.0012 | 1.0012 | 0 | different estimator | 0.0015 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Repeated-sampling properties
