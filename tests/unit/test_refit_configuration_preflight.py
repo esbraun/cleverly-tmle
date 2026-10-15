@@ -33,13 +33,13 @@ def test_replay_reads_cv_parameter_guard_before_any_learner(
 
     reason = estimator._refit_configuration_refusal(result.data)
     assert reason is not None
-    assert "cv_evaluation=True does not yet support ['rr']" in reason
+    assert "cv_evaluation=True does not yet support ['rr']" in reason.message()
     replay = replayability(result)
     assert not replay.refit_nuisances
     assert replay.unreconstructible == (POINT_REPLAY_REFIT_CONFIGURATION,)
     with pytest.raises(ValueError) as raised:
         estimator.refit(result.data)
-    assert str(raised.value) == reason
+    assert str(raised.value) == reason.message()
 
 
 @pytest.mark.parametrize(
@@ -64,13 +64,13 @@ def test_replay_reads_scaler_and_config_guards_before_any_learner(
 
     reason = estimator._refit_configuration_refusal(result.data)
     assert reason is not None
-    assert fragment in reason
+    assert fragment in reason.message()
     replay = replayability(result)
     assert not replay.refit_nuisances
     assert replay.unreconstructible == (POINT_REPLAY_REFIT_CONFIGURATION,)
     with pytest.raises(ValueError) as raised:
         estimator.refit(result.data)
-    assert str(raised.value) == reason
+    assert str(raised.value) == reason.message()
 
 
 def test_preflight_keeps_subclass_estimand_override(
@@ -85,7 +85,8 @@ def test_preflight_keeps_subclass_estimand_override(
     result = replace(rr_result, estimator=estimator)
     monkeypatch.setattr(estimator, "_nuisances", _never_fit)
 
-    assert estimator._refit_configuration_refusal(result.data) == "subclass preflight refusal"
+    refusal = estimator._refit_configuration_refusal(result.data)
+    assert refusal is not None and refusal.message() == "subclass preflight refusal"
     assert not replayability(result).refit_nuisances
     with pytest.raises(ValueError, match="subclass preflight refusal"):
         estimator.refit(result.data)

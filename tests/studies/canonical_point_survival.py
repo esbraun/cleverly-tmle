@@ -162,6 +162,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly",
     reference="survtmle",
+    comparison="different estimator",
     modules=(
         "tests/studies/canonical_point_survival.py",
         "tests/studies/point_survival_properties.py",

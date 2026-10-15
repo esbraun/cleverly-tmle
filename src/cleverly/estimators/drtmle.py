@@ -153,7 +153,7 @@ from typing import Any, cast
 from .._inference_status import InferenceStatus, precedent_status
 from ..data.causal_data import CausalData
 from ..data.known_mechanism import KNOWN_EVALUATION_REFUSAL
-from ..exceptions import CapabilityError
+from ..exceptions import CapabilityError, CleverlyError, Refusal, RefusalReason
 from ..learners.crossfit import Folds
 from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearnerDiagnostics
@@ -163,7 +163,7 @@ from ._nuisance import NuisanceEstimates, fit_inner_designs
 from ._strata import refuse_untrainable_stratum_folds
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .composite import (
-    COMPOSITE_NESTED_REFUSAL,
+    composite_nested_refusal,
     composite_state,
     missing_data_route,
     unidentified_targets,
@@ -621,11 +621,11 @@ class DRTMLE(TMLE):
         # changes after construction meets it before any learner.  Nested inner designs
         # exist only at a non-empty ``guard``.
         if self.guard and self.targeting == "one_step" and self.reduced_crossfit == "nested":
-            raise CapabilityError(ONE_STEP_NESTED_REFUSAL)
+            raise CapabilityError.from_refusal(ONE_STEP_NESTED_REFUSAL)
 
     def _reduction_configuration_refusal(
         self, fitted: ReducedFit | None, nuisance: NuisanceEstimates
-    ) -> str | None:
+    ) -> Refusal | None:
         """Why a retarget cannot refit the reduced regressions under these settings.
 
         A guarded truncation curve retargets the cached primary nuisances, and the
@@ -649,18 +649,23 @@ class DRTMLE(TMLE):
 
         Returns
         -------
-        str or None
-            The refusal for these settings, or ``None`` when no check refuses.
+        Refusal or None
+            The refusal for these settings, or ``None`` when no check refuses. A refusal
+            of the settings keeps the reason code that its raise carries.
         """
         try:
             self._validate_drtmle_settings()
             self._refuse_one_step_nested()
+        except CleverlyError as error:
+            return error.refusal
         except ValueError as error:
-            return str(error)
+            return Refusal(RefusalReason.INVALID_DECLARATION, str(error))
         if fitted is None:
-            return (
+            return Refusal(
+                RefusalReason.INVALID_DECLARATION,
                 "the result records no fitted DR-TMLE construction in extra['drtmle'], so the "
-                "guard of the reduced refit cannot be checked. Fit again."
+                "guard of the reduced refit cannot be checked.",
+                alternative="Fit again.",
             )
         changed = []
         if tuple(self.guard) != tuple(fitted.guard):
@@ -678,10 +683,12 @@ class DRTMLE(TMLE):
                 f"reduced_crossfit={self.reduced_crossfit!r} (fitted {fitted_crossfit!r})"
             )
         if changed:
-            return (
+            return Refusal(
+                RefusalReason.INVALID_DECLARATION,
                 "the estimator's reduction construction differs from the fitted one: "
                 + ", ".join(changed)
-                + ". Fit again with these settings, or restore the fitted ones."
+                + ".",
+                alternative="Fit again with these settings, or restore the fitted ones.",
             )
         return None
 
@@ -741,15 +748,18 @@ class DRTMLE(TMLE):
                     "evaluation= and repeats= are not combined. Each draw of the split "
                     "targets its own alternation, so there would be one companion per draw "
                     "and no single state for P_0 D-hat to be the mean of -- and "
-                    "result.extra['drtmle'] already describes draw 0 only. Fit each draw "
-                    "separately, or drop repeats=."
+                    "result.extra['drtmle'] already describes draw 0 only.",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                    alternative="Fit each draw separately, or drop repeats=.",
                 )
             if self.targeting == "one_step":
                 raise CapabilityError(
                     "evaluation= and targeting='one_step' are not combined, on cost rather "
-                    "than on derivation -- the same refusal reduced_crossfit='nested' takes. "
-                    f"The companion is moved {ONE_STEP_CARRY_COST}. "
-                    "Use targeting='iterative', which is the default."
+                    "than on derivation. This is the same refusal that "
+                    "reduced_crossfit='nested' takes. "
+                    f"The companion is moved {ONE_STEP_CARRY_COST}.",
+                    reason=RefusalReason.API_REDIRECTION,
+                    alternative="Use targeting='iterative', which is the default.",
                 )
             if self.target_weights:
                 raise CapabilityError(
@@ -757,7 +767,8 @@ class DRTMLE(TMLE):
                     "of the submodel divides the covariate by the *fitting* sample's weights, "
                     "and a companion row has none of them -- so the companion would travel "
                     "along a covariate belonging to other rows while reporting itself as "
-                    "that fit's."
+                    "that fit's.",
+                    reason=RefusalReason.INVALID_DECLARATION,
                 )
         if self.targeting_scheme == "fold" or self.cv_evaluation:
             raise CapabilityError(
@@ -767,17 +778,22 @@ class DRTMLE(TMLE):
                 "need each fold's reduced regressions and alternation; cv_evaluation=True "
                 "would need the corrected parameter and influence curve derived under "
                 "fold-wise evaluation. Neither follows by looping over the pooled "
-                "reduction. Use targeting_scheme='pooled', cv_evaluation=False."
+                "reduction.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative="Use targeting_scheme='pooled', cv_evaluation=False.",
+                roadmap="F5",
             )
         for keyword in ("interventions", "policies", "incremental", "msm"):
             if getattr(self, keyword, None):
                 if keyword in ("interventions", "msm"):
+                    open_row = "X50"
                     status = (
                         "The indicator reduction for a regime and the projection of the arm "
                         "or regime means follow from that theorem, but they are not "
                         "implemented (docs/roadmap.md X50)."
                     )
                 else:
+                    open_row = "F5"
                     status = (
                         "No theorem read here says what its reductions would be "
                         "(docs/roadmap.md F5)."
@@ -785,8 +801,10 @@ class DRTMLE(TMLE):
                 raise CapabilityError(
                     f"DRTMLE and {keyword}= are not combined. The reduced-dimension "
                     "regressions are derived for counterfactual means under a static "
-                    f"treatment, and {keyword}= is a different score equation. {status} "
-                    "Fit a plain TMLE, which is derived there."
+                    f"treatment, and {keyword}= is a different score equation. {status}",
+                    reason=RefusalReason.IMPLEMENTATION_GAP,
+                    alternative="Fit a plain TMLE, which is derived there.",
+                    roadmap=open_row,
                 )
 
     # --------------------------------------------------------------- the hook
@@ -1157,7 +1175,10 @@ class DRTMLE(TMLE):
                 "the collaborative point being that g need only adjust for what Qbar "
                 "missed. C-TMLE also scores its path by the cross-validated loss of the "
                 "targeted Qbar, so the criterion choosing g-hat presupposes that Qbar is "
-                "informative, which is precisely the case this variant insures against."
+                "informative, which is precisely the case this variant insures against.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative="Fit DRTMLE or CTMLE alone.",
+                roadmap="F5",
             )
         self._refuse_one_step_nested()
         if data.is_continuous_treatment:
@@ -1167,15 +1188,20 @@ class DRTMLE(TMLE):
                 "DRTMLE and intermediate= are not combined. Equations (9) and (10) are stated "
                 "without a controlled intermediate; its mechanism factor would sit inside "
                 "the reduced regressions' own definitions, not merely in the clever "
-                "covariate, and no theorem read here says what it is. "
-                "Fit a plain TMLE, which is derived there."
+                "covariate, and no theorem read here says what it is.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative="Fit a plain TMLE, which is derived there.",
+                roadmap="F5",
             )
         route = missing_data_route(self, data)
         if self.guard and self.reduction == "bivariate" and route == "randomized_missing_outcome":
             raise CapabilityError(
                 "reduction='bivariate' is the complete-outcome construction. The "
-                "randomized missing-outcome theorem uses its own five reductions; use "
-                "reduction='univariate' (the setting is replaced by that construction)."
+                "randomized missing-outcome theorem uses its own five reductions.",
+                reason=RefusalReason.API_REDIRECTION,
+                alternative=(
+                    "Use reduction='univariate' (the setting is replaced by that construction)."
+                ),
             )
         # The companion's mechanism must be its own declaration: no model is fitted to
         # predict it there.
@@ -1184,12 +1210,15 @@ class DRTMLE(TMLE):
             and self.evaluation is not None
             and not self._companion_declares_mechanism(data)
         ):
-            raise CapabilityError(KNOWN_EVALUATION_REFUSAL)
+            raise CapabilityError.from_refusal(KNOWN_EVALUATION_REFUSAL)
         if route == "randomized_missing_outcome" and self.guard and set(self.guard) != {"Q", "g"}:
             raise CapabilityError(
                 "missing-outcome DRTMLE requires guard=('Q', 'g'): Díaz & van der "
                 "Laan's algorithm jointly targets the treatment, observation and "
-                "outcome correction blocks, and no partial-guard theorem is claimed"
+                "outcome correction blocks, and no partial-guard theorem is claimed.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative="Use guard=('Q', 'g').",
+                roadmap="F5",
             )
         # At every guard, including ``guard=()``. That fit is a plain TMLE on the
         # cross-fitted missing-outcome surface, which only ordinary TMLE's audited
@@ -1199,29 +1228,41 @@ class DRTMLE(TMLE):
         if data.has_missing_outcome and self.cross_fit:
             raise CapabilityError(
                 "the published missing-outcome DR-TMLE theorem uses Donsker conditions and "
-                "does not establish its cross-validated extension (docs/roadmap.md F21); "
-                "pass cross_fit=False "
-                "(CrossFitting(enabled=False) on DRTMLEMethod)"
+                "does not establish its cross-validated extension.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=("Pass cross_fit=False (CrossFitting(enabled=False) on DRTMLEMethod)."),
+                roadmap="F21",
             )
         if route == "randomized_missing_outcome" and self.guard:
             if data.is_weighted:
                 raise CapabilityError(
-                    "missing-outcome DRTMLE is not certified for a weight-tilted target law; "
-                    "drop weights= or fit a plain TMLE"
+                    "missing-outcome DRTMLE is not certified for a weight-tilted target law.",
+                    reason=RefusalReason.IMPLEMENTATION_GAP,
+                    alternative="Drop weights= or fit a plain TMLE.",
+                    roadmap="X62",
                 )
             if self.evaluation is not None or self.reduced_crossfit != "pooled":
+                # X62 holds evaluation=, and F21 the nested construction.
+                nested_item = "X62" if self.reduced_crossfit == "pooled" else "F21"
                 raise CapabilityError(
                     "missing-outcome DRTMLE supports the published pooled construction only; "
-                    "evaluation= and nested reduced cross-fitting are not certified"
+                    "evaluation= and nested reduced cross-fitting are not certified.",
+                    reason=RefusalReason.IMPLEMENTATION_GAP,
+                    alternative="Drop evaluation= and reduced_crossfit='nested'.",
+                    roadmap=nested_item,
                 )
         if (
             route == "composite"
             and self.guard
             and (self.evaluation is not None or self.reduced_crossfit != "pooled")
         ):
+            refusal = composite_nested_refusal(self)
             raise CapabilityError(
                 "the composite-indicator DR-TMLE for an observational missing outcome or "
-                f"treatment does not take these settings. {COMPOSITE_NESTED_REFUSAL}"
+                f"treatment does not take these settings. {refusal.condition}",
+                reason=refusal.reason,
+                alternative=refusal.alternative,
+                roadmap=refusal.roadmap,
             )
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms)
         if data.has_missing_treatment and (self.estimands is None or self.estimands == "all"):
@@ -1235,6 +1276,11 @@ class DRTMLE(TMLE):
                 f"DRTMLE does not support estimand(s) {outside}: the reduced-dimension "
                 "regressions are derived for the counterfactual means, and the ATT and ATC "
                 "clever covariates are a propensity odds conditioning on a random event -- "
-                "a different score equation with its own reductions to derive. Request them "
-                f"from a plain TMLE, or set estimands={sorted(MEAN_GROUP_ESTIMANDS)!r}."
+                "a different score equation with its own reductions to derive.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=(
+                    "Request them from a plain TMLE, or set "
+                    f"estimands={sorted(MEAN_GROUP_ESTIMANDS)!r}."
+                ),
+                roadmap="F5",
             )

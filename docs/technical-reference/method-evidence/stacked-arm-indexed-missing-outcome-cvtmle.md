@@ -145,33 +145,35 @@ that. `tests/unit/test_arm_indexed_cvtmle_method_study.py` runs the check and th
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| L3: three-arm binary-outcome law with MAR outcomes | `ate[low vs high]` | difference in counterfactual means, low versus high | -4.105e-10 | 7.373e-08 | 1.0000 | 0 | 1.793e-09 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes | `ate[mid vs high]` | difference in counterfactual means, mid versus high | -1.973e-10 | 3.676e-08 | 1.0000 | 0 | 2.471e-09 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes | `ey[high]` | counterfactual mean under treatment arm 'high' | 2.215e-10 | 5.617e-08 | 1.0000 | 0 | 3.387e-09 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes | `ey[low]` | counterfactual mean under treatment arm 'low' | -1.890e-10 | 4.745e-08 | 1.0000 | 0 | 1.410e-09 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes | `ey[mid]` | counterfactual mean under treatment arm 'mid' | 2.416e-11 | 6.736e-09 | 1.0000 | 0 | 1.773e-09 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes | `or[low vs high]` | marginal odds ratio, low versus high, reported on the log scale | -5.201e-10 | 7.413e-08 | 1.0000 | 0 | 2.123e-09 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes | `or[mid vs high]` | marginal odds ratio, mid versus high, reported on the log scale | -4.952e-10 | 3.866e-08 | 1.0000 | 0 | 2.855e-09 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes | `rr[low vs high]` | marginal risk ratio, low versus high, reported on the log scale | -4.554e-10 | 6.914e-08 | 1.0000 | 0 | 1.803e-09 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes | `rr[mid vs high]` | marginal risk ratio, mid versus high, reported on the log scale | -2.176e-10 | 3.121e-08 | 1.0000 | 0 | 2.082e-09 vs 0.0500 | equivalent |
-| L1: two-arm binary-outcome law with MAR outcomes | `ate` | average treatment effect | 9.460e-10 | 1.924e-07 | 1.0000 | 0 | 4.979e-09 vs 0.0500 | equivalent |
-| L1: two-arm binary-outcome law with MAR outcomes | `ey0` | counterfactual mean under no treatment | -3.362e-10 | 9.074e-08 | 1.0000 | 0 | 4.969e-09 vs 0.0500 | equivalent |
-| L1: two-arm binary-outcome law with MAR outcomes | `ey1` | counterfactual mean under treatment | 6.099e-10 | 1.727e-07 | 1.0000 | 0 | 4.987e-09 vs 0.0500 | equivalent |
-| L1: two-arm binary-outcome law with MAR outcomes | `or` | marginal odds ratio, reported on the log scale | 8.961e-09 | 1.837e-07 | 1.0000 | 0 | 4.783e-09 vs 0.0500 | equivalent |
-| L1: two-arm binary-outcome law with MAR outcomes | `rr` | marginal risk ratio, reported on the log scale | 2.948e-09 | 1.713e-07 | 1.0000 | 0 | 4.019e-09 vs 0.0500 | equivalent |
-| L4: three-arm bounded continuous-outcome law with MAR outcomes | `ate[low vs high]` | difference in counterfactual means, low versus high | -5.692e-10 | 2.083e-08 | 1.0000 | 0 | 1.011e-09 vs 0.0500 | equivalent |
-| L4: three-arm bounded continuous-outcome law with MAR outcomes | `ate[mid vs high]` | difference in counterfactual means, mid versus high | 3.131e-10 | 1.162e-08 | 1.0000 | 0 | 1.915e-10 vs 0.0500 | equivalent |
-| L4: three-arm bounded continuous-outcome law with MAR outcomes | `ey[high]` | counterfactual mean under treatment arm 'high' | -4.417e-13 | 2.375e-11 | 1.0000 | 0 | 5.510e-13 vs 0.0500 | equivalent |
-| L4: three-arm bounded continuous-outcome law with MAR outcomes | `ey[low]` | counterfactual mean under treatment arm 'low' | -5.697e-10 | 2.898e-08 | 1.0000 | 0 | 1.762e-09 vs 0.0500 | equivalent |
-| L4: three-arm bounded continuous-outcome law with MAR outcomes | `ey[mid]` | counterfactual mean under treatment arm 'mid' | 3.126e-10 | 1.808e-08 | 1.0000 | 0 | 4.701e-09 vs 0.0500 | equivalent |
-| L2: two-arm bounded continuous-outcome law with MAR outcomes | `ate` | average treatment effect | 1.598e-09 | 6.375e-08 | 1.0000 | 0 | 1.537e-08 vs 0.0500 | equivalent |
-| L2: two-arm bounded continuous-outcome law with MAR outcomes | `ey0` | counterfactual mean under no treatment | -7.787e-10 | 4.754e-08 | 1.0000 | 0 | 9.779e-10 vs 0.0500 | equivalent |
-| L2: two-arm bounded continuous-outcome law with MAR outcomes | `ey1` | counterfactual mean under treatment | 8.193e-10 | 4.628e-08 | 1.0000 | 0 | 7.143e-09 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `tmle-r-stitched-arm-indexed` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| L3: three-arm binary-outcome law with MAR outcomes | `ate[low vs high]` | difference in counterfactual means, low versus high | -4.105e-10 | 7.373e-08 | 1.0000 | 0 | related target | 1.793e-09 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes | `ate[mid vs high]` | difference in counterfactual means, mid versus high | -1.973e-10 | 3.676e-08 | 1.0000 | 0 | related target | 2.471e-09 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes | `ey[high]` | counterfactual mean under treatment arm 'high' | 2.215e-10 | 5.617e-08 | 1.0000 | 0 | matching implementation | 3.387e-09 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes | `ey[low]` | counterfactual mean under treatment arm 'low' | -1.890e-10 | 4.745e-08 | 1.0000 | 0 | matching implementation | 1.410e-09 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes | `ey[mid]` | counterfactual mean under treatment arm 'mid' | 2.416e-11 | 6.736e-09 | 1.0000 | 0 | matching implementation | 1.773e-09 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes | `or[low vs high]` | marginal odds ratio, low versus high, reported on the log scale | -5.201e-10 | 7.413e-08 | 1.0000 | 0 | related target | 2.123e-09 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes | `or[mid vs high]` | marginal odds ratio, mid versus high, reported on the log scale | -4.952e-10 | 3.866e-08 | 1.0000 | 0 | related target | 2.855e-09 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes | `rr[low vs high]` | marginal risk ratio, low versus high, reported on the log scale | -4.554e-10 | 6.914e-08 | 1.0000 | 0 | related target | 1.803e-09 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes | `rr[mid vs high]` | marginal risk ratio, mid versus high, reported on the log scale | -2.176e-10 | 3.121e-08 | 1.0000 | 0 | related target | 2.082e-09 vs 0.0500 | equivalent |
+| L1: two-arm binary-outcome law with MAR outcomes | `ate` | average treatment effect | 9.460e-10 | 1.924e-07 | 1.0000 | 0 | matching implementation | 4.979e-09 vs 0.0500 | equivalent |
+| L1: two-arm binary-outcome law with MAR outcomes | `ey0` | counterfactual mean under no treatment | -3.362e-10 | 9.074e-08 | 1.0000 | 0 | matching implementation | 4.969e-09 vs 0.0500 | equivalent |
+| L1: two-arm binary-outcome law with MAR outcomes | `ey1` | counterfactual mean under treatment | 6.099e-10 | 1.727e-07 | 1.0000 | 0 | matching implementation | 4.987e-09 vs 0.0500 | equivalent |
+| L1: two-arm binary-outcome law with MAR outcomes | `or` | marginal odds ratio, reported on the log scale | 8.961e-09 | 1.837e-07 | 1.0000 | 0 | matching implementation | 4.783e-09 vs 0.0500 | equivalent |
+| L1: two-arm binary-outcome law with MAR outcomes | `rr` | marginal risk ratio, reported on the log scale | 2.948e-09 | 1.713e-07 | 1.0000 | 0 | matching implementation | 4.019e-09 vs 0.0500 | equivalent |
+| L4: three-arm bounded continuous-outcome law with MAR outcomes | `ate[low vs high]` | difference in counterfactual means, low versus high | -5.692e-10 | 2.083e-08 | 1.0000 | 0 | related target | 1.011e-09 vs 0.0500 | equivalent |
+| L4: three-arm bounded continuous-outcome law with MAR outcomes | `ate[mid vs high]` | difference in counterfactual means, mid versus high | 3.131e-10 | 1.162e-08 | 1.0000 | 0 | related target | 1.915e-10 vs 0.0500 | equivalent |
+| L4: three-arm bounded continuous-outcome law with MAR outcomes | `ey[high]` | counterfactual mean under treatment arm 'high' | -4.417e-13 | 2.375e-11 | 1.0000 | 0 | matching implementation | 5.510e-13 vs 0.0500 | equivalent |
+| L4: three-arm bounded continuous-outcome law with MAR outcomes | `ey[low]` | counterfactual mean under treatment arm 'low' | -5.697e-10 | 2.898e-08 | 1.0000 | 0 | matching implementation | 1.762e-09 vs 0.0500 | equivalent |
+| L4: three-arm bounded continuous-outcome law with MAR outcomes | `ey[mid]` | counterfactual mean under treatment arm 'mid' | 3.126e-10 | 1.808e-08 | 1.0000 | 0 | matching implementation | 4.701e-09 vs 0.0500 | equivalent |
+| L2: two-arm bounded continuous-outcome law with MAR outcomes | `ate` | average treatment effect | 1.598e-09 | 6.375e-08 | 1.0000 | 0 | matching implementation | 1.537e-08 vs 0.0500 | equivalent |
+| L2: two-arm bounded continuous-outcome law with MAR outcomes | `ey0` | counterfactual mean under no treatment | -7.787e-10 | 4.754e-08 | 1.0000 | 0 | matching implementation | 9.779e-10 vs 0.0500 | equivalent |
+| L2: two-arm bounded continuous-outcome law with MAR outcomes | `ey1` | counterfactual mean under treatment | 8.193e-10 | 4.628e-08 | 1.0000 | 0 | matching implementation | 7.143e-09 vs 0.0500 | equivalent |
 <!-- /generated -->
 
-Both implementations use the centered, `n - 1` divisor variance `var(IC) / n`. The R two-arm path
+In this comparator-backed study, both implementations use the centered, `n - 1` divisor variance `var(IC) / n`. The R two-arm path
 bounds a binary mean interval to `[0, 1]` and an ATE interval to `[-1, 1]`. These laws stay away
 from those bounds. For L3 and L4 the adapter forms Wald intervals from the per-arm curves.
 

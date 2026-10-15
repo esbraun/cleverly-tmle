@@ -128,6 +128,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-clustered-cross-fitted-ltmle",
     reference="lmtp",
+    comparison="different estimator",
     modules=(
         "tests/studies/clustered_crossfit_ltmle.py",
         "tests/studies/clustered_crossfit_ltmle_properties.py",

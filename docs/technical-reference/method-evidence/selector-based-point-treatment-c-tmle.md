@@ -53,11 +53,13 @@ samples a proportion and declares an outcome support of 0 to 1.
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome law, discrete selector | `ate` | average treatment effect | 0.000055 | 0.0170 | 1.0069 | 0.0025 | 0.0052 vs 0.0500 | equivalent |
-| binary-outcome law, greedy selector | `ate` | average treatment effect | 0.000039 | 0.0121 | 1.0059 | 0.0088 | 0.0218 vs 0.0500 | superior |
-| binary-outcome law, ordered selector | `ate` | average treatment effect | 0.000034 | 0.0105 | 1.0034 | 0.0012 | 0.0118 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `r-ctmle` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law, discrete selector | `ate` | average treatment effect | 0.000055 | 0.0170 | 1.0069 | 0.0025 | matching implementation | 0.0052 vs 0.0500 | equivalent |
+| binary-outcome law, greedy selector | `ate` | average treatment effect | 0.000039 | 0.0121 | 1.0059 | 0.0088 | matching implementation | 0.0218 vs 0.0500 | superior |
+| binary-outcome law, ordered selector | `ate` | average treatment effect | 0.000034 | 0.0105 | 1.0034 | 0.0012 | matching implementation | 0.0118 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties

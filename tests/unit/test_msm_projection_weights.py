@@ -91,8 +91,8 @@ from tests.unit._simulated_confounding_support import _GRID, _alias, _fit_msm
 
 #: The two declaration refusals, imported from the module that raises them, so the text
 #: is written once.
-UNDECLARED = _UNDECLARED_WEIGHTS
-ESTIMATED = _ESTIMATED_WEIGHTS
+UNDECLARED = _UNDECLARED_WEIGHTS.message()
+ESTIMATED = _ESTIMATED_WEIGHTS.message()
 #: Fragments of the other refusals.  A test matches a fragment, not the whole text, so a
 #: rewording of the explanation does not break it, but a message from another check does.
 NOT_CALLABLE = "must be a callable"

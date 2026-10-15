@@ -44,6 +44,7 @@ def _record(*, replicates: int = 200, bound: float = 0.05, **changes: object) ->
         "n": 500,
         "seed": 11,
         "reference": REFERENCE,
+        "comparison": "matching implementation",
         "failure_bound": {REFERENCE: bound} if bound else {},
         "margins": Margins(bootstrap_replicates=400),
     }

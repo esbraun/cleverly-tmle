@@ -38,6 +38,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-categorical-ltmle",
     reference="lmtp",
+    comparison="matching implementation",
     modules=(
         "tests/studies/canonical_categorical_ltmle.py",
         "tests/studies/categorical_ltmle_properties.py",
