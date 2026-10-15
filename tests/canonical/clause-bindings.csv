@@ -506,6 +506,16 @@ ctmle-oat-per-arm,simultaneous_coverage,joint coverage below nominal,se_high
 ctmle-oat-per-arm,simultaneous_coverage,joint coverage in calibration band,none
 ctmle-oat-per-arm,type_i_error,coverage floor,rejection/0.01
 ctmle-oat-per-arm,type_i_error,rejection ceiling,coverage/0.94
+ctmle-oat-per-arm-parametric,generated_design,coverage in calibration band,affine
+ctmle-oat-per-arm-parametric,generated_design,se ratio in calibration band,se/0.05
+ctmle-oat-per-arm-parametric,interval_calibration,coverage in calibration band,bias
+ctmle-oat-per-arm-parametric,interval_calibration,noise se ratio below band,se_high
+ctmle-oat-per-arm-parametric,interval_calibration,se ratio above band,se_low
+ctmle-oat-per-arm-parametric,interval_calibration,se ratio below band,se_high
+ctmle-oat-per-arm-parametric,interval_calibration,se ratio in calibration band,affine
+ctmle-oat-per-arm-parametric,power,rejection floor,se_high
+ctmle-oat-per-arm-parametric,type_i_error,coverage floor,coverage/0.5
+ctmle-oat-per-arm-parametric,type_i_error,rejection ceiling,rejection/0.1
 ctmle-oat-per-arm-strata-missing,robustness_contract,bias discriminated,centre/control/0
 ctmle-oat-per-arm-strata-missing,robustness_contract,bias equivalent,bias
 ctmle-oat-per-arm-strata-missing,robustness_contract,se ratio in union band,se/0.05

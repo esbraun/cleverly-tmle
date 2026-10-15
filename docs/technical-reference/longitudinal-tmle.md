@@ -994,7 +994,9 @@ also checks four compositions: a modified treatment policy, a held survival desi
 and a time-to-event container. In each one, a declared factor and a learner that returns it give
 one fit. The
 registered [known-node-mechanisms study](method-evidence/known-node-mechanisms-ltmle.md) pairs
-the fit with R `ltmle` at a numeric `gform`.
+the fit with R `ltmle` at a numeric `gform`. The
+[sequential offers tutorial](../examples/sequential-offers.ipynb) declares a three-level offer at
+three nodes beside an estimated consent model.
 
 ## Functionals of a fitted result
 

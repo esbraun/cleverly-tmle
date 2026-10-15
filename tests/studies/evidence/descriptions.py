@@ -502,6 +502,9 @@ _TERM = re.compile(
 
 IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-ctmle-oat-per-arm": "`cleverly` per-arm outcome-adaptive C-TMLE",
+    "cleverly-ctmle-oat-per-arm-parametric": (
+        "`cleverly` per-arm outcome-adaptive C-TMLE with a parametric outcome and mechanism"
+    ),
     "drtmle-r-oat-per-arm": "R `drtmle` with `adapt_g`, by a binary recode per arm",
     "drtmle-r-oat-per-arm-strata-missing": (
         "R `drtmle` with `adapt_g`, by a binary recode per arm, with `DeltaY`, `DeltaA` and"
@@ -2471,6 +2474,90 @@ ARM_CELLS.update(
             "the lower confidence endpoint clears the declared unresolved-score floor",
         ),
     }
+)
+
+
+#: The ``ctmle-oat-per-arm-parametric`` cells (X58a).  A calibration cell reads one estimand of
+#: one fit, so the entries compose the label's description with the estimand's.  The label
+#: ``binary_active`` is an :data:`ARMS` key, so its cells resolve through :data:`ARM_CELLS`.
+_PARAMETRIC_ESTIMANDS = {
+    "ey0": "arm-0 mean",
+    "ey1": "arm-1 mean",
+    "ate": "ATE",
+    "log_rr": "log risk ratio",
+    "log_or": "log odds ratio",
+}
+_PARAMETRIC_CALIBRATION = ("SE ratio and coverage intervals both inside their calibration bands",)
+_PARAMETRIC_FITS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "auto_bounds": (
+        'the stacked curve with the default g_bounds of "auto"',
+        ("ey0", "ey1", "ate"),
+    ),
+    "bounded_outcome": (
+        "the stacked curve for an outcome bounded in 2 to 10, fitted with q_bounds on the "
+        "scaled outcome",
+        ("ey0", "ey1", "ate"),
+    ),
+    "bounds_active": (
+        "the stacked curve with g_bounds of (0.05, 0.95), which clip a share of the rows at the "
+        "limit",
+        ("ey0", "ey1", "ate"),
+    ),
+    "kappa_cubic": (
+        "the stacked curve on a U-shaped mechanism, with the cubic basis in logit q",
+        ("ey0", "ey1", "ate"),
+    ),
+    "kappa_linear": (
+        "the stacked curve on a U-shaped mechanism, with the linear basis in logit q",
+        ("ey0", "ey1", "ate"),
+    ),
+    "n_500": ("the stacked curve at n = 500", ("ey0", "ey1", "ate")),
+    "n_2000": ("the stacked curve at n = 2,000", ("ey0", "ey1", "ate")),
+    "n_8000": ("the stacked curve at n = 8,000", ("ey0", "ey1", "ate")),
+    "pseudo_true": (
+        "the stacked curve with W1 dropped from the outcome features, so the interval covers "
+        "the limit psi*",
+        ("ey0", "ey1", "ate"),
+    ),
+    "shared_prognosis": (
+        "the stacked curve on a law whose two arm means share W1 and W2 in their outcome index",
+        ("ate", "log_rr", "log_or"),
+    ),
+}
+for _label, (_fit, _estimands) in _PARAMETRIC_FITS.items():
+    for _estimand in _estimands:
+        CELLS[("interval_calibration", f"{_label}__{_estimand}__corrected")] = (
+            f"{_fit}: {_PARAMETRIC_ESTIMANDS[_estimand]}",
+            *_PARAMETRIC_CALIBRATION,
+        )
+for _estimand in ("ey0", "ey1", "ate"):
+    ARM_CELLS[("interval_calibration", "binary_active", f"{_estimand}__corrected")] = (
+        f"the stacked curve at n = 1,500: {_PARAMETRIC_ESTIMANDS[_estimand]}",
+        *_PARAMETRIC_CALIBRATION,
+    )
+ARM_CELLS.update(
+    {
+        ("interval_calibration", "binary_active", "ate__shrunken_se_control"): (
+            "the ATE standard errors are multiplied by a declared factor below one",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+        ("interval_calibration", "binary_active", "ate__noise_control"): (
+            "a declared scale of independent noise is added to each ATE estimate",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+        ("interval_calibration", "binary_active", "ate__shipped_curve__shrunken_se_control"): (
+            "the ATE standard errors come from the shipped adaptive-propensity curve of the "
+            "same fits, which omits the generated-design term",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+    }
+)
+CELLS[
+    ("interval_calibration", "shared_prognosis__ate__cross_term_dropped__inflated_se_control")
+] = (
+    "the ATE standard errors are built from the two arm variances without the cross-arm "
+    "covariance, on a law whose arm estimates correlate",
+    "the SE-ratio interval must fall above the calibration band",
 )
 
 
