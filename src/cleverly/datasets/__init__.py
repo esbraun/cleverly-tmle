@@ -19,6 +19,16 @@ from .longitudinal import (
     survival_truth,
 )
 from .navigation import longitudinal_navigation_protocol, navigation_data, navigation_protocol
+from .offers import (
+    OFFER_LEVELS,
+    OFFER_PLANS,
+    OFFER_WEEKS,
+    make_sequential_offers,
+    offers_protocol,
+    offers_truth,
+    win_back,
+    win_back_then_ship,
+)
 from .survival_point import make_point_survival, point_survival_truth
 from .synthetic import (
     DGP,
@@ -61,6 +71,9 @@ from .synthetic import (
 __all__ = [
     "DGP",
     "GENERATORS",
+    "OFFER_LEVELS",
+    "OFFER_PLANS",
+    "OFFER_WEEKS",
     "REPEATED_RULE_LABEL",
     "RULE_LABEL",
     "WEIGHTED_SELECTION_PROBABILITIES",
@@ -96,6 +109,7 @@ __all__ = [
     "make_nonlinear_ate",
     "make_nonlinear_bounded",
     "make_point_survival",
+    "make_sequential_offers",
     "make_shift_dose",
     "make_weak_overlap",
     "missing_outcome_binary_dgp",
@@ -106,6 +120,8 @@ __all__ = [
     "nonlinear_bounded_dgp",
     "nonlinear_dgp",
     "nonlinear_logit",
+    "offers_protocol",
+    "offers_truth",
     "point_survival_truth",
     "repeated_truth",
     "rule_arm_at_node_two",
@@ -113,4 +129,6 @@ __all__ = [
     "shift_dgp",
     "survival_truth",
     "weak_overlap_dgp",
+    "win_back",
+    "win_back_then_ship",
 ]
