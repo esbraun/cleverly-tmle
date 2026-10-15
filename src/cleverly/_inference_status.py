@@ -194,16 +194,18 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
     {
         "working_mechanism_plugin": StatusRecord(
             reason=(
-                "The greedy, ordered and discrete collaborative paths report no confidence "
-                "interval, no p-value and no standard error. The reported curve is the "
-                "ordinary efficient influence curve at the candidate the search stopped at, "
-                "and no result shows it is this estimator's influence curve when that "
+                "The greedy, ordered, discrete, lasso and learners collaborative paths report "
+                "no confidence interval, no p-value and no standard error. The reported curve "
+                "is the ordinary efficient influence curve at the candidate the search "
+                "stopped at, or at the final-step candidate, and no result shows it is this "
+                "estimator's influence curve when that "
                 "working mechanism is not consistent for the treatment law. The point "
                 "estimate and the selection path stand. The plug-in standard error of that "
                 "curve remains as a diagnostic under plugin_std_error and plugin_interval. "
                 "F18 in docs/roadmap.md reopens this when it supplies the estimator's "
                 "influence curve. A discrete fit that declares one candidate, equal to the "
-                "full adjustment set, selects nothing and takes the ordinary TMLE status."
+                "full adjustment set, selects nothing and takes the ordinary TMLE status. A "
+                "learners fit that declares no candidate does the same."
             ),
             assessment_note=(
                 "the reported curve is a working-mechanism diagnostic: no confidence "
@@ -359,7 +361,8 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "standard error when a node regression of its recursion read a constant "
                 "target, such as a grid node at which no follower of the regimen had the "
                 "event, or a repeated-outcome node at which every follower held one outcome "
-                "value. That regression is its maximum-likelihood value, 0 or 1, so the "
+                "value. A hazard fit applies the same rule to each node, level and cause. "
+                "That regression is its maximum-likelihood value, 0 or 1, so the "
                 "point estimate stands. The node's term of the influence curve is then "
                 "identically zero, although the true outcome variance there can be "
                 "positive, so the plug-in standard error leaves that node's variance out. "

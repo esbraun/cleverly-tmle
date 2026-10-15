@@ -46,6 +46,7 @@ import numpy as np
 
 from .._refusal import Refusal, RefusalReason
 from .._typing import BoolArray, FloatArray
+from ..data.known_mechanism import moved_known_values_refusal
 from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..data.weighting import (
     REPORTED_DRAW,
@@ -56,6 +57,7 @@ from ..data.weighting import (
     top_weight_share,
     validate_score_loads,
 )
+from ..estimators._nuisance import KnownPropensity
 from ..estimators.composite import composite_state
 from ..estimators.direct_effect import targeted_rows
 from ..estimators.targeting import build_submodel
@@ -1570,7 +1572,9 @@ def truncation_curve(
     bounds : sequence of float or None
         Lower truncation values to try.  ``None`` uses a grid from 0.001 to 0.2 and adds
         every exact bound pair the requested parameters used.  An explicit sequence is
-        evaluated exactly as requested and is never expanded with fitted points.
+        evaluated exactly as requested and is never expanded with fitted points.  On a
+        declared known treatment mechanism, a ``g(W)`` pair that moves a declared value is
+        one the fit refuses: an explicit one is refused, and the default grid omits it.
     estimands : sequence of str or None
         Restrict the emitted rows to these parameters.  ``None`` uses every parameter the
         fit reported.  Two forms are accepted.  A reported parameter selects its own row,
@@ -1601,6 +1605,12 @@ def truncation_curve(
     dataframe
         One row per evaluated bound pair and estimand, with the point estimate, interval,
         fitted pair and estimate, and signed movement from that fitted estimate.
+
+    Raises
+    ------
+    CapabilityError
+        When the requested axis is refused, as :func:`truncation_refusal` states, or when an
+        explicit ``g(W)`` bound moves a value of a declared known mechanism.
     """
     estimator = result.estimator
     if estimator is None:
@@ -1639,15 +1649,44 @@ def truncation_curve(
     }
     fitted_psi = {name: float(result.estimates[name].psi) for name in reported}
 
+    # A g(W) bound that moves a declared value is a bound the fit refuses, so the sweep
+    # never evaluates one.  The default grid omits such a canned pair, and an explicit one
+    # is refused.  The fitted pairs passed the fit's own check.
+    # The fit's own source decides: the declaration on the data, not the stored propensity,
+    # which a guarded DR-TMLE may replace with its fluctuated mechanism.
+    declared = None if mechanism else result.data.known_treatment
+    known = declared is not None
     canned = (0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.2)
     if bounds is None:
-        grid = sorted({*(pair_for(lower) for lower in canned), *pairs.values()})
+        admitted = (
+            pair
+            for pair in (pair_for(lower) for lower in canned)
+            if not known or _moved_known_count(result, pair) == 0
+        )
+        grid = sorted({*admitted, *pairs.values()})
     else:
         lowers = sorted(float(value) for value in bounds)
         for lower in lowers:
             if not 0.0 < lower < 0.5:
                 raise ValueError(f"truncation bounds must lie in (0, 0.5); got {lower}")
         grid = [pair_for(lower) for lower in lowers]
+        for pair in grid if known else ():
+            count = _moved_known_count(result, pair)
+            if count and declared is not None:
+                refusal = moved_known_values_refusal(count, pair, declared.values)
+                raise CapabilityError.from_refusal(
+                    replace(
+                        refusal,
+                        condition=(
+                            "a truncation curve evaluates only the bound pairs that a fit "
+                            "admits, and a fit refuses this one: " + refusal.condition
+                        ),
+                        alternative=(
+                            "Remove the bound from the grid, or pass bounds=None for the "
+                            "default grid, which omits every pair that moves a known value."
+                        ),
+                    )
+                )
 
     rows: list[dict[str, Any]] = []
     for lower, upper in grid:
@@ -1686,9 +1725,6 @@ def truncation_curve(
         # and nothing that varies between the parameters sharing that pair.
         truncated_fraction = _clipped_fraction(result, pair, mechanism)
         moved = _moved_factor(result, mechanism)
-        # A swept g(W) bound on a known mechanism moves a declared value, which the fit
-        # itself refuses, so each row names the mechanism the swept bound reads.
-        known = not mechanism and result.nuisance.treatment_mechanism == "known"
         for name in reported:
             estimate = estimates[name]
             # The columns ``ParameterEstimate.to_dict`` publishes, for the same reason: a
@@ -1722,6 +1758,20 @@ def truncation_curve(
 
     payload = {key: [row[key] for row in rows] for key in rows[0]}
     return result.data.frame_like(payload)
+
+
+def _moved_known_count(result: TMLEResult, pair: tuple[float, float]) -> int:
+    """How many units a ``g(W)`` bound pair moves on a declared known mechanism.
+
+    The mechanism is built from the declaration exactly as the fit's own check builds it,
+    and the rule is :meth:`Propensity.truncate
+    <cleverly.estimators._nuisance.Propensity.truncate>`, the one that check reads.
+    """
+    known = result.data.known_treatment
+    if known is None:  # pragma: no cover - the caller asks on a declared mechanism only
+        return 0
+    mechanism = KnownPropensity(np.asarray(known.values, dtype=float), result.data.arm_codes)
+    return int(np.count_nonzero(mechanism.truncate(pair).units))
 
 
 def _select(estimands: Any, reported_targets: dict[str, str]) -> tuple[str, ...]:

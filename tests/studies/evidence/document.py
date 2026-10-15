@@ -24,7 +24,8 @@ from typing import Any
 import pandas as pd
 
 from tests.studies.evidence import descriptions, property_verdicts
-from tests.studies.evidence.claims import load, value
+from tests.studies.evidence.claims import citation, load
+from tests.studies.evidence.comparison import DESCRIPTIVE_CONCLUSION
 from tests.studies.evidence.manifest import write_lines
 from tests.studies.evidence.registry import StudyRecord, registered
 
@@ -131,7 +132,8 @@ def _comparison_result(row: Any) -> str:
     design limit as a scientific result.
     """
     conclusion = str(getattr(row, "comparison_conclusion", "equivalent"))
-    if bool(row.passed):
+    # A descriptive paired row carries no ``passed`` column and states no verdict.
+    if conclusion == DESCRIPTIVE_CONCLUSION or bool(row.passed):
         return conclusion
     if conclusion == "underpowered":
         return f"*{conclusion}*"
@@ -223,6 +225,7 @@ def property_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[s
             exact_efficiency=_has_exact_efficiency(row),
             role=str(row.role),
             nuisance_count=record.nuisance_count,
+            slug=record.slug,
             response_nuisance=(
                 "response_correct" in record.property_cells.get(str(row.property), ())
             ),
@@ -283,6 +286,9 @@ def measured(row: Any) -> str:
         # cell, so the number that separates the two belongs in the column a reader reads.
         if family == "selector_necessity" and pd.notna(getattr(row, "rmse_ratio", None)):
             measured += f", RMSE ratio {render(float(row.rmse_ratio))}"
+            # A record that gates the ratio's bootstrap bound prints the bound it gates.
+            if pd.notna(getattr(row, "rmse_ratio_upper", None)):
+                measured += f", 99% upper {render(float(row.rmse_ratio_upper))}"
         # The randomizer projection's joint clause reads the spread ratio of its two arms.
         if family == "randomizer_projection" and pd.notna(
             getattr(row, "projection_sd_ratio", None)
@@ -347,6 +353,13 @@ def measured(row: Any) -> str:
     if family in {"type_i_error", "power", property_verdicts.WARNING_RATE_FAMILY}:
         return (
             f"rejection {render(float(row.rejection_rate))}, "
+            f"{_interval(row.rejection_ci_lower, row.rejection_ci_upper)}"
+        )
+    if family == "isotonic_projection":
+        # Reported, with no margin to read: the share of replications in which the projection
+        # moved the level.
+        return (
+            f"binding share {render(float(row.rejection_rate))}, "
             f"{_interval(row.rejection_ci_lower, row.rejection_ci_upper)}"
         )
     if family == "root_n_and_efficiency":
@@ -547,6 +560,7 @@ _BIAS_GATED = frozenset(
         "learner_weight_necessity",
         "mar_robustness",
         "missingness_necessity",
+        "multi_arm",
         "outcome_history_necessity",
         "repeated_outcome_necessity",
         "robustness_contract",
@@ -667,7 +681,7 @@ def fill(record: StudyRecord) -> list[str]:
         if match is None:
             break
         quantity = match.group("quantity").strip("`")
-        rendered_value = render(value(record, quantity, data), record.quoted_decimals.get(quantity))
+        rendered_value = citation(record, quantity, data, render)
         if rendered_value != match.group("value"):
             changed.append(f"{quantity}: {match.group('value')} -> {rendered_value}")
         lines[index] = (
