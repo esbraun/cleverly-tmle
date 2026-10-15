@@ -36,7 +36,7 @@ from cleverly import (
 )
 from cleverly.assessment import AssessmentStatus, SensitivityFacade
 from cleverly.datasets import make_linear_ate, make_longitudinal
-from cleverly.estimators import _strata, reduced
+from cleverly.estimators import TMLE, _strata, reduced
 from cleverly.exceptions import (
     CapabilityError,
     CleverlyError,
@@ -121,6 +121,11 @@ class Case:
     whole: bool = True
 
 
+def _binary_frame() -> Any:
+    frame, _ = make_linear_ate(n=120, seed=1)
+    return frame.assign(Y=(frame["Y"] > frame["Y"].median()).astype(float))
+
+
 CASES = {
     RefusalReason.INVALID_DECLARATION: Case(
         RefusalReason.INVALID_DECLARATION,
@@ -156,16 +161,22 @@ CASES = {
     ),
     RefusalReason.INFERENCE_GAP: Case(
         RefusalReason.INFERENCE_GAP,
-        lambda: _missing_outcome_study().estimate(
-            ATE(),
-            missingness_learner=CountingLogistic(max_iter=200),
-            n_bootstrap=20,
-            **{**_learners(), "cross_fit": True},
+        lambda: TMLE(
+            outcome_learner=CountingLinear(),
+            treatment_learner=CountingLogistic(max_iter=200),
+            estimands=["ey1", "ey0"],
+            repeats=3,
+            simultaneous=True,
+            random_state=0,
+        ).fit(
+            _binary_frame(),
+            outcome="Y",
+            treatment="A",
+            covariates=list(COLUMNS),
         ),
-        "Cross-fitted TMLE of arm-indexed means and contrasts with missing outcomes supports "
-        "one audited stacked CV-TMLE contract. No audited result covers bootstrap inference.",
-        "Set n_bootstrap=0 (Inference(n_bootstrap=0)).",
-        "F2",
+        "simultaneous=True is not defined",
+        "Set simultaneous=False, report one estimate, or fit one split.",
+        None,
         whole=False,
     ),
     RefusalReason.API_REDIRECTION: Case(
@@ -268,10 +279,10 @@ class TestOneRefusalPerCodeBeforeAnyFit:
             "a treatment rule learned from the analysis sample is refused."
         )
 
-    def test_a_stratified_cross_fitted_fit_with_missing_outcomes_names_its_roadmap_item(
+    def test_a_stratified_cross_fitted_fit_with_missing_outcomes_is_labelled_experimental(
         self,
     ) -> None:
-        """An implementation gap that names its roadmap item, refused before the nuisance fit."""
+        """The condition names its roadmap item and the fit runs under the label (RM42b)."""
         frame = discrete_law_mar.frame().assign(S=(np.arange(discrete_law_mar.N) % 2).astype(float))
         study = CausalStudy(
             frame,
@@ -283,21 +294,17 @@ class TestOneRefusalPerCodeBeforeAnyFit:
                 missingness="Delta",
             ),
         )
-        error = _refused(
-            lambda: study.estimate(
-                ATE(),
-                missingness_learner=CountingLogistic(max_iter=200),
-                **{**_learners(), "cross_fit": True},
-            )
+        Counting.calls = 0
+        result = study.estimate(
+            ATE(),
+            missingness_learner=CountingLogistic(max_iter=200),
+            **{**_learners(), "cross_fit": True},
         )
-        assert Counting.calls == 0
-        assert error.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
-        assert error.refusal.roadmap == "X53"
-        assert error.refusal.alternative == "Drop strata= from fit (PointTreatment(strata=()))."
-        assert str(error).endswith(
-            "No audited result covers baseline strata. X53 in docs/roadmap.md tracks this. "
-            "Drop strata= from fit (PointTreatment(strata=()))."
-        )
+        assert Counting.calls > 0
+        support = result.estimates["ate"].support
+        assert support.label == "experimental"
+        assert "No audited result covers baseline strata." in support.reason
+        assert "X53" in support.evidence
 
 
 # --------------------------------------------------------------------------------------

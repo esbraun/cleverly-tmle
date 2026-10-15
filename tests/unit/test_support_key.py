@@ -410,7 +410,7 @@ class TestRecordSwitch:
         assert [r["source"] for r in records] == ["TMLE.retarget", "TMLE.retarget"]
         assert records[0]["key"]["family"] == ["P1"]
 
-    def test_a_refusal_site_is_recorded_and_the_refusal_still_raises(
+    def test_a_converted_site_is_recorded_as_a_condition_of_the_fit(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         monkeypatch.setenv(RECORD_ENVIRONMENT_VARIABLE, str(tmp_path))
@@ -425,15 +425,12 @@ class TestRecordSwitch:
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            with pytest.raises(CapabilityError) as raised:
-                estimator.fit(data, outcome="Y", treatment="A", delta="Delta")
-        assert raised.value.refusal.roadmap == "X60"
-        (record,) = read_records(tmp_path)
-        assert record["record"] == "refusal_site"
-        assert record["site"] == "arm.linear_fluctuation"
-        assert record["code"] == "implementation_gap"
-        assert record["roadmap"] == "X60"
-        assert record["flagged"] is False
+            result = estimator.fit(data, outcome="Y", treatment="A", delta="Delta").single()
+        records = read_records(tmp_path)
+        assert [record["record"] for record in records] == ["classification", "fit_outcome"]
+        assert records[0]["conditions"] == ["X60"]
+        assert records[0]["label"] == "experimental"
+        assert result.estimates["ate"].support.label == "experimental"
 
     def test_a_flagged_site_is_marked_flagged(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

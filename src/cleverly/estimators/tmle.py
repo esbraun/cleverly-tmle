@@ -99,6 +99,7 @@ from .._inference_status import (
 )
 from .._support import (
     Classification,
+    Preflight,
     band_support,
     classify_point_fit,
     record_fit,
@@ -1228,7 +1229,7 @@ class TMLE:
         # The intermediate path otherwise fits shared nuisances before `_fit_single`.
         # Run the full preflight here as well, so every unsupported intermediate
         # composition fails before the shared nuisance learners are fitted.
-        estimands = self._preflight_fit_configuration(prepared)
+        estimands = self._preflight_fit_configuration(prepared).estimands
 
         # The controlled direct effect at z = 0 and at z = 1 are different parameters,
         # so they get one result each -- but they are estimated from *identical*
@@ -1453,11 +1454,13 @@ class TMLE:
             treatment_probabilities=treatment_probabilities,
         )
 
-    def _preflight_fit_configuration(self, data: CausalData) -> tuple[str, ...]:
+    def _preflight_fit_configuration(self, data: CausalData) -> Preflight:
         """Resolve targets and run every configuration guard before fitting learners.
 
         Both fit and replayability use this path, including subclass estimand checks.
-        The returned targets include any exclusions for ``estimands="all"``.
+        The returned targets include any exclusions for ``estimands="all"``. The returned
+        conditions are the group-A rules the fit meets, each of which labels the fit
+        experimental (see :class:`~cleverly._support.Preflight`).
         Scaler, propensity-bound, and reference checks need no generated folds and run
         here too. The validation of realised folds stays in :meth:`_repeat_draws`.
 
@@ -1492,7 +1495,8 @@ class TMLE:
             refuse_learned_rule_composition(data, self)
         self._check_policies(data)
         self._check_incremental(data)
-        estimands = self._resolve_estimands_for_data(data)
+        resolved = self._resolve_estimands_for_data(data)
+        estimands = resolved.estimands
         if data.has_missing_treatment:
             estimands = tuple(name for name in estimands if name not in unidentified_targets())
         if data.has_strata and self.targeting_scheme == "fold":
@@ -1583,7 +1587,7 @@ class TMLE:
         resolve_g_bounds(self.g_bounds, self._bounds_n(data), for_att=True)
         self._refuse_moved_known_values(data, estimands)
         self._reference_arm(data)
-        return estimands
+        return Preflight(estimands, resolved.conditions)
 
     def _refuse_known_compositions(self, data: CausalData) -> None:
         """Refuse a composition that a declared known mechanism does not support.
@@ -1683,8 +1687,11 @@ class TMLE:
         estimates, which is what a band needs. A repeated fit that reports one estimate
         builds no band, so it is allowed.
         """
-        estimands = self._preflight_fit_configuration(data)
-        classification = classify_point_fit(self, data, estimands, source="TMLE._fit_single")
+        preflight = self._preflight_fit_configuration(data)
+        estimands = preflight.estimands
+        classification = classify_point_fit(
+            self, data, estimands, source="TMLE._fit_single", conditions=preflight.conditions
+        )
 
         extra: dict[str, Any] = {}
         if shared is not None:
@@ -1894,7 +1901,7 @@ class TMLE:
         observed = data.outcome[data.observed]
         return OutcomeScaler.from_outcome(observed, self.q_bounds)
 
-    def _resolve_estimands_for_data(self, data: CausalData) -> tuple[str, ...]:
+    def _resolve_estimands_for_data(self, data: CausalData) -> Preflight:
         """Resolve targets and enforce the initial data and declaration refusals.
 
         This method first checks the declared fold policy without reading the data, because a
@@ -1939,11 +1946,12 @@ class TMLE:
         if self.msm is not None:
             refuse_continuous_msm_mechanisms(data, subject="An MSM (msm=)", missingness="delta=")
         check_stratified_targets(data, incremental=bool(self.incremental), msm=self.msm)
-        estimands = self._resolve_natural_course_contract(data)
-        self._resolve_arm_indexed_missing_contract(data, estimands)
+        conditions: list[Refusal] = []
+        estimands = self._resolve_natural_course_contract(data, conditions)
+        self._resolve_arm_indexed_missing_contract(data, estimands, conditions)
         self._refuse_cross_fitted_missing_off_contract(data, estimands)
         self._refuse_unbounded_cross_fitted_scale(data)
-        return estimands
+        return Preflight(estimands, tuple(conditions))
 
     def _fold_policy_refusal(self) -> Refusal | None:
         """The refusal a fit under a fold policy this version refuses raises, or ``None``.
@@ -2135,14 +2143,17 @@ class TMLE:
         )
 
     def _resolve_arm_indexed_missing_contract(
-        self, data: CausalData, estimands: tuple[str, ...]
+        self, data: CausalData, estimands: tuple[str, ...], conditions: list[Refusal]
     ) -> None:
-        """Refuse every cross-fitted arm-indexed missing-outcome fit outside the contract.
+        """Check every cross-fitted arm-indexed missing-outcome fit against the contract.
 
         The contract is the arm-indexed stacked contract in ``point-treatment-tmle.md``. Each
-        refusal runs before fold generation and names the missing result, the engine
-        keyword, and the public spelling. The checks run in a fixed order, so a fit that
-        breaks several rules receives the first one.
+        check runs before fold generation and names the missing result, the engine
+        keyword, and the public spelling. The checks run in a fixed order. A rule with no
+        code path, and the fold-targeted scheme, raise: a fit that breaks several of them
+        receives the first. Every other rule appends its condition to ``conditions`` and the
+        fit runs labelled experimental, because the code computes the target and no study
+        reviews the setting. A later refusal still raises after such a condition.
         """
         if not self._on_arm_indexed_stacked_surface(data, estimands):
             return
@@ -2162,6 +2173,11 @@ class TMLE:
                 _ARM_INDEXED_CONTRACT + text, reason=code, alternative=remedy, roadmap=roadmap
             )
 
+        def note(text: str, remedy: str, *, code: RefusalReason, roadmap: str) -> None:
+            conditions.append(
+                Refusal(code, _ARM_INDEXED_CONTRACT + text, alternative=remedy, roadmap=roadmap)
+            )
+
         if self._assessment_method == "collaborative_tmle":
             refuse(
                 "The selector strategies and the shared outcome-adaptive design "
@@ -2175,37 +2191,33 @@ class TMLE:
                 roadmap="X51",
             )
         if self.fluctuation != "logistic":
-            refuse(
+            note(
                 "No audited result covers the linear fluctuation.",
                 "Set fluctuation='logistic' (Targeting(fluctuation='logistic')).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
-                site="arm.linear_fluctuation",
             )
         if self.targeting != "iterative":
-            refuse(
+            note(
                 "No audited result covers the one-step update.",
                 "Set targeting='iterative' (Targeting(algorithm='iterative')).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
-                site="arm.one_step",
             )
         if self.target_weights:
-            refuse(
+            note(
                 "No audited result covers the weighted fluctuation.",
                 "Set target_weights=False (Targeting(target_weights=False)).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
-                site="arm.weighted_fluctuation",
             )
         if self.cv_evaluation:
-            refuse(
+            note(
                 "The fold-evaluated construction has no review of its fold plug-in and "
                 "variance law.",
                 "Set cv_evaluation=False (CrossFitting(fold_evaluation=False)).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X53",
-                site="arm.fold_evaluated",
             )
         conditional = [name for name in estimands if name in ("att", "atc")]
         if conditional:
@@ -2217,14 +2229,13 @@ class TMLE:
                 if name in _ARM_INDEXED_ADMITTED
                 and (data.family == "binomial" or name not in _NATURAL_COURSE_NAMES)
             ]
-            refuse(
+            note(
                 f"No audited result covers {conditional}. The default estimand list and "
                 "estimands='all' include att and atc, and the fit drops no requested "
                 "estimand silently.",
                 f"Request estimands from {admitted}.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
-                site="arm.att_atc",
             )
         if data.family != "binomial" and self.q_bounds is None:
             refuse(
@@ -2234,21 +2245,19 @@ class TMLE:
                 code=RefusalReason.INVALID_DECLARATION,
             )
         if self.split_plan is not None:
-            refuse(
+            note(
                 "No audit covers the balance and weighting of a supplied split plan.",
                 "Leave split_plan=None (CrossFitting(split_plan=None)) for package-generated "
                 "folds.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X53",
-                site="arm.split_plan",
             )
         if self.repeats != 1:
-            refuse(
+            note(
                 "No audited result covers the median over repeated splits after CV-TMLE targeting.",
                 "Set repeats=1 (CrossFitting(repeats=1)).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X53",
-                site="arm.repeats",
             )
         if self.targeting_scheme != "pooled":
             refuse(
@@ -2260,38 +2269,34 @@ class TMLE:
                 flagged=True,
             )
         if data.weights_name is not None or data.is_weighted:
-            refuse(
+            note(
                 "The contract covers unweighted iid rows.",
                 "Drop weights= from fit (PointTreatment(weights=None)), or "
                 f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
-                site="arm.weights",
             )
         if data.cluster is not None:
-            refuse(
+            note(
                 "The contract covers unweighted iid rows.",
                 "Drop id= from fit (PointTreatment(cluster=None)), or "
                 f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
-                site="arm.clusters",
             )
         if data.has_strata:
-            refuse(
+            note(
                 "No audited result covers baseline strata.",
                 "Drop strata= from fit (PointTreatment(strata=())).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X53",
-                site="arm.strata",
             )
         if self.n_bootstrap:
-            refuse(
+            note(
                 "No audited result covers bootstrap inference.",
                 "Set n_bootstrap=0 (Inference(n_bootstrap=0)).",
                 code=RefusalReason.INFERENCE_GAP,
                 roadmap="F2",
-                site="arm.bootstrap",
             )
 
     def _design_factor_labels(self, data: CausalData) -> tuple[str, str] | None:
@@ -2324,8 +2329,13 @@ class TMLE:
         """
         return self._assessment_method == "tmle"
 
-    def _resolve_natural_course_contract(self, data: CausalData) -> tuple[str, ...]:
+    def _resolve_natural_course_contract(
+        self, data: CausalData, conditions: list[Refusal]
+    ) -> tuple[str, ...]:
         """Resolve targets and enforce the supported natural-course compositions.
+
+        A rule with no code path, and the fold-targeted scheme, raise. Every other rule
+        appends its condition to ``conditions`` and the fit runs labelled experimental.
 
         One resolver covers the scalar natural-course mean and the joint fit that stacks it
         with arm targets (``par``, ``paf``, or ``ey_obs`` beside arm means and contrasts).
@@ -2365,6 +2375,18 @@ class TMLE:
                 roadmap=roadmap,
             )
 
+        def note(text: str, remedy: str, *, code: RefusalReason, roadmap: str) -> None:
+            conditions.append(
+                Refusal(
+                    code,
+                    "NaturalCourseMean, PAR and PAF with missing outcomes currently support "
+                    "ordinary TMLE and, for point estimates, the per-arm outcome-adaptive "
+                    f"CTMLE under their audited implementation contracts. {text}",
+                    alternative=remedy,
+                    roadmap=roadmap,
+                )
+            )
+
         if not self._admits_natural_course_with_missing():
             remedy = (
                 "Use ordinary TMLE, or CTMLE(strategy='oat', oat_design='per_arm') for point "
@@ -2383,12 +2405,11 @@ class TMLE:
                 roadmap=variant_item,
             )
         if self.repeats != 1:
-            refuse(
+            note(
                 "No audited result covers the median over repeated splits for this fit.",
                 "Set repeats=1.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X53",
-                site="nc.repeats",
             )
         if self.cross_fit and self.targeting_scheme != "pooled":
             refuse(
@@ -2400,72 +2421,66 @@ class TMLE:
                 flagged=True,
             )
         if self.cross_fit and self.cv_evaluation:
+            # Not a condition: the fold-evaluated report has no natural-course mean to read
+            # (``observed_mean`` raises on missing outcomes), so no code path exists.
             refuse(
                 "The cross-fitted estimator requires cv_evaluation=False.",
                 "Set cv_evaluation=False.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X53",
-                site="nc.fold_evaluated",
             )
         if self.cross_fit and self.split_plan is not None:
-            refuse(
+            note(
                 "The cross-fitted estimator requires package-generated folds.",
                 "Leave split_plan=None.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X53",
-                site="nc.split_plan",
             )
         if self.fluctuation != "logistic":
-            refuse(
+            note(
                 "No audited result covers a fluctuation other than the logistic one here.",
                 "Set fluctuation='logistic'.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
-                site="nc.linear_fluctuation",
             )
         if self.targeting != "iterative":
-            refuse(
+            note(
                 "No audited result covers a targeting algorithm other than the iterative one here.",
                 "Set targeting='iterative'.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
-                site="nc.one_step",
             )
         if self.target_weights:
-            refuse(
+            note(
                 "No audited result covers the weighted fluctuation here.",
                 "Set target_weights=False.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
-                site="nc.weighted_fluctuation",
             )
         if self.n_bootstrap:
             # X55 part (a) holds the in-sample bootstrap, and F2 the cross-fitted one.
             bootstrap_item = "F2" if self.cross_fit else "X55"
-            refuse(
+            note(
                 "No audited bootstrap result covers this fit. X55 in docs/roadmap.md tracks "
                 "the in-sample bootstrap with finite-dimensional nuisances, and F2 the "
                 "bootstrap with data-adaptive or cross-fitted nuisances.",
                 "Set n_bootstrap=0.",
                 code=RefusalReason.INFERENCE_GAP,
                 roadmap=bootstrap_item,
-                site="nc.bootstrap",
             )
         if self.cross_fit and (data.weights_name is not None or data.is_weighted):
-            refuse(
+            note(
                 "The stacked contract covers unweighted iid rows.",
                 "Drop weights= from fit, or fit in sample.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
-                site="nc.weights",
             )
         if self.cross_fit and data.cluster is not None:
-            refuse(
+            note(
                 "The stacked contract covers unweighted iid rows.",
                 "Drop id= from fit, or fit in sample.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
-                site="nc.clusters",
             )
         if data.has_intermediate:
             refuse(
@@ -2476,12 +2491,11 @@ class TMLE:
             )
         if data.family != "binomial":
             if self.cross_fit:
-                refuse(
+                note(
                     "The cross-fitted estimator requires a binary outcome.",
                     "Fit in sample with cross_fit=False and declare q_bounds.",
                     code=RefusalReason.IMPLEMENTATION_GAP,
                     roadmap="X53",
-                    site="nc.binary_outcome",
                 )
             if self.q_bounds is None:
                 refuse(
@@ -3686,7 +3700,16 @@ class TMLE:
         mechanisms, which is the other denominator in the clever covariate and so the
         other bound whose influence on the answer is worth sweeping.
         """
-        classification = classify_point_fit(self, data, tuple(estimands), source="TMLE.retarget")
+        try:
+            conditions = self._preflight_fit_configuration(data).conditions
+        except ValueError:
+            # A retarget validates nothing. The fit that made these nuisances passed the
+            # preflight, so a refusal here means the caller changed the data or the
+            # estimator, and the estimates keep the plain classification.
+            conditions = ()
+        classification = classify_point_fit(
+            self, data, tuple(estimands), source="TMLE.retarget", conditions=conditions
+        )
         estimates, fluctuations, _ = self._retarget_detailed(
             data,
             nuisance,

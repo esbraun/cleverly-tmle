@@ -168,7 +168,9 @@ def capture(run: Callable[[], Any]) -> Observed:
         settings.pop("source", None)
         raise _Reached(Observed(*longitudinal_key(estimator, data, **settings)))
 
-    def at_point(estimator: Any, data: Any, estimands: Any, *, source: str = "") -> None:
+    def at_point(
+        estimator: Any, data: Any, estimands: Any, *, source: str = "", conditions: Any = ()
+    ) -> None:
         raise _Reached(Observed(*point_key(estimator, data, tuple(estimands))))
 
     with warnings.catch_warnings():

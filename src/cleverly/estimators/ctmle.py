@@ -344,7 +344,7 @@ from .._inference_status import (
     precedent_status,
     status_record,
 )
-from .._support import record_refusal_site
+from .._support import Preflight, record_refusal_site
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
 from ..exceptions import CapabilityError, DataWarning, Refusal, RefusalReason
@@ -3103,7 +3103,7 @@ default="greedy"
         configured.ordering = (*declared, *added)
         return configured
 
-    def _resolve_estimands_for_data(self, data: CausalData) -> tuple[str, ...]:
+    def _resolve_estimands_for_data(self, data: CausalData) -> Preflight:
         """Resolve targets, and refuse the designs a collaborative search has no result for.
 
         Runs before any split is drawn, so a refused design pays for no fold generation

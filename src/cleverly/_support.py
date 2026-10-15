@@ -44,6 +44,7 @@ __all__ = [
     "UNCLASSIFIED",
     "Classification",
     "Kind",
+    "Preflight",
     "Support",
     "SupportKey",
     "SupportLabel",
@@ -162,6 +163,26 @@ def combine_support(supports: Iterable[Support]) -> Support:
         _TWO_ROWS_REASON,
         limits=_unique(item for record in records for item in record.limits),
     )
+
+
+@dataclass(frozen=True)
+class Preflight:
+    """What the configuration checks of a fit return before any learner runs.
+
+    A group-A rule appends its :class:`~cleverly._refusal.Refusal` to ``conditions`` and the
+    checks go on, so a condition never hides a later refusal. A refusal of any other group
+    raises as before.
+
+    Parameters
+    ----------
+    estimands : tuple of str
+        The resolved estimand names.
+    conditions : tuple of Refusal, default ()
+        The group-A conditions the fit meets. Each one makes the fit experimental.
+    """
+
+    estimands: tuple[str, ...]
+    conditions: tuple[Refusal, ...] = ()
 
 
 # ----------------------------------------------------------------------- the key
@@ -632,6 +653,10 @@ class SupportRow:
         The exact learner class per nuisance role, where the row needs one.
     limits : tuple of str, default ()
         The stated limits of the row.
+    shortfalls : tuple of tuple of str, default ()
+        Pairs of a kind and a sentence. The sentence states the measured number of a red
+        cell inside the configuration of the row. A fit that reads the kind from this row is
+        experimental, and the sentence is a reason of its label.
     """
 
     id: str
@@ -641,6 +666,7 @@ class SupportRow:
     cells: tuple[str, ...] = ()
     learners: Mapping[str, type] | None = None
     limits: tuple[str, ...] = ()
+    shortfalls: tuple[tuple[str, str], ...] = ()
 
     def matches(self, key: SupportKey, learners: Mapping[str, type | None]) -> bool:
         """Whether a fit with ``key`` and ``learners`` falls inside this row.
@@ -783,9 +809,10 @@ def support_for(
     Called where the status is final: ``stamp_inference`` for a point fit, and the longitudinal
     estimate builders after the parameter status. The estimate needs a ``point`` kind of the
     matched row when its status withholds the interval, a ``wald_t`` kind when it reads a t
-    reference, and a ``wald`` kind otherwise. A shown status, a missing row, a missing kind and
-    each group-A condition make the estimate experimental. Each adds its reason, and a
-    condition or a shown status adds its roadmap id as evidence.
+    reference, and a ``wald`` kind otherwise. A shown status, a missing row, a missing kind, a
+    shortfall of the row for the kind, and each group-A condition make the estimate
+    experimental. Each adds its reason, and a condition or a shown status adds its roadmap id as
+    evidence.
 
     Parameters
     ----------
@@ -832,6 +859,8 @@ def support_for(
         reasons.append(text)
     elif kind not in row.kinds:
         reasons.append(f"Row {row.id} licenses no {_KIND_NAMES[kind]} for this estimate.")
+    elif row is not None:
+        reasons.extend(text for shortfall_kind, text in row.shortfalls if shortfall_kind == kind)
     for condition in classification.conditions:
         reasons.append(_sentence(condition.condition))
         if condition.roadmap is not None:
