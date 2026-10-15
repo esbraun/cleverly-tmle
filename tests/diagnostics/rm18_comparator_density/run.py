@@ -133,7 +133,17 @@ def excess(rows: pd.DataFrame, subject: str, reference: str) -> dict[str, float]
     """The framework calibration excess bound and resolution of one pair, on the registered
     stream ``stream_seed(SHIFT, "equivalence", scenario, estimand)``."""
     pair = rows.loc[rows["implementation"].isin((ARMS[subject], ARMS[reference]))]
-    record = replace(SHIFT, implementation=ARMS[subject], reference=ARMS[reference])
+    # Each arm keeps the bound its side declares in the registered record.
+    bounds_by_side = {
+        ARMS[subject]: SHIFT.failure_bound.get(SHIFT.implementation, 0.0),
+        ARMS[reference]: SHIFT.failure_bound.get(str(SHIFT.reference), 0.0),
+    }
+    record = replace(
+        SHIFT,
+        implementation=ARMS[subject],
+        reference=ARMS[reference],
+        failure_bound=bounds_by_side,
+    )
     bounds = _bounds(
         (
             record,
