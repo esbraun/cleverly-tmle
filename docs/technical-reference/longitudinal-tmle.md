@@ -425,7 +425,15 @@ above. So they test the targeting with a nearly exact ratio and not the default 
 A node can hold several treatment columns. A list of columns is one entry of `treatment=`, and
 `continuous_treatment=` names the columns that hold a dose. A node with a dose and a categorical
 column is a *mixed node*. Díaz, Williams, Hoffman and Schenck (2023), Section 2, let the
-treatment at a node be a vector $A_t = (C_t, D_t)$, and Theorem 1 identifies the mean for it.
+treatment at a node be a vector $A_t = (C_t, D_t)$. Their Theorem 1 gives the mean two readings
+for a vector node. Each reading needs its own exchangeability assumption at every node.
+
+| reading | the history at each node holds every common cause of | source |
+| --- | --- | --- |
+| modified treatment policy effect | the vector, the outcome, and the later covariates and treatments | Theorem 1 (ii) and Assumption 3; Williams & Díaz (2025) |
+| stochastic intervention (LMTP-SI) | the vector and the next covariates, which at the last node are the outcome | Theorem 1 (i) and Assumption 2 |
+
+`Identification.interpretations` records both readings (`tests/unit/test_mtp_interpretations.py`).
 
 ```text
 LTMLE(regimens, ratio="classifier", ...).fit(

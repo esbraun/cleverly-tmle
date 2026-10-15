@@ -1011,7 +1011,10 @@ and
 
 A vector treatment holds several treatment columns. Díaz, Williams, Hoffman and Schenck (2023),
 Section 2, let the treatment be a vector $A = (C, D)$. The components $C$ are categorical and the
-components $D$ are continuous. Theorem 1 identifies the policy mean for such a vector.
+components $D$ are continuous. Theorem 1 identifies the policy mean for such a vector. Part (ii)
+reads the mean as the modified treatment policy effect, and part (i) reads it as a stochastic
+intervention. At one decision both parts need the same exchangeability assumption.
+`Identification.interpretations` records the two readings (`tests/unit/test_mtp_interpretations.py`).
 
 Hoffman et al. (2024), Introduction, name interventions on several exposures at once. This
 section covers the point treatment. The
