@@ -494,6 +494,11 @@ class NuisanceEstimates:
     #: must continue from that selected state, while ``outcome`` remains the genuine
     #: initial learner fit used by nuisance diagnostics.
     targeting_outcome: InitialFit | None = None
+    #: The partner mechanism ``g+`` of a C-TMLE0 fit (``CTMLE(strategy="derivative")``),
+    #: untruncated and out of fold when cross-fitted, or ``None`` for every other fit.
+    #: Stored because the derivative columns are rebuilt from it at the bounds of a
+    #: ``retarget``, as :attr:`propensity` is.
+    treatment_partner: Propensity | None = None
     missingness: FloatArray | None = None
     intermediate: FloatArray | None = None
     #: ``P(Delta_A = 1 | W)``, ``(n,)`` and untruncated, on a fit with a declared missing

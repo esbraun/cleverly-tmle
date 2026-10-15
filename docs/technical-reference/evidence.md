@@ -107,7 +107,9 @@ registered repeated-sampling records for [ordinary TMLE](method-evidence/ordinar
 outcome-adaptive design has its own record,
 [outcome-adaptive per-arm C-TMLE](method-evidence/outcome-adaptive-per-arm-c-tmle.md), for the
 point estimate only. Its fits with strata and missing data have a second record,
-[per-arm C-TMLE with strata and missing data](method-evidence/outcome-adaptive-per-arm-c-tmle-strata-missing.md). Binary compatibility
+[per-arm C-TMLE with strata and missing data](method-evidence/outcome-adaptive-per-arm-c-tmle-strata-missing.md). The
+C-TMLE0 strategy has its own record, [C-TMLE0 derivative covariate](method-evidence/ctmle-derivative.md),
+with R `ctmle` type 3 as its declared comparator, whose runs are pending. Binary compatibility
 remains covered by the existing C-TMLE and DR-TMLE rows, which continue down their original
 branches.
 
