@@ -25,6 +25,7 @@ from .._inference_status import (
 )
 from .._typing import FloatArray, ParameterAxis
 from ..data.causal_data import CausalData
+from ..data.treatment_covariates import treatment_mechanism_restriction
 from ..exceptions import (
     CapabilityError,
     RefusalReason,
@@ -1521,6 +1522,13 @@ class TMLEResult:
         if self.identified_effect is not None:
             facts.extend(self.identified_effect.summary_lines(protocol=protocol))
         else:
+            if data.treatment_adjustment_sources is not None:
+                # A fit with no study carries no identification record, so the data's own
+                # declaration prints the same restriction a design records.
+                facts.append(
+                    "model restrictions: "
+                    + treatment_mechanism_restriction(data.treatment_adjustment_sources)
+                )
             facts.extend(protocol_summary_lines(None, protocol))
         if data.cluster is not None:
             facts.append(f"clusters = {_cluster_fact(data)} (cluster-robust variance)")

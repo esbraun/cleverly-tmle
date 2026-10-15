@@ -1020,6 +1020,8 @@ class DRTMLE(TMLE):
                 if data.known_treatment is not None and data.known_treatment.columns
                 else None
             ),
+            # The companion's mechanism reads the covariates the fit's mechanism read.
+            treatment_covariates=data.treatment_covariate_names,
         )
 
     def _companion_declares_mechanism(self, data: CausalData) -> bool:

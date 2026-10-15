@@ -1659,7 +1659,7 @@ def fit_nuisances(
         # once. The propensity below is an (n, 0) placeholder; see NuisanceEstimates.
         density, density_diagnostics = fit_conditional_density(
             treatment_model,
-            data.covariates,
+            data.mechanism_covariates,
             data.treatment,
             data.weights,
             folds,
@@ -1708,13 +1708,13 @@ def fit_nuisances(
     elif fit_treatment:
         propensity_out, propensity_companion, propensity_diagnostics = cross_fit_companion(
             treatment_model,
-            data.covariates,
+            data.mechanism_covariates,
             data.treatment,
             data.weights,
             folds,
             task="classification",
-            predict_designs={"g": data.covariates},
-            companion_designs={} if companion is None else {"g": companion.covariates},
+            predict_designs={"g": data.mechanism_covariates},
+            companion_designs={} if companion is None else {"g": companion.mechanism_covariates},
             fit_mask=recorded,
             groups=groups,
             clip=(0.0, 1.0),
@@ -1757,7 +1757,7 @@ def fit_nuisances(
         # what turns "does not" into "cannot" for every accidental consumer.
         propensity = UnfittedPropensity(np.full((data.n, len(arms)), np.nan), arms)
 
-    retained = data.covariate_names
+    retained = data.mechanism_covariate_names
     if screen_treatment:
         retained = _retained_covariates(data, screen_threshold, min_retain)
 
@@ -2020,6 +2020,14 @@ def _check_companion(data: CausalData, companion: CausalData) -> None:
             "models evaluated elsewhere, so its design has to be the design they were "
             "fitted on"
         )
+    if companion.treatment_covariate_names != data.treatment_covariate_names:
+        raise ValueError(
+            "the companion's treatment mechanism reads "
+            f"{list(companion.mechanism_covariate_names)} and the fit's reads "
+            f"{list(data.mechanism_covariate_names)}; a companion is the "
+            "fit's own models evaluated elsewhere, so the mechanism has to read the same "
+            "covariates"
+        )
     if tuple(companion.treatment_levels) != tuple(data.treatment_levels):
         raise ValueError(
             f"the companion's treatment takes levels {list(companion.treatment_levels)} and "
@@ -2097,12 +2105,12 @@ def fit_inner_designs(
         if not known:
             mechanism, _ = cross_fit_predictions(
                 treatment_learner,
-                data.covariates,
+                data.mechanism_covariates,
                 data.treatment,
                 data.weights,
                 folds,
                 task="classification",
-                predict_designs={"g": data.covariates},
+                predict_designs={"g": data.mechanism_covariates},
                 fit_mask=without,
                 groups=data.cluster,
                 clip=(0.0, 1.0),
@@ -2157,11 +2165,14 @@ def _retained_covariates(
 
     # The recorded rows only, as the treatment model is fitted there.
     rows = data.treatment_recorded if data.has_missing_treatment else slice(None)
+    names = data.mechanism_covariate_names
+    if not names:
+        return ()
     keep = screen_by_correlation(
-        data.covariates[rows],
+        data.mechanism_covariates[rows],
         data.treatment[rows],
         threshold=threshold,
         min_retain=min_retain,
         sample_weight=data.weights[rows],
     )
-    return tuple(name for name, flag in zip(data.covariate_names, keep, strict=True) if flag)
+    return tuple(name for name, flag in zip(names, keep, strict=True) if flag)

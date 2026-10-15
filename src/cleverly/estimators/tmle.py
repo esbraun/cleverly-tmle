@@ -120,6 +120,7 @@ from ..data.known_mechanism import (
     KNOWN_SCREEN_REFUSAL,
     moved_known_values_refusal,
 )
+from ..data.treatment_covariates import known_and_restricted
 from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..exceptions import (
     CapabilityError,
@@ -1196,6 +1197,7 @@ class TMLE:
         treatment_kind: TreatmentKind | None = None,
         treatment_delta: str | None = None,
         treatment_probabilities: Any = None,
+        treatment_covariates: Sequence[str] | None = None,
     ) -> TMLEResultSet:
         """Fit the estimator.
 
@@ -1242,6 +1244,15 @@ class TMLE:
             rows.  Beside a prepared :class:`~cleverly.data.CausalData` the array forms are
             attached with :meth:`~cleverly.data.CausalData.with_known_mechanism`, and a
             container that already declares one refuses a second.
+        treatment_covariates:
+            The adjustment columns that the treatment mechanism reads, a subset of
+            ``covariates``.  ``None`` reads all of them.  The outcome regression, the
+            missingness mechanisms and the policy rules keep the full set.  The declaration
+            restricts the observed-data model and does not change the estimand.  The result
+            summary prints the restriction the interval needs.  Beside a prepared
+            :class:`~cleverly.data.CausalData` it is attached with
+            :meth:`~cleverly.data.CausalData.with_treatment_covariates`.  It is refused
+            beside ``treatment_probabilities``, ``incremental=`` and ``strategy='oat'``.
 
         Returns
         -------
@@ -1267,6 +1278,7 @@ class TMLE:
             treatment_kind=treatment_kind,
             treatment_delta=treatment_delta,
             treatment_probabilities=treatment_probabilities,
+            treatment_covariates=treatment_covariates,
         )
         if not prepared.has_intermediate:
             return TMLEResultSet({None: self._fit_single(prepared, intermediate_value=None)})
@@ -1441,6 +1453,7 @@ class TMLE:
         treatment_kind: TreatmentKind | None = None,
         treatment_delta: str | None = None,
         treatment_probabilities: Any = None,
+        treatment_covariates: Sequence[str] | None = None,
     ) -> CausalData:
         """Coerce whatever the caller passed into a validated :class:`CausalData`."""
         if isinstance(data, CausalData):
@@ -1469,6 +1482,10 @@ class TMLE:
                     "column names cannot be combined with a CausalData input; the roles are "
                     "already assigned"
                 )
+            if treatment_covariates is not None and treatment_probabilities is not None:
+                raise known_and_restricted("treatment_covariates")
+            if treatment_covariates is not None:
+                data = data.with_treatment_covariates(treatment_covariates)
             if treatment_probabilities is not None:
                 return data.with_known_mechanism(treatment_probabilities)
             return data
@@ -1497,6 +1514,7 @@ class TMLE:
             ),
             treatment_delta=treatment_delta,
             treatment_probabilities=treatment_probabilities,
+            treatment_covariates=treatment_covariates,
         )
 
     def _preflight_fit_configuration(self, data: CausalData) -> tuple[str, ...]:
@@ -3076,6 +3094,14 @@ class TMLE:
         """
         if not self.incremental:
             return
+        if data.treatment_covariate_names is not None:
+            names = ", ".join(data.treatment_adjustment_sources or ())
+            raise CapabilityError(
+                "incremental= shifts the fitted propensity score, so a mechanism on "
+                f"{{{names}}} defines the shift on {{{names}}} and changes the estimand.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
+                alternative="Omit treatment_adjustment=, or treatment_covariates= in TMLE.fit.",
+            )
         refuse_multi_arm_tilt(data)
         if data.has_intermediate:
             raise CapabilityError(

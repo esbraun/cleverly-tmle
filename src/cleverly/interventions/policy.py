@@ -1750,7 +1750,7 @@ class PolicySet:
         for c in range(count):
             evaluated = classifier_ratio(
                 learner,
-                data.covariates,
+                data.mechanism_covariates,
                 a,
                 ((1.0, shifted[:, c]),),
                 data.weights,

@@ -54,9 +54,11 @@ from ..utils.frames import (
     matrix_from_columns,
 )
 from .known_mechanism import KnownMechanism, known_mechanism, probability_columns
+from .treatment_covariates import check_treatment_covariates, known_and_restricted
 from .validate import (
     MIN_OBSERVATIONS,
     MISSING_TREATMENT_DECLARATION,
+    RANDOMIZED_INTERCEPT,
     arm_indicators,
     check_covariates,
     check_delta,
@@ -216,6 +218,14 @@ class CausalData:
     #: carries the matching rows and every reader that rewrites the treatment drops it.  See
     #: :mod:`cleverly.data.known_mechanism`.
     known_treatment: KnownMechanism | None = None
+    #: The covariates the treatment mechanism reads, as names in :attr:`covariate_names`, or
+    #: ``None`` when it reads all of them.  A subset of the adjustment set that the design
+    #: declares (``PointTreatment(treatment_adjustment=)``).  The outcome regression and
+    #: every other nuisance keep the full set, so :attr:`covariates` is unchanged and only
+    #: :attr:`mechanism_covariates` reads this.  An empty tuple declares a mechanism with no
+    #: covariates.  It is a data field so that every reader that subsets rows carries it.
+    #: See :mod:`cleverly.data.treatment_covariates`.
+    treatment_covariate_names: tuple[str, ...] | None = None
     #: Name of the dataframe backend the data arrived in, or ``None`` for numpy input.
     #: A *name* and not the frame it came from: this used to hold the whole input
     #: frame, which pinned it in memory for the life of every result derived from the
@@ -245,6 +255,7 @@ class CausalData:
         treatment_kind: TreatmentKind = "discrete",
         treatment_delta: str | None = None,
         treatment_probabilities: Any = None,
+        treatment_covariates: Sequence[str] | None = None,
     ) -> CausalData:
         """Build from a pandas or polars dataframe by column name.
 
@@ -289,6 +300,14 @@ class CausalData:
             declaration is the mechanism of the weight-tilted law, which equals the design
             mechanism when the weights depend on ``W`` only.  See
             :mod:`cleverly.data.known_mechanism`.
+        treatment_covariates:
+            The adjustment columns that the treatment mechanism reads, a subset of
+            ``covariates``.  ``None`` reads all of them.  The outcome regression and every
+            other nuisance keep the full set.  The declaration is a statistical-model
+            restriction on the observed law and does not change the estimand; see
+            :mod:`cleverly.data.treatment_covariates`.  A categorical column names its
+            indicators together.  An empty sequence declares a mechanism with no covariates.
+            It cannot be combined with ``treatment_probabilities``.
         """
         if not is_dataframe(data):
             raise DataError(
@@ -400,6 +419,7 @@ class CausalData:
                 else {level: column_array(frame, name) for level, name in probability_names}
             ),
             known_columns=probability_names or (),
+            treatment_covariates=treatment_covariates,
         )
 
     @classmethod
@@ -424,11 +444,13 @@ class CausalData:
         strata_names: Sequence[str] | None = None,
         treatment_delta: Any = None,
         treatment_probabilities: Any = None,
+        treatment_covariates: Sequence[str] | None = None,
     ) -> CausalData:
         """Build from numpy arrays, mirroring ``tmle(Y, A, W, ...)`` in R.
 
         See :meth:`from_frame` for ``weights_type``, ``weights_estimated``,
-        ``treatment_kind``, ``treatment_delta`` and ``treatment_probabilities``.  Here
+        ``treatment_kind``, ``treatment_delta``, ``treatment_probabilities`` and
+        ``treatment_covariates``.  Here
         ``treatment_delta`` is the 0/1 array itself, in the role of R ``drtmle``'s
         ``DeltaA``, and ``treatment_probabilities`` takes the array forms only, in the role
         of R ``tmle``'s ``g1W``.
@@ -469,6 +491,7 @@ class CausalData:
             treatment_delta=None if treatment_delta is None else np.asarray(treatment_delta),
             treatment_delta_name="DeltaA" if treatment_delta is not None else None,
             treatment_probabilities=treatment_probabilities,
+            treatment_covariates=treatment_covariates,
         )
 
     @classmethod
@@ -502,6 +525,7 @@ class CausalData:
         treatment_delta_name: str | None = None,
         treatment_probabilities: Any = None,
         known_columns: tuple[tuple[Any, str], ...] = (),
+        treatment_covariates: Sequence[str] | None = None,
     ) -> CausalData:
         n = len(outcome)
         if n < MIN_OBSERVATIONS:
@@ -536,6 +560,14 @@ class CausalData:
         resolved_family = resolve_family(y, observed, family)
 
         w, w_names, dropped = check_covariates(covariates, list(covariate_names))
+        mechanism_names = _mechanism_covariate_names(
+            treatment_covariates,
+            input_names=list(covariate_names),
+            retained=w_names,
+            source_of={name: enc.column for enc in encodings for name in enc.generated},
+        )
+        if treatment_covariates is not None and treatment_probabilities is not None:
+            raise known_and_restricted("treatment_covariates")
         obs_weights, spec = _prepare_weights(
             weights,
             n,
@@ -632,6 +664,7 @@ class CausalData:
             treatment_observed=recorded,
             treatment_delta_name=treatment_delta_name if recorded is not None else None,
             known_treatment=known,
+            treatment_covariate_names=mechanism_names,
             backend=backend,
         )
 
@@ -645,6 +678,50 @@ class CausalData:
     @property
     def n_covariates(self) -> int:
         return int(self.covariates.shape[1])
+
+    @property
+    def mechanism_covariate_names(self) -> tuple[str, ...]:
+        """The covariates the treatment mechanism reads, by name.
+
+        All of :attr:`covariate_names` unless the design declares a subset
+        (:attr:`treatment_covariate_names`).  Empty for a declared empty subset.
+        """
+        if self.treatment_covariate_names is None:
+            return tuple(self.covariate_names)
+        return tuple(self.treatment_covariate_names)
+
+    @property
+    def mechanism_covariates(self) -> FloatArray:
+        """The design matrix of the treatment mechanism.
+
+        This is :attr:`covariates` itself unless the design declares a subset of the
+        adjustment set, so a fit with no declaration reads the identical array.  A declared
+        empty subset gives one zero column, which lets a learner fit the marginal mechanism,
+        as the reserved randomized-design column does.  Every other nuisance reads
+        :attr:`covariates`.
+        """
+        names = self.treatment_covariate_names
+        if names is None:
+            return self.covariates
+        if not names:
+            return np.zeros((self.n, 1))
+        chosen = set(names)
+        keep = [j for j, name in enumerate(self.covariate_names) if name in chosen]
+        return self.covariates[:, keep]
+
+    @property
+    def treatment_adjustment_sources(self) -> tuple[str, ...] | None:
+        """The caller's own names of the treatment-mechanism covariates, or ``None``.
+
+        A categorical covariate's generated indicators are reported once, under the column
+        they encode.  ``None`` means the mechanism reads the whole adjustment set.
+        """
+        if self.treatment_covariate_names is None:
+            return None
+        generated = self.indicator_sources
+        return tuple(
+            dict.fromkeys(generated.get(name, name) for name in self.treatment_covariate_names)
+        )
 
     @property
     def n_clusters(self) -> int:
@@ -1081,6 +1158,8 @@ class CausalData:
         """
         if self.known_treatment is not None:
             raise ValueError(DECLARED_TWICE)
+        if self.treatment_covariate_names is not None:
+            raise known_and_restricted("treatment_covariates")
         if probability_columns(treatment_probabilities) is not None:
             raise DataError(_COLUMN_FORM_NEEDS_A_FRAME)
         return replace(
@@ -1092,6 +1171,47 @@ class CausalData:
                 treatment_name=self.treatment_name,
             ),
         )
+
+    def with_treatment_covariates(self, names: Sequence[str]) -> CausalData:
+        """Return a copy whose treatment mechanism reads only the named covariates.
+
+        :meth:`cleverly.TMLE.fit` calls this when it receives ``treatment_covariates=``
+        beside a prepared container.  The declaration is a statistical-model restriction;
+        see :mod:`cleverly.data.treatment_covariates`.
+
+        Parameters
+        ----------
+        names : sequence of str
+            A subset of the adjustment covariates, as the caller named them.  A categorical
+            covariate names its indicators together.  An empty sequence is allowed.
+
+        Returns
+        -------
+        CausalData
+            A copy whose :attr:`treatment_covariate_names` holds the encoded names, or
+            ``None`` when the subset is the whole adjustment set.
+
+        Raises
+        ------
+        ValueError
+            If this data already declares a subset.
+        DataError
+            If a name repeats, lies outside the adjustment set, or the data declares a
+            known treatment mechanism.
+        """
+        if self.treatment_covariate_names is not None:
+            raise ValueError(
+                "treatment_covariates is declared twice: on the data and at fit. Declare it once."
+            )
+        if self.known_treatment is not None:
+            raise known_and_restricted("treatment_covariates")
+        resolved = _mechanism_covariate_names(
+            names,
+            input_names=[*self.covariate_names, *self.dropped_covariates],
+            retained=list(self.covariate_names),
+            source_of=self.indicator_sources,
+        )
+        return replace(self, treatment_covariate_names=resolved)
 
     def with_treatment(self, treatment: FloatArray) -> CausalData:
         """A copy with the treatment replaced (used by the placebo refuter).
@@ -1354,10 +1474,18 @@ class CausalData:
         keep = [j for j, name in enumerate(self.covariate_names) if name not in drop]
         if not keep:
             raise DataError("cannot drop every covariate")
+        kept = tuple(self.covariate_names[j] for j in keep)
+        mechanism = self.treatment_covariate_names
+        if mechanism is not None:
+            # The mechanism keeps the covariates of its own subset that survive the drop.
+            # A subset that is then the whole remaining design is no restriction.
+            survivors = tuple(name for name in kept if name in set(mechanism))
+            mechanism = None if survivors == kept else survivors
         return replace(
             self,
             covariates=self.covariates[:, keep],
-            covariate_names=tuple(self.covariate_names[j] for j in keep),
+            covariate_names=kept,
+            treatment_covariate_names=mechanism,
         )
 
     # ------------------------------------------------------------------ output
@@ -1541,6 +1669,53 @@ def _encode_strata(
     if len(levels) < 2:
         raise DataError("strata= defines only one baseline stratum")
     return codes, levels
+
+
+def _mechanism_covariate_names(
+    declared: Sequence[str] | None,
+    *,
+    input_names: Sequence[str],
+    retained: Sequence[str],
+    source_of: dict[str, str],
+) -> tuple[str, ...] | None:
+    """Resolve a declared subset of the adjustment set to the names of the encoded design.
+
+    Parameters
+    ----------
+    declared : sequence of str or None
+        The caller's names, or ``None`` for no declaration.
+    input_names : sequence of str
+        The design columns the caller handed in, before encoding and before degenerate
+        columns were dropped.
+    retained : sequence of str
+        The names of the encoded design, in column order.
+    source_of : dict
+        Each generated indicator, mapped to the column it encodes.
+
+    Returns
+    -------
+    tuple of str or None
+        The retained names the mechanism reads, in design order.  ``None`` when there is no
+        declaration or the declaration is the whole adjustment set.
+
+    Raises
+    ------
+    DataError
+        If a name repeats or lies outside the adjustment set.
+    """
+    if declared is None:
+        return None
+    sources = [source_of.get(name, name) for name in input_names]
+    names = check_treatment_covariates(
+        declared,
+        [name for name in sources if name != RANDOMIZED_INTERCEPT],
+        argument="treatment_covariates",
+        base="covariates",
+    )
+    chosen = set(names)
+    encoded = tuple(name for name in retained if source_of.get(name, name) in chosen)
+    adjustment = tuple(name for name in retained if name != RANDOMIZED_INTERCEPT)
+    return None if encoded == adjustment else encoded
 
 
 def _encode_covariates(
