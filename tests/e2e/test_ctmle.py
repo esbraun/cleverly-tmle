@@ -26,7 +26,7 @@ import sklearn.linear_model
 from scipy.special import expit
 
 from cleverly import CapabilityError, SuperLearner, load
-from cleverly._inference_status import NON_INFERENTIAL
+from cleverly._inference_status import STATUS_RECORDS
 from cleverly._typing import FloatArray
 from cleverly.datasets import (
     instrument_dgp,
@@ -45,7 +45,7 @@ from tests.conftest import FAST_KWARGS, SELECTOR_CONFIGS, linear_ctmle, linear_i
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
 #: The selector-path record, read where every raise and report reads it.
-WORKING_MECHANISM = NON_INFERENTIAL["working_mechanism_plugin"]
+WORKING_MECHANISM = STATUS_RECORDS["working_mechanism_plugin"]
 
 TMLE_SETTINGS = {**FAST_KWARGS, "estimands": ("ate", "ey1", "ey0")}
 
@@ -1048,7 +1048,7 @@ class TestTheSelectorPathsPublishNoInference:
         assert estimate.inference == "generated_design_plugin"
         with pytest.raises(CapabilityError) as raised:
             getattr(estimate, accessor)
-        assert NON_INFERENTIAL["generated_design_plugin"].reason in str(raised.value)
+        assert STATUS_RECORDS["generated_design_plugin"].reason in str(raised.value)
         assert WORKING_MECHANISM.reason not in str(raised.value)
 
     @pytest.mark.parametrize("accessor", ["ci", "pvalue", "std_error"])
@@ -1060,7 +1060,7 @@ class TestTheSelectorPathsPublishNoInference:
         assert estimate.inference == "generated_design_plugin"
         with pytest.raises(CapabilityError) as raised:
             getattr(estimate, accessor)
-        assert NON_INFERENTIAL["generated_design_plugin"].reason in str(raised.value)
+        assert STATUS_RECORDS["generated_design_plugin"].reason in str(raised.value)
 
     def test_the_retained_diagnostic_is_the_refused_number(
         self, shared: Callable[[str], Any]
@@ -1133,7 +1133,7 @@ class TestTheSelectorPathsPublishNoInference:
         assert self._fit(self.ORDINARY).sensitivity.capability("evalue").available
         adaptive = self._fit("oat").sensitivity.capability("evalue")
         assert adaptive.available is False
-        assert NON_INFERENTIAL["generated_design_plugin"].reason in (adaptive.reason or "")
+        assert STATUS_RECORDS["generated_design_plugin"].reason in (adaptive.reason or "")
         assert not self._fit("oat_per_arm").sensitivity.capability("evalue").available
 
     def test_the_truncation_curve_reports_the_diagnostic_rather_than_raising(self) -> None:
