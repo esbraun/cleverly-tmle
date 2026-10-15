@@ -225,7 +225,7 @@ ARMS: dict[str, str] = {
         "the two-node contrast of the shift held at the history-dependent support boundary "
         "against the natural course"
     ),
-    "p3": "the two-node contrast of the power map against the natural course",
+    "p3": "the two-node contrast of the warped map against the natural course",
     "p4": "the two-node contrast of the two-branch map against the natural course",
     "p5": (
         "the two-node contrast of the map that sends an interval to the declared atom against "
@@ -929,7 +929,10 @@ REGIMENS: dict[str, str] = {
     "a1 on": "set the first component to one",
     "p1": "multiply the dose by 0.9 at both times",
     "p2": "add 1 to the dose at both times, holding doses within 1 of the support's upper end",
-    "p3": "map the dose a to u (a / u)^0.8 at both times, u the support's upper end",
+    "p3": (
+        "map the dose a to u - D(u - a) at both times, D a smooth warp whose slope runs from "
+        "0.4 to 1.6, u the support's upper end"
+    ),
     "p4": "add 1 to a dose below 3 and subtract 1.5 from a dose at or above 3, at both times",
     "p5": "set the second dose to the larger of 3 and 0.65 times the dose",
     "natural_prices": "leave every observed price unchanged",
@@ -1904,7 +1907,8 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the SE-ratio interval must fall below the calibration band",
     ),
     ("jacobian_necessity", "declared"): (
-        "the density ratio reads each piece's inverse slope, with the outcome misspecified",
+        "the density ratio reads each piece's inverse slope, with an outcome model blind to "
+        "the second dose",
         "bias interval inside the equivalence margin",
     ),
     ("jacobian_necessity", "jacobian_dropped_control"): (

@@ -259,7 +259,7 @@ def edges_of(frame: pd.DataFrame) -> tuple[tuple[float, ...], tuple[float, ...]]
     )
 
 
-Outcome = Literal["primary", "correct", "wrong"]
+Outcome = Literal["primary", "correct", "wrong", "dose_blind"]
 
 
 def learners(frame: pd.DataFrame, outcome: Outcome) -> tuple[Any, Any, Any]:
@@ -271,6 +271,8 @@ def learners(frame: pd.DataFrame, outcome: Outcome) -> tuple[Any, Any, Any]:
         q, first = common.CorrectOutcome(), common.RichPseudo()
     elif outcome == "wrong":
         q, first = common.WrongOutcome(), LinearRegression()
+    elif outcome == "dose_blind":
+        q, first = common.DoseBlindOutcome(), LinearRegression()
     else:
         raise ValueError(outcome)
     return q, first, common.OracleHazard(*edges_of(frame))

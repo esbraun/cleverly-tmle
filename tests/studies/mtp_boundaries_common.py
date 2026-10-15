@@ -25,7 +25,9 @@ label      map
 natural    ``Shift(0, cap=None)``
 p1         ``Scale(0.9, cap=None)``: nonbinding, maps ``[0, u]`` into itself
 p2         ``a + 1`` on ``[0, u - 1)`` and held on ``[u - 1, u]``: the boundary binds
-p3         ``u (a / u)^0.8``: one piece with a Jacobian that varies with the dose
+p3         ``u - D(u - a)``, ``D`` a smooth warp of the gap to the top (:func:`_gap_map`):
+           one piece whose inverse slope runs from 0.63 to 2.5 over the assigned mass
+           (1% and 99% quantiles), and whose ratio stays bounded (design review B1)
 p4         ``a + 1`` on ``[0, 3)`` and ``a - 1.5`` on ``[3, u]``: two inverse branches
 p5         law B', node 2 only: ``max(3, 0.65 a)``, the interval ``[0, 3 / 0.65)``
            sent to the declared atom 3 (``Piece(..., to_atom=3)``)
@@ -34,9 +36,8 @@ p5         law B', node 2 only: ``max(3, 0.65 a)``, the interval ``[0, 3 / 0.65)
 **Truths.**  The g-formula of Díaz, Williams, Hoffman and Schenck (2023), Theorem 1, with each
 node's natural dose drawn given the intervened history (Definition 1), by composite
 Gauss-Legendre quadrature over ``W1``, ``A1`` and ``A2``, split at every break of a map and with
-the first segment of each dose graded (``a = b t^5``) so that the ``a^0.8`` of p3 is smooth in
-``t``.  The atom adds a finite term.  :func:`truth` checks the quadrature against twice the
-order (agreement below ``1e-10``).
+the first segment of each dose graded (``a = b t^5``).  The atom adds a finite term.
+:func:`truth` checks the quadrature against twice the order (agreement below ``1e-10``).
 
 **Efficiency bounds.**  The efficient influence function of Díaz et al. (2023), Theorem 2, is
 evaluated from the closed-form nuisances (:func:`eif`): the final regression is
@@ -70,12 +71,15 @@ ATOM = 3.0
 #: The maps' constants.
 SCALE_FACTOR = 0.9
 STEP = 1.0
-POWER = 0.8
 BRANCH_SPLIT = 3.0
 BRANCH_UP = 1.0
 BRANCH_DOWN = 1.5
 ATOM_SCALE = 0.65
 ATOM_KNEE = ATOM / ATOM_SCALE
+#: p3's warp of the gap to the top of the support (:func:`_gap_map`).
+WARP = 0.6
+WARP_CENTRE = 1.6
+WARP_WIDTH = 0.8
 
 REFERENCE = "natural"
 #: The plans read on law B, and on law B'.
@@ -200,20 +204,15 @@ def _knee(h: Any) -> np.ndarray:
 
 
 def _p3_map(a: Any, h: Any) -> Any:
-    u = _upper_of(h)
-    return u * (np.clip(np.asarray(a, dtype=float), 0.0, None) / u) ** POWER
+    return _power(a, _upper_of(h))
 
 
 def _p3_inverse(b: Any, h: Any) -> Any:
-    u = _upper_of(h)
-    return u * (np.clip(np.asarray(b, dtype=float), 0.0, None) / u) ** (1.0 / POWER)
+    return power_inverse(b, _upper_of(h))
 
 
 def _p3_derivative(b: Any, h: Any) -> Any:
-    u = _upper_of(h)
-    return (1.0 / POWER) * (np.clip(np.asarray(b, dtype=float), 0.0, None) / u) ** (
-        1.0 / POWER - 1.0
-    )
+    return power_slope(b, _upper_of(h))
 
 
 def _plus(delta: float) -> tuple[Callable[..., Any], Callable[..., Any], Callable[..., Any]]:
@@ -291,8 +290,57 @@ def _bind(a: Any, u: Any) -> Any:
     return np.where(a < u - STEP, a + STEP, a)
 
 
+def _log_cosh(z: Any) -> Any:
+    z = np.asarray(z, dtype=float)
+    return np.logaddexp(z, -z) - np.log(2.0)
+
+
+def _gap_map(x: Any) -> Any:
+    """p3 on the gap to the top, ``x = u - a``: ``D(x) = x - k w [lc((x - c) / w) - lc(c / w)]``.
+
+    ``lc`` is ``log cosh``, ``k = WARP``, ``c = WARP_CENTRE`` and ``w = WARP_WIDTH``.
+    ``D(0) = 0``, and ``D'(x) = 1 - k tanh((x - c) / w)`` lies in ``(1 - k, 1 + k)``, so ``D`` is
+    strictly increasing on the whole line.
+    """
+    x = np.asarray(x, dtype=float)
+    return x - WARP * WARP_WIDTH * (
+        _log_cosh((x - WARP_CENTRE) / WARP_WIDTH) - _log_cosh(WARP_CENTRE / WARP_WIDTH)
+    )
+
+
+def _gap_slope(x: Any) -> Any:
+    return 1.0 - WARP * np.tanh((np.asarray(x, dtype=float) - WARP_CENTRE) / WARP_WIDTH)
+
+
+def _gap_inverse(y: Any) -> np.ndarray:
+    """``D^{-1}(y)`` by Newton's method from ``x = y``, to ``1e-13``."""
+    y = np.asarray(y, dtype=float)
+    x = np.array(y, dtype=float, copy=True)
+    for _ in range(100):
+        step = (_gap_map(x) - y) / _gap_slope(x)
+        x = x - step
+        if np.all(np.abs(step) < 1e-14):
+            break
+    if np.any(np.abs(_gap_map(x) - y) > 1e-12):
+        raise ArithmeticError("the inverse of p3 did not converge")
+    return x
+
+
 def _power(a: Any, u: Any) -> Any:
-    return u * (np.clip(np.asarray(a, dtype=float), 0.0, None) / u) ** POWER
+    """p3: ``u - D(u - a)``, with ``d(u) = u``.  It is strictly increasing on the whole line,
+    which the library's monotone check reads on the pooled dose range."""
+    return u - _gap_map(np.asarray(u, dtype=float) - np.asarray(a, dtype=float))
+
+
+def power_inverse(b: Any, u: Any) -> Any:
+    """The preimage of ``b`` under p3: ``u - D^{-1}(u - b)``."""
+    return u - _gap_inverse(np.asarray(u, dtype=float) - np.asarray(b, dtype=float))
+
+
+def power_slope(b: Any, u: Any) -> Any:
+    """The inverse slope of p3 at ``b``: ``1 / D'(D^{-1}(u - b))``."""
+    gap = _gap_inverse(np.asarray(u, dtype=float) - np.asarray(b, dtype=float))
+    return 1.0 / _gap_slope(gap)
 
 
 def _branches(a: Any, u: Any) -> Any:
@@ -539,9 +587,8 @@ def induced_density(label: str, node: int, a: Any, mean: Any, u: Any) -> np.ndar
         moved = tn_pdf(a - STEP, mean, u) * (a - STEP < u - STEP)
         return moved + tn_pdf(a, mean, u) * (a >= u - STEP)
     if kind is _power:
-        source = u * (np.clip(a, 0.0, None) / u) ** (1.0 / POWER)
-        slope = (1.0 / POWER) * (np.clip(a, 0.0, None) / u) ** (1.0 / POWER - 1.0)
-        return tn_pdf(source, mean, u) * slope * (a <= u)
+        source = power_inverse(a, u)
+        return tn_pdf(source, mean, u) * power_slope(a, u) * (a <= u)
     if kind is _branches:
         first = tn_pdf(a - BRANCH_UP, mean, u) * (a - BRANCH_UP < BRANCH_SPLIT)
         second = tn_pdf(a + BRANCH_DOWN, mean, u) * (a + BRANCH_DOWN >= BRANCH_SPLIT)
@@ -728,6 +775,22 @@ class WrongOutcome(CorrectOutcome):
         return np.delete(matrix, 2, axis=1)
 
 
+class DoseBlindOutcome(CorrectOutcome):
+    """The Jacobian pair's outcome model: main terms without ``A2`` and without ``A2^2``.
+
+    The Jacobian defect multiplies each node's ratio by the forward slope of the map, which is
+    monotone in the dose.  Targeting absorbs the factor's constant part, so the defect moves the
+    estimate only through an outcome error that varies with the dose (design review B1).
+    Omitting the dose leaves an error that increases in ``a`` while ``0.4 - 0.06 a > 0``,
+    that is below 6.67: on all of ``[0, 6]`` (``W2 = 0``) and on ``[0, 6.67]`` of ``[0, 8]``.
+    """
+
+    @staticmethod
+    def _design(X: Any) -> np.ndarray:
+        matrix = np.asarray(X, dtype=float)
+        return np.delete(matrix, 4, axis=1)
+
+
 class RichPseudo(BaseEstimator):
     """Least squares on a rich smooth basis of ``[W1, W2, A1]``, for the first node.
 
@@ -759,7 +822,7 @@ class RichPseudo(BaseEstimator):
 BOUNDS: dict[str, float] = {
     "p1": 0.3797404449688521,
     "p2": 0.6228356141639579,
-    "p3": 0.20240929541788777,
+    "p3": 0.5025258702182912,
     "p4": 1.6237844351483597,
     "p5": 1.1033747551684423,
 }
