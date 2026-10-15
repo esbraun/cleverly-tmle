@@ -664,9 +664,9 @@ def rmse_ratio_bound(chosen: pd.DataFrame, control: pd.DataFrame, *, seed: int) 
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    # ``rmse_ratio`` and its bound go through ``extra_columns``, so the rate rows carry them.
+    # The study declares no ``root_n_and_efficiency`` ladder, so it publishes no rate row.
     summary, rates = apply_shared_verdicts(
-        rows, STUDY, extra_columns=("rmse_ratio", "rmse_ratio_upper")
+        rows, STUDY, extra_columns=("rmse_ratio", "rmse_ratio_upper"), rate_labels=()
     )
 
     necessity = rows.loc[rows["property"] == "selector_necessity"]
