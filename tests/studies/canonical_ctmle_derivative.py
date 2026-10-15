@@ -91,6 +91,11 @@ SEED = 20263001
 RESAMPLING_SEED = 2026300101
 IMPLEMENTATION = "cleverly-ctmle-derivative"
 REFERENCE = "r-ctmle"
+#: Why the R runs are pending.  The change that registers them moves REFERENCE to ``reference``.
+PENDING_REASON = (
+    "R ctmle 0.1.2 ctmletype = 3 runs on the local Study queue (beta-plans TRACKER item 18, "
+    "the primary and R phases). The owner's rule merges a method on its Python studies"
+)
 STRATIFY_FOLDS = "none"
 #: The targeting shrink of both sides: R ``ctmle``'s ``alpha`` default.
 ALPHA = 0.995
@@ -157,7 +162,8 @@ STUDY = StudyRecord(
     resampling_seed=RESAMPLING_SEED,
     margins=Margins(),
     implementation=IMPLEMENTATION,
-    reference=REFERENCE,
+    pending_reference=REFERENCE,
+    pending_reason=PENDING_REASON,
     extra_artifacts=("paired-tmle.csv", "chosen-penalties.csv"),
     modules=(
         "tests/studies/canonical_ctmle_derivative.py",
@@ -460,7 +466,7 @@ def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
     standard deviation, and each estimator's coverage and mean standard error over the primary
     replications.  Those numbers are descriptive.  It also publishes the SD of the paired
     Python minus R difference and, on :data:`PARITY_SCENARIOS`, the parity witness verdict
-    (:func:`parity_witness`).  ``chosen-penalties.csv`` publishes the ``(mechanism,
+    (:func:`parity_witness`).  Those columns are empty while the comparator is pending.  ``chosen-penalties.csv`` publishes the ``(mechanism,
     partner)`` pair of each side, per scenario and replication.
     """
     subject = rows.loc[rows["implementation"] == IMPLEMENTATION].copy()
@@ -503,6 +509,15 @@ def parity_witness(rows: pd.DataFrame, paired: pd.DataFrame) -> pd.DataFrame:
     keys = ["scenario", "estimand", "replicate"]
     subject = rows.loc[rows["implementation"] == IMPLEMENTATION, [*keys, "estimate"]]
     reference = rows.loc[rows["implementation"] == REFERENCE, [*keys, "estimate"]]
+    if STUDY.comparator_state == "pending":
+        # No R row exists to pair.  The witness columns stay empty until the R runs land.
+        if not reference.empty:
+            raise RuntimeError(f"the comparator {REFERENCE} is pending, but its rows are present")
+        out = paired.loc[:, ["scenario", "estimand"]].copy()
+        out["sd_parity_difference"] = np.nan
+        out["parity_witness_ratio"] = np.nan
+        out["parity_witness_passed"] = pd.Series([None] * len(out), dtype=object, index=out.index)
+        return out
     joined = subject.merge(reference, on=keys, suffixes=("", "_reference"), validate="1:1")
     joined["parity"] = joined["estimate"] - joined["estimate_reference"]
     out = (

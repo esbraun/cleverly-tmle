@@ -271,6 +271,12 @@ def test_the_parity_witness_reproduces_and_passes() -> None:
     """
     rows = _primary_rows()
     paired = pd.read_csv(study.ARTIFACTS / "paired-tmle.csv", float_precision="round_trip")
+    if study.STUDY.comparator_state == "pending":
+        # The R rows land with the comparator.  Until then no row and no verdict may appear.
+        assert not (rows["implementation"] == study.REFERENCE).any()
+        assert paired["sd_parity_difference"].isna().all()
+        assert paired["parity_witness_passed"].isna().all()
+        return
     for scenario in study.PARITY_SCENARIOS:
         frame = rows.loc[rows["scenario"] == scenario].pivot(
             index="replicate", columns="implementation", values="estimate"
@@ -289,6 +295,8 @@ def test_a_side_without_the_derivative_columns_would_fail_the_witness() -> None:
     columns, the plain TMLE, sit farther from R in root mean square than the witness allows a
     scenario's SD to be.
     """
+    if study.STUDY.comparator_state == "pending":
+        pytest.skip("the control reads R rows, which land with the pending comparator")
     scenario = "binary_constant_q"
     rows = _primary_rows()
     paired = pd.read_csv(study.ARTIFACTS / "paired-tmle.csv", float_precision="round_trip")
