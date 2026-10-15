@@ -53,6 +53,7 @@ from tests.parallel import STUDY_JOBS, memory_capped_workers
 from tests.studies import canonical_mtp_tuning as study
 from tests.studies import mtp_pricing_properties as pricing
 from tests.studies import mtp_study_tools as tools
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyCell,
@@ -62,9 +63,11 @@ from tests.studies.evidence.properties import (
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.oracle_density_bins import fit_bytes as one_fit_bytes
 
@@ -331,12 +334,11 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     return tuple(cells)
 
 
-def fit_set_rows(
-    family: str, label: str, replicate: int, n: int, requested: int, seed: int | None = None
+def _fit_rows(
+    family: str, label: str, replicate: int, n: int, requested: int, frame: pd.DataFrame
 ) -> list[dict[str, Any]]:
-    """The positive row and the derived control row of one replication."""
+    """The positive row and the derived control row of one replication, fitted on ``frame``."""
     kind, target, _, _ = CELLS[label]
-    frame = sample(n, _seed(family, label, replicate) if seed is None else seed)
     result = calibration_fit(label, frame)
     estimate = result[estimand(target)]
     population = study.population_truth(kind)
@@ -365,29 +367,94 @@ def fit_set_rows(
     return [positive, control]
 
 
+def fit_set_rows(
+    family: str, label: str, replicate: int, n: int, requested: int, seed: int | None = None
+) -> list[dict[str, Any]]:
+    """The positive row and the derived control row of one replication."""
+    frame = sample(n, _seed(family, label, replicate) if seed is None else seed)
+    return _fit_rows(family, label, replicate, n, requested, frame)
+
+
+#: A property key: ``(family, label, replicate, n, requested)``.
+_Key = tuple[str, str, int, int, int]
+
+#: Each positive's derived controls, which the keys name and :func:`calibration_controls` writes
+#: after the loop.  The cell's own extra control comes from the worker.
+DERIVED_CELLS: dict[str, tuple[str, ...]] = calibration_derived(CELLS)
+
+
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone."""
+    family, label, replicate, n, _ = key
+    return sample(n, _seed(family, label, replicate))
+
+
+def _fit(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    return _fit_rows(*key, frame)
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``family/cell`` names the key's rows and derived controls fill."""
+    family, label, *_ = key
+    positive = f"{family}/{label}__correctly_specified"
+    return [positive, f"{family}/{label}__{study.EXTRA_CONTROLS[label]}", *DERIVED_CELLS[positive]]
+
+
+def _cell_of(key: _Key) -> str:
+    return _cells_of(key)[0]
+
+
+def _replicate_of(key: _Key) -> int:
+    return key[2]
+
+
+def _seed_of(key: _Key) -> int:
+    family, label, replicate, *_ = key
+    return _seed(family, label, replicate)
+
+
 def fit_bytes(n: int) -> int:
     return max(2 * one_fit_bytes(n), 2**30)
+
+
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6).  Up to ``floor(0.01 R)`` lost
+#: replicates are judged by the worst case of each clause; one more is ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
 
 def generate_property_rows(
     *, n_jobs: int = STUDY_JOBS, budget: int | None = None, parts: Path | None = None
 ) -> pd.DataFrame:
+    """Fit every property replication; ``budget`` caps each fit set.
+
+    The keys of every fit set run in one :func:`~tests.studies.evidence.replication.
+    fit_properties` loop.  A finished key is kept under
+    :func:`~tests.studies.mtp_study_tools.property_checkpoint` (the driver's checkpoint
+    scratch, else ``parts``), so a stopped run resumes.  A ``budget`` run keeps nothing,
+    because a key's row carries ``requested``.
+    """
     jobs = memory_capped_workers(n_jobs, fit_bytes(CALIBRATION_N))
-    root = tools.parts_root(parts)
-    frames = []
+    keys: list[_Key] = []
     for family, label, n, replicates in FIT_SETS:
         requested = replicates if budget is None else budget
-        keys = [(family, label, r, n, requested) for r in range(requested)]
-        frames.append(
-            tools.run_in_parts(
-                fit_set_rows,
-                keys,
-                label=f"{family}__{label}__{requested}",
-                root=root,
-                n_jobs=jobs,
-            )
-        )
-    rows = pd.concat(frames, ignore_index=True)
+        keys += [(family, label, r, n, requested) for r in range(requested)]
+    outcomes = fit_properties(
+        keys,
+        _fit,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+        seed_of=_seed_of,
+        checkpoint=tools.property_checkpoint(parts) if budget is None else None,
+    )
+    rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [
             rows,
@@ -412,6 +479,11 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     summary, rates = apply_shared_verdicts(rows, STUDY, rate_labels=())
     calibration_verdicts(summary, margins=STUDY.margins)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes no
+#: efficiency band: the noise control and the two derived controls of each cell read the SE ratio.
+PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=None),)
 
 
 def _pilot_rows(
