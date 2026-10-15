@@ -18,6 +18,7 @@ enumeration.
 
 from __future__ import annotations
 
+import dataclasses
 import warnings
 from collections.abc import Callable
 from typing import Any
@@ -25,15 +26,20 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+from scipy import stats
 
 import cleverly
 from cleverly.exceptions import CapabilityError, DataError, RefusalReason
+from cleverly.inference.cluster import influence_covariance
+from cleverly.inference.multiplier import simultaneous_bands
+from cleverly.interventions import Shift, Stochastic
 from cleverly.learners import GLM
 from cleverly.learners.crossfit import Folds
 from cleverly.longitudinal import (
     LTMLE,
     DynamicRegimen,
     LongitudinalData,
+    Repeated,
     StructuralNestedMean,
     StructuralNestedMeanResult,
     snmm,
@@ -738,6 +744,110 @@ def test_weights_and_clusters() -> None:
     )
 
 
+def _clustered(n_clusters: int = 40, size: int = 10, seed: int = 3) -> pd.DataFrame:
+    """Clusters of ``size`` rows that share a random intercept of the outcome.
+
+    The intercept has standard deviation 2 against a unit residual, so the intraclass
+    correlation of the outcome is 0.8.  The standard error of a regimen level then grows by a
+    factor above 1.5 when the fit sums the curve within a cluster.
+    """
+    rng = np.random.default_rng(seed)
+    n = n_clusters * size
+    ident = np.repeat(np.arange(n_clusters), size)
+    shared = 2.0 * rng.normal(size=n_clusters)[ident]
+    w = rng.normal(size=n)
+    s1 = 0.5 * w + rng.normal(size=n)
+    a1 = rng.binomial(1, 1 / (1 + np.exp(-0.4 * s1)))
+    s2 = 0.5 * s1 + 0.8 * a1 + rng.normal(size=n)
+    a2 = rng.binomial(1, 1 / (1 + np.exp(-0.4 * s2 - 0.3 * a1)))
+    y = a1 + 0.5 * a2 + 0.7 * s2 + 0.3 * w + shared + rng.normal(size=n)
+    return pd.DataFrame({"W": w, "S1": s1, "A1": a1, "S2": s2, "A2": a2, "Y": y, "id": ident})
+
+
+def _cluster_standard_error(curve: np.ndarray, cluster: np.ndarray) -> float:
+    """The cluster-robust standard error of a mean of ``curve``, by explicit loops."""
+    labels = np.unique(cluster)
+    sums = np.array([curve[cluster == label].sum() for label in labels])
+    centered = sums - sums.mean()
+    n_clusters = len(labels)
+    variance = (centered @ centered) / (n_clusters - 1)
+    return float(np.sqrt(n_clusters * variance) / len(curve))
+
+
+def _clustered_fits() -> tuple[StructuralNestedMeanResult, StructuralNestedMeanResult]:
+    frame = _clustered()
+    settings = {**GLMS, "n_folds": 1, "n_multiplier": 400, "simultaneous": True}
+    return (
+        snmm(frame, regimens=REGIMENS, id="id", **settings, **SIM),
+        snmm(frame, regimens=REGIMENS, **settings, **SIM),
+    )
+
+
+def test_w8_the_variance_sums_the_curve_within_a_cluster() -> None:
+    """W8: every standard error is the cluster-summed variance of its own curve.
+
+    The curve is the same with and without ``id=``.  Only the variance differs, and only a
+    design with a shared cluster effect separates the two.  A fit with one unit per cluster
+    equals the unclustered fit whether or not the code sums within a cluster.
+    """
+    clustered, plain = _clustered_fits()
+    labels = clustered.data.cluster
+    assert clustered.inference_status == "influence_curve"
+    for name in clustered:
+        curve = clustered[name].influence_curve
+        assert np.array_equal(curve, plain[name].influence_curve), name
+        assert clustered[name].std_error == pytest.approx(
+            _cluster_standard_error(curve, labels), rel=1e-9
+        ), name
+    # The levels carry the shared effect, so the unclustered variance is far too small.
+    for name in ("ey_reference", "ey_regimen[always]", "ey_regimen[never]"):
+        assert clustered[name].std_error > 1.5 * plain[name].std_error, name
+
+
+def test_w8_the_bands_and_the_joint_covariance_read_the_clusters() -> None:
+    clustered, plain = _clustered_fits()
+    names = [name for name, kind in clustered.kinds.items() if kind in ("level", "contrast")]
+    chosen = {name: clustered[name] for name in names}
+    settings = {"alpha": 0.05, "n_replicates": 400, "kind": "rademacher", "random_state": 0}
+    with_clusters = simultaneous_bands(chosen, cluster=clustered.data.cluster, **settings)
+    without = simultaneous_bands(chosen, cluster=None, **settings)
+    assert clustered.simultaneous is not None
+    assert clustered.simultaneous.critical_value == pytest.approx(
+        with_clusters.critical_value, rel=1e-12
+    )
+    # The two critical values differ by a stated margin, so the comparison can fail.
+    assert abs(with_clusters.critical_value - without.critical_value) > 0.01
+    curves = np.column_stack([clustered[name].influence_curve for name in names])
+    assert np.allclose(
+        clustered.covariance(names), influence_covariance(curves, clustered.data.cluster)
+    )
+    assert np.linalg.norm(clustered.covariance(names) - plain.covariance(names)) > 0.05
+
+
+def test_w8_dropping_the_cluster_from_the_variance_fails_the_witness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Control: ``cluster=None`` in the estimates or in the bands is seen by the W8 witnesses."""
+    mutate(
+        monkeypatch,
+        module,
+        StructuralNestedMean,
+        "_estimates",
+        [("cluster=data.cluster,", "cluster=None,")],
+    )
+    mutate(
+        monkeypatch,
+        module,
+        StructuralNestedMean,
+        "_bands",
+        [("cluster=data.cluster,", "cluster=None,")],
+    )
+    with pytest.raises(AssertionError):
+        test_w8_the_variance_sums_the_curve_within_a_cluster()
+    with pytest.raises(AssertionError):
+        test_w8_the_bands_and_the_joint_covariance_read_the_clusters()
+
+
 # ------------------------------------------------------------------------- refusals
 
 
@@ -855,6 +965,137 @@ def test_w7_survival_and_repeated_outcomes_are_redirected() -> None:
     )
 
 
+def test_w7_every_redirected_design_carries_its_reason_code() -> None:
+    """Each design the estimator redirects raises ``API_REDIRECTION`` before any learner."""
+    redirect = RefusalReason.API_REDIRECTION
+    frame = _simulated().assign(Y2=lambda f: f["Y"], E1=0, E2=0, D1=0, D2=0)
+    fit = lambda **kw: StructuralNestedMean(REGIMENS, **GLMS).fit(  # noqa: E731
+        kw.pop("data", frame), **{**SIM, **kw}
+    )
+    _refused(redirect, lambda: fit(outcome=Repeated(["Y", "Y2"])))
+    density = Stochastic(lambda h: np.full((len(h), 2), 0.5), "q", density_kind="known")
+    for plan in (
+        DynamicRegimen("stochastic", (density, 1)),
+        DynamicRegimen("shift", (Shift(0.0, cap=None), 1)),
+    ):
+        _refused(
+            redirect,
+            lambda plan=plan: StructuralNestedMean({plan.label: plan}, **GLMS).fit(frame, **SIM),
+        )
+    _refused(redirect, lambda: fit(outcome={"event": ["E1", "E2"], "competing": ["D1", "D2"]}))
+    data = LongitudinalData.from_frame(frame, **SIM)
+    declared = data.with_known_mechanisms(treatment_probabilities=np.full((len(frame), 2), 0.5))
+    _refused(redirect, lambda: StructuralNestedMean(REGIMENS, **GLMS).fit(declared))
+    # Only a survival design holds one decision over the nodes, and the survival refusal comes
+    # first, so the held refusal is checked on the design check itself.
+    _refused(
+        redirect,
+        lambda: StructuralNestedMean._refuse_design(dataclasses.replace(data, treatment_held=True)),
+    )
+
+
+def test_w7_a_reference_with_no_regimen_is_refused() -> None:
+    _refused(
+        RefusalReason.INVALID_DECLARATION,
+        lambda: StructuralNestedMean(None, reference="never", **GLMS).fit(_simulated(), **SIM),
+    )
+
+
+def test_w7_check_model_refusals_carry_their_reason_codes() -> None:
+    """A continuous node, a fit with no interval and a comparison with no interval refuse."""
+    dose = _fit(laws.law_c(), None, {"inner": [0.5, 0.25], "zero": [0.0, 0.0]})
+    _refused(RefusalReason.INVALID_DECLARATION, dose.check_model)
+    from sklearn.linear_model import LinearRegression, LogisticRegression
+
+    with pytest.warns(UserWarning, match="adaptive_baseline_plugin"):
+        adaptive = snmm(
+            _simulated(),
+            regimens=REGIMENS,
+            n_folds=1,
+            outcome_learner=LinearRegression(),
+            treatment_learner=LogisticRegression(max_iter=1000),
+            random_state=0,
+            simultaneous=False,
+            **SIM,
+        )
+    _refused(RefusalReason.INFERENCE_GAP, adaptive.check_model)
+    result = snmm(_simulated(), regimens=REGIMENS, n_folds=1, **GLMS, **SIM)
+
+    class NoInterval(LTMLE):
+        """A nonparametric fit whose estimates carry a non-inferential status."""
+
+        def fit(self, *args: Any, **kwargs: Any) -> Any:
+            fit = super().fit(*args, **kwargs)
+            return dataclasses.replace(
+                fit,
+                estimates={
+                    name: dataclasses.replace(estimate, inference="constant_node_plugin")
+                    for name, estimate in fit.estimates.items()
+                },
+            )
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(module, "LTMLE", NoInterval)
+        _refused(RefusalReason.INFERENCE_GAP, result.check_model)
+
+
+def _extreme_law() -> laws.Law:
+    """Node 1 has a cell, ``W = 1`` with mass 0.4, whose treatment probability is 0.995."""
+    variables = (
+        laws.Var("W", "baseline", 0, lambda p: laws.bern(0.4)),
+        laws.Var("S1", "covariate", 1, lambda p: laws.bern(0.5)),
+        laws.Var("A1", "treatment", 1, lambda p: laws.bern(0.995 if p["W"] else 0.5)),
+        laws.Var("S2", "covariate", 2, lambda p: laws.bern(0.3 + 0.2 * p["A1"])),
+        laws.Var("A2", "treatment", 2, lambda p: laws.bern(0.5)),
+    )
+    return laws.Law("E", variables, lambda p: p["A1"] + 0.5 * p["A2"] + 0.3 * p["S2"])
+
+
+def test_the_extreme_share_is_the_mass_of_the_cells_near_zero_or_one() -> None:
+    """The share is 0.4 at the default margin, 0 at a margin below the cell, and nan for a dose."""
+    law = _extreme_law()
+    flagged = _fit(law).diagnostics.extreme_share
+    assert flagged[0] == pytest.approx(0.4, abs=1e-9)
+    assert flagged[1] == pytest.approx(0.0, abs=1e-9)
+    narrow = _fit(law, positivity_margin=0.001).diagnostics.extreme_share
+    assert narrow[0] == pytest.approx(0.0, abs=1e-9)
+    assert np.isnan(_fit(laws.law_c()).diagnostics.extreme_share[0])
+
+
+def test_a_regression_learner_fits_a_dose_node_with_a_binary_outcome() -> None:
+    """A classifier cannot fit a dose, so ``regression_learner`` takes the targets off {0, 1}."""
+    rng = np.random.default_rng(0)
+    n = 800
+    w = rng.normal(size=n)
+    d1 = rng.normal(size=n) + 0.3 * w
+    s2 = 0.5 * d1 + rng.normal(size=n)
+    a2 = rng.binomial(1, 1 / (1 + np.exp(-0.4 * s2)))
+    y = rng.binomial(1, 1 / (1 + np.exp(-(0.3 * d1 + 0.5 * a2 + 0.3 * w))))
+    frame = pd.DataFrame({"W": w, "D1": d1, "S2": s2, "A2": a2, "Y": y})
+    design = {
+        "outcome": "Y",
+        "treatment": ["D1", "A2"],
+        "baseline": ["W"],
+        "time_varying": [[], ["S2"]],
+        "continuous_treatment": ["D1"],
+    }
+    classifiers = {
+        "outcome_learner": GLM(family="binomial"),
+        "treatment_learner": GLM(family="binomial"),
+        "n_folds": 2,
+        "random_state": 0,
+        "simultaneous": False,
+    }
+    with pytest.raises(DataError, match="binomial target"):
+        StructuralNestedMean(None, **classifiers).fit(frame, **design)
+    fitted = StructuralNestedMean(
+        None, regression_learner=GLM(family="gaussian"), **classifiers
+    ).fit(frame, **design)
+    assert fitted.inference_status == "influence_curve"
+    assert np.isfinite(fitted.psi("ey_reference"))
+    assert {"blip[D1:dose:intercept]", "blip[A2:1:intercept]"} <= set(fitted)
+
+
 # ------------------------------------------------------------------------ model check
 
 
@@ -888,10 +1129,10 @@ def test_check_model_uses_the_folds_of_the_structural_fit() -> None:
     assert isinstance(LTMLE, type)
 
 
-def test_check_model_size_and_power_on_exact_population_limits() -> None:
-    """On the exact law H the correctly specified structural contrasts equal the LTMLE ones.
+def test_w4_the_structural_contrasts_on_law_h_match_and_on_law_l_miss() -> None:
+    """With the declared features the contrast of law H is the truth.
 
-    On law L with ``phi = 1`` they differ by a closed-form population amount.
+    On law L with ``phi = 1`` it differs by a closed-form population amount.
     """
     law = laws.law_h()
     regimens = {"r00": [0.0, 0.0], "r11": [1.0, 1.0], "r10": [1.0, 0.0]}
@@ -904,6 +1145,117 @@ def test_check_model_size_and_power_on_exact_population_limits() -> None:
         laws.regimen_mean(law, [0, 1]) - laws.regimen_mean(law, [0, 0])
     )
     assert abs(gap) > 0.05
+
+
+def _law_l_limits() -> tuple[float, float]:
+    """The population limits of ``psi_2`` and ``psi_1`` on law L with ``phi = 1``.
+
+    Node 2 gives ``0.5 + slope * E[S2 v] / E[v]``.  Node 1 solves its equation with that
+    limit in place of the later blip: ``psi_1 = (E[Z Y~] - psi_2 E[Z Z_2]) / E[Z^2]`` for the
+    residual treatment ``Z`` of node 1.
+    """
+    law = laws.law_l()
+    mean_a2 = laws.conditional_mean(law, 2, lambda p: p["A2"])
+    weight = laws.moment(law, lambda p: mean_a2(p) * (1.0 - mean_a2(p)))
+    weighted_s2 = laws.moment(law, lambda p: p["S2"] * mean_a2(p) * (1.0 - mean_a2(p)))
+    psi_2 = 0.5 + laws.L_SLOPE * weighted_s2 / weight
+    first_a1 = laws.conditional_mean(law, 1, lambda p: p["A1"])
+    first_a2 = laws.conditional_mean(law, 1, lambda p: p["A2"])
+    first_y = laws.conditional_mean(law, 1, lambda p: law.outcome(p))
+    variance = laws.moment(law, lambda p: (p["A1"] - first_a1(p)) ** 2)
+    cross_y = laws.moment(law, lambda p: (p["A1"] - first_a1(p)) * (law.outcome(p) - first_y(p)))
+    cross_a = laws.moment(law, lambda p: (p["A1"] - first_a1(p)) * (p["A2"] - first_a2(p)))
+    return psi_2, (cross_y - psi_2 * cross_a) / variance
+
+
+def test_check_model_statistic_on_exact_law_l() -> None:
+    """The check reports the closed-form structural gap against the g-formula truth.
+
+    Law L with ``phi = 1`` has a blip that varies with an undeclared covariate.  The
+    saturated nonparametric contrasts equal the g-formula truth, and the structural
+    contrasts equal the closed-form limits, so the difference is nonzero and known.
+    """
+    law = laws.law_l()
+    regimens = {"r00": [0.0, 0.0], "r01": [0.0, 1.0], "r10": [1.0, 0.0], "r11": [1.0, 1.0]}
+    check = _fit(law, None, regimens, reference="r00").check_model()
+    assert check.names == (
+        "ate_regimen[r01 vs r00]",
+        "ate_regimen[r10 vs r00]",
+        "ate_regimen[r11 vs r00]",
+    )
+    truth = np.array(
+        [
+            laws.regimen_mean(law, a) - laws.regimen_mean(law, [0, 0])
+            for a in ([0, 1], [1, 0], [1, 1])
+        ]
+    )
+    psi_2, psi_1 = _law_l_limits()
+    limits = np.array([psi_2, psi_1, psi_1 + psi_2])
+    assert np.allclose(check.nonparametric, truth, atol=EXACT)
+    assert np.allclose(check.structural, limits, atol=EXACT)
+    assert np.allclose(check.difference, limits - truth, atol=EXACT)
+    assert np.min(np.abs(check.difference)) > 0.01, "every contrast carries a nonzero gap"
+    assert check.df == 3 and check.tested
+    gap = check.difference
+    assert check.statistic == pytest.approx(gap @ np.linalg.solve(check.covariance, gap))
+    assert check.pvalue == pytest.approx(stats.chi2.sf(check.statistic, df=3), rel=1e-12)
+
+
+FOUR_REGIMENS = {
+    "always": [1, 1],
+    "never": [0, 0],
+    "first": [1, 0],
+    "second": [0, 1],
+}
+
+
+def _check_pieces(check: Any, result: StructuralNestedMeanResult, cluster: Any) -> dict[str, Any]:
+    """The difference curve, covariance and statistic of a check, rebuilt from the curves."""
+    difference = np.column_stack(
+        [result[name].influence_curve - check.ltmle[name].influence_curve for name in check.names]
+    )
+    structural_only = np.column_stack([result[name].influence_curve for name in check.names])
+    gap = check.structural - check.nonparametric
+    covariance = influence_covariance(difference, cluster)
+    return {
+        "covariance": covariance,
+        "structural_only": influence_covariance(structural_only, cluster),
+        "statistic": float(gap @ np.linalg.solve(covariance, gap)),
+    }
+
+
+@pytest.mark.parametrize("clustered", [False, True], ids=["iid", "clustered"])
+def test_check_model_covariance_degrees_of_freedom_and_clusters(clustered: bool) -> None:
+    """The check covariance is that of the difference of the two curves, at the cluster level.
+
+    The structural-only covariance, a one-degree-of-freedom tail and an unclustered
+    covariance each differ from the shipped values by a stated margin.
+    """
+    frame = _clustered() if clustered else _simulated(500)
+    result = snmm(
+        frame,
+        regimens=FOUR_REGIMENS,
+        reference="never",
+        n_folds=1,
+        id="id" if clustered else None,
+        **GLMS,
+        **SIM,
+    )
+    check = result.check_model()
+    cluster = result.data.cluster
+    assert (cluster is not None) is clustered
+    assert check.df == 3 and check.tested
+    pieces = _check_pieces(check, result, cluster)
+    assert np.allclose(check.covariance, pieces["covariance"], rtol=1e-10)
+    assert check.statistic == pytest.approx(pieces["statistic"], rel=1e-8)
+    assert check.pvalue == pytest.approx(stats.chi2.sf(check.statistic, df=3), rel=1e-10)
+    # The statistic is large enough that a wrong degrees of freedom moves the tail.
+    assert abs(stats.chi2.sf(check.statistic, df=1) - check.pvalue) > 0.01
+    norm = np.linalg.norm
+    assert norm(check.covariance - pieces["structural_only"]) > 0.1 * norm(check.covariance)
+    if clustered:
+        unclustered = _check_pieces(check, result, None)
+        assert norm(check.covariance - unclustered["covariance"]) > 0.1 * norm(check.covariance)
 
 
 def test_the_one_call_form_equals_the_class() -> None:

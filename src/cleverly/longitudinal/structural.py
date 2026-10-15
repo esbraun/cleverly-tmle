@@ -503,13 +503,17 @@ class _Learners:
         *,
         learner_folds: int,
         random_state: int | None,
+        regression: Learner | None = None,
     ) -> None:
-        self._specs = {"outcome": outcome, "treatment": treatment}
+        self._specs = {"outcome": outcome, "treatment": treatment, "regression": regression}
         self._folds = learner_folds
         self._seed = random_state
         self._cache: dict[tuple[str, str], Learner] = {}
 
     def get(self, role: str, task: str) -> Learner:
+        # A regression with no learner of its own is the outcome learner's.
+        if role == "regression" and self._specs["regression"] is None:
+            role = "outcome"
         key = (role, task)
         if key not in self._cache:
             spec = self._specs[role]
@@ -586,10 +590,11 @@ def _regress(
     task = "classification" if classification else "regression"
     constant: list[int] = []
     # A classifier is the treatment learner for a treatment indicator and the outcome learner
-    # for a binary outcome.  Any regression is the outcome learner's, because a treatment
-    # learner may be a classifier that takes no target outside {0, 1}.
+    # for a binary outcome.  Any regression is the regression learner's, which defaults to the
+    # outcome learner, because a treatment learner may be a classifier that takes no target
+    # outside {0, 1}.
     predictions, diagnostics = cross_fit_predictions(
-        learners.get(role if classification else "outcome", task),
+        learners.get(role if classification else "regression", task),
         design,
         target,
         data.weights,
@@ -1077,8 +1082,12 @@ class StructuralNestedMean:
         The learner of :math:`q_t`.  ``None`` fits a Super Learner.
     treatment_learner : learner or None, default=None
         The learner of the treatment-side nuisances :math:`m_{j,t}`.  A target in {0, 1}
-        takes this learner as a classifier.  Any other target takes ``outcome_learner`` as a
-        regression.  ``None`` fits a Super Learner.
+        takes this learner as a classifier.  ``None`` fits a Super Learner.
+    regression_learner : learner or None, default=None
+        The learner of every target outside {0, 1}: a continuous outcome, a dose, a product
+        with a dose or with a continuous feature.  ``None`` takes ``outcome_learner``.  A
+        binary outcome with a dose node or a continuous feature needs this setting when
+        ``outcome_learner`` is a classifier.
     n_folds : int, default=10
         The outer folds, drawn over trajectories.  ``1`` fits in sample.
     learner_folds : int, default=5
@@ -1155,6 +1164,7 @@ class StructuralNestedMean:
         blip_features: Mapping[Any, Any] | None = None,
         outcome_learner: Learner | None = None,
         treatment_learner: Learner | None = None,
+        regression_learner: Learner | None = None,
         n_folds: int = 10,
         learner_folds: int = 5,
         positivity_margin: float = 0.01,
@@ -1191,6 +1201,7 @@ class StructuralNestedMean:
                 )
         _validate_learner(outcome_learner, "outcome_learner")
         _validate_learner(treatment_learner, "treatment_learner")
+        _validate_learner(regression_learner, "regression_learner")
         if not 0.0 < alpha_sig < 0.5:
             raise ValueError(f"alpha_sig must lie in (0, 0.5); got {alpha_sig}")
         if n_folds < 1:
@@ -1204,6 +1215,7 @@ class StructuralNestedMean:
         self.blip_features = blip_features
         self.outcome_learner = outcome_learner
         self.treatment_learner = treatment_learner
+        self.regression_learner = regression_learner
         self.n_folds = n_folds
         self.learner_folds = learner_folds
         self.positivity_margin = positivity_margin
@@ -1311,6 +1323,7 @@ class StructuralNestedMean:
             self.treatment_learner,
             learner_folds=self.learner_folds,
             random_state=self.random_state,
+            regression=self.regression_learner,
         )
         nuisances = _fit_nuisances(prepared, nodes, learners, folds, self.n_jobs)
         stage = _build_stage(prepared, nodes, nuisances)
@@ -1717,7 +1730,8 @@ class StructuralNestedMeanResult:
     kinds : dict of str to str
         ``"blip"``, ``"reference"``, ``"level"`` or ``"contrast"`` for each name.
     coefficients : tuple of ndarray
-        The blip matrix :math:`\\Psi_t` of each node, shape ``(p_t, d_t)``.
+        The blip coefficients of each node as :math:`\\Psi_t^\\top`, shape ``(p_t, d_t)``:
+        one row per feature and one column per coding component.
     psi_curve : ndarray
         The ``(n, P)`` influence curves of the stacked coefficients.
     data : LongitudinalData
@@ -1759,7 +1773,8 @@ class StructuralNestedMeanResult:
     label: str
     simultaneous: SimultaneousBands | None = None
 
-    #: The method identity the assessment layer reads.
+    #: The method identity of the result.  The result declares no ``assessment_family``, so
+    #: ``assessment_capabilities`` does not accept it until X74 in ``docs/roadmap.md`` adds one.
     fitted_method: ClassVar[str] = "snmm"
 
     # ------------------------------------------------------------- mapping API
@@ -1895,7 +1910,7 @@ class StructuralNestedMeanResult:
         )
 
     def blip(self, node: int | str) -> FloatArray:
-        """The blip matrix :math:`\\Psi_t` of one node.
+        """The blip coefficients of one node, as :math:`\\Psi_t^\\top`.
 
         Parameters
         ----------
@@ -1906,6 +1921,8 @@ class StructuralNestedMeanResult:
         -------
         ndarray
             The ``(p_t, d_t)`` matrix: one row per feature and one column per coding component.
+            It is the transpose of :math:`\\Psi_t` in the model, which has one row per coding
+            component.
         """
         time = node if isinstance(node, int) else self.config.treatment_names.index(node) + 1
         return np.asarray(self.coefficients[time - 1])
