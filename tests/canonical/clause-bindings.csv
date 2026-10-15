@@ -1180,3 +1180,29 @@ weighted-tmle,type_i_error,rejection ceiling,rejection/0.1
 weighted-tmle,weight_necessity,alternative bias equivalent,bias
 weighted-tmle,weight_necessity,bias equivalent,bias
 weighted-tmle,weight_necessity,least displacement over labels,positive_diffuse
+tests.studies.sdr_repeated_properties,correction_necessity,alternative bias equivalent,bias
+tests.studies.sdr_repeated_properties,correction_necessity,bias equivalent,bias
+tests.studies.sdr_repeated_properties,correction_necessity,least displacement over labels,positive_diffuse
+tests.studies.sdr_repeated_properties,double_robustness,alternative bias equivalent,bias
+tests.studies.sdr_repeated_properties,double_robustness,bias equivalent,bias
+tests.studies.sdr_repeated_properties,double_robustness,se ratio in union band,se/0.05
+tests.studies.sdr_repeated_properties,full_history_necessity,alternative bias equivalent,bias
+tests.studies.sdr_repeated_properties,full_history_necessity,bias equivalent,bias
+tests.studies.sdr_repeated_properties,full_history_necessity,least displacement over labels,positive_diffuse
+tests.studies.sdr_repeated_properties,interval_calibration,coverage at calibration floor,shift/0.7
+tests.studies.sdr_repeated_properties,interval_calibration,coverage in calibration band,bias
+tests.studies.sdr_repeated_properties,interval_calibration,noise se ratio below band,none
+tests.studies.sdr_repeated_properties,interval_calibration,se ratio at calibration floor,se/0.05
+tests.studies.sdr_repeated_properties,interval_calibration,se ratio below band,se_high
+tests.studies.sdr_repeated_properties,interval_calibration,se ratio in calibration band,affine
+tests.studies.sdr_repeated_properties,outcome_history_necessity,alternative bias equivalent,bias
+tests.studies.sdr_repeated_properties,outcome_history_necessity,bias equivalent,bias
+tests.studies.sdr_repeated_properties,outcome_history_necessity,least displacement over labels,positive_diffuse
+tests.studies.sdr_repeated_properties,repeated_outcome_necessity,alternative bias equivalent,bias
+tests.studies.sdr_repeated_properties,repeated_outcome_necessity,bias equivalent,bias
+tests.studies.sdr_repeated_properties,repeated_outcome_necessity,least displacement over labels,positive_diffuse
+tests.studies.sdr_repeated_properties,rule_necessity,alternative bias equivalent,bias
+tests.studies.sdr_repeated_properties,rule_necessity,bias equivalent,bias
+tests.studies.sdr_repeated_properties,rule_necessity,least displacement over labels,positive_diffuse
+tests.studies.sdr_repeated_properties,simultaneous_coverage,joint coverage below nominal,pair_collapse
+tests.studies.sdr_repeated_properties,simultaneous_coverage,joint coverage in calibration band,se_low

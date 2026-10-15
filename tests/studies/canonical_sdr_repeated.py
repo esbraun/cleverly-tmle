@@ -267,6 +267,9 @@ STUDY = StudyRecord(
         "prefix, on the draws and pairing columns committed here) run on the owner's machine as "
         "the TRACKER Study queue item of X32b PR C; that change registers them"
     ),
+    # RM39b2 rev 3 section 6: the primary bound each side's next run applies, the pending
+    # comparator's included.
+    failure_bound={"cleverly": 0.01, "lmtp": 0.01},
     modules=(
         "tests/studies/canonical_sdr_repeated.py",
         "tests/studies/sdr_repeated_properties.py",

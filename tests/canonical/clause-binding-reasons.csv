@@ -30,3 +30,9 @@ tests.studies.longitudinal_sdr_properties,interval_calibration,coverage in calib
 learned-weighted-tmle,learner_weight_necessity,bias discriminated,implied by: alternative bias equivalent
 weighted-tmle,weight_necessity,bias discriminated,implied by: alternative bias equivalent
 longitudinal-repeated-outcome,repeated_outcome_necessity,bias discriminated,implied by: alternative bias equivalent
+tests.studies.sdr_repeated_properties,correction_necessity,bias discriminated,implied by: alternative bias equivalent
+tests.studies.sdr_repeated_properties,double_robustness,bias discriminated,implied by: alternative bias equivalent
+tests.studies.sdr_repeated_properties,full_history_necessity,bias discriminated,implied by: alternative bias equivalent
+tests.studies.sdr_repeated_properties,outcome_history_necessity,bias discriminated,implied by: alternative bias equivalent
+tests.studies.sdr_repeated_properties,repeated_outcome_necessity,bias discriminated,implied by: alternative bias equivalent
+tests.studies.sdr_repeated_properties,rule_necessity,bias discriminated,implied by: alternative bias equivalent
