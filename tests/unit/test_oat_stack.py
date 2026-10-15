@@ -270,9 +270,14 @@ class TestW2LargeSample:
         ) == pytest.approx(1.0, abs=0.03)
 
     def test_mutation_shipped_curve(self, large_binary: Any) -> None:
-        n = large_binary.n
-        shipped = large_binary["ate"].plugin_std_error * np.sqrt(n)
-        ratio = shipped / quad.ate_sd(quad.population_fit(quad.BINARY_ACTIVE))
+        stack = fitted_stack(large_binary)
+        report = _oat_stack.stack_report(stack, (0.0, 1.0))
+        assert report.curves is not None
+        curves = report.curves.curves
+        shipped = (curves[:, 1] + report.corrections[1.0]) - (
+            curves[:, 0] + report.corrections[0.0]
+        )
+        ratio = np.std(shipped, ddof=1) / quad.ate_sd(quad.population_fit(quad.BINARY_ACTIVE))
         assert abs(ratio - 1.0) > 0.1
 
 

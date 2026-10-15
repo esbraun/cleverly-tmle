@@ -32,6 +32,7 @@ __all__ = [
     "NO_SIMULTANEOUS_BANDS",
     "NO_T_REFERENCE_BANDS",
     "PARAMETER_STATUSES",
+    "STACK_FAILURE_STATUS",
     "T_REFERENCE_BOOTSTRAP_NOTE",
     "T_REFERENCE_NOTE",
     "InferenceStatus",
@@ -52,6 +53,7 @@ InferenceStatus = Literal[
     "estimated_weight_plugin",
     "few_cluster_plugin",
     "constant_node_plugin",
+    "stack_failure_plugin",
 ]
 
 # Below this many clusters with positive weight mass, in the fit or in the stratum an
@@ -347,6 +349,35 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             reopened_by="X54",
             alternative=NO_ALTERNATIVE,
         ),
+        "stack_failure_plugin": StatusRecord(
+            reason=(
+                "A per-arm outcome-adaptive C-TMLE fit with parametric learners "
+                "(ParametricOutcome and ParametricMechanism) reports no confidence interval, "
+                "no p-value and no standard error for an estimate that reads an arm whose "
+                "stacked estimating equation failed on this sample. The stack fails when the "
+                "fluctuation did not converge, when a diagonal block of its Jacobian is "
+                "numerically singular, or when the targeted predictions cannot be recomputed "
+                "from the fluctuation coefficient because the solver path met the outer "
+                "re-shrink. The fit's warning names the failed condition. The point estimate "
+                "stands. The plug-in standard error of the shipped curve remains as a "
+                "diagnostic under plugin_std_error and plugin_interval, and it omits the "
+                "generated-design term. X58 in docs/roadmap.md describes the stack."
+            ),
+            assessment_note=(
+                "the reported curve is a stacked-equation failure diagnostic: no confidence "
+                "interval or p-value is available for an estimate whose arm stack failed on "
+                "this sample, and X58 in the roadmap describes the stack"
+            ),
+            summary_label="stack-failure se",
+            bootstrap_note=(
+                "a diagnostic; no result validates the bootstrap coverage of the per-arm "
+                "outcome-adaptive fit"
+            ),
+            diagnostic_noun="stack-failure plug-in diagnostic",
+            reopened_by="X58",
+            alternative=NO_ALTERNATIVE,
+            code=RefusalReason.INVALID_DECLARATION,
+        ),
     }
 )
 
@@ -360,7 +391,14 @@ CONSTANT_NODE_STATUS: Final = "constant_node_plugin"
 #: recursion read a constant node regression, and the other parameters of that fit keep their
 #: status. A derived estimate that reads such a parameter takes it too. A reader therefore
 #: asks each estimate's ``supplies_inference``, and never the fit's status alone.
-PARAMETER_STATUSES: Final[frozenset[str]] = frozenset({CONSTANT_NODE_STATUS})
+PARAMETER_STATUSES: Final[frozenset[str]] = frozenset(
+    {CONSTANT_NODE_STATUS, "stack_failure_plugin"}
+)
+
+#: The status of an estimate of a per-arm outcome-adaptive fit whose arm stack failed on
+#: one sample (:mod:`cleverly.estimators._oat_stack`). A parameter status, like
+#: :data:`CONSTANT_NODE_STATUS`.
+STACK_FAILURE_STATUS: Final = "stack_failure_plugin"
 
 
 def supplies_inference(status: str) -> bool:

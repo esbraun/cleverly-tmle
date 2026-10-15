@@ -106,6 +106,7 @@ Every other status is a non-inferential status.
 | `"estimated_weight_plugin"` | a `DRTMLE` fit with a non-empty `guard` and varying weights declared estimated (`weights_estimated=True`). A fit with `guard=()` keeps `"influence_curve"`. Constant weights fit the unweighted estimator, so they keep it too. A per-arm `CTMLE` fit with `strategy="oat"` and estimated weights takes `"generated_design_plugin"` while `OAT_PER_ARM_INFERENTIAL` is `False`, and F19 holds its interval. [DR-TMLE supported estimands](dr-tmle/supported-estimands.md#refused-by-name) gives the reason | raise `CapabilityError` with the reason of the status | `fixed-weight se` | [X50](../roadmap.md#x50-further-dr-tmle-compositions) |
 | `"few_cluster_plugin"` | a `TMLE` or `DRTMLE` fit with `id=` and fewer than 10 clusters with positive weight mass in the fit or one reported baseline stratum, or an `LTMLE` fit with fewer than 20. The `LTMLE` floor applies in sample and under cross-fitting. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `normal-reference se` | [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) |
 | `"constant_node_plugin"` | an `LTMLE` parameter whose recursion read a node regression as a constant 0 or 1, such as a horizon at a grid node with no event among the regimen's followers at risk, and every contrast or restricted mean that reads it. The simultaneous band leaves it out. The other parameters of the fit keep their status. [A node with no event](longitudinal-tmle.md#a-node-with-no-event) gives the reason | raise `CapabilityError` with the reason of the status | `constant-node se` | [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) |
+| `"stack_failure_plugin"` | an estimate of an admitted per-arm `CTMLE` fit whose arm stack failed on the sample. The arm mean of a sound arm keeps its status. [The per-arm outcome-adaptive design](collaborative-tmle.md#the-per-arm-outcome-adaptive-design) gives the conditions | raise `CapabilityError` with the reason of the status | `stack-failure se` | [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
 
 At every status, `plugin_std_error` and `plugin_interval` return the plug-in spread of the
 reported curve. On `"influence_curve"` they return the numbers of `std_error` and `ci` under names
@@ -121,9 +122,10 @@ return it. The estimator decides the fit status from its configuration and the p
 reads no fitted quantity. When more than one non-inferential status applies, the fit takes the
 first one in the table above. The rows are in that order.
 
-A parameter status can sit beside the fit status on some estimates. `"constant_node_plugin"` is
-the one parameter status. `LTMLE` stamps it on a parameter whose recursion read a constant node
-regression, which is a fitted quantity, and the other estimates keep the fit status. So read each
+A parameter status can sit beside the fit status on some estimates. Two statuses are parameter
+statuses. `LTMLE` stamps `"constant_node_plugin"` on a parameter whose recursion read a constant
+node regression, which is a fitted quantity. `CTMLE` stamps `"stack_failure_plugin"` on each
+estimate that reads a failed arm stack. The other estimates keep the fit status. So read each
 estimate's `supplies_inference` before its `std_error`, `ci` or `pvalue`. The result's
 `inference_status` stays the fit status unless every estimate carries the parameter status.
 

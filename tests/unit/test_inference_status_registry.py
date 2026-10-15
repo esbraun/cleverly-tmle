@@ -42,6 +42,7 @@ PRECEDENCE = (
     "estimated_weight_plugin",
     "few_cluster_plugin",
     "constant_node_plugin",
+    "stack_failure_plugin",
 )
 
 

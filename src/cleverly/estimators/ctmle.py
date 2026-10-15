@@ -289,6 +289,7 @@ from __future__ import annotations
 
 import copy
 import inspect
+import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final, Literal
@@ -296,10 +297,15 @@ from typing import TYPE_CHECKING, Any, Final, Literal
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 
-from .._inference_status import InferenceStatus, precedent_status
+from .._inference_status import (
+    STACK_FAILURE_STATUS,
+    InferenceStatus,
+    precedent_status,
+    status_record,
+)
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
-from ..exceptions import CapabilityError, Refusal, RefusalReason
+from ..exceptions import CapabilityError, DataWarning, Refusal, RefusalReason
 from ..fluctuation.iterative import InitialFit, apply_logistic, check_matching_arms
 from ..fluctuation.submodel import Submodel, restrict, weighted_form
 from ..inference.cluster import influence_variance
@@ -308,12 +314,14 @@ from ..inference.influence import counterfactual_means
 from ..interventions.learned import learned_rule_configuration_refusal
 from ..learners._fitting import Task, predict_mean, predict_probabilities
 from ..learners.crossfit import _POST_DRAW_REMEDY, Folds, check_integrity, make_folds
+from ..learners.parametric import ParametricMechanism, ParametricOutcome
 from ..learners.super_learner import resolve_learner
 from ..targets.base import parameter_name
 from ..utils.bounds import OutcomeScaler, resolve_g_bounds
 from ..utils.parallel import map_parallel
 from ..utils.text import format_table
 from ._nuisance import NuisanceEstimates, Propensity, cross_fit_predictions, fit_on_rows
+from ._oat_stack import StackReport, stack_from_fit, stack_report
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .targeting import build_submodel, solve_submodel
 from .tmle import TMLE
@@ -471,6 +479,196 @@ def per_arm_design_admits(estimator: Any, data: CausalData) -> bool:
         and not data.has_missing_outcome
         and not data.has_missing_treatment
         and not data.has_strata
+    )
+
+
+@dataclass(frozen=True)
+class SupportVerdict:
+    """Whether :func:`per_arm_parametric_support` admits a fit, and the first unmet axis.
+
+    Parameters
+    ----------
+    admitted : bool
+        Whether the fit publishes the stacked interval.
+    axis : str or None
+        The first constructor option or data property outside the allow-list, or ``None``.
+    detail : str
+        One sentence naming the admitted configuration, or what the unmet axis requires.
+    """
+
+    admitted: bool
+    axis: str | None
+    detail: str
+
+
+def _anything(value: Any) -> bool:
+    return True
+
+
+#: The admitted values of every constructor option of :class:`~cleverly.TMLE` and
+#: :class:`CTMLE` for the stacked per-arm interval. ``tests/unit/test_oat_per_arm_support.py``
+#: fails when an option has no entry. An option that the in-sample per-arm fit never reads
+#: admits any value.
+PER_ARM_PARAMETRIC_OPTIONS: Final[dict[str, tuple[Callable[[Any], bool], str]]] = {
+    "strategy": (lambda v: v == "oat", "strategy='oat'"),
+    "oat_design": (lambda v: v == "per_arm", "oat_design='per_arm'"),
+    "outcome_learner": (
+        lambda v: type(v) is ParametricOutcome,
+        "outcome_learner=ParametricOutcome(...), exactly that class",
+    ),
+    "treatment_learner": (
+        lambda v: type(v) is ParametricMechanism,
+        "treatment_learner=ParametricMechanism(...), exactly that class",
+    ),
+    "missingness_learner": (_anything, "any value; no outcome is missing"),
+    "intermediate_learner": (_anything, "any value; no intermediate variable"),
+    "family": (
+        lambda v: v in ("auto", "binomial", "gaussian"),
+        "family='auto', 'binomial' or 'gaussian'",
+    ),
+    "fluctuation": (lambda v: v == "logistic", "fluctuation='logistic'"),
+    "targeting": (lambda v: v == "iterative", "targeting='iterative'"),
+    "cross_fit": (lambda v: v is False, "cross_fit=False; X58 part (c) holds cross-fitting"),
+    "targeting_scheme": (lambda v: v == "pooled", "targeting_scheme='pooled'"),
+    "cv_evaluation": (lambda v: v is False, "cv_evaluation=False"),
+    "n_folds": (_anything, "any value; the fit is in sample"),
+    "learner_folds": (_anything, "any value; the parametric learners have no inner folds"),
+    "repeats": (lambda v: v == 1, "repeats=1; X58 part (c) holds repeats"),
+    "stratify_folds": (_anything, "any value; the fit is in sample"),
+    "split_plan": (lambda v: v is None, "split_plan=None"),
+    "g_bounds": (_anything, "any value; a binding bound is in the Jacobian"),
+    "q_bounds": (
+        _anything,
+        "a declared tuple for an outcome that is not binary (checked on the data)",
+    ),
+    "alpha": (_anything, "any value; the shrinkage clips are in the Jacobian"),
+    "nuisance_bound": (_anything, "any value; no outcome is missing"),
+    "target_weights": (lambda v: v is False, "target_weights=False"),
+    "screen_treatment": (lambda v: v is False, "screen_treatment=False"),
+    "screen_threshold": (_anything, "any value; screening is off"),
+    "min_retain": (_anything, "any value; screening is off"),
+    "estimands": (_anything, "ate, rr, or and the arm means (checked on the data)"),
+    "interventions": (lambda v: not v, "no interventions"),
+    "policies": (lambda v: not v, "no policies"),
+    "incremental": (lambda v: not v, "no incremental"),
+    "msm": (lambda v: v is None, "msm=None"),
+    "learned_rule": (lambda v: v is None, "learned_rule=None"),
+    "density_bins": (lambda v: v is None, "density_bins=None"),
+    "ratio": (_anything, "any value; the treatment is binary"),
+    "reference": (_anything, "any arm"),
+    "alpha_sig": (_anything, "any value"),
+    "n_bootstrap": (_anything, "any value; the bootstrap range is a diagnostic"),
+    "bootstrap_resampling": (_anything, "any value"),
+    "simultaneous": (
+        lambda v: v is False,
+        "simultaneous=False; X58 part (b) holds the band",
+    ),
+    "n_multiplier": (_anything, "any value; no band"),
+    "multiplier_kind": (_anything, "any value; no band"),
+    "step_size": (_anything, "any value; the logistic fluctuation ignores it"),
+    "max_iter": (
+        _anything,
+        "any value; a fluctuation that does not converge sets the failure status",
+    ),
+    "tol": (_anything, "any value"),
+    "random_state": (_anything, "any value"),
+    "run_id": (_anything, "any value"),
+    "n_jobs": (_anything, "any value"),
+    "preorder": (lambda v: v is None, "preorder=None"),
+    "ordering": (lambda v: v is None, "ordering=None"),
+    "candidates": (lambda v: v is None, "candidates=None"),
+    "selection_folds": (_anything, "any value; the oat strategy selects nothing"),
+    "selection_inner_folds": (_anything, "any value; the oat strategy selects nothing"),
+    "loss": (_anything, "any value; the oat strategy selects nothing"),
+    "penalty": (_anything, "any value; the oat strategy selects nothing"),
+    "ctmle_estimand": (lambda v: v == "ate", "ctmle_estimand='ate'"),
+}
+
+#: The data properties the stacked per-arm interval needs, each with its failing test.
+_PER_ARM_PARAMETRIC_DATA: Final[tuple[tuple[str, Callable[[CausalData], bool], str], ...]] = (
+    (
+        "treatment",
+        lambda d: d.is_binary_treatment,
+        "a binary treatment; X58 part (b) holds more arms",
+    ),
+    (
+        "weights",
+        lambda d: not d.is_weighted,
+        "no observation weights; X58 part (d) holds fixed weights",
+    ),
+    ("cluster", lambda d: d.cluster is None, "no cluster identifier"),
+    ("strata", lambda d: not d.has_strata, "no baseline strata; X52 part (b) holds them"),
+    (
+        "missing_outcome",
+        lambda d: not d.has_missing_outcome,
+        "every outcome observed; X52 part (b) holds missing outcomes",
+    ),
+    ("missing_treatment", lambda d: not d.has_missing_treatment, "every treatment observed"),
+    ("intermediate", lambda d: not d.has_intermediate, "no intermediate variable"),
+    ("known_treatment", lambda d: d.known_treatment is None, "no declared treatment mechanism"),
+)
+
+
+def per_arm_parametric_support(estimator: Any, data: CausalData) -> SupportVerdict:
+    """Whether a per-arm outcome-adaptive fit publishes the stacked interval.
+
+    The fit is a finite-dimensional stacked Z-estimator when its outcome model and each arm's
+    mechanism are unpenalized logistic GLMs on a declared feature map, fitted in sample. Its
+    curve is then ``-A_n^{-1} U_i`` over the outcome, mechanism, fluctuation and mean
+    equations (:mod:`cleverly.estimators._oat_stack`; X58 in ``docs/roadmap.md``). The
+    predicate is an allow-list over every constructor option
+    (:data:`PER_ARM_PARAMETRIC_OPTIONS`) and the data properties the stack needs. It reads
+    the configuration and the prepared data only, never a fitted array.
+
+    Parameters
+    ----------
+    estimator : CTMLE
+        The collaborative estimator.
+    data : CausalData
+        The prepared data.
+
+    Returns
+    -------
+    SupportVerdict
+        The verdict, with the first unmet axis.
+    """
+    params = {
+        key: getattr(estimator, key)
+        for key in PER_ARM_PARAMETRIC_OPTIONS
+        if hasattr(estimator, key)
+    }
+    for name, (admits, text) in PER_ARM_PARAMETRIC_OPTIONS.items():
+        if name not in params:
+            return SupportVerdict(False, name, f"the estimator declares no {name}")
+        try:
+            ok = bool(admits(params[name]))
+        except Exception:
+            ok = False
+        if not ok:
+            return SupportVerdict(False, name, f"the stacked interval needs {text}")
+    for name, admits_data, text in _PER_ARM_PARAMETRIC_DATA:
+        if not admits_data(data):
+            return SupportVerdict(False, name, f"the stacked interval needs {text}")
+    if data.family != "binomial" and estimator.q_bounds is None:
+        return SupportVerdict(
+            False,
+            "q_bounds",
+            "the stacked interval needs declared q_bounds for an outcome that is not binary",
+        )
+    allowed = {"ate", "rr", "or", "ey", "ey0", "ey1"}
+    requested = estimator.estimands
+    if requested is None or not set(requested) <= allowed:
+        return SupportVerdict(
+            False,
+            "estimands",
+            "the stacked interval needs estimands among ate, rr, or and the arm means; "
+            "X58 part (b) holds ey_obs, par and paf",
+        )
+    return SupportVerdict(
+        True,
+        None,
+        "the in-sample per-arm fit with ParametricOutcome and ParametricMechanism on a binary "
+        "treatment",
     )
 
 
@@ -953,7 +1151,123 @@ class CTMLE(TMLE):
                     super()._inference_status(data),
                 ]
             )
+        if per_arm_parametric_support(self, data).admitted:
+            # The stacked curve of X58: the outcome GLM, each arm's mechanism, fluctuation and
+            # mean as one Z-estimator. An arm whose stack fails on the sample takes the
+            # parameter status "stack_failure_plugin" in _estimates_for.
+            return precedent_status(["influence_curve", super()._inference_status(data)])
         return "generated_design_plugin"
+
+    def _stack_report(
+        self, data: CausalData, nuisance: NuisanceEstimates, fluctuation: Any
+    ) -> StackReport | None:
+        """The stacked-curve report of an admitted per-arm fit, ``None`` for any other fit.
+
+        An admitted fit whose nuisances do not carry the parametric coefficients, such as a
+        retarget that perturbed them, fails on every arm rather than reading a curve built
+        from other arrays.
+        """
+        if not per_arm_parametric_support(self, data).admitted:
+            return None
+        bounds = resolve_g_bounds(self.g_bounds, self._bounds_n(data), for_att=False)
+        arms = tuple(float(arm) for arm in data.arm_codes)
+        try:
+            stack = stack_from_fit(
+                self.outcome_learner,
+                self.treatment_learner,
+                data,
+                nuisance,
+                fluctuation,
+                (float(bounds[0]), float(bounds[1])),
+                float(self.alpha),
+            )
+        except (KeyError, ValueError, TypeError) as exc:
+            reason = f"the fit does not carry the parametric coefficients the stack reads ({exc})"
+            zeros = np.zeros(data.n)
+            return StackReport(
+                corrections=dict.fromkeys(arms, zeros),
+                failures=dict.fromkeys(arms, reason),
+                shipped_std_error={},
+                curves=None,
+            )
+        return stack_report(stack, arms)
+
+    def _corrections(
+        self,
+        data: CausalData,
+        nuisance: NuisanceEstimates,
+        fluctuation: Any,
+        targeted: InitialFit,
+        scaled: FloatArray,
+    ) -> dict[float, FloatArray] | None:
+        """The shipped curve minus the stacked curve per arm on an admitted per-arm fit.
+
+        :func:`~cleverly.inference.influence.counterfactual_means` subtracts it, so every
+        arm mean and every contrast of the arm means reads the stacked curve. A failed arm
+        subtracts zeros and keeps the shipped curve, which :meth:`_estimates_for` marks.
+        """
+        report = self._stack_report(data, nuisance, fluctuation)
+        if report is None:
+            return super()._corrections(data, nuisance, fluctuation, targeted, scaled)
+        return report.corrections
+
+    def _estimates_for(
+        self,
+        data: CausalData,
+        nuisance: NuisanceEstimates,
+        group: Any,
+        submodel: Submodel,
+        fluctuation: Any,
+        requested: Sequence[str],
+        alpha_sig: float,
+        reference: float,
+        index: IntArray | None = None,
+        drop_undefined: bool = False,
+        natural_course: Any = None,
+    ) -> dict[str, Any]:
+        """Every estimand, with the stack-failure status on an estimate that reads a failed arm.
+
+        The status is a parameter status: an arm mean of an arm whose stack held keeps the
+        fit's status. Every contrast of a binary fit reads both arms.
+        """
+        estimates = super()._estimates_for(
+            data,
+            nuisance,
+            group,
+            submodel,
+            fluctuation,
+            requested,
+            alpha_sig,
+            reference,
+            index=index,
+            drop_undefined=drop_undefined,
+            natural_course=natural_course,
+        )
+        if index is not None:
+            return estimates
+        report = self._stack_report(data, nuisance, fluctuation)
+        if report is None or not report.failures:
+            return estimates
+        held = {f"ey{arm:g}" for arm in data.arm_codes if float(arm) not in report.failures}
+        warnings.warn(
+            "the stacked per-arm interval failed on this sample: "
+            + "; ".join(
+                f"arm {data.arm_label(arm)!r}: {reason}" for arm, reason in report.failures.items()
+            )
+            + ". "
+            + status_record(STACK_FAILURE_STATUS).reason,
+            DataWarning,
+            stacklevel=3,
+        )
+        return {
+            name: estimate
+            if name in held
+            else replace(
+                estimate,
+                inference=precedent_status([estimate.inference, STACK_FAILURE_STATUS]),
+            )
+            for name, estimate in estimates.items()
+        }
 
     def _bootstrap_inferential(self, data: CausalData) -> bool:
         """Whether the full-refit bootstrap interval is published as inference.

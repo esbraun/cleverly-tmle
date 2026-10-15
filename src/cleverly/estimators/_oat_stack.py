@@ -38,13 +38,18 @@ from scipy.special import expit, logit
 from .._typing import FloatArray
 
 __all__ = [
+    "MAX_TARGETED_GAP",
+    "MIN_BLOCK_RCOND",
     "ArmDesign",
     "FittedStack",
     "StackBlocks",
     "StackCurves",
     "StackProblem",
+    "StackReport",
     "corrected_curves",
     "fitted_stack",
+    "stack_from_fit",
+    "stack_report",
 ]
 
 Basis = Callable[[FloatArray], FloatArray]
@@ -441,9 +446,17 @@ def corrected_curves(problem: StackProblem, theta: FloatArray) -> StackCurves:
     )
 
 
+#: The reciprocal condition number below which a diagonal block of ``A_n`` is singular.
+MIN_BLOCK_RCOND = 1e-12
+
+#: The largest gap between ``Q*_a`` recomputed from ``eps_a`` and the fit's targeted
+#: predictions before the fluctuation counts as path dependent (X58 plan, 11).
+MAX_TARGETED_GAP = 1e-10
+
+
 @dataclass(frozen=True)
 class FittedStack:
-    """The stack of one in-sample per-arm OAT fit, read from its result.
+    """The stack of one in-sample per-arm OAT fit, read from the fit's parts.
 
     Parameters
     ----------
@@ -456,29 +469,202 @@ class FittedStack:
         the outcome scale.
     targeted_mismatch : float
         The largest absolute difference between ``Q*_a`` recomputed from ``theta_n`` and the
-        targeted predictions the fit reports. It is at rounding level when the fluctuation's
-        solver path never met the outer re-shrink.
+        targeted predictions the fit reports, over every arm.
+    arm_mismatch : tuple of float
+        The same gap per arm.
+    converged : bool
+        Whether the fluctuation met its convergence test.
     """
 
     problem: StackProblem
     theta: FloatArray
     scale: float
     targeted_mismatch: float
+    arm_mismatch: tuple[float, ...] = ()
+    converged: bool = True
+
+
+@dataclass(frozen=True)
+class StackReport:
+    """The corrected curves of one fit, as the estimate builder reads them.
+
+    Parameters
+    ----------
+    corrections : dict of float to ndarray
+        Per arm code, the shipped curve minus the corrected curve on the fitted scale. The
+        estimate builder subtracts it from the shipped curve. A failed arm holds zeros.
+    failures : dict of float to str
+        Per failed arm code, the condition that failed.
+    shipped_std_error : dict of float to float
+        Per arm code, the standard error of the shipped curve on the fitted scale.
+    curves : StackCurves or None
+        The solve's record; ``None`` when the stack could not be read.
+    """
+
+    corrections: dict[float, FloatArray]
+    failures: dict[float, str]
+    shipped_std_error: dict[float, float]
+    curves: StackCurves | None
+
+
+def stack_from_fit(
+    outcome_learner: Any,
+    treatment_learner: Any,
+    data: Any,
+    nuisance: Any,
+    fluctuation: Any,
+    bounds: tuple[float, float],
+    alpha: float,
+) -> FittedStack:
+    """Read the stack of an in-sample per-arm OAT fit from its parts. Nothing is refitted.
+
+    The coefficients come from the learners' ``diagnostics_`` entries, which the per-arm fit
+    keeps, and the fluctuation coefficients and targeted predictions from the ``"mean"``
+    fluctuation.
+
+    Parameters
+    ----------
+    outcome_learner : ParametricOutcome
+        The outcome learner template; its feature map builds ``x``.
+    treatment_learner : ParametricMechanism
+        The treatment learner template; its basis builds ``phi``.
+    data : CausalData
+        The prepared data.
+    nuisance : NuisanceEstimates
+        The fit's nuisances, with the per-arm diagnostics.
+    fluctuation : Fluctuation
+        The ``"mean"`` fluctuation.
+    bounds : tuple of float
+        The resolved ``g_bounds``.
+    alpha : float
+        The shrinkage bound.
+
+    Returns
+    -------
+    FittedStack
+        The system, ``theta_n`` and the targeted-prediction check.
+    """
+    arms = tuple(float(arm) for arm in data.arm_codes)
+    diagnostics = nuisance.diagnostics
+    (outcome_entry,) = diagnostics["outcome"]
+    beta = np.asarray(outcome_entry.coef, dtype=float)
+    gammas = []
+    for entries in diagnostics["propensity"]:
+        (entry,) = entries
+        gammas.append(np.asarray(entry.coef, dtype=float))
+    epsilons = [float(value) for value in fluctuation.epsilon]
+    targeted = np.column_stack([fluctuation.targeted.arms[arm] for arm in arms])
+    designs = [
+        ArmDesign(
+            features=outcome_learner.design_matrix(data.counterfactual_design(arm)),
+            indicator=(np.asarray(data.treatment) == arm).astype(float),
+            basis=treatment_learner.design_matrix,
+            basis_derivative=treatment_learner.derivative,
+            bounds=(float(bounds[0]), float(bounds[1])),
+        )
+        for arm in arms
+    ]
+    problem = StackProblem(
+        outcome_learner.design_matrix(data.treatment_design()),
+        nuisance.scaler.scale(data.outcome),
+        designs,
+        float(alpha),
+    )
+    theta = problem.pack(beta, gammas, epsilons, list(np.mean(targeted, axis=0)))
+    gaps = np.max(np.abs(problem.targeted(theta) - targeted), axis=0)
+    scaler = nuisance.scaler
+    return FittedStack(
+        problem=problem,
+        theta=theta,
+        scale=float(scaler.upper - scaler.lower),
+        targeted_mismatch=float(np.max(gaps)),
+        arm_mismatch=tuple(float(gap) for gap in gaps),
+        converged=bool(fluctuation.converged),
+    )
+
+
+def stack_report(stack: FittedStack, arms: Sequence[float]) -> StackReport:
+    """The corrections the estimate builder subtracts, and the arms whose stack failed.
+
+    An arm fails when the fluctuation did not converge, when the outcome block or the
+    arm's mechanism or fluctuation block is numerically singular
+    (:data:`MIN_BLOCK_RCOND`), or when the arm's recomputed ``Q*`` differs from the fit's
+    (:data:`MAX_TARGETED_GAP`). A failed arm keeps the shipped curve.
+
+    Parameters
+    ----------
+    stack : FittedStack
+        The fit's stack.
+    arms : sequence of float
+        The arm codes, in the stack's order.
+
+    Returns
+    -------
+    StackReport
+        The corrections, the failures, the shipped standard errors and the solve's record.
+    """
+    problem, theta = stack.problem, stack.theta
+    solved = corrected_curves(problem, theta)
+    targeted = problem.targeted(theta)
+    beta = theta[problem.slices["beta"]]
+    rconds = solved.reciprocal_conditions
+    corrections: dict[float, FloatArray] = {}
+    failures: dict[float, str] = {}
+    shipped_se: dict[float, float] = {}
+    n = problem.n
+    for j, (arm, design) in enumerate(zip(arms, problem.arms, strict=True)):
+        gamma = theta[problem.slices[f"gamma[{j}]"]]
+        q = expit(design.features @ beta)
+        clever = 1.0 / np.clip(expit(design.basis(q) @ gamma), *design.bounds)
+        shipped = (
+            design.indicator * clever * (problem.outcome - targeted[:, j])
+            + targeted[:, j]
+            - float(np.mean(targeted[:, j]))
+        )
+        shipped_se[arm] = float(np.std(shipped, ddof=1) / np.sqrt(n))
+        reason = _arm_failure(stack, rconds, j)
+        if reason is None:
+            corrections[arm] = shipped - solved.curves[:, j]
+        else:
+            failures[arm] = reason
+            corrections[arm] = np.zeros(n)
+    return StackReport(
+        corrections=corrections,
+        failures=failures,
+        shipped_std_error=shipped_se,
+        curves=solved,
+    )
+
+
+def _arm_failure(stack: FittedStack, rconds: dict[str, float], j: int) -> str | None:
+    if not stack.converged:
+        return "the fluctuation did not meet its convergence test"
+    for name in ("beta", f"gamma[{j}]", f"eps[{j}]"):
+        value = rconds[name]
+        if not value >= MIN_BLOCK_RCOND:
+            return (
+                f"the {name} block of the stacked Jacobian has reciprocal condition number "
+                f"{value:.3g}, below {MIN_BLOCK_RCOND:g}"
+            )
+    gap = stack.arm_mismatch[j] if stack.arm_mismatch else stack.targeted_mismatch
+    if gap > MAX_TARGETED_GAP:
+        return (
+            f"the targeted predictions differ by {gap:.3g} from those recomputed from the "
+            f"fluctuation coefficient, above {MAX_TARGETED_GAP:g}: the solver path met the "
+            "outer re-shrink"
+        )
+    return None
 
 
 def fitted_stack(result: Any) -> FittedStack:
     """Read the stack of a fitted in-sample per-arm OAT estimate.
 
-    The outcome and treatment learners must be
-    :class:`~cleverly.learners.ParametricOutcome` and
-    :class:`~cleverly.learners.ParametricMechanism`. The coefficients come from their
-    ``diagnostics_`` entries, the fluctuation coefficients and targeted predictions from the
-    ``"mean"`` fluctuation. Nothing is refitted.
-
     Parameters
     ----------
     result : Result
-        A ``CTMLE(strategy="oat", oat_design="per_arm", cross_fit=False)`` result.
+        A ``CTMLE(strategy="oat", oat_design="per_arm", cross_fit=False)`` result with
+        :class:`~cleverly.learners.ParametricOutcome` and
+        :class:`~cleverly.learners.ParametricMechanism` learners.
 
     Returns
     -------
@@ -499,44 +685,15 @@ def fitted_stack(result: Any) -> FittedStack:
         ParametricMechanism
     ):
         raise ValueError("the stack needs ParametricOutcome and ParametricMechanism learners")
-    nuisance = result.nuisance
-    if not nuisance.folds.is_single:
+    if not result.nuisance.folds.is_single:
         raise ValueError("the stack reads an in-sample fit; this fit is cross-fitted")
-    data = result.data
-    arms = tuple(float(arm) for arm in data.arm_codes)
-    diagnostics = nuisance.diagnostics
-    (outcome_entry,) = diagnostics["outcome"]
-    beta = np.asarray(outcome_entry.coef, dtype=float)
-    gammas = []
-    for entries in diagnostics["propensity"]:
-        (entry,) = entries
-        gammas.append(np.asarray(entry.coef, dtype=float))
-    fluctuation = result.fluctuations["mean"]
-    epsilons = [float(value) for value in fluctuation.epsilon]
-    targeted = np.column_stack([fluctuation.targeted.arms[arm] for arm in arms])
     bounds = tuple(float(value) for value in result.config.g_bounds)
-    designs = [
-        ArmDesign(
-            features=outcome_learner.design_matrix(data.counterfactual_design(arm)),
-            indicator=(np.asarray(data.treatment) == arm).astype(float),
-            basis=treatment_learner.design_matrix,
-            basis_derivative=treatment_learner.derivative,
-            bounds=(bounds[0], bounds[1]),
-        )
-        for arm in arms
-    ]
-    problem = StackProblem(
-        outcome_learner.design_matrix(data.treatment_design()),
-        nuisance.scaler.scale(data.outcome),
-        designs,
+    return stack_from_fit(
+        outcome_learner,
+        treatment_learner,
+        result.data,
+        result.nuisance,
+        result.fluctuations["mean"],
+        (bounds[0], bounds[1]),
         float(estimator.alpha),
-    )
-    theta = problem.pack(beta, gammas, epsilons, list(np.mean(targeted, axis=0)))
-    mismatch = float(np.max(np.abs(problem.targeted(theta) - targeted)))
-    scaler = nuisance.scaler
-    return FittedStack(
-        problem=problem,
-        theta=theta,
-        scale=float(scaler.upper - scaler.lower),
-        targeted_mismatch=mismatch,
     )

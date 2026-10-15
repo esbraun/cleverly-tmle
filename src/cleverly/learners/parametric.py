@@ -52,7 +52,11 @@ OutcomeFeatures = Literal["main_terms", "arm_interactions", "arm_interactions_no
   intercept, so on most laws that arm's outcome model is wrong.
 """
 
-_OUTCOME_FEATURES: tuple[str, ...] = ("main_terms", "arm_interactions", "arm_interactions_no_intercept")
+_OUTCOME_FEATURES: tuple[str, ...] = (
+    "main_terms",
+    "arm_interactions",
+    "arm_interactions_no_intercept",
+)
 _MAX_ITERATIONS = 100
 _STEP_TOLERANCE = 1e-12
 _MAX_HALVINGS = 50
