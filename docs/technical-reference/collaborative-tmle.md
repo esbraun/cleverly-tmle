@@ -768,7 +768,7 @@ learner classes exactly, with `type(learner) is ParametricOutcome`, so a subclas
 | `strategy`, `oat_design` | `"oat"` and `"per_arm"` | F19 for the shared design |
 | `outcome_learner`, `treatment_learner` | exactly `ParametricOutcome` and exactly `ParametricMechanism` | F19 for a flexible learner |
 | `cross_fit`, `repeats`, `split_plan`, `cv_evaluation`, `targeting_scheme` | `False`, 1, `None`, `False`, `"pooled"` | X58 part (c) |
-| `simultaneous` | `False` | X58 part (b) |
+| `simultaneous` | any value. The fit builds no band | X58 part (b) for the band |
 | `family`, `fluctuation`, `targeting` | `"auto"`, `"binomial"` or `"gaussian"`; `"logistic"`; `"iterative"` | none |
 | `q_bounds` | a declared tuple for an outcome that is not binary, checked on the data | none |
 | `target_weights`, `screen_treatment` | `False` | none |

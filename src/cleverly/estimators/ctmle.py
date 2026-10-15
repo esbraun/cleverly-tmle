@@ -675,10 +675,7 @@ PER_ARM_PARAMETRIC_OPTIONS: Final[dict[str, tuple[Callable[[Any], bool], str]]] 
     "alpha_sig": (_anything, "any value"),
     "n_bootstrap": (_anything, "any value; the bootstrap range is a diagnostic"),
     "bootstrap_resampling": (_anything, "any value"),
-    "simultaneous": (
-        lambda v: v is False,
-        "simultaneous=False; X58 part (b) holds the band",
-    ),
+    "simultaneous": (_anything, "any value; no band is built, and X58 part (b) holds it"),
     "n_multiplier": (_anything, "any value; no band"),
     "multiplier_kind": (_anything, "any value; no band"),
     "step_size": (_anything, "any value; the logistic fluctuation ignores it"),
@@ -1789,6 +1786,28 @@ default="greedy"
         """
         del data
         return False
+
+    def _builds_default_band(self, data: CausalData) -> bool:
+        """Whether ``simultaneous=True`` builds a band; ``False`` on an admitted per-arm fit.
+
+        X58 part (b) holds the band over the stacked curves, and no registered study measures
+        it yet. The fit reports its pointwise intervals, and its summary says that no band is
+        built.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data the estimates are fitted on.
+
+        Returns
+        -------
+        bool
+            ``False`` when :func:`per_arm_parametric_support` admits the fit, else the
+            inherited answer.
+        """
+        if self.strategy == "oat" and per_arm_parametric_support(self, data).admitted:
+            return False
+        return super()._builds_default_band(data)
 
     def _admits_natural_course_with_missing(self) -> bool:
         """Whether this fit may target the natural course with missing outcomes.
