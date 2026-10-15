@@ -1,11 +1,16 @@
 """The weekly-offer law: exact truth, the logged mechanism, the pilot draw, and the panel layout.
 
 The truth in :func:`cleverly.datasets.offers_truth` is a sum over engagement paths of Gauss--Hermite
-integrals.  A Monte Carlo draw of the intervened law checks it, and an independent enumeration in
-this module reproduces it to machine precision.  Both checks are blind to a term that vanishes at
-the truth, so three wrong truths must fail the Monte Carlo comparison: a rule that reads last
-week's engagement, a fatigue count that drops the week-3 discount, and a truth weighted by consent
-(the complete-case law instead of the hypothetical strategy).
+integrals.  A Monte Carlo draw of the intervened law checks it level by level and contrast by
+contrast.  A second draw, of the logged campaign, checks the estimation sample: a
+Horvitz--Thompson estimate with the logged offer probabilities and the true consent probabilities
+must recover each level.  The enumeration in this module reuses the law's step functions and the
+same path loop, so it checks the bookkeeping of the sum and not the law.
+
+These checks are blind to a term that vanishes at the truth, so three wrong truths must fail the
+Monte Carlo comparison: a rule that reads last week's engagement, a fatigue count that drops the
+week-3 discount, and a truth weighted by consent (the complete-case law instead of the
+hypothetical strategy).
 """
 
 from __future__ import annotations
@@ -31,10 +36,16 @@ from cleverly.datasets import (
 )
 from cleverly.datasets import offers as law
 
-#: The documented size of the tutorial.
+#: The documented size and seed of the tutorial.  The seed is the first of the swept range.
 DOCUMENTED_N = 20_000
-#: Customers per plan in the Monte Carlo comparison.  The standard error is about 0.001.
-MONTE_CARLO_N = 250_000
+NOTEBOOK_SEED = 1000
+#: Customers per plan in the Monte Carlo comparison.  The standard error is about 0.0007 for a
+#: level and 0.001 for a contrast, so four standard errors are 0.004 for a contrast.  A contrast
+#: gap of 0.006 is rejected with probability about 0.98.
+MONTE_CARLO_N = 500_000
+#: Customers in the draw of the logged campaign.  The Horvitz--Thompson standard error is about
+#: 0.004 for a level.
+LOGGED_N = 1_000_000
 #: The floor added to four Monte Carlo standard errors: the quadrature error of the truth, which
 #: 48 and 96 Gauss--Hermite nodes agree to below this bound (checked in this module).
 QUADRATURE_FLOOR = 1e-6
@@ -135,6 +146,87 @@ def test_the_truth_agrees_with_a_monte_carlo_draw_of_the_intervened_law(
     assert abs(mean - offers_truth()[f"ey_regimen[{name}]"]) <= 4 * error + QUADRATURE_FLOOR
 
 
+@pytest.mark.parametrize("name", [name for name in PLAN_NAMES if name != "none"])
+def test_the_truth_agrees_with_a_monte_carlo_draw_of_each_contrast(
+    monte_carlo: dict[str, tuple[float, float]], name: str
+) -> None:
+    """The contrast is tested directly, because two level errors of 0.003 can add to 0.006."""
+    mean, error = monte_carlo[name]
+    reference, reference_error = monte_carlo["none"]
+    gap = abs((mean - reference) - offers_truth()[f"ate_regimen[{name} vs none]"])
+    assert gap <= 4 * float(np.hypot(error, reference_error)) + QUADRATURE_FLOOR
+
+
+@pytest.fixture(scope="module")
+def logged_draw() -> Any:
+    """The customers of a logged draw whose outcome is observed, three consecutive rows each."""
+    panel, _ = make_sequential_offers(LOGGED_N, seed=900)
+    observed = panel.groupby("customer")["full_price"].transform("first").notna()
+    kept = panel[observed]
+    assert len(kept) % OFFER_WEEKS == 0
+    return kept
+
+
+def _horvitz_thompson(kept: Any, *, consent_weights: bool = True) -> dict[str, tuple[float, float]]:
+    """A Horvitz--Thompson estimate of each level from a logged draw, with its standard error.
+
+    The weight of a customer who followed the plan and stayed consenting is one over the product
+    of the logged probability of the planned offer and the true probability of consent, at each
+    week.  Nothing is fitted, so a mismatch between the logged law and the truth shows as a gap.
+    The flag ``consent_weights=False`` drops the consent factor, which is a deliberate error.
+    """
+    engaged, tenure = kept["engaged"].to_numpy(), kept["tenure"].to_numpy()
+    consent = law._consent(engaged, tenure) if consent_weights else np.ones(len(kept))
+    estimates = {}
+    for name, rule in OFFER_PLANS.items():
+        planned = np.asarray(rule(engaged), dtype=object)
+        probability = np.take_along_axis(
+            kept[[f"p_{level}" for level in OFFER_LEVELS]].to_numpy(),
+            np.array([OFFER_LEVELS.index(level) for level in planned])[:, None],
+            axis=1,
+        )[:, 0]
+        factor = np.where(kept["offer"].to_numpy() == planned, 1.0 / (probability * consent), 0.0)
+        weight = factor.reshape(-1, OFFER_WEEKS).prod(axis=1)
+        outcome = kept["full_price"].to_numpy().reshape(-1, OFFER_WEEKS)[:, 0]
+        # Customers lost to consent contribute zero to the sum, and count in the denominator.
+        terms = np.zeros(LOGGED_N)
+        terms[: weight.size] = weight * outcome
+        estimates[name] = (float(terms.mean()), float(terms.std() / np.sqrt(LOGGED_N)))
+    return estimates
+
+
+@pytest.fixture(scope="module")
+def logged_estimates(logged_draw: Any) -> dict[str, tuple[float, float]]:
+    return _horvitz_thompson(logged_draw)
+
+
+@pytest.mark.parametrize("name", PLAN_NAMES)
+def test_the_truth_agrees_with_a_horvitz_thompson_estimate_on_the_logged_campaign(
+    logged_estimates: dict[str, tuple[float, float]], name: str
+) -> None:
+    """The estimation sample, which the ``policy=`` draws above do not touch, has the truth's law.
+
+    The two branches of the generator share the engagement, outcome and fatigue lines.  They
+    differ in the offer and the consent lines, which this estimate reads through the logged
+    ``p_*`` columns and the true consent probabilities.  The standard error is about 0.004, so
+    this check rejects a gross divergence, such as a consent line that reads the wrong week.
+    A finer check is ``reviews/notebook-review/probes/sequential-offers/logged_branch_check.py``,
+    which uses 15 million logged customers.
+    """
+    mean, error = logged_estimates[name]
+    assert abs(mean - offers_truth()[f"ey_regimen[{name}]"]) <= 4 * error + QUADRATURE_FLOOR
+
+
+def test_a_logged_estimate_without_the_consent_weights_fails_the_comparison(
+    logged_draw: Any,
+) -> None:
+    """Mutation control: dropping the consent factor moves every level by more than 10 SE."""
+    wrong = _horvitz_thompson(logged_draw, consent_weights=False)
+    truth = offers_truth()
+    for name, (mean, error) in wrong.items():
+        assert abs(mean - truth[f"ey_regimen[{name}]"]) > 10 * error, name
+
+
 MUTATIONS = {
     "the rule reads last week's engagement": {"lagged_rule": True},
     "the week-3 discount leaves the fatigue count": {"drop_week_three": True},
@@ -191,7 +283,7 @@ def test_the_protocol_pairs_each_strategy_with_a_version() -> None:
 
 @pytest.fixture(scope="module")
 def logged() -> Any:
-    panel, _ = make_sequential_offers(DOCUMENTED_N, seed=3)
+    panel, _ = make_sequential_offers(DOCUMENTED_N, seed=NOTEBOOK_SEED)
     return panel
 
 

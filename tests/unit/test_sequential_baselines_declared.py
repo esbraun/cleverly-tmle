@@ -94,8 +94,10 @@ def test_a_declared_three_level_mechanism_with_estimated_censoring_is_the_g_form
 ) -> None:
     """Both baselines equal the g-formula, with the offer factors declared and C1 fitted.
 
-    The censoring GLM is the only mechanism a learner fits, so a declaration read by position
-    rather than label, or a dropped cumulative factor, moves an estimate here.
+    The censoring GLM is the only mechanism a learner fits. A declaration read by position rather
+    than label, or a dropped cumulative factor, moves the two IPW variants here. The
+    g-computation variant reads the declaration in its diagnostics only, so this test does not
+    check its declared factors (see the mutation control below).
     """
     result = _fit(variant, exact_frame, declare=law.declared())
     assert result.config.known_factors == ("A1", "A2")

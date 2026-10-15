@@ -59,7 +59,7 @@ _LOGGED = {
 
 #: The coefficients of the law.  Each is a logit-scale coefficient except where named otherwise.
 _LAW = {
-    # engagement in week 1: expit(intercept + tenure * tenure)
+    # engagement in week 1: expit(e1_intercept + e1_tenure * tenure)
     "e1_intercept": 0.2,
     "e1_tenure": 0.5,
     # engagement in week t + 1, given engagement and the offer of week t
@@ -315,7 +315,7 @@ def make_sequential_offers(
 
     Returns
     -------
-    dataframe
+    panel : dataframe
         A long panel with columns ``customer``, ``week``, ``tenure``, ``engaged``, ``offer``,
         ``consent``, ``p_none``, ``p_discount``, ``p_shipping``, and ``full_price``.
     truth : dict of str to float
