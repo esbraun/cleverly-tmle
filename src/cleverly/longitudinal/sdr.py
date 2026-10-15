@@ -536,9 +536,9 @@ def _at_full_sample_tuner(
 
     numerators = list(fold_plan.mtp_numerators)
     if ratio == "density":
-        for tuning in plan.tuning:
-            time = tuning.time
-            if tuning.component is not None:
+        # A node with several tuned components is refitted once, at all of their maps.
+        for time in sorted({tuning.time for tuning in plan.tuning}):
+            if any(t.component is not None for t in plan.tuning if t.time == time):
                 numerators[time - 1] = refit(plan, time)
                 continue
             density = mechanism.densities[(time, data.treatment_names[time - 1])]
@@ -732,7 +732,7 @@ def _merge(
         }
         clever = np.zeros(data.n)
         by_arm = None if template.by_arm is None else blank(template.by_arm.shape[1])
-        probes = None if template.probes is None else blank(2)
+        probes = None if template.probes is None else blank(template.probes.shape[1])
         diagnostics: list[SuperLearnerDiagnostics] = []
         constant_folds: list[int] = []
         paths = 0

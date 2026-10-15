@@ -232,9 +232,16 @@ _CROSS_FIT_NODE_REMEDY = (
 #: depends on the value -- ``check_arms`` requires only that it be a float, and
 #: ``check_matching_arms`` only that the fit and the submodel agree on it.
 _REGIMEN_ARM = 0.0
-#: The fluctuation keys of a tuned node's predictions at its boundary and last moved dose.
-#: Negative, so they collide with neither the observed arm nor a policy arm.
-_PROBE_ARMS = (-1.0, -2.0)
+
+
+def _probe_arms(width: int) -> tuple[float, ...]:
+    """The fluctuation keys of a tuned node's ``width`` probe predictions.
+
+    Each tuning slot of the node (:func:`_probe_slots`) has two: its boundary and its last
+    moved dose.  The keys are negative, so they collide with neither the observed arm nor a
+    policy arm.
+    """
+    return tuple(-1.0 - float(index) for index in range(width))
 
 
 def _policy_arm(code: int) -> float:
@@ -2272,15 +2279,13 @@ def _fit_node_regression(
         # A dose has no level to select the observed-arm prediction from, so it is
         # predicted at the observed dose; the branches are predicted at their own doses.
         predict_designs["history"] = design
-    tuning = _population_tuning(plan, time)
-    if tuning is not None:
+    slots = _probe_slots(plan, time)
+    for index, (tuning, branch, _) in enumerate(slots):
         column = tuned_column(data, tuning)
-        predict_designs["probe_boundary"] = outcome_design(
-            data, plan, time, dose=tuning.boundary, component=column
-        )
-        predict_designs["probe_edge"] = outcome_design(
-            data, plan, time, dose=tuning.edge, component=column
-        )
+        for side, dose in enumerate((tuning.boundary, tuning.edge)):
+            predict_designs[f"probe_{2 * index + side}"] = outcome_design(
+                data, plan, time, arm=branch, dose=dose, component=column
+            )
     carry = carry_plan if carry_plan is not None and policy_node else None
     if carry is not None:
         for code in levels:
@@ -2334,11 +2339,11 @@ def _fit_node_regression(
     )
     probes = (
         None
-        if tuning is None
+        if not slots
         else np.column_stack(
             [
-                np.where(at_risk, predictions["probe_boundary"], _FILLER),
-                np.where(at_risk, predictions["probe_edge"], _FILLER),
+                np.where(at_risk, predictions[f"probe_{index}"], _FILLER)
+                for index in range(2 * len(slots))
             ]
         )
     )
@@ -2405,12 +2410,19 @@ def tuned_dose(data: LongitudinalData, tuning: Any) -> FloatArray:
     return np.nan_to_num(data.node_values(tuning.time)[:, column], nan=0.0)
 
 
-def _population_tuning(plan: Plan, time: int) -> Any:
-    """The population-target tuning record of a node, or ``None``."""
-    for tuning in plan.tuning:
-        if tuning.time == time and tuning.influence is not None:
-            return tuning
-    return None
+def _probe_slots(plan: Plan, time: int) -> tuple[tuple[Any, int, float], ...]:
+    """``(tuning, branch, probability)`` of each population-target tuning slot of a node.
+
+    A node regression's probes hold two columns per slot, in this order: the prediction at
+    the branch's assigned values with the tuned dose at its boundary, and at its last moved
+    dose.
+    """
+    return tuple(
+        (tuning, branch, probability)
+        for tuning in plan.tuning
+        if tuning.time == time and tuning.influence is not None
+        for branch, probability in tuning.slots
+    )
 
 
 def prepare_node(
@@ -2582,8 +2594,9 @@ def _fluctuate_node(
         the same coefficient as ``initial`` and is filed under :func:`_policy_arm`.  The
         score reads ``initial`` alone, so the columns change no coefficient.
     probes : FloatArray or None
-        ``(n, 2)`` predictions of a tuned node at its boundary and last moved dose, moved
-        by the same coefficient and filed under :data:`_PROBE_ARMS`.
+        ``(n, 2S)`` predictions of a tuned node at the boundary and last moved dose of each
+        of its ``S`` tuning slots, moved by the same coefficient and filed under
+        :func:`_probe_arms`.
 
     Returns
     -------
@@ -2598,7 +2611,7 @@ def _fluctuate_node(
             initial_arms[_policy_arm(code)] = arms[:, code]
             submodel_arms[_policy_arm(code)] = intercept
     if probes is not None:
-        for key, column in zip(_PROBE_ARMS, probes.T, strict=True):
+        for key, column in zip(_probe_arms(probes.shape[1]), probes.T, strict=True):
             initial_arms[key] = column
             submodel_arms[key] = intercept
     constant = constant_target(pseudo_outcome, fitted_on)
@@ -2831,18 +2844,24 @@ def tuning_term(
         influence = tuning.influence
         before = by_time.get(tuning.time - 1)
         prefix = np.ones(data.n) if before is None else np.asarray(before.clever, dtype=float)
-        derivative = cap_derivative(
-            weights=data.weights,
-            prefix=prefix,
-            dose=tuned_dose(data, tuning),
-            edge=tuning.edge,
-            high=step.probes[:, 0],
-            low=step.probes[:, 1],
-            gradient=tuning.gradient,
-            slope=tuning.slope,
-            at_risk=step.at_risk,
-            rule=tuning.fitted.tuner.bandwidth,
-        )
+        # The node's value is linear in its slots' terms: each tuned component of each
+        # branch adds its own Leibniz term, weighted by the branch probability.
+        derivative = np.zeros(np.shape(tuning.gradient)[1])
+        for index, (slot, _, probability) in enumerate(_probe_slots(plan, tuning.time)):
+            if slot is not tuning:
+                continue
+            derivative = derivative + probability * cap_derivative(
+                weights=data.weights,
+                prefix=prefix,
+                dose=tuned_dose(data, tuning),
+                edge=tuning.edge,
+                high=step.probes[:, 2 * index],
+                low=step.probes[:, 2 * index + 1],
+                gradient=tuning.gradient,
+                slope=tuning.slope,
+                at_risk=step.at_risk,
+                rule=tuning.fitted.tuner.bandwidth,
+            )
         derivatives.append(derivative)
         term = term + data.weights * (influence @ derivative)
     return term, tuple(derivatives)
@@ -3074,7 +3093,9 @@ def _targeted_step(
     probes = (
         None
         if node.probes is None
-        else np.column_stack([fluctuation.targeted.arms[key] for key in _PROBE_ARMS])
+        else np.column_stack(
+            [fluctuation.targeted.arms[key] for key in _probe_arms(node.probes.shape[1])]
+        )
     )
     return SequentialStep(
         time=node.time,
@@ -3328,7 +3349,8 @@ def untargeted_fold_recursions(
                 if constant:
                     constant_folds.setdefault(time, []).append(fold + 1)
                 if probe is not None:
-                    probes.setdefault(time, np.full((data.n, 2), _FILLER))[test] = probe
+                    width = np.shape(probe)[1]
+                    probes.setdefault(time, np.full((data.n, width), _FILLER))[test] = probe
         stitched.append(
             StitchedInitial(
                 initial=initial,

@@ -122,7 +122,6 @@ from .data import LongitudinalData
 from .regimen import Plan
 from .sequential import (
     _FILLER,
-    _PROBE_ARMS,
     _REGIMEN_ARM,
     FoldRecursionCell,
     Mechanism,
@@ -131,6 +130,7 @@ from .sequential import (
     SequentialStep,
     _carried,
     _policy_arm,
+    _probe_arms,
     constant_target,
     pooled_node_inputs,
     prepare_node,
@@ -726,7 +726,7 @@ def fit_regimens_msm(
                     else np.column_stack(
                         [
                             np.split(fluctuation.targeted.arms[key], len(live))[position]
-                            for key in _PROBE_ARMS
+                            for key in _probe_arms(node.probes.shape[1])
                         ]
                     )
                 )
@@ -897,10 +897,13 @@ def _stacked_arms(
         # A tuned node's boundary and last-moved-dose probes move by the coefficient of
         # their own cell's block, as its observed-arm prediction does.  A cell without
         # probes stacks its observed-arm prediction, which no reader takes.
-        for position, key in enumerate(_PROBE_ARMS):
+        width = max(node.probes.shape[1] for node in nodes if node.probes is not None)
+        for position, key in enumerate(_probe_arms(width)):
             initial_arms[key] = np.concatenate(
                 [
-                    node.initial if node.probes is None else node.probes[:, position]
+                    node.initial
+                    if node.probes is None or position >= node.probes.shape[1]
+                    else node.probes[:, position]
                     for node in nodes
                 ]
             )

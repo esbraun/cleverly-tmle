@@ -186,7 +186,7 @@ from ..interventions.policy import (
     preflight_point_policies,
     preflight_vector_policies,
     refuse_policy_declarations,
-    tuned_component,
+    tuned_components,
     vector_msm_refusal,
     vector_route_refusal,
     whole_vector_refusal,
@@ -3090,9 +3090,9 @@ class TMLE:
             # undeclared atoms (R-b4) and a declared component support are checked here,
             # before any learner (X40 parts (a) and (b)).
             for policy in self.policies or ():
-                found = tuned_component(policy)
-                if found is not None:
-                    raise CapabilityError(point_tuned_component_refusal(policy, found[0]))
+                slots = tuned_components(policy)
+                if slots:
+                    raise CapabilityError(point_tuned_component_refusal(policy, slots[0].component))
             if self.policies:
                 preflight_vector_policies(
                     tuple(self.policies), data, ratio=self.ratio, density_bins=self.density_bins

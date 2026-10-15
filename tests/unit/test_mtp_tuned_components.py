@@ -14,8 +14,8 @@ the tuned component set to the boundary and to the last moved dose.
 - T-e7: each outer fold trains at its own tuner on both routes.
 - T-e1: the fold average at two mixed nodes of the exact grid law is the average of the
   exact fold functionals; M-e1 holds one fold map everywhere.
-- The refusals: a randomizer, two tuned components, declared atoms (M3), a tuner that reads
-  the tuned dose, and a point vector treatment.
+- The refusals: a randomizer, declared atoms (M3), a tuner that reads the tuned dose, and a
+  point vector treatment.  ``tests/unit/test_mtp_joint_tuning.py`` covers two tuned doses.
 """
 
 from __future__ import annotations
@@ -342,7 +342,7 @@ def _recorded_probes(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, np.ndarr
 
     def recorded(*args: Any, **kwargs: Any) -> Any:
         designs = kwargs.get("predict_designs") or {}
-        if "probe_boundary" in designs:
+        if "probe_0" in designs:
             seen.append({key: np.array(value) for key, value in designs.items()})
         return original(*args, **kwargs)
 
@@ -368,7 +368,7 @@ def _check_probes(seen: list[dict[str, np.ndarray]], frame: pd.DataFrame) -> Non
     """The node-2 probes are the observed design with the flag at 1 and the dose set."""
     (designs,) = [entry for entry in seen if entry["history"].shape[1] > 4]
     _, _, boundary, _ = _longhand_tuner(frame, 2, "quantile", 0.5)
-    for key, dose in (("probe_boundary", boundary), ("probe_edge", boundary - 1.0)):
+    for key, dose in (("probe_0", boundary), ("probe_1", boundary - 1.0)):
         expected = np.array(designs["history"], dtype=float)
         expected[:, -2] = 1.0
         expected[:, -1] = dose
@@ -668,14 +668,6 @@ def test_a_randomized_joint_policy_with_a_tuned_component_is_refused(frame: Any)
     )
     with pytest.raises(CapabilityError, match="inside a randomized JointPolicy"):
         _fit(LTMLE, [regimen], frame, n_folds=1)
-
-
-def test_two_tuned_components_are_refused() -> None:
-    from cleverly.interventions.policy import tuned_component
-
-    policy = JointPolicy("two", components={"D1": TUNED, "D2": TUNED}, policy_kind="known")
-    with pytest.raises(CapabilityError, match=r"tunes the caps of the components \['D1', 'D2'\]"):
-        tuned_component(policy)
 
 
 def test_a_tuned_component_with_declared_atoms_is_refused(frame: Any) -> None:

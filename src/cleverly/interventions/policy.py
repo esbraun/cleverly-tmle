@@ -111,7 +111,7 @@ import warnings
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from itertools import pairwise
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias, cast
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TypeAlias, cast
 
 import numpy as np
 
@@ -150,11 +150,12 @@ __all__ = [
     "Scale",
     "Shift",
     "Support",
+    "TunedSlot",
     "check_policy_support",
     "component_source",
     "refuse_policy_declarations",
     "resolve_tuned_policy",
-    "tuned_component",
+    "tuned_components",
     "tuned_policy",
 ]
 
@@ -1076,8 +1077,32 @@ def tuned_cap_parts(
     return boundary, edge, fitted.design(frame, n), slope
 
 
-def tuned_component(policy: object) -> tuple[str, Shift | Scale] | None:
-    """The one component of a :class:`JointPolicy` whose cap is a tuner, or ``None``.
+class TunedSlot(NamedTuple):
+    """One place a tuned map enters a joint policy: a component in one branch.
+
+    Parameters
+    ----------
+    branch : int
+        The branch of :func:`joint_branches`.
+    probability : float
+        The branch's known probability.
+    component : str
+        The tuned dose component.
+    policy : Shift or Scale
+        The declared tuned map, the object the policy holds.
+    """
+
+    branch: int
+    probability: float
+    component: str
+    policy: Shift | Scale
+
+
+def tuned_components(policy: object) -> tuple[TunedSlot, ...]:
+    """Every component of a :class:`JointPolicy` whose cap is a tuner, in every branch.
+
+    The value of a joint policy is linear in its components' terms: the curve carries one
+    derivative term per slot, and a slot in branch ``b`` carries the branch probability.
 
     Parameters
     ----------
@@ -1086,44 +1111,34 @@ def tuned_component(policy: object) -> tuple[str, Shift | Scale] | None:
 
     Returns
     -------
-    tuple or None
-        ``(component name, tuned map)``, or ``None`` when no component is tuned.
+    tuple of TunedSlot
+        In branch order and then component order.  Empty when no component is tuned or the
+        policy is not a :class:`JointPolicy`.
 
     Raises
     ------
     CapabilityError
-        If the policy has a randomizer and a tuned component, or tunes two components.
+        If the policy has a randomizer and a tuned component.
     """
     if not isinstance(policy, JointPolicy):
-        return None
+        return ()
     branches = joint_branches(policy)
-    tuned = sorted(
-        {
-            name
-            for _, components in branches
-            for name, component in components.items()
-            if tuned_policy(component)
-        }
+    slots = tuple(
+        TunedSlot(branch, probability, name, cast(Shift | Scale, component))
+        for branch, (probability, components) in enumerate(branches)
+        for name, component in components.items()
+        if tuned_policy(component)
     )
-    if not tuned:
-        return None
-    if len(branches) > 1:
+    if slots and len(branches) > 1:
         raise CapabilityError(
-            f"policy {policy.name!r} tunes the cap of component {tuned[0]!r} inside a "
-            "randomized JointPolicy. A tuned cap's curve term is derived for one "
+            f"policy {policy.name!r} tunes the cap of component {slots[0].component!r} "
+            "inside a randomized JointPolicy. A tuned cap's curve term is derived for one "
             "deterministic map, as at a node of one dose: each branch of a randomizer would "
             "need its own derivative term, weighted by the branch probability, which this "
             "release does not build. Declare one JointPolicy without a randomizer, or the "
             "cap as a number"
         )
-    if len(tuned) > 1:
-        raise CapabilityError(
-            f"policy {policy.name!r} tunes the caps of the components {tuned}. The curve "
-            "carries one derivative term per tuned map, and this release builds one per "
-            "node. Tune one component and declare the other caps as numbers"
-        )
-    ((_, components),) = branches
-    return tuned[0], cast(Shift | Scale, components[tuned[0]])
+    return slots
 
 
 def component_source(

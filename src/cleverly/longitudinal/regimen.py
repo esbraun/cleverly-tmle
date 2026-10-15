@@ -93,7 +93,7 @@ from ..interventions.policy import (
     refuse_policy_declarations,
     resolve_tuned_policy,
     tuned_cap_parts,
-    tuned_component,
+    tuned_components,
     tuned_policy,
 )
 from ..interventions.tuning import (
@@ -1114,6 +1114,10 @@ class NodeTuning:
     component : str or None
         At a mixed node, the tuned dose component of the node's
         :class:`~cleverly.interventions.JointPolicy`; ``None`` at a node of one dose.
+    slots : tuple of tuple
+        ``(branch, probability)`` of each branch of the node's policy in which this map
+        sets the dose.  The curve carries one derivative term per slot, weighted by the
+        branch probability.  ``((0, 1.0),)`` at a deterministic node.
     """
 
     time: int
@@ -1127,6 +1131,7 @@ class NodeTuning:
     slope: float
     at_risk: BoolArray
     component: str | None = None
+    slots: tuple[tuple[int, float], ...] = ((0, 1.0),)
 
 
 #: What a fold-average plan appends to its regimen's label in every reported name.
@@ -1151,26 +1156,34 @@ def declares_tuned(regimens: Sequence[RegimenSpec]) -> bool:
     return any(_tuned(regimen) for regimen in regimens)
 
 
-def _tuned_map(node: object) -> Shift | Scale | None:
-    """The tuned map of a node: the node itself, or a joint policy's tuned component."""
+#: A tuned map of a node: its component (``None`` at a node of one dose), the declared map,
+#: and the ``(branch, probability)`` of each branch that applies it.
+_TunedMap: TypeAlias = tuple[str | None, Shift | Scale, tuple[tuple[int, float], ...]]
+
+
+def _tuned_maps(node: object) -> tuple[_TunedMap, ...]:
+    """The tuned maps of a node: the node itself, or a joint policy's tuned components.
+
+    One entry per component and declared object.  An object that a randomizer applies in
+    several branches is one tuner, fitted once, with one slot per branch.
+    """
     if isinstance(node, (Shift, Scale)) and tuned_policy(node):
-        return node
-    found = tuned_component(node)
-    return None if found is None else found[1]
+        return ((None, node, ((0, 1.0),)),)
+    grouped: dict[tuple[str, int], tuple[str, Shift | Scale, list[tuple[int, float]]]] = {}
+    for slot in tuned_components(node):
+        entry = grouped.setdefault(
+            (slot.component, id(slot.policy)), (slot.component, slot.policy, [])
+        )
+        entry[2].append((slot.branch, slot.probability))
+    return tuple((name, tuned, tuple(slots)) for name, tuned, slots in grouped.values())
 
 
 def _tuned(regimen: RegimenSpec) -> bool:
-    return isinstance(regimen, DynamicRegimen) and any(
-        _tuned_map(node) is not None for node in regimen.plan
-    )
+    return isinstance(regimen, DynamicRegimen) and any(_tuned_maps(node) for node in regimen.plan)
 
 
 def _regimen_target(regimen: DynamicRegimen) -> str | None:
-    targets = {
-        str(tuned.target)
-        for tuned in (_tuned_map(node) for node in regimen.plan)
-        if tuned is not None
-    }
+    targets = {str(tuned.target) for node in regimen.plan for _, tuned, _ in _tuned_maps(node)}
     if len(targets) > 1:
         raise CapabilityError(
             f"regimen {regimen.label!r} declares the targets {sorted(targets)} on its tuned "
@@ -1217,7 +1230,7 @@ def resolve_tuned_plans(
         R-e3 for a tuner that reads an outcome column, R-e4 for the fold-average target on
         one fold, a tuned cap at a node that does not hold one dose or a dose component, a
         tuned cap at a dose with declared atoms, and the joint compositions of
-        :func:`~cleverly.interventions.policy.tuned_component`.
+        :func:`~cleverly.interventions.policy.tuned_components`.
     """
     plans = []
     for regimen in regimens:
@@ -1244,29 +1257,32 @@ def _resolve_tuned_plan(regimen: DynamicRegimen, data: LongitudinalData, folds: 
         # report names it: ``ey_regimen[<label>, fold average]``.
         regimen = replace(regimen, label=f"{regimen.label}{FOLD_AVERAGE_SUFFIX}")
     tuned_nodes = [
-        (time, node, cast(Shift | Scale, _tuned_map(node)))
+        (time, node, component, tuned, slots)
         for time, node in enumerate(regimen.plan, start=1)
-        if _tuned_map(node) is not None
+        for component, tuned, slots in _tuned_maps(node)
     ]
     refuse_outcome_tuners(
         [
             (tuned.name, cast(DoseQuantile | SupportBoundary, tuned.cap))
-            for _, _, tuned in tuned_nodes
+            for _, _, _, tuned, _ in tuned_nodes
         ],
         _outcome_columns(data),
     )
     if target == "fold_average" and folds.is_single:
         raise CapabilityError(FOLD_AVERAGE_ONE_FOLD)
-    sources = {time: _tuner_source(regimen, data, time, node) for time, node, _ in tuned_nodes}
+    sources = {
+        (time, component): _tuner_source(regimen, data, time, node, component)
+        for time, node, component, _, _ in tuned_nodes
+    }
     weights = data.weights
     tunings: list[NodeTuning] = []
     in_sample: dict[int, RuleNode] = {}
     by_fold: list[dict[int, RuleNode]] = [
         {} for _ in range(0 if folds.is_single else folds.n_folds)
     ]
-    for time, node, tuned in tuned_nodes:
+    for time, node, component, tuned, slots in tuned_nodes:
         tuner = cast(DoseQuantile | SupportBoundary, tuned.cap)
-        component, doses, frame = sources[time]
+        doses, frame = sources[time, component]
         reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
 
         fitted = _guarded(
@@ -1279,8 +1295,15 @@ def _resolve_tuned_plan(regimen: DynamicRegimen, data: LongitudinalData, folds: 
                 rows[train] = True
                 fold_fit = fit_tuner(tuner, doses, frame, reachable & rows, weights)
                 fold_fits.append(fold_fit)
-                by_fold[k][time] = _with_tuned(node, tuned, resolve_tuned_policy(tuned, fold_fit))
-        in_sample[time] = _with_tuned(node, tuned, resolve_tuned_policy(tuned, fitted))
+                by_fold[k][time] = _with_tuned(
+                    by_fold[k].get(time, node),
+                    component,
+                    tuned,
+                    resolve_tuned_policy(tuned, fold_fit),
+                )
+        in_sample[time] = _with_tuned(
+            in_sample.get(time, node), component, tuned, resolve_tuned_policy(tuned, fitted)
+        )
         influence = (
             tuner_influence(fitted, doses, frame, reachable, weights)
             if target == "population"
@@ -1300,6 +1323,7 @@ def _resolve_tuned_plan(regimen: DynamicRegimen, data: LongitudinalData, folds: 
                 slope=slope,
                 at_risk=reachable,
                 component=component,
+                slots=slots,
             )
         )
 
@@ -1320,9 +1344,9 @@ def _resolve_tuned_plan(regimen: DynamicRegimen, data: LongitudinalData, folds: 
 
 
 def _tuner_source(
-    regimen: DynamicRegimen, data: LongitudinalData, time: int, node: object
-) -> tuple[str | None, FloatArray, Callable[[], Any]]:
-    """The tuned dose of a node, its natural values and the frame its tuner reads.
+    regimen: DynamicRegimen, data: LongitudinalData, time: int, node: object, name: str | None
+) -> tuple[FloatArray, Callable[[], Any]]:
+    """The natural values of a node's tuned dose and the frame its tuner reads.
 
     At a node of one dose the tuner reads the node's dose and policy frame.  At a mixed
     node it reads the tuned component's natural dose and the frame that component's map
@@ -1333,9 +1357,7 @@ def _tuner_source(
     """
     where = f"the node {data.decision_name(time)!r}"
     if data.node_kind(time) == "mixed" and isinstance(node, JointPolicy):
-        found = tuned_component(node)
-        assert found is not None
-        name, _ = found
+        assert name is not None
         components = data.node_components(time)
         names = [component.name for component in components]
         if name not in names or not components[names.index(name)].continuous:
@@ -1357,12 +1379,12 @@ def _tuner_source(
             lambda extra: data.policy_frame(time, extra),
             where,
         )
-        return name, natural[:, names.index(name)], source
+        return natural[:, names.index(name)], source
     if data.node_kind(time) != "continuous":
-        tuned = _tuned_map(node)
+        tuned = name if name is not None else str(getattr(node, "name", node))
         raise CapabilityError(
-            f"regimen {regimen.label!r} tunes the cap of "
-            f"{getattr(tuned, 'name', tuned)!r} at {where}, which is not one continuous dose "
+            f"regimen {regimen.label!r} tunes the cap of {tuned!r} at {where}, which is "
+            "not one continuous dose "
             "or a dose component of a mixed node. A tuned cap reads a quantile of the dose "
             "law, which has a density only at a dose"
         )
@@ -1370,7 +1392,7 @@ def _tuner_source(
     if atoms:
         raise CapabilityError(tuned_cap_at_atoms(where, atoms))
     doses = np.nan_to_num(data.node_codes(time), nan=0.0)
-    return None, doses, lazy_frame(partial(data.policy_frame, time))
+    return doses, lazy_frame(partial(data.policy_frame, time))
 
 
 def _guarded(
@@ -1393,15 +1415,27 @@ def _guarded(
     return fitted
 
 
-def _with_tuned(node: object, tuned: Shift | Scale, resolved: object) -> RuleNode:
-    """A node with its tuned map replaced by the resolved map."""
+def _with_tuned(
+    node: object, component: str | None, tuned: Shift | Scale, resolved: object
+) -> RuleNode:
+    """A node with its tuned map at ``component`` replaced by the resolved map.
+
+    In a randomized joint policy the map is replaced in every branch that holds it.
+    """
     if isinstance(node, JointPolicy):
         from dataclasses import replace
 
-        components = {
-            name: resolved if component is tuned else component
-            for name, component in node.components.items()
-        }
+        def swap(components: Mapping[str, Any]) -> dict[str, Any]:
+            return {
+                name: resolved if name == component and value is tuned else value
+                for name, value in components.items()
+            }
+
+        components = (
+            swap(node.components)
+            if node.randomizer is None
+            else {label: swap(branch) for label, branch in node.components.items()}
+        )
         return cast(RuleNode, replace(node, components=components))
     return cast(RuleNode, resolved)
 
