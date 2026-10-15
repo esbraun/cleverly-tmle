@@ -2044,10 +2044,12 @@ _STRING_ESTIMANDS: dict[str, str] = {
 
 
 #: Why :class:`~cleverly.longitudinal.IPSI` is unavailable for a plan with a policy node.
-IPSI_POLICY_REFUSAL = (
+IPSI_POLICY_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
     "IPSI estimates no density ratio for a modified treatment policy, a joint policy or a "
-    "risk-ratio tilt, so it has no estimator for a plan with such a node. Fit the plans by "
-    "LTMLE or SDR"
+    "risk-ratio tilt, so it has no estimator for a plan with such a node.",
+    alternative="Fit the plans by LTMLE or SDR.",
+    roadmap="F33",
 )
 
 
@@ -4008,12 +4010,12 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         normalized = self._method(method, overrides)
         refusal = self._unused_ratio_refusal(normalized)
         if refusal is not None:
-            raise MethodConfigurationError(refusal)
+            raise MethodConfigurationError.from_refusal(refusal)
         if self.functional.longitudinal:
             return self._estimate_longitudinal(normalized)
         return self._estimate_point(normalized)
 
-    def _unused_ratio_refusal(self, method: EstimationMethod) -> str | None:
+    def _unused_ratio_refusal(self, method: EstimationMethod) -> Refusal | None:
         """Why ``ratio="classifier"`` would change nothing on this fit, or ``None``.
 
         The setting selects how a policy's density ratio is estimated.  A fit that
@@ -4031,15 +4033,19 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             kinds = {data.node_kind(time) for time in range(1, data.n_times + 1)}
             if kinds & {"continuous", "mixed"}:
                 return None
-            return (
+            return Refusal(
+                RefusalReason.INVALID_DECLARATION,
                 "ratio='classifier' sets how the policy ratio of a continuous or vector node "
                 "is estimated, and every node of this design is categorical: its ratio is "
-                "the fitted probability of the assigned level. Drop ratio="
+                "the fitted probability of the assigned level.",
+                alternative="Drop ratio=.",
             )
         if self.functional.axis != "policy":
-            return (
+            return Refusal(
+                RefusalReason.INVALID_DECLARATION,
                 "ratio='classifier' sets how a modified treatment policy's density ratio is "
-                f"estimated, and {type(self.estimand).__name__} declares no policy. Drop ratio="
+                f"estimated, and {type(self.estimand).__name__} declares no policy.",
+                alternative="Drop ratio=.",
             )
         if data.known_treatment is not None:
             return KNOWN_POLICY_CLASSIFIER_REFUSAL
