@@ -1385,3 +1385,102 @@ def streams() -> list[Stream]:
         for p in overfitting_positives()
     ]
     return out
+
+
+# ----------------------------------------------------------------------------- oracle curve
+@dataclass(frozen=True)
+class OracleReading:
+    """The oracle-curve prediction of one quantity at one n.
+
+    Parameters
+    ----------
+    se_ratio : float
+        The mean plug-in SE over the SD of the estimate, across the draws.
+    coverage : float
+        The Wald coverage of a 95 percent interval.
+    mc_sd : float
+        The normal-theory Monte Carlo SD of ``se_ratio``, ``1 / sqrt(2 * draws)``.
+    """
+
+    se_ratio: float
+    coverage: float
+    mc_sd: float
+
+
+def limit_curve(q: Quantity, law: Law) -> np.ndarray:
+    """``D_inf`` of ``q``: the declared GLM limit curve, per support row."""
+    return _difference({p: glm_curve(q.K, q.m, p, law) for p in q.plans}, q)
+
+
+def oracle_reading(
+    mass: np.ndarray, curve: np.ndarray, n: int, draws: int, seed: int = PILOT_SEED
+) -> OracleReading:
+    """An ideal linear estimator with ``curve``: the SE ratio and coverage it predicts at ``n``.
+
+    Each draw is ``n`` units from the law (a multinomial over the support).  The estimate is
+    ``mean(curve)`` and its SE the plug-in ``sd(curve) / sqrt(n)``.  This is a property of the law
+    and ``n`` alone: the oracle curve of plan section 5.1, with no fit.
+    """
+    p = np.asarray(mass, dtype=float) / np.sum(mass)
+    rng = np.random.default_rng(seed)
+    estimate = np.empty(draws)
+    se = np.empty(draws)
+    chunk = max(1, int(2.5e7 // p.size))
+    for start in range(0, draws, chunk):
+        count = min(chunk, draws - start)
+        counts = rng.multinomial(n, p, size=count)
+        mean = counts @ curve / n
+        estimate[start : start + count] = mean
+        se[start : start + count] = np.sqrt(np.maximum(counts @ curve**2 / n - mean**2, 0.0) / n)
+    return OracleReading(
+        se_ratio=float(se.mean() / estimate.std(ddof=1)),
+        coverage=float(np.mean(np.abs(estimate) <= norm.ppf(0.975) * se)),
+        mc_sd=1.0 / math.sqrt(2 * draws),
+    )
+
+
+def control_rung_pass(coverage: float, replicates: int, *, alpha: float = 0.05) -> float:
+    """The pass probability of a root-n control rung under the shipped rule.
+
+    The rule at ``tests/studies/evidence/property_verdicts.py`` (the ``small`` branch of the
+    efficiency summary) passes the rung when its exact 99 percent coverage interval lies wholly
+    below ``1 - alpha``, or when its lower limit is at least the coverage floor 0.90.  The
+    coverage count is binomial at ``coverage``; the interval is Clopper-Pearson.
+    """
+    from scipy.stats import binom
+
+    from tests.studies.evidence.inference import clopper_pearson
+    from tests.studies.evidence.registry import Margins
+
+    margins = Margins()
+    counts = np.arange(replicates + 1)
+    passes = np.array(
+        [
+            (
+                (interval := clopper_pearson(int(k), replicates, confidence_level=0.99)).high
+                < 1.0 - alpha
+            )
+            or interval.low >= margins.coverage_floor
+            for k in counts
+        ]
+    )
+    return float(np.sum(binom.pmf(counts, replicates, coverage)[passes]))
+
+
+def noise_control_ratio(sigma_eff: float, sigma_inf: float) -> float:
+    """The expected SE ratio of ``noise_control``: ``(1 + sigma_eff^2 / sigma_inf^2)^(-1/2)``."""
+    return (1.0 + (sigma_eff / sigma_inf) ** 2) ** -0.5
+
+
+def calibration_sigmas(cell: CalibrationCell) -> tuple[float, float]:
+    """``(sigma_eff, sigma_inf)`` of a calibration cell: the SDs of ``D*`` and of ``D_inf``."""
+    tail_ = cell.tail()
+    q = cell.quantity
+    w = weight(q.K, q.m, cell.law)
+    if not cell.msm:
+        return tail_.sigma, sampling.sd(w, limit_curve(q, cell.law))
+    plans = [f"dur{j}" for j in range(q.K + 1)]
+    design = np.column_stack([np.ones(q.K + 1), np.arange(q.K + 1)])
+    row = np.linalg.solve(design.T @ design, design.T)[1]
+    limit = np.column_stack([glm_curve(q.K, 2, p, cell.law) for p in plans]) @ row
+    return tail_.sigma, sampling.sd(w, limit)

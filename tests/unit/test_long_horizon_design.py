@@ -243,6 +243,89 @@ def test_the_inflated_se_control_leaves_the_band() -> None:
         assert inflation - half > 1.07
 
 
+# ----------------------------------------------------------------------------- oracle curve
+#: Section 5.3: the oracle-curve SE ratio and coverage of ``D*`` for the three-level static top
+#: plan at K = 5 on ``L_R``, with the draws the plan used (10,000 to 20,000).
+SUPPORT_LOSS = {4_000: (0.428, 0.947), 16_000: (0.585, 0.937), 64_000: (0.764, 0.930)}
+#: This test draws 2,000 per n; the SE-ratio tolerance is three Monte Carlo SDs of that.
+ORACLE_DRAWS = 2_000
+
+
+def test_the_support_loss_predictions_are_the_declared_oracle_readings() -> None:
+    """The reporting tripwire reads [prediction - 0.10, prediction + 0.10] and +-0.02 on coverage.
+
+    The plan prints SE ratio 0.428, 0.585, 0.764 and coverage 0.947, 0.937, 0.930.  At 2,000
+    draws this test reads 0.434, 0.569, 0.792 and 0.946, 0.943, 0.932 (seed ``PILOT_SEED``):
+    every reading is inside three Monte Carlo SDs of the plan's number, so the prediction the
+    pages print holds, and the short standard error is a property of the law.
+    """
+    weight = D.weight(5, 3, H.L_R)
+    curve = D.eif(5, 3, "high", H.L_R)
+    tolerance = 3 / math.sqrt(2 * ORACLE_DRAWS)
+    for n, (ratio, coverage) in SUPPORT_LOSS.items():
+        reading = D.oracle_reading(weight, curve, n, ORACLE_DRAWS)
+        assert reading.se_ratio == pytest.approx(ratio, abs=tolerance)
+        assert reading.coverage == pytest.approx(coverage, abs=0.02)
+        assert reading.se_ratio < 0.80
+
+
+@pytest.mark.parametrize(
+    "q", [D.Quantity(4, 2, "always", "never"), D.Quantity(4, 3, "respond", "low")], ids=str
+)
+def test_the_root_n_control_rung_passes_under_the_shipped_rule(q: D.Quantity) -> None:
+    """The rung at 4,000 resolves with probability above 0.99 on the oracle curve of ``D_inf``.
+
+    Rule (``property_verdicts.py``, the ``small`` branch of the efficiency summary)::
+
+        summary.loc[small, "passed"] = (
+            summary.loc[small, "coverage_ci_upper"] < 1.0 - margins.alpha
+        ) | (summary.loc[small, "coverage_ci_lower"] >= margins.coverage_floor)
+
+    with ``alpha = 0.05`` and ``coverage_floor = 0.90``.  The rung is below the regime
+    (``n_kappa`` 5,320 and 5,183) and the oracle coverage there is near nominal, so the lower
+    limit at R = 1,000 clears 0.90 and the rung passes with probability 1.0.  The rung at 12,000
+    lies above the regime and is a positive; its oracle SE ratio reads inside (0.80, 1.20).
+    """
+    tail = D.tail(q, H.L_R)
+    assert tail.n_star in (5_320, 5_183)
+    assert 4_000 < tail.n_kappa < 12_000
+    weight = D.weight(q.K, q.m, H.L_R)
+    limit = D.limit_curve(q, H.L_R)
+    control = D.oracle_reading(weight, limit, 4_000, ORACLE_DRAWS)
+    assert 0.90 < control.coverage < 0.97
+    assert D.control_rung_pass(control.coverage, 1_000) >= 0.99
+    positive = D.oracle_reading(weight, limit, 12_000, ORACLE_DRAWS)
+    assert 0.80 < positive.se_ratio < 1.20
+    assert positive.coverage > 0.9394
+
+
+def test_the_rung_rule_cannot_fail_at_1000_replicates_but_can_at_100() -> None:
+    """Reading: the 99 percent interval is narrower than the gap between 0.90 and 0.95.
+
+    At R = 1,000 the interval has width at most 0.042, so it cannot reach 0.95 and fall under
+    0.90: the rule passes with probability above 0.999 at every true coverage from 0.85 to 0.99.
+    At R = 100 the interval is wider than 0.05 and the rule can fail, so the rule has teeth.
+    """
+    grid = np.arange(0.85, 0.995, 0.01)
+    assert min(D.control_rung_pass(float(c), 1_000) for c in grid) > 0.999
+    assert D.control_rung_pass(0.93, 100) < 0.9
+
+
+def test_the_noise_control_leaves_the_band_in_every_calibration_cell() -> None:
+    """``(1 + sigma_eff^2 / sigma_inf^2)^(-1/2)`` plus the half-width h stays below 0.93 at R = 6,000.
+
+    Recorded over the 65 gated cells: 0.709 to 0.719 (``sigma_inf / sigma_eff`` 1.005 to 1.033),
+    far below the 2.15 that the plan's limit allows.
+    """
+    half = norm.ppf(0.995) * D.SE_RATIO_SCALE * math.sqrt(400 / 6_000)
+    cells = D.calibration_cells()
+    assert len(cells) == 65
+    for cell in cells:
+        sigma_eff, sigma_inf = D.calibration_sigmas(cell)
+        assert sigma_inf < 2.15 * sigma_eff, cell.name
+        assert D.noise_control_ratio(sigma_eff, sigma_inf) + half < 0.93, cell.name
+
+
 # ----------------------------------------------------------------------------- the pilots
 def test_every_pilot_stream_has_its_own_checkpoint_cell_and_seeds() -> None:
     streams = D.streams()

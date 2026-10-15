@@ -11,8 +11,9 @@ learner reaches five times the floor at one node, the check asserts at one tenth
 reading recorded below, never below ``1e-8``.  The recorded readings come from the same fits;
 ``tests/unit/test_long_horizon_design.py`` holds the design-time readings on the other laws.
 
-The pooled cross-fitted update and the SDR partial weights run at K = 5 on a draw and on the
-frame respectively; the two-node versions live in
+The pooled cross-fitted update, the fold-targeted carry (M3), the trajectory-level folds and the
+SDR constructions (M7a, M7b) run at K = 5 on a draw; the SDR partial weights run at K = 5 on the
+frame.  The two-node versions live in
 ``tests/unit/test_pooled_longitudinal_targeting.py`` and ``tests/unit/test_sdr_construction.py``.
 """
 
@@ -27,7 +28,8 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.base import clone
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.neighbors import KNeighborsRegressor
 
 from cleverly.longitudinal import sequential
 from cleverly.longitudinal.sequential import Mechanism
@@ -35,6 +37,7 @@ from tests import discrete_law_longitudinal_horizon as H
 from tests import longitudinal_horizon_plans as P
 from tests.studies import long_horizon_common as C
 from tests.studies import long_horizon_mutations as M
+from tests.unit import test_pooled_longitudinal_targeting as T
 
 SETTINGS = [(3, 2), (3, 3), (4, 2), (4, 3), (5, 2), (5, 3)]
 SETTING_IDS = [f"K{K}m{m}" for K, m in SETTINGS]
@@ -561,6 +564,114 @@ def test_the_four_pooled_mutations_move_the_estimate_at_five_nodes(
     assert _moved(mutated, base) > 1e-4
 
 
+# ----------------------------------------------------------------------------- M3, leakage
+#: The estimate floor of a construction mutation, as in the two-node modules.
+CAUGHT = 1e-4
+
+
+def _linear_pooled(draw: pd.DataFrame, plans: tuple[str, ...], **settings: Any) -> Any:
+    return C.fit(
+        draw,
+        5,
+        3,
+        plans,
+        probabilities=False,
+        treatment_learner=LogisticRegression(max_iter=1000),
+        censoring_learner=LogisticRegression(max_iter=1000),
+        **{"n_folds": 3, "learner_folds": 2, **settings},
+    )
+
+
+@pytest.fixture(scope="module")
+def stitched(draw: pd.DataFrame) -> Any:
+    """Linear regressions, so the longhand is a least-squares solve; the draw is misspecified."""
+    return _linear_pooled(
+        draw,
+        ("low", "respond"),
+        outcome_learner=LinearRegression(),
+        pseudo_learner=LinearRegression(),
+        tol=1e-10,
+    )
+
+
+def test_the_stitched_initial_is_the_untargeted_fold_recursion_at_five_nodes(
+    stitched: Any,
+) -> None:
+    """T3 at K = 5 and three levels: every node's stitch equals the K-node longhand to 1e-12."""
+    T._assert_epsilon_witness(stitched)
+    T._assert_stitched_longhand(stitched)
+
+
+def test_m3_the_fold_targeted_carry_is_a_different_initial_fit_at_five_nodes(
+    stitched: Any,
+) -> None:
+    """M3: fold-targeted predictions carried backward move node 1's stitched fit.
+
+    Recorded: 8.4e-2 (``low``) and 1.4e-1 (``respond``) against the 1e-6 floor of the two-node
+    module.  The unmutated stitch is the longhand above, so M3 fails it and the shipped fit passes.
+    """
+    for fit in stitched.fits.values():
+        carried, _ = T._longhand_recursion(stitched, fit, fold_targeted=True)
+        assert float(np.max(np.abs(fit.steps[0].initial - carried[1]))) > 1e-3
+
+
+def _nearest_neighbour_recursion(
+    result: Any, fit: Any, assignment: dict[int, np.ndarray]
+) -> dict[int, np.ndarray]:
+    """Stitched held-out predictions of a 1-NN recursion, with node ``t`` split by ``assignment[t]``.
+
+    Fold ``k`` of node ``t`` trains on the followers outside ``assignment[t] == k`` and regresses
+    fold ``k``'s own prediction from node ``t + 1``, whose training rows were outside
+    ``assignment[t + 1] == k``.  One assignment for every node is the shipped split.
+    """
+    data = result.data
+    initial = {t: np.full(data.n, np.nan) for t in range(1, fit.horizon + 1)}
+    folds = range(result.folds.n_folds)
+    carried = {k: T._longhand_seed(result) for k in folds}
+    for t in range(fit.horizon, 0, -1):
+        at_risk, following = T._longhand_masks(result, fit, t)
+        design = data.covariate_history(t)
+        for k in folds:
+            held = assignment[t] == k
+            target = T._longhand_target(result, fit, carried[k], t)
+            rows = following & ~held
+            model = KNeighborsRegressor(n_neighbors=1).fit(design[rows], target[rows])
+            prediction = np.where(at_risk, model.predict(design), 0.5)
+            initial[t][held] = prediction[held]
+            carried[k] = prediction
+    return initial
+
+
+def test_trajectory_level_folds_do_not_leak_a_later_pseudo_outcome_at_five_nodes(
+    draw: pd.DataFrame,
+) -> None:
+    """The rigged learner of ``test_crossfit_leakage`` at K = 5, in two arrays.
+
+    A 1-NN regression reproduces a training row's target exactly, so an in-sample value is
+    visible as an equality and an out-of-fold one as an inequality, with no tolerance and no
+    seed sensitivity.  Under the shipped split every node's stitched fit is the longhand with one
+    assignment for all nodes, array for array.  Under per-node folds (the assignment shifted by
+    the node) a unit held out at node ``t`` was in training at node ``t + 1``, and nodes 1 to
+    K - 1 differ (recorded: 1.0 at every one of them, 0.0 at node K, whose split is shared).
+    """
+    result = _linear_pooled(
+        draw,
+        ("low", "respond"),
+        outcome_learner=KNeighborsRegressor(n_neighbors=1),
+        pseudo_learner=KNeighborsRegressor(n_neighbors=1),
+    )
+    assignment = np.asarray(result.folds.assignment)
+    shipped = dict.fromkeys(range(1, 6), assignment)
+    per_node = {t: (assignment + (5 - t)) % 3 for t in range(1, 6)}
+    for fit in result.fits.values():
+        honest = _nearest_neighbour_recursion(result, fit, shipped)
+        leaky = _nearest_neighbour_recursion(result, fit, per_node)
+        for step in fit.steps:
+            np.testing.assert_array_equal(step.initial, honest[step.time])
+            moved = float(np.max(np.abs(leaky[step.time] - honest[step.time])))
+            assert (moved > 0.0) == (step.time < 5), (fit.regimen.label, step.time, moved)
+
+
 # ----------------------------------------------------------------------------- (m), (n) SDR
 def _pattern_frame(wrong_nodes: tuple[int, ...]) -> pd.DataFrame:
     """The K = 5, m = 3 frame on L_R with the constant mechanism (M1) at ``wrong_nodes``."""
@@ -693,3 +804,113 @@ def test_sdr_is_exact_with_one_right_nuisance_at_each_node() -> None:
         assert _pattern_contrast((2, 4), (2, 3, 4)) == pytest.approx(0.0339, abs=1e-4)
         assert _pattern_contrast((2, 4), (1, 2, 3, 4, 5)) == pytest.approx(0.2203, abs=1e-4)
         assert _pattern_contrast((2, 4), (2, 4), "LTMLE") == pytest.approx(0.0616, abs=1e-4)
+
+
+# ----------------------------------------------------------------------------- M7a, M7b
+def _sdr_longhand(result: Any, fit: Any, construction: str = "training") -> tuple[float, Any]:
+    """The cross-fitted SDR estimate of a label or rule plan at K = 5, m = 3, by hand.
+
+    Linear regressions on the history design, the plan's follower masks from the raw arrays and
+    each fold's mechanism refit on its training rows.  Partial weight ``W_{t,s}`` divides the
+    followers through ``s`` by ``prod_{k=t}^{s} p_k``, bounded as a product.  ``"training"`` is
+    the shipped recursion: fold ``k`` composes every transform from its own fits.
+    ``"out_of_fold"`` is M7b: the same, with the out-of-fold mechanism at the training rows.
+    ``"stitched"`` is M7a, Step 2 as printed: each row reads the fits of the fold holding it out.
+    """
+    K = 5
+    data = result.data
+    n = data.n
+    assignment = np.asarray(result.folds.assignment)
+    n_folds = result.folds.n_folds
+    label = fit.regimen.label
+    lower, upper = result.config.g_bounds
+    masks = [T._longhand_masks(result, fit, t) for t in range(1, K + 1)]
+    y = np.nan_to_num(np.asarray(data.outcome, dtype=float))
+
+    def factors(mechanism: Mechanism) -> list[np.ndarray]:
+        return [
+            np.asarray(mechanism.treatment[t][label]) * np.asarray(mechanism.censoring[t][label])
+            for t in range(K)
+        ]
+
+    out_of_fold = factors(result.mechanism)
+    per_fold = [factors(T.refit_fold_mechanism(result, k)) for k in range(n_folds)]
+
+    def weight(p: list[np.ndarray], t: int, s: int) -> np.ndarray:
+        path = np.prod(np.column_stack(p[t - 1 : s]), axis=1)
+        return np.where(masks[s - 1][1], 1.0 / np.clip(path, lower, upper), 0.0)
+
+    def transform(fitted: dict[int, np.ndarray], p: list[np.ndarray], t: int) -> np.ndarray:
+        phi = fitted[t].copy()
+        for s in range(t, K + 1):
+            later = fitted[s + 1] if s < K else y
+            phi = phi + weight(p, t, s) * (later - fitted[s])
+        return phi
+
+    def regression(target: np.ndarray, t: int, training: np.ndarray) -> np.ndarray:
+        at_risk, following = masks[t - 1]
+        design = data.covariate_history(t)
+        model = LinearRegression().fit(design[following & training], target[following & training])
+        return np.where(at_risk, model.predict(design), 0.0)
+
+    first = np.zeros(n)
+    if construction == "stitched":
+        mixed = [np.zeros(n) for _ in range(K)]
+        for k in range(n_folds):
+            for t in range(K):
+                mixed[t][assignment == k] = per_fold[k][t][assignment == k]
+        fitted: dict[int, np.ndarray] = {}
+        target = y
+        for t in range(K, 0, -1):
+            fitted[t] = np.zeros(n)
+            for k in range(n_folds):
+                held = assignment == k
+                fitted[t][held] = regression(target, t, ~held)[held]
+            phi = transform(fitted, mixed, t)
+            target = np.where(masks[t - 1][0], phi, 0.0)
+        first = phi
+    else:
+        for k in range(n_folds):
+            held = assignment == k
+            p = per_fold[k] if construction == "training" else out_of_fold
+            fitted = {}
+            target = y
+            for t in range(K, 0, -1):
+                fitted[t] = regression(target, t, ~held)
+                phi = transform(fitted, p, t)
+                target = np.where(masks[t - 1][0], phi, 0.0)
+            first[held] = phi[held]
+    return float(first.mean()), first
+
+
+@pytest.fixture(scope="module")
+def sdr_fit(draw: pd.DataFrame) -> Any:
+    return _linear_pooled(
+        draw,
+        ("low", "respond"),
+        estimator="SDR",
+        outcome_learner=LinearRegression(),
+        pseudo_learner=LinearRegression(),
+    )
+
+
+def test_the_sdr_engine_is_the_k_node_longhand_with_censoring(sdr_fit: Any) -> None:
+    """T5 at K = 5, three levels and censoring: estimate and per-unit transform to 1e-12."""
+    for label, fit in sdr_fit.fits.items():
+        psi, first = _sdr_longhand(sdr_fit, fit)
+        assert M.estimate(sdr_fit, label) == pytest.approx(psi, abs=1e-12)
+        curve = np.asarray(sdr_fit[f"ey_regimen[{label}]"].influence_curve, dtype=float)
+        np.testing.assert_allclose(curve, first - psi, rtol=0, atol=1e-12)
+
+
+def test_m7a_and_m7b_move_the_sdr_estimate_at_five_nodes(sdr_fit: Any) -> None:
+    """M7a (stitched Step 2) and M7b (out-of-fold mechanism at training rows) each exceed 1e-4.
+
+    Recorded on this draw: M7a -3.4e-2 (``low``) and -4.3e-2 (``respond``); M7b -5.6e-4 and
+    +2.5e-3.
+    """
+    for label, fit in sdr_fit.fits.items():
+        engine = M.estimate(sdr_fit, label)
+        for construction in ("stitched", "out_of_fold"):
+            psi, _ = _sdr_longhand(sdr_fit, fit, construction)
+            assert abs(psi - engine) > CAUGHT, (label, construction)
