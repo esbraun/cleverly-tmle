@@ -17,19 +17,20 @@ from sklearn.linear_model import LogisticRegression
 
 from cleverly.datasets import binary_outcome_dgp
 from cleverly.learners.crossfit import CrossFitPlan
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_cvtmle import cv_fit
 from tests.studies.cvtmle_properties import cells, generate, sampling_batch, summarize
+from tests.studies.evidence import property_failures, property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyBatch,
     PropertyCell,
     paired_spread_ratio_interval,
     replicate_row,
-    require_complete,
+    require_accounted,
 )
 from tests.studies.evidence.property_verdicts import finish
+from tests.studies.evidence.replication import fit_properties, splat
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.repeated_crossfit import (
     FOLD_SEED_TRIALS,
@@ -175,6 +176,21 @@ def _stability_trial(
     )
 
 
+STABILITY_CELLS = ("repeat_stability/three_repeats", "repeat_stability/one_repeat_control")
+
+
+def _stability_cells_of(payload: tuple[Any, ...]) -> tuple[str, ...]:
+    return STABILITY_CELLS
+
+
+def _stability_cell_of(payload: tuple[Any, ...]) -> str:
+    return "repeat_stability"
+
+
+def _stability_replicate_of(payload: tuple[Any, ...]) -> int:
+    return int(payload[2])
+
+
 def generate_repeat_stability_rows(
     *, trials: int = FOLD_SEED_TRIALS, n_jobs: int = STUDY_JOBS
 ) -> pd.DataFrame:
@@ -191,14 +207,22 @@ def generate_repeat_stability_rows(
         )
         for replicate in range(trials)
     ]
-    paired = map_parallel(_stability_trial, payloads, n_jobs=n_jobs)
+    paired = fit_properties(
+        payloads,
+        splat(_stability_trial),
+        cells_of=_stability_cells_of,
+        cell_of=_stability_cell_of,
+        replicate_of=_stability_replicate_of,
+        n_jobs=n_jobs,
+        label="properties/repeat_stability",
+    )
     rows = pd.DataFrame([row for pair in paired for row in pair])
     return rows.loc[:, list(REPLICATE_COLUMNS)]
 
 
 def _summarize_repeat_stability(rows: pd.DataFrame, columns: pd.Index) -> pd.DataFrame:
     """Build fixed-sample stability rows without population-sampling endpoints."""
-    require_complete(rows)
+    require_accounted(rows)
     repeated = rows.loc[rows["cell"] == "three_repeats"]
     control = rows.loc[rows["cell"] == "one_repeat_control"]
     result = paired_spread_ratio_interval(
@@ -230,6 +254,16 @@ def _summarize_repeat_stability(rows: pd.DataFrame, columns: pd.Index) -> pd.Dat
         )
         records.append(record)
     return pd.DataFrame(records, columns=columns)
+
+
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
@@ -265,3 +299,29 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         [summary, _summarize_repeat_stability(stability, summary.columns)], ignore_index=True
     )
     return finish(summary, rates)
+
+
+def _stability_rule() -> property_failures.FamilyRule:
+    """``repeat_stability``: S9 on the paired spread ratio, ``U < MAX_REPEAT_SPREAD_RATIO``.
+
+    A replicate is a fold seed on one fixed sample, so the survivor range is the range over
+    fold seeds.  Both rows publish the one verdict.
+    """
+    return property_failures.FamilyRule(
+        families=frozenset({"repeat_stability"}),
+        shared="_summarize_repeat_stability",
+        clauses=(
+            property_failures.spread_ratio_clause(
+                "repeat spread ratio under its boundary",
+                cells=("three_repeats", "one_repeat_control"),
+                side="upper",
+                judge=property_failures.below_judge(lambda ctx: MAX_REPEAT_SPREAD_RATIO),
+                seed=lambda ctx, row: stream_seed(ctx.record, "repeat_stability", "bootstrap"),
+                applies=property_failures.every,
+            ),
+        ),
+    )
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = (_stability_rule(),)

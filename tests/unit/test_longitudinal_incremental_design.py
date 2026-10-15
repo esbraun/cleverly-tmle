@@ -81,8 +81,8 @@ RUNNER = ROOT / "tests" / "canonical" / "npcausal_longitudinal_incremental" / "r
 
 
 def test_the_declared_numbers() -> None:
+    assert (s1.STUDY.publication_policy, s2.STUDY.publication_policy) == ("gated", "reporting")
     for record in (s1.STUDY, s2.STUDY):
-        assert record.publication_policy == "gated"
         assert record.margins == Margins()
     assert (s1.PRIMARY_N, s1.PRIMARY_REPLICATES) == (96_000, 1_000)
     assert (s2.PRIMARY_N, s2.PRIMARY_REPLICATES) == (80_000, 1_000)

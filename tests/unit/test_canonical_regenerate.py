@@ -5,10 +5,12 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import inspect
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -137,7 +139,7 @@ def test_primary_only_stops_before_properties_manifest_and_gates(
             lambda *args, **kwargs: _rows(str(record.reference)),
         )
 
-    regenerate.main(study, SimpleNamespace(), here=tmp_path, reference=reference)
+    regenerate.main(study, SimpleNamespace(FAILURE_BOUND=0.0), here=tmp_path, reference=reference)
 
     assert {path.name for path in tmp_path.iterdir()} == {
         "replicates.csv.gz",
@@ -179,11 +181,11 @@ def test_complete_regeneration_gates_a_failed_joint_property_claim(
     monkeypatch.setattr(
         regenerate,
         "_property_artifacts",
-        lambda *args, **kwargs: pd.DataFrame({"passed": [True], "property_passed": [False]}),
+        lambda *args, **kwargs: (pd.DataFrame({"passed": [True], "property_passed": [False]}), ()),
     )
 
     with pytest.raises(RuntimeError, match="statistical property gates failed"):
-        regenerate.main(study, SimpleNamespace(), here=tmp_path)
+        regenerate.main(study, SimpleNamespace(FAILURE_BOUND=0.0), here=tmp_path)
 
 
 def test_skip_reference_refuses_to_synthesize_reference_diagnostics(
@@ -207,7 +209,7 @@ def test_skip_reference_refuses_to_synthesize_reference_diagnostics(
     with pytest.raises(RuntimeError, match="cannot rebuild study-specific extra artifacts"):
         regenerate.main(
             study,
-            SimpleNamespace(),
+            SimpleNamespace(FAILURE_BOUND=0.0),
             here=tmp_path,
             reference=regenerate.Reference("image", "runner"),
         )
@@ -239,7 +241,7 @@ def test_skip_reference_refuses_a_study_whose_hook_reads_the_reference_results(
     with pytest.raises(RuntimeError, match="reference_artifacts hook"):
         regenerate.main(
             study,
-            SimpleNamespace(),
+            SimpleNamespace(FAILURE_BOUND=0.0),
             here=tmp_path,
             reference=regenerate.Reference("image", "runner"),
         )
@@ -282,7 +284,7 @@ def test_standard_regeneration_runs_the_declared_reference_artifact_hook(
     )
 
     reference = regenerate.Reference("image", "runner")
-    regenerate.main(study, SimpleNamespace(), here=tmp_path, reference=reference)
+    regenerate.main(study, SimpleNamespace(FAILURE_BOUND=0.0), here=tmp_path, reference=reference)
 
     assert len(calls) == 1
     assert calls[0]["reference"] is reference
@@ -329,10 +331,331 @@ def test_reporting_policy_publishes_failed_scientific_verdicts(
     monkeypatch.setattr(
         regenerate,
         "_property_artifacts",
-        lambda *args, **kwargs: pd.DataFrame({"passed": [False], "property_passed": [False]}),
+        lambda *args, **kwargs: (pd.DataFrame({"passed": [False], "property_passed": [False]}), ()),
     )
 
-    regenerate.main(study, SimpleNamespace(), here=tmp_path)
+    regenerate.main(study, SimpleNamespace(FAILURE_BOUND=0.0), here=tmp_path)
+
+
+def _toy_properties(bad: set[int], *, bound: float = 0.0, replicates: int = 20) -> SimpleNamespace:
+    """A property module of one ``power`` cell; ``bad`` fits are singular."""
+    from tests.studies.evidence import property_verdicts, replication
+    from tests.studies.evidence.properties import REPLICATE_COLUMNS as PROPERTY_COLUMNS
+
+    record = dataclasses.replace(
+        fold_evaluated_cvtmle.STUDY,
+        margins=dataclasses.replace(fold_evaluated_cvtmle.STUDY.margins, bootstrap_replicates=50),
+    )
+
+    def fit(key: tuple[str, int], drawn: int) -> dict[str, Any]:
+        if drawn in bad:
+            np.linalg.inv(np.zeros((2, 2)))
+        return {
+            "property": "power",
+            "cell": key[0],
+            "role": "positive",
+            "replicate": key[1],
+            "n": 100,
+            "requested_replicates": replicates,
+            "failed_replicates": 0,
+            "truth": 0.0,
+            "estimate": 0.5,
+            "std_error": 0.1,
+            "covered": 1,
+            "rejected": 1,
+        }
+
+    def generate_property_rows(*, n_jobs: int) -> pd.DataFrame:
+        values = replication.fit_properties(
+            [("c", replicate) for replicate in range(replicates)],
+            fit,
+            cells_of=lambda key: ("power/c",),
+            cell_of=lambda key: key[0],
+            replicate_of=lambda key: key[1],
+            n_jobs=n_jobs,
+            draw=lambda key: key[1],
+            checkpoint=None,
+        )
+        return pd.DataFrame(values).loc[:, list(PROPERTY_COLUMNS)]
+
+    def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
+        summary, rates = property_verdicts.apply_shared_verdicts(rows, record, rate_labels=())
+        return property_verdicts.finish(summary, rates)
+
+    return SimpleNamespace(
+        FAILURE_BOUND=bound,
+        PROPERTY_WITNESS=replication.Witness("drawn index", float),
+        generate_property_rows=generate_property_rows,
+        summarize_properties=summarize_properties,
+    )
+
+
+def test_a_cell_left_below_two_survivors_reads_bound_exceeded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """L6: a cell that kept one replicate is red by its bound, and the phase completes.
+
+    The summary's spread needs two survivors, so the driver does not summarize that family.
+    The mutation control: one replicate more survives, and the cell is summarized.
+    """
+    from tests.studies.evidence import property_failures
+
+    record = dataclasses.replace(
+        fold_evaluated_cvtmle.STUDY, artifacts=tmp_path, publication_policy="reporting"
+    )
+    study = SimpleNamespace(
+        STUDY=record,
+        PRIMARY_REPLICATES=record.replicates,
+        PRIMARY_N=record.n,
+        CONFIGURATION={},
+    )
+    out = tmp_path / "out"
+    arguments = _arguments(out, primary_only=False)
+    monkeypatch.setattr(regenerate, "_arguments", lambda *args: arguments)
+    monkeypatch.setattr(
+        regenerate,
+        "_python_phase",
+        lambda *args: regenerate._Phase(rows=_rows(record.implementation)),
+    )
+    monkeypatch.setattr(regenerate, "validate_replicates", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        regenerate, "summarize", lambda rows, truth_varies: pd.DataFrame({"summary": [1.0]})
+    )
+    monkeypatch.setattr(
+        regenerate,
+        "independent_performance_tests",
+        lambda *args, **kwargs: pd.DataFrame({"passed": [True]}),
+    )
+    monkeypatch.setattr(regenerate, "empty_equivalence", lambda: pd.DataFrame({"passed": []}))
+    hashed: list[list[str]] = []
+    monkeypatch.setattr(
+        regenerate,
+        "write_manifest",
+        lambda path, record, artifacts, **kwargs: hashed.append(
+            [Path(artifact).name for artifact in artifacts]
+        ),
+    )
+
+    regenerate.main(study, _toy_properties(set(range(1, 20))), here=tmp_path)
+
+    summary = pd.read_csv(out / "properties.csv")
+    assert list(summary["cell"]) == ["c"]
+    assert not summary["passed"].any() and not summary["property_passed"].any()
+    assert int(summary["failed_replicates"].iloc[0]) == 19
+    accounting = pd.read_csv(out / property_failures.PROPERTY_ACCOUNTING)
+    assert list(accounting["reason"]) == ["bound exceeded"]
+    assert list(accounting["complete_case"]) == [19.0]
+
+    regenerate.main(study, _toy_properties(set(range(2, 20))), here=tmp_path)
+    summary = pd.read_csv(out / "properties.csv")
+    assert int(summary["replicates"].iloc[0]) == 2
+    assert "coverage" in summary.columns
+
+
+def test_a_property_failure_is_recorded_accounted_and_hashed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """RM39b2: one failed property fit costs its cell a replicate and turns the cell red.
+
+    The run completes, writes both property failure files, and the manifest hashes them.  A
+    later ``--skip-properties`` run keeps the committed files and still hashes them.
+    """
+    from tests.studies.evidence import property_failures
+
+    record = dataclasses.replace(
+        fold_evaluated_cvtmle.STUDY, artifacts=tmp_path, publication_policy="reporting"
+    )
+    study = SimpleNamespace(
+        STUDY=record,
+        PRIMARY_REPLICATES=record.replicates,
+        PRIMARY_N=record.n,
+        CONFIGURATION={},
+    )
+    out = tmp_path / "out"
+    arguments = _arguments(out, primary_only=False)
+    monkeypatch.setattr(regenerate, "_arguments", lambda *args: arguments)
+    monkeypatch.setattr(
+        regenerate,
+        "_python_phase",
+        lambda *args: regenerate._Phase(rows=_rows(record.implementation)),
+    )
+    monkeypatch.setattr(regenerate, "validate_replicates", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        regenerate, "summarize", lambda rows, truth_varies: pd.DataFrame({"summary": [1.0]})
+    )
+    monkeypatch.setattr(
+        regenerate,
+        "independent_performance_tests",
+        lambda *args, **kwargs: pd.DataFrame({"passed": [True]}),
+    )
+    monkeypatch.setattr(regenerate, "empty_equivalence", lambda: pd.DataFrame({"passed": []}))
+    hashed: list[list[str]] = []
+    monkeypatch.setattr(
+        regenerate,
+        "write_manifest",
+        lambda path, record, artifacts, **kwargs: hashed.append(
+            [Path(artifact).name for artifact in artifacts]
+        ),
+    )
+
+    regenerate.main(study, _toy_properties({7}), here=tmp_path)
+
+    names = (
+        property_failures.PROPERTY_FAILURES,
+        property_failures.PROPERTY_ACCOUNTING,
+        property_failures.PROPERTY_WITNESSES,
+    )
+    assert all((out / name).exists() for name in names)
+    assert set(names) <= set(hashed[-1])
+    records = property_failures.read(out / property_failures.PROPERTY_FAILURES)
+    assert records is not None and list(records["group_id"]) == ["properties/c/r000000007"]
+    rows = pd.read_csv(out / "property-replicates.csv.gz")
+    assert 7 not in set(rows["replicate"]) and set(rows["failed_replicates"]) == {1}
+    accounting = pd.read_csv(out / property_failures.PROPERTY_ACCOUNTING)
+    assert set(accounting["reason"]) == {"bound exceeded"}
+    witnesses = property_failures.read_witnesses(out / property_failures.PROPERTY_WITNESSES)
+    assert witnesses is not None and 7 in set(witnesses["replicate"])
+    assert set(witnesses["statistic"]) == {"drawn index"}
+    assert list(witnesses["value"]) == [float(r) for r in witnesses["replicate"]]
+    summary = pd.read_csv(out / "properties.csv")
+    assert not summary["passed"].any()
+
+    # The committed files survive a run that skips the property phase.
+    committed = tmp_path / "committed"
+    committed.mkdir()
+    for name in ("property-replicates.csv.gz", "properties.csv", *names):
+        (committed / name).write_bytes((out / name).read_bytes())
+    arguments.skip_properties = True
+    regenerate.main(study, _toy_properties(set()), here=committed)
+    assert all((out / name).read_bytes() == (committed / name).read_bytes() for name in names)
+    assert set(names) <= set(hashed[-1])
+
+    # A clean run removes the stale files and hashes neither.
+    arguments.skip_properties = False
+    regenerate.main(study, _toy_properties(set()), here=tmp_path)
+    assert not any((out / name).exists() for name in names)
+    assert not set(names) & set(hashed[-1])
+
+
+def _property_driver(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> tuple[SimpleNamespace, argparse.Namespace, list[dict[str, Any]]]:
+    """A complete reporting run whose manifest calls are captured, for p29 and p36."""
+    record = dataclasses.replace(
+        fold_evaluated_cvtmle.STUDY, artifacts=tmp_path, publication_policy="reporting"
+    )
+    study = SimpleNamespace(
+        STUDY=record,
+        PRIMARY_REPLICATES=record.replicates,
+        PRIMARY_N=record.n,
+        CONFIGURATION={},
+    )
+    arguments = _arguments(tmp_path / "out", primary_only=False)
+    monkeypatch.setattr(regenerate, "_arguments", lambda *args: arguments)
+    monkeypatch.setattr(
+        regenerate,
+        "_python_phase",
+        lambda *args: regenerate._Phase(rows=_rows(record.implementation)),
+    )
+    monkeypatch.setattr(regenerate, "validate_replicates", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        regenerate, "summarize", lambda rows, truth_varies: pd.DataFrame({"summary": [1.0]})
+    )
+    monkeypatch.setattr(
+        regenerate,
+        "independent_performance_tests",
+        lambda *args, **kwargs: pd.DataFrame({"passed": [True]}),
+    )
+    monkeypatch.setattr(regenerate, "empty_equivalence", lambda: pd.DataFrame({"passed": []}))
+    manifests: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        regenerate,
+        "write_manifest",
+        lambda path, record, artifacts, **kwargs: manifests.append(kwargs["configuration"]),
+    )
+    return study, arguments, manifests
+
+
+def test_p29_a_failure_inside_the_bound_is_judged_by_its_legs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """P29: at bound 0.01, one failure of 100 is inside the allowance, never ``bound exceeded``.
+
+    The deliberate-mutation control is the same run at bound 0, which reads ``bound exceeded``.
+    """
+    from tests.studies.evidence import property_failures
+
+    study, arguments, manifests = _property_driver(monkeypatch, tmp_path)
+    out = arguments.output
+    regenerate.main(study, _toy_properties({7}, bound=0.01, replicates=100), here=tmp_path)
+    accounting = pd.read_csv(out / property_failures.PROPERTY_ACCOUNTING)
+    assert set(accounting["reason"]) <= {"within bound", "worst case fails"}
+    assert set(accounting["bound"]) == {0.01}
+    assert set(accounting["allowed"]) == {1}
+    assert manifests[-1]["property_failure_bound"] == 0.01
+
+    regenerate.main(study, _toy_properties({7}, bound=0.0, replicates=100), here=tmp_path)
+    accounting = pd.read_csv(out / property_failures.PROPERTY_ACCOUNTING)
+    assert set(accounting["reason"]) == {"bound exceeded"}
+    assert manifests[-1]["property_failure_bound"] == 0.0
+
+
+def test_p36_skip_properties_carries_the_committed_bound_or_its_absence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """P36: a ``--skip-properties`` run copies the committed key, never the module's bound."""
+    study, arguments, manifests = _property_driver(monkeypatch, tmp_path)
+    regenerate.main(study, _toy_properties(set()), here=tmp_path)
+    assert manifests[-1]["property_failure_bound"] == 0.0
+    committed = tmp_path / "committed"
+    committed.mkdir()
+    for name in ("property-replicates.csv.gz", "properties.csv"):
+        (committed / name).write_bytes((arguments.output / name).read_bytes())
+    arguments.skip_properties = True
+
+    regenerate.main(study, _toy_properties(set(), bound=0.01), here=committed)
+    assert "property_failure_bound" not in manifests[-1]
+
+    manifest = {"configuration": {"property_failure_bound": 0.0}}
+    (committed / "manifest.json").write_text(json.dumps(manifest))
+    regenerate.main(study, _toy_properties(set(), bound=0.01), here=committed)
+    assert manifests[-1]["property_failure_bound"] == 0.0
+
+    (committed / "manifest.json").write_text(json.dumps({"configuration": {}}))
+    regenerate.main(study, _toy_properties(set(), bound=0.01), here=committed)
+    assert "property_failure_bound" not in manifests[-1]
+
+
+def test_a_property_bound_raised_after_recorded_failures_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """H1: a committed property run lost replicates, so its bound may not rise for a re-run."""
+    from tests.studies.evidence import property_failures
+
+    study, arguments, manifests = _property_driver(monkeypatch, tmp_path)
+    regenerate.main(study, _toy_properties({7}, bound=0.01, replicates=100), here=tmp_path)
+    committed = tmp_path / "committed"
+    committed.mkdir()
+    for name in (
+        "property-replicates.csv.gz",
+        "properties.csv",
+        property_failures.PROPERTY_FAILURES,
+    ):
+        (committed / name).write_bytes((arguments.output / name).read_bytes())
+    (committed / "manifest.json").write_text(json.dumps({"configuration": manifests[-1]}))
+    with pytest.raises(RuntimeError, match="never raised"):
+        regenerate.main(study, _toy_properties({7}, bound=0.02, replicates=100), here=committed)
+    # The same bound, a lower one, and a run that reuses the committed files are allowed.
+    for bound in (0.01, 0.0):
+        regenerate.main(study, _toy_properties({7}, bound=bound, replicates=100), here=committed)
+    arguments.skip_properties = True
+    regenerate.main(study, _toy_properties({7}, bound=0.02, replicates=100), here=committed)
+    # Mutation control: without the key the committed run applied bound 0, so 0.01 is a raise.
+    (committed / "manifest.json").write_text(json.dumps({"configuration": {}}))
+    arguments.skip_properties = False
+    with pytest.raises(RuntimeError, match="never raised"):
+        regenerate.main(study, _toy_properties({7}, bound=0.01, replicates=100), here=committed)
+    assert property_failures.raised_after_failures(tmp_path / "nothing", 0.05) is False
 
 
 def _stub_complete(
@@ -375,7 +698,7 @@ def _stub_complete(
     monkeypatch.setattr(
         regenerate,
         "_property_artifacts",
-        lambda *args, **kwargs: pd.DataFrame({"passed": [True], "property_passed": [True]}),
+        lambda *args, **kwargs: (pd.DataFrame({"passed": [True], "property_passed": [True]}), ()),
     )
     return study
 
@@ -390,7 +713,10 @@ def test_an_undeclared_reference_regression_refuses_the_run(
 
     with pytest.raises(RuntimeError, match="reference validity"):
         regenerate.main(
-            study, SimpleNamespace(), here=tmp_path, reference=regenerate.Reference("i", "r")
+            study,
+            SimpleNamespace(FAILURE_BOUND=0.0),
+            here=tmp_path,
+            reference=regenerate.Reference("i", "r"),
         )
 
 
@@ -423,14 +749,20 @@ def test_a_declared_reference_failure_publishes_and_still_gates_the_subject(
         ),
     )
     regenerate.main(
-        study, SimpleNamespace(), here=tmp_path, reference=regenerate.Reference("i", "r")
+        study,
+        SimpleNamespace(FAILURE_BOUND=0.0),
+        here=tmp_path,
+        reference=regenerate.Reference("i", "r"),
     )
 
     refused = pd.DataFrame({"passed": [False], "reference_valid": [False]})
     study = _stub_complete(monkeypatch, tmp_path, record, refused)
     with pytest.raises(RuntimeError, match="paired similarity and non-inferiority"):
         regenerate.main(
-            study, SimpleNamespace(), here=tmp_path, reference=regenerate.Reference("i", "r")
+            study,
+            SimpleNamespace(FAILURE_BOUND=0.0),
+            here=tmp_path,
+            reference=regenerate.Reference("i", "r"),
         )
 
 
@@ -448,7 +780,10 @@ def test_a_stale_accepted_reference_failure_is_refused(
 
     with pytest.raises(RuntimeError, match="stale exception"):
         regenerate.main(
-            study, SimpleNamespace(), here=tmp_path, reference=regenerate.Reference("i", "r")
+            study,
+            SimpleNamespace(FAILURE_BOUND=0.0),
+            here=tmp_path,
+            reference=regenerate.Reference("i", "r"),
         )
 
 
@@ -558,7 +893,7 @@ def test_the_reference_artifact_hook_receives_the_path_the_driver_wrote(
             written.to_csv(output, index=False)
 
     reference = FakeReference()
-    regenerate.main(study, SimpleNamespace(), here=tmp_path, reference=reference)
+    regenerate.main(study, SimpleNamespace(FAILURE_BOUND=0.0), here=tmp_path, reference=reference)
 
     assert len(calls) == 1
     declared = calls[0]["reference_results"]
@@ -619,7 +954,9 @@ def test_skip_reference_reads_the_committed_failures_before_any_removal(
     """
     from tests.studies.evidence import failures
 
-    record = dataclasses.replace(canonical_tmle.STUDY, artifacts=tmp_path)
+    # The committed run applied no bound, so this run declares none either: a raised bound
+    # after recorded failures is refused (test_a_raised_bound_after_recorded_failures_...).
+    record = dataclasses.replace(canonical_tmle.STUDY, artifacts=tmp_path, failure_bound={})
     reference = str(record.reference)
     committed = _rows(reference).assign(replicate=0, n=50)
     committed.to_csv(tmp_path / "replicates.csv.gz", index=False)
@@ -646,7 +983,10 @@ def test_skip_reference_reads_the_committed_failures_before_any_removal(
     monkeypatch.setattr(regenerate, "validate_replicates", validate)
     with pytest.raises(_Stop):
         regenerate.main(
-            study, SimpleNamespace(), here=tmp_path, reference=regenerate.Reference("i", "r")
+            study,
+            SimpleNamespace(FAILURE_BOUND=0.0),
+            here=tmp_path,
+            reference=regenerate.Reference("i", "r"),
         )
 
     (recorded,) = seen
@@ -661,7 +1001,8 @@ def test_a_run_removes_the_stale_failure_files_only_when_it_writes_none(
 ) -> None:
     from tests.studies.evidence import failures
 
-    record = dataclasses.replace(fold_evaluated_cvtmle.STUDY, artifacts=tmp_path)
+    # No declared bound, so the raised-bound check does not read the stale failure file.
+    record = dataclasses.replace(fold_evaluated_cvtmle.STUDY, artifacts=tmp_path, failure_bound={})
     for name in regenerate.OPTIONAL_ARTIFACT_NAMES:
         (tmp_path / name).write_text("stale\n", encoding="utf-8")
     study = SimpleNamespace(
@@ -681,7 +1022,7 @@ def test_a_run_removes_the_stale_failure_files_only_when_it_writes_none(
 
     monkeypatch.setattr(regenerate, "write_csv", write_csv)
     with pytest.raises(_Stop):
-        regenerate.main(study, SimpleNamespace(), here=tmp_path)
+        regenerate.main(study, SimpleNamespace(FAILURE_BOUND=0.0), here=tmp_path)
 
     for name in (failures.FAILURES, failures.ACCOUNTING):
         assert (tmp_path / name).exists() is recorded
@@ -722,3 +1063,31 @@ def test_reference_failures_labels_the_harness_records(tmp_path: Any) -> None:
     assert set(frame["implementation"]) == {str(canonical_tmle.STUDY.reference)}
     assert frame["group_id"].tolist() == ["g000000000", "g000000001"]
     assert frame["replicates"].tolist() == ["0", "4"]
+
+
+def test_a_raised_bound_after_recorded_failures_is_refused_before_any_fit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    """RM39b2: a re-run meets the same failures, so a raised bound would buy the pass."""
+    from tests.studies.evidence import failures
+
+    record = dataclasses.replace(canonical_tmle.STUDY, artifacts=tmp_path)
+    pd.DataFrame([_failure_record(str(record.reference), "1")]).to_csv(
+        tmp_path / failures.FAILURES, index=False
+    )
+    study = SimpleNamespace(
+        STUDY=record, PRIMARY_REPLICATES=record.replicates, PRIMARY_N=record.n, CONFIGURATION={}
+    )
+    monkeypatch.setattr(
+        regenerate, "_arguments", lambda *args: _arguments(tmp_path, primary_only=False)
+    )
+    fitted: list[bool] = []
+    monkeypatch.setattr(regenerate, "_python_phase", lambda *args: fitted.append(True))
+    with pytest.raises(RuntimeError, match="never raised"):
+        regenerate.main(
+            study,
+            SimpleNamespace(FAILURE_BOUND=0.0),
+            here=tmp_path,
+            reference=regenerate.Reference("i", "r"),
+        )
+    assert fitted == []

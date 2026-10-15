@@ -28,7 +28,6 @@ from scipy.stats import norm
 
 from cleverly.estimators import TMLE
 from cleverly.longitudinal import LTMLE
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law as point_law
 from tests import discrete_law_longitudinal as end_law
 from tests.parallel import STUDY_JOBS
@@ -46,12 +45,14 @@ from tests.studies.canonical_full_refit_bootstrap import (
     sample_end_of_study,
 )
 from tests.studies.canonical_ltmle import G_BOUNDS
+from tests.studies.evidence import property_failures, property_verdicts
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, finite_support_sample
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_verdicts,
     finish,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 
 #: The extra replicate columns a bootstrap row carries.
@@ -259,15 +260,25 @@ def _bootstrap_rows(
     return rows
 
 
-def _fit(group: str, spec: dict[str, Any], replicate: int) -> Any:
-    """One sample and one fit, shared by every cell of ``group``."""
+def _sample(group: str, spec: dict[str, Any], replicate: int) -> pd.DataFrame:
+    """The sample shared by every cell of ``group``."""
     seed = stream_seed(STUDY, "property_sample", group, replicate)
+    if spec["law"] == "point":
+        return finite_support_sample(
+            point_law.PROBS, point_law.SUPPORT, spec["n"], seed, columns=("W", "A", "Y")
+        )
+    if spec["law"] == "end_of_study":
+        return sample_end_of_study(spec["n"], seed)
+    if spec["law"] == "clustered":
+        return sample_clustered(seed)
+    return grid.sample(spec["n"], np.random.default_rng(seed))
+
+
+def _fit(group: str, spec: dict[str, Any], replicate: int, frame: pd.DataFrame) -> Any:
+    """One fit of ``frame``, shared by every cell of ``group``."""
     fit_seed = stream_seed(STUDY, "fit_seed", group, replicate)
     boot = {"n_bootstrap": spec["bootstrap"]} if spec["bootstrap"] else {}
     if spec["law"] == "point":
-        frame = finite_support_sample(
-            point_law.PROBS, point_law.SUPPORT, spec["n"], seed, columns=("W", "A", "Y")
-        )
         return (
             TMLE(
                 outcome_learner=end_law.CellMeans(),
@@ -282,13 +293,8 @@ def _fit(group: str, spec: dict[str, Any], replicate: int) -> Any:
             .fit(frame, outcome="Y", treatment="A", covariates=["W"])
             .single()
         )
-    if spec["law"] == "end_of_study":
-        frame = sample_end_of_study(spec["n"], seed)
+    if spec["law"] in ("end_of_study", "clustered"):
         return fit_end_of_study(frame, n_folds=spec["folds"], random_state=fit_seed, **boot)
-    if spec["law"] == "clustered":
-        frame = sample_clustered(seed)
-        return fit_end_of_study(frame, n_folds=spec["folds"], random_state=fit_seed, **boot)
-    frame = grid.sample(spec["n"], np.random.default_rng(seed))
     return fit_grid(frame, n_folds=spec["folds"], random_state=fit_seed, **boot)
 
 
@@ -325,19 +331,46 @@ def _rows(spec: dict[str, Any], result: Any, replicate: int) -> list[dict[str, A
     return _bootstrap_rows(spec, replicate, truth, result[name], failed)
 
 
-def _measure(group: str, replicate: int) -> list[dict[str, Any]]:
+def _measure(group: str, replicate: int, frame: pd.DataFrame) -> list[dict[str, Any]]:
     """Every row of ``group`` at ``replicate``."""
     specs = GROUPS[group]
-    result = _fit(group, specs[0], replicate)
+    result = _fit(group, specs[0], replicate, frame)
     return [row for spec in specs for row in _rows(spec, result, replicate)]
 
 
-def _fit_replication(payload: tuple[str, int]) -> list[dict[str, Any]]:
-    group, replicate = payload
-    return _measure(group, replicate)
+_Key = tuple[tuple[str, int]]
 
 
-def payloads(replicates: int | None = None) -> list[tuple[tuple[str, int]]]:
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone."""
+    group, replicate = key[0]
+    return _sample(group, GROUPS[group][0], replicate)
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``interval_calibration/<cell>`` names the group's rows fill, controls included."""
+    names = []
+    for spec in GROUPS[key[0][0]]:
+        names.append(f"interval_calibration/{spec['label']}__correctly_specified")
+        if spec["control"]:
+            names.append(f"interval_calibration/{spec['label']}__shrunken_se_control")
+    return names
+
+
+def _cell_of(key: _Key) -> str:
+    return key[0][0]
+
+
+def _replicate_of(key: _Key) -> int:
+    return key[0][1]
+
+
+def _fit_replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    group, replicate = key[0]
+    return _measure(group, replicate, frame)
+
+
+def payloads(replicates: int | None = None) -> list[_Key]:
     """Every (group, replicate) pair, optionally capped for a smoke pass."""
     return [
         ((group, replicate),)
@@ -346,12 +379,46 @@ def payloads(replicates: int | None = None) -> list[tuple[tuple[str, int]]]:
     ]
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    outcomes = map_parallel(_fit_replication, payloads(), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        payloads(),
+        _fit_replication,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        draw=_draw,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     return rows.loc[:, [*REPLICATE_COLUMNS, *BOOTSTRAP_COLUMNS]].sort_values(
         ["property", "cell", "replicate"], ignore_index=True
     )
+
+
+def failed_bootstrap_share(group: pd.DataFrame) -> pd.Series:
+    """Each replicate's share of bootstrap draws that failed, the column the cap reads.
+
+    Parameters
+    ----------
+    group : pandas.DataFrame
+        One cell's rows.
+
+    Returns
+    -------
+    pandas.Series
+        ``bootstrap_failed / bootstrap_requested`` per row.
+    """
+    return group["bootstrap_failed"] / group["bootstrap_requested"]
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
@@ -376,7 +443,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         if requested is None or not (requested > 0).any():
             summary.loc[index, "bootstrap_conditional"] = False
             continue
-        share = float((group["bootstrap_failed"] / group["bootstrap_requested"]).mean())
+        share = float(failed_bootstrap_share(group).mean())
         conditional = share > FAILED_REPLICATE_CAP
         summary.loc[index, "bootstrap_failed_fraction"] = share
         summary.loc[index, "bootstrap_conditional"] = conditional
@@ -385,9 +452,43 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     return finish(summary, rates)
 
 
+def _has_bootstrap(ctx: property_failures.Context, row: pd.Series) -> bool:
+    """A positive row whose cell ran bootstraps, the rows the cap reads."""
+    return str(row["role"]) == "positive" and np.isfinite(float(row["bootstrap_failed_fraction"]))
+
+
+def _calibration_with_cap() -> property_failures.FamilyRule:
+    """The shared calibration rule plus the failed-replicate cap (rev 3 G1).
+
+    The cap is S10 on :func:`failed_bootstrap_share`, a share, so a lost replicate fills at 1.
+    """
+    shared = property_verdicts.calibration_rule(efficiency_band=None)
+    return property_failures.FamilyRule(
+        families=shared.families,
+        shared="summarize_properties",
+        clauses=(
+            *shared.clauses,
+            property_failures.extra_mean_clause(
+                "failed bootstrap share under the cap",
+                value=lambda group: failed_bootstrap_share(group).to_numpy(dtype=float),
+                summary_column="bootstrap_failed_fraction",
+                side="cap",
+                limit=FAILED_REPLICATE_CAP,
+                applies=_has_bootstrap,
+                support=(0.0, 1.0),
+            ),
+        ),
+    )
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = (_calibration_with_cap(),)
+
+
 __all__ = [
     "BOOTSTRAP_REPLICATES",
     "MarkovCellMeans",
+    "failed_bootstrap_share",
     "fit_grid",
     "generate_property_rows",
     "payloads",

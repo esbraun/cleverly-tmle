@@ -35,23 +35,27 @@ from typing import Any
 
 import pandas as pd
 
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import _learned_rule_law as law
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
+    payload_cell,
+    payload_replicate,
     property_role,
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     necessity_verdicts,
 )
 from tests.studies.evidence.registry import StudyRecord
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.learned_rule_cvtmle import (
     EFFICIENCY_BOUND,
@@ -142,10 +146,32 @@ def _row(
     return row
 
 
-def _replication(payload: tuple[str, str, int, int, int, int, int]) -> list[dict[str, Any]]:
+#: The calibration positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived((LAW,))
+
+_Key = tuple[tuple[str, str, int, int, int, int, int]]
+
+
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone."""
+    _, _, _, n, _, sample_seed, _ = key[0]
+    return law.draw(LAW, n, sample_seed)
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    family, label = key[0][:2]
+    if family == "targeting_necessity":
+        return [f"{family}/{LAW}__targeted", f"{family}/{LAW}__untargeted"]
+    if family == "fold_locality":
+        return [f"{family}/{LAW}__fold_local", f"{family}/{LAW}__validation_rows"]
+    name = f"{family}/{label}"
+    return [name, *DERIVED_CELLS.get(name, ())]
+
+
+def _replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
     """Every row one property draw writes: one arm, or a paired pair on one sample."""
-    family, label, replicate, n, requested, sample_seed, fold_seed = payload
-    frame = law.draw(LAW, n, sample_seed)
+    family, label, replicate, n, requested, _, fold_seed = key[0]
     if family in ("interval_calibration", "root_n_and_efficiency"):
         result, truth, warnings = law.measured(frame, law.outcome_learner(), LAW, fold_seed)
         role = property_role(
@@ -210,9 +236,7 @@ def _replication(payload: tuple[str, str, int, int, int, int, int]) -> list[dict
     raise ValueError(f"unknown property family {family!r}")
 
 
-def _payloads(
-    record: StudyRecord, cap: int | None
-) -> list[tuple[tuple[str, str, int, int, int, int, int]]]:
+def _payloads(record: StudyRecord, cap: int | None) -> list[_Key]:
     """One payload per property draw.  The slow forest draws go first, so the pool stays fed."""
     resolved = suffixes(record)
     order = sorted(PROPERTY_DRAWS, key=lambda draw: draw.family != "fold_locality")
@@ -238,6 +262,16 @@ def _payloads(
     return out
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(
     *, n_jobs: int = STUDY_JOBS, record: StudyRecord = STUDY, cap: int | None = None
 ) -> pd.DataFrame:
@@ -246,7 +280,16 @@ def generate_property_rows(
     ``record`` and ``cap`` exist for a harness check on the throwaway record of rule L9 alone.
     The declared run passes neither.
     """
-    outcomes = map_parallel(_replication, _payloads(record, cap), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(record, cap),
+        _replication,
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for records in outcomes for row in records])
     controls = calibration_controls(
         rows,
@@ -267,6 +310,27 @@ def generate_property_rows(
     return rows.loc[:, [*REPLICATE_COLUMNS, *law.HARNESS_COLUMNS]]
 
 
+#: The ``targeting_necessity`` family's declaration, read by its verdict and its rule.
+TARGETING_NECESSITY = property_verdicts.Necessity(
+    family="targeting_necessity",
+    labels=(LAW,),
+    arms=("targeted", "untargeted"),
+    column="targeting_displacement",
+    threshold=TARGETING_DISPLACEMENT,
+    truth_varies=STUDY.truth_varies_by_replicate,
+)
+
+#: The ``fold_locality`` family's declaration, read by its verdict and its rule.
+FOLD_LOCALITY = property_verdicts.Necessity(
+    family="fold_locality",
+    labels=(LAW,),
+    arms=("fold_local", "validation_rows"),
+    column="fold_locality_displacement",
+    threshold=FOLD_LOCALITY_DISPLACEMENT,
+    truth_varies=STUDY.truth_varies_by_replicate,
+)
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """The verdict of each cell, every statistic on the error of each row."""
     summary, rates = apply_shared_verdicts(
@@ -275,24 +339,10 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         extra_columns=("targeting_displacement", "fold_locality_displacement"),
     )
     calibration_verdicts(summary, margins=STUDY.margins)
-    necessity_verdicts(
-        summary,
-        rows,
-        family="targeting_necessity",
-        labels=(LAW,),
-        arms=("targeted", "untargeted"),
-        column="targeting_displacement",
-        threshold=TARGETING_DISPLACEMENT,
-        truth_varies=STUDY.truth_varies_by_replicate,
-    )
-    necessity_verdicts(
-        summary,
-        rows,
-        family="fold_locality",
-        labels=(LAW,),
-        arms=("fold_local", "validation_rows"),
-        column="fold_locality_displacement",
-        threshold=FOLD_LOCALITY_DISPLACEMENT,
-        truth_varies=STUDY.truth_varies_by_replicate,
-    )
+    necessity_verdicts(summary, rows, TARGETING_NECESSITY)
+    necessity_verdicts(summary, rows, FOLD_LOCALITY)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = (*property_verdicts.necessity_rules(TARGETING_NECESSITY, FOLD_LOCALITY),)

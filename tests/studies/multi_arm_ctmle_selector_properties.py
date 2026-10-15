@@ -25,7 +25,8 @@ from cleverly.estimators import CTMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import multi_arm_common, multi_arm_properties
 from tests.studies.canonical_multi_arm_ctmle_selector import STRATIFY_FOLDS, STUDY
-from tests.studies.evidence.properties import PropertyBatch, PropertyCell
+from tests.studies.evidence import property_failures, property_verdicts
+from tests.studies.evidence.properties import PropertyBatch, PropertyCell, paired
 from tests.studies.evidence.property_verdicts import (
     FOLD_POLICY_FAMILY,
     apply_shared_verdicts,
@@ -134,6 +135,16 @@ def sampling_batches() -> tuple[PropertyBatch, ...]:
     return (PropertyBatch("properties", cells(), _estimator),)
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return sampling_batches()[0].run(n_jobs=n_jobs)
 
@@ -141,6 +152,30 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
 def _root_mean_square_error(cell: pd.DataFrame) -> float:
     error = cell["estimate"].to_numpy() - cell["truth"].to_numpy()
     return float(np.sqrt(np.mean(error**2)))
+
+
+def path_rmse_ratio(chosen: pd.DataFrame, control: pd.DataFrame) -> float:
+    """A selector path's RMSE over the control's, on the replicates both arms kept.
+
+    Paired on the replication index, because the cells are run on the same draws precisely
+    so the ratio is not two independent error curves divided.  A cell that lost a replication
+    would otherwise compare different samples and read as a selector effect, so the pair
+    reads the replications both arms kept.
+
+    Parameters
+    ----------
+    chosen : pandas.DataFrame
+        The path's rows.
+    control : pandas.DataFrame
+        The control's rows.
+
+    Returns
+    -------
+    float
+        ``rmse(chosen) / rmse(control)``.
+    """
+    chosen, matched = (arm.sort_values("replicate") for arm in paired(chosen, control))
+    return _root_mean_square_error(chosen) / _root_mean_square_error(matched)
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
@@ -153,20 +188,15 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         extra_columns=("rmse_ratio", "coverage_gain_ci_lower", "coverage_gain_ci_upper"),
     )
     necessity = rows.loc[rows["property"] == "selector_necessity"]
-    control = necessity.loc[necessity["cell"] == multi_arm_properties.SELECTOR_CONTROL].sort_values(
-        "replicate"
-    )
-    control_error = _root_mean_square_error(control)
+    control = necessity.loc[necessity["cell"] == multi_arm_properties.SELECTOR_CONTROL]
     ratios: dict[str, float] = {}
     for path in multi_arm_properties.SELECTOR_PATHS:
-        chosen = necessity.loc[necessity["cell"] == path].sort_values("replicate")
-        # Paired on the replication index, because the cells are run on the same draws
-        # precisely so the ratio below is not two independent error curves divided.  A cell
-        # that lost a replication would otherwise compare different samples and read as a
-        # selector effect.
-        if not np.array_equal(chosen["replicate"], control["replicate"]):
-            raise ValueError(f"the {path!r} selector cell is not paired with its control")
-        ratios[path] = _root_mean_square_error(chosen) / control_error
+        try:
+            ratios[path] = path_rmse_ratio(necessity.loc[necessity["cell"] == path], control)
+        except ValueError as error:
+            raise ValueError(
+                f"the {path!r} selector cell is not paired with its control: {error}"
+            ) from error
 
     mask = summary["property"] == "selector_necessity"
     for path, ratio in ratios.items():
@@ -186,3 +216,33 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     )
     fold_policy_diagnostics(summary, rows, STUDY)
     return finish(summary, rates)
+
+
+def _selector_rule() -> property_failures.FamilyRule:
+    """``selector_necessity``: each arm's bias endpoint, and S13 on the largest path ratio."""
+    return property_failures.FamilyRule(
+        families=frozenset({"selector_necessity"}),
+        shared="summarize_properties",
+        clauses=(
+            property_failures.bias_clause(
+                "bias equivalent", kind="equivalent", applies=property_failures.roles("positive")
+            ),
+            property_failures.bias_clause(
+                "bias discriminated", kind="beyond", applies=property_failures.roles("control")
+            ),
+            property_failures.rmse_ratio_clause(
+                "largest path rmse ratio under its ceiling",
+                paths=tuple(
+                    (path, multi_arm_properties.SELECTOR_CONTROL)
+                    for path in multi_arm_properties.SELECTOR_PATHS
+                ),
+                statistic=path_rmse_ratio,
+                threshold=SELECTOR_RMSE_RATIO,
+            ),
+        ),
+        group="family",
+    )
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = (_selector_rule(),)

@@ -7,17 +7,24 @@ from typing import Any
 import pandas as pd
 from scipy.stats import norm
 
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_learned_weighted_tmle import STUDY, fit_cleverly
-from tests.studies.evidence.properties import control_row, replicate_row
+from tests.studies.evidence import property_verdicts
+from tests.studies.evidence.properties import (
+    control_row,
+    payload_cell,
+    payload_replicate,
+    replicate_row,
+)
 from tests.studies.evidence.property_verdicts import (
     alternative_target_necessity_verdicts,
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
 )
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.learned_weighted_point_common import (
     SELECTED_ATE,
@@ -71,15 +78,30 @@ def _row(
     )
 
 
-def fit_replication(payload: tuple[str, str, int, int, int, int]) -> list[dict[str, Any]]:
-    """Fit one declared property replication and return its shared-schema rows."""
-    property_name, cell, replicate, n, requested, seed = payload
-    effect = (
+def _effect(property_name: str) -> float:
+    return (
         0.0
         if property_name == "type_i_error"
         else (ALTERNATIVE_EFFECT if property_name == "power" else TARGET_ATE)
     )
-    frame = sample_selected(n, seed, effect=effect)
+
+
+def _draw(payload: tuple[str, str, int, int, int, int]) -> pd.DataFrame:
+    """One declared property replication's sample, drawn outside the fit."""
+    property_name, _, _, n, _, seed = payload
+    return sample_selected(n, seed, effect=_effect(property_name))
+
+
+def fit_replication(payload: tuple[str, str, int, int, int, int]) -> list[dict[str, Any]]:
+    """Fit one declared property replication and return its shared-schema rows."""
+    return _fit_drawn(payload, _draw(payload))
+
+
+def _fit_drawn(
+    payload: tuple[str, str, int, int, int, int], frame: pd.DataFrame
+) -> list[dict[str, Any]]:
+    property_name, cell, replicate, n, requested, _ = payload
+    effect = _effect(property_name)
     result = fit_cleverly(frame, estimands=(TARGET,))
     if property_name != "learner_weight_necessity":
         return [
@@ -147,7 +169,30 @@ def fit_replication(payload: tuple[str, str, int, int, int, int]) -> list[dict[s
     ]
 
 
-def _payloads() -> list[tuple[tuple[str, str, int, int, int, int]]]:
+#: The calibration positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived((TARGET,), positive_suffix="treatment_correct")
+
+_Key = tuple[tuple[str, str, int, int, int, int]]
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    property_name, cell = key[0][:2]
+    if property_name == "learner_weight_necessity":
+        return [
+            f"{property_name}/ate__{arm}"
+            for arm in (
+                "weighted_targeted",
+                "unweighted_targeted",
+                "weighted_plugin",
+                "unweighted_plugin_control",
+            )
+        ]
+    name = f"{property_name}/{cell}"
+    return [name, *DERIVED_CELLS.get(name, ())]
+
+
+def _payloads() -> list[_Key]:
     specs = [
         *[
             ("root_n_and_efficiency", f"n_{size}", size, RATE_REPLICATES, f"n_{size}")
@@ -170,7 +215,7 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int]]]:
             "paired",
         ),
     ]
-    payloads: list[tuple[tuple[str, str, int, int, int, int]]] = []
+    payloads: list[_Key] = []
     for property_name, cell, n, requested, stream_cell in specs:
         for replicate in range(requested):
             seed = stream_seed(
@@ -184,9 +229,28 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int]]]:
     return payloads
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     """Generate every predeclared cell and paired calibration control."""
-    outcomes = map_parallel(fit_replication, _payloads(), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(),
+        splat_drawn(_fit_drawn),
+        draw=splat_draw(_draw),
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for outcome in outcomes for row in outcome])
     controls = calibration_controls(
         rows,
@@ -199,6 +263,17 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
         positive_suffix="treatment_correct",
     )
     return pd.concat([rows, controls], ignore_index=True)
+
+
+#: The ``learner_weight_necessity`` family's declaration, read by its verdict and its rule.
+LEARNER_WEIGHT_NECESSITY = property_verdicts.Necessity(
+    family="learner_weight_necessity",
+    labels=(TARGET,),
+    arms=("weighted_plugin", "unweighted_plugin_control"),
+    alternative_truths={TARGET: SELECTED_ATE},
+    column="necessity_displacement",
+    threshold=LEARNER_WEIGHT_DISPLACEMENT,
+)
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
@@ -223,15 +298,9 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     )
     calibration_verdicts(summary, margins=STUDY.margins, positive_suffix="treatment_correct")
 
-    alternative_target_necessity_verdicts(
-        summary,
-        rows,
-        STUDY,
-        family="learner_weight_necessity",
-        labels=(TARGET,),
-        arms=("weighted_plugin", "unweighted_plugin_control"),
-        alternative_truths={TARGET: SELECTED_ATE},
-        column="necessity_displacement",
-        threshold=LEARNER_WEIGHT_DISPLACEMENT,
-    )
+    alternative_target_necessity_verdicts(summary, rows, STUDY, LEARNER_WEIGHT_NECESSITY)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = (*property_verdicts.necessity_rules(LEARNER_WEIGHT_NECESSITY),)
