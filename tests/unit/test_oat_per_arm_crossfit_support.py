@@ -235,10 +235,22 @@ class TestTheNamedRefusals:
         assert verdict.axis == "target_weights"
         assert "w H" in verdict.detail
 
-    def test_a_simultaneous_band_under_repeats(self) -> None:
-        """The predicate withholds the band, and the repeat preflight refuses it first."""
-        verdict = _verdict(repeats=3, simultaneous=True)
-        assert verdict.axis == "simultaneous"
+
+class TestTheDefaultBand:
+    """``simultaneous=True`` builds no band on an admitted fit, so repeats do not refuse it."""
+
+    def test_three_repeats_keep_the_intervals_and_build_no_band(self) -> None:
+        assert _verdict(repeats=3, simultaneous=True).admitted
+        result = _fit(repeats=3, simultaneous=True)
+        assert {estimate.inference for estimate in result.estimates.values()} == {"influence_curve"}
+        assert result.simultaneous is None
+        assert "No simultaneous band" in result.summary()
+
+    def test_a_hook_that_builds_the_band_hits_the_repeat_refusal(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The control: a band over median-combined repeats is refused, not built."""
+        monkeypatch.setattr(CTMLE, "_builds_default_band", lambda self, data: True)
         with pytest.raises(CapabilityError, match="median-combined repeats"):
             _fit(repeats=3, simultaneous=True)
 

@@ -1,0 +1,6 @@
+draws: 500, seeds 1000 to 1499
+truth: ATE 0.146575, complete-case target 0.172772 (quadrature)
+Step 6: covers ATE 478 of 500 (0.956; Wald 95% 0.938 to 0.974); bias +0.00038 (MC SE 0.00025); SE/SD 0.998
+Step 7: covers ATE 0 of 500 (0.000; Wald 95% 0.000 to 0.000); covers target 480 of 500 (0.960; Wald 95% 0.943 to 0.977); mean minus target +0.00043 (MC SE 0.00023)
+point tipping gamma found on 358 draws
+interval tipping gamma: found on 485 draws; 5% 3.1721, 95% 5.4783

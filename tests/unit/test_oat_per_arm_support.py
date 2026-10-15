@@ -129,7 +129,6 @@ class TestTheAllowList:
             ("fluctuation", "linear"),
             ("n_folds", 2),
             ("repeats", 2),
-            ("simultaneous", True),
             ("target_weights", True),
             ("screen_treatment", True),
         ],
@@ -411,9 +410,30 @@ class TestTheSummary:
         assert "No simultaneous band" in text
 
     def test_a_refused_per_arm_fit_names_the_unmet_requirement(self) -> None:
-        text = _fit(simultaneous=True).summary()
+        text = _fit(screen_treatment=True).summary()
         assert "stacked parametric curve" not in text
-        assert "No stacked interval (X58): the stacked interval needs simultaneous=False" in text
+        assert "No stacked interval (X58): the stacked interval needs screen_treatment" in text
+
+
+class TestTheDefaultBand:
+    """``simultaneous=True``, the default, keeps the pointwise intervals and builds no band."""
+
+    def test_the_default_keeps_the_intervals_and_builds_no_band(self) -> None:
+        result = _fit(simultaneous=True)
+        assert {estimate.inference for estimate in result.estimates.values()} == {"influence_curve"}
+        assert result.simultaneous is None
+        assert "No simultaneous band" in result.summary()
+
+    def test_a_single_ate_takes_the_default_inference(self) -> None:
+        result = _fit(estimands=("ate",), simultaneous=True)
+        assert result["ate"].inference == "influence_curve"
+
+    def test_a_hook_that_builds_the_band_fails_the_check(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The control: without the hook, the default builds a band over the stacked curves."""
+        monkeypatch.setattr(CTMLE, "_builds_default_band", lambda self, data: True)
+        assert _fit(simultaneous=True).simultaneous is not None
 
     def test_the_refusal_names_the_parametric_route(self, admitted_fit: Any) -> None:
         result = _fit(outcome_learner=LogisticRegression())
