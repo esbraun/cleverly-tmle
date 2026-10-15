@@ -20,6 +20,9 @@ set                what it reads
 ``<law>@2000``     each law but I at n = 2,000, where the rule must fail
 ``stability_d``    one fixed law-D sample, paired three-draw and first-draw fits per trial
 ``stability_i``    one fixed law-I sample, the same pairing
+``i@80000``        law I at n = 80,000, after the 40,000 reading failed the sizing rule
+``stability_i@``   the law-I stability pairing on one fixed sample of 80,000
+``80000``
 =================  ==========================================================================
 
 Replication ``r`` of set ``k`` draws the seed ``SEED_BASE + 100_000 k + r``.  Each set runs
@@ -67,6 +70,9 @@ SETS: dict[str, tuple[int, str, tuple[str, ...], int, int]] = {
     "m@2000": (8, "law", ("law_m",), 2_000, 500),
     "stability_d": (9, "stability", ("law_d_ltmle", "law_d_sdr"), 8_000, STABILITY_TRIALS),
     "stability_i": (10, "stability", ("law_i",), 40_000, STABILITY_TRIALS),
+    # Law I at the size the 40,000 reading failed to support (``X46-progress.md``, stage 2).
+    "i@80000": (11, "law", ("law_i",), 80_000, 1_200),
+    "stability_i@80000": (12, "stability", ("law_i",), 80_000, STABILITY_TRIALS),
 }
 
 #: The names each stability set reads, by scenario.
