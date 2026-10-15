@@ -1069,6 +1069,21 @@ tests.studies.longitudinal_incremental_properties,targeting_necessity,bias equiv
 tests.studies.longitudinal_incremental_properties,targeting_necessity,least displacement over labels,control_concentrated
 tests.studies.longitudinal_incremental_properties,type_i_error,coverage floor,coverage/0.5
 tests.studies.longitudinal_incremental_properties,type_i_error,rejection ceiling,rejection/0.1
+tests.studies.longitudinal_repeated_crossfit_properties,interval_calibration,coverage in calibration band,shift/0.7
+tests.studies.longitudinal_repeated_crossfit_properties,interval_calibration,se ratio below band,se_high
+tests.studies.longitudinal_repeated_crossfit_properties,interval_calibration,se ratio in calibration band,affine
+tests.studies.longitudinal_repeated_crossfit_properties,ipsi_primary,bias equivalent,bias
+tests.studies.longitudinal_repeated_crossfit_properties,ipsi_primary,coverage floor,coverage/0.5
+tests.studies.longitudinal_repeated_crossfit_properties,ipsi_primary,se ratio in sanity band,se_high
+tests.studies.longitudinal_repeated_crossfit_properties,repeat_increment,control increment at or above the ceiling,pair_collapse
+tests.studies.longitudinal_repeated_crossfit_properties,repeat_increment,increment under its ceiling,se/2
+tests.studies.longitudinal_repeated_crossfit_properties,repeat_stability,repeat spread ratio under its boundary above the spread floor,none
+tests.studies.longitudinal_repeated_crossfit_properties,root_n_and_efficiency,bias equivalent,bias
+tests.studies.longitudinal_repeated_crossfit_properties,root_n_and_efficiency,coverage floor,coverage/0.5
+tests.studies.longitudinal_repeated_crossfit_properties,root_n_and_efficiency,se ratio sanity,se_high
+tests.studies.longitudinal_repeated_crossfit_properties,root_n_rate,slope in root-n band,contract
+tests.studies.longitudinal_repeated_crossfit_properties,simultaneous_coverage,joint coverage below nominal,pair_collapse
+tests.studies.longitudinal_repeated_crossfit_properties,simultaneous_coverage,joint coverage in calibration band,se_low
 tests.studies.longitudinal_sdr_properties,clustered_calibration,coverage in calibration band,shift/0.7
 tests.studies.longitudinal_sdr_properties,clustered_calibration,se ratio below band,se_high
 tests.studies.longitudinal_sdr_properties,clustered_calibration,se ratio in calibration band,se/0.05

@@ -17,7 +17,7 @@ from tests.canonical.longitudinal_repeated_crossfit import part
 from tests.canonical.regenerate import digest, run_key, runs_root
 from tests.studies import longitudinal_repeated_crossfit as study
 from tests.studies import longitudinal_repeated_crossfit_properties as properties
-from tests.studies.evidence import replication
+from tests.studies.evidence import property_failures, property_verdicts, replication
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 
 pytestmark = pytest.mark.xdist_group("longitudinal_repeated_crossfit_study")
@@ -69,7 +69,7 @@ def test_a_part_writes_into_the_declared_run_scratch() -> None:
     assert part.scratch()[0] == expected
 
 
-# ------------------------------------------------------------------ failure accounting
+# ------------------------------------------------------- failure accounting (RM39b2)
 
 
 def _row(cell: str, replicate: int, requested: int, estimate: float = 0.1) -> dict[str, object]:
@@ -84,93 +84,119 @@ def _row(cell: str, replicate: int, requested: int, estimate: float = 0.1) -> di
         "truth": 0.0,
         "estimate": estimate,
         "std_error": 0.1,
-        "covered": 1,
-        "rejected": 0,
+        "covered": int(abs(estimate) <= 0.196),
+        "rejected": int(abs(estimate) > 0.196),
     }
 
 
-def _flaky(key: tuple[str, int, int], drawn: object = None) -> list[dict[str, object]]:
-    """Replicate 1 raises a recordable error and replicate 2 returns a non-finite estimate."""
-    del drawn
+#: The replicates the stubbed fit loses: one raises, one returns a non-finite estimate.
+_RAISES, _NON_FINITE = 1, 2
+
+
+def _flaky(key: tuple[str, int, int], frame: object) -> list[dict[str, object]]:
+    """Every ``ipsi_primary`` cell of one key; two replicates fail in the two recorded ways."""
+    del frame
     _, replicate, requested = key
-    if replicate == 1:
+    if replicate == _RAISES:
         raise np.linalg.LinAlgError("singular matrix")
-    estimate = float("nan") if replicate == 2 else 0.1 * replicate
-    return [_row("mean_x1__repeated", replicate, requested, estimate)]
+    estimate = 0.1 * float(np.sin(replicate + 1.0))
+    if replicate == _NON_FINITE:
+        estimate = float("nan")
+    return [
+        _row(f"{label}__repeated", replicate, requested, estimate)
+        for label in study.IPSI_PRIMARY_LABELS
+    ]
 
 
-def test_a_recorded_failure_costs_one_replicate_and_replays_on_resume(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+def _stub(monkeypatch: pytest.MonkeyPatch, worker: object = _flaky) -> None:
+    monkeypatch.setattr(properties, "fit_rows", worker)
+    monkeypatch.setattr(properties, "draw", lambda key: None)
+
+
+def test_a_recorded_failure_costs_its_cells_and_replays_on_resume(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """MA2: a failure is recorded and counted, not raised, and a resume counts it again."""
-    keys = [("fake", replicate, 6) for replicate in range(6)]
-    for _ in range(2):
+    """A part records a failure, keeps going, and a resume replays the checkpointed record."""
+    _stub(monkeypatch)
+    for attempt in range(2):
         with replication.checkpoints(tmp_path):
-            rows = properties._fit("fake", _flaky, keys, n_jobs=1)
-        assert [row["replicate"] for row in rows] == [0, 3, 4, 5]
-        assert {row["failed_replicates"] for row in rows} == {2}
-        assert "2 of 6 replicates recorded a fitting failure" in capsys.readouterr().out
+            rows = pd.DataFrame(properties.fit_part("ipsi_primary", n_jobs=1, first=6))
+        out = capsys.readouterr().out
+        assert sorted(set(rows["replicate"])) == [0, 3, 4, 5]
+        # The driver is the one writer of the stamp; the loop leaves it at zero.
+        assert set(rows["failed_replicates"]) == {0}
+        assert "2 recorded property failures" in out
+        assert ("reusing 6 checkpointed replicates" in out) == (attempt == 1)
+    checkpoint = tmp_path / study.STUDY.implementation / f"properties/ipsi_primary_r{1_600}"
+    assert checkpoint.is_dir()
 
 
-def _table(failed: dict[str, int], requested: int = 200) -> pd.DataFrame:
-    """Two paired cells per fit set; each loses its fit set's first ``failed`` replicates."""
-    rows = []
-    for cell, lost in failed.items():
-        family = "root_n_and_efficiency" if "__n_" in cell else "ipsi_primary"
-        for replicate in range(lost, requested):
-            row = _row(cell, replicate, requested, estimate=0.01 * replicate)
-            row.update(property=family, failed_replicates=lost)
-            rows.append(row)
-    return pd.DataFrame(rows)
+def _accounted(
+    monkeypatch: pytest.MonkeyPatch, lost: set[int], requested: int = 200
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """The driver's property steps on ``ipsi_primary`` rows whose fits ``lost`` raised."""
+
+    def worker(key: tuple[str, int, int], frame: object) -> list[dict[str, object]]:
+        _, replicate, requested = key
+        if replicate in lost:
+            raise np.linalg.LinAlgError("singular matrix")
+        estimate = 0.1 * float(np.sin(replicate + 1.0))
+        return [
+            _row(f"{label}__repeated", replicate, requested, estimate)
+            for label in study.IPSI_PRIMARY_LABELS
+        ]
+
+    _stub(monkeypatch, worker)
+    # The table holds one family, so the summary fits no size ladder.
+    monkeypatch.setattr(study, "RATE_LABELS", ())
+    keys = [("ipsi_primary", replicate, requested) for replicate in range(requested)]
+    with replication.recording(study.STUDY.implementation) as recorded:
+        rows = pd.DataFrame(properties._fit("ipsi_primary", keys, 1))
+    records = property_failures.frame(recorded)
+    rows = property_failures.stamp(rows, records)
+    property_failures.reconcile(rows, records, derived=properties.DERIVED_CELLS)
+    summary = properties.summarize_properties(rows)
+    accounting = property_failures.property_accounting(
+        rows, records, summary, record=study.STUDY, module=properties, n_jobs=1
+    )
+    corrected = property_failures.correct_properties(summary, accounting, module=properties)
+    return corrected.set_index("cell"), accounting
 
 
-def test_the_summary_reads_survivors_and_applies_the_bound(
+def test_the_driver_reads_a_lost_replicate_under_the_bound(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """At most ``floor(0.01 R)`` failures keep the survivors' verdict; one more is red."""
-    seen: list[pd.DataFrame] = []
-
-    def summarize(rows: pd.DataFrame) -> pd.DataFrame:
-        seen.append(rows)
-        properties.require_complete(rows)
-        cells = rows.groupby(["property", "cell"], as_index=False).size()
-        summary = cells.rename(columns={"size": "replicates"}).assign(
-            failed_replicates=0, passed=True, property_passed=True
-        )
-        rate = {"property": "root_n_rate", "cell": "ltmle_static__empirical_sd"}
-        return pd.concat([summary, pd.DataFrame([rate])], ignore_index=True).assign(
-            passed=True, property_passed=True
-        )
-
-    monkeypatch.setattr(properties, "_summarize", summarize)
-    table = _table(
-        {"mean_x1__repeated": 2, "mean_x2__repeated": 3, "ltmle_static__n_2000": 3},
-    )
-    summary = properties.summarize_properties(table).set_index("cell")
-    assert properties.allowed_failures(200) == 2
-    assert summary.loc["mean_x1__repeated", "passed"]
-    assert summary.loc["mean_x1__repeated", "replicates"] == 198
-    assert summary.loc["mean_x1__repeated", "failed_replicates"] == 2
-    assert not summary.loc["mean_x2__repeated", "passed"]
-    assert not summary.loc["mean_x2__repeated", "property_passed"]
-    assert not summary.loc["ltmle_static__empirical_sd", "passed"]
-    assert summary.loc["ltmle_static__empirical_sd", "failed_replicates"] == 3
-    (survived,) = seen
-    assert set(survived["failed_replicates"]) == {0}
-    for _, group in survived.groupby("cell"):
-        assert list(group["replicate"]) == list(range(len(group)))
+    """At ``floor(0.01 R)`` losses each clause is read at its worst case; one more is red."""
+    assert property_failures.allowed(properties.FAILURE_BOUND, 200) == 2
+    within, accounting = _accounted(monkeypatch, {7, 8})
+    assert set(within["failed_replicates"]) == {2}
+    assert set(within["replicates"]) == {198}
+    legs = set(accounting["leg"])
+    assert {
+        property_failures.BOUND_LEG,
+        "bias equivalent",
+        "coverage floor",
+        "se ratio in sanity band",
+    } <= legs
+    assert (accounting["allowed"] == 2).all()
+    assert not (accounting["reason"] == property_failures.BOUND_EXCEEDED).any()
+    exceeded, accounting = _accounted(monkeypatch, {7, 8, 9})
+    assert set(exceeded["failed_replicates"]) == {3}
+    assert (accounting["reason"] == property_failures.BOUND_EXCEEDED).any()
+    assert not exceeded["passed"].any() and not exceeded["property_passed"].any()
 
 
-def test_survivors_leave_a_complete_table_unchanged() -> None:
-    table = _table({"mean_x1__repeated": 0})
-    pd.testing.assert_frame_equal(properties.survivors(table), table)
-
-
-def test_an_unaccounted_loss_is_refused() -> None:
-    table = _table({"mean_x1__repeated": 2})
-    table["failed_replicates"] = 1
-    with pytest.raises(ValueError, match="not accounted for"):
-        properties.failure_counts(table)
+def test_the_rules_are_the_ones_the_summary_applies() -> None:
+    """Every gated family resolves to a rule; the reported ones are diagnostic rows."""
+    families = {cell.property for cell in properties.declared_cells()}
+    for family in families - {"single_draw_reading", "split_displacement"}:
+        assert property_failures.rule_for(family, properties) is not None, family
+    roles = {
+        (cell.property, cell.role)
+        for cell in properties.declared_cells()
+        if cell.property in {"single_draw_reading", "split_displacement"}
+    }
+    assert {role for _, role in roles} == {property_verdicts.DIAGNOSTIC_ROLE}
 
 
 def test_a_stability_label_at_rounding_spread_is_red() -> None:
@@ -194,3 +220,12 @@ def test_a_stability_label_at_rounding_spread_is_red() -> None:
     verdicts = summary.set_index("cell")["passed"]
     assert not verdicts["i_contrast_x2__three_repeats"]
     assert verdicts["d_ltmle_static__three_repeats"]
+    shares = summary.set_index("cell")["one_draw_spread_share"]
+    assert shares["i_contrast_x2__three_repeats"] <= properties.STABILITY_SPREAD_FLOOR
+    # The declared rule reads the same verdict off the published columns.
+    summary["role"] = "positive"
+    rule = property_failures.rule_for("repeat_stability", properties)
+    assert rule is not None
+    clause = rule.clauses[0]
+    for _, row in summary.iterrows():
+        assert clause.read(None, row).passed == verdicts[row["cell"]]  # type: ignore[arg-type]

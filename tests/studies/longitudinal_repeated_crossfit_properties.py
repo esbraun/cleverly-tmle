@@ -38,7 +38,7 @@ family                      cells, replications and size
 **Rules.**  ``interval_calibration``, ``simultaneous_coverage``, ``root_n_and_efficiency`` and
 ``root_n_rate`` read the shared verdicts.  ``repeat_stability`` passes when the 99% upper
 endpoint of the paired spread ratio is below 1 (:mod:`tests.studies.repeated_crossfit_properties`
-reads the same rule).  ``repeat_increment`` passes when the 99% upper endpoint of the paired
+reads the same rule) and the one-draw split variance is above :data:`STABILITY_SPREAD_FLOOR`.  ``repeat_increment`` passes when the 99% upper endpoint of the paired
 increment is below :data:`INCREMENT_CEILING`; its control passes when its own endpoint is at or
 above it.  ``ipsi_primary`` reads the three primary rules: the bias interval inside the margin,
 the coverage lower endpoint above the floor, and the SE-ratio interval inside the sanity band.
@@ -58,20 +58,21 @@ replications the rule's two regions cover every count, so the rung cannot fail. 
 slow-convergence control and is never counted as evidence.  The ``root_n_rate`` slope rows
 carry that check: the slope interval must lie within 0.125 of -0.5 and exclude -0.25.
 
-**Failures.**  A fit that raises a recordable error, or returns a row with a non-finite
-estimate or a non-positive standard error, is recorded by
-:func:`tests.studies.evidence.replication.fit_replicates` and costs its replicate; the run goes
-on.  Every row of the fit set publishes the count in ``failed_replicates``.  The summary reads
-each cell's survivors, and a cell whose fit set lost more than
-``floor(FAILURE_BOUND * replicates)`` replicates is red (:func:`summarize_properties`).  A
-checkpointed failure replays on resume, so the summary can be re-read without refitting.
+**Failures.**  Every loop fits through
+:func:`tests.studies.evidence.replication.fit_properties` (RM39b2).  A fit that raises a
+recordable error, or returns a row with a non-finite estimate or a non-positive standard error,
+is recorded and costs every cell of :func:`cells_of` one replicate; the run goes on.  The
+regeneration driver stamps ``failed_replicates`` from the records, summarizes the survivors and
+reads each cell under :data:`FAILURE_BOUND` by the worst case of its clauses in
+:data:`PROPERTY_RULES` (``property-failure-accounting.csv``).  A checkpointed failure replays on
+resume, so the summary can be re-read without refitting.
 
 **Declared red-cell reading.**  :data:`RED_CELL_POLICY`, declared before the run; the owner of
 every reported red cell is :data:`RED_CELL_OWNER`.  :data:`PASS_PROBABILITIES` states the
 declared pass probability that a verdict is read beside.
 
 **Resuming.**  Every fit set goes through
-:func:`tests.studies.evidence.replication.fit_replicates`, which checkpoints each replicate
+:func:`tests.studies.evidence.replication.fit_properties`, which checkpoints each replicate
 under the regeneration driver's scratch.  A stopped run resumes at the replicates it had not
 finished.  :func:`fit_part` fits one fit set, or its first replicates, into the same
 checkpoints, so ``tests/canonical/longitudinal_repeated_crossfit/part.py`` can run the study in
@@ -81,7 +82,6 @@ parts before the declared run collects them.
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -91,15 +91,18 @@ from scipy.stats import norm
 from cleverly.learners.crossfit import CrossFitPlan
 from tests.parallel import STUDY_JOBS
 from tests.studies import longitudinal_repeated_crossfit as study
-from tests.studies.evidence import replication
-from tests.studies.evidence.inference import percentile_interval
+from tests.studies.evidence import property_failures, property_verdicts, replication
+from tests.studies.evidence.failures import filled, vertex
+from tests.studies.evidence.inference import Interval, percentile_interval
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
+    PropertyCell,
     bootstrap_draw_blocks,
+    paired,
     paired_spread_ratio_interval,
     ratio_intervals,
     replicate_row,
-    require_complete,
+    require_accounted,
 )
 from tests.studies.evidence.property_verdicts import (
     DIAGNOSTIC_ROLE,
@@ -108,16 +111,21 @@ from tests.studies.evidence.property_verdicts import (
     finish,
     simultaneous_coverage_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
-from tests.studies.evidence.simultaneous import joint_coverage_rows
+from tests.studies.evidence.simultaneous import FAMILY as JOINT
+from tests.studies.evidence.simultaneous import joint_cells, joint_coverage_rows
 
 STUDY = study.STUDY
 
-#: The share of a fit set's replicates that may record a fitting failure.  A cell whose fit
-#: set lost more than ``floor(FAILURE_BOUND * replicates)`` is red (RM39 part a2's count).
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
 FAILURE_BOUND = 0.01
-#: Rounding slack on ``FAILURE_BOUND * replicates``, as ``tests.studies.evidence.failures``.
-_FLOOR_SLACK = 1e-9
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
 #: The owner of every red cell that the declared reading reports (``X46-plan.md`` 5).
 RED_CELL_OWNER = "X46-finite-sample"
@@ -158,17 +166,19 @@ RED_CELL_POLICY = (
     "of -0.587 between 2,000 and 8,000. A slope that the positive rungs and the pilot both "
     f"explain is a finite-sample curvature, reported with owner {RED_CELL_OWNER}. The 2,000 "
     "rung cannot fail at 800 replications and is not evidence.",
-    "9. A recorded fitting failure is a defect suspect. The failure records in run.log are "
-    "diagnosed and the summary is re-read from the checkpoints without refitting. A cell whose "
-    "fit set lost at most floor(0.01 * replicates) replicates keeps the verdict of its "
-    "survivors. More than that is red; with no defect found it is reported with owner "
-    f"{RED_CELL_OWNER}.",
+    "9. A recorded fitting failure costs every cell its fit writes one replicate, and the run "
+    "goes on. It is a defect suspect: the records in property-failures.csv are diagnosed, and "
+    "the summary is re-read from the checkpoints without refitting. A cell that lost at most "
+    "floor(0.01 * replicates) replicates (FAILURE_BOUND) keeps its verdict only when every "
+    "declared clause (PROPERTY_RULES) holds at its worst case in "
+    "property-failure-accounting.csv; one more is bound exceeded and red. A red cell with no "
+    f"defect found is reported with owner {RED_CELL_OWNER}.",
     "10. A control that does not fail where it is declared to have power is a design defect "
     "and is fixed before any rerun.",
     "11. Each verdict is read beside its declared pass probability (PASS_PROBABILITIES). The "
     "nine calibration cells pass jointly with probability 1.00 at the pilot reading and 0.89 "
-    "predictively, with the pilot's correlated errors. A red calibration row is therefore "
-    "likely and is read by rules 3 to 5.",
+    "predictively, with the pilot's correlated errors. A red calibration row therefore has "
+    "probability about 0.11 and is read by rules 3 to 5.",
 )
 
 #: The declared predictive pass probability of each gated cell, rounded to two decimals:
@@ -290,6 +300,7 @@ STABILITY_COLUMNS = (
     "spread_ratio_ci_lower",
     "spread_ratio_ci_upper",
     "spread_ratio_boundary",
+    "one_draw_spread_share",
 )
 SHARE_COLUMN = "displacement_share"
 
@@ -378,10 +389,14 @@ def _calibration_rows(
     return rows
 
 
+def _rate_label(scenario: str) -> str:
+    return "ltmle_static" if scenario == "law_d_ltmle" else "sdr_static"
+
+
 def _rate_rows(
     scenario: str, result: Any, replicate: int, n: int, requested: int
 ) -> list[dict[str, Any]]:
-    label = "ltmle_static" if scenario == "law_d_ltmle" else "sdr_static"
+    label = _rate_label(scenario)
     name = study.D_CONTRASTS["static"]
     return [
         replicate_row(
@@ -415,12 +430,10 @@ def _primary_rows(result: Any, replicate: int, n: int, requested: int) -> list[d
     ]
 
 
-def fit_set_rows(key: tuple[str, int, int], drawn: Any = None) -> list[dict[str, Any]]:
+def fit_set_rows(key: tuple[str, int, int], frame: pd.DataFrame) -> list[dict[str, Any]]:
     """Every row one replicate of one fit set publishes: ``key = (fit set, replicate, R)``."""
-    del drawn
     fit_set, replicate, requested = key
-    law, scenarios, n, _ = FIT_SETS[fit_set]
-    frame = study.sample(law, n, sample_seed(fit_set, replicate))
+    _, scenarios, n, _ = FIT_SETS[fit_set]
     rows: list[dict[str, Any]] = []
     for scenario in scenarios:
         calibration = fit_set.startswith("calibration_")
@@ -453,11 +466,9 @@ def stability_sample(law: str) -> pd.DataFrame:
     )
 
 
-def stability_rows(key: tuple[str, int, int], drawn: Any = None) -> list[dict[str, Any]]:
+def stability_rows(key: tuple[str, int, int], frame: pd.DataFrame) -> list[dict[str, Any]]:
     """One paired trial on law ``key[0]``'s fixed sample: three draws, and the first alone."""
-    del drawn
     law, trial, requested = key
-    frame = stability_sample(law)
     base = stream_seed(STUDY, "repeat_stability", "fold_seed", law, trial)
     first = first_draw_seed(base)
     rows: list[dict[str, Any]] = []
@@ -494,54 +505,102 @@ def stability_rows(key: tuple[str, int, int], drawn: Any = None) -> list[dict[st
 
 # ------------------------------------------------------------------------------ the run
 
-
-def allowed_failures(replicates: int) -> int:
-    """How many replicates of one fit set may fail before every cell it feeds is red."""
-    return math.floor(FAILURE_BOUND * replicates + _FLOOR_SLACK)
-
-
-def invalid_rows(rows: list[dict[str, Any]]) -> str | None:
-    """The first row with a non-finite estimate or a non-positive standard error, if any."""
-    for row in rows:
-        estimate, std_error = float(row["estimate"]), float(row["std_error"])
-        if not (np.isfinite(estimate) and np.isfinite(std_error) and std_error > 0):
-            return (
-                f"{row['property']}/{row['cell']} replicate {row['replicate']}: estimate "
-                f"{estimate}, std_error {std_error}"
-            )
-    return None
+#: Each base cell to the controls derived from its rows, which a lost base replicate also
+#: loses: the shrunken-SE control of each calibration label and the inflated-SE control of the
+#: gated increment horizon.
+DERIVED_CELLS: dict[str, tuple[str, ...]] = {
+    **{
+        f"interval_calibration/{label}__correctly_specified": (
+            f"interval_calibration/{label}__shrunken_se_control",
+        )
+        for label in CALIBRATION
+    },
+    f"repeat_increment/h{INCREMENT_HORIZON}__repeat_median": (
+        f"repeat_increment/h{INCREMENT_HORIZON}__inflated_se_control",
+    ),
+}
 
 
-def _fit(
-    label: str,
-    worker: Callable[[tuple[str, int, int], Any], list[dict[str, Any]]],
-    keys: list[tuple[str, int, int]],
-    n_jobs: int,
-) -> list[dict[str, Any]]:
-    """The rows of every replicate that succeeded; each row carries the fit set's failures."""
-    outcomes = replication.fit_replicates(
+def draw(key: tuple[str, int, int]) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone.
+
+    A fit-set key draws its replicate's sample.  A stability key draws its law's one fixed
+    sample, which every trial of the law holds.
+    """
+    name, replicate, _ = key
+    if name in FIT_SETS:
+        law, _, n, _ = FIT_SETS[name]
+        return study.sample(law, n, sample_seed(name, replicate))
+    return stability_sample(name)
+
+
+def fit_rows(key: tuple[str, int, int], frame: pd.DataFrame) -> list[dict[str, Any]]:
+    """The rows of one key: a fit-set replicate, or a stability trial."""
+    if key[0] in FIT_SETS:
+        return fit_set_rows(key, frame)
+    return stability_rows(key, frame)
+
+
+def cells_of(key: tuple[str, int, int]) -> list[str]:
+    """The ``property/cell`` names one key's rows and derived controls fill."""
+    name = key[0]
+    if name not in FIT_SETS:
+        return [
+            f"repeat_stability/{label}__{cell}"
+            for label, (law, _, _) in STABILITY.items()
+            if law == name
+            for cell in ("three_repeats", "one_repeat_control")
+        ]
+    _, scenarios, n, _ = FIT_SETS[name]
+    names: list[str] = []
+    for scenario in scenarios:
+        if name.startswith("calibration_"):
+            for label, (owner, owner_scenario, _) in CALIBRATION.items():
+                if (owner, owner_scenario) == (name, scenario):
+                    names += [
+                        f"interval_calibration/{label}__correctly_specified",
+                        f"single_draw_reading/{label}__draw_0",
+                        f"split_displacement/{label}__share",
+                    ]
+            if scenario == "law_s":
+                names += [
+                    f"repeat_increment/h{horizon}__{arm}"
+                    for horizon in study.HORIZONS
+                    for arm in ("repeat_median", "single_draw")
+                ]
+            for label, (owner, owner_scenario, _) in BANDS.items():
+                if (owner, owner_scenario) == (name, scenario):
+                    names += [f"{JOINT}/{cell}" for cell in joint_cells(label)]
+        elif name.startswith("rate_"):
+            names.append(f"root_n_and_efficiency/{_rate_label(scenario)}__n_{n}")
+        else:
+            names += [f"ipsi_primary/{label}__repeated" for label in study.IPSI_PRIMARY_LABELS]
+    return [*names, *(control for base in names for control in DERIVED_CELLS.get(base, ()))]
+
+
+def _cell_of(key: tuple[str, int, int]) -> str:
+    return str(key[0])
+
+
+def _replicate_of(key: tuple[str, int, int]) -> int:
+    return int(key[1])
+
+
+def _fit(label: str, keys: list[tuple[str, int, int]], n_jobs: int) -> list[dict[str, Any]]:
+    """The rows of every key that succeeded; a recorded failure costs its key's cells."""
+    values = fit_properties(
         keys,
-        worker,
+        fit_rows,
+        draw=draw,
+        cells_of=cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
         n_jobs=n_jobs,
         # The requested count joins the label, so a run at another budget never reuses these.
-        label=f"properties/{label}/{keys[0][2]}",
-        implementation=STUDY.implementation,
-        cell_of=lambda key: str(key[0]),
-        replicate_of=lambda key: int(key[1]),
-        validate=invalid_rows,
+        label=f"properties/{label}_r{keys[0][2]}",
+        derived=DERIVED_CELLS,
     )
-    rows = [row for value in outcomes.values for row in value]
-    failed = len(outcomes.failed)
-    if failed:
-        print(
-            f"{label}: {failed} of {len(keys)} replicates recorded a fitting failure; "
-            f"{allowed_failures(keys[0][2])} may fail before its cells are red:\n"
-            f"{outcomes.failures.to_string(index=False)}",
-            flush=True,
-        )
-        for row in rows:
-            row["failed_replicates"] = failed
-    return rows
+    return [row for value in values for row in value]
 
 
 def plan(budget: int | None = None) -> dict[str, list[tuple[str, int, int]]]:
@@ -559,16 +618,77 @@ def plan(budget: int | None = None) -> dict[str, list[tuple[str, int, int]]]:
 def fit_part(label: str, *, n_jobs: int, first: int | None = None) -> list[dict[str, Any]]:
     """Fit the first ``first`` replicates of one declared fit set or stability law.
 
-    The keys are the declared run's own, so the checkpoints this writes are the ones
-    :func:`generate_property_rows` reuses when the declared run reaches ``label``.
+    The keys, the subject and the checkpoint label are the declared run's own, so the
+    checkpoints this writes are the ones :func:`generate_property_rows` reuses when the
+    declared run reaches ``label``.  The part opens its own record collector, so a recorded
+    failure is printed, checkpointed and replayed by the declared run, and does not stop the
+    part.
     """
     keys = plan()[label]
     if first is not None:
         if first < 1:
             raise ValueError(f"{label}: --first must be at least 1, not {first}")
         keys = keys[:first]
-    worker = stability_rows if label.startswith("stability_") else fit_set_rows
-    return _fit(label, worker, keys, n_jobs)
+    with replication.recording(STUDY.implementation, witness=PROPERTY_WITNESS) as recorded:
+        rows = _fit(label, keys, n_jobs)
+    failures = recorded.failures
+    if failures is not None:
+        print(
+            f"{label}: {len(failures)} recorded property failures; the declared run replays "
+            f"them from the checkpoints:\n{failures.to_string(index=False)}",
+            flush=True,
+        )
+    return rows
+
+
+def declared_cells() -> tuple[PropertyCell, ...]:
+    """Every sampled cell, with its role, size, replications and sample stream.
+
+    The derived controls (:data:`DERIVED_CELLS`) and the ``root_n_rate`` rows are computed
+    from these cells' rows, so neither is here.
+    """
+    derived = {control for controls in DERIVED_CELLS.values() for control in controls}
+    out: list[PropertyCell] = []
+    for keys in plan().values():
+        key = keys[0]
+        law = FIT_SETS[key[0]][0] if key[0] in FIT_SETS else key[0]
+        n = FIT_SETS[key[0]][2] if key[0] in FIT_SETS else STABILITY_N[key[0]]
+        seed = (
+            sample_seed(key[0], 0)
+            if key[0] in FIT_SETS
+            else stream_seed(STUDY, "repeat_stability", "sample", key[0])
+        )
+        for name in cells_of(key):
+            if name in derived:
+                continue
+            family, cell = name.split("/", 1)
+            out.append(
+                PropertyCell(
+                    property=family,
+                    cell=cell,
+                    dgp=f"law_{law}",
+                    outcome_learner=lambda: None,
+                    treatment_learner=lambda: None,
+                    n=n,
+                    replicates=key[2],
+                    seed=seed,
+                    role=_role(family, cell, n),
+                )
+            )
+    return tuple(out)
+
+
+def _role(family: str, cell: str, n: int) -> str:
+    """The role a cell's rows carry, as the row builders above write it."""
+    if family in {"single_draw_reading", "split_displacement"}:
+        return DIAGNOSTIC_ROLE
+    if family == "repeat_increment":
+        return "positive" if cell.startswith(f"h{INCREMENT_HORIZON}__") else DIAGNOSTIC_ROLE
+    if family == "root_n_and_efficiency":
+        return "control" if n == min(RATE_SIZES) else "positive"
+    if cell.endswith(("__one_repeat_control", "__pointwise_joint_control")):
+        return "control"
+    return "positive"
 
 
 def shrunken_controls(rows: pd.DataFrame) -> pd.DataFrame:
@@ -614,8 +734,7 @@ def generate_property_rows(
     for label, keys in plan(budget).items():
         if only and label not in only:
             continue
-        worker = stability_rows if label.startswith("stability_") else fit_set_rows
-        rows.extend(_fit(label, worker, keys, n_jobs))
+        rows.extend(_fit(label, keys, n_jobs))
     frame = pd.DataFrame(rows)
     derived = [
         derive(frame)
@@ -645,8 +764,12 @@ def increment_statistic(median: np.ndarray, single: np.ndarray) -> float:
 def increment_interval(
     median: pd.DataFrame, single: pd.DataFrame, *, seed: int
 ) -> tuple[float, float, float]:
-    """The paired increment and its 99% bootstrap interval, resampling replications jointly."""
+    """The paired increment and its 99% bootstrap interval, resampling replications jointly.
+
+    The two arms read the replications both kept (:func:`~tests.studies.evidence.properties.paired`).
+    """
     margins = STUDY.margins
+    median, single = paired(median, single)
     left = median.sort_values("replicate")
     right = single.sort_values("replicate")
     if not np.array_equal(left["replicate"].to_numpy(), right["replicate"].to_numpy()):
@@ -672,10 +795,16 @@ def increment_interval(
     return point, interval.low, interval.high
 
 
+def _increment_seed(record: Any, numerator: str) -> int:
+    return stream_seed(record, "repeat_increment", numerator)
+
+
 def increment_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
     """The gated horizon-3 pair, its control, and the reported horizons."""
     family = summary["property"] == "repeat_increment"
     selected = rows.loc[rows["property"] == "repeat_increment"]
+    if selected.empty:
+        return
 
     def arm(cell: str) -> pd.DataFrame:
         return selected.loc[selected["cell"] == cell]
@@ -690,7 +819,7 @@ def increment_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
             arms.append(([control], arm(control)))
         for names, numerator in arms:
             point, low, high = increment_interval(
-                numerator, single, seed=stream_seed(STUDY, "repeat_increment", names[0])
+                numerator, single, seed=_increment_seed(STUDY, names[0])
             )
             mask = family & summary["cell"].isin(names)
             summary.loc[mask, "increment"] = point
@@ -716,11 +845,22 @@ def increment_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
     summary.loc[gated, "property_passed"] = bool(gate) and bool(summary.loc[gated, "passed"].all())
 
 
+def one_draw_spread_share(one: pd.DataFrame) -> float:
+    """The one-draw split variance as a share of the mean reported variance (rule 7)."""
+    return float(one["estimate"].var(ddof=1) / np.mean(one["std_error"] ** 2))
+
+
+def _stability_seed(record: Any, label: str) -> int:
+    return stream_seed(record, "repeat_stability", "bootstrap", label)
+
+
 def stability_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
-    """The paired spread-ratio rule of each stability label."""
+    """The paired spread-ratio rule of each stability label, above the spread floor."""
     margins = STUDY.margins
     family = summary["property"] == "repeat_stability"
     selected = rows.loc[rows["property"] == "repeat_stability"]
+    if selected.empty:
+        return
     for label in STABILITY:
         three = selected.loc[selected["cell"] == f"{label}__three_repeats"]
         one = selected.loc[selected["cell"] == f"{label}__one_repeat_control"]
@@ -729,11 +869,11 @@ def stability_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
             one,
             replicates=margins.bootstrap_replicates,
             confidence_level=margins.confidence_level,
-            seed=stream_seed(STUDY, "repeat_stability", "bootstrap", label),
+            seed=_stability_seed(STUDY, label),
         )
         mask = family & summary["cell"].str.startswith(f"{label}__")
         # A one-draw spread at rounding level makes the ratio a ratio of noise (rule 7).
-        spread = float(one["estimate"].var(ddof=1) / np.mean(one["std_error"] ** 2))
+        spread = one_draw_spread_share(one)
         passed = bool(
             result.interval.high < MAX_REPEAT_SPREAD_RATIO and spread > STABILITY_SPREAD_FLOOR
         )
@@ -743,6 +883,7 @@ def stability_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
         summary.loc[mask, "spread_ratio_ci_lower"] = result.interval.low
         summary.loc[mask, "spread_ratio_ci_upper"] = result.interval.high
         summary.loc[mask, "spread_ratio_boundary"] = MAX_REPEAT_SPREAD_RATIO
+        summary.loc[mask, "one_draw_spread_share"] = spread
         summary.loc[mask, "passed"] = passed
         summary.loc[mask, "property_passed"] = passed
 
@@ -770,6 +911,10 @@ def diagnostic_readings(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
         summary.loc[mask, "property_passed"] = True
 
 
+def _ipsi_seed(record: Any, cell: str) -> int:
+    return stream_seed(record, "ipsi_primary", cell)
+
+
 def ipsi_primary_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
     """Law I's primary rows, read by the three rules every primary row answers to."""
     margins = STUDY.margins
@@ -781,7 +926,7 @@ def ipsi_primary_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
             group,
             replicates=margins.bootstrap_replicates,
             confidence_level=margins.confidence_level,
-            seed=stream_seed(STUDY, "ipsi_primary", cell),
+            seed=_ipsi_seed(STUDY, cell),
         )["se_ratio"]
         summary.loc[index, "se_ratio_ci_lower"] = ratio.low
         summary.loc[index, "se_ratio_ci_upper"] = ratio.high
@@ -792,89 +937,15 @@ def ipsi_primary_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
         )
 
 
-def failure_counts(rows: pd.DataFrame) -> dict[tuple[str, str], tuple[int, int]]:
-    """``(requested, failed)`` of each ``(property, cell)``, checked against its rows.
-
-    A cell whose rows and failures do not add up to its requested count lost a replicate that
-    no failure record accounts for, which is a defect of the run, not a failure.
-    """
-    counts: dict[tuple[str, str], tuple[int, int]] = {}
-    for (family, cell), group in rows.groupby(["property", "cell"], sort=True):
-        requested = group["requested_replicates"].unique()
-        failed = group["failed_replicates"].unique()
-        if len(requested) != 1 or len(failed) != 1:
-            raise ValueError(f"{family}/{cell} has inconsistent replication counts")
-        total, lost = int(requested[0]), int(failed[0])
-        if len(group) + lost != total:
-            raise ValueError(
-                f"{family}/{cell} has {len(group)} rows and {lost} recorded failures of {total} "
-                f"replicates; the difference is not accounted for"
-            )
-        counts[(str(family), str(cell))] = (total, lost)
-    return counts
-
-
-def survivors(rows: pd.DataFrame) -> pd.DataFrame:
-    """The rows a summary reads: each cell's survivors as a complete table of their own.
-
-    Every cell of one fit set loses the same replicates, so renumbering each cell's survivors
-    in replicate order keeps every pairing.  With no failure the rows come back unchanged.
-    """
-    out = rows.copy()
-    keys = ["property", "cell"]
-    out["replicate"] = (
-        out.groupby(keys)["replicate"].rank(method="first").astype(rows["replicate"].dtype) - 1
-    )
-    out["requested_replicates"] = (
-        out.groupby(keys)["replicate"].transform("size").astype(rows["requested_replicates"].dtype)
-    )
-    out["failed_replicates"] = 0
-    out["failed_replicates"] = out["failed_replicates"].astype(rows["failed_replicates"].dtype)
-    return out
-
-
-def apply_failure_bound(
-    summary: pd.DataFrame, counts: dict[tuple[str, str], tuple[int, int]]
-) -> pd.DataFrame:
-    """Publish each cell's failures, and turn red every cell whose fit set lost too many.
-
-    A ``root_n_rate`` row reads every rung of its ladder, so it takes the rungs' failures and
-    is red when any rung is.
-    """
-    summary = summary.copy()
-    over: set[tuple[str, str]] = set()
-    for (family, cell), (requested, failed) in counts.items():
-        mask = (summary["property"] == family) & (summary["cell"] == cell)
-        summary.loc[mask, "failed_replicates"] = failed
-        if failed > allowed_failures(requested):
-            over.add((family, cell))
-            summary.loc[mask, ["passed", "property_passed"]] = False
-    for index in summary.index[summary["property"] == "root_n_rate"]:
-        label = str(summary.loc[index, "cell"]).split("__", 1)[0]
-        rungs = [
-            key
-            for key in counts
-            if key[0] == "root_n_and_efficiency" and key[1].startswith(f"{label}__")
-        ]
-        summary.loc[index, "failed_replicates"] = sum(counts[key][1] for key in rungs)
-        if any(key in over for key in rungs):
-            summary.loc[index, ["passed", "property_passed"]] = False
-    return summary
-
-
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
-    """The shared verdicts and the study's own declared rules, with failures accounted.
+    """The shared verdicts and the study's own declared rules, on the surviving rows.
 
-    Each cell is summarized on its survivors (:func:`survivors`), and
-    :func:`apply_failure_bound` then publishes the failures and applies
-    :data:`FAILURE_BOUND`.
+    A cell may be short only by its stamped ``failed_replicates``
+    (:func:`~tests.studies.evidence.properties.require_accounted`).  The regeneration driver
+    then reads each cell that lost a replicate under :data:`FAILURE_BOUND` and
+    :data:`PROPERTY_RULES`.
     """
-    counts = failure_counts(rows)
-    return apply_failure_bound(_summarize(survivors(rows)), counts)
-
-
-def _summarize(rows: pd.DataFrame) -> pd.DataFrame:
-    require_complete(rows)
+    require_accounted(rows)
     summary, rates = apply_shared_verdicts(
         rows,
         STUDY,
@@ -890,16 +961,266 @@ def _summarize(rows: pd.DataFrame) -> pd.DataFrame:
     return finish(summary, rates)
 
 
+# ---------------------------------------------------------------- the declared rules (RM39b2)
+
+
+def _complete_arm(
+    group: pd.DataFrame, estimates: np.ndarray, std_errors: np.ndarray
+) -> pd.DataFrame:
+    """One arm with every requested replicate: survivors real, each lost id at its fill.
+
+    ``estimates`` and ``std_errors`` hold the survivors in the group's order, then one value per
+    lost id in ascending id order.  The frame carries complete stamps, so the paired helpers
+    read it as a complete arm.
+    """
+    requested = int(group["requested_replicates"].iloc[0])
+    survived = [int(value) for value in group["replicate"]]
+    missing = sorted(set(range(requested)) - set(survived))
+    truth = group["truth"].to_numpy(dtype=float)
+    frame = pd.DataFrame(
+        {
+            "property": group["property"].iloc[0],
+            "cell": group["cell"].iloc[0],
+            "role": group["role"].iloc[0],
+            "replicate": survived + missing,
+            "n": int(group["n"].iloc[0]),
+            "requested_replicates": requested,
+            "failed_replicates": 0,
+            "truth": np.concatenate([truth, np.full(len(missing), float(np.mean(truth)))]),
+            "estimate": estimates,
+            "std_error": std_errors,
+        }
+    )
+    return frame.sort_values("replicate", ignore_index=True)
+
+
+def _fills(group: pd.DataFrame, *, spread: bool, se_at: str) -> list[tuple[str, pd.DataFrame]]:
+    """An arm's candidate completions for a statistic of ``mean(SE) / sd(estimate)`` type.
+
+    ``spread`` puts the lost estimates at each vertex split between the survivor minimum and
+    maximum, which a standard deviation, convex in its fills, reaches its maximum at.  Without
+    it they sit at the survivor mean, where the standard deviation is smallest.  The lost
+    standard errors sit at the survivor ``min`` or ``max``.
+    """
+    k = int(group["requested_replicates"].iloc[0]) - len(group)
+    estimates = group["estimate"].to_numpy(dtype=float)
+    std_errors = group["std_error"].to_numpy(dtype=float)
+    se_fill = float(np.max(std_errors) if se_at == "max" else np.min(std_errors))
+    errors = filled(std_errors, k, se_fill)
+    if spread:
+        return [
+            (
+                f"SE at {se_at}, estimates j={j} at min",
+                _complete_arm(group, vertex(estimates, k, j), errors),
+            )
+            for j in range(k + 1)
+        ]
+    return [
+        (
+            f"SE at {se_at}, estimates at mean",
+            _complete_arm(group, filled(estimates, k, float(np.mean(estimates))), errors),
+        )
+    ]
+
+
+def _stability_cells(row: pd.Series) -> tuple[str, str]:
+    label = str(row["cell"]).split("__", 1)[0]
+    return f"{label}__three_repeats", f"{label}__one_repeat_control"
+
+
+def _stability_judged(interval: Interval, share: float) -> property_failures.Judged:
+    """The spread-ratio upper endpoint below 1 and the one-draw share above the floor."""
+    ratio_slack = MAX_REPEAT_SPREAD_RATIO - interval.high
+    share_slack = math.log10(share / STABILITY_SPREAD_FLOOR) if share > 0 else -math.inf
+    return property_failures.Judged(
+        min(ratio_slack, share_slack),
+        bool(interval.high < MAX_REPEAT_SPREAD_RATIO and share > STABILITY_SPREAD_FLOOR),
+    )
+
+
+def _stability_rule() -> property_failures.FamilyRule:
+    """``repeat_stability``: S9 on each label's paired spread ratio, with the spread floor.
+
+    A replicate is a fold-seed trial on one fixed sample, so the survivor range is the range
+    over fold seeds.  The adverse completion puts the three-draw arm's lost estimates at each
+    vertex split, and the one-draw arm's at the survivor mean with its SEs at the survivor
+    maximum: that both raises the ratio and lowers the one-draw share toward the floor.  Both
+    rows of a label publish the one verdict.
+    """
+
+    def read(ctx: property_failures.Context, row: pd.Series) -> property_failures.Judged:
+        interval = Interval(
+            float(row["spread_ratio_ci_lower"]), float(row["spread_ratio_ci_upper"])
+        )
+        return _stability_judged(interval, float(row["one_draw_spread_share"]))
+
+    def reads(ctx: property_failures.Context, row: pd.Series) -> list[tuple[str, str]]:
+        return [(str(row["property"]), cell) for cell in _stability_cells(row)]
+
+    def candidates(
+        ctx: property_failures.Context, row: pd.Series
+    ) -> list[tuple[str, property_failures.Judged]]:
+        family = str(row["property"])
+        three_cell, one_cell = _stability_cells(row)
+        label = three_cell.split("__", 1)[0]
+        ((one_label, one),) = _fills(ctx.cell(family, one_cell), spread=False, se_at="max")
+        out = []
+        for three_label, three in _fills(ctx.cell(family, three_cell), spread=True, se_at="max"):
+            result = paired_spread_ratio_interval(
+                three,
+                one,
+                replicates=ctx.margins.bootstrap_replicates,
+                confidence_level=ctx.margins.confidence_level,
+                seed=_stability_seed(ctx.record, label),
+            )
+            out.append(
+                (
+                    f"three repeats {three_label}; one repeat {one_label}",
+                    _stability_judged(result.interval, one_draw_spread_share(one)),
+                )
+            )
+        return out
+
+    return property_failures.FamilyRule(
+        families=frozenset({"repeat_stability"}),
+        shared="stability_verdicts",
+        clauses=(
+            property_failures.Clause(
+                "repeat spread ratio under its boundary above the spread floor",
+                "S9",
+                property_failures.every,
+                read,
+                candidates,
+                reads=reads,
+            ),
+        ),
+    )
+
+
+def _increment_clause(name: str, *, control: bool) -> property_failures.Clause:
+    """The gated increment (``control=False``) or its inflated-SE control, over S5-type fills.
+
+    The increment is the numerator arm's SE ratio less the single-draw arm's.  The gated pair
+    passes below :data:`INCREMENT_CEILING`, so its adverse completion raises the increment: the
+    numerator's lost SEs at the survivor maximum with its estimates at the mean, and the single
+    draw's SEs at the minimum with its estimates at each vertex split.  The control passes at
+    or above the ceiling, and its adverse completion is the reverse.  The point increment is
+    exact over the set; the bootstrap interval is enumerated.
+    """
+    horizon = f"h{INCREMENT_HORIZON}"
+    numerator = f"{horizon}__inflated_se_control" if control else f"{horizon}__repeat_median"
+    single = f"{horizon}__single_draw"
+    applies = (
+        property_failures.cells(numerator)
+        if control
+        else property_failures.cells(f"{horizon}__repeat_median", single)
+    )
+
+    def judge(high: float) -> property_failures.Judged:
+        if control:
+            return property_failures.Judged(
+                high - INCREMENT_CEILING, bool(high >= INCREMENT_CEILING)
+            )
+        return property_failures.Judged(INCREMENT_CEILING - high, bool(high < INCREMENT_CEILING))
+
+    def read(ctx: property_failures.Context, row: pd.Series) -> property_failures.Judged:
+        return judge(float(row["increment_ci_upper"]))
+
+    def reads(ctx: property_failures.Context, row: pd.Series) -> list[tuple[str, str]]:
+        return [("repeat_increment", numerator), ("repeat_increment", single)]
+
+    def candidates(
+        ctx: property_failures.Context, row: pd.Series
+    ) -> list[tuple[str, property_failures.Judged]]:
+        top = _fills(
+            ctx.cell("repeat_increment", numerator),
+            spread=control,
+            se_at="min" if control else "max",
+        )
+        bottom = _fills(
+            ctx.cell("repeat_increment", single),
+            spread=not control,
+            se_at="max" if control else "min",
+        )
+        out = []
+        for top_label, top_frame in top:
+            for bottom_label, bottom_frame in bottom:
+                _, _, high = increment_interval(
+                    top_frame, bottom_frame, seed=_increment_seed(ctx.record, numerator)
+                )
+                out.append((f"numerator {top_label}; single draw {bottom_label}", judge(high)))
+        return out
+
+    return property_failures.Clause(name, "S5", applies, read, candidates, reads=reads)
+
+
+def _increment_rule() -> property_failures.FamilyRule:
+    """``repeat_increment``: the gated horizon-3 pair and its control share one verdict.
+
+    Horizons 1 and 2 are reported rows and read no clause.
+    """
+    return property_failures.FamilyRule(
+        families=frozenset({"repeat_increment"}),
+        shared="increment_verdicts",
+        clauses=(
+            _increment_clause("increment under its ceiling", control=False),
+            _increment_clause("control increment at or above the ceiling", control=True),
+        ),
+        group="family",
+    )
+
+
+def _ipsi_primary_rule() -> property_failures.FamilyRule:
+    """``ipsi_primary``: the three primary rules, S1 bias, S2 coverage floor and S5 SE ratio."""
+
+    def floor(ctx: property_failures.Context) -> float:
+        return ctx.margins.coverage_floor
+
+    def sanity(ctx: property_failures.Context) -> tuple[float, float]:
+        return ctx.margins.se_ratio_sanity
+
+    return property_failures.FamilyRule(
+        families=frozenset({"ipsi_primary"}),
+        shared="ipsi_primary_verdicts",
+        clauses=(
+            property_failures.bias_clause(
+                "bias equivalent", kind="equivalent", applies=property_failures.every
+            ),
+            property_failures.proportion_clause(
+                "coverage floor",
+                statistic="S2",
+                judge=property_failures.floor_judge(floor),
+                applies=property_failures.every,
+            ),
+            property_failures.se_interval_clause(
+                "se ratio in sanity band",
+                which="se_ratio",
+                judge=property_failures.band_judge(sanity),
+                seed=lambda ctx, row: _ipsi_seed(ctx.record, str(row["cell"])),
+                applies=property_failures.every,
+            ),
+        ),
+    )
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  ``interval_calibration``,
+#: ``simultaneous_coverage``, ``root_n_and_efficiency`` and ``root_n_rate`` read the shared
+#: rules; ``single_draw_reading`` and ``split_displacement`` are reported rows with no verdict.
+PROPERTY_RULES = (_stability_rule(), _increment_rule(), _ipsi_primary_rule())
+
+
 __all__ = [
     "BANDS",
     "CALIBRATION",
+    "DERIVED_CELLS",
     "FIT_SETS",
     "PASS_PROBABILITIES",
+    "PROPERTY_RULES",
     "RED_CELL_POLICY",
-    "apply_failure_bound",
-    "failure_counts",
+    "cells_of",
+    "declared_cells",
+    "fit_part",
     "generate_property_rows",
     "plan",
     "summarize_properties",
-    "survivors",
 ]

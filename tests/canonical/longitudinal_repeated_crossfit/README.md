@@ -37,8 +37,13 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM
 
 A stopped run resumes from the same commit with a new empty `--output`. Every finished primary
 and property replicate is a checkpoint, and the run fits only the rest. A checkpoint holds a
-recorded fitting failure too, so a resume replays it; the summary counts it against
-`FAILURE_BOUND` and does not refit it.
+recorded fitting failure too, so a resume replays it and does not refit it.
+
+Every property loop fits through `fit_properties` (RM39b2). A recorded failure costs the cells
+of its fit one replicate each, and the run goes on. The driver writes
+`property-failures.csv`, `property-failure-accounting.csv` and
+`property-failure-witnesses.csv`, and reads each cell under `FAILURE_BOUND = 0.01` by the
+worst case of its clauses in `PROPERTY_RULES`.
 
 ## Running in parts
 
@@ -55,7 +60,8 @@ Copy each part's finished checkpoints (`*.pkl.gz`) and `_key.json` out of the sc
 machine can be lost. To resume elsewhere, put them back under the same key, delete `_lock` and
 every `.started`, `.kills` and `.tmp` marker, and run the part again.
 
-Each calibration part fits 24,000 replicates, about 75 CPU-hours. The whole declared run takes about
+Each calibration part fits 24,000 replicates. `calibration_i` (n = 80,000) takes about
+270 CPU-hours, and each of the other four takes 5 to 15. The whole declared run takes about
 330 CPU-hours. Run a calibration part in chunks of 6,000 with `--first`.
 
 The parts are `primary`, `calibration_d`, `calibration_i`, `calibration_s`, `calibration_c`,

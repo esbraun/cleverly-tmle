@@ -277,6 +277,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-repeated-longitudinal",
     reference=None,
+    failure_bound={"cleverly-repeated-longitudinal": 0.01},
     modules=(
         "tests/studies/longitudinal_repeated_crossfit.py",
         "tests/studies/longitudinal_repeated_crossfit_properties.py",

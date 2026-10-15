@@ -3,7 +3,7 @@
 Each declared rule restates a verdict that a study's own ``summarize_properties`` computes.
 The differential perturbs every committed study's property rows, summarizes them with the
 study's own code, and requires the declared rules to give the same ``passed`` and
-``property_passed`` on every verdict row.  Two modules have no committed rows, so they run on
+``property_passed`` on every verdict row.  Three modules have no committed rows, so they run on
 synthetic rows built from their declared cells.  ``longitudinal_sdr_properties`` runs on both
 its committed rows and synthetic rows: its committed rows make no perturbation decide the
 ``P_D`` two-size clause alone, and its synthetic rows do.
@@ -80,6 +80,7 @@ SYNTHETIC_MODULES = (
     "tests.studies.longitudinal_sdr_properties",
     "tests.studies.longitudinal_incremental_properties",
     "tests.studies.longitudinal_incremental_dropout_properties",
+    "tests.studies.longitudinal_repeated_crossfit_properties",
 )
 
 #: The seed root of :func:`synthetic_rows`, and a control cell's bias in standard errors.
