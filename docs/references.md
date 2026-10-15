@@ -2353,22 +2353,38 @@ both, and sort the transformed limits.
 
 ## The TWINS example
 
-The [TWINS notebook](examples/twins-causal-inference.ipynb) cites these two sources for the data
-and for the reading of its association.
+The [TWINS notebook](examples/twins-causal-inference.ipynb) cites these sources for the data, the
+exposure coverage, and the reading of its birth-weight table.
 
-- Almond, Chay & Lee (2005), [*The costs of low birth weight*](https://doi.org/10.1162/003355305774268228),
-  *Quarterly Journal of Economics* 120(3):1031-1083, DOI 10.1162/003355305774268228.
+- National Center for Health Statistics, linked birth/infant death cohort files for the 1989, 1990,
+  and 1991 birth cohorts, distributed by the
+  [National Bureau of Economic Research](https://www.nber.org/research/data/linked-birthinfant-death-cohort-data).
+  NCHS collected the data, and it is not responsible for any analysis of them. Use of the data
+  signifies agreement with the [NCHS data-use rules](https://www.cdc.gov/nchs/data_access/restrictions.htm):
+  statistical analysis only, and no attempt to identify any person. The 1989 user guide counts the
+  deaths of infants who die before their first birthday (introduction, p. 1, and the note to
+  Table 2, p. 6). The table of items not stated by state of residence in each guide names the states that did not collect the
+  tobacco item: California, Indiana, Louisiana, Nebraska, New York, Oklahoma, and South Dakota in
+  1989 (guide p. 9); California, Indiana, New York, Oklahoma, and South Dakota in 1990 (p. 12);
+  and California, Indiana, New York, and South Dakota in 1991 (p. 9).
 - Louizos, Shalit, Mooij, Sontag, Zemel & Welling (2017), [*Causal effect inference with deep
   latent-variable models*](https://proceedings.neurips.cc/paper/2017/hash/94b5bde6de888ddf9cde6748ad2523d1-Abstract.html),
   *Advances in Neural Information Processing Systems* 30 (NIPS 2017). Section 4.3 describes the
-  TWINS benchmark. It keeps pairs in which both twins weigh less than 2 kg, and it defines
-  treatment as being the heavier twin.
+  TWINS benchmark. The notebook uses the CSV extraction of the
+  [CEVAE repository](https://github.com/AMLab-Amsterdam/CEVAE/tree/9081f863e24ce21bd34c8d6a41bf0edc7d1b65dd/datasets/TWINS),
+  which holds the same-sex twin pairs of the three cohorts without the pairs of equal birth
+  weight. The repository states no licence.
+- Hernández-Díaz, Schisterman & Hernán (2006), [*The birth weight "paradox"
+  uncovered?*](https://doi.org/10.1093/aje/kwj275), *American Journal of Epidemiology*
+  164(11):1115-1120, DOI 10.1093/aje/kwj275. It uses the 1991 US linked file with maternal smoking
+  as the exposure. Figure 3 gives the causal graphs, and the discussion explains the paradox as
+  selection bias from stratification on birth weight, which smoking affects and which shares
+  unmeasured causes, such as birth defects, with infant mortality.
 
-The notebook also cites two sources for its sensitivity analysis. Their entries are under
+The notebook also cites one source for its sensitivity analysis. Its entry is under
 [sensitivity analysis](#sensitivity-analysis).
 
 - Chernozhukov, Cinelli, Newey, Sharma & Syrgkanis (2026), for the omitted-variable bounds.
-- VanderWeele & Ding (2017), for the E-value.
 
 ## Proposed methods on the roadmap
 
