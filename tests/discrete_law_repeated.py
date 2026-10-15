@@ -34,6 +34,14 @@ the cell probabilities, which :func:`RepeatedLaw.gateaux` differentiates by a co
 step.  :func:`RepeatedLaw.counterfactual_value` composes the conditionals directly under
 the intervention.  A test asserts that the two agree.  Nothing the library supplies enters
 either.
+
+The same cell probabilities state the *incremental* functional of Kim, Kennedy and Naimi
+(2021, Theorem 3.1) at a tilt :math:`\delta` (:func:`RepeatedLaw.tilt_functional`), with its
+own forward composition (:func:`RepeatedLaw.tilt_counterfactual_value`).  The known-mechanism
+tables above give the population form of the one-step estimators of ``SDR`` and ``IPSI``
+(:func:`RepeatedLaw.sdr_population`, :func:`RepeatedLaw.ipsi_population`).  A fit with a
+saturated learner equals each of them on the exact sample, so the tables are the law-side value
+that an exact witness compares with.
 """
 
 from __future__ import annotations
@@ -383,6 +391,354 @@ class RepeatedLaw:
     def eif(self, estimand: str) -> np.ndarray:
         """The EIF of ``estimand`` at every support point, in support order."""
         return np.array([self.gateaux(estimand, position) for position in range(len(self.support))])
+
+    # ------------------------------------------------------------ the incremental functional
+
+    def tilt_functional(
+        self, probs: Any, delta: float, horizon: int, *, absorbing: bool = False
+    ) -> Any:
+        r"""Kim, Kennedy and Naimi (2021, Theorem 3.1) at tilt ``delta``, on the cell probabilities.
+
+        .. math::
+
+            \psi_h(\delta) = \sum_w P(w) \sum_{a_1} q_1(a_1 \mid w) \sum_{y_1, l_2}
+            P(y_1, l_2 \mid w, a_1, C_1 = 1) \sum_{a_2} q_2(a_2 \mid H_2)\,
+            E[Y_2 \mid H_2, a_2, C_2 = 1]
+
+        with :math:`q_t(1 \mid H_t) = \delta\pi_t / (\delta\pi_t + 1 - \pi_t)` and
+        :math:`\pi_t = P(A_t = 1 \mid H_t, C_{t-1} = 1)`, all read off the observed cells.  At
+        ``horizon = 1`` the sum stops after :math:`E[Y_1 \mid w, a_1, C_1 = 1]`.  Every
+        operation is a sum or a quotient of sums, so a complex step differentiates it.
+
+        ``absorbing=True`` replaces :math:`Y_2` by :math:`\max(Y_1, Y_2)` of a binary law at
+        ``h = 2``: the tilt functional of the absorbing reading.
+        """
+        p = probs
+        psi: Any = 0.0
+        total = self._mass(p)
+        for w in (0, 1):
+            share = self._mass(p, w=w) / total
+            pi_1 = self._mass(p, w=w, a1=1) / self._mass(p, w=w)
+            q_1 = delta * pi_1 / (delta * pi_1 + 1.0 - pi_1)
+            inner: Any = 0.0
+            for a1, weight_1 in ((1, q_1), (0, 1.0 - q_1)):
+                reached = self._mass(p, w=w, a1=a1, c1=1)
+                if horizon == 1:
+                    mean_1: Any = 0.0
+                    for y1, value in enumerate(self.y1_values):
+                        mean_1 = mean_1 + value * self._mass(p, w=w, a1=a1, c1=1, y1=y1) / reached
+                    inner = inner + weight_1 * mean_1
+                    continue
+                later: Any = 0.0
+                for y1, l2 in itertools.product(range(len(self.y1_values)), range(2)):
+                    at_risk = self._mass(p, w=w, a1=a1, c1=1, y1=y1, l2=l2)
+                    pi_2 = self._mass(p, w=w, a1=a1, c1=1, y1=y1, l2=l2, a2=1) / at_risk
+                    q_2 = delta * pi_2 / (delta * pi_2 + 1.0 - pi_2)
+                    bar: Any = 0.0
+                    for a2, weight_2 in ((1, q_2), (0, 1.0 - q_2)):
+                        kept = self._mass(p, w=w, a1=a1, c1=1, y1=y1, l2=l2, a2=a2, c2=1)
+                        mean_2: Any = 0.0
+                        for y2, value in enumerate(self.y2_values):
+                            cell = self._mass(p, w=w, a1=a1, c1=1, y1=y1, l2=l2, a2=a2, c2=1, y2=y2)
+                            mean_2 = mean_2 + value * cell / kept
+                        if absorbing:
+                            mean_2 = self.y1_values[y1] + (1.0 - self.y1_values[y1]) * mean_2
+                        bar = bar + weight_2 * mean_2
+                    later = later + at_risk / reached * bar
+                inner = inner + weight_1 * later
+            psi = psi + share * inner
+        return psi
+
+    def tilt_counterfactual_value(self, delta: float, horizon: int) -> float:
+        r""":math:`E[Y_h^{Q(\delta)}]` by forward composition, with censoring off.
+
+        Independent of :meth:`tilt_functional`: it draws each arm from the tilted
+        probability :math:`q_t(\cdot \mid H_t)` and composes the tables, so no cell
+        probability and no censoring node enters.
+        """
+        total = 0.0
+        for w in (0, 1):
+            q_1 = delta * G1[w] / (delta * G1[w] + 1.0 - G1[w])
+            for a1, weight_1 in ((1, q_1), (0, 1.0 - q_1)):
+                for y1, p_y1 in enumerate(self.y1_table(w, a1)):
+                    if horizon == 1:
+                        total += P_W[w] * weight_1 * p_y1 * self.y1_values[y1]
+                        continue
+                    high = self.high(y1)
+                    for l2 in (0, 1):
+                        p_l2 = P_L2[w, a1, high] if l2 == 1 else 1.0 - P_L2[w, a1, high]
+                        g = G2[w, a1, high, l2]
+                        q_2 = delta * g / (delta * g + 1.0 - g)
+                        for a2, weight_2 in ((1, q_2), (0, 1.0 - q_2)):
+                            second = self.y2_table(w, a1, y1, l2, a2)
+                            mean = sum(q * v for q, v in zip(second, self.y2_values, strict=True))
+                            total += P_W[w] * weight_1 * p_y1 * p_l2 * weight_2 * mean
+        return float(total)
+
+    def tilt_gateaux(self, delta: float, horizon: int, point: int, *, step: float = 1e-30) -> float:
+        """The Gateaux derivative of :meth:`tilt_functional` at support point ``point``."""
+        base = self.probs.astype(complex)
+        mass = np.zeros_like(base)
+        mass[point] = 1.0
+        perturbed = (1.0 - 1j * step) * base + 1j * step * mass
+        return float(np.imag(self.tilt_functional(perturbed, delta, horizon)) / step)
+
+    def tilt_eif(self, delta: float, horizon: int) -> np.ndarray:
+        """The influence function of the tilt functional at every support point."""
+        return np.array(
+            [self.tilt_gateaux(delta, horizon, position) for position in range(len(self.support))]
+        )
+
+    # ------------------------------------------------------------ the known mechanisms
+
+    @cached_property
+    def support_frame(self) -> pd.DataFrame:
+        """One row per support point, with its probability and level indices.
+
+        ``y1lev`` is the level index of ``Y1`` and ``high`` is :meth:`high` of it.  A node
+        that the point does not reach reads ``-1``, and ``Y1`` and ``Y2`` read ``nan``.
+        """
+        rows = []
+        for point in self.support:
+            w, a1, c1, y1, l2, a2, c2, y2 = point
+            rows.append(
+                {
+                    "W": w,
+                    "A1": a1,
+                    "C1": c1,
+                    "Y1": np.nan if y1 is None else self.y1_values[y1],
+                    "y1lev": -1 if y1 is None else y1,
+                    "L2": -1 if l2 is None else l2,
+                    "A2": -1 if a2 is None else a2,
+                    "C2": -1 if c2 is None else c2,
+                    "Y2": np.nan if y2 is None else self.y2_values[y2],
+                }
+            )
+        frame = pd.DataFrame(rows)
+        frame["p"] = self.probs
+        frame["high"] = [self.high(level) if level >= 0 else 0 for level in frame["y1lev"]]
+        return frame
+
+    @cached_property
+    def known_mechanisms(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """``(g1, c1, g2, c2)`` on every support point: the tables at the point's own history.
+
+        ``g_t = P(A_t = 1 | H_t)`` and ``c_t = P(C_t = 1 | H_t, A_t)`` with ``A_t`` at the
+        value the point holds.  A point that does not reach a node reads the table at the
+        zero level there, and no mask reads it.
+        """
+        frame = self.support_frame
+        w, a1, high, l2, a2 = (frame[name].to_numpy() for name in ("W", "A1", "high", "L2", "A2"))
+        l2_level, a2_level = np.maximum(l2, 0), np.maximum(a2, 0)
+        return (
+            G1[w],
+            C1[w, a1],
+            G2[w, a1, high, l2_level],
+            C2[w, a1, high, l2_level, a2_level],
+        )
+
+    # ------------------------------------------------------------ the one-step estimators
+
+    def _cell_mean(self, values: np.ndarray, mask: np.ndarray, key: list[str]) -> np.ndarray:
+        """The weighted mean of ``values`` among ``mask`` rows, on every row, by ``key`` cell.
+
+        An empty ``key`` is the mean over the mask.  A cell with no mask row reads ``nan``.
+        """
+        frame = self.support_frame
+        weight = frame["p"].to_numpy() * mask
+        filled = np.nan_to_num(values)
+        if not key:
+            return np.full(len(frame), np.sum(weight * filled) / np.sum(weight))
+        cells = list(zip(*[frame[name] for name in key], strict=True))
+        grouped = (
+            pd.DataFrame({"cell": cells, "num": weight * filled, "den": weight})
+            .groupby("cell")[["num", "den"]]
+            .sum()
+        )
+        means = (grouped["num"] / grouped["den"]).to_dict()
+        return np.array([means.get(cell, np.nan) for cell in cells])
+
+    def _plan_arms(self, plan: str) -> tuple[np.ndarray, np.ndarray]:
+        frame = self.support_frame
+        first = np.full(len(frame), self.arm1(plan))
+        second = np.array(
+            [
+                self.arm2(plan, w, max(y, 0), max(level, 0))
+                for w, y, level in zip(frame.W, frame.y1lev, frame.L2, strict=True)
+            ]
+        )
+        return first, second
+
+    def sdr_population(
+        self,
+        plan: str,
+        horizon: int,
+        *,
+        key_1: list[str],
+        key_2: list[str],
+        ratio_1: str = "true",
+        omega: bool = True,
+        scale: float = 1.0,
+        sequential: bool = True,
+    ) -> tuple[float, np.ndarray]:
+        r"""The estimate and curve of ``SDR`` at ``horizon`` on this law, with cell-mean nuisances.
+
+        With :math:`r_t = 1\{A_t = d_t, C_t = 1\} / (g_t(d_t \mid H_t)\, c_t)` from the
+        known tables, the transform at the last node is
+        :math:`\varphi_h = m_h + r_h (Y_h - m_h)` and at the first is
+        :math:`\varphi_1 = m_1 + r_1 (\varphi_2 - m_1)` (Díaz et al. 2023, Equation (4)).  The
+        estimate is :math:`P \varphi_1` and the curve is :math:`\varphi_1 - P\varphi_1`.  The
+        regression :math:`m_t` is the mean of the carried value among the followers, by the
+        columns of ``key_t``.  The sample of :math:`N` rows realises the law, so a fit with a
+        saturated learner at the same keys equals this.
+
+        Parameters
+        ----------
+        plan : str
+            One of :attr:`regimens`.
+        horizon : int
+            The horizon, 1 or 2.
+        key_1 : list of str
+            The columns of the node-1 regression: ``["W"]`` is saturated at node 1.
+        key_2 : list of str
+            The columns of the node-2 regression, such as ``["W", "y1lev", "L2"]`` for the
+            saturated history, or ``["W"]`` for a regression that omits the history.
+        ratio_1 : str
+            ``"true"`` for the tabled node-1 ratio, or ``"intercept"`` for the intercept-only
+            mechanism, which is wrong.  Node 2 always reads the tables.
+        omega : bool
+            ``False`` replaces the censoring factor :math:`1 / c_t` by one and keeps the
+            indicator :math:`1\{C_t = 1\}`: the N9 mutation.
+        scale : float
+            Multiplies each correction term.  ``0.9`` is the N8' mutation and ``0`` the plug-in.
+        sequential : bool
+            ``False`` regresses node 1 on :math:`m_2` and not on :math:`\varphi_2`: the doubly
+            robust estimator that is not sequentially so (E2b).
+
+        Returns
+        -------
+        tuple of float and numpy.ndarray
+            The estimate and the curve on the support points.
+        """
+        frame = self.support_frame
+        p = frame["p"].to_numpy()
+        d1, d2 = self._plan_arms(plan)
+        a1, c1, a2, c2 = (frame[name].to_numpy() for name in ("A1", "C1", "A2", "C2"))
+        w = frame["W"].to_numpy()
+        g1, _, g2, _ = self.known_mechanisms
+        if ratio_1 == "true":
+            pa1 = np.where(d1 == 1, g1, 1.0 - g1)
+            pc1 = C1[w, d1]
+        else:
+            mass = np.sum(p * (a1 == d1))
+            pa1 = np.full(len(frame), mass)
+            pc1 = np.full(len(frame), np.sum(p * (a1 == d1) * (c1 == 1)) / mass)
+        if not omega:
+            pc1 = np.ones(len(frame))
+        followed_1 = (a1 == d1) & (c1 == 1)
+        r1 = np.where(followed_1, 1.0 / (pa1 * pc1), 0.0)
+        if horizon == 1:
+            y = frame["Y1"].to_numpy()
+            m1 = self._cell_mean(y, followed_1, key_1)
+            phi1 = m1 + scale * np.where(followed_1, r1 * (np.nan_to_num(y) - m1), 0.0)
+            estimate = float(np.sum(p * phi1))
+            return estimate, phi1 - estimate
+        high, l2 = frame["high"].to_numpy(), np.maximum(frame["L2"].to_numpy(), 0)
+        pa2 = np.where(d2 == 1, g2, 1.0 - g2)
+        pc2 = C2[w, a1, high, l2, d2] if omega else np.ones(len(frame))
+        followed_2 = followed_1 & (a2 == d2) & (c2 == 1)
+        r2 = np.where(followed_2, 1.0 / (pa2 * pc2), 0.0)
+        y = frame["Y2"].to_numpy()
+        m2 = self._cell_mean(y, followed_2, key_2)
+        phi2 = m2 + scale * np.where(followed_2, r2 * (np.nan_to_num(y) - m2), 0.0)
+        carried = phi2 if sequential else m2
+        m1 = self._cell_mean(np.where(followed_1, carried, 0.0), followed_1, key_1)
+        if sequential:
+            phi1 = m1 + scale * np.where(followed_1, r1 * (phi2 - m1), 0.0)
+        else:
+            phi1 = (
+                m1
+                + np.where(followed_1, r1 * (m2 - m1), 0.0)
+                + np.where(followed_2, r1 * r2 * (np.nan_to_num(y) - m2), 0.0)
+            )
+        estimate = float(np.sum(p * phi1))
+        return estimate, phi1 - estimate
+
+    def ipsi_population(
+        self, delta: float, horizon: int, *, key: str, omega: bool = True
+    ) -> tuple[float, np.ndarray]:
+        r"""The estimate and curve of ``IPSI`` at ``horizon`` on this law, with tabled mechanisms.
+
+        The one-step form of ``ipsi.py``: :math:`\bar m_1 + \sum_t W_t (Z_{t+1} - m_t) +` the
+        mechanism term :math:`W_{t-1} \delta (m_t(\cdot, 1) - m_t(\cdot, 0)) (A_t - \pi_t) /
+        (\delta\pi_t + 1 - \pi_t)^2`.  The treatment and censoring mechanisms are the tables.
+
+        Parameters
+        ----------
+        delta : float
+            The tilt.
+        horizon : int
+            The horizon, 1 or 2.
+        key : str
+            ``"full"`` regresses on the whole history, which is saturated.  ``"W"`` regresses
+            on the baseline covariate alone, which is wrong at node 2.
+        omega : bool
+            ``False`` replaces the censoring factor :math:`1 / \omega_t` by one and keeps the
+            indicator: the N9 mutation.
+
+        Returns
+        -------
+        tuple of float and numpy.ndarray
+            The estimate and the curve on the support points.
+        """
+        frame = self.support_frame
+        p = frame["p"].to_numpy()
+        n = len(frame)
+        arm = {1: frame["A1"].to_numpy(), 2: frame["A2"].to_numpy()}
+        stay = {1: frame["C1"].to_numpy(), 2: frame["C2"].to_numpy()}
+        g1, c1, g2, c2 = self.known_mechanisms
+        pi = {1: g1, 2: g2}
+        omegas = {1: c1, 2: c2} if omega else {1: np.ones(n), 2: np.ones(n)}
+        at_risk = {1: np.ones(n, dtype=bool), 2: stay[1] == 1}
+        history = {1: ["W"], 2: ["W", "A1", "y1lev", "L2"]}
+        keys = {t: (history[t] if key == "full" else ["W"]) for t in (1, 2)}
+        y = frame[f"Y{horizon}"].to_numpy()
+        target = y
+        m: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+        mbar: dict[int, np.ndarray] = {}
+        for t in range(horizon, 0, -1):
+            observed = at_risk[t] & (stay[t] == 1)
+            m1 = self._cell_mean(target, observed & (arm[t] == 1), keys[t])
+            m0 = self._cell_mean(target, observed & (arm[t] == 0), keys[t])
+            q1 = delta * pi[t] / (delta * pi[t] + 1.0 - pi[t])
+            m[t] = (m0, m1)
+            mbar[t] = q1 * m1 + (1.0 - q1) * m0
+            target = mbar[t]
+        phi = mbar[1].copy()
+        previous = np.ones(n)
+        for t in range(1, horizon + 1):
+            previous = np.where(at_risk[t], previous, 0.0)
+            tilt = (delta * arm[t] + 1.0 - arm[t]) / (delta * pi[t] + 1.0 - pi[t])
+            keep = at_risk[t] & (stay[t] == 1)
+            weight = np.where(keep, previous * tilt / np.where(keep, omegas[t], 1.0), 0.0)
+            z = mbar[t + 1] if t < horizon else y
+            fitted = np.where(arm[t] == 1, m[t][1], m[t][0])
+            phi = phi + np.where(
+                weight != 0, weight * (np.nan_to_num(z) - np.nan_to_num(fitted)), 0.0
+            )
+            denominator = (delta * pi[t] + 1.0 - pi[t]) ** 2
+            phi = phi + np.where(
+                at_risk[t],
+                previous
+                * delta
+                * (np.nan_to_num(m[t][1]) - np.nan_to_num(m[t][0]))
+                * (arm[t] - pi[t])
+                / denominator,
+                0.0,
+            )
+            previous = weight
+        estimate = float(np.sum(p * phi))
+        return estimate, phi - estimate
 
     # ------------------------------------------------------------ the sample
 

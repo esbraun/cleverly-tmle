@@ -4,7 +4,9 @@ W4: ``Y_s`` is the first covariate of node ``s + 1``.  W5: presence, family and 
 rules of the container.  W7: a working model over (plan, horizon) cells.  W9: the data
 fingerprint reads every node's outcome.  W10: a ``CausalStudy`` design.  W11: the
 full-refit bootstrap is a diagnostic.  W12: the truncation replay.  W14: one outcome scale
-for the whole curve.  W15: the working-model support check reads every node.
+for the whole curve.  W15: the working-model support check reads every node.  W16: the
+parameter-space warning reads the range of its own horizon.  WK: a fit holds one key for each
+plan and horizon.
 """
 
 from __future__ import annotations
@@ -18,10 +20,12 @@ import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import CausalStudy, RegimeContrast
-from cleverly.exceptions import DataError
-from cleverly.longitudinal import LTMLE, LongitudinalData, Repeated
-from cleverly.longitudinal.estimator import bootstrap_design_kind
-from cleverly.methods import REPEATED_OUTCOME_REFUSAL
+from cleverly.exceptions import DataError, ParameterSpaceWarning
+from cleverly.inference.influence import make_estimate
+from cleverly.interventions import Incremental
+from cleverly.longitudinal import IPSI, LTMLE, SDR, LongitudinalData, Repeated
+from cleverly.longitudinal import estimator as sequential
+from cleverly.longitudinal.estimator import HORIZON_INFIX, bootstrap_design_kind
 from cleverly.msm import MSM
 from cleverly.study import LongitudinalTreatment
 from cleverly.utils.bounds import OutcomeScaler
@@ -264,9 +268,9 @@ def test_w10_the_study_lists_only_ltmle_on_a_repeated_outcome() -> None:
     effect = study.identify(RegimeContrast({"always": 1, "never": 0}, reference="never"))
     methods = {record.name: record for record in effect.available_methods()}
     assert methods["tmle"].available
-    for name in ("sdr", "ipsi"):
+    for name, title in (("sdr", "SDR"), ("ipsi", "IPSI")):
         assert not methods[name].available
-        assert methods[name].reason == REPEATED_OUTCOME_REFUSAL
+        assert methods[name].refusal == sequential.repeated_outcome_refusal(title)
 
 
 # ---------------------------------------------------------------- W11 and W12
@@ -338,3 +342,170 @@ def test_repeated_is_exported_from_the_root_package() -> None:
 
     assert cleverly.Repeated is Repeated
     assert "Repeated" in cleverly.__all__
+
+
+# ---------------------------------------------------------------- WK: one key per cell
+
+
+def _sequential(kind: type[Any], **overrides: Any) -> Any:
+    """``SDR`` or ``IPSI`` on the repeated panel, with parametric learners and one fold."""
+    regimens = [Incremental(0.5), Incremental(2.0)] if kind is IPSI else {"never": 0, "always": 1}
+    settings: dict[str, Any] = {
+        "reference": None if kind is IPSI else "never",
+        "outcome_learner": LogisticRegression(),
+        "pseudo_learner": LinearRegression(),
+        "treatment_learner": LogisticRegression(),
+        "censoring_learner": LogisticRegression(),
+        "n_folds": 1,
+        "simultaneous": False,
+        "random_state": 0,
+    }
+    settings.update(overrides)
+    return kind(regimens, **settings)
+
+
+def _linear_in_horizon(label: Any, horizon: int, frame: Any) -> np.ndarray:
+    n = len(frame)
+    return np.column_stack([np.ones(n), np.full(n, float(horizon))])
+
+
+@pytest.mark.parametrize("kind", [SDR, IPSI], ids=["SDR", "IPSI"])
+@pytest.mark.parametrize("working_model", [False, True], ids=["cells", "msm"])
+def test_wk_a_fit_holds_one_key_for_each_plan_and_horizon(
+    kind: type[Any], working_model: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A repeated outcome is not survival, yet every horizon needs its own fit key.
+
+    Both kinds are added to the allowlist here, because the allowlist refuses them until
+    their own evidence exists.  Keyed by ``is_survival``, every horizon of a plan shares one
+    key: the fits of the later horizons overwrite the first, and a working model projects the
+    same fit for every cell.
+    """
+    monkeypatch.setattr(sequential, "REPEATED_OUTCOME_KINDS", frozenset({"tmle", "sdr", "ipsi"}))
+    msm = (
+        MSM(design=_linear_in_horizon, terms=("(intercept)", "t"), design_kind="known")
+        if working_model
+        else None
+    )
+    data = LongitudinalData.from_frame(panel(), **ROLES)
+    estimator = _sequential(kind, msm=msm, **({"reference": None} if working_model else {}))
+    result = _quiet_fit(estimator, data)
+    labels = [label for label, _ in result.config.plan_fingerprints]
+    assert len(labels) == 2
+    expected = {f"{label}{HORIZON_INFIX}{horizon}" for label in labels for horizon in (1, 2, 3)}
+    assert set(result.fits) == expected
+    assert len(result.fits) == 6
+    horizons = {key: fit.horizon for key, fit in result.fits.items()}
+    assert sorted(horizons.values()) == [1, 1, 2, 2, 3, 3]
+    for key, horizon in horizons.items():
+        assert key.endswith(f"{HORIZON_INFIX}{horizon}")
+    estimates = {name for name in result.estimates if name.startswith("ey_regimen[")}
+    if not working_model:
+        assert len(estimates) == 6
+
+
+# ---------------------------------------------------------------- W16: the range of a horizon
+
+
+def _continuous() -> tuple[Any, Any]:
+    """The exact ``T = 2`` continuous panel and the pooled scaler a fit derives from it.
+
+    ``Y1`` spans ``[-0.5, 2.0]`` and ``Y2`` spans ``[0, 1]``.
+    """
+    data = LongitudinalData.from_frame(laws.CONTINUOUS.frame(), **LAW_COLUMNS)
+    return data, OutcomeScaler.from_outcome(data.observed_outcomes(), None)
+
+
+def _level(name: str, psi: float, n: int) -> Any:
+    rng = np.random.default_rng(0)
+    return make_estimate(name, psi, rng.normal(size=n), n=n, scale="level")
+
+
+def _warned(
+    data: Any, scaler: Any, levels: dict[str, tuple[float, int]], q_bounds: Any = None
+) -> list[str]:
+    """The ``ParameterSpaceWarning`` messages for ``levels``: ``name -> (psi, horizon)``."""
+    estimates = {name: _level(name, psi, data.n) for name, (psi, _) in levels.items()}
+    ranges = {
+        name: sequential._level_range(data, scaler, q_bounds, horizon)
+        for name, (_, horizon) in levels.items()
+    }
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        sequential._warn_parameter_space(estimates, ranges, estimator="sdr")
+    return [str(item.message) for item in caught if item.category is ParameterSpaceWarning]
+
+
+def test_w16_a_level_outside_its_own_horizon_range_warns() -> None:
+    """``E[Y_2^d] = 1.5`` is outside ``Y2``'s range and inside ``Y1``'s: it warns.
+
+    The scale pools both nodes (W14), so a warning that read the scaler's range would stay
+    silent.  The message names the range of ``Y2``, padded by 10% as the derived scaler pads.
+    """
+    data, scaler = _continuous()
+    assert scaler.lower < -0.5 and scaler.upper > 2.0
+    ranges = {h: sequential._level_range(data, scaler, None, h) for h in (1, 2)}
+    assert ranges[2] == pytest.approx((-0.1, 1.1))
+    assert ranges[1] == pytest.approx((-0.75, 2.25))
+    assert ranges[2] != (scaler.lower, scaler.upper)
+    (message,) = _warned(data, scaler, {"ey_regimen[always @ t=2]": (1.5, 2)})
+    assert message.startswith("ey_regimen[always @ t=2] = 1.5: outside the outcome range")
+    assert "[-0.1, 1.1]" in message
+    assert _warned(data, scaler, {"ey_regimen[always @ t=1]": (1.5, 1)}) == []
+    assert _warned(data, scaler, {"ey_regimen[always @ t=2]": (1.0, 2)}) == []
+
+
+def test_w16_each_level_names_the_range_it_left() -> None:
+    data, scaler = _continuous()
+    (message,) = _warned(
+        data,
+        scaler,
+        {"ey_regimen[never @ t=1]": (2.5, 1), "ey_regimen[never @ t=2]": (1.5, 2)},
+    )
+    assert "ey_regimen[never @ t=1] = 2.5: outside the outcome range [-0.75, 2.25]" in message
+    assert "ey_regimen[never @ t=2] = 1.5: outside the outcome range [-0.1, 1.1]" in message
+
+
+def test_w16_a_declared_range_replaces_the_derived_one() -> None:
+    data, scaler = _continuous()
+    scaler = OutcomeScaler.from_outcome(data.observed_outcomes(), (-1.0, 3.0))
+    assert sequential._level_range(data, scaler, (-1.0, 3.0), 2) == (-1.0, 3.0)
+    assert _warned(data, scaler, {"ey_regimen[always @ t=2]": (1.5, 2)}, (-1.0, 3.0)) == []
+    (message,) = _warned(data, scaler, {"ey_regimen[always @ t=2]": (3.5, 2)}, (-1.0, 3.0))
+    assert "[-1, 3]" in message
+
+
+def test_w16_a_binary_outcome_keeps_the_unit_interval() -> None:
+    data = LongitudinalData.from_frame(laws.BINARY.frame(), **LAW_COLUMNS)
+    for horizon in (1, 2):
+        assert sequential._level_range(data, OutcomeScaler.identity(), None, horizon) == (0.0, 1.0)
+
+
+def test_w16_the_fit_hands_each_level_its_own_horizon_range(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The call site builds the range map from the fit, one range for each horizon."""
+    monkeypatch.setattr(sequential, "REPEATED_OUTCOME_KINDS", frozenset({"tmle", "sdr"}))
+    seen: dict[str, tuple[float, float]] = {}
+
+    def spy(estimates: Any, ranges: Any, *, estimator: str) -> None:
+        seen.update(ranges)
+
+    monkeypatch.setattr(sequential, "_warn_parameter_space", spy)
+    cells = laws.CellMeans
+    fit = SDR(
+        {"never": 0, "always": 1},
+        reference="never",
+        outcome_learner=cells(),
+        pseudo_learner=cells(),
+        treatment_learner=cells(),
+        censoring_learner=cells(),
+        n_folds=1,
+        g_bounds=(1e-8, 1.0 - 1e-8),
+        simultaneous=False,
+    ).fit(laws.CONTINUOUS.frame(), **LAW_COLUMNS)
+    assert set(seen) == set(fit.estimates)
+    for name, (low, high) in seen.items():
+        horizon = 1 if "t=1" in name else 2
+        expected = (-0.75, 2.25) if horizon == 1 else (-0.1, 1.1)
+        assert (low, high) == pytest.approx(expected), name

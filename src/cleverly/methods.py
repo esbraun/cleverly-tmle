@@ -84,11 +84,16 @@ SDR_TILT_REFUSAL = Refusal(
     "mechanism, so its estimator is not doubly robust (Kennedy 2019, Section 3.3).",
     alternative="Fit IPSI(regimens=[...]).",
 )
-#: Why ``SDR`` and ``IPSI`` refuse a repeated outcome (R7, ``refuse_repeated_outcome``).
+#: Why an estimator outside ``REPEATED_OUTCOME_KINDS`` refuses a repeated outcome (R7,
+#: ``refuse_repeated_outcome``).  ``{name}`` is the refusing class and ``{kinds}`` the
+#: estimators that fit one, which ``repeated_outcome_refusal`` fills in.
 REPEATED_OUTCOME_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
-    "SDR and IPSI do not fit a repeated outcome (outcome=Repeated([...])) in this version.",
-    alternative="LTMLE fits a repeated outcome, with one end-of-study backward pass per horizon.",
+    "{name} has no per-horizon reduction for a repeated outcome (outcome=Repeated([...])).",
+    alternative=(
+        "{kinds} fit{verb} one. Each horizon is the end-of-study fit of the panel truncated "
+        "after it."
+    ),
     roadmap="X32b",
 )
 #: Why the IPSI estimator refuses a fluctuation setting (R5 in ``test_ipsi_e2e.py``).
