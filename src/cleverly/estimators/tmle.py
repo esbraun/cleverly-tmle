@@ -1619,12 +1619,13 @@ class TMLE:
                 alternative="Use cv_evaluation=False.",
                 roadmap="X28",
             )
-        if self.simultaneous and len(estimands) > 1:
+        if self.simultaneous and len(estimands) > 1 and self._builds_default_band(data):
             # Guarded by the band's own construction condition, not by ``simultaneous``
             # alone.  ``simultaneous`` defaults to True and a band needs two estimates, so
             # refusing on the flag would refuse every single-estimand repeated fit over a
-            # band the fit would never build.  One estimand can still expand into several
-            # estimates, so the construction site refuses again once the count is known.
+            # band the fit would never build.  The same holds for a fit whose
+            # ``_builds_default_band`` declines the band.  One estimand can still expand into
+            # several estimates, so the construction site refuses again once the count is known.
             refuse_after_repeats(
                 self.repeats,
                 operation="simultaneous=True",
