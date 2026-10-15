@@ -520,6 +520,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-competing-ltmle": "`cleverly` competing-risk LTMLE",
     "cleverly-ctmle-oat": "`cleverly` outcome-adaptive C-TMLE",
     "cleverly-ctmle-selector": "`cleverly` selector-based C-TMLE",
+    "cleverly-ctmle-sequences": "`cleverly` C-TMLE lasso and declared-learner sequences",
     "cleverly-fold-evaluated-cvtmle": "`cleverly` fold-evaluated CV-TMLE",
     "cleverly-fold-targeted-cvtmle": "`cleverly` fold-targeted CV-TMLE",
     "cleverly-repeated-cvtmle": "`cleverly` repeated stacked CV-TMLE",
@@ -635,6 +636,8 @@ SCENARIOS: dict[str, str] = {
     "smart_q_correct": "two-node SMART with known factors, correct outcome regressions",
     "smart_q_wrong": "two-node SMART with known factors, outcome regressions without L1",
     "binary": "binary-outcome law",
+    "binary_lasso": "binary-outcome law, lasso candidate sequence",
+    "binary_learners": "binary-outcome law, four declared lasso learners",
     "survival": "five visits, a binary baseline treatment held over every node, visit dropout",
     "competing": "four visits, two competing causes, a held binary treatment, visit dropout",
     "three_arm": "three visits, three arms held over every node, a binary L_t at each later visit",
@@ -1028,6 +1031,9 @@ PROPERTIES: dict[str, str] = {
         "the target"
     ),
     "natural_course_identity": "the natural-course intervention reduces exactly to the sample mean",
+    "multi_arm": (
+        "the candidate sequence targets a contrast of a three-arm treatment without bias"
+    ),
     "power": "the test detects a real effect, so a passing null result cannot come from an inert test",
     "projection_necessity": (
         "the declared projection measure determines the coefficient rather than an implicit "
@@ -1541,6 +1547,35 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "bias interval must fall entirely outside the margin, with the reported standard "
         "error still on the scale of the empirical spread",
     ),
+    ("double_robustness", "both_wrong_lasso"): (
+        "the lasso sequence with a constant outcome regression, so both nuisances are misspecified",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("double_robustness", "both_wrong_learners"): (
+        "the declared learners with a constant outcome regression, so both nuisances are "
+        "misspecified",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("double_robustness", "lasso_outcome_correct"): (
+        "only the outcome regression is correct, and no lasso candidate is a correct mechanism",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
+    ),
+    ("double_robustness", "lasso_treatment_correct"): (
+        "only the treatment mechanism is correct, and the lasso path contains it",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
+    ),
+    ("double_robustness", "learners_outcome_correct"): (
+        "only the outcome regression is correct, and no declared learner is a correct mechanism",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
+    ),
+    ("double_robustness", "learners_treatment_correct"): (
+        "only the treatment mechanism is correct, and the terminal learner specifies it",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
+    ),
     ("generated_design", "oracle_design"): (
         "the outcome-adaptive design is supplied rather than estimated",
         "SE ratio and coverage intervals both inside their calibration bands",
@@ -1977,6 +2012,24 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("selector_necessity", "empty_control"): (
         "the selector is forced to stop at an empty path",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("selector_necessity", "lasso_collaborative"): (
+        "the selector chooses its own penalty along the lasso sequence",
+        "bias interval inside the equivalence margin, and RMSE at most the declared ratio of "
+        "the paired control's",
+    ),
+    ("selector_necessity", "learners_collaborative"): (
+        "the selector chooses its own learner along the declared nested sequence",
+        "bias interval inside the equivalence margin, a declared expected red, and RMSE at most "
+        "the declared ratio of the paired control's",
+    ),
+    ("multi_arm", "lasso_treatment_correct"): (
+        "the lasso sequence on the three-arm law, with a constant outcome regression",
+        "bias interval inside the equivalence margin",
+    ),
+    ("multi_arm", "empty_control"): (
+        "the selector is forced to stop at an empty path on the three-arm law",
         "bias interval must fall entirely outside the margin",
     ),
     # "misspecified" rather than "constant", and "fit" rather than "backward recursion":

@@ -103,7 +103,7 @@ def _label(path: Path) -> str:
     return path.relative_to(CANONICAL).as_posix()
 
 
-_KEY = re.compile(r"^\s*(?P<name>[a-z_]+)\s*=")
+_KEY = re.compile(r"^\s*(?P<name>[a-z_][a-z0-9_]*)\s*=")
 
 
 def _top_level_arguments(source: str) -> tuple[str, ...]:

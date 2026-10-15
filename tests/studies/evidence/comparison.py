@@ -85,9 +85,53 @@ EQUIVALENCE_COLUMNS = (
 )
 
 
+#: The conclusion a descriptive paired row carries in place of a verdict.
+DESCRIPTIVE_CONCLUSION = "descriptive"
+
+#: The columns of a descriptive paired comparison: every endpoint, and no ``passed`` column.
+DESCRIPTIVE_COLUMNS = tuple(column for column in EQUIVALENCE_COLUMNS if column != "passed")
+
+
 def empty_equivalence() -> pd.DataFrame:
     """A schema-valid zero-row comparison for a study with no reference."""
     return pd.DataFrame(columns=list(EQUIVALENCE_COLUMNS))
+
+
+def is_descriptive(record: StudyRecord) -> bool:
+    """Whether the record's paired rows state no verdict (``paired_role="descriptive"``).
+
+    Parameters
+    ----------
+    record : StudyRecord
+        The study.
+
+    Returns
+    -------
+    bool
+        ``True`` when ``equivalence.csv`` carries no ``passed`` column.
+    """
+    return record.paired_role == "descriptive"
+
+
+def describe_only(paired: pd.DataFrame) -> pd.DataFrame:
+    """A paired table with its verdict removed: no ``passed`` column, a descriptive conclusion.
+
+    The endpoints and the leg booleans stay, so a reader sees every number the gated form
+    would print.  The conclusion reads :data:`DESCRIPTIVE_CONCLUSION`, because "equivalent"
+    or "inconclusive" is a verdict word.
+
+    Parameters
+    ----------
+    paired : DataFrame
+        Rows in the :data:`EQUIVALENCE_COLUMNS` schema.
+
+    Returns
+    -------
+    DataFrame
+        The same rows in the :data:`DESCRIPTIVE_COLUMNS` schema.
+    """
+    out = paired.drop(columns=["passed"]).assign(comparison_conclusion=DESCRIPTIVE_CONCLUSION)
+    return out.loc[:, list(DESCRIPTIVE_COLUMNS)]
 
 
 def comparison_conclusion(
@@ -275,7 +319,11 @@ def equivalence(
     record: StudyRecord,
     n_jobs: int = STUDY_JOBS,
 ) -> pd.DataFrame:
-    """Paired similarity and one-sided non-inferiority, per scenario-estimand cell."""
+    """Paired similarity and one-sided non-inferiority, per scenario-estimand cell.
+
+    A record with ``paired_role="descriptive"`` gets the same endpoints with no ``passed``
+    column, through :func:`describe_only`.
+    """
     if record.reference is None:
         raise ValueError(f"{record.slug} declares no reference implementation to compare against")
     subject, reference = record.implementation, record.reference
@@ -414,4 +462,5 @@ def equivalence(
                 "passed": decision.passed,
             }
         )
-    return pd.DataFrame.from_records(records, columns=list(EQUIVALENCE_COLUMNS))
+    out = pd.DataFrame.from_records(records, columns=list(EQUIVALENCE_COLUMNS))
+    return describe_only(out) if is_descriptive(record) else out
