@@ -11,7 +11,10 @@ from scipy.stats import norm
 from cleverly.estimators import TMLE
 from tests import discrete_law as law
 from tests.conftest import OracleOutcome, OracleTreatment
+from tests.studies.evidence import property_failures as pf
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.property_verdicts import (
+    Necessity,
     apply_shared_verdicts,
     calibration_controls,
     calibration_verdicts,
@@ -104,20 +107,95 @@ def add_calibration_controls(
     return pd.concat([rows, controls], ignore_index=True)
 
 
+#: The cells the ``static_reduction`` identity compares, and the column it is published in.
+STATIC_REDUCTION_CELLS = ("never__regime", "never__arm")
+STATIC_REDUCTION_COLUMN = "maximum_static_difference"
+
+
+def necessities(
+    label: str, necessity_family: str, necessity_arms: tuple[str, str]
+) -> tuple[Necessity, Necessity]:
+    """The two necessity declarations of a regime study: targeting, and its own step.
+
+    Parameters
+    ----------
+    label : str
+        The study's parameter label.
+    necessity_family : str
+        The family of the study's own necessity control.
+    necessity_arms : tuple of str
+        That family's positive and control suffixes.
+
+    Returns
+    -------
+    tuple of Necessity
+        The ``targeting_necessity`` declaration and the study's own.
+    """
+    return (
+        Necessity(
+            family="targeting_necessity",
+            labels=(label,),
+            arms=("targeted", "untargeted"),
+            column="targeting_displacement",
+            threshold=TARGETING_DISPLACEMENT,
+        ),
+        Necessity(
+            family=necessity_family,
+            labels=(label,),
+            arms=necessity_arms,
+            column="necessity_displacement",
+            threshold=NECESSITY_DISPLACEMENT,
+        ),
+    )
+
+
+def property_rules(
+    declared: tuple[Necessity, ...], *, include_static_reduction: bool
+) -> tuple[pf.FamilyRule, ...]:
+    """The declared rules of a regime study (RM39b2 rev 3, D3'a).
+
+    Parameters
+    ----------
+    declared : tuple of Necessity
+        The study's :func:`necessities`.
+    include_static_reduction : bool
+        Whether the study publishes ``static_reduction``, which is not accountable (R3-1).
+
+    Returns
+    -------
+    tuple of FamilyRule
+        The calibration rule with the efficiency band, the necessity rules, and the identity.
+    """
+    rules = [
+        property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
+        *property_verdicts.necessity_rules(*declared),
+    ]
+    if include_static_reduction:
+        rules.append(
+            property_verdicts.identity_rule(
+                "static_reduction",
+                column=STATIC_REDUCTION_COLUMN,
+                cells=STATIC_REDUCTION_CELLS,
+                tolerance=None,
+                shared="regime_property_helpers.summarize",
+            )
+        )
+    return tuple(rules)
+
+
 def summarize(
     rows: pd.DataFrame,
     record: StudyRecord,
     *,
     label: str,
     efficiency_sd: float,
-    necessity_family: str,
-    necessity_arms: tuple[str, str],
+    declared: tuple[Necessity, ...],
     include_static_reduction: bool,
 ) -> pd.DataFrame:
     """Apply shared verdicts plus regime-specific necessity controls."""
     extra = ["targeting_displacement", "necessity_displacement"]
     if include_static_reduction:
-        extra.append("maximum_static_difference")
+        extra.append(STATIC_REDUCTION_COLUMN)
     summary, rates = apply_shared_verdicts(
         rows,
         record,
@@ -129,30 +207,15 @@ def summarize(
         margins=record.margins,
         efficiency_band=EFFICIENCY_RATIO_BAND,
     )
-    necessity_verdicts(
-        summary,
-        rows,
-        family="targeting_necessity",
-        labels=(label,),
-        arms=("targeted", "untargeted"),
-        column="targeting_displacement",
-        threshold=TARGETING_DISPLACEMENT,
-    )
-    necessity_verdicts(
-        summary,
-        rows,
-        family=necessity_family,
-        labels=(label,),
-        arms=necessity_arms,
-        column="necessity_displacement",
-        threshold=NECESSITY_DISPLACEMENT,
-    )
+    for necessity in declared:
+        necessity_verdicts(summary, rows, necessity)
     if include_static_reduction:
         mask = summary["property"] == "static_reduction"
         source = rows.loc[rows["property"] == "static_reduction"]
         wide = source.pivot(index="replicate", columns="cell", values="estimate")
-        difference = float(np.max(np.abs(wide["never__regime"] - wide["never__arm"])))
-        summary.loc[mask, "maximum_static_difference"] = difference
+        regime, arm = STATIC_REDUCTION_CELLS
+        difference = float(np.max(np.abs(wide[regime] - wide[arm])))
+        summary.loc[mask, STATIC_REDUCTION_COLUMN] = difference
         summary.loc[mask, "passed"] = difference == 0.0
         summary.loc[mask, "property_passed"] = bool(difference == 0.0)
     return finish(summary, rates)

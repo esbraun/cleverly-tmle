@@ -71,6 +71,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-learned-rule-cvtmle",
     reference=None,
+    failure_bound={"cleverly-learned-rule-cvtmle": 0.01},
     modules=(
         "tests/studies/learned_rule_cvtmle.py",
         "tests/studies/learned_rule_cvtmle_properties.py",

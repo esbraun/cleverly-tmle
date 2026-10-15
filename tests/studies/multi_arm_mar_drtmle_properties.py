@@ -30,21 +30,34 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import mar_arm_indexed_laws as laws
 from tests.studies.canonical_multi_arm_mar_drtmle import ESTIMANDS, LAW, STUDY, fit_cleverly
-from tests.studies.evidence.properties import PropertyCell, control_row, replicate_row
+from tests.studies.evidence import property_verdicts
+from tests.studies.evidence.properties import (
+    PropertyCell,
+    control_row,
+    payload_cell,
+    payload_replicate,
+    replicate_row,
+)
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     robustness_verdicts,
     simultaneous_coverage_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
-from tests.studies.evidence.simultaneous import joint_coverage_rows, joint_property_cells
+from tests.studies.evidence.simultaneous import FAMILY as JOINT_FAMILY
+from tests.studies.evidence.simultaneous import (
+    joint_cells,
+    joint_coverage_rows,
+    joint_property_cells,
+)
 
 ROBUSTNESS_REPLICATES = 800
 ROBUSTNESS_N = 2_000
@@ -170,10 +183,20 @@ def _necessity_rows(
     return rows
 
 
+def _draw_replication(payload: tuple[str, str, int, int, int, int, str]) -> pd.DataFrame:
+    property_name, _, _, n, _, seed, _ = payload
+    return laws.sample(NULL_LAW if property_name == "type_i_error" else LAW, n, seed)
+
+
 def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[dict[str, Any]]:
-    property_name, cell, replicate, n, requested, seed, configuration = payload
+    return _fit_drawn(payload, _draw_replication(payload))
+
+
+def _fit_drawn(
+    payload: tuple[str, str, int, int, int, int, str], frame: pd.DataFrame
+) -> list[dict[str, Any]]:
+    property_name, cell, replicate, n, requested, _, configuration = payload
     if property_name == "type_i_error":
-        frame = laws.sample(NULL_LAW, n, seed)
         result = _fit(frame, configuration, law=NULL_LAW)
         return [
             _row(
@@ -187,7 +210,6 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
                 result[TEST_TARGET],
             )
         ]
-    frame = laws.sample(LAW, n, seed)
     if property_name == "interval_calibration":
         result = _fit(frame, configuration, simultaneous=True)
         return [
@@ -287,11 +309,32 @@ def _specs() -> list[tuple[str, str, int, int, str]]:
     return specs
 
 
-def _payloads(
-    budget: int | None = None,
-) -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
+#: The calibration positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived(("ate",))
+
+_Key = tuple[tuple[str, str, int, int, int, int, str]]
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    property_name, cell = key[0][:2]
+    if property_name == "corrected_mar_inference":
+        return [f"{property_name}/{prefix}__{cell}" for prefix in CONTRASTS]
+    if property_name == "correction_necessity":
+        return [
+            f"{property_name}/{cell}__closed_score",
+            f"{property_name}/{cell}__initial_score_control",
+        ]
+    name = f"{property_name}/{cell}"
+    if property_name == "interval_calibration":
+        joint = [f"{JOINT_FAMILY}/{joint_name}" for joint_name in joint_cells(JOINT_LABEL)]
+        return [name, *joint, *DERIVED_CELLS[name]]
+    return [name]
+
+
+def _payloads(budget: int | None = None) -> list[_Key]:
     """Every replication's payload. ``budget`` caps each cell, for a smoke run only."""
-    out: list[tuple[tuple[str, str, int, int, int, int, str]]] = []
+    out: list[_Key] = []
     for property_name, cell, n, replicates, configuration in _specs():
         count = replicates if budget is None else min(budget, replicates)
         for replicate in range(count):
@@ -416,8 +459,27 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     return tuple(out)
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    outcomes = map_parallel(_fit_replication, _payloads(), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(),
+        splat_drawn(_fit_drawn),
+        draw=splat_draw(_draw_replication),
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     controls = calibration_controls(
         rows,
@@ -467,3 +529,16 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
             passed = float(summary.loc[index, "bias_ci_lower"]) >= UNCORRECTED_SCORE_FLOOR
         summary.loc[index, "passed"] = bool(passed)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
+    *property_verdicts.corrected_mar_rules(
+        both_wrong_floor=BOTH_WRONG_BIAS_FLOOR,
+        uncorrected_floor=UNCORRECTED_SCORE_FLOOR,
+        correction_ratio=CORRECTION_SCORE_RATIO,
+        shared="summarize_properties",
+    ),
+)

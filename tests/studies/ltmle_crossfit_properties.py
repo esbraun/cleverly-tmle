@@ -14,24 +14,28 @@ from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from cleverly.datasets import make_longitudinal
 from cleverly.learners.crossfit import Folds, make_folds, resolve_n_folds
 from cleverly.longitudinal import LTMLE
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_longitudinal as law
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_ltmle import KnownLongitudinalMechanism, declared_regimens
 from tests.studies.canonical_ltmle_crossfit import G_BOUNDS, STUDY
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
+    payload_cell,
+    payload_replicate,
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     crossfit_overfitting_verdicts,
     finish,
     necessity_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 
 DOUBLE_ROBUST_REPLICATES = 1_200
@@ -382,12 +386,20 @@ def untargeted(frame: pd.DataFrame, label: str, configuration: str, folds: Folds
     return float(np.mean(stitched))
 
 
-def _fit_replication(
-    payload: tuple[str, str, int, int, int, int, str],
-) -> list[dict[str, Any]]:
-    property_name, cell_suffix, replicate, n, requested, seed, configuration = payload
+def _draw_replication(payload: tuple[str, str, int, int, int, int, str]) -> Any:
+    property_name, _, _, n, _, seed, _ = payload
     if property_name == "crossfit_overfitting":
-        frame, truth = make_longitudinal(n=n, seed=seed, backend="pandas")
+        return make_longitudinal(n=n, seed=seed, backend="pandas")
+    probs = NULL_PROBS if property_name == "type_i_error" else law.PROBS
+    return sample(probs, n, seed)
+
+
+def _fit_replication(
+    payload: tuple[str, str, int, int, int, int, str], drawn: Any
+) -> list[dict[str, Any]]:
+    property_name, cell_suffix, replicate, n, requested, _, configuration = payload
+    if property_name == "crossfit_overfitting":
+        frame, truth = drawn
         name = "ate_regimen[always vs never]"
         result = _overfit(frame, cross_fit=configuration == "overfit_crossfit")
         estimate = result[name]
@@ -404,8 +416,7 @@ def _fit_replication(
                 alpha=STUDY.margins.alpha,
             )
         ]
-    probs = NULL_PROBS if property_name == "type_i_error" else law.PROBS
-    frame = sample(probs, n, seed)
+    frame = drawn
     result = fit(frame, configuration)
     labels = ("static",) if property_name in {"type_i_error", "power"} else tuple(CONTRASTS)
     rows: list[dict[str, Any]] = []
@@ -452,6 +463,24 @@ def _fit_replication(
                 )
             )
     return rows
+
+
+#: Each calibration label's positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived(tuple(CONTRASTS))
+
+
+def _cells_of(key: tuple[tuple[str, str, int, int, int, int, str]]) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    property_name, cell_suffix = key[0][:2]
+    if property_name == "crossfit_overfitting":
+        return [f"{property_name}/{cell_suffix}"]
+    labels = ("static",) if property_name in {"type_i_error", "power"} else tuple(CONTRASTS)
+    names = [f"{property_name}/{label}__{cell_suffix}" for label in labels]
+    if property_name == "targeting_necessity":
+        names += [f"{property_name}/{label}__untargeted" for label in labels]
+    for name in list(names):
+        names += DERIVED_CELLS.get(name, ())
+    return names
 
 
 def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
@@ -514,8 +543,27 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
     return payloads
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    outcomes = map_parallel(_fit_replication, _payloads(), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(),
+        splat_drawn(_fit_replication),
+        draw=splat_draw(_draw_replication),
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [
@@ -535,6 +583,16 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return rows.loc[:, list(REPLICATE_COLUMNS)].sort_values(
         ["property", "cell", "replicate"], ignore_index=True
     )
+
+
+#: The ``targeting_necessity`` family's declaration, read by its verdict and its rule.
+TARGETING_NECESSITY = property_verdicts.Necessity(
+    family="targeting_necessity",
+    labels=tuple(CONTRASTS),
+    arms=("targeted", "untargeted"),
+    column="targeting_displacement",
+    threshold=TARGETING_DISPLACEMENT,
+)
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
@@ -566,14 +624,14 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
 
     calibration_verdicts(summary, margins=margins, efficiency_band=EFFICIENCY_RATIO_BAND)
 
-    necessity_verdicts(
-        summary,
-        rows,
-        family="targeting_necessity",
-        labels=tuple(CONTRASTS),
-        arms=("targeted", "untargeted"),
-        column="targeting_displacement",
-        threshold=TARGETING_DISPLACEMENT,
-    )
+    necessity_verdicts(summary, rows, TARGETING_NECESSITY)
     crossfit_overfitting_verdicts(summary, rows, STUDY, positive_cell="cross_fitted_ltmle")
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
+    *property_verdicts.necessity_rules(TARGETING_NECESSITY),
+)
