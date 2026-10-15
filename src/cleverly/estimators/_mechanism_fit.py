@@ -99,8 +99,6 @@ class MechanismFit:
         The ``solver`` parameter.
     class_weight : str or None
         ``repr`` of the ``class_weight`` parameter, or ``None`` when it is unset.
-    multi_class : str or None
-        The ``multi_class`` parameter on scikit-learn versions that have it, else ``None``.
     n_iter : int
         The largest entry of the fitted ``n_iter_``.
     max_iter : int
@@ -121,7 +119,6 @@ class MechanismFit:
     l1_ratio: float | None = None
     solver: str = ""
     class_weight: str | None = None
-    multi_class: str | None = None
     n_iter: int = 0
     max_iter: int = 0
 
@@ -206,7 +203,6 @@ def describe_mechanism(model: Any) -> MechanismFit:
         l1_ratio=None if params.get("l1_ratio") is None else float(params["l1_ratio"]),
         solver=str(params.get("solver", "")),
         class_weight=None if class_weight is None else repr(class_weight),
-        multi_class=None if params.get("multi_class") is None else str(params["multi_class"]),
         n_iter=int(n_iter.max()) if n_iter.size else 0,
         max_iter=int(params.get("max_iter", 0)),
     )

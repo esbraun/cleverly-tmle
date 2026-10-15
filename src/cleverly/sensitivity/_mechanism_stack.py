@@ -42,6 +42,7 @@ from typing import Any
 
 import numpy as np
 
+from .._refusal import RefusalReason
 from .._typing import BoolArray, FloatArray
 from ..estimators._mechanism_fit import MechanismFit
 
@@ -78,9 +79,14 @@ _STEM = (
     "to be a scikit-learn LogisticRegression, binary or multinomial, with no penalty or a "
     "fixed L2 penalty, fitted bare or after StandardScaler. For that model the stacked "
     "estimating equation of the mechanism score and the second moment gives the curve (Saul "
-    "and Hudgens 2020). No source this package cites gives the curve for any other mechanism "
-    "learner. The bias-adjusted bounds, rv, max_bias, benchmark() and contour() remain "
-    "available. docs/roadmap.md F26 tracks this stop"
+    "and Hudgens 2020). The bias-adjusted bounds, rv, max_bias, benchmark() and contour() "
+    "remain available"
+)
+
+#: The sentence a learner the rule does not admit adds to the stem.
+_UNCITED = (
+    ". No source this package cites gives the curve for any other mechanism learner. "
+    "docs/roadmap.md F26 tracks this stop"
 )
 
 _DOUBLY_ROBUST = (
@@ -102,18 +108,34 @@ class MechanismRefusal:
         <clause>."``.
     alternative : str
         What the reader can do instead.
+    reason : RefusalReason
+        The refusal code the accessors raise with.
+    roadmap : str or None
+        The roadmap item that tracks the stop, for a learner the rule does not admit.
     """
 
     key: str
     text: str
     alternative: str
+    reason: RefusalReason = RefusalReason.INFERENCE_GAP
+    roadmap: str | None = None
 
 
-def _refusal(key: str, clause: str, alternative: str = _DOUBLY_ROBUST) -> MechanismRefusal:
+def _refusal(
+    key: str,
+    clause: str,
+    alternative: str = _DOUBLY_ROBUST,
+    *,
+    learner: bool = False,
+    reason: RefusalReason = RefusalReason.INFERENCE_GAP,
+) -> MechanismRefusal:
+    stem = _STEM + (_UNCITED if learner else "")
     return MechanismRefusal(
         key=key,
-        text=f"nu2_estimator='plugin': {_STEM}. This fit does not qualify: {clause}.",
+        text=f"nu2_estimator='plugin': {stem}. This fit does not qualify: {clause}.",
         alternative=alternative,
+        reason=reason,
+        roadmap="F26" if learner else None,
     )
 
 
@@ -130,20 +152,22 @@ def _resolved_penalty(fit: MechanismFit) -> str:
     return "other"
 
 
-def _learner_refusal(fit: MechanismFit, n_arms: int) -> MechanismRefusal | None:
-    """Checks 1 to 7: the fit-level rule, read off one fold's record."""
+def _learner_refusal(fit: MechanismFit) -> MechanismRefusal | None:
+    """Checks 1 to 6: the fit-level rule, read off one fold's record."""
     if "CorrelationScreener" in fit.step_names:
         return _refusal(
             "screened",
             "screen_treatment=True selects the covariates of the treatment model inside each "
             "fold, so the mechanism is not one fixed parametric model",
+            learner=True,
         )
     if fit.kind == "logistic" and fit.is_cv:
         return _refusal(
             "cv_penalty",
             "the treatment learner is LogisticRegressionCV, which selects C by "
-            "cross-validation, so the penalty is data-adaptive. Pass LogisticRegression with "
-            "a fixed C",
+            "cross-validation, so the penalty is data-adaptive",
+            "Pass LogisticRegression with a fixed C.",
+            learner=True,
         )
     if fit.kind == "other" and fit.learner_name == "SuperLearner":
         return _refusal(
@@ -151,10 +175,13 @@ def _learner_refusal(fit: MechanismFit, n_arms: int) -> MechanismRefusal | None:
             "the treatment learner is a SuperLearner. A library that contains "
             "LogisticRegression does not qualify, because the bound reads the ensemble's "
             "fitted mechanism and not one member's",
+            learner=True,
         )
     if fit.kind == "other":
         return _refusal(
-            "other_learner", f"the treatment learner is {fit.learner_name}, not LogisticRegression"
+            "other_learner",
+            f"the treatment learner is {fit.learner_name}, not LogisticRegression",
+            learner=True,
         )
     if fit.kind != "logistic":
         return None
@@ -165,39 +192,39 @@ def _learner_refusal(fit: MechanismFit, n_arms: int) -> MechanismRefusal | None:
         return _refusal(
             "pipeline",
             f"the treatment learner is a Pipeline with the step {offending} before the "
-            "LogisticRegression. Only StandardScaler steps qualify. Transform the covariates "
-            "before the fit, or pass the bare LogisticRegression",
+            "LogisticRegression. Only StandardScaler steps qualify",
+            "Transform the covariates before the fit, or pass the bare LogisticRegression.",
+            learner=True,
         )
     if not fit.fit_intercept and any(step.mean is not None for step in fit.steps):
         return _refusal(
             "pipeline_intercept",
             "a StandardScaler centers the covariates and the LogisticRegression sets "
-            "fit_intercept=False, so the mechanism depends on the estimated column means. Set "
-            "fit_intercept=True",
+            "fit_intercept=False, so the mechanism depends on the estimated column means",
+            "Set fit_intercept=True.",
+            learner=True,
         )
     if _resolved_penalty(fit) == "other":
         return _refusal(
             "l1_penalty",
             "the LogisticRegression has an L1 or elastic-net penalty, whose score has no "
-            "derivative where a coefficient is zero. Use l1_ratio=0 for an L2 penalty, or "
-            "C=numpy.inf",
+            "derivative where a coefficient is zero",
+            "Use l1_ratio=0 for an L2 penalty, or C=numpy.inf.",
+            learner=True,
         )
     if fit.solver == "liblinear":
         return _refusal(
             "liblinear",
-            "the LogisticRegression uses solver='liblinear', which penalizes the intercept. "
-            "Use another solver",
+            "the LogisticRegression uses solver='liblinear', which penalizes the intercept",
+            "Use another solver.",
+            learner=True,
         )
     if fit.class_weight is not None:
         return _refusal(
             "class_weight",
-            f"the LogisticRegression sets class_weight={fit.class_weight}, which changes its "
-            "score. Declare observation weights with weights= instead",
-        )
-    if n_arms > 2 and fit.multi_class == "ovr":
-        return _refusal(
-            "one_vs_rest",
-            "the LogisticRegression fits one-vs-rest, which is not the multinomial model",
+            f"the LogisticRegression sets class_weight={fit.class_weight}, which changes its score",
+            "Declare observation weights with weights= instead.",
+            learner=True,
         )
     return None
 
@@ -386,16 +413,16 @@ def _stacks(
         largest = float(np.max(np.abs(step[visible]) / scale[visible])) if visible.any() else 0.0
         if not np.isfinite(largest) or largest > ROOT_TOLERANCE:
             remedy = (
-                " The solver stopped at max_iter."
+                ", and the solver stopped at max_iter"
                 if fit.max_iter and fit.n_iter >= fit.max_iter
                 else ""
             )
             return _refusal(
                 "score_not_zero",
                 f"the score of the LogisticRegression of fold {fold} is not zero at its "
-                f"coefficients: the largest Newton step is {largest:.3g} standard errors."
-                f"{remedy} Lower tol, raise max_iter, or use solver='newton-cholesky'",
-                alternative="Refit with a tighter LogisticRegression tol or a larger max_iter.",
+                f"coefficients: the largest Newton step is {largest:.3g} standard errors"
+                f"{remedy}",
+                "Lower tol, raise max_iter, or use solver='newton-cholesky'.",
             )
         if above < expected or condition > CONDITION_LIMIT:
             return _refusal(
@@ -403,7 +430,7 @@ def _stacks(
                 f"the information matrix of the mechanism in fold {fold} is singular "
                 f"(condition number {condition:.3g}): the fitted probabilities reach 0 or 1, "
                 "so the coefficients are not identified",
-                alternative="Remove the covariates that separate the arms, or use a fixed C.",
+                "Remove the covariates that separate the arms, or use a fixed C.",
             )
         recomputed = stack.probabilities[test]
         if float(np.max(np.abs(recomputed - stored[test]))) > MISMATCH_TOLERANCE:
@@ -518,7 +545,8 @@ def plugin_mechanism_term(
                 "known_truncated",
                 "the truncation bounds move a declared known mechanism, so the representer "
                 "is not alpha(g_0)",
-                alternative="Pass g_bounds=(lower, upper) that contains every known probability.",
+                "Pass g_bounds=(lower, upper) that contains every known probability.",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
         return np.zeros(data.n)
     fits: tuple[MechanismFit, ...] | None = nuisance.treatment_fits
@@ -528,7 +556,14 @@ def plugin_mechanism_term(
             "the fit records no fitted treatment learner, so the mechanism score is not available",
         )
     arms = tuple(float(a) for a in nuisance.arms)
-    refusal = _learner_refusal(fits[0], len(arms))
+    if tuple(nuisance.treatment_covariates) != tuple(data.covariate_names):
+        return _refusal(
+            "treatment_design",
+            "the treatment model read the covariates "
+            f"{list(nuisance.treatment_covariates)}, and the stack rebuilds its design from "
+            f"{list(data.covariate_names)}",
+        )
+    refusal = _learner_refusal(fits[0])
     if refusal is not None:
         return refusal
     folds = _stacks(fits, nuisance, data)

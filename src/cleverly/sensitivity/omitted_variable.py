@@ -573,6 +573,9 @@ class SensitivityElements:
         Which estimator of ``nu2`` produced these values.
     limit_refusal : MechanismRefusal or None
         Why the plug-in estimator gives ``nu2`` no curve on this fit, or ``None``.
+    plugin_mechanism : str or None
+        Under the plug-in estimator with a curve, the mechanism whose score it carries:
+        ``"known"`` or ``"logistic"``. ``None`` otherwise.
     """
 
     estimand: str
@@ -585,6 +588,7 @@ class SensitivityElements:
     riesz_representer: FloatArray
     nu2_estimator: str
     limit_refusal: MechanismRefusal | None = None
+    plugin_mechanism: str | None = None
 
 
 def sensitivity_elements(
@@ -800,6 +804,7 @@ def _elements_for(
     psi_nu2: FloatArray | None = None
     psi_max_bias: FloatArray | None = None
     limit_refusal: MechanismRefusal | None = None
+    plugin_mechanism: str | None = None
     mechanism_term: FloatArray | None = None
     if method == "plugin":
         # E_n[alpha_hat^2] moves at first order with the fitted mechanism, so its curve
@@ -813,6 +818,8 @@ def _elements_for(
             limit_refusal = stacked
         else:
             mechanism_term = stacked
+            plugin_mechanism = repeat.nuisance.treatment_mechanism
+            plugin_mechanism = "known" if plugin_mechanism == "known" else "logistic"
     if method == "doubly_robust" or mechanism_term is not None:
         psi_nu2 = (nu2_element - nu2) * weights
         if mechanism_term is not None:
@@ -839,6 +846,7 @@ def _elements_for(
         riesz_representer=representer,
         nu2_estimator=method,
         limit_refusal=limit_refusal,
+        plugin_mechanism=plugin_mechanism,
     )
 
 
@@ -1043,8 +1051,12 @@ class SensitivityBounds:
         :data:`~cleverly.inference.influence.InferenceStatus`, which the
         :doc:`inference reference </technical-reference/inference>` lists.
     nu2_estimator : str, default="doubly_robust"
-        The resolved estimator of ``nu^2`` that built the bound. Under ``"plugin"`` the six
-        limit accessors refuse.
+        The resolved estimator of ``nu^2`` that built the bound.
+    limit_refusal : MechanismRefusal or None, default=None
+        Why the six limit accessors refuse under ``"plugin"``, or ``None`` when the fit's
+        treatment mechanism is declared known or is a qualifying ``LogisticRegression``.
+    plugin_mechanism : str or None, default=None
+        ``"known"`` or ``"logistic"`` when a plug-in bound has limits, else ``None``.
     """
 
     estimand: str
@@ -1068,6 +1080,7 @@ class SensitivityBounds:
     inference: InferenceStatus = "influence_curve"
     nu2_estimator: str = "doubly_robust"
     limit_refusal: MechanismRefusal | None = None
+    plugin_mechanism: str | None = None
 
     @_accepts_stored_limit_names
     def __init__(
@@ -1090,6 +1103,7 @@ class SensitivityBounds:
         inference: InferenceStatus = "influence_curve",
         nu2_estimator: str = "doubly_robust",
         limit_refusal: MechanismRefusal | None = None,
+        plugin_mechanism: str | None = None,
     ) -> None:
         # Preserve the public constructor while guarding its inferential values.
         for name, value in (
@@ -1111,6 +1125,7 @@ class SensitivityBounds:
             ("inference", inference),
             ("nu2_estimator", nu2_estimator),
             ("limit_refusal", limit_refusal),
+            ("plugin_mechanism", plugin_mechanism),
         ):
             object.__setattr__(self, name, value)
 
@@ -1143,9 +1158,9 @@ class SensitivityBounds:
             if self.limit_refusal is not None:
                 raise CapabilityError(
                     f"{operation} is not defined under {reason}",
-                    reason=RefusalReason.INFERENCE_GAP,
+                    reason=self.limit_refusal.reason,
                     alternative=self.limit_refusal.alternative,
-                    roadmap="F26",
+                    roadmap=self.limit_refusal.roadmap,
                 )
             raise CapabilityError(
                 f"{operation} is not defined under {reason}",
@@ -1267,6 +1282,13 @@ class SensitivityBounds:
             f"rho = {self.rho:.3g}"
             f" -> bias <= {self.bias:.5g}",
         ]
+        if self.plugin_mechanism is not None:
+            source = (
+                "the declared known mechanism"
+                if self.plugin_mechanism == "known"
+                else "the score of the fitted LogisticRegression mechanism, stacked"
+            )
+            header.append(f"plug-in nu^2; its standard error carries {source}")
         if self.robustness_value is None:
             rv_line = f"robustness value RV   = unavailable: {_UNREACHABLE_RV}."
         else:
@@ -1437,6 +1459,7 @@ def omitted_variable_bounds(
         inference=estimate.inference,
         nu2_estimator=elements.nu2_estimator,
         limit_refusal=elements.limit_refusal,
+        plugin_mechanism=elements.plugin_mechanism,
     )
 
 
