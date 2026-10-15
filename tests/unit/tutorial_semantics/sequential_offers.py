@@ -34,7 +34,7 @@ NOTEBOOK = EXAMPLES / "sequential-offers.ipynb"
 
 _PROBE = "reviews/notebook-review/probes/sequential-offers"
 _KNOWN = "tests/canonical/known_node_mechanisms"
-_BASELINES = "tests/canonical/sequential_baselines"
+_BASELINES = "tests/canonical/sequential_baselines_study"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
@@ -110,6 +110,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_diagnostics(namespace)
     _check_deployment_and_benchmark(namespace)
     _check_probe_logs()
+    _check_registered_cells()
 
 
 def _check_data(namespace: dict[str, Any]) -> None:
@@ -710,6 +711,8 @@ def _check_probe_logs() -> None:
     ):
         assert f"bias {value}" in line(ltmle, label.ljust(34))
     assert "bias -0.0016 (MC SE 0.0010" in line(ltmle, "win_back      ")
+    # The reading quotes the gap between the two win-back biases.
+    assert f"{-0.0016 - -0.0065:.4f}" == "0.0049"
     for label, coverage400 in (
         ("discount", "0.960"),
         ("shipping", "0.955"),
@@ -725,3 +728,46 @@ def _check_probe_logs() -> None:
     assert round(first["blind_win_back_psi"], 3) == 0.080
     assert round(first["blindg_win_back_psi"], 3) == 0.049
     assert round(first["crude_win_back_psi"], 3) == 0.049
+
+
+def _check_registered_cells() -> None:
+    """The committed study files hold the registered-cell numbers that the readings quote."""
+    root = Path(__file__).resolve().parents[3]
+
+    def read(path: str) -> pd.DataFrame:
+        return pd.read_csv(root / path, float_precision="round_trip")
+
+    known = read(f"{_KNOWN}/summary.csv")
+    row = known[
+        (known["implementation"] == "cleverly-known-node-mechanisms")
+        & (known["scenario"] == "smart_q_correct")
+        & (known["estimand"] == "ate_regimen[always vs never]")
+    ].squeeze()
+    assert f"{row['coverage']:.4f}" == "0.9480"
+    assert f"{row['se_ratio']:.4f}" == "0.9804"
+    cells = read(f"{_KNOWN}/properties.csv")
+    cell = cells[
+        (cells["property"] == "known_mechanism_accuracy")
+        & (cells["cell"] == "ate_regimen__ltmle_known_treatment__censoring_estimated")
+    ].squeeze()
+    assert f"{cell['coverage']:.3f}" == "0.948"
+    assert f"{cell['coverage_ci_lower']:.4f}" == "0.9272"
+    assert f"{cell['coverage_ci_upper']:.4f}" == "0.9644"
+    assert f"{cell['se_ratio']:.4f}" == "0.9974"
+    baselines = read(f"{_BASELINES}/summary.csv")
+    d2 = baselines[baselines["estimand"] == "ate_regimen[static_12 vs static_00]"].set_index(
+        "scenario"
+    )
+    assert f"{d2.loc['d2_ice', 'coverage']:.4f}" == "0.9500"
+    assert f"{d2.loc['d2_hajek', 'coverage']:.4f}" == "0.9590"
+    assert f"{d2.loc['d2_ice', 'se_ratio']:.4f}" == "0.9957"
+    assert f"{d2.loc['d2_hajek', 'se_ratio']:.4f}" == "1.0054"
+    control = read(f"{_BASELINES}/properties.csv")
+    main_terms = control[
+        (control["property"] == "misspecification_control")
+        & (control["cell"] == "hajek_x_contrast__main_terms")
+    ].squeeze()
+    assert f"{main_terms['bias_ci_lower']:.4f}" == "0.1306"
+    assert f"{main_terms['bias_ci_upper']:.4f}" == "0.1344"
+    assert f"{main_terms['coverage_ci_lower']:.4f}" == "0.5072"
+    assert f"{main_terms['coverage_ci_upper']:.4f}" == "0.5348"
