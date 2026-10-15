@@ -592,7 +592,7 @@ def _fit_key(label: str, cause: str | None, horizon: int, curve: bool) -> str:
 
 #: The estimator kinds that fit a repeated outcome.  A kind belongs here once each horizon of
 #: its fit is the end-of-study fit of the panel truncated after it, and its evidence exists.
-REPEATED_OUTCOME_KINDS: frozenset[str] = frozenset({"tmle"})
+REPEATED_OUTCOME_KINDS: frozenset[str] = frozenset({"tmle", "ipsi"})
 
 #: How the refusal names each estimator kind.
 _REPEATED_OUTCOME_NAMES: dict[str, str] = {"tmle": "LTMLE", "sdr": "SDR", "ipsi": "IPSI"}
@@ -4553,6 +4553,16 @@ class IPSI(_SequentialEstimator):
     (2023), which this package fits as :class:`~cleverly.interventions.RiskRatioTilt` with
     :class:`LTMLE` or :class:`SDR`.
 
+    **A repeated outcome.**  With ``outcome=Repeated([...])`` the fit reports one mean per
+    horizon.  Each horizon is the end-of-study fit of the panel truncated after it, with
+    :math:`Y_h` as the outcome and each earlier :math:`Y_s` as a covariate.  The functional at
+    horizon :math:`h` is Theorem 3.1 of Kim, Kennedy and Naimi (2021) at :math:`t = h`.  The
+    influence function is their Theorem 4.1 on the prefix.  The band of ``simultaneous=True``
+    covers the declared tilts and horizons jointly, as their Theorem 5.1 states for a finite
+    grid of :math:`\delta`.  It does not cover the values of :math:`\delta` between the
+    declared ones.  The estimator is singly robust: a wrong treatment mechanism leaves a bias
+    that a correct outcome regression does not remove.
+
     Parameters
     ----------
     regimens : mapping, sequence of Incremental, or sequence of regimens
@@ -4568,7 +4578,9 @@ class IPSI(_SequentialEstimator):
         course.  Under dropout, :math:`\psi(1)` is the mean with dropout prevented, not the
         observed mean.
     horizons : sequence of int or None
-        The survival horizons, as for :class:`LTMLE`.
+        The horizons of a survival or repeated outcome, as for :class:`LTMLE`.  ``None``
+        reports every node.  A repeated outcome reports one mean per horizon, each from the
+        truncated end-of-study fit.  Refused on a fit with one end-of-study outcome.
     msm : MSM or None
         A working model over the regimen and horizon cells.  Each cell's influence-function
         values are projected onto it.  The identity link is supported.  A logit or log

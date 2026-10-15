@@ -1791,10 +1791,15 @@ class IncrementalMean:
         Odds multipliers to evaluate.
     reference : str or None
         Intervention label retained as the comparison reference.
+    horizons : sequence of int or None
+        Follow-up times to report for a longitudinal outcome.  On a repeated outcome, each
+        horizon is the end-of-study fit of the panel truncated after it.  A
+        point-treatment design refuses it.
     """
 
     interventions: Sequence[Incremental]
     reference: str | None = None
+    horizons: Sequence[int] | None = None
     name: str = field(default="ey_ipsi", init=False)
     definition: str = field(
         default="mean under each incremental propensity intervention", init=False
@@ -1811,6 +1816,9 @@ class IncrementalEffect:
         Odds multipliers to compare.
     reference : str or None
         Reference intervention label. ``None`` uses the first intervention.
+    horizons : sequence of int or None
+        Follow-up times to report for a longitudinal outcome, as for
+        :class:`IncrementalMean`.
 
     See Also
     --------
@@ -1837,6 +1845,7 @@ class IncrementalEffect:
 
     interventions: Sequence[Incremental]
     reference: str | None = None
+    horizons: Sequence[int] | None = None
     name: str = field(default="ate_ipsi", init=False)
     definition: str = field(default="contrast of incremental propensity interventions", init=False)
 
@@ -3101,7 +3110,7 @@ class ExplicitAdjustmentProvider:
             )
         if isinstance(estimand, (IncrementalMean, IncrementalEffect)):
             regimens: Any = _longitudinal_tilts(estimand)
-            horizons = None
+            horizons = estimand.horizons
         elif isinstance(estimand, (RegimeMean, RegimeContrast, MSMProjection)):
             regimens = estimand.regimens
             horizons = estimand.horizons

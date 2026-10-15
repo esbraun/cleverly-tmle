@@ -21,7 +21,9 @@ import numpy as np
 import pytest
 
 from cleverly.inference.multiplier import simultaneous_bands
-from cleverly.longitudinal import LTMLE, Repeated
+from cleverly.interventions import Incremental
+from cleverly.longitudinal import IPSI, LTMLE, Repeated
+from cleverly.longitudinal.estimator import HORIZON_INFIX
 
 from .. import discrete_law_repeated as laws
 from ..studies.canonical_ltmle import declared_regimens
@@ -274,3 +276,320 @@ def test_e4_the_tilt_influence_function_is_centered_and_nonzero(law: laws.Repeat
             curve = law.tilt_eif(delta, horizon)
             assert abs(float(np.sum(law.probs * curve))) < 1e-12
             assert float(np.sqrt(np.sum(law.probs * curve**2))) > 0.3
+
+
+# ---------------------------------------------------------------- IPSI: E5 to E8
+
+#: The tilts of the IPSI fits, the natural course first so that it is the reference.
+TILTS = (1.0, 0.5, 2.0)
+LABELS = {1.0: "natural course", 0.5: "odds x0.5", 2.0: "odds x2"}
+CONTRASTED = (0.5, 2.0)
+
+
+class Baseline(laws.CellMeans):
+    """The saturated learner on the baseline covariate ``W`` alone, the first design column.
+
+    Every design of a repeated fit starts with ``W``.  A mechanism that reads ``W`` alone is
+    exact at node 1, where ``H_1 = W``, and wrong at node 2, where the history holds ``A_1``,
+    ``Y_1`` and ``L_2``.
+    """
+
+    #: The design columns kept besides ``W``: none.
+    arm = False
+
+    def _select(self, X: Any) -> np.ndarray:
+        matrix = np.asarray(X, dtype=float)
+        columns = [0, matrix.shape[1] - 1] if self.arm and matrix.shape[1] > 1 else [0]
+        return matrix[:, columns]
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> Baseline:
+        super().fit(self._select(X), y, sample_weight=sample_weight)
+        return self
+
+    def predict(self, X: Any) -> np.ndarray:
+        return super().predict(self._select(X))
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        return super().predict_proba(self._select(X))
+
+
+class BaselineAndArm(Baseline):
+    """``W`` and the arm of the current node, which is the last column of a tilted design.
+
+    A regression that omits the history but keeps the arm separates the two arms of a node,
+    so the mechanism term has a blip to multiply.  It is exact at node 1 and wrong at node 2.
+    """
+
+    arm = True
+
+
+def ipsi_fit(
+    law: laws.RepeatedLaw,
+    *,
+    frame: Any = None,
+    outcome: Any = None,
+    treatment: Any = None,
+    censoring: Any = None,
+    tilts: tuple[float, ...] = TILTS,
+    roles: dict[str, Any] | None = None,
+    **overrides: Any,
+) -> Any:
+    """``IPSI`` on the law's exact sample, with a saturated learner unless one is handed in."""
+    settings: dict[str, Any] = {
+        "outcome_learner": outcome or laws.CellMeans(),
+        "pseudo_learner": outcome or laws.CellMeans(),
+        "treatment_learner": treatment or laws.CellMeans(),
+        "censoring_learner": censoring or laws.CellMeans(),
+        "n_folds": 1,
+        "g_bounds": NO_TRUNCATION,
+        "simultaneous": False,
+    }
+    settings.update(overrides)
+    plans = [Incremental(delta) for delta in tilts]
+    return IPSI(plans, **settings).fit(
+        law.frame() if frame is None else frame, **({**COLUMNS, **(roles or {})})
+    )
+
+
+def _mean(delta: float, horizon: int) -> str:
+    return f"ey_regimen[{LABELS[delta]} @ t={horizon}]"
+
+
+def _contrast(delta: float, horizon: int) -> str:
+    return f"ate_regimen[{LABELS[delta]} vs {LABELS[1.0]} @ t={horizon}]"
+
+
+def check_e5(law: laws.RepeatedLaw, fit: Any) -> None:
+    """E5: the estimate is the tilt functional, and the curve its complex-step derivative.
+
+    The derivative is taken of :meth:`~tests.discrete_law_repeated.RepeatedLaw.tilt_functional`
+    on the cell probabilities, so nothing the library supplies enters it.
+    """
+    rows = law.first_row_of()
+    for horizon in laws.HORIZONS:
+        eif = {delta: law.tilt_eif(delta, horizon) for delta in TILTS}
+        for delta in TILTS:
+            truth = law.tilt_functional(law.probs, delta, horizon)
+            assert fit.psi(_mean(delta, horizon)) == pytest.approx(truth, abs=1e-12), (
+                delta,
+                horizon,
+            )
+            np.testing.assert_allclose(
+                fit.influence_curves[_mean(delta, horizon)][rows],
+                eif[delta],
+                atol=1e-11,
+                rtol=0,
+                err_msg=f"delta={delta}, h={horizon}",
+            )
+        for delta in CONTRASTED:
+            name = _contrast(delta, horizon)
+            assert fit.psi(name) == pytest.approx(
+                law.tilt_functional(law.probs, delta, horizon)
+                - law.tilt_functional(law.probs, 1.0, horizon),
+                abs=1e-12,
+            )
+            np.testing.assert_allclose(
+                fit.influence_curves[name][rows],
+                eif[delta] - eif[1.0],
+                atol=1e-11,
+                rtol=0,
+                err_msg=name,
+            )
+
+
+@pytest.fixture(scope="module", params=LAWS, ids=[law.name for law in LAWS])
+def ipsi_law_and_fit(request: pytest.FixtureRequest) -> tuple[laws.RepeatedLaw, Any]:
+    law = request.param
+    return law, ipsi_fit(law)
+
+
+def test_e5_saturated_m_and_estimated_mechanisms_give_the_tilt_functional_and_its_derivative(
+    ipsi_law_and_fit: tuple[laws.RepeatedLaw, Any],
+) -> None:
+    """``IPSI`` with saturated ``m`` and estimated ``pi`` and ``omega`` is exact.
+
+    The mechanism term carries 1% to 3% of the curve variance on the X32a law, so a curve
+    without it fails the derivative check.  The mutation controls N3 and N9 run this check.
+    """
+    law, fit = ipsi_law_and_fit
+    assert set(fit) == {
+        *(_mean(delta, h) for delta in TILTS for h in laws.HORIZONS),
+        *(_contrast(delta, h) for delta in CONTRASTED for h in laws.HORIZONS),
+    }
+    check_e5(law, fit)
+
+
+def test_e5_the_mechanism_term_is_nonzero_at_every_tilt_node(
+    ipsi_law_and_fit: tuple[laws.RepeatedLaw, Any],
+) -> None:
+    """The term that N3 drops is present: a nonzero column at each node of a tilted plan."""
+    _, fit = ipsi_law_and_fit
+    for delta in CONTRASTED:
+        term = fit.fits[f"{LABELS[delta]}{HORIZON_INFIX}2"].mechanism_term
+        assert term.shape[1] == 2
+        assert np.max(np.abs(term[:, 0])) > 1e-3 and np.max(np.abs(term[:, 1])) > 1e-3
+
+
+#: ``E6``: the ``W``-only plug-in ``P(m-bar_1)`` misses the tilt functional at ``h = 2`` by
+#: these amounts, so the one-step correction carries the whole gap.
+PLUG_IN_GAP = {
+    "binary": {0.5: +0.047090, 2.0: -0.029297},
+    "continuous": {0.5: -0.005218, 2.0: +0.009470},
+}
+
+#: ``E7``: saturated ``m`` with ``W``-only ``pi`` and ``omega``, and with ``W``-only ``pi``
+#: alone, misses the tilt functional at ``h = 2``.
+NOT_DOUBLY_ROBUST_BIAS = {
+    "binary": {0.5: (+0.000803, +0.001453), 2.0: (-0.000907, -0.000312)},
+    "continuous": {0.5: (-0.000766, -0.001078), 2.0: (+0.001467, +0.001107)},
+}
+
+
+def known_treatment(law: laws.RepeatedLaw) -> tuple[Any, dict[str, Any]]:
+    """The law's frame with ``P(A_t = a | H_t)`` columns, and the roles that declare them.
+
+    A row that does not reach node ``t`` holds missing values there, as the fit expects.
+    """
+    frame = law.frame()
+    high = np.array([-1 if np.isnan(y) else law.high(law.y1_values.index(y)) for y in frame["Y1"]])
+    node_2 = (high >= 0) & frame["L2"].notna().to_numpy()
+    w, a1, l2 = (frame[name].fillna(0).to_numpy().astype(int) for name in ("W", "A1", "L2"))
+    g1 = laws.G1[w]
+    g2 = np.full(len(frame), np.nan)
+    g2[node_2] = laws.G2[w[node_2], a1[node_2], high[node_2], l2[node_2]]
+    frame = frame.assign(g1_1=g1, g1_0=1.0 - g1, g2_1=g2, g2_0=1.0 - g2)
+    roles = {
+        "treatment_probabilities": {
+            "A1": {0.0: "g1_0", 1.0: "g1_1"},
+            "A2": {0.0: "g2_0", 1.0: "g2_1"},
+        }
+    }
+    return frame, roles
+
+
+def check_e6(law: laws.RepeatedLaw, fit: Any) -> None:
+    """E6: with ``W``-only ``m`` and consistent mechanisms the estimate is the tilt functional.
+
+    The curve is the law-side curve of the same one-step estimator.
+    """
+    rows = law.first_row_of()
+    for delta in TILTS:
+        for horizon in laws.HORIZONS:
+            truth = law.tilt_functional(law.probs, delta, horizon)
+            assert fit.psi(_mean(delta, horizon)) == pytest.approx(truth, abs=1e-12), (
+                delta,
+                horizon,
+            )
+            _, curve = law.ipsi_population(delta, horizon, key="W")
+            np.testing.assert_allclose(
+                fit.influence_curves[_mean(delta, horizon)][rows], curve, atol=1e-11, rtol=0
+            )
+
+
+@pytest.mark.parametrize("law", LAWS, ids=[law.name for law in LAWS])
+def test_e6_w_only_m_with_estimated_mechanisms_is_exact_and_its_plug_in_is_not(
+    law: laws.RepeatedLaw,
+) -> None:
+    """Single robustness: a wrong ``m`` with consistent ``pi`` and ``omega`` still gives the truth.
+
+    The regression reads ``W`` and the arm of the node, which is saturated at node 1 and
+    wrong at node 2.  The plug-in of that regression misses the functional at ``h = 2`` by a
+    declared nonzero gap, and the one-step estimate does not.  With ``omega`` replaced by one,
+    the same one-step misses (the precondition of the mutation control N9).
+    """
+    check_e6(law, ipsi_fit(law, outcome=BaselineAndArm()))
+    for delta, gap in PLUG_IN_GAP[law.name].items():
+        truth = law.tilt_functional(law.probs, delta, 2)
+        plug_in, _ = law.ipsi_population(delta, 2, key="W", correction=False)
+        assert plug_in - truth == pytest.approx(gap, abs=6e-7)
+        assert abs(gap) > 1e-3
+        without, _ = law.ipsi_population(delta, 2, key="W", omega=False)
+        assert abs(without - truth) > 1e-3
+
+
+@pytest.mark.parametrize("law", LAWS, ids=[law.name for law in LAWS])
+def test_e6_a_declared_treatment_mechanism_removes_the_mechanism_term(
+    law: laws.RepeatedLaw,
+) -> None:
+    """With ``pi`` declared known the term is absent, and the estimate is still the truth."""
+    frame, roles = known_treatment(law)
+    estimated = ipsi_fit(law, outcome=BaselineAndArm())
+    # A declared mechanism may not be truncated, and the natural course has cumulative factor 1.
+    known = ipsi_fit(law, outcome=BaselineAndArm(), frame=frame, roles=roles, g_bounds=(1e-8, 1.0))
+    for delta in CONTRASTED:
+        fit = known.fits[f"{LABELS[delta]}{HORIZON_INFIX}2"]
+        assert not np.any(fit.mechanism_term)
+        assert np.any(estimated.fits[f"{LABELS[delta]}{HORIZON_INFIX}2"].mechanism_term)
+        for horizon in laws.HORIZONS:
+            truth = law.tilt_functional(law.probs, delta, horizon)
+            assert known.psi(_mean(delta, horizon)) == pytest.approx(truth, abs=1e-12)
+
+
+@pytest.mark.parametrize("law", LAWS, ids=[law.name for law in LAWS])
+def test_e7_ipsi_is_not_doubly_robust(law: laws.RepeatedLaw) -> None:
+    """Saturated ``m`` with ``W``-only ``pi`` and ``omega`` reaches its limit, which is not the truth.
+
+    The limit is the cell-mean form of the one-step estimator.  The control separates the
+    cause: a ``W``-only ``omega`` with a saturated ``pi`` is exact, so the bias comes from the
+    treatment mechanism and not from ``m`` or ``omega``.
+    """
+    wrong = ipsi_fit(law, treatment=Baseline(), censoring=Baseline())
+    only_pi = ipsi_fit(law, treatment=Baseline())
+    only_omega = ipsi_fit(law, censoring=Baseline())
+    rows = law.first_row_of()
+    for delta, (bias, pi_bias) in NOT_DOUBLY_ROBUST_BIAS[law.name].items():
+        truth = law.tilt_functional(law.probs, delta, 2)
+        limit, curve = law.ipsi_population(delta, 2, key="full", pi_key=["W"], omega_key=["W"])
+        pi_limit, _ = law.ipsi_population(delta, 2, key="full", pi_key=["W"])
+        assert limit - truth == pytest.approx(bias, abs=6e-7)
+        assert pi_limit - truth == pytest.approx(pi_bias, abs=6e-7)
+        assert min(abs(bias), abs(pi_bias)) > 2e-4
+        assert wrong.psi(_mean(delta, 2)) == pytest.approx(limit, abs=1e-11)
+        np.testing.assert_allclose(
+            wrong.influence_curves[_mean(delta, 2)][rows], curve, atol=1e-10, rtol=0
+        )
+        assert only_pi.psi(_mean(delta, 2)) == pytest.approx(pi_limit, abs=1e-11)
+        assert only_omega.psi(_mean(delta, 2)) == pytest.approx(truth, abs=1e-12)
+    # At h = 1 the history is W, so a W-only treatment mechanism is saturated and exact.
+    for delta in CONTRASTED:
+        truth = law.tilt_functional(law.probs, delta, 1)
+        assert wrong.psi(_mean(delta, 1)) == pytest.approx(truth, abs=1e-12)
+
+
+@pytest.fixture(scope="module")
+def ipsi_banded() -> Any:
+    return ipsi_fit(laws.BINARY, simultaneous=True, n_multiplier=MULTIPLIERS, random_state=0)
+
+
+def check_e8(fit: Any) -> None:
+    """E8: the fit's critical value is the multiplier band over the stacked curves.
+
+    Rebuilt beside the fit with the same seed.  A band built from curves made independent
+    across horizons has a different critical value, so a change in the covariance fails here.
+    """
+    estimates = {name: fit.estimates[name] for name in fit.estimates}
+    joint = simultaneous_bands(estimates, alpha=0.05, n_replicates=MULTIPLIERS, random_state=0)
+    assert fit.simultaneous.critical_value == pytest.approx(joint.critical_value, abs=0)
+    order = np.random.default_rng(1).permutation(laws.N)
+    shuffled = {
+        name: (
+            dataclasses.replace(estimate, influence_curve=estimate.influence_curve[order])
+            if "@ t=2" in name
+            else estimate
+        )
+        for name, estimate in estimates.items()
+    }
+    independent = simultaneous_bands(shuffled, alpha=0.05, n_replicates=MULTIPLIERS, random_state=0)
+    assert abs(independent.critical_value - joint.critical_value) > 1e-3
+
+
+def test_e8_the_ipsi_horizons_are_correlated(ipsi_banded: Any) -> None:
+    """The horizons of one tilt share units, and the correlation is not zero."""
+    for delta in CONTRASTED:
+        first = ipsi_banded.influence_curves[_mean(delta, 1)]
+        second = ipsi_banded.influence_curves[_mean(delta, 2)]
+        assert abs(np.corrcoef(first, second)[0, 1]) > 0.05, delta
+
+
+def test_e8_the_ipsi_band_is_built_from_the_stacked_curves(ipsi_banded: Any) -> None:
+    check_e8(ipsi_banded)
