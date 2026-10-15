@@ -318,8 +318,15 @@ def reading(rows: pd.DataFrame, bands: pd.DataFrame, stability: pd.DataFrame) ->
     return pd.DataFrame(records)
 
 
+def complete(work: Path, name: str) -> bool:
+    """Whether every chunk of set ``name`` is saved under ``work``."""
+    folder = work / name.replace("@", "_")
+    return len(list(folder.glob("chunk_*.csv.gz"))) * CHUNK >= SETS[name][4]
+
+
 def assemble(work: Path) -> None:
-    laws = [name for name, spec in SETS.items() if spec[1] == "law"]
+    """Write the frames and the reading of every complete set; a set still running is left out."""
+    laws = [name for name, spec in SETS.items() if spec[1] == "law" and complete(work, name)]
     frames = pd.concat([_collect(work, name) for name in laws], ignore_index=True)
     rows = frames.loc[frames["kind"] == "estimate"].drop(
         columns=["kind", "band_covered", "pointwise_covered", "critical"]
@@ -338,7 +345,11 @@ def assemble(work: Path) -> None:
         ],
     ]
     stability = pd.concat(
-        [_collect(work, name) for name, spec in SETS.items() if spec[1] == "stability"],
+        [
+            _collect(work, name)
+            for name, spec in SETS.items()
+            if spec[1] == "stability" and complete(work, name)
+        ],
         ignore_index=True,
     )
     archive = {"method": "gzip", "mtime": 0}

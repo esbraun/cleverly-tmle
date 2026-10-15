@@ -9,7 +9,7 @@ those of :data:`tests.studies.longitudinal_repeated_crossfit.CALIBRATION_LABELS`
 family                      cells, replications and size
 ==========================  ===================================================================
 ``interval_calibration``    nine labels on laws D (``LTMLE`` and ``SDR``, static and dynamic
-                            contrasts), I (odds x2 and x0.5 contrasts, n = 40,000), S (risk
+                            contrasts), I (odds x2 and x0.5 contrasts, n = 80,000), S (risk
                             difference at t = 2), C (static contrast) and M (``duration``);
                             6,000 each at n = 8,000 unless named, with a derived
                             ``shrunken_se_control`` (reported SE times 0.70) per label
@@ -17,7 +17,7 @@ family                      cells, replications and size
                             control: D-``LTMLE`` and D-``SDR`` (five names each), I (five),
                             S (nine), C (three) and M (the two centred coefficients)
 ``repeat_stability``        one fixed law-D sample (n = 8,000) and one fixed law-I sample
-                            (n = 40,000), 400 paired fold-seed trials: the three-draw median
+                            (n = 80,000), 400 paired fold-seed trials: the three-draw median
                             and the first draw it derives, alone
 ``repeat_increment``        the S calibration fits at horizons 1 to 3: median SE ratio minus
                             draw-0 SE ratio on the same fits; horizon 3 is gated, horizons 1
@@ -31,7 +31,7 @@ family                      cells, replications and size
 ``root_n_and_efficiency``   the law-D static contrast of ``LTMLE`` and ``SDR`` at n = 2,000
                             (control), 8,000 and 32,000; 800 each
 ``root_n_rate``             the two rate rows of each ladder
-``ipsi_primary``            law I's primary rows at n = 40,000: the three plan means and two
+``ipsi_primary``            law I's primary rows at n = 80,000: the three plan means and two
                             contrasts, 1,600 replications, read by the primary rules
 ==========================  ===================================================================
 

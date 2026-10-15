@@ -9,13 +9,16 @@ repeated fits on seeds outside every declared stream.
   and slope curves uncorrelated; the slope is the uncentred slope and the intercept is
   :math:`b_0 + m^* b_1`.
 * **Bounds.**  ``g_bounds = (0.01, 1)`` never binds at the truth on laws D, S, C and I, and the
-  fallback-read bias bound of law I is below 0.1 standard errors at n = 40,000.
+  fallback-read bias bound of law I is below 0.1 standard errors at n = 80,000.
 * **The sizing rule** (X19's projection, applied to X46's replication counts).  A pilot reading
   at ``n0`` projects its standardized bias as :math:`(|b| + m)\\sqrt{n_0 / n}` and its SE-ratio
   deficit as :math:`(1 - \\min(r, 1)) n_0 / n`.  Every primary row passes its bias rule with
   probability at least 0.95 at 1,600 replications.  Every calibration cell passes with
   probability at least 0.90 at 6,000, and the nine pass jointly, as the independent product,
   with probability at least 0.95.  3,600 and 4,800 replications fail the family rule.
+* **Law I's size.**  At n = 40,000 the probe read law I's contrasts at +0.138 and -0.124 SD of
+  bias, so the primary rule passed with 0.61 and the family with 0.64.  A direct reading at
+  80,000 (1,200 samples) passes every law-I cell, and the family with 0.98.
 * **Controls.**  Every band label's pointwise control and the shrunken-SE controls fail with
   power at least 0.90.  The ``repeat_increment`` gate passes with probability at least 0.95,
   at the reading and predictively, and its inflated-SE control has power at least 0.90.
@@ -65,7 +68,7 @@ def test_the_declared_numbers() -> None:
     assert s.STUDY.publication_policy == "reporting"
     assert s.STUDY.reference is None
     assert s.STUDY.margins == MARGINS
-    assert (s.PRIMARY_N, s.PRIMARY_REPLICATES, s.IPSI_N) == (8_000, 1_600, 40_000)
+    assert (s.PRIMARY_N, s.PRIMARY_REPLICATES, s.IPSI_N) == (8_000, 1_600, 80_000)
     assert (s.N_FOLDS, s.LEARNER_FOLDS, s.REPEATS, s.G_BOUNDS) == (5, 2, 3, (0.01, 1.0))
     assert (s.SEED, s.RESAMPLING_SEED) == (20261446, 2026144601)
     assert (p.CALIBRATION_N, p.CALIBRATION_REPLICATES) == (8_000, 6_000)

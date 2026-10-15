@@ -27,8 +27,9 @@ M     law D with the working model of                       ``LTMLE``  the two c
       properties`, duration centred at :data:`M_STAR`
 ====  ====================================================  =========  =======================
 
-The primary study holds laws D, S, C and M at :data:`PRIMARY_N`.  Law I needs n = 40,000 for
-its second-order bias (``X46-plan.md`` 5.4), and a study row has one size, so its primary
+The primary study holds laws D, S, C and M at :data:`PRIMARY_N`.  Law I needs n = 80,000 for
+its second-order bias: the sizing probe read its contrasts at +0.138 and -0.124 SD of bias at
+40,000 and at +0.067 and -0.077 at 80,000 (``X46-progress.md``).  A study row has one size, so its primary
 rows are the ``ipsi_primary`` property family of
 :mod:`tests.studies.longitudinal_repeated_crossfit_properties`, read by the same three rules.
 
@@ -82,8 +83,9 @@ REPEATS = 3
 #: this on laws D, S, C and I.  A lower bound of 1e-8 turned an empty training cell into a
 #: weight of 1e8 once in 3,000 pilot draws (``X46-plan.md`` 5.2).
 G_BOUNDS = (0.01, 1.0)
-#: The size of law I, the incremental law, for its primary and calibration cells.
-IPSI_N = 40_000
+#: The size of law I, the incremental law, for its primary, calibration and stability cells.
+#: The smallest size whose direct probe reading passes every law-I cell of the sizing rule.
+IPSI_N = 80_000
 #: The cluster size of law C: n / 10 clusters, far above the few-cluster threshold of 40.
 CLUSTER_SIZE = 10
 #: The convergence settings every ``LTMLE`` fit uses.  ``SDR`` and ``IPSI`` take neither.
