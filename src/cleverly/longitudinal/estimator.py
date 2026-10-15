@@ -271,6 +271,16 @@ _BASELINE_CROSS_FIT_REFUSAL = Refusal(
     alternative="Pass n_folds=1, or for a cross-fitted analysis fit LTMLE or SDR.",
     roadmap="F35",
 )
+#: Why a baseline estimator refuses repeated cross-fitting.  ``{estimator}`` is the class
+#: name, which :func:`baseline_repeats_refusal` fills in.
+_BASELINE_REPEATS_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "{estimator} fits in sample, so repeats above 1 has no split to draw again. Its interval "
+    "is the stacked estimating equation of one in-sample parametric fit, and no source gives "
+    "the split-adjusted median variance of Chernozhukov et al. (2018, Definition 3.3) for it.",
+    alternative="Pass repeats=1, or for a repeated cross-fit fit LTMLE or SDR.",
+    roadmap="F35",
+)
 #: Why a baseline estimator refuses a working model over regimens.
 BASELINE_MSM_REFUSAL = Refusal(
     RefusalReason.API_REDIRECTION,
@@ -319,6 +329,26 @@ GCOMP_TRUNCATION_REFUSAL = Refusal(
     "no truncation curve exists.",
     alternative="Fit SequentialIPW or LTMLE for a truncation curve.",
 )
+
+
+def baseline_repeats_refusal(estimator: str) -> Refusal:
+    """The refusal of repeated cross-fitting by a sequential baseline estimator.
+
+    Parameters
+    ----------
+    estimator : str
+        The class name of the refusing estimator.
+
+    Returns
+    -------
+    Refusal
+        An :attr:`~cleverly.exceptions.RefusalReason.IMPLEMENTATION_GAP` record that F35 in
+        ``docs/roadmap.md`` tracks.
+    """
+    return replace(
+        _BASELINE_REPEATS_REFUSAL,
+        condition=_BASELINE_REPEATS_REFUSAL.condition.format(estimator=estimator),
+    )
 
 
 def baseline_cross_fit_refusal(estimator: str) -> Refusal:
@@ -6244,6 +6274,8 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
 
     def _validate_settings(self) -> None:
         """Refuse cross-fitting before any other setting is read."""
+        if isinstance(self.repeats, (int, np.integer)) and self.repeats > 1:
+            raise CapabilityError(refusal=baseline_repeats_refusal(type(self).__name__))
         if self.n_folds > 1:
             raise CapabilityError(refusal=baseline_cross_fit_refusal(type(self).__name__))
         super()._validate_settings()
