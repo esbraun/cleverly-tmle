@@ -163,6 +163,7 @@ def check_stored() -> None:
     implied = re.search(r"implied cf_y = (\S+),", sensitivity)
     assert implied and float(implied[1]) < 0.001
     assert "cf_d=benchmark.cf_d" in code["sensitivity"]
+    assert 'estimand="att", benchmark=benchmark' in code["sensitivity"]
     at_benchmark = _row(sensitivity, implied[1])
     assert at_benchmark[0] > att, "the bias bound at the benchmark no longer exceeds the estimate"
     assert at_benchmark[-1] > crude, "the benchmark bound no longer admits the crude difference"
