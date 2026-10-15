@@ -7,14 +7,18 @@ decimals are also compared against its stored outputs, and every decimal it writ
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 from cleverly.datasets import navigation_protocol
 from tests.studies.oat_per_arm_laws import BINARY_ACTIVE
+from tests.studies.oat_per_arm_laws import G_BOUNDS as BINARY_ACTIVE_BOUNDS
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
+    ROOT,
     assert_protocol_recorded,
     changed_fields,
     covers,
@@ -62,8 +66,64 @@ UNPRINTED_DECIMALS = {
 }
 
 
+def _probe(pattern: str, path: str = _PROBE) -> list[float]:
+    """The numbers of the one line of a committed probe log that ``pattern`` matches."""
+    text = (ROOT / path).read_text(encoding="utf-8")
+    match = re.search(pattern, text, re.MULTILINE)
+    assert match is not None, f"{path} has no line matching {pattern!r}"
+    return [float(value) for value in match.groups()]
+
+
+def _check_committed_sources() -> None:
+    """Each probe and study number of UNPRINTED_DECIMALS, read from its committed file."""
+    for name, sd, ratio, covered in (
+        ("tmle", 0.0358, 0.93, 1857),
+        ("oat", 0.0297, 0.98, 1881),
+    ):
+        bias, empirical, mean_ratio, count = _probe(
+            rf"^{name}\s+bias ([+-][\d.]+)\s+empirical sd ([\d.]+).*mean se / sd ([\d.]+)"
+            r"\s+covered (\d+) of 2000$"
+        )
+        assert round(bias, 4) == 0.0006 and round(empirical, 4) == sd
+        assert round(mean_ratio, 2) == ratio and count == covered
+    assert round(_probe(r"^gcomp\s+bias [+-][\d.]+\s+empirical sd ([\d.]+)")[0], 4) == 0.0297
+    for name in ("tmle_main", "oat_main"):
+        assert round(_probe(rf"^{name}\s+bias ([+-][\d.]+)")[0], 4) == 0.0009
+    assert _probe(r"^oat se below tmle se on (\d+) of 2000 draws$") == [1963.0]
+    tails = (
+        _probe(rf"^{name}\s+mean share of g outside \(0\.1, 0\.9\) ([\d.]+);")[0]
+        for name in ("tmle", "oat")
+    )
+    assert [round(value, 4) for value in tails] == [0.1933, 0.0002]
+    assert _probe(r"^\|oat - tmle\| median ([\d.]+), 95th percentile ([\d.]+)$") == [0.0134, 0.0381]
+    # "about 0.0016": twice the Monte Carlo SE of the larger mean error's SD over 2,000 draws.
+    assert round(2 * 0.03583 / np.sqrt(2000), 4) == 0.0016
+    for label, value in (
+        (r"full set", 10.14),
+        (r"full set, clipped at the page bounds", 9.14),
+        (r"without staffing", 4.12),
+    ):
+        assert round(_probe(rf"^{label}: nu2 = ([\d.]+)$", _TRUTH)[0], 2) == value
+    assert BINARY_ACTIVE_BOUNDS[1] == 0.99
+
+    cells = pd.read_csv(ROOT / _STUDY).set_index(["property", "cell"])
+    auto = cells.loc[("interval_calibration", "auto_bounds__ate__corrected")]
+    assert (round(auto["coverage"], 3), round(auto["se_ratio"], 3)) == (0.951, 1.002)
+    assert auto["replicates"] == 9200
+    shipped = cells.loc[
+        ("interval_calibration", "binary_active__ate__shipped_curve__shrunken_se_control")
+    ]
+    assert (round(shipped["coverage"], 3), round(shipped["se_ratio"], 3)) == (0.900, 0.848)
+    assert shipped["replicates"] == 17200
+    pseudo = cells.loc[("interval_calibration", "pseudo_true__ate__corrected")]
+    assert round(pseudo["truth"], 3) == 0.192
+    assert round(pseudo["coverage"], 3) == 0.948
+    assert round(pseudo["psi0_coverage"], 3) == 0.305
+
+
 def check(namespace: dict[str, Any]) -> None:
     """Both fits target one ATE; staffing makes only the ordinary g extreme."""
+    _check_committed_sources()
     frame, truth = namespace["frame"], namespace["truth"]
 
     # "This is the law `binary_active` of the registered study ... at the same sample size":
