@@ -47,9 +47,11 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
+from tests import law_q_tuned as lawq
 from tests.law_q_tuned import sample
 from tests.parallel import STUDY_JOBS, memory_capped_workers
 from tests.studies import canonical_mtp_tuning as study
+from tests.studies import mtp_pricing_properties as pricing
 from tests.studies import mtp_study_tools as tools
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
@@ -94,13 +96,14 @@ CELLS: dict[str, tuple[str, str, int, str]] = {
 }
 assert tuple(CELLS) == study.CALIBRATION_LABELS
 #: Provisional: the expected ``R`` of the 18-arm pooled rule at a pilot mean of 1.005.
-CALIBRATION_REPLICATES: dict[str, int] = dict.fromkeys(CELLS, 6_400)
+CALIBRATION_REPLICATES: dict[str, int] = dict.fromkeys(CELLS, pricing.S2_REPLICATES)
 #: The expected SE ratio of each derived control (``lawQ.log``), which the design test
 #: checks against the oracle's curves.
 EXPECTED_CONTROL_RATIO = {"dose_quantile": 0.612, "quantile_regression": 0.832}
 
-#: The noise scale of each ``noise_control``, sizing only: the reported SE at n = 2,000 in the
-#: one-replicate smoke times sqrt(2,000).  The pilot replaces it with the arm's mean SE.
+#: The noise scale of each ``noise_control``: ``mtp-pricing``'s ``NOISE_FACTOR`` times the arm's
+#: own pilot SD times sqrt(n) (design review B2).  Provisional: the arm's reported SE in the
+#: one-replicate smoke times sqrt(2,000).  The declaration commit pins the pilot's ``noise_sd``.
 NOISE_SD: dict[str, float] = {
     "population_dose_quantile_tau2": 0.555,
     "population_quantile_regression_tau2": 0.456,
@@ -110,6 +113,11 @@ NOISE_SD: dict[str, float] = {
     "fold_average_quantile_regression_tau2": 0.367,
 }
 
+#: The cells that gate the merge (design review M7): all six positives and their three derived
+#: controls each, every published property cell of the record.
+GATING_CELLS: tuple[str, ...] = tuple(
+    f"{family}/{cell}" for family, cells in study.PROPERTY_CELLS.items() for cell in cells
+)
 ESTIMAND = study.ESTIMAND
 #: The name a fit reports the fold-average target under.
 FOLD_ESTIMAND = f"ey_regimen[{study.LABEL}, fold average]"
@@ -131,6 +139,136 @@ def term_dropped_se(result: Any) -> float:
     curve = np.asarray(fitted.influence_curve_scaled, dtype=float)
     term = np.asarray(fitted.tuning_term, dtype=float)
     return float(result[ESTIMAND].std_error * np.std(curve - term) / np.std(curve))
+
+
+# ---------------------------------------------------------------------------- kernel bias
+
+#: The declared ceiling on the relative kernel bias at n = 2,000 (X40 plan section 2.5, m5).
+KERNEL_BIAS_LIMIT = 0.01
+_HERMITE = np.polynomial.hermite_e.hermegauss(60)
+_Z, _ZW = _HERMITE[0], _HERMITE[1] / np.sum(_HERMITE[1])
+
+
+def _smoothed(density: Any, at: np.ndarray, h: float, *args: np.ndarray) -> np.ndarray:
+    """``(g * phi_h)(at) = E[g(at - h Z)]``, the expectation of a normal-kernel estimate."""
+    return sum(w * density(at - h * z, *args) for z, w in zip(_Z, _ZW, strict=True))
+
+
+def _histories(law: Any, node: int) -> tuple[dict[str, np.ndarray], np.ndarray, Any]:
+    """The observed history of ``node`` on its quadrature grid, its mass and its density."""
+    h, mass = law._history(node)
+    if node == 1:
+        return h, mass, (lambda a: law.g1(a, h["W"][..., None]))
+    return h, mass, (lambda a: law.g2(a, h["W"][..., None], h["A1"][..., None], h["L2"][..., None]))
+
+
+def _gap_scale(law: Any, node: int) -> float:
+    """Silverman's scale ``0.9 min(sd, IQR / 1.34)`` of ``A_t - c_t(H_t)`` on the law.
+
+    The scale of ``A_t - e_t`` is the same, since ``e_t = c_t - 1``.  For a dose quantile it
+    is the scale of ``A_t`` itself.
+    """
+    from scipy import optimize
+
+    h, mass, density = _histories(law, node)
+    c = law.cap(node, h)
+    x, wts = lawq._segments(*lawq.A_RANGE, c[:, None])
+    g = density(x) * wts
+    gap = x - c[:, None]
+    mean = float(np.sum(mass[:, None] * g * gap))
+    sd = float(np.sqrt(np.sum(mass[:, None] * g * (gap - mean) ** 2)))
+    cdf = law.cdf1 if node == 1 else law.cdf2
+    args = (h["W"],) if node == 1 else (h["W"], h["A1"], h["L2"])
+
+    def quantile(q: float) -> float:
+        return float(
+            optimize.brentq(lambda t: np.sum(mass * cdf(c + t, *args)) - q, -8.0, 8.0, xtol=1e-12)
+        )
+
+    iqr = quantile(0.75) - quantile(0.25)
+    return 0.9 * min(sd, iqr / 1.34)
+
+
+def _relative(estimate: np.ndarray, truth: np.ndarray) -> float:
+    return float(np.max(np.abs(estimate - truth)) / np.max(np.abs(truth)))
+
+
+def kernel_derivative(law: Any, node: int, h: float) -> np.ndarray:
+    """The expectation of :func:`~cleverly.interventions.tuning.cap_derivative` at bandwidth
+    ``h``: :meth:`~tests.law_q_tuned.LawQ.derivative` with ``g_t(e_t)`` smoothed by the kernel."""
+    w, fw = law.w_grid
+    if node == 1:
+        hist = {"W": w}
+        c1 = law.cap(1, hist)
+        e1 = c1 - lawq.DELTA
+        jump = _smoothed(law.g1, e1, h, w) * (law.q1(w, c1) - law.q1(w, e1))
+        return np.sum((fw * jump)[:, None] * law.gradient(1, hist), axis=0)
+    c1 = law.cap(1, {"W": w})
+    a1, wa = lawq._segments(*lawq.A_RANGE, (c1 - lawq.DELTA)[:, None])
+    b = np.where(a1 + lawq.DELTA <= c1[:, None], a1 + lawq.DELTA, a1)
+    ww = np.broadcast_to(w[:, None], a1.shape)
+    mass = fw[:, None] * law.g1(a1, w[:, None]) * wa
+    total = 0.0
+    for l2 in (0.0, 1.0):
+        ll = np.full(a1.shape, l2)
+        p = law.p_l2(ww, b)
+        weight = mass * (p if l2 else 1.0 - p)
+        hist = {"W": ww, "A1": b, "L2": ll}
+        c2 = law.cap(2, hist)
+        e2 = c2 - lawq.DELTA
+        smoothed = _smoothed(law.g2, e2, h, ww, b, ll)
+        jump = smoothed * (law.m(ww, b, ll, c2) - law.m(ww, b, ll, e2))
+        total = total + np.sum((weight * jump)[..., None] * law.gradient(2, hist), axis=(0, 1))
+    return np.asarray(total)
+
+
+def kernel_biases(kind: str, rule: str, n: int = CALIBRATION_N) -> dict[str, float]:
+    """The relative kernel bias of each kernel quantity of the tuned cap at ``n``, by quadrature.
+
+    Each bandwidth is :func:`~cleverly.interventions.tuning.kernel_bandwidth`'s, with the law's
+    own Silverman scale in place of the sample's: ``n^(-1/5)`` for ``f_t(theta_t)`` (dose
+    quantile) and ``dPhi_t``, ``n^(-1/3)`` for Powell's ``J_t`` (regression), halved under
+    ``"undersmoothed"``.  The keys are ``f1``, ``f2`` or ``J1``, ``J2``, and ``dPhi1``,
+    ``dPhi2``; a vector or matrix reads its largest error over its largest entry.
+    """
+    law = study.law(kind)
+    half = 0.5 if rule == "undersmoothed" else 1.0
+    out: dict[str, float] = {}
+    for node in (1, 2):
+        scale = _gap_scale(law, node)
+        h = half * scale * n ** (-0.2)
+        out[f"dPhi{node}"] = _relative(kernel_derivative(law, node, h), law.derivative(node))
+        tuner = law.tuners[node - 1]
+        if not tuner.features:
+            theta = float(law.theta[node - 1][0])
+            f = law.marginal_density(node, theta)
+            smoothed = sum(
+                w * law.marginal_density(node, theta - h * z) for z, w in zip(_Z, _ZW, strict=True)
+            )
+            out[f"f{node}"] = abs(smoothed / f - 1.0)
+            continue
+        hj = half * scale * n ** (-1.0 / 3.0)
+        hist, mass = law._history(node)
+        x = law._features(node, tuner.features, hist)
+        fit = x @ law.theta[node - 1]
+        cdf = law.cdf1 if node == 1 else law.cdf2
+        dens = law.g1 if node == 1 else law.g2
+        args = (hist["W"],) if node == 1 else (hist["W"], hist["A1"], hist["L2"])
+        box = (cdf(fit + hj, *args) - cdf(fit - hj, *args)) / (2.0 * hj)
+        expected = (x * (mass * box)[:, None]).T @ x
+        truth = (x * (mass * dens(fit, *args))[:, None]).T @ x
+        out[f"J{node}"] = _relative(expected, truth)
+    return out
+
+
+def declared_bandwidth(kind: str, n: int = CALIBRATION_N) -> str | None:
+    """The plan's rule (section 2.5): Silverman's bandwidth if every relative kernel bias at
+    ``n`` is at most :data:`KERNEL_BIAS_LIMIT`, else the undersmoothed one if it then is,
+    else ``None``: the kind's cells are then declared ``reporting`` before the run."""
+    for rule in ("silverman", "undersmoothed"):
+        if max(kernel_biases(kind, rule, n).values()) <= KERNEL_BIAS_LIMIT:
+            return rule
+    return None
 
 
 class DeclaredLaw:
@@ -311,6 +449,7 @@ def calibration_pilot(
         spread = float(error.std(ddof=1))
         out["arms"][label] = {
             "draws": len(own),
+            "noise_sd": float(pricing.NOISE_FACTOR * spread * np.sqrt(CALIBRATION_N)),
             "se_ratio": float(own["std_error"].mean() / spread),
             "standardized_bias": float(error.mean() / spread),
             "coverage": float(own["covered"].mean()),

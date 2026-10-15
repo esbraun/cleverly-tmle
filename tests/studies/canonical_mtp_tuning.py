@@ -72,13 +72,23 @@ TUNERS: dict[str, tuple[lawq.Tuner, lawq.Tuner]] = {
 }
 
 
+#: The declared kernel bandwidth of each kind, by the rule of X40 plan section 2.5 (design
+#: review M6), read off :func:`tests.studies.mtp_tuning_properties.kernel_biases` at
+#: n = 2,000.  At Silverman's bandwidth the dose quantile's ``f_1`` and ``f_2`` carry relative
+#: biases of 1.86% and 1.79%, above the 1% ceiling, and undersmoothed every bias is at most
+#: 0.48%.  The regression's largest bias at Silverman's bandwidth is 0.085% (``J_1``).
+#: ``tests/unit/test_mtp_pricing_design.py`` recomputes the rule.
+BANDWIDTH: dict[str, Any] = {"dose_quantile": "undersmoothed", "quantile_regression": "silverman"}
+
+
 def caps(kind: str) -> tuple[Any, Any]:
+    rule = BANDWIDTH[kind]
     if kind == "dose_quantile":
-        return DoseQuantile(0.5), DoseQuantile(0.5)
+        return DoseQuantile(0.5, bandwidth=rule), DoseQuantile(0.5, bandwidth=rule)
     if kind == "quantile_regression":
         return (
-            SupportBoundary(LinearQuantileRegression(["W"]), 0.5),
-            SupportBoundary(LinearQuantileRegression(["W", "L2", "A1"]), 0.5),
+            SupportBoundary(LinearQuantileRegression(["W"]), 0.5, bandwidth=rule),
+            SupportBoundary(LinearQuantileRegression(["W", "L2", "A1"]), 0.5, bandwidth=rule),
         )
     raise KeyError(kind)
 
@@ -338,7 +348,10 @@ CONFIGURATION = {
     "q_bounds": list(Q_BOUNDS),
     "outcome_learner": "QuasiBinomialGLM at node 2; SplineFirst at node 1",
     "treatment_learner": "OracleHazardQ (exact pooled-hazard bins)",
-    "plan": "Shift(1.0, cap=DoseQuantile(0.5), target='population') at both nodes",
+    "plan": (
+        "Shift(1.0, cap=DoseQuantile(0.5, bandwidth='undersmoothed'), target='population') "
+        "at both nodes"
+    ),
 }
 
 

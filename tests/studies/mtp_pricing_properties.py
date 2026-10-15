@@ -30,7 +30,11 @@ family                      cells, replications and size
 **Learners, declared before any pilot** (X40 plan section 5.3, M8.1).  The final outcome
 regression is :class:`~tests.studies.mtp_pricing_common.FinalOutcome`, correctly specified;
 the pseudo-outcome regressions are :class:`~tests.studies.mtp_pricing_common.SplinePseudo`.
-The learned density is :class:`~tests.studies.mtp_pricing_common.SplineHazard` at 320 bins.
+The learned density is :class:`~tests.studies.mtp_pricing_common.SplineHazard` at 320 bins, on
+the position relative to each row's declared support.  Every calibration cell reads the
+correct outcome model, so a learned-density or classifier cell measures interval calibration
+with a learned ratio under a correct outcome.  It is no evidence that the ratio is consistent
+(design review m3); the double-robustness pair reads the classifier's ratio alone.
 The classifier candidates are
 :data:`~tests.studies.mtp_pricing_common.CLASSIFIER_CANDIDATES`.  The wrong outcome GLM of
 the pairs is :class:`~tests.studies.mtp_pricing_common.WrongOutcome` at every node.
@@ -51,9 +55,10 @@ calibration arms of the X40 S2 plan, the six of ``mtp-tuning`` included
 (:func:`pooled_replicates`).  Expected: 6,000 at a pilot mean of 1.000, 6,400 at 1.005,
 8,000 at 1.010.
 
-**The default density row** (:func:`default_density_rows`) is a ``reporting`` diagnostic, not
-a registered family: ``price_up`` at ``tau = 2`` with the declared hazard at the default bin count
-(``density_bins=None``).  Its rows are written beside the pilots and published by the
+**The declared hazard at the default bins** (:func:`default_density_rows`) is a ``reporting``
+diagnostic, not a registered family: ``price_up`` at ``tau = 2`` with the declared hazard at
+the default bin count (``density_bins=None``), on the ``diagnostic`` stream.  It is not the
+package's default learner (design review m4).  Its rows are written beside the pilots and published by the
 method-evidence page as the measurement behind the sentence on the default density.
 """
 
@@ -74,9 +79,11 @@ from sklearn.dummy import DummyClassifier
 
 from cleverly.learners import density_ratio
 from cleverly.learners.crossfit import random_partition
+from cleverly.learners.density import default_density_bins
 from cleverly.longitudinal import sequential
 from tests.parallel import STUDY_JOBS, memory_capped_workers
 from tests.studies import canonical_mtp_pricing as study
+from tests.studies import canonical_mtp_tuning as tuning_study
 from tests.studies import mtp_pricing_common as common
 from tests.studies import mtp_study_tools as tools
 from tests.studies.evidence.properties import (
@@ -123,25 +130,62 @@ assert tuple(CELLS) == study.CALIBRATION_LABELS
 
 PILOT_DRAWS = 2_000
 SCREEN_DRAWS = 2_000
-#: The arms of the pooled rule: these twelve and the six of ``mtp-tuning``.
-POOLED_ARMS = 18
-#: Provisional: the expected ``R`` at a pilot mean of 1.005 for 18 arms at 2,000 draws.
-CALIBRATION_REPLICATES: dict[str, int] = dict.fromkeys(CELLS, 6_400)
-#: The noise scale of each ``noise_control``: an influence-curve SD, sizing only.  Law P has no
-#: closed-form efficiency bound, so this is the oracle cell's reported SE at n = 2,000 in the
-#: one-replicate smoke, times sqrt(2,000), at each ``tau`` (the revenue cell's own).  The
-#: calibration pilot replaces it with the oracle arm's mean reported SE.
-_ORACLE_SD = {2: 0.69, 3: 0.89, 5: 1.58}
-NOISE_SD: dict[str, float] = {
-    label: (7.58 if revenue else _ORACLE_SD[tau])
-    for label, (tau, _, _, _, revenue) in CELLS.items()
+#: Calibration arms the screen declares ``reporting`` before the run (empty until it runs).
+#: Such an arm leaves the pooled rule, and it runs at its pilot's :data:`PILOT_DRAWS`
+#: replications, which are then its published rows (design review m2, m6).
+REPORTING_LABELS: frozenset[str] = frozenset()
+#: The pooled rule's arms: every gating calibration positive of both S2 records.
+POOLED_LABELS: tuple[str, ...] = (
+    *(label for label in CELLS if label not in REPORTING_LABELS),
+    *tuning_study.CALIBRATION_LABELS,
+)
+POOLED_ARMS = len(POOLED_LABELS)
+#: The one ``R`` of both S2 records (design review m2): ``mtp_tuning_properties`` reads it
+#: from here.  Provisional: the expected ``R`` at a pilot mean of 1.005 for 18 arms at 2,000
+#: draws.  The declaration commit replaces it with :func:`pooled_replicates`'s ``R``.
+S2_REPLICATES = 6_400
+CALIBRATION_REPLICATES: dict[str, int] = {
+    label: PILOT_DRAWS if label in REPORTING_LABELS else S2_REPLICATES for label in CELLS
 }
+#: The noise of each ``noise_control`` is ``NOISE_FACTOR`` times the arm's *own* SD: its
+#: empirical SD in the calibration pilot times sqrt(n) (:func:`arm_summary`, ``noise_sd``).
+#: The control's SE ratio is then ``rho / sqrt(1 + NOISE_FACTOR^2)``, 0.707 at ``rho = 1``,
+#: whose upper 99% end at R = 6,400 lies far below the band's 0.93.  An arm scaled to another
+#: arm's SD can sit at ``k = 0.45`` of its own and stay inside the band (design review B2).
+NOISE_FACTOR = 1.0
+#: Provisional until the pilot: each arm's own reported SE in the one-replicate smoke times
+#: sqrt(2,000).  The declaration commit replaces every value with the pilot's ``noise_sd``.
+NOISE_SD: dict[str, float] = {
+    "up_oracle_tau2": 0.69,
+    "up_oracle_tau3": 0.89,
+    "up_oracle_tau5": 1.58,
+    "up_learned_density_tau2": 1.37,
+    "up_learned_density_tau3": 2.57,
+    "up_learned_density_tau5": 3.51,
+    "up_learned_classifier_tau2": 0.74,
+    "up_learned_classifier_tau3": 0.89,
+    "up_learned_classifier_tau5": 1.21,
+    "revenue_learned_classifier_tau3": 7.58,
+    "crossfit_ltmle_learned_classifier_tau3": 0.93,
+    "crossfit_sdr_learned_classifier_tau3": 0.98,
+}
+assert set(NOISE_SD) == set(CELLS)
 #: The screen's winner per ``tau``.  Provisional until :func:`learner_screen` runs; the
 #: declaration commit records the winner and the screen's numbers.
 SCREENED_CLASSIFIER: dict[int, str] = dict.fromkeys(common.HORIZONS, "quadratic_logistic")
 #: The declared more local alternative of ``classifier_split`` (M8.5).
 SPLIT_ALTERNATIVE = "boosted_depth4"
+#: The ``classifier_split`` pair's own classifier, passed as an argument and never through
+#: :data:`SCREENED_CLASSIFIER`, so the pair cannot switch the other ``tau = 3`` cells.  The
+#: depth-4 alternative is declared first: a parametric classifier of about 20 coefficients
+#: cannot memorize a unit's other block (``s2_pairs.log``: displacement 0.026 SE with the
+#: quadratic logistic).  If its 400-draw pilot gives power below 0.90, the pair is not
+#: registered, and the method-evidence limitations cell says that the effect of a cross-fold
+#: leak is shown in the fast tier only (T-c1, M-c1).
+SPLIT_CLASSIFIER = SPLIT_ALTERNATIVE
 CLASSIFIER_SPLIT_PILOT_DRAWS = 400
+#: The paired draws of the pair pilot (:func:`pair_pilot`), design review M5.
+PAIR_PILOT_DRAWS = 200
 
 #: Each fit set of pairs: ``(tau, families)``.  Each family draws its own stream, so
 #: ``double_robustness`` and ``ratio_necessity`` at ``tau = 3`` fit the same pair on
@@ -158,6 +202,25 @@ PAIR_ARMS: dict[str, tuple[str, str]] = {
     "ratio_necessity": ("learned_classifier", "unit_ratio_control"),
     "classifier_split": ("unit_folds", "row_folds_control"),
 }
+#: The cells that gate the merge though the record publishes under ``reporting`` (design
+#: review M7): each calibration positive outside :data:`REPORTING_LABELS` with its two derived
+#: controls (the density cells only once the screen qualifies them), and both arms of the DR
+#: pair, of ``ratio_necessity`` at tau = 3 and 5, and of ``classifier_split`` while it is
+#: registered.  The default-density row reports.
+GATING_CELLS: tuple[str, ...] = (
+    *(
+        f"interval_calibration/{label}__{cell}"
+        for label in CELLS
+        if label not in REPORTING_LABELS
+        for cell in ("correctly_specified", "shrunken_se_control", "noise_control")
+    ),
+    *(
+        f"{family}/{cell}"
+        for family, pairs in study.PAIRED_CELLS.items()
+        for pair in pairs
+        for cell in pair
+    ),
+)
 
 
 def estimand(revenue: bool = False) -> str:
@@ -188,14 +251,16 @@ def wrong_learners() -> dict[str, Any]:
     return {"outcome_learner": common.WrongOutcome(), "pseudo_learner": common.WrongOutcome()}
 
 
-def ratio_settings(route: str, tau: int, name: str | None = None) -> dict[str, Any]:
+def ratio_settings(
+    route: str, tau: int, name: str | None = None, frame: pd.DataFrame | None = None
+) -> dict[str, Any]:
     """The ratio route of a cell: the exact ratio, the declared density, or a classifier."""
     if route == "oracle":
         return {"ratio": "classifier", "treatment_learner": common.OracleRatio()}
     if route == "density":
         return {
             "ratio": "density",
-            "treatment_learner": common.SplineHazard(),
+            "treatment_learner": common.spline_hazard(frame, tau, DENSITY_BINS),
             "density_bins": DENSITY_BINS,
         }
     if route == "classifier":
@@ -298,22 +363,31 @@ def calibration_fit(label: str, frame: pd.DataFrame, classifier_name: str | None
         n_folds=folds,
         revenue=revenue,
         **declared_learners(revenue),
-        **ratio_settings(route, tau, classifier_name),
+        **ratio_settings(route, tau, classifier_name, frame),
     )
 
 
-def pair_fits(name: str, frame: pd.DataFrame) -> tuple[Any, Any]:
-    """The declared and the control arm of one pair fit set, on one draw."""
+def pair_fits(
+    name: str, frame: pd.DataFrame, classifier_name: str | None = None
+) -> tuple[Any, Any]:
+    """The declared and the control arm of one pair fit set, on one draw.
+
+    ``classifier_name`` overrides the pair's declared classifier: :data:`SPLIT_CLASSIFIER`
+    for ``classifier_split``, the screened classifier of its ``tau`` otherwise.
+    """
     tau, families = PAIR_SETS[name]
     labels = (study.REFERENCE, PLAN)
     if families == ("classifier_split",):
-        settings = {**wrong_learners(), **ratio_settings("classifier", tau)}
+        settings = {
+            **wrong_learners(),
+            **ratio_settings("classifier", tau, classifier_name or SPLIT_CLASSIFIER),
+        }
         declared = study.fit(frame, tau, labels, n_folds=CROSSFIT_FOLDS, **settings)
         with row_folds():
             control = study.fit(frame, tau, labels, n_folds=CROSSFIT_FOLDS, **settings)
         return declared, control
     declared = study.fit(
-        frame, tau, labels, **wrong_learners(), **ratio_settings("classifier", tau)
+        frame, tau, labels, **wrong_learners(), **ratio_settings("classifier", tau, classifier_name)
     )
     control = study.fit(frame, tau, labels, **wrong_learners(), **ratio_settings("unit", tau))
     return declared, control
@@ -452,7 +526,7 @@ def fit_set_rows(
         ]
     value = truth(tau)
     name = estimand()
-    declared, control = pair_fits(label, frame)
+    declared, control = pair_fits(label, frame, classifier_name)
     rows = []
     for each in PAIR_SETS[label][1]:
         positive, negative = PAIR_ARMS[each]
@@ -586,11 +660,16 @@ def _pilot_rows(
 
 
 def arm_summary(rows: pd.DataFrame) -> dict[str, Any]:
-    """An arm's pilot SE ratio, standardized bias, coverage and seconds a fit."""
+    """An arm's pilot SE ratio, standardized bias, coverage, noise scale and seconds a fit.
+
+    ``noise_sd`` is the arm's own noise-control scale: ``NOISE_FACTOR`` times its empirical SD
+    times sqrt(n).
+    """
     error = rows["estimate"] - rows["truth"]
     spread = float(rows["estimate"].std(ddof=1))
     return {
         "draws": len(rows),
+        "noise_sd": float(NOISE_FACTOR * spread * np.sqrt(rows["n"].iloc[0])),
         "se_ratio": float(rows["std_error"].mean() / spread),
         "standardized_bias": float(error.mean() / spread),
         "coverage": float(rows["covered"].mean()),
@@ -673,11 +752,57 @@ def calibration_pilot(
     return out
 
 
-def pooled_replicates(ratios: list[float], draws: int = PILOT_DRAWS) -> dict[str, Any]:
-    """The arm-pooled rule over all :data:`POOLED_ARMS` arms of S2, this study's and law Q's."""
-    if len(ratios) != POOLED_ARMS:
-        raise ValueError(f"the pooled rule reads {POOLED_ARMS} arms, not {len(ratios)}")
-    return tools.replicates_from_pilot(ratios, draws)
+def pooled_replicates(ratios: dict[str, float], draws: int = PILOT_DRAWS) -> dict[str, Any]:
+    """The arm-pooled rule over the :data:`POOLED_LABELS` arms of both S2 records.
+
+    ``ratios`` maps each pooled arm to its pilot SE ratio; any other key set is refused.
+    """
+    if set(ratios) != set(POOLED_LABELS):
+        raise ValueError(
+            f"the pooled rule reads the {POOLED_ARMS} arms of POOLED_LABELS, not {sorted(ratios)}"
+        )
+    return tools.replicates_from_pilot([ratios[label] for label in POOLED_LABELS], draws)
+
+
+def _pair_pilot_reading(
+    name: str, draws: int, parts: Path, n_jobs: int, classifier_name: str | None
+) -> dict[str, Any]:
+    tau, families = PAIR_SETS[name]
+    keys = [("pairs", name, r, PAIR_N, draws, classifier_name) for r in range(draws)]
+    label = f"pair__{name}__{classifier_name or 'declared'}"
+    rows = tools.run_in_parts(_pilot_rows, keys, label=label, root=parts, n_jobs=n_jobs)
+    out: dict[str, Any] = {"classifier": classifier_name}
+    for family in families:
+        positive, control = PAIR_ARMS[family]
+        declared = rows.loc[rows["cell"] == f"up_tau{tau}__{positive}"].set_index("replicate")
+        broken = rows.loc[rows["cell"] == f"up_tau{tau}__{control}"].set_index("replicate")
+        broken = broken.loc[declared.index]
+        out[family] = tools.pair_reading(
+            declared["estimate"],
+            broken["estimate"],
+            declared["truth"],
+            PAIR_REPLICATES,
+            NECESSITY_DISPLACEMENT,
+        )
+    out["seconds"] = float(rows["seconds"].sum() / draws)
+    return out
+
+
+def pair_pilot(
+    parts: Path,
+    *,
+    draws: int = PAIR_PILOT_DRAWS,
+    n_jobs: int = 1,
+    names: tuple[str, ...] = ("dr_tau3", "wrong_tau3", "wrong_tau5"),
+) -> dict[str, Any]:
+    """Both arms of each pair on paired draws, before declaration (design review M5).
+
+    Rule, declared before the pilot: each positive needs ``equivalence_power`` at least 0.90
+    and each control ``necessity_power`` at least 0.90 at :data:`PAIR_REPLICATES`, each read
+    on the arm's own SD.  A positive that fails is a design or learner finding, diagnosed
+    before declaration.  Run it after :func:`learner_screen`, with the winners recorded.
+    """
+    return {name: _pair_pilot_reading(name, draws, parts, n_jobs, None) for name in names}
 
 
 def classifier_split_pilot(
@@ -685,57 +810,32 @@ def classifier_split_pilot(
     *,
     draws: int = CLASSIFIER_SPLIT_PILOT_DRAWS,
     n_jobs: int = 1,
-    alternative: bool = False,
+    classifier_name: str = SPLIT_CLASSIFIER,
 ) -> dict[str, Any]:
-    """The M8.5 pilot: paired draws of ``classifier_split`` with the screened classifier.
+    """The M8.5 pilot: paired draws of ``classifier_split`` with the pair's own classifier.
 
-    ``alternative=True`` reads the declared more local alternative
-    (:data:`SPLIT_ALTERNATIVE`), the re-pilot the rule names if power is below 0.90.
+    The classifier is an argument of every fit, so ``--jobs`` workers fit the same one.
     """
-    tau = PAIR_SETS["split_tau3"][0]
-    if alternative:
-        SCREENED_CLASSIFIER[tau] = SPLIT_ALTERNATIVE
-    keys = [("pairs", "split_tau3", r, PAIR_N, draws) for r in range(draws)]
-    rows = tools.run_in_parts(
-        _pilot_rows,
-        keys,
-        label=f"split__{SCREENED_CLASSIFIER[tau]}",
-        root=parts,
-        n_jobs=n_jobs,
-    )
-    positive, control = PAIR_ARMS["classifier_split"]
-    declared = rows.loc[rows["cell"] == f"up_tau{tau}__{positive}"].set_index("replicate")
-    broken = rows.loc[rows["cell"] == f"up_tau{tau}__{control}"].set_index("replicate")
-    sd = float(declared["estimate"].std(ddof=1))
-    bias = broken["estimate"] - broken["truth"]
-    moved = broken["estimate"] - declared["estimate"]
-    delta = float(bias.mean() / sd)
-    return {
-        "classifier": SCREENED_CLASSIFIER[tau],
-        "standardized_bias": delta,
-        "standardized_bias_mc_se": float(bias.std(ddof=1) / np.sqrt(len(bias)) / sd),
-        "displacement": float(abs(moved.mean()) / sd),
-        "displacement_mc_se": float(moved.std(ddof=1) / np.sqrt(len(moved)) / sd),
-        "power": tools.necessity_power(delta, PAIR_REPLICATES),
-        "seconds": float(rows["seconds"].mean()),
-    }
+    return _pair_pilot_reading("split_tau3", draws, parts, n_jobs, classifier_name)
 
 
 def _default_density_row(replicate: int, n: int, requested: int) -> list[dict[str, Any]]:
     started = time.perf_counter()
     tau = 2
-    frame = common.sample(n, _seed("reporting", "default_density_tau2", replicate), tau)
+    # The diagnostic stream (design review m4): the row is no registered family's sample.
+    seed = stream_seed(STUDY, "diagnostic", "reporting", "declared_hazard_default_bins", replicate)
+    frame = common.sample(n, seed, tau)
     result = study.fit(
         frame,
         tau,
         (study.REFERENCE, PLAN),
         ratio="density",
-        treatment_learner=common.SplineHazard(),
+        treatment_learner=common.spline_hazard(frame, tau, default_density_bins(len(frame))),
         **declared_learners(),
     )
     row = replicate_row(
         property_name="reporting",
-        cell="default_density_tau2__declared",
+        cell="declared_hazard_default_bins_tau2__declared",
         role="positive",
         truth=truth(tau),
         estimate=result[estimand()],
@@ -751,12 +851,12 @@ def _default_density_row(replicate: int, n: int, requested: int) -> list[dict[st
 def default_density_rows(
     parts: Path, *, replicates: int = PAIR_REPLICATES, n_jobs: int = 1
 ) -> dict[str, Any]:
-    """The ``reporting`` row of the default density (``density_bins=None``) at ``tau = 2``."""
+    """The ``reporting`` row of the declared hazard at the default bins, at ``tau = 2``."""
     keys = [(r, PAIR_N, replicates) for r in range(replicates)]
     rows = tools.run_in_parts(
         _default_density_row,
         keys,
-        label="reporting__default_density_tau2",
+        label="reporting__declared_hazard_default_bins_tau2",
         root=parts,
         n_jobs=n_jobs,
     )
@@ -831,7 +931,7 @@ BUDGET["cpu_hours"]["python_total"] = sum(
     value if not isinstance(value, dict) else value[6_400] for value in BUDGET["cpu_hours"].values()
 )
 
-PILOTS = ("screen", "calibration", "classifier_split", "default_density")
+PILOTS = ("screen", "calibration", "pairs", "classifier_split", "default_density")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -842,7 +942,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--draws", type=int, default=None)
     parser.add_argument("--labels", nargs="*", default=())
     parser.add_argument("--taus", nargs="*", type=int, default=())
-    parser.add_argument("--alternative", action="store_true")
+    parser.add_argument("--classifier", default=None)
     arguments = parser.parse_args(argv)
     jobs = arguments.jobs
     if arguments.pilot == "screen":
@@ -859,12 +959,14 @@ def main(argv: list[str] | None = None) -> None:
             n_jobs=jobs,
             labels=tuple(arguments.labels),
         )
+    elif arguments.pilot == "pairs":
+        result = pair_pilot(arguments.parts, draws=arguments.draws or PAIR_PILOT_DRAWS, n_jobs=jobs)
     elif arguments.pilot == "classifier_split":
         result = classifier_split_pilot(
             arguments.parts,
             draws=arguments.draws or CLASSIFIER_SPLIT_PILOT_DRAWS,
             n_jobs=jobs,
-            alternative=arguments.alternative,
+            classifier_name=arguments.classifier or SPLIT_CLASSIFIER,
         )
     else:
         result = default_density_rows(
