@@ -1115,6 +1115,21 @@ tests.studies.longitudinal_sdr_properties,type_i_error,rejection ceiling,rejecti
 tests.studies.longitudinal_sdr_properties,weighted_calibration,coverage in calibration band,bias
 tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio below band,se_high
 tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio in calibration band,se/0.05
+tests.studies.parametric_gformula_properties,ice_necessity,bias discriminated,pair_collapse
+tests.studies.parametric_gformula_properties,ice_necessity,bias equivalent,bias
+tests.studies.parametric_gformula_properties,ice_necessity,least displacement over labels,control_concentrated
+tests.studies.parametric_gformula_properties,interval_calibration,bias equivalent,bias
+tests.studies.parametric_gformula_properties,interval_calibration,coverage in calibration band,coverage/0.5
+tests.studies.parametric_gformula_properties,interval_calibration,noise se ratio below band,se_high
+tests.studies.parametric_gformula_properties,interval_calibration,se ratio below band,se_high
+tests.studies.parametric_gformula_properties,interval_calibration,se ratio in calibration band,affine
+tests.studies.parametric_gformula_properties,monte_carlo_accounting,bias equivalent,bias
+tests.studies.parametric_gformula_properties,monte_carlo_accounting,coverage in calibration band,coverage/0.5
+tests.studies.parametric_gformula_properties,monte_carlo_accounting,se ratio in calibration band,affine
+tests.studies.parametric_gformula_properties,root_n_and_efficiency,bias equivalent,bias
+tests.studies.parametric_gformula_properties,root_n_and_efficiency,coverage floor,affine
+tests.studies.parametric_gformula_properties,root_n_and_efficiency,se ratio sanity,se_high
+tests.studies.parametric_gformula_properties,root_n_rate,slope in root-n band,contract
 weighted-ltmle,double_robustness,bias discriminated,bias
 weighted-ltmle,double_robustness,bias equivalent,bias
 weighted-ltmle,double_robustness,se ratio in union band,se/0.05

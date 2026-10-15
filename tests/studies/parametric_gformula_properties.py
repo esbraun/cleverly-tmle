@@ -21,12 +21,13 @@ family                         cells, size and replications
                                gformula.M_PRIME` histories per unit, so the simulation term is
                                absent from the curve.  Its SE ratio is predicted to fall below
                                the calibration band
-``ice_necessity``              the labels of :data:`study.ICE_GATED` on ``G2`` at n = 8,000: the
+``ice_necessity``              the labels of :data:`study.ICE_GATED` on ``G2`` at n = 32,000: the
                                parametric g-formula is unbiased, and the main-terms ICE fit is
                                biased by a declared margin, on the same draws
 ``ice_reported``               the other paired labels of the ICE fit, reported
 ``shared_target``              ``LTMLE`` (and ``IPSI`` for the odds tilt) beside the parametric
-                               g-formula on the same draws of ``G1`` and ``G2``, reported
+                               g-formula on the same draws of ``G1`` (n = 2,000) and ``G2`` (n = 8,000), reported
+                               in fit sets of their own, so an ``LTMLE`` failure costs no other family
 ``extrapolation_report``       ``G4Q``: the main-terms fit extrapolates to a fixed dose, reported
 =============================  ===================================================================
 
@@ -96,38 +97,40 @@ SHRUNKEN_SE_FACTOR = 0.70
 CALIBRATION_REPLICATES: dict[str, int] = {"G1": 2_400, "G2": 2_400, "G3": 2_400, "G4": 2_400}
 LADDER_REPLICATES = 1_000
 #: The replicates of each law's ``n_draws`` 1 fit set.
-ACCOUNTING_REPLICATES: dict[str, int] = {"G1": 2_400, "G2": 2_400, "G4": 2_400}
+ACCOUNTING_REPLICATES: dict[str, int] = {"G1": 2_400, "G2": 6_400, "G4": 2_400}
 #: The replicates of the paired fit sets.
 PAIRED_REPLICATES: dict[str, int] = {"G1": 1_200, "G2": 1_200}
 EXTRAPOLATION_REPLICATES = 1_000
 #: The size of the ``G2`` paired fit set.  The ICE bias is a fixed amount, so its standardized
 #: size grows with the square root of n, and the design test shows the power at this size.
-PAIRED_N = {"G1": CALIBRATION_N, "G2": LADDER[-1]}
+PAIRED_N = {"G1": CALIBRATION_N, "G2": 32_000}
+#: The size of the shared-target fit sets, which report ``LTMLE`` and ``IPSI`` beside NICE.
+SHARED_N = {"G1": CALIBRATION_N, "G2": LADDER[-1]}
 
 #: The empirical SD of each calibration label in the design pilot times :math:`\sqrt{2000}`, so
 #: the noise control adds one sampling SD at the cell's size.  It scales the noise control only.
 #: The design test pins these values.
 NOISE_SD: dict[str, float] = {
     "nice_g1_treat_all": 0.815,
-    "nice_g1_treat_none": 1.227,
-    "nice_g1_rule": 0.659,
-    "nice_g1_odds_x2": 0.644,
-    "nice_g1_contrast": 1.646,
-    "nice_g2_treat_all": 7.498,
-    "nice_g2_treat_none": 9.218,
-    "nice_g2_policy_b": 5.931,
-    "nice_g2_contrast": 11.04,
-    "nice_g3_relapse_h2": 0.575,
-    "nice_g3_relapse_h4": 0.794,
-    "nice_g3_death_h4": 0.655,
-    "nice_g3_contrast_h4": 1.751,
-    "nice_g4_shift": 3.737,
-    "nice_g4_dose": 1.664,
-    "nice_g4_contrast": 1.21,
+    "nice_g1_treat_none": 1.244,
+    "nice_g1_rule": 0.64,
+    "nice_g1_odds_x2": 0.635,
+    "nice_g1_contrast": 1.672,
+    "nice_g2_treat_all": 7.586,
+    "nice_g2_treat_none": 8.963,
+    "nice_g2_policy_b": 5.929,
+    "nice_g2_contrast": 10.74,
+    "nice_g3_relapse_h2": 0.583,
+    "nice_g3_relapse_h4": 0.832,
+    "nice_g3_death_h4": 0.645,
+    "nice_g3_contrast_h4": 1.725,
+    "nice_g4_shift": 3.889,
+    "nice_g4_dose": 1.76,
+    "nice_g4_contrast": 1.168,
 }
 #: Every ``mc_removed`` cell whose predicted side of the calibration band the design test shows
 #: powered (predictive power >= 0.95 at :data:`ACCOUNTING_REPLICATES`).  The others report.
-GATED_DIRECTIONS: dict[str, Literal["below", "above"]] = {}
+GATED_DIRECTIONS: dict[str, Literal["below", "above"]] = {"nice_g2_treat_all__mc_removed": "below"}
 
 # ------------------------------------------------------------------------------ the truths
 
@@ -178,6 +181,10 @@ FIT_SETS: dict[str, tuple[str, int, int]] = {
     **{
         f"paired_{law.lower()}": (law, PAIRED_N[law], PAIRED_REPLICATES[law])
         for law in study.PAIR_KEYS
+    },
+    **{
+        f"shared_{law.lower()}": (law, SHARED_N[law], PAIRED_REPLICATES[law])
+        for law in study.SHARED_KEYS
     },
     "extrapolation_g4q": ("G4Q", CALIBRATION_N, EXTRAPOLATION_REPLICATES),
 }
@@ -307,6 +314,8 @@ def fit_set_rows(fit_set: str, replicate: int, frame: pd.DataFrame) -> list[dict
             family = "ice_necessity" if gated else "ice_reported"
             add(family, f"{label}__nice", "positive" if gated else DIAGNOSTIC_ROLE, label, nice)
             add(family, f"{label}__ice", "control" if gated else DIAGNOSTIC_ROLE, label, ice)
+    elif kind == "shared":
+        nice = study.fit("nice", law, frame, seed=seed, static_only=False)
         others = {
             method: study.fit(method, law, frame)
             for method in sorted({m for _, m in study.SHARED_KEYS[law].values()})
@@ -441,7 +450,7 @@ def _cells_and_fit_sets() -> list[tuple[PropertyCell, str]]:
                     "shared_target",
                     f"{label}__{arm}",
                     DIAGNOSTIC_ROLE,
-                    f"paired_{law.lower()}",
+                    f"shared_{law.lower()}",
                     label,
                 )
     add(
@@ -561,8 +570,8 @@ def generate_property_rows(
 
 #: The ``ice_necessity`` family's declaration, read by its verdict and its rule.  The control
 #: arm is the main-terms ICE fit, whose bias the design test shows.  The displacement threshold
-#: is half the positive arm's SD: the pair differs by at least that, at every gated label.
-ICE_DISPLACEMENT = 0.5
+#: is 0.35 of the positive arm's SD: the design test shows each gated pair differs by more.
+ICE_DISPLACEMENT = 0.35
 ICE_NECESSITY = Necessity(
     family="ice_necessity",
     labels=study.ICE_GATED,
